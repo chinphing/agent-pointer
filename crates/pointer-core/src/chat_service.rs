@@ -18,7 +18,7 @@ use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-const MAX_TOOL_ROUNDS: usize = 6;
+const MAX_TOOL_ROUNDS: usize = 64;
 
 pub struct AppState {
     pub tools: Arc<ToolRegistry>,

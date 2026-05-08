@@ -57,7 +57,7 @@
 }
 
 /* Markdown */
-.md-body { @apply text-[15px] leading-7 text-slate-100; }
+.md-body { @apply text-[15px] leading-7 text-slate-100; overflow-wrap: break-word; word-break: break-word; }
 .md-body p { @apply my-2; }
 .md-body h1, .md-body h2, .md-body h3 { @apply font-semibold mt-4 mb-2; }
 .md-body code:not(pre code) {
@@ -75,5 +75,5 @@
 .md-body ul { @apply list-disc pl-6 my-2; }
 .md-body ol { @apply list-decimal pl-6 my-2; }
 .md-body a { @apply text-primary-cyan underline underline-offset-2; }
-.md-body table { @apply my-3 border-collapse; }
+.md-body table { @apply my-3 border-collapse overflow-x-auto block; max-width: 100%; }
 .md-body th, .md-body td { @apply border border-white/10 px-3 py-1.5; }

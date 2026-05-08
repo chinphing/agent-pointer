@@ -12,7 +12,8 @@ export const useSettingsStore = defineStore('settings', () => {
     temperature: 0.7,
     maxTokens: 2048,
     hasKey: false,
-    toolApprovalMode: 'auto'
+    toolApprovalMode: 'auto',
+    agentMode: 'single'
   })
   const loading = ref(false)
   const testing = ref(false)

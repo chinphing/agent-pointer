@@ -27,6 +27,18 @@ pub struct ToolCall {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentTrace {
+    pub id: String,
+    pub name: String,
+    pub role: String,
+    pub status: String,
+    #[serde(default)]
+    pub detail: Option<String>,
+    #[serde(default)]
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub id: String,
     pub role: Role,
@@ -43,6 +55,12 @@ pub struct ChatMessage {
     pub error_message: Option<String>,
     #[serde(default)]
     pub reasoning: Option<String>,
+    #[serde(default, rename = "agentId")]
+    pub agent_id: Option<String>,
+    #[serde(default, rename = "agentName")]
+    pub agent_name: Option<String>,
+    #[serde(default, rename = "agentTrace")]
+    pub agent_trace: Option<Vec<AgentTrace>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,10 +91,16 @@ pub struct ModelSettings {
     pub has_key: bool,
     #[serde(default = "default_tool_approval_mode", rename = "toolApprovalMode")]
     pub tool_approval_mode: String,
+    #[serde(default = "default_agent_mode", rename = "agentMode")]
+    pub agent_mode: String,
 }
 
 fn default_tool_approval_mode() -> String {
     "auto".into()
+}
+
+fn default_agent_mode() -> String {
+    "single".into()
 }
 
 impl Default for ModelSettings {
@@ -90,6 +114,7 @@ impl Default for ModelSettings {
             max_tokens: 2048,
             has_key: false,
             tool_approval_mode: default_tool_approval_mode(),
+            agent_mode: default_agent_mode(),
         }
     }
 }
@@ -137,6 +162,8 @@ pub struct SendChatPayload {
     pub messages: Vec<ChatMessage>,
     #[serde(default, rename = "enabledSkillIds")]
     pub enabled_skill_ids: Vec<String>,
+    #[serde(default, rename = "agentMode")]
+    pub agent_mode: Option<String>,
 }
 
 /// Frontend stream event payload (mirrors src/types/chat.ts StreamEvent)
@@ -158,6 +185,12 @@ pub enum StreamEvent {
         #[serde(rename = "messageId")]
         message_id: String,
         text: String,
+    },
+    AgentStep {
+        #[serde(rename = "messageId")]
+        message_id: String,
+        #[serde(rename = "agent")]
+        agent: AgentTrace,
     },
     ToolCallStart {
         #[serde(rename = "messageId")]

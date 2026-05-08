@@ -6,6 +6,7 @@ import {
 } from '../lib/api'
 import type { ChatMessage, Conversation, StreamEvent, ToolCall } from '../types/chat'
 import { useSkillsStore } from './skills'
+import { useSettingsStore } from './settings'
 
 function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36) }
 
@@ -96,6 +97,20 @@ export const useChatStore = defineStore('chat', () => {
         if (r) r.msg.reasoning = (r.msg.reasoning || '') + e.text
         break
       }
+      case 'agent_step': {
+        const r = findMessage(e.messageId)
+        if (!r) return
+        r.msg.agentId = e.agent.id
+        r.msg.agentName = e.agent.name
+        r.msg.agentTrace = r.msg.agentTrace || []
+        const existing = r.msg.agentTrace.find(a => a.id === e.agent.id)
+        if (existing) {
+          const previousContent = existing.content || ''
+          Object.assign(existing, e.agent)
+          if (e.agent.content === undefined) existing.content = previousContent
+        } else r.msg.agentTrace.push(e.agent)
+        break
+      }
       case 'tool_call_start': {
         const r = findMessage(e.messageId)
         if (!r) return
@@ -157,6 +172,7 @@ export const useChatStore = defineStore('chat', () => {
     const conv = current.value!
     if (!content.trim() || generating.value) return
     const skills = useSkillsStore()
+    const settings = useSettingsStore()
     conv.skillIds = [...skills.enabledIds]
 
     const userMsg: ChatMessage = {
@@ -171,7 +187,8 @@ export const useChatStore = defineStore('chat', () => {
     await sendChat({
       conversationId: conv.id,
       messages: JSON.parse(JSON.stringify(conv.messages)),
-      enabledSkillIds: conv.skillIds
+      enabledSkillIds: conv.skillIds,
+      agentMode: settings.settings.agentMode
     }).catch(err => {
       generating.value = false
       console.error('sendChat error', err)
@@ -193,6 +210,7 @@ export const useChatStore = defineStore('chat', () => {
   async function retry() {
     if (!current.value) return
     const conv = current.value
+    const settings = useSettingsStore()
     while (conv.messages.length && conv.messages[conv.messages.length - 1].role !== 'user') {
       conv.messages.pop()
     }
@@ -202,7 +220,8 @@ export const useChatStore = defineStore('chat', () => {
     await sendChat({
       conversationId: conv.id,
       messages: JSON.parse(JSON.stringify(conv.messages)),
-      enabledSkillIds: conv.skillIds
+      enabledSkillIds: conv.skillIds,
+      agentMode: settings.settings.agentMode
     }).catch(err => {
       generating.value = false
       console.error(err)

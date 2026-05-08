@@ -38,10 +38,16 @@ struct StoredSettings {
     max_tokens: u32,
     #[serde(default = "default_tool_approval_mode")]
     tool_approval_mode: String,
+    #[serde(default = "default_agent_mode")]
+    agent_mode: String,
 }
 
 fn default_tool_approval_mode() -> String {
     "auto".into()
+}
+
+fn default_agent_mode() -> String {
+    "single".into()
 }
 
 impl Default for StoredSettings {
@@ -54,6 +60,7 @@ impl Default for StoredSettings {
             temperature: s.temperature,
             max_tokens: s.max_tokens,
             tool_approval_mode: s.tool_approval_mode,
+            agent_mode: s.agent_mode,
         }
     }
 }
@@ -75,6 +82,7 @@ pub fn load_settings() -> Result<ModelSettings> {
         max_tokens: stored.max_tokens,
         has_key: has_key()?,
         tool_approval_mode: stored.tool_approval_mode,
+        agent_mode: stored.agent_mode,
     })
 }
 
@@ -86,6 +94,7 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
         temperature: s.temperature,
         max_tokens: s.max_tokens,
         tool_approval_mode: s.tool_approval_mode.clone(),
+        agent_mode: s.agent_mode.clone(),
     };
     fs::write(settings_path()?, serde_json::to_vec_pretty(&stored)?)?;
     Ok(())

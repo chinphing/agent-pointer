@@ -53,6 +53,22 @@ struct StreamChoice {
     #[serde(default)]
     finish_reason: Option<String>,
 }
+#[derive(Deserialize, Debug)]
+struct ChatResponse {
+    #[serde(default)]
+    choices: Vec<ChatChoice>,
+}
+#[derive(Deserialize, Debug)]
+struct ChatChoice {
+    message: ChatResponseMessage,
+}
+#[derive(Deserialize, Debug, Default)]
+struct ChatResponseMessage {
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    reasoning_content: Option<String>,
+}
 #[derive(Deserialize, Debug, Default)]
 struct StreamDelta {
     #[serde(default)]
@@ -116,6 +132,54 @@ impl OpenAIProvider {
             return Err(anyhow!("HTTP {}: {}", s, truncate(&t, 200)));
         }
         Ok(start.elapsed().as_millis())
+    }
+
+    pub async fn chat_once(
+        &self,
+        messages: &[ChatMessage],
+        system_prompts: &[String],
+        tools: Vec<Value>,
+        cancel: CancellationToken,
+    ) -> Result<String> {
+        let openai_msgs = crate::models::make_openai_messages(messages, system_prompts);
+        let has_tools = !tools.is_empty();
+        let req = ChatRequest {
+            model: &self.settings.model,
+            messages: openai_msgs,
+            stream: false,
+            temperature: self.settings.temperature,
+            max_tokens: Some(self.settings.max_tokens),
+            tools,
+            tool_choice: if has_tools { Some("auto") } else { None },
+        };
+        let url = format!(
+            "{}/chat/completions",
+            self.settings.base_url.trim_end_matches('/')
+        );
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(180))
+            .build()?;
+        let resp = tokio::select! {
+            _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
+            r = client
+                .post(&url)
+                .bearer_auth(&self.api_key)
+                .json(&req)
+                .send() => r?,
+        };
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
+        }
+        let parsed: ChatResponse = resp.json().await?;
+        let message = parsed
+            .choices
+            .into_iter()
+            .next()
+            .map(|choice| choice.message)
+            .ok_or_else(|| anyhow!("模型未返回候选结果"))?;
+        Ok(message.content.or(message.reasoning_content).unwrap_or_default())
     }
 
     pub async fn stream_chat(

@@ -1,3 +1,4 @@
+use pointer_core::agents::AgentDef;
 use pointer_core::chat_service::{run_chat, AppState};
 use pointer_core::models::{
     Conversation, ModelSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent, ToolDef,
@@ -32,6 +33,7 @@ pub async fn send_chat(
             payload.conversation_id,
             payload.messages,
             payload.enabled_skill_ids,
+            payload.agent_mode,
         )
         .await;
     });
@@ -109,6 +111,11 @@ pub fn import_skill_zip(
 #[tauri::command]
 pub fn list_tools(state: State<'_, Arc<AppState>>) -> Result<Vec<ToolDef>, String> {
     Ok(state.tools.list_defs())
+}
+
+#[tauri::command]
+pub fn list_agents(state: State<'_, Arc<AppState>>) -> Result<Vec<AgentDef>, String> {
+    Ok(state.agents.list())
 }
 
 #[tauri::command]

@@ -1,4 +1,4 @@
-import type { ChatMessage, Conversation, ModelSettings, SkillDef, SkillImportResult, StreamEvent, ToolDef } from '../types/chat'
+import type { AgentDef, AgentMode, ChatMessage, Conversation, ModelSettings, SkillDef, SkillImportResult, StreamEvent, ToolDef } from '../types/chat'
 
 import { WEB_API_BASE } from './runtime'
 
@@ -6,6 +6,7 @@ export interface SendChatPayload {
   conversationId: string
   messages: ChatMessage[]
   enabledSkillIds: string[]
+  agentMode?: AgentMode
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -82,6 +83,10 @@ export async function importSkillZip(file: File): Promise<SkillImportResult> {
 export async function listTools(): Promise<ToolDef[]> {
 
   return await request<ToolDef[]>('/api/tools')
+}
+
+export async function listAgents(): Promise<AgentDef[]> {
+  return await request<AgentDef[]>('/api/agents')
 }
 
 export async function loadConversations(): Promise<Conversation[]> {

@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod chat_service;
 pub mod models;
 pub mod provider;

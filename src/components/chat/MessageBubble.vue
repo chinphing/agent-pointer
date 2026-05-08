@@ -41,6 +41,18 @@ function copy() {
           ? 'bg-primary/15 border-primary/25 text-slate-100'
           : 'glass border-white/5'"
       >
+        <div v-if="message.agentTrace && message.agentTrace.length" class="mb-2 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-[11px] text-slate-300">
+          <div class="mb-1 font-medium text-primary-cyan">Multi-Agent Trace</div>
+          <div v-for="agent in message.agentTrace" :key="agent.id" class="mb-2 last:mb-0">
+            <div class="flex gap-2">
+              <span class="text-slate-100">{{ agent.name }}</span>
+              <span class="text-slate-500">{{ agent.status }}</span>
+              <span v-if="agent.detail" class="text-slate-400">{{ agent.detail }}</span>
+            </div>
+            <pre v-if="agent.content" class="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-black/20 p-2 text-[11px] leading-relaxed text-slate-300">{{ agent.content }}</pre>
+          </div>
+        </div>
+
         <div v-if="message.reasoning" class="mb-2 text-[12px] text-slate-400 italic border-l-2 border-primary/40 pl-3">
           {{ message.reasoning }}
         </div>

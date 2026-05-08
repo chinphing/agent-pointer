@@ -13,6 +13,50 @@ export interface ToolCall {
   riskLevel?: 'low' | 'medium' | 'high'
 }
 
+export type AgentMode = 'single' | 'supervisor'
+
+export interface AgentTrace {
+  id: string
+  name: string
+  role: string
+  status: string
+  detail?: string
+  content?: string
+}
+
+export type AgentProfile =
+  | 'general'
+  | 'supervisor'
+  | 'planner'
+  | 'coder'
+  | 'reviewer'
+  | 'writer'
+  | 'analyst'
+  | 'tool_user'
+  | { custom: string }
+
+export interface AccessPolicy {
+  allowTools: string[]
+  denyTools: string[]
+  allowSkills: string[]
+  denySkills: string[]
+}
+
+export interface AgentDef {
+  id: string
+  name: string
+  description: string
+  role: string
+  profile: AgentProfile
+  defaultSkillIds: string[]
+  accessPolicy: AccessPolicy
+  builtin: boolean
+  enabled: boolean
+  toolNames: string[]
+  source?: string
+  resourceFiles: string[]
+}
+
 export interface ChatMessage {
   id: string
   role: Role
@@ -23,6 +67,9 @@ export interface ChatMessage {
   toolCallId?: string // when role = 'tool'
   errorMessage?: string
   reasoning?: string
+  agentId?: string
+  agentName?: string
+  agentTrace?: AgentTrace[]
 }
 
 export interface Conversation {
@@ -43,6 +90,7 @@ export interface ModelSettings {
   maxTokens: number
   hasKey: boolean
   toolApprovalMode: 'auto' | 'manual'
+  agentMode: AgentMode
 }
 
 export interface SkillDef {
@@ -76,6 +124,7 @@ export type StreamEvent =
   | { kind: 'message_start'; messageId: string; conversationId: string }
   | { kind: 'delta'; messageId: string; text: string }
   | { kind: 'reasoning_delta'; messageId: string; text: string }
+  | { kind: 'agent_step'; messageId: string; agent: AgentTrace }
   | { kind: 'tool_call_start'; messageId: string; toolCall: ToolCall }
   | { kind: 'tool_call_args_delta'; messageId: string; toolCallId: string; argsDelta: string }
   | { kind: 'tool_call_status'; messageId: string; toolCallId: string; status: ToolCall['status']; result?: string; error?: string; durationMs?: number }

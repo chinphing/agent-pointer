@@ -34,6 +34,7 @@ const model = ref('')
 const temperature = ref(0.7)
 const maxTokens = ref(2048)
 const toolApprovalMode = ref<'auto' | 'manual'>('auto')
+const agentMode = ref<'single' | 'supervisor'>('single')
 
 const sections = [
   { id: 'provider', label: '模型服务', desc: 'Provider / Endpoint', icon: Cpu },
@@ -73,6 +74,7 @@ onMounted(() => {
   temperature.value = s.settings.temperature
   maxTokens.value = s.settings.maxTokens
   toolApprovalMode.value = s.settings.toolApprovalMode || 'auto'
+  agentMode.value = s.settings.agentMode || 'single'
 })
 
 function applyProvider(id: string) {
@@ -92,7 +94,8 @@ async function saveAll() {
       model: model.value.trim(),
       temperature: Number(temperature.value),
       maxTokens: Number(maxTokens.value),
-      toolApprovalMode: toolApprovalMode.value
+      toolApprovalMode: toolApprovalMode.value,
+      agentMode: agentMode.value
     })
     if (localKey.value) {
       await s.saveKey(localKey.value)
@@ -257,6 +260,22 @@ async function saveAll() {
             </div>
 
             <div class="glass rounded-xl p-4 border border-white/5">
+              <h4 class="text-sm font-medium text-slate-100 flex items-center gap-2"><Bot class="w-4 h-4 text-primary-fuchsia" />Agent 编排模式</h4>
+              <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <label class="rounded-xl border p-3 cursor-pointer" :class="agentMode === 'single' ? 'border-primary/50 bg-primary/10' : 'border-white/5 bg-black/20'">
+                  <input v-model="agentMode" type="radio" value="single" class="sr-only" />
+                  <span class="block text-sm text-slate-100">Single Agent</span>
+                  <span class="mt-1 block text-[11px] text-slate-500">保持现有单助手流程，直接注入启用 Skills 与可用工具。</span>
+                </label>
+                <label class="rounded-xl border p-3 cursor-pointer" :class="agentMode === 'supervisor' ? 'border-primary/50 bg-primary/10' : 'border-white/5 bg-black/20'">
+                  <input v-model="agentMode" type="radio" value="supervisor" class="sr-only" />
+                  <span class="block text-sm text-slate-100">Supervisor 多 Agent</span>
+                  <span class="mt-1 block text-[11px] text-slate-500">由 Supervisor 拆解任务，调度 Skills 映射的专家 Agent，并整合最终答案。</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="glass rounded-xl p-4 border border-white/5">
               <h4 class="text-sm font-medium text-slate-100 flex items-center gap-2"><Wrench class="w-4 h-4 text-primary-fuchsia" />工具调用审批</h4>
               <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <label class="rounded-xl border p-3 cursor-pointer" :class="toolApprovalMode === 'auto' ? 'border-primary/50 bg-primary/10' : 'border-white/5 bg-black/20'">
@@ -308,7 +327,7 @@ async function saveAll() {
 
       <footer class="px-5 h-14 flex items-center gap-3 border-t border-white/5 shrink-0">
         <p class="text-[11px] text-slate-500 flex-1">
-          当前仅保存已实现字段；虚线区域为后续 Agent 配置扩展位。
+          已支持 Single Agent 与 Supervisor 多 Agent 编排模式；虚线区域为后续 MCP / Memory 扩展位。
         </p>
         <button class="h-9 px-4 rounded-lg glass hover:bg-white/10 text-sm text-slate-200 cursor-pointer" @click="emit('close')">取消</button>
         <button class="h-9 px-4 rounded-lg bg-gradient-to-r from-primary to-primary-fuchsia text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50" :disabled="saving" @click="saveAll">

@@ -29,6 +29,7 @@ pub fn run() {
             commands::list_skills,
             commands::import_skill_zip,
             commands::list_tools,
+            commands::list_agents,
             commands::load_conversations,
             commands::save_conversations,
         ])

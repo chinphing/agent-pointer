@@ -33,6 +33,12 @@ function onKeydown(e: KeyboardEvent) {
 <template>
   <div class="px-6 md:px-10 pb-5">
     <div class="max-w-3xl mx-auto">
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <div class="text-[11px] text-slate-500">
+          Agent 模式：<span class="text-primary-cyan">{{ settings.settings.agentMode === 'supervisor' ? 'Supervisor 多 Agent' : 'Single Agent' }}</span>
+        </div>
+      </div>
+
       <div v-if="skills.enabledSkills.length" class="flex flex-wrap gap-1.5 mb-2">
         <span v-for="s in skills.enabledSkills" :key="s.id"
               class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary/15 border border-primary/25 text-[11px] text-primary-cyan">

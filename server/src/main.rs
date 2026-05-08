@@ -8,6 +8,7 @@ use axum::{
 };
 use futures_util::Stream;
 use pointer_core::{
+    agents::AgentDef,
     chat_service::{run_chat, AppState},
     models::{
         Conversation, ModelSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent,
@@ -40,6 +41,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/test-connection", post(test_connection))
         .route("/api/skills", get(list_skills).post(import_skill_zip))
         .route("/api/tools", get(list_tools))
+        .route("/api/agents", get(list_agents))
         .route(
             "/api/conversations",
             get(load_conversations).put(save_conversations),
@@ -111,6 +113,10 @@ async fn list_tools(State(state): State<ServerState>) -> Json<Vec<ToolDef>> {
     Json(state.core.tools.list_defs())
 }
 
+async fn list_agents(State(state): State<ServerState>) -> Result<Json<Vec<AgentDef>>, ApiError> {
+    Ok(Json(state.core.agents.list()))
+}
+
 async fn load_conversations() -> Result<Json<Vec<Conversation>>, ApiError> {
     Ok(Json(storage::load_conversations()?))
 }
@@ -141,6 +147,7 @@ async fn send_chat(
             payload.conversation_id,
             payload.messages,
             payload.enabled_skill_ids,
+            payload.agent_mode,
         )
         .await;
         let _ = forward.await;

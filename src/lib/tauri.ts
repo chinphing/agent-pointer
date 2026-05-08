@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type {
-  ChatMessage, Conversation, ModelSettings, SkillDef, SkillImportResult, StreamEvent, ToolDef
+  AgentDef, AgentMode, ChatMessage, Conversation, ModelSettings, SkillDef, SkillImportResult, StreamEvent, ToolDef
 
 } from '../types/chat'
 
@@ -11,6 +11,7 @@ export interface SendChatPayload {
   conversationId: string
   messages: ChatMessage[]
   enabledSkillIds: string[]
+  agentMode?: AgentMode
 }
 
 export async function sendChat(payload: SendChatPayload): Promise<string> {
@@ -66,6 +67,10 @@ export async function importSkillZip(file: File): Promise<SkillImportResult> {
 export async function listTools(): Promise<ToolDef[]> {
 
   return await invoke<ToolDef[]>('list_tools')
+}
+
+export async function listAgents(): Promise<AgentDef[]> {
+  return await invoke<AgentDef[]>('list_agents')
 }
 
 export async function loadConversations(): Promise<Conversation[]> {

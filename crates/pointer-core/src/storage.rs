@@ -1,4 +1,4 @@
-use crate::models::{Conversation, ModelSettings};
+use crate::models::{Conversation, ModelSettings, ProviderConfig};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -30,9 +30,19 @@ fn conv_path() -> Result<PathBuf> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct StoredSettings {
-    provider: String,
+struct StoredProvider {
+    id: String,
+    name: String,
+    #[serde(rename = "baseUrl")]
     base_url: String,
+    models: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct StoredSettings {
+    providers: Vec<StoredProvider>,
+    #[serde(default, rename = "activeProviderId")]
+    active_provider_id: String,
     model: String,
     temperature: f32,
     max_tokens: u32,
@@ -54,8 +64,13 @@ impl Default for StoredSettings {
     fn default() -> Self {
         let s = ModelSettings::default();
         Self {
-            provider: s.provider,
-            base_url: s.base_url,
+            providers: s.providers.iter().map(|p| StoredProvider {
+                id: p.id.clone(),
+                name: p.name.clone(),
+                base_url: p.base_url.clone(),
+                models: p.models.clone(),
+            }).collect(),
+            active_provider_id: s.active_provider_id,
             model: s.model,
             temperature: s.temperature,
             max_tokens: s.max_tokens,
@@ -73,9 +88,26 @@ pub fn load_settings() -> Result<ModelSettings> {
     } else {
         StoredSettings::default()
     };
+
+    let providers: Vec<ProviderConfig> = stored.providers.iter().map(|p| {
+        ProviderConfig {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            base_url: p.base_url.clone(),
+            api_key: String::new(),
+            models: p.models.clone(),
+        }
+    }).collect();
+
+    let active_provider_id = if stored.active_provider_id.is_empty() {
+        "qwen".into()
+    } else {
+        stored.active_provider_id
+    };
+
     Ok(ModelSettings {
-        provider: stored.provider,
-        base_url: stored.base_url,
+        providers,
+        active_provider_id,
         model: stored.model,
         api_key: String::new(),
         temperature: stored.temperature,
@@ -88,8 +120,13 @@ pub fn load_settings() -> Result<ModelSettings> {
 
 pub fn save_settings(s: &ModelSettings) -> Result<()> {
     let stored = StoredSettings {
-        provider: s.provider.clone(),
-        base_url: s.base_url.clone(),
+        providers: s.providers.iter().map(|p| StoredProvider {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            base_url: p.base_url.clone(),
+            models: p.models.clone(),
+        }).collect(),
+        active_provider_id: s.active_provider_id.clone(),
         model: s.model.clone(),
         temperature: s.temperature,
         max_tokens: s.max_tokens,

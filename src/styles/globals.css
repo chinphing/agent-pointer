@@ -47,6 +47,13 @@
   .typing-dot {
     @apply inline-block w-1.5 h-1.5 rounded-full bg-primary-cyan mx-0.5 animate-pulseDot;
   }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* Markdown */
@@ -57,7 +64,13 @@
   @apply px-1.5 py-0.5 rounded bg-white/10 text-primary-cyan text-[13px];
 }
 .md-body pre {
-  @apply my-3 p-4 rounded-xl bg-black/60 border border-white/5 overflow-x-auto text-[13px];
+  @apply my-3 p-4 rounded-xl bg-black/60 border border-white/5 overflow-x-auto text-[13px] relative;
+}
+.md-body pre .code-copy-btn {
+  @apply absolute top-2 right-2 p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-400 hover:text-slate-200 transition opacity-0 group-hover:opacity-100 cursor-pointer;
+}
+.md-body pre:hover .code-copy-btn {
+  @apply opacity-100;
 }
 .md-body ul { @apply list-disc pl-6 my-2; }
 .md-body ol { @apply list-decimal pl-6 my-2; }

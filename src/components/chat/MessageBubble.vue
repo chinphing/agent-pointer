@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref, watch, nextTick } from 'vue'
 import { marked } from 'marked'
-import { Bot, User, Copy, RotateCcw, AlertCircle } from 'lucide-vue-next'
+import { Bot, User, Copy, AlertCircle, Check } from 'lucide-vue-next'
 import type { ChatMessage } from '../../types/chat'
 import ToolCallCard from './ToolCallCard.vue'
 import { useChatStore } from '../../stores/chat'
 
 const props = defineProps<{ message: ChatMessage }>()
-const chat = useChatStore()
+const messageRef = ref<HTMLElement | null>(null)
+const copiedCodeIndex = ref<number | null>(null)
+const copied = ref(false)
 
 marked.setOptions({ breaks: true, gfm: true })
 const html = computed(() =>
@@ -18,8 +20,51 @@ const isUser = computed(() => props.message.role === 'user')
 const isStreaming = computed(() => props.message.status === 'streaming')
 
 function copy() {
-  navigator.clipboard.writeText(props.message.content).catch(e => console.error(e))
+  navigator.clipboard.writeText(props.message.content).then(() => {
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 2000)
+  }).catch(e => console.error(e))
 }
+
+function copyCode(index: number, event: MouseEvent) {
+  const btn = event.currentTarget as HTMLElement
+  const pre = btn.closest('pre')
+  if (!pre) return
+  
+  const code = pre.querySelector('code')
+  const text = code?.textContent || pre.textContent || ''
+  
+  navigator.clipboard.writeText(text).then(() => {
+    copiedCodeIndex.value = index
+    setTimeout(() => {
+      copiedCodeIndex.value = null
+    }, 2000)
+  }).catch(e => console.error(e))
+}
+
+function addCodeCopyButtons() {
+  if (!messageRef.value) return
+  const pres = messageRef.value.querySelectorAll('pre')
+  pres.forEach((pre, index) => {
+    if (pre.querySelector('.code-copy-btn')) return
+    
+    pre.classList.add('group')
+    const btn = document.createElement('button')
+    btn.className = 'code-copy-btn'
+    btn.title = '复制代码'
+    btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`
+    btn.addEventListener('click', (e) => copyCode(index, e as MouseEvent))
+    pre.appendChild(btn)
+  })
+}
+
+onMounted(() => {
+  nextTick(addCodeCopyButtons)
+})
+
+watch(() => props.message.content, () => {
+  nextTick(addCodeCopyButtons)
+})
 </script>
 
 <template>
@@ -74,12 +119,17 @@ function copy() {
         <ToolCallCard v-for="tc in message.toolCalls" :key="tc.id" :tool-call="tc" />
       </div>
 
-      <div v-if="!isUser && message.status === 'done'" class="mt-1.5 flex items-center gap-1">
-        <button class="p-1.5 rounded hover:bg-white/5 cursor-pointer text-slate-400 hover:text-slate-200 transition" @click="copy" title="复制">
-          <Copy class="w-3.5 h-3.5" />
+      <div v-if="isUser" class="mt-1.5 flex items-center gap-1">
+        <button class="p-1.5 rounded hover:bg-white/5 cursor-pointer transition" :class="copied ? 'text-green-400' : 'text-slate-400 hover:text-slate-200'" @click="copy" :title="copied ? '已复制' : '复制'">
+          <Check v-if="copied" class="w-3.5 h-3.5" />
+          <Copy v-else class="w-3.5 h-3.5" />
         </button>
-        <button class="p-1.5 rounded hover:bg-white/5 cursor-pointer text-slate-400 hover:text-slate-200 transition" @click="chat.retry()" title="重试">
-          <RotateCcw class="w-3.5 h-3.5" />
+      </div>
+
+      <div v-if="!isUser && message.status === 'done'" class="mt-1.5 flex items-center gap-1">
+        <button class="p-1.5 rounded hover:bg-white/5 cursor-pointer transition" :class="copied ? 'text-green-400' : 'text-slate-400 hover:text-slate-200'" @click="copy" :title="copied ? '已复制' : '复制'">
+          <Check v-if="copied" class="w-3.5 h-3.5" />
+          <Copy v-else class="w-3.5 h-3.5" />
         </button>
       </div>
     </div>

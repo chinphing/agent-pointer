@@ -107,9 +107,14 @@ impl OpenAIProvider {
     pub async fn test(&self) -> Result<u128> {
         let start = std::time::Instant::now();
         // 用一次最小化 chat 请求测试连通性
+        let base_url = self.settings.providers.iter()
+            .find(|p| p.id == self.settings.active_provider_id)
+            .map(|p| p.base_url.clone())
+            .unwrap_or_else(|| self.settings.providers.first().map(|p| p.base_url.clone()).unwrap_or_default());
+        
         let url = format!(
             "{}/chat/completions",
-            self.settings.base_url.trim_end_matches('/')
+            base_url.trim_end_matches('/')
         );
         let body = json!({
             "model": self.settings.model,
@@ -141,6 +146,11 @@ impl OpenAIProvider {
         tools: Vec<Value>,
         cancel: CancellationToken,
     ) -> Result<String> {
+        let base_url = self.settings.providers.iter()
+            .find(|p| p.id == self.settings.active_provider_id)
+            .map(|p| p.base_url.clone())
+            .unwrap_or_else(|| self.settings.providers.first().map(|p| p.base_url.clone()).unwrap_or_default());
+
         let openai_msgs = crate::models::make_openai_messages(messages, system_prompts);
         let has_tools = !tools.is_empty();
         let req = ChatRequest {
@@ -154,7 +164,7 @@ impl OpenAIProvider {
         };
         let url = format!(
             "{}/chat/completions",
-            self.settings.base_url.trim_end_matches('/')
+            base_url.trim_end_matches('/')
         );
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(180))
@@ -190,6 +200,11 @@ impl OpenAIProvider {
         tx: mpsc::Sender<ProviderEvent>,
         cancel: CancellationToken,
     ) -> Result<()> {
+        let base_url = self.settings.providers.iter()
+            .find(|p| p.id == self.settings.active_provider_id)
+            .map(|p| p.base_url.clone())
+            .unwrap_or_else(|| self.settings.providers.first().map(|p| p.base_url.clone()).unwrap_or_default());
+
         let openai_msgs = crate::models::make_openai_messages(messages, system_prompts);
         let has_tools = !tools.is_empty();
         let req = ChatRequest {
@@ -204,7 +219,7 @@ impl OpenAIProvider {
 
         let url = format!(
             "{}/chat/completions",
-            self.settings.base_url.trim_end_matches('/')
+            base_url.trim_end_matches('/')
         );
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(180))

@@ -59,10 +59,21 @@ pub struct Conversation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelSettings {
-    pub provider: String,
+pub struct ProviderConfig {
+    pub id: String,
+    pub name: String,
     #[serde(rename = "baseUrl")]
     pub base_url: String,
+    #[serde(default, rename = "apiKey")]
+    pub api_key: String,
+    pub models: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelSettings {
+    pub providers: Vec<ProviderConfig>,
+    #[serde(rename = "activeProviderId")]
+    pub active_provider_id: String,
     pub model: String,
     #[serde(default, rename = "apiKey")]
     pub api_key: String,
@@ -71,18 +82,46 @@ pub struct ModelSettings {
     pub max_tokens: u32,
     #[serde(rename = "hasKey")]
     pub has_key: bool,
+    #[serde(default, rename = "toolApprovalMode")]
+    pub tool_approval_mode: String,
+    #[serde(default, rename = "agentMode")]
+    pub agent_mode: String,
 }
 
 impl Default for ModelSettings {
     fn default() -> Self {
         Self {
-            provider: "qwen".into(),
-            base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+            providers: vec![
+                ProviderConfig {
+                    id: "qwen".into(),
+                    name: "阿里云千问".into(),
+                    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+                    api_key: String::new(),
+                    models: vec!["qwen-plus".into(), "qwen-turbo".into(), "qwen-max".into(), "qwen2.5-coder-32b-instruct".into()],
+                },
+                ProviderConfig {
+                    id: "openai".into(),
+                    name: "OpenAI".into(),
+                    base_url: "https://api.openai.com/v1".into(),
+                    api_key: String::new(),
+                    models: vec!["gpt-4o-mini".into(), "gpt-4o".into()],
+                },
+                ProviderConfig {
+                    id: "local".into(),
+                    name: "本地服务".into(),
+                    base_url: "http://127.0.0.1:11434/v1".into(),
+                    api_key: String::new(),
+                    models: vec!["qwen2.5".into(), "llama3.1".into()],
+                },
+            ],
+            active_provider_id: "qwen".into(),
             model: "qwen-plus".into(),
             api_key: String::new(),
             temperature: 0.7,
             max_tokens: 2048,
             has_key: false,
+            tool_approval_mode: "auto".into(),
+            agent_mode: "single".into(),
         }
     }
 }

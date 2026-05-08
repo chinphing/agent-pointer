@@ -1,4 +1,4 @@
-use crate::models::{Conversation, ModelSettings};
+use crate::models::{Conversation, ModelSettings, ProviderConfig};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -21,22 +21,43 @@ fn conv_path() -> Result<PathBuf> { Ok(data_dir()?.join("conversations.json")) }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct StoredSettings {
-    provider: String,
-    base_url: String,
+    providers: Vec<StoredProvider>,
+    #[serde(default, rename = "activeProviderId")]
+    active_provider_id: String,
     model: String,
     temperature: f32,
     max_tokens: u32,
+    #[serde(default, rename = "toolApprovalMode")]
+    tool_approval_mode: String,
+    #[serde(default, rename = "agentMode")]
+    agent_mode: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct StoredProvider {
+    id: String,
+    name: String,
+    #[serde(rename = "baseUrl")]
+    base_url: String,
+    models: Vec<String>,
 }
 
 impl Default for StoredSettings {
     fn default() -> Self {
         let s = ModelSettings::default();
         Self {
-            provider: s.provider,
-            base_url: s.base_url,
+            providers: s.providers.iter().map(|p| StoredProvider {
+                id: p.id.clone(),
+                name: p.name.clone(),
+                base_url: p.base_url.clone(),
+                models: p.models.clone(),
+            }).collect(),
+            active_provider_id: s.active_provider_id,
             model: s.model,
             temperature: s.temperature,
             max_tokens: s.max_tokens,
+            tool_approval_mode: s.tool_approval_mode,
+            agent_mode: s.agent_mode,
         }
     }
 }
@@ -49,24 +70,44 @@ pub fn load_settings() -> Result<ModelSettings> {
     } else {
         StoredSettings::default()
     };
+
+    let providers: Vec<ProviderConfig> = stored.providers.iter().map(|p| {
+        ProviderConfig {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            base_url: p.base_url.clone(),
+            api_key: String::new(),
+            models: p.models.clone(),
+        }
+    }).collect();
+
     Ok(ModelSettings {
-        provider: stored.provider,
-        base_url: stored.base_url,
+        providers,
+        active_provider_id: if stored.active_provider_id.is_empty() { "qwen".into() } else { stored.active_provider_id },
         model: stored.model,
         api_key: String::new(),
         temperature: stored.temperature,
         max_tokens: stored.max_tokens,
         has_key: has_key()?,
+        tool_approval_mode: if stored.tool_approval_mode.is_empty() { "auto".into() } else { stored.tool_approval_mode },
+        agent_mode: if stored.agent_mode.is_empty() { "single".into() } else { stored.agent_mode },
     })
 }
 
 pub fn save_settings(s: &ModelSettings) -> Result<()> {
     let stored = StoredSettings {
-        provider: s.provider.clone(),
-        base_url: s.base_url.clone(),
+        providers: s.providers.iter().map(|p| StoredProvider {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            base_url: p.base_url.clone(),
+            models: p.models.clone(),
+        }).collect(),
+        active_provider_id: s.active_provider_id.clone(),
         model: s.model.clone(),
         temperature: s.temperature,
         max_tokens: s.max_tokens,
+        tool_approval_mode: s.tool_approval_mode.clone(),
+        agent_mode: s.agent_mode.clone(),
     };
     fs::write(settings_path()?, serde_json::to_vec_pretty(&stored)?)?;
     Ok(())

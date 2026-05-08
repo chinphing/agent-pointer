@@ -50,8 +50,8 @@ async function onImportFile(e: Event) {
     <div class="w-[720px] max-w-[92vw] max-h-[80vh] glass-strong rounded-2xl border border-white/10 shadow-2xl flex flex-col overflow-hidden">
       <header class="px-5 h-14 flex items-center gap-2 border-b border-white/5">
         <Sparkles class="w-4 h-4 text-primary-fuchsia" />
-        <h2 class="text-base font-semibold text-slate-100">Skills 技能库</h2>
-        <span class="text-xs text-slate-500">启用后先注入 frontmatter 索引，正文与资源按需加载</span>
+        <h2 class="text-base font-semibold text-slate-100">技能库</h2>
+        <span class="text-xs text-slate-500">启用技能可扩展 AI 的能力</span>
         <div class="flex-1" />
         <input ref="fileInput" type="file" accept=".zip,application/zip" class="hidden" @change="onImportFile" />
         <button

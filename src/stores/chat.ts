@@ -234,9 +234,22 @@ export const useChatStore = defineStore('chat', () => {
       .catch(e => console.error(e))
   }
 
+  function undo() {
+    if (!current.value || generating.value) return
+    const conv = current.value
+    while (conv.messages.length && conv.messages[conv.messages.length - 1].role !== 'user') {
+      conv.messages.pop()
+    }
+    if (conv.messages.length && conv.messages[conv.messages.length - 1].role === 'user') {
+      conv.messages.pop()
+    }
+    conv.updatedAt = Date.now()
+    persist()
+  }
+
   return {
     conversations, currentId, current, generating,
     init, newConversation, selectConversation, deleteConversation,
-    sendUserMessage, stop, retry, approve
+    sendUserMessage, stop, retry, approve, undo
   }
 })

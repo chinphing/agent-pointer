@@ -81,11 +81,18 @@ export interface Conversation {
   skillIds: string[]
 }
 
-export interface ModelSettings {
-  provider: string
+export interface ProviderConfig {
+  id: string
+  name: string
   baseUrl: string
+  apiKey: string
+  models: string[]
+}
+
+export interface ModelSettings {
+  providers: ProviderConfig[]
+  activeProviderId: string
   model: string
-  apiKey: string // empty in frontend; backend stores actual key
   temperature: number
   maxTokens: number
   hasKey: boolean

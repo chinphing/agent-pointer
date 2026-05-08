@@ -1,0 +1,21 @@
+[package]
+name = "pointer-app"
+version = "0.1.0"
+description = "Pointer AI desktop chat client"
+authors = ["pointer"]
+edition = "2021"
+
+[lib]
+name = "pointer_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+pointer-core = { path = "../crates/pointer-core" }
+tokio = { version = "1", features = ["sync"] }
+log = "0.4"
+env_logger = "0.11"

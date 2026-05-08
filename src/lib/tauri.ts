@@ -1,0 +1,74 @@
+import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import type {
+  ChatMessage, Conversation, ModelSettings, SkillDef, StreamEvent, ToolDef
+} from '../types/chat'
+
+export const STREAM_EVENT = 'chat://stream'
+
+export interface SendChatPayload {
+  conversationId: string
+  messages: ChatMessage[]
+  enabledSkillIds: string[]
+}
+
+export async function sendChat(payload: SendChatPayload): Promise<string> {
+  return await invoke<string>('send_chat', { payload })
+}
+
+export async function cancelChat(conversationId: string): Promise<void> {
+  await invoke('cancel_chat', { conversationId })
+}
+
+export async function approveToolCall(
+  _conversationId: string,
+  toolCallId: string,
+  approved: boolean
+): Promise<void> {
+  await invoke('approve_tool_call', { toolCallId, approved })
+}
+
+export async function getSettings(): Promise<ModelSettings> {
+  return await invoke<ModelSettings>('get_settings')
+}
+
+export async function updateSettings(settings: ModelSettings): Promise<ModelSettings> {
+  return await invoke<ModelSettings>('update_settings', { settings })
+}
+
+export async function setApiKey(key: string): Promise<void> {
+  await invoke('set_api_key', { apiKey: key })
+}
+
+export async function clearApiKey(): Promise<void> {
+  await invoke('clear_api_key')
+}
+
+export async function testConnection(): Promise<{ ok: boolean; latencyMs: number; message: string }> {
+  try {
+    const ms = await invoke<number>('test_connection')
+    return { ok: true, latencyMs: Number(ms), message: '连接成功' }
+  } catch (e: any) {
+    return { ok: false, latencyMs: 0, message: String(e?.message || e) }
+  }
+}
+
+export async function listSkills(): Promise<SkillDef[]> {
+  return await invoke<SkillDef[]>('list_skills')
+}
+
+export async function listTools(): Promise<ToolDef[]> {
+  return await invoke<ToolDef[]>('list_tools')
+}
+
+export async function loadConversations(): Promise<Conversation[]> {
+  return await invoke<Conversation[]>('load_conversations')
+}
+
+export async function saveConversations(conversations: Conversation[]): Promise<void> {
+  await invoke('save_conversations', { conversations })
+}
+
+export async function onStream(handler: (e: StreamEvent) => void): Promise<UnlistenFn> {
+  return await listen<StreamEvent>(STREAM_EVENT, ev => handler(ev.payload))
+}

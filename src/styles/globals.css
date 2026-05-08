@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 5%;
+    --foreground: 210 40% 98%;
+    --card: 222 40% 9%;
+    --muted: 215 20% 65%;
+    --border: 222 30% 18%;
+  }
+  html, body, #app { height: 100%; }
+  body {
+    background:
+      radial-gradient(60% 50% at 20% 10%, rgba(124,58,237,0.18), transparent 60%),
+      radial-gradient(50% 40% at 85% 15%, rgba(6,182,212,0.14), transparent 60%),
+      radial-gradient(60% 50% at 50% 100%, rgba(168,85,247,0.14), transparent 70%),
+      hsl(var(--background));
+    background-attachment: fixed;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(148,163,184,0.18);
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.32); }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/[0.04] backdrop-blur-xl border border-white/[0.06];
+  }
+  .glass-strong {
+    @apply bg-white/[0.06] backdrop-blur-2xl border border-white/[0.08];
+  }
+  .neon-ring {
+    box-shadow: 0 0 0 1px rgba(124,58,237,0.4), 0 8px 40px -10px rgba(124,58,237,0.45);
+  }
+  .gradient-text {
+    background: linear-gradient(135deg, #A855F7 0%, #7C3AED 40%, #06B6D4 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .typing-dot {
+    @apply inline-block w-1.5 h-1.5 rounded-full bg-primary-cyan mx-0.5 animate-pulseDot;
+  }
+}
+
+/* Markdown */
+.md-body { @apply text-[15px] leading-7 text-slate-100; }
+.md-body p { @apply my-2; }
+.md-body h1, .md-body h2, .md-body h3 { @apply font-semibold mt-4 mb-2; }
+.md-body code:not(pre code) {
+  @apply px-1.5 py-0.5 rounded bg-white/10 text-primary-cyan text-[13px];
+}
+.md-body pre {
+  @apply my-3 p-4 rounded-xl bg-black/60 border border-white/5 overflow-x-auto text-[13px];
+}
+.md-body ul { @apply list-disc pl-6 my-2; }
+.md-body ol { @apply list-decimal pl-6 my-2; }
+.md-body a { @apply text-primary-cyan underline underline-offset-2; }
+.md-body table { @apply my-3 border-collapse; }
+.md-body th, .md-body td { @apply border border-white/10 px-3 py-1.5; }

@@ -1,0 +1,43 @@
+import type { UnlistenFn } from '@tauri-apps/api/event'
+import type { ChatMessage, Conversation, ModelSettings, SkillDef, StreamEvent, ToolDef } from '../types/chat'
+import * as tauriApi from './tauri'
+import * as webApi from './web'
+import { isTauriRuntime } from './runtime'
+
+export interface SendChatPayload {
+  conversationId: string
+  messages: ChatMessage[]
+  enabledSkillIds: string[]
+}
+
+export interface RuntimeApi {
+  sendChat(payload: SendChatPayload): Promise<string | void>
+  cancelChat(conversationId: string): Promise<void>
+  approveToolCall(conversationId: string, toolCallId: string, approved: boolean): Promise<void>
+  getSettings(): Promise<ModelSettings>
+  updateSettings(settings: ModelSettings): Promise<ModelSettings>
+  setApiKey(key: string): Promise<void>
+  clearApiKey(): Promise<void>
+  testConnection(): Promise<{ ok: boolean; latencyMs: number; message: string }>
+  listSkills(): Promise<SkillDef[]>
+  listTools(): Promise<ToolDef[]>
+  loadConversations(): Promise<Conversation[]>
+  saveConversations(conversations: Conversation[]): Promise<void>
+  onStream(handler: (e: StreamEvent) => void, conversationId?: string): Promise<UnlistenFn>
+}
+
+export const api: RuntimeApi = isTauriRuntime() ? tauriApi : webApi
+
+export const sendChat = api.sendChat
+export const cancelChat = api.cancelChat
+export const approveToolCall = api.approveToolCall
+export const getSettings = api.getSettings
+export const updateSettings = api.updateSettings
+export const setApiKey = api.setApiKey
+export const clearApiKey = api.clearApiKey
+export const testConnection = api.testConnection
+export const listSkills = api.listSkills
+export const listTools = api.listTools
+export const loadConversations = api.loadConversations
+export const saveConversations = api.saveConversations
+export const onStream = api.onStream

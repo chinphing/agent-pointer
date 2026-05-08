@@ -9,7 +9,7 @@ pub fn register_all(reg: &SkillRegistry) {
         tags: vec!["对话".into(), "问答".into()],
         system_prompt:
             "你是一个有帮助的中文 AI 助手。回答需要准确、简洁，必要时使用 Markdown 格式。".into(),
-        tool_names: vec!["get_current_time".into()],
+        tool_names: vec![],
         scenario: "知识问答 / 写作润色 / 信息总结".into(),
         builtin: true,
         resource_files: Vec::new(),
@@ -48,7 +48,7 @@ pub fn register_all(reg: &SkillRegistry) {
         description: "适合做计算、单位换算、随机抽样等小型数据任务。".into(),
         tags: vec!["计算".into(), "数据".into()],
         system_prompt: "你是数据分析师。当问题涉及数值计算、概率与统计时，优先调用 calculator 与 random_int 工具，再用自然语言解释结果。".into(),
-        tool_names: vec!["calculator".into(), "random_int".into(), "get_current_time".into()],
+        tool_names: vec!["calculator".into(), "random_int".into()],
         scenario: "估算 / 概率 / 报表说明".into(),
         builtin: true,
         resource_files: Vec::new(),

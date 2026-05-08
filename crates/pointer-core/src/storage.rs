@@ -35,6 +35,8 @@ struct StoredProvider {
     name: String,
     #[serde(rename = "baseUrl")]
     base_url: String,
+    #[serde(default, rename = "apiKey")]
+    api_key: String,
     models: Vec<String>,
 }
 
@@ -68,6 +70,7 @@ impl Default for StoredSettings {
                 id: p.id.clone(),
                 name: p.name.clone(),
                 base_url: p.base_url.clone(),
+                api_key: p.api_key.clone(),
                 models: p.models.clone(),
             }).collect(),
             active_provider_id: s.active_provider_id,
@@ -94,7 +97,7 @@ pub fn load_settings() -> Result<ModelSettings> {
             id: p.id.clone(),
             name: p.name.clone(),
             base_url: p.base_url.clone(),
-            api_key: String::new(),
+            api_key: p.api_key.clone(),
             models: p.models.clone(),
         }
     }).collect();
@@ -105,6 +108,8 @@ pub fn load_settings() -> Result<ModelSettings> {
         stored.active_provider_id
     };
 
+    let has_key = providers.iter().any(|p| !p.api_key.is_empty());
+
     Ok(ModelSettings {
         providers,
         active_provider_id,
@@ -112,7 +117,7 @@ pub fn load_settings() -> Result<ModelSettings> {
         api_key: String::new(),
         temperature: stored.temperature,
         max_tokens: stored.max_tokens,
-        has_key: has_key()?,
+        has_key,
         tool_approval_mode: stored.tool_approval_mode,
         agent_mode: stored.agent_mode,
     })
@@ -124,6 +129,7 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
             id: p.id.clone(),
             name: p.name.clone(),
             base_url: p.base_url.clone(),
+            api_key: p.api_key.clone(),
             models: p.models.clone(),
         }).collect(),
         active_provider_id: s.active_provider_id.clone(),

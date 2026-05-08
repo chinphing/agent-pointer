@@ -2,6 +2,7 @@ use super::{ToolHandler, ToolRegistry};
 use crate::models::ToolDef;
 use crate::skills::SkillRegistry;
 use anyhow::{anyhow, Result};
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -13,7 +14,6 @@ const TERMINAL_DEFAULT_MAX_OUTPUT_BYTES: usize = 20_000;
 const TERMINAL_MAX_OUTPUT_BYTES: usize = 200_000;
 
 pub fn register_all(reg: &ToolRegistry) {
-    register_now(reg);
     register_calc(reg);
     register_text_stats(reg);
     register_random(reg);
@@ -24,26 +24,6 @@ pub fn register_all(reg: &ToolRegistry) {
 pub fn register_skill_tools(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
     register_load_skill_instructions(reg, skills.clone());
     register_read_skill_resource(reg, skills);
-}
-
-fn register_now(reg: &ToolRegistry) {
-    let h: ToolHandler = Arc::new(|_args| {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        Ok(serde_json::json!({ "unix": now, "iso": iso_from_unix(now) }).to_string())
-    });
-    reg.register(
-        ToolDef {
-            name: "get_current_time".into(),
-            description: "获取当前服务器时间（UNIX 与 ISO 8601）".into(),
-            parameters_schema: serde_json::json!({"type":"object","properties":{}}),
-            risk_level: "low".into(),
-            requires_approval: false,
-        },
-        h,
-    );
 }
 
 fn register_calc(reg: &ToolRegistry) {
@@ -286,6 +266,147 @@ fn run_terminal_command(args: serde_json::Value) -> Result<String> {
         "maxOutputBytes": max_output_bytes
     })
     .to_string())
+}
+
+pub struct TerminalStreamingResult {
+    pub exit_code: Option<i32>,
+    pub success: bool,
+    pub timed_out: bool,
+    pub duration_ms: u64,
+    pub stdout: String,
+    pub stderr: String,
+    pub stdout_truncated: bool,
+    pub stderr_truncated: bool,
+}
+
+pub fn run_terminal_command_streaming(
+    args: serde_json::Value,
+    on_output: impl Fn(&str) + Send,
+) -> Result<TerminalStreamingResult> {
+    let command = args
+        .get("command")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow!("缺少 command"))?;
+    let cwd = parse_terminal_cwd(args.get("cwd"))?;
+    let timeout_ms = args
+        .get("timeoutMs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(TERMINAL_DEFAULT_TIMEOUT_MS)
+        .clamp(1_000, TERMINAL_MAX_TIMEOUT_MS);
+    let max_output_bytes = args
+        .get("maxOutputBytes")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(TERMINAL_DEFAULT_MAX_OUTPUT_BYTES as u64)
+        .min(TERMINAL_MAX_OUTPUT_BYTES as u64) as usize;
+
+    let (_shell, mut cmd) = terminal_shell_command(command);
+    if let Some(dir) = &cwd {
+        cmd.current_dir(dir);
+    }
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let started = Instant::now();
+    let mut child = cmd.spawn().map_err(|e| anyhow!("启动终端命令失败: {e}"))?;
+
+    let stdout_pipe = child.stdout.take().ok_or_else(|| anyhow!("无法获取 stdout"))?;
+    let stderr_pipe = child.stderr.take().ok_or_else(|| anyhow!("无法获取 stderr"))?;
+
+    let mut stdout_reader = BufReader::new(stdout_pipe);
+    let mut stderr_reader = BufReader::new(stderr_pipe);
+
+    let mut stdout_buf = String::new();
+    let mut stderr_buf = String::new();
+    let mut timed_out = false;
+
+    loop {
+        let mut line = String::new();
+        match stdout_reader.read_line(&mut line) {
+            Ok(0) | Err(_) => {}
+            Ok(_) => {
+                on_output(&line);
+                stdout_buf.push_str(&line);
+            }
+        }
+
+        line.clear();
+        match stderr_reader.read_line(&mut line) {
+            Ok(0) | Err(_) => {}
+            Ok(_) => {
+                on_output(&line);
+                stderr_buf.push_str(&line);
+            }
+        }
+
+        if let Some(status) = child.try_wait()? {
+            drain_remaining_output(&mut stdout_reader, &mut stdout_buf, &on_output);
+            drain_remaining_output_stderr(&mut stderr_reader, &mut stderr_buf, &on_output);
+            if !status.success() {
+                let code = status.code().unwrap_or(-1);
+                on_output(&format!("\n进程退出，退出码: {code}\n"));
+            }
+            break;
+        }
+
+        if started.elapsed() >= Duration::from_millis(timeout_ms) {
+            timed_out = true;
+            let _ = child.kill();
+            drain_remaining_output(&mut stdout_reader, &mut stdout_buf, &on_output);
+            drain_remaining_output_stderr(&mut stderr_reader, &mut stderr_buf, &on_output);
+            on_output("\n进程已超时，已终止执行\n");
+            break;
+        }
+
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let (stdout, stdout_truncated) = truncate_output(stdout_buf.as_bytes(), max_output_bytes);
+    let (stderr, stderr_truncated) = truncate_output(stderr_buf.as_bytes(), max_output_bytes);
+
+    Ok(TerminalStreamingResult {
+        exit_code: None,
+        success: !timed_out,
+        timed_out,
+        duration_ms,
+        stdout,
+        stderr,
+        stdout_truncated,
+        stderr_truncated,
+    })
+}
+
+fn drain_remaining_output(
+    reader: &mut BufReader<std::process::ChildStdout>,
+    buf: &mut String,
+    on_output: &impl Fn(&str),
+) {
+    let mut line = String::new();
+    while let Ok(n) = reader.read_line(&mut line) {
+        if n == 0 {
+            break;
+        }
+        on_output(&line);
+        buf.push_str(&line);
+        line.clear();
+    }
+}
+
+fn drain_remaining_output_stderr(
+    reader: &mut BufReader<std::process::ChildStderr>,
+    buf: &mut String,
+    on_output: &impl Fn(&str),
+) {
+    let mut line = String::new();
+    while let Ok(n) = reader.read_line(&mut line) {
+        if n == 0 {
+            break;
+        }
+        on_output(&line);
+        buf.push_str(&line);
+        line.clear();
+    }
 }
 
 fn parse_terminal_cwd(value: Option<&serde_json::Value>) -> Result<Option<PathBuf>> {

@@ -10,6 +10,16 @@ const open = ref(true)
 
 const isTerminal = computed(() => props.toolCall.name === 'terminal')
 
+const terminalCommand = computed(() => {
+  if (!isTerminal.value) return ''
+  const text = props.toolCall.arguments?.trim()
+  if (!text) return ''
+  try {
+    const parsed = JSON.parse(text)
+    return parsed.command || ''
+  } catch { return text }
+})
+
 const prettyArgs = computed(() => {
   if (isTerminal.value) return ''
   const text = props.toolCall.arguments?.trim()
@@ -36,6 +46,7 @@ const terminalResult = computed<TerminalResult | null>(() => {
 })
 
 const terminalOutput = computed(() => {
+  if (props.toolCall.terminalOutput) return props.toolCall.terminalOutput
   const result = terminalResult.value
   if (!result) return ''
   const parts = []
@@ -92,6 +103,12 @@ function approve(ok: boolean) {
 
     <div v-if="open" class="px-3 pb-3 space-y-2">
       <template v-if="isTerminal">
+        <div>
+          <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500 mb-1">
+            <span>执行命令</span>
+          </div>
+          <pre class="text-[12px] bg-black/60 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-green-400 font-mono">{{ terminalCommand || '—' }}</pre>
+        </div>
         <div v-if="toolCall.result">
           <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500 mb-1">
             <span>控制台输出</span>

@@ -2,10 +2,10 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   Bot,
+  Check,
+  Copy,
   Cpu,
   Database,
-  Eye,
-  EyeOff,
   Gauge,
   Plus,
   SlidersHorizontal,
@@ -19,9 +19,9 @@ import { useSettingsStore } from '../../stores/settings'
 const emit = defineEmits<{ (e: 'close'): void }>()
 const s = useSettingsStore()
 
-const showKey = ref(false)
 const saving = ref(false)
 const activeSection = ref('provider')
+const copiedKey = ref(false)
 
 const temperature = ref(0.7)
 const maxTokens = ref(2048)
@@ -31,6 +31,35 @@ const agentMode = ref<'single' | 'supervisor'>('single')
 const editingProvider = ref<ProviderConfig | null>(null)
 const showAddProvider = ref(false)
 const editingModelsText = ref('')
+const originalApiKey = ref('')
+const editingApiKey = ref('')
+
+function maskKey(key: string): string {
+  if (!key) return ''
+  if (key.length <= 8) return '••••••••'
+  return key.slice(0, 4) + '••••••••' + key.slice(-4)
+}
+
+const displayKey = computed(() => {
+  if (!editingProvider.value) return ''
+  if (showAddProvider.value) return ''
+  if (editingApiKey.value) return editingApiKey.value
+  return maskKey(originalApiKey.value)
+})
+
+const inputPlaceholder = computed(() => {
+  if (showAddProvider.value) return '请输入 API 密钥'
+  return '输入新密钥以替换原密钥'
+})
+
+function copyOriginalKey() {
+  const key = originalApiKey.value
+  if (!key) return
+  navigator.clipboard.writeText(key).then(() => {
+    copiedKey.value = true
+    setTimeout(() => { copiedKey.value = false }, 2000)
+  }).catch(e => console.error(e))
+}
 
 const sections = [
   { id: 'provider', label: '模型服务', desc: '管理 AI 服务', icon: Cpu },
@@ -48,6 +77,8 @@ onMounted(() => {
 
 function startEditProvider(provider: ProviderConfig) {
   editingProvider.value = { ...provider }
+  originalApiKey.value = provider.apiKey
+  editingApiKey.value = ''
   editingModelsText.value = provider.models.join(', ')
   showAddProvider.value = false
 }
@@ -60,6 +91,8 @@ function startAddProvider() {
     apiKey: '',
     models: []
   }
+  originalApiKey.value = ''
+  editingApiKey.value = ''
   editingModelsText.value = ''
   showAddProvider.value = true
 }
@@ -78,6 +111,12 @@ function saveProvider() {
     .split(',')
     .map(m => m.trim())
     .filter(m => m.length > 0)
+
+  if (editingApiKey.value) {
+    editingProvider.value.apiKey = editingApiKey.value
+  } else if (!showAddProvider.value) {
+    editingProvider.value.apiKey = originalApiKey.value
+  }
 
   if (showAddProvider.value) {
     s.addProvider(editingProvider.value)
@@ -208,9 +247,10 @@ async function saveAll() {
                 <div>
                   <label class="block text-[12px] text-slate-400 mb-1">API 密钥</label>
                   <div class="flex items-center gap-2 h-10 px-3 rounded-lg glass border border-white/5">
-                    <input v-model="editingProvider.apiKey" :type="showKey ? 'text' : 'password'" class="flex-1 bg-transparent border-0 outline-none text-sm text-slate-100 placeholder:text-slate-500" placeholder="请输入 API 密钥" />
-                    <button class="p-1 rounded hover:bg-white/10 cursor-pointer" @click="showKey = !showKey">
-                      <component :is="showKey ? EyeOff : Eye" class="w-4 h-4 text-slate-400" />
+                    <input :value="displayKey" @input="e => { editingApiKey = (e.target as HTMLInputElement).value }" type="password" class="flex-1 bg-transparent border-0 outline-none text-sm text-slate-100 placeholder:text-slate-500" :placeholder="inputPlaceholder" />
+                    <button v-if="!showAddProvider && originalApiKey" class="p-1 rounded hover:bg-white/10 cursor-pointer transition" :class="copiedKey ? 'text-green-400' : 'text-slate-400 hover:text-slate-200'" @click="copyOriginalKey" :title="copiedKey ? '已复制' : '复制原始密钥'">
+                      <Check v-if="copiedKey" class="w-4 h-4" />
+                      <Copy v-else class="w-4 h-4" />
                     </button>
                   </div>
                 </div>

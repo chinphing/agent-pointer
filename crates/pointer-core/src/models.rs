@@ -123,25 +123,11 @@ impl Default for ModelSettings {
                     name: "阿里云千问".into(),
                     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
                     api_key: String::new(),
-                    models: vec!["qwen-plus".into(), "qwen-turbo".into(), "qwen-max".into(), "qwen2.5-coder-32b-instruct".into()],
-                },
-                ProviderConfig {
-                    id: "openai".into(),
-                    name: "OpenAI".into(),
-                    base_url: "https://api.openai.com/v1".into(),
-                    api_key: String::new(),
-                    models: vec!["gpt-4o-mini".into(), "gpt-4o".into()],
-                },
-                ProviderConfig {
-                    id: "local".into(),
-                    name: "本地服务".into(),
-                    base_url: "http://127.0.0.1:11434/v1".into(),
-                    api_key: String::new(),
-                    models: vec!["qwen2.5".into(), "llama3.1".into()],
+                    models: vec!["qwen3.5-plus".into(), "qwen3.6-plus".into(), "qwen3.5-flash".into(), "qwen3.5-27b".into()],
                 },
             ],
             active_provider_id: "qwen".into(),
-            model: "qwen-plus".into(),
+            model: "qwen3.5-plus".into(),
             api_key: String::new(),
             temperature: 0.7,
             max_tokens: 2048,
@@ -251,6 +237,14 @@ pub enum StreamEvent {
         error: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "durationMs")]
         duration_ms: Option<u64>,
+    },
+    TerminalOutputDelta {
+        #[serde(rename = "messageId")]
+        message_id: String,
+        #[serde(rename = "toolCallId")]
+        tool_call_id: String,
+        #[serde(rename = "output")]
+        output: String,
     },
     MessageEnd {
         #[serde(rename = "messageId")]

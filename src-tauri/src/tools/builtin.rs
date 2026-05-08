@@ -2,31 +2,12 @@ use super::{ToolHandler, ToolRegistry};
 use crate::models::ToolDef;
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn register_all(reg: &ToolRegistry) {
-    register_now(reg);
     register_calc(reg);
     register_text_stats(reg);
     register_random(reg);
     register_echo(reg);
-}
-
-fn register_now(reg: &ToolRegistry) {
-    let h: ToolHandler = Arc::new(|_args| {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        Ok(serde_json::json!({ "unix": now, "iso": iso_from_unix(now) }).to_string())
-    });
-    reg.register(
-        ToolDef {
-            name: "get_current_time".into(),
-            description: "获取当前服务器时间（UNIX 与 ISO 8601）".into(),
-            parameters_schema: serde_json::json!({"type":"object","properties":{}}),
-            risk_level: "low".into(),
-            requires_approval: false,
-        },
-        h,
-    );
 }
 
 fn register_calc(reg: &ToolRegistry) {

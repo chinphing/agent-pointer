@@ -9,7 +9,6 @@ defaultSkillIds:
   - general
 accessPolicy:
   allowTools:
-    - get_current_time
     - load_skill_instructions
     - read_skill_resource
     - terminal

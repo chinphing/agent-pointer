@@ -137,6 +137,14 @@ export const useChatStore = defineStore('chat', () => {
         }
         break
       }
+      case 'terminal_output_delta': {
+        const r = findMessage(e.messageId)
+        const tc = r?.msg.toolCalls?.find(t => t.id === e.toolCallId)
+        if (tc) {
+          tc.terminalOutput = (tc.terminalOutput || '') + e.output
+        }
+        break
+      }
       case 'message_end': {
         const r = findMessage(e.messageId)
         if (r) {

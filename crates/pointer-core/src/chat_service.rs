@@ -6,10 +6,13 @@ use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent, ToolCall};
 use crate::provider::{OpenAIProvider, ProviderEvent};
 use crate::skills::SkillRegistry;
 use crate::storage;
+use crate::tools::builtin::run_terminal_command_streaming;
 use crate::tools::ToolRegistry;
 use anyhow::{anyhow, Result};
+use chrono::Local;
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::env;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
@@ -79,6 +82,35 @@ pub type StreamTx = mpsc::UnboundedSender<StreamEvent>;
 
 fn emit(tx: &StreamTx, ev: StreamEvent) {
     let _ = tx.send(ev);
+}
+
+fn build_env_context() -> String {
+    let os = env::consts::OS;
+    let os_label = match os {
+        "macos" => "macOS",
+        "windows" => "Windows",
+        "linux" => "Linux",
+        other => other,
+    };
+    let locale = env::var("LANG")
+        .ok()
+        .and_then(|lang| {
+            let lang = lang.split('.').next().unwrap_or(&lang);
+            if lang.starts_with("zh") {
+                Some("中文")
+            } else if lang.starts_with("en") {
+                Some("English")
+            } else {
+                None
+            }
+        })
+        .unwrap_or("未知");
+    let now = Local::now().format("%Y-%m-%d %H:%M:%S %Z");
+
+    format!(
+        "当前环境信息：\n- 操作系统：{}\n- 系统语言：{}\n- 当前时间：{}",
+        os_label, locale, now
+    )
 }
 
 pub async fn run_chat(
@@ -199,7 +231,9 @@ async fn run_chat_inner(
         let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
         let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
         let history_clone = history.clone();
-        let prompts_clone = agent_plan.system_prompts.clone();
+        let mut prompts_with_env = vec![build_env_context()];
+        prompts_with_env.extend(agent_plan.system_prompts.clone());
+        let prompts_clone = prompts_with_env;
         let cancel_clone = cancel.clone();
         let tools_clone = tools_json.clone();
         let send_handle = tokio::spawn(async move {
@@ -422,7 +456,41 @@ async fn run_chat_inner(
             let started = Instant::now();
             let args_value: serde_json::Value =
                 serde_json::from_str(&tc.arguments).unwrap_or(serde_json::Value::Null);
-            let exec = state.tools.invoke(&tc.name, args_value);
+
+            let is_terminal = tc.name == "terminal";
+            let msg_id_for_stream = assistant_id.clone();
+            let tc_id_for_stream = tc.id.clone();
+            let stream_for_terminal = stream.clone();
+
+            let exec = if is_terminal {
+                tokio::task::spawn_blocking(move || {
+                    run_terminal_command_streaming(args_value, move |output| {
+                        let _ = stream_for_terminal.send(StreamEvent::TerminalOutputDelta {
+                            message_id: msg_id_for_stream.clone(),
+                            tool_call_id: tc_id_for_stream.clone(),
+                            output: output.to_string(),
+                        });
+                    })
+                    .map(|r| {
+                        serde_json::json!({
+                            "exitCode": r.exit_code,
+                            "success": r.success,
+                            "timedOut": r.timed_out,
+                            "durationMs": r.duration_ms,
+                            "stdout": r.stdout,
+                            "stderr": r.stderr,
+                            "stdoutTruncated": r.stdout_truncated,
+                            "stderrTruncated": r.stderr_truncated,
+                        })
+                        .to_string()
+                    })
+                })
+                .await
+                .map_err(|e| anyhow!("终端执行线程异常: {e}"))?
+            } else {
+                state.tools.invoke(&tc.name, args_value)
+            };
+
             let duration = started.elapsed().as_millis() as u64;
             match exec {
                 Ok(out) => {
@@ -508,7 +576,8 @@ async fn run_supervisor_chat(
         },
     );
 
-    let tasks = match plan_agent_tasks(&provider, &state, history, &limits, cancel.clone()).await {
+    let env_context = build_env_context();
+    let tasks = match plan_agent_tasks(&provider, &state, history, &limits, cancel.clone(), &env_context).await {
         Ok(tasks) => tasks,
         Err(err) => {
             log::warn!("agent planning failed, fallback to default agent: {err}");
@@ -646,11 +715,13 @@ async fn plan_agent_tasks(
     history: &[ChatMessage],
     limits: &AgentRunLimits,
     cancel: CancellationToken,
+    env_context: &str,
 ) -> Result<Vec<AgentTask>> {
     let workers = state.agents.enabled_workers();
     let roster = agent_roster(&workers);
     let prompt = format!(
-        "你是 Supervisor。请把用户最新请求拆解为最多 {} 个可串行执行的子 Agent 任务。\n\n可用 Agent：\n{}\n\n只返回 JSON 数组，不要 Markdown。数组元素格式：{{\"id\":\"task_1\",\"agentId\":\"coder\",\"title\":\"简短标题\",\"instruction\":\"给该 Agent 的完整任务说明\",\"dependsOn\":[]}}。agentId 必须来自可用 Agent。常规任务使用 default。",
+        "{}\n\n你是 Supervisor。请把用户最新请求拆解为最多 {} 个可串行执行的子 Agent 任务。\n\n可用 Agent：\n{}\n\n只返回 JSON 数组，不要 Markdown。数组元素格式：{{\"id\":\"task_1\",\"agentId\":\"coder\",\"title\":\"简短标题\",\"instruction\":\"给该 Agent 的完整任务说明\",\"dependsOn\":[]}}。agentId 必须来自可用 Agent。常规任务使用 default。",
+        env_context,
         limits.max_sub_agents,
         roster
     );
@@ -690,7 +761,8 @@ async fn run_sub_agent(
 
     let (skill_prompts, session_tools) = state.skills.progressive_context(&skill_ids);
     let allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
-    let mut prompts = vec![format!(
+    let env_context = build_env_context();
+    let mut prompts = vec![env_context, format!(
         "当前子 Agent：{} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\n你只负责完成分配给你的子任务。输出应包含结论、关键依据、风险或未完成项。\n可用工具名：{}",
         def.name,
         def.id,
@@ -932,7 +1004,41 @@ async fn run_sub_agent(
             let started = Instant::now();
             let args_value: serde_json::Value =
                 serde_json::from_str(&tool_call.arguments).unwrap_or(serde_json::Value::Null);
-            let exec = state.tools.invoke(&tool_call.name, args_value);
+
+            let is_terminal = tool_call.name == "terminal";
+            let msg_id_for_stream = message_id.to_string();
+            let tc_id_for_stream = tool_call.id.clone();
+            let stream_for_terminal = stream.clone();
+
+            let exec = if is_terminal {
+                tokio::task::spawn_blocking(move || {
+                    run_terminal_command_streaming(args_value, move |output| {
+                        let _ = stream_for_terminal.send(StreamEvent::TerminalOutputDelta {
+                            message_id: msg_id_for_stream.clone(),
+                            tool_call_id: tc_id_for_stream.clone(),
+                            output: output.to_string(),
+                        });
+                    })
+                    .map(|r| {
+                        serde_json::json!({
+                            "exitCode": r.exit_code,
+                            "success": r.success,
+                            "timedOut": r.timed_out,
+                            "durationMs": r.duration_ms,
+                            "stdout": r.stdout,
+                            "stderr": r.stderr,
+                            "stdoutTruncated": r.stdout_truncated,
+                            "stderrTruncated": r.stderr_truncated,
+                        })
+                        .to_string()
+                    })
+                })
+                .await
+                .map_err(|e| anyhow!("终端执行线程异常: {e}"))?
+            } else {
+                state.tools.invoke(&tool_call.name, args_value)
+            };
+
             let duration = started.elapsed().as_millis() as u64;
             match exec {
                 Ok(output) => {
@@ -1004,8 +1110,10 @@ async fn synthesize_final_answer(
             result.agent_name, result.agent_id, result.task_id, result.content
         ));
     }
+    let env_context = build_env_context();
     let prompt = format!(
-        "你是 Supervisor。基于以下子 Agent 独立执行结果，面向用户输出最终答案。\n要求：整合重复内容，解决冲突；不要编造子 Agent 未提供的事实；必要时简要说明参与的 Agent。\n\n子 Agent 结果：\n{}",
+        "{}\n\n你是 Supervisor。基于以下子 Agent 独立执行结果，面向用户输出最终答案。\n要求：整合重复内容，解决冲突；不要编造子 Agent 未提供的事实；必要时简要说明参与的 Agent。\n\n子 Agent 结果：\n{}",
+        env_context,
         if report.is_empty() { "无可用子 Agent 结果，请基于对话直接给出谨慎答复。".into() } else { report }
     );
     provider.chat_once(history, &[prompt], Vec::new(), cancel).await

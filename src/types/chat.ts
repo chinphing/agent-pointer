@@ -5,12 +5,13 @@ export type MessageStatus = 'pending' | 'streaming' | 'done' | 'error' | 'cancel
 export interface ToolCall {
   id: string
   name: string
-  arguments: string // JSON string (may be partial during streaming)
+  arguments: string
   status: 'pending' | 'pending_approval' | 'running' | 'success' | 'failed' | 'rejected'
   result?: string
   error?: string
   durationMs?: number
   riskLevel?: 'low' | 'medium' | 'high'
+  terminalOutput?: string
 }
 
 export type AgentMode = 'single' | 'supervisor'
@@ -135,6 +136,7 @@ export type StreamEvent =
   | { kind: 'tool_call_start'; messageId: string; toolCall: ToolCall }
   | { kind: 'tool_call_args_delta'; messageId: string; toolCallId: string; argsDelta: string }
   | { kind: 'tool_call_status'; messageId: string; toolCallId: string; status: ToolCall['status']; result?: string; error?: string; durationMs?: number }
+  | { kind: 'terminal_output_delta'; messageId: string; toolCallId: string; output: string }
   | { kind: 'message_end'; messageId: string }
   | { kind: 'error'; messageId?: string; message: string }
   | { kind: 'done'; conversationId: string }

@@ -9,21 +9,7 @@ const defaultProviders: ProviderConfig[] = [
     name: '阿里云千问',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     apiKey: '',
-    models: ['qwen-plus', 'qwen-turbo', 'qwen-max', 'qwen2.5-coder-32b-instruct']
-  },
-  {
-    id: 'openai',
-    name: 'OpenAI',
-    baseUrl: 'https://api.openai.com/v1',
-    apiKey: '',
-    models: ['gpt-4o-mini', 'gpt-4o']
-  },
-  {
-    id: 'local',
-    name: '本地服务',
-    baseUrl: 'http://127.0.0.1:11434/v1',
-    apiKey: '',
-    models: ['qwen2.5', 'llama3.1']
+    models: ['qwen3.5-plus', 'qwen3.6-plus', 'qwen3.5-flash', 'qwen3.5-27b']
   }
 ]
 
@@ -31,7 +17,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<ModelSettings>({
     providers: defaultProviders,
     activeProviderId: 'qwen',
-    model: 'qwen-plus',
+    model: 'qwen3.5-plus',
     temperature: 0.7,
     maxTokens: 2048,
     hasKey: false,

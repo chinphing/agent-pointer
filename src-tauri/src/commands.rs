@@ -1,5 +1,8 @@
 use pointer_core::chat_service::{run_chat, AppState};
-use pointer_core::models::{Conversation, ModelSettings, SendChatPayload, SkillDef, StreamEvent, ToolDef};
+use pointer_core::models::{
+    Conversation, ModelSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent, ToolDef,
+};
+
 use pointer_core::provider::OpenAIProvider;
 use pointer_core::storage;
 use std::sync::Arc;
@@ -88,7 +91,19 @@ pub async fn test_connection() -> Result<u128, String> {
 
 #[tauri::command]
 pub fn list_skills(state: State<'_, Arc<AppState>>) -> Result<Vec<SkillDef>, String> {
+    state.skills.reload_external().map_err(|e| e.to_string())?;
     Ok(state.skills.list())
+}
+
+#[tauri::command]
+pub fn import_skill_zip(
+    state: State<'_, Arc<AppState>>,
+    zip_data: Vec<u8>,
+) -> Result<SkillImportResult, String> {
+    state
+        .skills
+        .import_zip(&zip_data)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -8,7 +8,8 @@
 - 默认 OpenAI 兼容协议；默认 Provider：阿里云千问 `qwen-plus`
   - Base URL：`https://dashscope.aliyuncs.com/compatible-mode/v1`
 - 工具调用：Rust 侧 Tool Registry，默认自动允许调用，可在设置中改为敏感工具二次确认
-- Skills：注入系统提示与工具集合，切换技能即时生效
+- Skills：按三层渐进式方式提供技能索引、正文说明与资源读取；支持通过 `zip` 导入外部 Skills
+
 - 兼容 Web：Vue 界面可运行在浏览器中，Web 后端通过 `server` crate 复用 `crates/pointer-core`
 - API Key 通过 Tauri 后端保存（避免暴露到前端运行时）
 
@@ -40,7 +41,50 @@ Vue 统一界面
 
 `crates/pointer-core` 复用模型协议、Provider、工具注册表、Skills、聊天编排和本地存储逻辑；`src-tauri` 仅保留桌面壳与 Tauri IPC 适配，`server` 提供 Web 端 HTTP/SSE API。
 
+## 外部 Skills
+
+外部 Skills 参考 Claude Agent Skills 的三层渐进式规范：每个 Skill 是一个目录，目录中包含带 YAML frontmatter 的 `SKILL.md`，可选包含 `references/`、`scripts/`、`assets/` 等资源目录。
+
+加载来源按优先级从高到低：
+
+1. 当前工作目录 `skills/`
+2. 当前工作目录 `.agents/skills/`
+3. 用户目录 `~/.agents/skills/`
+4. 应用数据目录 `PointerApp/skills/`
+
+同名 Skill 冲突时，高优先级来源覆盖低优先级来源。Windows 下应用数据目录通常位于：
+
+```text
+%APPDATA%/PointerApp/skills
+```
+
+支持通过「Skills 技能库」里的「导入 zip」按钮导入到 `PointerApp/skills/`。zip 中每个 Skill 必须是一个 kebab-case 目录，并包含精确命名的 `SKILL.md`；不支持 `skill.md`、`skill.json` 或 `manifest.json`。
+
+推荐的 `SKILL.md` 格式：
+
+```markdown
+---
+name: translator
+description: Translates, polishes, and standardizes terminology between Chinese and English. Use when users ask for translation, rewriting, localization, or terminology consistency.
+metadata:
+  tags:
+    - translation
+---
+
+# Translator Skill
+
+当用户要求翻译、润色或统一术语时使用该技能。
+保持原意，优先使用自然、准确、符合目标语言习惯的表达。
+```
+
+加载规则采用三层渐进式披露：第一层只把 `name` 和 `description` 作为 Skill 索引注入上下文；当模型判断任务需要某个 Skill 时，通过 `load_skill_instructions` 加载第二层 `SKILL.md` 正文；当正文引用 `references/`、`assets/` 或 `scripts/` 下的文件时，可通过 `read_skill_resource` 按需读取第三层资源。frontmatter 只支持官方字段：`name`、`description`、`license`、`compatibility`、`metadata`、`allowed-tools`。
+
+导入后会自动刷新 Skills 列表；启用外部 Skill 后，其说明会参与当前对话。zip 中的脚本或二进制不会被自动执行。
+
+
+
 ## 打包与发布
+
 
 本项目已配置 Tauri 2 跨平台打包，相关配置位于：
 

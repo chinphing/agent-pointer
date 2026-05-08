@@ -1,5 +1,6 @@
 import type { UnlistenFn } from '@tauri-apps/api/event'
-import type { ChatMessage, Conversation, ModelSettings, SkillDef, StreamEvent, ToolDef } from '../types/chat'
+import type { ChatMessage, Conversation, ModelSettings, SkillDef, SkillImportResult, StreamEvent, ToolDef } from '../types/chat'
+
 import * as tauriApi from './tauri'
 import * as webApi from './web'
 import { isTauriRuntime } from './runtime'
@@ -20,7 +21,9 @@ export interface RuntimeApi {
   clearApiKey(): Promise<void>
   testConnection(): Promise<{ ok: boolean; latencyMs: number; message: string }>
   listSkills(): Promise<SkillDef[]>
+  importSkillZip(file: File): Promise<SkillImportResult>
   listTools(): Promise<ToolDef[]>
+
   loadConversations(): Promise<Conversation[]>
   saveConversations(conversations: Conversation[]): Promise<void>
   onStream(handler: (e: StreamEvent) => void, conversationId?: string): Promise<UnlistenFn>
@@ -37,7 +40,9 @@ export const setApiKey = api.setApiKey
 export const clearApiKey = api.clearApiKey
 export const testConnection = api.testConnection
 export const listSkills = api.listSkills
+export const importSkillZip = api.importSkillZip
 export const listTools = api.listTools
+
 export const loadConversations = api.loadConversations
 export const saveConversations = api.saveConversations
 export const onStream = api.onStream

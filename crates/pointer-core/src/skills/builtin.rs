@@ -7,10 +7,13 @@ pub fn register_all(reg: &SkillRegistry) {
         name: "通用助手".into(),
         description: "适合日常问答、知识查询与开放式对话，回答力求准确简洁。".into(),
         tags: vec!["对话".into(), "问答".into()],
-        system_prompt: "你是一个有帮助的中文 AI 助手。回答需要准确、简洁，必要时使用 Markdown 格式。".into(),
+        system_prompt:
+            "你是一个有帮助的中文 AI 助手。回答需要准确、简洁，必要时使用 Markdown 格式。".into(),
         tool_names: vec!["get_current_time".into()],
         scenario: "知识问答 / 写作润色 / 信息总结".into(),
         builtin: true,
+        resource_files: Vec::new(),
+        source: None,
     });
 
     reg.register(SkillDef {
@@ -22,6 +25,8 @@ pub fn register_all(reg: &SkillRegistry) {
         tool_names: vec!["calculator".into(), "text_stats".into()],
         scenario: "写代码 / Code Review / 报错排查".into(),
         builtin: true,
+        resource_files: Vec::new(),
+        source: None,
     });
 
     reg.register(SkillDef {
@@ -33,6 +38,8 @@ pub fn register_all(reg: &SkillRegistry) {
         tool_names: vec!["text_stats".into()],
         scenario: "公众号文章 / 邮件 / 翻译".into(),
         builtin: true,
+        resource_files: Vec::new(),
+        source: None,
     });
 
     reg.register(SkillDef {
@@ -44,5 +51,7 @@ pub fn register_all(reg: &SkillRegistry) {
         tool_names: vec!["calculator".into(), "random_int".into(), "get_current_time".into()],
         scenario: "估算 / 概率 / 报表说明".into(),
         builtin: true,
+        resource_files: Vec::new(),
+        source: None,
     });
 }

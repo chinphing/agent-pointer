@@ -75,7 +75,9 @@ pub struct ModelSettings {
     pub tool_approval_mode: String,
 }
 
-fn default_tool_approval_mode() -> String { "auto".into() }
+fn default_tool_approval_mode() -> String {
+    "auto".into()
+}
 
 impl Default for ModelSettings {
     fn default() -> Self {
@@ -104,6 +106,16 @@ pub struct SkillDef {
     pub tool_names: Vec<String>,
     pub scenario: String,
     pub builtin: bool,
+    #[serde(default, rename = "resourceFiles")]
+    pub resource_files: Vec<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillImportResult {
+    pub imported: Vec<SkillDef>,
+    pub skipped: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -232,7 +244,9 @@ pub fn make_openai_messages(
                 if let Some(tcs) = &m.tool_calls {
                     let arr: Vec<_> = tcs
                         .iter()
-                        .filter(|t| t.status == "success" || t.status == "failed" || t.status == "rejected")
+                        .filter(|t| {
+                            t.status == "success" || t.status == "failed" || t.status == "rejected"
+                        })
                         .map(|t| {
                             serde_json::json!({
                                 "id": t.id,

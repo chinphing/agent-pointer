@@ -158,7 +158,52 @@ Model: qwen-plus
 4. 发送简单消息，例如 `你好`
 5. 测试工具调用，例如 `帮我计算 123 * 456`
 
+## 外部 Skills 调试
+
+外部 Skills 严格采用官方 Claude Skills 的目录式规范。加载来源按优先级从高到低：
+
+1. 当前工作目录 `skills/`
+2. 当前工作目录 `.agents/skills/`
+3. 用户目录 `~/.agents/skills/`
+4. `dirs::data_dir()` 下的 `PointerApp/skills/`
+
+Windows 应用数据目录通常为：
+
+```text
+C:\Users\<用户名>\AppData\Roaming\PointerApp\skills
+```
+
+调试方式：
+
+1. 准备包含 kebab-case Skill 目录和精确命名 `SKILL.md` 的 zip 包。
+2. 启动桌面端或 Web 端。
+3. 打开「Skills 技能库」。
+4. 点击「导入 zip」。
+5. 导入后列表中会显示「外部」标识。
+
+`SKILL.md` 示例：
+
+```markdown
+---
+name: translator
+description: Translates and standardizes terminology between Chinese and English. Use when users ask for translation, polishing, or terminology consistency.
+metadata:
+  tags:
+    - translation
+---
+
+# Translator Skill
+
+当用户要求翻译或润色时使用。保持原意，输出自然准确的目标语言表达。
+```
+
+说明：`name` 和 `description` 是第一层 frontmatter 索引，且 `name` 必须与 Skill 目录名一致；不支持 `skill.md`、`skill.json`、`manifest.json` 或旧字段 `id`、`systemPrompt`、`toolNames`。启用 Skill 后不会立即注入完整正文，模型会在需要时调用 `load_skill_instructions` 读取第二层 `SKILL.md` 正文；`references/`、`assets/`、`scripts/` 下的文件会作为第三层资源索引，可通过 `read_skill_resource` 按需读取。不会执行 zip 中的任意代码。
+
+
+
+
 ## Rust 后端调试
+
 
 进入 Tauri 后端目录：
 

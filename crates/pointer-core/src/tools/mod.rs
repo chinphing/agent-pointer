@@ -19,10 +19,14 @@ pub struct ToolRegistry {
 }
 
 impl ToolRegistry {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn register(&self, def: ToolDef, handler: ToolHandler) {
-        self.inner.write().insert(def.name.clone(), ToolEntry { def, handler });
+        self.inner
+            .write()
+            .insert(def.name.clone(), ToolEntry { def, handler });
     }
 
     pub fn list_defs(&self) -> Vec<ToolDef> {
@@ -35,7 +39,9 @@ impl ToolRegistry {
 
     pub fn invoke(&self, name: &str, args: serde_json::Value) -> Result<String> {
         let g = self.inner.read();
-        let entry = g.get(name).ok_or_else(|| anyhow::anyhow!("未注册的工具: {name}"))?;
+        let entry = g
+            .get(name)
+            .ok_or_else(|| anyhow::anyhow!("未注册的工具: {name}"))?;
         let handler = entry.handler.clone();
         drop(g);
         handler(args)

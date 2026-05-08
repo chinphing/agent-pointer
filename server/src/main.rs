@@ -1,15 +1,18 @@
 use axum::{
-    extract::{Path, State},
+    extract::{DefaultBodyLimit, Path, State},
     http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
     response::IntoResponse,
-    routing::{delete, get, post, put},
+    routing::{get, post},
     Json, Router,
 };
 use futures_util::Stream;
 use pointer_core::{
     chat_service::{run_chat, AppState},
-    models::{Conversation, ModelSettings, SendChatPayload, SkillDef, StreamEvent, ToolDef},
+    models::{
+        Conversation, ModelSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent,
+        ToolDef,
+    },
     provider::OpenAIProvider,
     storage,
 };
@@ -35,13 +38,17 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/settings", get(get_settings).put(update_settings))
         .route("/api/key", post(set_api_key).delete(clear_api_key))
         .route("/api/test-connection", post(test_connection))
-        .route("/api/skills", get(list_skills))
+        .route("/api/skills", get(list_skills).post(import_skill_zip))
         .route("/api/tools", get(list_tools))
-        .route("/api/conversations", get(load_conversations).put(save_conversations))
+        .route(
+            "/api/conversations",
+            get(load_conversations).put(save_conversations),
+        )
         .route("/api/chat", post(send_chat))
         .route("/api/chat/:conversation_id/cancel", post(cancel_chat))
         .route("/api/chat/:conversation_id/stream", get(chat_stream))
         .route("/api/tools/:tool_call_id/approve", post(approve_tool_call))
+        .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -58,13 +65,17 @@ async fn get_settings() -> Result<Json<ModelSettings>, ApiError> {
     Ok(Json(storage::load_settings()?))
 }
 
-async fn update_settings(Json(settings): Json<ModelSettings>) -> Result<Json<ModelSettings>, ApiError> {
+async fn update_settings(
+    Json(settings): Json<ModelSettings>,
+) -> Result<Json<ModelSettings>, ApiError> {
     storage::save_settings(&settings)?;
     Ok(Json(storage::load_settings()?))
 }
 
 #[derive(Deserialize)]
-struct KeyPayload { api_key: String }
+struct KeyPayload {
+    api_key: String,
+}
 
 async fn set_api_key(Json(payload): Json<KeyPayload>) -> Result<StatusCode, ApiError> {
     storage::save_api_key(&payload.api_key)?;
@@ -84,8 +95,16 @@ async fn test_connection() -> Result<Json<u128>, ApiError> {
     Ok(Json(provider.test().await?))
 }
 
-async fn list_skills(State(state): State<ServerState>) -> Json<Vec<SkillDef>> {
-    Json(state.core.skills.list())
+async fn list_skills(State(state): State<ServerState>) -> Result<Json<Vec<SkillDef>>, ApiError> {
+    state.core.skills.reload_external()?;
+    Ok(Json(state.core.skills.list()))
+}
+
+async fn import_skill_zip(
+    State(state): State<ServerState>,
+    body: axum::body::Bytes,
+) -> Result<Json<SkillImportResult>, ApiError> {
+    Ok(Json(state.core.skills.import_zip(&body)?))
 }
 
 async fn list_tools(State(state): State<ServerState>) -> Json<Vec<ToolDef>> {
@@ -96,7 +115,9 @@ async fn load_conversations() -> Result<Json<Vec<Conversation>>, ApiError> {
     Ok(Json(storage::load_conversations()?))
 }
 
-async fn save_conversations(Json(conversations): Json<Vec<Conversation>>) -> Result<StatusCode, ApiError> {
+async fn save_conversations(
+    Json(conversations): Json<Vec<Conversation>>,
+) -> Result<StatusCode, ApiError> {
     storage::save_conversations(&conversations)?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -114,7 +135,14 @@ async fn send_chat(
                 let _ = broadcast.send(ev);
             }
         });
-        let _ = run_chat(tx, core, payload.conversation_id, payload.messages, payload.enabled_skill_ids).await;
+        let _ = run_chat(
+            tx,
+            core,
+            payload.conversation_id,
+            payload.messages,
+            payload.enabled_skill_ids,
+        )
+        .await;
         let _ = forward.await;
     });
     Ok(StatusCode::ACCEPTED)
@@ -129,14 +157,19 @@ async fn cancel_chat(
 }
 
 #[derive(Deserialize)]
-struct ApprovalPayload { approved: bool }
+struct ApprovalPayload {
+    approved: bool,
+}
 
 async fn approve_tool_call(
     State(state): State<ServerState>,
     Path(tool_call_id): Path<String>,
     Json(payload): Json<ApprovalPayload>,
 ) -> Result<StatusCode, ApiError> {
-    if state.core.approve_tool_call(&tool_call_id, payload.approved) {
+    if state
+        .core
+        .approve_tool_call(&tool_call_id, payload.approved)
+    {
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(ApiError(anyhow::anyhow!("未找到待审批的工具调用")))
@@ -167,13 +200,19 @@ async fn chat_stream(
             }
         }
     };
-    Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text("keep-alive"))
+    Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("keep-alive"),
+    )
 }
 
 struct ApiError(anyhow::Error);
 
 impl From<anyhow::Error> for ApiError {
-    fn from(err: anyhow::Error) -> Self { Self(err) }
+    fn from(err: anyhow::Error) -> Self {
+        Self(err)
+    }
 }
 
 impl IntoResponse for ApiError {

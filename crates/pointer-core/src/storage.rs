@@ -15,9 +15,19 @@ fn data_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-fn settings_path() -> Result<PathBuf> { Ok(data_dir()?.join("settings.json")) }
-fn key_path() -> Result<PathBuf> { Ok(data_dir()?.join("key.dat")) }
-fn conv_path() -> Result<PathBuf> { Ok(data_dir()?.join("conversations.json")) }
+pub fn app_data_dir() -> Result<PathBuf> {
+    data_dir()
+}
+
+fn settings_path() -> Result<PathBuf> {
+    Ok(data_dir()?.join("settings.json"))
+}
+fn key_path() -> Result<PathBuf> {
+    Ok(data_dir()?.join("key.dat"))
+}
+fn conv_path() -> Result<PathBuf> {
+    Ok(data_dir()?.join("conversations.json"))
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 struct StoredSettings {
@@ -30,7 +40,9 @@ struct StoredSettings {
     tool_approval_mode: String,
 }
 
-fn default_tool_approval_mode() -> String { "auto".into() }
+fn default_tool_approval_mode() -> String {
+    "auto".into()
+}
 
 impl Default for StoredSettings {
     fn default() -> Self {
@@ -86,13 +98,18 @@ fn xor_key() -> [u8; 16] {
 
 fn obfuscate(data: &[u8]) -> Vec<u8> {
     let key = xor_key();
-    data.iter().enumerate().map(|(i, b)| b ^ key[i % key.len()]).collect()
+    data.iter()
+        .enumerate()
+        .map(|(i, b)| b ^ key[i % key.len()])
+        .collect()
 }
 
 pub fn save_api_key(key: &str) -> Result<()> {
     let path = key_path()?;
     if key.is_empty() {
-        if path.exists() { fs::remove_file(&path)?; }
+        if path.exists() {
+            fs::remove_file(&path)?;
+        }
         return Ok(());
     }
     fs::write(&path, obfuscate(key.as_bytes()))?;
@@ -101,7 +118,9 @@ pub fn save_api_key(key: &str) -> Result<()> {
 
 pub fn load_api_key() -> Result<Option<String>> {
     let path = key_path()?;
-    if !path.exists() { return Ok(None); }
+    if !path.exists() {
+        return Ok(None);
+    }
     let raw = fs::read(&path)?;
     let plain = obfuscate(&raw);
     Ok(Some(String::from_utf8_lossy(&plain).to_string()))
@@ -113,13 +132,17 @@ pub fn has_key() -> Result<bool> {
 
 pub fn clear_api_key() -> Result<()> {
     let path = key_path()?;
-    if path.exists() { fs::remove_file(&path)?; }
+    if path.exists() {
+        fs::remove_file(&path)?;
+    }
     Ok(())
 }
 
 pub fn load_conversations() -> Result<Vec<Conversation>> {
     let path = conv_path()?;
-    if !path.exists() { return Ok(vec![]); }
+    if !path.exists() {
+        return Ok(vec![]);
+    }
     let raw = fs::read_to_string(&path)?;
     Ok(serde_json::from_str(&raw).unwrap_or_default())
 }

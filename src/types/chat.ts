@@ -54,7 +54,15 @@ export interface SkillDef {
   toolNames: string[]
   scenario: string
   builtin: boolean
+  resourceFiles: string[]
+  source?: string
 }
+
+export interface SkillImportResult {
+  imported: SkillDef[]
+  skipped: string[]
+}
+
 
 export interface ToolDef {
   name: string

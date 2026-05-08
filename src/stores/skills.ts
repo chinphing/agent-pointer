@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { listSkills } from '../lib/api'
-import type { SkillDef } from '../types/chat'
+import { importSkillZip, listSkills } from '../lib/api'
+import type { SkillDef, SkillImportResult } from '../types/chat'
+
 
 export const useSkillsStore = defineStore('skills', () => {
   const skills = ref<SkillDef[]>([])
@@ -17,7 +18,14 @@ export const useSkillsStore = defineStore('skills', () => {
     loaded.value = true
   }
 
+  async function importZip(file: File): Promise<SkillImportResult> {
+    const result = await importSkillZip(file)
+    await load()
+    return result
+  }
+
   function toggle(id: string) {
+
     const i = enabledIds.value.indexOf(id)
     if (i >= 0) enabledIds.value.splice(i, 1)
     else enabledIds.value.push(id)
@@ -27,5 +35,6 @@ export const useSkillsStore = defineStore('skills', () => {
     return enabledIds.value.includes(id)
   }
 
-  return { skills, enabledIds, enabledSkills, loaded, load, toggle, isEnabled }
+  return { skills, enabledIds, enabledSkills, loaded, load, importZip, toggle, isEnabled }
+
 })

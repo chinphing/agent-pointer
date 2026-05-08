@@ -1,5 +1,6 @@
 use super::{ToolHandler, ToolRegistry};
 use crate::models::ToolDef;
+use crate::skills::SkillRegistry;
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -12,9 +13,17 @@ pub fn register_all(reg: &ToolRegistry) {
     register_echo(reg);
 }
 
+pub fn register_skill_tools(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
+    register_load_skill_instructions(reg, skills.clone());
+    register_read_skill_resource(reg, skills);
+}
+
 fn register_now(reg: &ToolRegistry) {
     let h: ToolHandler = Arc::new(|_args| {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         Ok(serde_json::json!({ "unix": now, "iso": iso_from_unix(now) }).to_string())
     });
     reg.register(
@@ -31,7 +40,9 @@ fn register_now(reg: &ToolRegistry) {
 
 fn register_calc(reg: &ToolRegistry) {
     let h: ToolHandler = Arc::new(|args| {
-        let expr = args.get("expression").and_then(|v| v.as_str())
+        let expr = args
+            .get("expression")
+            .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("缺少 expression"))?;
         let v = eval_expr(expr).map_err(|e| anyhow!("表达式错误: {e}"))?;
         Ok(serde_json::json!({ "expression": expr, "result": v }).to_string())
@@ -58,7 +69,10 @@ fn register_text_stats(reg: &ToolRegistry) {
         let chars = t.chars().count();
         let words = t.split_whitespace().count();
         let lines = t.lines().count();
-        Ok(serde_json::json!({"chars":chars,"words":words,"lines":lines,"bytes":t.len()}).to_string())
+        Ok(
+            serde_json::json!({"chars":chars,"words":words,"lines":lines,"bytes":t.len()})
+                .to_string(),
+        )
     });
     reg.register(
         ToolDef {
@@ -80,8 +94,13 @@ fn register_random(reg: &ToolRegistry) {
     let h: ToolHandler = Arc::new(|args| {
         let min = args.get("min").and_then(|v| v.as_i64()).unwrap_or(0);
         let max = args.get("max").and_then(|v| v.as_i64()).unwrap_or(100);
-        if min >= max { return Err(anyhow!("min 必须小于 max")); }
-        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(1);
+        if min >= max {
+            return Err(anyhow!("min 必须小于 max"));
+        }
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(1);
         let span = (max - min) as u64;
         let v = min + (nanos as u64 % span) as i64;
         Ok(serde_json::json!({ "value": v, "min": min, "max": max }).to_string())
@@ -103,9 +122,7 @@ fn register_random(reg: &ToolRegistry) {
 }
 
 fn register_echo(reg: &ToolRegistry) {
-    let h: ToolHandler = Arc::new(|args| {
-        Ok(serde_json::json!({ "echo": args }).to_string())
-    });
+    let h: ToolHandler = Arc::new(|args| Ok(serde_json::json!({ "echo": args }).to_string()));
     reg.register(
         ToolDef {
             name: "echo".into(),
@@ -113,6 +130,61 @@ fn register_echo(reg: &ToolRegistry) {
             parameters_schema: serde_json::json!({"type":"object","properties":{}, "additionalProperties":true}),
             risk_level: "medium".into(),
             requires_approval: true,
+        },
+        h,
+    );
+}
+
+fn register_load_skill_instructions(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
+    let h: ToolHandler = Arc::new(move |args| {
+        let id = args
+            .get("skill_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("缺少 skill_id"))?;
+        skills.load_instructions(id)
+    });
+    reg.register(
+        ToolDef {
+            name: "load_skill_instructions".into(),
+            description: "加载指定 Skill 的第二层 SKILL.md 正文说明。仅当第一层 description 判断该 Skill 与当前任务相关时调用。".into(),
+            parameters_schema: serde_json::json!({
+                "type":"object",
+                "properties":{ "skill_id":{"type":"string","description":"要加载的 Skill id"} },
+                "required":["skill_id"]
+            }),
+            risk_level: "low".into(),
+            requires_approval: false,
+        },
+        h,
+    );
+}
+
+fn register_read_skill_resource(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
+    let h: ToolHandler = Arc::new(move |args| {
+        let id = args
+            .get("skill_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("缺少 skill_id"))?;
+        let path = args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("缺少 path"))?;
+        skills.read_resource(id, path)
+    });
+    reg.register(
+        ToolDef {
+            name: "read_skill_resource".into(),
+            description: "读取指定 Skill 目录中 references、assets 或 scripts 下的第三层资源文件。仅在 SKILL.md 正文要求参考该文件时调用，不会执行脚本。".into(),
+            parameters_schema: serde_json::json!({
+                "type":"object",
+                "properties":{
+                    "skill_id":{"type":"string","description":"Skill id"},
+                    "path":{"type":"string","description":"资源相对路径，例如 references/api-guide.md"}
+                },
+                "required":["skill_id", "path"]
+            }),
+            risk_level: "low".into(),
+            requires_approval: false,
         },
         h,
     );
@@ -136,14 +208,35 @@ fn days_to_ymd(mut days: i64) -> (i64, u32, u32) {
     loop {
         let leap = (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
         let yd = if leap { 366 } else { 365 };
-        if days >= yd { days -= yd; y += 1; } else { break; }
+        if days >= yd {
+            days -= yd;
+            y += 1;
+        } else {
+            break;
+        }
     }
     let leap = (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
-    let dim = [31u32, if leap {29} else {28}, 31,30,31,30,31,31,30,31,30,31];
+    let dim = [
+        31u32,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut m = 0usize;
     let mut d = days as u32;
-    while m < 12 && d >= dim[m] { d -= dim[m]; m += 1; }
-    (y, (m+1) as u32, d+1)
+    while m < 12 && d >= dim[m] {
+        d -= dim[m];
+        m += 1;
+    }
+    (y, (m + 1) as u32, d + 1)
 }
 
 fn eval_expr(s: &str) -> std::result::Result<f64, String> {
@@ -153,7 +246,12 @@ fn eval_expr(s: &str) -> std::result::Result<f64, String> {
 }
 
 #[derive(Debug, Clone)]
-enum Tok { Num(f64), Op(char), LParen, RParen }
+enum Tok {
+    Num(f64),
+    Op(char),
+    LParen,
+    RParen,
+}
 
 fn tokenize(s: &str) -> std::result::Result<Vec<Tok>, String> {
     let mut out = Vec::new();
@@ -161,12 +259,19 @@ fn tokenize(s: &str) -> std::result::Result<Vec<Tok>, String> {
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
-        if c.is_whitespace() { i += 1; continue; }
+        if c.is_whitespace() {
+            i += 1;
+            continue;
+        }
         if c.is_ascii_digit() || c == '.' {
             let start = i;
-            while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') { i += 1; }
+            while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                i += 1;
+            }
             let str_part: String = chars[start..i].iter().collect();
-            let n: f64 = str_part.parse().map_err(|e: std::num::ParseFloatError| e.to_string())?;
+            let n: f64 = str_part
+                .parse()
+                .map_err(|e: std::num::ParseFloatError| e.to_string())?;
             out.push(Tok::Num(n));
             continue;
         }
@@ -181,7 +286,13 @@ fn tokenize(s: &str) -> std::result::Result<Vec<Tok>, String> {
     Ok(out)
 }
 
-fn prec(c: char) -> i32 { match c { '+'|'-' => 1, '*'|'/' => 2, _ => 0 } }
+fn prec(c: char) -> i32 {
+    match c {
+        '+' | '-' => 1,
+        '*' | '/' => 2,
+        _ => 0,
+    }
+}
 
 fn to_rpn(tokens: &[Tok]) -> std::result::Result<Vec<Tok>, String> {
     let mut out = Vec::new();
@@ -191,7 +302,11 @@ fn to_rpn(tokens: &[Tok]) -> std::result::Result<Vec<Tok>, String> {
             Tok::Num(_) => out.push(t.clone()),
             Tok::Op(c) => {
                 while let Some(Tok::Op(c2)) = ops.last() {
-                    if prec(*c2) >= prec(*c) { out.push(ops.pop().unwrap()); } else { break; }
+                    if prec(*c2) >= prec(*c) {
+                        out.push(ops.pop().unwrap());
+                    } else {
+                        break;
+                    }
                 }
                 ops.push(t.clone());
             }
@@ -199,15 +314,22 @@ fn to_rpn(tokens: &[Tok]) -> std::result::Result<Vec<Tok>, String> {
             Tok::RParen => {
                 let mut found = false;
                 while let Some(top) = ops.pop() {
-                    if matches!(top, Tok::LParen) { found = true; break; }
+                    if matches!(top, Tok::LParen) {
+                        found = true;
+                        break;
+                    }
                     out.push(top);
                 }
-                if !found { return Err("括号不匹配".into()); }
+                if !found {
+                    return Err("括号不匹配".into());
+                }
             }
         }
     }
     while let Some(t) = ops.pop() {
-        if matches!(t, Tok::LParen | Tok::RParen) { return Err("括号不匹配".into()); }
+        if matches!(t, Tok::LParen | Tok::RParen) {
+            return Err("括号不匹配".into());
+        }
         out.push(t);
     }
     Ok(out)
@@ -222,8 +344,15 @@ fn eval_rpn(rpn: &[Tok]) -> std::result::Result<f64, String> {
                 let b = st.pop().ok_or("缺少操作数")?;
                 let a = st.pop().ok_or("缺少操作数")?;
                 let v = match c {
-                    '+' => a + b, '-' => a - b, '*' => a * b,
-                    '/' => { if b == 0.0 { return Err("除零".into()); } a / b },
+                    '+' => a + b,
+                    '-' => a - b,
+                    '*' => a * b,
+                    '/' => {
+                        if b == 0.0 {
+                            return Err("除零".into());
+                        }
+                        a / b
+                    }
                     _ => return Err("未知运算符".into()),
                 };
                 st.push(v);
@@ -235,4 +364,6 @@ fn eval_rpn(rpn: &[Tok]) -> std::result::Result<f64, String> {
 }
 
 #[allow(dead_code)]
-pub fn _unused<T>(_: T) -> Result<()> { Ok(()) }
+pub fn _unused<T>(_: T) -> Result<()> {
+    Ok(())
+}

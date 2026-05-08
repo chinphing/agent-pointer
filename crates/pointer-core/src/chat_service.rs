@@ -26,6 +26,10 @@ impl AppState {
         crate::tools::builtin::register_all(&tools);
         let skills = Arc::new(SkillRegistry::new());
         crate::skills::builtin::register_all(&skills);
+        crate::tools::builtin::register_skill_tools(&tools, skills.clone());
+        if let Err(err) = skills.reload_external() {
+            log::warn!("load external skills failed: {err}");
+        }
         Self {
             tools,
             skills,
@@ -55,7 +59,9 @@ impl AppState {
 }
 
 impl Default for AppState {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub type StreamTx = mpsc::UnboundedSender<StreamEvent>;
@@ -72,7 +78,10 @@ pub async fn run_chat(
     enabled_skill_ids: Vec<String>,
 ) -> Result<()> {
     let cancel = CancellationToken::new();
-    state.cancels.lock().insert(conversation_id.clone(), cancel.clone());
+    state
+        .cancels
+        .lock()
+        .insert(conversation_id.clone(), cancel.clone());
 
     let result = run_chat_inner(
         stream.clone(),
@@ -87,7 +96,13 @@ pub async fn run_chat(
     state.cancels.lock().remove(&conversation_id);
 
     if let Err(err) = &result {
-        emit(&stream, StreamEvent::Error { message_id: None, message: err.to_string() });
+        emit(
+            &stream,
+            StreamEvent::Error {
+                message_id: None,
+                message: err.to_string(),
+            },
+        );
     }
     emit(&stream, StreamEvent::Done { conversation_id });
     result
@@ -107,7 +122,7 @@ async fn run_chat_inner(
     settings.api_key = api_key.clone();
     let tool_approval_mode = settings.tool_approval_mode.clone();
 
-    let (skill_prompts, allowed_tool_names) = state.skills.resolve(enabled_skill_ids);
+    let (skill_prompts, allowed_tool_names) = state.skills.progressive_context(enabled_skill_ids);
     let provider = OpenAIProvider::new(settings.clone(), api_key);
 
     for round in 0..MAX_TOOL_ROUNDS {
@@ -116,10 +131,13 @@ async fn run_chat_inner(
         }
 
         let assistant_id = new_id("msg");
-        emit(&stream, StreamEvent::MessageStart {
-            message_id: assistant_id.clone(),
-            conversation_id: conversation_id.to_string(),
-        });
+        emit(
+            &stream,
+            StreamEvent::MessageStart {
+                message_id: assistant_id.clone(),
+                conversation_id: conversation_id.to_string(),
+            },
+        );
 
         let tools_json = state.tools.openai_tools(&allowed_tool_names);
         let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
@@ -129,7 +147,14 @@ async fn run_chat_inner(
         let cancel_clone = cancel.clone();
         let tools_clone = tools_json.clone();
         let send_handle = tokio::spawn(async move {
-            prov.stream_chat(&history_clone, &prompts_clone, tools_clone, tx, cancel_clone).await
+            prov.stream_chat(
+                &history_clone,
+                &prompts_clone,
+                tools_clone,
+                tx,
+                cancel_clone,
+            )
+            .await
         });
 
         let mut content_buf = String::new();
@@ -141,11 +166,23 @@ async fn run_chat_inner(
             match ev {
                 ProviderEvent::ContentDelta(t) => {
                     content_buf.push_str(&t);
-                    emit(&stream, StreamEvent::Delta { message_id: assistant_id.clone(), text: t });
+                    emit(
+                        &stream,
+                        StreamEvent::Delta {
+                            message_id: assistant_id.clone(),
+                            text: t,
+                        },
+                    );
                 }
                 ProviderEvent::ReasoningDelta(t) => {
                     reasoning_buf.push_str(&t);
-                    emit(&stream, StreamEvent::ReasoningDelta { message_id: assistant_id.clone(), text: t });
+                    emit(
+                        &stream,
+                        StreamEvent::ReasoningDelta {
+                            message_id: assistant_id.clone(),
+                            text: t,
+                        },
+                    );
                 }
                 ProviderEvent::ToolCallStart { id, name, .. } => {
                     let tc = ToolCall {
@@ -156,16 +193,31 @@ async fn run_chat_inner(
                         result: None,
                         error: None,
                         duration_ms: None,
-                        risk_level: state.tools.get_def(&name).map(|d| d.risk_level).or(Some("low".into())),
+                        risk_level: state
+                            .tools
+                            .get_def(&name)
+                            .map(|d| d.risk_level)
+                            .or(Some("low".into())),
                     };
-                    emit(&stream, StreamEvent::ToolCallStart { message_id: assistant_id.clone(), tool_call: tc });
+                    emit(
+                        &stream,
+                        StreamEvent::ToolCallStart {
+                            message_id: assistant_id.clone(),
+                            tool_call: tc,
+                        },
+                    );
                 }
-                ProviderEvent::ToolCallArgsDelta { tool_call_id, args, .. } => {
-                    emit(&stream, StreamEvent::ToolCallArgsDelta {
-                        message_id: assistant_id.clone(),
-                        tool_call_id,
-                        args_delta: args,
-                    });
+                ProviderEvent::ToolCallArgsDelta {
+                    tool_call_id, args, ..
+                } => {
+                    emit(
+                        &stream,
+                        StreamEvent::ToolCallArgsDelta {
+                            message_id: assistant_id.clone(),
+                            tool_call_id,
+                            args_delta: args,
+                        },
+                    );
                 }
                 ProviderEvent::Finish { reason, tool_calls } => {
                     finish_reason = reason;
@@ -177,8 +229,19 @@ async fn run_chat_inner(
         match send_handle.await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
-                emit(&stream, StreamEvent::Error { message_id: Some(assistant_id.clone()), message: e.to_string() });
-                emit(&stream, StreamEvent::MessageEnd { message_id: assistant_id.clone() });
+                emit(
+                    &stream,
+                    StreamEvent::Error {
+                        message_id: Some(assistant_id.clone()),
+                        message: e.to_string(),
+                    },
+                );
+                emit(
+                    &stream,
+                    StreamEvent::MessageEnd {
+                        message_id: assistant_id.clone(),
+                    },
+                );
                 return Err(e);
             }
             Err(e) => return Err(anyhow!("任务异常：{e}")),
@@ -188,22 +251,45 @@ async fn run_chat_inner(
             id: assistant_id.clone(),
             role: Role::Assistant,
             content: content_buf.clone(),
-            status: if final_tool_calls.is_empty() { "completed".into() } else { "streaming".into() },
+            status: if final_tool_calls.is_empty() {
+                "completed".into()
+            } else {
+                "streaming".into()
+            },
             created_at: now_ms(),
             tool_calls: if final_tool_calls.is_empty() {
                 None
             } else {
-                Some(final_tool_calls.iter().cloned().map(|mut t| {
-                    t.risk_level = state.tools.get_def(&t.name).map(|d| d.risk_level).or(Some("low".into()));
-                    t
-                }).collect())
+                Some(
+                    final_tool_calls
+                        .iter()
+                        .cloned()
+                        .map(|mut t| {
+                            t.risk_level = state
+                                .tools
+                                .get_def(&t.name)
+                                .map(|d| d.risk_level)
+                                .or(Some("low".into()));
+                            t
+                        })
+                        .collect(),
+                )
             },
             tool_call_id: None,
             error_message: None,
-            reasoning: if reasoning_buf.is_empty() { None } else { Some(reasoning_buf) },
+            reasoning: if reasoning_buf.is_empty() {
+                None
+            } else {
+                Some(reasoning_buf)
+            },
         };
         history.push(assistant_msg);
-        emit(&stream, StreamEvent::MessageEnd { message_id: assistant_id.clone() });
+        emit(
+            &stream,
+            StreamEvent::MessageEnd {
+                message_id: assistant_id.clone(),
+            },
+        );
 
         if final_tool_calls.is_empty() {
             let _ = finish_reason;
@@ -220,14 +306,17 @@ async fn run_chat_inner(
                 && def.as_ref().map(|d| d.requires_approval).unwrap_or(false);
 
             if requires_approval {
-                emit(&stream, StreamEvent::ToolCallStatus {
-                    message_id: assistant_id.clone(),
-                    tool_call_id: tc.id.clone(),
-                    status: "pending_approval".into(),
-                    result: None,
-                    error: None,
-                    duration_ms: None,
-                });
+                emit(
+                    &stream,
+                    StreamEvent::ToolCallStatus {
+                        message_id: assistant_id.clone(),
+                        tool_call_id: tc.id.clone(),
+                        status: "pending_approval".into(),
+                        result: None,
+                        error: None,
+                        duration_ms: None,
+                    },
+                );
                 let (atx, arx) = oneshot::channel::<bool>();
                 state.approvals.lock().insert(tc.id.clone(), atx);
                 let approved = tokio::select! {
@@ -239,55 +328,68 @@ async fn run_chat_inner(
                 };
                 if !approved {
                     let err = "用户已拒绝该工具调用".to_string();
-                    emit(&stream, StreamEvent::ToolCallStatus {
-                        message_id: assistant_id.clone(),
-                        tool_call_id: tc.id.clone(),
-                        status: "rejected".into(),
-                        result: None,
-                        error: Some(err.clone()),
-                        duration_ms: None,
-                    });
+                    emit(
+                        &stream,
+                        StreamEvent::ToolCallStatus {
+                            message_id: assistant_id.clone(),
+                            tool_call_id: tc.id.clone(),
+                            status: "rejected".into(),
+                            result: None,
+                            error: Some(err.clone()),
+                            duration_ms: None,
+                        },
+                    );
                     history.push(tool_result_msg(&tc.id, &err));
                     any_executed = true;
                     continue;
                 }
             }
 
-            emit(&stream, StreamEvent::ToolCallStatus {
-                message_id: assistant_id.clone(),
-                tool_call_id: tc.id.clone(),
-                status: "running".into(),
-                result: None,
-                error: None,
-                duration_ms: None,
-            });
+            emit(
+                &stream,
+                StreamEvent::ToolCallStatus {
+                    message_id: assistant_id.clone(),
+                    tool_call_id: tc.id.clone(),
+                    status: "running".into(),
+                    result: None,
+                    error: None,
+                    duration_ms: None,
+                },
+            );
             let started = Instant::now();
-            let args_value: serde_json::Value = serde_json::from_str(&tc.arguments).unwrap_or(serde_json::Value::Null);
+            let args_value: serde_json::Value =
+                serde_json::from_str(&tc.arguments).unwrap_or(serde_json::Value::Null);
             let exec = state.tools.invoke(&tc.name, args_value);
             let duration = started.elapsed().as_millis() as u64;
             match exec {
                 Ok(out) => {
                     let preview = truncate_str(&out, 800);
-                    emit(&stream, StreamEvent::ToolCallStatus {
-                        message_id: assistant_id.clone(),
-                        tool_call_id: tc.id.clone(),
-                        status: "success".into(),
-                        result: Some(preview),
-                        error: None,
-                        duration_ms: Some(duration),
-                    });
+                    emit(
+                        &stream,
+                        StreamEvent::ToolCallStatus {
+                            message_id: assistant_id.clone(),
+                            tool_call_id: tc.id.clone(),
+                            status: "success".into(),
+                            result: Some(preview),
+                            error: None,
+                            duration_ms: Some(duration),
+                        },
+                    );
                     history.push(tool_result_msg(&tc.id, &out));
                 }
                 Err(e) => {
                     let err = e.to_string();
-                    emit(&stream, StreamEvent::ToolCallStatus {
-                        message_id: assistant_id.clone(),
-                        tool_call_id: tc.id.clone(),
-                        status: "failed".into(),
-                        result: None,
-                        error: Some(err.clone()),
-                        duration_ms: Some(duration),
-                    });
+                    emit(
+                        &stream,
+                        StreamEvent::ToolCallStatus {
+                            message_id: assistant_id.clone(),
+                            tool_call_id: tc.id.clone(),
+                            status: "failed".into(),
+                            result: None,
+                            error: Some(err.clone()),
+                            duration_ms: Some(duration),
+                        },
+                    );
                     history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
                 }
             }
@@ -320,12 +422,19 @@ fn tool_result_msg(tool_call_id: &str, content: &str) -> ChatMessage {
 }
 
 fn truncate_str(s: &str, n: usize) -> String {
-    if s.chars().count() <= n { s.to_string() } else { format!("{}…", s.chars().take(n).collect::<String>()) }
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(n).collect::<String>())
+    }
 }
 
 fn now_ms() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn new_id(prefix: &str) -> String {

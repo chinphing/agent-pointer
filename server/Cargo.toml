@@ -6,7 +6,8 @@ edition = "2021"
 [dependencies]
 anyhow = "1"
 async-stream = "0.3"
-axum = "0.7"
+axum = { version = "0.7", features = ["macros"] }
+
 futures-util = "0.3"
 pointer-core = { path = "../crates/pointer-core" }
 serde = { version = "1", features = ["derive"] }

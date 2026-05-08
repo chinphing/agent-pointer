@@ -1,4 +1,5 @@
-import type { ChatMessage, Conversation, ModelSettings, SkillDef, StreamEvent, ToolDef } from '../types/chat'
+import type { ChatMessage, Conversation, ModelSettings, SkillDef, SkillImportResult, StreamEvent, ToolDef } from '../types/chat'
+
 import { WEB_API_BASE } from './runtime'
 
 export interface SendChatPayload {
@@ -8,13 +9,16 @@ export interface SendChatPayload {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers)
+  if (init?.body && !(init.body instanceof FormData) && !(init.body instanceof Blob) && !(init.body instanceof ArrayBuffer)) {
+    headers.set('Content-Type', 'application/json')
+  }
+
   const res = await fetch(`${WEB_API_BASE}${path}`, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers || {})
-    }
+    headers
   })
+
   if (!res.ok) throw new Error(await res.text())
   if (res.status === 204 || res.status === 202) return undefined as T
   return await res.json()
@@ -68,7 +72,15 @@ export async function listSkills(): Promise<SkillDef[]> {
   return await request<SkillDef[]>('/api/skills')
 }
 
+export async function importSkillZip(file: File): Promise<SkillImportResult> {
+  return await request<SkillImportResult>('/api/skills', {
+    method: 'POST',
+    body: await file.arrayBuffer()
+  })
+}
+
 export async function listTools(): Promise<ToolDef[]> {
+
   return await request<ToolDef[]>('/api/tools')
 }
 

@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type {
-  ChatMessage, Conversation, ModelSettings, SkillDef, StreamEvent, ToolDef
+  ChatMessage, Conversation, ModelSettings, SkillDef, SkillImportResult, StreamEvent, ToolDef
+
 } from '../types/chat'
 
 export const STREAM_EVENT = 'chat://stream'
@@ -57,7 +58,13 @@ export async function listSkills(): Promise<SkillDef[]> {
   return await invoke<SkillDef[]>('list_skills')
 }
 
+export async function importSkillZip(file: File): Promise<SkillImportResult> {
+  const data = Array.from(new Uint8Array(await file.arrayBuffer()))
+  return await invoke<SkillImportResult>('import_skill_zip', { zipData: data })
+}
+
 export async function listTools(): Promise<ToolDef[]> {
+
   return await invoke<ToolDef[]>('list_tools')
 }
 

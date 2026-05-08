@@ -2,23 +2,16 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   Bot,
-  CheckCircle2,
   Cpu,
   Database,
   Eye,
   EyeOff,
   Gauge,
-  KeyRound,
-  Loader2,
-  Network,
   Plus,
-  Shield,
   SlidersHorizontal,
   Trash2,
   Wrench,
-  X,
-  XCircle,
-  Zap
+  X
 } from 'lucide-vue-next'
 import type { ProviderConfig } from '../../types/chat'
 import { useSettingsStore } from '../../stores/settings'
@@ -26,7 +19,6 @@ import { useSettingsStore } from '../../stores/settings'
 const emit = defineEmits<{ (e: 'close'): void }>()
 const s = useSettingsStore()
 
-const localKey = ref('')
 const showKey = ref(false)
 const saving = ref(false)
 const activeSection = ref('provider')
@@ -42,7 +34,6 @@ const editingModelsText = ref('')
 
 const sections = [
   { id: 'provider', label: '模型服务', desc: '管理 AI 服务', icon: Cpu },
-  { id: 'credential', label: '凭据', desc: 'API 密钥', icon: KeyRound },
   { id: 'generation', label: '生成参数', desc: '输出控制', icon: Gauge },
   { id: 'agent', label: '智能模式', desc: '工作方式', icon: Bot },
   { id: 'runtime', label: '运行时', desc: '存储与网络', icon: Database }
@@ -118,10 +109,6 @@ async function saveAll() {
       toolApprovalMode: toolApprovalMode.value,
       agentMode: agentMode.value
     })
-    if (localKey.value) {
-      await s.saveKey(localKey.value)
-      localKey.value = ''
-    }
     emit('close')
   } finally {
     saving.value = false
@@ -174,13 +161,14 @@ async function saveAll() {
               <div v-for="p in s.settings.providers" :key="p.id" class="glass rounded-xl p-4 border border-white/5">
                 <div class="flex items-start justify-between">
                   <div class="flex-1">
-                    <div class="flex items-center gap-2">
-                      <span class="text-sm font-medium text-slate-100">{{ p.name }}</span>
-                      <span v-if="s.settings.activeProviderId === p.id" class="px-2 py-0.5 rounded-full bg-primary/20 text-[10px] text-primary-cyan">当前使用</span>
-                    </div>
-                    <p class="mt-1 text-[11px] text-slate-500 truncate">{{ p.baseUrl }}</p>
-                    <p class="mt-1 text-[11px] text-slate-500">模型：{{ p.models.join(', ') || '未配置' }}</p>
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm font-medium text-slate-100">{{ p.name }}</span>
+                    <span v-if="s.settings.activeProviderId === p.id" class="px-2 py-0.5 rounded-full bg-primary/20 text-[10px] text-primary-cyan">当前使用</span>
+                    <span v-if="p.apiKey" class="px-2 py-0.5 rounded-full bg-green-500/20 text-[10px] text-green-400">已配置密钥</span>
                   </div>
+                  <p class="mt-1 text-[11px] text-slate-500 truncate">{{ p.baseUrl }}</p>
+                  <p class="mt-1 text-[11px] text-slate-500">模型：{{ p.models.join(', ') || '未配置' }}</p>
+                </div>
                   <div class="flex items-center gap-2">
                     <button class="p-1.5 rounded-lg hover:bg-white/10 cursor-pointer" @click="startEditProvider(p)">
                       <Wrench class="w-3.5 h-3.5 text-slate-400" />
@@ -218,6 +206,15 @@ async function saveAll() {
                   <input v-model="editingProvider.baseUrl" type="text" class="w-full h-10 px-3 rounded-lg glass border border-white/5 bg-transparent text-sm text-slate-100 outline-none focus:border-primary/50" placeholder="https://api.example.com/v1" />
                 </div>
                 <div>
+                  <label class="block text-[12px] text-slate-400 mb-1">API 密钥</label>
+                  <div class="flex items-center gap-2 h-10 px-3 rounded-lg glass border border-white/5">
+                    <input v-model="editingProvider.apiKey" :type="showKey ? 'text' : 'password'" class="flex-1 bg-transparent border-0 outline-none text-sm text-slate-100 placeholder:text-slate-500" placeholder="请输入 API 密钥" />
+                    <button class="p-1 rounded hover:bg-white/10 cursor-pointer" @click="showKey = !showKey">
+                      <component :is="showKey ? EyeOff : Eye" class="w-4 h-4 text-slate-400" />
+                    </button>
+                  </div>
+                </div>
+                <div>
                   <label class="block text-[12px] text-slate-400 mb-1">模型列表（逗号分隔）</label>
                   <input v-model="editingModelsText" type="text" class="w-full h-10 px-3 rounded-lg glass border border-white/5 bg-transparent text-sm text-slate-100 outline-none focus:border-primary/50" placeholder="model-1, model-2, model-3" />
                 </div>
@@ -228,47 +225,6 @@ async function saveAll() {
                 <button class="h-9 px-4 rounded-lg bg-gradient-to-r from-primary to-primary-fuchsia text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50" :disabled="!editingProvider.id || !editingProvider.name || !editingProvider.baseUrl" @click="saveProvider">
                   {{ showAddProvider ? '添加' : '保存' }}
                 </button>
-              </div>
-            </div>
-          </section>
-
-          <section v-else-if="activeSection === 'credential'" class="space-y-5">
-            <div>
-              <h3 class="text-sm font-semibold text-slate-100 flex items-center gap-2">
-                <Shield class="w-4 h-4 text-primary-cyan" />凭据与密钥
-              </h3>
-              <p class="mt-1 text-xs text-slate-500">API 密钥仅保存在本机，不会上传到其他地方。</p>
-            </div>
-
-            <div class="glass rounded-xl p-4 border border-white/5">
-              <div class="flex items-center gap-2 text-xs">
-                <Shield class="w-3.5 h-3.5 text-primary-cyan" />
-                <span :class="s.settings.hasKey ? 'text-success' : 'text-warning'">
-                  {{ s.settings.hasKey ? '已保存 API Key' : '尚未配置 API Key' }}
-                </span>
-                <button v-if="s.settings.hasKey" class="ml-auto text-[11px] text-danger hover:underline cursor-pointer" @click="s.removeKey()">移除</button>
-              </div>
-
-              <div class="mt-3 flex items-center gap-2">
-                <div class="flex-1 flex items-center gap-2 h-10 px-3 rounded-lg bg-black/30 border border-white/5">
-                  <input v-model="localKey" :type="showKey ? 'text' : 'password'" placeholder="请输入 API 密钥" class="flex-1 bg-transparent border-0 outline-none text-sm text-slate-100 placeholder:text-slate-500" />
-                  <button class="p-1 rounded hover:bg-white/10 cursor-pointer" @click="showKey = !showKey">
-                    <component :is="showKey ? EyeOff : Eye" class="w-4 h-4 text-slate-400" />
-                  </button>
-                </div>
-              </div>
-
-              <div class="mt-4 flex items-center gap-3">
-                <button class="h-10 px-4 rounded-lg bg-gradient-to-r from-primary to-primary-fuchsia text-white text-sm font-medium flex items-center gap-2 cursor-pointer hover:opacity-95 disabled:opacity-50" :disabled="s.testing" @click="s.runTest()">
-                  <Loader2 v-if="s.testing" class="w-4 h-4 animate-spin" />
-                  <Zap v-else class="w-4 h-4" />
-                  测试连接
-                </button>
-                <div v-if="s.testResult" class="text-xs flex items-center gap-1.5" :class="s.testResult.ok ? 'text-success' : 'text-danger'">
-                  <CheckCircle2 v-if="s.testResult.ok" class="w-3.5 h-3.5" />
-                  <XCircle v-else class="w-3.5 h-3.5" />
-                  {{ s.testResult.message }} <span v-if="s.testResult.ok">· {{ s.testResult.latencyMs }}ms</span>
-                </div>
               </div>
             </div>
           </section>

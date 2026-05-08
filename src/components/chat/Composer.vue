@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Bot, ChevronDown, Send, Square, Sparkles, Users } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
@@ -12,6 +12,12 @@ const composing = ref(false)
 const showModelPicker = ref(false)
 const showModePicker = ref(false)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
+const modelBtnRef = ref<HTMLButtonElement | null>(null)
+const modeBtnRef = ref<HTMLButtonElement | null>(null)
+const modelPickerRef = ref<HTMLDivElement | null>(null)
+const modePickerRef = ref<HTMLDivElement | null>(null)
+const modelPickerWidth = ref(0)
+const modePickerWidth = ref(0)
 
 const agentModes = [
   { value: 'single', label: '标准模式', icon: Bot },
@@ -55,6 +61,42 @@ function autoResize() {
   textareaRef.value.style.height = 'auto'
   textareaRef.value.style.height = Math.min(textareaRef.value.scrollHeight, 250) + 'px'
 }
+
+function updatePickerWidths() {
+  if (modelBtnRef.value) {
+    const btnWidth = modelBtnRef.value.offsetWidth
+    const minWidth = Math.max(btnWidth, 180)
+    modelPickerWidth.value = minWidth
+  }
+  if (modeBtnRef.value) {
+    const btnWidth = modeBtnRef.value.offsetWidth
+    const minWidth = Math.max(btnWidth, 160)
+    modePickerWidth.value = minWidth
+  }
+}
+
+function handleClickOutside(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  if (showModelPicker.value && modelBtnRef.value && modelPickerRef.value) {
+    if (!modelBtnRef.value.contains(target) && !modelPickerRef.value.contains(target)) {
+      showModelPicker.value = false
+    }
+  }
+  if (showModePicker.value && modeBtnRef.value && modePickerRef.value) {
+    if (!modeBtnRef.value.contains(target) && !modePickerRef.value.contains(target)) {
+      showModePicker.value = false
+    }
+  }
+}
+
+onMounted(() => {
+  updatePickerWidths()
+  document.addEventListener('click', handleClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside)
+})
 </script>
 
 <template>
@@ -95,6 +137,7 @@ function autoResize() {
       <div class="flex items-center gap-2 mt-2">
         <div class="relative">
           <button
+            ref="modelBtnRef"
             class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg glass text-[11px] text-slate-300 hover:bg-white/10 cursor-pointer"
             @click="showModelPicker = !showModelPicker"
           >
@@ -103,7 +146,7 @@ function autoResize() {
             <ChevronDown class="w-3 h-3" />
           </button>
 
-          <div v-if="showModelPicker" class="absolute bottom-full left-0 mb-2 w-64 glass-strong rounded-xl shadow-2xl overflow-hidden z-50">
+          <div v-if="showModelPicker" ref="modelPickerRef" class="absolute bottom-full left-0 mb-2 glass-strong rounded-xl shadow-2xl overflow-hidden z-50" :style="{ minWidth: modelPickerWidth + 'px' }">
             <div class="p-2 border-b border-white/5">
               <div class="text-[11px] text-slate-500">选择模型</div>
             </div>
@@ -111,7 +154,7 @@ function autoResize() {
               <button
                 v-for="m in settings.activeModelList"
                 :key="m"
-                class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 cursor-pointer"
+                class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 cursor-pointer whitespace-nowrap"
                 :class="settings.settings.model === m ? 'bg-primary/15 text-primary-cyan' : 'text-slate-300'"
                 @click="selectModel(m)"
               >
@@ -123,6 +166,7 @@ function autoResize() {
 
         <div class="relative">
           <button
+            ref="modeBtnRef"
             class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg glass text-[11px] text-slate-300 hover:bg-white/10 cursor-pointer"
             @click="showModePicker = !showModePicker"
           >
@@ -132,7 +176,7 @@ function autoResize() {
             <ChevronDown class="w-3 h-3" />
           </button>
 
-          <div v-if="showModePicker" class="absolute bottom-full left-0 mb-2 w-40 glass-strong rounded-xl shadow-2xl overflow-hidden z-50">
+          <div v-if="showModePicker" ref="modePickerRef" class="absolute bottom-full left-0 mb-2 glass-strong rounded-xl shadow-2xl overflow-hidden z-50" :style="{ minWidth: modePickerWidth + 'px' }">
             <div class="p-2 border-b border-white/5">
               <div class="text-[11px] text-slate-500">选择模式</div>
             </div>
@@ -140,7 +184,7 @@ function autoResize() {
               <button
                 v-for="mode in agentModes"
                 :key="mode.value"
-                class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 cursor-pointer flex items-center gap-2"
+                class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 cursor-pointer flex items-center gap-2 whitespace-nowrap"
                 :class="settings.settings.agentMode === mode.value ? 'bg-primary/15 text-primary-cyan' : 'text-slate-300'"
                 @click="selectAgentMode(mode.value)"
               >

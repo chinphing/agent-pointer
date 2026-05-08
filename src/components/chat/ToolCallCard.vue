@@ -8,12 +8,49 @@ const props = defineProps<{ toolCall: ToolCall }>()
 const chat = useChatStore()
 const open = ref(true)
 
+const isTerminal = computed(() => props.toolCall.name === 'terminal')
+
 const prettyArgs = computed(() => {
+  if (isTerminal.value) return ''
   const text = props.toolCall.arguments?.trim()
   if (!text) return ''
   try {
     return JSON.stringify(JSON.parse(text), null, 2)
   } catch { return text }
+})
+
+type TerminalResult = {
+  stdout?: string
+  stderr?: string
+  exitCode?: number | null
+  timedOut?: boolean
+}
+
+const terminalResult = computed<TerminalResult | null>(() => {
+  if (!isTerminal.value || !props.toolCall.result) return null
+  try {
+    return JSON.parse(props.toolCall.result) as TerminalResult
+  } catch {
+    return { stdout: props.toolCall.result }
+  }
+})
+
+const terminalOutput = computed(() => {
+  const result = terminalResult.value
+  if (!result) return ''
+  const parts = []
+  if (result.stdout) parts.push(result.stdout)
+  if (result.stderr) parts.push(result.stderr)
+  return parts.join(result.stdout && result.stderr ? '\n' : '')
+})
+
+const terminalMeta = computed(() => {
+  const result = terminalResult.value
+  if (!result) return ''
+  const items = []
+  if (typeof result.exitCode !== 'undefined' && result.exitCode !== null) items.push(`exit ${result.exitCode}`)
+  if (result.timedOut) items.push('timeout')
+  return items.join(' · ')
 })
 
 const statusInfo = computed(() => {
@@ -54,15 +91,27 @@ function approve(ok: boolean) {
     </button>
 
     <div v-if="open" class="px-3 pb-3 space-y-2">
-      <div>
-        <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">参数</div>
-        <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200">{{ prettyArgs || '—' }}</pre>
-      </div>
+      <template v-if="isTerminal">
+        <div v-if="toolCall.result">
+          <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500 mb-1">
+            <span>控制台输出</span>
+            <span v-if="terminalMeta" class="normal-case tracking-normal">{{ terminalMeta }}</span>
+          </div>
+          <pre class="text-[12px] bg-black/60 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200 max-h-64">{{ terminalOutput || '—' }}</pre>
+        </div>
+      </template>
 
-      <div v-if="toolCall.result">
-        <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">结果</div>
-        <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200 max-h-48">{{ toolCall.result }}</pre>
-      </div>
+      <template v-else>
+        <div>
+          <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">参数</div>
+          <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200">{{ prettyArgs || '—' }}</pre>
+        </div>
+
+        <div v-if="toolCall.result">
+          <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">结果</div>
+          <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200 max-h-48">{{ toolCall.result }}</pre>
+        </div>
+      </template>
 
       <div v-if="toolCall.error" class="text-[12px] text-danger">{{ toolCall.error }}</div>
 

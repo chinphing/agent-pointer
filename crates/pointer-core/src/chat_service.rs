@@ -702,43 +702,284 @@ async fn run_sub_agent(
     prompts.extend(skill_prompts);
     prompts.push(format!("子任务：\n{}", task.instruction));
 
-    let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
-    let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
-    let history_clone = history.to_vec();
-    let prompts_clone = prompts.clone();
-    let cancel_clone = cancel.clone();
-    let handle = tokio::spawn(async move {
-        prov.stream_chat(&history_clone, &prompts_clone, Vec::new(), tx, cancel_clone)
-            .await
-    });
-
+    let tools_json = state.tools.openai_tools(&allowed_tools);
+    let tool_approval_mode = storage::load_settings()
+        .map(|settings| settings.tool_approval_mode)
+        .unwrap_or_else(|_| "auto".into());
+    let mut local_history = history.to_vec();
     let mut content = String::new();
     let mut reasoning = String::new();
-    while let Some(ev) = rx.recv().await {
-        match ev {
-            ProviderEvent::ContentDelta(delta) => {
-                content.push_str(&delta);
-                emit_agent_content_delta(
-                    stream,
-                    message_id,
-                    agent_trace,
-                    &def,
-                    task,
-                    content.clone(),
-                );
-            }
-            ProviderEvent::ReasoningDelta(delta) => {
-                reasoning.push_str(&delta);
-            }
-            ProviderEvent::Finish { .. } => {}
-            ProviderEvent::ToolCallStart { .. } | ProviderEvent::ToolCallArgsDelta { .. } => {}
-        }
-    }
 
-    match handle.await {
-        Ok(Ok(())) => {}
-        Ok(Err(err)) => return Err(err),
-        Err(err) => return Err(anyhow!("子 Agent 任务异常：{err}")),
+    for round in 0..MAX_TOOL_ROUNDS {
+        if cancel.is_cancelled() {
+            return Err(anyhow!("已停止生成"));
+        }
+
+        let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
+        let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
+        let history_clone = local_history.clone();
+        let prompts_clone = prompts.clone();
+        let tools_clone = tools_json.clone();
+        let cancel_clone = cancel.clone();
+        let handle = tokio::spawn(async move {
+            prov.stream_chat(&history_clone, &prompts_clone, tools_clone, tx, cancel_clone)
+                .await
+        });
+
+        let round_message_id = new_id("agent_msg");
+        let mut round_content = String::new();
+        let mut round_reasoning = String::new();
+        let mut final_tool_calls: Vec<ToolCall> = Vec::new();
+
+        while let Some(ev) = rx.recv().await {
+            match ev {
+                ProviderEvent::ContentDelta(delta) => {
+                    round_content.push_str(&delta);
+                    content.push_str(&delta);
+                    emit_agent_content_delta(
+                        stream,
+                        message_id,
+                        agent_trace,
+                        &def,
+                        task,
+                        content.clone(),
+                    );
+                }
+                ProviderEvent::ReasoningDelta(delta) => {
+                    round_reasoning.push_str(&delta);
+                    reasoning.push_str(&delta);
+                }
+                ProviderEvent::ToolCallStart { id, name, .. } => {
+                    emit(
+                        stream,
+                        StreamEvent::ToolCallStart {
+                            message_id: message_id.to_string(),
+                            tool_call: ToolCall {
+                                id,
+                                name: name.clone(),
+                                arguments: String::new(),
+                                status: "pending".into(),
+                                result: None,
+                                error: None,
+                                duration_ms: None,
+                                risk_level: state
+                                    .tools
+                                    .get_def(&name)
+                                    .map(|tool| tool.risk_level)
+                                    .or(Some("low".into())),
+                            },
+                        },
+                    );
+                }
+                ProviderEvent::ToolCallArgsDelta {
+                    tool_call_id, args, ..
+                } => {
+                    emit(
+                        stream,
+                        StreamEvent::ToolCallArgsDelta {
+                            message_id: message_id.to_string(),
+                            tool_call_id,
+                            args_delta: args,
+                        },
+                    );
+                }
+                ProviderEvent::Finish { tool_calls, .. } => {
+                    final_tool_calls = tool_calls;
+                }
+            }
+        }
+
+        match handle.await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => return Err(err),
+            Err(err) => return Err(anyhow!("子 Agent 任务异常：{err}")),
+        }
+
+        local_history.push(ChatMessage {
+            id: round_message_id,
+            role: Role::Assistant,
+            content: round_content,
+            status: if final_tool_calls.is_empty() {
+                "completed".into()
+            } else {
+                "streaming".into()
+            },
+            created_at: now_ms(),
+            tool_calls: if final_tool_calls.is_empty() {
+                None
+            } else {
+                Some(
+                    final_tool_calls
+                        .iter()
+                        .cloned()
+                        .map(|mut tool_call| {
+                            tool_call.risk_level = state
+                                .tools
+                                .get_def(&tool_call.name)
+                                .map(|tool| tool.risk_level)
+                                .or(Some("low".into()));
+                            tool_call
+                        })
+                        .collect(),
+                )
+            },
+            tool_call_id: None,
+            error_message: None,
+            reasoning: if round_reasoning.is_empty() {
+                None
+            } else {
+                Some(round_reasoning)
+            },
+            agent_id: Some(def.id.clone()),
+            agent_name: Some(def.name.clone()),
+            agent_trace: None,
+        });
+
+        if final_tool_calls.is_empty() {
+            return Ok(AgentRunResult {
+                task_id: task.id.clone(),
+                agent_id: def.id,
+                agent_name: def.name,
+                content,
+                reasoning: if reasoning.is_empty() { None } else { Some(reasoning) },
+            });
+        }
+
+        let mut any_executed = false;
+        for tool_call in &final_tool_calls {
+            if cancel.is_cancelled() {
+                return Err(anyhow!("已停止生成"));
+            }
+            if !allowed_tools.contains(&tool_call.name) {
+                let err = format!("Agent {} 不允许调用工具: {}", def.id, tool_call.name);
+                emit(
+                    stream,
+                    StreamEvent::ToolCallStatus {
+                        message_id: message_id.to_string(),
+                        tool_call_id: tool_call.id.clone(),
+                        status: "failed".into(),
+                        result: None,
+                        error: Some(err.clone()),
+                        duration_ms: None,
+                    },
+                );
+                local_history.push(tool_result_msg(&tool_call.id, &format!("ERROR: {err}")));
+                any_executed = true;
+                continue;
+            }
+
+            let tool_def = state.tools.get_def(&tool_call.name);
+            let requires_approval = tool_approval_mode == "manual"
+                && tool_def
+                    .as_ref()
+                    .map(|tool| tool.requires_approval)
+                    .unwrap_or(false);
+
+            if requires_approval {
+                emit(
+                    stream,
+                    StreamEvent::ToolCallStatus {
+                        message_id: message_id.to_string(),
+                        tool_call_id: tool_call.id.clone(),
+                        status: "pending_approval".into(),
+                        result: None,
+                        error: None,
+                        duration_ms: None,
+                    },
+                );
+                let (approval_tx, approval_rx) = oneshot::channel::<bool>();
+                state
+                    .approvals
+                    .lock()
+                    .insert(tool_call.id.clone(), approval_tx);
+                let approved = tokio::select! {
+                    _ = cancel.cancelled() => {
+                        state.approvals.lock().remove(&tool_call.id);
+                        false
+                    }
+                    value = approval_rx => value.unwrap_or(false),
+                };
+                if !approved {
+                    let err = "用户已拒绝该工具调用".to_string();
+                    emit(
+                        stream,
+                        StreamEvent::ToolCallStatus {
+                            message_id: message_id.to_string(),
+                            tool_call_id: tool_call.id.clone(),
+                            status: "rejected".into(),
+                            result: None,
+                            error: Some(err.clone()),
+                            duration_ms: None,
+                        },
+                    );
+                    local_history.push(tool_result_msg(&tool_call.id, &err));
+                    any_executed = true;
+                    continue;
+                }
+            }
+
+            emit(
+                stream,
+                StreamEvent::ToolCallStatus {
+                    message_id: message_id.to_string(),
+                    tool_call_id: tool_call.id.clone(),
+                    status: "running".into(),
+                    result: None,
+                    error: None,
+                    duration_ms: None,
+                },
+            );
+            let started = Instant::now();
+            let args_value: serde_json::Value =
+                serde_json::from_str(&tool_call.arguments).unwrap_or(serde_json::Value::Null);
+            let exec = state.tools.invoke(&tool_call.name, args_value);
+            let duration = started.elapsed().as_millis() as u64;
+            match exec {
+                Ok(output) => {
+                    emit(
+                        stream,
+                        StreamEvent::ToolCallStatus {
+                            message_id: message_id.to_string(),
+                            tool_call_id: tool_call.id.clone(),
+                            status: "success".into(),
+                            result: Some(truncate_str(&output, 800)),
+                            error: None,
+                            duration_ms: Some(duration),
+                        },
+                    );
+                    local_history.push(tool_result_msg(&tool_call.id, &output));
+                }
+                Err(err) => {
+                    let err = err.to_string();
+                    emit(
+                        stream,
+                        StreamEvent::ToolCallStatus {
+                            message_id: message_id.to_string(),
+                            tool_call_id: tool_call.id.clone(),
+                            status: "failed".into(),
+                            result: None,
+                            error: Some(err.clone()),
+                            duration_ms: Some(duration),
+                        },
+                    );
+                    local_history.push(tool_result_msg(&tool_call.id, &format!("ERROR: {err}")));
+                }
+            }
+            any_executed = true;
+        }
+
+        if !any_executed {
+            return Ok(AgentRunResult {
+                task_id: task.id.clone(),
+                agent_id: def.id,
+                agent_name: def.name,
+                content,
+                reasoning: if reasoning.is_empty() { None } else { Some(reasoning) },
+            });
+        }
+        if round + 1 >= MAX_TOOL_ROUNDS {
+            return Err(anyhow!("子 Agent 已达到最大工具调用轮次 ({MAX_TOOL_ROUNDS})"));
+        }
     }
 
     Ok(AgentRunResult {

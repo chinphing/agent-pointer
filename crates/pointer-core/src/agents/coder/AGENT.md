@@ -11,6 +11,7 @@ accessPolicy:
   allowTools:
     - calculator
     - text_stats
+    - terminal
   denyTools: []
   allowSkills: []
   denySkills: []

@@ -2,8 +2,15 @@ use super::{ToolHandler, ToolRegistry};
 use crate::models::ToolDef;
 use crate::skills::SkillRegistry;
 use anyhow::{anyhow, Result};
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+const TERMINAL_DEFAULT_TIMEOUT_MS: u64 = 30_000;
+const TERMINAL_MAX_TIMEOUT_MS: u64 = 120_000;
+const TERMINAL_DEFAULT_MAX_OUTPUT_BYTES: usize = 20_000;
+const TERMINAL_MAX_OUTPUT_BYTES: usize = 200_000;
 
 pub fn register_all(reg: &ToolRegistry) {
     register_now(reg);
@@ -11,6 +18,7 @@ pub fn register_all(reg: &ToolRegistry) {
     register_text_stats(reg);
     register_random(reg);
     register_echo(reg);
+    register_terminal(reg);
 }
 
 pub fn register_skill_tools(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
@@ -135,6 +143,29 @@ fn register_echo(reg: &ToolRegistry) {
     );
 }
 
+fn register_terminal(reg: &ToolRegistry) {
+    let h: ToolHandler = Arc::new(run_terminal_command);
+    reg.register(
+        ToolDef {
+            name: "terminal".into(),
+            description: "跨平台执行终端命令并返回 stdout、stderr、退出码和耗时。高风险工具，必须经过用户授权。".into(),
+            parameters_schema: serde_json::json!({
+                "type":"object",
+                "properties":{
+                    "command":{"type":"string","description":"要执行的终端命令。Windows 使用 cmd /C，macOS/Linux 使用 sh -lc。"},
+                    "cwd":{"type":"string","description":"可选工作目录。必须是已存在的目录。"},
+                    "timeoutMs":{"type":"integer","description":"可选超时时间，默认 30000，最大 120000。"},
+                    "maxOutputBytes":{"type":"integer","description":"可选最大输出字节数，默认 20000，最大 200000。stdout 和 stderr 分别截断。"}
+                },
+                "required":["command"]
+            }),
+            risk_level: "high".into(),
+            requires_approval: true,
+        },
+        h,
+    );
+}
+
 fn register_load_skill_instructions(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
     let h: ToolHandler = Arc::new(move |args| {
         let id = args
@@ -191,6 +222,115 @@ fn register_read_skill_resource(reg: &ToolRegistry, skills: Arc<SkillRegistry>) 
 }
 
 // ---------- helpers ----------
+
+fn run_terminal_command(args: serde_json::Value) -> Result<String> {
+    let command = args
+        .get("command")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| anyhow!("缺少 command"))?;
+    let cwd = parse_terminal_cwd(args.get("cwd"))?;
+    let timeout_ms = args
+        .get("timeoutMs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(TERMINAL_DEFAULT_TIMEOUT_MS)
+        .clamp(1_000, TERMINAL_MAX_TIMEOUT_MS);
+    let max_output_bytes = args
+        .get("maxOutputBytes")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(TERMINAL_DEFAULT_MAX_OUTPUT_BYTES as u64)
+        .min(TERMINAL_MAX_OUTPUT_BYTES as u64) as usize;
+
+    let (shell, mut cmd) = terminal_shell_command(command);
+    if let Some(dir) = &cwd {
+        cmd.current_dir(dir);
+    }
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let started = Instant::now();
+    let mut child = cmd.spawn().map_err(|e| anyhow!("启动终端命令失败: {e}"))?;
+    let mut timed_out = false;
+
+    loop {
+        if let Some(_status) = child.try_wait()? {
+            break;
+        }
+        if started.elapsed() >= Duration::from_millis(timeout_ms) {
+            timed_out = true;
+            let _ = child.kill();
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| anyhow!("读取终端命令输出失败: {e}"))?;
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let (stdout, stdout_truncated) = truncate_output(&output.stdout, max_output_bytes);
+    let (stderr, stderr_truncated) = truncate_output(&output.stderr, max_output_bytes);
+
+    Ok(serde_json::json!({
+        "command": command,
+        "cwd": cwd.map(|p| p.display().to_string()).unwrap_or_else(|| std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default()),
+        "shell": shell,
+        "exitCode": output.status.code(),
+        "success": output.status.success() && !timed_out,
+        "timedOut": timed_out,
+        "durationMs": duration_ms,
+        "stdout": stdout,
+        "stderr": stderr,
+        "stdoutTruncated": stdout_truncated,
+        "stderrTruncated": stderr_truncated,
+        "maxOutputBytes": max_output_bytes
+    })
+    .to_string())
+}
+
+fn parse_terminal_cwd(value: Option<&serde_json::Value>) -> Result<Option<PathBuf>> {
+    let Some(raw) = value.and_then(|v| v.as_str()).map(str::trim) else {
+        return Ok(None);
+    };
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let path = PathBuf::from(raw);
+    if !path.exists() {
+        return Err(anyhow!("cwd 不存在: {raw}"));
+    }
+    if !path.is_dir() {
+        return Err(anyhow!("cwd 不是目录: {raw}"));
+    }
+    Ok(Some(path))
+}
+
+#[cfg(windows)]
+fn terminal_shell_command(command: &str) -> (&'static str, Command) {
+    let mut cmd = Command::new("cmd");
+    cmd.arg("/C").arg(command);
+    ("cmd /C", cmd)
+}
+
+#[cfg(not(windows))]
+fn terminal_shell_command(command: &str) -> (&'static str, Command) {
+    let mut cmd = Command::new("sh");
+    cmd.arg("-lc").arg(command);
+    ("sh -lc", cmd)
+}
+
+fn truncate_output(bytes: &[u8], max_bytes: usize) -> (String, bool) {
+    if bytes.len() <= max_bytes {
+        return (String::from_utf8_lossy(bytes).to_string(), false);
+    }
+    let mut end = max_bytes.min(bytes.len());
+    while end > 0 && std::str::from_utf8(&bytes[..end]).is_err() {
+        end -= 1;
+    }
+    let mut text = String::from_utf8_lossy(&bytes[..end]).to_string();
+    text.push_str("\n...[output truncated]");
+    (text, true)
+}
 
 fn iso_from_unix(unix: u64) -> String {
     let secs = unix as i64;

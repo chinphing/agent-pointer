@@ -404,11 +404,82 @@ pub struct OpenAIRequest<'a> {
     pub tool_choice: Option<&'a str>,
 }
 
+/// OpenAI-compatible APIs require: each `assistant` message that includes `tool_calls` must be
+/// immediately followed by one `tool` message per `tool_call_id`. The UI stores tool output on
+/// `assistant.toolCalls[].result` and often omits separate `role: tool` rows, so replay would 400.
+/// This expands history for the wire format only.
+fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMessage> {
+    let mut out: Vec<ChatMessage> = Vec::with_capacity(msgs.len());
+    let mut i = 0usize;
+    while i < msgs.len() {
+        let m = &msgs[i];
+        if matches!(m.role, Role::Assistant) {
+            if let Some(tcs) = &m.tool_calls {
+                let required: Vec<&ToolCall> = tcs.iter().filter(|t| !t.id.is_empty()).collect();
+                if !required.is_empty() {
+                    let mut j = i + 1;
+                    while j < msgs.len() && matches!(msgs[j].role, Role::Tool) {
+                        j += 1;
+                    }
+                    let following = &msgs[(i + 1)..j];
+                    let mut by_id: HashMap<String, String> = HashMap::new();
+                    for tm in following {
+                        if let Some(id) = &tm.tool_call_id {
+                            if !id.is_empty() {
+                                by_id.insert(id.clone(), tm.content.clone());
+                            }
+                        }
+                    }
+
+                    out.push(m.clone());
+                    for tc in required {
+                        let content = by_id
+                            .get(tc.id.as_str())
+                            .cloned()
+                            .unwrap_or_else(|| synthetic_tool_content_for_replay(tc));
+                        out.push(ChatMessage {
+                            id: format!("tool_{}", uuid::Uuid::new_v4().simple()),
+                            role: Role::Tool,
+                            content,
+                            status: "done".into(),
+                            created_at: m.created_at,
+                            tool_calls: None,
+                            tool_call_id: Some(tc.id.clone()),
+                            error_message: None,
+                            reasoning: None,
+                            agent_id: None,
+                            agent_name: None,
+                            agent_trace: None,
+                        });
+                    }
+                    i = j;
+                    continue;
+                }
+            }
+        }
+        out.push(m.clone());
+        i += 1;
+    }
+    out
+}
+
+fn synthetic_tool_content_for_replay(tc: &ToolCall) -> String {
+    if let Some(e) = &tc.error {
+        if !e.trim().is_empty() {
+            return format!("ERROR: {e}");
+        }
+    }
+    tc.result.clone().unwrap_or_else(|| {
+        "{\"warning\":\"tool output missing in stored message history\"}".to_string()
+    })
+}
+
 pub fn make_openai_messages(
     msgs: &[ChatMessage],
     system_prompts: &[String],
     include_reasoning_in_api: bool,
 ) -> Vec<serde_json::Value> {
+    let expanded = expand_tool_messages_for_openai_request(msgs);
     let mut out: Vec<serde_json::Value> = Vec::new();
     if !system_prompts.is_empty() {
         out.push(serde_json::json!({
@@ -416,7 +487,7 @@ pub fn make_openai_messages(
             "content": system_prompts.join("\n\n")
         }));
     }
-    for m in msgs {
+    for m in &expanded {
         match m.role {
             Role::System => out.push(serde_json::json!({
                 "role": "system", "content": m.content
@@ -543,6 +614,29 @@ mod make_openai_messages_tests {
         assert_eq!(tcs.len(), 1);
         assert_eq!(tcs[0]["id"], "call_abc");
         assert_eq!(out[1]["role"], "tool");
+    }
+
+    #[test]
+    fn synthesizes_tool_messages_when_only_inline_results_on_assistant() {
+        let mut a = msg(Role::Assistant);
+        a.content = "calling".into();
+        a.tool_calls = Some(vec![ToolCall {
+            id: "call_inline".into(),
+            name: "read".into(),
+            arguments: "{}".into(),
+            status: "success".into(),
+            result: Some("file body".into()),
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+        }]);
+        let out = make_openai_messages(&[a], &[], true);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0]["role"], "assistant");
+        assert!(out[0]["tool_calls"].as_array().is_some());
+        assert_eq!(out[1]["role"], "tool");
+        assert_eq!(out[1]["tool_call_id"], "call_inline");
+        assert_eq!(out[1]["content"], "file body");
     }
 }
 

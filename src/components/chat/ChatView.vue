@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import MessageList from './MessageList.vue'
+import { computed, defineAsyncComponent } from 'vue'
 import Composer from './Composer.vue'
 import { useChatStore } from '../../stores/chat'
 import { Sparkles } from 'lucide-vue-next'
+
+/** Lazy: pulls in marked + MessageBubble + ToolCallCard; empty state skips this. */
+const MessageList = defineAsyncComponent(() => import('./MessageList.vue'))
 
 const chat = useChatStore()
 const empty = computed(() => !chat.current || chat.current.messages.length === 0)

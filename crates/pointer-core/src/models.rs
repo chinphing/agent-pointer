@@ -164,6 +164,9 @@ pub struct ModelSettings {
     /// Max tool-call rounds per assistant turn. Default 100.
     #[serde(default = "default_max_tool_rounds", rename = "maxToolRounds")]
     pub max_tool_rounds: u32,
+    /// Per-agent default model id (e.g. lead worker id, `"supervisor"`). Empty map = use global `model`.
+    #[serde(default, rename = "agentDefaultModels")]
+    pub agent_default_models: HashMap<String, String>,
 }
 
 fn default_tool_approval_mode() -> String {
@@ -237,6 +240,7 @@ impl Default for ModelSettings {
             context_keep_recent_user_turns: default_context_keep_recent_user_turns(),
             context_summary_max_tokens: default_context_summary_max_tokens(),
             max_tool_rounds: default_max_tool_rounds(),
+            agent_default_models: HashMap::new(),
         }
     }
 }

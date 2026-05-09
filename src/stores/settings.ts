@@ -151,10 +151,9 @@ export const useSettingsStore = defineStore('settings', () => {
   async function save(patch: Partial<ModelSettings>) {
     const merged: ModelSettings = { ...settings.value, ...patch }
     const updated = await updateSettings(merged)
-    // Backend may not return all fields (e.g. agentDefaultModels), preserve them
     settings.value = {
       ...updated,
-      agentDefaultModels: merged.agentDefaultModels ?? settings.value.agentDefaultModels
+      agentDefaultModels: updated.agentDefaultModels ?? merged.agentDefaultModels ?? settings.value.agentDefaultModels
     }
   }
 

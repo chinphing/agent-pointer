@@ -77,6 +77,8 @@ struct StoredSettings {
     context_summary_max_tokens: u32,
     #[serde(default = "default_max_tool_rounds", rename = "maxToolRounds")]
     max_tool_rounds: u32,
+    #[serde(default, rename = "agentDefaultModels")]
+    agent_default_models: HashMap<String, String>,
     /// Legacy global toggle; applied to each provider when that provider has no explicit value.
     #[serde(default, rename = "reasoningInMessages")]
     legacy_reasoning_in_messages: Option<bool>,
@@ -151,6 +153,7 @@ impl Default for StoredSettings {
             context_keep_recent_user_turns: s.context_keep_recent_user_turns,
             context_summary_max_tokens: s.context_summary_max_tokens,
             max_tool_rounds: s.max_tool_rounds,
+            agent_default_models: s.agent_default_models.clone(),
             legacy_reasoning_in_messages: None,
         }
     }
@@ -197,7 +200,9 @@ pub fn load_settings() -> Result<ModelSettings> {
         stored.active_provider_id
     };
 
-    let has_key = providers.iter().any(|p| !p.api_key.is_empty());
+    let key_file_present = key_path().map(|p| p.exists()).unwrap_or(false);
+    let has_key =
+        key_file_present || providers.iter().any(|p| !p.api_key.is_empty());
 
     Ok(ModelSettings {
         providers,
@@ -216,6 +221,7 @@ pub fn load_settings() -> Result<ModelSettings> {
         context_keep_recent_user_turns: stored.context_keep_recent_user_turns,
         context_summary_max_tokens: stored.context_summary_max_tokens,
         max_tool_rounds: stored.max_tool_rounds,
+        agent_default_models: stored.agent_default_models,
     })
 }
 
@@ -258,6 +264,7 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
         context_keep_recent_user_turns: s.context_keep_recent_user_turns,
         context_summary_max_tokens: s.context_summary_max_tokens,
         max_tool_rounds: s.max_tool_rounds,
+        agent_default_models: s.agent_default_models.clone(),
         legacy_reasoning_in_messages: None,
     };
     fs::write(settings_path()?, serde_json::to_vec_pretty(&stored)?)?;

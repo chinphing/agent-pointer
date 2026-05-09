@@ -7,6 +7,7 @@ pub fn register_all(reg: &ToolRegistry) {
     crate::tools::text::register_all(reg);
     crate::tools::general::register_all(reg);
     crate::tools::terminal::register_all(reg);
+    crate::tools::workspace::register_all(reg);
 }
 
 pub fn register_skill_tools(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {

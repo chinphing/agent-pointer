@@ -10,6 +10,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             if let Err(err) = install_bundled_skills(app) {
                 log::warn!("install bundled skills failed: {err}");

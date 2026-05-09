@@ -6,14 +6,19 @@ import {
   Copy,
   Cpu,
   Database,
+  FolderOpen,
   Gauge,
+  Network,
   Plus,
   SlidersHorizontal,
   Trash2,
+  Users,
   Wrench,
   X
 } from 'lucide-vue-next'
-import type { ProviderConfig } from '../../types/chat'
+import type { AgentDef, ProviderConfig } from '../../types/chat'
+import { listAgents } from '../../lib/api'
+import { isTauriRuntime } from '../../lib/runtime'
 import { useSettingsStore } from '../../stores/settings'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -27,6 +32,9 @@ const temperature = ref(0.7)
 const maxTokens = ref(2048)
 const toolApprovalMode = ref<'auto' | 'manual'>('auto')
 const agentMode = ref<'single' | 'supervisor'>('single')
+const leadAgentId = ref('')
+const workspaceRoot = ref('')
+const agents = ref<AgentDef[]>([])
 
 const editingProvider = ref<ProviderConfig | null>(null)
 const showAddProvider = ref(false)
@@ -77,11 +85,48 @@ const sections = [
   { id: 'runtime', label: '运行时', desc: '存储与网络', icon: Database }
 ]
 
+const workers = computed(() => agents.value.filter(a => a.role === 'worker' && a.enabled))
+const supervisorAgent = computed(
+  () =>
+    agents.value.find(a => a.id === 'supervisor' && a.enabled) ||
+    agents.value.find(a => a.role === 'supervisor')
+)
+
+function isCoderAgent(a: AgentDef): boolean {
+  return a.id === 'coder' || a.profile === 'coder'
+}
+
+const workspaceRequired = computed(
+  () => agentMode.value === 'single' && workers.value.some(w => w.id === leadAgentId.value && isCoderAgent(w))
+)
+
+async function loadAgents() {
+  try {
+    agents.value = await listAgents()
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+async function pickWorkspace() {
+  if (!isTauriRuntime()) return
+  try {
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const dir = await open({ directory: true, multiple: false })
+    if (typeof dir === 'string' && dir) workspaceRoot.value = dir
+  } catch (e) {
+    console.error(e)
+  }
+}
+
 onMounted(() => {
   temperature.value = s.settings.temperature
   maxTokens.value = s.settings.maxTokens
   toolApprovalMode.value = s.settings.toolApprovalMode || 'auto'
   agentMode.value = s.settings.agentMode || 'single'
+  leadAgentId.value = s.settings.leadAgentId || 'default'
+  workspaceRoot.value = s.settings.workspaceRoot || ''
+  loadAgents()
 })
 
 function startEditProvider(provider: ProviderConfig) {
@@ -155,7 +200,9 @@ async function saveAll() {
       temperature: Number(temperature.value),
       maxTokens: Number(maxTokens.value),
       toolApprovalMode: toolApprovalMode.value,
-      agentMode: agentMode.value
+      agentMode: agentMode.value,
+      leadAgentId: agentMode.value === 'supervisor' ? '' : leadAgentId.value,
+      workspaceRoot: workspaceRoot.value
     })
     emit('close')
   } finally {
@@ -309,19 +356,52 @@ async function saveAll() {
               <p class="mt-1 text-xs text-slate-500">选择 AI 的工作方式和工具使用权限。</p>
             </div>
 
-            <div class="glass rounded-xl p-4 border border-white/5">
-              <h4 class="text-sm font-medium text-slate-100 flex items-center gap-2"><Bot class="w-4 h-4 text-primary-fuchsia" />工作模式</h4>
-              <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                <label class="rounded-xl border p-3 cursor-pointer" :class="agentMode === 'single' ? 'border-primary/50 bg-primary/10' : 'border-white/5 bg-black/20'">
-                  <input v-model="agentMode" type="radio" value="single" class="sr-only" />
-                  <span class="block text-sm text-slate-100">标准模式</span>
-                  <span class="mt-1 block text-[11px] text-slate-500">AI 直接处理你的问题，适合大多数场景。</span>
-                </label>
-                <label class="rounded-xl border p-3 cursor-pointer" :class="agentMode === 'supervisor' ? 'border-primary/50 bg-primary/10' : 'border-white/5 bg-black/20'">
-                  <input v-model="agentMode" type="radio" value="supervisor" class="sr-only" />
-                  <span class="block text-sm text-slate-100">多专家协作</span>
-                  <span class="mt-1 block text-[11px] text-slate-500">AI 自动拆解任务，调度多个专家角色协作完成复杂工作。</span>
-                </label>
+            <div class="glass rounded-xl p-4 border border-white/5 space-y-3">
+              <h4 class="text-sm font-medium text-slate-100 flex items-center gap-2"><Bot class="w-4 h-4 text-primary-fuchsia" />执行智能体</h4>
+              <p class="text-[11px] text-slate-500">名称与各 Agent 配置（AGENT.md）一致；编排模式由 Supervisor 负责拆解子任务。</p>
+              <div class="space-y-2 max-h-48 overflow-y-auto">
+                <button
+                  v-for="w in workers"
+                  :key="w.id"
+                  type="button"
+                  class="w-full text-left rounded-xl border p-3 cursor-pointer transition"
+                  :class="agentMode === 'single' && (leadAgentId === w.id || ((!leadAgentId || leadAgentId === 'default') && w.id === 'default')) ? 'border-primary/50 bg-primary/10' : 'border-white/5 bg-black/20'"
+                  @click="agentMode = 'single'; leadAgentId = w.id"
+                >
+                  <span class="block text-sm text-slate-100">{{ w.name }}</span>
+                  <span class="mt-0.5 block text-[10px] text-slate-500 font-mono">{{ w.id }}</span>
+                </button>
+                <button
+                  v-if="supervisorAgent"
+                  type="button"
+                  class="w-full text-left rounded-xl border p-3 cursor-pointer transition"
+                  :class="agentMode === 'supervisor' ? 'border-primary/50 bg-primary/10' : 'border-white/5 bg-black/20'"
+                  @click="agentMode = 'supervisor'"
+                >
+                  <span class="flex items-center gap-2 text-sm text-slate-100"><Users class="w-4 h-4" />{{ supervisorAgent.name }}</span>
+                  <span class="mt-1 block text-[11px] text-slate-500">多子智能体编排与结果整合</span>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="workspaceRequired" class="glass rounded-xl p-4 border border-white/5 space-y-2">
+              <h4 class="text-sm font-medium text-slate-100 flex items-center gap-2"><FolderOpen class="w-4 h-4 text-amber-300" />工作区目录</h4>
+              <p class="text-[11px] text-slate-500">编码智能体读写仓库的根路径（绝对路径）。</p>
+              <div class="flex flex-wrap items-center gap-2">
+                <input
+                  v-model="workspaceRoot"
+                  type="text"
+                  class="flex-1 min-w-[200px] h-9 px-3 rounded-lg bg-black/30 border border-white/5 text-sm text-slate-100 outline-none focus:border-primary/50"
+                  placeholder="D:\project\my-repo"
+                />
+                <button
+                  v-if="isTauriRuntime()"
+                  type="button"
+                  class="h-9 px-3 rounded-lg bg-white/10 hover:bg-white/15 text-sm text-slate-200 inline-flex items-center gap-1.5 cursor-pointer"
+                  @click="pickWorkspace"
+                >
+                  <FolderOpen class="w-4 h-4" /> 浏览
+                </button>
               </div>
             </div>
 
@@ -366,7 +446,7 @@ async function saveAll() {
 
       <footer class="px-5 h-14 flex items-center gap-3 border-t border-white/5 shrink-0">
         <p class="text-[11px] text-slate-500 flex-1">
-          支持标准和多专家协作两种工作模式。
+          单智能体由所选 Worker 执行；Supervisor 为多任务编排。
         </p>
         <button class="h-9 px-4 rounded-lg glass hover:bg-white/10 text-sm text-slate-200 cursor-pointer" @click="emit('close')">取消</button>
         <button class="h-9 px-4 rounded-lg bg-gradient-to-r from-primary to-primary-fuchsia text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50" :disabled="saving" @click="saveAll">

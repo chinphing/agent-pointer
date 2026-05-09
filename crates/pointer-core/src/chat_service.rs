@@ -1,6 +1,7 @@
 use crate::agents::{
-    register_builtin_agents, AgentDef, AgentOrchestrator, AgentRegistry, AgentRunLimits,
-    AgentRunResult, AgentTask, DEFAULT_AGENT_ID,
+    agent_requires_workspace, register_builtin_agents, AgentDef, AgentOrchestrator, AgentRegistry,
+    AgentRunLimits, AgentRunResult, AgentTask, DEFAULT_AGENT_ID, SUPERVISOR_AGENT_ID,
+    AGENT_MODE_SUPERVISOR,
 };
 use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent, ToolCall};
 use crate::provider::{OpenAIProvider, ProviderEvent};
@@ -11,8 +12,9 @@ use crate::tools::ToolRegistry;
 use anyhow::{anyhow, Result};
 use chrono::Local;
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::env;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
@@ -171,16 +173,39 @@ async fn run_chat_inner(
         .filter(|mode| !mode.trim().is_empty())
         .unwrap_or(&settings.agent_mode)
         .to_string();
+    let lead_worker_id = settings.lead_agent_id.trim();
+    let lead_opt = if lead_worker_id.is_empty() {
+        None
+    } else {
+        Some(lead_worker_id)
+    };
     let agent_plan = AgentOrchestrator::build_plan(
         &state.agents,
         &state.skills,
         &state.tools,
         enabled_skill_ids,
         &effective_agent_mode,
+        lead_opt,
     );
+    if effective_agent_mode != AGENT_MODE_SUPERVISOR {
+        if let Some(exec) = state.agents.get(&agent_plan.lead_agent_id) {
+            let def = exec.def();
+            if agent_requires_workspace(&def) {
+                let w = settings.workspace_root.trim();
+                if w.is_empty() {
+                    return Err(anyhow!(
+                        "当前编码智能体需要工作区目录，请先在界面选择项目文件夹。"
+                    ));
+                }
+                if !PathBuf::from(w).is_dir() {
+                    return Err(anyhow!("工作区目录无效，请重新选择。"));
+                }
+            }
+        }
+    }
     let provider = OpenAIProvider::new(settings.clone(), api_key);
 
-    if agent_plan.mode == "supervisor" {
+    if agent_plan.mode == AGENT_MODE_SUPERVISOR {
         return run_supervisor_chat(
             stream,
             state,
@@ -563,13 +588,18 @@ async fn run_supervisor_chat(
 
     let limits = AgentRunLimits::default();
     let mut agent_trace = Vec::new();
+    let sup_meta = state.agents.get(SUPERVISOR_AGENT_ID);
+    let sup_name = sup_meta
+        .as_ref()
+        .map(|a| a.def().name.clone())
+        .unwrap_or_else(|| "Supervisor".into());
     emit_agent_step(
         &stream,
         &assistant_id,
         &mut agent_trace,
         AgentTrace {
             id: "supervisor".into(),
-            name: "Supervisor".into(),
+            name: sup_name.clone(),
             role: "supervisor".into(),
             status: "planning".into(),
             detail: Some("正在规划子 Agent 执行任务".into()),
@@ -594,9 +624,12 @@ async fn run_supervisor_chat(
             fallback_agent_tasks(&state, history, &limits)
         }
     };
+    let tasks = sort_agent_tasks_topologically(tasks);
+    let tasks: Vec<_> = tasks.into_iter().take(limits.max_sub_agents).collect();
 
     let mut results = Vec::new();
-    for task in tasks.into_iter().take(limits.max_sub_agents) {
+    let mut results_by_id: HashMap<String, AgentRunResult> = HashMap::new();
+    for task in tasks {
         if cancel.is_cancelled() {
             return Err(anyhow!("已停止生成"));
         }
@@ -624,6 +657,21 @@ async fn run_supervisor_chat(
             },
         );
 
+        let mut task_run = task.clone();
+        if !task.depends_on.is_empty() {
+            let mut pre = String::from("\n\n【前置任务输出摘要】\n");
+            for d in &task.depends_on {
+                if let Some(r) = results_by_id.get(d) {
+                    pre.push_str(&format!(
+                        "--- 任务 {} ---\n{}\n",
+                        d,
+                        truncate_str(&r.content, 2000)
+                    ));
+                }
+            }
+            task_run.instruction = format!("{pre}\n\n【当前任务说明】\n{}", task.instruction);
+        }
+
         match run_sub_agent(
             &provider,
             &state,
@@ -632,12 +680,13 @@ async fn run_supervisor_chat(
             &mut agent_trace,
             history,
             enabled_skill_ids,
-            &task,
+            &task_run,
             cancel.clone(),
         )
         .await
         {
             Ok(result) => {
+                results_by_id.insert(task.id.clone(), result.clone());
                 emit_agent_step(
                     &stream,
                     &assistant_id,
@@ -677,7 +726,7 @@ async fn run_supervisor_chat(
         &mut agent_trace,
         AgentTrace {
             id: "supervisor".into(),
-            name: "Supervisor".into(),
+            name: sup_name.clone(),
             role: "supervisor".into(),
             status: "summarizing".into(),
             detail: Some("正在整合子 Agent 结果".into()),
@@ -707,7 +756,7 @@ async fn run_supervisor_chat(
         error_message: None,
         reasoning: None,
         agent_id: Some("supervisor".into()),
-        agent_name: Some("Supervisor".into()),
+        agent_name: Some(sup_name),
         agent_trace: Some(agent_trace),
     });
     emit(
@@ -717,6 +766,60 @@ async fn run_supervisor_chat(
         },
     );
     Ok(())
+}
+
+/// Topological order by `dependsOn` (task ids). Unknown dependency ids are ignored. On cycle, keep planner order.
+fn sort_agent_tasks_topologically(tasks: Vec<AgentTask>) -> Vec<AgentTask> {
+    let n = tasks.len();
+    if n <= 1 {
+        return tasks;
+    }
+    let id_set: HashSet<_> = tasks.iter().map(|t| t.id.as_str()).collect();
+    let mut indeg: HashMap<String, usize> = HashMap::new();
+    let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+    for t in &tasks {
+        let c = t
+            .depends_on
+            .iter()
+            .filter(|d| id_set.contains(d.as_str()))
+            .count();
+        indeg.insert(t.id.clone(), c);
+    }
+    for t in &tasks {
+        for d in &t.depends_on {
+            if id_set.contains(d.as_str()) {
+                adj.entry(d.clone()).or_default().push(t.id.clone());
+            }
+        }
+    }
+    let mut q: VecDeque<String> = VecDeque::new();
+    for t in &tasks {
+        if indeg.get(&t.id).copied().unwrap_or(0) == 0 {
+            q.push_back(t.id.clone());
+        }
+    }
+    let mut order_ids = Vec::new();
+    while let Some(u) = q.pop_front() {
+        order_ids.push(u.clone());
+        for v in adj.get(&u).into_iter().flatten() {
+            let e = indeg.entry(v.clone()).or_insert(0);
+            if *e > 0 {
+                *e -= 1;
+            }
+            if *e == 0 {
+                q.push_back(v.clone());
+            }
+        }
+    }
+    if order_ids.len() != n {
+        log::warn!("agent task graph has cycle or inconsistent deps; using planner order");
+        return tasks;
+    }
+    let mut by_id: HashMap<String, AgentTask> = tasks.into_iter().map(|t| (t.id.clone(), t)).collect();
+    order_ids
+        .into_iter()
+        .filter_map(|id| by_id.remove(&id))
+        .collect()
 }
 
 async fn plan_agent_tasks(
@@ -730,7 +833,7 @@ async fn plan_agent_tasks(
     let workers = state.agents.enabled_workers();
     let roster = agent_roster(&workers);
     let prompt = format!(
-        "{}\n\n你是 Supervisor。请把用户最新请求拆解为最多 {} 个可串行执行的子 Agent 任务。\n\n可用 Agent：\n{}\n\n只返回 JSON 数组，不要 Markdown。数组元素格式：{{\"id\":\"task_1\",\"agentId\":\"coder\",\"title\":\"简短标题\",\"instruction\":\"给该 Agent 的完整任务说明\",\"dependsOn\":[]}}。agentId 必须来自可用 Agent。常规任务使用 default。",
+        "{}\n\n你是 Supervisor。请把用户最新请求拆解为最多 {} 个子 Agent 任务。\n\n规划原则：同一仓库内的代码实现、调试、重构应**优先合并为一条** agentId 为 coder 的任务（instruction 写清全部要求）；仅当需要 reviewer 独立把关、或存在明显非代码子任务时再拆多条。若拆成多条且有先后依赖，使用 dependsOn 填入前置任务的 id 字符串数组。\n\n可用 Agent：\n{}\n\n只返回 JSON 数组，不要 Markdown。数组元素格式：{{\"id\":\"task_1\",\"agentId\":\"coder\",\"title\":\"简短标题\",\"instruction\":\"给该 Agent 的完整任务说明\",\"dependsOn\":[]}}。agentId 必须来自可用 Agent。常规问答使用 default。涉及写代码、读仓库、跑测试优先 coder。",
         env_context,
         limits.max_sub_agents,
         roster

@@ -104,6 +104,12 @@ pub struct ModelSettings {
     pub tool_approval_mode: String,
     #[serde(default = "default_agent_mode", rename = "agentMode")]
     pub agent_mode: String,
+    /// Absolute path to workspace root for file tools & terminal default cwd (optional).
+    #[serde(default, rename = "workspaceRoot")]
+    pub workspace_root: String,
+    /// When agentMode is single, which worker id leads (kebab-case). Empty = default agent.
+    #[serde(default, rename = "leadAgentId")]
+    pub lead_agent_id: String,
 }
 
 fn default_tool_approval_mode() -> String {
@@ -137,6 +143,8 @@ impl Default for ModelSettings {
             has_key: false,
             tool_approval_mode: default_tool_approval_mode(),
             agent_mode: default_agent_mode(),
+            workspace_root: String::new(),
+            lead_agent_id: String::new(),
         }
     }
 }

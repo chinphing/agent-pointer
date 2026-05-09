@@ -99,6 +99,10 @@ export interface ModelSettings {
   hasKey: boolean
   toolApprovalMode: 'auto' | 'manual'
   agentMode: AgentMode
+  /** Absolute path to project root for coder file tools */
+  workspaceRoot: string
+  /** When agentMode is single, worker agent id (kebab-case); empty = default agent */
+  leadAgentId: string
 }
 
 export interface SkillDef {

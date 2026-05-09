@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
 pointer-core = { path = "../crates/pointer-core" }
 tokio = { version = "1", features = ["sync"] }
 log = "0.4"

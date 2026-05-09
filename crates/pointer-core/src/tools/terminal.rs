@@ -1,5 +1,6 @@
 use super::{ToolHandler, ToolPrompt, ToolRegistry};
 use crate::models::ToolDef;
+use crate::storage;
 use anyhow::{anyhow, Result};
 use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
@@ -45,6 +46,22 @@ fn register_terminal(reg: &ToolRegistry) {
     );
 }
 
+fn effective_terminal_cwd(explicit: Option<PathBuf>) -> Result<Option<PathBuf>> {
+    if explicit.is_some() {
+        return Ok(explicit);
+    }
+    if let Ok(s) = storage::load_settings() {
+        let w = s.workspace_root.trim();
+        if !w.is_empty() {
+            let p = PathBuf::from(w);
+            if p.is_dir() {
+                return Ok(Some(p.canonicalize().unwrap_or(p)));
+            }
+        }
+    }
+    Ok(None)
+}
+
 fn run_terminal_command(args: serde_json::Value) -> Result<String> {
     let command = args
         .get("command")
@@ -52,7 +69,7 @@ fn run_terminal_command(args: serde_json::Value) -> Result<String> {
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .ok_or_else(|| anyhow!("缺少 command"))?;
-    let cwd = parse_terminal_cwd(args.get("cwd"))?;
+    let cwd = effective_terminal_cwd(parse_terminal_cwd(args.get("cwd"))?)?;
     let timeout_ms = args
         .get("timeoutMs")
         .and_then(|v| v.as_u64())
@@ -131,7 +148,7 @@ pub fn run_terminal_command_streaming(
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .ok_or_else(|| anyhow!("缺少 command"))?;
-    let cwd = parse_terminal_cwd(args.get("cwd"))?;
+    let cwd = effective_terminal_cwd(parse_terminal_cwd(args.get("cwd"))?)?;
     let timeout_ms = args
         .get("timeoutMs")
         .and_then(|v| v.as_u64())

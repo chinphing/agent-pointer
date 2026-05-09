@@ -4,6 +4,7 @@ pub mod math;
 pub mod skills;
 pub mod terminal;
 pub mod text;
+pub mod workspace;
 
 use crate::models::ToolDef;
 use anyhow::Result;

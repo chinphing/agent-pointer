@@ -52,6 +52,10 @@ struct StoredSettings {
     tool_approval_mode: String,
     #[serde(default = "default_agent_mode")]
     agent_mode: String,
+    #[serde(default, rename = "workspaceRoot")]
+    workspace_root: String,
+    #[serde(default, rename = "leadAgentId")]
+    lead_agent_id: String,
 }
 
 fn default_tool_approval_mode() -> String {
@@ -83,6 +87,8 @@ impl Default for StoredSettings {
             max_tokens: s.max_tokens,
             tool_approval_mode: s.tool_approval_mode,
             agent_mode: s.agent_mode,
+            workspace_root: s.workspace_root,
+            lead_agent_id: s.lead_agent_id,
         }
     }
 }
@@ -126,6 +132,8 @@ pub fn load_settings() -> Result<ModelSettings> {
         has_key,
         tool_approval_mode: stored.tool_approval_mode,
         agent_mode: stored.agent_mode,
+        workspace_root: stored.workspace_root,
+        lead_agent_id: stored.lead_agent_id,
     })
 }
 
@@ -148,6 +156,8 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
         max_tokens: s.max_tokens,
         tool_approval_mode: s.tool_approval_mode.clone(),
         agent_mode: s.agent_mode.clone(),
+        workspace_root: s.workspace_root.clone(),
+        lead_agent_id: s.lead_agent_id.clone(),
     };
     fs::write(settings_path()?, serde_json::to_vec_pretty(&stored)?)?;
     Ok(())

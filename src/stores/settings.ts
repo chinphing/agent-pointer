@@ -22,7 +22,9 @@ export const useSettingsStore = defineStore('settings', () => {
     maxTokens: 2048,
     hasKey: false,
     toolApprovalMode: 'auto',
-    agentMode: 'single'
+    agentMode: 'single',
+    workspaceRoot: '',
+    leadAgentId: ''
   })
   const loading = ref(false)
   const testing = ref(false)
@@ -40,13 +42,19 @@ export const useSettingsStore = defineStore('settings', () => {
     const s = await getSettings().catch(() => null)
     if (s) {
       if (s.providers && s.providers.length > 0) {
-        settings.value = s
+        settings.value = {
+          ...s,
+          workspaceRoot: s.workspaceRoot ?? '',
+          leadAgentId: s.leadAgentId ?? ''
+        }
       } else {
         settings.value = {
           ...settings.value,
           ...s,
           providers: s.providers || defaultProviders,
-          activeProviderId: s.activeProviderId || 'qwen'
+          activeProviderId: s.activeProviderId || 'qwen',
+          workspaceRoot: s.workspaceRoot ?? '',
+          leadAgentId: s.leadAgentId ?? ''
         }
         if (s.model && !settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models.includes(s.model)) {
           settings.value.model = settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models[0] || s.model

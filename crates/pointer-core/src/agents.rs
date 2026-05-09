@@ -219,6 +219,11 @@ impl AgentRegistry {
     }
 }
 
+/// Coder profile needs a configured workspace root in settings before chat.
+pub fn agent_requires_workspace(def: &AgentDef) -> bool {
+    matches!(def.profile, AgentProfile::Coder)
+}
+
 pub struct AgentOrchestrator;
 
 impl AgentOrchestrator {
@@ -228,6 +233,7 @@ impl AgentOrchestrator {
         tools: &ToolRegistry,
         enabled_skill_ids: &[String],
         mode: &str,
+        lead_worker_id: Option<&str>,
     ) -> AgentPlan {
         let normalized_mode = match mode {
             AGENT_MODE_SUPERVISOR => AGENT_MODE_SUPERVISOR,
@@ -242,17 +248,28 @@ impl AgentOrchestrator {
         });
 
         if normalized_mode == AGENT_MODE_SINGLE {
-            let agent = default_agent
+            let mut agent = default_agent
                 .as_ref()
                 .map(|a| a.def())
                 .unwrap_or_else(default_agent_def);
+            if let Some(raw) = lead_worker_id {
+                let tid = raw.trim();
+                if !tid.is_empty() {
+                    if let Some(exec) = agents.get(tid) {
+                        let d = exec.def();
+                        if d.role == "worker" && d.enabled {
+                            agent = d;
+                        }
+                    }
+                }
+            }
             let session_skill_ids = resolve_skill_ids(&agent, enabled_skill_ids);
             let (skill_prompts, session_tools) = skills.progressive_context(&session_skill_ids);
             let allowed_tool_names = resolve_tools(&agent.access_policy, &session_tools, tools);
-            let mut system_prompts = vec![agent_prompt(
-                &agent,
-                default_agent.as_ref().map(|a| a.system_prompt()),
-            )];
+            let lead_prompt = agents
+                .get(&agent.id)
+                .map(|a| a.system_prompt());
+            let mut system_prompts = vec![agent_prompt(&agent, lead_prompt)];
             system_prompts.extend(skill_prompts);
 
             return AgentPlan {

@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import { Bot, ChevronDown, Send, Square, Sparkles, Users } from 'lucide-vue-next'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { Bot, ChevronDown, FolderOpen, Send, Sparkles, Square, Users } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
-import type { AgentMode } from '../../types/chat'
+import type { AgentDef, AgentProfile } from '../../types/chat'
+import { listAgents } from '../../lib/api'
+import { isTauriRuntime } from '../../lib/runtime'
 
 const chat = useChatStore()
 const settings = useSettingsStore()
@@ -11,24 +13,81 @@ const settings = useSettingsStore()
 const text = ref('')
 const composing = ref(false)
 const showModelPicker = ref(false)
-const showModePicker = ref(false)
+const showAgentPicker = ref(false)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const modelBtnRef = ref<HTMLButtonElement | null>(null)
-const modeBtnRef = ref<HTMLButtonElement | null>(null)
+const agentBtnRef = ref<HTMLButtonElement | null>(null)
 const modelPickerRef = ref<HTMLDivElement | null>(null)
-const modePickerRef = ref<HTMLDivElement | null>(null)
+const agentPickerRef = ref<HTMLDivElement | null>(null)
 const modelPickerWidth = ref(0)
-const modePickerWidth = ref(0)
+const agentPickerWidth = ref(0)
 
-const agentModes: Array<{ value: AgentMode; label: string; icon: typeof Bot }> = [
-  { value: 'single', label: '标准模式', icon: Bot },
-  { value: 'supervisor', label: '多专家协作', icon: Users },
-]
+const agents = ref<AgentDef[]>([])
 
-const canSend = computed(() => text.value.trim().length > 0 && !chat.generating && settings.settings.hasKey)
+const workers = computed(() => agents.value.filter(a => a.role === 'worker' && a.enabled))
+const supervisorAgent = computed(
+  () =>
+    agents.value.find(a => a.id === 'supervisor' && a.enabled) ||
+    agents.value.find(a => a.role === 'supervisor')
+)
+
+function isCoderProfile(p: AgentProfile): boolean {
+  return p === 'coder'
+}
+
+function agentNeedsWorkspace(a: AgentDef | undefined): boolean {
+  if (!a) return false
+  return a.id === 'coder' || isCoderProfile(a.profile)
+}
+
+const selectedWorker = computed(() => {
+  if (settings.settings.agentMode !== 'single') return undefined
+  const id = settings.settings.leadAgentId?.trim()
+  if (!id) return workers.value.find(w => w.id === 'default')
+  return workers.value.find(w => w.id === id)
+})
+
+const needsWorkspace = computed(() => agentNeedsWorkspace(selectedWorker.value))
+
+const currentAgentLabel = computed(() => {
+  if (settings.settings.agentMode === 'supervisor') {
+    return supervisorAgent.value?.name ?? 'Supervisor'
+  }
+  return selectedWorker.value?.name ?? 'Default Agent'
+})
+
+const canSend = computed(
+  () =>
+    text.value.trim().length > 0 &&
+    !chat.generating &&
+    settings.settings.hasKey &&
+    (!needsWorkspace.value || !!settings.settings.workspaceRoot?.trim())
+)
+
+async function loadAgentsList() {
+  try {
+    agents.value = await listAgents()
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+async function pickWorkspaceFolder() {
+  if (!isTauriRuntime()) return
+  try {
+    const { open } = await import('@tauri-apps/plugin-dialog')
+    const dir = await open({ directory: true, multiple: false })
+    if (typeof dir === 'string' && dir) {
+      await settings.save({ workspaceRoot: dir })
+    }
+  } catch (e) {
+    console.error(e)
+  }
+}
 
 function send() {
   if (!canSend.value) return
+  if (needsWorkspace.value && !settings.settings.workspaceRoot?.trim()) return
   const v = text.value
   text.value = ''
   chat.sendUserMessage(v)
@@ -52,9 +111,14 @@ function selectModel(model: string) {
   showModelPicker.value = false
 }
 
-function selectAgentMode(mode: AgentMode) {
-  settings.save({ agentMode: mode })
-  showModePicker.value = false
+async function selectSupervisorMode() {
+  await settings.save({ agentMode: 'supervisor', leadAgentId: '' })
+  showAgentPicker.value = false
+}
+
+async function selectWorkerAgent(agent: AgentDef) {
+  await settings.save({ agentMode: 'single', leadAgentId: agent.id })
+  showAgentPicker.value = false
 }
 
 function autoResize() {
@@ -66,13 +130,11 @@ function autoResize() {
 function updatePickerWidths() {
   if (modelBtnRef.value) {
     const btnWidth = modelBtnRef.value.offsetWidth
-    const minWidth = Math.max(btnWidth, 180)
-    modelPickerWidth.value = minWidth
+    modelPickerWidth.value = Math.max(btnWidth, 180)
   }
-  if (modeBtnRef.value) {
-    const btnWidth = modeBtnRef.value.offsetWidth
-    const minWidth = Math.max(btnWidth, 160)
-    modePickerWidth.value = minWidth
+  if (agentBtnRef.value) {
+    const btnWidth = agentBtnRef.value.offsetWidth
+    agentPickerWidth.value = Math.max(btnWidth, 200)
   }
 }
 
@@ -83,14 +145,20 @@ function handleClickOutside(e: MouseEvent) {
       showModelPicker.value = false
     }
   }
-  if (showModePicker.value && modeBtnRef.value && modePickerRef.value) {
-    if (!modeBtnRef.value.contains(target) && !modePickerRef.value.contains(target)) {
-      showModePicker.value = false
+  if (showAgentPicker.value && agentBtnRef.value && agentPickerRef.value) {
+    if (!agentBtnRef.value.contains(target) && !agentPickerRef.value.contains(target)) {
+      showAgentPicker.value = false
     }
   }
 }
 
+watch(
+  () => [showModelPicker.value, showAgentPicker.value],
+  () => nextTick(() => updatePickerWidths())
+)
+
 onMounted(() => {
+  loadAgentsList()
   updatePickerWidths()
   document.addEventListener('click', handleClickOutside)
 })
@@ -103,6 +171,30 @@ onUnmounted(() => {
 <template>
   <div class="px-6 md:px-10 pb-5">
     <div class="max-w-3xl mx-auto">
+      <div v-if="needsWorkspace" class="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+        <span class="text-amber-200/90">编码智能体需要工作区目录</span>
+        <span class="truncate max-w-[min(100%,280px)] text-slate-500" :title="settings.settings.workspaceRoot">
+          {{ settings.settings.workspaceRoot || '未选择' }}
+        </span>
+        <button
+          v-if="isTauriRuntime()"
+          type="button"
+          class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-slate-200 cursor-pointer"
+          @click="pickWorkspaceFolder"
+        >
+          <FolderOpen class="w-3 h-3" />
+          选择文件夹
+        </button>
+        <input
+          v-else
+          v-model="settings.settings.workspaceRoot"
+          type="text"
+          placeholder="绝对路径（Web）"
+          class="flex-1 min-w-[120px] h-8 px-2 rounded-lg bg-black/30 border border-white/10 text-slate-200 text-xs"
+          @change="settings.save({ workspaceRoot: settings.settings.workspaceRoot })"
+        />
+      </div>
+
       <div class="glass-strong rounded-2xl p-2 neon-ring">
         <div class="flex items-end gap-2">
           <textarea
@@ -167,30 +259,40 @@ onUnmounted(() => {
 
         <div class="relative">
           <button
-            ref="modeBtnRef"
-            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg glass text-[11px] text-slate-300 hover:bg-white/10 cursor-pointer"
-            @click="showModePicker = !showModePicker"
+            ref="agentBtnRef"
+            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg glass text-[11px] text-slate-300 hover:bg-white/10 cursor-pointer max-w-[220px]"
+            @click="showAgentPicker = !showAgentPicker"
           >
-            <Bot v-if="settings.settings.agentMode === 'single'" class="w-3 h-3 text-primary-fuchsia" />
-            <Users v-else class="w-3 h-3 text-primary-fuchsia" />
-            {{ settings.settings.agentMode === 'single' ? '标准模式' : '多专家协作' }}
-            <ChevronDown class="w-3 h-3" />
+            <Bot v-if="settings.settings.agentMode === 'single'" class="w-3 h-3 shrink-0 text-primary-fuchsia" />
+            <Users v-else class="w-3 h-3 shrink-0 text-primary-fuchsia" />
+            <span class="truncate">{{ currentAgentLabel }}</span>
+            <ChevronDown class="w-3 h-3 shrink-0" />
           </button>
 
-          <div v-if="showModePicker" ref="modePickerRef" class="absolute bottom-full left-0 mb-2 glass-strong rounded-xl shadow-2xl overflow-hidden z-50" :style="{ minWidth: modePickerWidth + 'px' }">
+          <div v-if="showAgentPicker" ref="agentPickerRef" class="absolute bottom-full left-0 mb-2 glass-strong rounded-xl shadow-2xl overflow-hidden z-50 max-h-72 overflow-y-auto" :style="{ minWidth: agentPickerWidth + 'px' }">
             <div class="p-2 border-b border-white/5">
-              <div class="text-[11px] text-slate-500">选择模式</div>
+              <div class="text-[11px] text-slate-500">执行智能体（名称来自配置）</div>
             </div>
             <div class="p-1.5 space-y-0.5">
               <button
-                v-for="mode in agentModes"
-                :key="mode.value"
-                class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 cursor-pointer flex items-center gap-2 whitespace-nowrap"
-                :class="settings.settings.agentMode === mode.value ? 'bg-primary/15 text-primary-cyan' : 'text-slate-300'"
-                @click="selectAgentMode(mode.value)"
+                v-for="w in workers"
+                :key="w.id"
+                class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 cursor-pointer flex items-center gap-2"
+                :class="settings.settings.agentMode === 'single' && (settings.settings.leadAgentId === w.id || ((!settings.settings.leadAgentId || settings.settings.leadAgentId === 'default') && w.id === 'default')) ? 'bg-primary/15 text-primary-cyan' : 'text-slate-300'"
+                @click="selectWorkerAgent(w)"
               >
-                <component :is="mode.icon" class="w-3 h-3" />
-                {{ mode.label }}
+                <Bot class="w-3 h-3 shrink-0" />
+                <span class="min-w-0 truncate">{{ w.name }}</span>
+                <span class="text-[10px] text-slate-500 shrink-0">{{ w.id }}</span>
+              </button>
+              <button
+                v-if="supervisorAgent"
+                class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 cursor-pointer flex items-center gap-2"
+                :class="settings.settings.agentMode === 'supervisor' ? 'bg-primary/15 text-primary-cyan' : 'text-slate-300'"
+                @click="selectSupervisorMode"
+              >
+                <Users class="w-3 h-3 shrink-0" />
+                <span class="truncate">{{ supervisorAgent.name }}</span>
               </button>
             </div>
           </div>

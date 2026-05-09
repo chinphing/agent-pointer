@@ -117,15 +117,18 @@ fn default_agent_mode() -> String {
 impl Default for ModelSettings {
     fn default() -> Self {
         Self {
-            providers: vec![
-                ProviderConfig {
-                    id: "qwen".into(),
-                    name: "阿里云千问".into(),
-                    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
-                    api_key: String::new(),
-                    models: vec!["qwen3.5-plus".into(), "qwen3.6-plus".into(), "qwen3.5-flash".into(), "qwen3.5-27b".into()],
-                },
-            ],
+            providers: vec![ProviderConfig {
+                id: "qwen".into(),
+                name: "阿里云千问".into(),
+                base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+                api_key: String::new(),
+                models: vec![
+                    "qwen3.5-plus".into(),
+                    "qwen3.6-plus".into(),
+                    "qwen3.5-flash".into(),
+                    "qwen3.5-27b".into(),
+                ],
+            }],
             active_provider_id: "qwen".into(),
             model: "qwen3.5-plus".into(),
             api_key: String::new(),

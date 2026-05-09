@@ -66,13 +66,17 @@ impl Default for StoredSettings {
     fn default() -> Self {
         let s = ModelSettings::default();
         Self {
-            providers: s.providers.iter().map(|p| StoredProvider {
-                id: p.id.clone(),
-                name: p.name.clone(),
-                base_url: p.base_url.clone(),
-                api_key: p.api_key.clone(),
-                models: p.models.clone(),
-            }).collect(),
+            providers: s
+                .providers
+                .iter()
+                .map(|p| StoredProvider {
+                    id: p.id.clone(),
+                    name: p.name.clone(),
+                    base_url: p.base_url.clone(),
+                    api_key: p.api_key.clone(),
+                    models: p.models.clone(),
+                })
+                .collect(),
             active_provider_id: s.active_provider_id,
             model: s.model,
             temperature: s.temperature,
@@ -92,15 +96,17 @@ pub fn load_settings() -> Result<ModelSettings> {
         StoredSettings::default()
     };
 
-    let providers: Vec<ProviderConfig> = stored.providers.iter().map(|p| {
-        ProviderConfig {
+    let providers: Vec<ProviderConfig> = stored
+        .providers
+        .iter()
+        .map(|p| ProviderConfig {
             id: p.id.clone(),
             name: p.name.clone(),
             base_url: p.base_url.clone(),
             api_key: p.api_key.clone(),
             models: p.models.clone(),
-        }
-    }).collect();
+        })
+        .collect();
 
     let active_provider_id = if stored.active_provider_id.is_empty() {
         "qwen".into()
@@ -125,13 +131,17 @@ pub fn load_settings() -> Result<ModelSettings> {
 
 pub fn save_settings(s: &ModelSettings) -> Result<()> {
     let stored = StoredSettings {
-        providers: s.providers.iter().map(|p| StoredProvider {
-            id: p.id.clone(),
-            name: p.name.clone(),
-            base_url: p.base_url.clone(),
-            api_key: p.api_key.clone(),
-            models: p.models.clone(),
-        }).collect(),
+        providers: s
+            .providers
+            .iter()
+            .map(|p| StoredProvider {
+                id: p.id.clone(),
+                name: p.name.clone(),
+                base_url: p.base_url.clone(),
+                api_key: p.api_key.clone(),
+                models: p.models.clone(),
+            })
+            .collect(),
         active_provider_id: s.active_provider_id.clone(),
         model: s.model.clone(),
         temperature: s.temperature,

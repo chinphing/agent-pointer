@@ -233,9 +233,13 @@ impl AgentOrchestrator {
             AGENT_MODE_SUPERVISOR => AGENT_MODE_SUPERVISOR,
             _ => AGENT_MODE_SINGLE,
         };
-        let default_agent = agents
-            .get(DEFAULT_AGENT_ID)
-            .or_else(|| agents.enabled_workers().into_iter().next().map(static_agent));
+        let default_agent = agents.get(DEFAULT_AGENT_ID).or_else(|| {
+            agents
+                .enabled_workers()
+                .into_iter()
+                .next()
+                .map(static_agent)
+        });
 
         if normalized_mode == AGENT_MODE_SINGLE {
             let agent = default_agent
@@ -245,7 +249,10 @@ impl AgentOrchestrator {
             let session_skill_ids = resolve_skill_ids(&agent, enabled_skill_ids);
             let (skill_prompts, session_tools) = skills.progressive_context(&session_skill_ids);
             let allowed_tool_names = resolve_tools(&agent.access_policy, &session_tools, tools);
-            let mut system_prompts = vec![agent_prompt(&agent, default_agent.as_ref().map(|a| a.system_prompt()))];
+            let mut system_prompts = vec![agent_prompt(
+                &agent,
+                default_agent.as_ref().map(|a| a.system_prompt()),
+            )];
             system_prompts.extend(skill_prompts);
 
             return AgentPlan {
@@ -409,7 +416,10 @@ fn agent_roots() -> Result<Vec<PathBuf>> {
 
 fn load_agent_from_dir(dir: &Path) -> Result<BaseAgent> {
     if !is_kebab_case_dir(dir) {
-        return Err(anyhow!("Agent 目录名必须使用 kebab-case: {}", dir.display()));
+        return Err(anyhow!(
+            "Agent 目录名必须使用 kebab-case: {}",
+            dir.display()
+        ));
     }
 
     let manifest_path = dir.join(AGENT_MANIFEST);
@@ -446,14 +456,19 @@ fn manifest_to_agent(manifest: AgentManifest, dir: Option<&Path>) -> Result<Base
         name: manifest.name,
         description: manifest.description,
         role: manifest.role,
-        profile: manifest.profile.unwrap_or_else(|| AgentProfile::Custom("external".into())),
+        profile: manifest
+            .profile
+            .unwrap_or_else(|| AgentProfile::Custom("external".into())),
         default_skill_ids: manifest.default_skill_ids,
         access_policy,
         builtin: false,
         enabled: manifest.enabled,
         tool_names,
         source: dir.map(|path| path.to_string_lossy().to_string()),
-        resource_files: dir.map(collect_agent_resource_files).transpose()?.unwrap_or_default(),
+        resource_files: dir
+            .map(collect_agent_resource_files)
+            .transpose()?
+            .unwrap_or_default(),
     };
 
     Ok(BaseAgent {
@@ -508,12 +523,34 @@ fn validate_agent_manifest(manifest: &AgentManifest) -> Result<()> {
     if manifest.body.trim().is_empty() {
         return Err(anyhow!("AGENT.md 正文必须包含 system prompt"));
     }
-    if manifest.access_policy.allow_tools.iter().any(|tool| tool.trim().is_empty())
-        || manifest.access_policy.deny_tools.iter().any(|tool| tool.trim().is_empty())
-        || manifest.access_policy.allow_skills.iter().any(|skill| skill.trim().is_empty())
-        || manifest.access_policy.deny_skills.iter().any(|skill| skill.trim().is_empty())
-        || manifest.tool_names.iter().any(|tool| tool.trim().is_empty())
-        || manifest.default_skill_ids.iter().any(|skill| skill.trim().is_empty())
+    if manifest
+        .access_policy
+        .allow_tools
+        .iter()
+        .any(|tool| tool.trim().is_empty())
+        || manifest
+            .access_policy
+            .deny_tools
+            .iter()
+            .any(|tool| tool.trim().is_empty())
+        || manifest
+            .access_policy
+            .allow_skills
+            .iter()
+            .any(|skill| skill.trim().is_empty())
+        || manifest
+            .access_policy
+            .deny_skills
+            .iter()
+            .any(|skill| skill.trim().is_empty())
+        || manifest
+            .tool_names
+            .iter()
+            .any(|tool| tool.trim().is_empty())
+        || manifest
+            .default_skill_ids
+            .iter()
+            .any(|skill| skill.trim().is_empty())
     {
         return Err(anyhow!("tools 或 skills 配置不允许包含空项"));
     }
@@ -522,7 +559,14 @@ fn validate_agent_manifest(manifest: &AgentManifest) -> Result<()> {
 
 fn collect_agent_resource_files(dir: &Path) -> Result<Vec<String>> {
     let mut out = Vec::new();
-    for root_name in ["tools", "skills", "resources", "references", "assets", "scripts"] {
+    for root_name in [
+        "tools",
+        "skills",
+        "resources",
+        "references",
+        "assets",
+        "scripts",
+    ] {
         let root = dir.join(root_name);
         if root.exists() {
             collect_agent_resource_files_inner(dir, &root, &mut out)?;
@@ -532,14 +576,22 @@ fn collect_agent_resource_files(dir: &Path) -> Result<Vec<String>> {
     Ok(out)
 }
 
-fn collect_agent_resource_files_inner(base: &Path, dir: &Path, out: &mut Vec<String>) -> Result<()> {
+fn collect_agent_resource_files_inner(
+    base: &Path,
+    dir: &Path,
+    out: &mut Vec<String>,
+) -> Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
             collect_agent_resource_files_inner(base, &path, out)?;
         } else if path.is_file() {
-            out.push(path.strip_prefix(base)?.to_string_lossy().replace('\\', "/"));
+            out.push(
+                path.strip_prefix(base)?
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            );
         }
     }
     Ok(())
@@ -611,7 +663,11 @@ fn default_skills_from_agents(agents: &[AgentDef]) -> Vec<String> {
     ids
 }
 
-fn resolve_tools(policy: &AccessPolicy, session_tools: &[String], tools: &ToolRegistry) -> Vec<String> {
+fn resolve_tools(
+    policy: &AccessPolicy,
+    session_tools: &[String],
+    tools: &ToolRegistry,
+) -> Vec<String> {
     let mut names = if policy.allow_tools.is_empty() {
         session_tools.to_vec()
     } else {
@@ -648,7 +704,10 @@ fn supervisor_prompt(lead: &AgentDef, lead_prompt: Option<String>, agents: &[Age
             roster.push_str(&format!("  tools: {}\n", agent.tool_names.join(", ")));
         }
         if !agent.default_skill_ids.is_empty() {
-            roster.push_str(&format!("  skills: {}\n", agent.default_skill_ids.join(", ")));
+            roster.push_str(&format!(
+                "  skills: {}\n",
+                agent.default_skill_ids.join(", ")
+            ));
         }
     }
 

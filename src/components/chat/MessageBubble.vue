@@ -81,10 +81,10 @@ watch(() => props.message.content, () => {
 
     <div class="flex-1 min-w-0" :class="isUser ? 'flex flex-col items-end' : ''">
       <div
-        class="block w-full max-w-full overflow-hidden px-4 py-3 rounded-2xl border"
+        class="block overflow-hidden px-4 py-3 rounded-2xl border break-words"
         :class="isUser
-          ? 'bg-primary/15 border-primary/25 text-slate-100'
-          : 'glass border-white/5'"
+          ? 'w-fit max-w-[80%] bg-primary/15 border-primary/25 text-slate-100'
+          : 'w-full max-w-full glass border-white/5'"
       >
         <div v-if="message.agentTrace && message.agentTrace.length" class="mb-2 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-[11px] text-slate-300">
           <div class="mb-1 font-medium text-primary-cyan">Multi-Agent Trace</div>

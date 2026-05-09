@@ -6,7 +6,7 @@ use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent, ToolCall};
 use crate::provider::{OpenAIProvider, ProviderEvent};
 use crate::skills::SkillRegistry;
 use crate::storage;
-use crate::tools::builtin::run_terminal_command_streaming;
+use crate::tools::terminal::run_terminal_command_streaming;
 use crate::tools::ToolRegistry;
 use anyhow::{anyhow, Result};
 use chrono::Local;
@@ -233,6 +233,7 @@ async fn run_chat_inner(
         let history_clone = history.clone();
         let mut prompts_with_env = vec![build_env_context()];
         prompts_with_env.extend(agent_plan.system_prompts.clone());
+        prompts_with_env.extend(state.tools.prompt_context(&agent_plan.allowed_tool_names));
         let prompts_clone = prompts_with_env;
         let cancel_clone = cancel.clone();
         let tools_clone = tools_json.clone();
@@ -577,7 +578,16 @@ async fn run_supervisor_chat(
     );
 
     let env_context = build_env_context();
-    let tasks = match plan_agent_tasks(&provider, &state, history, &limits, cancel.clone(), &env_context).await {
+    let tasks = match plan_agent_tasks(
+        &provider,
+        &state,
+        history,
+        &limits,
+        cancel.clone(),
+        &env_context,
+    )
+    .await
+    {
         Ok(tasks) => tasks,
         Err(err) => {
             log::warn!("agent planning failed, fallback to default agent: {err}");
@@ -725,8 +735,11 @@ async fn plan_agent_tasks(
         limits.max_sub_agents,
         roster
     );
-    let raw = provider.chat_once(history, &[prompt], Vec::new(), cancel).await?;
-    parse_agent_tasks(&raw, &workers, limits).or_else(|| Some(fallback_agent_tasks(state, history, limits)))
+    let raw = provider
+        .chat_once(history, &[prompt], Vec::new(), cancel)
+        .await?;
+    parse_agent_tasks(&raw, &workers, limits)
+        .or_else(|| Some(fallback_agent_tasks(state, history, limits)))
         .ok_or_else(|| anyhow!("无法生成 Agent 任务计划"))
 }
 
@@ -772,6 +785,7 @@ async fn run_sub_agent(
         if allowed_tools.is_empty() { "无".into() } else { allowed_tools.join(", ") }
     )];
     prompts.extend(skill_prompts);
+    prompts.extend(state.tools.prompt_context(&allowed_tools));
     prompts.push(format!("子任务：\n{}", task.instruction));
 
     let tools_json = state.tools.openai_tools(&allowed_tools);
@@ -794,8 +808,14 @@ async fn run_sub_agent(
         let tools_clone = tools_json.clone();
         let cancel_clone = cancel.clone();
         let handle = tokio::spawn(async move {
-            prov.stream_chat(&history_clone, &prompts_clone, tools_clone, tx, cancel_clone)
-                .await
+            prov.stream_chat(
+                &history_clone,
+                &prompts_clone,
+                tools_clone,
+                tx,
+                cancel_clone,
+            )
+            .await
         });
 
         let round_message_id = new_id("agent_msg");
@@ -913,7 +933,11 @@ async fn run_sub_agent(
                 agent_id: def.id,
                 agent_name: def.name,
                 content,
-                reasoning: if reasoning.is_empty() { None } else { Some(reasoning) },
+                reasoning: if reasoning.is_empty() {
+                    None
+                } else {
+                    Some(reasoning)
+                },
             });
         }
 
@@ -1080,11 +1104,17 @@ async fn run_sub_agent(
                 agent_id: def.id,
                 agent_name: def.name,
                 content,
-                reasoning: if reasoning.is_empty() { None } else { Some(reasoning) },
+                reasoning: if reasoning.is_empty() {
+                    None
+                } else {
+                    Some(reasoning)
+                },
             });
         }
         if round + 1 >= MAX_TOOL_ROUNDS {
-            return Err(anyhow!("子 Agent 已达到最大工具调用轮次 ({MAX_TOOL_ROUNDS})"));
+            return Err(anyhow!(
+                "子 Agent 已达到最大工具调用轮次 ({MAX_TOOL_ROUNDS})"
+            ));
         }
     }
 
@@ -1093,7 +1123,11 @@ async fn run_sub_agent(
         agent_id: def.id,
         agent_name: def.name,
         content,
-        reasoning: if reasoning.is_empty() { None } else { Some(reasoning) },
+        reasoning: if reasoning.is_empty() {
+            None
+        } else {
+            Some(reasoning)
+        },
     })
 }
 
@@ -1116,7 +1150,9 @@ async fn synthesize_final_answer(
         env_context,
         if report.is_empty() { "无可用子 Agent 结果，请基于对话直接给出谨慎答复。".into() } else { report }
     );
-    provider.chat_once(history, &[prompt], Vec::new(), cancel).await
+    provider
+        .chat_once(history, &[prompt], Vec::new(), cancel)
+        .await
 }
 
 fn emit_agent_content_delta(
@@ -1184,7 +1220,11 @@ fn parse_agent_tasks(
         }
     }
     tasks.truncate(limits.max_sub_agents);
-    if tasks.is_empty() { None } else { Some(tasks) }
+    if tasks.is_empty() {
+        None
+    } else {
+        Some(tasks)
+    }
 }
 
 fn extract_json_array(raw: &str) -> Option<String> {

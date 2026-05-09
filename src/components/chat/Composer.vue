@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { Bot, ChevronDown, Send, Square, Sparkles, Users } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
+import type { AgentMode } from '../../types/chat'
 
 const chat = useChatStore()
 const settings = useSettingsStore()
@@ -19,7 +20,7 @@ const modePickerRef = ref<HTMLDivElement | null>(null)
 const modelPickerWidth = ref(0)
 const modePickerWidth = ref(0)
 
-const agentModes = [
+const agentModes: Array<{ value: AgentMode; label: string; icon: typeof Bot }> = [
   { value: 'single', label: '标准模式', icon: Bot },
   { value: 'supervisor', label: '多专家协作', icon: Users },
 ]
@@ -51,7 +52,7 @@ function selectModel(model: string) {
   showModelPicker.value = false
 }
 
-function selectAgentMode(mode: string) {
+function selectAgentMode(mode: AgentMode) {
   settings.save({ agentMode: mode })
   showModePicker.value = false
 }

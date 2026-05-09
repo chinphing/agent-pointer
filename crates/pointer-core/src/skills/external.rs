@@ -21,7 +21,11 @@ struct SkillManifest {
     license: Option<String>,
     #[serde(default)]
     compatibility: Option<String>,
-    #[serde(default, rename = "allowed-tools", deserialize_with = "deserialize_allowed_tools")]
+    #[serde(
+        default,
+        rename = "allowed-tools",
+        deserialize_with = "deserialize_allowed_tools"
+    )]
     allowed_tools: Vec<String>,
     #[serde(default)]
     metadata: serde_json::Value,
@@ -98,7 +102,10 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
         }
 
         let Some(dir_name) = base.file_name().and_then(|name| name.to_str()) else {
-            skipped.push(format!("{}: SKILL.md 必须位于 kebab-case Skill 目录中", manifest.name));
+            skipped.push(format!(
+                "{}: SKILL.md 必须位于 kebab-case Skill 目录中",
+                manifest.name
+            ));
             continue;
         };
         if dir_name != manifest.name {
@@ -143,7 +150,10 @@ fn skill_roots() -> Result<Vec<PathBuf>> {
 
 fn load_skill_from_dir(dir: &Path) -> Result<SkillDef> {
     if !is_kebab_case_dir(dir) {
-        return Err(anyhow!("Skill 目录名必须使用 kebab-case: {}", dir.display()));
+        return Err(anyhow!(
+            "Skill 目录名必须使用 kebab-case: {}",
+            dir.display()
+        ));
     }
 
     let manifest_path = dir.join("SKILL.md");
@@ -152,7 +162,9 @@ fn load_skill_from_dir(dir: &Path) -> Result<SkillDef> {
     }
 
     if dir.join("README.md").exists() {
-        return Err(anyhow!("Skill 目录不应包含 README.md，请将说明写入 SKILL.md"));
+        return Err(anyhow!(
+            "Skill 目录不应包含 README.md，请将说明写入 SKILL.md"
+        ));
     }
 
     let raw = fs::read_to_string(&manifest_path)?;
@@ -313,7 +325,11 @@ fn validate_manifest(manifest: &SkillManifest) -> Result<()> {
             return Err(anyhow!("compatibility 长度必须在 1 到 500 个字符之间"));
         }
     }
-    if manifest.allowed_tools.iter().any(|tool| tool.trim().is_empty()) {
+    if manifest
+        .allowed_tools
+        .iter()
+        .any(|tool| tool.trim().is_empty())
+    {
         return Err(anyhow!("allowed-tools 不允许包含空项"));
     }
     Ok(())

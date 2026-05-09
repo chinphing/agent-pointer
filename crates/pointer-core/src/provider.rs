@@ -107,15 +107,21 @@ impl OpenAIProvider {
     pub async fn test(&self) -> Result<u128> {
         let start = std::time::Instant::now();
         // 用一次最小化 chat 请求测试连通性
-        let base_url = self.settings.providers.iter()
+        let base_url = self
+            .settings
+            .providers
+            .iter()
             .find(|p| p.id == self.settings.active_provider_id)
             .map(|p| p.base_url.clone())
-            .unwrap_or_else(|| self.settings.providers.first().map(|p| p.base_url.clone()).unwrap_or_default());
-        
-        let url = format!(
-            "{}/chat/completions",
-            base_url.trim_end_matches('/')
-        );
+            .unwrap_or_else(|| {
+                self.settings
+                    .providers
+                    .first()
+                    .map(|p| p.base_url.clone())
+                    .unwrap_or_default()
+            });
+
+        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let body = json!({
             "model": self.settings.model,
             "messages": [{"role":"user","content":"ping"}],
@@ -146,10 +152,19 @@ impl OpenAIProvider {
         tools: Vec<Value>,
         cancel: CancellationToken,
     ) -> Result<String> {
-        let base_url = self.settings.providers.iter()
+        let base_url = self
+            .settings
+            .providers
+            .iter()
             .find(|p| p.id == self.settings.active_provider_id)
             .map(|p| p.base_url.clone())
-            .unwrap_or_else(|| self.settings.providers.first().map(|p| p.base_url.clone()).unwrap_or_default());
+            .unwrap_or_else(|| {
+                self.settings
+                    .providers
+                    .first()
+                    .map(|p| p.base_url.clone())
+                    .unwrap_or_default()
+            });
 
         let openai_msgs = crate::models::make_openai_messages(messages, system_prompts);
         let has_tools = !tools.is_empty();
@@ -162,10 +177,7 @@ impl OpenAIProvider {
             tools,
             tool_choice: if has_tools { Some("auto") } else { None },
         };
-        let url = format!(
-            "{}/chat/completions",
-            base_url.trim_end_matches('/')
-        );
+        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(180))
             .build()?;
@@ -189,7 +201,10 @@ impl OpenAIProvider {
             .next()
             .map(|choice| choice.message)
             .ok_or_else(|| anyhow!("模型未返回候选结果"))?;
-        Ok(message.content.or(message.reasoning_content).unwrap_or_default())
+        Ok(message
+            .content
+            .or(message.reasoning_content)
+            .unwrap_or_default())
     }
 
     pub async fn stream_chat(
@@ -200,10 +215,19 @@ impl OpenAIProvider {
         tx: mpsc::Sender<ProviderEvent>,
         cancel: CancellationToken,
     ) -> Result<()> {
-        let base_url = self.settings.providers.iter()
+        let base_url = self
+            .settings
+            .providers
+            .iter()
             .find(|p| p.id == self.settings.active_provider_id)
             .map(|p| p.base_url.clone())
-            .unwrap_or_else(|| self.settings.providers.first().map(|p| p.base_url.clone()).unwrap_or_default());
+            .unwrap_or_else(|| {
+                self.settings
+                    .providers
+                    .first()
+                    .map(|p| p.base_url.clone())
+                    .unwrap_or_default()
+            });
 
         let openai_msgs = crate::models::make_openai_messages(messages, system_prompts);
         let has_tools = !tools.is_empty();
@@ -217,10 +241,7 @@ impl OpenAIProvider {
             tool_choice: if has_tools { Some("auto") } else { None },
         };
 
-        let url = format!(
-            "{}/chat/completions",
-            base_url.trim_end_matches('/')
-        );
+        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(180))
             .build()?;

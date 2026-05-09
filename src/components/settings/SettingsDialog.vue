@@ -52,6 +52,15 @@ const inputPlaceholder = computed(() => {
   return '输入新密钥以替换原密钥'
 })
 
+function providerKeyDisplay(key: string): string {
+  return key ? maskKey(key) : '未配置'
+}
+
+function clearMaskedInput(e: Event) {
+  if (showAddProvider.value || editingApiKey.value) return
+  ;(e.target as HTMLInputElement).value = ''
+}
+
 function copyOriginalKey() {
   const key = originalApiKey.value
   if (!key) return
@@ -206,6 +215,7 @@ async function saveAll() {
                     <span v-if="p.apiKey" class="px-2 py-0.5 rounded-full bg-green-500/20 text-[10px] text-green-400">已配置密钥</span>
                   </div>
                   <p class="mt-1 text-[11px] text-slate-500 truncate">{{ p.baseUrl }}</p>
+                  <p class="mt-1 text-[11px] text-slate-500 font-mono">密钥：{{ providerKeyDisplay(p.apiKey) }}</p>
                   <p class="mt-1 text-[11px] text-slate-500">模型：{{ p.models.join(', ') || '未配置' }}</p>
                 </div>
                   <div class="flex items-center gap-2">
@@ -247,7 +257,7 @@ async function saveAll() {
                 <div>
                   <label class="block text-[12px] text-slate-400 mb-1">API 密钥</label>
                   <div class="flex items-center gap-2 h-10 px-3 rounded-lg glass border border-white/5">
-                    <input :value="displayKey" @input="e => { editingApiKey = (e.target as HTMLInputElement).value }" type="password" class="flex-1 bg-transparent border-0 outline-none text-sm text-slate-100 placeholder:text-slate-500" :placeholder="inputPlaceholder" />
+                    <input :value="displayKey" @focus="clearMaskedInput" @input="e => { editingApiKey = (e.target as HTMLInputElement).value }" :type="editingApiKey || showAddProvider ? 'password' : 'text'" class="flex-1 bg-transparent border-0 outline-none text-sm text-slate-100 placeholder:text-slate-500 font-mono" :placeholder="inputPlaceholder" />
                     <button v-if="!showAddProvider && originalApiKey" class="p-1 rounded hover:bg-white/10 cursor-pointer transition" :class="copiedKey ? 'text-green-400' : 'text-slate-400 hover:text-slate-200'" @click="copyOriginalKey" :title="copiedKey ? '已复制' : '复制原始密钥'">
                       <Check v-if="copiedKey" class="w-4 h-4" />
                       <Copy v-else class="w-4 h-4" />

@@ -1,4 +1,9 @@
 pub mod builtin;
+pub mod general;
+pub mod math;
+pub mod skills;
+pub mod terminal;
+pub mod text;
 
 use crate::models::ToolDef;
 use anyhow::Result;
@@ -8,8 +13,14 @@ use std::sync::Arc;
 
 pub type ToolHandler = Arc<dyn Fn(serde_json::Value) -> Result<String> + Send + Sync>;
 
+#[derive(Debug, Clone)]
+pub struct ToolPrompt {
+    pub system_prompt: String,
+}
+
 pub struct ToolEntry {
     pub def: ToolDef,
+    pub prompt: Option<ToolPrompt>,
     pub handler: ToolHandler,
 }
 
@@ -24,9 +35,23 @@ impl ToolRegistry {
     }
 
     pub fn register(&self, def: ToolDef, handler: ToolHandler) {
-        self.inner
-            .write()
-            .insert(def.name.clone(), ToolEntry { def, handler });
+        self.register_with_prompt(def, None, handler);
+    }
+
+    pub fn register_with_prompt(
+        &self,
+        def: ToolDef,
+        prompt: Option<ToolPrompt>,
+        handler: ToolHandler,
+    ) {
+        self.inner.write().insert(
+            def.name.clone(),
+            ToolEntry {
+                def,
+                prompt,
+                handler,
+            },
+        );
     }
 
     pub fn list_defs(&self) -> Vec<ToolDef> {
@@ -61,6 +86,19 @@ impl ToolRegistry {
                         "parameters": e.def.parameters_schema
                     }
                 })
+            })
+            .collect()
+    }
+
+    pub fn prompt_context(&self, allow: &[String]) -> Vec<String> {
+        self.inner
+            .read()
+            .values()
+            .filter(|e| allow.is_empty() || allow.contains(&e.def.name))
+            .filter_map(|e| {
+                e.prompt
+                    .as_ref()
+                    .map(|p| format!("【工具使用说明：{}】\n{}", e.def.name, p.system_prompt))
             })
             .collect()
     }

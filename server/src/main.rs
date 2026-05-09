@@ -18,7 +18,14 @@ use pointer_core::{
     storage,
 };
 use serde::Deserialize;
-use std::{convert::Infallible, net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    convert::Infallible,
+    env,
+    net::SocketAddr,
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::sync::{broadcast, mpsc};
 use tower_http::cors::CorsLayer;
 
@@ -30,6 +37,23 @@ struct ServerState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    const DEFAULT_LOG_FILTER: &str = "warn,pointer_core=info,pointer_server=info";
+    let log_dir: PathBuf = env::var("POINTER_SERVER_LOG_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| env::current_dir().unwrap_or_default().join("logs"));
+    if let Err(err) =
+        pointer_core::logging::init_runtime_logging(&log_dir, DEFAULT_LOG_FILTER)
+    {
+        eprintln!(
+            "pointer-server: file logging unavailable ({err}); stderr-only. log_dir={}",
+            log_dir.display()
+        );
+        let _ = env_logger::Builder::from_env(
+            env_logger::Env::default().default_filter_or(DEFAULT_LOG_FILTER),
+        )
+        .try_init();
+    }
+
     let core = Arc::new(AppState::new());
     let (events, _) = broadcast::channel::<StreamEvent>(512);
     let state = ServerState { core, events };

@@ -192,6 +192,11 @@ pub async fn run_chat(
     state.cancels.lock().remove(&conversation_id);
 
     if let Err(err) = &result {
+        log::error!(
+            "run_chat failed conversation_id={} error={:#}",
+            conversation_id,
+            err
+        );
         emit(
             &stream,
             StreamEvent::Error {

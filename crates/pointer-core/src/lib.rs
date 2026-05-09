@@ -1,6 +1,7 @@
 pub mod agents;
 pub mod chat_service;
 pub mod context_compression;
+pub mod logging;
 pub mod models;
 pub mod provider;
 pub mod skills;

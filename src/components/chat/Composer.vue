@@ -49,6 +49,12 @@ const selectedWorker = computed(() => {
 
 const needsWorkspace = computed(() => agentNeedsWorkspace(selectedWorker.value))
 
+const workspaceDirName = computed(() => {
+  const p = settings.settings.workspaceRoot
+  if (!p) return ''
+  return p.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || ''
+})
+
 const currentAgentLabel = computed(() => {
   if (settings.settings.agentMode === 'supervisor') {
     return supervisorAgent.value?.name ?? 'Supervisor'
@@ -63,6 +69,17 @@ const canSend = computed(
     settings.settings.hasKey &&
     (!needsWorkspace.value || !!settings.settings.workspaceRoot?.trim())
 )
+
+/** 当前实际使用的模型：优先取 agent 默认模型，否则取全局 model */
+const currentModel = computed(() => {
+  if (settings.settings.agentMode === 'single' && settings.settings.leadAgentId) {
+    return settings.getAgentDefaultModel(settings.settings.leadAgentId) || settings.settings.model
+  }
+  if (settings.settings.agentMode === 'supervisor') {
+    return settings.getAgentDefaultModel('supervisor') || settings.settings.model
+  }
+  return settings.settings.model
+})
 
 async function loadAgentsList() {
   try {
@@ -108,16 +125,31 @@ function onKeydown(e: KeyboardEvent) {
 
 function selectModel(model: string) {
   settings.save({ model })
+  // 如果当前有选中的 agent，同时更新该 agent 的默认模型
+  if (settings.settings.agentMode === 'single' && settings.settings.leadAgentId) {
+    settings.setAgentDefaultModel(settings.settings.leadAgentId, model)
+  } else if (settings.settings.agentMode === 'supervisor') {
+    settings.setAgentDefaultModel('supervisor', model)
+  }
   showModelPicker.value = false
 }
 
 async function selectSupervisorMode() {
   await settings.save({ agentMode: 'supervisor', leadAgentId: '' })
+  const defaultModel = settings.getAgentDefaultModel('supervisor')
+  if (defaultModel && settings.activeModelList.includes(defaultModel)) {
+    await settings.save({ model: defaultModel })
+  }
   showAgentPicker.value = false
 }
 
 async function selectWorkerAgent(agent: AgentDef) {
   await settings.save({ agentMode: 'single', leadAgentId: agent.id })
+  // 自动带出该 agent 的默认模型
+  const defaultModel = settings.getAgentDefaultModel(agent.id)
+  if (defaultModel && settings.activeModelList.includes(defaultModel)) {
+    await settings.save({ model: defaultModel })
+  }
   showAgentPicker.value = false
 }
 
@@ -171,30 +203,6 @@ onUnmounted(() => {
 <template>
   <div class="px-6 md:px-10 pb-5">
     <div class="max-w-3xl mx-auto">
-      <div v-if="needsWorkspace" class="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
-        <span class="text-amber-200/90">编码智能体需要工作区目录</span>
-        <span class="truncate max-w-[min(100%,280px)] text-slate-500" :title="settings.settings.workspaceRoot">
-          {{ settings.settings.workspaceRoot || '未选择' }}
-        </span>
-        <button
-          v-if="isTauriRuntime()"
-          type="button"
-          class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-slate-200 cursor-pointer"
-          @click="pickWorkspaceFolder"
-        >
-          <FolderOpen class="w-3 h-3" />
-          选择文件夹
-        </button>
-        <input
-          v-else
-          v-model="settings.settings.workspaceRoot"
-          type="text"
-          placeholder="绝对路径（Web）"
-          class="flex-1 min-w-[120px] h-8 px-2 rounded-lg bg-black/30 border border-white/10 text-slate-200 text-xs"
-          @change="settings.save({ workspaceRoot: settings.settings.workspaceRoot })"
-        />
-      </div>
-
       <div class="glass-strong rounded-2xl p-2 neon-ring">
         <div class="flex items-end gap-2">
           <textarea
@@ -228,35 +236,7 @@ onUnmounted(() => {
       </div>
 
       <div class="flex items-center gap-2 mt-2">
-        <div class="relative">
-          <button
-            ref="modelBtnRef"
-            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg glass text-[11px] text-slate-300 hover:bg-white/10 cursor-pointer"
-            @click="showModelPicker = !showModelPicker"
-          >
-            <Sparkles class="w-3 h-3 text-primary-cyan" />
-            {{ settings.activeProvider.name }} / {{ settings.settings.model }}
-            <ChevronDown class="w-3 h-3" />
-          </button>
-
-          <div v-if="showModelPicker" ref="modelPickerRef" class="absolute bottom-full left-0 mb-2 glass-strong rounded-xl shadow-2xl overflow-hidden z-50" :style="{ minWidth: modelPickerWidth + 'px' }">
-            <div class="p-2 border-b border-white/5">
-              <div class="text-[11px] text-slate-500">选择模型</div>
-            </div>
-            <div class="max-h-60 overflow-y-auto p-1.5 space-y-0.5">
-              <button
-                v-for="m in settings.activeModelList"
-                :key="m"
-                class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 cursor-pointer whitespace-nowrap"
-                :class="settings.settings.model === m ? 'bg-primary/15 text-primary-cyan' : 'text-slate-300'"
-                @click="selectModel(m)"
-              >
-                {{ m }}
-              </button>
-            </div>
-          </div>
-        </div>
-
+        <!-- Agent 选择器（在前） -->
         <div class="relative">
           <button
             ref="agentBtnRef"
@@ -296,6 +276,57 @@ onUnmounted(() => {
               </button>
             </div>
           </div>
+        </div>
+
+        <!-- 模型选择器（在后） -->
+        <div class="relative">
+          <button
+            ref="modelBtnRef"
+            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg glass text-[11px] text-slate-300 hover:bg-white/10 cursor-pointer"
+            @click="showModelPicker = !showModelPicker"
+          >
+            <Sparkles class="w-3 h-3 text-primary-cyan" />
+            {{ settings.activeProvider.name }} / {{ currentModel }}
+            <ChevronDown class="w-3 h-3" />
+          </button>
+
+          <div v-if="showModelPicker" ref="modelPickerRef" class="absolute bottom-full left-0 mb-2 glass-strong rounded-xl shadow-2xl overflow-hidden z-50" :style="{ minWidth: modelPickerWidth + 'px' }">
+            <div class="p-2 border-b border-white/5">
+              <div class="text-[11px] text-slate-500">选择模型</div>
+            </div>
+            <div class="max-h-60 overflow-y-auto p-1.5 space-y-0.5">
+              <button
+                v-for="m in settings.activeModelList"
+                :key="m"
+                class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 cursor-pointer whitespace-nowrap"
+                :class="currentModel === m ? 'bg-primary/15 text-primary-cyan' : 'text-slate-300'"
+                @click="selectModel(m)"
+              >
+                {{ m }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 工作目录（仅 Coder 智能体） -->
+        <div v-if="needsWorkspace" class="relative">
+          <button
+            v-if="isTauriRuntime()"
+            type="button"
+            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg glass text-[11px] text-slate-300 hover:bg-white/10 cursor-pointer"
+            @click="pickWorkspaceFolder"
+          >
+            <FolderOpen class="w-3 h-3 text-amber-300 shrink-0" />
+            <span class="truncate max-w-[150px]">{{ workspaceDirName || '选择…' }}</span>
+          </button>
+          <input
+            v-else
+            v-model="settings.settings.workspaceRoot"
+            type="text"
+            placeholder="工作目录"
+            class="h-7 px-2 rounded-lg bg-black/30 border border-white/10 text-[11px] text-slate-300 outline-none focus:border-primary/50 transition-colors"
+            @change="settings.save({ workspaceRoot: settings.settings.workspaceRoot })"
+          />
         </div>
 
         <div class="flex-1" />

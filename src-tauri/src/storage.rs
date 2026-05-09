@@ -1,6 +1,7 @@
 use crate::models::{Conversation, ModelSettings, ProviderConfig};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -31,6 +32,22 @@ struct StoredSettings {
     tool_approval_mode: String,
     #[serde(default, rename = "agentMode")]
     agent_mode: String,
+    #[serde(default, rename = "workspaceRoot")]
+    workspace_root: String,
+    #[serde(default, rename = "leadAgentId")]
+    lead_agent_id: String,
+    #[serde(default, rename = "contextCompressionEnabled")]
+    context_compression_enabled: bool,
+    #[serde(default, rename = "contextBudgetChars")]
+    context_budget_chars: u32,
+    #[serde(default, rename = "contextKeepRecentUserTurns")]
+    context_keep_recent_user_turns: u32,
+    #[serde(default, rename = "contextSummaryMaxTokens")]
+    context_summary_max_tokens: u32,
+    #[serde(default, rename = "maxToolRounds")]
+    max_tool_rounds: u32,
+    #[serde(default, rename = "agentDefaultModels")]
+    agent_default_models: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -58,6 +75,14 @@ impl Default for StoredSettings {
             max_tokens: s.max_tokens,
             tool_approval_mode: s.tool_approval_mode,
             agent_mode: s.agent_mode,
+            workspace_root: String::new(),
+            lead_agent_id: String::new(),
+            context_compression_enabled: true,
+            context_budget_chars: 120_000,
+            context_keep_recent_user_turns: 6,
+            context_summary_max_tokens: 1024,
+            max_tool_rounds: 100,
+            agent_default_models: HashMap::new(),
         }
     }
 }
@@ -91,6 +116,14 @@ pub fn load_settings() -> Result<ModelSettings> {
         has_key: has_key()?,
         tool_approval_mode: if stored.tool_approval_mode.is_empty() { "auto".into() } else { stored.tool_approval_mode },
         agent_mode: if stored.agent_mode.is_empty() { "single".into() } else { stored.agent_mode },
+        workspace_root: stored.workspace_root,
+        lead_agent_id: stored.lead_agent_id,
+        context_compression_enabled: stored.context_compression_enabled,
+        context_budget_chars: stored.context_budget_chars,
+        context_keep_recent_user_turns: stored.context_keep_recent_user_turns,
+        context_summary_max_tokens: stored.context_summary_max_tokens,
+        max_tool_rounds: stored.max_tool_rounds,
+        agent_default_models: stored.agent_default_models,
     })
 }
 
@@ -108,6 +141,14 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
         max_tokens: s.max_tokens,
         tool_approval_mode: s.tool_approval_mode.clone(),
         agent_mode: s.agent_mode.clone(),
+        workspace_root: s.workspace_root.clone(),
+        lead_agent_id: s.lead_agent_id.clone(),
+        context_compression_enabled: s.context_compression_enabled,
+        context_budget_chars: s.context_budget_chars,
+        context_keep_recent_user_turns: s.context_keep_recent_user_turns,
+        context_summary_max_tokens: s.context_summary_max_tokens,
+        max_tool_rounds: s.max_tool_rounds,
+        agent_default_models: s.agent_default_models.clone(),
     };
     fs::write(settings_path()?, serde_json::to_vec_pretty(&stored)?)?;
     Ok(())

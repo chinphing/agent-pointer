@@ -29,7 +29,8 @@ export const useSettingsStore = defineStore('settings', () => {
     contextBudgetChars: 120_000,
     contextKeepRecentUserTurns: 6,
     contextSummaryMaxTokens: 1024,
-    maxToolRounds: 100
+    maxToolRounds: 100,
+    agentDefaultModels: {}
   })
   const loading = ref(false)
   const testing = ref(false)
@@ -55,7 +56,8 @@ export const useSettingsStore = defineStore('settings', () => {
           contextBudgetChars: s.contextBudgetChars ?? 120_000,
           contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 6,
           contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 1024,
-          maxToolRounds: s.maxToolRounds ?? 100
+          maxToolRounds: s.maxToolRounds ?? 100,
+          agentDefaultModels: s.agentDefaultModels ?? {}
         }
       } else {
         settings.value = {
@@ -69,7 +71,8 @@ export const useSettingsStore = defineStore('settings', () => {
           contextBudgetChars: s.contextBudgetChars ?? 120_000,
           contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 6,
           contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 1024,
-          maxToolRounds: s.maxToolRounds ?? 100
+          maxToolRounds: s.maxToolRounds ?? 100,
+          agentDefaultModels: s.agentDefaultModels ?? {}
         }
         if (s.model && !settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models.includes(s.model)) {
           settings.value.model = settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models[0] || s.model
@@ -82,7 +85,11 @@ export const useSettingsStore = defineStore('settings', () => {
   async function save(patch: Partial<ModelSettings>) {
     const merged: ModelSettings = { ...settings.value, ...patch }
     const updated = await updateSettings(merged)
-    settings.value = updated
+    // Backend may not return all fields (e.g. agentDefaultModels), preserve them
+    settings.value = {
+      ...updated,
+      agentDefaultModels: merged.agentDefaultModels ?? settings.value.agentDefaultModels
+    }
   }
 
   function setActiveProvider(id: string) {
@@ -134,6 +141,15 @@ export const useSettingsStore = defineStore('settings', () => {
     settings.value.hasKey = false
   }
 
+  function getAgentDefaultModel(agentId: string): string | undefined {
+    return settings.value.agentDefaultModels[agentId]
+  }
+
+  async function setAgentDefaultModel(agentId: string, model: string) {
+    const next = { ...settings.value.agentDefaultModels, [agentId]: model }
+    await save({ agentDefaultModels: next })
+  }
+
   async function runTest() {
     testing.value = true
     testResult.value = null
@@ -145,6 +161,7 @@ export const useSettingsStore = defineStore('settings', () => {
   return {
     settings, loading, testing, testResult, activeProvider, activeBaseUrl, activeModelList,
     load, save, setActiveProvider, addProvider, updateProvider, removeProvider,
-    saveKey, removeKey, runTest
+    saveKey, removeKey, runTest,
+    getAgentDefaultModel, setAgentDefaultModel
   }
 })

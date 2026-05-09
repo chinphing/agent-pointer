@@ -86,6 +86,22 @@ pub struct ModelSettings {
     pub tool_approval_mode: String,
     #[serde(default, rename = "agentMode")]
     pub agent_mode: String,
+    #[serde(default, rename = "workspaceRoot")]
+    pub workspace_root: String,
+    #[serde(default, rename = "leadAgentId")]
+    pub lead_agent_id: String,
+    #[serde(default, rename = "contextCompressionEnabled")]
+    pub context_compression_enabled: bool,
+    #[serde(default, rename = "contextBudgetChars")]
+    pub context_budget_chars: u32,
+    #[serde(default, rename = "contextKeepRecentUserTurns")]
+    pub context_keep_recent_user_turns: u32,
+    #[serde(default, rename = "contextSummaryMaxTokens")]
+    pub context_summary_max_tokens: u32,
+    #[serde(default, rename = "maxToolRounds")]
+    pub max_tool_rounds: u32,
+    #[serde(default, rename = "agentDefaultModels")]
+    pub agent_default_models: HashMap<String, String>,
 }
 
 impl Default for ModelSettings {

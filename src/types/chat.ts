@@ -117,6 +117,8 @@ export interface ModelSettings {
   contextSummaryMaxTokens: number
   /** Max tool-call rounds per user message (assistant loop), default 100 */
   maxToolRounds: number
+  /** agentId → 该 agent 的默认模型名称 */
+  agentDefaultModels: Record<string, string>
 }
 
 export interface SkillDef {

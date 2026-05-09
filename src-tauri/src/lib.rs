@@ -6,7 +6,20 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let _ = env_logger::try_init();
+    const DEFAULT_LOG_FILTER: &str = "warn,pointer_core=info,pointer_app_lib=info";
+    let log_dir = pointer_core::logging::desktop_log_dir();
+    if let Err(err) =
+        pointer_core::logging::init_runtime_logging(&log_dir, DEFAULT_LOG_FILTER)
+    {
+        eprintln!(
+            "Pointer: file logging unavailable ({err}); logs are stderr-only. log_dir={}",
+            log_dir.display()
+        );
+        let _ = env_logger::Builder::from_env(
+            env_logger::Env::default().default_filter_or(DEFAULT_LOG_FILTER),
+        )
+        .try_init();
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())

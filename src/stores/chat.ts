@@ -191,6 +191,20 @@ export const useChatStore = defineStore('chat', () => {
         if (e.messageId) {
           const r = findMessage(e.messageId)
           if (r) { r.msg.status = 'error'; r.msg.errorMessage = e.message }
+        } else {
+          const conv = conversations.value.find(c => c.id === currentId.value)
+          if (conv) {
+            conv.messages.push({
+              id: uid(),
+              role: 'assistant',
+              content: '',
+              status: 'error',
+              createdAt: Date.now(),
+              toolCalls: [],
+              errorMessage: e.message
+            })
+            conv.updatedAt = Date.now()
+          }
         }
         generating.value = false
         persist()

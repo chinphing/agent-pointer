@@ -124,7 +124,9 @@ impl Default for AppState {
 pub type StreamTx = mpsc::UnboundedSender<StreamEvent>;
 
 fn emit(tx: &StreamTx, ev: StreamEvent) {
-    let _ = tx.send(ev);
+    if tx.send(ev).is_err() {
+        log::warn!("stream event not delivered (frontend channel closed)");
+    }
 }
 
 fn build_env_context() -> String {

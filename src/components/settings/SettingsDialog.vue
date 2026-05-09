@@ -57,7 +57,7 @@ function maskKey(key: string): string {
 
 const displayKey = computed(() => {
   if (!editingProvider.value) return ''
-  if (showAddProvider.value) return ''
+  if (showAddProvider.value) return editingApiKey.value
   if (editingApiKey.value) return editingApiKey.value
   return maskKey(originalApiKey.value)
 })

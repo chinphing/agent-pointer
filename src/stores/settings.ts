@@ -24,7 +24,12 @@ export const useSettingsStore = defineStore('settings', () => {
     toolApprovalMode: 'auto',
     agentMode: 'single',
     workspaceRoot: '',
-    leadAgentId: ''
+    leadAgentId: '',
+    contextCompressionEnabled: true,
+    contextBudgetChars: 120_000,
+    contextKeepRecentUserTurns: 6,
+    contextSummaryMaxTokens: 1024,
+    maxToolRounds: 100
   })
   const loading = ref(false)
   const testing = ref(false)
@@ -45,7 +50,12 @@ export const useSettingsStore = defineStore('settings', () => {
         settings.value = {
           ...s,
           workspaceRoot: s.workspaceRoot ?? '',
-          leadAgentId: s.leadAgentId ?? ''
+          leadAgentId: s.leadAgentId ?? '',
+          contextCompressionEnabled: s.contextCompressionEnabled ?? true,
+          contextBudgetChars: s.contextBudgetChars ?? 120_000,
+          contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 6,
+          contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 1024,
+          maxToolRounds: s.maxToolRounds ?? 100
         }
       } else {
         settings.value = {
@@ -54,7 +64,12 @@ export const useSettingsStore = defineStore('settings', () => {
           providers: s.providers || defaultProviders,
           activeProviderId: s.activeProviderId || 'qwen',
           workspaceRoot: s.workspaceRoot ?? '',
-          leadAgentId: s.leadAgentId ?? ''
+          leadAgentId: s.leadAgentId ?? '',
+          contextCompressionEnabled: s.contextCompressionEnabled ?? true,
+          contextBudgetChars: s.contextBudgetChars ?? 120_000,
+          contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 6,
+          contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 1024,
+          maxToolRounds: s.maxToolRounds ?? 100
         }
         if (s.model && !settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models.includes(s.model)) {
           settings.value.model = settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models[0] || s.model

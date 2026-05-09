@@ -34,6 +34,8 @@ pub async fn send_chat(
             payload.messages,
             payload.enabled_skill_ids,
             payload.agent_mode,
+            payload.tool_rounds_used,
+            payload.tool_rounds_used_supervisor,
         )
         .await;
     });

@@ -34,6 +34,11 @@ const toolApprovalMode = ref<'auto' | 'manual'>('auto')
 const agentMode = ref<'single' | 'supervisor'>('single')
 const leadAgentId = ref('')
 const workspaceRoot = ref('')
+const contextCompressionEnabled = ref(true)
+const contextBudgetChars = ref(120_000)
+const contextKeepRecentUserTurns = ref(6)
+const contextSummaryMaxTokens = ref(1024)
+const maxToolRounds = ref(100)
 const agents = ref<AgentDef[]>([])
 
 const editingProvider = ref<ProviderConfig | null>(null)
@@ -126,6 +131,11 @@ onMounted(() => {
   agentMode.value = s.settings.agentMode || 'single'
   leadAgentId.value = s.settings.leadAgentId || 'default'
   workspaceRoot.value = s.settings.workspaceRoot || ''
+  contextCompressionEnabled.value = s.settings.contextCompressionEnabled !== false
+  contextBudgetChars.value = s.settings.contextBudgetChars ?? 120_000
+  contextKeepRecentUserTurns.value = s.settings.contextKeepRecentUserTurns ?? 6
+  contextSummaryMaxTokens.value = s.settings.contextSummaryMaxTokens ?? 1024
+  maxToolRounds.value = s.settings.maxToolRounds ?? 100
   loadAgents()
 })
 
@@ -202,7 +212,12 @@ async function saveAll() {
       toolApprovalMode: toolApprovalMode.value,
       agentMode: agentMode.value,
       leadAgentId: agentMode.value === 'supervisor' ? '' : leadAgentId.value,
-      workspaceRoot: workspaceRoot.value
+      workspaceRoot: workspaceRoot.value,
+      contextCompressionEnabled: contextCompressionEnabled.value,
+      contextBudgetChars: Number(contextBudgetChars.value),
+      contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
+      contextSummaryMaxTokens: Number(contextSummaryMaxTokens.value),
+      maxToolRounds: Number(maxToolRounds.value)
     })
     emit('close')
   } finally {
@@ -344,6 +359,33 @@ async function saveAll() {
                 <label class="block text-[12px] text-slate-400 mb-2">最大输出长度</label>
                 <input v-model.number="maxTokens" type="number" min="64" max="32768" step="64" class="w-full h-10 px-3 rounded-lg bg-black/30 border border-white/5 text-sm text-slate-100 outline-none focus:border-primary/50" />
                 <p class="mt-2 text-[11px] text-slate-500">限制单次回复的最大长度。</p>
+              </div>
+            </div>
+
+            <div class="glass rounded-xl p-4 border border-white/5 space-y-4">
+              <h4 class="text-sm font-medium text-slate-100">上下文自动压缩</h4>
+              <p class="text-[11px] text-slate-500">当历史消息估算体积超过预算时，用一次独立请求生成摘要，并保留最近若干轮用户对话原文。</p>
+              <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-200">
+                <input v-model="contextCompressionEnabled" type="checkbox" class="rounded border-white/20 bg-black/30 text-primary-cyan focus:ring-primary/50" />
+                启用模型摘要压缩
+              </label>
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div>
+                  <label class="block text-[12px] text-slate-400 mb-1">单轮最大工具调用轮次</label>
+                  <input v-model.number="maxToolRounds" type="number" min="1" max="10000" step="1" class="w-full h-10 px-3 rounded-lg bg-black/30 border border-white/5 text-sm text-slate-100 outline-none focus:border-primary/50" />
+                </div>
+                <div>
+                  <label class="block text-[12px] text-slate-400 mb-1">触发预算（字符估算）</label>
+                  <input v-model.number="contextBudgetChars" type="number" min="8000" max="2000000" step="1000" class="w-full h-10 px-3 rounded-lg bg-black/30 border border-white/5 text-sm text-slate-100 outline-none focus:border-primary/50" />
+                </div>
+                <div>
+                  <label class="block text-[12px] text-slate-400 mb-1">保留最近用户轮数</label>
+                  <input v-model.number="contextKeepRecentUserTurns" type="number" min="1" max="50" step="1" class="w-full h-10 px-3 rounded-lg bg-black/30 border border-white/5 text-sm text-slate-100 outline-none focus:border-primary/50" />
+                </div>
+                <div>
+                  <label class="block text-[12px] text-slate-400 mb-1">摘要最大 tokens</label>
+                  <input v-model.number="contextSummaryMaxTokens" type="number" min="128" max="8192" step="64" class="w-full h-10 px-3 rounded-lg bg-black/30 border border-white/5 text-sm text-slate-100 outline-none focus:border-primary/50" />
+                </div>
               </div>
             </div>
           </section>

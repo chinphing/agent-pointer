@@ -10,6 +10,10 @@ export interface SendChatPayload {
   messages: ChatMessage[]
   enabledSkillIds: string[]
   agentMode?: AgentMode
+  /** Cumulative single-agent tool rounds before this send. */
+  toolRoundsUsed?: number
+  /** Cumulative Supervisor/sub-agent tool rounds before this send. */
+  toolRoundsUsedSupervisor?: number
 }
 
 export interface RuntimeApi {

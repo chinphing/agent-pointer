@@ -80,6 +80,10 @@ export interface Conversation {
   updatedAt: number
   messages: ChatMessage[]
   skillIds: string[]
+  /** Cumulative tool rounds for single-agent replies (cap in settings). */
+  toolRoundsUsed?: number
+  /** Cumulative tool rounds for Supervisor / sub-agents (separate cap pool). */
+  toolRoundsUsedSupervisor?: number
 }
 
 export interface ProviderConfig {
@@ -103,6 +107,16 @@ export interface ModelSettings {
   workspaceRoot: string
   /** When agentMode is single, worker agent id (kebab-case); empty = default agent */
   leadAgentId: string
+  /** Summarize older turns when estimated context exceeds budget */
+  contextCompressionEnabled: boolean
+  /** Rough character budget for messages; over this triggers compression when enabled */
+  contextBudgetChars: number
+  /** Keep this many most recent user messages (and tail) verbatim */
+  contextKeepRecentUserTurns: number
+  /** Max tokens for the summarization API call */
+  contextSummaryMaxTokens: number
+  /** Max tool-call rounds per user message (assistant loop), default 100 */
+  maxToolRounds: number
 }
 
 export interface SkillDef {
@@ -143,4 +157,6 @@ export type StreamEvent =
   | { kind: 'terminal_output_delta'; messageId: string; toolCallId: string; output: string }
   | { kind: 'message_end'; messageId: string }
   | { kind: 'error'; messageId?: string; message: string }
-  | { kind: 'done'; conversationId: string }
+  | { kind: 'done'; conversationId: string; toolRoundsUsedTotal?: number; toolRoundsUsedSupervisorTotal?: number; maxToolRounds?: number }
+  | { kind: 'history_replaced'; conversationId: string; messages: ChatMessage[] }
+  | { kind: 'tool_rounds_exhausted'; conversationId: string; maxRounds: number; message: string; willRetryAfterCompress: boolean }

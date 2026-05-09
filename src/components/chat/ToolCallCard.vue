@@ -1,12 +1,23 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { Wrench, ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, ShieldAlert, Check, X } from 'lucide-vue-next'
 import type { ToolCall } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
 
 const props = defineProps<{ toolCall: ToolCall }>()
 const chat = useChatStore()
-const open = ref(true)
+const open = ref(false)
+let autoCollapseTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(
+  () => props.toolCall,
+  () => {
+    if (autoCollapseTimer) clearTimeout(autoCollapseTimer)
+    open.value = true
+    autoCollapseTimer = setTimeout(() => { open.value = false }, 2000)
+  },
+  { immediate: true }
+)
 
 const isTerminal = computed(() => props.toolCall.name === 'terminal')
 

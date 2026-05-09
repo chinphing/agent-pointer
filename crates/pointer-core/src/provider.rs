@@ -151,6 +151,7 @@ impl OpenAIProvider {
         system_prompts: &[String],
         tools: Vec<Value>,
         cancel: CancellationToken,
+        max_tokens_override: Option<u32>,
     ) -> Result<String> {
         let base_url = self
             .settings
@@ -173,7 +174,7 @@ impl OpenAIProvider {
             messages: openai_msgs,
             stream: false,
             temperature: self.settings.temperature,
-            max_tokens: Some(self.settings.max_tokens),
+            max_tokens: Some(max_tokens_override.unwrap_or(self.settings.max_tokens)),
             tools,
             tool_choice: if has_tools { Some("auto") } else { None },
         };

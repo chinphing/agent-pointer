@@ -74,6 +74,12 @@ pub struct Conversation {
     pub messages: Vec<ChatMessage>,
     #[serde(default, rename = "skillIds")]
     pub skill_ids: Vec<String>,
+    /// Cumulative tool rounds for **single-agent** replies in this conversation.
+    #[serde(default, rename = "toolRoundsUsed")]
+    pub tool_rounds_used: u32,
+    /// Cumulative tool rounds for **Supervisor** runs (all sub-agents) in this conversation.
+    #[serde(default, rename = "toolRoundsUsedSupervisor")]
+    pub tool_rounds_used_supervisor: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +116,21 @@ pub struct ModelSettings {
     /// When agentMode is single, which worker id leads (kebab-case). Empty = default agent.
     #[serde(default, rename = "leadAgentId")]
     pub lead_agent_id: String,
+    /// When true, summarize older turns via a separate model call when estimated context exceeds budget.
+    #[serde(default = "default_context_compression_enabled", rename = "contextCompressionEnabled")]
+    pub context_compression_enabled: bool,
+    /// Rough character budget for serialized messages; exceeding triggers compression when enabled.
+    #[serde(default = "default_context_budget_chars", rename = "contextBudgetChars")]
+    pub context_budget_chars: u32,
+    /// Keep this many most recent user messages (and everything after the cutoff) verbatim.
+    #[serde(default = "default_context_keep_recent_user_turns", rename = "contextKeepRecentUserTurns")]
+    pub context_keep_recent_user_turns: u32,
+    /// Max tokens for the one-off summarization chat completion.
+    #[serde(default = "default_context_summary_max_tokens", rename = "contextSummaryMaxTokens")]
+    pub context_summary_max_tokens: u32,
+    /// Max tool-call rounds per assistant turn. Default 100.
+    #[serde(default = "default_max_tool_rounds", rename = "maxToolRounds")]
+    pub max_tool_rounds: u32,
 }
 
 fn default_tool_approval_mode() -> String {
@@ -118,6 +139,26 @@ fn default_tool_approval_mode() -> String {
 
 fn default_agent_mode() -> String {
     "single".into()
+}
+
+fn default_context_compression_enabled() -> bool {
+    true
+}
+
+fn default_context_budget_chars() -> u32 {
+    120_000
+}
+
+fn default_context_keep_recent_user_turns() -> u32 {
+    6
+}
+
+fn default_context_summary_max_tokens() -> u32 {
+    1024
+}
+
+fn default_max_tool_rounds() -> u32 {
+    100
 }
 
 impl Default for ModelSettings {
@@ -145,6 +186,11 @@ impl Default for ModelSettings {
             agent_mode: default_agent_mode(),
             workspace_root: String::new(),
             lead_agent_id: String::new(),
+            context_compression_enabled: default_context_compression_enabled(),
+            context_budget_chars: default_context_budget_chars(),
+            context_keep_recent_user_turns: default_context_keep_recent_user_turns(),
+            context_summary_max_tokens: default_context_summary_max_tokens(),
+            max_tool_rounds: default_max_tool_rounds(),
         }
     }
 }
@@ -194,6 +240,12 @@ pub struct SendChatPayload {
     pub enabled_skill_ids: Vec<String>,
     #[serde(default, rename = "agentMode")]
     pub agent_mode: Option<String>,
+    /// Session cumulative tool rounds (single-agent mode) before this user message.
+    #[serde(default, rename = "toolRoundsUsed")]
+    pub tool_rounds_used: u32,
+    /// Session cumulative tool rounds (Supervisor / sub-agents) before this user message.
+    #[serde(default, rename = "toolRoundsUsedSupervisor")]
+    pub tool_rounds_used_supervisor: u32,
 }
 
 /// Frontend stream event payload (mirrors src/types/chat.ts StreamEvent)
@@ -269,6 +321,26 @@ pub enum StreamEvent {
     Done {
         #[serde(rename = "conversationId")]
         conversation_id: String,
+        #[serde(skip_serializing_if = "Option::is_none", rename = "toolRoundsUsedTotal")]
+        tool_rounds_used_total: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none", rename = "toolRoundsUsedSupervisorTotal")]
+        tool_rounds_used_supervisor_total: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none", rename = "maxToolRounds")]
+        max_tool_rounds: Option<u32>,
+    },
+    HistoryReplaced {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        messages: Vec<ChatMessage>,
+    },
+    ToolRoundsExhausted {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "maxRounds")]
+        max_rounds: u32,
+        message: String,
+        #[serde(rename = "willRetryAfterCompress")]
+        will_retry_after_compress: bool,
     },
 }
 

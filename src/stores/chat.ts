@@ -44,7 +44,9 @@ export const useChatStore = defineStore('chat', () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
-      skillIds: []
+      skillIds: [],
+      toolRoundsUsed: 0,
+      toolRoundsUsedSupervisor: 0
     }
     conversations.value.unshift(c)
     currentId.value = c.id
@@ -76,6 +78,33 @@ export const useChatStore = defineStore('chat', () => {
 
   function handleEvent(e: StreamEvent) {
     switch (e.kind) {
+      case 'history_replaced': {
+        const conv = conversations.value.find(c => c.id === e.conversationId)
+        if (!conv) return
+        conv.messages = e.messages.map(m => ({
+          ...m,
+          toolCalls: m.toolCalls ?? (m.role === 'assistant' ? [] : undefined)
+        }))
+        conv.updatedAt = Date.now()
+        persist()
+        break
+      }
+      case 'tool_rounds_exhausted': {
+        const conv = conversations.value.find(c => c.id === e.conversationId)
+        if (!conv) return
+        const suffix = e.willRetryAfterCompress ? '\n\n（正在压缩较早对话摘要…）' : ''
+        conv.messages.push({
+          id: uid(),
+          role: 'assistant',
+          content: `【提示】${e.message}${suffix}`,
+          status: 'done',
+          createdAt: Date.now(),
+          toolCalls: []
+        })
+        conv.updatedAt = Date.now()
+        persist()
+        break
+      }
       case 'message_start': {
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (!conv) return
@@ -169,6 +198,13 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'done': {
         generating.value = false
+        const conv = conversations.value.find(c => c.id === e.conversationId)
+        if (conv) {
+          if (e.toolRoundsUsedTotal != null) conv.toolRoundsUsed = e.toolRoundsUsedTotal
+          if (e.toolRoundsUsedSupervisorTotal != null) {
+            conv.toolRoundsUsedSupervisor = e.toolRoundsUsedSupervisorTotal
+          }
+        }
         persist()
         break
       }
@@ -196,7 +232,9 @@ export const useChatStore = defineStore('chat', () => {
       conversationId: conv.id,
       messages: JSON.parse(JSON.stringify(conv.messages)),
       enabledSkillIds: conv.skillIds,
-      agentMode: settings.settings.agentMode
+      agentMode: settings.settings.agentMode,
+      toolRoundsUsed: conv.toolRoundsUsed ?? 0,
+      toolRoundsUsedSupervisor: conv.toolRoundsUsedSupervisor ?? 0
     }).catch(err => {
       generating.value = false
       console.error('sendChat error', err)
@@ -229,7 +267,9 @@ export const useChatStore = defineStore('chat', () => {
       conversationId: conv.id,
       messages: JSON.parse(JSON.stringify(conv.messages)),
       enabledSkillIds: conv.skillIds,
-      agentMode: settings.settings.agentMode
+      agentMode: settings.settings.agentMode,
+      toolRoundsUsed: conv.toolRoundsUsed ?? 0,
+      toolRoundsUsedSupervisor: conv.toolRoundsUsedSupervisor ?? 0
     }).catch(err => {
       generating.value = false
       console.error(err)

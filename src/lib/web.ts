@@ -7,6 +7,8 @@ export interface SendChatPayload {
   messages: ChatMessage[]
   enabledSkillIds: string[]
   agentMode?: AgentMode
+  toolRoundsUsed?: number
+  toolRoundsUsedSupervisor?: number
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

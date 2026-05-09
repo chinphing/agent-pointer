@@ -148,6 +148,8 @@ async fn send_chat(
             payload.messages,
             payload.enabled_skill_ids,
             payload.agent_mode,
+            payload.tool_rounds_used,
+            payload.tool_rounds_used_supervisor,
         )
         .await;
         let _ = forward.await;
@@ -194,7 +196,14 @@ async fn chat_stream(
                 Ok(ev) => {
                     let belongs = conversation_id == "global" || match &ev {
                         StreamEvent::MessageStart { conversation_id: id, .. } => id == &conversation_id,
-                        StreamEvent::Done { conversation_id: id } => id == &conversation_id,
+                        StreamEvent::Done {
+                            conversation_id: id,
+                            ..
+                        } => id == &conversation_id,
+                        StreamEvent::HistoryReplaced { conversation_id: id, .. } => id == &conversation_id,
+                        StreamEvent::ToolRoundsExhausted { conversation_id: id, .. } => {
+                            id == &conversation_id
+                        }
                         _ => true,
                     };
                     if belongs {

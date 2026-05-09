@@ -7,6 +7,7 @@ use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent, ToolCall};
 use crate::provider::{OpenAIProvider, ProviderEvent};
 use crate::skills::SkillRegistry;
 use crate::storage;
+use crate::tools::parse_tool_call_arguments;
 use crate::tools::terminal::run_terminal_command_streaming;
 use crate::tools::ToolRegistry;
 use anyhow::{anyhow, Result};
@@ -20,7 +21,47 @@ use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-const MAX_TOOL_ROUNDS: usize = 64;
+/// Per-pool cap: `max` tool cycles; pool is either single-agent or Supervisor (sub-agents) for the conversation.
+#[derive(Debug)]
+struct SessionToolBudget {
+    max: u32,
+    used_before_request: u32,
+    consumed_this_request: u32,
+}
+
+impl SessionToolBudget {
+    fn new(max: u32, used_before_request: u32) -> Self {
+        Self {
+            max,
+            used_before_request,
+            consumed_this_request: 0,
+        }
+    }
+
+    fn cap(&self) -> u32 {
+        self.max
+    }
+
+    fn record_tool_cycle(&mut self) {
+        self.consumed_this_request = self.consumed_this_request.saturating_add(1);
+    }
+
+    fn remaining(&self) -> u32 {
+        self.max
+            .saturating_sub(self.used_before_request)
+            .saturating_sub(self.consumed_this_request)
+    }
+
+    fn is_exhausted(&self) -> bool {
+        self.used_before_request
+            .saturating_add(self.consumed_this_request)
+            >= self.max
+    }
+
+    fn sync_out(&self, out: &mut u32) {
+        *out = self.consumed_this_request;
+    }
+}
 
 pub struct AppState {
     pub tools: Arc<ToolRegistry>,
@@ -122,6 +163,8 @@ pub async fn run_chat(
     mut history: Vec<ChatMessage>,
     enabled_skill_ids: Vec<String>,
     agent_mode: Option<String>,
+    tool_rounds_used_single_start: u32,
+    tool_rounds_used_supervisor_start: u32,
 ) -> Result<()> {
     let cancel = CancellationToken::new();
     state
@@ -129,6 +172,8 @@ pub async fn run_chat(
         .lock()
         .insert(conversation_id.clone(), cancel.clone());
 
+    let mut consumed_single = 0u32;
+    let mut consumed_supervisor = 0u32;
     let result = run_chat_inner(
         stream.clone(),
         state.clone(),
@@ -136,6 +181,10 @@ pub async fn run_chat(
         &mut history,
         &enabled_skill_ids,
         agent_mode.as_deref(),
+        tool_rounds_used_single_start,
+        tool_rounds_used_supervisor_start,
+        &mut consumed_single,
+        &mut consumed_supervisor,
         cancel.clone(),
     )
     .await;
@@ -151,7 +200,21 @@ pub async fn run_chat(
             },
         );
     }
-    emit(&stream, StreamEvent::Done { conversation_id });
+    let max_tr = storage::load_settings()
+        .map(|s| s.max_tool_rounds)
+        .unwrap_or(100);
+    let single_total = tool_rounds_used_single_start.saturating_add(consumed_single);
+    let supervisor_total =
+        tool_rounds_used_supervisor_start.saturating_add(consumed_supervisor);
+    emit(
+        &stream,
+        StreamEvent::Done {
+            conversation_id,
+            tool_rounds_used_total: Some(single_total),
+            tool_rounds_used_supervisor_total: Some(supervisor_total),
+            max_tool_rounds: Some(max_tr),
+        },
+    );
     result
 }
 
@@ -162,6 +225,10 @@ async fn run_chat_inner(
     history: &mut Vec<ChatMessage>,
     enabled_skill_ids: &[String],
     request_agent_mode: Option<&str>,
+    tool_rounds_used_single_start: u32,
+    tool_rounds_used_supervisor_start: u32,
+    consumed_single: &mut u32,
+    consumed_supervisor: &mut u32,
     cancel: CancellationToken,
 ) -> Result<()> {
     let mut settings = storage::load_settings()?;
@@ -205,22 +272,61 @@ async fn run_chat_inner(
     }
     let provider = OpenAIProvider::new(settings.clone(), api_key);
 
+    crate::context_compression::maybe_compress_history(
+        history,
+        &settings,
+        &provider,
+        conversation_id,
+        &stream,
+        cancel.clone(),
+    )
+    .await;
+
+    let max_cap = settings.max_tool_rounds.clamp(1, 10_000);
+
     if agent_plan.mode == AGENT_MODE_SUPERVISOR {
-        return run_supervisor_chat(
+        if tool_rounds_used_supervisor_start >= max_cap {
+            return Err(anyhow!(
+                "本会话在编排（Supervisor）模式下工具调用轮次已达上限（{}），请新开对话或在设置中调高上限。",
+                max_cap
+            ));
+        }
+        let mut tool_budget = SessionToolBudget::new(max_cap, tool_rounds_used_supervisor_start);
+        let r = run_supervisor_chat(
             stream,
             state,
             conversation_id,
             history,
             enabled_skill_ids,
             provider,
+            &mut tool_budget,
             cancel,
         )
         .await;
+        tool_budget.sync_out(consumed_supervisor);
+        return r;
     }
 
-    for round in 0..MAX_TOOL_ROUNDS {
+    if tool_rounds_used_single_start >= max_cap {
+        return Err(anyhow!(
+            "本会话在单智能体模式下工具调用轮次已达上限（{}），请新开对话或在设置中调高上限。",
+            max_cap
+        ));
+    }
+    let mut tool_budget = SessionToolBudget::new(max_cap, tool_rounds_used_single_start);
+
+    loop {
         if cancel.is_cancelled() {
+            tool_budget.sync_out(consumed_single);
             return Err(anyhow!("已停止生成"));
+        }
+
+        if tool_budget.remaining() == 0 {
+            tool_budget.sync_out(consumed_single);
+            return Err(anyhow!(
+                "本会话单智能体工具调用轮次已达上限（{}）。请新开对话。",
+                max_cap
+            ));
         }
 
         let assistant_id = new_id("msg");
@@ -358,9 +464,13 @@ async fn run_chat_inner(
                         message_id: assistant_id.clone(),
                     },
                 );
+                tool_budget.sync_out(consumed_single);
                 return Err(e);
             }
-            Err(e) => return Err(anyhow!("任务异常：{e}")),
+            Err(e) => {
+                tool_budget.sync_out(consumed_single);
+                return Err(anyhow!("任务异常：{e}"));
+            }
         }
 
         let assistant_msg = ChatMessage {
@@ -416,12 +526,14 @@ async fn run_chat_inner(
 
         if final_tool_calls.is_empty() {
             let _ = finish_reason;
+            tool_budget.sync_out(consumed_single);
             return Ok(());
         }
 
         let mut any_executed = false;
         for tc in &final_tool_calls {
             if cancel.is_cancelled() {
+                tool_budget.sync_out(consumed_single);
                 return Err(anyhow!("已停止生成"));
             }
             let def = state.tools.get_def(&tc.name);
@@ -480,8 +592,7 @@ async fn run_chat_inner(
                 },
             );
             let started = Instant::now();
-            let args_value: serde_json::Value =
-                serde_json::from_str(&tc.arguments).unwrap_or(serde_json::Value::Null);
+            let args_value = parse_tool_call_arguments(&tc.arguments);
 
             let is_terminal = tc.name == "terminal";
             let msg_id_for_stream = assistant_id.clone();
@@ -554,14 +665,42 @@ async fn run_chat_inner(
         }
 
         if !any_executed {
+            tool_budget.sync_out(consumed_single);
             return Ok(());
         }
-        if round + 1 >= MAX_TOOL_ROUNDS {
-            return Err(anyhow!("已达到最大工具调用轮次 ({MAX_TOOL_ROUNDS})"));
+        tool_budget.record_tool_cycle();
+        tool_budget.sync_out(consumed_single);
+
+        if tool_budget.is_exhausted() {
+            let hint = format!(
+                "单智能体模式下工具调用累计已达上限（{} 轮，含此前消息）。建议新开对话；将尝试压缩上下文以便查看摘要。",
+                max_cap
+            );
+            emit(
+                &stream,
+                StreamEvent::ToolRoundsExhausted {
+                    conversation_id: conversation_id.to_string(),
+                    max_rounds: max_cap,
+                    message: hint,
+                    will_retry_after_compress: settings.context_compression_enabled,
+                },
+            );
+            let _ = crate::context_compression::maybe_compress_after_tool_round_limit(
+                history,
+                &settings,
+                &provider,
+                conversation_id,
+                &stream,
+                cancel.clone(),
+                true,
+            )
+            .await;
+            tool_budget.sync_out(consumed_single);
+            return Err(anyhow!(
+                "单智能体模式下工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
+            ));
         }
     }
-
-    Ok(())
 }
 
 async fn run_supervisor_chat(
@@ -571,6 +710,7 @@ async fn run_supervisor_chat(
     history: &mut Vec<ChatMessage>,
     enabled_skill_ids: &[String],
     provider: OpenAIProvider,
+    tool_budget: &mut SessionToolBudget,
     cancel: CancellationToken,
 ) -> Result<()> {
     if cancel.is_cancelled() {
@@ -676,11 +816,12 @@ async fn run_supervisor_chat(
             &provider,
             &state,
             &stream,
+            conversation_id,
             &assistant_id,
             &mut agent_trace,
-            history,
             enabled_skill_ids,
             &task_run,
+            tool_budget,
             cancel.clone(),
         )
         .await
@@ -839,7 +980,7 @@ async fn plan_agent_tasks(
         roster
     );
     let raw = provider
-        .chat_once(history, &[prompt], Vec::new(), cancel)
+        .chat_once(history, &[prompt], Vec::new(), cancel, None)
         .await?;
     parse_agent_tasks(&raw, &workers, limits)
         .or_else(|| Some(fallback_agent_tasks(state, history, limits)))
@@ -850,11 +991,12 @@ async fn run_sub_agent(
     provider: &OpenAIProvider,
     state: &AppState,
     stream: &StreamTx,
+    conversation_id: &str,
     message_id: &str,
     agent_trace: &mut Vec<AgentTrace>,
-    history: &[ChatMessage],
     enabled_skill_ids: &[String],
     task: &AgentTask,
+    tool_budget: &mut SessionToolBudget,
     cancel: CancellationToken,
 ) -> Result<AgentRunResult> {
     let agent = state
@@ -879,7 +1021,7 @@ async fn run_sub_agent(
     let allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
     let env_context = build_env_context();
     let mut prompts = vec![env_context, format!(
-        "当前子 Agent：{} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\n你只负责完成分配给你的子任务。输出应包含结论、关键依据、风险或未完成项。\n可用工具名：{}",
+        "当前子 Agent：{} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\n你只负责完成 Supervisor 通过下一条「用户」消息下发的子任务。该用户消息仅为任务说明（可含前置任务输出摘要），**不含**主会话聊天记录。输出应包含结论、关键依据、风险或未完成项。\n可用工具名：{}",
         def.name,
         def.id,
         def.profile,
@@ -889,19 +1031,39 @@ async fn run_sub_agent(
     )];
     prompts.extend(skill_prompts);
     prompts.extend(state.tools.prompt_context(&allowed_tools));
-    prompts.push(format!("子任务：\n{}", task.instruction));
 
     let tools_json = state.tools.openai_tools(&allowed_tools);
     let tool_approval_mode = storage::load_settings()
         .map(|settings| settings.tool_approval_mode)
         .unwrap_or_else(|_| "auto".into());
-    let mut local_history = history.to_vec();
+    let max_cap = tool_budget.cap();
+    let mut local_history = vec![ChatMessage {
+        id: new_id("sub_task"),
+        role: Role::User,
+        content: task.instruction.clone(),
+        status: "done".into(),
+        created_at: now_ms(),
+        tool_calls: None,
+        tool_call_id: None,
+        error_message: None,
+        reasoning: None,
+        agent_id: None,
+        agent_name: None,
+        agent_trace: None,
+    }];
     let mut content = String::new();
     let mut reasoning = String::new();
 
-    for round in 0..MAX_TOOL_ROUNDS {
+    loop {
         if cancel.is_cancelled() {
             return Err(anyhow!("已停止生成"));
+        }
+
+        if tool_budget.remaining() == 0 {
+            return Err(anyhow!(
+                "编排（Supervisor）模式下工具调用轮次已达上限（{}）。请新开对话。",
+                max_cap
+            ));
         }
 
         let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
@@ -1129,8 +1291,7 @@ async fn run_sub_agent(
                 },
             );
             let started = Instant::now();
-            let args_value: serde_json::Value =
-                serde_json::from_str(&tool_call.arguments).unwrap_or(serde_json::Value::Null);
+            let args_value = parse_tool_call_arguments(&tool_call.arguments);
 
             let is_terminal = tool_call.name == "terminal";
             let msg_id_for_stream = message_id.to_string();
@@ -1214,24 +1375,37 @@ async fn run_sub_agent(
                 },
             });
         }
-        if round + 1 >= MAX_TOOL_ROUNDS {
+        tool_budget.record_tool_cycle();
+
+        if tool_budget.is_exhausted() {
+            let hint = format!(
+                "编排（Supervisor）模式下工具调用累计已达上限（{} 轮，含子 Agent）。建议新开对话。",
+                max_cap
+            );
+            emit(
+                stream,
+                StreamEvent::ToolRoundsExhausted {
+                    conversation_id: conversation_id.to_string(),
+                    max_rounds: max_cap,
+                    message: hint,
+                    will_retry_after_compress: provider.settings.context_compression_enabled,
+                },
+            );
+            let _ = crate::context_compression::maybe_compress_after_tool_round_limit(
+                &mut local_history,
+                &provider.settings,
+                provider,
+                conversation_id,
+                stream,
+                cancel.clone(),
+                false,
+            )
+            .await;
             return Err(anyhow!(
-                "子 Agent 已达到最大工具调用轮次 ({MAX_TOOL_ROUNDS})"
+                "编排（Supervisor）模式下工具调用轮次已达上限（{max_cap}）。请新开对话。"
             ));
         }
     }
-
-    Ok(AgentRunResult {
-        task_id: task.id.clone(),
-        agent_id: def.id,
-        agent_name: def.name,
-        content,
-        reasoning: if reasoning.is_empty() {
-            None
-        } else {
-            Some(reasoning)
-        },
-    })
 }
 
 async fn synthesize_final_answer(
@@ -1254,7 +1428,7 @@ async fn synthesize_final_answer(
         if report.is_empty() { "无可用子 Agent 结果，请基于对话直接给出谨慎答复。".into() } else { report }
     );
     provider
-        .chat_once(history, &[prompt], Vec::new(), cancel)
+        .chat_once(history, &[prompt], Vec::new(), cancel, None)
         .await
 }
 

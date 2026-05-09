@@ -12,6 +12,8 @@ export interface SendChatPayload {
   messages: ChatMessage[]
   enabledSkillIds: string[]
   agentMode?: AgentMode
+  toolRoundsUsed?: number
+  toolRoundsUsedSupervisor?: number
 }
 
 export async function sendChat(payload: SendChatPayload): Promise<string> {

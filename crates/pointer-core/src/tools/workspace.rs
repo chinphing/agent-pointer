@@ -94,6 +94,52 @@ pub fn resolve_within_workspace_root(root: &Path, user_path: &str) -> Result<Pat
     Ok(out)
 }
 
+/// Replace `old_s` with `new_s` at most one occurrence, requiring a unique match.
+///
+/// `file_read` joins logical lines with `\n` only, while Windows repos often use `\r\n` on disk.
+/// If the model copies from `file_read`, exact substring match would fail on CRLF files; we try
+/// LF↔CRLF variants when the primary match count is zero.
+fn try_unique_text_replace(text: &str, old_s: &str, new_s: &str) -> Result<String> {
+    fn count_and_replace(text: &str, old: &str, new: &str) -> Result<Option<String>> {
+        let c = text.matches(old).count();
+        if c == 1 {
+            return Ok(Some(text.replacen(old, new, 1)));
+        }
+        if c > 1 {
+            return Err(anyhow!("oldString 匹配到 {c} 处，必须唯一"));
+        }
+        Ok(None)
+    }
+
+    if let Some(s) = count_and_replace(text, old_s, new_s)? {
+        return Ok(s);
+    }
+
+    // Model used `\n` between lines (e.g. from file_read); file may be CRLF.
+    if !old_s.contains('\r') {
+        let old_crlf = old_s.replace('\n', "\r\n");
+        let new_crlf = new_s.replace('\n', "\r\n");
+        if old_crlf != old_s {
+            if let Some(s) = count_and_replace(text, &old_crlf, &new_crlf)? {
+                return Ok(s);
+            }
+        }
+    }
+
+    // Model used CRLF; file may be LF-only.
+    if old_s.contains("\r\n") {
+        let old_lf = old_s.replace("\r\n", "\n");
+        let new_lf = new_s.replace("\r\n", "\n");
+        if old_lf != old_s {
+            if let Some(s) = count_and_replace(text, &old_lf, &new_lf)? {
+                return Ok(s);
+            }
+        }
+    }
+
+    Err(anyhow!("未找到匹配的 oldString"))
+}
+
 fn register_file_read(reg: &ToolRegistry) {
     let h: ToolHandler = Arc::new(|args| {
         let path = args
@@ -241,14 +287,7 @@ fn register_file_edit(reg: &ToolRegistry) {
             return Err(anyhow!("不是文件: {}", full.display()));
         }
         let text = fs::read_to_string(&full).map_err(|e| anyhow!("读取失败: {e}"))?;
-        let count = text.matches(old_s).count();
-        if count == 0 {
-            return Err(anyhow!("未找到匹配的 oldString"));
-        }
-        if count > 1 {
-            return Err(anyhow!("oldString 匹配到 {count} 处，必须唯一"));
-        }
-        let updated = text.replacen(old_s, new_s, 1);
+        let updated = try_unique_text_replace(&text, old_s, new_s)?;
         fs::write(&full, updated.as_bytes()).map_err(|e| anyhow!("写入失败: {e}"))?;
         Ok(serde_json::json!({
             "path": full.display().to_string(),
@@ -260,7 +299,7 @@ fn register_file_edit(reg: &ToolRegistry) {
     reg.register_with_prompt(
         ToolDef {
             name: "file_edit".into(),
-            description: "在工作区内文本文件中用唯一匹配的 oldString 替换为 newString（单次替换）。".into(),
+            description: "在工作区内文本文件中用唯一匹配的 oldString 替换为 newString（单次替换）。与 file_read 一致使用 \\n 拼多行时，若文件为 Windows CRLF，实现会自动尝试 \\n↔\\r\\n 变体。".into(),
             parameters_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -512,5 +551,26 @@ mod tests {
 
         let got = resolve_within_workspace_root(root, "a/b/x.txt").unwrap();
         assert_eq!(got, f.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn text_replace_lf_snippet_matches_crlf_file() {
+        let text = "line1\r\nline2\r\n";
+        let out = try_unique_text_replace(text, "line1\nline2", "A\nB").unwrap();
+        assert_eq!(out, "A\r\nB\r\n");
+    }
+
+    #[test]
+    fn text_replace_exact_lf_file() {
+        let text = "line1\nline2\n";
+        let out = try_unique_text_replace(text, "line1\nline2", "X\nY").unwrap();
+        assert_eq!(out, "X\nY\n");
+    }
+
+    #[test]
+    fn text_replace_crlf_snippet_matches_lf_file() {
+        let text = "line1\nline2\n";
+        let out = try_unique_text_replace(text, "line1\r\nline2", "P\r\nQ").unwrap();
+        assert_eq!(out, "P\nQ\n");
     }
 }

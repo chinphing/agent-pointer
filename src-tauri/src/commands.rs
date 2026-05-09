@@ -68,6 +68,15 @@ pub fn get_settings() -> Result<ModelSettings, String> {
 
 #[tauri::command]
 pub fn update_settings(settings: ModelSettings) -> Result<ModelSettings, String> {
+    // 同步激活 Provider 的 Key 到 key.dat，确保后端请求时使用正确的密钥
+    if let Some(provider) = settings.providers.iter().find(|p| p.id == settings.active_provider_id) {
+        if !provider.api_key.is_empty() {
+            storage::save_api_key(&provider.api_key).map_err(|e| e.to_string())?;
+        } else {
+            // 如果激活的 Provider 没有 Key，则清理旧 Key 防止残留
+            let _ = storage::clear_api_key();
+        }
+    }
     storage::save_settings(&settings).map_err(|e| e.to_string())?;
     storage::load_settings().map_err(|e| e.to_string())
 }

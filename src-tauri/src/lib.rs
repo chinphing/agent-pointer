@@ -6,6 +6,8 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    pointer_core::logging::init_backtrace_defaults();
+
     const DEFAULT_LOG_FILTER: &str = "warn,pointer_core=info,pointer_app_lib=info";
     let log_dir = pointer_core::logging::desktop_log_dir();
     if let Err(err) =
@@ -19,6 +21,7 @@ pub fn run() {
             env_logger::Env::default().default_filter_or(DEFAULT_LOG_FILTER),
         )
         .try_init();
+        pointer_core::logging::install_panic_hook();
     }
 
     tauri::Builder::default()

@@ -1,6 +1,7 @@
-use crate::models::{Conversation, ModelSettings, ProviderConfig};
+use crate::models::{Conversation, ModelRuntimeOverrides, ModelSettings, ProviderConfig};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -30,6 +31,12 @@ fn conv_path() -> Result<PathBuf> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+struct StoredModelOverrides {
+    #[serde(default, rename = "reasoningInMessages")]
+    reasoning_in_messages: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct StoredProvider {
     id: String,
     name: String,
@@ -38,6 +45,10 @@ struct StoredProvider {
     #[serde(default, rename = "apiKey")]
     api_key: String,
     models: Vec<String>,
+    #[serde(default, rename = "reasoningInMessages")]
+    reasoning_in_messages: Option<bool>,
+    #[serde(default, rename = "modelConfigs")]
+    model_configs: HashMap<String, StoredModelOverrides>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -66,6 +77,9 @@ struct StoredSettings {
     context_summary_max_tokens: u32,
     #[serde(default = "default_max_tool_rounds", rename = "maxToolRounds")]
     max_tool_rounds: u32,
+    /// Legacy global toggle; applied to each provider when that provider has no explicit value.
+    #[serde(default, rename = "reasoningInMessages")]
+    legacy_reasoning_in_messages: Option<bool>,
 }
 
 fn default_tool_approval_mode() -> String {
@@ -109,6 +123,19 @@ impl Default for StoredSettings {
                     base_url: p.base_url.clone(),
                     api_key: p.api_key.clone(),
                     models: p.models.clone(),
+                    reasoning_in_messages: p.reasoning_in_messages,
+                    model_configs: p
+                        .model_configs
+                        .iter()
+                        .map(|(k, v)| {
+                            (
+                                k.clone(),
+                                StoredModelOverrides {
+                                    reasoning_in_messages: v.reasoning_in_messages,
+                                },
+                            )
+                        })
+                        .collect(),
                 })
                 .collect(),
             active_provider_id: s.active_provider_id,
@@ -124,6 +151,7 @@ impl Default for StoredSettings {
             context_keep_recent_user_turns: s.context_keep_recent_user_turns,
             context_summary_max_tokens: s.context_summary_max_tokens,
             max_tool_rounds: s.max_tool_rounds,
+            legacy_reasoning_in_messages: None,
         }
     }
 }
@@ -137,6 +165,7 @@ pub fn load_settings() -> Result<ModelSettings> {
         StoredSettings::default()
     };
 
+    let legacy = stored.legacy_reasoning_in_messages;
     let providers: Vec<ProviderConfig> = stored
         .providers
         .iter()
@@ -146,6 +175,19 @@ pub fn load_settings() -> Result<ModelSettings> {
             base_url: p.base_url.clone(),
             api_key: p.api_key.clone(),
             models: p.models.clone(),
+            reasoning_in_messages: p.reasoning_in_messages.or(legacy),
+            model_configs: p
+                .model_configs
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        ModelRuntimeOverrides {
+                            reasoning_in_messages: v.reasoning_in_messages,
+                        },
+                    )
+                })
+                .collect(),
         })
         .collect();
 
@@ -188,6 +230,19 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
                 base_url: p.base_url.clone(),
                 api_key: p.api_key.clone(),
                 models: p.models.clone(),
+                reasoning_in_messages: p.reasoning_in_messages,
+                model_configs: p
+                    .model_configs
+                    .iter()
+                    .map(|(k, v)| {
+                        (
+                            k.clone(),
+                            StoredModelOverrides {
+                                reasoning_in_messages: v.reasoning_in_messages,
+                            },
+                        )
+                    })
+                    .collect(),
             })
             .collect(),
         active_provider_id: s.active_provider_id.clone(),
@@ -203,6 +258,7 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
         context_keep_recent_user_turns: s.context_keep_recent_user_turns,
         context_summary_max_tokens: s.context_summary_max_tokens,
         max_tool_rounds: s.max_tool_rounds,
+        legacy_reasoning_in_messages: None,
     };
     fs::write(settings_path()?, serde_json::to_vec_pretty(&stored)?)?;
     Ok(())

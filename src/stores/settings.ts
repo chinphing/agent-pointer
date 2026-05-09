@@ -6,12 +6,45 @@ import type { ModelSettings, ProviderConfig } from '../types/chat'
 const defaultProviders: ProviderConfig[] = [
   {
     id: 'qwen',
-    name: '阿里云千问',
+    name: '千问',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     apiKey: '',
-    models: ['qwen3.5-plus', 'qwen3.6-plus', 'qwen3.5-flash', 'qwen3.5-27b']
+    models: ['qwen3.5-plus', 'qwen3.6-plus', 'qwen3.5-flash', 'qwen3.5-27b'],
+    reasoningInMessages: true,
+    modelConfigs: {}
+  },
+  {
+    id: 'deepseek',
+    name: '深度求索',
+    baseUrl: 'https://api.deepseek.com/v1',
+    apiKey: '',
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    reasoningInMessages: true,
+    modelConfigs: {}
   }
 ]
+
+/** Normalize provider entries from API; merge legacy root `reasoningInMessages` when per-provider value is absent. */
+function normalizeProvider(p: ProviderConfig, legacyReasoning?: boolean): ProviderConfig {
+  return {
+    ...p,
+    modelConfigs: p.modelConfigs ? { ...p.modelConfigs } : {},
+    reasoningInMessages:
+      p.reasoningInMessages !== undefined
+        ? p.reasoningInMessages
+        : legacyReasoning !== undefined
+          ? legacyReasoning
+          : undefined
+  }
+}
+
+function normalizeProviders(
+  list: ProviderConfig[] | undefined,
+  legacyReasoning?: boolean
+): ProviderConfig[] {
+  const raw = list?.length ? list : defaultProviders
+  return raw.map(p => normalizeProvider(p, legacyReasoning))
+}
 
 export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<ModelSettings>({
@@ -36,20 +69,53 @@ export const useSettingsStore = defineStore('settings', () => {
   const testing = ref(false)
   const testResult = ref<{ ok: boolean; latencyMs: number; message: string } | null>(null)
 
-  const activeProvider = computed(() =>
-    settings.value.providers.find(p => p.id === settings.value.activeProviderId) || settings.value.providers[0]
-  )
+  const activeProvider = computed((): ProviderConfig => {
+    const list = settings.value.providers
+    if (!list.length) return defaultProviders[0]
+    return list.find(p => p.id === settings.value.activeProviderId) ?? list[0]
+  })
 
   const activeBaseUrl = computed(() => activeProvider.value.baseUrl)
   const activeModelList = computed(() => activeProvider.value.models)
+
+  /** Effective reasoning flag for active provider + current `settings.model` (model override wins). */
+  const effectiveReasoningInMessages = computed((): boolean => {
+    const st = settings.value
+    const provs = st.providers
+    if (!provs.length) return true
+    const p = provs.find(x => x.id === st.activeProviderId) ?? provs[0]
+    const model = st.model.trim()
+    const over = p.modelConfigs?.[model]
+    if (over?.reasoningInMessages !== undefined) return over.reasoningInMessages
+    if (p.reasoningInMessages !== undefined) return p.reasoningInMessages
+    return true
+  })
+
+  /** 所有 provider 的所有模型合并列表（带 provider 标识） */
+  const allModels = computed(() => {
+    const result: Array<{ model: string; providerId: string; providerName: string }> = []
+    for (const p of settings.value.providers) {
+      for (const m of p.models) {
+        result.push({ model: m, providerId: p.id, providerName: p.name })
+      }
+    }
+    return result
+  })
 
   async function load() {
     loading.value = true
     const s = await getSettings().catch(() => null)
     if (s) {
+      const legacy =
+        'reasoningInMessages' in s && typeof (s as { reasoningInMessages?: boolean }).reasoningInMessages === 'boolean'
+          ? (s as { reasoningInMessages?: boolean }).reasoningInMessages
+          : undefined
+      const providersNorm = normalizeProviders(s.providers, legacy)
+
       if (s.providers && s.providers.length > 0) {
         settings.value = {
           ...s,
+          providers: providersNorm,
           workspaceRoot: s.workspaceRoot ?? '',
           leadAgentId: s.leadAgentId ?? '',
           contextCompressionEnabled: s.contextCompressionEnabled ?? true,
@@ -63,8 +129,8 @@ export const useSettingsStore = defineStore('settings', () => {
         settings.value = {
           ...settings.value,
           ...s,
-          providers: s.providers || defaultProviders,
-          activeProviderId: s.activeProviderId || 'qwen',
+          providers: providersNorm,
+          activeProviderId: s.activeProviderId || providersNorm[0]?.id || 'qwen',
           workspaceRoot: s.workspaceRoot ?? '',
           leadAgentId: s.leadAgentId ?? '',
           contextCompressionEnabled: s.contextCompressionEnabled ?? true,
@@ -92,18 +158,32 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  function setActiveProvider(id: string) {
+  async function setActiveProvider(id: string) {
     const provider = settings.value.providers.find(p => p.id === id)
     if (provider) {
       settings.value.activeProviderId = id
       if (!provider.models.includes(settings.value.model)) {
         settings.value.model = provider.models[0]
       }
+      // Sync the new provider's API key to backend storage and persist settings
+      if (provider.apiKey) {
+        await saveProviderKey(id, provider.apiKey)
+      } else {
+        // Clear key.dat when switching to a provider without a stored key
+        // so the backend won't use a stale key from the previous provider
+        await clearApiKey()
+        settings.value.hasKey = false
+      }
+      await save({ activeProviderId: id, model: settings.value.model })
     }
   }
 
   function addProvider(provider: ProviderConfig) {
     settings.value.providers.push(provider)
+    settings.value.activeProviderId = provider.id
+    if (!provider.models.includes(settings.value.model)) {
+      settings.value.model = provider.models[0] || settings.value.model
+    }
   }
 
   function updateProvider(id: string, patch: Partial<ProviderConfig>) {
@@ -159,7 +239,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   return {
-    settings, loading, testing, testResult, activeProvider, activeBaseUrl, activeModelList,
+    settings, loading, testing, testResult, activeProvider, activeBaseUrl, activeModelList, effectiveReasoningInMessages, allModels,
     load, save, setActiveProvider, addProvider, updateProvider, removeProvider,
     saveKey, removeKey, runTest,
     getAgentDefaultModel, setAgentDefaultModel

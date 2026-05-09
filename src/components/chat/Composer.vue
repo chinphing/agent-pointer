@@ -124,14 +124,23 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 function selectModel(model: string) {
-  settings.save({ model })
-  // 如果当前有选中的 agent，同时更新该 agent 的默认模型
-  if (settings.settings.agentMode === 'single' && settings.settings.leadAgentId) {
-    settings.setAgentDefaultModel(settings.settings.leadAgentId, model)
-  } else if (settings.settings.agentMode === 'supervisor') {
-    settings.setAgentDefaultModel('supervisor', model)
-  }
+  void settings.save({ model })
+  void syncAgentDefaultModelForMode(model)
   showModelPicker.value = false
+}
+
+async function selectModelWithProvider(model: string, providerId: string) {
+  await settings.save({ activeProviderId: providerId, model })
+  await syncAgentDefaultModelForMode(model)
+  showModelPicker.value = false
+}
+
+async function syncAgentDefaultModelForMode(model: string) {
+  if (settings.settings.agentMode === 'single' && settings.settings.leadAgentId) {
+    await settings.setAgentDefaultModel(settings.settings.leadAgentId, model)
+  } else if (settings.settings.agentMode === 'supervisor') {
+    await settings.setAgentDefaultModel('supervisor', model)
+  }
 }
 
 async function selectSupervisorMode() {
@@ -292,17 +301,18 @@ onUnmounted(() => {
 
           <div v-if="showModelPicker" ref="modelPickerRef" class="absolute bottom-full left-0 mb-2 glass-strong rounded-xl shadow-2xl overflow-hidden z-50" :style="{ minWidth: modelPickerWidth + 'px' }">
             <div class="p-2 border-b border-white/5">
-              <div class="text-[11px] text-slate-500">选择模型</div>
+              <div class="text-[11px] text-slate-500">选择模型（所有服务）</div>
             </div>
             <div class="max-h-60 overflow-y-auto p-1.5 space-y-0.5">
               <button
-                v-for="m in settings.activeModelList"
-                :key="m"
+                v-for="item in settings.allModels"
+                :key="item.model"
                 class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 cursor-pointer whitespace-nowrap"
-                :class="currentModel === m ? 'bg-primary/15 text-primary-cyan' : 'text-slate-300'"
-                @click="selectModel(m)"
+                :class="currentModel === item.model && settings.settings.activeProviderId === item.providerId ? 'bg-primary/15 text-primary-cyan' : 'text-slate-300'"
+                @click="selectModelWithProvider(item.model, item.providerId)"
               >
-                {{ m }}
+                <span class="text-slate-400 text-[10px] mr-1.5">{{ item.providerName }}</span>
+                <span>{{ item.model }}</span>
               </button>
             </div>
           </div>

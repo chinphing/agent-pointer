@@ -77,6 +77,14 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function handleEvent(e: StreamEvent) {
+    try {
+      handleEventInner(e)
+    } catch (err) {
+      console.error('[chat stream] handleEvent failed', err, e)
+    }
+  }
+
+  function handleEventInner(e: StreamEvent) {
     switch (e.kind) {
       case 'history_replaced': {
         const conv = conversations.value.find(c => c.id === e.conversationId)
@@ -122,6 +130,8 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'reasoning_delta': {
+        const settings = useSettingsStore()
+        if (!settings.effectiveReasoningInMessages) break
         const r = findMessage(e.messageId)
         if (r) r.msg.reasoning = (r.msg.reasoning || '') + e.text
         break

@@ -18,7 +18,7 @@ import {
   Wrench,
   X
 } from 'lucide-vue-next'
-import type { AgentDef, ProviderConfig } from '../../types/chat'
+import type { AgentDef, ModelRuntimeOverrides, ProviderConfig } from '../../types/chat'
 import { listAgents } from '../../lib/api'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useSettingsStore } from '../../stores/settings'
@@ -69,6 +69,47 @@ const inputPlaceholder = computed(() => {
 
 function providerKeyDisplay(key: string): string {
   return key ? maskKey(key) : '未配置'
+}
+
+function cloneModelConfigs(p?: ProviderConfig['modelConfigs']): NonNullable<ProviderConfig['modelConfigs']> {
+  const src = p ?? {}
+  const out: Record<string, ModelRuntimeOverrides> = {}
+  for (const [k, v] of Object.entries(src)) {
+    out[k] = { ...v }
+  }
+  return out
+}
+
+const editingParsedModelIds = computed(() =>
+  editingModelsText.value
+    .split(',')
+    .map(m => m.trim())
+    .filter(m => m.length > 0)
+)
+
+function modelReasoningMode(modelId: string): 'inherit' | 'on' | 'off' {
+  if (!editingProvider.value) return 'inherit'
+  const o = editingProvider.value.modelConfigs?.[modelId]?.reasoningInMessages
+  if (o === undefined) return 'inherit'
+  return o ? 'on' : 'off'
+}
+
+function setModelReasoningMode(modelId: string, mode: 'inherit' | 'on' | 'off') {
+  if (!editingProvider.value) return
+  editingProvider.value.modelConfigs = { ...(editingProvider.value.modelConfigs ?? {}) }
+  if (mode === 'inherit') {
+    delete editingProvider.value.modelConfigs[modelId]
+    return
+  }
+  editingProvider.value.modelConfigs[modelId] = {
+    ...(editingProvider.value.modelConfigs[modelId] ?? {}),
+    reasoningInMessages: mode === 'on'
+  }
+}
+
+function onProviderReasoningToggle(e: Event) {
+  if (!editingProvider.value) return
+  editingProvider.value.reasoningInMessages = (e.target as HTMLInputElement).checked
 }
 
 function clearMaskedInput(e: Event) {
@@ -148,7 +189,10 @@ onMounted(() => {
 })
 
 function startEditProvider(provider: ProviderConfig) {
-  editingProvider.value = { ...provider }
+  editingProvider.value = {
+    ...provider,
+    modelConfigs: cloneModelConfigs(provider.modelConfigs)
+  }
   originalApiKey.value = provider.apiKey
   editingApiKey.value = ''
   editingModelsText.value = provider.models.join(', ')
@@ -161,7 +205,9 @@ function startAddProvider() {
     name: '',
     baseUrl: '',
     apiKey: '',
-    models: []
+    models: [],
+    reasoningInMessages: true,
+    modelConfigs: {}
   }
   originalApiKey.value = ''
   editingApiKey.value = ''
@@ -189,6 +235,17 @@ function saveProvider() {
   } else if (!showAddProvider.value) {
     editingProvider.value.apiKey = originalApiKey.value
   }
+
+  const mc = editingProvider.value.modelConfigs ?? {}
+  const nextMc: Record<string, ModelRuntimeOverrides> = {}
+  for (const id of editingProvider.value.models) {
+    const o = mc[id]
+    if (!o) continue
+    const clean: ModelRuntimeOverrides = {}
+    if (o.reasoningInMessages !== undefined) clean.reasoningInMessages = o.reasoningInMessages
+    if (Object.keys(clean).length) nextMc[id] = clean
+  }
+  editingProvider.value.modelConfigs = nextMc
 
   if (showAddProvider.value) {
     s.addProvider(editingProvider.value)
@@ -352,7 +409,7 @@ async function saveAll() {
                 </div>
                 <div>
                   <label class="block text-[12px] text-slate-400 mb-1.5">服务名称</label>
-                  <input v-model="editingProvider.name" type="text" class="w-full h-9 px-3 rounded-lg bg-black/30 border border-white/10 text-sm text-slate-100 outline-none focus:border-primary/50 transition-colors" placeholder="例如：阿里云千问" />
+                  <input v-model="editingProvider.name" type="text" class="w-full h-9 px-3 rounded-lg bg-black/30 border border-white/10 text-sm text-slate-100 outline-none focus:border-primary/50 transition-colors" placeholder="例如：千问" />
                 </div>
                 <div class="col-span-2">
                   <label class="block text-[12px] text-slate-400 mb-1.5">API 地址</label>
@@ -371,6 +428,43 @@ async function saveAll() {
                 <div class="col-span-2">
                   <label class="block text-[12px] text-slate-400 mb-1.5">模型列表</label>
                   <input v-model="editingModelsText" type="text" class="w-full h-9 px-3 rounded-lg bg-black/30 border border-white/10 text-sm text-slate-100 outline-none focus:border-primary/50 transition-colors" placeholder="model-1, model-2, model-3" />
+                </div>
+                <div class="col-span-2 rounded-lg border border-white/5 bg-black/20 p-4 space-y-3">
+                  <h5 class="text-[12px] font-medium text-slate-200">模型运行时</h5>
+                  <p class="text-[11px] text-slate-500 leading-relaxed">
+                    推理内容是否写入消息、随会话保存，并在下一轮请求中作为 <code class="text-slate-400">reasoning_content</code> 回传（如深度求索等）。以下为服务商默认值；可按模型单独覆盖。后续可在此扩展更多模型级选项。
+                  </p>
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-[12px] text-slate-400">服务商默认开启推理与回传</span>
+                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        class="sr-only peer"
+                        :checked="editingProvider.reasoningInMessages !== false"
+                        @change="onProviderReasoningToggle"
+                      />
+                      <div class="w-9 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-cyan"></div>
+                    </label>
+                  </div>
+                  <div v-if="editingParsedModelIds.length" class="space-y-2 pt-2 border-t border-white/5">
+                    <div class="text-[11px] text-slate-500">按模型覆盖</div>
+                    <div
+                      v-for="mid in editingParsedModelIds"
+                      :key="mid"
+                      class="flex items-center gap-3 text-[12px] min-h-8"
+                    >
+                      <span class="font-mono text-slate-300 shrink-0 min-w-[7rem] truncate" :title="mid">{{ mid }}</span>
+                      <select
+                        class="flex-1 min-w-0 h-8 px-2 rounded-lg bg-black/30 border border-white/10 text-slate-200 text-[12px] outline-none focus:border-primary/50"
+                        :value="modelReasoningMode(mid)"
+                        @change="setModelReasoningMode(mid, ($event.target as HTMLSelectElement).value as 'inherit' | 'on' | 'off')"
+                      >
+                        <option value="inherit">跟随服务商</option>
+                        <option value="on">开启</option>
+                        <option value="off">关闭</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
               </div>
 

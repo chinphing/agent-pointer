@@ -167,7 +167,11 @@ impl OpenAIProvider {
                     .unwrap_or_default()
             });
 
-        let openai_msgs = crate::models::make_openai_messages(messages, system_prompts);
+        let openai_msgs = crate::models::make_openai_messages(
+            messages,
+            system_prompts,
+            crate::models::effective_reasoning_in_messages(&self.settings),
+        );
         let has_tools = !tools.is_empty();
         let req = ChatRequest {
             model: &self.settings.model,
@@ -230,7 +234,11 @@ impl OpenAIProvider {
                     .unwrap_or_default()
             });
 
-        let openai_msgs = crate::models::make_openai_messages(messages, system_prompts);
+        let openai_msgs = crate::models::make_openai_messages(
+            messages,
+            system_prompts,
+            crate::models::effective_reasoning_in_messages(&self.settings),
+        );
         let has_tools = !tools.is_empty();
         let req = ChatRequest {
             model: &self.settings.model,

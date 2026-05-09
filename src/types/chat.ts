@@ -86,12 +86,20 @@ export interface Conversation {
   toolRoundsUsedSupervisor?: number
 }
 
+/** Per-model API/runtime overrides; unset fields inherit from the parent provider. */
+export interface ModelRuntimeOverrides {
+  reasoningInMessages?: boolean
+}
+
 export interface ProviderConfig {
   id: string
   name: string
   baseUrl: string
   apiKey: string
   models: string[]
+  /** Default for all models under this provider when `modelConfigs[model]` has no override. */
+  reasoningInMessages?: boolean
+  modelConfigs?: Record<string, ModelRuntimeOverrides>
 }
 
 export interface ModelSettings {

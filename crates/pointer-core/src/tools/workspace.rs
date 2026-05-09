@@ -94,11 +94,19 @@ pub fn resolve_within_workspace_root(root: &Path, user_path: &str) -> Result<Pat
     Ok(out)
 }
 
+/// Normalize line breaks to `\n` so `file_read` output (LF-joined) can match CR / CRLF on disk.
+fn normalize_newlines_lf(s: &str) -> String {
+    s.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 /// Replace `old_s` with `new_s` at most one occurrence, requiring a unique match.
 ///
 /// `file_read` joins logical lines with `\n` only, while Windows repos often use `\r\n` on disk.
 /// If the model copies from `file_read`, exact substring match would fail on CRLF files; we try
 /// LF↔CRLF variants when the primary match count is zero.
+///
+/// Finally we match in **LF-normalized** space (handles CR-only / mixed breaks) and, if the
+/// original file contained `\r\n`, write back with `\r\n`.
 fn try_unique_text_replace(text: &str, old_s: &str, new_s: &str) -> Result<String> {
     fn count_and_replace(text: &str, old: &str, new: &str) -> Result<Option<String>> {
         let c = text.matches(old).count();
@@ -137,7 +145,32 @@ fn try_unique_text_replace(text: &str, old_s: &str, new_s: &str) -> Result<Strin
         }
     }
 
-    Err(anyhow!("未找到匹配的 oldString"))
+    // Last resort: compare after normalizing all line endings to `\n` (CR-only files, odd mixes).
+    let text_lf = normalize_newlines_lf(text);
+    let old_lf = normalize_newlines_lf(old_s);
+    let new_lf = normalize_newlines_lf(new_s);
+    let c = text_lf.matches(old_lf.as_str()).count();
+    if c == 1 {
+        let out_lf = text_lf.replacen(&old_lf, &new_lf, 1);
+        let prefer_crlf = text.contains("\r\n");
+        let out = if prefer_crlf {
+            out_lf.replace('\n', "\r\n")
+        } else {
+            out_lf
+        };
+        return Ok(out);
+    }
+    if c > 1 {
+        return Err(anyhow!("oldString 匹配到 {c} 处（按换行规范化后），必须唯一"));
+    }
+
+    let preview: String = old_s.chars().take(120).collect();
+    let ellipsis = if old_s.chars().count() > 120 { "…" } else { "" };
+    Err(anyhow!(
+        "未找到匹配的 oldString。请从本工具 file_read 或 grep_files 复制原文（含缩进），并包含足够上下文保证唯一；注意模型输出可能合并空格/省略片段。当前 oldString 前 120 字符：{}{}",
+        preview,
+        ellipsis
+    ))
 }
 
 fn register_file_read(reg: &ToolRegistry) {
@@ -263,20 +296,23 @@ fn register_file_write(reg: &ToolRegistry) {
     );
 }
 
+/// Tool JSON often uses camelCase in schema; models trained on other agents may emit snake_case.
+fn json_str<'a>(args: &'a serde_json::Value, camel: &str, snake: &str) -> Option<&'a str> {
+    args.get(camel)
+        .and_then(|v| v.as_str())
+        .or_else(|| args.get(snake).and_then(|v| v.as_str()))
+}
+
 fn register_file_edit(reg: &ToolRegistry) {
     let h: ToolHandler = Arc::new(|args| {
         let path = args
             .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("缺少 path"))?;
-        let old_s = args
-            .get("oldString")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("缺少 oldString"))?;
-        let new_s = args
-            .get("newString")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("缺少 newString"))?;
+        let old_s = json_str(&args, "oldString", "old_string")
+            .ok_or_else(|| anyhow!("缺少 oldString（或 old_string）"))?;
+        let new_s = json_str(&args, "newString", "new_string")
+            .ok_or_else(|| anyhow!("缺少 newString（或 new_string）"))?;
         if old_s.is_empty() {
             return Err(anyhow!("oldString 不能为空"));
         }
@@ -299,13 +335,13 @@ fn register_file_edit(reg: &ToolRegistry) {
     reg.register_with_prompt(
         ToolDef {
             name: "file_edit".into(),
-            description: "在工作区内文本文件中用唯一匹配的 oldString 替换为 newString（单次替换）。与 file_read 一致使用 \\n 拼多行时，若文件为 Windows CRLF，实现会自动尝试 \\n↔\\r\\n 变体。".into(),
+            description: "在工作区内文本文件中用唯一匹配的片段做单次替换。参数名须与 schema 一致：oldString、newString（实现亦接受常见的 old_string、new_string）。oldString 必须与磁盘文件字节级一致；file_read 用 \\n 连接行，Windows 下磁盘多为 CRLF，本工具会自动尝试 \\n↔\\r\\n。须唯一匹配，否则报错。".into(),
             parameters_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string" },
-                    "oldString": { "type": "string" },
-                    "newString": { "type": "string" }
+                    "oldString": { "type": "string", "description": "要被替换的原文（唯一出现一次）；也可用 old_string" },
+                    "newString": { "type": "string", "description": "替换为；也可用 new_string" }
                 },
                 "required": ["path", "oldString", "newString"]
             }),
@@ -572,5 +608,12 @@ mod tests {
         let text = "line1\nline2\n";
         let out = try_unique_text_replace(text, "line1\r\nline2", "P\r\nQ").unwrap();
         assert_eq!(out, "P\nQ\n");
+    }
+
+    #[test]
+    fn text_replace_lf_snippet_matches_cr_only_file() {
+        let text = "line1\rline2\r";
+        let out = try_unique_text_replace(text, "line1\nline2", "A\nB").unwrap();
+        assert_eq!(out, "A\nB\n");
     }
 }

@@ -82,6 +82,13 @@ pub struct Conversation {
     pub tool_rounds_used_supervisor: u32,
 }
 
+/// Per-model overrides for runtime/API behavior. Unset fields inherit from the parent provider.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ModelRuntimeOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "reasoningInMessages")]
+    pub reasoning_in_messages: Option<bool>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfig {
     pub id: String,
@@ -91,6 +98,32 @@ pub struct ProviderConfig {
     #[serde(default, rename = "apiKey")]
     pub api_key: String,
     pub models: Vec<String>,
+    /// Default for all models under this provider when `model_configs[model]` has no override.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "reasoningInMessages")]
+    pub reasoning_in_messages: Option<bool>,
+    /// Key = model id string (same as entries in `models`). Values override provider default.
+    #[serde(default, rename = "modelConfigs")]
+    pub model_configs: HashMap<String, ModelRuntimeOverrides>,
+}
+
+/// Whether to persist/stream reasoning and send `reasoning_content` on the next request,
+/// for the **active** provider + **current** `settings.model`.
+pub fn effective_reasoning_in_messages(settings: &ModelSettings) -> bool {
+    let provider = settings
+        .providers
+        .iter()
+        .find(|p| p.id == settings.active_provider_id)
+        .or_else(|| settings.providers.first());
+    let Some(p) = provider else {
+        return true;
+    };
+    let model = settings.model.trim();
+    if let Some(over) = p.model_configs.get(model) {
+        if let Some(v) = over.reasoning_in_messages {
+            return v;
+        }
+    }
+    p.reasoning_in_messages.unwrap_or(true)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,18 +197,31 @@ fn default_max_tool_rounds() -> u32 {
 impl Default for ModelSettings {
     fn default() -> Self {
         Self {
-            providers: vec![ProviderConfig {
-                id: "qwen".into(),
-                name: "阿里云千问".into(),
-                base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
-                api_key: String::new(),
-                models: vec![
-                    "qwen3.5-plus".into(),
-                    "qwen3.6-plus".into(),
-                    "qwen3.5-flash".into(),
-                    "qwen3.5-27b".into(),
-                ],
-            }],
+            providers: vec![
+                ProviderConfig {
+                    id: "qwen".into(),
+                    name: "千问".into(),
+                    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+                    api_key: String::new(),
+                    models: vec![
+                        "qwen3.5-plus".into(),
+                        "qwen3.6-plus".into(),
+                        "qwen3.5-flash".into(),
+                        "qwen3.5-27b".into(),
+                    ],
+                    reasoning_in_messages: None,
+                    model_configs: HashMap::new(),
+                },
+                ProviderConfig {
+                    id: "deepseek".into(),
+                    name: "深度求索".into(),
+                    base_url: "https://api.deepseek.com/v1".into(),
+                    api_key: String::new(),
+                    models: vec!["deepseek-v4-flash".into(), "deepseek-v4-pro".into()],
+                    reasoning_in_messages: Some(true),
+                    model_configs: HashMap::new(),
+                },
+            ],
             active_provider_id: "qwen".into(),
             model: "qwen3.5-plus".into(),
             api_key: String::new(),
@@ -361,6 +407,7 @@ pub struct OpenAIRequest<'a> {
 pub fn make_openai_messages(
     msgs: &[ChatMessage],
     system_prompts: &[String],
+    include_reasoning_in_api: bool,
 ) -> Vec<serde_json::Value> {
     let mut out: Vec<serde_json::Value> = Vec::new();
     if !system_prompts.is_empty() {
@@ -384,12 +431,27 @@ pub fn make_openai_messages(
                     "content".into(),
                     serde_json::Value::String(m.content.clone()),
                 );
+                // DeepSeek 等「思考模式」在流式里下发 `reasoning_content`；下一轮请求必须原样带回，
+                // 否则 400 — 可由设置 `reasoningInMessages` 关闭（关闭后勿对该类模型开思考）。
+                if include_reasoning_in_api {
+                    if let Some(ref r) = m.reasoning {
+                        if !r.is_empty() {
+                            obj.insert(
+                                "reasoning_content".into(),
+                                serde_json::Value::String(r.clone()),
+                            );
+                        }
+                    }
+                }
+                // Always serialize every stored tool call. `status` is UI/runtime only; the API
+                // requires the preceding assistant message to list all `tool_calls` that have
+                // following `role: tool` replies. Backend history often keeps `pending` until
+                // the next round (frontend may update to success); filtering by status produced
+                // empty `tool_calls` and DeepSeek/OpenAI-compatible servers return 400.
                 if let Some(tcs) = &m.tool_calls {
                     let arr: Vec<_> = tcs
                         .iter()
-                        .filter(|t| {
-                            t.status == "success" || t.status == "failed" || t.status == "rejected"
-                        })
+                        .filter(|t| !t.id.is_empty())
                         .map(|t| {
                             serde_json::json!({
                                 "id": t.id,
@@ -417,4 +479,104 @@ pub fn make_openai_messages(
     out
 }
 
+#[cfg(test)]
+mod make_openai_messages_tests {
+    use super::*;
+
+    fn msg(role: Role) -> ChatMessage {
+        ChatMessage {
+            id: "m".into(),
+            role,
+            content: String::new(),
+            status: "done".into(),
+            created_at: 0,
+            tool_calls: None,
+            tool_call_id: None,
+            error_message: None,
+            reasoning: None,
+            agent_id: None,
+            agent_name: None,
+            agent_trace: None,
+        }
+    }
+
+    #[test]
+    fn assistant_includes_reasoning_content_when_present() {
+        let mut a = msg(Role::Assistant);
+        a.content = "answer".into();
+        a.reasoning = Some("step 1…".into());
+        let out = make_openai_messages(&[a], &[], true);
+        assert_eq!(out[0]["role"], "assistant");
+        assert_eq!(out[0]["content"], "answer");
+        assert_eq!(out[0]["reasoning_content"], "step 1…");
+    }
+
+    #[test]
+    fn assistant_omits_reasoning_content_when_disabled() {
+        let mut a = msg(Role::Assistant);
+        a.content = "answer".into();
+        a.reasoning = Some("hidden".into());
+        let out = make_openai_messages(&[a], &[], false);
+        assert!(out[0].as_object().unwrap().get("reasoning_content").is_none());
+    }
+
+    #[test]
+    fn includes_pending_tool_calls_for_api_replay() {
+        let mut a = msg(Role::Assistant);
+        a.content = "x".into();
+        a.tool_calls = Some(vec![ToolCall {
+            id: "call_abc".into(),
+            name: "f".into(),
+            arguments: "{}".into(),
+            status: "pending".into(),
+            result: None,
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+        }]);
+        let mut t = msg(Role::Tool);
+        t.tool_call_id = Some("call_abc".into());
+        t.content = "{}".into();
+
+        let out = make_openai_messages(&[a, t], &[], true);
+        let tcs = out[0]["tool_calls"].as_array().expect("tool_calls");
+        assert_eq!(tcs.len(), 1);
+        assert_eq!(tcs[0]["id"], "call_abc");
+        assert_eq!(out[1]["role"], "tool");
+    }
+}
+
 pub type ToolMap = HashMap<String, ToolDef>;
+
+#[cfg(test)]
+mod effective_reasoning_tests {
+    use super::*;
+
+    #[test]
+    fn effective_reasoning_defaults_true() {
+        let s = ModelSettings::default();
+        assert!(effective_reasoning_in_messages(&s));
+    }
+
+    #[test]
+    fn effective_reasoning_provider_off() {
+        let mut s = ModelSettings::default();
+        s.providers[0].reasoning_in_messages = Some(false);
+        assert!(!effective_reasoning_in_messages(&s));
+    }
+
+    #[test]
+    fn effective_reasoning_model_overrides_provider() {
+        let mut s = ModelSettings::default();
+        let m = s.providers[0].models[0].clone();
+        s.model = m.clone();
+        s.providers[0].reasoning_in_messages = Some(false);
+        s.providers[0].model_configs.insert(
+            m,
+            ModelRuntimeOverrides {
+                reasoning_in_messages: Some(true),
+            },
+        );
+        assert!(effective_reasoning_in_messages(&s));
+    }
+}

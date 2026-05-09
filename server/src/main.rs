@@ -37,6 +37,8 @@ struct ServerState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    pointer_core::logging::init_backtrace_defaults();
+
     const DEFAULT_LOG_FILTER: &str = "warn,pointer_core=info,pointer_server=info";
     let log_dir: PathBuf = env::var("POINTER_SERVER_LOG_DIR")
         .map(PathBuf::from)
@@ -52,6 +54,7 @@ async fn main() -> anyhow::Result<()> {
             env_logger::Env::default().default_filter_or(DEFAULT_LOG_FILTER),
         )
         .try_init();
+        pointer_core::logging::install_panic_hook();
     }
 
     let core = Arc::new(AppState::new());

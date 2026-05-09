@@ -110,7 +110,7 @@ impl Default for ModelSettings {
             providers: vec![
                 ProviderConfig {
                     id: "qwen".into(),
-                    name: "阿里云千问".into(),
+                    name: "千问".into(),
                     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
                     api_key: String::new(),
                     models: vec!["qwen-plus".into(), "qwen-turbo".into(), "qwen-max".into(), "qwen2.5-coder-32b-instruct".into()],
@@ -128,6 +128,13 @@ impl Default for ModelSettings {
                     base_url: "http://127.0.0.1:11434/v1".into(),
                     api_key: String::new(),
                     models: vec!["qwen2.5".into(), "llama3.1".into()],
+                },
+                ProviderConfig {
+                    id: "deepseek".into(),
+                    name: "深度求索".into(),
+                    base_url: "https://api.deepseek.com/v1".into(),
+                    api_key: String::new(),
+                    models: vec!["deepseek-v4-flash".into(), "deepseek-v4-pro".into()],
                 },
             ],
             active_provider_id: "qwen".into(),

@@ -1,11 +1,11 @@
 # Pointer · AI 工作台
 
-基于 **Tauri 2 + Vue 3 + TypeScript** 的桌面大模型聊天客户端，默认接入 **阿里云千问（DashScope OpenAI 兼容模式）**，支持工具调用（function calling）与 Skills 技能扩展。
+基于 **Tauri 2 + Vue 3 + TypeScript** 的桌面大模型聊天客户端，默认接入 **千问（DashScope OpenAI 兼容模式）**，支持工具调用（function calling）与 Skills 技能扩展。
 
 ## 特性
 
 - 多轮聊天 / 流式回复 / 停止生成 / 重试
-- 默认 OpenAI 兼容协议；默认 Provider：阿里云千问 `qwen-plus`
+- 默认 OpenAI 兼容协议；默认 Provider：千问 `qwen-plus`
   - Base URL：`https://dashscope.aliyuncs.com/compatible-mode/v1`
 - 工具调用：Rust 侧 Tool Registry，默认自动允许调用，可在设置中改为敏感工具二次确认
 - Skills：按三层渐进式方式提供技能索引、正文说明与资源读取；支持通过 `zip` 导入外部 Skills

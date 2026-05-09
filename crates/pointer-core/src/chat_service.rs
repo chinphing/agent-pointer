@@ -3,7 +3,9 @@ use crate::agents::{
     AgentRunLimits, AgentRunResult, AgentTask, DEFAULT_AGENT_ID, SUPERVISOR_AGENT_ID,
     AGENT_MODE_SUPERVISOR,
 };
-use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent, ToolCall};
+use crate::models::{
+    effective_reasoning_in_messages, AgentTrace, ChatMessage, Role, StreamEvent, ToolCall,
+};
 use crate::provider::{OpenAIProvider, ProviderEvent};
 use crate::skills::SkillRegistry;
 use crate::storage;
@@ -12,6 +14,7 @@ use crate::tools::terminal::run_terminal_command_streaming;
 use crate::tools::ToolRegistry;
 use anyhow::{anyhow, Result};
 use chrono::Local;
+use std::backtrace::Backtrace;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::env;
@@ -168,6 +171,16 @@ pub async fn run_chat(
     tool_rounds_used_single_start: u32,
     tool_rounds_used_supervisor_start: u32,
 ) -> Result<()> {
+    log::info!(
+        "run_chat start conversation_id={} incoming_history_messages={} enabled_skill_ids={} request_agent_mode={:?} tool_rounds_used_single_start={} tool_rounds_used_supervisor_start={}",
+        conversation_id,
+        history.len(),
+        enabled_skill_ids.len(),
+        agent_mode,
+        tool_rounds_used_single_start,
+        tool_rounds_used_supervisor_start,
+    );
+
     let cancel = CancellationToken::new();
     state
         .cancels
@@ -194,10 +207,12 @@ pub async fn run_chat(
     state.cancels.lock().remove(&conversation_id);
 
     if let Err(err) = &result {
-        log::error!(
-            "run_chat failed conversation_id={} error={:#}",
-            conversation_id,
-            err
+        // Root cause is in `err` (often an HTTP/API message). `Backtrace::capture()` here only
+        // shows the async poll point (e.g. chat_service + tokio), not the failing await site.
+        log::error!("run_chat failed conversation_id={} error={:#}", conversation_id, err);
+        log::debug!(
+            "run_chat failure poll-point backtrace (for deep debugging):\n{}",
+            Backtrace::capture()
         );
         emit(
             &stream,
@@ -206,6 +221,11 @@ pub async fn run_chat(
                 message: err.to_string(),
             },
         );
+        log::info!(
+            "run_chat emitted StreamEvent::Error (session-level) conversation_id={} message_len_chars={}",
+            conversation_id,
+            err.to_string().chars().count(),
+        );
     }
     let max_tr = storage::load_settings()
         .map(|s| s.max_tool_rounds)
@@ -213,14 +233,35 @@ pub async fn run_chat(
     let single_total = tool_rounds_used_single_start.saturating_add(consumed_single);
     let supervisor_total =
         tool_rounds_used_supervisor_start.saturating_add(consumed_supervisor);
-    emit(
-        &stream,
-        StreamEvent::Done {
+    log::info!(
+        "run_chat conversation end: emitting StreamEvent::Done conversation_id={} run_outcome={} history_messages_final={} consumed_this_run_single={} consumed_this_run_supervisor={} cumulative_tool_rounds_single={} cumulative_tool_rounds_supervisor={} max_tool_rounds_attached={}",
+        conversation_id,
+        if result.is_ok() { "Ok" } else { "Err" },
+        history.len(),
+        consumed_single,
+        consumed_supervisor,
+        single_total,
+        supervisor_total,
+        max_tr,
+    );
+    let done_conversation_id = conversation_id.clone();
+    if stream
+        .send(StreamEvent::Done {
             conversation_id,
             tool_rounds_used_total: Some(single_total),
             tool_rounds_used_supervisor_total: Some(supervisor_total),
             max_tool_rounds: Some(max_tr),
-        },
+        })
+        .is_err()
+    {
+        log::warn!(
+            "run_chat: StreamEvent::Done not delivered (stream receiver dropped) conversation_id={}",
+            done_conversation_id
+        );
+    }
+    log::info!(
+        "run_chat finished after Done emit final_result_is_ok={}",
+        result.is_ok(),
     );
     result
 }
@@ -308,6 +349,7 @@ async fn run_chat_inner(
             provider,
             &mut tool_budget,
             cancel,
+            effective_reasoning_in_messages(&settings),
         )
         .await;
         tool_budget.sync_out(consumed_supervisor);
@@ -321,6 +363,7 @@ async fn run_chat_inner(
         ));
     }
     let mut tool_budget = SessionToolBudget::new(max_cap, tool_rounds_used_single_start);
+    let reasoning_in_messages = effective_reasoning_in_messages(&provider.settings);
 
     loop {
         if cancel.is_cancelled() {
@@ -404,14 +447,16 @@ async fn run_chat_inner(
                     );
                 }
                 ProviderEvent::ReasoningDelta(t) => {
-                    reasoning_buf.push_str(&t);
-                    emit(
-                        &stream,
-                        StreamEvent::ReasoningDelta {
-                            message_id: assistant_id.clone(),
-                            text: t,
-                        },
-                    );
+                    if reasoning_in_messages {
+                        reasoning_buf.push_str(&t);
+                        emit(
+                            &stream,
+                            StreamEvent::ReasoningDelta {
+                                message_id: assistant_id.clone(),
+                                text: t,
+                            },
+                        );
+                    }
                 }
                 ProviderEvent::ToolCallStart { id, name, .. } => {
                     let tc = ToolCall {
@@ -510,10 +555,10 @@ async fn run_chat_inner(
             },
             tool_call_id: None,
             error_message: None,
-            reasoning: if reasoning_buf.is_empty() {
-                None
-            } else {
+            reasoning: if reasoning_in_messages && !reasoning_buf.is_empty() {
                 Some(reasoning_buf)
+            } else {
+                None
             },
             agent_id: Some(agent_plan.lead_agent_id.clone()),
             agent_name: Some(agent_plan.lead_agent_name.clone()),
@@ -719,6 +764,7 @@ async fn run_supervisor_chat(
     provider: OpenAIProvider,
     tool_budget: &mut SessionToolBudget,
     cancel: CancellationToken,
+    reasoning_in_messages: bool,
 ) -> Result<()> {
     if cancel.is_cancelled() {
         return Err(anyhow!("已停止生成"));
@@ -830,6 +876,7 @@ async fn run_supervisor_chat(
             &task_run,
             tool_budget,
             cancel.clone(),
+            reasoning_in_messages,
         )
         .await
         {
@@ -1005,6 +1052,7 @@ async fn run_sub_agent(
     task: &AgentTask,
     tool_budget: &mut SessionToolBudget,
     cancel: CancellationToken,
+    reasoning_in_messages: bool,
 ) -> Result<AgentRunResult> {
     let agent = state
         .agents
@@ -1110,8 +1158,10 @@ async fn run_sub_agent(
                     );
                 }
                 ProviderEvent::ReasoningDelta(delta) => {
-                    round_reasoning.push_str(&delta);
-                    reasoning.push_str(&delta);
+                    if reasoning_in_messages {
+                        round_reasoning.push_str(&delta);
+                        reasoning.push_str(&delta);
+                    }
                 }
                 ProviderEvent::ToolCallStart { id, name, .. } => {
                     emit(
@@ -1189,10 +1239,10 @@ async fn run_sub_agent(
             },
             tool_call_id: None,
             error_message: None,
-            reasoning: if round_reasoning.is_empty() {
-                None
-            } else {
+            reasoning: if reasoning_in_messages && !round_reasoning.is_empty() {
                 Some(round_reasoning)
+            } else {
+                None
             },
             agent_id: Some(def.id.clone()),
             agent_name: Some(def.name.clone()),
@@ -1205,10 +1255,10 @@ async fn run_sub_agent(
                 agent_id: def.id,
                 agent_name: def.name,
                 content,
-                reasoning: if reasoning.is_empty() {
-                    None
-                } else {
+                reasoning: if reasoning_in_messages && !reasoning.is_empty() {
                     Some(reasoning)
+                } else {
+                    None
                 },
             });
         }
@@ -1375,10 +1425,10 @@ async fn run_sub_agent(
                 agent_id: def.id,
                 agent_name: def.name,
                 content,
-                reasoning: if reasoning.is_empty() {
-                    None
-                } else {
+                reasoning: if reasoning_in_messages && !reasoning.is_empty() {
                     Some(reasoning)
+                } else {
+                    None
                 },
             });
         }

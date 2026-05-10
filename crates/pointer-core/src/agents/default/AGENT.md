@@ -5,12 +5,10 @@ description: Handles general tasks, simple Q&A, summarization, and default fallb
 role: worker
 profile: general
 enabled: true
-defaultSkillIds:
-  - general
+defaultSkillIds: []
 accessPolicy:
   allowTools:
-    - load_skill_instructions
-    - read_skill_resource
+    - skill
     - terminal
   denyTools: []
   allowSkills: []

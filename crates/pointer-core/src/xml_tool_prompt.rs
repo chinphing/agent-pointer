@@ -88,13 +88,28 @@ pub fn generate_xml_tool_prompt(tools: &ToolRegistry, allow: &[String]) -> Strin
     prompt.push_str("</response>\n");
     prompt.push_str("```\n\n");
 
+    prompt.push_str("Example 3 — `file:read` **batch** (preferred when reading 2+ known paths in one turn):\n");
+    prompt.push_str("Put a **JSON array string** inside `<paths>` so it parses as an array (not multiple `<path>` tags).\n");
+    prompt.push_str("```xml\n");
+    prompt.push_str("<response>\n");
+    prompt.push_str("  <thoughts>Read implementation and tests together.</thoughts>\n");
+    prompt.push_str("  <headline>Batch read</headline>\n");
+    prompt.push_str("  <tool_name>file:read</tool_name>\n");
+    prompt.push_str("  <tool_args>\n");
+    prompt.push_str("    <paths>[\"crates/foo/src/lib.rs\",\"crates/foo/src/main.rs\"]</paths>\n");
+    prompt.push_str("    <lineStart>1</lineStart>\n");
+    prompt.push_str("  </tool_args>\n");
+    prompt.push_str("</response>\n");
+    prompt.push_str("```\n\n");
+
     prompt.push_str("Rules:\n");
     prompt.push_str("1. Tool calls must use this XML format.\n");
     prompt.push_str("2. Only one tool per turn.\n");
     prompt.push_str("3. Put arguments inside `<tool_args>` as child elements.\n");
     prompt.push_str("4. Argument names must match the tool definition.\n");
     prompt.push_str("5. Do not add extra text outside the `<response>` block.\n");
-    prompt.push_str("6. For `file_write` / `file_edit` XML calls, always wrap `content` / `oldString` / `newString` in CDATA (see tool descriptions and agent communication).\n");
+    prompt.push_str("6. For `file:write` / `file:edit` XML calls, always wrap `content` / `oldString` / `newString` in CDATA (see tool descriptions and agent communication).\n");
+    prompt.push_str("7. **Batch file reads:** When you need ≥2 files and already know their paths, call `file:read` once with `<paths>[…]</paths>` as in Example 3 — avoid chaining multiple single-file reads with `<path>`.\n");
 
     prompt
 }

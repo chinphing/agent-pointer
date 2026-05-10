@@ -1,5 +1,49 @@
 ### mouse
 
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "enum": [
+        "click_index",
+        "double_click_index",
+        "right_click_index",
+        "hover_index",
+        "click_at",
+        "double_click_at",
+        "right_click_at",
+        "hover_at",
+        "click_current",
+        "double_click_current",
+        "right_click_current",
+        "scroll_at_current",
+        "move_offset",
+        "drag_from_to_at",
+        "drag_from_to_index"
+      ]
+    },
+    "goal": { "type": "string" },
+    "action": { "type": "string" },
+    "index": { "type": "integer" },
+    "x": { "type": "number" },
+    "y": { "type": "number" },
+    "x1": { "type": "number" },
+    "y1": { "type": "number" },
+    "x2": { "type": "number" },
+    "y2": { "type": "number" },
+    "from_index": { "type": "integer" },
+    "to_index": { "type": "integer" },
+    "dx": { "type": "integer" },
+    "dy": { "type": "integer" },
+    "lines": { "type": "integer" },
+    "human_like": { "type": "boolean" }
+  },
+  "required": ["method", "goal", "action"]
+}
+```
+
 Use for a single mouse action: click, double-click, right-click, hover, drag, scroll at the current cursor, or a small offset move. Prefer **overlay-index methods** when the target has an overlay number; otherwise use **coordinate methods** from the current inject scale. When multiple labels are plausible, prefer the badge drawn **inside** the target control.
 
 **Method output rule:** In XML, output the full **`tool_name:method`** such as **`mouse:click_index`**, **`mouse:double_click_index`**, **`mouse:hover_at`**. Do **not** output bare **`mouse`** unless your runtime explicitly puts `method` in `tool_args`.

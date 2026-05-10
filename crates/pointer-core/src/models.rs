@@ -289,8 +289,11 @@ pub struct SkillImportResult {
     pub skipped: Vec<String>,
 }
 
-/// Tool identity exposed to the UI / API. Human-readable docs and JSON schema live in markdown
-/// (`tools/prompts/*.md`, computer `prompts/*.md` + `computer/schemas/*.json`) and in [`crate::tools::ToolEntry`].
+/// Tool identity exposed to the UI / API. Human-readable docs live in markdown (`tools/prompts/*.md`,
+/// `agents/computer/tools/prompts/*.md`). Registry tools **`file`** and **`skill`** pair with
+/// `tools/file.rs` + `prompts/file.md` and `tools/skill.rs` + `prompts/skill.md`. Computer-use tool
+/// schemas are parsed from the first fenced block in those prompts. XML-only registry tools use a
+/// minimal placeholder schema in Rust; the chat provider does not send native OpenAI `tools`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDef {
     pub name: String,

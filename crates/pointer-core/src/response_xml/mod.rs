@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn both_parse_file_edit_cdata_embedded_markup() {
         let xml = r#"<response>
-  <tool_name>file_edit</tool_name>
+  <tool_name>file:edit</tool_name>
   <tool_args>
     <path>src/App.vue</path>
     <oldString><![CDATA[  <div v-if="ok">x</div>  ]]></oldString>
@@ -219,7 +219,7 @@ mod tests {
 </response>"#;
         for b in backends() {
             let call = b.parse_tool_response(xml).unwrap_or_else(|e| panic!("{b:?}: {e}"));
-            assert_eq!(call.name, "file_edit", "{b:?}");
+            assert_eq!(call.name, "file:edit", "{b:?}");
             assert_eq!(
                 call.arguments.get("path").map(String::as_str),
                 Some("src/App.vue"),
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn bare_ampersand_in_text_both() {
         let xml = r#"<response>
-  <tool_name>file_edit</tool_name>
+  <tool_name>file:edit</tool_name>
   <tool_args>
     <path>x.txt</path>
     <oldString>foo & bar</oldString>
@@ -259,7 +259,7 @@ mod tests {
     #[test]
     fn literal_gt_in_text_both() {
         let xml = r#"<response>
-  <tool_name>file_edit</tool_name>
+  <tool_name>file:edit</tool_name>
   <tool_args>
     <path>x.txt</path>
     <oldString>a > b</oldString>
@@ -280,7 +280,7 @@ mod tests {
     #[test]
     fn amp_entity_differs_by_backend() {
         let xml = r#"<response>
-  <tool_name>file_edit</tool_name>
+  <tool_name>file:edit</tool_name>
   <tool_args>
     <path>x.txt</path>
     <oldString>foo &amp; bar</oldString>
@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn unescaped_lt_quick_errors_scraper_preserves_text() {
         let xml = r#"<response>
-  <tool_name>file_edit</tool_name>
+  <tool_name>file:edit</tool_name>
   <tool_args>
     <path>x.txt</path>
     <oldString>if a < b</oldString>
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn quick_xml_relaxed_end_tags_config_smoke() {
         let xml = r#"<response>
-  <tool_name>file_edit</tool_name>
+  <tool_name>file:edit</tool_name>
   <tool_args>
     <path>x.txt</path>
     <oldString>if a < b</oldString>
@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn bare_ampersand_strict_vs_relaxed_quick_xml() {
         let xml = r#"<response>
-  <tool_name>file_edit</tool_name>
+  <tool_name>file:edit</tool_name>
   <tool_args>
     <path>x.txt</path>
     <oldString>foo & bar</oldString>
@@ -368,7 +368,7 @@ mod tests {
     #[test]
     fn literal_gt_quick_relaxed() {
         let xml = r#"<response>
-  <tool_name>file_edit</tool_name>
+  <tool_name>file:edit</tool_name>
   <tool_args>
     <path>x.txt</path>
     <oldString>a > b</oldString>
@@ -392,7 +392,7 @@ mod tests {
     #[test]
     fn scraper_oldstring_nested_tags_yields_concatenated_text_only() {
         let xml = r#"<response>
-  <tool_name>file_edit</tool_name>
+  <tool_name>file:edit</tool_name>
   <tool_args>
     <path>src/Foo.vue</path>
     <oldString>before<span class="x">mid</span>after</oldString>
@@ -402,7 +402,7 @@ mod tests {
         let call = ResponseXmlBackend::ScraperHtml
             .parse_tool_response(xml)
             .expect("scraper parse");
-        assert_eq!(call.name, "file_edit");
+        assert_eq!(call.name, "file:edit");
         assert_eq!(call.arguments.get("path").map(String::as_str), Some("src/Foo.vue"));
         assert_eq!(
             call.arguments.get("oldString").map(String::as_str),
@@ -418,7 +418,7 @@ mod tests {
     #[test]
     fn scraper_oldstring_cdata_deeply_nested_markup_round_trips() {
         let xml = r#"<response>
-  <tool_name>file_edit</tool_name>
+  <tool_name>file:edit</tool_name>
   <tool_args>
     <path>p</path>
     <oldString><![CDATA[  <div a="1"><span><b>x</b></span></div>  ]]></oldString>
@@ -442,7 +442,7 @@ mod tests {
     #[test]
     fn scraper_oldstring_cdata_then_other_args_complete() {
         let xml = r#"<response>
-  <tool_name>file_edit</tool_name>
+  <tool_name>file:edit</tool_name>
   <tool_args>
     <path>z.ts</path>
     <oldString><![CDATA[<template><p id="a">1</p><p>2</p></template>]]></oldString>

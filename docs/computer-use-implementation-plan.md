@@ -50,8 +50,8 @@ crates/pointer-core/src/
 │   ├── terminal.rs     # 终端命令执行
 │   ├── math.rs         # 数学计算
 │   ├── text.rs         # 文本处理
-│   ├── workspace.rs    # 工作区操作
-│   └── skills.rs       # Skill 相关工具
+│   ├── file.rs         # 工作区 file 工具（prompts/file.md）
+│   └── skill.rs        # skill 工具（prompts/skill.md）
 ├── skills/             # 技能系统
 │   ├── mod.rs          # SkillRegistry, SkillDef
 │   ├── builtin.rs      # 内置技能注册

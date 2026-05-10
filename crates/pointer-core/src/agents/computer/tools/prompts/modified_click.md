@@ -1,5 +1,29 @@
 ### modified_click
 
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "enum": ["modified_click_index", "modified_click_at"]
+    },
+    "goal": { "type": "string" },
+    "action": { "type": "string" },
+    "indices": {
+      "oneOf": [
+        { "type": "array", "items": { "type": "integer" } },
+        { "type": "string" }
+      ]
+    },
+    "positions": { "type": "array" },
+    "range_select": { "type": "boolean" },
+    "human_like": { "type": "boolean" }
+  },
+  "required": ["method", "goal", "action"]
+}
+```
+
 Use for **modifier+click** to multi-select: **Cmd/Ctrl+click** (add non-contiguous items) or **Shift+click** (select a contiguous range).
 
 **Call priority:** Prefer **modified_click** when selecting multiple items in one call instead of multiple single clicks.

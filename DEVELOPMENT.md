@@ -197,7 +197,7 @@ metadata:
 当用户要求翻译或润色时使用。保持原意，输出自然准确的目标语言表达。
 ```
 
-说明：`name` 和 `description` 是第一层 frontmatter 索引，且 `name` 必须与 Skill 目录名一致；不支持 `skill.md`、`skill.json`、`manifest.json` 或旧字段 `id`、`systemPrompt`、`toolNames`。启用 Skill 后不会立即注入完整正文，模型会在需要时调用 `load_skill_instructions` 读取第二层 `SKILL.md` 正文；`references/`、`assets/`、`scripts/` 下的文件会作为第三层资源索引，可通过 `read_skill_resource` 按需读取。不会执行 zip 中的任意代码。
+说明：`name` 和 `description` 是第一层 frontmatter 索引，且 `name` 必须与 Skill 目录名一致；不支持 `skill.md`、`skill.json`、`manifest.json` 或旧字段 `id`、`systemPrompt`、`toolNames`。启用 Skill 后不会立即注入完整正文，模型会在需要时通过 **`skill:load_instructions`** 读取第二层 `SKILL.md` 正文；`references/`、`assets/`、`scripts/` 下的文件会作为第三层资源索引，可通过 **`skill:read_resource`** 按需读取。不会执行 zip 中的任意代码。
 
 
 

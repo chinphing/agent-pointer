@@ -253,7 +253,7 @@ mod tests {
     fn test_parse_file_edit_with_cdata_embedded_markup() {
         let mut parser = XmlToolParser::new();
         let xml = r#"<response>
-  <tool_name>file_edit</tool_name>
+  <tool_name>file:edit</tool_name>
   <tool_args>
     <path>src/App.vue</path>
     <oldString><![CDATA[  <div v-if="ok">x</div>  ]]></oldString>
@@ -262,7 +262,7 @@ mod tests {
 </response>"#;
         parser.feed(xml);
         let call = parser.parse().unwrap();
-        assert_eq!(call.name, "file_edit");
+        assert_eq!(call.name, "file:edit");
         assert_eq!(call.arguments.get("path").map(String::as_str), Some("src/App.vue"));
         assert!(call.arguments.get("oldString").unwrap().contains("v-if"));
         assert!(call.arguments.get("newString").unwrap().contains("v-if"));
@@ -334,7 +334,7 @@ mod tests {
         let xml = r#"<response>
   <thoughts>Planning edit</thoughts>
   <headline>Patch file</headline>
-  <tool_name>file_edit</tool_name>
+  <tool_name>file:edit</tool_name>
   <tool_args>
     <path>x.txt</path>
     <oldString>if a < b</oldString>
@@ -346,7 +346,7 @@ mod tests {
         let call = parser.parse().expect("ScraperHtml should parse this fragment");
         assert_eq!(call.thoughts.trim(), "Planning edit");
         assert_eq!(call.headline.trim(), "Patch file");
-        assert_eq!(call.name, "file_edit");
+        assert_eq!(call.name, "file:edit");
         assert_eq!(call.arguments.get("oldString").map(String::as_str), Some("if a < b"));
         assert_eq!(call.arguments.get("newString").map(String::as_str), Some("z"));
     }

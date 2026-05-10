@@ -1,1 +1,0 @@
-All paths are relative to the workspace root (`workspaceRoot` in settings, or the process working directory). Do not escape with `..`. `file_write` / `file_edit` may require user approval. `grep_files` uses Rust regex syntax.

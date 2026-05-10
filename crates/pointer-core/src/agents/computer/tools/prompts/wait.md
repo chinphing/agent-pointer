@@ -1,5 +1,17 @@
 ### wait
 
+```json
+{
+  "type": "object",
+  "properties": {
+    "goal": { "type": "string" },
+    "action": { "type": "string" },
+    "seconds": { "type": "number" }
+  },
+  "required": ["goal", "seconds", "action"]
+}
+```
+
 Use when a **delay** is needed (e.g. page loading, animation, dialog appearing).
 
 Method:

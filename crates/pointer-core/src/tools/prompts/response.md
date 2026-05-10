@@ -1,6 +1,10 @@
 ### response
 
-Final answer to the user. Ends task processing; use only when done or no task is active. Put the result in the `text` argument.
+Final answer to the user. Ends task processing; use only when done or no task is active.
+
+#### Parameters
+
+- **`text`** (required) — Full answer or result shown to the user.
 
 Output format (XML):
 

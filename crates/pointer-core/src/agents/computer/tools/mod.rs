@@ -11,19 +11,21 @@ mod tool_mouse;
 mod tool_wait;
 
 use crate::agents::computer::ComputerState;
-use crate::tools::{ToolEntry, ToolRegistry};
+use crate::tools::{load_tool_doc_and_schema, ToolEntry, ToolRegistry};
 use std::sync::Arc;
 use tool_modified_click::ModifiedClickTool;
 
 /// Register all computer-use tools (mouse, hotkey, composite_action, modified_click, computer, wait).
 pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     let mouse_state = state.clone();
+    let (mouse_schema, mouse_doc) =
+        load_tool_doc_and_schema(include_str!("prompts/mouse.md")).expect("prompts/mouse.md schema");
     reg.register(ToolEntry::new(
         "mouse",
         "high",
         false,
-        serde_json::from_str(include_str!("schemas/mouse.json")).expect("schemas/mouse.json"),
-        include_str!("prompts/mouse.md").trim(),
+        mouse_schema,
+        mouse_doc.trim(),
         None,
         Arc::new(move |args| {
             let method = args["method"]
@@ -39,12 +41,14 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     ));
 
     let hotkey_state = state.clone();
+    let (hotkey_schema, hotkey_doc) =
+        load_tool_doc_and_schema(include_str!("prompts/hotkey.md")).expect("prompts/hotkey.md schema");
     reg.register(ToolEntry::new(
         "hotkey",
         "medium",
         false,
-        serde_json::from_str(include_str!("schemas/hotkey.json")).expect("schemas/hotkey.json"),
-        include_str!("prompts/hotkey.md").trim(),
+        hotkey_schema,
+        hotkey_doc.trim(),
         None,
         Arc::new(move |args| {
             let tool = tool_hotkey::HotkeyTool::new(hotkey_state.executor.clone());
@@ -53,13 +57,15 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     ));
 
     let composite_state = state.clone();
+    let (composite_schema, composite_doc) =
+        load_tool_doc_and_schema(include_str!("prompts/composite_action.md"))
+            .expect("prompts/composite_action.md schema");
     reg.register(ToolEntry::new(
         "composite_action",
         "high",
         false,
-        serde_json::from_str(include_str!("schemas/composite_action.json"))
-            .expect("schemas/composite_action.json"),
-        include_str!("prompts/composite_action.md").trim(),
+        composite_schema,
+        composite_doc.trim(),
         None,
         Arc::new(move |args| {
             let method = args["method"]
@@ -75,13 +81,15 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     ));
 
     let modified_state = state.clone();
+    let (modified_schema, modified_doc) =
+        load_tool_doc_and_schema(include_str!("prompts/modified_click.md"))
+            .expect("prompts/modified_click.md schema");
     reg.register(ToolEntry::new(
         "modified_click",
         "high",
         false,
-        serde_json::from_str(include_str!("schemas/modified_click.json"))
-            .expect("schemas/modified_click.json"),
-        include_str!("prompts/modified_click.md").trim(),
+        modified_schema,
+        modified_doc.trim(),
         None,
         Arc::new(move |args| {
             let method = args["method"]
@@ -96,12 +104,14 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         }),
     ));
 
+    let (computer_schema, computer_doc) =
+        load_tool_doc_and_schema(include_str!("prompts/computer.md")).expect("prompts/computer.md schema");
     reg.register(ToolEntry::new(
         "computer",
         "low",
         false,
-        serde_json::from_str(include_str!("schemas/computer.json")).expect("schemas/computer.json"),
-        include_str!("prompts/computer.md").trim(),
+        computer_schema,
+        computer_doc.trim(),
         None,
         Arc::new(move |args| {
             let method = args["method"]
@@ -113,12 +123,14 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         }),
     ));
 
+    let (wait_schema, wait_doc) =
+        load_tool_doc_and_schema(include_str!("prompts/wait.md")).expect("prompts/wait.md schema");
     reg.register(ToolEntry::new(
         "wait",
         "low",
         false,
-        serde_json::from_str(include_str!("schemas/wait.json")).expect("schemas/wait.json"),
-        include_str!("prompts/wait.md").trim(),
+        wait_schema,
+        wait_doc.trim(),
         None,
         Arc::new(move |args| {
             let tool = tool_wait::WaitTool::new();

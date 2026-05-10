@@ -364,10 +364,7 @@ impl AgentOrchestrator {
             .map(|a| a.def())
             .unwrap_or_else(supervisor_agent_def);
         let worker_agents = agents.enabled_workers();
-        let mut skill_scope = enabled_skill_ids.to_vec();
-        if skill_scope.is_empty() {
-            skill_scope = default_skills_from_agents(&worker_agents);
-        }
+        let skill_scope = enabled_skill_ids.to_vec();
         let (skill_prompts, session_tools) = skills.progressive_context(&skill_scope);
         let mut allowed_tool_names = Vec::new();
         for agent in &worker_agents {
@@ -439,7 +436,7 @@ fn default_agent_def() -> AgentDef {
                 .into(),
             role: "worker".into(),
             profile: AgentProfile::General,
-            default_skill_ids: vec!["general".into()],
+            default_skill_ids: Vec::new(),
             access_policy: AccessPolicy::default(),
             builtin: true,
             enabled: true,
@@ -792,12 +789,10 @@ fn static_agent(def: AgentDef) -> Arc<dyn AgentExecutor> {
     })
 }
 
+/// Session skills come **only** from the caller’s `enabled_skill_ids`. Manifest `defaultSkillIds`
+/// is metadata (e.g. UI hints / roster); it is not auto-merged into the session.
 fn resolve_skill_ids(agent: &AgentDef, enabled_skill_ids: &[String]) -> Vec<String> {
-    let mut ids = if enabled_skill_ids.is_empty() {
-        agent.default_skill_ids.clone()
-    } else {
-        enabled_skill_ids.to_vec()
-    };
+    let mut ids = enabled_skill_ids.to_vec();
     if !agent.access_policy.allow_skills.is_empty() {
         let allow: HashSet<_> = agent.access_policy.allow_skills.iter().cloned().collect();
         ids.retain(|id| allow.contains(id));
@@ -806,18 +801,6 @@ fn resolve_skill_ids(agent: &AgentDef, enabled_skill_ids: &[String]) -> Vec<Stri
     ids.retain(|id| !deny.contains(id));
     ids.sort();
     ids.dedup();
-    ids
-}
-
-fn default_skills_from_agents(agents: &[AgentDef]) -> Vec<String> {
-    let mut ids = Vec::new();
-    for agent in agents {
-        for id in &agent.default_skill_ids {
-            if !ids.contains(id) && !agent.access_policy.deny_skills.contains(id) {
-                ids.push(id.clone());
-            }
-        }
-    }
     ids
 }
 
@@ -870,7 +853,7 @@ fn supervisor_prompt(lead: &AgentDef, lead_prompt: Option<String>, agents: &[Age
     }
 
     format!(
-        "{}\n\nYou operate in a multi-agent orchestration architecture.\n\nLead agent:\n- id: {}\n- name: {}\n- profile: {:?}\n- description: {}\n\nRoles:\n- Supervisor: understand the user goal, decompose work, pick worker agents by profile, merge their outputs.\n- Default agent: routine and unclassified fallback tasks.\n- Worker agents: execute subtasks per their profile; use tools when needed.\n- Reviewer/critic: check for gaps, conflicts, risk, and feasibility before final output.\n\nAvailable workers:\n{}\nProtocol:\n1. Decide whether multiple agents are needed; prefer the default agent or a single pass for simple work.\n2. For complex work, decompose explicitly and assign to the best-matching profile above.\n3. Tools and skills are shared pools; respect each agent's allow/deny policies.\n4. To use full skill text, call load_skill_instructions—do not invent skill details.\n5. Final replies should integrate conclusions only; briefly note which agents contributed when useful.",
+        "{}\n\nYou operate in a multi-agent orchestration architecture.\n\nLead agent:\n- id: {}\n- name: {}\n- profile: {:?}\n- description: {}\n\nRoles:\n- Supervisor: understand the user goal, decompose work, pick worker agents by profile, merge their outputs.\n- Default agent: routine and unclassified fallback tasks.\n- Worker agents: execute subtasks per their profile; use tools when needed.\n- Reviewer/critic: check for gaps, conflicts, risk, and feasibility before final output.\n\nAvailable workers:\n{}\nProtocol:\n1. Decide whether multiple agents are needed; prefer the default agent or a single pass for simple work.\n2. For complex work, decompose explicitly and assign to the best-matching profile above.\n3. Tools and skills are shared pools; respect each agent's allow/deny policies.\n4. To use full skill text, call the **skill** tool (`skill:load_instructions`)—do not invent skill details.\n5. Final replies should integrate conclusions only; briefly note which agents contributed when useful.",
         lead_prompt.unwrap_or_else(|| "You are the multi-agent Supervisor.".into()),
         lead.id,
         lead.name,

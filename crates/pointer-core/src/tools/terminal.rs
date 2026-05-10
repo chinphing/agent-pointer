@@ -1,4 +1,4 @@
-use super::{ToolEntry, ToolHandler, ToolPrompt, ToolRegistry};
+use super::{minimal_tool_parameters_schema, ToolEntry, ToolHandler, ToolRegistry};
 use crate::storage;
 use anyhow::{anyhow, Result};
 use std::io::{BufRead, BufReader, Read};
@@ -7,8 +7,6 @@ use std::process::{Command, Stdio};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
-
-const TERMINAL_PROMPT: &str = include_str!("prompts/terminal.md");
 
 const TERMINAL_DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const TERMINAL_MAX_TIMEOUT_MS: u64 = 120_000;
@@ -20,25 +18,16 @@ pub fn register_all(reg: &ToolRegistry) {
 }
 
 fn register_terminal(reg: &ToolRegistry) {
+    let schema = minimal_tool_parameters_schema();
+    let doc = include_str!("prompts/terminal.md").trim();
     let h: ToolHandler = Arc::new(run_terminal_command);
     reg.register(ToolEntry::new(
         "terminal",
         "high",
         true,
-        serde_json::json!({
-            "type":"object",
-            "properties":{
-                "command":{"type":"string","description":"要执行的终端命令。Windows 使用 powershell -NoProfile -ExecutionPolicy Bypass -Command，macOS/Linux 使用 sh -lc。"},
-                "cwd":{"type":"string","description":"可选工作目录。必须是已存在的目录。"},
-                "timeoutMs":{"type":"integer","description":"可选超时时间，默认 30000，最大 120000。"},
-                "maxOutputBytes":{"type":"integer","description":"可选最大输出字节数，默认 20000，最大 200000。stdout 和 stderr 分别截断。"}
-            },
-            "required":["command"]
-        }),
-        "执行终端命令并返回控制台输出。",
-        Some(ToolPrompt {
-            system_prompt: TERMINAL_PROMPT.into(),
-        }),
+        schema,
+        doc,
+        None,
         h,
     ));
 }

@@ -288,7 +288,7 @@ fn xml_tool_recover_user_content(diag: &XmlToolFinishDiagnostics) -> Option<Stri
     if !diag.attempted_tool_xml {
         return None;
     }
-    const CDATA: &str = "请重新输出**唯一**一个 `<response>...</response>`。若使用 `file_write`，`content` 须整段包在 `<![CDATA[...]]>`；若使用 `file_edit`，`oldString` 与 `newString` 均须各自包在 CDATA 中。勿在外侧加 Markdown 代码块。";
+    const CDATA: &str = "请重新输出**唯一**一个 `<response>...</response>`。若使用 `file:write`（或 `file` 且 `method` 为 write），`content` 须整段包在 `<![CDATA[...]]>`；若使用 `file:edit`，`oldString` 与 `newString` 均须各自包在 CDATA 中。勿在外侧加 Markdown 代码块。";
 
     if diag.fragment_complete {
         let detail = diag
@@ -857,7 +857,7 @@ async fn run_chat_inner(
             }
 
             let requires_approval = tool_approval_mode == "manual"
-                && state.tools.tool_requires_approval(&tool_id);
+                && state.tools.tool_invocation_needs_approval(&tool_id, &args_value);
 
             if requires_approval {
                 emit(
@@ -1334,11 +1334,7 @@ async fn run_sub_agent(
         .or_else(|| state.agents.get(DEFAULT_AGENT_ID))
         .ok_or_else(|| anyhow!("未找到 Agent: {}", task.agent_id))?;
     let def = agent.def();
-    let mut skill_ids = if enabled_skill_ids.is_empty() {
-        def.default_skill_ids.clone()
-    } else {
-        enabled_skill_ids.to_vec()
-    };
+    let mut skill_ids = enabled_skill_ids.to_vec();
     if !def.access_policy.allow_skills.is_empty() {
         skill_ids.retain(|id| def.access_policy.allow_skills.contains(id));
     }
@@ -1697,7 +1693,7 @@ async fn run_sub_agent(
             }
 
             let requires_approval = tool_approval_mode == "manual"
-                && state.tools.tool_requires_approval(&tool_id);
+                && state.tools.tool_invocation_needs_approval(&tool_id, &args_value);
 
             if requires_approval {
                 emit(

@@ -55,7 +55,7 @@ impl SkillRegistry {
         let mut prompts = Vec::new();
         if !selected.is_empty() {
             let mut index = String::from(
-                "可用 Skills（第一层：frontmatter 索引）。根据用户任务判断是否需要使用某个 Skill；需要时先调用 load_skill_instructions 读取该 Skill 的完整 SKILL.md 正文说明。不要在未读取正文前假设详细步骤。\n",
+                "可用 Skills（第一层：frontmatter 索引）。根据用户任务判断是否需要使用某个 Skill；需要时通过 **skill** 工具 **`skill:load_instructions`**（或 `method`: `load_instructions`）读取该 Skill 的完整 SKILL.md 正文说明。不要在未读取正文前假设详细步骤。\n",
             );
             for s in &selected {
                 index.push_str(&format!(
@@ -64,7 +64,7 @@ impl SkillRegistry {
                 ));
                 if !s.resource_files.is_empty() {
                     index.push_str(&format!(
-                        "  resources: {} 个，可按需通过 read_skill_resource 读取\n",
+                        "  resources: {} 个，可按需通过 **skill:read_resource** 读取\n",
                         s.resource_files.len()
                     ));
                 }
@@ -72,10 +72,7 @@ impl SkillRegistry {
             prompts.push(index);
         }
 
-        let mut tools = vec![
-            "load_skill_instructions".to_string(),
-            "read_skill_resource".to_string(),
-        ];
+        let mut tools = vec!["skill".to_string()];
         for s in selected {
             for t in &s.tool_names {
                 if !tools.contains(t) {

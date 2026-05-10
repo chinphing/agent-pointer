@@ -1,12 +1,12 @@
 pub mod builtin;
-pub mod general;
-pub mod math;
+pub mod file;
 pub mod response;
-pub mod skills;
+pub mod skill;
 pub mod terminal;
-pub mod text;
+pub mod tool_doc;
 pub mod tool_md;
-pub mod workspace;
+
+pub use tool_doc::{doc_markdown_without_schema_fence, json_schema_from_markdown, load_tool_doc_and_schema};
 
 use crate::models::ToolDef;
 use anyhow::Result;
@@ -126,6 +126,15 @@ pub fn merge_tool_method_from_qualified_name(raw_name: &str, mut args: Value) ->
     (base.to_string(), args)
 }
 
+/// JSON Schema placeholder for tools that are only invoked via XML in [`crate::provider::OpenAIProvider::stream_chat`]
+/// (native `tools: []`). Argument shapes live in each tool’s `doc_markdown` (e.g. `prompts/file.md`).
+pub fn minimal_tool_parameters_schema() -> Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {}
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct ToolPrompt {
     pub system_prompt: String,
@@ -209,6 +218,17 @@ impl ToolRegistry {
             .read()
             .get(name)
             .is_some_and(|e| e.requires_approval)
+    }
+
+    /// For merged `file` tool, only `write` and `edit` need approval; other tools use registry flag.
+    pub fn tool_invocation_needs_approval(&self, tool_id: &str, args: &Value) -> bool {
+        if tool_id == "file" {
+            return matches!(
+                args.get("method").and_then(|v| v.as_str()),
+                Some("write") | Some("edit")
+            );
+        }
+        self.tool_requires_approval(tool_id)
     }
 
     pub fn xml_tool_descriptors(&self, allow: &[String]) -> Vec<XmlToolDescriptor> {

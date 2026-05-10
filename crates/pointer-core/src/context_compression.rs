@@ -69,34 +69,38 @@ fn format_prefix_for_summary(msgs: &[ChatMessage]) -> String {
     let mut blocks = Vec::with_capacity(msgs.len());
     for m in msgs {
         let head = match m.role {
-            Role::System => "系统",
-            Role::User => "用户",
-            Role::Assistant => "助手",
-            Role::Tool => "工具结果",
+            Role::System => "system",
+            Role::User => "user",
+            Role::Assistant => "assistant",
+            Role::Tool => "tool",
         };
         let mut body = truncate_chars(&m.content, MAX_SNIPPET_CHARS);
         if let Some(r) = &m.reasoning {
             if !r.is_empty() {
-                body.push_str("\n[推理片段] ");
+                body.push_str("\n[reasoning_snippet] ");
                 body.push_str(&truncate_chars(r, 800));
             }
         }
         if let Some(tcs) = &m.tool_calls {
             for t in tcs {
                 body.push_str(&format!(
-                    "\n[工具 {} 参数] {}",
+                    "\n[tool {} args] {}",
                     t.name,
                     truncate_chars(&t.arguments, 1200)
                 ));
                 if let Some(res) = &t.result {
                     body.push_str(&format!(
-                        "\n[工具 {} 输出] {}",
+                        "\n[tool {} output] {}",
                         t.name,
                         truncate_chars(res, MAX_SNIPPET_CHARS)
                     ));
                 }
                 if let Some(err) = &t.error {
-                    body.push_str(&format!("\n[工具 {} 错误] {}", t.name, truncate_chars(err, 800)));
+                    body.push_str(&format!(
+                        "\n[tool {} error] {}",
+                        t.name,
+                        truncate_chars(err, 800)
+                    ));
                 }
             }
         }
@@ -111,7 +115,7 @@ fn format_prefix_for_summary(msgs: &[ChatMessage]) -> String {
     if out.chars().count() > MAX_PREFIX_CHARS_FOR_API {
         let take = MAX_PREFIX_CHARS_FOR_API.saturating_sub(80);
         out = format!(
-            "{}\n\n…（前缀过长，已截断至约 {} 字符用于摘要）",
+            "{}\n\n… (prefix truncated to ~{} chars for summarization)",
             truncate_chars(&out, take),
             MAX_PREFIX_CHARS_FOR_API
         );
@@ -119,17 +123,17 @@ fn format_prefix_for_summary(msgs: &[ChatMessage]) -> String {
     out
 }
 
-const SUMMARY_SYSTEM: &str = r#"你是对话压缩助手。用户将提供一段较早的多轮对话（含可能的工具调用与结果摘录）。
-请用中文输出结构化摘要，尽量保留：
-1) 用户的原始目标与约束
-2) 已做出的关键决策、结论、修改过的文件路径或命令
-3) 未解决的问题、待办、错误信息
-4) 重要的数字、配置名、API 名称
+const SUMMARY_SYSTEM: &str = r#"You compress older chat history. The user message is a multi-turn excerpt (including tool calls and outputs where present).
+Produce a structured summary in English. Preserve:
+1) The user's goals and constraints
+2) Key decisions, conclusions, edited file paths, and commands run
+3) Open issues, TODOs, and error messages
+4) Important numbers, config keys, and API names
 
-不要编造未出现的事实；不确定请标注「原文未明确」。输出控制在简洁的若干段落或要点列表，不要寒暄。"#;
+Do not invent facts; if unclear, say "not explicit in source". Keep output compact (short paragraphs or bullets), no small talk."#;
 
 fn summary_fallback_notice() -> String {
-    "【历史对话摘要（自动压缩）】\n\n（摘要请求失败或已取消：较早对话已移除。若需前文信息请简要重述你的目标与关键上下文。）".into()
+    "[Conversation summary (auto-compression)]\n\n(Summary failed or was cancelled; older turns were dropped. Briefly restate your goal and critical context if you still need it.)".into()
 }
 
 fn new_summary_user_message(body: String) -> ChatMessage {
@@ -143,6 +147,7 @@ fn new_summary_user_message(body: String) -> ChatMessage {
         tool_call_id: None,
         error_message: None,
         reasoning: None,
+        raw_content: None,
         agent_id: None,
         agent_name: None,
         agent_trace: None,
@@ -194,6 +199,7 @@ async fn compress_history_inner(
         tool_call_id: None,
         error_message: None,
         reasoning: None,
+        raw_content: None,
         agent_id: None,
         agent_name: None,
         agent_trace: None,
@@ -201,15 +207,14 @@ async fn compress_history_inner(
 
     let max_tok = settings.context_summary_max_tokens.max(128);
     let summary_prefix = if force_ignore_char_budget {
-        "【历史对话摘要（工具轮次触发的自动压缩）】"
+        "[Conversation summary (auto-compression after tool rounds)]"
     } else {
-        "【历史对话摘要（自动压缩）】"
+        "[Conversation summary (auto-compression)]"
     };
     let summary_body = match provider
         .chat_once(
             std::slice::from_ref(&input),
             &[SUMMARY_SYSTEM.to_string()],
-            Vec::new(),
             cancel.clone(),
             Some(max_tok),
         )
@@ -305,6 +310,7 @@ mod tests {
             tool_call_id: None,
             error_message: None,
             reasoning: None,
+            raw_content: None,
             agent_id: None,
             agent_name: None,
             agent_trace: None,

@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "properties": {
+    "goal": { "type": "string" },
+    "keys": {
+      "oneOf": [
+        { "type": "array", "items": { "type": "string" } },
+        { "type": "string" }
+      ],
+      "description": "Key names as array, comma string, or JSON array string."
+    },
+    "action": {
+      "type": "string",
+      "description": "Canonical action log; see Communication → Action description in tool_args."
+    }
+  },
+  "required": ["goal", "keys", "action"]
+}

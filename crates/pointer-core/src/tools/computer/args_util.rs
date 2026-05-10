@@ -1,0 +1,125 @@
+//! Shared argument parsing / validation aligned with PyProjects/pointer `vision_common` helpers.
+
+use anyhow::{anyhow, Result};
+use serde_json::Value;
+
+pub const SCROLL_LINES_MIN: i32 = 1;
+pub const SCROLL_LINES_MAX: i32 = 300;
+pub const MOVE_OFFSET_MAX: i32 = 8000;
+
+/// Clamp scroll `lines` to [1, 300] or [-300, -1] (Pointer `clamp_scroll_lines`).
+pub fn clamp_scroll_lines(lines: i32) -> Result<i32> {
+    if lines == 0 {
+        return Err(anyhow!("lines cannot be 0"));
+    }
+    Ok(if lines > 0 {
+        lines.clamp(SCROLL_LINES_MIN, SCROLL_LINES_MAX)
+    } else {
+        lines.clamp(-SCROLL_LINES_MAX, -SCROLL_LINES_MIN)
+    })
+}
+
+pub fn json_bool_loose(v: Option<&Value>) -> bool {
+    match v {
+        None => false,
+        Some(Value::Bool(b)) => *b,
+        Some(Value::String(s)) => {
+            matches!(s.to_lowercase().as_str(), "true" | "1" | "yes")
+        }
+        Some(Value::Number(n)) => n.as_i64() == Some(1),
+        _ => false,
+    }
+}
+
+/// Parse overlay indices from JSON (array of ints, or comma-separated string, or JSON array string).
+pub fn parse_indices(arg: Option<&Value>) -> Result<Vec<u32>> {
+    let Some(v) = arg else {
+        return Err(anyhow!(
+            "Missing 'indices' (list of item numbers, e.g. [1,2,3] or \"1,2,3\")."
+        ));
+    };
+    match v {
+        Value::Array(a) => {
+            let mut out = Vec::with_capacity(a.len());
+            for x in a {
+                let n = x
+                    .as_u64()
+                    .or_else(|| x.as_i64().and_then(|i| u64::try_from(i).ok()))
+                    .ok_or_else(|| anyhow!("indices must be a list of integers"))?;
+                out.push(n as u32);
+            }
+            Ok(out)
+        }
+        Value::String(s) => {
+            let t = s.trim();
+            if t.starts_with('[') {
+                let arr: Vec<Value> = serde_json::from_str(t)
+                    .map_err(|_| anyhow!("invalid JSON array in indices string"))?;
+                return parse_indices(Some(&Value::Array(arr)));
+            }
+            if t.is_empty() {
+                return Err(anyhow!("indices string is empty"));
+            }
+            let mut out = Vec::new();
+            for part in t.split(',') {
+                let n: u32 = part
+                    .trim()
+                    .parse()
+                    .map_err(|_| anyhow!("invalid index in comma list: {:?}", part.trim()))?;
+                out.push(n);
+            }
+            Ok(out)
+        }
+        _ => Err(anyhow!("indices must be an array or string")),
+    }
+}
+
+pub fn require_non_empty_str(args: &Value, key: &str) -> Result<String> {
+    let s = args
+        .get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    if s.is_empty() {
+        return Err(anyhow!("Missing required '{}' in tool_args.", key));
+    }
+    Ok(s.to_string())
+}
+
+/// Wait seconds: Pointer allows 0..=60 (float).
+pub fn parse_wait_seconds(arg: Option<&Value>) -> Result<f64> {
+    let Some(v) = arg else {
+        return Err(anyhow!("Missing 'seconds' in tool_args."));
+    };
+    let sec = match v {
+        Value::Number(n) => n
+            .as_f64()
+            .ok_or_else(|| anyhow!("invalid seconds number"))?,
+        Value::String(s) => s
+            .trim()
+            .parse::<f64>()
+            .map_err(|_| anyhow!("invalid seconds string"))?,
+        _ => return Err(anyhow!("seconds must be a number")),
+    };
+    if sec < 0.0 || sec > 60.0 {
+        return Err(anyhow!("Seconds must be between 0 and 60."));
+    }
+    Ok(sec)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_scroll_rejects_zero() {
+        assert!(clamp_scroll_lines(0).is_err());
+    }
+
+    #[test]
+    fn clamp_scroll_clamps_magnitude() {
+        assert_eq!(clamp_scroll_lines(500).unwrap(), 300);
+        assert_eq!(clamp_scroll_lines(-500).unwrap(), -300);
+        assert_eq!(clamp_scroll_lines(3).unwrap(), 3);
+    }
+}

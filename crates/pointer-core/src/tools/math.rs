@@ -1,5 +1,4 @@
-use super::{ToolHandler, ToolPrompt, ToolRegistry};
-use crate::models::ToolDef;
+use super::{ToolEntry, ToolHandler, ToolPrompt, ToolRegistry};
 use anyhow::anyhow;
 use std::sync::Arc;
 
@@ -18,23 +17,21 @@ fn register_calculator(reg: &ToolRegistry) {
         let v = eval_expr(expr).map_err(|e| anyhow!("表达式错误: {e}"))?;
         Ok(serde_json::json!({ "expression": expr, "result": v }).to_string())
     });
-    reg.register_with_prompt(
-        ToolDef {
-            name: "calculator".into(),
-            description: "对算术表达式求值，支持 + - * / ( ) 与小数。例如 (3+4)*2.5".into(),
-            parameters_schema: serde_json::json!({
-                "type":"object",
-                "properties":{ "expression":{"type":"string","description":"算术表达式"} },
-                "required":["expression"]
-            }),
-            risk_level: "low".into(),
-            requires_approval: false,
-        },
+    reg.register(ToolEntry::new(
+        "calculator",
+        "low",
+        false,
+        serde_json::json!({
+            "type":"object",
+            "properties":{ "expression":{"type":"string","description":"算术表达式"} },
+            "required":["expression"]
+        }),
+        "对算术表达式求值，支持 + - * / ( ) 与小数。例如 (3+4)*2.5",
         Some(ToolPrompt {
             system_prompt: MATH_PROMPT.into(),
         }),
         h,
-    );
+    ));
 }
 
 fn eval_expr(s: &str) -> std::result::Result<f64, String> {

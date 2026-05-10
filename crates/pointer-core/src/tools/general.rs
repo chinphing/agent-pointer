@@ -1,5 +1,4 @@
-use super::{ToolHandler, ToolPrompt, ToolRegistry};
-use crate::models::ToolDef;
+use super::{ToolEntry, ToolHandler, ToolPrompt, ToolRegistry};
 use anyhow::anyhow;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -26,38 +25,34 @@ fn register_random_int(reg: &ToolRegistry) {
         let v = min + (nanos as u64 % span) as i64;
         Ok(serde_json::json!({ "value": v, "min": min, "max": max }).to_string())
     });
-    reg.register_with_prompt(
-        ToolDef {
-            name: "random_int".into(),
-            description: "生成 [min, max) 范围内的随机整数".into(),
-            parameters_schema: serde_json::json!({
-                "type":"object",
-                "properties":{ "min":{"type":"integer"}, "max":{"type":"integer"} },
-                "required":["min","max"]
-            }),
-            risk_level: "low".into(),
-            requires_approval: false,
-        },
+    reg.register(ToolEntry::new(
+        "random_int",
+        "low",
+        false,
+        serde_json::json!({
+            "type":"object",
+            "properties":{ "min":{"type":"integer"}, "max":{"type":"integer"} },
+            "required":["min","max"]
+        }),
+        "生成 [min, max) 范围内的随机整数",
         Some(ToolPrompt {
             system_prompt: GENERAL_PROMPT.into(),
         }),
         h,
-    );
+    ));
 }
 
 fn register_echo(reg: &ToolRegistry) {
     let h: ToolHandler = Arc::new(|args| Ok(serde_json::json!({ "echo": args }).to_string()));
-    reg.register_with_prompt(
-        ToolDef {
-            name: "echo".into(),
-            description: "回显传入的参数对象，便于演示工具调用链路。需要用户授权。".into(),
-            parameters_schema: serde_json::json!({"type":"object","properties":{}, "additionalProperties":true}),
-            risk_level: "medium".into(),
-            requires_approval: true,
-        },
+    reg.register(ToolEntry::new(
+        "echo",
+        "medium",
+        true,
+        serde_json::json!({"type":"object","properties":{}, "additionalProperties":true}),
+        "回显传入的参数对象，便于演示工具调用链路。需要用户授权。",
         Some(ToolPrompt {
             system_prompt: GENERAL_PROMPT.into(),
         }),
         h,
-    );
+    ));
 }

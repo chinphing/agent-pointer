@@ -1,11 +1,11 @@
-当需要通过系统命令完成项目内的构建、检查、测试、文件查询或其他终端操作时使用 `terminal`。
+Use `terminal` when you need shell commands for builds, checks, tests, file listings, or other CLI work inside the project.
 
-使用规则：
-- 执行命令前先判断是否真的需要终端；能通过已知上下文回答时不要调用。
-- 优先在当前工作区内执行命令，必要时显式设置 `cwd`。
-- Windows 环境下命令会通过 `powershell -NoProfile -ExecutionPolicy Bypass -Command` 执行；跨平台命令应尽量保持简单。
-- 对可能长时间运行的命令设置合理的 `timeoutMs`。
-- 不要执行破坏性命令，除非用户明确要求且调用会经过授权。
-- 不要通过终端读取或泄露敏感信息。
+Rules:
+- Decide whether a terminal is truly needed; answer from context when possible.
+- Prefer running inside the workspace; set `cwd` explicitly when required.
+- On Windows, commands run via `powershell -NoProfile -ExecutionPolicy Bypass -Command`; keep commands portable when you can.
+- Set a reasonable `timeoutMs` for long-running commands.
+- Do not run destructive commands unless the user clearly asked and approval allows it.
+- Do not read or exfiltrate secrets via the terminal.
 
-返回结果包含 `stdout`、`stderr`、退出码、耗时和截断信息；回答用户时只总结与任务相关的输出。
+The result includes `stdout`, `stderr`, exit code, timing, and truncation flags; summarize only output relevant to the task when replying.

@@ -129,6 +129,11 @@ export const useChatStore = defineStore('chat', () => {
         if (r) { r.msg.content += e.text; r.msg.status = 'streaming' }
         break
       }
+      case 'raw_content_delta': {
+        const r = findMessage(e.messageId)
+        if (r) r.msg.rawContent = (r.msg.rawContent || '') + e.text
+        break
+      }
       case 'reasoning_delta': {
         const settings = useSettingsStore()
         if (!settings.effectiveReasoningInMessages) break
@@ -188,12 +193,30 @@ export const useChatStore = defineStore('chat', () => {
         const r = findMessage(e.messageId)
         if (r) {
           r.msg.status = 'done'
+          if (e.content !== undefined) r.msg.content = e.content
+          if (e.rawContent !== undefined) r.msg.rawContent = e.rawContent
           r.conv.updatedAt = Date.now()
           if (r.conv.title === '新会话') {
             const firstUser = r.conv.messages.find(m => m.role === 'user')
             if (firstUser) r.conv.title = firstUser.content.slice(0, 24) || '新会话'
           }
         }
+        persist()
+        break
+      }
+      case 'injected_user_message': {
+        const conv = conversations.value.find(c => c.id === e.conversationId)
+        if (!conv) break
+        if (!conv.messages.find(m => m.id === e.messageId)) {
+          conv.messages.push({
+            id: e.messageId,
+            role: 'user',
+            content: e.content,
+            status: 'done',
+            createdAt: Date.now()
+          })
+        }
+        conv.updatedAt = Date.now()
         persist()
         break
       }

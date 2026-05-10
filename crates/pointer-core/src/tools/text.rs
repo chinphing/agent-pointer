@@ -1,5 +1,4 @@
-use super::{ToolHandler, ToolPrompt, ToolRegistry};
-use crate::models::ToolDef;
+use super::{ToolEntry, ToolHandler, ToolPrompt, ToolRegistry};
 use std::sync::Arc;
 
 const TEXT_PROMPT: &str = include_str!("prompts/text.md");
@@ -19,21 +18,19 @@ fn register_text_stats(reg: &ToolRegistry) {
                 .to_string(),
         )
     });
-    reg.register_with_prompt(
-        ToolDef {
-            name: "text_stats".into(),
-            description: "统计文本的字符数、词数、行数与字节数。".into(),
-            parameters_schema: serde_json::json!({
-                "type":"object",
-                "properties":{ "text":{"type":"string"} },
-                "required":["text"]
-            }),
-            risk_level: "low".into(),
-            requires_approval: false,
-        },
+    reg.register(ToolEntry::new(
+        "text_stats",
+        "low",
+        false,
+        serde_json::json!({
+            "type":"object",
+            "properties":{ "text":{"type":"string"} },
+            "required":["text"]
+        }),
+        "统计文本的字符数、词数、行数与字节数。",
         Some(ToolPrompt {
             system_prompt: TEXT_PROMPT.into(),
         }),
         h,
-    );
+    ));
 }

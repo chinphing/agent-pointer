@@ -1,0 +1,296 @@
+use super::annotate::BoxInfo;
+use super::coord::CoordinateSystem;
+use super::screen::MonitorInfo;
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Information about a recently executed action.
+#[derive(Debug, Clone)]
+pub struct RecentAction {
+    /// Name of the tool that was executed.
+    pub tool_name: String,
+    /// Method called within the tool.
+    pub method: String,
+    /// Arguments passed to the method.
+    pub args: String,
+    /// Timestamp when the action was executed.
+    pub timestamp_ms: u64,
+}
+
+impl RecentAction {
+    /// Create a new RecentAction.
+    pub fn new(tool_name: impl Into<String>, method: impl Into<String>, args: impl Into<String>) -> Self {
+        Self {
+            tool_name: tool_name.into(),
+            method: method.into(),
+            args: args.into(),
+            timestamp_ms: current_timestamp_ms(),
+        }
+    }
+}
+
+/// Manages the visual state for computer use operations.
+///
+/// This struct holds the index map (annotated elements), screen info,
+/// coordinate system, and action history for a single turn.
+#[derive(Debug, Clone, Default)]
+pub struct VisionState {
+    /// Mapping from annotated index to element info.
+    index_map: HashMap<u32, ElementInfo>,
+    /// Current monitor info.
+    screen_bbox: Option<MonitorInfo>,
+    /// Current coordinate system.
+    coordinate_system: CoordinateSystem,
+    /// History of recent actions.
+    action_history: Vec<RecentAction>,
+    /// Maximum number of actions to keep in history.
+    max_history_size: usize,
+}
+
+/// Information about a UI element extracted from annotation.
+#[derive(Debug, Clone)]
+pub struct ElementInfo {
+    /// The annotated index.
+    pub index: u32,
+    /// Center X coordinate in screen pixels.
+    pub center_x: i32,
+    /// Center Y coordinate in screen pixels.
+    pub center_y: i32,
+    /// Width of the element.
+    pub width: f32,
+    /// Height of the element.
+    pub height: f32,
+}
+
+impl VisionState {
+    /// Create a new VisionState with default settings.
+    pub fn new() -> Self {
+        Self {
+            max_history_size: 10,
+            coordinate_system: CoordinateSystem::Qwen,
+            ..Default::default()
+        }
+    }
+
+    /// Create a new VisionState with a custom history size.
+    pub fn with_history_size(max_history_size: usize) -> Self {
+        Self {
+            max_history_size,
+            coordinate_system: CoordinateSystem::Qwen,
+            ..Default::default()
+        }
+    }
+
+    /// Set the index map from annotated boxes.
+    ///
+    /// # Arguments
+    /// * `boxes` - The detected bounding boxes from the annotation service.
+    /// * `monitor` - The monitor info for coordinate conversion.
+    pub fn set_index_map_from_boxes(&mut self, boxes: &[BoxInfo], monitor: &MonitorInfo) {
+        self.index_map = boxes
+            .iter()
+            .map(|b| {
+                let (cx, cy) = b.center();
+                (
+                    b.index,
+                    ElementInfo {
+                        index: b.index,
+                        center_x: monitor.left + cx as i32,
+                        center_y: monitor.top + cy as i32,
+                        width: b.width,
+                        height: b.height,
+                    },
+                )
+            })
+            .collect();
+    }
+
+    /// Set the index map directly.
+    pub fn set_index_map(&mut self, index_map: HashMap<u32, ElementInfo>) {
+        self.index_map = index_map;
+    }
+
+    /// Set the screen bounding box.
+    pub fn set_screen_bbox(&mut self, monitor: MonitorInfo) {
+        self.screen_bbox = Some(monitor);
+    }
+
+    /// Set the coordinate system.
+    pub fn set_coordinate_system(&mut self, system: CoordinateSystem) {
+        self.coordinate_system = system;
+    }
+
+    /// Get the current coordinate system.
+    pub fn coordinate_system(&self) -> CoordinateSystem {
+        self.coordinate_system
+    }
+
+    /// Resolve an annotated element index to screen pixel coordinates.
+    ///
+    /// This is the **index-based** positioning path.
+    ///
+    /// # Arguments
+    /// * `index` - The annotated index number.
+    ///
+    /// # Returns
+    /// Some((x, y)) if the index exists, None otherwise.
+    pub fn resolve_index(&self, index: u32) -> Option<(i32, i32)> {
+        self.index_map.get(&index).map(|e| (e.center_x, e.center_y))
+    }
+
+    /// Resolve normalized coordinates to screen pixel coordinates.
+    ///
+    /// This is the **coordinate-based** positioning path.
+    ///
+    /// # Arguments
+    /// * `x` - Normalized X coordinate.
+    /// * `y` - Normalized Y coordinate.
+    ///
+    /// # Returns
+    /// Some((x, y)) if screen bbox is set, None otherwise.
+    pub fn resolve_coordinate(&self, x: f32, y: f32) -> Option<(i32, i32)> {
+        let monitor = self.screen_bbox?;
+        Some(super::coord::normalized_to_screen(
+            (x, y),
+            &monitor,
+            self.coordinate_system,
+        ))
+    }
+
+    /// Record an action in the history.
+    pub fn record_action(&mut self, action: RecentAction) {
+        self.action_history.push(action);
+        if self.action_history.len() > self.max_history_size {
+            self.action_history.remove(0);
+        }
+    }
+
+    /// Get the action history.
+    pub fn action_history(&self) -> &[RecentAction] {
+        &self.action_history
+    }
+
+    /// Get the index map.
+    pub fn index_map(&self) -> &HashMap<u32, ElementInfo> {
+        &self.index_map
+    }
+
+    /// Clear all state.
+    pub fn clear(&mut self) {
+        self.index_map.clear();
+        self.screen_bbox = None;
+        self.action_history.clear();
+    }
+}
+
+fn current_timestamp_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_index() {
+        let mut state = VisionState::new();
+        let mut index_map = HashMap::new();
+        index_map.insert(
+            1,
+            ElementInfo {
+                index: 1,
+                center_x: 100,
+                center_y: 200,
+                width: 50.0,
+                height: 30.0,
+            },
+        );
+        state.set_index_map(index_map);
+
+        assert_eq!(state.resolve_index(1), Some((100, 200)));
+        assert_eq!(state.resolve_index(99), None);
+    }
+
+    #[test]
+    fn test_resolve_coordinate() {
+        let mut state = VisionState::new();
+        state.set_screen_bbox(MonitorInfo::new(0, 0, 1920, 1080));
+        state.set_coordinate_system(CoordinateSystem::Qwen);
+
+        let pos = state.resolve_coordinate(500.0, 500.0);
+        assert_eq!(pos, Some((960, 540)));
+    }
+
+    #[test]
+    fn test_resolve_coordinate_without_bbox() {
+        let state = VisionState::new();
+        assert_eq!(state.resolve_coordinate(500.0, 500.0), None);
+    }
+
+    #[test]
+    fn test_action_history() {
+        let mut state = VisionState::with_history_size(3);
+        state.record_action(RecentAction::new("mouse", "click", "{\"index\":1}"));
+        state.record_action(RecentAction::new("mouse", "click", "{\"index\":2}"));
+        state.record_action(RecentAction::new("mouse", "click", "{\"index\":3}"));
+        state.record_action(RecentAction::new("mouse", "click", "{\"index\":4}"));
+
+        assert_eq!(state.action_history().len(), 3);
+        assert_eq!(state.action_history()[0].args, "{\"index\":2}");
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut state = VisionState::new();
+        let mut index_map = HashMap::new();
+        index_map.insert(
+            1,
+            ElementInfo {
+                index: 1,
+                center_x: 100,
+                center_y: 200,
+                width: 50.0,
+                height: 30.0,
+            },
+        );
+        state.set_index_map(index_map);
+        state.set_screen_bbox(MonitorInfo::new(0, 0, 1920, 1080));
+        state.record_action(RecentAction::new("mouse", "click", "{}"));
+
+        state.clear();
+        assert!(state.index_map().is_empty());
+        assert!(state.action_history().is_empty());
+        assert_eq!(state.resolve_coordinate(500.0, 500.0), None);
+    }
+
+    #[test]
+    fn test_set_index_map_from_boxes() {
+        let mut state = VisionState::new();
+        let boxes = vec![
+            BoxInfo {
+                index: 1,
+                x: 100.0,
+                y: 200.0,
+                width: 50.0,
+                height: 30.0,
+                confidence: 0.95,
+            },
+            BoxInfo {
+                index: 2,
+                x: 300.0,
+                y: 400.0,
+                width: 60.0,
+                height: 40.0,
+                confidence: 0.90,
+            },
+        ];
+        let monitor = MonitorInfo::new(0, 0, 1920, 1080);
+        state.set_index_map_from_boxes(&boxes, &monitor);
+
+        assert_eq!(state.resolve_index(1), Some((125, 215)));
+        assert_eq!(state.resolve_index(2), Some((330, 420)));
+    }
+}

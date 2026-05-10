@@ -1,4 +1,7 @@
 use crate::models::{ChatMessage, ModelSettings, ToolCall};
+use crate::xml_tool_caller::{
+    xml_tool_arguments_to_json_string, XmlToolFinishDiagnostics, XmlToolParser,
+};
 use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -24,9 +27,12 @@ pub enum ProviderEvent {
     Finish {
         reason: String,
         tool_calls: Vec<ToolCall>,
+        xml: XmlToolFinishDiagnostics,
     },
 }
 
+/// 所有 chat/completions 请求均附带：空 `tools` + `tool_choice: "none"`，
+/// 显式关闭服务商原生 function calling（本应用仅解析 assistant 正文中的 XML 工具协议）。
 #[derive(Serialize)]
 struct ChatRequest<'a> {
     model: &'a str,
@@ -35,10 +41,8 @@ struct ChatRequest<'a> {
     temperature: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    tools: Vec<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<&'a str>,
+    tools: &'static [Value],
+    tool_choice: &'static str,
 }
 
 #[derive(Deserialize, Debug)]
@@ -126,7 +130,9 @@ impl OpenAIProvider {
             "model": self.settings.model,
             "messages": [{"role":"user","content":"ping"}],
             "stream": false,
-            "max_tokens": 4
+            "max_tokens": 4,
+            "tools": [],
+            "tool_choice": "none"
         });
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(20))
@@ -149,7 +155,6 @@ impl OpenAIProvider {
         &self,
         messages: &[ChatMessage],
         system_prompts: &[String],
-        tools: Vec<Value>,
         cancel: CancellationToken,
         max_tokens_override: Option<u32>,
     ) -> Result<String> {
@@ -172,15 +177,14 @@ impl OpenAIProvider {
             system_prompts,
             crate::models::effective_reasoning_in_messages(&self.settings),
         );
-        let has_tools = !tools.is_empty();
         let req = ChatRequest {
             model: &self.settings.model,
             messages: openai_msgs,
             stream: false,
             temperature: self.settings.temperature,
             max_tokens: Some(max_tokens_override.unwrap_or(self.settings.max_tokens)),
-            tools,
-            tool_choice: if has_tools { Some("auto") } else { None },
+            tools: &[],
+            tool_choice: "none",
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let client = reqwest::Client::builder()
@@ -206,17 +210,24 @@ impl OpenAIProvider {
             .next()
             .map(|choice| choice.message)
             .ok_or_else(|| anyhow!("模型未返回候选结果"))?;
-        Ok(message
+        let out = message
             .content
-            .or(message.reasoning_content)
-            .unwrap_or_default())
+            .clone()
+            .or_else(|| message.reasoning_content.clone())
+            .unwrap_or_default();
+        log::debug!(
+            "model={} chat_once (non-stream) raw_chars={}\n--- raw body ---\n{}\n--- end ---",
+            self.settings.model,
+            out.chars().count(),
+            out
+        );
+        Ok(out)
     }
 
     pub async fn stream_chat(
         &self,
         messages: &[ChatMessage],
         system_prompts: &[String],
-        tools: Vec<Value>,
         tx: mpsc::Sender<ProviderEvent>,
         cancel: CancellationToken,
     ) -> Result<()> {
@@ -239,15 +250,14 @@ impl OpenAIProvider {
             system_prompts,
             crate::models::effective_reasoning_in_messages(&self.settings),
         );
-        let has_tools = !tools.is_empty();
         let req = ChatRequest {
             model: &self.settings.model,
             messages: openai_msgs,
             stream: true,
             temperature: self.settings.temperature,
             max_tokens: Some(self.settings.max_tokens),
-            tools,
-            tool_choice: if has_tools { Some("auto") } else { None },
+            tools: &[],
+            tool_choice: "none",
         };
 
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
@@ -270,9 +280,11 @@ impl OpenAIProvider {
             return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
         }
 
-        // 累积工具调用：(id, name, args_string)
-        let mut tool_acc: Vec<(String, String, String)> = Vec::new();
+        let mut content_buf = String::new();
+        // 仅用于调试日志：与 content 流并列的 reasoning 流
+        let mut reasoning_buf = String::new();
         let mut finish_reason = String::from("stop");
+        let mut xml_parser = XmlToolParser::new();
 
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
@@ -308,58 +320,25 @@ impl OpenAIProvider {
                 for ch in parsed.choices {
                     if let Some(c) = ch.delta.content {
                         if !c.is_empty() {
+                            content_buf.push_str(&c);
+                            xml_parser.feed(&c);
                             let _ = tx.send(ProviderEvent::ContentDelta(c)).await;
                         }
                     }
                     if let Some(r) = ch.delta.reasoning_content {
                         if !r.is_empty() {
+                            reasoning_buf.push_str(&r);
+                            // 部分模型把工具 XML 写在 reasoning_content、正文 content 为空；必须一并喂给解析器，否则会话在无工具调用下提前结束。
+                            xml_parser.feed(&r);
                             let _ = tx.send(ProviderEvent::ReasoningDelta(r)).await;
                         }
                     }
-                    if let Some(tcs) = ch.delta.tool_calls {
-                        for tc in tcs {
-                            let idx = tc.index as usize;
-                            while tool_acc.len() <= idx {
-                                tool_acc.push((String::new(), String::new(), String::new()));
-                            }
-                            let entry = &mut tool_acc[idx];
-                            let mut started_now = false;
-                            if let Some(id) = tc.id.as_ref() {
-                                if !id.is_empty() && entry.0.is_empty() {
-                                    entry.0 = id.clone();
-                                }
-                            }
-                            if let Some(f) = tc.function.as_ref() {
-                                if let Some(name) = f.name.as_ref() {
-                                    if !name.is_empty() && entry.1.is_empty() {
-                                        entry.1 = name.clone();
-                                        started_now = true;
-                                    }
-                                }
-                            }
-                            if started_now && !entry.0.is_empty() {
-                                let _ = tx
-                                    .send(ProviderEvent::ToolCallStart {
-                                        index: tc.index,
-                                        id: entry.0.clone(),
-                                        name: entry.1.clone(),
-                                    })
-                                    .await;
-                            }
-                            if let Some(f) = tc.function {
-                                if let Some(args) = f.arguments {
-                                    if !args.is_empty() {
-                                        entry.2.push_str(&args);
-                                        let _ = tx
-                                            .send(ProviderEvent::ToolCallArgsDelta {
-                                                index: tc.index,
-                                                tool_call_id: entry.0.clone(),
-                                                args,
-                                            })
-                                            .await;
-                                    }
-                                }
-                            }
+                    if let Some(ref tcs) = ch.delta.tool_calls {
+                        if !tcs.is_empty() {
+                            log::debug!(
+                                "ignoring provider-native delta.tool_calls (count={}); requests use tool_choice=none",
+                                tcs.len()
+                            );
                         }
                     }
                     if let Some(reason) = ch.finish_reason {
@@ -369,29 +348,77 @@ impl OpenAIProvider {
             }
         }
 
-        let tool_calls: Vec<ToolCall> = tool_acc
-            .into_iter()
-            .filter(|(id, name, _)| !id.is_empty() || !name.is_empty())
-            .map(|(id, name, args)| ToolCall {
-                id: if id.is_empty() {
-                    format!("call_{}", rand_id())
-                } else {
-                    id
-                },
-                name,
-                arguments: if args.is_empty() { "{}".into() } else { args },
-                status: "pending".into(),
-                result: None,
-                error: None,
-                duration_ms: None,
-                risk_level: None,
-            })
-            .collect();
+        log::debug!(
+            "model={} finish_reason={} raw_content_chars={} raw_reasoning_chars={}\n--- raw content ---\n{}\n--- end raw content ---",
+            self.settings.model,
+            finish_reason,
+            content_buf.chars().count(),
+            reasoning_buf.chars().count(),
+            content_buf,
+        );
+        if !reasoning_buf.is_empty() {
+            log::debug!(
+                "--- raw reasoning_content ---\n{}\n--- end raw reasoning ---",
+                reasoning_buf,
+            );
+        }
+
+        let attempted_tool_xml = content_buf.contains("<tool_name>")
+            || content_buf.contains("<tool_args>")
+            || reasoning_buf.contains("<tool_name>")
+            || reasoning_buf.contains("<tool_args>");
+
+        let xml_complete = xml_parser.is_complete();
+        let tool_calls = if xml_complete {
+            if let Some(xml_call) = xml_parser.parse() {
+                let id = format!("xml_{}", rand_id());
+                let args_json = xml_tool_arguments_to_json_string(&xml_call.arguments);
+                vec![ToolCall {
+                    id,
+                    name: xml_call.name,
+                    arguments: args_json,
+                    status: "pending".into(),
+                    result: None,
+                    error: None,
+                    duration_ms: None,
+                    risk_level: None,
+                }]
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
+        let mut parse_error = None;
+        if xml_complete && tool_calls.is_empty() {
+            parse_error = xml_parser.last_parse_error().map(str::to_string);
+        }
+
+        let xml = XmlToolFinishDiagnostics {
+            attempted_tool_xml,
+            fragment_complete: xml_complete,
+            parse_error,
+        };
+
+        if tool_calls.is_empty() {
+            let saw_response_markup = content_buf.contains("<response>")
+                || content_buf.contains("</response>")
+                || reasoning_buf.contains("<response>")
+                || reasoning_buf.contains("</response>");
+            if saw_response_markup && !xml_complete {
+                log::warn!(
+                    "model={} xml tool: stream ended without a complete closing </response> (tool_choice=none; empty tool_calls). If you see xml_tool_caller::parse_response_xml failed above, the fragment was complete but invalid XML.",
+                    self.settings.model
+                );
+            }
+        }
 
         let _ = tx
             .send(ProviderEvent::Finish {
                 reason: finish_reason,
                 tool_calls,
+                xml,
             })
             .await;
         Ok(())

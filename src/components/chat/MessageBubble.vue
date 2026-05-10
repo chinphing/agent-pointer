@@ -1,15 +1,31 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch, nextTick } from 'vue'
 import { marked } from 'marked'
-import { Bot, User, Copy, AlertCircle, Check } from 'lucide-vue-next'
-import type { ChatMessage } from '../../types/chat'
+import { Bot, User, Copy, AlertCircle, Check, Code } from 'lucide-vue-next'
+import type { ChatMessage, ToolCall } from '../../types/chat'
 import ToolCallCard from './ToolCallCard.vue'
-import { useChatStore } from '../../stores/chat'
+import { useSettingsStore } from '../../stores/settings'
 
 const props = defineProps<{ message: ChatMessage }>()
+const settingsStore = useSettingsStore()
 const messageRef = ref<HTMLElement | null>(null)
 const copiedCodeIndex = ref<number | null>(null)
 const copied = ref(false)
+const showRawContent = ref(false)
+
+const rawContentViewEnabled = computed(() => settingsStore.settings.rawContentViewEnabled !== false)
+
+/** Show “source” toggle when there is reasoning and/or raw model text differs from visible body. */
+const hasRawContent = computed(() => {
+  if (!rawContentViewEnabled.value) return false
+  if (props.message.reasoning?.trim()) return true
+  const raw = props.message.rawContent
+  return !!(raw && raw !== props.message.content)
+})
+
+watch(rawContentViewEnabled, (on) => {
+  if (!on) showRawContent.value = false
+})
 
 marked.setOptions({ breaks: true, gfm: true })
 const html = computed(() =>
@@ -18,6 +34,16 @@ const html = computed(() =>
 
 const isUser = computed(() => props.message.role === 'user')
 const isStreaming = computed(() => props.message.status === 'streaming')
+
+/** Final user reply via `response` tool — not shown as a tool card (matches backend: no tool-result row). */
+function toolCallBaseName(name: string): string {
+  const i = name.indexOf(':')
+  return i === -1 ? name : name.slice(0, i)
+}
+
+const visibleToolCalls = computed(() =>
+  props.message.toolCalls?.filter((tc: ToolCall) => toolCallBaseName(tc.name) !== 'response') ?? []
+)
 
 function copy() {
   navigator.clipboard.writeText(props.message.content).then(() => {
@@ -115,8 +141,8 @@ watch(() => props.message.content, () => {
         </div>
       </div>
 
-      <div v-if="message.toolCalls && message.toolCalls.length" class="mt-2 space-y-2 w-full">
-        <ToolCallCard v-for="tc in message.toolCalls" :key="tc.id" :tool-call="tc" />
+      <div v-if="visibleToolCalls.length" class="mt-2 space-y-2 w-full">
+        <ToolCallCard v-for="tc in visibleToolCalls" :key="tc.id" :tool-call="tc" />
       </div>
 
       <div v-if="isUser" class="mt-1.5 flex items-center gap-1">
@@ -131,6 +157,33 @@ watch(() => props.message.content, () => {
           <Check v-if="copied" class="w-3.5 h-3.5" />
           <Copy v-else class="w-3.5 h-3.5" />
         </button>
+        <button v-if="hasRawContent" class="p-1.5 rounded hover:bg-white/5 cursor-pointer transition" :class="showRawContent ? 'text-primary-cyan' : 'text-slate-400 hover:text-slate-200'" @click="showRawContent = !showRawContent" :title="showRawContent ? '隐藏原始内容' : '查看原始内容'">
+          <Code class="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <div
+        v-if="!isUser && showRawContent && (message.reasoning?.trim() || message.rawContent)"
+        class="mt-2 w-full rounded-xl border border-primary/20 bg-black/30 overflow-hidden"
+      >
+        <div class="flex items-center justify-between px-3 py-1.5 border-b border-primary/10 bg-primary/5">
+          <span class="text-[11px] font-medium text-primary-cyan">推理与原始输出</span>
+          <button type="button" class="text-[11px] text-slate-400 hover:text-slate-200 transition" @click="showRawContent = false">收起</button>
+        </div>
+        <div v-if="message.reasoning?.trim()" class="border-b border-white/10">
+          <div class="px-3 pt-2 text-[10px] uppercase tracking-wide text-slate-500">reasoning</div>
+          <pre class="max-h-48 overflow-auto p-3 pt-1 text-[11px] leading-relaxed text-slate-400 whitespace-pre-wrap italic">{{ message.reasoning }}</pre>
+        </div>
+        <div v-if="message.rawContent">
+          <div
+            v-if="message.reasoning?.trim()"
+            class="px-3 pt-2 text-[10px] uppercase tracking-wide text-slate-500"
+          >raw</div>
+          <pre
+            class="max-h-80 overflow-auto p-3 text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap"
+            :class="message.reasoning?.trim() ? 'pt-1' : ''"
+          >{{ message.rawContent }}</pre>
+        </div>
       </div>
     </div>
   </div>

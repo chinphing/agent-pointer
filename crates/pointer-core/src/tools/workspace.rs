@@ -1,6 +1,5 @@
 //! Workspace-scoped file tools (cc-haha style). Root from settings `workspaceRoot`, else `current_dir`.
-use super::{ToolHandler, ToolPrompt, ToolRegistry};
-use crate::models::ToolDef;
+use super::{ToolEntry, ToolHandler, ToolPrompt, ToolRegistry};
 use crate::storage;
 use anyhow::{anyhow, Result};
 use globset::{Glob, GlobSetBuilder};
@@ -225,29 +224,26 @@ fn register_file_read(reg: &ToolRegistry) {
         })
         .to_string())
     });
-    reg.register_with_prompt(
-        ToolDef {
-            name: "file_read".into(),
-            description: "读取工作区内 UTF-8 文本文件。lineStart 为 1-based 起始行；lineEnd 为 1-based 结束行（不含），缺省读到末尾。"
-                .into(),
-            parameters_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string", "description": "相对工作区根的路径，或工作区下的绝对路径" },
-                    "lineStart": { "type": "integer", "description": "起始行，默认 1" },
-                    "lineEnd": { "type": "integer", "description": "1-based 结束行（不含）；缺省读到文件末尾" },
-                    "maxBytes": { "type": "integer", "description": "最大读取字节，默认 524288" }
-                },
-                "required": ["path"]
-            }),
-            risk_level: "low".into(),
-            requires_approval: false,
-        },
+    reg.register(ToolEntry::new(
+        "file_read",
+        "low",
+        false,
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "相对工作区根的路径，或工作区下的绝对路径" },
+                "lineStart": { "type": "integer", "description": "起始行，默认 1" },
+                "lineEnd": { "type": "integer", "description": "1-based 结束行（不含）；缺省读到文件末尾" },
+                "maxBytes": { "type": "integer", "description": "最大读取字节，默认 524288" }
+            },
+            "required": ["path"]
+        }),
+        "读取工作区内 UTF-8 文本文件。lineStart 为 1-based 起始行；lineEnd 为 1-based 结束行（不含），缺省读到末尾。",
         Some(ToolPrompt {
             system_prompt: WORKSPACE_PROMPT.into(),
         }),
         h,
-    );
+    ));
 }
 
 fn register_file_write(reg: &ToolRegistry) {
@@ -274,26 +270,24 @@ fn register_file_write(reg: &ToolRegistry) {
         })
         .to_string())
     });
-    reg.register_with_prompt(
-        ToolDef {
-            name: "file_write".into(),
-            description: "创建或覆盖工作区内文本文件（整文件写入）。".into(),
-            parameters_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string" },
-                    "content": { "type": "string" }
-                },
-                "required": ["path", "content"]
-            }),
-            risk_level: "high".into(),
-            requires_approval: true,
-        },
+    reg.register(ToolEntry::new(
+        "file_write",
+        "high",
+        true,
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string" },
+                "content": { "type": "string", "description": "整文件正文。XML `<response>` 调用时一律：`<content><![CDATA[...]]></content>`" }
+            },
+            "required": ["path", "content"]
+        }),
+        "创建或覆盖工作区内文本文件（整文件写入）。通过 XML 调用时 `content` 必须用 CDATA 包裹整段正文。",
         Some(ToolPrompt {
             system_prompt: WORKSPACE_PROMPT.into(),
         }),
         h,
-    );
+    ));
 }
 
 /// Tool JSON often uses camelCase in schema; models trained on other agents may emit snake_case.
@@ -332,27 +326,25 @@ fn register_file_edit(reg: &ToolRegistry) {
         })
         .to_string())
     });
-    reg.register_with_prompt(
-        ToolDef {
-            name: "file_edit".into(),
-            description: "在工作区内文本文件中用唯一匹配的片段做单次替换。参数名须与 schema 一致：oldString、newString（实现亦接受常见的 old_string、new_string）。oldString 必须与磁盘文件字节级一致；file_read 用 \\n 连接行，Windows 下磁盘多为 CRLF，本工具会自动尝试 \\n↔\\r\\n。须唯一匹配，否则报错。".into(),
-            parameters_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "path": { "type": "string" },
-                    "oldString": { "type": "string", "description": "要被替换的原文（唯一出现一次）；也可用 old_string" },
-                    "newString": { "type": "string", "description": "替换为；也可用 new_string" }
-                },
-                "required": ["path", "oldString", "newString"]
-            }),
-            risk_level: "high".into(),
-            requires_approval: true,
-        },
+    reg.register(ToolEntry::new(
+        "file_edit",
+        "high",
+        true,
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string" },
+                "oldString": { "type": "string", "description": "要被替换的原文（唯一出现一次）；也可用 old_string。XML 调用时一律：`<oldString><![CDATA[...]]></oldString>`" },
+                "newString": { "type": "string", "description": "替换为；也可用 new_string。XML 调用时一律：`<newString><![CDATA[...]]></newString>`" }
+            },
+            "required": ["path", "oldString", "newString"]
+        }),
+        "在工作区内文本文件中用唯一匹配的片段做单次替换。参数名须与 schema 一致：oldString、newString（实现亦接受 old_string、new_string）。oldString 须与磁盘一致；file_read 用 \\n，Windows 多为 CRLF，本工具会尝试 \\n↔\\r\\n；须唯一匹配。**XML 调用时 `oldString` / `newString` 一律用 CDATA 包裹。**",
         Some(ToolPrompt {
             system_prompt: WORKSPACE_PROMPT.into(),
         }),
         h,
-    );
+    ));
 }
 
 fn register_glob_files(reg: &ToolRegistry) {
@@ -401,27 +393,25 @@ fn register_glob_files(reg: &ToolRegistry) {
         })
         .to_string())
     });
-    reg.register_with_prompt(
-        ToolDef {
-            name: "glob_files".into(),
-            description: "在工作区根下按 glob 模式（如 **/*.rs）列出文件路径，相对根目录。".into(),
-            parameters_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "pattern": { "type": "string", "description": "glob 模式，相对工作区根" },
-                    "maxResults": { "type": "integer", "description": "最大条数，默认 500" },
-                    "maxDepth": { "type": "integer", "description": "最大目录深度，默认 64" }
-                },
-                "required": ["pattern"]
-            }),
-            risk_level: "low".into(),
-            requires_approval: false,
-        },
+    reg.register(ToolEntry::new(
+        "glob_files",
+        "low",
+        false,
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "pattern": { "type": "string", "description": "glob 模式，相对工作区根" },
+                "maxResults": { "type": "integer", "description": "最大条数，默认 500" },
+                "maxDepth": { "type": "integer", "description": "最大目录深度，默认 64" }
+            },
+            "required": ["pattern"]
+        }),
+        "在工作区根下按 glob 模式（如 **/*.rs）列出文件路径，相对根目录。",
         Some(ToolPrompt {
             system_prompt: WORKSPACE_PROMPT.into(),
         }),
         h,
-    );
+    ));
 }
 
 fn should_skip_grep(path: &Path) -> bool {
@@ -537,29 +527,27 @@ fn register_grep_files(reg: &ToolRegistry) {
         })
         .to_string())
     });
-    reg.register_with_prompt(
-        ToolDef {
-            name: "grep_files".into(),
-            description: "在工作区下用正则搜索文件内容，返回匹配行与少量上下文。跳过常见二进制扩展。".into(),
-            parameters_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "pattern": { "type": "string", "description": "Rust 正则" },
-                    "subdir": { "type": "string", "description": "可选，相对工作区根的子目录" },
-                    "maxResults": { "type": "integer" },
-                    "maxDepth": { "type": "integer" },
-                    "contextLines": { "type": "integer", "description": "上下文行数，默认 2，最大 5" }
-                },
-                "required": ["pattern"]
-            }),
-            risk_level: "low".into(),
-            requires_approval: false,
-        },
+    reg.register(ToolEntry::new(
+        "grep_files",
+        "low",
+        false,
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "pattern": { "type": "string", "description": "Rust 正则" },
+                "subdir": { "type": "string", "description": "可选，相对工作区根的子目录" },
+                "maxResults": { "type": "integer" },
+                "maxDepth": { "type": "integer" },
+                "contextLines": { "type": "integer", "description": "上下文行数，默认 2，最大 5" }
+            },
+            "required": ["pattern"]
+        }),
+        "在工作区下用正则搜索文件内容，返回匹配行与少量上下文。跳过常见二进制扩展。",
         Some(ToolPrompt {
             system_prompt: WORKSPACE_PROMPT.into(),
         }),
         h,
-    );
+    ));
 }
 
 #[cfg(test)]

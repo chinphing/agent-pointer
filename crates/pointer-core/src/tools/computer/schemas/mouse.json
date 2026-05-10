@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "enum": [
+        "click_index",
+        "double_click_index",
+        "right_click_index",
+        "hover_index",
+        "click_at",
+        "double_click_at",
+        "right_click_at",
+        "hover_at",
+        "click_current",
+        "double_click_current",
+        "right_click_current",
+        "scroll_at_current",
+        "move_offset",
+        "drag_from_to_at",
+        "drag_from_to_index"
+      ],
+      "description": "Mouse operation."
+    },
+    "goal": {
+      "type": "string",
+      "description": "Required visible outcome for this step."
+    },
+    "action": {
+      "type": "string",
+      "description": "Required; canonical action log. See Communication → Action description in tool_args."
+    },
+    "index": { "type": "integer" },
+    "x": { "type": "number" },
+    "y": { "type": "number" },
+    "x1": { "type": "number" },
+    "y1": { "type": "number" },
+    "x2": { "type": "number" },
+    "y2": { "type": "number" },
+    "from_index": { "type": "integer" },
+    "to_index": { "type": "integer" },
+    "dx": { "type": "integer" },
+    "dy": { "type": "integer" },
+    "lines": {
+      "type": "integer",
+      "description": "Scroll line count; signed; non-zero; clamped 1..300."
+    },
+    "human_like": {
+      "type": "boolean",
+      "description": "Reserved for Pointer parity; ignored in pointer-app."
+    }
+  },
+  "required": ["method", "goal", "action"]
+}

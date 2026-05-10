@@ -8,7 +8,9 @@ use tauri::Manager;
 pub fn run() {
     pointer_core::logging::init_backtrace_defaults();
 
-    const DEFAULT_LOG_FILTER: &str = "warn,pointer_core=info,pointer_app_lib=info";
+    // `pointer_core::provider=debug`：流式/非流式请求结束后在 stderr 打印模型原始正文（含 XML 工具块），便于调试。
+    const DEFAULT_LOG_FILTER: &str =
+        "warn,pointer_core=info,pointer_core::provider=debug,pointer_app_lib=info";
     let log_dir = pointer_core::logging::desktop_log_dir();
     if let Err(err) =
         pointer_core::logging::init_runtime_logging(&log_dir, DEFAULT_LOG_FILTER)

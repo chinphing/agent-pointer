@@ -63,6 +63,7 @@ export const useSettingsStore = defineStore('settings', () => {
     contextKeepRecentUserTurns: 6,
     contextSummaryMaxTokens: 1024,
     maxToolRounds: 100,
+    rawContentViewEnabled: true,
     agentDefaultModels: {}
   })
   const loading = ref(false)
@@ -123,6 +124,7 @@ export const useSettingsStore = defineStore('settings', () => {
           contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 6,
           contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 1024,
           maxToolRounds: s.maxToolRounds ?? 100,
+          rawContentViewEnabled: s.rawContentViewEnabled !== false,
           agentDefaultModels: s.agentDefaultModels ?? {}
         }
       } else {
@@ -138,6 +140,7 @@ export const useSettingsStore = defineStore('settings', () => {
           contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 6,
           contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 1024,
           maxToolRounds: s.maxToolRounds ?? 100,
+          rawContentViewEnabled: s.rawContentViewEnabled !== false,
           agentDefaultModels: s.agentDefaultModels ?? {}
         }
         if (s.model && !settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models.includes(s.model)) {

@@ -16,11 +16,43 @@ pub const DEFAULT_AGENT_ID: &str = "default";
 pub const SUPERVISOR_AGENT_ID: &str = "supervisor";
 const AGENTS_DIR: &str = "agents";
 const AGENT_MANIFEST: &str = "AGENT.md";
-const BUILTIN_AGENT_MANIFESTS: &[(&str, &str)] = &[
-    ("default", include_str!("agents/default/AGENT.md")),
-    ("supervisor", include_str!("agents/supervisor/AGENT.md")),
-    ("coder", include_str!("agents/coder/AGENT.md")),
-    ("reviewer", include_str!("agents/reviewer/AGENT.md")),
+const AGENT_COMMUNICATION: &str = "COMMUNICATION.md";
+
+/// Shared outer layer: response + tool-call shape and examples (English).
+const COMMUNICATION_PUBLIC: &str = include_str!("agents/_shared/COMMUNICATION_PUBLIC.md");
+
+struct BuiltinAgentBundle {
+    id: &'static str,
+    manifest: &'static str,
+    communication: &'static str,
+}
+
+const BUILTIN_AGENT_BUNDLES: &[BuiltinAgentBundle] = &[
+    BuiltinAgentBundle {
+        id: "default",
+        manifest: include_str!("agents/default/AGENT.md"),
+        communication: include_str!("agents/default/COMMUNICATION.md"),
+    },
+    BuiltinAgentBundle {
+        id: "supervisor",
+        manifest: include_str!("agents/supervisor/AGENT.md"),
+        communication: include_str!("agents/supervisor/COMMUNICATION.md"),
+    },
+    BuiltinAgentBundle {
+        id: "coder",
+        manifest: include_str!("agents/coder/AGENT.md"),
+        communication: include_str!("agents/coder/COMMUNICATION.md"),
+    },
+    BuiltinAgentBundle {
+        id: "reviewer",
+        manifest: include_str!("agents/reviewer/AGENT.md"),
+        communication: include_str!("agents/reviewer/COMMUNICATION.md"),
+    },
+    BuiltinAgentBundle {
+        id: "computer",
+        manifest: include_str!("agents/computer/AGENT.md"),
+        communication: include_str!("agents/computer/COMMUNICATION.md"),
+    },
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -34,6 +66,7 @@ pub enum AgentProfile {
     Writer,
     Analyst,
     ToolUser,
+    Computer,
     Custom(String),
 }
 
@@ -70,6 +103,9 @@ pub struct AgentDef {
     pub source: Option<String>,
     #[serde(default, rename = "resourceFiles")]
     pub resource_files: Vec<String>,
+    /// Agent-specific configuration key-value pairs.
+    #[serde(default)]
+    pub config: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +182,8 @@ struct AgentManifest {
     enabled: bool,
     #[serde(default, rename = "toolNames")]
     tool_names: Vec<String>,
+    #[serde(default)]
+    config: HashMap<String, String>,
     #[serde(skip)]
     body: String,
 }
@@ -326,10 +364,10 @@ impl AgentOrchestrator {
 }
 
 pub fn register_builtin_agents(registry: &AgentRegistry) {
-    for (id, raw) in BUILTIN_AGENT_MANIFESTS {
-        match load_builtin_agent(id, raw) {
+    for bundle in BUILTIN_AGENT_BUNDLES {
+        match load_builtin_agent(bundle.id, bundle.manifest, bundle.communication) {
             Ok(agent) => registry.register(agent),
-            Err(err) => log::warn!("load builtin agent failed: {id}: {err}"),
+            Err(err) => log::warn!("load builtin agent failed: {}: {err}", bundle.id),
         }
     }
 }
@@ -343,12 +381,17 @@ fn default_worker_role() -> String {
 }
 
 fn default_agent_def() -> AgentDef {
-    load_builtin_agent(DEFAULT_AGENT_ID, BUILTIN_AGENT_MANIFESTS[0].1)
+    load_builtin_agent(
+        BUILTIN_AGENT_BUNDLES[0].id,
+        BUILTIN_AGENT_BUNDLES[0].manifest,
+        BUILTIN_AGENT_BUNDLES[0].communication,
+    )
         .map(|agent| agent.def)
         .unwrap_or_else(|_| AgentDef {
             id: DEFAULT_AGENT_ID.into(),
             name: "Default Agent".into(),
-            description: "负责常规任务、简单问答、总结和默认兜底处理。".into(),
+            description: "Handles general tasks, simple Q&A, summarization, and default fallback."
+                .into(),
             role: "worker".into(),
             profile: AgentProfile::General,
             default_skill_ids: vec!["general".into()],
@@ -358,16 +401,23 @@ fn default_agent_def() -> AgentDef {
             tool_names: Vec::new(),
             source: None,
             resource_files: Vec::new(),
+            config: HashMap::new(),
         })
 }
 
 fn supervisor_agent_def() -> AgentDef {
-    load_builtin_agent(SUPERVISOR_AGENT_ID, BUILTIN_AGENT_MANIFESTS[1].1)
+    load_builtin_agent(
+        BUILTIN_AGENT_BUNDLES[1].id,
+        BUILTIN_AGENT_BUNDLES[1].manifest,
+        BUILTIN_AGENT_BUNDLES[1].communication,
+    )
         .map(|agent| agent.def)
         .unwrap_or_else(|_| AgentDef {
             id: SUPERVISOR_AGENT_ID.into(),
             name: "Supervisor".into(),
-            description: "负责理解目标、拆解任务、选择子 Agent，并整合最终答案。".into(),
+            description:
+                "Understands goals, decomposes work, selects worker agents, and merges answers."
+                    .into(),
             role: "supervisor".into(),
             profile: AgentProfile::Supervisor,
             default_skill_ids: Vec::new(),
@@ -377,15 +427,16 @@ fn supervisor_agent_def() -> AgentDef {
             tool_names: Vec::new(),
             source: None,
             resource_files: Vec::new(),
+            config: HashMap::new(),
         })
 }
 
-fn load_builtin_agent(id: &str, raw: &str) -> Result<BaseAgent> {
+fn load_builtin_agent(id: &str, raw: &str, communication: &str) -> Result<BaseAgent> {
     let manifest = parse_agent_md(raw)?;
     if manifest.id != id {
         return Err(anyhow!("内置 Agent id 与目录名不一致"));
     }
-    let mut agent = manifest_to_agent(manifest, None)?;
+    let mut agent = manifest_to_agent(manifest, None, communication)?;
     agent.def.builtin = true;
     agent.def.source = Some(format!("builtin://{id}"));
     Ok(agent)
@@ -453,10 +504,34 @@ fn load_agent_from_dir(dir: &Path) -> Result<BaseAgent> {
     if manifest.id != dir_name {
         return Err(anyhow!("Agent 目录名必须与 frontmatter id 一致"));
     }
-    manifest_to_agent(manifest, Some(dir))
+    let comm_path = dir.join(AGENT_COMMUNICATION);
+    let communication = if comm_path.exists() {
+        fs::read_to_string(&comm_path)?
+    } else {
+        String::new()
+    };
+    manifest_to_agent(manifest, Some(dir), &communication)
 }
 
-fn manifest_to_agent(manifest: AgentManifest, dir: Option<&Path>) -> Result<BaseAgent> {
+/// `COMMUNICATION_PUBLIC` + optional per-agent `COMMUNICATION.md` + `AGENT.md` body.
+fn compose_system_prompt(agent_communication: &str, body: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    let pub_ = COMMUNICATION_PUBLIC.trim();
+    let mid = agent_communication.trim();
+    let b = body.trim();
+    if !pub_.is_empty() {
+        parts.push(pub_);
+    }
+    if !mid.is_empty() {
+        parts.push(mid);
+    }
+    if !b.is_empty() {
+        parts.push(b);
+    }
+    parts.join("\n\n---\n\n")
+}
+
+fn manifest_to_agent(manifest: AgentManifest, dir: Option<&Path>, communication: &str) -> Result<BaseAgent> {
     validate_agent_manifest(&manifest)?;
     let mut access_policy = manifest.access_policy;
     let tool_names = if manifest.tool_names.is_empty() {
@@ -486,10 +561,11 @@ fn manifest_to_agent(manifest: AgentManifest, dir: Option<&Path>) -> Result<Base
             .map(collect_agent_resource_files)
             .transpose()?
             .unwrap_or_default(),
+        config: manifest.config,
     };
 
     Ok(BaseAgent {
-        system_prompt: manifest.body,
+        system_prompt: compose_system_prompt(communication, &manifest.body),
         def,
     })
 }
@@ -646,7 +722,7 @@ fn is_kebab_case(value: &str) -> bool {
 
 fn static_agent(def: AgentDef) -> Arc<dyn AgentExecutor> {
     Arc::new(BaseAgent {
-        system_prompt: format!("你是 {}。{}", def.name, def.description),
+        system_prompt: format!("You are {}. {}", def.name, def.description),
         def,
     })
 }
@@ -700,13 +776,13 @@ fn resolve_tools(
 
 fn agent_prompt(agent: &AgentDef, prompt: Option<String>) -> String {
     format!(
-        "当前执行 Agent：\n- id: {}\n- name: {}\n- role: {}\n- profile: {:?}\n- description: {}\n\n{}",
+        "Active agent:\n- id: {}\n- name: {}\n- role: {}\n- profile: {:?}\n- description: {}\n\n{}",
         agent.id,
         agent.name,
         agent.role,
         agent.profile,
         agent.description,
-        prompt.unwrap_or_else(|| format!("你是 {}。{}", agent.name, agent.description))
+        prompt.unwrap_or_else(|| format!("You are {}. {}", agent.name, agent.description))
     )
 }
 
@@ -729,16 +805,30 @@ fn supervisor_prompt(lead: &AgentDef, lead_prompt: Option<String>, agents: &[Age
     }
 
     format!(
-        "{}\n\n你正在以多 Agent 编排架构工作。\n\n当前主控 Agent：\n- id: {}\n- name: {}\n- profile: {:?}\n- description: {}\n\n角色分工：\n- Supervisor：理解用户目标，拆解任务，基于 Agent profile 选择最合适的 Worker Agent，合并不同 Agent 的结论。\n- Default Agent：处理常规任务、简单任务和无法明确分类的兜底任务。\n- Worker Agent：根据自身 profile 与描述处理子任务；必要时调用可用工具。\n- Critic：在最终输出前检查遗漏、冲突、风险和可执行性。\n\n可用子 Agent：\n{}\n执行协议：\n1. 先判断任务是否需要多 Agent；常规任务优先交给 Default Agent 或直接完成。\n2. 复杂任务应显式拆解，并把子任务分配给上方最匹配 profile 的 Agent。\n3. 工具和 Skill 是共享能力池，但必须遵守每个 Agent 的 allow/deny 策略。\n4. 如需使用 Skill 的完整说明，先调用 load_skill_instructions，不要凭空假设细节。\n5. 最终答复只输出整合后的结论；必要时简要说明由哪些 Agent 参与。",
-        lead_prompt.unwrap_or_else(|| "你是多 Agent Supervisor。".into()),
+        "{}\n\nYou operate in a multi-agent orchestration architecture.\n\nLead agent:\n- id: {}\n- name: {}\n- profile: {:?}\n- description: {}\n\nRoles:\n- Supervisor: understand the user goal, decompose work, pick worker agents by profile, merge their outputs.\n- Default agent: routine and unclassified fallback tasks.\n- Worker agents: execute subtasks per their profile; use tools when needed.\n- Reviewer/critic: check for gaps, conflicts, risk, and feasibility before final output.\n\nAvailable workers:\n{}\nProtocol:\n1. Decide whether multiple agents are needed; prefer the default agent or a single pass for simple work.\n2. For complex work, decompose explicitly and assign to the best-matching profile above.\n3. Tools and skills are shared pools; respect each agent's allow/deny policies.\n4. To use full skill text, call load_skill_instructions—do not invent skill details.\n5. Final replies should integrate conclusions only; briefly note which agents contributed when useful.",
+        lead_prompt.unwrap_or_else(|| "You are the multi-agent Supervisor.".into()),
         lead.id,
         lead.name,
         lead.profile,
         lead.description,
         if roster.is_empty() {
-            "- id: default\n  name: Default Agent\n  role: worker\n  profile: general\n  description: 常规任务处理 Agent。\n".to_string()
+            "- id: default\n  name: Default Agent\n  role: worker\n  profile: general\n  description: General-purpose fallback agent.\n".to_string()
         } else {
             roster
         }
     )
+}
+
+#[cfg(test)]
+mod builtin_agent_tests {
+    use super::*;
+
+    #[test]
+    fn computer_builtin_manifest_parses_and_loads() {
+        let raw = include_str!("agents/computer/AGENT.md");
+        let agent = load_builtin_agent("computer", raw, "").expect("load builtin computer");
+        assert_eq!(agent.def.role, "worker");
+        assert!(agent.def.enabled);
+        assert_eq!(agent.def.profile, AgentProfile::Computer);
+    }
 }

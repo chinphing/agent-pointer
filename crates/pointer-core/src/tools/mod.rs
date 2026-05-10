@@ -1,14 +1,18 @@
 pub mod builtin;
+pub mod computer;
 pub mod general;
 pub mod math;
+pub mod response;
 pub mod skills;
 pub mod terminal;
 pub mod text;
+pub mod tool_md;
 pub mod workspace;
 
 use crate::models::ToolDef;
 use anyhow::Result;
 use parking_lot::RwLock;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -87,15 +91,77 @@ fn strip_optional_code_fence(s: &str) -> String {
     lines.join("\n").trim().to_string()
 }
 
+/// Registry id: strip the optional `:method` suffix (`mouse:click_index` → `mouse`, `wait` → `wait`).
+pub fn registry_tool_base_name(raw: &str) -> &str {
+    match raw.trim().split_once(':') {
+        Some((base, rest)) if !base.is_empty() && !rest.trim().is_empty() => base.trim(),
+        _ => raw.trim(),
+    }
+}
+
+/// If `raw_name` is `tool:method`, return `(tool, args)` and ensure `args["method"]` is set when missing.
+pub fn merge_tool_method_from_qualified_name(raw_name: &str, mut args: Value) -> (String, Value) {
+    let raw_name = raw_name.trim();
+    let Some((base, method)) = raw_name.split_once(':') else {
+        return (raw_name.to_string(), args);
+    };
+    let base = base.trim();
+    let method = method.trim();
+    if base.is_empty() || method.is_empty() {
+        return (raw_name.to_string(), args);
+    }
+    if let Value::Object(ref mut map) = args {
+        map.entry("method".to_string())
+            .or_insert_with(|| Value::String(method.to_string()));
+    }
+    (base.to_string(), args)
+}
+
 #[derive(Debug, Clone)]
 pub struct ToolPrompt {
     pub system_prompt: String,
 }
 
+/// One registered tool: identity ([`ToolDef`]), OpenAI/XML documentation, approval policy, handler.
+#[derive(Clone)]
 pub struct ToolEntry {
     pub def: ToolDef,
+    pub risk_level: String,
+    pub requires_approval: bool,
+    pub parameters_schema: Value,
+    pub doc_markdown: String,
     pub prompt: Option<ToolPrompt>,
     pub handler: ToolHandler,
+}
+
+impl ToolEntry {
+    pub fn new(
+        name: impl Into<String>,
+        risk_level: impl Into<String>,
+        requires_approval: bool,
+        parameters_schema: Value,
+        doc_markdown: impl Into<String>,
+        prompt: Option<ToolPrompt>,
+        handler: ToolHandler,
+    ) -> Self {
+        let name = name.into();
+        Self {
+            def: ToolDef { name },
+            risk_level: risk_level.into(),
+            requires_approval,
+            parameters_schema,
+            doc_markdown: doc_markdown.into(),
+            prompt,
+            handler,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct XmlToolDescriptor {
+    pub name: String,
+    pub doc_markdown: String,
+    pub parameters_schema: Value,
 }
 
 #[derive(Default)]
@@ -108,24 +174,10 @@ impl ToolRegistry {
         Self::default()
     }
 
-    pub fn register(&self, def: ToolDef, handler: ToolHandler) {
-        self.register_with_prompt(def, None, handler);
-    }
-
-    pub fn register_with_prompt(
-        &self,
-        def: ToolDef,
-        prompt: Option<ToolPrompt>,
-        handler: ToolHandler,
-    ) {
-        self.inner.write().insert(
-            def.name.clone(),
-            ToolEntry {
-                def,
-                prompt,
-                handler,
-            },
-        );
+    pub fn register(&self, entry: ToolEntry) {
+        self.inner
+            .write()
+            .insert(entry.def.name.clone(), entry);
     }
 
     pub fn list_defs(&self) -> Vec<ToolDef> {
@@ -134,6 +186,36 @@ impl ToolRegistry {
 
     pub fn get_def(&self, name: &str) -> Option<ToolDef> {
         self.inner.read().get(name).map(|e| e.def.clone())
+    }
+
+    pub fn tool_risk_level(&self, name: &str) -> Option<String> {
+        self.inner
+            .read()
+            .get(name)
+            .map(|e| e.risk_level.clone())
+    }
+
+    pub fn tool_requires_approval(&self, name: &str) -> bool {
+        self.inner
+            .read()
+            .get(name)
+            .is_some_and(|e| e.requires_approval)
+    }
+
+    pub fn xml_tool_descriptors(&self, allow: &[String]) -> Vec<XmlToolDescriptor> {
+        let mut out: Vec<XmlToolDescriptor> = self
+            .inner
+            .read()
+            .values()
+            .filter(|e| allow.is_empty() || allow.contains(&e.def.name))
+            .map(|e| XmlToolDescriptor {
+                name: e.def.name.clone(),
+                doc_markdown: e.doc_markdown.clone(),
+                parameters_schema: e.parameters_schema.clone(),
+            })
+            .collect();
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        out
     }
 
     pub fn invoke(&self, name: &str, args: serde_json::Value) -> Result<String> {
@@ -152,12 +234,13 @@ impl ToolRegistry {
             .values()
             .filter(|e| allow.is_empty() || allow.contains(&e.def.name))
             .map(|e| {
+                let description = openai_description_from_doc(&e.doc_markdown);
                 serde_json::json!({
                     "type": "function",
                     "function": {
                         "name": e.def.name,
-                        "description": e.def.description,
-                        "parameters": e.def.parameters_schema
+                        "description": description,
+                        "parameters": e.parameters_schema
                     }
                 })
             })
@@ -172,15 +255,30 @@ impl ToolRegistry {
             .filter_map(|e| {
                 e.prompt
                     .as_ref()
-                    .map(|p| format!("【工具使用说明：{}】\n{}", e.def.name, p.system_prompt))
+                    .map(|p| format!("[Tool usage: {}]\n{}", e.def.name, p.system_prompt))
             })
             .collect()
     }
 }
 
+fn openai_description_from_doc(doc: &str) -> String {
+    let t = doc.trim();
+    if t.is_empty() {
+        return String::new();
+    }
+    const MAX: usize = 1024;
+    let mut s: String = t.chars().take(MAX).collect();
+    if t.chars().count() > MAX {
+        s.push_str("…");
+    }
+    s
+}
+
 #[cfg(test)]
 mod parse_args_tests {
+    use super::merge_tool_method_from_qualified_name;
     use super::parse_tool_call_arguments;
+    use super::registry_tool_base_name;
 
     #[test]
     fn unwraps_json_string_payload() {
@@ -203,5 +301,28 @@ mod parse_args_tests {
         let raw = "```json\n{\"path\":\"b\",\"content\":\"c\"}\n```";
         let v = parse_tool_call_arguments(raw);
         assert_eq!(v["path"], "b");
+    }
+
+    #[test]
+    fn registry_tool_base_name_splits_method_suffix() {
+        assert_eq!(registry_tool_base_name("mouse:click_index"), "mouse");
+        assert_eq!(registry_tool_base_name("wait"), "wait");
+        assert_eq!(registry_tool_base_name("response"), "response");
+    }
+
+    #[test]
+    fn merge_tool_method_inserts_method_when_missing() {
+        let args = serde_json::json!({"goal": "g", "action": "a", "index": 3});
+        let (id, out) = merge_tool_method_from_qualified_name("mouse:click_index", args);
+        assert_eq!(id, "mouse");
+        assert_eq!(out["method"], "click_index");
+    }
+
+    #[test]
+    fn merge_tool_method_keeps_existing_method() {
+        let args = serde_json::json!({"method": "click_at", "x": 1});
+        let (id, out) = merge_tool_method_from_qualified_name("mouse:click_index", args);
+        assert_eq!(id, "mouse");
+        assert_eq!(out["method"], "click_at");
     }
 }

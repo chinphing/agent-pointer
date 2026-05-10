@@ -9,9 +9,14 @@ use crate::models::{
 use crate::provider::{OpenAIProvider, ProviderEvent};
 use crate::skills::SkillRegistry;
 use crate::storage;
+use crate::tools::computer::ComputerState;
+use crate::tools::merge_tool_method_from_qualified_name;
 use crate::tools::parse_tool_call_arguments;
+use crate::tools::registry_tool_base_name;
+use crate::tools::response::response_text_from_args;
 use crate::tools::terminal::run_terminal_command_streaming;
 use crate::tools::ToolRegistry;
+use crate::xml_tool_caller::XmlToolFinishDiagnostics;
 use anyhow::{anyhow, Result};
 use chrono::Local;
 use std::backtrace::Backtrace;
@@ -70,6 +75,7 @@ pub struct AppState {
     pub tools: Arc<ToolRegistry>,
     pub skills: Arc<SkillRegistry>,
     pub agents: Arc<AgentRegistry>,
+    pub computer_state: Arc<ComputerState>,
     pub cancels: Mutex<HashMap<String, CancellationToken>>,
     pub approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
 }
@@ -89,10 +95,13 @@ impl AppState {
         if let Err(err) = agents.reload_external() {
             log::warn!("load external agents failed: {err}");
         }
+        let computer_state = Arc::new(ComputerState::new(&agents));
+        crate::tools::builtin::register_computer_tools(&tools, computer_state.clone());
         Self {
             tools,
             skills,
             agents,
+            computer_state,
             cancels: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
         }
@@ -145,18 +154,18 @@ fn build_env_context() -> String {
         .and_then(|lang| {
             let lang = lang.split('.').next().unwrap_or(&lang);
             if lang.starts_with("zh") {
-                Some("中文")
+                Some("Chinese")
             } else if lang.starts_with("en") {
                 Some("English")
             } else {
                 None
             }
         })
-        .unwrap_or("未知");
+        .unwrap_or("unknown");
     let now = Local::now().format("%Y-%m-%d %H:%M:%S %Z");
 
     format!(
-        "当前环境信息：\n- 操作系统：{}\n- 系统语言：{}\n- 当前时间：{}",
+        "Environment:\n- OS: {}\n- Locale hint: {}\n- Local time: {}",
         os_label, locale, now
     )
 }
@@ -264,6 +273,29 @@ pub async fn run_chat(
         result.is_ok(),
     );
     result
+}
+
+/// When the model emitted tool-like XML (`<tool_name>` / `<tool_args>`) but we could not parse a tool call,
+/// return a user-role line for the next model turn (CDATA / well-formed XML reminder).
+fn xml_tool_recover_user_content(diag: &XmlToolFinishDiagnostics) -> Option<String> {
+    if !diag.attempted_tool_xml {
+        return None;
+    }
+    const CDATA: &str = "请重新输出**唯一**一个 `<response>...</response>`。若使用 `file_write`，`content` 须整段包在 `<![CDATA[...]]>`；若使用 `file_edit`，`oldString` 与 `newString` 均须各自包在 CDATA 中。勿在外侧加 Markdown 代码块。";
+
+    if diag.fragment_complete {
+        let detail = diag
+            .parse_error
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or("无法解析为合法的工具 XML（常见于未转义的尖括号破坏了标签结构）");
+        return Some(format!(
+            "【环境反馈】本回合助手输出里包含工具 XML，但解析失败：{detail}\n{CDATA}"
+        ));
+    }
+    Some(format!(
+        "【环境反馈】本回合检测到工具 XML（含 `<tool_name>` / `<tool_args>`），但在流结束前仍未形成可解析的完整 `</response>`，因此未能执行工具。\n{CDATA}\n也请确认已输出完整的闭合标签。"
+    ))
 }
 
 async fn run_chat_inner(
@@ -408,41 +440,53 @@ async fn run_chat_inner(
             );
         }
 
-        let tools_json = state.tools.openai_tools(&agent_plan.allowed_tool_names);
+        let xml_tool_prompt = crate::xml_tool_prompt::generate_xml_tool_prompt(
+            &state.tools,
+            &agent_plan.allowed_tool_names,
+        );
         let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
         let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
         let history_clone = history.clone();
         let mut prompts_with_env = vec![build_env_context()];
         prompts_with_env.extend(agent_plan.system_prompts.clone());
         prompts_with_env.extend(state.tools.prompt_context(&agent_plan.allowed_tool_names));
+        if !xml_tool_prompt.is_empty() {
+            prompts_with_env.push(xml_tool_prompt);
+        }
         let prompts_clone = prompts_with_env;
         let cancel_clone = cancel.clone();
-        let tools_clone = tools_json.clone();
         let send_handle = tokio::spawn(async move {
             prov.stream_chat(
                 &history_clone,
                 &prompts_clone,
-                tools_clone,
                 tx,
                 cancel_clone,
             )
             .await
         });
 
-        let mut content_buf = String::new();
+        let mut raw_content_buf = String::new();
         let mut reasoning_buf = String::new();
         let mut final_tool_calls: Vec<ToolCall> = Vec::new();
         let mut finish_reason = String::from("stop");
+        let mut xml_finish_diag = XmlToolFinishDiagnostics::default();
 
         while let Some(ev) = rx.recv().await {
             match ev {
                 ProviderEvent::ContentDelta(t) => {
-                    content_buf.push_str(&t);
+                    raw_content_buf.push_str(&t);
+                    emit(
+                        &stream,
+                        StreamEvent::RawContentDelta {
+                            message_id: assistant_id.clone(),
+                            text: t.clone(),
+                        },
+                    );
                     emit(
                         &stream,
                         StreamEvent::Delta {
                             message_id: assistant_id.clone(),
-                            text: t,
+                            text: t.clone(),
                         },
                     );
                 }
@@ -469,8 +513,7 @@ async fn run_chat_inner(
                         duration_ms: None,
                         risk_level: state
                             .tools
-                            .get_def(&name)
-                            .map(|d| d.risk_level)
+                            .tool_risk_level(registry_tool_base_name(&name))
                             .or(Some("low".into())),
                     };
                     emit(
@@ -493,8 +536,28 @@ async fn run_chat_inner(
                         },
                     );
                 }
-                ProviderEvent::Finish { reason, tool_calls } => {
+                ProviderEvent::Finish {
+                    reason,
+                    tool_calls,
+                    xml,
+                } => {
                     finish_reason = reason;
+                    xml_finish_diag = xml;
+                    // XML 等路径在流内不会发 ToolCallStart；此处补发，界面才能显示 ToolCallCard。
+                    for tc in &tool_calls {
+                        let mut t = tc.clone();
+                        t.risk_level = state
+                            .tools
+                            .tool_risk_level(registry_tool_base_name(&t.name))
+                            .or(Some("low".into()));
+                        emit(
+                            &stream,
+                            StreamEvent::ToolCallStart {
+                                message_id: assistant_id.clone(),
+                                tool_call: t,
+                            },
+                        );
+                    }
                     final_tool_calls = tool_calls;
                 }
             }
@@ -514,6 +577,8 @@ async fn run_chat_inner(
                     &stream,
                     StreamEvent::MessageEnd {
                         message_id: assistant_id.clone(),
+                        content: None,
+                        raw_content: None,
                     },
                 );
                 tool_budget.sync_out(consumed_single);
@@ -528,7 +593,7 @@ async fn run_chat_inner(
         let assistant_msg = ChatMessage {
             id: assistant_id.clone(),
             role: Role::Assistant,
-            content: content_buf.clone(),
+            content: extract_user_visible_content(&raw_content_buf),
             status: if final_tool_calls.is_empty() {
                 "completed".into()
             } else {
@@ -545,8 +610,7 @@ async fn run_chat_inner(
                         .map(|mut t| {
                             t.risk_level = state
                                 .tools
-                                .get_def(&t.name)
-                                .map(|d| d.risk_level)
+                                .tool_risk_level(registry_tool_base_name(&t.name))
                                 .or(Some("low".into()));
                             t
                         })
@@ -560,6 +624,11 @@ async fn run_chat_inner(
             } else {
                 None
             },
+            raw_content: if raw_content_buf.is_empty() {
+                None
+            } else {
+                Some(raw_content_buf.clone())
+            },
             agent_id: Some(agent_plan.lead_agent_id.clone()),
             agent_name: Some(agent_plan.lead_agent_name.clone()),
             agent_trace: if agent_trace.is_empty() {
@@ -568,15 +637,75 @@ async fn run_chat_inner(
                 Some(agent_trace.clone())
             },
         };
-        history.push(assistant_msg);
+        history.push(assistant_msg.clone());
         emit(
             &stream,
             StreamEvent::MessageEnd {
                 message_id: assistant_id.clone(),
+                content: Some(assistant_msg.content.clone()),
+                raw_content: assistant_msg.raw_content.clone(),
             },
         );
 
         if final_tool_calls.is_empty() {
+            if let Some(hint) = xml_tool_recover_user_content(&xml_finish_diag) {
+                let retry_id = new_id("msg");
+                emit(
+                    &stream,
+                    StreamEvent::InjectedUserMessage {
+                        conversation_id: conversation_id.to_string(),
+                        message_id: retry_id.clone(),
+                        content: hint.clone(),
+                    },
+                );
+                history.push(ChatMessage {
+                    id: retry_id,
+                    role: Role::User,
+                    content: hint,
+                    status: "done".into(),
+                    created_at: now_ms(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    error_message: None,
+                    reasoning: None,
+                    raw_content: None,
+                    agent_id: None,
+                    agent_name: None,
+                    agent_trace: None,
+                });
+                tool_budget.record_tool_cycle();
+                tool_budget.sync_out(consumed_single);
+                if tool_budget.is_exhausted() {
+                    let hint = format!(
+                        "单智能体模式下工具调用累计已达上限（{} 轮，含此前消息）。建议新开对话；将尝试压缩上下文以便查看摘要。",
+                        max_cap
+                    );
+                    emit(
+                        &stream,
+                        StreamEvent::ToolRoundsExhausted {
+                            conversation_id: conversation_id.to_string(),
+                            max_rounds: max_cap,
+                            message: hint,
+                            will_retry_after_compress: settings.context_compression_enabled,
+                        },
+                    );
+                    let _ = crate::context_compression::maybe_compress_after_tool_round_limit(
+                        history,
+                        &settings,
+                        &provider,
+                        conversation_id,
+                        &stream,
+                        cancel.clone(),
+                        true,
+                    )
+                    .await;
+                    tool_budget.sync_out(consumed_single);
+                    return Err(anyhow!(
+                        "单智能体模式下工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
+                    ));
+                }
+                continue;
+            }
             let _ = finish_reason;
             tool_budget.sync_out(consumed_single);
             return Ok(());
@@ -588,9 +717,64 @@ async fn run_chat_inner(
                 tool_budget.sync_out(consumed_single);
                 return Err(anyhow!("已停止生成"));
             }
-            let def = state.tools.get_def(&tc.name);
+
+            let args_value = parse_tool_call_arguments(&tc.arguments);
+            let (tool_id, args_value) = merge_tool_method_from_qualified_name(&tc.name, args_value);
+
+            if tool_id == "response" {
+                let message = response_text_from_args(&args_value).unwrap_or("");
+
+                if !message.is_empty() {
+                    emit(
+                        &stream,
+                        StreamEvent::Delta {
+                            message_id: assistant_id.clone(),
+                            text: message.to_string(),
+                        },
+                    );
+                }
+
+                emit(
+                    &stream,
+                    StreamEvent::ToolCallStatus {
+                        message_id: assistant_id.clone(),
+                        tool_call_id: tc.id.clone(),
+                        status: "success".into(),
+                        result: Some("已回复用户".into()),
+                        error: None,
+                        duration_ms: Some(0),
+                    },
+                );
+
+                // PyProjects: `response` does not append a separate tool-result history line; finalize
+                // the same assistant row (user-visible `content`, keep `raw_content` for the API).
+                if let Some(last) = history.last_mut() {
+                    if last.id == assistant_id && matches!(last.role, Role::Assistant) {
+                        last.content = message.to_string();
+                        last.tool_calls = None;
+                        last.status = "completed".into();
+                    }
+                }
+
+                emit(
+                    &stream,
+                    StreamEvent::MessageEnd {
+                        message_id: assistant_id.clone(),
+                        content: Some(message.to_string()),
+                        raw_content: if raw_content_buf.is_empty() {
+                            None
+                        } else {
+                            Some(raw_content_buf.clone())
+                        },
+                    },
+                );
+
+                tool_budget.sync_out(consumed_single);
+                return Ok(());
+            }
+
             let requires_approval = tool_approval_mode == "manual"
-                && def.as_ref().map(|d| d.requires_approval).unwrap_or(false);
+                && state.tools.tool_requires_approval(&tool_id);
 
             if requires_approval {
                 emit(
@@ -644,9 +828,8 @@ async fn run_chat_inner(
                 },
             );
             let started = Instant::now();
-            let args_value = parse_tool_call_arguments(&tc.arguments);
 
-            let is_terminal = tc.name == "terminal";
+            let is_terminal = tool_id == "terminal";
             let msg_id_for_stream = assistant_id.clone();
             let tc_id_for_stream = tc.id.clone();
             let stream_for_terminal = stream.clone();
@@ -677,7 +860,7 @@ async fn run_chat_inner(
                 .await
                 .map_err(|e| anyhow!("终端执行线程异常: {e}"))?
             } else {
-                state.tools.invoke(&tc.name, args_value)
+                state.tools.invoke(&tool_id, args_value)
             };
 
             let duration = started.elapsed().as_millis() as u64;
@@ -852,17 +1035,17 @@ async fn run_supervisor_chat(
 
         let mut task_run = task.clone();
         if !task.depends_on.is_empty() {
-            let mut pre = String::from("\n\n【前置任务输出摘要】\n");
+            let mut pre = String::from("\n\n[Prior task outputs]\n");
             for d in &task.depends_on {
                 if let Some(r) = results_by_id.get(d) {
                     pre.push_str(&format!(
-                        "--- 任务 {} ---\n{}\n",
+                        "--- task {} ---\n{}\n",
                         d,
                         truncate_str(&r.content, 2000)
                     ));
                 }
             }
-            task_run.instruction = format!("{pre}\n\n【当前任务说明】\n{}", task.instruction);
+            task_run.instruction = format!("{pre}\n\n[Current task]\n{}", task.instruction);
         }
 
         match run_sub_agent(
@@ -943,13 +1126,14 @@ async fn run_supervisor_chat(
     history.push(ChatMessage {
         id: assistant_id.clone(),
         role: Role::Assistant,
-        content: final_answer,
+        content: final_answer.clone(),
         status: "completed".into(),
         created_at: now_ms(),
         tool_calls: None,
         tool_call_id: None,
         error_message: None,
         reasoning: None,
+        raw_content: None,
         agent_id: Some("supervisor".into()),
         agent_name: Some(sup_name),
         agent_trace: Some(agent_trace),
@@ -958,6 +1142,8 @@ async fn run_supervisor_chat(
         &stream,
         StreamEvent::MessageEnd {
             message_id: assistant_id,
+            content: Some(final_answer),
+            raw_content: None,
         },
     );
     Ok(())
@@ -1028,13 +1214,13 @@ async fn plan_agent_tasks(
     let workers = state.agents.enabled_workers();
     let roster = agent_roster(&workers);
     let prompt = format!(
-        "{}\n\n你是 Supervisor。请把用户最新请求拆解为最多 {} 个子 Agent 任务。\n\n规划原则：同一仓库内的代码实现、调试、重构应**优先合并为一条** agentId 为 coder 的任务（instruction 写清全部要求）；仅当需要 reviewer 独立把关、或存在明显非代码子任务时再拆多条。若拆成多条且有先后依赖，使用 dependsOn 填入前置任务的 id 字符串数组。\n\n可用 Agent：\n{}\n\n只返回 JSON 数组，不要 Markdown。数组元素格式：{{\"id\":\"task_1\",\"agentId\":\"coder\",\"title\":\"简短标题\",\"instruction\":\"给该 Agent 的完整任务说明\",\"dependsOn\":[]}}。agentId 必须来自可用 Agent。常规问答使用 default。涉及写代码、读仓库、跑测试优先 coder。",
+        "{}\n\nYou are the Supervisor. Decompose the user's latest request into at most {} sub-agent tasks.\n\nPlanning rules: for work in one repo (implementation, debugging, refactor), **prefer a single** task with agentId `coder` and a complete `instruction`; split only when an independent reviewer pass or a clearly non-code subtask is needed. If multiple tasks have ordering, set `dependsOn` to an array of prerequisite task ids.\n\nAvailable agents:\n{}\n\nReturn **only** a JSON array (no Markdown). Element shape: {{\"id\":\"task_1\",\"agentId\":\"coder\",\"title\":\"short title\",\"instruction\":\"full instructions for that agent\",\"dependsOn\":[]}}. `agentId` must be from the list above. Use `default` for general Q&A; prefer `coder` for code, repo reads, and tests.",
         env_context,
         limits.max_sub_agents,
         roster
     );
     let raw = provider
-        .chat_once(history, &[prompt], Vec::new(), cancel, None)
+        .chat_once(history, &[prompt], cancel, None)
         .await?;
     parse_agent_tasks(&raw, &workers, limits)
         .or_else(|| Some(fallback_agent_tasks(state, history, limits)))
@@ -1076,18 +1262,25 @@ async fn run_sub_agent(
     let allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
     let env_context = build_env_context();
     let mut prompts = vec![env_context, format!(
-        "当前子 Agent：{} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\n你只负责完成 Supervisor 通过下一条「用户」消息下发的子任务。该用户消息仅为任务说明（可含前置任务输出摘要），**不含**主会话聊天记录。输出应包含结论、关键依据、风险或未完成项。\n可用工具名：{}",
+        "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\nComplete only the subtask delivered in the next user message from the Supervisor. That message is task instructions (it may include a digest of prior task outputs) and does **not** include the main chat history. Your output should state conclusions, key evidence, risks, or open items.\nAllowed tools: {}",
         def.name,
         def.id,
         def.profile,
         def.description,
         agent.system_prompt(),
-        if allowed_tools.is_empty() { "无".into() } else { allowed_tools.join(", ") }
+        if allowed_tools.is_empty() {
+            "none".into()
+        } else {
+            allowed_tools.join(", ")
+        }
     )];
     prompts.extend(skill_prompts);
     prompts.extend(state.tools.prompt_context(&allowed_tools));
 
-    let tools_json = state.tools.openai_tools(&allowed_tools);
+    let xml_tool_prompt = crate::xml_tool_prompt::generate_xml_tool_prompt(
+        &state.tools,
+        &allowed_tools,
+    );
     let tool_approval_mode = storage::load_settings()
         .map(|settings| settings.tool_approval_mode)
         .unwrap_or_else(|_| "auto".into());
@@ -1102,6 +1295,7 @@ async fn run_sub_agent(
         tool_call_id: None,
         error_message: None,
         reasoning: None,
+        raw_content: None,
         agent_id: None,
         agent_name: None,
         agent_trace: None,
@@ -1124,14 +1318,15 @@ async fn run_sub_agent(
         let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
         let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
         let history_clone = local_history.clone();
-        let prompts_clone = prompts.clone();
-        let tools_clone = tools_json.clone();
+        let mut prompts_clone = prompts.clone();
+        if !xml_tool_prompt.is_empty() {
+            prompts_clone.push(xml_tool_prompt.clone());
+        }
         let cancel_clone = cancel.clone();
         let handle = tokio::spawn(async move {
             prov.stream_chat(
                 &history_clone,
                 &prompts_clone,
-                tools_clone,
                 tx,
                 cancel_clone,
             )
@@ -1178,8 +1373,7 @@ async fn run_sub_agent(
                                 duration_ms: None,
                                 risk_level: state
                                     .tools
-                                    .get_def(&name)
-                                    .map(|tool| tool.risk_level)
+                                    .tool_risk_level(registry_tool_base_name(&name))
                                     .or(Some("low".into())),
                             },
                         },
@@ -1197,7 +1391,25 @@ async fn run_sub_agent(
                         },
                     );
                 }
-                ProviderEvent::Finish { tool_calls, .. } => {
+                ProviderEvent::Finish {
+                    tool_calls,
+                    xml: _,
+                    ..
+                } => {
+                    for tc in &tool_calls {
+                        let mut t = tc.clone();
+                        t.risk_level = state
+                            .tools
+                            .tool_risk_level(registry_tool_base_name(&t.name))
+                            .or(Some("low".into()));
+                        emit(
+                            stream,
+                            StreamEvent::ToolCallStart {
+                                message_id: message_id.to_string(),
+                                tool_call: t,
+                            },
+                        );
+                    }
                     final_tool_calls = tool_calls;
                 }
             }
@@ -1210,7 +1422,7 @@ async fn run_sub_agent(
         }
 
         local_history.push(ChatMessage {
-            id: round_message_id,
+            id: round_message_id.clone(),
             role: Role::Assistant,
             content: round_content,
             status: if final_tool_calls.is_empty() {
@@ -1229,8 +1441,7 @@ async fn run_sub_agent(
                         .map(|mut tool_call| {
                             tool_call.risk_level = state
                                 .tools
-                                .get_def(&tool_call.name)
-                                .map(|tool| tool.risk_level)
+                                .tool_risk_level(registry_tool_base_name(&tool_call.name))
                                 .or(Some("low".into()));
                             tool_call
                         })
@@ -1244,6 +1455,7 @@ async fn run_sub_agent(
             } else {
                 None
             },
+            raw_content: None,
             agent_id: Some(def.id.clone()),
             agent_name: Some(def.name.clone()),
             agent_trace: None,
@@ -1268,7 +1480,58 @@ async fn run_sub_agent(
             if cancel.is_cancelled() {
                 return Err(anyhow!("已停止生成"));
             }
-            if !allowed_tools.contains(&tool_call.name) {
+
+            let args_value = parse_tool_call_arguments(&tool_call.arguments);
+            let (tool_id, args_value) =
+                merge_tool_method_from_qualified_name(&tool_call.name, args_value);
+
+            if tool_id == "response" {
+                let message = response_text_from_args(&args_value).unwrap_or("");
+
+                if !message.is_empty() {
+                    emit(
+                        stream,
+                        StreamEvent::Delta {
+                            message_id: message_id.to_string(),
+                            text: message.to_string(),
+                        },
+                    );
+                }
+
+                emit(
+                    stream,
+                    StreamEvent::ToolCallStatus {
+                        message_id: message_id.to_string(),
+                        tool_call_id: tool_call.id.clone(),
+                        status: "success".into(),
+                        result: Some("已回复用户".into()),
+                        error: None,
+                        duration_ms: Some(0),
+                    },
+                );
+
+                if let Some(last) = local_history.last_mut() {
+                    if last.id == round_message_id && matches!(last.role, Role::Assistant) {
+                        last.content = message.to_string();
+                        last.tool_calls = None;
+                        last.status = "completed".into();
+                    }
+                }
+
+                return Ok(AgentRunResult {
+                    task_id: task.id.clone(),
+                    agent_id: def.id.clone(),
+                    agent_name: def.name.clone(),
+                    content: message.to_string(),
+                    reasoning: if reasoning_in_messages && !reasoning.is_empty() {
+                        Some(reasoning)
+                    } else {
+                        None
+                    },
+                });
+            }
+
+            if !allowed_tools.contains(&tool_id) {
                 let err = format!("Agent {} 不允许调用工具: {}", def.id, tool_call.name);
                 emit(
                     stream,
@@ -1286,12 +1549,8 @@ async fn run_sub_agent(
                 continue;
             }
 
-            let tool_def = state.tools.get_def(&tool_call.name);
             let requires_approval = tool_approval_mode == "manual"
-                && tool_def
-                    .as_ref()
-                    .map(|tool| tool.requires_approval)
-                    .unwrap_or(false);
+                && state.tools.tool_requires_approval(&tool_id);
 
             if requires_approval {
                 emit(
@@ -1348,9 +1607,8 @@ async fn run_sub_agent(
                 },
             );
             let started = Instant::now();
-            let args_value = parse_tool_call_arguments(&tool_call.arguments);
 
-            let is_terminal = tool_call.name == "terminal";
+            let is_terminal = tool_id == "terminal";
             let msg_id_for_stream = message_id.to_string();
             let tc_id_for_stream = tool_call.id.clone();
             let stream_for_terminal = stream.clone();
@@ -1381,7 +1639,7 @@ async fn run_sub_agent(
                 .await
                 .map_err(|e| anyhow!("终端执行线程异常: {e}"))?
             } else {
-                state.tools.invoke(&tool_call.name, args_value)
+                state.tools.invoke(&tool_id, args_value)
             };
 
             let duration = started.elapsed().as_millis() as u64;
@@ -1474,18 +1732,22 @@ async fn synthesize_final_answer(
     let mut report = String::new();
     for result in results {
         report.push_str(&format!(
-            "## {} ({})\n任务: {}\n{}\n\n",
+            "## {} ({})\nTask: {}\n{}\n\n",
             result.agent_name, result.agent_id, result.task_id, result.content
         ));
     }
     let env_context = build_env_context();
     let prompt = format!(
-        "{}\n\n你是 Supervisor。基于以下子 Agent 独立执行结果，面向用户输出最终答案。\n要求：整合重复内容，解决冲突；不要编造子 Agent 未提供的事实；必要时简要说明参与的 Agent。\n\n子 Agent 结果：\n{}",
+        "{}\n\nYou are the Supervisor. From the sub-agent results below, write the final user-facing answer.\nRequirements: merge duplicates and resolve conflicts; do not state facts that sub-agents did not support; briefly note which agents contributed when helpful.\n\nSub-agent results:\n{}",
         env_context,
-        if report.is_empty() { "无可用子 Agent 结果，请基于对话直接给出谨慎答复。".into() } else { report }
+        if report.is_empty() {
+            "No sub-agent results; answer cautiously from the conversation only.".into()
+        } else {
+            report
+        }
     );
     provider
-        .chat_once(history, &[prompt], Vec::new(), cancel, None)
+        .chat_once(history, &[prompt], cancel, None)
         .await
 }
 
@@ -1550,7 +1812,7 @@ fn parse_agent_tasks(
             task.id = format!("task_{}", idx + 1);
         }
         if task.title.trim().is_empty() {
-            task.title = format!("子任务 {}", idx + 1);
+            task.title = format!("Sub-task {}", idx + 1);
         }
     }
     tasks.truncate(limits.max_sub_agents);
@@ -1577,20 +1839,34 @@ fn fallback_agent_tasks(
         .rev()
         .find(|message| matches!(message.role, Role::User))
         .map(|message| message.content.clone())
-        .unwrap_or_else(|| "完成用户请求".into());
+        .unwrap_or_else(|| "Fulfill the user request".into());
     let lower = latest.to_lowercase();
     let workers = state.agents.enabled_workers();
     let preferred = if lower.contains("代码")
         || lower.contains("实现")
+        || lower.contains("code")
+        || lower.contains("implement")
         || lower.contains("bug")
         || lower.contains("error")
         || lower.contains("rust")
         || lower.contains("vue")
     {
         "coder"
-    } else if lower.contains("分析") || lower.contains("计算") || lower.contains("数据") {
+    } else if lower.contains("分析")
+        || lower.contains("计算")
+        || lower.contains("数据")
+        || lower.contains("analy")
+        || lower.contains("calculat")
+        || lower.contains("data")
+    {
         "analyst"
-    } else if lower.contains("写") || lower.contains("文档") || lower.contains("总结") {
+    } else if lower.contains("写")
+        || lower.contains("文档")
+        || lower.contains("总结")
+        || lower.contains("write")
+        || lower.contains("doc")
+        || lower.contains("summar")
+    {
         "writer"
     } else {
         DEFAULT_AGENT_ID
@@ -1605,7 +1881,7 @@ fn fallback_agent_tasks(
     vec![AgentTask {
         id: "task_1".into(),
         agent_id,
-        title: "处理用户请求".into(),
+        title: "Handle user request".into(),
         instruction: latest,
         depends_on: Vec::new(),
     }]
@@ -1640,6 +1916,11 @@ fn resolve_agent_tools(
     names.retain(|name| {
         tools.get_def(name).is_some() && !agent.access_policy.deny_tools.contains(name)
     });
+
+    if !names.contains(&"response".into()) && tools.get_def("response").is_some() {
+        names.push("response".into());
+    }
+
     names.sort();
     names.dedup();
     names
@@ -1656,6 +1937,7 @@ fn tool_result_msg(tool_call_id: &str, content: &str) -> ChatMessage {
         tool_call_id: Some(tool_call_id.to_string()),
         error_message: None,
         reasoning: None,
+        raw_content: None,
         agent_id: None,
         agent_name: None,
         agent_trace: None,
@@ -1670,6 +1952,30 @@ fn truncate_str(s: &str, n: usize) -> String {
     }
 }
 
+/// 从原始回复中去除 XML 工具调用块，提取用户可见内容
+fn extract_user_visible_content(raw: &str) -> String {
+    let mut result = String::with_capacity(raw.len());
+    let mut remaining = raw;
+
+    while let Some(start) = remaining.find("<response>") {
+        if start > 0 {
+            result.push_str(&remaining[..start]);
+        }
+        if let Some(end) = remaining[start..].find("</response>") {
+            remaining = &remaining[start + end + 11..];
+        } else {
+            result.push_str(&remaining[start..]);
+            break;
+        }
+    }
+
+    if !remaining.is_empty() {
+        result.push_str(remaining);
+    }
+
+    result.trim().to_string()
+}
+
 fn now_ms() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
@@ -1680,4 +1986,25 @@ fn now_ms() -> i64 {
 
 fn new_id(prefix: &str) -> String {
     format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
+}
+
+#[cfg(test)]
+mod extract_user_visible_tests {
+    use super::extract_user_visible_content;
+
+    #[test]
+    fn only_response_block_is_invisible() {
+        assert_eq!(
+            extract_user_visible_content("<response><tool_name>x</tool_name></response>"),
+            ""
+        );
+    }
+
+    #[test]
+    fn prose_outside_response_kept() {
+        assert_eq!(
+            extract_user_visible_content("Hi<response></response>"),
+            "Hi"
+        );
+    }
 }

@@ -7,3 +7,5 @@ pub mod provider;
 pub mod skills;
 pub mod storage;
 pub mod tools;
+pub mod xml_tool_caller;
+pub mod xml_tool_prompt;

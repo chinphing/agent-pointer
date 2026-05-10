@@ -43,6 +43,8 @@ pub struct ChatMessage {
     pub error_message: Option<String>,
     #[serde(default)]
     pub reasoning: Option<String>,
+    #[serde(default, rename = "rawContent")]
+    pub raw_content: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,8 +102,14 @@ pub struct ModelSettings {
     pub context_summary_max_tokens: u32,
     #[serde(default, rename = "maxToolRounds")]
     pub max_tool_rounds: u32,
+    #[serde(default = "default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
+    pub raw_content_view_enabled: bool,
     #[serde(default, rename = "agentDefaultModels")]
     pub agent_default_models: HashMap<String, String>,
+}
+
+fn default_raw_content_view_enabled() -> bool {
+    true
 }
 
 impl Default for ModelSettings {
@@ -145,6 +153,15 @@ impl Default for ModelSettings {
             has_key: false,
             tool_approval_mode: "auto".into(),
             agent_mode: "single".into(),
+            workspace_root: String::new(),
+            lead_agent_id: String::new(),
+            context_compression_enabled: true,
+            context_budget_chars: 120_000,
+            context_keep_recent_user_turns: 6,
+            context_summary_max_tokens: 1024,
+            max_tool_rounds: 100,
+            raw_content_view_enabled: true,
+            agent_default_models: HashMap::new(),
         }
     }
 }

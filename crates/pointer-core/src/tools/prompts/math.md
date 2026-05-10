@@ -1,11 +1,9 @@
-# math 工具组
+# math tools
 
-## calculator
+Use for deterministic arithmetic evaluation.
 
-用于对确定性的算术表达式求值。
-
-使用规则：
-- 仅在需要计算 `+`、`-`、`*`、`/`、括号和小数表达式时调用。
-- 输入必须是纯算术表达式，不要包含自然语言、单位或代码。
-- 不要用于需要高精度金融计算、符号运算、函数计算或随机计算的场景。
-- 返回结果后，结合用户问题用自然语言说明计算结论。
+Rules:
+- Call only for `+`, `-`, `*`, `/`, parentheses, and decimal expressions.
+- Input must be a pure arithmetic expression—no natural language, units, or code.
+- Do not use for financial-grade precision, symbolic math, general functions, or randomness.
+- After the tool returns, explain the result in natural language for the user.

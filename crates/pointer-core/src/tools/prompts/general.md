@@ -1,20 +1,16 @@
-# general 工具组
+# general tools
 
-## random_int
+Use to sample a random integer in a half-open range `[min, max)`.
 
-用于生成指定半开区间内的随机整数。
+Rules:
+- Call when the user needs a random integer, lottery-style pick, or simple numbered choice.
+- Semantics: include `min`, exclude `max`.
+- Ensure `min < max` before calling.
+- Do not use for cryptographic randomness, regulated lotteries, or auditable RNG.
 
-使用规则：
-- 当用户需要一个随机整数、抽签数字或简单随机选择编号时调用。
-- 区间语义为 `[min, max)`，包含 `min`，不包含 `max`。
-- 调用前确保 `min < max`。
-- 不要用于密码学安全随机数、抽奖合规系统或需要可审计随机性的场景。
+Use to echo arguments for debugging the tool-calling path.
 
-## echo
-
-用于调试和验证工具调用链路，会原样回显输入参数对象。
-
-使用规则：
-- 仅在需要确认工具调用、参数传递或演示调用链路时使用。
-- 不要用它处理业务逻辑、执行命令、读取文件或保存数据。
-- 该工具需要用户授权，除非用户明确要求调试工具链路，否则不要主动调用。
+Rules:
+- Call only to verify tool invocation or parameter passing.
+- Do not use for business logic, command execution, file I/O, or persistence.
+- This tool may require user approval—do not call unless the user wants to debug the tool pipeline.

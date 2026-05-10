@@ -1,5 +1,4 @@
-use super::{ToolHandler, ToolPrompt, ToolRegistry};
-use crate::models::ToolDef;
+use super::{ToolEntry, ToolHandler, ToolPrompt, ToolRegistry};
 use crate::storage;
 use anyhow::{anyhow, Result};
 use std::io::{BufRead, BufReader, Read};
@@ -22,28 +21,26 @@ pub fn register_all(reg: &ToolRegistry) {
 
 fn register_terminal(reg: &ToolRegistry) {
     let h: ToolHandler = Arc::new(run_terminal_command);
-    reg.register_with_prompt(
-        ToolDef {
-            name: "terminal".into(),
-            description: "执行终端命令并返回控制台输出。".into(),
-            parameters_schema: serde_json::json!({
-                "type":"object",
-                "properties":{
-                    "command":{"type":"string","description":"要执行的终端命令。Windows 使用 powershell -NoProfile -ExecutionPolicy Bypass -Command，macOS/Linux 使用 sh -lc。"},
-                    "cwd":{"type":"string","description":"可选工作目录。必须是已存在的目录。"},
-                    "timeoutMs":{"type":"integer","description":"可选超时时间，默认 30000，最大 120000。"},
-                    "maxOutputBytes":{"type":"integer","description":"可选最大输出字节数，默认 20000，最大 200000。stdout 和 stderr 分别截断。"}
-                },
-                "required":["command"]
-            }),
-            risk_level: "high".into(),
-            requires_approval: true,
-        },
+    reg.register(ToolEntry::new(
+        "terminal",
+        "high",
+        true,
+        serde_json::json!({
+            "type":"object",
+            "properties":{
+                "command":{"type":"string","description":"要执行的终端命令。Windows 使用 powershell -NoProfile -ExecutionPolicy Bypass -Command，macOS/Linux 使用 sh -lc。"},
+                "cwd":{"type":"string","description":"可选工作目录。必须是已存在的目录。"},
+                "timeoutMs":{"type":"integer","description":"可选超时时间，默认 30000，最大 120000。"},
+                "maxOutputBytes":{"type":"integer","description":"可选最大输出字节数，默认 20000，最大 200000。stdout 和 stderr 分别截断。"}
+            },
+            "required":["command"]
+        }),
+        "执行终端命令并返回控制台输出。",
         Some(ToolPrompt {
             system_prompt: TERMINAL_PROMPT.into(),
         }),
         h,
-    );
+    ));
 }
 
 fn effective_terminal_cwd(explicit: Option<PathBuf>) -> Result<Option<PathBuf>> {

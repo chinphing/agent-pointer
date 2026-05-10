@@ -34,6 +34,7 @@ export type AgentProfile =
   | 'writer'
   | 'analyst'
   | 'tool_user'
+  | 'computer'
   | { custom: string }
 
 export interface AccessPolicy {
@@ -65,9 +66,10 @@ export interface ChatMessage {
   status: MessageStatus
   createdAt: number
   toolCalls?: ToolCall[]
-  toolCallId?: string // when role = 'tool'
+  toolCallId?: string
   errorMessage?: string
   reasoning?: string
+  rawContent?: string
   agentId?: string
   agentName?: string
   agentTrace?: AgentTrace[]
@@ -125,6 +127,8 @@ export interface ModelSettings {
   contextSummaryMaxTokens: number
   /** Max tool-call rounds per user message (assistant loop), default 100 */
   maxToolRounds: number
+  /** Show assistant “reasoning & raw output” inspect control in chat (default true) */
+  rawContentViewEnabled: boolean
   /** agentId → 该 agent 的默认模型名称 */
   agentDefaultModels: Record<string, string>
 }
@@ -148,24 +152,23 @@ export interface SkillImportResult {
 }
 
 
+/** Tool id only; human-readable docs ship as markdown in pointer-core (`tools/*.md`). */
 export interface ToolDef {
   name: string
-  description: string
-  parametersSchema: Record<string, unknown>
-  riskLevel: 'low' | 'medium' | 'high'
-  requiresApproval: boolean
 }
 
 export type StreamEvent =
   | { kind: 'message_start'; messageId: string; conversationId: string }
   | { kind: 'delta'; messageId: string; text: string }
+  | { kind: 'raw_content_delta'; messageId: string; text: string }
   | { kind: 'reasoning_delta'; messageId: string; text: string }
   | { kind: 'agent_step'; messageId: string; agent: AgentTrace }
   | { kind: 'tool_call_start'; messageId: string; toolCall: ToolCall }
   | { kind: 'tool_call_args_delta'; messageId: string; toolCallId: string; argsDelta: string }
   | { kind: 'tool_call_status'; messageId: string; toolCallId: string; status: ToolCall['status']; result?: string; error?: string; durationMs?: number }
   | { kind: 'terminal_output_delta'; messageId: string; toolCallId: string; output: string }
-  | { kind: 'message_end'; messageId: string }
+  | { kind: 'message_end'; messageId: string; content?: string; rawContent?: string }
+  | { kind: 'injected_user_message'; conversationId: string; messageId: string; content: string }
   | { kind: 'error'; messageId?: string; message: string }
   | { kind: 'done'; conversationId: string; toolRoundsUsedTotal?: number; toolRoundsUsedSupervisorTotal?: number; maxToolRounds?: number }
   | { kind: 'history_replaced'; conversationId: string; messages: ChatMessage[] }

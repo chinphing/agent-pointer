@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Plus, Search, Settings, MessageSquare, Trash2, Bot } from 'lucide-vue-next'
+import { Plus, Search, Settings, MessageSquare, Trash2, Bot, Sparkles } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 
-defineEmits<{ (e: 'open-settings'): void }>()
+defineEmits<{ (e: 'open-settings'): void; (e: 'open-skills'): void }>()
 
 const chat = useChatStore()
 const settings = useSettingsStore()
@@ -88,7 +88,14 @@ const filteredConversations = computed(() => {
           </div>
         </div>
 
-        <div class="p-3 border-t border-white/5">
+        <div class="p-3 border-t border-white/5 flex items-center gap-1">
+          <button
+            class="h-8 w-8 rounded-lg hover:bg-white/5 flex items-center justify-center cursor-pointer transition"
+            @click="$emit('open-skills')"
+            title="技能库"
+          >
+            <Sparkles class="w-5 h-5 text-slate-400" />
+          </button>
           <button
             class="h-8 w-8 rounded-lg hover:bg-white/5 flex items-center justify-center cursor-pointer transition"
             @click="$emit('open-settings')"

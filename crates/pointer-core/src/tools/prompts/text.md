@@ -1,11 +1,9 @@
-# text 工具组
+# text tools
 
-## text_stats
+Use for basic text size statistics.
 
-用于统计文本的基础规模信息。
-
-使用规则：
-- 当用户需要字符数、词数、行数或字节数统计时调用。
-- 将需要统计的原文完整放入 `text` 参数。
-- `chars` 按 Unicode 字符统计，`bytes` 按 UTF-8 字节数统计。
-- 不要用该工具做语义总结、语言检测或复杂文本分析。
+Rules:
+- Call when the user needs character, word, line, or byte counts.
+- Put the full source text in the `text` argument.
+- `chars` counts Unicode scalar values; `bytes` counts UTF-8 bytes.
+- Do not use for semantic summarization, language detection, or deep text analysis.

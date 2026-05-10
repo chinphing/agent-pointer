@@ -1,1 +1,1 @@
-所有路径均相对于「工作区根」（设置中的 workspaceRoot，或当前进程目录）。勿使用 `..` 越界。`file_write` / `file_edit` 可能需用户审批。`grep_files` 使用 Rust 正则语法。
+All paths are relative to the workspace root (`workspaceRoot` in settings, or the process working directory). Do not escape with `..`. `file_write` / `file_edit` may require user approval. `grep_files` uses Rust regex syntax.

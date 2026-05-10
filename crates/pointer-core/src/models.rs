@@ -55,6 +55,8 @@ pub struct ChatMessage {
     pub error_message: Option<String>,
     #[serde(default)]
     pub reasoning: Option<String>,
+    #[serde(default, rename = "rawContent")]
+    pub raw_content: Option<String>,
     #[serde(default, rename = "agentId")]
     pub agent_id: Option<String>,
     #[serde(default, rename = "agentName")]
@@ -164,6 +166,9 @@ pub struct ModelSettings {
     /// Max tool-call rounds per assistant turn. Default 100.
     #[serde(default = "default_max_tool_rounds", rename = "maxToolRounds")]
     pub max_tool_rounds: u32,
+    /// When true, chat UI may show reasoning / raw model output inspector on assistant messages.
+    #[serde(default = "default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
+    pub raw_content_view_enabled: bool,
     /// Per-agent default model id (e.g. lead worker id, `"supervisor"`). Empty map = use global `model`.
     #[serde(default, rename = "agentDefaultModels")]
     pub agent_default_models: HashMap<String, String>,
@@ -195,6 +200,10 @@ fn default_context_summary_max_tokens() -> u32 {
 
 fn default_max_tool_rounds() -> u32 {
     100
+}
+
+fn default_raw_content_view_enabled() -> bool {
+    true
 }
 
 impl Default for ModelSettings {
@@ -240,6 +249,7 @@ impl Default for ModelSettings {
             context_keep_recent_user_turns: default_context_keep_recent_user_turns(),
             context_summary_max_tokens: default_context_summary_max_tokens(),
             max_tool_rounds: default_max_tool_rounds(),
+            raw_content_view_enabled: default_raw_content_view_enabled(),
             agent_default_models: HashMap::new(),
         }
     }
@@ -269,16 +279,11 @@ pub struct SkillImportResult {
     pub skipped: Vec<String>,
 }
 
+/// Tool identity exposed to the UI / API. Human-readable docs and JSON schema live in markdown
+/// (`tools/prompts/*.md`, computer `prompts/*.md` + `computer/schemas/*.json`) and in [`crate::tools::ToolEntry`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDef {
     pub name: String,
-    pub description: String,
-    #[serde(rename = "parametersSchema")]
-    pub parameters_schema: serde_json::Value,
-    #[serde(rename = "riskLevel")]
-    pub risk_level: String,
-    #[serde(rename = "requiresApproval")]
-    pub requires_approval: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -309,6 +314,11 @@ pub enum StreamEvent {
         conversation_id: String,
     },
     Delta {
+        #[serde(rename = "messageId")]
+        message_id: String,
+        text: String,
+    },
+    RawContentDelta {
         #[serde(rename = "messageId")]
         message_id: String,
         text: String,
@@ -362,6 +372,19 @@ pub enum StreamEvent {
     MessageEnd {
         #[serde(rename = "messageId")]
         message_id: String,
+        /// 与持久化助手消息对齐的最终正文（已去掉 XML 工具块等）
+        #[serde(skip_serializing_if = "Option::is_none")]
+        content: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", rename = "rawContent")]
+        raw_content: Option<String>,
+    },
+    /// Synthetic user row so the model (and UI history) see recovery instructions mid-run.
+    InjectedUserMessage {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "messageId")]
+        message_id: String,
+        content: String,
     },
     Error {
         #[serde(skip_serializing_if = "Option::is_none", rename = "messageId")]
@@ -408,10 +431,13 @@ pub struct OpenAIRequest<'a> {
     pub tool_choice: Option<&'a str>,
 }
 
-/// OpenAI-compatible APIs require: each `assistant` message that includes `tool_calls` must be
-/// immediately followed by one `tool` message per `tool_call_id`. The UI stores tool output on
-/// `assistant.toolCalls[].result` and often omits separate `role: tool` rows, so replay would 400.
-/// This expands history for the wire format only.
+/// The UI stores tool output on `assistant.toolCalls[].result` and often omits separate `role: tool`
+/// rows. We first **expand** to canonical assistant + synthetic `role: tool` rows (one per call id),
+/// then **`flatten_tool_rounds_computer_style_for_api`** matches PyProjects/Computer: assistant keeps
+/// full model text (`raw_content` if set, else `content`); each tool becomes a **`user`** message
+/// with JSON `{"tool_name","tool_result"}`. The **`response`** tool is excluded (Python
+/// `ResponseTool.after_execution` does not call `hist_add_tool_result`). No OpenAI-native `tool_calls`
+/// / `role: tool` in HTTP JSON.
 fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMessage> {
     let mut out: Vec<ChatMessage> = Vec::with_capacity(msgs.len());
     let mut i = 0usize;
@@ -437,6 +463,9 @@ fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMess
 
                     out.push(m.clone());
                     for tc in required {
+                        if tool_registry_base_name(&tc.name) == "response" {
+                            continue;
+                        }
                         let content = by_id
                             .get(tc.id.as_str())
                             .cloned()
@@ -451,6 +480,7 @@ fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMess
                             tool_call_id: Some(tc.id.clone()),
                             error_message: None,
                             reasoning: None,
+                            raw_content: None,
                             agent_id: None,
                             agent_name: None,
                             agent_trace: None,
@@ -467,6 +497,13 @@ fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMess
     out
 }
 
+fn tool_registry_base_name(name: &str) -> &str {
+    match name.trim().split_once(':') {
+        Some((base, rest)) if !base.is_empty() && !rest.trim().is_empty() => base.trim(),
+        _ => name.trim(),
+    }
+}
+
 fn synthetic_tool_content_for_replay(tc: &ToolCall) -> String {
     if let Some(e) = &tc.error {
         if !e.trim().is_empty() {
@@ -478,12 +515,111 @@ fn synthetic_tool_content_for_replay(tc: &ToolCall) -> String {
     })
 }
 
+/// Body text sent as assistant `content` on the wire (full XML / model output when available).
+fn assistant_wire_content(m: &ChatMessage) -> String {
+    if let Some(ref r) = m.raw_content {
+        if !r.trim().is_empty() {
+            return r.clone();
+        }
+    }
+    m.content.clone()
+}
+
+/// Align with PyProjects `Agent.hist_add_ai_response` + `hist_add_tool_result`: assistant message
+/// then **user** messages carrying `{"tool_name","tool_result"}` JSON (see `python/helpers/tool.py`).
+fn flatten_tool_rounds_computer_style_for_api(msgs: &[ChatMessage]) -> Vec<ChatMessage> {
+    let mut out: Vec<ChatMessage> = Vec::with_capacity(msgs.len());
+    let mut i = 0usize;
+    while i < msgs.len() {
+        let m = &msgs[i];
+        if matches!(m.role, Role::Assistant) {
+            if let Some(ref tcs) = m.tool_calls {
+                let required: Vec<&ToolCall> = tcs.iter().filter(|t| !t.id.is_empty()).collect();
+                if !required.is_empty() {
+                    let mut j = i + 1;
+                    while j < msgs.len() && matches!(msgs[j].role, Role::Tool) {
+                        j += 1;
+                    }
+                    let following = &msgs[(i + 1)..j];
+                    let mut by_id: HashMap<String, String> = HashMap::new();
+                    for tm in following {
+                        if let Some(id) = &tm.tool_call_id {
+                            if !id.is_empty() {
+                                by_id.insert(id.clone(), tm.content.clone());
+                            }
+                        }
+                    }
+
+                    let mut a = m.clone();
+                    a.content = assistant_wire_content(m);
+                    a.tool_calls = None;
+                    a.raw_content = None;
+                    out.push(a);
+
+                    for tc in required {
+                        if tool_registry_base_name(&tc.name) == "response" {
+                            continue;
+                        }
+                        let body = by_id
+                            .get(tc.id.as_str())
+                            .cloned()
+                            .unwrap_or_else(|| synthetic_tool_content_for_replay(tc));
+                        let payload = serde_json::json!({
+                            "tool_name": tc.name,
+                            "tool_result": body
+                        });
+                        out.push(ChatMessage {
+                            id: format!("tool_result_{}", tc.id),
+                            role: Role::User,
+                            content: payload.to_string(),
+                            status: "done".into(),
+                            created_at: m.created_at,
+                            tool_calls: None,
+                            tool_call_id: None,
+                            error_message: None,
+                            reasoning: None,
+                            raw_content: None,
+                            agent_id: m.agent_id.clone(),
+                            agent_name: m.agent_name.clone(),
+                            agent_trace: None,
+                        });
+                    }
+                    i = j;
+                    continue;
+                }
+            }
+        }
+        if matches!(m.role, Role::Tool) {
+            let mut u = m.clone();
+            u.role = Role::User;
+            u.content = format!(
+                "(orphan tool output, call_id={:?})\n{}",
+                m.tool_call_id, m.content
+            );
+            u.tool_call_id = None;
+            out.push(u);
+            i += 1;
+            continue;
+        }
+        let mut m2 = m.clone();
+        if matches!(m2.role, Role::Assistant) {
+            m2.content = assistant_wire_content(m);
+            m2.tool_calls = None;
+            m2.raw_content = None;
+        }
+        out.push(m2);
+        i += 1;
+    }
+    out
+}
+
 pub fn make_openai_messages(
     msgs: &[ChatMessage],
     system_prompts: &[String],
     include_reasoning_in_api: bool,
 ) -> Vec<serde_json::Value> {
     let expanded = expand_tool_messages_for_openai_request(msgs);
+    let flattened = flatten_tool_rounds_computer_style_for_api(&expanded);
     let mut out: Vec<serde_json::Value> = Vec::new();
     if !system_prompts.is_empty() {
         out.push(serde_json::json!({
@@ -491,7 +627,7 @@ pub fn make_openai_messages(
             "content": system_prompts.join("\n\n")
         }));
     }
-    for m in &expanded {
+    for m in &flattened {
         match m.role {
             Role::System => out.push(serde_json::json!({
                 "role": "system", "content": m.content
@@ -518,30 +654,11 @@ pub fn make_openai_messages(
                         }
                     }
                 }
-                // Always serialize every stored tool call. `status` is UI/runtime only; the API
-                // requires the preceding assistant message to list all `tool_calls` that have
-                // following `role: tool` replies. Backend history often keeps `pending` until
-                // the next round (frontend may update to success); filtering by status produced
-                // empty `tool_calls` and DeepSeek/OpenAI-compatible servers return 400.
-                if let Some(tcs) = &m.tool_calls {
-                    let arr: Vec<_> = tcs
-                        .iter()
-                        .filter(|t| !t.id.is_empty())
-                        .map(|t| {
-                            serde_json::json!({
-                                "id": t.id,
-                                "type": "function",
-                                "function": {
-                                    "name": t.name,
-                                    "arguments": t.arguments
-                                }
-                            })
-                        })
-                        .collect();
-                    if !arr.is_empty() {
-                        obj.insert("tool_calls".into(), serde_json::Value::Array(arr));
-                    }
-                }
+                // 不在此序列化 `tool_calls`：工具结果已拆成后续 `user` JSON 消息。
+                debug_assert!(
+                    m.tool_calls.as_ref().map(|t| t.is_empty()).unwrap_or(true),
+                    "assistant should not carry tool_calls after flatten"
+                );
                 out.push(serde_json::Value::Object(obj));
             }
             Role::Tool => out.push(serde_json::json!({
@@ -569,6 +686,7 @@ mod make_openai_messages_tests {
             tool_call_id: None,
             error_message: None,
             reasoning: None,
+            raw_content: None,
             agent_id: None,
             agent_name: None,
             agent_trace: None,
@@ -596,7 +714,7 @@ mod make_openai_messages_tests {
     }
 
     #[test]
-    fn includes_pending_tool_calls_for_api_replay() {
+    fn assistant_then_user_json_per_computer_style() {
         let mut a = msg(Role::Assistant);
         a.content = "x".into();
         a.tool_calls = Some(vec![ToolCall {
@@ -614,14 +732,19 @@ mod make_openai_messages_tests {
         t.content = "{}".into();
 
         let out = make_openai_messages(&[a, t], &[], true);
-        let tcs = out[0]["tool_calls"].as_array().expect("tool_calls");
-        assert_eq!(tcs.len(), 1);
-        assert_eq!(tcs[0]["id"], "call_abc");
-        assert_eq!(out[1]["role"], "tool");
+        assert_eq!(out.len(), 2, "assistant + user(tool_result)");
+        assert_eq!(out[0]["role"], "assistant");
+        assert!(out[0].as_object().unwrap().get("tool_calls").is_none());
+        assert_eq!(out[0]["content"], "x");
+        assert_eq!(out[1]["role"], "user");
+        let u: serde_json::Value =
+            serde_json::from_str(out[1]["content"].as_str().unwrap()).unwrap();
+        assert_eq!(u["tool_name"], "f");
+        assert_eq!(u["tool_result"], "{}");
     }
 
     #[test]
-    fn synthesizes_tool_messages_when_only_inline_results_on_assistant() {
+    fn synthesizes_inline_tool_as_user_json_after_expand() {
         let mut a = msg(Role::Assistant);
         a.content = "calling".into();
         a.tool_calls = Some(vec![ToolCall {
@@ -637,10 +760,56 @@ mod make_openai_messages_tests {
         let out = make_openai_messages(&[a], &[], true);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0]["role"], "assistant");
-        assert!(out[0]["tool_calls"].as_array().is_some());
-        assert_eq!(out[1]["role"], "tool");
-        assert_eq!(out[1]["tool_call_id"], "call_inline");
-        assert_eq!(out[1]["content"], "file body");
+        assert_eq!(out[0]["content"], "calling");
+        assert_eq!(out[1]["role"], "user");
+        let u: serde_json::Value =
+            serde_json::from_str(out[1]["content"].as_str().unwrap()).unwrap();
+        assert_eq!(u["tool_name"], "read");
+        assert_eq!(u["tool_result"], "file body");
+    }
+
+    #[test]
+    fn assistant_prefers_raw_content_on_wire() {
+        let mut a = msg(Role::Assistant);
+        a.content = "visible".into();
+        a.raw_content = Some("<response><tool_name>x</tool_name></response>".into());
+        a.tool_calls = Some(vec![ToolCall {
+            id: "c1".into(),
+            name: "wait".into(),
+            arguments: "{}".into(),
+            status: "success".into(),
+            result: Some("done".into()),
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+        }]);
+        let out = make_openai_messages(&[a], &[], false);
+        assert_eq!(out[0]["content"], "<response><tool_name>x</tool_name></response>");
+    }
+
+    #[test]
+    fn response_tool_has_no_user_tool_result_message() {
+        let mut a = msg(Role::Assistant);
+        a.content = "".into();
+        a.raw_content = Some("<response><tool_name>response</tool_name></response>".into());
+        a.tool_calls = Some(vec![ToolCall {
+            id: "c_resp".into(),
+            name: "response".into(),
+            arguments: r#"{"text":"Hi"}"#.into(),
+            status: "success".into(),
+            result: None,
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+        }]);
+
+        let out = make_openai_messages(&[a], &[], false);
+        assert_eq!(out.len(), 1, "assistant only, like PyProjects response tool");
+        assert_eq!(out[0]["role"], "assistant");
+        assert_eq!(
+            out[0]["content"],
+            "<response><tool_name>response</tool_name></response>"
+        );
     }
 }
 

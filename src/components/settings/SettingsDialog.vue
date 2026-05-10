@@ -41,6 +41,7 @@ const contextBudgetChars = ref(120_000)
 const contextKeepRecentUserTurns = ref(6)
 const contextSummaryMaxTokens = ref(1024)
 const maxToolRounds = ref(100)
+const rawContentViewEnabled = ref(true)
 const agents = ref<AgentDef[]>([])
 
 const editingProvider = ref<ProviderConfig | null>(null)
@@ -185,6 +186,7 @@ onMounted(() => {
   contextKeepRecentUserTurns.value = s.settings.contextKeepRecentUserTurns ?? 6
   contextSummaryMaxTokens.value = s.settings.contextSummaryMaxTokens ?? 1024
   maxToolRounds.value = s.settings.maxToolRounds ?? 100
+  rawContentViewEnabled.value = s.settings.rawContentViewEnabled !== false
   loadAgents()
 })
 
@@ -265,6 +267,40 @@ function removeProvider(id: string) {
   }
 }
 
+/** Get agent default model with provider prefix: "providerId:model" */
+function getAgentModelWithProvider(agentId: string): string {
+  const model = s.getAgentDefaultModel(agentId)
+  if (!model) return ''
+  // Find which provider this model belongs to
+  for (const p of s.settings.providers) {
+    if (p.models.includes(model)) {
+      return `${p.id}:${model}`
+    }
+  }
+  // Fallback: model not found in any provider, return as-is
+  return model
+}
+
+/** Select agent model with provider prefix: "providerId:model" */
+async function selectAgentModelWithProvider(agentId: string, value: string) {
+  if (!value) {
+    // Clear to use global default
+    await s.setAgentDefaultModel(agentId, '')
+    return
+  }
+  const [providerId, model] = value.split(':')
+  if (providerId && model) {
+    // Switch active provider if needed
+    if (s.settings.activeProviderId !== providerId) {
+      await s.setActiveProvider(providerId)
+    }
+    await s.setAgentDefaultModel(agentId, model)
+  } else {
+    // Fallback: treat value as plain model name
+    await s.setAgentDefaultModel(agentId, value)
+  }
+}
+
 async function saveAll() {
   saving.value = true
   try {
@@ -282,7 +318,8 @@ async function saveAll() {
       contextBudgetChars: Number(contextBudgetChars.value),
       contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
       contextSummaryMaxTokens: Number(contextSummaryMaxTokens.value),
-      maxToolRounds: Number(maxToolRounds.value)
+      maxToolRounds: Number(maxToolRounds.value),
+      rawContentViewEnabled: rawContentViewEnabled.value
     })
     emit('close')
   } finally {
@@ -508,6 +545,19 @@ async function saveAll() {
               </div>
             </div>
 
+            <div class="rounded-xl border border-white/5 bg-black/20 p-4">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <h4 class="text-sm font-medium text-slate-100">原始内容查看</h4>
+                  <p class="mt-1 text-[11px] text-slate-500">在助手消息上显示「推理与原始输出」入口，用于查看模型 reasoning 与未裁剪的原始回复。</p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input v-model="rawContentViewEnabled" type="checkbox" class="sr-only peer" />
+                  <div class="w-9 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-cyan" />
+                </label>
+              </div>
+            </div>
+
             <!-- Context Compression -->
             <div class="rounded-xl border border-white/5 bg-black/20 p-5 space-y-4">
               <div class="flex items-center justify-between">
@@ -581,13 +631,13 @@ async function saveAll() {
                         <Sparkles class="w-3.5 h-3.5 text-primary-fuchsia shrink-0" />
                         <span class="text-[11px] text-slate-400 shrink-0">默认模型</span>
                         <select
-                          :value="s.getAgentDefaultModel(w.id) || ''"
-                          @change.stop="s.setAgentDefaultModel(w.id, ($event.target as HTMLSelectElement).value)"
+                          :value="getAgentModelWithProvider(w.id)"
+                          @change.stop="selectAgentModelWithProvider(w.id, ($event.target as HTMLSelectElement).value)"
                           @click.stop
                           class="w-48 h-7 px-2 rounded bg-black/30 border border-white/10 text-[11px] text-slate-300 cursor-pointer outline-none focus:border-primary/50 transition-colors"
                         >
                           <option value="">使用全局默认</option>
-                          <option v-for="m in s.activeModelList" :key="m" :value="m">{{ m }}</option>
+                          <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                         </select>
                       </div>
                       <div v-if="isCoderAgent(w)" class="flex items-center gap-1.5">
@@ -635,13 +685,13 @@ async function saveAll() {
                       <Sparkles class="w-3.5 h-3.5 text-primary-fuchsia shrink-0" />
                       <span class="text-[11px] text-slate-400 shrink-0">默认模型</span>
                       <select
-                        :value="s.getAgentDefaultModel('supervisor') || ''"
-                        @change.stop="s.setAgentDefaultModel('supervisor', ($event.target as HTMLSelectElement).value)"
+                        :value="getAgentModelWithProvider('supervisor')"
+                        @change.stop="selectAgentModelWithProvider('supervisor', ($event.target as HTMLSelectElement).value)"
                         @click.stop
                         class="w-48 h-7 px-2 rounded bg-black/30 border border-white/10 text-[11px] text-slate-300 cursor-pointer outline-none focus:border-primary/50 transition-colors"
                       >
                         <option value="">使用全局默认</option>
-                        <option v-for="m in s.activeModelList" :key="m" :value="m">{{ m }}</option>
+                        <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
                       </select>
                     </div>
                   </div>

@@ -9,12 +9,14 @@ import { useSkillsStore } from './stores/skills'
 /** Lazy: large SFC + many icons; keeps dev / first-paint transform graph small. */
 const loadSettingsDialog = () => import('./components/settings/SettingsDialog.vue')
 const SettingsDialog = defineAsyncComponent(loadSettingsDialog)
+const SkillPicker = defineAsyncComponent(() => import('./components/skills/SkillPicker.vue'))
 
 const chat = useChatStore()
 const settings = useSettingsStore()
 const skills = useSkillsStore()
 
 const showSettings = ref(false)
+const showSkills = ref(false)
 
 onMounted(async () => {
   void loadSettingsDialog()
@@ -26,9 +28,11 @@ onMounted(async () => {
 <template>
   <AppShell
     @open-settings="showSettings = true"
+    @open-skills="showSkills = true"
   >
     <ChatView />
   </AppShell>
 
   <SettingsDialog v-if="showSettings" @close="showSettings = false" />
+  <SkillPicker v-if="showSkills" @close="showSkills = false" />
 </template>

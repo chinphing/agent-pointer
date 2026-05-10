@@ -4,7 +4,6 @@
 
 pub mod args_util;
 mod tool_composite;
-mod tool_computer;
 mod tool_hotkey;
 mod tool_modified_click;
 mod tool_mouse;
@@ -15,7 +14,7 @@ use crate::tools::{load_tool_doc_and_schema, ToolEntry, ToolRegistry};
 use std::sync::Arc;
 use tool_modified_click::ModifiedClickTool;
 
-/// Register all computer-use tools (mouse, hotkey, composite_action, modified_click, computer, wait).
+/// Register all computer-use tools (mouse, hotkey, composite_action, modified_click, wait).
 pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     let mouse_state = state.clone();
     let (mouse_schema, mouse_doc) =
@@ -100,25 +99,6 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 modified_state.executor.clone(),
                 modified_state.vision_state.clone(),
             );
-            tool.execute(&method, &args)
-        }),
-    ));
-
-    let (computer_schema, computer_doc) =
-        load_tool_doc_and_schema(include_str!("prompts/computer.md")).expect("prompts/computer.md schema");
-    reg.register(ToolEntry::new(
-        "computer",
-        "low",
-        false,
-        computer_schema,
-        computer_doc.trim(),
-        None,
-        Arc::new(move |args| {
-            let method = args["method"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                .to_string();
-            let tool = tool_computer::ComputerMetaTool;
             tool.execute(&method, &args)
         }),
     ));

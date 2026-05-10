@@ -1,5 +1,13 @@
 //! `message_loop_prompts_after` — `_10_computer_screen_inject` (Python `agents/computer/extensions/...` analogue).
+//!
+//! OS / locale / local time for the model are in the shared system prompt prefix (`chat_service::build_env_context`); this hook only adds `[CUR_SCREEN]` vision payloads.
 
+use crate::agents::computer::screen;
+use crate::agents::computer::screen_overlay::{
+    SLOT_CURRENT_SCREEN_RAW, SLOT_PREVIOUS_SCREEN_RAW, SLOT_SCREEN_ANNOTATED,
+    SLOT_SCREEN_ZOOMED_BOTTOM, SLOT_SCREEN_ZOOMED_POINTER, SLOT_SCREEN_ZOOMED_TOP,
+};
+use crate::agents::computer::ScreenCaptureResult;
 use crate::agents::AgentProfile;
 use crate::extensions::{
     new_extension_message_id, ExtensionRegistry, MessageLoopPromptsAfterContext,
@@ -9,6 +17,42 @@ use crate::models::{ChatMessage, Role, StreamEvent};
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
+
+const CUR_SCREEN_TAG: &str = "[CUR_SCREEN]";
+
+/// Remove vision payloads from all messages already in history so older frames do not affect the model’s read of the latest `[CUR_SCREEN]`.
+pub(crate) fn strip_images_from_prior_messages(messages: &mut [ChatMessage]) {
+    for m in messages.iter_mut() {
+        m.images_base64 = None;
+    }
+}
+
+fn build_cur_screen_text(has_previous_raw: bool) -> String {
+    let hint = "Use raw frames to see what changed turn-to-turn; the annotated frame shows numbered targets; the three zooms help read the top bar, bottom bar, and details near the pointer. A pointer and text caret may be drawn on the raw and annotated images.";
+    let order = if has_previous_raw {
+        format!(
+            "Order: (1) {SLOT_PREVIOUS_SCREEN_RAW} (2) {SLOT_CURRENT_SCREEN_RAW} (3) {SLOT_SCREEN_ANNOTATED} (4) {SLOT_SCREEN_ZOOMED_TOP} (5) {SLOT_SCREEN_ZOOMED_BOTTOM} (6) {SLOT_SCREEN_ZOOMED_POINTER}. {hint}"
+        )
+    } else {
+        format!(
+            "Order: (1) {SLOT_CURRENT_SCREEN_RAW} (2) {SLOT_SCREEN_ANNOTATED} (3) {SLOT_SCREEN_ZOOMED_TOP} (4) {SLOT_SCREEN_ZOOMED_BOTTOM} (5) {SLOT_SCREEN_ZOOMED_POINTER}. {hint}"
+        )
+    };
+    format!("{CUR_SCREEN_TAG} {order}\n")
+}
+
+fn assemble_cur_screen_base64(cap: &ScreenCaptureResult) -> Vec<String> {
+    let mut out = Vec::with_capacity(6);
+    if let Some(p) = &cap.inject_previous_raw_jpeg {
+        out.push(screen::encode_image_to_base64(p));
+    }
+    out.push(screen::encode_image_to_base64(&cap.raw_marked_jpeg));
+    out.push(screen::encode_image_to_base64(&cap.annotated_marked_png));
+    out.push(screen::encode_image_to_base64(&cap.zoom_menu_bar_png));
+    out.push(screen::encode_image_to_base64(&cap.zoom_task_bar_png));
+    out.push(screen::encode_image_to_base64(&cap.zoom_pointer_png));
+    out
+}
 
 pub fn register(registry: &mut ExtensionRegistry) {
     registry.register_message_loop_prompts_after(Arc::new(ComputerScreenInject));
@@ -61,20 +105,16 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
         );
 
         match ctx.computer_state.capture_and_annotate().await {
-            Ok((png, monitor)) => {
+            Ok(cap) => {
                 emit_screen_notice_update(
                     ctx,
                     notice_id,
-                    format!(
-                        "【桌面】已截图并完成标注（{}×{}），模型已收到当前画面。",
-                        monitor.width, monitor.height
-                    ),
+                    "【桌面】已更新当前画面（原图/标注/放大）。".to_string(),
                 );
-                let b64 = super::super::screen::encode_image_to_base64(&png);
-                let text = format!(
-                    "[CUR_SCREEN] Annotated desktop; numbered overlays mark UI regions. Prefer tools that use overlay indices (e.g. click_index).\nGlobal screen bounds (px): left={} top={} width={} height={}. Normalized coordinate tools use 0–1000 (qwen).\n",
-                    monitor.left, monitor.top, monitor.width, monitor.height
-                );
+                strip_images_from_prior_messages(ctx.messages.as_mut_slice());
+                let has_previous_raw = cap.inject_previous_raw_jpeg.is_some();
+                let images = assemble_cur_screen_base64(&cap);
+                let text = build_cur_screen_text(has_previous_raw);
                 ctx.messages.push(ChatMessage {
                     id: new_extension_message_id("screen_inject"),
                     role: Role::User,
@@ -91,7 +131,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     agent_id: None,
                     agent_name: None,
                     agent_trace: None,
-                    images_base64: Some(vec![b64]),
+                    images_base64: Some(images),
                 });
             }
             Err(e) => {
@@ -101,11 +141,12 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     notice_id,
                     format!("【桌面】截图或标注失败：{e}"),
                 );
+                strip_images_from_prior_messages(ctx.messages.as_mut_slice());
                 ctx.messages.push(ChatMessage {
                     id: new_extension_message_id("screen_inject"),
                     role: Role::User,
                     content: format!(
-                        "[CUR_SCREEN] Screen capture or UI annotation failed: {e}\nYou cannot rely on a fresh desktop image this turn. Suggest checking screen permissions, annotation service reachability (annotateApiBase / COMPUTER_ANNOTATE_API_BASE), or retrying."
+                        "{CUR_SCREEN_TAG} Screen capture or UI annotation failed: {e}\nYou cannot rely on a fresh desktop image this turn. The user may need to grant screen capture access or ensure the desktop annotation service is available; suggest retrying after that."
                     ),
                     status: "done".into(),
                     created_at: crate::extensions::now_ms(),
@@ -124,5 +165,62 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ChatMessage;
+
+    fn msg_with_images(images: Option<Vec<&str>>) -> ChatMessage {
+        ChatMessage {
+            id: "m1".into(),
+            role: Role::User,
+            content: "[CUR_SCREEN] test".into(),
+            status: "done".into(),
+            created_at: 0,
+            tool_calls: None,
+            tool_call_id: None,
+            error_message: None,
+            reasoning: None,
+            thoughts: None,
+            headline: None,
+            raw_content: None,
+            agent_id: None,
+            agent_name: None,
+            agent_trace: None,
+            images_base64: images.map(|v| v.into_iter().map(String::from).collect()),
+        }
+    }
+
+    #[test]
+    fn strip_prior_clears_images_without_touching_text() {
+        let mut msgs = vec![msg_with_images(Some(vec!["aaa"]))];
+        strip_images_from_prior_messages(&mut msgs);
+        assert!(msgs[0].images_base64.is_none());
+        assert_eq!(msgs[0].content, "[CUR_SCREEN] test");
+    }
+
+    #[test]
+    fn strip_prior_clears_all_messages() {
+        let mut msgs = vec![
+            msg_with_images(Some(vec!["a"])),
+            ChatMessage {
+                content: "hello".into(),
+                ..msg_with_images(Some(vec!["b"]))
+            },
+        ];
+        strip_images_from_prior_messages(&mut msgs);
+        assert!(msgs[0].images_base64.is_none());
+        assert!(msgs[1].images_base64.is_none());
+        assert_eq!(msgs[1].content, "hello");
+    }
+
+    #[test]
+    fn legend_lists_all_slots_when_no_prev() {
+        let t = build_cur_screen_text(false);
+        assert!(t.contains(SLOT_CURRENT_SCREEN_RAW));
+        assert!(t.contains(SLOT_SCREEN_ZOOMED_POINTER));
     }
 }

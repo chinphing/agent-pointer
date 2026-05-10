@@ -7,6 +7,7 @@ pub mod coord;
 /// Computer-specific [`crate::extensions`] hooks (e.g. screen inject).
 pub mod extension_hooks;
 pub mod screen;
+pub mod screen_overlay;
 /// ToolRegistry handlers, JSON schemas, and prompts for computer use.
 pub mod tools;
 pub mod verify;
@@ -19,12 +20,32 @@ use annotate::AnnotateClient;
 use coord::CoordinateSystem;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use screen_overlay::build_vision_overlay_pack;
 use vision_state::VisionState;
 
 /// Default annotation service URL.
 const DEFAULT_ANNOTATE_API_BASE: &str = "http://127.0.0.1:8000";
 /// Config key for the annotation service URL in Computer Agent's config.
 const CONFIG_KEY_ANNOTATE_API_BASE: &str = "annotateApiBase";
+
+/// Successful capture + annotation for one model turn (consumers: screen inject, UI preview).
+#[derive(Debug, Clone)]
+pub struct ScreenCaptureResult {
+    /// Marked raw JPEG for this turn (pointer/caret drawn after annotate step).
+    pub raw_marked_jpeg: Vec<u8>,
+    /// Marked annotated PNG (indices from service + pointer/caret).
+    pub annotated_marked_png: Vec<u8>,
+    /// Zoom: top 100px of marked annotated (menu bar).
+    pub zoom_menu_bar_png: Vec<u8>,
+    /// Zoom: bottom 100px of marked annotated (task bar).
+    pub zoom_task_bar_png: Vec<u8>,
+    /// Zoom: ≤300×300 around pointer on marked annotated.
+    pub zoom_pointer_png: Vec<u8>,
+    /// Logical monitor bounds for this capture.
+    pub monitor: screen::MonitorInfo,
+    /// Previous turn’s **marked** raw JPEG (`None` on first capture in a session).
+    pub inject_previous_raw_jpeg: Option<Vec<u8>>,
+}
 
 /// Shared state for computer use tools.
 ///
@@ -40,6 +61,8 @@ pub struct ComputerState {
     /// Last successful annotated PNG + monitor bounds.
     /// Written by [`Self::capture_and_annotate`] (including `_10_computer_screen_inject`); UI preview reads this for parity with model vision input.
     last_annotated: Arc<Mutex<Option<(Vec<u8>, screen::MonitorInfo)>>>,
+    /// Raw JPEG from the last successful capture; offered as “previous turn” on the **next** `[CUR_SCREEN]` inject.
+    last_turn_raw_jpeg: Arc<Mutex<Option<Vec<u8>>>>,
 }
 
 impl std::fmt::Debug for ComputerState {
@@ -49,8 +72,14 @@ impl std::fmt::Debug for ComputerState {
             .lock()
             .ok()
             .and_then(|g| g.as_ref().map(|(b, m)| (b.len(), *m)));
+        let prev_raw = self
+            .last_turn_raw_jpeg
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().map(|b| b.len()));
         f.debug_struct("ComputerState")
             .field("last_annotated_png_len_and_monitor", &snap)
+            .field("last_turn_raw_jpeg_bytes", &prev_raw)
             .finish_non_exhaustive()
     }
 }
@@ -97,26 +126,34 @@ impl ComputerState {
             vision_state,
             annotate_client,
             last_annotated: Arc::new(Mutex::new(None)),
+            last_turn_raw_jpeg: Arc::new(Mutex::new(None)),
         }
     }
 
-    /// Capture the display under the cursor, call the annotation service, and refresh [`VisionState`].
+    /// Run annotation + vision refresh for an already-captured desktop JPEG (integration tests, tooling).
     ///
-    /// Returns PNG bytes of the **annotated** image (for model input) and the [`screen::MonitorInfo`]
-    /// for that capture. Raw capture is JPEG from [`screen::screenshot_current_monitor`] (fast encode);
-    /// the annotate client still uploads a prepared PNG to the service. Capture uses `xcap`.
-    pub async fn capture_and_annotate(
+    /// On success, stores `screen_capture` for use as the **previous** raw on the next inject.
+    pub async fn apply_screen_capture(
         &self,
-    ) -> anyhow::Result<(Vec<u8>, screen::MonitorInfo)> {
+        screen_capture: &[u8],
+        monitor: screen::MonitorInfo,
+        capture_px: (u32, u32),
+        global_pointer: (i32, i32),
+        global_caret: Option<(i32, i32)>,
+    ) -> anyhow::Result<ScreenCaptureResult> {
         let t_total = Instant::now();
 
-        let t = Instant::now();
-        let (screen_capture, monitor, capture_px) = screen::screenshot_current_monitor()?;
-        let screen_ms = t.elapsed().as_secs_f64() * 1000.0;
+        let inject_previous_raw_jpeg = self.last_turn_raw_jpeg.lock().unwrap().clone();
 
         let t = Instant::now();
-        let (annotated, boxes) = self.annotate_client.annotate_image(&screen_capture).await?;
+        let ann = self
+            .annotate_client
+            .annotate_image(screen_capture)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
         let annotate_ms = t.elapsed().as_secs_f64() * 1000.0;
+        let annotated_png = ann.image;
+        let boxes = ann.boxes;
 
         let t = Instant::now();
         let mut vision = self.vision_state.lock().unwrap();
@@ -127,35 +164,83 @@ impl ComputerState {
         let vision_ms = t.elapsed().as_secs_f64() * 1000.0;
 
         let t = Instant::now();
+        let pack = build_vision_overlay_pack(
+            screen_capture,
+            &annotated_png,
+            &monitor,
+            global_pointer,
+            global_caret,
+        )
+        .map_err(|e| anyhow::anyhow!(e))?;
+        let overlay_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+        *self.last_turn_raw_jpeg.lock().unwrap() = Some(pack.raw_marked_jpeg.clone());
+
+        let t = Instant::now();
         if let Ok(mut g) = self.last_annotated.lock() {
-            *g = Some((annotated.clone(), monitor));
+            *g = Some((pack.annotated_marked_png.clone(), monitor));
         }
         let cache_ms = t.elapsed().as_secs_f64() * 1000.0;
 
         let total_ms = t_total.elapsed().as_secs_f64() * 1000.0;
         log::info!(
-            "capture_and_annotate: screenshot {:.1}ms, annotate_http {:.1}ms, vision_state {:.1}ms, last_frame_cache {:.1}ms, total {:.1}ms ({} boxes)",
-            screen_ms,
+            "apply_screen_capture: annotate_http {:.1}ms, vision_state {:.1}ms, overlay_zoom {:.1}ms, last_frame_cache {:.1}ms, total {:.1}ms ({} boxes)",
             annotate_ms,
             vision_ms,
+            overlay_ms,
             cache_ms,
             total_ms,
             boxes.len()
         );
 
-        Ok((annotated, monitor))
+        Ok(ScreenCaptureResult {
+            raw_marked_jpeg: pack.raw_marked_jpeg,
+            annotated_marked_png: pack.annotated_marked_png,
+            zoom_menu_bar_png: pack.zoom_menu_bar_png,
+            zoom_task_bar_png: pack.zoom_task_bar_png,
+            zoom_pointer_png: pack.zoom_pointer_png,
+            monitor,
+            inject_previous_raw_jpeg,
+        })
+    }
+
+    /// Capture the display under the cursor, call the annotation service, and refresh [`VisionState`].
+    ///
+    /// Raw capture is JPEG from [`screen::screenshot_current_monitor`] (fast encode); the annotate
+    /// client uploads a prepared PNG to the service. Capture uses `xcap`.
+    pub async fn capture_and_annotate(&self) -> anyhow::Result<ScreenCaptureResult> {
+        let t_total = Instant::now();
+
+        let t = Instant::now();
+        let shot = screen::screenshot_current_monitor()?;
+        let screen_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+        let out = self
+            .apply_screen_capture(
+                &shot.jpeg,
+                shot.monitor,
+                shot.capture_px,
+                shot.global_pointer,
+                shot.global_caret,
+            )
+            .await?;
+
+        log::info!(
+            "capture_and_annotate: screenshot {:.1}ms, total_with_pipeline {:.1}ms",
+            screen_ms,
+            t_total.elapsed().as_secs_f64() * 1000.0
+        );
+
+        Ok(out)
     }
 
     /// Latest annotated screenshot (PNG bytes already shown to the model), if any.
     pub fn cached_annotated_preview(&self) -> Option<ComputerAnnotatedPreview> {
         let g = self.last_annotated.lock().ok()?;
-        let (png, monitor) = g.as_ref()?;
+        let (png, _monitor) = g.as_ref()?;
         Some(ComputerAnnotatedPreview {
             image_base64: screen::encode_image_to_base64(png),
-            caption: format!(
-                "Annotated desktop · global bounds (px): left={} top={} width={} height={}",
-                monitor.left, monitor.top, monitor.width, monitor.height
-            ),
+            caption: "Annotated desktop".into(),
         })
     }
 }

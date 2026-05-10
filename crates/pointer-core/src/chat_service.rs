@@ -148,6 +148,7 @@ fn emit(tx: &StreamTx, ev: StreamEvent) {
     }
 }
 
+/// Prepended to the system prompt for every chat (all agent profiles). Computer `[CUR_SCREEN]` inject does not repeat this block.
 fn build_env_context() -> String {
     let os = env::consts::OS;
     let os_label = match os {

@@ -1,7 +1,8 @@
-use anyhow::{anyhow, Result};
 use reqwest::multipart;
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fmt;
 use std::io::Cursor;
 use std::time::{Duration, Instant};
 
@@ -19,6 +20,74 @@ const DEFAULT_PADDING: i32 = 3;
 const CAP_ANNOTATE_MAX_LONG_EDGE: u32 = 1920;
 /// Optional override to **reduce** size (e.g. avoid 413); clamped to `[320, CAP_ANNOTATE_MAX_LONG_EDGE]`.
 const ENV_ANNOTATE_MAX_LONG_EDGE: &str = "COMPUTER_ANNOTATE_MAX_LONG_EDGE";
+
+/// Errors from the annotation HTTP client (§3.2.2).
+#[derive(Debug)]
+pub enum AnnotateError {
+    /// Transport / connection failure.
+    Network(String),
+    /// Non-success HTTP status from the annotation service.
+    ServiceError { status: u16, body: String },
+    /// Response body could not be interpreted (JSON, base64, geometry).
+    InvalidResponse(String),
+    /// Input image could not be decoded or re-encoded for upload.
+    ImageEncode(String),
+    /// Failed to build the HTTP client.
+    ClientBuild(String),
+}
+
+impl fmt::Display for AnnotateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AnnotateError::Network(s) => write!(f, "annotation network error: {s}"),
+            AnnotateError::ServiceError { status, body } => {
+                write!(f, "annotation service error (HTTP {status}): {body}")
+            }
+            AnnotateError::InvalidResponse(s) => write!(f, "annotation invalid response: {s}"),
+            AnnotateError::ImageEncode(s) => write!(f, "annotation image encode: {s}"),
+            AnnotateError::ClientBuild(s) => write!(f, "annotation client: {s}"),
+        }
+    }
+}
+
+impl std::error::Error for AnnotateError {}
+
+/// Request body contract for `POST /api/v1/annotate/all` (§3.2.2 appendix).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnnotateRequest {
+    /// Raw image bytes (any format supported by [`image::load_from_memory`]; typically JPEG or PNG).
+    pub image: Vec<u8>,
+    pub threshold: f32,
+    pub overlap_threshold: f32,
+    pub padding: i32,
+}
+
+impl AnnotateRequest {
+    /// Default thresholds matching the live annotation service contract.
+    pub fn with_image(image: Vec<u8>) -> Self {
+        Self {
+            image,
+            threshold: DEFAULT_THRESHOLD,
+            overlap_threshold: DEFAULT_OVERLAP_THRESHOLD,
+            padding: DEFAULT_PADDING,
+        }
+    }
+}
+
+/// Successful annotation result: overlay image + boxes in **capture / bitmap** space.
+#[derive(Debug, Clone)]
+pub struct AnnotateResponse {
+    pub image: Vec<u8>,
+    pub boxes: Vec<BoxInfo>,
+}
+
+/// Map from overlay index to box geometry in bitmap space (§3.2.2).
+pub type IndexMap = HashMap<u32, BoxInfo>;
+
+/// Build an [`IndexMap`] from a box list (one entry per index).
+pub fn boxes_to_index_map(boxes: &[BoxInfo]) -> IndexMap {
+    boxes.iter().map(|b| (b.index, b.clone())).collect()
+}
 
 /// Information about a detected UI element bounding box.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -71,7 +140,7 @@ pub struct AnnotateClient {
 
 impl AnnotateClient {
     /// Create a new AnnotateClient with default settings.
-    pub fn new() -> Result<Self> {
+    pub fn new() -> Result<Self, AnnotateError> {
         Self::with_base_url(DEFAULT_ANNOTATE_API_BASE)
     }
 
@@ -79,11 +148,11 @@ impl AnnotateClient {
     ///
     /// # Arguments
     /// * `base_url` - The base URL of the annotation service.
-    pub fn with_base_url(base_url: &str) -> Result<Self> {
+    pub fn with_base_url(base_url: &str) -> Result<Self, AnnotateError> {
         let client = Client::builder()
             .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECONDS))
             .build()
-            .map_err(|e| anyhow!("Failed to create HTTP client: {}", e))?;
+            .map_err(|e| AnnotateError::ClientBuild(e.to_string()))?;
 
         Ok(Self {
             client,
@@ -93,23 +162,44 @@ impl AnnotateClient {
 
     /// Create a new AnnotateClient from environment variables.
     /// Uses `COMPUTER_ANNOTATE_API_BASE` for the base URL if set.
-    pub fn from_env() -> Result<Self> {
+    pub fn from_env() -> Result<Self, AnnotateError> {
         let base_url = std::env::var("COMPUTER_ANNOTATE_API_BASE")
             .unwrap_or_else(|_| DEFAULT_ANNOTATE_API_BASE.to_string());
         Self::with_base_url(&base_url)
     }
 
-    /// Send an image to the annotation service and get back annotated results.
+    /// Annotate using an explicit [`AnnotateRequest`] (thresholds + image).
+    pub async fn annotate(&self, req: &AnnotateRequest) -> Result<AnnotateResponse, AnnotateError> {
+        self.annotate_inner(
+            &req.image,
+            req.threshold,
+            req.overlap_threshold,
+            req.padding,
+        )
+        .await
+    }
+
+    /// Send an image to the annotation service and get back annotated results (default thresholds).
     ///
     /// # Arguments
-    /// * `image_bytes` - Raw PNG image bytes.
-    ///
-    /// # Returns
-    /// A tuple of (annotated_image_bytes, detected_boxes).
-    ///
-    /// # Errors
-    /// Returns an error if the HTTP request fails or the response is invalid.
-    pub async fn annotate_image(&self, image_bytes: &[u8]) -> Result<(Vec<u8>, Vec<BoxInfo>)> {
+    /// * `image_bytes` - Raw screenshot bytes (e.g. JPEG or PNG).
+    pub async fn annotate_image(&self, image_bytes: &[u8]) -> Result<AnnotateResponse, AnnotateError> {
+        self.annotate_inner(
+            image_bytes,
+            DEFAULT_THRESHOLD,
+            DEFAULT_OVERLAP_THRESHOLD,
+            DEFAULT_PADDING,
+        )
+        .await
+    }
+
+    async fn annotate_inner(
+        &self,
+        image_bytes: &[u8],
+        threshold: f32,
+        overlap_threshold: f32,
+        padding: i32,
+    ) -> Result<AnnotateResponse, AnnotateError> {
         let t_total = Instant::now();
 
         let max_edge = std::env::var(ENV_ANNOTATE_MAX_LONG_EDGE)
@@ -130,12 +220,12 @@ impl AnnotateClient {
         let file_part = multipart::Part::bytes(png_bytes)
             .file_name("screen.png")
             .mime_str("image/png")
-            .map_err(|e| anyhow!("annotate multipart file part: {}", e))?;
+            .map_err(|e| AnnotateError::InvalidResponse(e.to_string()))?;
         let form = multipart::Form::new()
             .part("file", file_part)
-            .text("threshold", format!("{}", DEFAULT_THRESHOLD))
-            .text("overlap_threshold", format!("{}", DEFAULT_OVERLAP_THRESHOLD))
-            .text("padding", format!("{}", DEFAULT_PADDING));
+            .text("threshold", format!("{threshold}"))
+            .text("overlap_threshold", format!("{overlap_threshold}"))
+            .text("padding", format!("{padding}"));
         let form_ms = t.elapsed().as_secs_f64() * 1000.0;
 
         let url = format!("{}/api/v1/annotate/all", self.base_url);
@@ -146,30 +236,27 @@ impl AnnotateClient {
             .multipart(form)
             .send()
             .await
-            .map_err(|e| anyhow!("Annotation request failed: {}", e))?;
+            .map_err(|e| AnnotateError::Network(e.to_string()))?;
 
         if !response.status().is_success() {
-            let status = response.status();
+            let status = response.status().as_u16();
             let text = response
                 .text()
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(anyhow!(
-                "Annotation service returned error ({}): {}",
-                status,
-                text
-            ));
+            return Err(AnnotateError::ServiceError { status, body: text });
         }
 
         let annotate_response: AnnotateAllResponse = response
             .json()
             .await
-            .map_err(|e| anyhow!("Failed to parse annotation response: {}", e))?;
+            .map_err(|e| AnnotateError::InvalidResponse(e.to_string()))?;
         let http_ms = t.elapsed().as_secs_f64() * 1000.0;
 
         let t = Instant::now();
         let boxes_api = boxes_xyxy_to_box_infos(&annotate_response.boxes)?;
-        let image_bytes = decode_base64_image(strip_data_url_prefix(&annotate_response.image_base64))?;
+        let out_image =
+            decode_base64_image(strip_data_url_prefix(&annotate_response.image_base64))?;
         let boxes = scale_boxes_to_capture_space(boxes_api, scale_x, scale_y);
         let decode_ms = t.elapsed().as_secs_f64() * 1000.0;
 
@@ -184,7 +271,10 @@ impl AnnotateClient {
             max_edge
         );
 
-        Ok((image_bytes, boxes))
+        Ok(AnnotateResponse {
+            image: out_image,
+            boxes,
+        })
     }
 }
 
@@ -194,15 +284,15 @@ impl Default for AnnotateClient {
     }
 }
 
-fn boxes_xyxy_to_box_infos(rows: &[Vec<f64>]) -> Result<Vec<BoxInfo>> {
+fn boxes_xyxy_to_box_infos(rows: &[Vec<f64>]) -> Result<Vec<BoxInfo>, AnnotateError> {
     let mut out = Vec::with_capacity(rows.len());
     for (i, row) in rows.iter().enumerate() {
         if row.len() != 4 {
-            return Err(anyhow!(
+            return Err(AnnotateError::InvalidResponse(format!(
                 "annotate boxes: expected [x1,y1,x2,y2], got len {}: {:?}",
                 row.len(),
                 row
-            ));
+            )));
         }
         let x1 = row[0] as f32;
         let y1 = row[1] as f32;
@@ -238,8 +328,9 @@ struct PreparedUpload {
 }
 
 /// Downscale if `max(w,h) > max_long_edge` so the upload respects the long-edge cap.
-fn prepare_png_for_annotation_upload(bytes: &[u8], max_long_edge: u32) -> Result<PreparedUpload> {
-    let img = image::load_from_memory(bytes).map_err(|e| anyhow!("decode screenshot for annotate: {}", e))?;
+fn prepare_png_for_annotation_upload(bytes: &[u8], max_long_edge: u32) -> Result<PreparedUpload, AnnotateError> {
+    let img = image::load_from_memory(bytes)
+        .map_err(|e| AnnotateError::ImageEncode(format!("decode screenshot for annotate: {e}")))?;
     let (w0, h0) = (img.width(), img.height());
     let m = w0.max(h0);
     let (img, scale_x, scale_y) = if m <= max_long_edge {
@@ -266,7 +357,7 @@ fn prepare_png_for_annotation_upload(bytes: &[u8], max_long_edge: u32) -> Result
     {
         let mut cursor = Cursor::new(&mut png_bytes);
         img.write_to(&mut cursor, image::ImageFormat::Png)
-            .map_err(|e| anyhow!("encode PNG for annotate: {}", e))?;
+            .map_err(|e| AnnotateError::ImageEncode(format!("encode PNG for annotate: {e}")))?;
     }
 
     Ok(PreparedUpload {
@@ -293,11 +384,11 @@ fn scale_boxes_to_capture_space(boxes: Vec<BoxInfo>, scale_x: f32, scale_y: f32)
 }
 
 /// Decode a base64-encoded image string to raw bytes.
-fn decode_base64_image(encoded: &str) -> Result<Vec<u8>> {
+fn decode_base64_image(encoded: &str) -> Result<Vec<u8>, AnnotateError> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     STANDARD
         .decode(encoded)
-        .map_err(|e| anyhow!("Failed to decode base64 image: {}", e))
+        .map_err(|e| AnnotateError::InvalidResponse(format!("decode base64 image: {e}")))
 }
 
 #[cfg(test)]
@@ -350,6 +441,32 @@ mod tests {
             super::strip_data_url_prefix("data:image/png;base64,XYZ"),
             "XYZ"
         );
+    }
+
+    #[test]
+    fn boxes_to_index_map_matches_indices() {
+        let boxes = vec![
+            BoxInfo {
+                index: 1,
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+                confidence: 1.0,
+            },
+            BoxInfo {
+                index: 2,
+                x: 5.0,
+                y: 5.0,
+                width: 3.0,
+                height: 3.0,
+                confidence: 1.0,
+            },
+        ];
+        let m = boxes_to_index_map(&boxes);
+        assert_eq!(m.len(), 2);
+        assert_eq!(m.get(&1).unwrap().width, 10.0);
+        assert_eq!(m.get(&2).unwrap().x, 5.0);
     }
 
     #[test]

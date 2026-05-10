@@ -1,3 +1,5 @@
+//! Screen-resolved overlay state. Bitmap-space boxes ([`super::annotate::BoxInfo`], [`super::annotate::IndexMap`]) are converted to [`ElementInfo`] via [`VisionState::set_index_map_from_boxes`].
+
 use super::annotate::BoxInfo;
 use super::coord::CoordinateSystem;
 use super::screen::MonitorInfo;

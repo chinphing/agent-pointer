@@ -4,11 +4,38 @@ use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::{DynamicImage, ExtendedColorType};
 use std::io::Cursor;
+use std::process::Command;
 use std::time::Instant;
 use xcap::Monitor;
 
+/// Picks the display under a global screen point (§3.2.1 `MonitorSelector`).
+///
+/// Wraps `xcap` monitor discovery so capture and tests share one entry point.
+pub struct MonitorSelector;
+
+impl MonitorSelector {
+    /// Returns the [`Monitor`] handle and logical [`MonitorInfo`] for the display containing `(x, y)`.
+    pub fn at_global_point(x: i32, y: i32) -> Result<(Monitor, MonitorInfo)> {
+        let monitor =
+            Monitor::from_point(x, y).map_err(|e| anyhow!("no monitor at ({x}, {y}): {e}"))?;
+        let info = monitor_info_from_xcap(&monitor)?;
+        Ok((monitor, info))
+    }
+}
+
 /// JPEG quality for raw screen capture (before annotate). PNG compression was ~1–3s on 1080p+; JPEG is much faster.
-const SCREENSHOT_JPEG_QUALITY: u8 = 88;
+pub const SCREENSHOT_JPEG_QUALITY: u8 = 88;
+
+/// One capture: JPEG for annotate, geometry, and global pointer at shot time (Python `screen_overlay` input).
+#[derive(Debug, Clone)]
+pub struct ScreenshotPacket {
+    pub jpeg: Vec<u8>,
+    pub monitor: MonitorInfo,
+    pub capture_px: (u32, u32),
+    pub global_pointer: (i32, i32),
+    /// Text-focus hint in **global screen** coordinates (Python `focus_position.get_focus_position()`), if available.
+    pub global_caret: Option<(i32, i32)>,
+}
 
 /// Information about a monitor/screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,7 +84,7 @@ impl MonitorInfo {
 ///
 /// # Errors
 /// Returns an error if no display is available or capture/encoding fails.
-pub fn screenshot_current_monitor() -> Result<(Vec<u8>, MonitorInfo, (u32, u32))> {
+pub fn screenshot_current_monitor() -> Result<ScreenshotPacket> {
     let t_total = Instant::now();
 
     let t = Instant::now();
@@ -66,11 +93,9 @@ pub fn screenshot_current_monitor() -> Result<(Vec<u8>, MonitorInfo, (u32, u32))
             log::debug!("cursor position unavailable ({}), using primary monitor center", e);
             primary_monitor_center()
         })?;
+    let global_pointer = (cx, cy);
 
-    let monitor = Monitor::from_point(cx, cy)
-        .map_err(|e| anyhow!("no monitor at cursor ({}, {}): {}", cx, cy, e))?;
-
-    let info = monitor_info_from_xcap(&monitor)?;
+    let (monitor, info) = MonitorSelector::at_global_point(cx, cy)?;
     let setup_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     let t = Instant::now();
@@ -104,6 +129,8 @@ pub fn screenshot_current_monitor() -> Result<(Vec<u8>, MonitorInfo, (u32, u32))
     let jpeg = rgba_to_jpeg(rgba, SCREENSHOT_JPEG_QUALITY)?;
     let encode_ms = t.elapsed().as_secs_f64() * 1000.0;
 
+    let global_caret = try_global_focus_caret_hint();
+
     let size_note = if physical.0 != logical_w || physical.1 != logical_h {
         format!(", from {}x{} physical", physical.0, physical.1)
     } else {
@@ -121,7 +148,64 @@ pub fn screenshot_current_monitor() -> Result<(Vec<u8>, MonitorInfo, (u32, u32))
         capture_px.1,
         size_note
     );
-    Ok((jpeg, info, capture_px))
+    Ok(ScreenshotPacket {
+        jpeg,
+        monitor: info,
+        capture_px,
+        global_pointer,
+        global_caret,
+    })
+}
+
+/// Encode logical RGBA to JPEG (overlay pipeline after pointer marks).
+pub fn rgba_to_jpeg_bytes(rgba: image::RgbaImage, quality: u8) -> Result<Vec<u8>> {
+    rgba_to_jpeg(rgba, quality)
+}
+
+/// Best-effort focused-control hint for drawing the I-beam overlay (Python `agents/computer/focus_position.py`).
+fn try_global_focus_caret_hint() -> Option<(i32, i32)> {
+    #[cfg(target_os = "macos")]
+    {
+        try_global_focus_caret_hint_macos()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn try_global_focus_caret_hint_macos() -> Option<(i32, i32)> {
+    const SCRIPT: &str = r#"
+tell application "System Events"
+    set frontApp to first application process whose frontmost is true
+    try
+        set fe to (first UI element of frontApp whose focused is true)
+        set {x1, y1, x2, y2} to (get value of attribute "AXFrame" of fe)
+        set x to x1 + 12
+        set y to y1 + (y2 - y1) / 2
+        return (round x) as text & "," & (round y) as text
+    on error err
+        return "Error: " & err
+    end try
+end tell
+"#;
+    let out = Command::new("osascript")
+        .args(["-e", SCRIPT.trim()])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout);
+    let s = s.trim();
+    if s.is_empty() || s.starts_with("Error:") {
+        return None;
+    }
+    let mut parts = s.split(',');
+    let x: i32 = parts.next()?.trim().parse().ok()?;
+    let y: i32 = parts.next()?.trim().parse().ok()?;
+    Some((x, y))
 }
 
 fn cursor_position() -> Result<(i32, i32)> {

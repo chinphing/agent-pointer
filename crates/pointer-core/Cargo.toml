@@ -19,6 +19,7 @@ serde_yaml = "0.9"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time", "io-util"] }
 enigo = "0.2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+imageproc = "0.25"
 base64 = "0.22"
 xcap = "0.9"
 
@@ -33,5 +34,8 @@ scraper = "0.23"
 async-trait = "0.1"
 
 [dev-dependencies]
+anyhow = "1"
 tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+wiremock = "0.6"
 

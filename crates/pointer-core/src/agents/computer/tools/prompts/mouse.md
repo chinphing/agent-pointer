@@ -56,7 +56,7 @@ Use for a single mouse action: click, double-click, right-click, hover, drag, sc
 
 **Drag (left button down → move → up):**
 - **`drag_from_to_at`** — `goal`, **`x1`**, **`y1`** (press here), **`x2`**, **`y2`** (release here). Use the same coordinate convention as **`click_at`** for this turn.
-- **`drag_from_to_index`** — `goal`, **`from_index`**, **`to_index`** (overlay centers on **this** annotated frame). Use for sliders, reorder handles, range selection by dragging between two labeled regions.
+- **`drag_from_to_index`** — `goal`, **`from_index`**, **`to_index`** (overlay centers on **`[Annotated after action]`** for this turn). Use for sliders, reorder handles, range selection by dragging between two labeled regions.
 
 Optional **`human_like`** (bool) on both — same meaning as other mouse methods (smoothed move to start and eased drag).
 

@@ -420,7 +420,7 @@ async fn inject_computer_vision(
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
-| 原始截图保留策略 | 保留最近 2 轮原始截图作为图片，更早的降级为 `[Previous screen raw]` 文本 | 高 |
+| 原始截图保留策略 | 保留最近 2 轮全屏截图作为图片，更早的降级为简短 `[CUR_SCREEN]` 占位文本 | 高 |
 | 标注图保留策略 | 仅保留最新标注图，旧的降级为文本 | 高 |
 | Zoom 图策略 | 仅保留最新 zoom 图 | 中 |
 | Token 节省计算 | 估算图片 token 消耗，触发降级阈值 | 低 |
@@ -1027,10 +1027,12 @@ ChatService::prepare_messages()
     ├─> vision_state.set_coordinate_system(Qwen)  ← coordinate system context
     │
     ├─> build_vision_messages(raw, annotated, zooms)
-    │   ├─> [Previous screen raw] (if exists)
-    │   ├─> [Current screen raw]
-    │   ├─> [Current annotated] (with index numbers)
-    │   └─> [Zooms...]
+    │   ├─> [Screen before action] (if exists)
+    │   ├─> [Screen after action]
+    │   ├─> [Annotated after action]
+    │   ├─> [Zoom top after action]
+    │   ├─> [Zoom bottom after action]
+    │   └─> [Zoom pointer after action]
     │
     └─> inject into message history
 ```

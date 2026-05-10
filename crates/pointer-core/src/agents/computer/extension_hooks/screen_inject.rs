@@ -4,7 +4,7 @@
 
 use crate::agents::computer::screen;
 use crate::agents::computer::screen_overlay::{
-    SLOT_CURRENT_SCREEN_RAW, SLOT_PREVIOUS_SCREEN_RAW, SLOT_SCREEN_ANNOTATED,
+    SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED, SLOT_SCREEN_BEFORE_ACTION,
     SLOT_SCREEN_ZOOMED_BOTTOM, SLOT_SCREEN_ZOOMED_POINTER, SLOT_SCREEN_ZOOMED_TOP,
 };
 use crate::agents::computer::ScreenCaptureResult;
@@ -20,22 +20,37 @@ use std::sync::Arc;
 
 const CUR_SCREEN_TAG: &str = "[CUR_SCREEN]";
 
+/// When stripping prior vision, replace stale `[CUR_SCREEN]` prose (frame order / labels) so the model is not told about screenshots that are no longer attached.
+const CUR_SCREEN_HISTORY_PLACEHOLDER: &str = "[CUR_SCREEN] Earlier desktop screenshots are omitted here; use only the latest [CUR_SCREEN] message in this request for images.\n";
+
 /// Remove vision payloads from all messages already in history so older frames do not affect the model’s read of the latest `[CUR_SCREEN]`.
+///
+/// Historical `[CUR_SCREEN]` user turns would otherwise keep long text listing `[Screen before action]`, etc., with **no** `image_url` parts after this — that mismatch can confuse the model. Those messages get a short placeholder instead.
 pub(crate) fn strip_images_from_prior_messages(messages: &mut [ChatMessage]) {
     for m in messages.iter_mut() {
         m.images_base64 = None;
+        if matches!(m.role, Role::User) && m.content.trim_start().starts_with(CUR_SCREEN_TAG) {
+            m.content = CUR_SCREEN_HISTORY_PLACEHOLDER.to_string();
+        }
     }
 }
 
 fn build_cur_screen_text(has_previous_raw: bool) -> String {
-    let hint = "Use raw frames to see what changed turn-to-turn; the annotated frame shows numbered targets; the three zooms help read the top bar, bottom bar, and details near the pointer. A pointer and text caret may be drawn on the raw and annotated images.";
+    let tail = "[Annotated after action] carries overlay index numbers (not shown on [Screen before action]). [Zoom top after action], [Zoom bottom after action], and [Zoom pointer after action] magnify that same after-action view. A pointer and text caret may be drawn on full-screen captures and on the annotated image.";
+    let hint = if has_previous_raw {
+        format!(
+            "Compare [Screen before action] to [Screen after action] to see what changed since the last step; {tail}"
+        )
+    } else {
+        format!("[Screen after action] is the current full-screen capture; {tail}")
+    };
     let order = if has_previous_raw {
         format!(
-            "Order: (1) {SLOT_PREVIOUS_SCREEN_RAW} (2) {SLOT_CURRENT_SCREEN_RAW} (3) {SLOT_SCREEN_ANNOTATED} (4) {SLOT_SCREEN_ZOOMED_TOP} (5) {SLOT_SCREEN_ZOOMED_BOTTOM} (6) {SLOT_SCREEN_ZOOMED_POINTER}. {hint}"
+            "Order: (1) {SLOT_SCREEN_BEFORE_ACTION} (2) {SLOT_SCREEN_AFTER_ACTION} (3) {SLOT_SCREEN_ANNOTATED} (4) {SLOT_SCREEN_ZOOMED_TOP} (5) {SLOT_SCREEN_ZOOMED_BOTTOM} (6) {SLOT_SCREEN_ZOOMED_POINTER}. {hint}"
         )
     } else {
         format!(
-            "Order: (1) {SLOT_CURRENT_SCREEN_RAW} (2) {SLOT_SCREEN_ANNOTATED} (3) {SLOT_SCREEN_ZOOMED_TOP} (4) {SLOT_SCREEN_ZOOMED_BOTTOM} (5) {SLOT_SCREEN_ZOOMED_POINTER}. {hint}"
+            "Order: (1) {SLOT_SCREEN_AFTER_ACTION} (2) {SLOT_SCREEN_ANNOTATED} (3) {SLOT_SCREEN_ZOOMED_TOP} (4) {SLOT_SCREEN_ZOOMED_BOTTOM} (5) {SLOT_SCREEN_ZOOMED_POINTER}. {hint}"
         )
     };
     format!("{CUR_SCREEN_TAG} {order}\n")
@@ -195,11 +210,22 @@ mod tests {
     }
 
     #[test]
-    fn strip_prior_clears_images_without_touching_text() {
+    fn strip_prior_clears_images_without_touching_non_cur_screen_text() {
+        let mut msgs = vec![ChatMessage {
+            content: "Plain user text.".into(),
+            ..msg_with_images(Some(vec!["aaa"]))
+        }];
+        strip_images_from_prior_messages(&mut msgs);
+        assert!(msgs[0].images_base64.is_none());
+        assert_eq!(msgs[0].content, "Plain user text.");
+    }
+
+    #[test]
+    fn strip_prior_replaces_cur_screen_text_when_images_removed() {
         let mut msgs = vec![msg_with_images(Some(vec!["aaa"]))];
         strip_images_from_prior_messages(&mut msgs);
         assert!(msgs[0].images_base64.is_none());
-        assert_eq!(msgs[0].content, "[CUR_SCREEN] test");
+        assert_eq!(msgs[0].content, CUR_SCREEN_HISTORY_PLACEHOLDER);
     }
 
     #[test]
@@ -214,13 +240,14 @@ mod tests {
         strip_images_from_prior_messages(&mut msgs);
         assert!(msgs[0].images_base64.is_none());
         assert!(msgs[1].images_base64.is_none());
+        assert_eq!(msgs[0].content, CUR_SCREEN_HISTORY_PLACEHOLDER);
         assert_eq!(msgs[1].content, "hello");
     }
 
     #[test]
     fn legend_lists_all_slots_when_no_prev() {
         let t = build_cur_screen_text(false);
-        assert!(t.contains(SLOT_CURRENT_SCREEN_RAW));
+        assert!(t.contains(SLOT_SCREEN_AFTER_ACTION));
         assert!(t.contains(SLOT_SCREEN_ZOOMED_POINTER));
     }
 }

@@ -3,7 +3,7 @@
 //! then zoom crops from the **marked** annotated image.
 //!
 //! Vision slot labels match the bracket captions in Python `extensions/message_loop_prompts_after/_10_computer_screen_inject.py`
-//! (`[Previous screen raw]`, `[Current screen raw]`, `[Screen annotated]`, `[Screen zoomed top]`, …).
+//! (`[Screen before action]`, `[Screen after action]`, `[Annotated after action]`, `[Zoom top after action]`, …).
 
 use crate::agents::computer::screen::{self, MonitorInfo};
 use anyhow::{anyhow, Result};
@@ -13,18 +13,18 @@ use imageproc::point::Point;
 use std::io::Cursor;
 use std::sync::OnceLock;
 
-/// Previous-turn raw JPEG (overlays already applied when stored).
-pub const SLOT_PREVIOUS_SCREEN_RAW: &str = "[Previous screen raw]";
-/// This-turn raw JPEG after overlays (indices were computed on the unmarked upload).
-pub const SLOT_CURRENT_SCREEN_RAW: &str = "[Current screen raw]";
-/// Annotated frame after overlays (matches Python `[Screen annotated]`).
-pub const SLOT_SCREEN_ANNOTATED: &str = "[Screen annotated]";
-/// Top strip zoom of the marked annotated image (Python `[Screen zoomed top]` / disk `zoom_top_bar`).
-pub const SLOT_SCREEN_ZOOMED_TOP: &str = "[Screen zoomed top]";
-/// Bottom strip zoom (Python `[Screen zoomed bottom]` / disk `zoom_bottom_bar`).
-pub const SLOT_SCREEN_ZOOMED_BOTTOM: &str = "[Screen zoomed bottom]";
-/// Pointer-centered zoom (Python `[Screen zoomed pointer]` / disk `zoom_mouse`).
-pub const SLOT_SCREEN_ZOOMED_POINTER: &str = "[Screen zoomed pointer]";
+/// Full screenshot from the **prior** observation (unindexed; pointer/caret may be drawn) — desktop state before the latest actions.
+pub const SLOT_SCREEN_BEFORE_ACTION: &str = "[Screen before action]";
+/// Full screenshot from **this** observation (unindexed; pointer/caret may be drawn) — desktop state after those actions.
+pub const SLOT_SCREEN_AFTER_ACTION: &str = "[Screen after action]";
+/// Numbered overlay on the **after action** desktop (same moment as `[Screen after action]`).
+pub const SLOT_SCREEN_ANNOTATED: &str = "[Annotated after action]";
+/// Top bar / chrome strip (after-action annotated frame).
+pub const SLOT_SCREEN_ZOOMED_TOP: &str = "[Zoom top after action]";
+/// Bottom bar / dock strip (after-action annotated frame).
+pub const SLOT_SCREEN_ZOOMED_BOTTOM: &str = "[Zoom bottom after action]";
+/// Pointer vicinity patch (after-action annotated frame).
+pub const SLOT_SCREEN_ZOOMED_POINTER: &str = "[Zoom pointer after action]";
 
 const ZOOM_MENU_H: u32 = 100;
 const ZOOM_TASK_H: u32 = 100;

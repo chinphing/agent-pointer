@@ -55,6 +55,12 @@ pub struct ChatMessage {
     pub error_message: Option<String>,
     #[serde(default)]
     pub reasoning: Option<String>,
+    /// Text inside XML `<thoughts>` for the last complete `<response>` in this turn (UI + persistence).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thoughts: Option<String>,
+    /// Text inside XML `<headline>` for the last complete `<response>` in this turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headline: Option<String>,
     #[serde(default, rename = "rawContent")]
     pub raw_content: Option<String>,
     #[serde(default, rename = "agentId")]
@@ -63,6 +69,10 @@ pub struct ChatMessage {
     pub agent_name: Option<String>,
     #[serde(default, rename = "agentTrace")]
     pub agent_trace: Option<Vec<AgentTrace>>,
+    /// PNG (or other) images as raw base64 payloads for vision APIs. Serialized for the UI only when
+    /// present; ephemeral computer screen inject uses this without persisting to conversation files.
+    #[serde(default, rename = "imagesBase64", skip_serializing_if = "Option::is_none")]
+    pub images_base64: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -286,6 +296,14 @@ pub struct ToolDef {
     pub name: String,
 }
 
+/// Annotated desktop screenshot for UI preview (same style as model vision inject).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComputerAnnotatedPreview {
+    #[serde(rename = "imageBase64")]
+    pub image_base64: String,
+    pub caption: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendChatPayload {
     #[serde(rename = "conversationId")]
@@ -377,9 +395,29 @@ pub enum StreamEvent {
         content: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "rawContent")]
         raw_content: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        thoughts: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        headline: Option<String>,
     },
     /// Synthetic user row so the model (and UI history) see recovery instructions mid-run.
     InjectedUserMessage {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "messageId")]
+        message_id: String,
+        content: String,
+    },
+    /// Short assistant-role line in the thread (e.g. desktop capture status); not from the model.
+    InjectedAssistantMessage {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "messageId")]
+        message_id: String,
+        content: String,
+    },
+    /// Replace `content` of an existing [`InjectedAssistantMessage`] with the same `message_id`.
+    InjectedAssistantMessageUpdate {
         #[serde(rename = "conversationId")]
         conversation_id: String,
         #[serde(rename = "messageId")]
@@ -415,7 +453,18 @@ pub enum StreamEvent {
         #[serde(rename = "willRetryAfterCompress")]
         will_retry_after_compress: bool,
     },
+    /// Ephemeral UI hint only (not persisted, not sent to the model).
+    UiToast {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        message: String,
+        /// e.g. `success`, `error`, `warning`
+        level: String,
+    },
 }
+
+/// Channel used to push [`StreamEvent`] updates to the Pointer UI (Tauri / web SSE).
+pub type ChatStreamSender = tokio::sync::mpsc::UnboundedSender<StreamEvent>;
 
 /// OpenAI-compatible request structures
 #[derive(Debug, Clone, Serialize)]
@@ -480,10 +529,13 @@ fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMess
                             tool_call_id: Some(tc.id.clone()),
                             error_message: None,
                             reasoning: None,
+                            thoughts: None,
+                            headline: None,
                             raw_content: None,
                             agent_id: None,
                             agent_name: None,
                             agent_trace: None,
+                            images_base64: None,
                         });
                     }
                     i = j;
@@ -578,10 +630,13 @@ fn flatten_tool_rounds_computer_style_for_api(msgs: &[ChatMessage]) -> Vec<ChatM
                             tool_call_id: None,
                             error_message: None,
                             reasoning: None,
+                            thoughts: None,
+                            headline: None,
                             raw_content: None,
                             agent_id: m.agent_id.clone(),
                             agent_name: m.agent_name.clone(),
                             agent_trace: None,
+                            images_base64: None,
                         });
                     }
                     i = j;
@@ -632,9 +687,34 @@ pub fn make_openai_messages(
             Role::System => out.push(serde_json::json!({
                 "role": "system", "content": m.content
             })),
-            Role::User => out.push(serde_json::json!({
-                "role": "user", "content": m.content
-            })),
+            Role::User => {
+                if let Some(ref imgs) = m.images_base64 {
+                    if !imgs.is_empty() {
+                        let mut parts: Vec<serde_json::Value> = Vec::new();
+                        if !m.content.trim().is_empty() {
+                            parts.push(serde_json::json!({
+                                "type": "text",
+                                "text": m.content
+                            }));
+                        }
+                        for b64 in imgs {
+                            let url = format!("data:image/png;base64,{b64}");
+                            parts.push(serde_json::json!({
+                                "type": "image_url",
+                                "image_url": { "url": url }
+                            }));
+                        }
+                        out.push(serde_json::json!({
+                            "role": "user",
+                            "content": parts
+                        }));
+                        continue;
+                    }
+                }
+                out.push(serde_json::json!({
+                    "role": "user", "content": m.content
+                }));
+            }
             Role::Assistant => {
                 let mut obj = serde_json::Map::new();
                 obj.insert("role".into(), "assistant".into());
@@ -686,11 +766,30 @@ mod make_openai_messages_tests {
             tool_call_id: None,
             error_message: None,
             reasoning: None,
+            thoughts: None,
+            headline: None,
             raw_content: None,
             agent_id: None,
             agent_name: None,
             agent_trace: None,
+            images_base64: None,
         }
+    }
+
+    #[test]
+    fn user_message_with_images_uses_multipart_content() {
+        let mut u = msg(Role::User);
+        u.content = "see screen".into();
+        u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
+        let out = make_openai_messages(&[u], &[], false);
+        assert_eq!(out.len(), 1);
+        let content = out[0]["content"].as_array().expect("multipart content");
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[1]["type"], "image_url");
+        assert!(content[1]["image_url"]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/png;base64,"));
     }
 
     #[test]

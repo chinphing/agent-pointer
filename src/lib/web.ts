@@ -1,4 +1,15 @@
-import type { AgentDef, AgentMode, ChatMessage, Conversation, ModelSettings, SkillDef, SkillImportResult, StreamEvent, ToolDef } from '../types/chat'
+import type {
+  AgentDef,
+  AgentMode,
+  ChatMessage,
+  ComputerAnnotatedPreview,
+  Conversation,
+  ModelSettings,
+  SkillDef,
+  SkillImportResult,
+  StreamEvent,
+  ToolDef
+} from '../types/chat'
 
 import { WEB_API_BASE } from './runtime'
 
@@ -89,6 +100,10 @@ export async function listTools(): Promise<ToolDef[]> {
 
 export async function listAgents(): Promise<AgentDef[]> {
   return await request<AgentDef[]>('/api/agents')
+}
+
+export async function previewComputerAnnotatedScreen(): Promise<ComputerAnnotatedPreview> {
+  throw new Error('标注截图预览仅在桌面版（Tauri）中可用')
 }
 
 export async function loadConversations(): Promise<Conversation[]> {

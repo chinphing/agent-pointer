@@ -7,6 +7,7 @@ Per-agent `COMMUNICATION.md` (optional) and `AGENT.md` body are appended after t
 - Output **one** `<response>...</response>` per turn when using tools or a final structured turn — no Markdown fences, no extra prose outside it.
 - Children: `thoughts`, `headline`, `tool_name`, `tool_args` (one XML child per argument; names match the injected tool schema — **one tool per turn**).
 - **`tool_name`:** use **`base:method`** for multi-behavior tools (e.g. `mouse:click_index`). Use **base only** for `wait`, `response`, and similar (`wait`, not `wait:wait`). Authoritative names are in the **Available tools** section of the system prompt.
+- **Desktop (computer profile):** The latest annotated screen is injected automatically before your turn (`[CUR_SCREEN]` user message with image). Prefer acting with `mouse` / `composite_action` from that image; `computer:screenshot` does not attach a new image—it only acknowledges that the inject is the source of truth.
 
 ## Example: `response`
 

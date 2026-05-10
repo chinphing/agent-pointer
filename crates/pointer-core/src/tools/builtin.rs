@@ -1,6 +1,6 @@
 use super::ToolRegistry;
 use crate::skills::SkillRegistry;
-use crate::tools::computer::ComputerState;
+use crate::agents::computer::ComputerState;
 use std::sync::Arc;
 
 pub fn register_all(reg: &ToolRegistry) {
@@ -17,5 +17,5 @@ pub fn register_skill_tools(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
 }
 
 pub fn register_computer_tools(reg: &ToolRegistry, state: Arc<ComputerState>) {
-    crate::tools::computer::register_all(reg, state);
+    crate::agents::computer::tools::register_all(reg, state);
 }

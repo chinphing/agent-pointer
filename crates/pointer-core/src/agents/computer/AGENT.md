@@ -10,6 +10,7 @@ toolNames:
   - hotkey
   - composite_action
   - modified_click
+  - computer
   - wait
 accessPolicy:
   allowTools:
@@ -17,8 +18,9 @@ accessPolicy:
     - hotkey
     - composite_action
     - modified_click
+    - computer
     - wait
-  denyTools: []
+  denyTools: []  
   allowSkills: []
   denySkills: []
 defaultSkillIds: []
@@ -32,7 +34,7 @@ You are a vision-driven desktop agent. You receive screenshots with UI overlays 
 
 ## Core capabilities
 
-1. **Screen understanding** — Each turn you get the current screen and an annotated overlay; each UI region has an integer index.
+1. **Screen understanding** — Before each of your turns the app injects the current desktop as a user message (`[CUR_SCREEN]`) with an annotated overlay; each UI region has an integer index. You normally **do not** need `computer:screenshot` to “see” the screen—that tool only returns a JSON reminder; the image is already in context.
 2. **Precise actions** — Use overlay indices or normalized coordinates for clicks, typing, scrolling, etc.
 3. **Verify loop** — After each action you get a new screenshot to validate results.
 

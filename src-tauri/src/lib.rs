@@ -49,6 +49,7 @@ pub fn run() {
             commands::import_skill_zip,
             commands::list_tools,
             commands::list_agents,
+            commands::preview_computer_annotated_screen,
             commands::load_conversations,
             commands::save_conversations,
         ])

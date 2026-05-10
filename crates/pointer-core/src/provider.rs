@@ -28,6 +28,10 @@ pub enum ProviderEvent {
         reason: String,
         tool_calls: Vec<ToolCall>,
         xml: XmlToolFinishDiagnostics,
+        /// From XML `<thoughts>` in the completed `<response>` (if any).
+        thoughts: Option<String>,
+        /// From XML `<headline>` in the completed `<response>` (if any).
+        headline: Option<String>,
     },
 }
 
@@ -82,6 +86,8 @@ struct StreamDelta {
     #[serde(default)]
     tool_calls: Option<Vec<StreamToolCall>>,
 }
+/// Native streaming `tool_calls` shape (ignored: we use XML-in-content only). Kept for serde + forward-compat.
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 struct StreamToolCall {
     index: u32,
@@ -90,6 +96,7 @@ struct StreamToolCall {
     #[serde(default)]
     function: Option<StreamFn>,
 }
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 struct StreamFn {
     #[serde(default)]
@@ -369,8 +376,18 @@ impl OpenAIProvider {
             || reasoning_buf.contains("<tool_args>");
 
         let xml_complete = xml_parser.is_complete();
+        let mut finish_thoughts: Option<String> = None;
+        let mut finish_headline: Option<String> = None;
         let tool_calls = if xml_complete {
             if let Some(xml_call) = xml_parser.parse() {
+                let t = xml_call.thoughts.trim();
+                if !t.is_empty() {
+                    finish_thoughts = Some(t.to_string());
+                }
+                let h = xml_call.headline.trim();
+                if !h.is_empty() {
+                    finish_headline = Some(h.to_string());
+                }
                 let id = format!("xml_{}", rand_id());
                 let args_json = xml_tool_arguments_to_json_string(&xml_call.arguments);
                 vec![ToolCall {
@@ -384,6 +401,13 @@ impl OpenAIProvider {
                     risk_level: None,
                 }]
             } else {
+                let (ft, fh) = xml_parser.take_fallback_thoughts_headline();
+                finish_thoughts = ft
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+                finish_headline = fh
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
                 Vec::new()
             }
         } else {
@@ -408,7 +432,7 @@ impl OpenAIProvider {
                 || reasoning_buf.contains("</response>");
             if saw_response_markup && !xml_complete {
                 log::warn!(
-                    "model={} xml tool: stream ended without a complete closing </response> (tool_choice=none; empty tool_calls). If you see xml_tool_caller::parse_response_xml failed above, the fragment was complete but invalid XML.",
+                    "model={} xml tool: stream ended without a complete closing </response> (tool_choice=none; empty tool_calls). If you see xml_tool_caller::parse_tool_response_default_chain failed above, the fragment was complete but strict XML, ScraperHtml, and relaxed quick-xml all rejected it.",
                     self.settings.model
                 );
             }
@@ -419,6 +443,8 @@ impl OpenAIProvider {
                 reason: finish_reason,
                 tool_calls,
                 xml,
+                thoughts: finish_thoughts,
+                headline: finish_headline,
             })
             .await;
         Ok(())

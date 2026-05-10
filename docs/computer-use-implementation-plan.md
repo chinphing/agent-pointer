@@ -131,40 +131,34 @@ User message → screen inject (capture + annotate + zoom)
 
 ```
 crates/pointer-core/src/
-├── lib.rs                          # 新增 computer 模块导出
-├── chat_service.rs                 # 扩展：屏幕注入钩子
-├── models.rs                       # 扩展：AgentProfile::Computer, 图片消息支持
-├── agents.rs                       # 扩展：Computer Agent 注册
-├── tools/
-│   ├── mod.rs                      # 扩展：注册 computer 工具
-│   ├── builtin.rs                  # 扩展：register_computer_tools
-│   └── computer/                   # 新增：Computer Use 工具集
-│       ├── mod.rs                  # 模块组织、工具注册
-│       ├── screen.rs               # 屏幕捕获
-│       ├── annotate.rs             # UI 标注客户端
-│       ├── coord.rs                # 坐标转换
-│       ├── actions.rs              # 底层动作封装（跨平台抽象）
-│       ├── action_enigo.rs         # enigo 底层实现
-│       ├── vision_state.rs         # 视觉状态管理（index_map、最近动作）
-│       ├── verify.rs               # 验证提示生成
-│       ├── tool_mouse.rs           # mouse 工具
-│       ├── tool_hotkey.rs          # hotkey 工具
-│       ├── tool_composite.rs       # composite_action 工具
-│       ├── tool_wait.rs            # wait 工具
-│       ├── tool_screen_reader.rs   # screen_reader 工具（第三期）
-│       ├── tool_account_login.rs   # account_login 工具（第三期）
-│       └── prompts/                # 系统 Prompt
-│           ├── role.md
-│           ├── communication.md
-│           ├── computer_usage.md
-│           ├── os_macos.md
-│           ├── os_windows.md
-│           ├── os_linux.md
-│           └── tool_*.md
+├── lib.rs
+├── chat_service.rs                 # 屏幕注入扩展点调用
+├── models.rs                       # AgentProfile::Computer, 多模态消息等
+├── extensions/                     # 通用扩展注册表（trait + ExtensionRegistry）
 ├── agents/
-│   └── computer/
-│       └── AGENT.md                # Computer Agent 定义
-└── storage.rs                      # 扩展：computer 数据路径
+│   ├── mod.rs                      # Agent 注册表 + `pub mod computer`
+│   └── computer/                   # Computer Agent：清单 + 基础能力 + tools 子目录
+│       ├── AGENT.md
+│       ├── COMMUNICATION.md
+│       ├── mod.rs                  # ComputerState
+│       ├── extension_hooks/
+│       ├── screen.rs
+│       ├── annotate.rs
+│       ├── coord.rs
+│       ├── actions.rs
+│       ├── action_enigo.rs
+│       ├── vision_state.rs
+│       ├── verify.rs
+│       └── tools/                  # 注册到 ToolRegistry：handlers + schemas + prompts
+│           ├── mod.rs              # register_all
+│           ├── args_util.rs
+│           ├── tool_*.rs
+│           ├── prompts/
+│           └── schemas/
+├── tools/
+│   ├── mod.rs
+│   └── builtin.rs                  # register_computer_tools → agents::computer::tools::register_all
+└── storage.rs
 ```
 
 ### 2.2 设计原则
@@ -190,7 +184,7 @@ crates/pointer-core/src/
 
 ### 3.2 任务清单
 
-#### 3.2.1 屏幕捕获模块 (`tools/computer/screen.rs`)
+#### 3.2.1 屏幕捕获模块 (`agents/computer/screen.rs`)
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
@@ -206,7 +200,7 @@ crates/pointer-core/src/
 - Linux：`x11` / `wayland` / `screenshot` crate
 - 优先使用 `screenshot` crate（跨平台封装），不足时补充平台特定代码
 
-#### 3.2.2 UI 标注模块 (`tools/computer/annotate.rs`)
+#### 3.2.2 UI 标注模块 (`agents/computer/annotate.rs`)
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
@@ -232,7 +226,7 @@ pub struct AnnotateResponse {
 }
 ```
 
-#### 3.2.3 坐标转换模块 (`tools/computer/coord.rs`)
+#### 3.2.3 坐标转换模块 (`agents/computer/coord.rs`)
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
@@ -246,7 +240,7 @@ pub struct AnnotateResponse {
 - `Kimi`：模型输出 0-1000（可能不同映射方式，需确认）
 - `Pixel`：直接使用屏幕像素坐标
 
-#### 3.2.4 底层动作模块 (`tools/computer/actions.rs` + `action_enigo.rs`)
+#### 3.2.4 底层动作模块 (`agents/computer/actions.rs` + `action_enigo.rs`)
 
 **抽象层 (`actions.rs`)**：
 
@@ -279,7 +273,7 @@ pub trait ActionBackend: Send + Sync {
 | 粘贴输入 | 大文本使用剪贴板 + 粘贴快捷键 | 中 |
 | 人性化延迟 | 操作间添加随机延迟模拟人类 | 低 |
 
-#### 3.2.5 视觉状态管理 (`tools/computer/vision_state.rs`)
+#### 3.2.5 视觉状态管理 (`agents/computer/vision_state.rs`)
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
@@ -412,7 +406,7 @@ async fn inject_computer_vision(
 
 ### 4.2 任务清单
 
-#### 4.2.1 验证框架 (`tools/computer/verify.rs`)
+#### 4.2.1 验证框架 (`agents/computer/verify.rs`)
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
@@ -431,7 +425,7 @@ async fn inject_computer_vision(
 | Zoom 图策略 | 仅保留最新 zoom 图 | 中 |
 | Token 节省计算 | 估算图片 token 消耗，触发降级阈值 | 低 |
 
-#### 4.2.3 系统 Prompt 体系 (`tools/computer/prompts/`)
+#### 4.2.3 系统 Prompt 体系 (`agents/computer/tools/prompts/`)
 
 | 文件 | 内容 | 优先级 |
 |------|------|--------|
@@ -446,7 +440,7 @@ async fn inject_computer_vision(
 | `tool_composite_action.md` | composite_action 工具规格 | 高 |
 | `tool_wait.md` | wait 工具规格 | 中 |
 
-#### 4.2.4 检查点机制 (`tools/computer/checkpoint.rs`)
+#### 4.2.4 检查点机制 (`agents/computer/checkpoint.rs`)
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
@@ -506,7 +500,7 @@ async fn inject_computer_vision(
 | `verify` | 调用 DaTi 等打码平台 | 低 |
 | 配置集成 | Settings 中配置 dati_api_url、authcode 等 | 低 |
 
-#### 5.2.4 象限放大 (`tools/computer/quadrant_zoom.rs`)
+#### 5.2.4 象限放大 (`agents/computer/quadrant_zoom.rs`)
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
@@ -515,7 +509,7 @@ async fn inject_computer_vision(
 | 顶部/底部条放大 | 100px 全宽条带 2× 放大（工具栏/状态栏） | 中 |
 | 鼠标周围放大 | 300px 区域 3× 放大 | 中 |
 
-#### 5.2.5 人性化鼠标移动 (`tools/computer/mouse_path.rs`)
+#### 5.2.5 人性化鼠标移动 (`agents/computer/mouse_path.rs`)
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
@@ -952,27 +946,14 @@ impl VisionState {
 ### 6.6 工具注册结构
 
 ```rust
-// tools/computer/mod.rs
-use crate::tools::ToolRegistry;
+// agents/computer/tools/mod.rs — ToolRegistry 条目（mouse / hotkey / composite_action / modified_click / wait）
+use crate::agents::computer::ComputerState;
+use crate::tools::{ToolEntry, ToolRegistry};
+// include_str!("schemas/..."), include_str!("prompts/...")
 
-pub mod screen;
-pub mod annotate;
-pub mod coord;
-pub mod actions;
-pub mod action_enigo;
-pub mod vision_state;
-pub mod verify;
-pub mod tool_mouse;
-pub mod tool_hotkey;
-pub mod tool_composite;
-pub mod tool_wait;
+pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) { /* ToolEntry::new + handler */ }
 
-pub fn register_computer_tools(reg: &ToolRegistry) {
-    tool_mouse::register(reg);
-    tool_hotkey::register(reg);
-    tool_composite::register(reg);
-    tool_wait::register(reg);
-}
+// agents/computer/mod.rs — ComputerState、屏幕/标注、ActionExecutor、VisionState（不直接注册工具）
 ```
 
 ---
@@ -1196,28 +1177,28 @@ mod tests {
 
 | Python 参考文件 | Rust 目标文件 | 说明 |
 |-----------------|---------------|------|
-| `screen.py` | `tools/computer/screen.rs` | 屏幕捕获 |
-| `som_util.py` | `tools/computer/annotate.rs` | UI 标注客户端 |
-| `coord_convert.py` | `tools/computer/coord.rs` | 坐标转换 |
-| `actions.py` | `tools/computer/actions.rs` + `action_enigo.rs` | 动作抽象 + 实现 |
-| `mouse_move.py` | `tools/computer/mouse_path.rs`（第三期） | 鼠标移动辅助 |
-| `screen_overlay.py` | `tools/computer/screen.rs`（扩展） | 覆盖图绘制 |
-| `focus_position.py` | `tools/computer/screen.rs`（扩展） | 焦点位置检测 |
+| `screen.py` | `agents/computer/screen.rs` | 屏幕捕获 |
+| `som_util.py` | `agents/computer/annotate.rs` | UI 标注客户端 |
+| `coord_convert.py` | `agents/computer/coord.rs` | 坐标转换 |
+| `actions.py` | `agents/computer/actions.rs` + `action_enigo.rs` | 动作抽象 + 实现 |
+| `mouse_move.py` | `agents/computer/mouse_path.rs`（第三期） | 鼠标移动辅助 |
+| `screen_overlay.py` | `agents/computer/screen.rs`（扩展） | 覆盖图绘制 |
+| `focus_position.py` | `agents/computer/screen.rs`（扩展） | 焦点位置检测 |
 | `storage_paths.py` | `storage.rs`（扩展） | 存储路径 |
-| `task_data_memory.py` | `tools/computer/vision_state.rs` | 任务数据管理 |
-| `credential_store.py` | `tools/computer/credential.rs`（第三期） | 凭据存储 |
-| `os_prompts.py` | `tools/computer/prompts/` + 加载逻辑 | OS prompt 加载 |
-| `extensions/.../_10_computer_screen_inject.py` | `chat_service.rs`（扩展） | 屏幕注入钩子 |
-| `tools/vision_common.py` | `tools/computer/vision_state.rs` | 共享视觉状态 |
-| `tools/mouse.py` | `tools/computer/tool_mouse.rs` | mouse 工具 |
-| `tools/hotkey.py` | `tools/computer/tool_hotkey.rs` | hotkey 工具 |
-| `tools/composite_action.py` | `tools/computer/tool_composite.rs` | composite_action 工具 |
-| `tools/wait.py` | `tools/computer/tool_wait.rs` | wait 工具 |
-| `tools/screen_reader.py` | `tools/computer/tool_screen_reader.rs`（第三期） | screen_reader 工具 |
-| `tools/account_login.py` | `tools/computer/tool_account_login.rs`（第三期） | account_login 工具 |
-| `tools/captcha_verify.py` | `tools/computer/tool_captcha.rs`（第三期） | captcha_verify 工具 |
-| `tools/checkpoint.py` | `tools/computer/checkpoint.rs`（第二期） | checkpoint 工具 |
-| `prompts/*.md` | `tools/computer/prompts/*.md` | 系统 prompt 文件 |
+| `task_data_memory.py` | `agents/computer/vision_state.rs` | 任务数据管理 |
+| `credential_store.py` | `agents/computer/credential.rs`（第三期） | 凭据存储 |
+| `os_prompts.py` | `agents/computer/tools/prompts/` + 加载逻辑 | OS prompt 加载 |
+| `extensions/.../_10_computer_screen_inject.py` | `agents/computer/extension_hooks/screen_inject.rs` + `chat_service.rs` 调用扩展点 | 屏幕注入钩子（Computer 专用） |
+| `tools/vision_common.py` | `agents/computer/vision_state.rs` | 共享视觉状态 |
+| `tools/mouse.py` | `agents/computer/tools/tool_mouse.rs` | mouse 工具 |
+| `tools/hotkey.py` | `agents/computer/tools/tool_hotkey.rs` | hotkey 工具 |
+| `tools/composite_action.py` | `agents/computer/tools/tool_composite.rs` | composite_action 工具 |
+| `tools/wait.py` | `agents/computer/tools/tool_wait.rs` | wait 工具 |
+| `tools/screen_reader.py` | `agents/computer/tools/tool_screen_reader.rs`（第三期） | screen_reader 工具 |
+| `tools/account_login.py` | `agents/computer/tools/tool_account_login.rs`（第三期） | account_login 工具 |
+| `tools/captcha_verify.py` | `agents/computer/tools/tool_captcha.rs`（第三期） | captcha_verify 工具 |
+| `tools/checkpoint.py` | `agents/computer/checkpoint.rs`（第二期） | checkpoint 工具 |
+| `prompts/*.md` | `agents/computer/tools/prompts/*.md` | 系统 prompt 文件 |
 | `agent.json` | `agents/computer/AGENT.md` | Agent 定义 |
 
 ---

@@ -1,5 +1,16 @@
 import type { UnlistenFn } from '@tauri-apps/api/event'
-import type { AgentDef, AgentMode, ChatMessage, Conversation, ModelSettings, SkillDef, SkillImportResult, StreamEvent, ToolDef } from '../types/chat'
+import type {
+  AgentDef,
+  AgentMode,
+  ChatMessage,
+  ComputerAnnotatedPreview,
+  Conversation,
+  ModelSettings,
+  SkillDef,
+  SkillImportResult,
+  StreamEvent,
+  ToolDef
+} from '../types/chat'
 
 import * as tauriApi from './tauri'
 import * as webApi from './web'
@@ -29,6 +40,7 @@ export interface RuntimeApi {
   importSkillZip(file: File): Promise<SkillImportResult>
   listTools(): Promise<ToolDef[]>
   listAgents(): Promise<AgentDef[]>
+  previewComputerAnnotatedScreen(): Promise<ComputerAnnotatedPreview>
 
   loadConversations(): Promise<Conversation[]>
   saveConversations(conversations: Conversation[]): Promise<void>
@@ -49,6 +61,7 @@ export const listSkills = api.listSkills
 export const importSkillZip = api.importSkillZip
 export const listTools = api.listTools
 export const listAgents = api.listAgents
+export const previewComputerAnnotatedScreen = api.previewComputerAnnotatedScreen
 
 export const loadConversations = api.loadConversations
 export const saveConversations = api.saveConversations

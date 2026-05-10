@@ -1,7 +1,7 @@
-use super::actions::ActionExecutor;
+use crate::agents::computer::actions::ActionExecutor;
+use crate::agents::computer::verify::VerifyHintGenerator;
+use crate::agents::computer::vision_state::VisionState;
 use super::args_util::{clamp_scroll_lines, json_bool_loose, require_non_empty_str};
-use super::vision_state::VisionState;
-use super::verify::VerifyHintGenerator;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};

@@ -231,6 +231,7 @@ async fn chat_stream(
                         StreamEvent::ToolRoundsExhausted { conversation_id: id, .. } => {
                             id == &conversation_id
                         }
+                        StreamEvent::UiToast { conversation_id: id, .. } => id == &conversation_id,
                         _ => true,
                     };
                     if belongs {

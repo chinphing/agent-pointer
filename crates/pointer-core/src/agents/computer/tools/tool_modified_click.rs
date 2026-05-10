@@ -1,6 +1,6 @@
-use super::actions::ActionExecutor;
+use crate::agents::computer::actions::ActionExecutor;
+use crate::agents::computer::vision_state::VisionState;
 use super::args_util::{json_bool_loose, parse_indices, require_non_empty_str};
-use super::vision_state::VisionState;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};

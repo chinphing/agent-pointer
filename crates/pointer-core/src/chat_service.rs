@@ -1,7 +1,10 @@
 use crate::agents::{
-    agent_requires_workspace, register_builtin_agents, AgentDef, AgentOrchestrator, AgentRegistry,
-    AgentRunLimits, AgentRunResult, AgentTask, DEFAULT_AGENT_ID, SUPERVISOR_AGENT_ID,
-    AGENT_MODE_SUPERVISOR,
+    agent_requires_workspace, register_builtin_agents, rendered_session_inject, AgentDef,
+    AgentOrchestrator, AgentProfile, AgentRegistry, AgentRunLimits, AgentRunResult, AgentTask,
+    SessionInjectVars, DEFAULT_AGENT_ID, SUPERVISOR_AGENT_ID, AGENT_MODE_SUPERVISOR,
+};
+use crate::extensions::{
+    BeforeMainLlmCallContext, ExtensionRegistry, MessageLoopPromptsAfterContext,
 };
 use crate::models::{
     effective_reasoning_in_messages, AgentTrace, ChatMessage, Role, StreamEvent, ToolCall,
@@ -9,7 +12,6 @@ use crate::models::{
 use crate::provider::{OpenAIProvider, ProviderEvent};
 use crate::skills::SkillRegistry;
 use crate::storage;
-use crate::tools::computer::ComputerState;
 use crate::tools::merge_tool_method_from_qualified_name;
 use crate::tools::parse_tool_call_arguments;
 use crate::tools::registry_tool_base_name;
@@ -75,7 +77,9 @@ pub struct AppState {
     pub tools: Arc<ToolRegistry>,
     pub skills: Arc<SkillRegistry>,
     pub agents: Arc<AgentRegistry>,
-    pub computer_state: Arc<ComputerState>,
+    pub computer_state: Arc<crate::agents::computer::ComputerState>,
+    /// Lifecycle hooks aligned with Python `call_extensions(extension_point, …)`.
+    pub extensions: Arc<ExtensionRegistry>,
     pub cancels: Mutex<HashMap<String, CancellationToken>>,
     pub approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
 }
@@ -95,13 +99,16 @@ impl AppState {
         if let Err(err) = agents.reload_external() {
             log::warn!("load external agents failed: {err}");
         }
-        let computer_state = Arc::new(ComputerState::new(&agents));
+        let computer_state = Arc::new(crate::agents::computer::ComputerState::new(&agents));
         crate::tools::builtin::register_computer_tools(&tools, computer_state.clone());
+        let mut extension_registry = ExtensionRegistry::new();
+        crate::extensions::register_builtin_extensions(&mut extension_registry);
         Self {
             tools,
             skills,
             agents,
             computer_state,
+            extensions: Arc::new(extension_registry),
             cancels: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
         }
@@ -133,7 +140,7 @@ impl Default for AppState {
     }
 }
 
-pub type StreamTx = mpsc::UnboundedSender<StreamEvent>;
+pub type StreamTx = crate::models::ChatStreamSender;
 
 fn emit(tx: &StreamTx, ev: StreamEvent) {
     if tx.send(ev).is_err() {
@@ -412,6 +419,41 @@ async fn run_chat_inner(
         }
 
         let assistant_id = new_id("msg");
+
+        let xml_tool_prompt = crate::xml_tool_prompt::generate_xml_tool_prompt(
+            &state.tools,
+            &agent_plan.allowed_tool_names,
+        );
+        let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
+        let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
+        let lead_profile = state
+            .agents
+            .get(&agent_plan.lead_agent_id)
+            .map(|a| a.def().profile.clone())
+            .unwrap_or(AgentProfile::General);
+
+        let mut history_for_api = history.clone();
+        let mut prompts_after_ctx = MessageLoopPromptsAfterContext {
+            computer_state: state.computer_state.as_ref(),
+            lead_agent_profile: lead_profile.clone(),
+            messages: &mut history_for_api,
+            conversation_id,
+            stream: Some(&stream),
+        };
+        state
+            .extensions
+            .run_message_loop_prompts_after(&mut prompts_after_ctx)
+            .await?;
+
+        let before_llm_ctx = BeforeMainLlmCallContext {
+            computer_state: state.computer_state.as_ref(),
+            lead_agent_profile: lead_profile,
+        };
+        state
+            .extensions
+            .run_before_main_llm_call(&before_llm_ctx)
+            .await?;
+
         emit(
             &stream,
             StreamEvent::MessageStart {
@@ -440,14 +482,15 @@ async fn run_chat_inner(
             );
         }
 
-        let xml_tool_prompt = crate::xml_tool_prompt::generate_xml_tool_prompt(
-            &state.tools,
-            &agent_plan.allowed_tool_names,
-        );
-        let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
-        let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
-        let history_clone = history.clone();
         let mut prompts_with_env = vec![build_env_context()];
+        let session_vars = SessionInjectVars {
+            workspace_root: settings.workspace_root.trim(),
+        };
+        if let Some(exec) = state.agents.get(&agent_plan.lead_agent_id) {
+            if let Some(block) = rendered_session_inject(exec.as_ref(), &session_vars) {
+                prompts_with_env.push(block);
+            }
+        }
         prompts_with_env.extend(agent_plan.system_prompts.clone());
         prompts_with_env.extend(state.tools.prompt_context(&agent_plan.allowed_tool_names));
         if !xml_tool_prompt.is_empty() {
@@ -457,7 +500,7 @@ async fn run_chat_inner(
         let cancel_clone = cancel.clone();
         let send_handle = tokio::spawn(async move {
             prov.stream_chat(
-                &history_clone,
+                &history_for_api,
                 &prompts_clone,
                 tx,
                 cancel_clone,
@@ -470,6 +513,8 @@ async fn run_chat_inner(
         let mut final_tool_calls: Vec<ToolCall> = Vec::new();
         let mut finish_reason = String::from("stop");
         let mut xml_finish_diag = XmlToolFinishDiagnostics::default();
+        let mut xml_thoughts: Option<String> = None;
+        let mut xml_headline: Option<String> = None;
 
         while let Some(ev) = rx.recv().await {
             match ev {
@@ -540,9 +585,13 @@ async fn run_chat_inner(
                     reason,
                     tool_calls,
                     xml,
+                    thoughts,
+                    headline,
                 } => {
                     finish_reason = reason;
                     xml_finish_diag = xml;
+                    xml_thoughts = thoughts;
+                    xml_headline = headline;
                     // XML 等路径在流内不会发 ToolCallStart；此处补发，界面才能显示 ToolCallCard。
                     for tc in &tool_calls {
                         let mut t = tc.clone();
@@ -579,6 +628,8 @@ async fn run_chat_inner(
                         message_id: assistant_id.clone(),
                         content: None,
                         raw_content: None,
+                        thoughts: None,
+                        headline: None,
                     },
                 );
                 tool_budget.sync_out(consumed_single);
@@ -624,6 +675,8 @@ async fn run_chat_inner(
             } else {
                 None
             },
+            thoughts: xml_thoughts,
+            headline: xml_headline,
             raw_content: if raw_content_buf.is_empty() {
                 None
             } else {
@@ -636,6 +689,7 @@ async fn run_chat_inner(
             } else {
                 Some(agent_trace.clone())
             },
+            images_base64: None,
         };
         history.push(assistant_msg.clone());
         emit(
@@ -644,6 +698,8 @@ async fn run_chat_inner(
                 message_id: assistant_id.clone(),
                 content: Some(assistant_msg.content.clone()),
                 raw_content: assistant_msg.raw_content.clone(),
+                thoughts: assistant_msg.thoughts.clone(),
+                headline: assistant_msg.headline.clone(),
             },
         );
 
@@ -668,10 +724,13 @@ async fn run_chat_inner(
                     tool_call_id: None,
                     error_message: None,
                     reasoning: None,
+                    thoughts: None,
+                    headline: None,
                     raw_content: None,
                     agent_id: None,
                     agent_name: None,
                     agent_trace: None,
+                    images_base64: None,
                 });
                 tool_budget.record_tool_cycle();
                 tool_budget.sync_out(consumed_single);
@@ -719,7 +778,25 @@ async fn run_chat_inner(
             }
 
             let args_value = parse_tool_call_arguments(&tc.arguments);
-            let (tool_id, args_value) = merge_tool_method_from_qualified_name(&tc.name, args_value);
+            let (mut tool_id, args_value) = merge_tool_method_from_qualified_name(&tc.name, args_value);
+            tool_id = tool_id.trim().to_string();
+            if tool_id.is_empty() {
+                let err = "工具名为空：请检查 <tool_name>（例如 mouse:click_index、composite_action、response）。";
+                emit(
+                    &stream,
+                    StreamEvent::ToolCallStatus {
+                        message_id: assistant_id.clone(),
+                        tool_call_id: tc.id.clone(),
+                        status: "failed".into(),
+                        result: None,
+                        error: Some(err.to_string()),
+                        duration_ms: Some(0),
+                    },
+                );
+                history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
+                any_executed = true;
+                continue;
+            }
 
             if tool_id == "response" {
                 let message = response_text_from_args(&args_value).unwrap_or("");
@@ -748,11 +825,15 @@ async fn run_chat_inner(
 
                 // PyProjects: `response` does not append a separate tool-result history line; finalize
                 // the same assistant row (user-visible `content`, keep `raw_content` for the API).
+                let mut wire_thoughts: Option<String> = None;
+                let mut wire_headline: Option<String> = None;
                 if let Some(last) = history.last_mut() {
                     if last.id == assistant_id && matches!(last.role, Role::Assistant) {
                         last.content = message.to_string();
                         last.tool_calls = None;
                         last.status = "completed".into();
+                        wire_thoughts = last.thoughts.clone();
+                        wire_headline = last.headline.clone();
                     }
                 }
 
@@ -766,6 +847,8 @@ async fn run_chat_inner(
                         } else {
                             Some(raw_content_buf.clone())
                         },
+                        thoughts: wire_thoughts,
+                        headline: wire_headline,
                     },
                 );
 
@@ -1133,10 +1216,13 @@ async fn run_supervisor_chat(
         tool_call_id: None,
         error_message: None,
         reasoning: None,
+        thoughts: None,
+        headline: None,
         raw_content: None,
         agent_id: Some("supervisor".into()),
         agent_name: Some(sup_name),
         agent_trace: Some(agent_trace),
+        images_base64: None,
     });
     emit(
         &stream,
@@ -1144,6 +1230,8 @@ async fn run_supervisor_chat(
             message_id: assistant_id,
             content: Some(final_answer),
             raw_content: None,
+            thoughts: None,
+            headline: None,
         },
     );
     Ok(())
@@ -1261,7 +1349,10 @@ async fn run_sub_agent(
     let (skill_prompts, session_tools) = state.skills.progressive_context(&skill_ids);
     let allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
     let env_context = build_env_context();
-    let mut prompts = vec![env_context, format!(
+    let session_vars = SessionInjectVars {
+        workspace_root: provider.settings.workspace_root.trim(),
+    };
+    let sub_agent_header = format!(
         "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\nComplete only the subtask delivered in the next user message from the Supervisor. That message is task instructions (it may include a digest of prior task outputs) and does **not** include the main chat history. Your output should state conclusions, key evidence, risks, or open items.\nAllowed tools: {}",
         def.name,
         def.id,
@@ -1273,7 +1364,12 @@ async fn run_sub_agent(
         } else {
             allowed_tools.join(", ")
         }
-    )];
+    );
+    let mut prompts = vec![env_context];
+    if let Some(block) = rendered_session_inject(agent.as_ref(), &session_vars) {
+        prompts.push(block);
+    }
+    prompts.push(sub_agent_header);
     prompts.extend(skill_prompts);
     prompts.extend(state.tools.prompt_context(&allowed_tools));
 
@@ -1295,10 +1391,13 @@ async fn run_sub_agent(
         tool_call_id: None,
         error_message: None,
         reasoning: None,
+        thoughts: None,
+        headline: None,
         raw_content: None,
         agent_id: None,
         agent_name: None,
         agent_trace: None,
+        images_base64: None,
     }];
     let mut content = String::new();
     let mut reasoning = String::new();
@@ -1317,7 +1416,28 @@ async fn run_sub_agent(
 
         let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
         let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
-        let history_clone = local_history.clone();
+        let mut history_for_api = local_history.clone();
+        let mut prompts_after_ctx = MessageLoopPromptsAfterContext {
+            computer_state: state.computer_state.as_ref(),
+            lead_agent_profile: def.profile.clone(),
+            messages: &mut history_for_api,
+            conversation_id,
+            stream: Some(stream),
+        };
+        state
+            .extensions
+            .run_message_loop_prompts_after(&mut prompts_after_ctx)
+            .await?;
+
+        let before_llm_ctx = BeforeMainLlmCallContext {
+            computer_state: state.computer_state.as_ref(),
+            lead_agent_profile: def.profile.clone(),
+        };
+        state
+            .extensions
+            .run_before_main_llm_call(&before_llm_ctx)
+            .await?;
+
         let mut prompts_clone = prompts.clone();
         if !xml_tool_prompt.is_empty() {
             prompts_clone.push(xml_tool_prompt.clone());
@@ -1325,7 +1445,7 @@ async fn run_sub_agent(
         let cancel_clone = cancel.clone();
         let handle = tokio::spawn(async move {
             prov.stream_chat(
-                &history_clone,
+                &history_for_api,
                 &prompts_clone,
                 tx,
                 cancel_clone,
@@ -1337,6 +1457,8 @@ async fn run_sub_agent(
         let mut round_content = String::new();
         let mut round_reasoning = String::new();
         let mut final_tool_calls: Vec<ToolCall> = Vec::new();
+        let mut round_thoughts: Option<String> = None;
+        let mut round_headline: Option<String> = None;
 
         while let Some(ev) = rx.recv().await {
             match ev {
@@ -1394,8 +1516,12 @@ async fn run_sub_agent(
                 ProviderEvent::Finish {
                     tool_calls,
                     xml: _,
+                    thoughts,
+                    headline,
                     ..
                 } => {
+                    round_thoughts = thoughts;
+                    round_headline = headline;
                     for tc in &tool_calls {
                         let mut t = tc.clone();
                         t.risk_level = state
@@ -1455,10 +1581,13 @@ async fn run_sub_agent(
             } else {
                 None
             },
+            thoughts: round_thoughts,
+            headline: round_headline,
             raw_content: None,
             agent_id: Some(def.id.clone()),
             agent_name: Some(def.name.clone()),
             agent_trace: None,
+            images_base64: None,
         });
 
         if final_tool_calls.is_empty() {
@@ -1482,8 +1611,26 @@ async fn run_sub_agent(
             }
 
             let args_value = parse_tool_call_arguments(&tool_call.arguments);
-            let (tool_id, args_value) =
+            let (mut tool_id, args_value) =
                 merge_tool_method_from_qualified_name(&tool_call.name, args_value);
+            tool_id = tool_id.trim().to_string();
+            if tool_id.is_empty() {
+                let err = "工具名为空：请检查 <tool_name>（例如 mouse:click_index、composite_action、response）。";
+                emit(
+                    stream,
+                    StreamEvent::ToolCallStatus {
+                        message_id: message_id.to_string(),
+                        tool_call_id: tool_call.id.clone(),
+                        status: "failed".into(),
+                        result: None,
+                        error: Some(err.to_string()),
+                        duration_ms: Some(0),
+                    },
+                );
+                local_history.push(tool_result_msg(&tool_call.id, &format!("ERROR: {err}")));
+                any_executed = true;
+                continue;
+            }
 
             if tool_id == "response" {
                 let message = response_text_from_args(&args_value).unwrap_or("");
@@ -1937,10 +2084,13 @@ fn tool_result_msg(tool_call_id: &str, content: &str) -> ChatMessage {
         tool_call_id: Some(tool_call_id.to_string()),
         error_message: None,
         reasoning: None,
+        thoughts: None,
+        headline: None,
         raw_content: None,
         agent_id: None,
         agent_name: None,
         agent_trace: None,
+        images_base64: None,
     }
 }
 

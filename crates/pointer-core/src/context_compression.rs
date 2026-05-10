@@ -147,10 +147,13 @@ fn new_summary_user_message(body: String) -> ChatMessage {
         tool_call_id: None,
         error_message: None,
         reasoning: None,
+        thoughts: None,
+        headline: None,
         raw_content: None,
         agent_id: None,
         agent_name: None,
         agent_trace: None,
+        images_base64: None,
     }
 }
 
@@ -199,10 +202,13 @@ async fn compress_history_inner(
         tool_call_id: None,
         error_message: None,
         reasoning: None,
+        thoughts: None,
+        headline: None,
         raw_content: None,
         agent_id: None,
         agent_name: None,
         agent_trace: None,
+        images_base64: None,
     };
 
     let max_tok = settings.context_summary_max_tokens.max(128);
@@ -310,10 +316,13 @@ mod tests {
             tool_call_id: None,
             error_message: None,
             reasoning: None,
+            thoughts: None,
+            headline: None,
             raw_content: None,
             agent_id: None,
             agent_name: None,
             agent_trace: None,
+            images_base64: None,
         }
     }
 

@@ -1,5 +1,5 @@
+use crate::agents::computer::verify::VerifyHintGenerator;
 use super::args_util::{parse_wait_seconds, require_non_empty_str};
-use super::verify::VerifyHintGenerator;
 use anyhow::Result;
 use std::thread;
 use std::time::Duration;

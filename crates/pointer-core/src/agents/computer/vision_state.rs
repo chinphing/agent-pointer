@@ -83,22 +83,40 @@ impl VisionState {
 
     /// Set the index map from annotated boxes.
     ///
+    /// `boxes` are in **bitmap pixel** space (same as the screenshot sent to annotate). `monitor`
+    /// uses **logical** bounds (e.g. macOS `CGDisplayBounds`). When the capture bitmap is larger
+    /// than the logical size (Retina), pass its pixel size as `capture_px` so centers match
+    /// enigo / OS global pointer coordinates.
+    ///
     /// # Arguments
-    /// * `boxes` - The detected bounding boxes from the annotation service.
-    /// * `monitor` - The monitor info for coordinate conversion.
-    pub fn set_index_map_from_boxes(&mut self, boxes: &[BoxInfo], monitor: &MonitorInfo) {
+    /// * `boxes` - Detected bounding boxes from the annotation service.
+    /// * `monitor` - Logical monitor bounds (global `left`/`top` plus `width`/`height`).
+    /// * `capture_px` - Width and height of the captured bitmap in pixels.
+    pub fn set_index_map_from_boxes(
+        &mut self,
+        boxes: &[BoxInfo],
+        monitor: &MonitorInfo,
+        capture_px: (u32, u32),
+    ) {
+        let mw = monitor.width.max(1) as f32;
+        let mh = monitor.height.max(1) as f32;
+        let sx = capture_px.0 as f32 / mw;
+        let sy = capture_px.1 as f32 / mh;
+
         self.index_map = boxes
             .iter()
             .map(|b| {
                 let (cx, cy) = b.center();
+                let lx = (cx / sx).round() as i32;
+                let ly = (cy / sy).round() as i32;
                 (
                     b.index,
                     ElementInfo {
                         index: b.index,
-                        center_x: monitor.left + cx as i32,
-                        center_y: monitor.top + cy as i32,
-                        width: b.width,
-                        height: b.height,
+                        center_x: monitor.left + lx,
+                        center_y: monitor.top + ly,
+                        width: b.width / sx,
+                        height: b.height / sy,
                     },
                 )
             })
@@ -288,9 +306,26 @@ mod tests {
             },
         ];
         let monitor = MonitorInfo::new(0, 0, 1920, 1080);
-        state.set_index_map_from_boxes(&boxes, &monitor);
+        state.set_index_map_from_boxes(&boxes, &monitor, (1920, 1080));
 
         assert_eq!(state.resolve_index(1), Some((125, 215)));
         assert_eq!(state.resolve_index(2), Some((330, 420)));
+    }
+
+    #[test]
+    fn test_set_index_map_from_boxes_retina_scale() {
+        let mut state = VisionState::new();
+        let boxes = vec![BoxInfo {
+            index: 1,
+            x: 200.0,
+            y: 400.0,
+            width: 100.0,
+            height: 80.0,
+            confidence: 1.0,
+        }];
+        let monitor = MonitorInfo::new(0, 0, 1000, 800);
+        state.set_index_map_from_boxes(&boxes, &monitor, (2000, 1600));
+
+        assert_eq!(state.resolve_index(1), Some((125, 220)));
     }
 }

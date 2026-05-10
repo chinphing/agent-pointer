@@ -1,62 +1,33 @@
-/// XML tool-call parsing: buffer until a full `<response>…</response>`, then parse with `quick-xml`.
+/// XML tool-call parsing: buffer until a full `<response>…</response>`, then parse via
+/// [`crate::response_xml::parse_tool_response_default_chain`] (strict quick-xml → ScraperHtml → relaxed quick-xml).
 
-use std::collections::HashMap;
-
-use quick_xml::events::Event;
-use quick_xml::reader::Reader;
-use serde_json::{Map, Number, Value};
-
-#[derive(Debug, Clone)]
-pub struct XmlToolCall {
-    pub name: String,
-    pub arguments: HashMap<String, String>,
-    pub thoughts: String,
-    pub headline: String,
-}
-
-/// Convert XML string arguments to JSON for `parse_tool_call_arguments` / tool handlers.
-/// Coerces numbers/bools and JSON array/object literals embedded in text nodes.
-pub fn xml_tool_arguments_to_json_string(args: &HashMap<String, String>) -> String {
-    let map: Map<String, Value> = args
-        .iter()
-        .map(|(k, v)| (k.clone(), coerce_xml_text_to_json_value(v)))
-        .collect();
-    Value::Object(map).to_string()
-}
-
-fn coerce_xml_text_to_json_value(s: &str) -> Value {
-    let t = s.trim();
-    if t.is_empty() {
-        return Value::String(s.to_string());
-    }
-    // Models often embed JSON literals (e.g. hotkey keys array); parse as structured JSON when valid.
-    if t.starts_with('{') || t.starts_with('[') {
-        if let Ok(v) = serde_json::from_str::<Value>(t) {
-            return v;
-        }
-    }
-    if t == "true" {
-        return Value::Bool(true);
-    }
-    if t == "false" {
-        return Value::Bool(false);
-    }
-    if t == "null" {
-        return Value::Null;
-    }
-    if let Ok(i) = t.parse::<i64>() {
-        return Value::Number(i.into());
-    }
-    if let Ok(f) = t.parse::<f64>() {
-        if let Some(n) = Number::from_f64(f) {
-            return Value::Number(n);
-        }
-    }
-    Value::String(s.to_string())
-}
+pub use crate::response_xml::{
+    parse_tool_response_default_chain, xml_tool_arguments_to_json_string, ResponseXmlBackend,
+    ResponseXmlParseError, XmlToolCall,
+};
 
 /// Take the first complete `<response>…</response>` from `buf`, returning `(end_index, fragment)`.
 /// If the opening `<response>` is missing but `</response>` exists, wrap the body in a synthetic root.
+/// Best-effort: first `<tag ...>...</tag>` inner text (open tag may have attributes).
+/// Used when strict XML parsing fails (e.g. unescaped `<` in `<tool_args>`) so UI still gets
+/// `<thoughts>` / `<headline>` that were visible while streaming.
+fn loose_extract_first_tag_inner(xml: &str, tag: &str) -> Option<String> {
+    let open_prefix = format!("<{tag}");
+    let open_start = xml.find(&open_prefix)?;
+    let after_prefix = xml.get(open_start..)?;
+    let open_end_rel = after_prefix.find('>')?;
+    let inner_start = open_start + open_end_rel + 1;
+    let close_tag = format!("</{tag}>");
+    let inner = xml.get(inner_start..)?;
+    let close_rel = inner.find(&close_tag)?;
+    let body = inner.get(..close_rel)?.trim();
+    if body.is_empty() {
+        None
+    } else {
+        Some(body.to_string())
+    }
+}
+
 fn extract_response_fragment(buf: &str) -> Option<(usize, String)> {
     if let Some(start) = buf.find("<response>") {
         let after_open = start + "<response>".len();
@@ -76,113 +47,6 @@ fn extract_response_fragment(buf: &str) -> Option<(usize, String)> {
     Some((end, format!("<response>{body}</response>")))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TextSlot {
-    Idle,
-    Thoughts,
-    Headline,
-    ToolName,
-    ToolArgs,
-    Arg,
-}
-
-fn parse_response_xml(xml: &str) -> Result<XmlToolCall, quick_xml::Error> {
-    let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
-
-    let mut call = XmlToolCall {
-        name: String::new(),
-        arguments: HashMap::new(),
-        thoughts: String::new(),
-        headline: String::new(),
-    };
-
-    let mut slot = TextSlot::Idle;
-    let mut text_buf = String::new();
-    let mut arg_name = String::new();
-
-    loop {
-        match reader.read_event()? {
-            Event::Eof => break,
-            Event::Start(e) => {
-                text_buf.clear();
-                match e.name().local_name().as_ref() {
-                    b"response" => {}
-                    b"thoughts" => slot = TextSlot::Thoughts,
-                    b"headline" => slot = TextSlot::Headline,
-                    b"tool_name" => slot = TextSlot::ToolName,
-                    b"tool_args" => slot = TextSlot::ToolArgs,
-                    name if slot == TextSlot::ToolArgs => {
-                        arg_name = String::from_utf8_lossy(name).into_owned();
-                        slot = TextSlot::Arg;
-                    }
-                    _ => {}
-                }
-            }
-            Event::Empty(e) => {
-                if slot == TextSlot::ToolArgs {
-                    let name = String::from_utf8_lossy(e.name().local_name().as_ref()).into_owned();
-                    call.arguments.insert(name, String::new());
-                }
-            }
-            Event::Text(e) => {
-                // Do not use `unescape()`: models emit raw `&`, `<`, etc. in text nodes; strict entity
-                // decoding fails on those. Treat the text segment as UTF-8 bytes (tool payloads use CDATA
-                // when markup would break tag structure).
-                let t = String::from_utf8_lossy(e.as_ref()).into_owned();
-                match slot {
-                    TextSlot::Thoughts
-                    | TextSlot::Headline
-                    | TextSlot::ToolName
-                    | TextSlot::Arg => text_buf.push_str(&t),
-                    TextSlot::Idle | TextSlot::ToolArgs => {}
-                }
-            }
-            Event::CData(e) => {
-                let t = String::from_utf8_lossy(e.as_ref()).into_owned();
-                match slot {
-                    TextSlot::Thoughts
-                    | TextSlot::Headline
-                    | TextSlot::ToolName
-                    | TextSlot::Arg => text_buf.push_str(&t),
-                    TextSlot::Idle | TextSlot::ToolArgs => {}
-                }
-            }
-            Event::End(e) => {
-                match e.name().local_name().as_ref() {
-                    b"thoughts" if slot == TextSlot::Thoughts => {
-                        call.thoughts = std::mem::take(&mut text_buf);
-                        slot = TextSlot::Idle;
-                    }
-                    b"headline" if slot == TextSlot::Headline => {
-                        call.headline = std::mem::take(&mut text_buf);
-                        slot = TextSlot::Idle;
-                    }
-                    b"tool_name" if slot == TextSlot::ToolName => {
-                        call.name = std::mem::take(&mut text_buf).trim().to_string();
-                        slot = TextSlot::Idle;
-                    }
-                    b"tool_args" if slot == TextSlot::ToolArgs => {
-                        slot = TextSlot::Idle;
-                    }
-                    end_name
-                        if slot == TextSlot::Arg
-                            && end_name == arg_name.as_bytes() =>
-                    {
-                        call.arguments
-                            .insert(std::mem::take(&mut arg_name), std::mem::take(&mut text_buf));
-                        slot = TextSlot::ToolArgs;
-                    }
-                    _ => {}
-                }
-            }
-            Event::Decl(_) | Event::PI(_) | Event::DocType(_) | Event::Comment(_) => {}
-        }
-    }
-
-    Ok(call)
-}
-
 /// Diagnostics after the stream ends (for recoverable XML tool failures).
 #[derive(Debug, Clone, Default)]
 pub struct XmlToolFinishDiagnostics {
@@ -200,6 +64,8 @@ pub struct XmlToolParser {
     is_complete: bool,
     current_call: Option<XmlToolCall>,
     last_parse_error: Option<String>,
+    fallback_thoughts: Option<String>,
+    fallback_headline: Option<String>,
 }
 
 impl XmlToolParser {
@@ -209,7 +75,18 @@ impl XmlToolParser {
             is_complete: false,
             current_call: None,
             last_parse_error: None,
+            fallback_thoughts: None,
+            fallback_headline: None,
         }
+    }
+
+    /// When [`Self::parse`] returns `None` but a `</response>` fragment existed, these may hold
+    /// [`loose_extract_first_tag_inner`] results for UI / persistence.
+    pub fn take_fallback_thoughts_headline(&mut self) -> (Option<String>, Option<String>) {
+        (
+            self.fallback_thoughts.take(),
+            self.fallback_headline.take(),
+        )
     }
 
     pub fn feed(&mut self, chunk: &str) {
@@ -242,6 +119,8 @@ impl XmlToolParser {
         self.current_call = None;
         self.is_complete = false;
         self.last_parse_error = None;
+        self.fallback_thoughts = None;
+        self.fallback_headline = None;
     }
 
     fn try_finish(&mut self) {
@@ -251,16 +130,18 @@ impl XmlToolParser {
         let Some((end, frag)) = extract_response_fragment(&self.buffer) else {
             return;
         };
-        match parse_response_xml(&frag) {
+        match parse_tool_response_default_chain(&frag) {
             Ok(call) => {
                 self.last_parse_error = None;
                 self.current_call = Some(call);
+                self.fallback_thoughts = None;
+                self.fallback_headline = None;
             }
             Err(e) => {
                 let prefix: String = frag.chars().take(500).collect();
                 let truncated = frag.chars().count() > 500;
                 log::warn!(
-                    "xml_tool_caller: parse_response_xml failed (fragment_chars={}{}): {}; prefix={:?}",
+                    "xml_tool_caller: parse_tool_response_default_chain failed (fragment_chars={}{}): {}; prefix={:?}",
                     frag.chars().count(),
                     if truncated { ", truncated in log" } else { "" },
                     e,
@@ -268,6 +149,8 @@ impl XmlToolParser {
                 );
                 self.last_parse_error = Some(e.to_string());
                 self.current_call = None;
+                self.fallback_thoughts = loose_extract_first_tag_inner(&frag, "thoughts");
+                self.fallback_headline = loose_extract_first_tag_inner(&frag, "headline");
             }
         }
         self.is_complete = true;
@@ -277,6 +160,8 @@ impl XmlToolParser {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
 
     #[test]
@@ -433,36 +318,36 @@ mod tests {
         assert_eq!(arr[1].as_str(), Some("space"));
     }
 
-    /// Text nodes use raw UTF-8 (no `unescape()`), so a bare `&` is kept as-is.
     #[test]
-    fn parse_response_xml_accepts_bare_ampersand_in_tool_arg() {
-        let xml = r#"<response>
-  <tool_name>file_edit</tool_name>
-  <tool_args>
-    <path>x.txt</path>
-    <oldString>foo & bar</oldString>
-    <newString>ok</newString>
-  </tool_args>
-</response>"#;
-        let call = parse_response_xml(xml).expect("parse");
-        assert_eq!(call.arguments.get("oldString").map(String::as_str), Some("foo & bar"));
+    fn loose_extract_finds_thoughts_with_attribute_on_open_tag() {
+        let xml = r#"<response><thoughts lang="x">inner</thoughts></response>"#;
+        assert_eq!(
+            loose_extract_first_tag_inner(xml, "thoughts").as_deref(),
+            Some("inner")
+        );
     }
 
-    /// We do not decode XML entities in `Event::Text`; `&amp;` stays literal (prefer CDATA or raw `&`).
+    /// Bare `<` in `oldString` breaks strict quick-xml; default chain uses ScraperHtml first and succeeds.
     #[test]
-    fn parse_response_xml_text_leaves_amp_entity_literal() {
+    fn parser_default_chain_parses_unescaped_lt_in_old_string() {
+        let mut parser = XmlToolParser::new();
         let xml = r#"<response>
+  <thoughts>Planning edit</thoughts>
+  <headline>Patch file</headline>
   <tool_name>file_edit</tool_name>
   <tool_args>
     <path>x.txt</path>
-    <oldString>foo &amp; bar</oldString>
+    <oldString>if a < b</oldString>
     <newString>z</newString>
   </tool_args>
 </response>"#;
-        let call = parse_response_xml(xml).expect("parse");
-        assert_eq!(
-            call.arguments.get("oldString").map(String::as_str),
-            Some("foo &amp; bar")
-        );
+        parser.feed(xml);
+        assert!(parser.is_complete());
+        let call = parser.parse().expect("ScraperHtml should parse this fragment");
+        assert_eq!(call.thoughts.trim(), "Planning edit");
+        assert_eq!(call.headline.trim(), "Patch file");
+        assert_eq!(call.name, "file_edit");
+        assert_eq!(call.arguments.get("oldString").map(String::as_str), Some("if a < b"));
+        assert_eq!(call.arguments.get("newString").map(String::as_str), Some("z"));
     }
 }

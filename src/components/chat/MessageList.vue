@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
 import { ArrowDown } from 'lucide-vue-next'
-import MessageBubble from './MessageBubble.vue'
+import MessageRow from './message/MessageRow.vue'
 import { useChatStore } from '../../stores/chat'
 
 const chat = useChatStore()
@@ -14,25 +14,38 @@ async function toBottom() {
   if (el) el.scrollTop = el.scrollHeight
 }
 
-function onScroll() {
+function isNearBottom(): boolean {
   const el = scroller.value
-  if (!el) return
-  const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
-  showScrollButton.value = !isNearBottom
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 100
+}
+
+function onScroll() {
+  showScrollButton.value = !isNearBottom()
 }
 
 onMounted(toBottom)
-watch(() => chat.current?.messages.length, toBottom)
+
+// 只有当用户已经在底部附近时，新消息才自动滚动到底部
+watch(() => chat.current?.messages.length, () => {
+  if (isNearBottom()) {
+    toBottom()
+  }
+})
 watch(
   () => chat.current?.messages.map(m => m.content + (m.toolCalls?.length || 0)).join('|'),
-  toBottom
+  () => {
+    if (isNearBottom()) {
+      toBottom()
+    }
+  }
 )
 </script>
 
 <template>
   <div ref="scroller" class="h-full overflow-y-auto px-6 md:px-10 pb-6" @scroll="onScroll">
     <div class="max-w-3xl mx-auto pt-6 space-y-5">
-      <MessageBubble
+      <MessageRow
         v-for="m in chat.current?.messages || []"
         :key="m.id"
         :message="m"

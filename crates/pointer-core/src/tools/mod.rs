@@ -1,5 +1,4 @@
 pub mod builtin;
-pub mod computer;
 pub mod general;
 pub mod math;
 pub mod response;
@@ -91,6 +90,13 @@ fn strip_optional_code_fence(s: &str) -> String {
     lines.join("\n").trim().to_string()
 }
 
+/// Normalize `tool：method` (fullwidth colon U+FF1A) to ASCII `:` so qualified names match the registry.
+fn normalize_tool_name_colons(s: &str) -> String {
+    s.chars()
+        .map(|c| if c == '：' { ':' } else { c })
+        .collect()
+}
+
 /// Registry id: strip the optional `:method` suffix (`mouse:click_index` → `mouse`, `wait` → `wait`).
 pub fn registry_tool_base_name(raw: &str) -> &str {
     match raw.trim().split_once(':') {
@@ -101,14 +107,17 @@ pub fn registry_tool_base_name(raw: &str) -> &str {
 
 /// If `raw_name` is `tool:method`, return `(tool, args)` and ensure `args["method"]` is set when missing.
 pub fn merge_tool_method_from_qualified_name(raw_name: &str, mut args: Value) -> (String, Value) {
-    let raw_name = raw_name.trim();
+    let raw_name = normalize_tool_name_colons(raw_name.trim());
+    if raw_name.is_empty() {
+        return (String::new(), args);
+    }
     let Some((base, method)) = raw_name.split_once(':') else {
-        return (raw_name.to_string(), args);
+        return (raw_name, args);
     };
     let base = base.trim();
     let method = method.trim();
     if base.is_empty() || method.is_empty() {
-        return (raw_name.to_string(), args);
+        return (raw_name, args);
     }
     if let Value::Object(ref mut map) = args {
         map.entry("method".to_string())
@@ -324,5 +333,13 @@ mod parse_args_tests {
         let (id, out) = merge_tool_method_from_qualified_name("mouse:click_index", args);
         assert_eq!(id, "mouse");
         assert_eq!(out["method"], "click_at");
+    }
+
+    #[test]
+    fn merge_tool_method_fullwidth_colon() {
+        let args = serde_json::json!({"goal": "g", "index": 1});
+        let (id, out) = merge_tool_method_from_qualified_name("mouse：click_index", args);
+        assert_eq!(id, "mouse");
+        assert_eq!(out["method"], "click_index");
     }
 }

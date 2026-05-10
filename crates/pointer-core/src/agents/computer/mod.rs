@@ -1,23 +1,24 @@
+//! Computer agent: foundation (actions, screen, state) in this module; **tool** handlers in [`tools`].
+
 pub mod action_enigo;
 pub mod actions;
 pub mod annotate;
-pub mod args_util;
 pub mod coord;
+/// Computer-specific [`crate::extensions`] hooks (e.g. screen inject).
+pub mod extension_hooks;
 pub mod screen;
-pub mod tool_composite;
-pub mod tool_hotkey;
-pub mod tool_mouse;
-mod tool_modified_click;
-pub mod tool_wait;
+/// ToolRegistry handlers, JSON schemas, and prompts for computer use.
+pub mod tools;
 pub mod verify;
 pub mod vision_state;
 
 use crate::agents::AgentRegistry;
-use crate::tools::{ToolEntry, ToolRegistry};
-use tool_modified_click::ModifiedClickTool;
+use crate::models::ComputerAnnotatedPreview;
 use actions::ActionExecutor;
 use annotate::AnnotateClient;
+use coord::CoordinateSystem;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use vision_state::VisionState;
 
 /// Default annotation service URL.
@@ -29,7 +30,6 @@ const CONFIG_KEY_ANNOTATE_API_BASE: &str = "annotateApiBase";
 ///
 /// This struct is created once in AppState and shared across all computer tool handlers.
 /// It holds the action executor, vision state, and annotation client for the current session.
-#[derive(Debug)]
 pub struct ComputerState {
     /// The action executor.
     pub executor: Arc<Mutex<ActionExecutor>>,
@@ -37,6 +37,22 @@ pub struct ComputerState {
     pub vision_state: Arc<Mutex<VisionState>>,
     /// The annotation service client.
     pub annotate_client: AnnotateClient,
+    /// Last successful annotated PNG + monitor bounds.
+    /// Written by [`Self::capture_and_annotate`] (including `_10_computer_screen_inject`); UI preview reads this for parity with model vision input.
+    last_annotated: Arc<Mutex<Option<(Vec<u8>, screen::MonitorInfo)>>>,
+}
+
+impl std::fmt::Debug for ComputerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let snap = self
+            .last_annotated
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().map(|(b, m)| (b.len(), *m)));
+        f.debug_struct("ComputerState")
+            .field("last_annotated_png_len_and_monitor", &snap)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ComputerState {
@@ -80,7 +96,67 @@ impl ComputerState {
             executor,
             vision_state,
             annotate_client,
+            last_annotated: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Capture the display under the cursor, call the annotation service, and refresh [`VisionState`].
+    ///
+    /// Returns PNG bytes of the **annotated** image (for model input) and the [`screen::MonitorInfo`]
+    /// for that capture. Raw capture is JPEG from [`screen::screenshot_current_monitor`] (fast encode);
+    /// the annotate client still uploads a prepared PNG to the service. Capture uses `xcap`.
+    pub async fn capture_and_annotate(
+        &self,
+    ) -> anyhow::Result<(Vec<u8>, screen::MonitorInfo)> {
+        let t_total = Instant::now();
+
+        let t = Instant::now();
+        let (screen_capture, monitor, capture_px) = screen::screenshot_current_monitor()?;
+        let screen_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+        let t = Instant::now();
+        let (annotated, boxes) = self.annotate_client.annotate_image(&screen_capture).await?;
+        let annotate_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+        let t = Instant::now();
+        let mut vision = self.vision_state.lock().unwrap();
+        vision.set_screen_bbox(monitor);
+        vision.set_index_map_from_boxes(&boxes, &monitor, capture_px);
+        vision.set_coordinate_system(CoordinateSystem::Qwen);
+        drop(vision);
+        let vision_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+        let t = Instant::now();
+        if let Ok(mut g) = self.last_annotated.lock() {
+            *g = Some((annotated.clone(), monitor));
+        }
+        let cache_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+        let total_ms = t_total.elapsed().as_secs_f64() * 1000.0;
+        log::info!(
+            "capture_and_annotate: screenshot {:.1}ms, annotate_http {:.1}ms, vision_state {:.1}ms, last_frame_cache {:.1}ms, total {:.1}ms ({} boxes)",
+            screen_ms,
+            annotate_ms,
+            vision_ms,
+            cache_ms,
+            total_ms,
+            boxes.len()
+        );
+
+        Ok((annotated, monitor))
+    }
+
+    /// Latest annotated screenshot (PNG bytes already shown to the model), if any.
+    pub fn cached_annotated_preview(&self) -> Option<ComputerAnnotatedPreview> {
+        let g = self.last_annotated.lock().ok()?;
+        let (png, monitor) = g.as_ref()?;
+        Some(ComputerAnnotatedPreview {
+            image_base64: screen::encode_image_to_base64(png),
+            caption: format!(
+                "Annotated desktop · global bounds (px): left={} top={} width={} height={}",
+                monitor.left, monitor.top, monitor.width, monitor.height
+            ),
+        })
     }
 }
 
@@ -136,103 +212,4 @@ impl actions::ActionBackend for FallbackBackend {
     ) -> anyhow::Result<actions::ActionResult> {
         Err(anyhow::anyhow!("Action backend not available"))
     }
-}
-
-/// Register all computer use tools with the given state.
-///
-/// # Arguments
-/// * `reg` - The tool registry to register with.
-/// * `state` - The shared computer state for all tools.
-pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
-    let mouse_state = state.clone();
-    reg.register(ToolEntry::new(
-        "mouse",
-        "high",
-        false,
-        serde_json::from_str(include_str!("schemas/mouse.json")).expect("schemas/mouse.json"),
-        include_str!("prompts/mouse.md").trim(),
-        None,
-        Arc::new(move |args| {
-            let method = args["method"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                .to_string();
-            let tool = tool_mouse::MouseTool::new(
-                mouse_state.executor.clone(),
-                mouse_state.vision_state.clone(),
-            );
-            tool.execute(&method, &args)
-        }),
-    ));
-
-    let hotkey_state = state.clone();
-    reg.register(ToolEntry::new(
-        "hotkey",
-        "medium",
-        false,
-        serde_json::from_str(include_str!("schemas/hotkey.json")).expect("schemas/hotkey.json"),
-        include_str!("prompts/hotkey.md").trim(),
-        None,
-        Arc::new(move |args| {
-            let tool = tool_hotkey::HotkeyTool::new(hotkey_state.executor.clone());
-            tool.execute("hotkey", &args)
-        }),
-    ));
-
-    let composite_state = state.clone();
-    reg.register(ToolEntry::new(
-        "composite_action",
-        "high",
-        false,
-        serde_json::from_str(include_str!("schemas/composite_action.json"))
-            .expect("schemas/composite_action.json"),
-        include_str!("prompts/composite_action.md").trim(),
-        None,
-        Arc::new(move |args| {
-            let method = args["method"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                .to_string();
-            let tool = tool_composite::CompositeActionTool::new(
-                composite_state.executor.clone(),
-                composite_state.vision_state.clone(),
-            );
-            tool.execute(&method, &args)
-        }),
-    ));
-
-    let modified_state = state.clone();
-    reg.register(ToolEntry::new(
-        "modified_click",
-        "high",
-        false,
-        serde_json::from_str(include_str!("schemas/modified_click.json"))
-            .expect("schemas/modified_click.json"),
-        include_str!("prompts/modified_click.md").trim(),
-        None,
-        Arc::new(move |args| {
-            let method = args["method"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                .to_string();
-            let tool = ModifiedClickTool::new(
-                modified_state.executor.clone(),
-                modified_state.vision_state.clone(),
-            );
-            tool.execute(&method, &args)
-        }),
-    ));
-
-    reg.register(ToolEntry::new(
-        "wait",
-        "low",
-        false,
-        serde_json::from_str(include_str!("schemas/wait.json")).expect("schemas/wait.json"),
-        include_str!("prompts/wait.md").trim(),
-        None,
-        Arc::new(move |args| {
-            let tool = tool_wait::WaitTool::new();
-            tool.execute("wait", &args)
-        }),
-    ));
 }

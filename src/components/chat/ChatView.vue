@@ -1,18 +1,42 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent } from 'vue'
+import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
 import { useChatStore } from '../../stores/chat'
 import { Sparkles } from 'lucide-vue-next'
 
-/** Lazy: pulls in marked + MessageBubble + ToolCallCard; empty state skips this. */
+/** Lazy: pulls in message tree (marked + ToolCallCard); empty state skips this. */
 const MessageList = defineAsyncComponent(() => import('./MessageList.vue'))
 
 const chat = useChatStore()
+const { uiToast } = storeToRefs(chat)
 const empty = computed(() => !chat.current || chat.current.messages.length === 0)
+
+const toastClass = computed(() => {
+  const t = uiToast.value
+  if (!t) return ''
+  if (t.level === 'error') return 'border-red-500/40 bg-red-950/90 text-red-100'
+  if (t.level === 'warning') return 'border-amber-500/40 bg-amber-950/85 text-amber-50'
+  return 'border-emerald-500/35 bg-emerald-950/80 text-emerald-50'
+})
 </script>
 
 <template>
   <div class="flex-1 flex flex-col min-h-0">
+    <Transition name="toast-fade">
+      <div
+        v-if="uiToast"
+        class="pointer-events-none fixed top-4 left-1/2 z-[300] flex max-w-[min(90vw,28rem)] -translate-x-1/2 justify-center px-4"
+        role="status"
+      >
+        <div
+          class="pointer-events-auto rounded-xl border px-4 py-2.5 text-[13px] leading-snug shadow-xl backdrop-blur-md"
+          :class="toastClass"
+        >
+          {{ uiToast.message }}
+        </div>
+      </div>
+    </Transition>
     <div class="flex-1 overflow-hidden relative">
       <div v-if="empty" class="h-full flex flex-col items-center justify-center px-8 text-center">
         <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary via-primary-fuchsia to-primary-cyan flex items-center justify-center shadow-xl shadow-primary/30 mb-4">
@@ -29,3 +53,14 @@ const empty = computed(() => !chat.current || chat.current.messages.length === 0
     <Composer />
   </div>
 </template>
+
+<style scoped>
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: opacity 0.22s ease;
+}
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
+}
+</style>

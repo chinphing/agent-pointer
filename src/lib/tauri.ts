@@ -1,8 +1,16 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type {
-  AgentDef, AgentMode, ChatMessage, Conversation, ModelSettings, SkillDef, SkillImportResult, StreamEvent, ToolDef
-
+  AgentDef,
+  AgentMode,
+  ChatMessage,
+  ComputerAnnotatedPreview,
+  Conversation,
+  ModelSettings,
+  SkillDef,
+  SkillImportResult,
+  StreamEvent,
+  ToolDef
 } from '../types/chat'
 
 export const STREAM_EVENT = 'chat://stream'
@@ -73,6 +81,10 @@ export async function listTools(): Promise<ToolDef[]> {
 
 export async function listAgents(): Promise<AgentDef[]> {
   return await invoke<AgentDef[]>('list_agents')
+}
+
+export async function previewComputerAnnotatedScreen(): Promise<ComputerAnnotatedPreview> {
+  return await invoke<ComputerAnnotatedPreview>('preview_computer_annotated_screen')
 }
 
 export async function loadConversations(): Promise<Conversation[]> {

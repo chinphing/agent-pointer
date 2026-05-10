@@ -1,7 +1,8 @@
 use pointer_core::agents::AgentDef;
 use pointer_core::chat_service::{run_chat, AppState};
 use pointer_core::models::{
-    Conversation, ModelSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent, ToolDef,
+    ComputerAnnotatedPreview, Conversation, ModelSettings, SendChatPayload, SkillDef,
+    SkillImportResult, StreamEvent, ToolDef,
 };
 
 use pointer_core::provider::OpenAIProvider;
@@ -127,6 +128,17 @@ pub fn list_tools(state: State<'_, Arc<AppState>>) -> Result<Vec<ToolDef>, Strin
 #[tauri::command]
 pub fn list_agents(state: State<'_, Arc<AppState>>) -> Result<Vec<AgentDef>, String> {
     Ok(state.agents.list())
+}
+
+/// Returns the last annotated PNG from [`capture_and_annotate`] (e.g. screen inject). No new capture.
+#[tauri::command]
+pub fn preview_computer_annotated_screen(
+    state: State<'_, Arc<AppState>>,
+) -> Result<ComputerAnnotatedPreview, String> {
+    state
+        .computer_state
+        .cached_annotated_preview()
+        .ok_or_else(|| "暂无标注截图：需先在本会话中完成一次 Computer 屏幕注入（发消息触发），或检查标注服务是否正常。".into())
 }
 
 #[tauri::command]

@@ -5,15 +5,29 @@ import {
   loadConversations, saveConversations
 } from '../lib/api'
 import type { ChatMessage, Conversation, StreamEvent, ToolCall } from '../types/chat'
+import { isEphemeralDesktopNoticeMessage } from '../lib/assistantMessageKind'
 import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
 
 function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36) }
 
+function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Conversation[] {
+  return conversations.map(c => ({
+    ...c,
+    messages: c.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
+  }))
+}
+
+const DESKTOP_NOTICE_HIDE_MS = 5000
+const desktopNoticeHideTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
 export const useChatStore = defineStore('chat', () => {
   const conversations = ref<Conversation[]>([])
   const currentId = ref<string | null>(null)
   const generating = ref(false)
+  /** Ephemeral banner (e.g. computer screenshot done); not persisted. */
+  const uiToast = ref<{ message: string; level: 'success' | 'warning' | 'error' } | null>(null)
+  let uiToastTimer: ReturnType<typeof setTimeout> | null = null
   let unlisten: (() => void) | null = null
   let saveTimer: number | null = null
 
@@ -23,7 +37,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function init() {
     const list = await loadConversations().catch(() => [])
-    conversations.value = list
+    conversations.value = stripEphemeralDesktopNoticesForDisk(list)
     if (list.length === 0) newConversation()
     else currentId.value = list[0].id
     if (!unlisten) unlisten = await onStream(handleEvent)
@@ -32,8 +46,10 @@ export const useChatStore = defineStore('chat', () => {
   function persist() {
     if (saveTimer) window.clearTimeout(saveTimer)
     saveTimer = window.setTimeout(() => {
-      saveConversations(JSON.parse(JSON.stringify(conversations.value)))
-        .catch(e => console.error('save error', e))
+      const payload = JSON.parse(
+        JSON.stringify(stripEphemeralDesktopNoticesForDisk(conversations.value))
+      )
+      saveConversations(payload).catch(e => console.error('save error', e))
     }, 400)
   }
 
@@ -59,6 +75,16 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function deleteConversation(id: string) {
+    const conv = conversations.value.find(c => c.id === id)
+    if (conv) {
+      for (const m of conv.messages) {
+        const t = desktopNoticeHideTimers.get(m.id)
+        if (t != null) {
+          window.clearTimeout(t)
+          desktopNoticeHideTimers.delete(m.id)
+        }
+      }
+    }
     const i = conversations.value.findIndex(c => c.id === id)
     if (i >= 0) conversations.value.splice(i, 1)
     if (currentId.value === id) {
@@ -76,6 +102,39 @@ export const useChatStore = defineStore('chat', () => {
     return null
   }
 
+  function clearDesktopNoticeSchedule(messageId: string) {
+    const t = desktopNoticeHideTimers.get(messageId)
+    if (t != null) {
+      window.clearTimeout(t)
+      desktopNoticeHideTimers.delete(messageId)
+    }
+  }
+
+  /** 仅从指定会话删除 `【桌面】` 注入行（用 conversationId 避免多会话下 find 错表）。 */
+  function removeDesktopNoticeRow(conversationId: string, messageId: string) {
+    const conv = conversations.value.find(c => c.id === conversationId)
+    if (!conv) return
+    const i = conv.messages.findIndex(m => m.id === messageId)
+    if (i < 0) return
+    const msg = conv.messages[i]
+    if (!isEphemeralDesktopNoticeMessage(msg)) return
+    conv.messages.splice(i, 1)
+    conv.updatedAt = Date.now()
+    persist()
+  }
+
+  /** 每次注入/更新文案后重置 5s 倒计时（必须在 store 里调度，避免组件未挂载时永不消失）。 */
+  function scheduleDesktopNoticeRemoval(conversationId: string, messageId: string) {
+    clearDesktopNoticeSchedule(messageId)
+    desktopNoticeHideTimers.set(
+      messageId,
+      window.setTimeout(() => {
+        desktopNoticeHideTimers.delete(messageId)
+        removeDesktopNoticeRow(conversationId, messageId)
+      }, DESKTOP_NOTICE_HIDE_MS)
+    )
+  }
+
   function handleEvent(e: StreamEvent) {
     try {
       handleEventInner(e)
@@ -89,12 +148,27 @@ export const useChatStore = defineStore('chat', () => {
       case 'history_replaced': {
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (!conv) return
-        conv.messages = e.messages.map(m => ({
-          ...m,
-          toolCalls: m.toolCalls ?? (m.role === 'assistant' ? [] : undefined)
-        }))
+        conv.messages = e.messages
+          .map(m => ({
+            ...m,
+            toolCalls: m.toolCalls ?? (m.role === 'assistant' ? [] : undefined)
+          }))
+          .filter(m => !isEphemeralDesktopNoticeMessage(m))
         conv.updatedAt = Date.now()
         persist()
+        break
+      }
+      case 'ui_toast': {
+        if (e.conversationId !== currentId.value) return
+        const lv = e.level
+        const level: 'success' | 'warning' | 'error' =
+          lv === 'error' ? 'error' : lv === 'warning' ? 'warning' : 'success'
+        uiToast.value = { message: e.message, level }
+        if (uiToastTimer != null) window.clearTimeout(uiToastTimer)
+        uiToastTimer = window.setTimeout(() => {
+          uiToast.value = null
+          uiToastTimer = null
+        }, 4500)
         break
       }
       case 'tool_rounds_exhausted': {
@@ -193,8 +267,12 @@ export const useChatStore = defineStore('chat', () => {
         const r = findMessage(e.messageId)
         if (r) {
           r.msg.status = 'done'
-          if (e.content !== undefined) r.msg.content = e.content
-          if (e.rawContent !== undefined) r.msg.rawContent = e.rawContent
+          // 忽略 JSON `null`：勿把正文/ thoughts 写成 null 导致界面丢字段
+          if (e.content != null) r.msg.content = e.content
+          if (e.rawContent != null) r.msg.rawContent = e.rawContent
+          // 二次 message_end（如 response 收尾）若带空串，勿覆盖首轮已写入的 thoughts/headline
+          if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
+          if (e.headline != null && e.headline.trim() !== '') r.msg.headline = e.headline
           r.conv.updatedAt = Date.now()
           if (r.conv.title === '新会话') {
             const firstUser = r.conv.messages.find(m => m.role === 'user')
@@ -218,6 +296,54 @@ export const useChatStore = defineStore('chat', () => {
         }
         conv.updatedAt = Date.now()
         persist()
+        break
+      }
+      case 'injected_assistant_message': {
+        const conv = conversations.value.find(c => c.id === e.conversationId)
+        if (!conv) break
+        const existingRow = conv.messages.find(m => m.id === e.messageId)
+        // 只允许覆盖「桌面」注入行，禁止误把流式助手气泡当成同名 id 改掉正文/thoughts
+        if (
+          existingRow &&
+          existingRow.role === 'assistant' &&
+          isEphemeralDesktopNoticeMessage(existingRow)
+        ) {
+          existingRow.content = e.content
+          conv.updatedAt = Date.now()
+          persist()
+          scheduleDesktopNoticeRemoval(e.conversationId, e.messageId)
+          break
+        }
+        if (existingRow) break
+        const row: ChatMessage = {
+          id: e.messageId,
+          role: 'assistant',
+          content: e.content,
+          status: 'done',
+          createdAt: Date.now(),
+          toolCalls: []
+        }
+        const last = conv.messages[conv.messages.length - 1]
+        if (last?.role === 'assistant' && last.status === 'streaming') {
+          conv.messages.splice(conv.messages.length - 1, 0, row)
+        } else {
+          conv.messages.push(row)
+        }
+        conv.updatedAt = Date.now()
+        persist()
+        scheduleDesktopNoticeRemoval(e.conversationId, e.messageId)
+        break
+      }
+      case 'injected_assistant_message_update': {
+        const conv = conversations.value.find(c => c.id === e.conversationId)
+        if (!conv) break
+        const msg = conv.messages.find(m => m.id === e.messageId)
+        if (msg && msg.role === 'assistant' && isEphemeralDesktopNoticeMessage(msg)) {
+          msg.content = e.content
+          conv.updatedAt = Date.now()
+          persist()
+          scheduleDesktopNoticeRemoval(e.conversationId, e.messageId)
+        }
         break
       }
       case 'error': {
@@ -343,7 +469,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    conversations, currentId, current, generating,
+    conversations, currentId, current, generating, uiToast,
     init, newConversation, selectConversation, deleteConversation,
     sendUserMessage, stop, retry, approve, undo
   }

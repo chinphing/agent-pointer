@@ -10,6 +10,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Computer agent: tools, prompts, and extension hooks (lives next to `computer/AGENT.md`).
+pub mod computer;
+
 pub const AGENT_MODE_SINGLE: &str = "single";
 pub const AGENT_MODE_SUPERVISOR: &str = "supervisor";
 pub const DEFAULT_AGENT_ID: &str = "default";
@@ -17,41 +20,44 @@ pub const SUPERVISOR_AGENT_ID: &str = "supervisor";
 const AGENTS_DIR: &str = "agents";
 const AGENT_MANIFEST: &str = "AGENT.md";
 const AGENT_COMMUNICATION: &str = "COMMUNICATION.md";
+/// Optional per-request system prefix beside `AGENT.md` / `COMMUNICATION.md`; placeholders expanded at chat time.
+const AGENT_SESSION_INJECT: &str = "SESSION_INJECT.md";
 
 /// Shared outer layer: response + tool-call shape and examples (English).
-const COMMUNICATION_PUBLIC: &str = include_str!("agents/_shared/COMMUNICATION_PUBLIC.md");
+const COMMUNICATION_PUBLIC: &str = include_str!("_shared/COMMUNICATION_PUBLIC.md");
 
 struct BuiltinAgentBundle {
     id: &'static str,
     manifest: &'static str,
     communication: &'static str,
+    /// Optional `SESSION_INJECT.md` body (built-in), expanded per chat request.
+    session_inject: Option<&'static str>,
 }
 
 const BUILTIN_AGENT_BUNDLES: &[BuiltinAgentBundle] = &[
     BuiltinAgentBundle {
         id: "default",
-        manifest: include_str!("agents/default/AGENT.md"),
-        communication: include_str!("agents/default/COMMUNICATION.md"),
+        manifest: include_str!("default/AGENT.md"),
+        communication: include_str!("default/COMMUNICATION.md"),
+        session_inject: None,
     },
     BuiltinAgentBundle {
         id: "supervisor",
-        manifest: include_str!("agents/supervisor/AGENT.md"),
-        communication: include_str!("agents/supervisor/COMMUNICATION.md"),
+        manifest: include_str!("supervisor/AGENT.md"),
+        communication: include_str!("supervisor/COMMUNICATION.md"),
+        session_inject: None,
     },
     BuiltinAgentBundle {
         id: "coder",
-        manifest: include_str!("agents/coder/AGENT.md"),
-        communication: include_str!("agents/coder/COMMUNICATION.md"),
-    },
-    BuiltinAgentBundle {
-        id: "reviewer",
-        manifest: include_str!("agents/reviewer/AGENT.md"),
-        communication: include_str!("agents/reviewer/COMMUNICATION.md"),
+        manifest: include_str!("coder/AGENT.md"),
+        communication: include_str!("coder/COMMUNICATION.md"),
+        session_inject: Some(include_str!("coder/SESSION_INJECT.md")),
     },
     BuiltinAgentBundle {
         id: "computer",
-        manifest: include_str!("agents/computer/AGENT.md"),
-        communication: include_str!("agents/computer/COMMUNICATION.md"),
+        manifest: include_str!("computer/AGENT.md"),
+        communication: include_str!("computer/COMMUNICATION.md"),
+        session_inject: None,
     },
 ];
 
@@ -62,7 +68,6 @@ pub enum AgentProfile {
     Supervisor,
     Planner,
     Coder,
-    Reviewer,
     Writer,
     Analyst,
     ToolUser,
@@ -163,6 +168,8 @@ impl Default for AgentRunLimits {
 pub struct BaseAgent {
     pub def: AgentDef,
     pub system_prompt: String,
+    /// See `AGENT_SESSION_INJECT`; expanded per request via `rendered_session_inject`.
+    pub session_inject_template: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -192,6 +199,11 @@ pub trait AgentExecutor: Send + Sync {
     fn def(&self) -> AgentDef;
     fn system_prompt(&self) -> String;
 
+    /// Markdown template with `{{workspace_root}}` etc.; expanded per chat request.
+    fn session_inject_template(&self) -> Option<&str> {
+        None
+    }
+
     fn profile(&self) -> AgentProfile {
         self.def().profile
     }
@@ -208,6 +220,33 @@ impl AgentExecutor for BaseAgent {
 
     fn system_prompt(&self) -> String {
         self.system_prompt.clone()
+    }
+
+    fn session_inject_template(&self) -> Option<&str> {
+        self.session_inject_template.as_deref()
+    }
+}
+
+/// Values substituted into an agent’s `SESSION_INJECT.md` (built-in or on disk).
+pub struct SessionInjectVars<'a> {
+    pub workspace_root: &'a str,
+}
+
+pub fn expand_session_inject_template(template: &str, vars: &SessionInjectVars<'_>) -> String {
+    template.replace("{{workspace_root}}", vars.workspace_root)
+}
+
+/// Renders the optional per-agent session inject block, or `None` if unset or empty after expansion.
+pub fn rendered_session_inject(
+    agent: &dyn AgentExecutor,
+    vars: &SessionInjectVars<'_>,
+) -> Option<String> {
+    let t = agent.session_inject_template()?;
+    let out = expand_session_inject_template(t, vars).trim().to_string();
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
     }
 }
 
@@ -365,7 +404,12 @@ impl AgentOrchestrator {
 
 pub fn register_builtin_agents(registry: &AgentRegistry) {
     for bundle in BUILTIN_AGENT_BUNDLES {
-        match load_builtin_agent(bundle.id, bundle.manifest, bundle.communication) {
+        match load_builtin_agent(
+            bundle.id,
+            bundle.manifest,
+            bundle.communication,
+            bundle.session_inject,
+        ) {
             Ok(agent) => registry.register(agent),
             Err(err) => log::warn!("load builtin agent failed: {}: {err}", bundle.id),
         }
@@ -385,6 +429,7 @@ fn default_agent_def() -> AgentDef {
         BUILTIN_AGENT_BUNDLES[0].id,
         BUILTIN_AGENT_BUNDLES[0].manifest,
         BUILTIN_AGENT_BUNDLES[0].communication,
+        BUILTIN_AGENT_BUNDLES[0].session_inject,
     )
         .map(|agent| agent.def)
         .unwrap_or_else(|_| AgentDef {
@@ -410,6 +455,7 @@ fn supervisor_agent_def() -> AgentDef {
         BUILTIN_AGENT_BUNDLES[1].id,
         BUILTIN_AGENT_BUNDLES[1].manifest,
         BUILTIN_AGENT_BUNDLES[1].communication,
+        BUILTIN_AGENT_BUNDLES[1].session_inject,
     )
         .map(|agent| agent.def)
         .unwrap_or_else(|_| AgentDef {
@@ -431,12 +477,18 @@ fn supervisor_agent_def() -> AgentDef {
         })
 }
 
-fn load_builtin_agent(id: &str, raw: &str, communication: &str) -> Result<BaseAgent> {
+fn load_builtin_agent(
+    id: &str,
+    raw: &str,
+    communication: &str,
+    session_inject: Option<&'static str>,
+) -> Result<BaseAgent> {
     let manifest = parse_agent_md(raw)?;
     if manifest.id != id {
         return Err(anyhow!("内置 Agent id 与目录名不一致"));
     }
-    let mut agent = manifest_to_agent(manifest, None, communication)?;
+    let inject = session_inject.map(str::to_string);
+    let mut agent = manifest_to_agent(manifest, None, communication, inject)?;
     agent.def.builtin = true;
     agent.def.source = Some(format!("builtin://{id}"));
     Ok(agent)
@@ -510,7 +562,13 @@ fn load_agent_from_dir(dir: &Path) -> Result<BaseAgent> {
     } else {
         String::new()
     };
-    manifest_to_agent(manifest, Some(dir), &communication)
+    let inject_path = dir.join(AGENT_SESSION_INJECT);
+    let session_inject = if inject_path.exists() {
+        Some(fs::read_to_string(&inject_path)?)
+    } else {
+        None
+    };
+    manifest_to_agent(manifest, Some(dir), &communication, session_inject)
 }
 
 /// `COMMUNICATION_PUBLIC` + optional per-agent `COMMUNICATION.md` + `AGENT.md` body.
@@ -531,7 +589,12 @@ fn compose_system_prompt(agent_communication: &str, body: &str) -> String {
     parts.join("\n\n---\n\n")
 }
 
-fn manifest_to_agent(manifest: AgentManifest, dir: Option<&Path>, communication: &str) -> Result<BaseAgent> {
+fn manifest_to_agent(
+    manifest: AgentManifest,
+    dir: Option<&Path>,
+    communication: &str,
+    session_inject_template: Option<String>,
+) -> Result<BaseAgent> {
     validate_agent_manifest(&manifest)?;
     let mut access_policy = manifest.access_policy;
     let tool_names = if manifest.tool_names.is_empty() {
@@ -567,6 +630,7 @@ fn manifest_to_agent(manifest: AgentManifest, dir: Option<&Path>, communication:
     Ok(BaseAgent {
         system_prompt: compose_system_prompt(communication, &manifest.body),
         def,
+        session_inject_template,
     })
 }
 
@@ -724,6 +788,7 @@ fn static_agent(def: AgentDef) -> Arc<dyn AgentExecutor> {
     Arc::new(BaseAgent {
         system_prompt: format!("You are {}. {}", def.name, def.description),
         def,
+        session_inject_template: None,
     })
 }
 
@@ -825,10 +890,28 @@ mod builtin_agent_tests {
 
     #[test]
     fn computer_builtin_manifest_parses_and_loads() {
-        let raw = include_str!("agents/computer/AGENT.md");
-        let agent = load_builtin_agent("computer", raw, "").expect("load builtin computer");
+        let raw = include_str!("computer/AGENT.md");
+        let agent = load_builtin_agent("computer", raw, "", None).expect("load builtin computer");
         assert_eq!(agent.def.role, "worker");
         assert!(agent.def.enabled);
         assert_eq!(agent.def.profile, AgentProfile::Computer);
+    }
+
+    #[test]
+    fn coder_session_inject_expands_workspace_placeholder() {
+        let raw = include_str!("coder/AGENT.md");
+        let agent = load_builtin_agent(
+            "coder",
+            raw,
+            "",
+            Some(include_str!("coder/SESSION_INJECT.md")),
+        )
+        .expect("load builtin coder");
+        let vars = SessionInjectVars {
+            workspace_root: "/tmp/example-workspace",
+        };
+        let block = rendered_session_inject(&agent, &vars).expect("session inject");
+        assert!(block.contains("/tmp/example-workspace"));
+        assert!(!block.contains("{{workspace_root}}"));
     }
 }

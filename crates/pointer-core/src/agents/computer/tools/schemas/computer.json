@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "goal": { "type": "string" },
+    "action": {
+      "type": "string",
+      "description": "Canonical action log; see Communication → Action description in tool_args."
+    },
+    "method": {
+      "type": "string",
+      "enum": ["screenshot"],
+      "description": "Informational only: desktop is auto-injected each turn as [CUR_SCREEN]."
+    }
+  },
+  "required": ["goal", "action", "method"]
+}

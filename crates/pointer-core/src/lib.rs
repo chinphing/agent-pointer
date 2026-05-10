@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod chat_service;
+pub mod extensions;
 pub mod context_compression;
 pub mod logging;
 pub mod models;
@@ -7,5 +8,6 @@ pub mod provider;
 pub mod skills;
 pub mod storage;
 pub mod tools;
+pub mod response_xml;
 pub mod xml_tool_caller;
 pub mod xml_tool_prompt;

@@ -69,6 +69,10 @@ export interface ChatMessage {
   toolCallId?: string
   errorMessage?: string
   reasoning?: string
+  /** XML `<thoughts>` from the model response block (last complete `<response>` this turn). */
+  thoughts?: string
+  /** XML `<headline>` from the model response block. */
+  headline?: string
   rawContent?: string
   agentId?: string
   agentName?: string
@@ -157,6 +161,12 @@ export interface ToolDef {
   name: string
 }
 
+/** Annotated desktop PNG (base64) for UI preview; mirrors pointer-core `ComputerAnnotatedPreview`. */
+export interface ComputerAnnotatedPreview {
+  imageBase64: string
+  caption: string
+}
+
 export type StreamEvent =
   | { kind: 'message_start'; messageId: string; conversationId: string }
   | { kind: 'delta'; messageId: string; text: string }
@@ -167,9 +177,15 @@ export type StreamEvent =
   | { kind: 'tool_call_args_delta'; messageId: string; toolCallId: string; argsDelta: string }
   | { kind: 'tool_call_status'; messageId: string; toolCallId: string; status: ToolCall['status']; result?: string; error?: string; durationMs?: number }
   | { kind: 'terminal_output_delta'; messageId: string; toolCallId: string; output: string }
-  | { kind: 'message_end'; messageId: string; content?: string; rawContent?: string }
+  | { kind: 'message_end'; messageId: string; content?: string; rawContent?: string; thoughts?: string; headline?: string }
   | { kind: 'injected_user_message'; conversationId: string; messageId: string; content: string }
+  /** App-injected assistant line (e.g. desktop capture status); shown in thread, not from model. */
+  | { kind: 'injected_assistant_message'; conversationId: string; messageId: string; content: string }
+  /** Same `messageId` as a prior `injected_assistant_message`; updates its `content` only. */
+  | { kind: 'injected_assistant_message_update'; conversationId: string; messageId: string; content: string }
   | { kind: 'error'; messageId?: string; message: string }
   | { kind: 'done'; conversationId: string; toolRoundsUsedTotal?: number; toolRoundsUsedSupervisorTotal?: number; maxToolRounds?: number }
   | { kind: 'history_replaced'; conversationId: string; messages: ChatMessage[] }
   | { kind: 'tool_rounds_exhausted'; conversationId: string; maxRounds: number; message: string; willRetryAfterCompress: boolean }
+  /** Ephemeral UI only; not saved as a chat message or sent to the model. */
+  | { kind: 'ui_toast'; conversationId: string; message: string; level: string }

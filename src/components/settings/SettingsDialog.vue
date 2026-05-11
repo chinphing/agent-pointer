@@ -42,6 +42,7 @@ const contextKeepRecentUserTurns = ref(6)
 const contextSummaryMaxTokens = ref(1024)
 const maxToolRounds = ref(100)
 const rawContentViewEnabled = ref(true)
+const debugDumpLlmPrompts = ref(false)
 const agents = ref<AgentDef[]>([])
 
 const editingProvider = ref<ProviderConfig | null>(null)
@@ -187,6 +188,7 @@ onMounted(() => {
   contextSummaryMaxTokens.value = s.settings.contextSummaryMaxTokens ?? 1024
   maxToolRounds.value = s.settings.maxToolRounds ?? 100
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled !== false
+  debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
   loadAgents()
 })
 
@@ -319,7 +321,8 @@ async function saveAll() {
       contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
       contextSummaryMaxTokens: Number(contextSummaryMaxTokens.value),
       maxToolRounds: Number(maxToolRounds.value),
-      rawContentViewEnabled: rawContentViewEnabled.value
+      rawContentViewEnabled: rawContentViewEnabled.value,
+      debugDumpLlmPrompts: debugDumpLlmPrompts.value
     })
     emit('close')
   } finally {
@@ -553,6 +556,19 @@ async function saveAll() {
                 </div>
                 <label class="relative inline-flex items-center cursor-pointer shrink-0">
                   <input v-model="rawContentViewEnabled" type="checkbox" class="sr-only peer" />
+                  <div class="w-9 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-cyan" />
+                </label>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-white/5 bg-black/20 p-4">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <h4 class="text-sm font-medium text-slate-100">保存每轮对话请求</h4>
+                  <p class="mt-1 text-[11px] text-slate-500">开启后，每次向 AI 发送的完整上下文会分别保存为本地文件（应用数据目录下的日志文件夹），便于排查问题；内嵌的大块图片内容会缩短显示。</p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input v-model="debugDumpLlmPrompts" type="checkbox" class="sr-only peer" />
                   <div class="w-9 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-cyan" />
                 </label>
               </div>

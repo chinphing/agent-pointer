@@ -79,6 +79,8 @@ struct StoredSettings {
     max_tool_rounds: u32,
     #[serde(default = "default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
     raw_content_view_enabled: bool,
+    #[serde(default, rename = "debugDumpLlmPrompts")]
+    debug_dump_llm_prompts: bool,
     #[serde(default, rename = "agentDefaultModels")]
     agent_default_models: HashMap<String, String>,
     /// Legacy global toggle; applied to each provider when that provider has no explicit value.
@@ -160,6 +162,7 @@ impl Default for StoredSettings {
             context_summary_max_tokens: s.context_summary_max_tokens,
             max_tool_rounds: s.max_tool_rounds,
             raw_content_view_enabled: s.raw_content_view_enabled,
+            debug_dump_llm_prompts: s.debug_dump_llm_prompts,
             agent_default_models: s.agent_default_models.clone(),
             legacy_reasoning_in_messages: None,
         }
@@ -229,6 +232,7 @@ pub fn load_settings() -> Result<ModelSettings> {
         context_summary_max_tokens: stored.context_summary_max_tokens,
         max_tool_rounds: stored.max_tool_rounds,
         raw_content_view_enabled: stored.raw_content_view_enabled,
+        debug_dump_llm_prompts: stored.debug_dump_llm_prompts,
         agent_default_models: stored.agent_default_models,
     })
 }
@@ -273,6 +277,7 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
         context_summary_max_tokens: s.context_summary_max_tokens,
         max_tool_rounds: s.max_tool_rounds,
         raw_content_view_enabled: s.raw_content_view_enabled,
+        debug_dump_llm_prompts: s.debug_dump_llm_prompts,
         agent_default_models: s.agent_default_models.clone(),
         legacy_reasoning_in_messages: None,
     };

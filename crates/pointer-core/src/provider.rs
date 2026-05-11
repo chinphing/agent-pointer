@@ -160,6 +160,7 @@ impl OpenAIProvider {
         system_prompts: &[String],
         cancel: CancellationToken,
         max_tokens_override: Option<u32>,
+        dump_label: Option<&str>,
     ) -> Result<String> {
         let base_url = self
             .settings
@@ -180,12 +181,21 @@ impl OpenAIProvider {
             system_prompts,
             crate::models::effective_reasoning_in_messages(&self.settings),
         );
+        let max_tok = max_tokens_override.unwrap_or(self.settings.max_tokens);
+        crate::llm_prompt_dump::try_dump_round(
+            &self.settings,
+            dump_label,
+            "chat_once",
+            false,
+            max_tok,
+            &openai_msgs,
+        );
         let req = ChatRequest {
             model: &self.settings.model,
             messages: openai_msgs,
             stream: false,
             temperature: self.settings.temperature,
-            max_tokens: Some(max_tokens_override.unwrap_or(self.settings.max_tokens)),
+            max_tokens: Some(max_tok),
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let client = reqwest::Client::builder()
@@ -231,6 +241,7 @@ impl OpenAIProvider {
         system_prompts: &[String],
         tx: mpsc::Sender<ProviderEvent>,
         cancel: CancellationToken,
+        dump_label: Option<&str>,
     ) -> Result<()> {
         let base_url = self
             .settings
@@ -250,6 +261,14 @@ impl OpenAIProvider {
             messages,
             system_prompts,
             crate::models::effective_reasoning_in_messages(&self.settings),
+        );
+        crate::llm_prompt_dump::try_dump_round(
+            &self.settings,
+            dump_label,
+            "stream_chat",
+            true,
+            self.settings.max_tokens,
+            &openai_msgs,
         );
         let req = ChatRequest {
             model: &self.settings.model,

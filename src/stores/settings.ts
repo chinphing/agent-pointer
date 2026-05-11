@@ -64,6 +64,7 @@ export const useSettingsStore = defineStore('settings', () => {
     contextSummaryMaxTokens: 1024,
     maxToolRounds: 100,
     rawContentViewEnabled: true,
+    debugDumpLlmPrompts: false,
     agentDefaultModels: {}
   })
   const loading = ref(false)
@@ -125,6 +126,7 @@ export const useSettingsStore = defineStore('settings', () => {
           contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 1024,
           maxToolRounds: s.maxToolRounds ?? 100,
           rawContentViewEnabled: s.rawContentViewEnabled !== false,
+          debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
           agentDefaultModels: s.agentDefaultModels ?? {}
         }
       } else {
@@ -141,6 +143,7 @@ export const useSettingsStore = defineStore('settings', () => {
           contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 1024,
           maxToolRounds: s.maxToolRounds ?? 100,
           rawContentViewEnabled: s.rawContentViewEnabled !== false,
+          debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
           agentDefaultModels: s.agentDefaultModels ?? {}
         }
         if (s.model && !settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models.includes(s.model)) {

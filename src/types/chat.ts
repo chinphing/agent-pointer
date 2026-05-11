@@ -133,6 +133,8 @@ export interface ModelSettings {
   maxToolRounds: number
   /** Show assistant “reasoning & raw output” inspect control in chat (default true) */
   rawContentViewEnabled: boolean
+  /** Write each LLM request payload to app data `logs/llm_prompts/` (debug) */
+  debugDumpLlmPrompts?: boolean
   /** agentId → 该 agent 的默认模型名称 */
   agentDefaultModels: Record<string, string>
 }

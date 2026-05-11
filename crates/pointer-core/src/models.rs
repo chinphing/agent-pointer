@@ -179,6 +179,9 @@ pub struct ModelSettings {
     /// When true, chat UI may show reasoning / raw model output inspector on assistant messages.
     #[serde(default = "default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
     pub raw_content_view_enabled: bool,
+    /// When true, each LLM round writes request `messages` + params under app data `logs/llm_prompts/`.
+    #[serde(default, rename = "debugDumpLlmPrompts")]
+    pub debug_dump_llm_prompts: bool,
     /// Per-agent default model id (e.g. lead worker id, `"supervisor"`). Empty map = use global `model`.
     #[serde(default, rename = "agentDefaultModels")]
     pub agent_default_models: HashMap<String, String>,
@@ -214,6 +217,10 @@ fn default_max_tool_rounds() -> u32 {
 
 fn default_raw_content_view_enabled() -> bool {
     true
+}
+
+fn default_debug_dump_llm_prompts() -> bool {
+    false
 }
 
 impl Default for ModelSettings {
@@ -260,6 +267,7 @@ impl Default for ModelSettings {
             context_summary_max_tokens: default_context_summary_max_tokens(),
             max_tool_rounds: default_max_tool_rounds(),
             raw_content_view_enabled: default_raw_content_view_enabled(),
+            debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             agent_default_models: HashMap::new(),
         }
     }

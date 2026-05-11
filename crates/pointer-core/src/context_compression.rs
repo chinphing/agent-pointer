@@ -217,12 +217,22 @@ async fn compress_history_inner(
     } else {
         "[Conversation summary (auto-compression)]"
     };
+    let dump_lbl = format!(
+        "{}_context_summary_{}",
+        conversation_id,
+        if force_ignore_char_budget {
+            "tool_limit"
+        } else {
+            "budget"
+        }
+    );
     let summary_body = match provider
         .chat_once(
             std::slice::from_ref(&input),
             &[SUMMARY_SYSTEM.to_string()],
             cancel.clone(),
             Some(max_tok),
+            Some(dump_lbl.as_str()),
         )
         .await
     {

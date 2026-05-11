@@ -495,12 +495,14 @@ async fn run_chat_inner(
         }
         let prompts_clone = prompts_with_env;
         let cancel_clone = cancel.clone();
+        let dump_lbl = format!("{}_{}", conversation_id, assistant_id);
         let send_handle = tokio::spawn(async move {
             prov.stream_chat(
                 &history_for_api,
                 &prompts_clone,
                 tx,
                 cancel_clone,
+                Some(dump_lbl.as_str()),
             )
             .await
         });
@@ -1080,6 +1082,8 @@ async fn run_supervisor_chat(
         &limits,
         cancel.clone(),
         &env_context,
+        conversation_id,
+        &assistant_id,
     )
     .await
     {
@@ -1201,7 +1205,15 @@ async fn run_supervisor_chat(
         },
     );
 
-    let final_answer = synthesize_final_answer(&provider, history, &results, cancel).await?;
+    let final_answer = synthesize_final_answer(
+        &provider,
+        history,
+        &results,
+        cancel,
+        conversation_id,
+        &assistant_id,
+    )
+    .await?;
     if !final_answer.is_empty() {
         emit(
             &stream,
@@ -1304,6 +1316,8 @@ async fn plan_agent_tasks(
     limits: &AgentRunLimits,
     cancel: CancellationToken,
     env_context: &str,
+    conversation_id: &str,
+    assistant_message_id: &str,
 ) -> Result<Vec<AgentTask>> {
     let workers = state.agents.enabled_workers();
     let roster = agent_roster(&workers);
@@ -1313,8 +1327,15 @@ async fn plan_agent_tasks(
         limits.max_sub_agents,
         roster
     );
+    let dump_lbl = format!("{conversation_id}_{assistant_message_id}_supervisor_plan");
     let raw = provider
-        .chat_once(history, &[prompt], cancel, None)
+        .chat_once(
+            history,
+            &[prompt],
+            cancel,
+            None,
+            Some(dump_lbl.as_str()),
+        )
         .await?;
     parse_agent_tasks(&raw, &workers, limits)
         .or_else(|| Some(fallback_agent_tasks(state, history, limits)))
@@ -1446,12 +1467,14 @@ async fn run_sub_agent(
             prompts_clone.push(xml_tool_prompt.clone());
         }
         let cancel_clone = cancel.clone();
+        let dump_lbl = format!("{}_{}_sub_{}", conversation_id, message_id, task.id);
         let handle = tokio::spawn(async move {
             prov.stream_chat(
                 &history_for_api,
                 &prompts_clone,
                 tx,
                 cancel_clone,
+                Some(dump_lbl.as_str()),
             )
             .await
         });
@@ -1944,6 +1967,8 @@ async fn synthesize_final_answer(
     history: &[ChatMessage],
     results: &[AgentRunResult],
     cancel: CancellationToken,
+    conversation_id: &str,
+    assistant_message_id: &str,
 ) -> Result<String> {
     let mut report = String::new();
     for result in results {
@@ -1962,8 +1987,15 @@ async fn synthesize_final_answer(
             report
         }
     );
+    let dump_lbl = format!("{conversation_id}_{assistant_message_id}_supervisor_synthesize");
     provider
-        .chat_once(history, &[prompt], cancel, None)
+        .chat_once(
+            history,
+            &[prompt],
+            cancel,
+            None,
+            Some(dump_lbl.as_str()),
+        )
         .await
 }
 

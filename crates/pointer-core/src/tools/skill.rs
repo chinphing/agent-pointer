@@ -1,4 +1,4 @@
-use super::{minimal_tool_parameters_schema, ToolEntry, ToolHandler, ToolRegistry};
+use super::{ToolEntry, ToolHandler, ToolRegistry};
 use crate::skills::SkillRegistry;
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
@@ -18,7 +18,6 @@ fn args_without_method(args: &serde_json::Value) -> serde_json::Value {
 }
 
 pub fn register_all(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
-    let schema = minimal_tool_parameters_schema();
     let doc = SKILL_MD.trim();
     let skills_clone = skills.clone();
     let h: ToolHandler = Arc::new(move |args| execute_skill_tool(&args, &skills_clone));
@@ -26,7 +25,6 @@ pub fn register_all(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
         "skill",
         "low",
         false,
-        schema,
         doc,
         None,
         h,

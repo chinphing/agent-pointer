@@ -1,50 +1,6 @@
 ### mouse
 
-```json
-{
-  "type": "object",
-  "properties": {
-    "method": {
-      "type": "string",
-      "enum": [
-        "click_index",
-        "double_click_index",
-        "right_click_index",
-        "hover_index",
-        "click_at",
-        "double_click_at",
-        "right_click_at",
-        "hover_at",
-        "click_current",
-        "double_click_current",
-        "right_click_current",
-        "scroll_at_current",
-        "move_offset",
-        "drag_from_to_at",
-        "drag_from_to_index"
-      ]
-    },
-    "goal": { "type": "string" },
-    "action": { "type": "string" },
-    "index": { "type": "integer" },
-    "x": { "type": "number" },
-    "y": { "type": "number" },
-    "x1": { "type": "number" },
-    "y1": { "type": "number" },
-    "x2": { "type": "number" },
-    "y2": { "type": "number" },
-    "from_index": { "type": "integer" },
-    "to_index": { "type": "integer" },
-    "dx": { "type": "integer" },
-    "dy": { "type": "integer" },
-    "lines": { "type": "integer" },
-    "human_like": { "type": "boolean" }
-  },
-  "required": ["method", "goal", "action"]
-}
-```
-
-Use for a single mouse action: click, double-click, right-click, hover, drag, scroll at the current cursor, or a small offset move. Prefer **overlay-index methods** when the target has an overlay number; otherwise use **coordinate methods** and the numeric ranges defined in this tool’s schema. When multiple labels are plausible, prefer the badge drawn **inside** the target control.
+Use for a single mouse action: click, double-click, right-click, hover, drag, scroll at the current cursor, or a small offset move. Prefer **overlay-index methods** when the target has an overlay number; otherwise use **coordinate methods** and the numeric coordinate ranges documented below for this turn. When multiple labels are plausible, prefer the badge drawn **inside** the target control.
 
 **Method output rule:** In XML, output the full **`tool_name:method`** such as **`mouse:click_index`**, **`mouse:double_click_index`**, **`mouse:hover_at`**. Do **not** output bare **`mouse`** unless your runtime explicitly puts `method` in `tool_args`.
 
@@ -73,6 +29,21 @@ Optional **`human_like`** (bool) on both — same meaning as other mouse methods
 Parameter constraints:
 - **`goal`** is required for all methods. Phrase it as the intended visible outcome, not the bare click. If the target is text, include the exact visible text; otherwise give a brief visual description. See **Communication** → **Action policy**.
 - **`action`** is required. See **Communication** → **Action description in tool_args**.
-- For **coordinate methods**: supply `x`, `y` per the schema for this tool; stay consistent within the same turn and do not reuse numbers from an older turn’s image.
+- For **coordinate methods**: supply `x`, `y` per the coordinate rules for this tool; stay consistent within the same turn and do not reuse numbers from an older turn’s image.
 
 Scroll workflow: When the mouse is already in the scrollable area, use `scroll_at_current` directly. When you need to target a specific region first, use **composite_action:scroll_at_index** (overlay-index), then **mouse:scroll_at_current** for further scrolls.
+
+#### XML example — `mouse:click_index`
+
+```xml
+<response>
+  <thoughts>Target has an overlay index.</thoughts>
+  <headline>Click control</headline>
+  <tool_name>mouse:click_index</tool_name>
+  <tool_args>
+    <goal>Activate the highlighted button</goal>
+    <action>click the blue primary button labeled Save in the dialog footer</action>
+    <index>7</index>
+  </tool_args>
+</response>
+```

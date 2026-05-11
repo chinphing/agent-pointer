@@ -184,8 +184,6 @@ pub struct SkillDef {
 pub struct ToolDef {
     pub name: String,
     pub description: String,
-    #[serde(rename = "parametersSchema")]
-    pub parameters_schema: serde_json::Value,
     #[serde(rename = "riskLevel")]
     pub risk_level: String,
     #[serde(rename = "requiresApproval")]

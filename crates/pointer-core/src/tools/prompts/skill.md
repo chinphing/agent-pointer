@@ -39,3 +39,34 @@ Progressive disclosure for enabled Skills.
 
 - **`skill_id`** — Same as above.
 - **`path`** — Resource-relative path listed in the Skill index, e.g. `references/api-guide.md`.
+
+#### XML examples
+
+Only when the **`skill`** tool is available to you and the session lists the skill. `skill_id` must match an **enabled** skill for this session.
+
+**`skill:load_instructions`**
+
+```xml
+<response>
+  <thoughts>Task matches an enabled skill; load its full SKILL.md.</thoughts>
+  <headline>Load skill</headline>
+  <tool_name>skill:load_instructions</tool_name>
+  <tool_args>
+    <skill_id>your-enabled-skill-id</skill_id>
+  </tool_args>
+</response>
+```
+
+**`skill:read_resource`** — include **`path`** (resource-relative, e.g. `references/guide.md`) alongside **`skill_id`**.
+
+```xml
+<response>
+  <thoughts>Need an asset from the skill bundle.</thoughts>
+  <headline>Read skill resource</headline>
+  <tool_name>skill:read_resource</tool_name>
+  <tool_args>
+    <skill_id>your-enabled-skill-id</skill_id>
+    <path>references/guide.md</path>
+  </tool_args>
+</response>
+```

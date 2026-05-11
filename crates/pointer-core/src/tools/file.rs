@@ -1,6 +1,6 @@
 //! Workspace-scoped file tools: single registry tool `file` with `method` (like Computer `mouse:method`).
 //! Root from settings `workspaceRoot`, else `current_dir`.
-use super::{minimal_tool_parameters_schema, ToolEntry, ToolHandler, ToolRegistry};
+use super::{ToolEntry, ToolHandler, ToolRegistry};
 use crate::storage;
 use anyhow::{anyhow, Result};
 use globset::{Glob, GlobSetBuilder};
@@ -41,7 +41,6 @@ const SKIP_EXT: &[&str] = &[
 ];
 
 pub fn register_all(reg: &ToolRegistry) {
-    let schema = minimal_tool_parameters_schema();
     let doc = FILE_MD.trim();
     let h: ToolHandler = Arc::new(|args| {
         let root = resolve_tool_workspace_root()?;
@@ -51,7 +50,6 @@ pub fn register_all(reg: &ToolRegistry) {
         "file",
         "low",
         false,
-        schema,
         doc.trim(),
         None,
         h,

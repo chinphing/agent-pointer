@@ -1,33 +1,5 @@
 ### composite_action
 
-```json
-{
-  "type": "object",
-  "properties": {
-    "method": {
-      "type": "string",
-      "enum": [
-        "type_text_at_index",
-        "type_text_at",
-        "type_text_at_focused",
-        "scroll_at_index"
-      ]
-    },
-    "goal": { "type": "string" },
-    "action": { "type": "string" },
-    "index": { "type": "integer" },
-    "x": { "type": "number" },
-    "y": { "type": "number" },
-    "text": { "type": "string" },
-    "lines": { "type": "integer" },
-    "clear_first": { "type": "boolean" },
-    "auto_enter": { "type": "boolean" },
-    "human_like": { "type": "boolean" }
-  },
-  "required": ["method", "goal", "action"]
-}
-```
-
 Use for **one-call combos** that achieve the goal in a single tool call: click+type, or move+scroll. Prefer this over calling **mouse** then **hotkey** or **mouse** multiple times when one composite call is enough.
 
 **Call priority:** Prefer the fewest tool calls. Use **composite_action** first for “click and type” or “scroll at a specific element”; then hotkey or modified_click; then mouse. Use **wait** when a delay is needed.

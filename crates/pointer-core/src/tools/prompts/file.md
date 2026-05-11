@@ -61,3 +61,19 @@ Unified workspace file tools (same category as Computer agent’s `mouse:method`
 - **`recursive`** — Optional boolean; default **false** (immediate children only). When **true**, walk subdirectories.
 - **`maxDepth`** — Optional; when **`recursive`** is true, max WalkDir depth from the listed directory (default **8**, capped by runtime). Ignored for non-recursive listing.
 - **`entryType`** — Optional; alias **`entry_type`**. One of **`all`** (default), **`file`** / **`files`**, **`dir`** / **`directory`** / **`directories`** — return only files, only directories, or both.
+
+#### XML example — `file:read` batch
+
+Put a **JSON array string** inside `<paths>` so it parses as an array (not multiple `<path>` tags).
+
+```xml
+<response>
+  <thoughts>Read implementation and tests together.</thoughts>
+  <headline>Batch read</headline>
+  <tool_name>file:read</tool_name>
+  <tool_args>
+    <paths>["crates/foo/src/lib.rs","crates/foo/src/main.rs"]</paths>
+    <lineStart>1</lineStart>
+  </tool_args>
+</response>
+```

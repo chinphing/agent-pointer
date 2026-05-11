@@ -1,4 +1,4 @@
-use crate::tools::{minimal_tool_parameters_schema, ToolEntry, ToolHandler, ToolRegistry};
+use crate::tools::{ToolEntry, ToolHandler, ToolRegistry};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::Arc;
@@ -14,7 +14,6 @@ pub(crate) fn response_text_from_args(args: &Value) -> Option<&str> {
 
 /// Register the `response` tool (copy aligned with PyProjects/pointer; see `prompts/response.md`).
 pub fn register_all(reg: &ToolRegistry) {
-    let schema = minimal_tool_parameters_schema();
     let doc = RESPONSE_MD.trim();
     let handler: ToolHandler = Arc::new(|args: Value| -> Result<String> {
         let text = response_text_from_args(&args)
@@ -27,7 +26,6 @@ pub fn register_all(reg: &ToolRegistry) {
         "response",
         "low",
         false,
-        schema,
         doc,
         None,
         handler,

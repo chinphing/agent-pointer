@@ -143,7 +143,7 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 - 若任务带 `dependsOn`，实现上会把依赖任务的输出摘要**前缀**拼进 `instruction`（`[Prior task outputs]` / `[Current task]`），仍是一条 user 消息，**不是**完整主聊天 transcript。
 - 子 Agent 自己的多轮工具循环里，只在 `local_history` 上累加本轮 assistant、tool 等，与主 `history` **隔离**。
 
-系统 prompt 侧子 Agent 另有：`env_context`、可选 `rendered_session_inject`、一段 **sub_agent_header**（明确说明「下一条 user 来自 Supervisor，**不包含主聊天历史**」）、skills、allowed tools、xml tool prompt。
+系统 prompt 侧子 Agent 另有：`env_context`、每轮 **`rendered_communication_public_inject`**（`COMMUNICATION_PUBLIC.md`）、一段 **sub_agent_header**（内含已展开占位符的 Agent system prompt，并明确说明「下一条 user 来自 Supervisor，**不包含主聊天历史**」）、skills、allowed tools、xml tool prompt。
 
 **结论（对话语义）**：子 Agent 在**消息列表意义上是独立的**；它只「看见」任务描述 +（可选）前置任务摘要 + 自己多轮工具产生的历史。
 

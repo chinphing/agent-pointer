@@ -1,7 +1,8 @@
 use crate::agents::{
-    register_builtin_agents, rendered_session_inject, AgentDef,
-    AgentOrchestrator, AgentProfile, AgentRegistry, AgentRunLimits, AgentRunResult, AgentTask,
-    SessionInjectVars, DEFAULT_AGENT_ID, SUPERVISOR_AGENT_ID, AGENT_MODE_SUPERVISOR,
+    expand_agent_prompt_placeholders, register_builtin_agents,
+    rendered_communication_public_inject, AgentDef, AgentOrchestrator, AgentProfile,
+    AgentRegistry, AgentRunLimits, AgentRunResult, AgentTask, SessionInjectVars, DEFAULT_AGENT_ID,
+    SUPERVISOR_AGENT_ID, AGENT_MODE_SUPERVISOR,
 };
 use crate::extensions::{
     BeforeMainLlmCallContext, ExtensionRegistry, MessageLoopPromptsAfterContext,
@@ -281,11 +282,9 @@ pub async fn run_chat(
     result
 }
 
-/// Shared rules text (agents/_shared) — embedded so runtime feedback matches repo docs.
-const COMMUNICATION_PUBLIC_MD: &str = include_str!("agents/_shared/COMMUNICATION_PUBLIC.md");
-
 /// When XML tools are enabled but this turn produced no executable tool call, inject a user-line
-/// for the next model turn. Always appends [`COMMUNICATION_PUBLIC_MD`] so the model can self-correct format.
+/// for the next model turn. Public format rules are already in the system prompts each round via
+/// [`rendered_communication_public_inject`] / [`expand_agent_prompt_placeholders`]; this message only states the failure and CDATA/escaping hints.
 fn xml_tool_empty_calls_retry_message(
     diag: &XmlToolFinishDiagnostics,
     xml_tools_enabled: bool,
@@ -303,18 +302,16 @@ fn xml_tool_empty_calls_retry_message(
                 .filter(|s| !s.is_empty())
                 .unwrap_or("无法解析为合法的工具 XML（常见于未转义的尖括号破坏了标签结构）");
             format!(
-                "【环境反馈】本回合输出中包含工具相关 XML，但解析失败：{detail}。\n\n请按下文**公共约定**重新输出**唯一**一个 `<response>...</response>`（无围栏外长文本）。"
+                "【环境反馈】本回合输出中包含工具相关 XML，但解析失败：{detail}。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 `<response>...</response>`（无围栏外长文本）。"
             )
         } else {
-            "【环境反馈】本回合检测到工具相关 XML（如 `<tool_name>` / `<tool_args>` 或 `<response>` 片段），但在流结束前仍未形成可解析的完整 `</response>`，因此未能执行任何工具。\n\n请按下文**公共约定**重新输出**唯一**一个 `<response>...</response>`，并确保闭合标签完整。".to_string()
+            "【环境反馈】本回合检测到工具相关 XML（如 `<tool_name>` / `<tool_args>` 或 `<response>` 片段），但在流结束前仍未形成可解析的完整 `</response>`，因此未能执行任何工具。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 `<response>...</response>`，并确保闭合标签完整。".to_string()
         }
     } else {
-        "【环境反馈】本回合未解析到任何工具调用：输出中未得到有效 `<response>…</response>` 结构（需包含 `thoughts`、`headline`、`tool_name`、`tool_args`；勿用 Markdown 代码块包裹整段 XML；勿仅在标签外输出长说明代替结构化工具调用）。\n\n请按下文**公共约定**重新输出**唯一**一个 `<response>...</response>`。".to_string()
+        "【环境反馈】本回合未解析到任何工具调用：输出中未得到有效 `<response>…</response>` 结构（需包含 `thoughts`、`headline`、`tool_name`、`tool_args`；勿用 Markdown 代码块包裹整段 XML；勿仅在标签外输出长说明代替结构化工具调用）。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 `<response>...</response>`。".to_string()
     };
 
-    Some(format!(
-        "{intro}\n\n---\n\n{COMMUNICATION_PUBLIC_MD}\n\n---\n\n【CDATA / 转义】{CDATA_NOTE}"
-    ))
+    Some(format!("{intro}\n\n【CDATA / 转义】{CDATA_NOTE}"))
 }
 
 async fn run_chat_inner(
@@ -483,12 +480,15 @@ async fn run_chat_inner(
         let session_vars = SessionInjectVars {
             workspace_root: settings.workspace_root.trim(),
         };
-        if let Some(exec) = state.agents.get(&agent_plan.lead_agent_id) {
-            if let Some(block) = rendered_session_inject(exec.as_ref(), &session_vars) {
-                prompts_with_env.push(block);
-            }
+        if let Some(block) = rendered_communication_public_inject() {
+            prompts_with_env.push(block);
         }
-        prompts_with_env.extend(agent_plan.system_prompts.clone());
+        prompts_with_env.extend(
+            agent_plan
+                .system_prompts
+                .iter()
+                .map(|p| expand_agent_prompt_placeholders(p, &session_vars)),
+        );
         prompts_with_env.extend(state.tools.prompt_context(&agent_plan.allowed_tool_names));
         if !xml_tool_prompt.is_empty() {
             prompts_with_env.push(xml_tool_prompt);
@@ -1354,13 +1354,14 @@ async fn run_sub_agent(
     let session_vars = SessionInjectVars {
         workspace_root: provider.settings.workspace_root.trim(),
     };
+    let expanded_role = expand_agent_prompt_placeholders(&agent.system_prompt(), &session_vars);
     let sub_agent_header = format!(
         "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\nComplete only the subtask delivered in the next user message from the Supervisor. That message is task instructions (it may include a digest of prior task outputs) and does **not** include the main chat history. Your output should state conclusions, key evidence, risks, or open items.\nAllowed tools: {}",
         def.name,
         def.id,
         def.profile,
         def.description,
-        agent.system_prompt(),
+        expanded_role,
         if allowed_tools.is_empty() {
             "none".into()
         } else {
@@ -1368,7 +1369,7 @@ async fn run_sub_agent(
         }
     );
     let mut prompts = vec![env_context];
-    if let Some(block) = rendered_session_inject(agent.as_ref(), &session_vars) {
+    if let Some(block) = rendered_communication_public_inject() {
         prompts.push(block);
     }
     prompts.push(sub_agent_header);
@@ -2132,7 +2133,10 @@ fn resolve_agent_tools(
         tools.get_def(name).is_some() && !agent.access_policy.deny_tools.contains(name)
     });
 
-    if !names.contains(&"response".into()) && tools.get_def("response").is_some() {
+    if !agent.access_policy.deny_tools.iter().any(|d| d == "response")
+        && tools.get_def("response").is_some()
+        && !names.contains(&"response".into())
+    {
         names.push("response".into());
     }
 

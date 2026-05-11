@@ -1,5 +1,5 @@
 /// XML tool-call parsing: buffer until a full `<response>…</response>`, then parse via
-/// [`crate::response_xml::parse_tool_response_default_chain`] (strict quick-xml → ScraperHtml → relaxed quick-xml).
+/// [`crate::response_xml::parse_tool_response_default_chain`] (ScraperHtml → relaxed quick-xml).
 
 pub use crate::response_xml::{
     parse_tool_response_default_chain, xml_tool_arguments_to_json_string, ResponseXmlBackend,

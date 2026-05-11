@@ -432,7 +432,7 @@ impl OpenAIProvider {
                 || reasoning_buf.contains("</response>");
             if saw_response_markup && !xml_complete {
                 log::warn!(
-                    "model={} xml tool: stream ended without a complete closing </response> (tool_choice=none; empty tool_calls). If you see xml_tool_caller::parse_tool_response_default_chain failed above, the fragment was complete but strict XML, ScraperHtml, and relaxed quick-xml all rejected it.",
+                    "model={} xml tool: stream ended without a complete closing </response> (tool_choice=none; empty tool_calls). If you see xml_tool_caller::parse_tool_response_default_chain failed above, the fragment was complete but ScraperHtml and relaxed quick-xml both rejected it.",
                     self.settings.model
                 );
             }

@@ -52,7 +52,10 @@ impl ToolRegistry {
                     "function": {
                         "name": e.def.name,
                         "description": e.def.description,
-                        "parameters": e.def.parameters_schema
+                        "parameters": {
+                            "type": "object",
+                            "properties": {}
+                        }
                     }
                 })
             })

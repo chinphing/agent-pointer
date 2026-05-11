@@ -1,12 +1,18 @@
 ### response
 
-Final answer to the user. Ends task processing; use only when done or no task is active.
+**Shared tool-call envelope (all tools):** Emit **one** `<response>...</response>` per turn when using tools or a structured final turn—no Markdown fences around the model’s actual output, no extra prose outside it. Children: `thoughts`, `headline`, `tool_name`, `tool_args`. Under `tool_args`, use **one XML element per argument**; names must match that tool’s parameters as described for that tool. **One tool per turn**—do not emit multiple `tool_name` values or nest `<response>`.
+
+**`tool_name`:** use **`base:method`** for multi-behavior tools (e.g. `file:read`, `skill:load_instructions`, `mouse:click_index`). Use **base only** for tools like **`wait`** and **`response`** (`response`, not `response:response`). Use the exact tool names given in each tool’s description.
+
+For other tools, the same envelope applies with the appropriate `tool_name` and `tool_args`; each tool’s description covers parameters and any additional examples.
+
+When **`tool_name` is `response`**, you are delivering the final user-visible reply for this turn; use **`text`** for the full message body shown in the chat. Call **`response`** only after any other tool calls you intend for this turn are complete, or when no tools are needed.
 
 #### Parameters
 
 - **`text`** (required) — Full answer or result shown to the user.
 
-Output format (XML):
+#### XML example (`response`)
 
 ```xml
 <response>

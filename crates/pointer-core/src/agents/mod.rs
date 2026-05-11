@@ -20,18 +20,21 @@ pub const SUPERVISOR_AGENT_ID: &str = "supervisor";
 const AGENTS_DIR: &str = "agents";
 const AGENT_MANIFEST: &str = "AGENT.md";
 const AGENT_COMMUNICATION: &str = "COMMUNICATION.md";
-/// Optional per-request system prefix beside `AGENT.md` / `COMMUNICATION.md`; placeholders expanded at chat time.
+/// Legacy per-request block; if present, merged into `COMMUNICATION.md` content at load (placeholders expanded each request).
 const AGENT_SESSION_INJECT: &str = "SESSION_INJECT.md";
 
-/// Shared outer layer: response + tool-call shape and examples (English).
+/// Model-facing shared rules: host context, skills, and **`response`** role (English). XML shape and examples for **`response`** stay in the tools appendix.
 const COMMUNICATION_PUBLIC: &str = include_str!("_shared/COMMUNICATION_PUBLIC.md");
+
+/// Injected on **every** main-LLM and sub-agent round (see `chat_service`).
+pub fn communication_public_md() -> &'static str {
+    COMMUNICATION_PUBLIC.trim()
+}
 
 struct BuiltinAgentBundle {
     id: &'static str,
     manifest: &'static str,
     communication: &'static str,
-    /// Optional `SESSION_INJECT.md` body (built-in), expanded per chat request.
-    session_inject: Option<&'static str>,
 }
 
 const BUILTIN_AGENT_BUNDLES: &[BuiltinAgentBundle] = &[
@@ -39,25 +42,21 @@ const BUILTIN_AGENT_BUNDLES: &[BuiltinAgentBundle] = &[
         id: "default",
         manifest: include_str!("default/AGENT.md"),
         communication: include_str!("default/COMMUNICATION.md"),
-        session_inject: None,
     },
     BuiltinAgentBundle {
         id: "supervisor",
         manifest: include_str!("supervisor/AGENT.md"),
         communication: include_str!("supervisor/COMMUNICATION.md"),
-        session_inject: None,
     },
     BuiltinAgentBundle {
         id: "coder",
         manifest: include_str!("coder/AGENT.md"),
         communication: include_str!("coder/COMMUNICATION.md"),
-        session_inject: Some(include_str!("coder/SESSION_INJECT.md")),
     },
     BuiltinAgentBundle {
         id: "computer",
         manifest: include_str!("computer/AGENT.md"),
         communication: include_str!("computer/COMMUNICATION.md"),
-        session_inject: None,
     },
 ];
 
@@ -168,8 +167,6 @@ impl Default for AgentRunLimits {
 pub struct BaseAgent {
     pub def: AgentDef,
     pub system_prompt: String,
-    /// See `AGENT_SESSION_INJECT`; expanded per request via `rendered_session_inject`.
-    pub session_inject_template: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -199,11 +196,6 @@ pub trait AgentExecutor: Send + Sync {
     fn def(&self) -> AgentDef;
     fn system_prompt(&self) -> String;
 
-    /// Markdown template with `{{workspace_root}}` etc.; expanded per chat request.
-    fn session_inject_template(&self) -> Option<&str> {
-        None
-    }
-
     fn profile(&self) -> AgentProfile {
         self.def().profile
     }
@@ -221,33 +213,21 @@ impl AgentExecutor for BaseAgent {
     fn system_prompt(&self) -> String {
         self.system_prompt.clone()
     }
-
-    fn session_inject_template(&self) -> Option<&str> {
-        self.session_inject_template.as_deref()
-    }
 }
 
-/// Values substituted into an agent’s `SESSION_INJECT.md` (built-in or on disk).
+/// Placeholders expanded on each LLM request (e.g. in `COMMUNICATION.md` after merge with legacy `SESSION_INJECT.md`).
 pub struct SessionInjectVars<'a> {
     pub workspace_root: &'a str,
 }
 
-pub fn expand_session_inject_template(template: &str, vars: &SessionInjectVars<'_>) -> String {
+pub fn expand_agent_prompt_placeholders(template: &str, vars: &SessionInjectVars<'_>) -> String {
     template.replace("{{workspace_root}}", vars.workspace_root)
 }
 
-/// Renders the optional per-agent session inject block, or `None` if unset or empty after expansion.
-pub fn rendered_session_inject(
-    agent: &dyn AgentExecutor,
-    vars: &SessionInjectVars<'_>,
-) -> Option<String> {
-    let t = agent.session_inject_template()?;
-    let out = expand_session_inject_template(t, vars).trim().to_string();
-    if out.is_empty() {
-        None
-    } else {
-        Some(out)
-    }
+/// Per-round **system inject**: shared [`COMMUNICATION_PUBLIC.md`] (host, skills, **`response`** usage; `COMMUNICATION.md` is per agent and expanded via [`expand_agent_prompt_placeholders`]).
+pub fn rendered_communication_public_inject() -> Option<String> {
+    let pub_ = communication_public_md().trim();
+    (!pub_.is_empty()).then(|| pub_.to_string())
 }
 
 #[derive(Default)]
@@ -396,12 +376,7 @@ impl AgentOrchestrator {
 
 pub fn register_builtin_agents(registry: &AgentRegistry) {
     for bundle in BUILTIN_AGENT_BUNDLES {
-        match load_builtin_agent(
-            bundle.id,
-            bundle.manifest,
-            bundle.communication,
-            bundle.session_inject,
-        ) {
+        match load_builtin_agent(bundle.id, bundle.manifest, bundle.communication) {
             Ok(agent) => registry.register(agent),
             Err(err) => log::warn!("load builtin agent failed: {}: {err}", bundle.id),
         }
@@ -421,7 +396,6 @@ fn default_agent_def() -> AgentDef {
         BUILTIN_AGENT_BUNDLES[0].id,
         BUILTIN_AGENT_BUNDLES[0].manifest,
         BUILTIN_AGENT_BUNDLES[0].communication,
-        BUILTIN_AGENT_BUNDLES[0].session_inject,
     )
         .map(|agent| agent.def)
         .unwrap_or_else(|_| AgentDef {
@@ -447,7 +421,6 @@ fn supervisor_agent_def() -> AgentDef {
         BUILTIN_AGENT_BUNDLES[1].id,
         BUILTIN_AGENT_BUNDLES[1].manifest,
         BUILTIN_AGENT_BUNDLES[1].communication,
-        BUILTIN_AGENT_BUNDLES[1].session_inject,
     )
         .map(|agent| agent.def)
         .unwrap_or_else(|_| AgentDef {
@@ -469,18 +442,12 @@ fn supervisor_agent_def() -> AgentDef {
         })
 }
 
-fn load_builtin_agent(
-    id: &str,
-    raw: &str,
-    communication: &str,
-    session_inject: Option<&'static str>,
-) -> Result<BaseAgent> {
+fn load_builtin_agent(id: &str, raw: &str, communication: &str) -> Result<BaseAgent> {
     let manifest = parse_agent_md(raw)?;
     if manifest.id != id {
         return Err(anyhow!("内置 Agent id 与目录名不一致"));
     }
-    let inject = session_inject.map(str::to_string);
-    let mut agent = manifest_to_agent(manifest, None, communication, inject)?;
+    let mut agent = manifest_to_agent(manifest, None, communication)?;
     agent.def.builtin = true;
     agent.def.source = Some(format!("builtin://{id}"));
     Ok(agent)
@@ -549,29 +516,35 @@ fn load_agent_from_dir(dir: &Path) -> Result<BaseAgent> {
         return Err(anyhow!("Agent 目录名必须与 frontmatter id 一致"));
     }
     let comm_path = dir.join(AGENT_COMMUNICATION);
-    let communication = if comm_path.exists() {
+    let mut communication = if comm_path.exists() {
         fs::read_to_string(&comm_path)?
     } else {
         String::new()
     };
     let inject_path = dir.join(AGENT_SESSION_INJECT);
-    let session_inject = if inject_path.exists() {
-        Some(fs::read_to_string(&inject_path)?)
-    } else {
-        None
-    };
-    manifest_to_agent(manifest, Some(dir), &communication, session_inject)
+    if inject_path.exists() {
+        let inj = fs::read_to_string(&inject_path)?;
+        if !inj.trim().is_empty() {
+            communication = merge_legacy_session_into_communication(&inj, communication.trim());
+        }
+    }
+    manifest_to_agent(manifest, Some(dir), &communication)
 }
 
-/// `COMMUNICATION_PUBLIC` + optional per-agent `COMMUNICATION.md` + `AGENT.md` body.
+fn merge_legacy_session_into_communication(session_md: &str, communication: &str) -> String {
+    let s = session_md.trim();
+    if communication.is_empty() {
+        s.to_string()
+    } else {
+        format!("{s}\n\n---\n\n{communication}")
+    }
+}
+
+/// Optional per-agent `COMMUNICATION.md` + `AGENT.md` body. [`communication_public_md`] is prepended per request in `chat_service`.
 fn compose_system_prompt(agent_communication: &str, body: &str) -> String {
     let mut parts: Vec<&str> = Vec::new();
-    let pub_ = COMMUNICATION_PUBLIC.trim();
     let mid = agent_communication.trim();
     let b = body.trim();
-    if !pub_.is_empty() {
-        parts.push(pub_);
-    }
     if !mid.is_empty() {
         parts.push(mid);
     }
@@ -585,7 +558,6 @@ fn manifest_to_agent(
     manifest: AgentManifest,
     dir: Option<&Path>,
     communication: &str,
-    session_inject_template: Option<String>,
 ) -> Result<BaseAgent> {
     validate_agent_manifest(&manifest)?;
     let mut access_policy = manifest.access_policy;
@@ -622,7 +594,6 @@ fn manifest_to_agent(
     Ok(BaseAgent {
         system_prompt: compose_system_prompt(communication, &manifest.body),
         def,
-        session_inject_template,
     })
 }
 
@@ -780,7 +751,6 @@ fn static_agent(def: AgentDef) -> Arc<dyn AgentExecutor> {
     Arc::new(BaseAgent {
         system_prompt: format!("You are {}. {}", def.name, def.description),
         def,
-        session_inject_template: None,
     })
 }
 
@@ -812,6 +782,13 @@ fn resolve_tools(
     let available: HashSet<_> = tools.list_defs().into_iter().map(|t| t.name).collect();
     let deny: HashSet<_> = policy.deny_tools.iter().cloned().collect();
     names.retain(|name| available.contains(name) && !deny.contains(name));
+    // `response` is always available for every agent unless explicitly denied (final user-visible reply).
+    if !deny.contains("response")
+        && tools.get_def("response").is_some()
+        && !names.contains(&"response".into())
+    {
+        names.push("response".into());
+    }
     names.sort();
     names.dedup();
     names
@@ -869,27 +846,22 @@ mod builtin_agent_tests {
     #[test]
     fn computer_builtin_manifest_parses_and_loads() {
         let raw = include_str!("computer/AGENT.md");
-        let agent = load_builtin_agent("computer", raw, "", None).expect("load builtin computer");
+        let agent = load_builtin_agent("computer", raw, "").expect("load builtin computer");
         assert_eq!(agent.def.role, "worker");
         assert!(agent.def.enabled);
         assert_eq!(agent.def.profile, AgentProfile::Computer);
     }
 
     #[test]
-    fn coder_session_inject_expands_workspace_placeholder() {
+    fn coder_communication_expands_workspace_placeholder() {
         let raw = include_str!("coder/AGENT.md");
-        let agent = load_builtin_agent(
-            "coder",
-            raw,
-            "",
-            Some(include_str!("coder/SESSION_INJECT.md")),
-        )
-        .expect("load builtin coder");
+        let comm = include_str!("coder/COMMUNICATION.md");
+        let agent = load_builtin_agent("coder", raw, comm).expect("load builtin coder");
         let vars = SessionInjectVars {
             workspace_root: "/tmp/example-workspace",
         };
-        let block = rendered_session_inject(&agent, &vars).expect("session inject");
-        assert!(block.contains("/tmp/example-workspace"));
-        assert!(!block.contains("{{workspace_root}}"));
+        let expanded = expand_agent_prompt_placeholders(&agent.system_prompt, &vars);
+        assert!(expanded.contains("/tmp/example-workspace"));
+        assert!(!expanded.contains("{{workspace_root}}"));
     }
 }

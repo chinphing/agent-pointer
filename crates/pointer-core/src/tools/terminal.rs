@@ -1,4 +1,4 @@
-use super::{minimal_tool_parameters_schema, ToolEntry, ToolHandler, ToolRegistry};
+use super::{ToolEntry, ToolHandler, ToolRegistry};
 use crate::storage;
 use anyhow::{anyhow, Result};
 use std::io::{BufRead, BufReader, Read};
@@ -18,14 +18,12 @@ pub fn register_all(reg: &ToolRegistry) {
 }
 
 fn register_terminal(reg: &ToolRegistry) {
-    let schema = minimal_tool_parameters_schema();
     let doc = include_str!("prompts/terminal.md").trim();
     let h: ToolHandler = Arc::new(run_terminal_command);
     reg.register(ToolEntry::new(
         "terminal",
         "high",
         true,
-        schema,
         doc,
         None,
         h,

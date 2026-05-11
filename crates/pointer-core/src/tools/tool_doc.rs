@@ -1,4 +1,4 @@
-//! Load JSON Schema embedded in Markdown (` ```json ... ``` `), matching the Computer agent pattern (prompts in `.md` only).
+//! Load JSON Schema embedded in Markdown (` ```json ... ``` `).
 
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -41,7 +41,7 @@ pub fn doc_markdown_without_schema_fence(md: &str) -> String {
     }
 }
 
-/// Combined load for [`ToolEntry::new`](crate::tools::ToolEntry::new).
+/// Combined load for callers that still embed JSON Schema in markdown (not used by current registry `ToolEntry` wiring).
 pub fn load_tool_doc_and_schema(md: &str) -> Result<(Value, String)> {
     let schema = json_schema_from_markdown(md)?;
     let doc = doc_markdown_without_schema_fence(md);

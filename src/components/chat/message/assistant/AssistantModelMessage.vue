@@ -29,20 +29,23 @@ const screenError = ref<string | null>(null)
 
 marked.setOptions({ breaks: true, gfm: true })
 
+const isStreaming = computed(() => isMessageStreaming(props.message.status))
+
 const html = computed(() =>
   props.message.content ? (marked.parse(props.message.content) as string) : ''
 )
 
 useMarkdownCodeCopy(bodyRef, () => props.message.content)
 
-const isStreaming = computed(() => isMessageStreaming(props.message.status))
-
 const rawContentViewEnabled = computed(() => settingsStore.settings.rawContentViewEnabled !== false)
 
 const hasRawWire = computed(() => {
   if (!rawContentViewEnabled.value) return false
   const raw = props.message.rawContent
-  return !!(raw && raw !== props.message.content)
+  const reasoning = props.message.reasoning?.trim() ?? ''
+  const hasReasoning = reasoning.length > 0
+  const rawDiffersFromBody = !!(raw && raw !== props.message.content)
+  return rawDiffersFromBody || hasReasoning
 })
 
 const showCamera = computed(() => {
@@ -267,7 +270,8 @@ onUnmounted(() => clearHeadlineCollapseTimer())
     </div>
 
     <RawWirePanel
-      v-if="showRawWire && message.rawContent"
+      v-if="showRawWire && (message.rawContent || (message.reasoning && message.reasoning.trim()))"
+      :reasoning="message.reasoning"
       :raw-content="message.rawContent"
       @close="showRawWire = false"
     />

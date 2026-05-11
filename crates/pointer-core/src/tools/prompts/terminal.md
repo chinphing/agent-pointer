@@ -21,3 +21,18 @@ The result includes `stdout`, `stderr`, exit code, timing, and truncation flags;
 - **`cwd`** (optional) — Working directory; must be an existing directory.
 - **`timeoutMs`** (optional) — Timeout in milliseconds; default **30000**, max **120000**.
 - **`maxOutputBytes`** (optional) — Max bytes per stream for stdout and stderr; default **20000**, max **200000**; output is truncated per stream when exceeded.
+
+#### XML example
+
+```xml
+<response>
+  <thoughts>Run tests in the workspace.</thoughts>
+  <headline>Cargo test</headline>
+  <tool_name>terminal</tool_name>
+  <tool_args>
+    <command>cargo test</command>
+    <cwd>.</cwd>
+    <timeoutMs>120000</timeoutMs>
+  </tool_args>
+</response>
+```

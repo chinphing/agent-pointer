@@ -147,15 +147,6 @@ pub fn merge_tool_method_from_qualified_name(raw_name: &str, mut args: Value) ->
     (base.to_string(), args)
 }
 
-/// JSON Schema placeholder for tools that are only invoked via XML in [`crate::provider::OpenAIProvider::stream_chat`]
-/// (native `tools: []`). Argument shapes live in each tool’s `doc_markdown` (e.g. `prompts/file.md`).
-pub fn minimal_tool_parameters_schema() -> Value {
-    serde_json::json!({
-        "type": "object",
-        "properties": {}
-    })
-}
-
 #[derive(Debug, Clone)]
 pub struct ToolPrompt {
     pub system_prompt: String,
@@ -167,7 +158,6 @@ pub struct ToolEntry {
     pub def: ToolDef,
     pub risk_level: String,
     pub requires_approval: bool,
-    pub parameters_schema: Value,
     pub doc_markdown: String,
     pub prompt: Option<ToolPrompt>,
     pub handler: ToolHandler,
@@ -178,7 +168,6 @@ impl ToolEntry {
         name: impl Into<String>,
         risk_level: impl Into<String>,
         requires_approval: bool,
-        parameters_schema: Value,
         doc_markdown: impl Into<String>,
         prompt: Option<ToolPrompt>,
         handler: ToolHandler,
@@ -188,7 +177,6 @@ impl ToolEntry {
             def: ToolDef { name },
             risk_level: risk_level.into(),
             requires_approval,
-            parameters_schema,
             doc_markdown: doc_markdown.into(),
             prompt,
             handler,
@@ -200,7 +188,6 @@ impl ToolEntry {
 pub struct XmlToolDescriptor {
     pub name: String,
     pub doc_markdown: String,
-    pub parameters_schema: Value,
 }
 
 #[derive(Default)]
@@ -270,7 +257,6 @@ impl ToolRegistry {
             .map(|e| XmlToolDescriptor {
                 name: e.def.name.clone(),
                 doc_markdown: e.doc_markdown.clone(),
-                parameters_schema: e.parameters_schema.clone(),
             })
             .collect();
         out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -299,7 +285,10 @@ impl ToolRegistry {
                     "function": {
                         "name": e.def.name,
                         "description": description,
-                        "parameters": e.parameters_schema
+                        "parameters": {
+                            "type": "object",
+                            "properties": {}
+                        }
                     }
                 })
             })

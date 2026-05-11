@@ -10,21 +10,19 @@ mod tool_mouse;
 mod tool_wait;
 
 use crate::agents::computer::ComputerState;
-use crate::tools::{load_tool_doc_and_schema, ToolEntry, ToolRegistry};
+use crate::tools::{ToolEntry, ToolRegistry};
 use std::sync::Arc;
 use tool_modified_click::ModifiedClickTool;
 
 /// Register all computer-use tools (mouse, hotkey, composite_action, modified_click, wait).
 pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     let mouse_state = state.clone();
-    let (mouse_schema, mouse_doc) =
-        load_tool_doc_and_schema(include_str!("prompts/mouse.md")).expect("prompts/mouse.md schema");
+    let mouse_doc = include_str!("prompts/mouse.md").trim();
     reg.register(ToolEntry::new(
         "mouse",
         "high",
         false,
-        mouse_schema,
-        mouse_doc.trim(),
+        mouse_doc,
         None,
         Arc::new(move |args| {
             let method = args["method"]
@@ -40,14 +38,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     ));
 
     let hotkey_state = state.clone();
-    let (hotkey_schema, hotkey_doc) =
-        load_tool_doc_and_schema(include_str!("prompts/hotkey.md")).expect("prompts/hotkey.md schema");
+    let hotkey_doc = include_str!("prompts/hotkey.md").trim();
     reg.register(ToolEntry::new(
         "hotkey",
         "medium",
         false,
-        hotkey_schema,
-        hotkey_doc.trim(),
+        hotkey_doc,
         None,
         Arc::new(move |args| {
             let tool = tool_hotkey::HotkeyTool::new(hotkey_state.executor.clone());
@@ -56,15 +52,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     ));
 
     let composite_state = state.clone();
-    let (composite_schema, composite_doc) =
-        load_tool_doc_and_schema(include_str!("prompts/composite_action.md"))
-            .expect("prompts/composite_action.md schema");
+    let composite_doc = include_str!("prompts/composite_action.md").trim();
     reg.register(ToolEntry::new(
         "composite_action",
         "high",
         false,
-        composite_schema,
-        composite_doc.trim(),
+        composite_doc,
         None,
         Arc::new(move |args| {
             let method = args["method"]
@@ -80,15 +73,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     ));
 
     let modified_state = state.clone();
-    let (modified_schema, modified_doc) =
-        load_tool_doc_and_schema(include_str!("prompts/modified_click.md"))
-            .expect("prompts/modified_click.md schema");
+    let modified_doc = include_str!("prompts/modified_click.md").trim();
     reg.register(ToolEntry::new(
         "modified_click",
         "high",
         false,
-        modified_schema,
-        modified_doc.trim(),
+        modified_doc,
         None,
         Arc::new(move |args| {
             let method = args["method"]
@@ -103,14 +93,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         }),
     ));
 
-    let (wait_schema, wait_doc) =
-        load_tool_doc_and_schema(include_str!("prompts/wait.md")).expect("prompts/wait.md schema");
+    let wait_doc = include_str!("prompts/wait.md").trim();
     reg.register(ToolEntry::new(
         "wait",
         "low",
         false,
-        wait_schema,
-        wait_doc.trim(),
+        wait_doc,
         None,
         Arc::new(move |args| {
             let tool = tool_wait::WaitTool::new();

@@ -1,8 +1,8 @@
 //! Pluggable parsers for the assistant `<response>…</response>` tool XML fragment.
 //!
-//! - [`parse_tool_response_default_chain`] order: **strict** [`ResponseXmlBackend::QuickXml`]
-//!   (standard XML) → [`ResponseXmlBackend::ScraperHtml`] → **relaxed** `quick-xml` (permissive
-//!   end-tag rules). Most model output is well-formed XML and stops at step 1.
+//! - [`parse_tool_response_default_chain`] order: [`ResponseXmlBackend::ScraperHtml`] first (handles
+//!   bare `<` / `&` in tool-arg text that strict XML rejects), then **relaxed** `quick-xml` as fallback.
+//! - [`ResponseXmlBackend::QuickXml`] is still exposed for callers that want strict XML only.
 //! - [`ResponseXmlBackend::ScraperHtml`] — HTML5 fragment parsing; CDATA pre-escape; `oldString` /
 //!   `newString` remapped from lowercase tag names.
 
@@ -74,27 +74,20 @@ impl ResponseXmlBackend {
     }
 }
 
-/// [`XmlToolParser`](crate::xml_tool_caller::XmlToolParser) entry: strict `quick-xml`, then
-/// ScraperHtml, then relaxed `quick-xml`.
+/// [`XmlToolParser`](crate::xml_tool_caller::XmlToolParser) entry: ScraperHtml, then relaxed `quick-xml`.
 pub fn parse_tool_response_default_chain(xml: &str) -> Result<XmlToolCall, ResponseXmlParseError> {
-    match quick_xml::parse_fragment_with_relax(xml, false) {
+    match scraper_html::parse_fragment(xml) {
         Ok(c) => Ok(c),
-        Err(e_strict) => match scraper_html::parse_fragment(xml) {
+        Err(e_html) => match quick_xml::parse_fragment_with_relax(xml, true) {
             Ok(c) => {
-                log::debug!("response_xml: strict QuickXml failed ({e_strict}), using ScraperHtml");
+                log::debug!(
+                    "response_xml: ScraperHtml failed ({e_html}); using relaxed QuickXml"
+                );
                 Ok(c)
             }
-            Err(e_html) => match quick_xml::parse_fragment_with_relax(xml, true) {
-                Ok(c) => {
-                    log::debug!(
-                        "response_xml: strict QuickXml + ScraperHtml failed; using relaxed QuickXml (strict_err={e_strict}, scraper_err={e_html})"
-                    );
-                    Ok(c)
-                }
-                Err(e_relaxed) => Err(ResponseXmlParseError::Scraper(format!(
-                    "strict QuickXml: {e_strict}; ScraperHtml: {e_html}; relaxed QuickXml: {e_relaxed}"
-                ))),
-            },
+            Err(e_relaxed) => Err(ResponseXmlParseError::Scraper(format!(
+                "ScraperHtml: {e_html}; relaxed QuickXml: {e_relaxed}"
+            ))),
         },
     }
 }

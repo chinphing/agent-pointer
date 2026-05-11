@@ -1,7 +1,5 @@
 # Communication (shared)
 
-Per-agent `COMMUNICATION.md` (optional) and `AGENT.md` body are appended after this block.
-
 ## Rules
 
 - Output **one** `<response>...</response>` per turn when using tools or a final structured turn — no Markdown fences, no extra prose outside it.

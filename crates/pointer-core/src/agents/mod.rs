@@ -296,11 +296,6 @@ impl AgentRegistry {
     }
 }
 
-/// Coder profile needs a configured workspace root in settings before chat.
-pub fn agent_requires_workspace(def: &AgentDef) -> bool {
-    matches!(def.profile, AgentProfile::Coder)
-}
-
 pub struct AgentOrchestrator;
 
 impl AgentOrchestrator {

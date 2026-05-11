@@ -105,6 +105,27 @@ pub fn registry_tool_base_name(raw: &str) -> &str {
     }
 }
 
+/// `file:write` / `file:edit` are high risk for UI; other `file` methods are low.
+pub fn file_tool_effective_risk_level(raw_tool_name: &str, args: &Value) -> &'static str {
+    let raw = normalize_tool_name_colons(raw_tool_name.trim());
+    let method_from_qual = if let Some((base, method)) = raw.split_once(':') {
+        if base.trim().eq_ignore_ascii_case("file") && !method.trim().is_empty() {
+            Some(method.trim().to_ascii_lowercase())
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let m = method_from_qual
+        .as_deref()
+        .or_else(|| args.get("method").and_then(|v| v.as_str()).map(str::trim));
+    match m {
+        Some("write") | Some("edit") => "high",
+        _ => "low",
+    }
+}
+
 /// If `raw_name` is `tool:method`, return `(tool, args)` and ensure `args["method"]` is set when missing.
 pub fn merge_tool_method_from_qualified_name(raw_name: &str, mut args: Value) -> (String, Value) {
     let raw_name = normalize_tool_name_colons(raw_name.trim());
@@ -213,6 +234,15 @@ impl ToolRegistry {
             .map(|e| e.risk_level.clone())
     }
 
+    /// Risk for a concrete invocation (`file` depends on `method` / qualified name).
+    pub fn tool_risk_level_for_invocation(&self, raw_tool_name: &str, args: &Value) -> Option<String> {
+        let base = registry_tool_base_name(raw_tool_name);
+        if base == "file" {
+            return Some(file_tool_effective_risk_level(raw_tool_name, args).to_string());
+        }
+        self.tool_risk_level(base)
+    }
+
     pub fn tool_requires_approval(&self, name: &str) -> bool {
         self.inner
             .read()
@@ -305,6 +335,7 @@ fn openai_description_from_doc(doc: &str) -> String {
 
 #[cfg(test)]
 mod parse_args_tests {
+    use super::file_tool_effective_risk_level;
     use super::merge_tool_method_from_qualified_name;
     use super::parse_tool_call_arguments;
     use super::registry_tool_base_name;
@@ -361,5 +392,29 @@ mod parse_args_tests {
         let (id, out) = merge_tool_method_from_qualified_name("mouse：click_index", args);
         assert_eq!(id, "mouse");
         assert_eq!(out["method"], "click_index");
+    }
+
+    #[test]
+    fn file_risk_high_only_write_edit() {
+        assert_eq!(
+            file_tool_effective_risk_level("file:write", &serde_json::json!({})),
+            "high"
+        );
+        assert_eq!(
+            file_tool_effective_risk_level("file:edit", &serde_json::json!({})),
+            "high"
+        );
+        assert_eq!(
+            file_tool_effective_risk_level("file", &serde_json::json!({"method": "read"})),
+            "low"
+        );
+        assert_eq!(
+            file_tool_effective_risk_level("file", &serde_json::json!({"method": "list"})),
+            "low"
+        );
+        assert_eq!(
+            file_tool_effective_risk_level("file:grep", &serde_json::json!({})),
+            "low"
+        );
     }
 }

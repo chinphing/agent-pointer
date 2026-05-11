@@ -19,6 +19,7 @@ const MAX_FILE_READ_BATCH: usize = 32;
 const MAX_GREP_RESULTS: usize = 200;
 const MAX_GREP_FILE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_GLOB_RESULTS: usize = 500;
+const MAX_LIST_ENTRIES: usize = 2000;
 const MAX_WALK_DEPTH: usize = 64;
 const CONTEXT_LINES: usize = 2;
 
@@ -48,7 +49,7 @@ pub fn register_all(reg: &ToolRegistry) {
     });
     reg.register(ToolEntry::new(
         "file",
-        "high",
+        "low",
         false,
         schema,
         doc.trim(),
@@ -116,6 +117,28 @@ pub fn resolve_within_workspace_root(root: &Path, user_path: &str) -> Result<Pat
         return Err(anyhow!("路径不在工作区内"));
     }
     Ok(out)
+}
+
+/// Resolve paths for **read-only** `file` methods. Relative paths must stay under `workspace_root`.
+/// **Absolute** paths are canonicalized as-is so other projects can be read when the user provides them.
+pub fn resolve_accessible_path(workspace_root: &Path, user_path: &str) -> Result<PathBuf> {
+    let workspace_root = workspace_root
+        .canonicalize()
+        .map_err(|e| anyhow!("工作区根无效: {e}"))?;
+    let user_path = user_path.trim();
+    if user_path.is_empty() {
+        return Err(anyhow!("路径不能为空"));
+    }
+    if user_path.contains('\0') {
+        return Err(anyhow!("路径含非法字符"));
+    }
+    let path = Path::new(user_path);
+    if path.is_absolute() {
+        return path
+            .canonicalize()
+            .map_err(|e| anyhow!("路径无效或不存在: {e}"));
+    }
+    resolve_within_workspace_root(&workspace_root, user_path)
 }
 
 /// Normalize line breaks to `\n` so `file_read` output (LF-joined) can match CR / CRLF on disk.
@@ -205,7 +228,7 @@ fn file_read_one_json(
     line_end_exclusive: Option<usize>,
     max_bytes: usize,
 ) -> serde_json::Value {
-    let full = match resolve_within_workspace_root(root, path_str) {
+    let full = match resolve_accessible_path(root, path_str) {
         Ok(p) => p,
         Err(e) => {
             return serde_json::json!({
@@ -358,8 +381,9 @@ fn execute_file_tool(args: &serde_json::Value, root: &Path) -> Result<String> {
         "edit" => execute_file_edit_payload(&payload, root),
         "glob" => execute_file_glob_payload(&payload, root),
         "grep" => execute_file_grep_payload(&payload, root),
+        "list" => execute_file_list_payload(&payload, root),
         _ => Err(anyhow!(
-            "未知 file.method: {method}（允许 read | write | edit | glob | grep）"
+            "未知 file.method: {method}（允许 read | write | edit | glob | grep | list）"
         )),
     }
 }
@@ -422,6 +446,112 @@ fn execute_file_edit_payload(args: &serde_json::Value, root: &Path) -> Result<St
     .to_string())
 }
 
+fn list_entry_type_allowed(is_dir: bool, type_filter: &str) -> bool {
+    match type_filter.trim().to_ascii_lowercase().as_str() {
+        "all" => true,
+        "file" | "files" => !is_dir,
+        "dir" | "directory" | "directories" => is_dir,
+        _ => true,
+    }
+}
+
+fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
+    let path_str = args
+        .get("path")
+        .or_else(|| args.get("directory"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow!("缺少 path 或 directory（要列出的目录）"))?;
+
+    let recursive = args.get("recursive").and_then(|v| v.as_bool()).unwrap_or(false);
+    let max_depth = args
+        .get("maxDepth")
+        .or_else(|| args.get("max_depth"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(if recursive { 8 } else { 1 })
+        .min(MAX_WALK_DEPTH as u64) as usize;
+
+    let type_filter = args
+        .get("entryType")
+        .or_else(|| args.get("entry_type"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("all");
+
+    let base = resolve_accessible_path(root, path_str)?;
+    if !base.is_dir() {
+        return Err(anyhow!("不是目录: {}", base.display()));
+    }
+    let base_canon = base
+        .canonicalize()
+        .map_err(|e| anyhow!("无法解析目录: {e}"))?;
+
+    let mut entries: Vec<serde_json::Value> = Vec::new();
+    let mut truncated = false;
+
+    if !recursive {
+        for entry in fs::read_dir(&base_canon).map_err(|e| anyhow!("读取目录失败: {e}"))? {
+            if entries.len() >= MAX_LIST_ENTRIES {
+                truncated = true;
+                break;
+            }
+            let entry = entry.map_err(|e| anyhow!("{e}"))?;
+            let p = entry.path();
+            let meta = entry.metadata().map_err(|e| anyhow!("{e}"))?;
+            let is_dir = meta.is_dir();
+            if !list_entry_type_allowed(is_dir, type_filter) {
+                continue;
+            }
+            let rel = p.strip_prefix(&base_canon).unwrap_or(&p);
+            let rel_s = rel.to_string_lossy().replace('\\', "/");
+            entries.push(serde_json::json!({
+                "path": rel_s,
+                "kind": if is_dir { "directory" } else { "file" }
+            }));
+        }
+    } else {
+        let walk_cap = max_depth.max(1);
+        for wd in WalkDir::new(&base_canon)
+            .max_depth(walk_cap)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            if entries.len() >= MAX_LIST_ENTRIES {
+                truncated = true;
+                break;
+            }
+            if wd.depth() == 0 {
+                continue;
+            }
+            let p = wd.path();
+            let is_dir = p.is_dir();
+            if !p.is_file() && !is_dir {
+                continue;
+            }
+            if !list_entry_type_allowed(is_dir, type_filter) {
+                continue;
+            }
+            let rel = p.strip_prefix(&base_canon).unwrap_or(p);
+            let rel_s = rel.to_string_lossy().replace('\\', "/");
+            entries.push(serde_json::json!({
+                "path": rel_s,
+                "kind": if is_dir { "directory" } else { "file" }
+            }));
+        }
+    }
+
+    Ok(serde_json::json!({
+        "directory": base_canon.display().to_string(),
+        "recursive": recursive,
+        "maxDepth": max_depth,
+        "entryType": type_filter,
+        "entries": entries,
+        "count": entries.len(),
+        "truncated": truncated
+    })
+    .to_string())
+}
+
 fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
     let pattern = args
         .get("pattern")
@@ -438,19 +568,40 @@ fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -> Result<St
         .unwrap_or(MAX_WALK_DEPTH as u64)
         .min(MAX_WALK_DEPTH as u64) as usize;
 
+    let walk_root = if let Some(b) = args
+        .get("base")
+        .or_else(|| args.get("rootPath"))
+        .or_else(|| args.get("baseDir"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let p = resolve_accessible_path(root, b)?;
+        if !p.is_dir() {
+            return Err(anyhow!("glob 搜索根必须是目录: {}", p.display()));
+        }
+        p
+    } else {
+        root.to_path_buf()
+    };
+
     let glob = Glob::new(pattern).map_err(|e| anyhow!("glob 模式无效: {e}"))?;
     let mut builder = GlobSetBuilder::new();
     builder.add(glob);
     let set = builder.build().map_err(|e| anyhow!("glob 构建失败: {e}"))?;
 
     let mut matches = Vec::new();
-    for entry in WalkDir::new(root).max_depth(max_depth).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(&walk_root)
+        .max_depth(max_depth)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if matches.len() >= max_results {
             break;
         }
         let p = entry.path();
         if p.is_file() {
-            let rel = p.strip_prefix(root).unwrap_or(p);
+            let rel = p.strip_prefix(&walk_root).unwrap_or(p);
             let rel_norm = rel.to_string_lossy().replace('\\', "/");
             if set.is_match(Path::new(&rel_norm)) {
                 matches.push(rel_norm);
@@ -458,7 +609,7 @@ fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -> Result<St
         }
     }
     Ok(serde_json::json!({
-        "root": root.display().to_string(),
+        "root": walk_root.display().to_string(),
         "pattern": pattern,
         "matches": matches,
         "count": matches.len(),
@@ -508,7 +659,11 @@ fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<St
     let search_root = if subdir.trim().is_empty() {
         root.to_path_buf()
     } else {
-        resolve_within_workspace_root(root, subdir)?
+        let p = resolve_accessible_path(root, subdir)?;
+        if !p.is_dir() {
+            return Err(anyhow!("grep 子目录必须是目录: {}", p.display()));
+        }
+        p
     };
 
     let mut results: Vec<serde_json::Value> = Vec::new();
@@ -539,7 +694,7 @@ fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<St
             Ok(t) => t,
             Err(_) => continue,
         };
-        let rel = p.strip_prefix(root).unwrap_or(p);
+        let rel = p.strip_prefix(&search_root).unwrap_or(p);
         let rel_s = rel.to_string_lossy().replace('\\', "/");
         for (line_no, line) in text.lines().enumerate() {
             if results.len() >= max_results {
@@ -570,7 +725,7 @@ fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<St
     }
 
     Ok(serde_json::json!({
-        "root": root.display().to_string(),
+        "root": search_root.display().to_string(),
         "pattern": pattern,
         "results": results,
         "count": results.len(),
@@ -647,6 +802,37 @@ mod tests {
         let root = tmp.path();
         let err = resolve_within_workspace_root(root, "../outside").unwrap_err();
         assert!(err.to_string().contains("工作区") || err.to_string().contains("越出"));
+    }
+
+    #[test]
+    fn accessible_path_absolute_outside_workspace() {
+        let ws = tempfile::tempdir().expect("tmp");
+        let other = tempfile::tempdir().expect("tmp");
+        let f = other.path().join("out.txt");
+        fs::write(&f, "x").unwrap();
+        let abs = f.canonicalize().unwrap();
+        let got = resolve_accessible_path(ws.path(), abs.to_str().unwrap()).unwrap();
+        assert_eq!(got, abs);
+    }
+
+    #[test]
+    fn file_list_non_recursive() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::create_dir_all(root.join("sub")).unwrap();
+        fs::write(root.join("sub").join("a.txt"), "1").unwrap();
+        fs::write(root.join("b.txt"), "2").unwrap();
+        let args = json!({"method": "list", "path": ".", "recursive": false, "entryType": "all"});
+        let out = execute_file_tool(&args, root).expect("list");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let paths: Vec<&str> = v["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["path"].as_str().unwrap())
+            .collect();
+        assert!(paths.contains(&"b.txt"));
+        assert!(paths.iter().any(|p| *p == "sub"));
     }
 
     #[test]

@@ -110,6 +110,7 @@ pub fn generate_xml_tool_prompt(tools: &ToolRegistry, allow: &[String]) -> Strin
     prompt.push_str("5. Do not add extra text outside the `<response>` block.\n");
     prompt.push_str("6. For `file:write` / `file:edit` XML calls, always wrap `content` / `oldString` / `newString` in CDATA (see tool descriptions and agent communication).\n");
     prompt.push_str("7. **Batch file reads:** When you need ≥2 files and already know their paths, call `file:read` once with `<paths>[…]</paths>` as in Example 3 — avoid chaining multiple single-file reads with `<path>`.\n");
+    prompt.push_str("8. **`file:list`** explores directories (`path`, `recursive`, `maxDepth`, `entryType`); **`file:read` / `glob` / `grep` / `list`** allow **absolute** paths for read-only access outside the workspace when the user asks.\n");
 
     prompt
 }

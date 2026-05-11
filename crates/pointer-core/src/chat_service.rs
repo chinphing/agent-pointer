@@ -1,5 +1,5 @@
 use crate::agents::{
-    agent_requires_workspace, register_builtin_agents, rendered_session_inject, AgentDef,
+    register_builtin_agents, rendered_session_inject, AgentDef,
     AgentOrchestrator, AgentProfile, AgentRegistry, AgentRunLimits, AgentRunResult, AgentTask,
     SessionInjectVars, DEFAULT_AGENT_ID, SUPERVISOR_AGENT_ID, AGENT_MODE_SUPERVISOR,
 };
@@ -14,7 +14,6 @@ use crate::skills::SkillRegistry;
 use crate::storage;
 use crate::tools::merge_tool_method_from_qualified_name;
 use crate::tools::parse_tool_call_arguments;
-use crate::tools::registry_tool_base_name;
 use crate::tools::response::response_text_from_args;
 use crate::tools::terminal::{run_terminal_command_streaming, terminal_stream_tool_status};
 use crate::tools::ToolRegistry;
@@ -25,7 +24,6 @@ use std::backtrace::Backtrace;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::env;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
@@ -283,26 +281,39 @@ pub async fn run_chat(
     result
 }
 
-/// When the model emitted tool-like XML (`<tool_name>` / `<tool_args>`) but we could not parse a tool call,
-/// return a user-role line for the next model turn (CDATA / well-formed XML reminder).
-fn xml_tool_recover_user_content(diag: &XmlToolFinishDiagnostics) -> Option<String> {
-    if !diag.attempted_tool_xml {
+/// Shared rules text (agents/_shared) — embedded so runtime feedback matches repo docs.
+const COMMUNICATION_PUBLIC_MD: &str = include_str!("agents/_shared/COMMUNICATION_PUBLIC.md");
+
+/// When XML tools are enabled but this turn produced no executable tool call, inject a user-line
+/// for the next model turn. Always appends [`COMMUNICATION_PUBLIC_MD`] so the model can self-correct format.
+fn xml_tool_empty_calls_retry_message(
+    diag: &XmlToolFinishDiagnostics,
+    xml_tools_enabled: bool,
+) -> Option<String> {
+    if !xml_tools_enabled {
         return None;
     }
-    const CDATA: &str = "请重新输出**唯一**一个 `<response>...</response>`。若使用 `file:write`（或 `file` 且 `method` 为 write），`content` 须整段包在 `<![CDATA[...]]>`；若使用 `file:edit`，`oldString` 与 `newString` 均须各自包在 CDATA 中。勿在外侧加 Markdown 代码块。";
+    const CDATA_NOTE: &str = "若使用 `file:write`（或 `file` 且 `method` 为 write），`content` 须整段包在 `<![CDATA[...]]>`；若使用 `file:edit`，`oldString` 与 `newString` 均须各自包在 CDATA 中。勿在外侧用 Markdown 代码块包裹整段 `<response>`。";
 
-    if diag.fragment_complete {
-        let detail = diag
-            .parse_error
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .unwrap_or("无法解析为合法的工具 XML（常见于未转义的尖括号破坏了标签结构）");
-        return Some(format!(
-            "【环境反馈】本回合助手输出里包含工具 XML，但解析失败：{detail}\n{CDATA}"
-        ));
-    }
+    let intro = if diag.attempted_tool_xml {
+        if diag.fragment_complete {
+            let detail = diag
+                .parse_error
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("无法解析为合法的工具 XML（常见于未转义的尖括号破坏了标签结构）");
+            format!(
+                "【环境反馈】本回合输出中包含工具相关 XML，但解析失败：{detail}。\n\n请按下文**公共约定**重新输出**唯一**一个 `<response>...</response>`（无围栏外长文本）。"
+            )
+        } else {
+            "【环境反馈】本回合检测到工具相关 XML（如 `<tool_name>` / `<tool_args>` 或 `<response>` 片段），但在流结束前仍未形成可解析的完整 `</response>`，因此未能执行任何工具。\n\n请按下文**公共约定**重新输出**唯一**一个 `<response>...</response>`，并确保闭合标签完整。".to_string()
+        }
+    } else {
+        "【环境反馈】本回合未解析到任何工具调用：输出中未得到有效 `<response>…</response>` 结构（需包含 `thoughts`、`headline`、`tool_name`、`tool_args`；勿用 Markdown 代码块包裹整段 XML；勿仅在标签外输出长说明代替结构化工具调用）。\n\n请按下文**公共约定**重新输出**唯一**一个 `<response>...</response>`。".to_string()
+    };
+
     Some(format!(
-        "【环境反馈】本回合检测到工具 XML（含 `<tool_name>` / `<tool_args>`），但在流结束前仍未形成可解析的完整 `</response>`，因此未能执行工具。\n{CDATA}\n也请确认已输出完整的闭合标签。"
+        "{intro}\n\n---\n\n{COMMUNICATION_PUBLIC_MD}\n\n---\n\n【CDATA / 转义】{CDATA_NOTE}"
     ))
 }
 
@@ -342,22 +353,6 @@ async fn run_chat_inner(
         &effective_agent_mode,
         lead_opt,
     );
-    if effective_agent_mode != AGENT_MODE_SUPERVISOR {
-        if let Some(exec) = state.agents.get(&agent_plan.lead_agent_id) {
-            let def = exec.def();
-            if agent_requires_workspace(&def) {
-                let w = settings.workspace_root.trim();
-                if w.is_empty() {
-                    return Err(anyhow!(
-                        "当前编码智能体需要工作区目录，请先在界面选择项目文件夹。"
-                    ));
-                }
-                if !PathBuf::from(w).is_dir() {
-                    return Err(anyhow!("工作区目录无效，请重新选择。"));
-                }
-            }
-        }
-    }
     let provider = OpenAIProvider::new(settings.clone(), api_key);
 
     crate::context_compression::maybe_compress_history(
@@ -425,6 +420,7 @@ async fn run_chat_inner(
             &state.tools,
             &agent_plan.allowed_tool_names,
         );
+        let xml_tools_enabled = !xml_tool_prompt.is_empty();
         let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
         let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
         let lead_profile = state
@@ -559,7 +555,7 @@ async fn run_chat_inner(
                         duration_ms: None,
                         risk_level: state
                             .tools
-                            .tool_risk_level(registry_tool_base_name(&name))
+                            .tool_risk_level_for_invocation(&name, &parse_tool_call_arguments(""))
                             .or(Some("low".into())),
                     };
                     emit(
@@ -596,9 +592,10 @@ async fn run_chat_inner(
                     // XML 等路径在流内不会发 ToolCallStart；此处补发，界面才能显示 ToolCallCard。
                     for tc in &tool_calls {
                         let mut t = tc.clone();
+                        let args_v = parse_tool_call_arguments(&t.arguments);
                         t.risk_level = state
                             .tools
-                            .tool_risk_level(registry_tool_base_name(&t.name))
+                            .tool_risk_level_for_invocation(&t.name, &args_v)
                             .or(Some("low".into()));
                         emit(
                             &stream,
@@ -660,9 +657,10 @@ async fn run_chat_inner(
                         .iter()
                         .cloned()
                         .map(|mut t| {
+                            let args_v = parse_tool_call_arguments(&t.arguments);
                             t.risk_level = state
                                 .tools
-                                .tool_risk_level(registry_tool_base_name(&t.name))
+                                .tool_risk_level_for_invocation(&t.name, &args_v)
                                 .or(Some("low".into()));
                             t
                         })
@@ -705,7 +703,9 @@ async fn run_chat_inner(
         );
 
         if final_tool_calls.is_empty() {
-            if let Some(hint) = xml_tool_recover_user_content(&xml_finish_diag) {
+            if let Some(hint) =
+                xml_tool_empty_calls_retry_message(&xml_finish_diag, xml_tools_enabled)
+            {
                 let retry_id = new_id("msg");
                 emit(
                     &stream,
@@ -1459,6 +1459,7 @@ async fn run_sub_agent(
         let mut round_content = String::new();
         let mut round_reasoning = String::new();
         let mut final_tool_calls: Vec<ToolCall> = Vec::new();
+        let mut xml_finish_diag = XmlToolFinishDiagnostics::default();
         let mut round_thoughts: Option<String> = None;
         let mut round_headline: Option<String> = None;
 
@@ -1497,7 +1498,10 @@ async fn run_sub_agent(
                                 duration_ms: None,
                                 risk_level: state
                                     .tools
-                                    .tool_risk_level(registry_tool_base_name(&name))
+                                    .tool_risk_level_for_invocation(
+                                        &name,
+                                        &parse_tool_call_arguments(""),
+                                    )
                                     .or(Some("low".into())),
                             },
                         },
@@ -1517,18 +1521,20 @@ async fn run_sub_agent(
                 }
                 ProviderEvent::Finish {
                     tool_calls,
-                    xml: _,
+                    xml,
                     thoughts,
                     headline,
                     ..
                 } => {
+                    xml_finish_diag = xml;
                     round_thoughts = thoughts;
                     round_headline = headline;
                     for tc in &tool_calls {
                         let mut t = tc.clone();
+                        let args_v = parse_tool_call_arguments(&t.arguments);
                         t.risk_level = state
                             .tools
-                            .tool_risk_level(registry_tool_base_name(&t.name))
+                            .tool_risk_level_for_invocation(&t.name, &args_v)
                             .or(Some("low".into()));
                         emit(
                             stream,
@@ -1567,9 +1573,10 @@ async fn run_sub_agent(
                         .iter()
                         .cloned()
                         .map(|mut tool_call| {
+                            let args_v = parse_tool_call_arguments(&tool_call.arguments);
                             tool_call.risk_level = state
                                 .tools
-                                .tool_risk_level(registry_tool_base_name(&tool_call.name))
+                                .tool_risk_level_for_invocation(&tool_call.name, &args_v)
                                 .or(Some("low".into()));
                             tool_call
                         })
@@ -1593,6 +1600,59 @@ async fn run_sub_agent(
         });
 
         if final_tool_calls.is_empty() {
+            let xml_tools_enabled = !xml_tool_prompt.is_empty();
+            if let Some(hint) =
+                xml_tool_empty_calls_retry_message(&xml_finish_diag, xml_tools_enabled)
+            {
+                local_history.push(ChatMessage {
+                    id: new_id("fmt_retry"),
+                    role: Role::User,
+                    content: hint,
+                    status: "done".into(),
+                    created_at: now_ms(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    error_message: None,
+                    reasoning: None,
+                    thoughts: None,
+                    headline: None,
+                    raw_content: None,
+                    agent_id: None,
+                    agent_name: None,
+                    agent_trace: None,
+                    images_base64: None,
+                });
+                tool_budget.record_tool_cycle();
+                if tool_budget.is_exhausted() {
+                    let hint = format!(
+                        "编排（Supervisor）模式下工具调用累计已达上限（{} 轮，含子 Agent）。建议新开对话。",
+                        max_cap
+                    );
+                    emit(
+                        stream,
+                        StreamEvent::ToolRoundsExhausted {
+                            conversation_id: conversation_id.to_string(),
+                            max_rounds: max_cap,
+                            message: hint,
+                            will_retry_after_compress: provider.settings.context_compression_enabled,
+                        },
+                    );
+                    let _ = crate::context_compression::maybe_compress_after_tool_round_limit(
+                        &mut local_history,
+                        &provider.settings,
+                        provider,
+                        conversation_id,
+                        stream,
+                        cancel.clone(),
+                        false,
+                    )
+                    .await;
+                    return Err(anyhow!(
+                        "编排（Supervisor）模式下工具调用轮次已达上限（{max_cap}）。请新开对话。"
+                    ));
+                }
+                continue;
+            }
             return Ok(AgentRunResult {
                 task_id: task.id.clone(),
                 agent_id: def.id,

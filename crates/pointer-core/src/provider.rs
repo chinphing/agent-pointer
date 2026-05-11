@@ -95,7 +95,9 @@ struct StreamDelta {
     content: Option<String>,
     #[serde(default)]
     reasoning_content: Option<String>,
+    /// Absorbed from provider SSE; native `tool_calls` are unused (XML-in-content only). Kept for serde + forward-compat.
     #[serde(default)]
+    #[allow(dead_code)]
     tool_calls: Option<Vec<StreamToolCall>>,
 }
 /// Native streaming `tool_calls` shape (ignored: we use XML-in-content only). Kept for serde + forward-compat.

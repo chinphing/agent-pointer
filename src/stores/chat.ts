@@ -14,12 +14,7 @@ function uid() { return Math.random().toString(36).slice(2) + Date.now().toStrin
 function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Conversation[] {
   return conversations.map(c => ({
     ...c,
-    messages: c.messages
-      .filter(m => !isEphemeralDesktopNoticeMessage(m))
-      .map(m => {
-        const { computerRoundScreenRelPath: _drop, ...rest } = m
-        return rest
-      })
+    messages: c.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
   }))
 }
 

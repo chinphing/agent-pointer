@@ -26,7 +26,7 @@ const kind = computed(() => assistantDisplayKind(props.message))
     </div>
 
     <div
-      class="min-w-0 flex justify-start"
+      class="min-w-0 flex flex-col w-full"
       :class="kind === 'injected_notice' ? '' : 'flex-1'"
     >
       <AssistantNoticeMessage v-if="kind === 'injected_notice'" :message="message" />

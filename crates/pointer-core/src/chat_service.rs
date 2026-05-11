@@ -16,7 +16,7 @@ use crate::tools::merge_tool_method_from_qualified_name;
 use crate::tools::parse_tool_call_arguments;
 use crate::tools::registry_tool_base_name;
 use crate::tools::response::response_text_from_args;
-use crate::tools::terminal::run_terminal_command_streaming;
+use crate::tools::terminal::{run_terminal_command_streaming, terminal_stream_tool_status};
 use crate::tools::ToolRegistry;
 use crate::xml_tool_caller::XmlToolFinishDiagnostics;
 use anyhow::{anyhow, Result};
@@ -918,7 +918,7 @@ async fn run_chat_inner(
             let tc_id_for_stream = tc.id.clone();
             let stream_for_terminal = stream.clone();
 
-            let exec = if is_terminal {
+            let exec: Result<(String, bool, Option<String>), anyhow::Error> = if is_terminal {
                 tokio::task::spawn_blocking(move || {
                     run_terminal_command_streaming(args_value, move |output| {
                         let _ = stream_for_terminal.send(StreamEvent::TerminalOutputDelta {
@@ -928,7 +928,8 @@ async fn run_chat_inner(
                         });
                     })
                     .map(|r| {
-                        serde_json::json!({
+                        let (ok, err_note) = terminal_stream_tool_status(&r);
+                        let body = serde_json::json!({
                             "exitCode": r.exit_code,
                             "success": r.success,
                             "timedOut": r.timed_out,
@@ -938,27 +939,31 @@ async fn run_chat_inner(
                             "stdoutTruncated": r.stdout_truncated,
                             "stderrTruncated": r.stderr_truncated,
                         })
-                        .to_string()
+                        .to_string();
+                        (body, ok, err_note)
                     })
                 })
                 .await
                 .map_err(|e| anyhow!("终端执行线程异常: {e}"))?
             } else {
-                state.tools.invoke(&tool_id, args_value)
+                state
+                    .tools
+                    .invoke(&tool_id, args_value)
+                    .map(|out| (out, true, None))
             };
 
             let duration = started.elapsed().as_millis() as u64;
             match exec {
-                Ok(out) => {
+                Ok((out, ok, err_note)) => {
                     let preview = truncate_str(&out, 800);
                     emit(
                         &stream,
                         StreamEvent::ToolCallStatus {
                             message_id: assistant_id.clone(),
                             tool_call_id: tc.id.clone(),
-                            status: "success".into(),
+                            status: if ok { "success".into() } else { "failed".into() },
                             result: Some(preview),
-                            error: None,
+                            error: err_note,
                             duration_ms: Some(duration),
                         },
                     );
@@ -1757,7 +1762,7 @@ async fn run_sub_agent(
             let tc_id_for_stream = tool_call.id.clone();
             let stream_for_terminal = stream.clone();
 
-            let exec = if is_terminal {
+            let exec: Result<(String, bool, Option<String>), anyhow::Error> = if is_terminal {
                 tokio::task::spawn_blocking(move || {
                     run_terminal_command_streaming(args_value, move |output| {
                         let _ = stream_for_terminal.send(StreamEvent::TerminalOutputDelta {
@@ -1767,7 +1772,8 @@ async fn run_sub_agent(
                         });
                     })
                     .map(|r| {
-                        serde_json::json!({
+                        let (ok, err_note) = terminal_stream_tool_status(&r);
+                        let body = serde_json::json!({
                             "exitCode": r.exit_code,
                             "success": r.success,
                             "timedOut": r.timed_out,
@@ -1777,26 +1783,31 @@ async fn run_sub_agent(
                             "stdoutTruncated": r.stdout_truncated,
                             "stderrTruncated": r.stderr_truncated,
                         })
-                        .to_string()
+                        .to_string();
+                        (body, ok, err_note)
                     })
                 })
                 .await
                 .map_err(|e| anyhow!("终端执行线程异常: {e}"))?
             } else {
-                state.tools.invoke(&tool_id, args_value)
+                state
+                    .tools
+                    .invoke(&tool_id, args_value)
+                    .map(|out| (out, true, None))
             };
 
             let duration = started.elapsed().as_millis() as u64;
             match exec {
-                Ok(output) => {
+                Ok((output, ok, err_note)) => {
+                    let preview = truncate_str(&output, 800);
                     emit(
                         stream,
                         StreamEvent::ToolCallStatus {
                             message_id: message_id.to_string(),
                             tool_call_id: tool_call.id.clone(),
-                            status: "success".into(),
-                            result: Some(truncate_str(&output, 800)),
-                            error: None,
+                            status: if ok { "success".into() } else { "failed".into() },
+                            result: Some(preview),
+                            error: err_note,
                             duration_ms: Some(duration),
                         },
                     );

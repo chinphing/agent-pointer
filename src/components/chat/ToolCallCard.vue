@@ -75,8 +75,18 @@ const terminalMeta = computed(() => {
   return items.join(' · ')
 })
 
+/** Legacy rows: status success but result JSON indicates timeout or non-zero exit. */
+const effectiveStatus = computed(() => {
+  if (!isTerminal.value || props.toolCall.status !== 'success') return props.toolCall.status
+  const r = terminalResult.value
+  if (r?.timedOut === true) return 'failed' as ToolCall['status']
+  const code = r?.exitCode
+  if (typeof code === 'number' && code !== 0) return 'failed' as ToolCall['status']
+  return props.toolCall.status
+})
+
 const statusInfo = computed(() => {
-  switch (props.toolCall.status) {
+  switch (effectiveStatus.value) {
     case 'pending_approval': return { label: '等待确认', color: 'text-warning' }
     case 'running': return { label: '执行中', color: 'text-primary-cyan' }
     case 'success': return { label: '成功', color: 'text-success' }
@@ -104,9 +114,9 @@ function approve(ok: boolean) {
         <ShieldAlert class="w-3 h-3" />高风险
       </span>
       <span class="ml-auto flex items-center gap-1.5" :class="statusInfo.color">
-        <Loader2 v-if="toolCall.status === 'running'" class="w-3 h-3 animate-spin" />
-        <CheckCircle2 v-else-if="toolCall.status === 'success'" class="w-3 h-3" />
-        <XCircle v-else-if="toolCall.status === 'failed' || toolCall.status === 'rejected'" class="w-3 h-3" />
+        <Loader2 v-if="effectiveStatus === 'running'" class="w-3 h-3 animate-spin" />
+        <CheckCircle2 v-else-if="effectiveStatus === 'success'" class="w-3 h-3" />
+        <XCircle v-else-if="effectiveStatus === 'failed' || effectiveStatus === 'rejected'" class="w-3 h-3" />
         <span class="text-[11px]">{{ statusInfo.label }}</span>
         <span v-if="toolCall.durationMs" class="text-slate-500 text-[10px]">{{ toolCall.durationMs }}ms</span>
       </span>

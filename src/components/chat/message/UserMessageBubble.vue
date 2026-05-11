@@ -42,7 +42,7 @@ function copy() {
       >
         <div v-if="message.content" ref="bodyRef" class="md-body" v-html="html" />
       </div>
-      <div class="mt-1.5 flex items-center gap-1">
+      <div class="mt-1.5 flex items-center gap-1 justify-end w-full max-w-[80%]">
         <button
           class="p-1.5 rounded hover:bg-white/5 cursor-pointer transition"
           :class="copied ? 'text-green-400' : 'text-slate-400 hover:text-slate-200'"

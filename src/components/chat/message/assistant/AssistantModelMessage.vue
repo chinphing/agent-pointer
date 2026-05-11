@@ -14,6 +14,7 @@ import { showAnnotatedScreenAction } from '../../../../lib/computerMessageContex
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
 import RawWirePanel from './RawWirePanel.vue'
 import ScreenPreviewModal from './ScreenPreviewModal.vue'
+import MessageTimeChip from '../MessageTimeChip.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
 
@@ -165,32 +166,47 @@ onUnmounted(() => clearHeadlineCollapseTimer())
       v-if="message.headline?.trim()"
       class="w-full rounded-lg border border-cyan-500/25 bg-gradient-to-r from-cyan-500/8 via-transparent to-transparent overflow-hidden"
     >
-      <button
-        type="button"
-        class="w-full text-left px-1.5 py-1.5 sm:px-2 flex items-center gap-1.5 cursor-pointer select-none hover:bg-cyan-500/10 transition"
-        :aria-expanded="headlineOpen"
-        @click="toggleHeadline"
-      >
-        <span
-          class="inline-block w-3.5 shrink-0 text-cyan-400/70 text-center text-[10px] transition-transform pt-0.5"
-          :class="headlineOpen ? 'rotate-90' : ''"
-        >▸</span>
-        <span
-          class="min-w-0 flex-1 text-[12px] sm:text-[13px] font-medium text-cyan-50/90 leading-tight tracking-tight"
-          :class="headlineOpen ? 'whitespace-pre-wrap' : 'line-clamp-2 overflow-hidden'"
-        >{{ message.headline.trim() }}</span>
-      </button>
+      <div class="flex items-center gap-2 px-1.5 py-1.5 sm:px-2 min-w-0">
+        <button
+          type="button"
+          class="min-w-0 flex-1 text-left flex items-center gap-1.5 cursor-pointer select-none hover:bg-cyan-500/10 transition rounded-md -mx-0.5 px-0.5 sm:-mx-1 sm:px-1"
+          :aria-expanded="headlineOpen"
+          @click="toggleHeadline"
+        >
+          <span
+            class="inline-block w-3.5 shrink-0 text-cyan-400/70 text-center text-[10px] transition-transform pt-0.5"
+            :class="headlineOpen ? 'rotate-90' : ''"
+          >▸</span>
+          <span
+            class="min-w-0 flex-1 text-[12px] sm:text-[13px] font-medium text-cyan-50/90 leading-tight tracking-tight"
+            :class="headlineOpen ? 'whitespace-pre-wrap' : 'line-clamp-2 overflow-hidden'"
+          >{{ message.headline.trim() }}</span>
+        </button>
+        <MessageTimeChip :created-at="message.createdAt" class="shrink-0 self-center" />
+      </div>
     </div>
 
     <div class="block px-4 py-3 rounded-2xl border break-words glass border-white/5 overflow-x-auto">
       <div
-        v-if="showHeadlineProgressBar"
-        class="mb-3 font-mono text-[13px] leading-tight tracking-[0.06em] text-cyan-400/80 min-h-[1.125rem] select-none break-all whitespace-pre-wrap"
-        role="status"
-        aria-live="polite"
-        :class="headlinePipesAtCap ? 'animate-pulse' : ''"
+        v-if="!hasHeadline && !showHeadlineProgressBar"
+        class="flex justify-end mb-2 -mt-0.5"
       >
-        {{ headlinePipeBar }}
+        <MessageTimeChip :created-at="message.createdAt" />
+      </div>
+
+      <div
+        v-if="showHeadlineProgressBar"
+        class="mb-3 flex items-start gap-2 min-w-0"
+      >
+        <div
+          class="flex-1 min-w-0 font-mono text-[13px] leading-tight tracking-[0.06em] text-cyan-400/80 min-h-[1.125rem] select-none break-all whitespace-pre-wrap"
+          role="status"
+          aria-live="polite"
+          :class="headlinePipesAtCap ? 'animate-pulse' : ''"
+        >
+          {{ headlinePipeBar }}
+        </div>
+        <MessageTimeChip :created-at="message.createdAt" class="shrink-0 pt-0.5" />
       </div>
 
       <ModelThoughtPanels
@@ -219,7 +235,7 @@ onUnmounted(() => clearHeadlineCollapseTimer())
       <ToolCallCard v-for="tc in tools" :key="tc.id" :tool-call="tc" />
     </div>
 
-    <div v-if="message.status === 'done'" class="flex items-center gap-1">
+    <div v-if="message.status === 'done'" class="flex items-center gap-1 w-full min-w-0">
       <button
         class="p-1.5 rounded hover:bg-white/5 cursor-pointer transition"
         :class="copied ? 'text-green-400' : 'text-slate-400 hover:text-slate-200'"

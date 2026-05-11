@@ -306,6 +306,21 @@ fn terminal_shell_command(command: &str) -> (&'static str, Command) {
     ("sh -lc", cmd)
 }
 
+/// Tool-call UI: timeout always fails; otherwise `Some(0)` ⇒ success.
+pub fn terminal_stream_tool_status(r: &TerminalStreamingResult) -> (bool, Option<String>) {
+    if r.timed_out {
+        return (false, Some("命令执行超时".to_string()));
+    }
+    if matches!(r.exit_code, Some(0)) {
+        return (true, None);
+    }
+    let msg = match r.exit_code {
+        Some(n) => format!("命令失败（退出码 {n}）"),
+        None => "命令失败（无退出码）".to_string(),
+    };
+    (false, Some(msg))
+}
+
 fn truncate_output(bytes: &[u8], max_bytes: usize) -> (String, bool) {
     if bytes.len() <= max_bytes {
         return (String::from_utf8_lossy(bytes).to_string(), false);

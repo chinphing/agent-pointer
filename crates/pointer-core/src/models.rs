@@ -355,6 +355,17 @@ pub enum StreamEvent {
         message_id: String,
         text: String,
     },
+    /// 正文 XML 工具块尚未闭合时，已能读出的 `<thoughts>` / `<headline>` / `<tool_name>`（流式渐进更新）。
+    AssistantXmlPartial {
+        #[serde(rename = "messageId")]
+        message_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        thoughts: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        headline: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", rename = "toolName")]
+        tool_name: Option<String>,
+    },
     AgentStep {
         #[serde(rename = "messageId")]
         message_id: String,

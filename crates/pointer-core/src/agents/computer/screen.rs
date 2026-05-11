@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+#[cfg(not(target_os = "macos"))]
 use enigo::{Enigo, Mouse, Settings};
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
@@ -69,7 +70,8 @@ impl MonitorInfo {
 /// Capture a screenshot of the monitor that contains the current mouse cursor.
 ///
 /// Returns **JPEG** bytes (lossy, fast encode), monitor geometry in **global logical screen coordinates**
-/// (matches `CGDisplayBounds` / enigo pointer space), and the **bitmap pixel size** of the encoded image.
+/// (matches `CGDisplayBounds` and synthetic clicks; on macOS the cursor is read via Quartz `CGEvent`,
+/// not enigo, so it matches `xcap::Monitor::from_point`), and the **bitmap pixel size** of the encoded image.
 ///
 /// The OS capture is often **physical** pixels (e.g. macOS Retina). This path **resamples to logical
 /// size** (`MonitorInfo.width` × `height`) before JPEG encode so the model and annotation boxes share
@@ -209,11 +211,30 @@ end tell
 }
 
 fn cursor_position() -> Result<(i32, i32)> {
-    let enigo = Enigo::new(&Settings::default())
-        .map_err(|e| anyhow!("enigo init for cursor position: {:?}", e))?;
-    enigo
-        .location()
-        .map_err(|e| anyhow!("cursor position: {:?}", e))
+    #[cfg(target_os = "macos")]
+    {
+        cursor_position_macos_cg()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let enigo = Enigo::new(&Settings::default())
+            .map_err(|e| anyhow!("enigo init for cursor position: {:?}", e))?;
+        enigo
+            .location()
+            .map_err(|e| anyhow!("cursor position: {:?}", e))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn cursor_position_macos_cg() -> Result<(i32, i32)> {
+    use core_graphics::event::CGEvent;
+    use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+
+    let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
+        .map_err(|()| anyhow!("CGEventSource::new(HIDSystemState) failed"))?;
+    let event = CGEvent::new(source).map_err(|()| anyhow!("CGEvent::new failed"))?;
+    let pt = event.location();
+    Ok((pt.x as i32, pt.y as i32))
 }
 
 fn primary_monitor_center() -> Result<(i32, i32)> {

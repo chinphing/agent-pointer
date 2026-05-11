@@ -10,6 +10,7 @@ mod tool_mouse;
 mod tool_wait;
 
 use crate::agents::computer::ComputerState;
+use crate::platform::run_synthetic_input;
 use crate::tools::{ToolEntry, ToolRegistry};
 use std::sync::Arc;
 use tool_modified_click::ModifiedClickTool;
@@ -25,15 +26,18 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         mouse_doc,
         None,
         Arc::new(move |args| {
-            let method = args["method"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                .to_string();
-            let tool = tool_mouse::MouseTool::new(
-                mouse_state.executor.clone(),
-                mouse_state.vision_state.clone(),
-            );
-            tool.execute(&method, &args)
+            let mouse_state = mouse_state.clone();
+            run_synthetic_input(move || {
+                let method = args["method"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
+                    .to_string();
+                let tool = tool_mouse::MouseTool::new(
+                    mouse_state.executor.clone(),
+                    mouse_state.vision_state.clone(),
+                );
+                tool.execute(&method, &args)
+            })
         }),
     ));
 
@@ -46,8 +50,11 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         hotkey_doc,
         None,
         Arc::new(move |args| {
-            let tool = tool_hotkey::HotkeyTool::new(hotkey_state.executor.clone());
-            tool.execute("hotkey", &args)
+            let hotkey_state = hotkey_state.clone();
+            run_synthetic_input(move || {
+                let tool = tool_hotkey::HotkeyTool::new(hotkey_state.executor.clone());
+                tool.execute("hotkey", &args)
+            })
         }),
     ));
 
@@ -60,15 +67,18 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         composite_doc,
         None,
         Arc::new(move |args| {
-            let method = args["method"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                .to_string();
-            let tool = tool_composite::CompositeActionTool::new(
-                composite_state.executor.clone(),
-                composite_state.vision_state.clone(),
-            );
-            tool.execute(&method, &args)
+            let composite_state = composite_state.clone();
+            run_synthetic_input(move || {
+                let method = args["method"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
+                    .to_string();
+                let tool = tool_composite::CompositeActionTool::new(
+                    composite_state.executor.clone(),
+                    composite_state.vision_state.clone(),
+                );
+                tool.execute(&method, &args)
+            })
         }),
     ));
 
@@ -81,15 +91,18 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         modified_doc,
         None,
         Arc::new(move |args| {
-            let method = args["method"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                .to_string();
-            let tool = ModifiedClickTool::new(
-                modified_state.executor.clone(),
-                modified_state.vision_state.clone(),
-            );
-            tool.execute(&method, &args)
+            let modified_state = modified_state.clone();
+            run_synthetic_input(move || {
+                let method = args["method"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
+                    .to_string();
+                let tool = ModifiedClickTool::new(
+                    modified_state.executor.clone(),
+                    modified_state.vision_state.clone(),
+                );
+                tool.execute(&method, &args)
+            })
         }),
     ));
 

@@ -46,10 +46,23 @@ pub(super) fn parse_fragment(xml: &str) -> Result<XmlToolCall, ResponseXmlParseE
 
     let response_sel = Selector::parse("response")
         .map_err(|e| ResponseXmlParseError::Scraper(e.to_string()))?;
-    let response = doc
+    let mut response = doc
         .select(&response_sel)
         .next()
         .ok_or_else(|| ResponseXmlParseError::Scraper("missing <response> element".into()))?;
+
+    // `extract_response_fragment` may synthesize `<response>{body}</response>` when the stream's
+    // opening tag is not the literal `<response>` (e.g. `<response …>` attributes or `<response >`).
+    // That yields a nested `<response><response …>…</response></response>` tree; the outer node
+    // has only an inner `response` child, so walk down until we see real children.
+    loop {
+        let children: Vec<ElementRef<'_>> = response.child_elements().collect();
+        if children.len() == 1 && children[0].value().name() == "response" {
+            response = children[0];
+        } else {
+            break;
+        }
+    }
 
     let mut call = XmlToolCall {
         name: String::new(),

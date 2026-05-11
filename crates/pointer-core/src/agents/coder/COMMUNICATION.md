@@ -2,7 +2,7 @@
 
 **Workspace root** (absolute path from app settings): `{{workspace_root}}`
 
-When this path is non-empty, **relative** paths for the **`file`** tool (`file:read`, `file:write`, `file:edit`, `file:glob`, `file:grep`, `file:list`), and the default working directory for `terminal`, are resolved under this root. **Absolute** paths are accepted for **read-only** `file` methods (`read`, `glob`, `grep`, `list`) so you can inspect code the user points to outside this folder; **`write`** / **`edit`** still use workspace-relative paths only. When empty, relative paths follow the application’s default resolution (e.g. process current directory).
+When this path is non-empty, **relative** paths for the **`file`** tool (`file:read`, `file:write`, `file:edit`, `file:glob`, `file:grep`, `file:list`), and the default working directory for **`terminal`**, are resolved under this root. **Absolute** paths are accepted for read-only methods (`file:read`, `file:glob`, `file:grep`, `file:list`) so you can inspect code the user points to outside this folder; **`file:write`** / **`file:edit`** still use workspace-relative paths only. When empty, relative paths follow the application’s default resolution (e.g. process current directory).
 
 ---
 
@@ -18,7 +18,7 @@ For **read-only** exploration (`file:read`, `file:glob`, `file:grep`, `file:list
 
 ## XML tools: `file:write` and `file:edit`
 
-When calling **`file:write`** or **`file:edit`** via `<response>` XML, always wrap payload fields in **CDATA** (no exceptions—keeps markup, `&`, and newlines safe). You may also use `<tool_name>file</tool_name>` with a `<method>` argument (`write` / `edit`).
+When calling **`file:write`** or **`file:edit`** via `<response>` XML, always wrap payload fields in **CDATA** (no exceptions—keeps markup, `&`, and newlines safe). You may also use `<tool_name>file</tool_name>` with a `<method>` argument (**`write`** / **`edit`** — same as **`file:write`** / **`file:edit`** when merged).
 
 - **`file:write`:** `<content><![CDATA[ ... entire file body ... ]]></content>`
 - **`file:edit`:** `<oldString><![CDATA[ ... ]]></oldString>` and `<newString><![CDATA[ ... ]]></newString>`

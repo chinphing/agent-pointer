@@ -1,4 +1,12 @@
 use anyhow::{anyhow, Result};
+use std::time::Duration;
+
+/// After an absolute `move_to`, wait briefly so the OS / target app can update hit-testing (hover,
+/// window activation, text-field focus, etc.) before the next click or scroll.
+#[inline]
+fn settle_after_absolute_move() {
+    std::thread::sleep(Duration::from_millis(45));
+}
 
 /// Mouse button for low-level press/release.
 #[derive(Debug, Clone, Copy)]
@@ -135,6 +143,7 @@ impl ActionExecutor {
             return Err(anyhow!("drag start and end must differ"));
         }
         self.backend.move_to(x1, y1)?;
+        settle_after_absolute_move();
         self.backend.mouse_phase(MouseButton::Left, KeyPhase::Press)?;
         self.backend.move_to(x2, y2)?;
         self.backend.mouse_phase(MouseButton::Left, KeyPhase::Release)?;
@@ -154,6 +163,7 @@ impl ActionExecutor {
         self.backend.key_phase(meta, KeyPhase::Press)?;
         for &(x, y) in positions {
             self.backend.move_to(x, y)?;
+            settle_after_absolute_move();
             self.backend.click()?;
         }
         self.backend.key_phase(meta, KeyPhase::Release)?;
@@ -178,6 +188,7 @@ impl ActionExecutor {
     /// * `y` - Screen Y coordinate in pixels.
     pub fn click_at(&self, x: i32, y: i32) -> Result<ActionResult> {
         self.backend.move_to(x, y)?;
+        settle_after_absolute_move();
         self.backend.click()
     }
 
@@ -198,6 +209,7 @@ impl ActionExecutor {
     /// Used by the **coordinate-based** positioning path.
     pub fn double_click_at(&self, x: i32, y: i32) -> Result<ActionResult> {
         self.backend.move_to(x, y)?;
+        settle_after_absolute_move();
         self.backend.double_click()
     }
 
@@ -213,6 +225,7 @@ impl ActionExecutor {
     /// Used by the **coordinate-based** positioning path.
     pub fn right_click_at(&self, x: i32, y: i32) -> Result<ActionResult> {
         self.backend.move_to(x, y)?;
+        settle_after_absolute_move();
         self.backend.right_click()
     }
 
@@ -334,6 +347,7 @@ impl ActionExecutor {
     /// Sequence: move → scroll.
     pub fn scroll_at(&self, x: i32, y: i32, lines: i32) -> Result<ActionResult> {
         self.backend.move_to(x, y)?;
+        settle_after_absolute_move();
         self.backend.scroll(lines)
     }
 

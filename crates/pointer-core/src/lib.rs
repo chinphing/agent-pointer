@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod chat_service;
+pub mod platform;
 pub mod extensions;
 pub mod context_compression;
 pub mod logging;

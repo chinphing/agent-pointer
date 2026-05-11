@@ -2,7 +2,7 @@
 
 **Shared tool-call envelope (all tools):** Emit **one** `<response>...</response>` per turn when using tools or a structured final turn—no Markdown fences around the model’s actual output, no extra prose outside it. Children: `thoughts`, `headline`, `tool_name`, `tool_args`. Under `tool_args`, use **one XML element per argument**; names must match that tool’s parameters as described for that tool. **One tool per turn**—do not emit multiple `tool_name` values or nest `<response>`.
 
-**`tool_name`:** use **`base:method`** for multi-behavior tools (e.g. `file:read`, `skill:load_instructions`, `mouse:click_index`). Use **base only** for tools like **`wait`** and **`response`** (`response`, not `response:response`). Use the exact tool names given in each tool’s description.
+**`tool_name`:** For multi-behavior tools, use **`tool:method`** (e.g. **`file:read`**, **`mouse:click_index`**, **`composite_action:type_text_at_index`**). For single-behavior tools, use the base name only (**`hotkey`**, **`terminal`**, **`wait`**, **`response`** — not `response:response`). Follow each tool’s description if it specifies an exception.
 
 For other tools, the same envelope applies with the appropriate `tool_name` and `tool_args`; each tool’s description covers parameters and any additional examples.
 

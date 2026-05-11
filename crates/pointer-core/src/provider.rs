@@ -1,11 +1,13 @@
 use crate::models::{ChatMessage, ModelSettings, ToolCall};
 use crate::xml_tool_caller::{
-    xml_tool_arguments_to_json_string, XmlToolFinishDiagnostics, XmlToolParser,
+    extract_xml_streaming_partial, xml_tool_arguments_to_json_string, XmlFeedLane,
+    XmlStreamingPartial, XmlToolFinishDiagnostics, XmlToolCall, XmlToolParser,
 };
 use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::io::Write;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -23,6 +25,18 @@ pub enum ProviderEvent {
         index: u32,
         tool_call_id: String,
         args: String,
+    },
+    /// 正文 `content` 中刚闭合一段完整 `<response>`（与 [`Finish`] 使用相同稳定 `tool_calls[].id`）。
+    XmlToolStreamingReady {
+        tool_calls: Vec<ToolCall>,
+        thoughts: Option<String>,
+        headline: Option<String>,
+    },
+    /// 尚未形成完整 `<response>` 时，已从正文解析出的闭合子标签（渐进展示）。
+    AssistantXmlPartial {
+        thoughts: Option<String>,
+        headline: Option<String>,
+        tool_name: Option<String>,
     },
     Finish {
         reason: String,
@@ -226,12 +240,6 @@ impl OpenAIProvider {
             .clone()
             .or_else(|| message.reasoning_content.clone())
             .unwrap_or_default();
-        log::debug!(
-            "model={} chat_once (non-stream) raw_chars={}\n--- raw body ---\n{}\n--- end ---",
-            self.settings.model,
-            out.chars().count(),
-            out
-        );
         Ok(out)
     }
 
@@ -299,10 +307,17 @@ impl OpenAIProvider {
         }
 
         let mut content_buf = String::new();
-        // 仅用于调试日志：与 content 流并列的 reasoning 流
+        // 与正文分列存储，不进入 XML 工具解析器。
         let mut reasoning_buf = String::new();
         let mut finish_reason = String::from("stop");
         let mut xml_parser = XmlToolParser::new();
+        // 与流式 XmlToolStreamingReady / Finish 中工具 id 对齐。
+        let stream_xml_session_id = rand_id();
+        let mut xml_frag_idx: u32 = 0;
+        let mut accumulated_tool_calls: Vec<ToolCall> = Vec::new();
+        let mut last_xml_stream_meta: (Option<String>, Option<String>) = (None, None);
+        let mut last_xml_partial: Option<XmlStreamingPartial> = None;
+        let stream_raw_to_console = raw_llm_stream_to_console_enabled();
 
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
@@ -335,50 +350,58 @@ impl OpenAIProvider {
                     Ok(v) => v,
                     Err(_) => continue,
                 };
-                for ch in parsed.choices {
-                    if let Some(c) = ch.delta.content {
+                for ch in parsed.choices.iter() {
+                    if let Some(ref c) = ch.delta.content {
                         if !c.is_empty() {
-                            content_buf.push_str(&c);
-                            xml_parser.feed(&c);
-                            let _ = tx.send(ProviderEvent::ContentDelta(c)).await;
+                            if stream_raw_to_console {
+                                write_llm_stream_chunk_to_stderr(c);
+                            }
+                            content_buf.push_str(c);
+                            let _ = tx.send(ProviderEvent::ContentDelta(c.clone())).await;
+                            // 仅将正文喂入 XML 解析器，避免与 reasoning 在同一缓冲内交错导致标签被截断。
+                            xml_parser.feed_lane(c, XmlFeedLane::Content);
+                            flush_complete_xml_fragments(
+                                &mut xml_parser,
+                                &self.settings.model,
+                                &stream_xml_session_id,
+                                &mut xml_frag_idx,
+                                &mut accumulated_tool_calls,
+                                &mut last_xml_stream_meta,
+                                &tx,
+                            )
+                            .await;
+                            let partial = extract_xml_streaming_partial(&content_buf);
+                            if partial.thoughts.is_some()
+                                || partial.headline.is_some()
+                                || partial.tool_name.is_some()
+                            {
+                                if last_xml_partial.as_ref() != Some(&partial) {
+                                    last_xml_partial = Some(partial.clone());
+                                    let _ = tx
+                                        .send(ProviderEvent::AssistantXmlPartial {
+                                            thoughts: partial.thoughts,
+                                            headline: partial.headline,
+                                            tool_name: partial.tool_name,
+                                        })
+                                        .await;
+                                }
+                            }
                         }
                     }
-                    if let Some(r) = ch.delta.reasoning_content {
+                    if let Some(ref r) = ch.delta.reasoning_content {
                         if !r.is_empty() {
-                            reasoning_buf.push_str(&r);
-                            // 部分模型把工具 XML 写在 reasoning_content、正文 content 为空；必须一并喂给解析器，否则会话在无工具调用下提前结束。
-                            xml_parser.feed(&r);
-                            let _ = tx.send(ProviderEvent::ReasoningDelta(r)).await;
+                            if stream_raw_to_console {
+                                write_llm_stream_chunk_to_stderr(r);
+                            }
+                            reasoning_buf.push_str(r);
+                            let _ = tx.send(ProviderEvent::ReasoningDelta(r.clone())).await;
                         }
                     }
-                    if let Some(ref tcs) = ch.delta.tool_calls {
-                        if !tcs.is_empty() {
-                            log::debug!(
-                                "ignoring provider-native delta.tool_calls (count={}); requests use tool_choice=none",
-                                tcs.len()
-                            );
-                        }
-                    }
-                    if let Some(reason) = ch.finish_reason {
-                        finish_reason = reason;
+                    if let Some(ref reason) = ch.finish_reason {
+                        finish_reason = reason.clone();
                     }
                 }
             }
-        }
-
-        log::debug!(
-            "model={} finish_reason={} raw_content_chars={} raw_reasoning_chars={}\n--- raw content ---\n{}\n--- end raw content ---",
-            self.settings.model,
-            finish_reason,
-            content_buf.chars().count(),
-            reasoning_buf.chars().count(),
-            content_buf,
-        );
-        if !reasoning_buf.is_empty() {
-            log::debug!(
-                "--- raw reasoning_content ---\n{}\n--- end raw reasoning ---",
-                reasoning_buf,
-            );
         }
 
         let attempted_tool_xml = content_buf.contains("<tool_name>")
@@ -386,47 +409,25 @@ impl OpenAIProvider {
             || reasoning_buf.contains("<tool_name>")
             || reasoning_buf.contains("<tool_args>");
 
-        let xml_complete = xml_parser.is_complete();
-        let mut finish_thoughts: Option<String> = None;
-        let mut finish_headline: Option<String> = None;
-        let tool_calls = if xml_complete {
-            if let Some(xml_call) = xml_parser.parse() {
-                let t = xml_call.thoughts.trim();
-                if !t.is_empty() {
-                    finish_thoughts = Some(t.to_string());
-                }
-                let h = xml_call.headline.trim();
-                if !h.is_empty() {
-                    finish_headline = Some(h.to_string());
-                }
-                let id = format!("xml_{}", rand_id());
-                let args_json = xml_tool_arguments_to_json_string(&xml_call.arguments);
-                vec![ToolCall {
-                    id,
-                    name: xml_call.name,
-                    arguments: args_json,
-                    status: "pending".into(),
-                    result: None,
-                    error: None,
-                    duration_ms: None,
-                    risk_level: None,
-                }]
-            } else {
-                let (ft, fh) = xml_parser.take_fallback_thoughts_headline();
-                finish_thoughts = ft
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty());
-                finish_headline = fh
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty());
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        };
+        flush_complete_xml_fragments(
+            &mut xml_parser,
+            &self.settings.model,
+            &stream_xml_session_id,
+            &mut xml_frag_idx,
+            &mut accumulated_tool_calls,
+            &mut last_xml_stream_meta,
+            &tx,
+        )
+        .await;
+
+        let tool_calls = accumulated_tool_calls.clone();
+        let finish_thoughts = last_xml_stream_meta.0.clone();
+        let finish_headline = last_xml_stream_meta.1.clone();
+
+        let xml_complete = !tool_calls.is_empty() || xml_parser.is_complete();
 
         let mut parse_error = None;
-        if xml_complete && tool_calls.is_empty() {
+        if tool_calls.is_empty() && attempted_tool_xml {
             parse_error = xml_parser.last_parse_error().map(str::to_string);
         }
 
@@ -434,20 +435,13 @@ impl OpenAIProvider {
             attempted_tool_xml,
             fragment_complete: xml_complete,
             parse_error,
+            vacuous_fragments_skipped: xml_parser.vacuous_fragments_skipped_total,
+            feed_lane_tail: xml_parser.feed_lane_tail.clone(),
+            consumed_fragment_chars: xml_parser.last_consumed_fragment_chars,
+            consumed_fragment_head: xml_parser.last_consumed_fragment_head.clone(),
+            parser_buffer_remaining_chars: xml_parser.unparsed_buffer_len(),
+            merge_ui_order_reparse_ok: false,
         };
-
-        if tool_calls.is_empty() {
-            let saw_response_markup = content_buf.contains("<response>")
-                || content_buf.contains("</response>")
-                || reasoning_buf.contains("<response>")
-                || reasoning_buf.contains("</response>");
-            if saw_response_markup && !xml_complete {
-                log::warn!(
-                    "model={} xml tool: stream ended without a complete closing </response> (tool_choice=none; empty tool_calls). If you see xml_tool_caller::parse_tool_response_default_chain failed above, the fragment was complete but ScraperHtml and relaxed quick-xml both rejected it.",
-                    self.settings.model
-                );
-            }
-        }
 
         let _ = tx
             .send(ProviderEvent::Finish {
@@ -460,6 +454,113 @@ impl OpenAIProvider {
             .await;
         Ok(())
     }
+}
+
+async fn flush_complete_xml_fragments(
+    xml_parser: &mut XmlToolParser,
+    model: &str,
+    stream_xml_session_id: &str,
+    xml_frag_idx: &mut u32,
+    accumulated: &mut Vec<ToolCall>,
+    last_xml_stream_meta: &mut (Option<String>, Option<String>),
+    tx: &mpsc::Sender<ProviderEvent>,
+) {
+    if xml_parser.is_complete() {
+        match xml_parser.parse() {
+            Some(xml_call) => {
+                let id = format!("xml_{}_{}", stream_xml_session_id, *xml_frag_idx);
+                *xml_frag_idx += 1;
+                let (tc, thoughts, headline) =
+                    tool_calls_from_xml_tool_call(model, xml_call, Some(id));
+                if thoughts.is_some() {
+                    last_xml_stream_meta.0 = thoughts.clone();
+                }
+                if headline.is_some() {
+                    last_xml_stream_meta.1 = headline.clone();
+                }
+                accumulated.extend(tc.iter().cloned());
+                let _ = tx
+                    .send(ProviderEvent::XmlToolStreamingReady {
+                        tool_calls: tc,
+                        thoughts,
+                        headline,
+                    })
+                    .await;
+            }
+            None => {
+                let (ft, fh) = xml_parser.take_fallback_thoughts_headline();
+                let thoughts = ft
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+                let headline = fh
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+                if thoughts.is_some() {
+                    last_xml_stream_meta.0 = thoughts.clone();
+                }
+                if headline.is_some() {
+                    last_xml_stream_meta.1 = headline.clone();
+                }
+                if thoughts.is_some() || headline.is_some() {
+                    let _ = tx
+                        .send(ProviderEvent::AssistantXmlPartial {
+                            thoughts,
+                            headline,
+                            tool_name: None,
+                        })
+                        .await;
+                }
+            }
+        }
+    }
+}
+
+/// 流式：将模型增量原文连续写到 **stderr**（无换行、无序号前缀）。关闭：`POINTER_STREAM_RAW_LLM_TO_STDOUT=0`。
+fn raw_llm_stream_to_console_enabled() -> bool {
+    match std::env::var("POINTER_STREAM_RAW_LLM_TO_STDOUT") {
+        Ok(v) if v == "0" || v.eq_ignore_ascii_case("false") => false,
+        _ => true,
+    }
+}
+
+fn write_llm_stream_chunk_to_stderr(text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    let mut err = std::io::stderr().lock();
+    let _ = std::io::Write::write_all(&mut err, text.as_bytes());
+    let _ = err.flush();
+}
+
+fn tool_calls_from_xml_tool_call(
+    _model: &str,
+    xml_call: XmlToolCall,
+    tool_call_id: Option<String>,
+) -> (Vec<ToolCall>, Option<String>, Option<String>) {
+    let mut finish_thoughts = None;
+    let t = xml_call.thoughts.trim();
+    if !t.is_empty() {
+        finish_thoughts = Some(t.to_string());
+    }
+    let mut finish_headline = None;
+    let h = xml_call.headline.trim();
+    if !h.is_empty() {
+        finish_headline = Some(h.to_string());
+    }
+    let id = tool_call_id.unwrap_or_else(|| format!("xml_{}", rand_id()));
+    let args_json = xml_tool_arguments_to_json_string(&xml_call.arguments);
+    let name = xml_call.name.trim().to_string();
+    let tc = vec![ToolCall {
+        id,
+        name,
+        arguments: args_json,
+        status: "pending".into(),
+        result: None,
+        error: None,
+        duration_ms: None,
+        risk_level: None,
+    }];
+    (tc, finish_thoughts, finish_headline)
 }
 
 fn truncate(s: &str, n: usize) -> String {

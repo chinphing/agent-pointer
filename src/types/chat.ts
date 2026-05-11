@@ -73,6 +73,8 @@ export interface ChatMessage {
   thoughts?: string
   /** XML `<headline>` from the model response block. */
   headline?: string
+  /** 流式阶段已闭合的 `<tool_name>`（完整工具块未到 `</response>` 时供 UI 预览）。 */
+  xmlToolNamePreview?: string
   rawContent?: string
   agentId?: string
   agentName?: string
@@ -174,6 +176,8 @@ export type StreamEvent =
   | { kind: 'delta'; messageId: string; text: string }
   | { kind: 'raw_content_delta'; messageId: string; text: string }
   | { kind: 'reasoning_delta'; messageId: string; text: string }
+  /** 正文里 XML 工具块尚未闭合时，已能读出的子标签（流式更新）。 */
+  | { kind: 'assistant_xml_partial'; messageId: string; thoughts?: string; headline?: string; toolName?: string }
   | { kind: 'agent_step'; messageId: string; agent: AgentTrace }
   | { kind: 'tool_call_start'; messageId: string; toolCall: ToolCall }
   | { kind: 'tool_call_args_delta'; messageId: string; toolCallId: string; argsDelta: string }

@@ -514,6 +514,7 @@ async fn run_chat_inner(
         let mut xml_finish_diag = XmlToolFinishDiagnostics::default();
         let mut xml_thoughts: Option<String> = None;
         let mut xml_headline: Option<String> = None;
+        let mut streamed_tool_call_ids: HashSet<String> = HashSet::new();
 
         while let Some(ev) = rx.recv().await {
             match ev {
@@ -580,6 +581,40 @@ async fn run_chat_inner(
                         },
                     );
                 }
+                ProviderEvent::XmlToolStreamingReady { tool_calls, .. } => {
+                    for tc in &tool_calls {
+                        if streamed_tool_call_ids.insert(tc.id.clone()) {
+                            let mut t = tc.clone();
+                            let args_v = parse_tool_call_arguments(&t.arguments);
+                            t.risk_level = state
+                                .tools
+                                .tool_risk_level_for_invocation(&t.name, &args_v)
+                                .or(Some("low".into()));
+                            emit(
+                                &stream,
+                                StreamEvent::ToolCallStart {
+                                    message_id: assistant_id.clone(),
+                                    tool_call: t,
+                                },
+                            );
+                        }
+                    }
+                }
+                ProviderEvent::AssistantXmlPartial {
+                    thoughts,
+                    headline,
+                    tool_name,
+                } => {
+                    emit(
+                        &stream,
+                        StreamEvent::AssistantXmlPartial {
+                            message_id: assistant_id.clone(),
+                            thoughts,
+                            headline,
+                            tool_name,
+                        },
+                    );
+                }
                 ProviderEvent::Finish {
                     reason,
                     tool_calls,
@@ -591,21 +626,23 @@ async fn run_chat_inner(
                     xml_finish_diag = xml;
                     xml_thoughts = thoughts;
                     xml_headline = headline;
-                    // XML 等路径在流内不会发 ToolCallStart；此处补发，界面才能显示 ToolCallCard。
+                    // 流式已发过 ToolCallStart 的 id 不再重复发送。
                     for tc in &tool_calls {
-                        let mut t = tc.clone();
-                        let args_v = parse_tool_call_arguments(&t.arguments);
-                        t.risk_level = state
-                            .tools
-                            .tool_risk_level_for_invocation(&t.name, &args_v)
-                            .or(Some("low".into()));
-                        emit(
-                            &stream,
-                            StreamEvent::ToolCallStart {
-                                message_id: assistant_id.clone(),
-                                tool_call: t,
-                            },
-                        );
+                        if streamed_tool_call_ids.insert(tc.id.clone()) {
+                            let mut t = tc.clone();
+                            let args_v = parse_tool_call_arguments(&t.arguments);
+                            t.risk_level = state
+                                .tools
+                                .tool_risk_level_for_invocation(&t.name, &args_v)
+                                .or(Some("low".into()));
+                            emit(
+                                &stream,
+                                StreamEvent::ToolCallStart {
+                                    message_id: assistant_id.clone(),
+                                    tool_call: t,
+                                },
+                            );
+                        }
                     }
                     final_tool_calls = tool_calls;
                 }
@@ -1486,6 +1523,7 @@ async fn run_sub_agent(
         let mut xml_finish_diag = XmlToolFinishDiagnostics::default();
         let mut round_thoughts: Option<String> = None;
         let mut round_headline: Option<String> = None;
+        let mut streamed_round_tool_call_ids: HashSet<String> = HashSet::new();
 
         while let Some(ev) = rx.recv().await {
             match ev {
@@ -1543,6 +1581,40 @@ async fn run_sub_agent(
                         },
                     );
                 }
+                ProviderEvent::XmlToolStreamingReady { tool_calls, .. } => {
+                    for tc in &tool_calls {
+                        if streamed_round_tool_call_ids.insert(tc.id.clone()) {
+                            let mut t = tc.clone();
+                            let args_v = parse_tool_call_arguments(&t.arguments);
+                            t.risk_level = state
+                                .tools
+                                .tool_risk_level_for_invocation(&t.name, &args_v)
+                                .or(Some("low".into()));
+                            emit(
+                                stream,
+                                StreamEvent::ToolCallStart {
+                                    message_id: message_id.to_string(),
+                                    tool_call: t,
+                                },
+                            );
+                        }
+                    }
+                }
+                ProviderEvent::AssistantXmlPartial {
+                    thoughts,
+                    headline,
+                    tool_name,
+                } => {
+                    emit(
+                        stream,
+                        StreamEvent::AssistantXmlPartial {
+                            message_id: message_id.to_string(),
+                            thoughts,
+                            headline,
+                            tool_name,
+                        },
+                    );
+                }
                 ProviderEvent::Finish {
                     tool_calls,
                     xml,
@@ -1554,19 +1626,21 @@ async fn run_sub_agent(
                     round_thoughts = thoughts;
                     round_headline = headline;
                     for tc in &tool_calls {
-                        let mut t = tc.clone();
-                        let args_v = parse_tool_call_arguments(&t.arguments);
-                        t.risk_level = state
-                            .tools
-                            .tool_risk_level_for_invocation(&t.name, &args_v)
-                            .or(Some("low".into()));
-                        emit(
-                            stream,
-                            StreamEvent::ToolCallStart {
-                                message_id: message_id.to_string(),
-                                tool_call: t,
-                            },
-                        );
+                        if streamed_round_tool_call_ids.insert(tc.id.clone()) {
+                            let mut t = tc.clone();
+                            let args_v = parse_tool_call_arguments(&t.arguments);
+                            t.risk_level = state
+                                .tools
+                                .tool_risk_level_for_invocation(&t.name, &args_v)
+                                .or(Some("low".into()));
+                            emit(
+                                stream,
+                                StreamEvent::ToolCallStart {
+                                    message_id: message_id.to_string(),
+                                    tool_call: t,
+                                },
+                            );
+                        }
                     }
                     final_tool_calls = tool_calls;
                 }

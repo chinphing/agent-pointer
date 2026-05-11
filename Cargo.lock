@@ -1284,6 +1284,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dispatch"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd0c93bb4b0c6d9b77f4435b0ae98c24d17f1c45b2ff844c6151a07256ca923b"
+
+[[package]]
 name = "dispatch2"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4239,13 +4245,16 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
+ "core-graphics 0.23.2",
  "dirs 5.0.1",
+ "dispatch",
  "enigo",
  "flexi_logger",
  "futures-util",
  "globset",
  "image",
  "imageproc",
+ "libc",
  "log",
  "parking_lot",
  "quick-xml 0.37.5",

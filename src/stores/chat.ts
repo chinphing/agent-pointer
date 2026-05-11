@@ -215,6 +215,14 @@ export const useChatStore = defineStore('chat', () => {
         if (r) r.msg.reasoning = (r.msg.reasoning || '') + e.text
         break
       }
+      case 'assistant_xml_partial': {
+        const r = findMessage(e.messageId)
+        if (!r) break
+        if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
+        if (e.headline != null && e.headline.trim() !== '') r.msg.headline = e.headline
+        if (e.toolName != null && e.toolName.trim() !== '') r.msg.xmlToolNamePreview = e.toolName
+        break
+      }
       case 'agent_step': {
         const r = findMessage(e.messageId)
         if (!r) return

@@ -11,10 +11,10 @@ Use for **modifier+click** to multi-select: **Cmd/Ctrl+click** (add non-contiguo
 - **Shift + click** — Select a contiguous range from first to last. Use when selecting "from item A to item B" (e.g. rows 3 through 8). Pass **only the first and last index** in order as `indices` and set **`range_select`** to true. The tool will click the first item, then Shift+click the last item so the UI selects the range.
 
 **Overlay-index methods:**
-- **`modified_click_index`** (`indices`, `goal`, optional `range_select`) — By default holds Cmd/Ctrl and clicks each index (add to selection). If **`range_select`** is true, `indices` must be exactly two numbers (first, then last) in order; the tool clicks first then Shift+clicks last to select the range. Use when **`[Annotated after action]`** shows index numbers on list items, checkboxes, or file picker items.
+- **`modified_click:modified_click_index`** (`indices`, `goal`, optional `range_select`) — By default holds Cmd/Ctrl and clicks each index (add to selection). If **`range_select`** is true, `indices` must be exactly two numbers (first, then last) in order; the tool clicks first then Shift+clicks last to select the range. Use when **`[Annotated after action]`** shows index numbers on list items, checkboxes, or file picker items.
 
 **Coordinate methods:**
-- **`modified_click_at`** (`goal`, `positions`, optional `range_select`) — Same modifier logic by position: a sequence of x/y pairs per the **mouse** tool’s coordinate convention for this turn. For range, pass two positions and set `range_select` to true.
+- **`modified_click:modified_click_at`** (`goal`, `positions`, optional `range_select`) — Same modifier logic by position: a sequence of x/y pairs per the **mouse** tool’s coordinate convention for this turn. For range, pass two positions and set `range_select` to true.
 
 Parameter constraints:
 - **`goal`** is required. Describe the **target elements**: if an item is **text**, include the **exact visible text**; if **other** (icon, row, checkbox), give a **brief description of its features**. Then state which items you are selecting and the expected result.

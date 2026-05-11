@@ -163,20 +163,20 @@ onUnmounted(() => clearHeadlineCollapseTimer())
   <div class="w-full max-w-full space-y-2">
     <div
       v-if="message.headline?.trim()"
-      class="w-full rounded-xl border border-cyan-500/30 bg-gradient-to-r from-cyan-500/10 via-transparent to-transparent overflow-hidden"
+      class="w-full rounded-lg border border-cyan-500/25 bg-gradient-to-r from-cyan-500/8 via-transparent to-transparent overflow-hidden"
     >
       <button
         type="button"
-        class="w-full text-left px-1 py-2 sm:px-2 flex items-start gap-2 cursor-pointer select-none hover:bg-cyan-500/10 transition"
+        class="w-full text-left px-1.5 py-1.5 sm:px-2 flex items-center gap-1.5 cursor-pointer select-none hover:bg-cyan-500/10 transition"
         :aria-expanded="headlineOpen"
         @click="toggleHeadline"
       >
         <span
-          class="inline-block w-4 shrink-0 text-cyan-400/80 text-center text-xs transition-transform pt-1"
+          class="inline-block w-3.5 shrink-0 text-cyan-400/70 text-center text-[10px] transition-transform pt-0.5"
           :class="headlineOpen ? 'rotate-90' : ''"
         >▸</span>
         <span
-          class="min-w-0 flex-1 text-[15px] sm:text-base font-semibold text-cyan-50/95 leading-snug tracking-tight"
+          class="min-w-0 flex-1 text-[12px] sm:text-[13px] font-medium text-cyan-50/90 leading-tight tracking-tight"
           :class="headlineOpen ? 'whitespace-pre-wrap' : 'line-clamp-2 overflow-hidden'"
         >{{ message.headline.trim() }}</span>
       </button>

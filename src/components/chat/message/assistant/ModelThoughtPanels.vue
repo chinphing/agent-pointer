@@ -18,21 +18,11 @@ const traceOpen = computed(() => (props.agentTrace?.length ?? 0) > 0)
 
 <template>
   <div v-if="xmlThoughts?.trim() || agentTrace?.length" class="space-y-2">
-    <details
+    <!-- thoughts 直接显示，不套框 -->
+    <div
       v-if="xmlThoughts?.trim()"
-      class="rounded-xl border border-amber-500/25 bg-amber-500/5 overflow-hidden"
-      :open="thoughtsOpen"
-    >
-      <summary
-        class="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-amber-100/90 hover:bg-amber-500/10 transition list-none flex items-center gap-2"
-      >
-        <span class="text-amber-200/90">thoughts</span>
-        <span class="text-slate-500 font-normal">XML 响应</span>
-      </summary>
-      <pre
-        class="border-t border-amber-500/15 max-h-52 overflow-auto p-3 text-[12px] leading-relaxed text-slate-300/95 whitespace-pre-wrap"
-      >{{ xmlThoughts }}</pre>
-    </details>
+      class="text-[12px] leading-relaxed text-slate-400/90 whitespace-pre-wrap"
+    >{{ xmlThoughts }}</div>
 
     <details
       v-if="agentTrace?.length"

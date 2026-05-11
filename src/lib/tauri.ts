@@ -87,6 +87,10 @@ export async function previewComputerAnnotatedScreen(): Promise<ComputerAnnotate
   return await invoke<ComputerAnnotatedPreview>('preview_computer_annotated_screen')
 }
 
+export async function previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview> {
+  return await invoke<ComputerAnnotatedPreview>('preview_computer_round_screen', { relPath })
+}
+
 export async function loadConversations(): Promise<Conversation[]> {
   return await invoke<Conversation[]>('load_conversations')
 }

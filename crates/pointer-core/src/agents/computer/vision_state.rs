@@ -3,6 +3,7 @@
 use super::annotate::BoxInfo;
 use super::coord::CoordinateSystem;
 use super::screen::MonitorInfo;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -201,6 +202,85 @@ impl VisionState {
         self.screen_bbox = None;
         self.action_history.clear();
     }
+
+    /// Append a desktop tool row for repetition analysis (uses **`goal`** / **`action`** text when present).
+    /// On failure, `failed_note` is appended as ` | FAILED: …` so ineffective repeats are visible next to `[CUR_SCREEN]`.
+    pub fn record_desktop_tool_invocation(
+        &mut self,
+        tool_name: &str,
+        args: &Value,
+        failed_note: Option<&str>,
+    ) {
+        let method = args
+            .get("method")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let goal = args.get("goal").and_then(|v| v.as_str()).unwrap_or("").trim();
+        let action = args
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        let method_line = if !method.is_empty() {
+            method.to_string()
+        } else {
+            match tool_name {
+                "hotkey" => "hotkey".into(),
+                "wait" => "wait".into(),
+                _ => "-".into(),
+            }
+        };
+        let mut summary = if goal.is_empty() && action.is_empty() {
+            compact_args_hint(args)
+        } else {
+            format!("goal={goal} | action={action}")
+        };
+        if let Some(note) = failed_note.map(str::trim).filter(|s| !s.is_empty()) {
+            summary.push_str(" | FAILED: ");
+            summary.push_str(&truncate_failed_note(note, 220));
+        }
+        self.record_action(RecentAction::new(tool_name, method_line, summary));
+    }
+
+    /// Up to five recent rows for injection under `[CUR_SCREEN]` (oldest → newest).
+    pub fn recent_actions_prompt_block(&self) -> Option<String> {
+        let history = self.action_history();
+        if history.is_empty() {
+            return None;
+        }
+        let take = history.len().min(5);
+        let slice = &history[history.len() - take..];
+        let mut lines = vec!["[Recent desktop tool calls — ordered oldest to newest; use goal/action to spot repeated ineffective attempts; failed rows end with FAILED: …; overlay indices here are not comparable across turns.]".to_string()];
+        for (i, a) in slice.iter().enumerate() {
+            lines.push(format!(
+                "{}. {}:{} — {}",
+                i + 1,
+                a.tool_name,
+                a.method,
+                a.args
+            ));
+        }
+        Some(lines.join("\n"))
+    }
+}
+
+fn truncate_failed_note(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(max_chars).collect::<String>())
+    }
+}
+
+fn compact_args_hint(args: &Value) -> String {
+    if let Some(obj) = args.as_object() {
+        let keys: Vec<&String> = obj.keys().take(8).collect();
+        if !keys.is_empty() {
+            return format!("(fields: {})", keys.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(","));
+        }
+    }
+    args.to_string()
 }
 
 fn current_timestamp_ms() -> u64 {
@@ -260,6 +340,45 @@ mod tests {
 
         assert_eq!(state.action_history().len(), 3);
         assert_eq!(state.action_history()[0].args, "{\"index\":2}");
+    }
+
+    #[test]
+    fn recent_actions_prompt_block_orders_and_caps_at_five() {
+        let mut state = VisionState::new();
+        for i in 0..7 {
+            state.record_desktop_tool_invocation(
+                "mouse",
+                &serde_json::json!({
+                    "method": "click_index",
+                    "goal": format!("g{i}"),
+                    "action": format!("a{i}"),
+                }),
+                None,
+            );
+        }
+        let block = state.recent_actions_prompt_block().expect("block");
+        assert!(block.contains("[Recent desktop tool calls"));
+        assert!(block.contains("g2"));
+        assert!(!block.contains("g0"));
+        assert!(block.contains("g6"));
+    }
+
+    #[test]
+    fn recent_actions_prompt_includes_failed_suffix() {
+        let mut state = VisionState::new();
+        state.record_desktop_tool_invocation(
+            "mouse",
+            &serde_json::json!({
+                "method": "click_index",
+                "goal": "open menu",
+                "action": "tap file",
+            }),
+            Some("no such index"),
+        );
+        let block = state.recent_actions_prompt_block().expect("block");
+        assert!(block.contains("FAILED:"));
+        assert!(block.contains("open menu"));
+        assert!(block.contains("no such index"));
     }
 
     #[test]

@@ -14,7 +14,12 @@ function uid() { return Math.random().toString(36).slice(2) + Date.now().toStrin
 function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Conversation[] {
   return conversations.map(c => ({
     ...c,
-    messages: c.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
+    messages: c.messages
+      .filter(m => !isEphemeralDesktopNoticeMessage(m))
+      .map(m => {
+        const { computerRoundScreenRelPath: _drop, ...rest } = m
+        return rest
+      })
   }))
 }
 
@@ -159,7 +164,7 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'ui_toast': {
-        if (e.conversationId !== currentId.value) return
+        if (e.conversationId && e.conversationId !== currentId.value) return
         const lv = e.level
         const level: 'success' | 'warning' | 'error' =
           lv === 'error' ? 'error' : lv === 'warning' ? 'warning' : 'success'
@@ -352,6 +357,14 @@ export const useChatStore = defineStore('chat', () => {
           persist()
           scheduleDesktopNoticeRemoval(e.conversationId, e.messageId)
         }
+        break
+      }
+      case 'assistant_round_screen': {
+        const r = findMessage(e.messageId)
+        if (!r || r.conv.id !== e.conversationId) break
+        if (r.msg.role !== 'assistant') break
+        r.msg.computerRoundScreenRelPath = e.annotatedRelPath
+        r.conv.updatedAt = Date.now()
         break
       }
       case 'error': {

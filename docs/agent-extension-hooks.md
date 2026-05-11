@@ -64,6 +64,10 @@
 | `messages` | 本次即将发给模型的 **HTTP 消息列表的可变借用**。起始内容为某条「基础历史」的克隆（见第 4、5 节）；钩子通常**追加** ephemeral 的 `User` 消息（如带 `images_base64`），**不会**写回会话持久化的 `history`。 |
 | `conversation_id` | 当前会话 id（与前端/Tauri 流一致）。 |
 | `stream` | 可选的 `ChatStreamSender`；若存在，钩子可发送 **`StreamEvent::UiToast`**（仅界面横幅提醒，**不**写入聊天记录、**不**进入模型 payload）。 |
+| `round_assistant_message_id` | 可选；本轮助手消息 id（与主循环 `MessageStart` 一致，或 Supervisor 子任务下**父级**助手气泡 id）。注入用它发送 **`StreamEvent::AssistantRoundScreen`**。 |
+| `round_screen_dump_prefix` | 可选；落盘调试图时的文件名前缀，缺省同 `round_assistant_message_id`。子 Agent 每轮迭代用自己的 id，避免与父消息 id 混用。 |
+
+**`StreamEvent::AssistantRoundScreen`** 只携带 `annotatedRelPath`（相对于与设置/技能相同的应用数据根目录下的 `PointerApp/computer-captures/`），避免把大图 base64 塞进流与内存；UI 在点击预览时读盘：**Tauri** 用 `preview_computer_round_screen`，**pointer-server** 用 `GET /api/computer/round-screen-preview?relPath=…`（与 `GET /api/computer/annotated-preview` 对应 Tauri 的 `preview_computer_annotated_screen`）。**桌面端与 server 端启动时**都会执行相同的 **7 天**截图目录清理（`capture_debug::CAPTURE_RETENTION_DAYS`），若有删除则向事件总线发送 **`UiToast`**（`conversationId` 为空 = 全局「截图过期已清理」）。
 
 **`BeforeMainLlmCallContext`**
 
@@ -82,16 +86,17 @@
 
 在同一轮迭代里，顺序固定为：
 
-1. **进入本轮** — 检查取消、工具预算；生成本轮 `assistant_id`（UI 流式用）；可选 Supervisor 占位 trace。
-2. **准备 Provider** — 新建 `OpenAIProvider`、channel；尚未发 HTTP。
-3. **构造 API 消息列表** — `messages = <基础历史>.clone()`（单智能体：`history`；子 Agent：`local_history`）。
-4. **`message_loop_prompts_after`** — `run_message_loop_prompts_after`：可修改 `messages`（例如追加屏幕注入）。
-5. **`before_main_llm_call`** — `run_before_main_llm_call`：只读上下文为主，默认可为空操作。
-6. **组装 system 侧 prompts** — `build_env_context`、session inject、agent system prompts、工具 markdown、`xml_tool_prompt` 等拼成 `prompts_clone`（与 Python「system + extras」一侧对应，Rust 里作为单独参数传入 `stream_chat`）。
-7. **`stream_chat`** — `tokio::spawn` 里带着 **`&history_for_api`（即上面的 `messages`）** 和 **`prompts_clone`** 请求模型；之后才是流式 delta、工具解析、写回持久化 `history` 等。
+1. **进入本轮** — 检查取消、工具预算；生成本轮 `assistant_id`（UI 流式用）。
+2. **`MessageStart`（及 Supervisor 的 `AgentStep`）** — 先创建前端助手气泡，再跑注入，以便把本圈截图事件绑定到该 `message_id`。
+3. **准备 Provider** — 新建 `OpenAIProvider`、channel；尚未发 HTTP。
+4. **构造 API 消息列表** — `messages = <基础历史>.clone()`（单智能体：`history`；子 Agent：`local_history`），并填入 `round_assistant_message_id`。
+5. **`message_loop_prompts_after`** — `run_message_loop_prompts_after`：可修改 `messages`（例如追加屏幕注入）。
+6. **`before_main_llm_call`** — `run_before_main_llm_call`：只读上下文为主，默认可为空操作。
+7. **组装 system 侧 prompts** — `build_env_context`、session inject、agent system prompts、工具 markdown、`xml_tool_prompt` 等拼成 `prompts_clone`（与 Python「system + extras」一侧对应，Rust 里作为单独参数传入 `stream_chat`）。
+8. **`stream_chat`** — `tokio::spawn` 里带着 **`&history_for_api`（即上面的 `messages`）** 和 **`prompts_clone`** 请求模型；之后才是流式 delta、工具解析、写回持久化 `history` 等。
 
-要点：**扩展钩子在第 4～5 步执行，严格发生在「system 文本拼完」之前还是之后？**  
-在当前实现里，**system 拼接在第 6 步**，钩子 **在第 4～5 步**，因此钩子执行时 **还看不到** 最终的 `prompts_clone` 全文；钩子只能依赖 `Context` 里已有字段和 `messages`。若某钩子需要「完整 system」，需要把拼接提前或向 `Context` 传入预览字符串（当前未做）。
+要点：**扩展钩子在第 5～6 步执行，严格发生在「system 文本拼完」之前还是之后？**  
+在当前实现里，**system 拼接在第 7 步**，钩子 **在第 5～6 步**，因此钩子执行时 **还看不到** 最终的 `prompts_clone` 全文；钩子只能依赖 `Context` 里已有字段和 `messages`。若某钩子需要「完整 system」，需要把拼接提前或向 `Context` 传入预览字符串（当前未做）。
 
 与 Python 的细微差别：Python 在 `prepare_prompt` 里先写入 `loop_data.system` / `history_output` 再跑 `message_loop_prompts_after`，扩展**可以**读到已组好的 system 片段；Rust 当前是 **先改 user 侧 `messages`，再组 system**，若要对齐「先 system 后扩展」，需重构 `chat_service` 顺序。
 
@@ -103,7 +108,7 @@
 
 ### 4.3 一轮内的多次模型调用（工具循环）
 
-用户发一条消息后，可能经历多轮「模型 → 工具 → 再模型」。**每一轮**新的模型请求都会重复上述 3～7 步：
+用户发一条消息后，可能经历多轮「模型 → 工具 → 再模型」。**每一轮**新的模型请求都会重复上述 3～8 步：
 
 - 每一轮都会重新 `history.clone()`（此时 `history` 已包含上一轮 assistant 与 tool 结果）。
 - 每一轮都会再次执行 `message_loop_prompts_after` / `before_main_llm_call`。  

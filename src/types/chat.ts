@@ -79,6 +79,8 @@ export interface ChatMessage {
   agentId?: string
   agentName?: string
   agentTrace?: AgentTrace[]
+  /** Ephemeral: annotated PNG path under app computer-captures (lazy load on preview); not persisted. */
+  computerRoundScreenRelPath?: string
 }
 
 export interface Conversation {
@@ -195,3 +197,5 @@ export type StreamEvent =
   | { kind: 'tool_rounds_exhausted'; conversationId: string; maxRounds: number; message: string; willRetryAfterCompress: boolean }
   /** Ephemeral UI only; not saved as a chat message or sent to the model. */
   | { kind: 'ui_toast'; conversationId: string; message: string; level: string }
+  /** Annotated screen for one assistant message (path under computer-captures/). */
+  | { kind: 'assistant_round_screen'; conversationId: string; messageId: string; annotatedRelPath: string }

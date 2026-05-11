@@ -5,7 +5,7 @@ import { Copy, Check, Code, Camera } from 'lucide-vue-next'
 import type { ChatMessage, ComputerAnnotatedPreview } from '../../../../types/chat'
 import ToolCallCard from '../../ToolCallCard.vue'
 import { useSettingsStore } from '../../../../stores/settings'
-import { previewComputerAnnotatedScreen } from '../../../../lib/api'
+import { previewComputerAnnotatedScreen, previewComputerRoundScreen } from '../../../../lib/api'
 import { isTauriRuntime } from '../../../../lib/runtime'
 import { useMarkdownCodeCopy } from '../../../../composables/useMarkdownCodeCopy'
 import { visibleToolCalls } from '../../../../lib/messageTooling'
@@ -152,7 +152,12 @@ async function openScreenPreview() {
   screenPreview.value = null
   modalOpen.value = true
   try {
-    screenPreview.value = await previewComputerAnnotatedScreen()
+    const rel = props.message.computerRoundScreenRelPath?.trim()
+    if (rel) {
+      screenPreview.value = await previewComputerRoundScreen(rel)
+    } else {
+      screenPreview.value = await previewComputerAnnotatedScreen()
+    }
   } catch (e: unknown) {
     screenError.value = e instanceof Error ? e.message : String(e)
   } finally {

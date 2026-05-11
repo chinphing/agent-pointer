@@ -12,6 +12,12 @@ pub mod screen_overlay;
 pub mod tools;
 pub mod verify;
 pub mod vision_state;
+pub mod timing;
+pub mod capture_debug;
+
+pub use timing::{
+    is_desktop_post_delay_tool, is_desktop_vision_log_tool, POST_DESKTOP_ACTION_DELAY_MS,
+};
 
 use crate::agents::AgentRegistry;
 use crate::models::ComputerAnnotatedPreview;
@@ -242,6 +248,30 @@ impl ComputerState {
             image_base64: screen::encode_image_to_base64(png),
             caption: "Annotated desktop".into(),
         })
+    }
+
+    /// Record a desktop tool call for repetition hints under `[CUR_SCREEN]` (`goal` / `action` when present).
+    /// Pass `failed_note` when the invocation failed (tool returned failure or threw); it is shown as `FAILED: …`.
+    pub fn record_desktop_tool_if_applicable(
+        &self,
+        tool_id: &str,
+        args: &serde_json::Value,
+        failed_note: Option<&str>,
+    ) {
+        if !timing::is_desktop_vision_log_tool(tool_id) {
+            return;
+        }
+        let mut guard = self.vision_state.lock().unwrap_or_else(|e| {
+            log::warn!("vision_state mutex poisoned; recovering for desktop tool history");
+            e.into_inner()
+        });
+        guard.record_desktop_tool_invocation(tool_id, args, failed_note);
+    }
+
+    /// Text block appended under `[CUR_SCREEN]` with up to the last five desktop tool rows.
+    pub fn recent_actions_prompt_block(&self) -> Option<String> {
+        let guard = self.vision_state.lock().ok()?;
+        guard.recent_actions_prompt_block()
     }
 }
 

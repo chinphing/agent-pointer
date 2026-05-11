@@ -41,6 +41,7 @@ export interface RuntimeApi {
   listTools(): Promise<ToolDef[]>
   listAgents(): Promise<AgentDef[]>
   previewComputerAnnotatedScreen(): Promise<ComputerAnnotatedPreview>
+  previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview>
 
   loadConversations(): Promise<Conversation[]>
   saveConversations(conversations: Conversation[]): Promise<void>
@@ -62,6 +63,7 @@ export const importSkillZip = api.importSkillZip
 export const listTools = api.listTools
 export const listAgents = api.listAgents
 export const previewComputerAnnotatedScreen = api.previewComputerAnnotatedScreen
+export const previewComputerRoundScreen = api.previewComputerRoundScreen
 
 export const loadConversations = api.loadConversations
 export const saveConversations = api.saveConversations

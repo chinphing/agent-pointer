@@ -2,6 +2,7 @@
 //!
 //! OS / locale / local time for the model are in the shared system prompt prefix (`chat_service::build_env_context`); this hook only adds `[CUR_SCREEN]` vision payloads.
 
+use crate::agents::computer::capture_debug;
 use crate::agents::computer::screen;
 use crate::agents::computer::screen_overlay::{
     SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED, SLOT_SCREEN_BEFORE_ACTION,
@@ -121,6 +122,22 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
 
         match ctx.computer_state.capture_and_annotate().await {
             Ok(cap) => {
+                let dump_prefix = ctx
+                    .round_screen_dump_prefix
+                    .as_deref()
+                    .or(ctx.round_assistant_message_id.as_deref())
+                    .unwrap_or("round_unknown");
+                let annotated_rel =
+                    capture_debug::save_computer_capture_debug(ctx.conversation_id, dump_prefix, &cap);
+                if let (Some(tx), Some(mid)) = (ctx.stream, ctx.round_assistant_message_id.as_ref()) {
+                    if let Some(rel) = annotated_rel {
+                        let _ = tx.send(StreamEvent::AssistantRoundScreen {
+                            conversation_id: ctx.conversation_id.to_string(),
+                            message_id: mid.clone(),
+                            annotated_rel_path: rel,
+                        });
+                    }
+                }
                 emit_screen_notice_update(
                     ctx,
                     notice_id,
@@ -129,7 +146,12 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                 strip_images_from_prior_messages(ctx.messages.as_mut_slice());
                 let has_previous_raw = cap.inject_previous_raw_jpeg.is_some();
                 let images = assemble_cur_screen_base64(&cap);
-                let text = build_cur_screen_text(has_previous_raw);
+                let mut text = build_cur_screen_text(has_previous_raw);
+                if let Some(block) = ctx.computer_state.recent_actions_prompt_block() {
+                    text.push_str("\n");
+                    text.push_str(&block);
+                    text.push('\n');
+                }
                 ctx.messages.push(ChatMessage {
                     id: new_extension_message_id("screen_inject"),
                     role: Role::User,
@@ -147,6 +169,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     agent_name: None,
                     agent_trace: None,
                     images_base64: Some(images),
+                    computer_round_screen_rel_path: None,
                 });
             }
             Err(e) => {
@@ -176,6 +199,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     agent_name: None,
                     agent_trace: None,
                     images_base64: None,
+                    computer_round_screen_rel_path: None,
                 });
             }
         }
@@ -206,6 +230,7 @@ mod tests {
             agent_name: None,
             agent_trace: None,
             images_base64: images.map(|v| v.into_iter().map(String::from).collect()),
+            computer_round_screen_rel_path: None,
         }
     }
 

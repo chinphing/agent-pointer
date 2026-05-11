@@ -26,7 +26,7 @@ use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::env;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
@@ -426,28 +426,6 @@ async fn run_chat_inner(
             .map(|a| a.def().profile.clone())
             .unwrap_or(AgentProfile::General);
 
-        let mut history_for_api = history.clone();
-        let mut prompts_after_ctx = MessageLoopPromptsAfterContext {
-            computer_state: state.computer_state.as_ref(),
-            lead_agent_profile: lead_profile.clone(),
-            messages: &mut history_for_api,
-            conversation_id,
-            stream: Some(&stream),
-        };
-        state
-            .extensions
-            .run_message_loop_prompts_after(&mut prompts_after_ctx)
-            .await?;
-
-        let before_llm_ctx = BeforeMainLlmCallContext {
-            computer_state: state.computer_state.as_ref(),
-            lead_agent_profile: lead_profile,
-        };
-        state
-            .extensions
-            .run_before_main_llm_call(&before_llm_ctx)
-            .await?;
-
         emit(
             &stream,
             StreamEvent::MessageStart {
@@ -475,6 +453,30 @@ async fn run_chat_inner(
                 },
             );
         }
+
+        let mut history_for_api = history.clone();
+        let mut prompts_after_ctx = MessageLoopPromptsAfterContext {
+            computer_state: state.computer_state.as_ref(),
+            lead_agent_profile: lead_profile.clone(),
+            messages: &mut history_for_api,
+            conversation_id,
+            stream: Some(&stream),
+            round_assistant_message_id: Some(assistant_id.clone()),
+            round_screen_dump_prefix: None,
+        };
+        state
+            .extensions
+            .run_message_loop_prompts_after(&mut prompts_after_ctx)
+            .await?;
+
+        let before_llm_ctx = BeforeMainLlmCallContext {
+            computer_state: state.computer_state.as_ref(),
+            lead_agent_profile: lead_profile,
+        };
+        state
+            .extensions
+            .run_before_main_llm_call(&before_llm_ctx)
+            .await?;
 
         let mut prompts_with_env = vec![build_env_context()];
         let session_vars = SessionInjectVars {
@@ -728,6 +730,7 @@ async fn run_chat_inner(
                 Some(agent_trace.clone())
             },
             images_base64: None,
+            computer_round_screen_rel_path: None,
         };
         history.push(assistant_msg.clone());
         emit(
@@ -771,6 +774,7 @@ async fn run_chat_inner(
                     agent_name: None,
                     agent_trace: None,
                     images_base64: None,
+                    computer_round_screen_rel_path: None,
                 });
                 tool_budget.record_tool_cycle();
                 tool_budget.sync_out(consumed_single);
@@ -956,6 +960,7 @@ async fn run_chat_inner(
             let msg_id_for_stream = assistant_id.clone();
             let tc_id_for_stream = tc.id.clone();
             let stream_for_terminal = stream.clone();
+            let args_for_desktop_log = args_value.clone();
 
             let exec: Result<(String, bool, Option<String>), anyhow::Error> = if is_terminal {
                 tokio::task::spawn_blocking(move || {
@@ -994,6 +999,18 @@ async fn run_chat_inner(
             let duration = started.elapsed().as_millis() as u64;
             match exec {
                 Ok((out, ok, err_note)) => {
+                    let failed_note = desktop_tool_failure_note(ok, &err_note, &out);
+                    state.computer_state.record_desktop_tool_if_applicable(
+                        &tool_id,
+                        &args_for_desktop_log,
+                        failed_note.as_deref(),
+                    );
+                    if ok && crate::agents::computer::is_desktop_post_delay_tool(tool_id.as_str()) {
+                        tokio::time::sleep(Duration::from_millis(
+                            crate::agents::computer::POST_DESKTOP_ACTION_DELAY_MS,
+                        ))
+                        .await;
+                    }
                     let preview = truncate_str(&out, 800);
                     emit(
                         &stream,
@@ -1010,6 +1027,12 @@ async fn run_chat_inner(
                 }
                 Err(e) => {
                     let err = e.to_string();
+                    let err_snip = truncate_str(&err, 400);
+                    state.computer_state.record_desktop_tool_if_applicable(
+                        &tool_id,
+                        &args_for_desktop_log,
+                        Some(err_snip.as_str()),
+                    );
                     emit(
                         &stream,
                         StreamEvent::ToolCallStatus {
@@ -1278,6 +1301,7 @@ async fn run_supervisor_chat(
         agent_name: Some(sup_name),
         agent_trace: Some(agent_trace),
         images_base64: None,
+        computer_round_screen_rel_path: None,
     });
     emit(
         &stream,
@@ -1459,6 +1483,7 @@ async fn run_sub_agent(
         agent_name: None,
         agent_trace: None,
         images_base64: None,
+        computer_round_screen_rel_path: None,
     }];
     let mut content = String::new();
     let mut reasoning = String::new();
@@ -1475,6 +1500,7 @@ async fn run_sub_agent(
             ));
         }
 
+        let round_message_id = new_id("agent_msg");
         let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
         let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
         let mut history_for_api = local_history.clone();
@@ -1484,6 +1510,8 @@ async fn run_sub_agent(
             messages: &mut history_for_api,
             conversation_id,
             stream: Some(stream),
+            round_assistant_message_id: Some(message_id.to_string()),
+            round_screen_dump_prefix: Some(round_message_id.clone()),
         };
         state
             .extensions
@@ -1516,7 +1544,6 @@ async fn run_sub_agent(
             .await
         });
 
-        let round_message_id = new_id("agent_msg");
         let mut round_content = String::new();
         let mut round_reasoning = String::new();
         let mut final_tool_calls: Vec<ToolCall> = Vec::new();
@@ -1695,6 +1722,7 @@ async fn run_sub_agent(
             agent_name: Some(def.name.clone()),
             agent_trace: None,
             images_base64: None,
+            computer_round_screen_rel_path: None,
         });
 
         if final_tool_calls.is_empty() {
@@ -1719,6 +1747,7 @@ async fn run_sub_agent(
                     agent_name: None,
                     agent_trace: None,
                     images_base64: None,
+                    computer_round_screen_rel_path: None,
                 });
                 tool_budget.record_tool_cycle();
                 if tool_budget.is_exhausted() {
@@ -1919,6 +1948,7 @@ async fn run_sub_agent(
             let msg_id_for_stream = message_id.to_string();
             let tc_id_for_stream = tool_call.id.clone();
             let stream_for_terminal = stream.clone();
+            let args_for_desktop_log = args_value.clone();
 
             let exec: Result<(String, bool, Option<String>), anyhow::Error> = if is_terminal {
                 tokio::task::spawn_blocking(move || {
@@ -1957,6 +1987,18 @@ async fn run_sub_agent(
             let duration = started.elapsed().as_millis() as u64;
             match exec {
                 Ok((output, ok, err_note)) => {
+                    let failed_note = desktop_tool_failure_note(ok, &err_note, &output);
+                    state.computer_state.record_desktop_tool_if_applicable(
+                        &tool_id,
+                        &args_for_desktop_log,
+                        failed_note.as_deref(),
+                    );
+                    if ok && crate::agents::computer::is_desktop_post_delay_tool(tool_id.as_str()) {
+                        tokio::time::sleep(Duration::from_millis(
+                            crate::agents::computer::POST_DESKTOP_ACTION_DELAY_MS,
+                        ))
+                        .await;
+                    }
                     let preview = truncate_str(&output, 800);
                     emit(
                         stream,
@@ -1973,6 +2015,12 @@ async fn run_sub_agent(
                 }
                 Err(err) => {
                     let err = err.to_string();
+                    let err_snip = truncate_str(&err, 400);
+                    state.computer_state.record_desktop_tool_if_applicable(
+                        &tool_id,
+                        &args_for_desktop_log,
+                        Some(err_snip.as_str()),
+                    );
                     emit(
                         stream,
                         StreamEvent::ToolCallStatus {
@@ -2269,6 +2317,7 @@ fn tool_result_msg(tool_call_id: &str, content: &str) -> ChatMessage {
         agent_name: None,
         agent_trace: None,
         images_base64: None,
+        computer_round_screen_rel_path: None,
     }
 }
 
@@ -2277,6 +2326,26 @@ fn truncate_str(s: &str, n: usize) -> String {
         s.to_string()
     } else {
         format!("{}…", s.chars().take(n).collect::<String>())
+    }
+}
+
+/// When the tool run did not succeed, short text for `[Recent desktop tool calls]` (`FAILED: …`).
+fn desktop_tool_failure_note(ok: bool, err_note: &Option<String>, tool_output: &str) -> Option<String> {
+    if ok {
+        return None;
+    }
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(e) = err_note.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        parts.push(e.to_string());
+    }
+    let out = truncate_str(tool_output, 200);
+    if !out.trim().is_empty() {
+        parts.push(out);
+    }
+    if parts.is_empty() {
+        Some("failed".into())
+    } else {
+        Some(parts.join(" | "))
     }
 }
 

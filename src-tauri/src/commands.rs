@@ -1,3 +1,4 @@
+use pointer_core::agents::computer::capture_debug;
 use pointer_core::agents::AgentDef;
 use pointer_core::chat_service::{run_chat, AppState};
 use pointer_core::models::{
@@ -11,7 +12,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc;
 
-const STREAM_EVENT: &str = "chat://stream";
+pub const STREAM_EVENT: &str = "chat://stream";
 
 #[tauri::command]
 pub async fn send_chat(
@@ -139,6 +140,12 @@ pub fn preview_computer_annotated_screen(
         .computer_state
         .cached_annotated_preview()
         .ok_or_else(|| "暂无标注截图：需先在本会话中完成一次 Computer 屏幕注入（发消息触发），或检查标注服务是否正常。".into())
+}
+
+/// Load a saved annotated PNG by path relative to `computer-captures/` (from `AssistantRoundScreen`).
+#[tauri::command]
+pub fn preview_computer_round_screen(rel_path: String) -> Result<ComputerAnnotatedPreview, String> {
+    capture_debug::read_computer_capture_preview(&rel_path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

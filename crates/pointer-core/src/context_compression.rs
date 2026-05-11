@@ -154,6 +154,7 @@ fn new_summary_user_message(body: String) -> ChatMessage {
         agent_name: None,
         agent_trace: None,
         images_base64: None,
+        computer_round_screen_rel_path: None,
     }
 }
 
@@ -209,6 +210,7 @@ async fn compress_history_inner(
         agent_name: None,
         agent_trace: None,
         images_base64: None,
+        computer_round_screen_rel_path: None,
     };
 
     let max_tok = settings.context_summary_max_tokens.max(128);
@@ -333,6 +335,7 @@ mod tests {
             agent_name: None,
             agent_trace: None,
             images_base64: None,
+            computer_round_screen_rel_path: None,
         }
     }
 

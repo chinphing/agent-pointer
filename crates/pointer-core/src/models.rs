@@ -73,6 +73,13 @@ pub struct ChatMessage {
     /// present; ephemeral computer screen inject uses this without persisting to conversation files.
     #[serde(default, rename = "imagesBase64", skip_serializing_if = "Option::is_none")]
     pub images_base64: Option<Vec<String>>,
+    /// Ephemeral UI-only: path relative to app `computer-captures/` for this turn’s annotated PNG (lazy load).
+    #[serde(
+        default,
+        rename = "computerRoundScreenRelPath",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub computer_round_screen_rel_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -481,6 +488,16 @@ pub enum StreamEvent {
         /// e.g. `success`, `error`, `warning`
         level: String,
     },
+    /// Annotated screen for a specific assistant message (this LLM round’s inject).
+    AssistantRoundScreen {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "messageId")]
+        message_id: String,
+        /// Path relative to `{data_dir}/PointerApp/computer-captures/` (annotated PNG).
+        #[serde(rename = "annotatedRelPath")]
+        annotated_rel_path: String,
+    },
 }
 
 /// Channel used to push [`StreamEvent`] updates to the Pointer UI (Tauri / web SSE).
@@ -556,6 +573,7 @@ fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMess
                             agent_name: None,
                             agent_trace: None,
                             images_base64: None,
+                            computer_round_screen_rel_path: None,
                         });
                     }
                     i = j;
@@ -657,6 +675,7 @@ fn flatten_tool_rounds_computer_style_for_api(msgs: &[ChatMessage]) -> Vec<ChatM
                             agent_name: m.agent_name.clone(),
                             agent_trace: None,
                             images_base64: None,
+                            computer_round_screen_rel_path: None,
                         });
                     }
                     i = j;
@@ -793,6 +812,7 @@ mod make_openai_messages_tests {
             agent_name: None,
             agent_trace: None,
             images_base64: None,
+            computer_round_screen_rel_path: None,
         }
     }
 

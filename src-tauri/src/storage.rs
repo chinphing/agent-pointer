@@ -1,15 +1,14 @@
 use crate::models::{Conversation, ModelSettings, ProviderConfig};
 use anyhow::{Context, Result};
+use pointer_core::storage::APP_DATA_SUBDIR;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-const APP_DIR: &str = "PointerApp";
-
 fn data_dir() -> Result<PathBuf> {
     let base = dirs::data_dir().context("无法获取数据目录")?;
-    let dir = base.join(APP_DIR);
+    let dir = base.join(APP_DATA_SUBDIR);
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
     }

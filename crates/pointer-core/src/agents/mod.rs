@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Computer agent: tools, prompts, and extension hooks (lives next to `computer/AGENT.md`).
+/// Computer agent: tools, prompts (`AGENT.md` + optional `COMMUNICATION_SHARED.md` merge), extension hooks.
 pub mod computer;
 
 pub const AGENT_MODE_SINGLE: &str = "single";
@@ -56,7 +56,11 @@ const BUILTIN_AGENT_BUNDLES: &[BuiltinAgentBundle] = &[
     BuiltinAgentBundle {
         id: "computer",
         manifest: include_str!("computer/AGENT.md"),
-        communication: include_str!("computer/COMMUNICATION.md"),
+        communication: concat!(
+            include_str!("computer/COMMUNICATION_SHARED.md"),
+            "\n\n---\n\n",
+            include_str!("computer/COMMUNICATION.md"),
+        ),
     },
 ];
 
@@ -521,6 +525,11 @@ fn load_agent_from_dir(dir: &Path) -> Result<BaseAgent> {
     } else {
         String::new()
     };
+    let shared_comm_path = dir.join("COMMUNICATION_SHARED.md");
+    if shared_comm_path.exists() {
+        let shared = fs::read_to_string(&shared_comm_path)?;
+        communication = compose_system_prompt(shared.trim(), communication.trim());
+    }
     let inject_path = dir.join(AGENT_SESSION_INJECT);
     if inject_path.exists() {
         let inj = fs::read_to_string(&inject_path)?;
@@ -846,10 +855,23 @@ mod builtin_agent_tests {
     #[test]
     fn computer_builtin_manifest_parses_and_loads() {
         let raw = include_str!("computer/AGENT.md");
-        let agent = load_builtin_agent("computer", raw, "").expect("load builtin computer");
+        let comm = concat!(
+            include_str!("computer/COMMUNICATION_SHARED.md"),
+            "\n\n---\n\n",
+            include_str!("computer/COMMUNICATION.md"),
+        );
+        let agent = load_builtin_agent("computer", raw, comm).expect("load builtin computer");
         assert_eq!(agent.def.role, "worker");
         assert!(agent.def.enabled);
         assert_eq!(agent.def.profile, AgentProfile::Computer);
+        assert!(
+            agent.system_prompt.contains("Action verify"),
+            "slim thoughts template should be merged"
+        );
+        assert!(
+            agent.system_prompt.contains("[Zoom pointer after action]"),
+            "shared vision legend should be merged"
+        );
     }
 
     #[test]

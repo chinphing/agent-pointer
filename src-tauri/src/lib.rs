@@ -1,8 +1,9 @@
 mod commands;
 
+use pointer_core::models::StreamEvent;
 use pointer_core::{chat_service::AppState, skills::external::skills_dir};
 use std::{fs, path::Path, sync::Arc};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -34,6 +35,25 @@ pub fn run() {
                 log::warn!("install bundled skills failed: {err}");
             }
             app.manage(Arc::new(AppState::new()));
+            let handle = app.handle().clone();
+            match pointer_core::agents::computer::capture_debug::purge_computer_captures_older_than_days(
+                pointer_core::agents::computer::capture_debug::CAPTURE_RETENTION_DAYS,
+            ) {
+                Ok(removed) if removed > 0 => {
+                    if let Err(e) = handle.emit(
+                        commands::STREAM_EVENT,
+                        StreamEvent::UiToast {
+                            conversation_id: String::new(),
+                            message: "截图过期已清理".into(),
+                            level: "warning".into(),
+                        },
+                    ) {
+                        log::warn!("emit capture purged toast failed: {e}");
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => log::warn!("computer capture purge failed: {e}"),
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -50,6 +70,7 @@ pub fn run() {
             commands::list_tools,
             commands::list_agents,
             commands::preview_computer_annotated_screen,
+            commands::preview_computer_round_screen,
             commands::load_conversations,
             commands::save_conversations,
         ])

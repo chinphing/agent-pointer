@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-const APP_DIR: &str = "PointerApp";
+/// Subfolder under the OS user data directory (`dirs::data_dir()`). Used for settings, skills, logs, computer captures, etc.
+pub const APP_DATA_SUBDIR: &str = "PointerApp";
+
+const APP_DIR: &str = APP_DATA_SUBDIR;
 
 fn data_dir() -> Result<PathBuf> {
     let base = dirs::data_dir().context("无法获取数据目录")?;

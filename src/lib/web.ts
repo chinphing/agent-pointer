@@ -103,7 +103,12 @@ export async function listAgents(): Promise<AgentDef[]> {
 }
 
 export async function previewComputerAnnotatedScreen(): Promise<ComputerAnnotatedPreview> {
-  throw new Error('标注截图预览仅在桌面版（Tauri）中可用')
+  return await request<ComputerAnnotatedPreview>('/api/computer/annotated-preview')
+}
+
+export async function previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview> {
+  const q = new URLSearchParams({ relPath })
+  return await request<ComputerAnnotatedPreview>(`/api/computer/round-screen-preview?${q}`)
 }
 
 export async function loadConversations(): Promise<Conversation[]> {

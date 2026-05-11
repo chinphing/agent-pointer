@@ -1,5 +1,5 @@
 use axum::{
-    extract::{DefaultBodyLimit, Path, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
     response::IntoResponse,
@@ -8,11 +8,12 @@ use axum::{
 };
 use futures_util::Stream;
 use pointer_core::{
+    agents::computer::capture_debug,
     agents::AgentDef,
     chat_service::{run_chat, AppState},
     models::{
-        Conversation, ModelSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent,
-        ToolDef,
+        ComputerAnnotatedPreview, Conversation, ModelSettings, SendChatPayload, SkillDef,
+        SkillImportResult, StreamEvent, ToolDef,
     },
     provider::OpenAIProvider,
     storage,
@@ -59,6 +60,17 @@ async fn main() -> anyhow::Result<()> {
 
     let core = Arc::new(AppState::new());
     let (events, _) = broadcast::channel::<StreamEvent>(512);
+    match capture_debug::purge_computer_captures_older_than_days(capture_debug::CAPTURE_RETENTION_DAYS) {
+        Ok(removed) if removed > 0 => {
+            let _ = events.send(StreamEvent::UiToast {
+                conversation_id: String::new(),
+                message: "截图过期已清理".into(),
+                level: "warning".into(),
+            });
+        }
+        Ok(_) => {}
+        Err(e) => log::warn!("computer capture purge failed: {e}"),
+    }
     let state = ServerState { core, events };
 
     let app = Router::new()
@@ -69,6 +81,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/skills", get(list_skills).post(import_skill_zip))
         .route("/api/tools", get(list_tools))
         .route("/api/agents", get(list_agents))
+        .route(
+            "/api/computer/annotated-preview",
+            get(preview_computer_annotated_screen),
+        )
+        .route(
+            "/api/computer/round-screen-preview",
+            get(preview_computer_round_screen),
+        )
         .route(
             "/api/conversations",
             get(load_conversations).put(save_conversations),
@@ -142,6 +162,37 @@ async fn list_tools(State(state): State<ServerState>) -> Json<Vec<ToolDef>> {
 
 async fn list_agents(State(state): State<ServerState>) -> Result<Json<Vec<AgentDef>>, ApiError> {
     Ok(Json(state.core.agents.list()))
+}
+
+/// Same as Tauri `preview_computer_annotated_screen`: last cached annotated PNG from a screen inject.
+async fn preview_computer_annotated_screen(
+    State(state): State<ServerState>,
+) -> Result<Json<ComputerAnnotatedPreview>, ApiError> {
+    state
+        .core
+        .computer_state
+        .cached_annotated_preview()
+        .map(Json)
+        .ok_or_else(|| {
+            ApiError(anyhow::anyhow!(
+                "暂无标注截图：需先在本会话中完成一次 Computer 屏幕注入（发消息触发），或检查标注服务是否正常。"
+            ))
+        })
+}
+
+#[derive(Deserialize)]
+struct RoundScreenQuery {
+    #[serde(rename = "relPath")]
+    rel_path: String,
+}
+
+/// Same as Tauri `preview_computer_round_screen`: load annotated PNG from `computer-captures/` by relative path.
+async fn preview_computer_round_screen(
+    Query(q): Query<RoundScreenQuery>,
+) -> Result<Json<ComputerAnnotatedPreview>, ApiError> {
+    Ok(Json(
+        capture_debug::read_computer_capture_preview(&q.rel_path).map_err(ApiError::from)?,
+    ))
 }
 
 async fn load_conversations() -> Result<Json<Vec<Conversation>>, ApiError> {
@@ -231,7 +282,21 @@ async fn chat_stream(
                         StreamEvent::ToolRoundsExhausted { conversation_id: id, .. } => {
                             id == &conversation_id
                         }
-                        StreamEvent::UiToast { conversation_id: id, .. } => id == &conversation_id,
+                        StreamEvent::UiToast { conversation_id: id, .. } => {
+                            id.is_empty() || id == &conversation_id
+                        }
+                        StreamEvent::InjectedUserMessage { conversation_id: id, .. } => {
+                            id == &conversation_id
+                        }
+                        StreamEvent::InjectedAssistantMessage { conversation_id: id, .. } => {
+                            id == &conversation_id
+                        }
+                        StreamEvent::InjectedAssistantMessageUpdate { conversation_id: id, .. } => {
+                            id == &conversation_id
+                        }
+                        StreamEvent::AssistantRoundScreen { conversation_id: id, .. } => {
+                            id == &conversation_id
+                        }
                         _ => true,
                     };
                     if belongs {

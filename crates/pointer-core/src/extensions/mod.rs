@@ -26,6 +26,12 @@ pub struct MessageLoopPromptsAfterContext<'a> {
     /// When set, hooks may emit thread events (e.g. [`crate::models::StreamEvent::InjectedAssistantMessage`])
     /// or legacy [`crate::models::StreamEvent::UiToast`]; neither is part of the model API payload.
     pub stream: Option<&'a ChatStreamSender>,
+    /// Assistant message id for the LLM round in progress (UI row exists after [`crate::models::StreamEvent::MessageStart`]).
+    /// Screen inject uses this to attach per-turn annotated previews.
+    pub round_assistant_message_id: Option<String>,
+    /// File-name prefix for capture dumps; defaults to `round_assistant_message_id` when unset.
+    /// Supervisor sub-agents set this to a per-iteration id while UI events stay on the parent message.
+    pub round_screen_dump_prefix: Option<String>,
 }
 
 /// Context for [`ExtensionPoint::BeforeMainLlmCall`] (prompt built, immediately before the model stream).
@@ -172,6 +178,8 @@ mod tests {
             messages: &mut msgs,
             conversation_id: "test",
             stream: None,
+            round_assistant_message_id: None,
+            round_screen_dump_prefix: None,
         };
         reg.run_message_loop_prompts_after(&mut ctx).await.unwrap();
         assert_eq!(c1.load(Ordering::SeqCst), 0);
@@ -224,6 +232,8 @@ mod tests {
             messages: &mut msgs,
             conversation_id: "test",
             stream: None,
+            round_assistant_message_id: None,
+            round_screen_dump_prefix: None,
         };
         reg.run_message_loop_prompts_after(&mut ctx).await.unwrap();
         assert_eq!(*run.lock().unwrap(), "ab");

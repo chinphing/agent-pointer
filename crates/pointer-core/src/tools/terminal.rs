@@ -8,8 +8,13 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 const TERMINAL_DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const TERMINAL_MAX_TIMEOUT_MS: u64 = 120_000;
+/// 自进程启动起的墙钟上限（与是否有输出无关）。
+const TERMINAL_ABS_MAX_WALL_MS: u64 = 3_600_000;
 const TERMINAL_DEFAULT_MAX_OUTPUT_BYTES: usize = 20_000;
 const TERMINAL_MAX_OUTPUT_BYTES: usize = 200_000;
 
@@ -46,66 +51,53 @@ fn effective_terminal_cwd(explicit: Option<PathBuf>) -> Result<Option<PathBuf>> 
     Ok(None)
 }
 
+/// 超时或需要强制结束时：在 Windows 上仅 `Child::kill` 往往只杀掉 shell（如 PowerShell），
+/// 由其拉起的子进程会继续跑；用 `taskkill /T` 结束整棵进程树。其他平台仍用 `kill`。
+fn kill_terminal_child_tree_best_effort(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let pid = child.id();
+        if pid > 0 {
+            let _ = Command::new("taskkill.exe")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
+        }
+    }
+    let _ = child.kill();
+}
+
 fn run_terminal_command(args: serde_json::Value) -> Result<String> {
     let command = args
         .get("command")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|v| !v.is_empty())
+        .map(|s| s.to_string())
         .ok_or_else(|| anyhow!("缺少 command"))?;
     let cwd = effective_terminal_cwd(parse_terminal_cwd(args.get("cwd"))?)?;
-    let timeout_ms = args
-        .get("timeoutMs")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(TERMINAL_DEFAULT_TIMEOUT_MS)
-        .clamp(1_000, TERMINAL_MAX_TIMEOUT_MS);
     let max_output_bytes = args
         .get("maxOutputBytes")
         .and_then(|v| v.as_u64())
         .unwrap_or(TERMINAL_DEFAULT_MAX_OUTPUT_BYTES as u64)
         .min(TERMINAL_MAX_OUTPUT_BYTES as u64) as usize;
+    let (shell, _) = terminal_shell_command(&command);
 
-    let (shell, mut cmd) = terminal_shell_command(command);
-    if let Some(dir) = &cwd {
-        cmd.current_dir(dir);
-    }
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-
-    let started = Instant::now();
-    let mut child = cmd.spawn().map_err(|e| anyhow!("启动终端命令失败: {e}"))?;
-    let mut timed_out = false;
-
-    loop {
-        if let Some(_status) = child.try_wait()? {
-            break;
-        }
-        if started.elapsed() >= Duration::from_millis(timeout_ms) {
-            timed_out = true;
-            let _ = child.kill();
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-
-    let output = child
-        .wait_with_output()
-        .map_err(|e| anyhow!("读取终端命令输出失败: {e}"))?;
-    let duration_ms = started.elapsed().as_millis() as u64;
-    let (stdout, stdout_truncated) = truncate_output(&output.stdout, max_output_bytes);
-    let (stderr, stderr_truncated) = truncate_output(&output.stderr, max_output_bytes);
+    let r = run_terminal_command_streaming(args, |_| {})?;
 
     Ok(serde_json::json!({
-        "command": command,
+        "command": command.as_str(),
         "cwd": cwd.map(|p| p.display().to_string()).unwrap_or_else(|| std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default()),
         "shell": shell,
-        "exitCode": output.status.code(),
-        "success": output.status.success() && !timed_out,
-        "timedOut": timed_out,
-        "durationMs": duration_ms,
-        "stdout": stdout,
-        "stderr": stderr,
-        "stdoutTruncated": stdout_truncated,
-        "stderrTruncated": stderr_truncated,
+        "exitCode": r.exit_code,
+        "success": r.success,
+        "timedOut": r.timed_out,
+        "durationMs": r.duration_ms,
+        "stdout": r.stdout,
+        "stderr": r.stderr,
+        "stdoutTruncated": r.stdout_truncated,
+        "stderrTruncated": r.stderr_truncated,
         "maxOutputBytes": max_output_bytes
     })
     .to_string())
@@ -151,6 +143,7 @@ pub fn run_terminal_command_streaming(
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let started = Instant::now();
+    let mut last_output_at = started;
     let mut child = cmd.spawn().map_err(|e| anyhow!("启动终端命令失败: {e}"))?;
 
     let stdout_pipe = child
@@ -171,6 +164,7 @@ pub fn run_terminal_command_streaming(
     let mut timed_out = false;
     let status = loop {
         while let Ok(chunk) = rx.try_recv() {
+            last_output_at = Instant::now();
             on_output(&chunk.text);
             match chunk.pipe {
                 TerminalPipe::Stdout => stdout_buf.push_str(&chunk.text),
@@ -187,12 +181,21 @@ pub fn run_terminal_command_streaming(
             break status;
         }
 
-        if started.elapsed() >= Duration::from_millis(timeout_ms) {
+        if started.elapsed() >= Duration::from_millis(TERMINAL_ABS_MAX_WALL_MS) {
             timed_out = true;
-            let _ = child.kill();
+            kill_terminal_child_tree_best_effort(&mut child);
             let status = child.wait()?;
             drain_pipe_chunks(&rx, &mut stdout_buf, &mut stderr_buf, &on_output);
-            on_output("\n进程已超时，已终止执行\n");
+            on_output("\n进程已超时（总运行时间已达 1 小时上限），已终止执行\n");
+            break status;
+        }
+
+        if last_output_at.elapsed() >= Duration::from_millis(timeout_ms) {
+            timed_out = true;
+            kill_terminal_child_tree_best_effort(&mut child);
+            let status = child.wait()?;
+            drain_pipe_chunks(&rx, &mut stdout_buf, &mut stderr_buf, &on_output);
+            on_output("\n进程已超时（长时间无输出），已终止执行\n");
             break status;
         }
 

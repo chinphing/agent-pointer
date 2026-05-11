@@ -35,8 +35,8 @@ pub enum ProviderEvent {
     },
 }
 
-/// 所有 chat/completions 请求均附带：空 `tools` + `tool_choice: "none"`，
-/// 显式关闭服务商原生 function calling（本应用仅解析 assistant 正文中的 XML 工具协议）。
+/// chat/completions 请求**不**携带 `tools` / `tool_choice`（部分网关拒绝空 `tools: []`）。
+/// 本应用仅解析 assistant 正文中的 XML 工具协议，不启用服务商原生 function calling。
 #[derive(Serialize)]
 struct ChatRequest<'a> {
     model: &'a str,
@@ -45,8 +45,6 @@ struct ChatRequest<'a> {
     temperature: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
-    tools: &'static [Value],
-    tool_choice: &'static str,
 }
 
 #[derive(Deserialize, Debug)]
@@ -137,9 +135,7 @@ impl OpenAIProvider {
             "model": self.settings.model,
             "messages": [{"role":"user","content":"ping"}],
             "stream": false,
-            "max_tokens": 4,
-            "tools": [],
-            "tool_choice": "none"
+            "max_tokens": 4
         });
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(20))
@@ -190,8 +186,6 @@ impl OpenAIProvider {
             stream: false,
             temperature: self.settings.temperature,
             max_tokens: Some(max_tokens_override.unwrap_or(self.settings.max_tokens)),
-            tools: &[],
-            tool_choice: "none",
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let client = reqwest::Client::builder()
@@ -263,8 +257,6 @@ impl OpenAIProvider {
             stream: true,
             temperature: self.settings.temperature,
             max_tokens: Some(self.settings.max_tokens),
-            tools: &[],
-            tool_choice: "none",
         };
 
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));

@@ -11,6 +11,10 @@ use std::time::{Duration, Instant};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
+/// 子进程不创建控制台窗口（避免 Windows 上执行 terminal 工具时闪出黑框 / PowerShell 控制台）。
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 const TERMINAL_DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const TERMINAL_MAX_TIMEOUT_MS: u64 = 120_000;
 /// 自进程启动起的墙钟上限（与是否有输出无关）。
@@ -56,7 +60,6 @@ fn effective_terminal_cwd(explicit: Option<PathBuf>) -> Result<Option<PathBuf>> 
 fn kill_terminal_child_tree_best_effort(child: &mut std::process::Child) {
     #[cfg(windows)]
     {
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let pid = child.id();
         if pid > 0 {
             let _ = Command::new("taskkill.exe")
@@ -141,6 +144,8 @@ pub fn run_terminal_command_streaming(
         cmd.current_dir(dir);
     }
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
 
     let started = Instant::now();
     let mut last_output_at = started;

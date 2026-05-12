@@ -1,22 +1,24 @@
-## Desktop vision frames (`[CUR_SCREEN]`)
+## Desktop vision (`[CUR_SCREEN]`)
 
-Each turn you receive ordered images under the host label **`[CUR_SCREEN]`** (exact slot names appear in the first line of that message). Earlier turns’ desktop images are removed from history; rely only on the latest inject.
+Ordered images under **`[CUR_SCREEN]`** (slot names in the first line). Older desktop turns are stripped—use **only** this inject.
 
-### Full-screen raw captures
+### Full-screen
 
-- **`[Screen before action]`** (when present) — JPEG of the desktop **before** the most recent automated action. Use it with **`[Screen after action]`** to see what changed (new windows, focus moves, typed text, scroll position).
-- **`[Screen after action]`** — JPEG of the desktop **after** that action. This is the current full-screen truth for layout and global context. A **synthetic pointer** and **caret hint** may be drawn on this frame (and on the annotated image) so you know where input was aimed. In `<thoughts>`, describe the **Next action** target **only** from this frame (no overlay numbers); use **`[Annotated after action]`** later when mapping to **`index`** in the **Target location** step.
+- **`[Screen before action]`** (if present) — desktop **before** the last automated step; with **`[Screen after action]`** compare windows, focus, typed text, scroll.
+- **`[Screen after action]`** — **after** that step; layout truth + synthetic pointer/caret. In `<thoughts>`, **Verify**, **repetition**, and **Next action** must **not** name overlay digits, **`index`**, or “box N”; describe targets from this full-screen frame only. **`index`** is allowed **only** in **Target location** (slim `<thoughts>` template).
 
-### Annotated (indexed) view
+### Annotated
 
-- **`[Annotated after action]`** — Same **after-action** moment as **`[Screen after action]`**, but with **numbered overlay boxes** from the annotation service. Use these integers as **`index`** arguments for **`mouse:…`**, **`composite_action:…`**, **`modified_click:…`** when a single box tightly matches your target. Numbers are **not stable across turns**; re-read them every round.
+- **`[Annotated after action]`** — same moment as **`[Screen after action]`**, with a **digit per detected region**. Use **`index`** in **`mouse` / composite / modified_click`** overlay methods only when **one** region’s box tightly matches the target.
+- **Digit ↔ bbox:** Each **digit and its outline** are **one pair**—they use the **same color** for that region; match digit to box by **shared color** as well as placement (the integer sits **on** the region that pair labels, not a neighbor’s outline). **`index`** must be **exactly** that printed integer. On this frame, labels follow a **fixed enumeration** (**1** = first region in that order, **2** = second, …), matching how the overlays were drawn. **Do not** invent or swap numbers by re-sorting boxes yourself (reading order, size, or overlap guesses); if two outlines sit close together, use **color + placement** to pick the digit on the widget you mean.
+- **Overlay vs coordinates:** overlay methods use **`index`** to aim at **that** pair’s region center—the digit is **not** pixel **x,y**. Labels **reset every turn**—never reuse an **`index`** from an older screenshot; always read the **current** **`[Annotated after action]`** (or zoom below). If several digits are plausible, prefer the one **on** the intended control; if one box spans many controls or none fits, use **coordinates** per the inject’s scale instead.
 
-### Zoom strips (after-action only)
+### Zooms (after-action crops)
 
-All zooms are crops of the **after-action** desktop (aligned with **`[Screen after action]`** / **`[Annotated after action]`**), not the before frame.
+All zooms align with **`[Screen after action]`** / **`[Annotated after action]`**, not the before frame.
 
-- **`[Zoom top after action]`** — Magnified **top** strip (e.g. menu bar / window title region). Use to read small chrome, app name, or controls along the top edge.
-- **`[Zoom bottom after action]`** — Magnified **bottom** strip (e.g. dock / taskbar). Use for launcher icons and status UI there.
-- **`[Zoom pointer after action]`** — A magnified patch around the **mouse position at capture time**. Prefer this when checking **what is under the pointer**, fine structure next to the cursor, or ambiguous targets near the click point.
+- **`[Zoom top after action]`** — top strip (menu bar / title): small chrome, app name, top-edge controls.
+- **`[Zoom bottom after action]`** — bottom strip (dock / taskbar): launcher icons, status UI.
+- **`[Zoom pointer after action]`** — patch around pointer at capture; prefer for what is under the cursor and fine detail there.
 
-When choosing an overlay index, prefer **`[Zoom pointer after action]`** for local detail, then **`[Annotated after action]`** for global numbering. State **which frame** you used when you describe evidence (so reasoning stays tied to pixels, not free text).
+Pick **`index`**: **zoom pointer** first, then **annotated**. When you cite a box, name **which frame** you used.

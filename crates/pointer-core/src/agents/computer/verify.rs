@@ -18,10 +18,8 @@ impl VerifyHintGenerator {
     /// * `coords` - Optional coordinates that were clicked.
     pub fn click_hint(&self, index: Option<u32>, coords: Option<(i32, i32)>) -> String {
         match (index, coords) {
-            (Some(i), _) => format!(
-                "Action executed: clicked element index {}. Verify the result on the next screenshot.",
-                i
-            ),
+            (Some(_), _) => "Action executed: overlay click. Verify on next screen with visible cues only; in `<thoughts>`, verify/repetition blocks must not use overlay index numbers."
+                .to_string(),
             (_, Some((x, y))) => format!(
                 "Action executed: clicked at coordinates ({}, {}). Verify the result on the next screenshot.",
                 x, y
@@ -85,8 +83,9 @@ mod tests {
     fn test_click_hint_with_index() {
         let gen = VerifyHintGenerator::new();
         let hint = gen.click_hint(Some(3), None);
-        assert!(hint.contains("index 3"));
+        assert!(hint.contains("overlay click"));
         assert!(hint.contains("Verify"));
+        assert!(!hint.contains("index 3"));
     }
 
     #[test]

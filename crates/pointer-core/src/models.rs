@@ -73,7 +73,7 @@ pub struct ChatMessage {
     /// present; ephemeral computer screen inject uses this without persisting to conversation files.
     #[serde(default, rename = "imagesBase64", skip_serializing_if = "Option::is_none")]
     pub images_base64: Option<Vec<String>>,
-    /// Ephemeral UI-only: path relative to app `computer-captures/` for this turn’s annotated PNG (lazy load).
+    /// Path relative to app `computer-captures/` for this turn’s annotated PNG (lazy UI load); serialized when set.
     #[serde(
         default,
         rename = "computerRoundScreenRelPath",

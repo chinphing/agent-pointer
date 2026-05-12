@@ -139,7 +139,7 @@ pub fn preview_computer_annotated_screen(
     state
         .computer_state
         .cached_annotated_preview()
-        .ok_or_else(|| "暂无标注截图：需先在本会话中完成一次 Computer 屏幕注入（发消息触发），或检查标注服务是否正常。".into())
+        .ok_or_else(|| "无标注图：请先完成一次桌面注入（发消息），或确认标注服务已启动。".into())
 }
 
 /// Load a saved annotated PNG by path relative to `computer-captures/` (from `AssistantRoundScreen`).

@@ -360,6 +360,8 @@ export const useChatStore = defineStore('chat', () => {
         if (r.msg.role !== 'assistant') break
         r.msg.computerRoundScreenRelPath = e.annotatedRelPath
         r.conv.updatedAt = Date.now()
+        // Persist immediately so relPath survives app restart if the user quits before `done`.
+        persist()
         break
       }
       case 'error': {

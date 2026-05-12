@@ -175,7 +175,7 @@ async fn preview_computer_annotated_screen(
         .map(Json)
         .ok_or_else(|| {
             ApiError(anyhow::anyhow!(
-                "暂无标注截图：需先在本会话中完成一次 Computer 屏幕注入（发消息触发），或检查标注服务是否正常。"
+                "无标注图：请先完成一次桌面注入（发消息），或确认标注服务已启动。"
             ))
         })
 }

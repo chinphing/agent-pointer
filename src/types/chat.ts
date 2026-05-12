@@ -79,7 +79,7 @@ export interface ChatMessage {
   agentId?: string
   agentName?: string
   agentTrace?: AgentTrace[]
-  /** Ephemeral: annotated PNG path under app computer-captures (lazy load on preview); not persisted. */
+  /** Annotated PNG path under app `computer-captures/` (lazy load on preview); persisted when the stream emits it. */
   computerRoundScreenRelPath?: string
 }
 

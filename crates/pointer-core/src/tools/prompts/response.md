@@ -16,7 +16,7 @@ When **`tool_name` is `response`**, you are delivering the final user-visible re
 
 ```xml
 <response>
-  <thoughts>Brief reasoning for this final answer.</thoughts>
+  <thoughts>Concise summary of reasoning for this step.</thoughts>
   <headline>Short headline for the response</headline>
   <tool_name>response</tool_name>
   <tool_args>

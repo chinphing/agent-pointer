@@ -18,7 +18,7 @@ impl VerifyHintGenerator {
     /// * `coords` - Optional coordinates that were clicked.
     pub fn click_hint(&self, index: Option<u32>, coords: Option<(i32, i32)>) -> String {
         match (index, coords) {
-            (Some(_), _) => "Action executed: overlay click. Verify on next screen with visible cues only; in `<thoughts>`, verify/repetition blocks must not use overlay index numbers."
+            (Some(_), _) => "Action executed: overlay click. Verify on next screen with visible cues only; in internal verify/repetition reasoning, do not use overlay index numbers."
                 .to_string(),
             (_, Some((x, y))) => format!(
                 "Action executed: clicked at coordinates ({}, {}). Verify the result on the next screenshot.",

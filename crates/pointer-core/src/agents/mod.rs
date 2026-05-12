@@ -23,7 +23,7 @@ const AGENT_COMMUNICATION: &str = "COMMUNICATION.md";
 /// Legacy per-request block; if present, merged into `COMMUNICATION.md` content at load (placeholders expanded each request).
 const AGENT_SESSION_INJECT: &str = "SESSION_INJECT.md";
 
-/// Model-facing shared rules: host context, skills, and **`response`** role (English). XML shape and examples for **`response`** stay in the tools appendix.
+/// Model-facing shared rules: host context, skills, **`thoughts`** meaning, and **`response`** role (English). XML shape and examples for **`response`** stay in the tools appendix.
 const COMMUNICATION_PUBLIC: &str = include_str!("_shared/COMMUNICATION_PUBLIC.md");
 
 /// Injected on **every** main-LLM and sub-agent round (see `chat_service`).
@@ -228,7 +228,7 @@ pub fn expand_agent_prompt_placeholders(template: &str, vars: &SessionInjectVars
     template.replace("{{workspace_root}}", vars.workspace_root)
 }
 
-/// Per-round **system inject**: shared [`COMMUNICATION_PUBLIC.md`] (host, skills, **`response`** usage; `COMMUNICATION.md` is per agent and expanded via [`expand_agent_prompt_placeholders`]).
+/// Per-round **system inject**: shared [`COMMUNICATION_PUBLIC.md`] (host, skills, **`thoughts`** summary semantics, **`response`** usage; `COMMUNICATION.md` is per agent and expanded via [`expand_agent_prompt_placeholders`]).
 pub fn rendered_communication_public_inject() -> Option<String> {
     let pub_ = communication_public_md().trim();
     (!pub_.is_empty()).then(|| pub_.to_string())

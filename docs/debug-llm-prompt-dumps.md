@@ -11,7 +11,7 @@
 
 - 目录：`{应用数据目录}/logs/llm_prompts/`
 - 文件：`{unix_ms}_{uuid}.json`
-- 内容：包含时间戳、阶段标签、模型名、流式/温度/max tokens，以及 `messages` 等；消息里过长的 `data:image/...` 会替换为占位说明以控制体积。
+- 内容：包含时间戳、阶段标签、模型名、流式/温度/max tokens、**合并后的** `extraBody`（与发往 chat/completions 的 `extra_body` 一致），以及 `messages` 等；消息里过长的 `data:image/...` 会替换为占位说明以控制体积。
 
 实现见 `crates/pointer-core/src/llm_prompt_dump.rs`。
 

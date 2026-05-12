@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,6 +127,9 @@ pub struct ComputerMonitor {
 pub struct ModelRuntimeOverrides {
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "reasoningInMessages")]
     pub reasoning_in_messages: Option<bool>,
+    /// Serialized as chat/completions top-level `extra_body` (JSON object). Shallow-merged over the provider default for the active model.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "extraBody")]
+    pub extra_body: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,6 +147,9 @@ pub struct ProviderConfig {
     /// Key = model id string (same as entries in `models`). Values override provider default.
     #[serde(default, rename = "modelConfigs")]
     pub model_configs: HashMap<String, ModelRuntimeOverrides>,
+    /// Default `extra_body` for chat/completions (JSON object). Merged shallowly with the active model’s `modelConfigs[model].extraBody` when set.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "extraBody")]
+    pub extra_body: Option<Value>,
 }
 
 /// Whether to persist/stream reasoning and send `reasoning_content` on the next request,
@@ -163,6 +170,65 @@ pub fn effective_reasoning_in_messages(settings: &ModelSettings) -> bool {
         }
     }
     p.reasoning_in_messages.unwrap_or(true)
+}
+
+/// Build `extra_body` object from legacy `thinkingEnabled` / `thinkingBudget` (disk migration).
+pub fn legacy_thinking_to_extra_body(enable: Option<bool>, budget: Option<u32>) -> Option<Value> {
+    if enable.is_none() && budget.is_none() {
+        return None;
+    }
+    let mut m = Map::new();
+    if let Some(b) = enable {
+        m.insert("enable_thinking".into(), Value::Bool(b));
+    }
+    if let Some(n) = budget.filter(|&n| n > 0) {
+        m.insert(
+            "thinking_budget".into(),
+            Value::Number(serde_json::Number::from(n)),
+        );
+    }
+    if m.is_empty() {
+        None
+    } else {
+        Some(Value::Object(m))
+    }
+}
+
+/// Shallow-merge two JSON objects; `overlay` keys replace `base`. If one side is not an object, returns a clone of the non-base side when possible.
+pub fn merge_shallow_json_objects(base: Option<&Value>, overlay: Option<&Value>) -> Option<Value> {
+    match (base, overlay) {
+        (None, None) => None,
+        (Some(b), None) => Some(b.clone()),
+        (None, Some(o)) => Some(o.clone()),
+        (Some(b), Some(o)) => match (b, o) {
+            (Value::Object(a), Value::Object(c)) => {
+                let mut out = a.clone();
+                for (k, v) in c {
+                    out.insert(k.clone(), v.clone());
+                }
+                Some(Value::Object(out))
+            }
+            (Value::Object(_), _) => Some(o.clone()),
+            (_, Value::Object(_)) => Some(o.clone()),
+            _ => Some(o.clone()),
+        },
+    }
+}
+
+/// Merged `extra_body` for **active** provider + **current** `settings.model` (model object keys win).
+pub fn effective_chat_extra_body(settings: &ModelSettings) -> Option<Value> {
+    let provider = settings
+        .providers
+        .iter()
+        .find(|p| p.id == settings.active_provider_id)
+        .or_else(|| settings.providers.first())?;
+    let model = settings.model.trim();
+    let prov = provider.extra_body.as_ref();
+    let mdl = provider
+        .model_configs
+        .get(model)
+        .and_then(|x| x.extra_body.as_ref());
+    merge_shallow_json_objects(prov, mdl)
 }
 
 /// Per-agent default LLM routing: explicit provider + model (no inferring provider from model id).
@@ -350,6 +416,7 @@ impl Default for ModelSettings {
                     ],
                     reasoning_in_messages: None,
                     model_configs: HashMap::new(),
+                    extra_body: None,
                 },
                 ProviderConfig {
                     id: "deepseek".into(),
@@ -359,6 +426,7 @@ impl Default for ModelSettings {
                     models: vec!["deepseek-v4-flash".into(), "deepseek-v4-pro".into()],
                     reasoning_in_messages: Some(true),
                     model_configs: HashMap::new(),
+                    extra_body: None,
                 },
             ],
             active_provider_id: "qwen".into(),
@@ -1084,8 +1152,42 @@ mod effective_reasoning_tests {
             m,
             ModelRuntimeOverrides {
                 reasoning_in_messages: Some(true),
+                ..Default::default()
             },
         );
         assert!(effective_reasoning_in_messages(&s));
+    }
+}
+
+#[cfg(test)]
+mod effective_extra_body_tests {
+    use super::*;
+
+    #[test]
+    fn effective_extra_body_none_by_default() {
+        let s = ModelSettings::default();
+        assert!(effective_chat_extra_body(&s).is_none());
+    }
+
+    #[test]
+    fn merge_provider_then_model() {
+        let mut s = ModelSettings::default();
+        s.model = s.providers[0].models[0].clone();
+        s.providers[0].extra_body = Some(serde_json::json!({"enable_thinking": true, "thinking_budget": 100}));
+        let m = s.model.clone();
+        s.providers[0].model_configs.insert(
+            m,
+            ModelRuntimeOverrides {
+                extra_body: Some(serde_json::json!({"thinking_budget": 500})),
+                ..Default::default()
+            },
+        );
+        let v = effective_chat_extra_body(&s).expect("merged");
+        let o = v.as_object().unwrap();
+        assert_eq!(o.get("enable_thinking"), Some(&Value::Bool(true)));
+        assert_eq!(
+            o.get("thinking_budget"),
+            Some(&Value::Number(500.into()))
+        );
     }
 }

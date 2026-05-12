@@ -51,6 +51,11 @@ const editingModelsText = ref('')
 const originalApiKey = ref('')
 const editingApiKey = ref('')
 
+const providerExtraBodyText = ref('')
+const providerExtraBodyError = ref('')
+const modelExtraBodyTexts = ref<Record<string, string>>({})
+const modelExtraBodyErrors = ref<Record<string, string>>({})
+
 function maskKey(key: string): string {
   if (!key) return ''
   if (key.length <= 8) return '••••••••'
@@ -82,6 +87,58 @@ function cloneModelConfigs(p?: ProviderConfig['modelConfigs']): NonNullable<Prov
   return out
 }
 
+function extraBodyMeaningful(v: unknown): boolean {
+  if (v == null) return false
+  if (typeof v === 'object' && !Array.isArray(v)) return Object.keys(v as object).length > 0
+  return true
+}
+
+function modelConfigHasAny(o: ModelRuntimeOverrides): boolean {
+  return o.reasoningInMessages !== undefined || extraBodyMeaningful(o.extraBody)
+}
+
+function stableStringifyExtraBody(v: unknown): string {
+  if (!extraBodyMeaningful(v)) return ''
+  try {
+    return JSON.stringify(v, null, 2)
+  } catch {
+    return ''
+  }
+}
+
+/** Empty string → ok with undefined value (omit). */
+function parseExtraBodyJson(
+  raw: string
+): { ok: true; value?: Record<string, unknown> } | { ok: false; message: string } {
+  const t = raw.trim()
+  if (!t) return { ok: true, value: undefined }
+  try {
+    const v = JSON.parse(t) as unknown
+    if (v === null || typeof v !== 'object' || Array.isArray(v)) {
+      return { ok: false, message: '须为 JSON 对象（例如 {"enable_thinking":true}）' }
+    }
+    return { ok: true, value: v as Record<string, unknown> }
+  } catch {
+    return { ok: false, message: 'JSON 格式无效' }
+  }
+}
+
+function syncExtraBodyDrafts() {
+  if (!editingProvider.value) return
+  providerExtraBodyError.value = ''
+  modelExtraBodyErrors.value = {}
+  providerExtraBodyText.value = stableStringifyExtraBody(editingProvider.value.extraBody)
+  const mids = editingModelsText.value
+    .split(',')
+    .map(m => m.trim())
+    .filter(m => m.length > 0)
+  const next: Record<string, string> = {}
+  for (const mid of mids) {
+    next[mid] = stableStringifyExtraBody(editingProvider.value.modelConfigs?.[mid]?.extraBody)
+  }
+  modelExtraBodyTexts.value = next
+}
+
 const editingParsedModelIds = computed(() =>
   editingModelsText.value
     .split(',')
@@ -99,14 +156,32 @@ function modelReasoningMode(modelId: string): 'inherit' | 'on' | 'off' {
 function setModelReasoningMode(modelId: string, mode: 'inherit' | 'on' | 'off') {
   if (!editingProvider.value) return
   editingProvider.value.modelConfigs = { ...(editingProvider.value.modelConfigs ?? {}) }
+  const prev = { ...(editingProvider.value.modelConfigs[modelId] ?? {}) }
   if (mode === 'inherit') {
+    delete prev.reasoningInMessages
+  } else {
+    prev.reasoningInMessages = mode === 'on'
+  }
+  if (!modelConfigHasAny(prev)) {
     delete editingProvider.value.modelConfigs[modelId]
-    return
+  } else {
+    editingProvider.value.modelConfigs[modelId] = prev
   }
-  editingProvider.value.modelConfigs[modelId] = {
-    ...(editingProvider.value.modelConfigs[modelId] ?? {}),
-    reasoningInMessages: mode === 'on'
+}
+
+function onProviderExtraBodyInput(e: Event) {
+  providerExtraBodyText.value = (e.target as HTMLTextAreaElement).value
+  providerExtraBodyError.value = ''
+}
+
+function onModelExtraBodyInput(modelId: string, e: Event) {
+  modelExtraBodyTexts.value = {
+    ...modelExtraBodyTexts.value,
+    [modelId]: (e.target as HTMLTextAreaElement).value
   }
+  const ne = { ...modelExtraBodyErrors.value }
+  delete ne[modelId]
+  modelExtraBodyErrors.value = ne
 }
 
 function onProviderReasoningToggle(e: Event) {
@@ -201,6 +276,7 @@ function startEditProvider(provider: ProviderConfig) {
   editingApiKey.value = ''
   editingModelsText.value = provider.models.join(', ')
   showAddProvider.value = false
+  syncExtraBodyDrafts()
 }
 
 function startAddProvider() {
@@ -217,6 +293,10 @@ function startAddProvider() {
   editingApiKey.value = ''
   editingModelsText.value = ''
   showAddProvider.value = true
+  providerExtraBodyText.value = ''
+  providerExtraBodyError.value = ''
+  modelExtraBodyTexts.value = {}
+  modelExtraBodyErrors.value = {}
 }
 
 function cancelEditProvider() {
@@ -240,13 +320,55 @@ function saveProvider() {
     editingProvider.value.apiKey = originalApiKey.value
   }
 
-  const mc = editingProvider.value.modelConfigs ?? {}
+  const pEb = parseExtraBodyJson(providerExtraBodyText.value)
+  if (!pEb.ok) {
+    providerExtraBodyError.value = pEb.message
+    return
+  }
+  providerExtraBodyError.value = ''
+  editingProvider.value.extraBody = pEb.value
+
+  const parsedByModel: Record<string, Record<string, unknown> | undefined> = {}
+  const errModels: Record<string, string> = {}
+  for (const id of editingProvider.value.models) {
+    const raw = modelExtraBodyTexts.value[id] ?? ''
+    const r = parseExtraBodyJson(raw)
+    if (!r.ok) {
+      errModels[id] = r.message
+      continue
+    }
+    parsedByModel[id] = r.value
+  }
+  if (Object.keys(errModels).length) {
+    modelExtraBodyErrors.value = errModels
+    return
+  }
+  modelExtraBodyErrors.value = {}
+
+  const mc = { ...(editingProvider.value.modelConfigs ?? {}) }
+  for (const id of editingProvider.value.models) {
+    const prev = { ...(mc[id] ?? {}) }
+    const eb = parsedByModel[id]
+    if (eb === undefined || !extraBodyMeaningful(eb)) {
+      delete prev.extraBody
+    } else {
+      prev.extraBody = eb
+    }
+    if (!modelConfigHasAny(prev)) {
+      delete mc[id]
+    } else {
+      mc[id] = prev
+    }
+  }
+  editingProvider.value.modelConfigs = { ...mc }
+
   const nextMc: Record<string, ModelRuntimeOverrides> = {}
   for (const id of editingProvider.value.models) {
-    const o = mc[id]
+    const o = editingProvider.value.modelConfigs?.[id]
     if (!o) continue
     const clean: ModelRuntimeOverrides = {}
     if (o.reasoningInMessages !== undefined) clean.reasoningInMessages = o.reasoningInMessages
+    if (extraBodyMeaningful(o.extraBody)) clean.extraBody = o.extraBody
     if (Object.keys(clean).length) nextMc[id] = clean
   }
   editingProvider.value.modelConfigs = nextMc
@@ -464,12 +586,20 @@ async function saveAll() {
                 </div>
                 <div class="col-span-2">
                   <label class="block text-[12px] text-slate-400 mb-1.5">模型列表</label>
-                  <input v-model="editingModelsText" type="text" class="w-full h-9 px-3 rounded-lg bg-black/30 border border-white/10 text-sm text-slate-100 outline-none focus:border-primary/50 transition-colors" placeholder="model-1, model-2, model-3" />
+                  <input v-model="editingModelsText" type="text" class="w-full h-9 px-3 rounded-lg bg-black/30 border border-white/10 text-sm text-slate-100 outline-none focus:border-primary/50 transition-colors" placeholder="model-1, model-2, model-3" @blur="syncExtraBodyDrafts" />
                 </div>
                 <div class="col-span-2 rounded-lg border border-white/5 bg-black/20 p-4 space-y-3">
                   <h5 class="text-[12px] font-medium text-slate-200">模型运行时</h5>
                   <p class="text-[11px] text-slate-500 leading-relaxed">
-                    推理内容是否写入消息、随会话保存，并在下一轮请求中作为 <code class="text-slate-400">reasoning_content</code> 回传（如深度求索等）。以下为服务商默认值；可按模型单独覆盖。后续可在此扩展更多模型级选项。
+                    推理内容是否写入消息、随会话保存，并在下一轮请求中作为 <code class="text-slate-400">reasoning_content</code> 回传（如深度求索等）。以下为服务商默认值；可按模型单独覆盖。
+                  </p>
+                  <p class="text-[11px] text-slate-500 leading-relaxed">
+                    扩展参数以 JSON 对象写入 chat 请求的顶层字段 <code class="text-slate-400">extra_body</code>（与 OpenAI Python SDK 的 <code class="text-slate-400">extra_body=&#123;…&#125;</code> 对应）。服务商默认与当前模型配置<strong>浅合并</strong>，同名键以模型为准。示例：
+                    <code v-pre class="block mt-1 text-slate-400 font-mono text-[10px] break-all">{"enable_thinking": true, "thinking_budget": 500}</code>
+                    详见
+                    <a class="text-primary-cyan hover:underline" href="https://help.aliyun.com/zh/model-studio/deep-thinking" target="_blank" rel="noopener noreferrer">阿里云</a>
+                    、
+                    <a class="text-primary-cyan hover:underline" href="https://docs.qwencloud.com/developer-guides/text-generation/thinking" target="_blank" rel="noopener noreferrer">Qwen</a>。
                   </p>
                   <div class="flex items-center justify-between gap-3">
                     <span class="text-[12px] text-slate-400">服务商默认开启推理与回传</span>
@@ -483,23 +613,54 @@ async function saveAll() {
                       <div class="w-9 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-cyan"></div>
                     </label>
                   </div>
-                  <div v-if="editingParsedModelIds.length" class="space-y-2 pt-2 border-t border-white/5">
+                  <div class="pt-2 border-t border-white/5 space-y-1">
+                    <label class="block text-[11px] text-slate-500">服务商默认 <code class="text-slate-400">extra_body</code>（JSON 对象，可留空）</label>
+                    <textarea
+                      :value="providerExtraBodyText"
+                      rows="4"
+                      spellcheck="false"
+                      class="w-full min-h-[5rem] px-2 py-2 rounded-lg bg-black/30 border text-slate-200 text-[11px] font-mono outline-none focus:border-primary/50"
+                      :class="providerExtraBodyError ? 'border-red-500/60' : 'border-white/10'"
+                      placeholder='例如：{"enable_thinking":true,"thinking_budget":500}'
+                      @input="onProviderExtraBodyInput"
+                    />
+                    <p v-if="providerExtraBodyError" class="text-[11px] text-red-400">{{ providerExtraBodyError }}</p>
+                  </div>
+                  <div v-if="editingParsedModelIds.length" class="space-y-3 pt-2 border-t border-white/5">
                     <div class="text-[11px] text-slate-500">按模型覆盖</div>
                     <div
                       v-for="mid in editingParsedModelIds"
                       :key="mid"
-                      class="flex items-center gap-3 text-[12px] min-h-8"
+                      class="rounded-lg border border-white/5 bg-black/15 p-3 space-y-2"
                     >
-                      <span class="font-mono text-slate-300 shrink-0 min-w-[7rem] truncate" :title="mid">{{ mid }}</span>
-                      <select
-                        class="flex-1 min-w-0 h-8 px-2 rounded-lg bg-black/30 border border-white/10 text-slate-200 text-[12px] outline-none focus:border-primary/50"
-                        :value="modelReasoningMode(mid)"
-                        @change="setModelReasoningMode(mid, ($event.target as HTMLSelectElement).value as 'inherit' | 'on' | 'off')"
-                      >
-                        <option value="inherit">跟随服务商</option>
-                        <option value="on">开启</option>
-                        <option value="off">关闭</option>
-                      </select>
+                      <div class="font-mono text-[11px] text-slate-400 truncate" :title="mid">{{ mid }}</div>
+                      <div class="space-y-2">
+                        <div>
+                          <span class="text-[10px] text-slate-500 block mb-0.5">推理回传</span>
+                          <select
+                            class="w-full h-8 px-2 rounded-lg bg-black/30 border border-white/10 text-slate-200 text-[12px] outline-none focus:border-primary/50"
+                            :value="modelReasoningMode(mid)"
+                            @change="setModelReasoningMode(mid, ($event.target as HTMLSelectElement).value as 'inherit' | 'on' | 'off')"
+                          >
+                            <option value="inherit">跟随服务商</option>
+                            <option value="on">开启</option>
+                            <option value="off">关闭</option>
+                          </select>
+                        </div>
+                        <div>
+                          <span class="text-[10px] text-slate-500 block mb-0.5">本模型 <code class="text-slate-400">extra_body</code>（浅合并覆盖服务商，可留空）</span>
+                          <textarea
+                            :value="modelExtraBodyTexts[mid] ?? ''"
+                            rows="3"
+                            spellcheck="false"
+                            class="w-full min-h-[3.5rem] px-2 py-1.5 rounded-lg bg-black/30 border text-slate-200 text-[11px] font-mono outline-none focus:border-primary/50"
+                            :class="modelExtraBodyErrors[mid] ? 'border-red-500/60' : 'border-white/10'"
+                            placeholder='例如：{"thinking_budget":500}'
+                            @input="onModelExtraBodyInput(mid, $event)"
+                          />
+                          <p v-if="modelExtraBodyErrors[mid]" class="text-[10px] text-red-400 mt-0.5">{{ modelExtraBodyErrors[mid] }}</p>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

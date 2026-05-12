@@ -16,7 +16,8 @@ pub mod timing;
 pub mod capture_debug;
 
 pub use timing::{
-    is_desktop_post_delay_tool, is_desktop_vision_log_tool, POST_DESKTOP_ACTION_DELAY_MS,
+    is_desktop_post_delay_tool, is_desktop_vision_log_tool, COMPOSITE_ACTION_STEP_GAP_MS,
+    POST_DESKTOP_ACTION_DELAY_MS,
 };
 
 use crate::agents::AgentRegistry;

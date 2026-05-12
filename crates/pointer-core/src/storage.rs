@@ -1,6 +1,6 @@
 use crate::models::{
-    ensure_agent_model_refs_have_provider, AgentModelRef, Conversation, ModelRuntimeOverrides,
-    ModelSettings, ProviderConfig,
+    ensure_agent_model_refs_have_provider, legacy_thinking_to_extra_body, merge_shallow_json_objects,
+    AgentModelRef, Conversation, ModelRuntimeOverrides, ModelSettings, ProviderConfig,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -41,6 +41,13 @@ fn conv_path() -> Result<PathBuf> {
 struct StoredModelOverrides {
     #[serde(default, rename = "reasoningInMessages")]
     reasoning_in_messages: Option<bool>,
+    #[serde(default, rename = "extraBody")]
+    extra_body: Option<serde_json::Value>,
+    /// Legacy; merged into `extraBody` on load, not written back.
+    #[serde(default, rename = "thinkingEnabled")]
+    thinking_enabled: Option<bool>,
+    #[serde(default, rename = "thinkingBudget")]
+    thinking_budget: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -54,6 +61,13 @@ struct StoredProvider {
     models: Vec<String>,
     #[serde(default, rename = "reasoningInMessages")]
     reasoning_in_messages: Option<bool>,
+    #[serde(default, rename = "extraBody")]
+    extra_body: Option<serde_json::Value>,
+    /// Legacy; merged into `extraBody` on load, cleared on save.
+    #[serde(default, rename = "thinkingEnabled")]
+    thinking_enabled: Option<bool>,
+    #[serde(default, rename = "thinkingBudget")]
+    thinking_budget: Option<u32>,
     #[serde(default, rename = "modelConfigs")]
     model_configs: HashMap<String, StoredModelOverrides>,
 }
@@ -149,10 +163,16 @@ impl Default for StoredSettings {
                                 k.clone(),
                                 StoredModelOverrides {
                                     reasoning_in_messages: v.reasoning_in_messages,
+                                    extra_body: v.extra_body.clone(),
+                                    thinking_enabled: None,
+                                    thinking_budget: None,
                                 },
                             )
                         })
                         .collect(),
+                    extra_body: p.extra_body.clone(),
+                    thinking_enabled: None,
+                    thinking_budget: None,
                 })
                 .collect(),
             active_provider_id: s.active_provider_id,
@@ -227,14 +247,22 @@ pub fn load_settings() -> Result<ModelSettings> {
                 .model_configs
                 .iter()
                 .map(|(k, v)| {
+                    let leg =
+                        legacy_thinking_to_extra_body(v.thinking_enabled, v.thinking_budget);
+                    let merged = merge_shallow_json_objects(leg.as_ref(), v.extra_body.as_ref());
                     (
                         k.clone(),
                         ModelRuntimeOverrides {
                             reasoning_in_messages: v.reasoning_in_messages,
+                            extra_body: merged,
                         },
                     )
                 })
                 .collect(),
+            extra_body: merge_shallow_json_objects(
+                legacy_thinking_to_extra_body(p.thinking_enabled, p.thinking_budget).as_ref(),
+                p.extra_body.as_ref(),
+            ),
         })
         .collect();
 
@@ -294,13 +322,19 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
                     .map(|(k, v)| {
                         (
                             k.clone(),
-                            StoredModelOverrides {
-                                reasoning_in_messages: v.reasoning_in_messages,
-                            },
-                        )
-                    })
-                    .collect(),
-            })
+                                StoredModelOverrides {
+                                    reasoning_in_messages: v.reasoning_in_messages,
+                                    extra_body: v.extra_body.clone(),
+                                    thinking_enabled: None,
+                                    thinking_budget: None,
+                                },
+                            )
+                        })
+                        .collect(),
+                    extra_body: p.extra_body.clone(),
+                    thinking_enabled: None,
+                    thinking_budget: None,
+                })
             .collect(),
         active_provider_id: s.active_provider_id.clone(),
         model: s.model.clone(),

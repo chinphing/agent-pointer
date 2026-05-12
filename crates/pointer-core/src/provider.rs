@@ -51,6 +51,17 @@ pub enum ProviderEvent {
 
 /// chat/completions 请求**不**携带 `tools` / `tool_choice`（部分网关拒绝空 `tools: []`）。
 /// 本应用仅解析 assistant 正文中的 XML 工具协议，不启用服务商原生 function calling。
+///
+/// 非标准参数通过顶层 `extra_body` 传递（JSON 对象），由服务商或网关解析；与 OpenAI Python SDK 的 `extra_body={...}` 对应。
+fn skip_extra_body(v: &Option<Value>) -> bool {
+    match v {
+        None => true,
+        Some(Value::Null) => true,
+        Some(Value::Object(o)) if o.is_empty() => true,
+        _ => false,
+    }
+}
+
 #[derive(Serialize)]
 struct ChatRequest<'a> {
     model: &'a str,
@@ -59,6 +70,8 @@ struct ChatRequest<'a> {
     temperature: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "skip_extra_body", rename = "extra_body")]
+    extra_body: Option<Value>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -198,6 +211,7 @@ impl OpenAIProvider {
             crate::models::effective_reasoning_in_messages(&self.settings),
         );
         let max_tok = max_tokens_override.unwrap_or(self.settings.max_tokens);
+        let extra_body = crate::models::effective_chat_extra_body(&self.settings);
         crate::llm_prompt_dump::try_dump_round(
             &self.settings,
             dump_label,
@@ -212,6 +226,7 @@ impl OpenAIProvider {
             stream: false,
             temperature: self.settings.temperature,
             max_tokens: Some(max_tok),
+            extra_body,
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let client = reqwest::Client::builder()
@@ -280,12 +295,14 @@ impl OpenAIProvider {
             self.settings.max_tokens,
             &openai_msgs,
         );
+        let extra_body = crate::models::effective_chat_extra_body(&self.settings);
         let req = ChatRequest {
             model: &self.settings.model,
             messages: openai_msgs,
             stream: true,
             temperature: self.settings.temperature,
             max_tokens: Some(self.settings.max_tokens),
+            extra_body,
         };
 
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));

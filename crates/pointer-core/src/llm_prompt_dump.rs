@@ -85,6 +85,7 @@ pub fn try_dump_round(
         redact_large_images(m);
     }
 
+    let extra_body = crate::models::effective_chat_extra_body(settings);
     let body = serde_json::json!({
         "dumpedAt": Local::now().to_rfc3339(),
         "phase": phase,
@@ -94,6 +95,7 @@ pub fn try_dump_round(
         "stream": stream,
         "temperature": settings.temperature,
         "maxTokens": max_tokens,
+        "extraBody": extra_body,
         "messages": msgs,
     });
 

@@ -1,3 +1,4 @@
+use super::timing::COMPOSITE_ACTION_STEP_GAP_MS;
 use anyhow::{anyhow, Result};
 use std::time::Duration;
 
@@ -6,6 +7,12 @@ use std::time::Duration;
 #[inline]
 fn settle_after_absolute_move() {
     std::thread::sleep(Duration::from_millis(45));
+}
+
+/// Between composite sub-steps (focus → type, select-all → type, position → scroll); see [`COMPOSITE_ACTION_STEP_GAP_MS`].
+#[inline]
+fn composite_step_gap() {
+    std::thread::sleep(Duration::from_millis(COMPOSITE_ACTION_STEP_GAP_MS));
 }
 
 /// Mouse button for low-level press/release.
@@ -315,8 +322,10 @@ impl ActionExecutor {
         auto_enter: bool,
     ) -> Result<ActionResult> {
         self.click_at(x, y)?;
+        composite_step_gap();
         if clear_first {
             self.hotkey_select_all()?;
+            composite_step_gap();
         }
         self.backend.type_text(text)?;
         if auto_enter {
@@ -334,6 +343,7 @@ impl ActionExecutor {
     ) -> Result<ActionResult> {
         if clear_first {
             self.hotkey_select_all()?;
+            composite_step_gap();
         }
         self.backend.type_text(text)?;
         if auto_enter {
@@ -348,6 +358,7 @@ impl ActionExecutor {
     pub fn scroll_at(&self, x: i32, y: i32, lines: i32) -> Result<ActionResult> {
         self.backend.move_to(x, y)?;
         settle_after_absolute_move();
+        composite_step_gap();
         self.backend.scroll(lines)
     }
 

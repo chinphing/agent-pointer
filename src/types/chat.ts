@@ -102,6 +102,8 @@ export interface Conversation {
 /** Per-model API/runtime overrides; unset fields inherit from the parent provider. */
 export interface ModelRuntimeOverrides {
   reasoningInMessages?: boolean
+  /** Merged into chat request top-level `extra_body` (JSON object); shallow-merge over provider default. */
+  extraBody?: Record<string, unknown>
 }
 
 export interface ProviderConfig {
@@ -113,6 +115,8 @@ export interface ProviderConfig {
   /** Default for all models under this provider when `modelConfigs[model]` has no override. */
   reasoningInMessages?: boolean
   modelConfigs?: Record<string, ModelRuntimeOverrides>
+  /** Default `extra_body` for chat/completions (JSON object). */
+  extraBody?: Record<string, unknown>
 }
 
 export interface AgentModelRef {

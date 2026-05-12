@@ -68,6 +68,7 @@ export interface ChatMessage {
   toolCalls?: ToolCall[]
   toolCallId?: string
   errorMessage?: string
+  /** API `reasoning_content`（深度求索等）；仅「原始输出」调试用，主气泡不展示。 */
   reasoning?: string
   /** XML `<thoughts>` from the model response block (last complete `<response>` this turn). */
   thoughts?: string
@@ -135,7 +136,7 @@ export interface ModelSettings {
   contextSummaryMaxTokens: number
   /** Max tool-call rounds per user message (assistant loop), default 100 */
   maxToolRounds: number
-  /** Show assistant “reasoning & raw output” inspect control in chat (default true) */
+  /** 助手消息上「原始输出」调试入口（代码图标）；含正文通道原始字串与 API reasoning，不在主气泡展示 reasoning */
   rawContentViewEnabled: boolean
   /** Write each LLM request payload to app data `logs/llm_prompts/` (debug) */
   debugDumpLlmPrompts?: boolean

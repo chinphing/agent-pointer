@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import type { AgentTrace } from '../../../../types/chat'
 const props = defineProps<{
-  /** XML `<thoughts>` — shown in the slot previously used for API reasoning. */
+  /** XML `<thoughts>` — 主气泡内直接展示；与 API `reasoning_content`（仅「原始输出」调试面板）无关。 */
   xmlThoughts?: string
   agentTrace?: AgentTrace[]
 }>()

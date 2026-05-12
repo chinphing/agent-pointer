@@ -552,7 +552,7 @@ async function saveAll() {
               <div class="flex items-center justify-between gap-3">
                 <div>
                   <h4 class="text-sm font-medium text-slate-100">原始内容查看</h4>
-                  <p class="mt-1 text-[11px] text-slate-500">在助手消息上显示「推理与原始输出」入口，用于查看模型 reasoning 与未裁剪的原始回复。</p>
+                  <p class="mt-1 text-[11px] text-slate-500">在助手消息上显示「原始输出」入口（代码图标），展开后为一段可复制文本：含推理（若有）与正文通道原始输出，不在主气泡内展示。</p>
                 </div>
                 <label class="relative inline-flex items-center cursor-pointer shrink-0">
                   <input v-model="rawContentViewEnabled" type="checkbox" class="sr-only peer" />

@@ -540,14 +540,15 @@ async fn run_chat_inner(
                 ProviderEvent::ReasoningDelta(t) => {
                     if reasoning_in_messages {
                         reasoning_buf.push_str(&t);
-                        emit(
-                            &stream,
-                            StreamEvent::ReasoningDelta {
-                                message_id: assistant_id.clone(),
-                                text: t,
-                            },
-                        );
                     }
+                    // 与 `reasoning_in_messages` 解耦：界面「原始输出」可展示推理；持久化/API 仍由 `reasoning` 字段是否写入控制。
+                    emit(
+                        &stream,
+                        StreamEvent::ReasoningDelta {
+                            message_id: assistant_id.clone(),
+                            text: t,
+                        },
+                    );
                 }
                 ProviderEvent::ToolCallStart { id, name, .. } => {
                     let tc = ToolCall {
@@ -1571,6 +1572,13 @@ async fn run_sub_agent(
                         round_reasoning.push_str(&delta);
                         reasoning.push_str(&delta);
                     }
+                    emit(
+                        stream,
+                        StreamEvent::ReasoningDelta {
+                            message_id: message_id.to_string(),
+                            text: delta,
+                        },
+                    );
                 }
                 ProviderEvent::ToolCallStart { id, name, .. } => {
                     emit(

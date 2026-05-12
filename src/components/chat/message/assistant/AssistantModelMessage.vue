@@ -64,14 +64,14 @@ const MAX_HEADLINE_PIPES = 48
 
 const hasHeadline = computed(() => !!(props.message.headline && props.message.headline.trim()))
 
+/** 无 headline 时竖线进度：按「整段流式输出」体量推进（含 API reasoning 字符数）；reasoning 正文不在主气泡展示，仅「原始输出」面板可见。 */
 const streamedCharCount = computed(() => {
   const c = props.message.content?.length ?? 0
   const raw = props.message.rawContent?.length ?? 0
-  let n = Math.max(c, raw)
-  if (settingsStore.effectiveReasoningInMessages) {
-    n = Math.max(n, props.message.reasoning?.length ?? 0)
-  }
-  return n
+  const thoughtsLen = props.message.thoughts?.length ?? 0
+  const xmlPreview = props.message.xmlToolNamePreview?.length ?? 0
+  const reasoningLen = props.message.reasoning?.length ?? 0
+  return Math.max(c, raw, thoughtsLen, xmlPreview, reasoningLen)
 })
 
 const showHeadlineProgressBar = computed(

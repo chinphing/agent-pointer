@@ -14,8 +14,14 @@ export const useSkillsStore = defineStore('skills', () => {
   )
 
   async function load() {
-    skills.value = await listSkills()
-    loaded.value = true
+    try {
+      skills.value = await listSkills()
+    } catch (e) {
+      console.error('listSkills failed', e)
+      skills.value = []
+    } finally {
+      loaded.value = true
+    }
   }
 
   async function importZip(file: File): Promise<SkillImportResult> {

@@ -15,6 +15,8 @@
 
 ## 开发
 
+界面约定（助手消息 `thoughts` / API `reasoning` / 竖线进度 /「原始输出」面板）见 [`docs/assistant-message-ui.md`](docs/assistant-message-ui.md)，修改对应 Vue 逻辑前请先阅读，避免回归。
+
 桌面端：
 
 ```bash

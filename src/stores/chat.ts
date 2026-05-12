@@ -209,8 +209,6 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'reasoning_delta': {
-        const settings = useSettingsStore()
-        if (!settings.effectiveReasoningInMessages) break
         const r = findMessage(e.messageId)
         if (r) r.msg.reasoning = (r.msg.reasoning || '') + e.text
         break

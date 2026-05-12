@@ -13,6 +13,9 @@ import type {
 
 import { WEB_API_BASE } from './runtime'
 
+/** Windows 上连接未监听端口时，fetch 可能长时间挂起；超时后尽快失败以便界面可用。 */
+const REQUEST_TIMEOUT_MS = 12_000
+
 export interface SendChatPayload {
   conversationId: string
   messages: ChatMessage[]
@@ -28,10 +31,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers.set('Content-Type', 'application/json')
   }
 
-  const res = await fetch(`${WEB_API_BASE}${path}`, {
-    ...init,
-    headers
-  })
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  let res: Response
+  try {
+    res = await fetch(`${WEB_API_BASE}${path}`, {
+      ...init,
+      headers,
+      signal: init?.signal ?? controller.signal
+    })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new Error(
+        `请求超时（>${REQUEST_TIMEOUT_MS / 1000}s）：${WEB_API_BASE} 无响应。请确认已启动 pointer-server（默认 127.0.0.1:8787）或设置 VITE_WEB_API_BASE。`
+      )
+    }
+    throw e
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
 
   if (!res.ok) throw new Error(await res.text())
   if (res.status === 204 || res.status === 202) return undefined as T

@@ -5,7 +5,6 @@ use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::{DynamicImage, ExtendedColorType};
 use std::io::Cursor;
-use std::process::Command;
 use std::time::Instant;
 use xcap::Monitor;
 

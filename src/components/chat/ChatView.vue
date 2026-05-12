@@ -1,12 +1,37 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent } from 'vue'
+import { computed, defineAsyncComponent, defineComponent, h } from 'vue'
 import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
 import { useChatStore } from '../../stores/chat'
 import { Sparkles } from 'lucide-vue-next'
 
-/** Lazy: pulls in message tree (marked + ToolCallCard); empty state skips this. */
-const MessageList = defineAsyncComponent(() => import('./MessageList.vue'))
+/** 避免异步分包未返回前主区域长时间空白（Windows 杀毒/冷盘常见）。 */
+const MessageListSkeleton = defineComponent({
+  name: 'MessageListSkeleton',
+  setup() {
+    return () =>
+      h(
+        'div',
+        {
+          class:
+            'h-full flex flex-col items-center justify-center gap-3 text-slate-500 text-sm px-6 text-center'
+        },
+        [
+          h('div', {
+            class:
+              'h-9 w-9 rounded-full border-2 border-primary/25 border-t-primary-cyan animate-spin shrink-0'
+          }),
+          h('span', {}, '加载消息列表…')
+        ]
+      )
+  }
+})
+
+const MessageList = defineAsyncComponent({
+  loader: () => import('./MessageList.vue'),
+  loadingComponent: MessageListSkeleton,
+  delay: 0
+})
 
 const chat = useChatStore()
 const { uiToast } = storeToRefs(chat)

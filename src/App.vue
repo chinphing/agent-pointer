@@ -18,10 +18,13 @@ const skills = useSkillsStore()
 const showSettings = ref(false)
 const showSkills = ref(false)
 
-onMounted(async () => {
+onMounted(() => {
   void loadSettingsDialog()
-  await Promise.all([settings.load(), skills.load(), chat.init()])
-  if (!settings.settings.hasKey) showSettings.value = true
+  void Promise.all([settings.load(), skills.load(), chat.init()])
+    .catch(e => console.error('[app boot]', e))
+    .finally(() => {
+      if (!settings.settings.hasKey) showSettings.value = true
+    })
 })
 </script>
 

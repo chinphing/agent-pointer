@@ -183,7 +183,7 @@ pub struct ModelSettings {
     /// Max tool-call rounds per assistant turn. Default 100.
     #[serde(default = "default_max_tool_rounds", rename = "maxToolRounds")]
     pub max_tool_rounds: u32,
-    /// When true, chat UI may show reasoning / raw model output inspector on assistant messages.
+    /// When true, chat UI shows the assistant “原始输出” inspector (code icon); includes wire text and API reasoning for debug, not inline in the bubble.
     #[serde(default = "default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
     pub raw_content_view_enabled: bool,
     /// When true, each LLM round writes request `messages` + params under app data `logs/llm_prompts/`.

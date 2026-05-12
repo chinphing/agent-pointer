@@ -238,8 +238,8 @@ async fn compress_history_inner(
         )
         .await
     {
-        Ok(text) => {
-            let t = text.trim();
+        Ok(out) => {
+            let t = out.text.trim();
             if t.is_empty() {
                 log::warn!("context summary returned empty; using fallback notice");
                 summary_fallback_notice()

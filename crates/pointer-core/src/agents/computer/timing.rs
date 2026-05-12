@@ -4,7 +4,7 @@
 /// `composite_action`, `modified_click`) before the chat loop continues — i.e. before the next
 /// model round where **screenshot / verify (`[CUR_SCREEN]`)** runs. Gives the OS and target UI time
 /// to repaint.
-pub const POST_DESKTOP_ACTION_DELAY_MS: u64 = 200;
+pub const POST_DESKTOP_ACTION_DELAY_MS: u64 = 1000;
 
 /// Milliseconds between **sub-steps inside one composite desktop action** in [`super::actions::ActionExecutor`]
 /// (e.g. after focus click, before `type_text`; after select-all, before typing; after move+settle,
@@ -12,13 +12,15 @@ pub const POST_DESKTOP_ACTION_DELAY_MS: u64 = 200;
 pub const COMPOSITE_ACTION_STEP_GAP_MS: u64 = 50;
 
 /// Tools recorded under `[CUR_SCREEN]` as recent desktop rows (goal/action repetition hints). Includes `wait`
-/// so the model sees explicit pauses even though `wait` does not move the pointer.
+/// so the model sees explicit pauses even though `wait` does not move the pointer. Includes `clipboard` for
+/// copy/paste verification chains even though it does not move the pointer.
 pub const DESKTOP_VISION_LOG_TOOL_IDS: &[&str] = &[
     "mouse",
     "hotkey",
     "composite_action",
     "modified_click",
     "wait",
+    "clipboard",
 ];
 
 /// Tools that actually drive or schedule desktop interaction; **`wait` excluded** — it already blocks and

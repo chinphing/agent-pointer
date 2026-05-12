@@ -3,6 +3,7 @@
 //! Sibling modules (`actions`, `screen`, [`crate::agents::computer::ComputerState`], etc.) live in the parent [`crate::agents::computer`] package.
 
 pub mod args_util;
+mod tool_clipboard;
 mod tool_composite;
 mod tool_hotkey;
 mod tool_modified_click;
@@ -15,7 +16,7 @@ use crate::tools::{ToolEntry, ToolRegistry};
 use std::sync::Arc;
 use tool_modified_click::ModifiedClickTool;
 
-/// Register all computer-use tools (mouse, hotkey, composite_action, modified_click, wait).
+/// Register all computer-use tools (mouse, hotkey, composite_action, modified_click, wait, clipboard).
 pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     let mouse_state = state.clone();
     let mouse_doc = include_str!("prompts/mouse.md").trim();
@@ -116,6 +117,23 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         Arc::new(move |args| {
             let tool = tool_wait::WaitTool::new();
             tool.execute("wait", &args)
+        }),
+    ));
+
+    let clipboard_doc = include_str!("prompts/clipboard.md").trim();
+    reg.register(ToolEntry::new(
+        "clipboard",
+        "medium",
+        false,
+        clipboard_doc,
+        None,
+        Arc::new(move |args| {
+            let method = args["method"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
+                .to_string();
+            let tool = tool_clipboard::ClipboardTool::new();
+            tool.execute(&method, &args)
         }),
     ));
 }

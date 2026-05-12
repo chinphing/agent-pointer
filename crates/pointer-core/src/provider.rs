@@ -1,3 +1,4 @@
+use crate::llm_token_stats::LlmUsageSnapshot;
 use crate::models::{ChatMessage, ModelSettings, ToolCall};
 use crate::xml_tool_caller::{
     extract_xml_streaming_partial, xml_tool_arguments_to_json_string, XmlFeedLane,
@@ -46,6 +47,8 @@ pub enum ProviderEvent {
         thoughts: Option<String>,
         /// From XML `<headline>` in the completed `<response>` (if any).
         headline: Option<String>,
+        /// From final stream chunk `usage` when `stream_options.include_usage` is supported.
+        usage: Option<LlmUsageSnapshot>,
     },
 }
 
@@ -70,14 +73,36 @@ struct ChatRequest<'a> {
     temperature: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "stream_options")]
+    stream_options: Option<Value>,
     #[serde(skip_serializing_if = "skip_extra_body", rename = "extra_body")]
     extra_body: Option<Value>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct StreamUsage {
+    #[serde(default)]
+    prompt_tokens: Option<u32>,
+    #[serde(default)]
+    completion_tokens: Option<u32>,
+    #[serde(default)]
+    total_tokens: Option<u32>,
+    #[serde(default)]
+    completion_tokens_details: Option<CompletionTokensDetails>,
+}
+
+#[derive(Deserialize, Debug, Clone, Default)]
+struct CompletionTokensDetails {
+    #[serde(default)]
+    reasoning_tokens: Option<u32>,
 }
 
 #[derive(Deserialize, Debug)]
 struct StreamChunk {
     #[serde(default)]
     choices: Vec<StreamChoice>,
+    #[serde(default)]
+    usage: Option<StreamUsage>,
 }
 #[derive(Deserialize, Debug)]
 struct StreamChoice {
@@ -87,9 +112,11 @@ struct StreamChoice {
     finish_reason: Option<String>,
 }
 #[derive(Deserialize, Debug)]
-struct ChatResponse {
+struct ChatOnceApiResponse {
     #[serde(default)]
     choices: Vec<ChatChoice>,
+    #[serde(default)]
+    usage: Option<StreamUsage>,
 }
 #[derive(Deserialize, Debug)]
 struct ChatChoice {
@@ -135,6 +162,13 @@ struct StreamFn {
 pub struct OpenAIProvider {
     pub settings: ModelSettings,
     pub api_key: String,
+}
+
+/// Non-streaming chat/completions result including optional `usage`.
+#[derive(Debug)]
+pub struct ChatOnceOutput {
+    pub text: String,
+    pub usage: Option<LlmUsageSnapshot>,
 }
 
 impl OpenAIProvider {
@@ -190,7 +224,7 @@ impl OpenAIProvider {
         cancel: CancellationToken,
         max_tokens_override: Option<u32>,
         dump_label: Option<&str>,
-    ) -> Result<String> {
+    ) -> Result<ChatOnceOutput> {
         let base_url = self
             .settings
             .providers
@@ -226,9 +260,17 @@ impl OpenAIProvider {
             stream: false,
             temperature: self.settings.temperature,
             max_tokens: Some(max_tok),
+            stream_options: None,
             extra_body,
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+        crate::llm_prompt_dump::try_log_openai_chat_request_json(
+            &self.settings,
+            "chat_once",
+            dump_label,
+            &url,
+            &req,
+        );
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(180))
             .build()?;
@@ -245,19 +287,20 @@ impl OpenAIProvider {
             let text = resp.text().await.unwrap_or_default();
             return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
         }
-        let parsed: ChatResponse = resp.json().await?;
+        let parsed: ChatOnceApiResponse = resp.json().await?;
         let message = parsed
             .choices
             .into_iter()
             .next()
             .map(|choice| choice.message)
             .ok_or_else(|| anyhow!("模型未返回候选结果"))?;
-        let out = message
+        let text = message
             .content
             .clone()
             .or_else(|| message.reasoning_content.clone())
             .unwrap_or_default();
-        Ok(out)
+        let usage = parsed.usage.as_ref().map(snapshot_from_stream_usage);
+        Ok(ChatOnceOutput { text, usage })
     }
 
     pub async fn stream_chat(
@@ -296,16 +339,29 @@ impl OpenAIProvider {
             &openai_msgs,
         );
         let extra_body = crate::models::effective_chat_extra_body(&self.settings);
+        let stream_options = if stream_include_usage_enabled() {
+            Some(json!({"include_usage": true}))
+        } else {
+            None
+        };
         let req = ChatRequest {
             model: &self.settings.model,
             messages: openai_msgs,
             stream: true,
             temperature: self.settings.temperature,
             max_tokens: Some(self.settings.max_tokens),
+            stream_options,
             extra_body,
         };
 
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+        crate::llm_prompt_dump::try_log_openai_chat_request_json(
+            &self.settings,
+            "stream_chat",
+            dump_label,
+            &url,
+            &req,
+        );
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(180))
             .build()?;
@@ -337,6 +393,7 @@ impl OpenAIProvider {
         let mut last_xml_stream_meta: (Option<String>, Option<String>) = (None, None);
         let mut last_xml_partial: Option<XmlStreamingPartial> = None;
         let stream_raw_to_console = raw_llm_stream_to_console_enabled();
+        let mut last_usage: Option<LlmUsageSnapshot> = None;
 
         let mut stream = resp.bytes_stream();
         let mut buf = String::new();
@@ -420,6 +477,17 @@ impl OpenAIProvider {
                         finish_reason = reason.clone();
                     }
                 }
+                if let Some(ref u) = parsed.usage {
+                    let snap = snapshot_from_stream_usage(u);
+                    log::debug!(
+                        "stream usage chunk: total={} prompt={} completion={} reasoning={}",
+                        snap.total_tokens,
+                        snap.prompt_tokens,
+                        snap.completion_tokens,
+                        snap.reasoning_tokens
+                    );
+                    last_usage = Some(snap);
+                }
             }
         }
 
@@ -469,9 +537,37 @@ impl OpenAIProvider {
                 xml,
                 thoughts: finish_thoughts,
                 headline: finish_headline,
+                usage: last_usage,
             })
             .await;
         Ok(())
+    }
+}
+
+fn stream_include_usage_enabled() -> bool {
+    match std::env::var("POINTER_STREAM_INCLUDE_USAGE") {
+        Ok(v) if v == "0" || v.eq_ignore_ascii_case("false") => false,
+        _ => true,
+    }
+}
+
+fn snapshot_from_stream_usage(u: &StreamUsage) -> LlmUsageSnapshot {
+    let reasoning = u
+        .completion_tokens_details
+        .as_ref()
+        .and_then(|d| d.reasoning_tokens)
+        .unwrap_or(0);
+    let prompt_tokens = u.prompt_tokens.unwrap_or(0);
+    let completion_tokens = u.completion_tokens.unwrap_or(0);
+    let mut total_tokens = u.total_tokens.unwrap_or(0);
+    if total_tokens == 0 {
+        total_tokens = prompt_tokens.saturating_add(completion_tokens);
+    }
+    LlmUsageSnapshot {
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        reasoning_tokens: reasoning,
     }
 }
 

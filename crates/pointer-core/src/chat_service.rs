@@ -7,6 +7,7 @@ use crate::agents::{
 use crate::extensions::{
     BeforeMainLlmCallContext, ExtensionRegistry, MessageLoopPromptsAfterContext,
 };
+use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
 use crate::models::{
     effective_reasoning_in_messages, AgentTrace, ChatMessage, Role, StreamEvent, ToolCall,
 };
@@ -377,6 +378,7 @@ async fn run_chat_inner(
         lead_opt,
     );
     let provider = OpenAIProvider::new(settings.clone(), api_key);
+    let mut llm_token_session = ChatLlmTokenSession::new(conversation_id.to_string());
 
     crate::context_compression::maybe_compress_history(
         history,
@@ -408,6 +410,7 @@ async fn run_chat_inner(
             &mut tool_budget,
             cancel,
             effective_reasoning_in_messages(&settings),
+            &mut llm_token_session.stats,
         )
         .await;
         tool_budget.sync_out(consumed_supervisor);
@@ -650,11 +653,13 @@ async fn run_chat_inner(
                     xml,
                     thoughts,
                     headline,
+                    usage,
                 } => {
                     finish_reason = reason;
                     xml_finish_diag = xml;
                     xml_thoughts = thoughts;
                     xml_headline = headline;
+                    llm_token_session.stats.record_llm_round(usage.as_ref());
                     // 流式已发过 ToolCallStart 的 id 不再重复发送。
                     for tc in &tool_calls {
                         if streamed_tool_call_ids.insert(tc.id.clone()) {
@@ -981,6 +986,7 @@ async fn run_chat_inner(
                     duration_ms: None,
                 },
             );
+            llm_token_session.stats.record_tool_invocation();
             let started = Instant::now();
 
             let is_terminal = tool_id == "terminal";
@@ -1126,6 +1132,7 @@ async fn run_supervisor_chat(
     tool_budget: &mut SessionToolBudget,
     cancel: CancellationToken,
     reasoning_in_messages: bool,
+    llm_stats: &mut ConversationLlmStats,
 ) -> Result<()> {
     if cancel.is_cancelled() {
         return Err(anyhow!("已停止生成"));
@@ -1171,6 +1178,7 @@ async fn run_supervisor_chat(
         &env_context,
         conversation_id,
         &assistant_id,
+        llm_stats,
     )
     .await
     {
@@ -1240,6 +1248,7 @@ async fn run_supervisor_chat(
             tool_budget,
             cancel.clone(),
             reasoning_in_messages,
+            llm_stats,
         )
         .await
         {
@@ -1299,6 +1308,7 @@ async fn run_supervisor_chat(
         cancel,
         conversation_id,
         &assistant_id,
+        llm_stats,
     )
     .await?;
     if !final_answer.is_empty() {
@@ -1406,6 +1416,7 @@ async fn plan_agent_tasks(
     env_context: &str,
     conversation_id: &str,
     assistant_message_id: &str,
+    llm_stats: &mut ConversationLlmStats,
 ) -> Result<Vec<AgentTask>> {
     let workers = state.agents.enabled_workers();
     let roster = agent_roster(&workers);
@@ -1416,7 +1427,7 @@ async fn plan_agent_tasks(
         roster
     );
     let dump_lbl = format!("{conversation_id}_{assistant_message_id}_supervisor_plan");
-    let raw = provider
+    let out = provider
         .chat_once(
             history,
             &[prompt],
@@ -1425,7 +1436,8 @@ async fn plan_agent_tasks(
             Some(dump_lbl.as_str()),
         )
         .await?;
-    parse_agent_tasks(&raw, &workers, limits)
+    llm_stats.record_llm_round(out.usage.as_ref());
+    parse_agent_tasks(&out.text, &workers, limits)
         .or_else(|| Some(fallback_agent_tasks(state, history, limits)))
         .ok_or_else(|| anyhow!("无法生成 Agent 任务计划"))
 }
@@ -1442,6 +1454,7 @@ async fn run_sub_agent(
     tool_budget: &mut SessionToolBudget,
     cancel: CancellationToken,
     reasoning_in_messages: bool,
+    llm_stats: &mut ConversationLlmStats,
 ) -> Result<AgentRunResult> {
     let agent = state
         .agents
@@ -1677,15 +1690,17 @@ async fn run_sub_agent(
                     );
                 }
                 ProviderEvent::Finish {
+                    reason: _,
                     tool_calls,
                     xml,
                     thoughts,
                     headline,
-                    ..
+                    usage,
                 } => {
                     xml_finish_diag = xml;
                     round_thoughts = thoughts;
                     round_headline = headline;
+                    llm_stats.record_llm_round(usage.as_ref());
                     for tc in &tool_calls {
                         if streamed_round_tool_call_ids.insert(tc.id.clone()) {
                             let mut t = tc.clone();
@@ -1976,6 +1991,7 @@ async fn run_sub_agent(
                     duration_ms: None,
                 },
             );
+            llm_stats.record_tool_invocation();
             let started = Instant::now();
 
             let is_terminal = tool_id == "terminal";
@@ -2125,6 +2141,7 @@ async fn synthesize_final_answer(
     cancel: CancellationToken,
     conversation_id: &str,
     assistant_message_id: &str,
+    llm_stats: &mut ConversationLlmStats,
 ) -> Result<String> {
     let mut report = String::new();
     for result in results {
@@ -2144,7 +2161,7 @@ async fn synthesize_final_answer(
         }
     );
     let dump_lbl = format!("{conversation_id}_{assistant_message_id}_supervisor_synthesize");
-    provider
+    let out = provider
         .chat_once(
             history,
             &[prompt],
@@ -2152,7 +2169,9 @@ async fn synthesize_final_answer(
             None,
             Some(dump_lbl.as_str()),
         )
-        .await
+        .await?;
+    llm_stats.record_llm_round(out.usage.as_ref());
+    Ok(out.text)
 }
 
 fn emit_agent_content_delta(

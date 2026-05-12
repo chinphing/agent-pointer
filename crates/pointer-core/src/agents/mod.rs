@@ -865,8 +865,12 @@ mod builtin_agent_tests {
         assert!(agent.def.enabled);
         assert_eq!(agent.def.profile, AgentProfile::Computer);
         assert!(
-            agent.system_prompt.contains("Action verify"),
-            "slim thoughts template should be merged"
+            agent.system_prompt.contains("Verify:"),
+            "slim communication should merge Verify stage"
+        );
+        assert!(
+            agent.system_prompt.contains("Pointer:"),
+            "slim communication should merge Pointer stage"
         );
         assert!(
             agent.system_prompt.contains("[Zoom pointer after action]"),

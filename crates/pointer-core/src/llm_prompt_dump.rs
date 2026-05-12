@@ -3,11 +3,13 @@
 use crate::models::ModelSettings;
 use crate::storage;
 use chrono::Local;
-use log;
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const ENV_FORCE_DUMP: &str = "POINTER_DEBUG_LLM_PROMPTS";
+/// When set to `1` or `true`, log the full OpenAI-compatible JSON body (redacted, truncated) at **info**,
+/// without requiring file dump. Also enabled when [`should_dump`] is true.
+const ENV_REQUEST_BODY_LOG: &str = "POINTER_DEBUG_OPENAI_REQUEST";
 
 pub fn should_dump(settings: &ModelSettings) -> bool {
     if settings.debug_dump_llm_prompts {
@@ -16,6 +18,69 @@ pub fn should_dump(settings: &ModelSettings) -> bool {
     std::env::var_os(ENV_FORCE_DUMP)
         .map(|v| v == "1" || v.to_string_lossy().eq_ignore_ascii_case("true"))
         .unwrap_or(false)
+}
+
+fn request_body_log_enabled(settings: &ModelSettings) -> bool {
+    should_dump(settings)
+        || std::env::var(ENV_REQUEST_BODY_LOG)
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+}
+
+const OPENAI_REQUEST_LOG_MAX_CHARS: usize = 32_768;
+
+/// Log the JSON body sent to OpenAI-compatible `POST …/chat/completions` (images redacted; long bodies truncated).
+/// Enable with [`should_dump`] / `POINTER_DEBUG_LLM_PROMPTS` or **`POINTER_DEBUG_OPENAI_REQUEST=1`**.
+pub fn try_log_openai_chat_request_json<T: serde::Serialize>(
+    settings: &ModelSettings,
+    phase: &str,
+    label: Option<&str>,
+    url: &str,
+    request: &T,
+) {
+    if !request_body_log_enabled(settings) {
+        return;
+    }
+    let Ok(mut body) = serde_json::to_value(request) else {
+        log::warn!("openai_chat_request_json: serialize failed phase={phase}");
+        return;
+    };
+    redact_large_images(&mut body);
+    let pretty = match serde_json::to_string_pretty(&body) {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!("openai_chat_request_json: to_string_pretty: {e} phase={phase}");
+            return;
+        }
+    };
+    let (snippet, truncated_note) = if pretty.len() > OPENAI_REQUEST_LOG_MAX_CHARS {
+        let mut end = OPENAI_REQUEST_LOG_MAX_CHARS;
+        while end > 0 && !pretty.is_char_boundary(end) {
+            end -= 1;
+        }
+        (
+            &pretty[..end],
+            format!(
+                "\n… [log truncated to {} chars; total JSON length {}]",
+                end,
+                pretty.len()
+            ),
+        )
+    } else {
+        (pretty.as_str(), String::new())
+    };
+    log::info!(
+        "openai_chat_request_json phase={} label={:?} url={}{}{}",
+        phase,
+        label,
+        url,
+        truncated_note,
+        if snippet.is_empty() {
+            String::new()
+        } else {
+            format!("\n{}", snippet)
+        }
+    );
 }
 
 fn sanitize_stem(s: &str) -> String {

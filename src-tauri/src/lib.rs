@@ -10,6 +10,7 @@ pub fn run() {
     pointer_core::logging::init_backtrace_defaults();
 
     // `pointer_core::provider=debug`：流式/非流式请求结束后在 stderr 打印模型原始正文（含 XML 工具块），便于调试。
+    // `pointer_core::llm_token_stats=debug`：每轮 LLM 的 usage token 调试行（见 docs/llm-token-usage-logging.md）。
     const DEFAULT_LOG_FILTER: &str =
         "warn,pointer_core=info,pointer_core::provider=debug,pointer_app_lib=info";
     let log_dir = pointer_core::logging::desktop_log_dir();

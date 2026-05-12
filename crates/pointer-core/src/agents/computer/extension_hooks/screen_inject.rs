@@ -37,7 +37,7 @@ pub(crate) fn strip_images_from_prior_messages(messages: &mut [ChatMessage]) {
 }
 
 fn build_cur_screen_text(has_previous_raw: bool) -> String {
-    let tail = "[Annotated after action] carries overlay index numbers (not shown on [Screen before action]). [Zoom top after action], [Zoom bottom after action], and [Zoom pointer after action] magnify that same after-action view. A pointer and text caret may be drawn on full-screen captures and on the annotated image.";
+    let tail = "[Annotated after action] carries overlay index numbers (not shown on [Screen before action]). [Zoom top after action], [Zoom bottom after action], and [Zoom pointer after action] magnify that same after-action view. A pointer and text caret may be drawn on full-screen captures and on the annotated image. When the next paragraph begins with **Pointer neighbor reference bboxes**, it either lists up to five nearest overlay regions (centers inside a **300×300 px** window around the pointer) as **coordinate** anchors only, or states **None** and tells you to aim **directly** at the visible target without requiring those anchors.";
     let hint = if has_previous_raw {
         format!(
             "Compare [Screen before action] to [Screen after action] to see what changed since the last step; {tail}"
@@ -148,9 +148,13 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                 let images = assemble_cur_screen_base64(&cap);
                 let mut text = build_cur_screen_text(has_previous_raw);
                 if let Some(block) = ctx.computer_state.recent_actions_prompt_block() {
-                    text.push_str("\n");
+                    text.push_str("\n\n");
                     text.push_str(&block);
                     text.push('\n');
+                }
+                if let Some(ref anchor) = cap.mouse_neighbor_reference_text {
+                    text.push_str("\n\n");
+                    text.push_str(anchor);
                 }
                 ctx.messages.push(ChatMessage {
                     id: new_extension_message_id("screen_inject"),

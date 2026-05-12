@@ -14,6 +14,7 @@ pub mod verify;
 pub mod vision_state;
 pub mod timing;
 pub mod capture_debug;
+pub mod reference_anchors;
 
 pub use timing::{
     is_desktop_post_delay_tool, is_desktop_vision_log_tool, COMPOSITE_ACTION_STEP_GAP_MS,
@@ -49,6 +50,8 @@ pub struct ScreenCaptureResult {
     pub zoom_task_bar_png: Vec<u8>,
     /// Zoom: ≤300×300 around pointer on marked annotated.
     pub zoom_pointer_png: Vec<u8>,
+    /// Optional prose: five nearest overlay bboxes to the pointer for coordinate-tool anchors (see `reference_anchors`).
+    pub mouse_neighbor_reference_text: Option<String>,
     /// Logical monitor bounds for this capture.
     pub monitor: screen::MonitorInfo,
     /// Previous turn’s **marked** raw JPEG (`None` on first capture in a session).
@@ -190,6 +193,15 @@ impl ComputerState {
         drop(vision);
         let vision_ms = t.elapsed().as_secs_f64() * 1000.0;
 
+        let mouse_neighbor_reference_text =
+            reference_anchors::format_mouse_neighbor_reference_bboxes(
+                &boxes,
+                &monitor,
+                capture_px,
+                global_pointer,
+                CoordinateSystem::Qwen,
+            );
+
         let t = Instant::now();
         let pack = build_vision_overlay_pack(
             screen_capture,
@@ -226,6 +238,7 @@ impl ComputerState {
             zoom_menu_bar_png: pack.zoom_menu_bar_png,
             zoom_task_bar_png: pack.zoom_task_bar_png,
             zoom_pointer_png: pack.zoom_pointer_png,
+            mouse_neighbor_reference_text,
             monitor,
             inject_previous_raw_jpeg,
         })

@@ -5,6 +5,8 @@ use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::{DynamicImage, ExtendedColorType};
 use std::io::Cursor;
+#[cfg(target_os = "macos")]
+use std::process::Command;
 use std::time::Instant;
 use xcap::Monitor;
 

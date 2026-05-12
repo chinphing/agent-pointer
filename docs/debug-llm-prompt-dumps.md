@@ -7,6 +7,17 @@
 1. **设置**：在「生成参数」中打开「保存每轮对话请求」（对应 `ModelSettings.debugDumpLlmPrompts` / JSON 字段 `debugDumpLlmPrompts`）。
 2. **环境变量**（不依赖设置项）：`POINTER_DEBUG_LLM_PROMPTS` 为 `1` 或 `true` 时强制开启。
 
+## 控制台：打印 OpenAI 兼容请求 JSON
+
+在发往 `POST {base}/chat/completions` **之前**，可将**与请求体一致的** JSON（`model`、`messages`、`stream`、`temperature`、`max_tokens`、`extra_body`）打到 **info** 日志（stderr + 轮转日志文件）。
+
+- **开启方式**（满足其一即可）：
+  1. 与上文「LLM 请求落盘」相同：设置里打开「保存每轮对话请求」，或 `POINTER_DEBUG_LLM_PROMPTS=1`。
+  2. **仅打日志、不落盘**：环境变量 **`POINTER_DEBUG_OPENAI_REQUEST=1`**（或 `true`）。
+- **隐私与体积**：消息里过长的 `data:image/...` URL 会替换为占位说明；单条日志正文超过约 32KB 会截断并注明总长度。**不会**打印 `Authorization` 头或 API Key。
+
+实现见 `crates/pointer-core/src/llm_prompt_dump.rs`（`try_log_openai_chat_request_json`），在 `provider.rs` 的 `chat_once` / `stream_chat` 中调用。
+
 ## 输出位置与格式
 
 - 目录：`{应用数据目录}/logs/llm_prompts/`

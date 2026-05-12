@@ -32,6 +32,7 @@ regex = "1"
 quick-xml = "0.37"
 scraper = "0.23"
 async-trait = "0.1"
+arboard = "3"
 
 [dev-dependencies]
 anyhow = "1"

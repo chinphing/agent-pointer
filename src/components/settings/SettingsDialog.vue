@@ -55,6 +55,8 @@ const providerExtraBodyText = ref('')
 const providerExtraBodyError = ref('')
 const modelExtraBodyTexts = ref<Record<string, string>>({})
 const modelExtraBodyErrors = ref<Record<string, string>>({})
+const modelConfigModalId = ref<string | null>(null)
+const modelConfigModalError = ref('')
 
 function maskKey(key: string): string {
   if (!key) return ''
@@ -115,7 +117,7 @@ function parseExtraBodyJson(
   try {
     const v = JSON.parse(t) as unknown
     if (v === null || typeof v !== 'object' || Array.isArray(v)) {
-      return { ok: false, message: '须为 JSON 对象（例如 {"enable_thinking":true}）' }
+      return { ok: false, message: '须为 JSON 对象' }
     }
     return { ok: true, value: v as Record<string, unknown> }
   } catch {
@@ -153,6 +155,46 @@ function modelReasoningMode(modelId: string): 'inherit' | 'on' | 'off' {
   return o ? 'on' : 'off'
 }
 
+function hasModelOverrides(modelId: string): boolean {
+  const mc = editingProvider.value?.modelConfigs?.[modelId]
+  if (!mc) return false
+  return modelConfigHasAny(mc)
+}
+
+function openModelConfigModal(modelId: string) {
+  if (!editingProvider.value) return
+  modelConfigModalError.value = ''
+  modelConfigModalId.value = modelId
+  modelExtraBodyTexts.value = {
+    ...modelExtraBodyTexts.value,
+    [modelId]: stableStringifyExtraBody(editingProvider.value.modelConfigs?.[modelId]?.extraBody)
+  }
+  const ne = { ...modelExtraBodyErrors.value }
+  delete ne[modelId]
+  modelExtraBodyErrors.value = ne
+}
+
+function closeModelConfigModal() {
+  modelConfigModalId.value = null
+  modelConfigModalError.value = ''
+}
+
+function confirmModelConfigModal() {
+  const mid = modelConfigModalId.value
+  if (!mid) return
+  const raw = modelExtraBodyTexts.value[mid] ?? ''
+  const r = parseExtraBodyJson(raw)
+  if (!r.ok) {
+    modelConfigModalError.value = r.message
+    return
+  }
+  modelConfigModalError.value = ''
+  const ne = { ...modelExtraBodyErrors.value }
+  delete ne[mid]
+  modelExtraBodyErrors.value = ne
+  modelConfigModalId.value = null
+}
+
 function setModelReasoningMode(modelId: string, mode: 'inherit' | 'on' | 'off') {
   if (!editingProvider.value) return
   editingProvider.value.modelConfigs = { ...(editingProvider.value.modelConfigs ?? {}) }
@@ -182,6 +224,9 @@ function onModelExtraBodyInput(modelId: string, e: Event) {
   const ne = { ...modelExtraBodyErrors.value }
   delete ne[modelId]
   modelExtraBodyErrors.value = ne
+  if (modelConfigModalId.value === modelId) {
+    modelConfigModalError.value = ''
+  }
 }
 
 function onProviderReasoningToggle(e: Event) {
@@ -302,6 +347,8 @@ function startAddProvider() {
 function cancelEditProvider() {
   editingProvider.value = null
   showAddProvider.value = false
+  modelConfigModalId.value = null
+  modelConfigModalError.value = ''
 }
 
 function saveProvider() {
@@ -381,6 +428,8 @@ function saveProvider() {
 
   editingProvider.value = null
   showAddProvider.value = false
+  modelConfigModalId.value = null
+  modelConfigModalError.value = ''
 }
 
 function removeProvider(id: string) {
@@ -388,6 +437,8 @@ function removeProvider(id: string) {
   if (editingProvider.value?.id === id) {
     editingProvider.value = null
     showAddProvider.value = false
+    modelConfigModalId.value = null
+    modelConfigModalError.value = ''
   }
 }
 
@@ -451,7 +502,7 @@ async function saveAll() {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="emit('close')">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="modelConfigModalId ? closeModelConfigModal() : emit('close')">
     <div class="w-[960px] max-w-[94vw] h-[740px] max-h-[90vh] glass-strong rounded-2xl border border-white/10 shadow-2xl flex flex-col overflow-hidden">
       <!-- Header -->
       <header class="px-6 h-14 flex items-center gap-3 border-b border-white/5 shrink-0">
@@ -589,21 +640,14 @@ async function saveAll() {
                   <input v-model="editingModelsText" type="text" class="w-full h-9 px-3 rounded-lg bg-black/30 border border-white/10 text-sm text-slate-100 outline-none focus:border-primary/50 transition-colors" placeholder="model-1, model-2, model-3" @blur="syncExtraBodyDrafts" />
                 </div>
                 <div class="col-span-2 rounded-lg border border-white/5 bg-black/20 p-4 space-y-3">
-                  <h5 class="text-[12px] font-medium text-slate-200">模型运行时</h5>
-                  <p class="text-[11px] text-slate-500 leading-relaxed">
-                    推理内容是否写入消息、随会话保存，并在下一轮请求中作为 <code class="text-slate-400">reasoning_content</code> 回传（如深度求索等）。以下为服务商默认值；可按模型单独覆盖。
-                  </p>
-                  <p class="text-[11px] text-slate-500 leading-relaxed">
-                    扩展参数以 JSON 对象写入 chat 请求的顶层字段 <code class="text-slate-400">extra_body</code>（与 OpenAI Python SDK 的 <code class="text-slate-400">extra_body=&#123;…&#125;</code> 对应）。服务商默认与当前模型配置<strong>浅合并</strong>，同名键以模型为准。示例：
-                    <code v-pre class="block mt-1 text-slate-400 font-mono text-[10px] break-all">{"enable_thinking": true, "thinking_budget": 500}</code>
-                    详见
-                    <a class="text-primary-cyan hover:underline" href="https://help.aliyun.com/zh/model-studio/deep-thinking" target="_blank" rel="noopener noreferrer">阿里云</a>
-                    、
-                    <a class="text-primary-cyan hover:underline" href="https://docs.qwencloud.com/developer-guides/text-generation/thinking" target="_blank" rel="noopener noreferrer">Qwen</a>。
-                  </p>
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-[12px] text-slate-400">服务商默认开启推理与回传</span>
-                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                  <h5 class="text-[12px] font-medium text-slate-200">模型参数</h5>
+                  <p class="text-[11px] text-slate-500">服务商级默认；下列各模型可单独改。续写回传与「思考模式」开关不是同一项。</p>
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0 pr-2">
+                      <span class="text-[12px] text-slate-400">续写时回传推理片段</span>
+                      <p class="mt-1 text-[11px] text-slate-600 leading-snug">多轮时是否把模型已返回的推理片段再发给接口；要开「思考模式」请看下方扩展参数（JSON）。</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
                       <input
                         type="checkbox"
                         class="sr-only peer"
@@ -614,54 +658,37 @@ async function saveAll() {
                     </label>
                   </div>
                   <div class="pt-2 border-t border-white/5 space-y-1">
-                    <label class="block text-[11px] text-slate-500">服务商默认 <code class="text-slate-400">extra_body</code>（JSON 对象，可留空）</label>
+                    <label class="block text-[11px] text-slate-500">默认扩展参数（JSON，可留空）</label>
                     <textarea
                       :value="providerExtraBodyText"
                       rows="4"
                       spellcheck="false"
                       class="w-full min-h-[5rem] px-2 py-2 rounded-lg bg-black/30 border text-slate-200 text-[11px] font-mono outline-none focus:border-primary/50"
                       :class="providerExtraBodyError ? 'border-red-500/60' : 'border-white/10'"
-                      placeholder='例如：{"enable_thinking":true,"thinking_budget":500}'
+                      placeholder='{"enable_thinking":true}'
                       @input="onProviderExtraBodyInput"
                     />
                     <p v-if="providerExtraBodyError" class="text-[11px] text-red-400">{{ providerExtraBodyError }}</p>
                   </div>
-                  <div v-if="editingParsedModelIds.length" class="space-y-3 pt-2 border-t border-white/5">
-                    <div class="text-[11px] text-slate-500">按模型覆盖</div>
-                    <div
-                      v-for="mid in editingParsedModelIds"
-                      :key="mid"
-                      class="rounded-lg border border-white/5 bg-black/15 p-3 space-y-2"
-                    >
-                      <div class="font-mono text-[11px] text-slate-400 truncate" :title="mid">{{ mid }}</div>
-                      <div class="space-y-2">
-                        <div>
-                          <span class="text-[10px] text-slate-500 block mb-0.5">推理回传</span>
-                          <select
-                            class="w-full h-8 px-2 rounded-lg bg-black/30 border border-white/10 text-slate-200 text-[12px] outline-none focus:border-primary/50"
-                            :value="modelReasoningMode(mid)"
-                            @change="setModelReasoningMode(mid, ($event.target as HTMLSelectElement).value as 'inherit' | 'on' | 'off')"
-                          >
-                            <option value="inherit">跟随服务商</option>
-                            <option value="on">开启</option>
-                            <option value="off">关闭</option>
-                          </select>
-                        </div>
-                        <div>
-                          <span class="text-[10px] text-slate-500 block mb-0.5">本模型 <code class="text-slate-400">extra_body</code>（浅合并覆盖服务商，可留空）</span>
-                          <textarea
-                            :value="modelExtraBodyTexts[mid] ?? ''"
-                            rows="3"
-                            spellcheck="false"
-                            class="w-full min-h-[3.5rem] px-2 py-1.5 rounded-lg bg-black/30 border text-slate-200 text-[11px] font-mono outline-none focus:border-primary/50"
-                            :class="modelExtraBodyErrors[mid] ? 'border-red-500/60' : 'border-white/10'"
-                            placeholder='例如：{"thinking_budget":500}'
-                            @input="onModelExtraBodyInput(mid, $event)"
-                          />
-                          <p v-if="modelExtraBodyErrors[mid]" class="text-[10px] text-red-400 mt-0.5">{{ modelExtraBodyErrors[mid] }}</p>
-                        </div>
-                      </div>
-                    </div>
+                  <div v-if="editingParsedModelIds.length" class="pt-2 border-t border-white/5 space-y-1.5">
+                    <div class="text-[11px] text-slate-500">各模型</div>
+                    <ul class="rounded-lg border border-white/5 bg-black/15 divide-y divide-white/5 overflow-hidden">
+                      <li
+                        v-for="mid in editingParsedModelIds"
+                        :key="mid"
+                        class="flex items-center gap-2 px-3 py-2 min-h-10"
+                      >
+                        <span class="flex-1 min-w-0 font-mono text-[12px] text-slate-300 truncate" :title="mid">{{ mid }}</span>
+                        <span v-if="hasModelOverrides(mid)" class="shrink-0 text-[10px] text-slate-500">已调整</span>
+                        <button
+                          type="button"
+                          class="shrink-0 h-7 px-2.5 rounded-md bg-white/5 hover:bg-white/10 text-[11px] text-slate-200 cursor-pointer transition-colors"
+                          @click="openModelConfigModal(mid)"
+                        >
+                          配置
+                        </button>
+                      </li>
+                    </ul>
                   </div>
                 </div>
               </div>
@@ -932,6 +959,55 @@ async function saveAll() {
           {{ saving ? '保存中…' : '保存配置' }}
         </button>
       </footer>
+    </div>
+
+    <!-- Per-model runtime overrides -->
+    <div
+      v-if="modelConfigModalId && editingProvider"
+      class="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-4"
+      @click.self="closeModelConfigModal"
+    >
+      <div class="w-full max-w-md rounded-xl border border-white/10 bg-[#12161c] shadow-2xl p-4 space-y-3" @click.stop>
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <h5 class="text-sm font-medium text-slate-100">模型参数</h5>
+            <p class="mt-0.5 text-[11px] text-slate-500 font-mono truncate" :title="modelConfigModalId">{{ modelConfigModalId }}</p>
+          </div>
+          <button type="button" class="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 cursor-pointer transition-colors shrink-0" aria-label="关闭" @click="closeModelConfigModal">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+        <div>
+          <label class="block text-[11px] text-slate-500 mb-1">续写回传推理片段</label>
+          <select
+            class="w-full h-9 px-2 rounded-lg bg-black/30 border border-white/10 text-slate-200 text-[13px] outline-none focus:border-primary/50"
+            :value="modelReasoningMode(modelConfigModalId)"
+            @change="setModelReasoningMode(modelConfigModalId, ($event.target as HTMLSelectElement).value as 'inherit' | 'on' | 'off')"
+          >
+            <option value="inherit">跟随服务商默认</option>
+            <option value="on">回传</option>
+            <option value="off">不回传</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-[11px] text-slate-500 mb-1">扩展参数（JSON，可留空）</label>
+          <textarea
+            :value="modelExtraBodyTexts[modelConfigModalId] ?? ''"
+            rows="5"
+            spellcheck="false"
+            class="w-full min-h-[6rem] px-2 py-2 rounded-lg bg-black/30 border text-slate-200 text-[11px] font-mono outline-none focus:border-primary/50"
+            :class="modelExtraBodyErrors[modelConfigModalId] ? 'border-red-500/60' : 'border-white/10'"
+            placeholder='{"thinking_budget":500}'
+            @input="onModelExtraBodyInput(modelConfigModalId, $event)"
+          />
+          <p v-if="modelExtraBodyErrors[modelConfigModalId]" class="text-[11px] text-red-400 mt-1">{{ modelExtraBodyErrors[modelConfigModalId] }}</p>
+          <p v-if="modelConfigModalError" class="text-[11px] text-red-400 mt-1">{{ modelConfigModalError }}</p>
+        </div>
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <button type="button" class="h-8 px-4 rounded-lg bg-white/5 hover:bg-white/10 text-sm text-slate-300 cursor-pointer transition-colors" @click="closeModelConfigModal">取消</button>
+          <button type="button" class="h-8 px-4 rounded-lg bg-gradient-to-r from-primary to-primary-fuchsia text-white text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity" @click="confirmModelConfigModal">完成</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>

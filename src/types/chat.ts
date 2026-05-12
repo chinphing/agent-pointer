@@ -95,6 +95,8 @@ export interface Conversation {
   toolRoundsUsed?: number
   /** Cumulative tool rounds for Supervisor / sub-agents (separate cap pool). */
   toolRoundsUsedSupervisor?: number
+  /** Selected desktop monitor for Computer agent; empty = auto (monitor under cursor). */
+  computerMonitorId?: string
 }
 
 /** Per-model API/runtime overrides; unset fields inherit from the parent provider. */
@@ -111,6 +113,11 @@ export interface ProviderConfig {
   /** Default for all models under this provider when `modelConfigs[model]` has no override. */
   reasoningInMessages?: boolean
   modelConfigs?: Record<string, ModelRuntimeOverrides>
+}
+
+export interface AgentModelRef {
+  providerId: string
+  model: string
 }
 
 export interface ModelSettings {
@@ -140,8 +147,8 @@ export interface ModelSettings {
   rawContentViewEnabled: boolean
   /** Write each LLM request payload to app data `logs/llm_prompts/` (debug) */
   debugDumpLlmPrompts?: boolean
-  /** agentId → 该 agent 的默认模型名称 */
-  agentDefaultModels: Record<string, string>
+  /** agentId → 该 agent 的默认「服务商 + 模型」（显式存储，不从模型名反推服务商） */
+  agentDefaultModels: Record<string, AgentModelRef>
 }
 
 export interface SkillDef {
@@ -172,6 +179,15 @@ export interface ToolDef {
 export interface ComputerAnnotatedPreview {
   imageBase64: string
   caption: string
+}
+
+export interface ComputerMonitor {
+  id: string
+  left: number
+  top: number
+  width: number
+  height: number
+  isPrimary: boolean
 }
 
 export type StreamEvent =

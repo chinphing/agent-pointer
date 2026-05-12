@@ -3,9 +3,14 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { Bot, ChevronDown, FolderOpen, Send, Sparkles, Square, Users } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
-import type { AgentDef, AgentProfile } from '../../types/chat'
-import { listAgents } from '../../lib/api'
+import type { AgentDef, AgentProfile, ComputerMonitor } from '../../types/chat'
+import {
+  listAgents,
+  listComputerMonitors,
+  setComputerConversationMonitor
+} from '../../lib/api'
 import { isTauriRuntime } from '../../lib/runtime'
+import ComputerScreenPickerModal from './ComputerScreenPickerModal.vue'
 
 const chat = useChatStore()
 const settings = useSettingsStore()
@@ -47,6 +52,13 @@ const selectedWorker = computed(() => {
   return workers.value.find(w => w.id === id)
 })
 
+const isComputerAgent = computed(() => {
+  const w = selectedWorker.value
+  if (!w) return false
+  if (typeof w.profile === 'string' && w.profile === 'computer') return true
+  return w.id === 'computer'
+})
+
 const needsWorkspace = computed(() => agentNeedsWorkspace(selectedWorker.value))
 
 const workspaceDirName = computed(() => {
@@ -70,15 +82,52 @@ const canSend = computed(
     (!needsWorkspace.value || !!settings.settings.workspaceRoot?.trim())
 )
 
-/** 当前实际使用的模型：优先取 agent 默认模型，否则取全局 model */
+/** 当前实际使用的模型：优先取 agent 默认（含服务商绑定），否则取全局 model */
 const currentModel = computed(() => {
-  if (settings.settings.agentMode === 'single' && settings.settings.leadAgentId) {
-    return settings.getAgentDefaultModel(settings.settings.leadAgentId) || settings.settings.model
+  const st = settings.settings
+  if (st.agentMode === 'single') {
+    const id = st.leadAgentId?.trim()
+    const key = id || 'default'
+    const ref = settings.getAgentDefaultModelRef(key)
+    if (ref?.model) return ref.model
+    return st.model
   }
-  if (settings.settings.agentMode === 'supervisor') {
-    return settings.getAgentDefaultModel('supervisor') || settings.settings.model
+  if (st.agentMode === 'supervisor') {
+    const ref = settings.getAgentDefaultModelRef('supervisor')
+    if (ref?.model) return ref.model
+    return st.model
   }
-  return settings.settings.model
+  return st.model
+})
+
+/** 与 `currentModel` 同行的服务商：来自智能体默认里的 providerId，否则为全局 active */
+const currentProviderForModelButton = computed(() => {
+  const st = settings.settings
+  let pid = st.activeProviderId
+  if (st.agentMode === 'single') {
+    const id = st.leadAgentId?.trim()
+    const key = id || 'default'
+    const ref = settings.getAgentDefaultModelRef(key)
+    if (ref?.providerId) pid = ref.providerId
+  } else if (st.agentMode === 'supervisor') {
+    const ref = settings.getAgentDefaultModelRef('supervisor')
+    if (ref?.providerId) pid = ref.providerId
+  }
+  return st.providers.find(p => p.id === pid) ?? settings.activeProvider
+})
+
+/** 模型下拉中当前项高亮用的服务商 id */
+const effectivePickerProviderId = computed(() => {
+  const st = settings.settings
+  if (st.agentMode === 'single') {
+    const id = st.leadAgentId?.trim()
+    const key = id || 'default'
+    return settings.getAgentDefaultModelRef(key)?.providerId ?? st.activeProviderId
+  }
+  if (st.agentMode === 'supervisor') {
+    return settings.getAgentDefaultModelRef('supervisor')?.providerId ?? st.activeProviderId
+  }
+  return st.activeProviderId
 })
 
 async function loadAgentsList() {
@@ -105,13 +154,74 @@ async function pickWorkspaceFolder() {
 function send() {
   if (!canSend.value) return
   if (needsWorkspace.value && !settings.settings.workspaceRoot?.trim()) return
+  void sendWithOptionalComputerScreenPick()
+}
+
+const showScreenPicker = ref(false)
+const screenPickerLoading = ref(false)
+const screenPickerError = ref<string | null>(null)
+const screenPickerMonitors = ref<ComputerMonitor[]>([])
+const pendingSendText = ref<string | null>(null)
+
+async function sendWithOptionalComputerScreenPick() {
+  const conv = chat.current || chat.newConversation()
   const v = text.value
+  if (!v.trim()) return
+
+  if (isComputerAgent.value) {
+    try {
+      screenPickerError.value = null
+      screenPickerLoading.value = true
+      const monitors = await listComputerMonitors()
+      screenPickerMonitors.value = monitors
+      screenPickerLoading.value = false
+
+      if (!conv.computerMonitorId) {
+        if (monitors.length > 1) {
+          pendingSendText.value = v
+          showScreenPicker.value = true
+          return
+        }
+        if (monitors.length === 1) {
+          conv.computerMonitorId = monitors[0].id
+        }
+      }
+
+      await setComputerConversationMonitor(conv.id, conv.computerMonitorId || null)
+    } catch (e: any) {
+      screenPickerLoading.value = false
+      screenPickerError.value = String(e?.message || e)
+      pendingSendText.value = v
+      showScreenPicker.value = true
+      return
+    }
+  }
+
   text.value = ''
   chat.sendUserMessage(v)
   nextTick(() => {
-    if (textareaRef.value) {
-      textareaRef.value.style.height = 'auto'
-    }
+    if (textareaRef.value) textareaRef.value.style.height = 'auto'
+  })
+}
+
+async function onPickScreen(monitorId: string) {
+  const conv = chat.current || chat.newConversation()
+  conv.computerMonitorId = monitorId
+  try {
+    await setComputerConversationMonitor(conv.id, monitorId)
+  } catch (e) {
+    // If setting fails, keep the picker open with error so the user can retry.
+    screenPickerError.value = String((e as any)?.message || e)
+    return
+  }
+  showScreenPicker.value = false
+  const v = pendingSendText.value
+  pendingSendText.value = null
+  if (!v) return
+  text.value = ''
+  chat.sendUserMessage(v)
+  nextTick(() => {
+    if (textareaRef.value) textareaRef.value.style.height = 'auto'
   })
 }
 
@@ -125,39 +235,41 @@ function onKeydown(e: KeyboardEvent) {
 
 function selectModel(model: string) {
   void settings.save({ model })
-  void syncAgentDefaultModelForMode(model)
+  void syncAgentDefaultModelForMode(model, settings.settings.activeProviderId)
   showModelPicker.value = false
 }
 
 async function selectModelWithProvider(model: string, providerId: string) {
   await settings.save({ activeProviderId: providerId, model })
-  await syncAgentDefaultModelForMode(model)
+  await syncAgentDefaultModelForMode(model, providerId)
   showModelPicker.value = false
 }
 
-async function syncAgentDefaultModelForMode(model: string) {
-  if (settings.settings.agentMode === 'single' && settings.settings.leadAgentId) {
-    await settings.setAgentDefaultModel(settings.settings.leadAgentId, model)
+async function syncAgentDefaultModelForMode(model: string, providerId: string) {
+  const pid = providerId || settings.settings.activeProviderId
+  if (settings.settings.agentMode === 'single') {
+    const id = settings.settings.leadAgentId?.trim()
+    const agentKey = id || 'default'
+    await settings.setAgentDefaultModel(agentKey, { providerId: pid, model })
   } else if (settings.settings.agentMode === 'supervisor') {
-    await settings.setAgentDefaultModel('supervisor', model)
+    await settings.setAgentDefaultModel('supervisor', { providerId: pid, model })
   }
 }
 
 async function selectSupervisorMode() {
   await settings.save({ agentMode: 'supervisor', leadAgentId: '' })
-  const defaultModel = settings.getAgentDefaultModel('supervisor')
-  if (defaultModel && settings.activeModelList.includes(defaultModel)) {
-    await settings.save({ model: defaultModel })
+  const ref = settings.getAgentDefaultModelRef('supervisor')
+  if (ref?.model) {
+    await settings.save({ activeProviderId: ref.providerId, model: ref.model })
   }
   showAgentPicker.value = false
 }
 
 async function selectWorkerAgent(agent: AgentDef) {
   await settings.save({ agentMode: 'single', leadAgentId: agent.id })
-  // 自动带出该 agent 的默认模型
-  const defaultModel = settings.getAgentDefaultModel(agent.id)
-  if (defaultModel && settings.activeModelList.includes(defaultModel)) {
-    await settings.save({ model: defaultModel })
+  const ref = settings.getAgentDefaultModelRef(agent.id)
+  if (ref?.model) {
+    await settings.save({ activeProviderId: ref.providerId, model: ref.model })
   }
   showAgentPicker.value = false
 }
@@ -210,6 +322,14 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <ComputerScreenPickerModal
+    v-model:open="showScreenPicker"
+    :monitors="screenPickerMonitors"
+    :loading="screenPickerLoading"
+    :error="screenPickerError"
+    @pick="onPickScreen"
+  />
+
   <div class="px-6 md:px-10 pb-5">
     <div class="max-w-3xl mx-auto">
       <div class="glass-strong rounded-2xl p-2 neon-ring">
@@ -295,7 +415,7 @@ onUnmounted(() => {
             @click="showModelPicker = !showModelPicker"
           >
             <Sparkles class="w-3 h-3 text-primary-cyan" />
-            {{ settings.activeProvider.name }} / {{ currentModel }}
+            {{ currentProviderForModelButton.name }} / {{ currentModel }}
             <ChevronDown class="w-3 h-3" />
           </button>
 
@@ -308,7 +428,7 @@ onUnmounted(() => {
                 v-for="item in settings.allModels"
                 :key="item.model"
                 class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 cursor-pointer whitespace-nowrap"
-                :class="currentModel === item.model && settings.settings.activeProviderId === item.providerId ? 'bg-primary/15 text-primary-cyan' : 'text-slate-300'"
+                :class="currentModel === item.model && effectivePickerProviderId === item.providerId ? 'bg-primary/15 text-primary-cyan' : 'text-slate-300'"
                 @click="selectModelWithProvider(item.model, item.providerId)"
               >
                 <span class="text-slate-400 text-[10px] mr-1.5">{{ item.providerName }}</span>

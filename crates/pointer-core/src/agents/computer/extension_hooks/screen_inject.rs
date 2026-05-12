@@ -120,7 +120,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
             "【桌面】正在截图并标注…".to_string(),
         );
 
-        match ctx.computer_state.capture_and_annotate().await {
+        match ctx.computer_state.capture_and_annotate(ctx.conversation_id).await {
             Ok(cap) => {
                 let dump_prefix = ctx
                     .round_screen_dump_prefix

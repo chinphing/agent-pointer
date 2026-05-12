@@ -24,6 +24,7 @@ use crate::models::ComputerAnnotatedPreview;
 use actions::ActionExecutor;
 use annotate::AnnotateClient;
 use coord::CoordinateSystem;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use screen_overlay::build_vision_overlay_pack;
@@ -69,6 +70,8 @@ pub struct ComputerState {
     last_annotated: Arc<Mutex<Option<(Vec<u8>, screen::MonitorInfo)>>>,
     /// Raw JPEG from the last successful capture; offered as “previous turn” on the **next** `[CUR_SCREEN]` inject.
     last_turn_raw_jpeg: Arc<Mutex<Option<Vec<u8>>>>,
+    /// Selected monitor id per conversation; `None` means auto (monitor under cursor).
+    selected_monitor_by_conversation: Arc<Mutex<HashMap<String, Option<String>>>>,
 }
 
 impl std::fmt::Debug for ComputerState {
@@ -133,7 +136,24 @@ impl ComputerState {
             annotate_client,
             last_annotated: Arc::new(Mutex::new(None)),
             last_turn_raw_jpeg: Arc::new(Mutex::new(None)),
+            selected_monitor_by_conversation: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Set the selected monitor id for a conversation (Computer agent).
+    ///
+    /// `monitor_id = None` resets to auto mode (monitor under cursor).
+    pub fn set_conversation_monitor(&self, conversation_id: &str, monitor_id: Option<String>) {
+        let mut guard = self.selected_monitor_by_conversation.lock().unwrap_or_else(|e| {
+            log::warn!("selected monitor map mutex poisoned; recovering");
+            e.into_inner()
+        });
+        guard.insert(conversation_id.to_string(), monitor_id);
+    }
+
+    fn selected_monitor_id_for_conversation(&self, conversation_id: &str) -> Option<String> {
+        let guard = self.selected_monitor_by_conversation.lock().ok()?;
+        guard.get(conversation_id).cloned().flatten()
     }
 
     /// Run annotation + vision refresh for an already-captured desktop JPEG (integration tests, tooling).
@@ -214,11 +234,14 @@ impl ComputerState {
     ///
     /// Raw capture is JPEG from [`screen::screenshot_current_monitor`] (fast encode); the annotate
     /// client uploads a prepared PNG to the service. Capture uses `xcap`.
-    pub async fn capture_and_annotate(&self) -> anyhow::Result<ScreenCaptureResult> {
+    pub async fn capture_and_annotate(&self, conversation_id: &str) -> anyhow::Result<ScreenCaptureResult> {
         let t_total = Instant::now();
 
         let t = Instant::now();
-        let shot = screen::screenshot_current_monitor()?;
+        let shot = match self.selected_monitor_id_for_conversation(conversation_id) {
+            Some(id) => screen::screenshot_monitor_by_id(&id)?,
+            None => screen::screenshot_current_monitor()?,
+        };
         let screen_ms = t.elapsed().as_secs_f64() * 1000.0;
 
         let out = self

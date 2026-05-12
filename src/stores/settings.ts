@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getSettings, updateSettings, setApiKey, clearApiKey, testConnection } from '../lib/api'
-import type { ModelSettings, ProviderConfig } from '../types/chat'
+import type { AgentModelRef, ModelSettings, ProviderConfig } from '../types/chat'
 
 const defaultProviders: ProviderConfig[] = [
   {
@@ -44,6 +44,29 @@ function normalizeProviders(
 ): ProviderConfig[] {
   const raw = list?.length ? list : defaultProviders
   return raw.map(p => normalizeProvider(p, legacyReasoning))
+}
+
+function normalizeAgentDefaultModels(
+  raw: Record<string, AgentModelRef> | Record<string, unknown> | undefined,
+  activeProviderId: string
+): Record<string, AgentModelRef> {
+  const fid = (activeProviderId || 'qwen').trim() || 'qwen'
+  const out: Record<string, AgentModelRef> = {}
+  if (!raw || typeof raw !== 'object') return out
+  for (const [k, v] of Object.entries(raw)) {
+    if (v && typeof v === 'object' && !Array.isArray(v) && 'model' in (v as object)) {
+      const o = v as Record<string, unknown>
+      const model = String(o.model ?? '').trim()
+      if (!model) continue
+      const pid = String(
+        o.providerId ?? (o as { provider_id?: unknown }).provider_id ?? ''
+      ).trim()
+      out[k] = { providerId: pid || fid, model }
+    } else if (typeof v === 'string' && v.trim()) {
+      out[k] = { providerId: fid, model: v.trim() }
+    }
+  }
+  return out
 }
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -115,6 +138,7 @@ export const useSettingsStore = defineStore('settings', () => {
       const providersNorm = normalizeProviders(s.providers, legacy)
 
       if (s.providers && s.providers.length > 0) {
+        const activeId = s.activeProviderId || providersNorm[0]?.id || 'qwen'
         settings.value = {
           ...s,
           providers: providersNorm,
@@ -127,14 +151,15 @@ export const useSettingsStore = defineStore('settings', () => {
           maxToolRounds: s.maxToolRounds ?? 100,
           rawContentViewEnabled: s.rawContentViewEnabled !== false,
           debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
-          agentDefaultModels: s.agentDefaultModels ?? {}
+          agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId)
         }
       } else {
+        const activeId = s.activeProviderId || providersNorm[0]?.id || 'qwen'
         settings.value = {
           ...settings.value,
           ...s,
           providers: providersNorm,
-          activeProviderId: s.activeProviderId || providersNorm[0]?.id || 'qwen',
+          activeProviderId: activeId,
           workspaceRoot: s.workspaceRoot ?? '',
           leadAgentId: s.leadAgentId ?? '',
           contextCompressionEnabled: s.contextCompressionEnabled ?? true,
@@ -144,7 +169,7 @@ export const useSettingsStore = defineStore('settings', () => {
           maxToolRounds: s.maxToolRounds ?? 100,
           rawContentViewEnabled: s.rawContentViewEnabled !== false,
           debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
-          agentDefaultModels: s.agentDefaultModels ?? {}
+          agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId)
         }
         if (s.model && !settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models.includes(s.model)) {
           settings.value.model = settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models[0] || s.model
@@ -156,10 +181,17 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function save(patch: Partial<ModelSettings>) {
     const merged: ModelSettings = { ...settings.value, ...patch }
+    merged.agentDefaultModels = normalizeAgentDefaultModels(
+      merged.agentDefaultModels as Record<string, unknown>,
+      merged.activeProviderId
+    )
     const updated = await updateSettings(merged)
     settings.value = {
       ...updated,
-      agentDefaultModels: updated.agentDefaultModels ?? merged.agentDefaultModels ?? settings.value.agentDefaultModels
+      agentDefaultModels: normalizeAgentDefaultModels(
+        updated.agentDefaultModels as Record<string, unknown>,
+        updated.activeProviderId
+      )
     }
   }
 
@@ -226,12 +258,18 @@ export const useSettingsStore = defineStore('settings', () => {
     settings.value.hasKey = false
   }
 
-  function getAgentDefaultModel(agentId: string): string | undefined {
+  function getAgentDefaultModelRef(agentId: string): AgentModelRef | undefined {
     return settings.value.agentDefaultModels[agentId]
   }
 
-  async function setAgentDefaultModel(agentId: string, model: string) {
-    const next = { ...settings.value.agentDefaultModels, [agentId]: model }
+  async function setAgentDefaultModel(agentId: string, ref: AgentModelRef | null) {
+    const next = { ...settings.value.agentDefaultModels }
+    if (!ref || !ref.model?.trim()) {
+      delete next[agentId]
+    } else {
+      const pid = (ref.providerId || '').trim() || settings.value.activeProviderId
+      next[agentId] = { providerId: pid, model: ref.model.trim() }
+    }
     await save({ agentDefaultModels: next })
   }
 
@@ -247,6 +285,6 @@ export const useSettingsStore = defineStore('settings', () => {
     settings, loading, testing, testResult, activeProvider, activeBaseUrl, activeModelList, effectiveReasoningInMessages, allModels,
     load, save, setActiveProvider, addProvider, updateProvider, removeProvider,
     saveKey, removeKey, runTest,
-    getAgentDefaultModel, setAgentDefaultModel
+    getAgentDefaultModelRef, setAgentDefaultModel
   }
 })

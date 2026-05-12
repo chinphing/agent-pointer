@@ -314,6 +314,31 @@ fn xml_tool_empty_calls_retry_message(
     Some(format!("{intro}\n\n【CDATA / 转义】{CDATA_NOTE}"))
 }
 
+fn apply_session_agent_model_defaults(
+    settings: &mut crate::models::ModelSettings,
+    effective_agent_mode: &str,
+) {
+    let mode = effective_agent_mode.trim();
+    let key = if mode == AGENT_MODE_SUPERVISOR {
+        SUPERVISOR_AGENT_ID.to_string()
+    } else {
+        let id = settings.lead_agent_id.trim();
+        if id.is_empty() {
+            DEFAULT_AGENT_ID.to_string()
+        } else {
+            id.to_string()
+        }
+    };
+    if let Some(pref) = settings.agent_default_models.get(&key) {
+        if !pref.provider_id.trim().is_empty() {
+            settings.active_provider_id = pref.provider_id.trim().to_string();
+        }
+        if !pref.model.trim().is_empty() {
+            settings.model = pref.model.trim().to_string();
+        }
+    }
+}
+
 async fn run_chat_inner(
     stream: StreamTx,
     state: Arc<AppState>,
@@ -336,6 +361,7 @@ async fn run_chat_inner(
         .filter(|mode| !mode.trim().is_empty())
         .unwrap_or(&settings.agent_mode)
         .to_string();
+    apply_session_agent_model_defaults(&mut settings, &effective_agent_mode);
     let lead_worker_id = settings.lead_agent_id.trim();
     let lead_opt = if lead_worker_id.is_empty() {
         None

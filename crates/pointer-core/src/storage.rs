@@ -1,6 +1,10 @@
-use crate::models::{Conversation, ModelRuntimeOverrides, ModelSettings, ProviderConfig};
+use crate::models::{
+    ensure_agent_model_refs_have_provider, AgentModelRef, Conversation, ModelRuntimeOverrides,
+    ModelSettings, ProviderConfig,
+};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -85,7 +89,7 @@ struct StoredSettings {
     #[serde(default, rename = "debugDumpLlmPrompts")]
     debug_dump_llm_prompts: bool,
     #[serde(default, rename = "agentDefaultModels")]
-    agent_default_models: HashMap<String, String>,
+    agent_default_models: HashMap<String, serde_json::Value>,
     /// Legacy global toggle; applied to each provider when that provider has no explicit value.
     #[serde(default, rename = "reasoningInMessages")]
     legacy_reasoning_in_messages: Option<bool>,
@@ -166,10 +170,37 @@ impl Default for StoredSettings {
             max_tool_rounds: s.max_tool_rounds,
             raw_content_view_enabled: s.raw_content_view_enabled,
             debug_dump_llm_prompts: s.debug_dump_llm_prompts,
-            agent_default_models: s.agent_default_models.clone(),
+            agent_default_models: s
+                .agent_default_models
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        json!({ "providerId": v.provider_id, "model": v.model }),
+                    )
+                })
+                .collect(),
             legacy_reasoning_in_messages: None,
         }
     }
+}
+
+fn normalize_disk_agent_defaults(
+    raw: &HashMap<String, serde_json::Value>,
+    legacy_active_provider: &str,
+) -> HashMap<String, AgentModelRef> {
+    let mut out = HashMap::new();
+    for (k, v) in raw {
+        let mut r = match AgentModelRef::from_json_value_flexible(v.clone()) {
+            Some(x) => x,
+            None => continue,
+        };
+        if r.provider_id.trim().is_empty() {
+            r.provider_id = legacy_active_provider.to_string();
+        }
+        out.insert(k.clone(), r);
+    }
+    out
 }
 
 pub fn load_settings() -> Result<ModelSettings> {
@@ -217,7 +248,10 @@ pub fn load_settings() -> Result<ModelSettings> {
     let has_key =
         key_file_present || providers.iter().any(|p| !p.api_key.is_empty());
 
-    Ok(ModelSettings {
+    let agent_default_models =
+        normalize_disk_agent_defaults(&stored.agent_default_models, &active_provider_id);
+
+    let mut settings = ModelSettings {
         providers,
         active_provider_id,
         model: stored.model,
@@ -236,8 +270,10 @@ pub fn load_settings() -> Result<ModelSettings> {
         max_tool_rounds: stored.max_tool_rounds,
         raw_content_view_enabled: stored.raw_content_view_enabled,
         debug_dump_llm_prompts: stored.debug_dump_llm_prompts,
-        agent_default_models: stored.agent_default_models,
-    })
+        agent_default_models,
+    };
+    ensure_agent_model_refs_have_provider(&mut settings);
+    Ok(settings)
 }
 
 pub fn save_settings(s: &ModelSettings) -> Result<()> {
@@ -281,7 +317,16 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
         max_tool_rounds: s.max_tool_rounds,
         raw_content_view_enabled: s.raw_content_view_enabled,
         debug_dump_llm_prompts: s.debug_dump_llm_prompts,
-        agent_default_models: s.agent_default_models.clone(),
+        agent_default_models: s
+            .agent_default_models
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    json!({ "providerId": v.provider_id, "model": v.model }),
+                )
+            })
+            .collect(),
         legacy_reasoning_in_messages: None,
     };
     fs::write(settings_path()?, serde_json::to_vec_pretty(&stored)?)?;

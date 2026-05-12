@@ -4,6 +4,7 @@ import type {
   AgentMode,
   ChatMessage,
   ComputerAnnotatedPreview,
+  ComputerMonitor,
   Conversation,
   ModelSettings,
   SkillDef,
@@ -42,6 +43,8 @@ export interface RuntimeApi {
   listAgents(): Promise<AgentDef[]>
   previewComputerAnnotatedScreen(): Promise<ComputerAnnotatedPreview>
   previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview>
+  listComputerMonitors(): Promise<ComputerMonitor[]>
+  setComputerConversationMonitor(conversationId: string, monitorId: string | null): Promise<void>
 
   loadConversations(): Promise<Conversation[]>
   saveConversations(conversations: Conversation[]): Promise<void>
@@ -64,6 +67,8 @@ export const listTools = api.listTools
 export const listAgents = api.listAgents
 export const previewComputerAnnotatedScreen = api.previewComputerAnnotatedScreen
 export const previewComputerRoundScreen = api.previewComputerRoundScreen
+export const listComputerMonitors = api.listComputerMonitors
+export const setComputerConversationMonitor = api.setComputerConversationMonitor
 
 export const loadConversations = api.loadConversations
 export const saveConversations = api.saveConversations

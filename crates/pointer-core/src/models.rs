@@ -99,6 +99,26 @@ pub struct Conversation {
     /// Cumulative tool rounds for **Supervisor** runs (all sub-agents) in this conversation.
     #[serde(default, rename = "toolRoundsUsedSupervisor")]
     pub tool_rounds_used_supervisor: u32,
+    /// Selected desktop monitor id for Computer agent (session UX). Empty/None = auto (monitor under cursor).
+    #[serde(
+        default,
+        rename = "computerMonitorId",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub computer_monitor_id: Option<String>,
+}
+
+/// Desktop monitor descriptor for Computer agent screen selection (UI).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComputerMonitor {
+    /// Stable id derived from monitor bounds: `{left},{top},{width},{height}`.
+    pub id: String,
+    pub left: i32,
+    pub top: i32,
+    pub width: i32,
+    pub height: i32,
+    #[serde(default, rename = "isPrimary")]
+    pub is_primary: bool,
 }
 
 /// Per-model overrides for runtime/API behavior. Unset fields inherit from the parent provider.
@@ -145,6 +165,82 @@ pub fn effective_reasoning_in_messages(settings: &ModelSettings) -> bool {
     p.reasoning_in_messages.unwrap_or(true)
 }
 
+/// Per-agent default LLM routing: explicit provider + model (no inferring provider from model id).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentModelRef {
+    #[serde(rename = "providerId")]
+    pub provider_id: String,
+    pub model: String,
+}
+
+impl AgentModelRef {
+    pub fn from_json_value_flexible(v: serde_json::Value) -> Option<Self> {
+        use serde_json::Value;
+        match v {
+            Value::String(s) => {
+                if s.trim().is_empty() {
+                    return None;
+                }
+                Some(Self {
+                    provider_id: String::new(),
+                    model: s,
+                })
+            }
+            Value::Object(map) => {
+                let pid = map
+                    .get("providerId")
+                    .or_else(|| map.get("provider_id"))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .trim();
+                let model = map.get("model").and_then(|x| x.as_str()).unwrap_or("").trim();
+                if model.is_empty() {
+                    return None;
+                }
+                Some(Self {
+                    provider_id: pid.to_string(),
+                    model: model.to_string(),
+                })
+            }
+            _ => None,
+        }
+    }
+
+    pub fn ensure_provider_or(&mut self, fallback_active_provider: &str) {
+        if self.provider_id.trim().is_empty() {
+            self.provider_id = fallback_active_provider.trim().to_string();
+        }
+    }
+}
+
+fn deserialize_agent_default_models<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<String, AgentModelRef>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: HashMap<String, serde_json::Value> = HashMap::deserialize(deserializer)?;
+    Ok(raw
+        .into_iter()
+        .filter_map(|(k, v)| AgentModelRef::from_json_value_flexible(v).map(|r| (k, r)))
+        .collect())
+}
+
+fn serialize_agent_default_models<S>(
+    map: &HashMap<String, AgentModelRef>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeMap;
+    let mut m = serializer.serialize_map(Some(map.len()))?;
+    for (k, v) in map {
+        m.serialize_entry(k, v)?;
+    }
+    m.end()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelSettings {
     pub providers: Vec<ProviderConfig>,
@@ -189,9 +285,16 @@ pub struct ModelSettings {
     /// When true, each LLM round writes request `messages` + params under app data `logs/llm_prompts/`.
     #[serde(default, rename = "debugDumpLlmPrompts")]
     pub debug_dump_llm_prompts: bool,
-    /// Per-agent default model id (e.g. lead worker id, `"supervisor"`). Empty map = use global `model`.
-    #[serde(default, rename = "agentDefaultModels")]
-    pub agent_default_models: HashMap<String, String>,
+    /// Per-agent default LLM: worker id or `"supervisor"` → explicit provider + model.
+    #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
+    pub agent_default_models: HashMap<String, AgentModelRef>,
+}
+
+pub fn ensure_agent_model_refs_have_provider(settings: &mut ModelSettings) {
+    let ap = settings.active_provider_id.clone();
+    for v in settings.agent_default_models.values_mut() {
+        v.ensure_provider_or(&ap);
+    }
 }
 
 fn default_tool_approval_mode() -> String {

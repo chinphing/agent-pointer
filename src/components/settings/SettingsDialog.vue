@@ -271,36 +271,33 @@ function removeProvider(id: string) {
 
 /** Get agent default model with provider prefix: "providerId:model" */
 function getAgentModelWithProvider(agentId: string): string {
-  const model = s.getAgentDefaultModel(agentId)
-  if (!model) return ''
-  // Find which provider this model belongs to
-  for (const p of s.settings.providers) {
-    if (p.models.includes(model)) {
-      return `${p.id}:${model}`
-    }
-  }
-  // Fallback: model not found in any provider, return as-is
-  return model
+  const ref = s.getAgentDefaultModelRef(agentId)
+  if (!ref?.model) return ''
+  return `${ref.providerId}:${ref.model}`
 }
 
 /** Select agent model with provider prefix: "providerId:model" */
 async function selectAgentModelWithProvider(agentId: string, value: string) {
   if (!value) {
-    // Clear to use global default
-    await s.setAgentDefaultModel(agentId, '')
+    await s.setAgentDefaultModel(agentId, null)
     return
   }
-  const [providerId, model] = value.split(':')
-  if (providerId && model) {
-    // Switch active provider if needed
-    if (s.settings.activeProviderId !== providerId) {
-      await s.setActiveProvider(providerId)
+  const i = value.indexOf(':')
+  if (i > 0 && i < value.length - 1) {
+    const providerId = value.slice(0, i).trim()
+    const model = value.slice(i + 1).trim()
+    if (providerId && model) {
+      if (s.settings.activeProviderId !== providerId) {
+        await s.setActiveProvider(providerId)
+      }
+      await s.setAgentDefaultModel(agentId, { providerId, model })
+      return
     }
-    await s.setAgentDefaultModel(agentId, model)
-  } else {
-    // Fallback: treat value as plain model name
-    await s.setAgentDefaultModel(agentId, value)
   }
+  await s.setAgentDefaultModel(agentId, {
+    providerId: s.settings.activeProviderId,
+    model: value.trim()
+  })
 }
 
 async function saveAll() {

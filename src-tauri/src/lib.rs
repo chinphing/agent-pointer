@@ -71,6 +71,8 @@ pub fn run() {
             commands::list_agents,
             commands::preview_computer_annotated_screen,
             commands::preview_computer_round_screen,
+            commands::list_computer_monitors,
+            commands::set_computer_conversation_monitor,
             commands::load_conversations,
             commands::save_conversations,
         ])

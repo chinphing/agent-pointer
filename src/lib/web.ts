@@ -3,6 +3,7 @@ import type {
   AgentMode,
   ChatMessage,
   ComputerAnnotatedPreview,
+  ComputerMonitor,
   Conversation,
   ModelSettings,
   SkillDef,
@@ -127,6 +128,17 @@ export async function previewComputerAnnotatedScreen(): Promise<ComputerAnnotate
 export async function previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview> {
   const q = new URLSearchParams({ relPath })
   return await request<ComputerAnnotatedPreview>(`/api/computer/round-screen-preview?${q}`)
+}
+
+export async function listComputerMonitors(): Promise<ComputerMonitor[]> {
+  return await request<ComputerMonitor[]>('/api/computer/monitors')
+}
+
+export async function setComputerConversationMonitor(conversationId: string, monitorId: string | null): Promise<void> {
+  await request('/api/computer/monitor', {
+    method: 'POST',
+    body: JSON.stringify({ conversationId, monitorId })
+  })
 }
 
 export async function loadConversations(): Promise<Conversation[]> {

@@ -12,8 +12,8 @@ use pointer_core::{
     agents::AgentDef,
     chat_service::{run_chat, AppState},
     models::{
-        ComputerAnnotatedPreview, Conversation, ModelSettings, SendChatPayload, SkillDef,
-        SkillImportResult, StreamEvent, ToolDef,
+        ensure_agent_model_refs_have_provider, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
+        ModelSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent, ToolDef,
     },
     provider::OpenAIProvider,
     storage,
@@ -89,6 +89,8 @@ async fn main() -> anyhow::Result<()> {
             "/api/computer/round-screen-preview",
             get(preview_computer_round_screen),
         )
+        .route("/api/computer/monitors", get(list_computer_monitors))
+        .route("/api/computer/monitor", post(set_computer_conversation_monitor))
         .route(
             "/api/conversations",
             get(load_conversations).put(save_conversations),
@@ -115,8 +117,9 @@ async fn get_settings() -> Result<Json<ModelSettings>, ApiError> {
 }
 
 async fn update_settings(
-    Json(settings): Json<ModelSettings>,
+    Json(mut settings): Json<ModelSettings>,
 ) -> Result<Json<ModelSettings>, ApiError> {
+    ensure_agent_model_refs_have_provider(&mut settings);
     storage::save_settings(&settings)?;
     Ok(Json(storage::load_settings()?))
 }
@@ -193,6 +196,31 @@ async fn preview_computer_round_screen(
     Ok(Json(
         capture_debug::read_computer_capture_preview(&q.rel_path).map_err(ApiError::from)?,
     ))
+}
+
+async fn list_computer_monitors() -> Result<Json<Vec<ComputerMonitor>>, ApiError> {
+    Ok(Json(
+        pointer_core::agents::computer::screen::list_monitors().map_err(ApiError::from)?,
+    ))
+}
+
+#[derive(Deserialize)]
+struct SetMonitorPayload {
+    #[serde(rename = "conversationId")]
+    conversation_id: String,
+    #[serde(default, rename = "monitorId")]
+    monitor_id: Option<String>,
+}
+
+async fn set_computer_conversation_monitor(
+    State(state): State<ServerState>,
+    Json(payload): Json<SetMonitorPayload>,
+) -> Result<StatusCode, ApiError> {
+    state
+        .core
+        .computer_state
+        .set_conversation_monitor(&payload.conversation_id, payload.monitor_id);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn load_conversations() -> Result<Json<Vec<Conversation>>, ApiError> {

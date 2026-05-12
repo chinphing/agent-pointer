@@ -5,6 +5,7 @@ import type {
   AgentMode,
   ChatMessage,
   ComputerAnnotatedPreview,
+  ComputerMonitor,
   Conversation,
   ModelSettings,
   SkillDef,
@@ -89,6 +90,17 @@ export async function previewComputerAnnotatedScreen(): Promise<ComputerAnnotate
 
 export async function previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview> {
   return await invoke<ComputerAnnotatedPreview>('preview_computer_round_screen', { relPath })
+}
+
+export async function listComputerMonitors(): Promise<ComputerMonitor[]> {
+  return await invoke<ComputerMonitor[]>('list_computer_monitors')
+}
+
+export async function setComputerConversationMonitor(conversationId: string, monitorId: string | null): Promise<void> {
+  await invoke('set_computer_conversation_monitor', {
+    conversationId,
+    monitorId: monitorId === '' ? null : monitorId
+  })
 }
 
 export async function loadConversations(): Promise<Conversation[]> {

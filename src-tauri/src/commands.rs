@@ -2,8 +2,8 @@ use pointer_core::agents::computer::capture_debug;
 use pointer_core::agents::AgentDef;
 use pointer_core::chat_service::{run_chat, AppState};
 use pointer_core::models::{
-    ComputerAnnotatedPreview, Conversation, ModelSettings, SendChatPayload, SkillDef,
-    SkillImportResult, StreamEvent, ToolDef,
+    ensure_agent_model_refs_have_provider, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
+    ModelSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent, ToolDef,
 };
 
 use pointer_core::provider::OpenAIProvider;
@@ -69,7 +69,8 @@ pub fn get_settings() -> Result<ModelSettings, String> {
 }
 
 #[tauri::command]
-pub fn update_settings(settings: ModelSettings) -> Result<ModelSettings, String> {
+pub fn update_settings(mut settings: ModelSettings) -> Result<ModelSettings, String> {
+    ensure_agent_model_refs_have_provider(&mut settings);
     // 同步激活 Provider 的 Key 到 key.dat，确保后端请求时使用正确的密钥
     if let Some(provider) = settings.providers.iter().find(|p| p.id == settings.active_provider_id) {
         if !provider.api_key.is_empty() {
@@ -146,6 +147,23 @@ pub fn preview_computer_annotated_screen(
 #[tauri::command]
 pub fn preview_computer_round_screen(rel_path: String) -> Result<ComputerAnnotatedPreview, String> {
     capture_debug::read_computer_capture_preview(&rel_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_computer_monitors() -> Result<Vec<ComputerMonitor>, String> {
+    pointer_core::agents::computer::screen::list_monitors().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_computer_conversation_monitor(
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+    monitor_id: Option<String>,
+) -> Result<(), String> {
+    state
+        .computer_state
+        .set_conversation_monitor(&conversation_id, monitor_id);
+    Ok(())
 }
 
 #[tauri::command]

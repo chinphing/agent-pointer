@@ -8,6 +8,8 @@ use std::io::Cursor;
 use std::time::Instant;
 use xcap::Monitor;
 
+use crate::models::ComputerMonitor;
+
 /// Picks the display under a global screen point (§3.2.1 `MonitorSelector`).
 ///
 /// Wraps `xcap` monitor discovery so capture and tests share one entry point.
@@ -64,6 +66,114 @@ impl MonitorInfo {
             && y >= self.top
             && y < self.top + self.height
     }
+
+    pub fn stable_id(&self) -> String {
+        format!("{},{},{},{}", self.left, self.top, self.width, self.height)
+    }
+}
+
+/// List all monitors for UI selection (stable ids based on bounds).
+pub fn list_monitors() -> Result<Vec<ComputerMonitor>> {
+    let monitors = Monitor::all().map_err(|e| anyhow!("list monitors: {}", e))?;
+    let mut out: Vec<ComputerMonitor> = Vec::with_capacity(monitors.len());
+    for m in monitors {
+        let info = monitor_info_from_xcap(&m)?;
+        let is_primary = m.is_primary().unwrap_or(false);
+        out.push(ComputerMonitor {
+            id: info.stable_id(),
+            left: info.left,
+            top: info.top,
+            width: info.width,
+            height: info.height,
+            is_primary,
+        });
+    }
+    Ok(out)
+}
+
+/// Capture a screenshot of a specific monitor (by stable id). Returns logical geometry and JPEG bytes.
+pub fn screenshot_monitor_by_id(monitor_id: &str) -> Result<ScreenshotPacket> {
+    let t_total = Instant::now();
+
+    let t = Instant::now();
+    let (cx, cy) = cursor_position()
+        .or_else(|e| {
+            log::debug!("cursor position unavailable ({}), using primary monitor center", e);
+            primary_monitor_center()
+        })?;
+    let global_pointer = (cx, cy);
+
+    let monitors = Monitor::all().map_err(|e| anyhow!("list monitors: {}", e))?;
+    let mut picked: Option<(Monitor, MonitorInfo, bool)> = None;
+    for m in monitors {
+        let info = monitor_info_from_xcap(&m)?;
+        if info.stable_id() == monitor_id {
+            let is_primary = m.is_primary().unwrap_or(false);
+            picked = Some((m, info, is_primary));
+            break;
+        }
+    }
+    let (monitor, info, _is_primary) = picked
+        .ok_or_else(|| anyhow!("monitor not found for id={}", monitor_id))?;
+    let setup_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+    let t = Instant::now();
+    let rgba_raw = monitor
+        .capture_image()
+        .map_err(|e| anyhow!("screen capture failed: {}", e))?;
+    let capture_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+    let logical_w = info.width.max(1) as u32;
+    let logical_h = info.height.max(1) as u32;
+    let physical = (rgba_raw.width(), rgba_raw.height());
+
+    let t = Instant::now();
+    let rgba = if physical.0 == logical_w && physical.1 == logical_h {
+        rgba_raw
+    } else {
+        log::debug!(
+            "screenshot_monitor_by_id: resampling physical {}x{} -> logical {}x{} (pointer / overlay space)",
+            physical.0,
+            physical.1,
+            logical_w,
+            logical_h
+        );
+        image::imageops::resize(&rgba_raw, logical_w, logical_h, FilterType::Triangle)
+    };
+    let resample_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+    let capture_px = (rgba.width(), rgba.height());
+
+    let t = Instant::now();
+    let jpeg = rgba_to_jpeg(rgba, SCREENSHOT_JPEG_QUALITY)?;
+    let encode_ms = t.elapsed().as_secs_f64() * 1000.0;
+
+    let global_caret = try_global_focus_caret_hint();
+
+    let size_note = if physical.0 != logical_w || physical.1 != logical_h {
+        format!(", from {}x{} physical", physical.0, physical.1)
+    } else {
+        String::new()
+    };
+    log::info!(
+        "screenshot_monitor_by_id: cursor+monitor {:.1}ms, xcap_capture {:.1}ms, resample {:.1}ms, jpeg_encode q{} {:.1}ms, total {:.1}ms ({}x{} px logical{})",
+        setup_ms,
+        capture_ms,
+        resample_ms,
+        SCREENSHOT_JPEG_QUALITY,
+        encode_ms,
+        t_total.elapsed().as_secs_f64() * 1000.0,
+        capture_px.0,
+        capture_px.1,
+        size_note
+    );
+    Ok(ScreenshotPacket {
+        jpeg,
+        monitor: info,
+        capture_px,
+        global_pointer,
+        global_caret,
+    })
 }
 
 /// Capture a screenshot of the monitor that contains the current mouse cursor.

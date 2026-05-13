@@ -12,6 +12,7 @@ toolNames:
   - modified_click
   - wait
   - clipboard
+  - task_board
 accessPolicy:
   allowTools:
     - mouse
@@ -20,6 +21,7 @@ accessPolicy:
     - modified_click
     - wait
     - clipboard
+    - task_board
   denyTools: []  
   allowSkills: []
   denySkills: []

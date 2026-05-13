@@ -17,6 +17,7 @@ use crate::storage;
 use crate::tools::merge_tool_method_from_qualified_name;
 use crate::tools::parse_tool_call_arguments;
 use crate::tools::response::response_text_from_args;
+use crate::tools::validate_envelope_tool_batch;
 use crate::tools::terminal::{run_terminal_command_streaming, terminal_stream_tool_status};
 use crate::tools::ToolRegistry;
 use crate::xml_tool_caller::XmlToolFinishDiagnostics;
@@ -78,6 +79,7 @@ pub struct AppState {
     pub skills: Arc<SkillRegistry>,
     pub agents: Arc<AgentRegistry>,
     pub computer_state: Arc<crate::agents::computer::ComputerState>,
+    pub task_board_store: Arc<crate::tools::task_board::TaskBoardStore>,
     /// Lifecycle hooks aligned with Python `call_extensions(extension_point, …)`.
     pub extensions: Arc<ExtensionRegistry>,
     pub cancels: Mutex<HashMap<String, CancellationToken>>,
@@ -87,7 +89,8 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         let tools = Arc::new(ToolRegistry::new());
-        crate::tools::builtin::register_all(&tools);
+        let task_board_store = Arc::new(crate::tools::task_board::TaskBoardStore::default());
+        crate::tools::builtin::register_all(&tools, task_board_store.clone());
         let skills = Arc::new(SkillRegistry::new());
         crate::skills::builtin::register_all(&skills);
         crate::tools::builtin::register_skill_tools(&tools, skills.clone());
@@ -103,11 +106,15 @@ impl AppState {
         crate::tools::builtin::register_computer_tools(&tools, computer_state.clone());
         let mut extension_registry = ExtensionRegistry::new();
         crate::extensions::register_builtin_extensions(&mut extension_registry);
+        extension_registry.register_before_main_llm_call(Arc::new(
+            crate::extensions::task_board_hook::TaskBoardSnapshotHook,
+        ));
         Self {
             tools,
             skills,
             agents,
             computer_state,
+            task_board_store,
             extensions: Arc::new(extension_registry),
             cancels: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
@@ -315,6 +322,47 @@ fn xml_tool_empty_calls_retry_message(
     Some(format!("{intro}\n\n【CDATA / 转义】{CDATA_NOTE}"))
 }
 
+fn xml_tool_envelope_batch_retry_message(err: &str) -> String {
+    format!(
+        "【环境反馈】本回合工具调用组合不符合协议：{err}\n\n\
+         当使用 `<sidecar_tools>` 时：仅允许将白名单侧车工具（例如 `task_board:patch`）放在其中每个 `<call>`；根级必须恰好保留一对主工具 `tool_name`/`tool_args`，且不得仅为侧车工具。\n\
+         若无 `<sidecar_tools>`，则仍只使用根级单工具。请按系统提示中的 XML 约定重新输出完整的 `<response>...</response>`。"
+    )
+}
+
+/// Host-only binding for `task_board` so models cannot spoof another session id.
+fn inject_host_task_board_conversation_id(
+    tool_id: &str,
+    args: serde_json::Value,
+    conversation_id: &str,
+) -> serde_json::Value {
+    if tool_id != "task_board" {
+        return args;
+    }
+    let mut map = if let serde_json::Value::Object(m) = args {
+        m
+    } else {
+        serde_json::Map::new()
+    };
+    map.insert(
+        "_conversation_id".to_string(),
+        serde_json::Value::String(conversation_id.to_string()),
+    );
+    serde_json::Value::Object(map)
+}
+
+/// Key for [`crate::tools::task_board::TaskBoardStore`] during Supervisor **sub-agent** runs.
+///
+/// Isolated from the main chat `conversation_id` board: sub-agents do not read or write the
+/// lead session’s task board unless the Supervisor copies state into instructions.
+fn sub_agent_task_board_store_key(main_conversation_id: &str, supervisor_task_id: &str) -> String {
+    format!(
+        "{main}\x1fptr_sub_agent\x1f{task}",
+        main = main_conversation_id.trim(),
+        task = supervisor_task_id.trim()
+    )
+}
+
 fn apply_session_agent_model_defaults(
     settings: &mut crate::models::ModelSettings,
     effective_agent_mode: &str,
@@ -498,15 +546,6 @@ async fn run_chat_inner(
             .run_message_loop_prompts_after(&mut prompts_after_ctx)
             .await?;
 
-        let before_llm_ctx = BeforeMainLlmCallContext {
-            computer_state: state.computer_state.as_ref(),
-            lead_agent_profile: lead_profile,
-        };
-        state
-            .extensions
-            .run_before_main_llm_call(&before_llm_ctx)
-            .await?;
-
         let mut prompts_with_env = vec![build_env_context()];
         let session_vars = SessionInjectVars {
             workspace_root: settings.workspace_root.trim(),
@@ -524,6 +563,18 @@ async fn run_chat_inner(
         if !xml_tool_prompt.is_empty() {
             prompts_with_env.push(xml_tool_prompt);
         }
+        let mut before_llm_ctx = BeforeMainLlmCallContext {
+            computer_state: state.computer_state.as_ref(),
+            lead_agent_profile: lead_profile,
+            system_prompts: &mut prompts_with_env,
+            conversation_id,
+            task_board_store: state.task_board_store.clone(),
+            task_board_store_key: conversation_id,
+        };
+        state
+            .extensions
+            .run_before_main_llm_call(&mut before_llm_ctx)
+            .await?;
         let prompts_clone = prompts_with_env;
         let cancel_clone = cancel.clone();
         let dump_lbl = format!("{}_{}", conversation_id, assistant_id);
@@ -846,6 +897,71 @@ async fn run_chat_inner(
             return Ok(());
         }
 
+        if let Err(err) = validate_envelope_tool_batch(&state.tools, &final_tool_calls) {
+            log::warn!("tool envelope batch rejected: {err}");
+            let hint = xml_tool_envelope_batch_retry_message(&err);
+            let retry_id = new_id("msg");
+            emit(
+                &stream,
+                StreamEvent::InjectedUserMessage {
+                    conversation_id: conversation_id.to_string(),
+                    message_id: retry_id.clone(),
+                    content: hint.clone(),
+                },
+            );
+            history.push(ChatMessage {
+                id: retry_id,
+                role: Role::User,
+                content: hint,
+                status: "done".into(),
+                created_at: now_ms(),
+                tool_calls: None,
+                tool_call_id: None,
+                error_message: None,
+                reasoning: None,
+                thoughts: None,
+                headline: None,
+                raw_content: None,
+                agent_id: None,
+                agent_name: None,
+                agent_trace: None,
+                images_base64: None,
+                computer_round_screen_rel_path: None,
+            });
+            tool_budget.record_tool_cycle();
+            tool_budget.sync_out(consumed_single);
+            if tool_budget.is_exhausted() {
+                let hint = format!(
+                    "单智能体模式下工具调用累计已达上限（{} 轮，含此前消息）。建议新开对话；将尝试压缩上下文以便查看摘要。",
+                    max_cap
+                );
+                emit(
+                    &stream,
+                    StreamEvent::ToolRoundsExhausted {
+                        conversation_id: conversation_id.to_string(),
+                        max_rounds: max_cap,
+                        message: hint,
+                        will_retry_after_compress: settings.context_compression_enabled,
+                    },
+                );
+                let _ = crate::context_compression::maybe_compress_after_tool_round_limit(
+                    history,
+                    &settings,
+                    &provider,
+                    conversation_id,
+                    &stream,
+                    cancel.clone(),
+                    true,
+                )
+                .await;
+                tool_budget.sync_out(consumed_single);
+                return Err(anyhow!(
+                    "单智能体模式下工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
+                ));
+            }
+            continue;
+        }
+
         let mut any_executed = false;
         for tc in &final_tool_calls {
             if cancel.is_cancelled() {
@@ -856,6 +972,8 @@ async fn run_chat_inner(
             let args_value = parse_tool_call_arguments(&tc.arguments);
             let (mut tool_id, args_value) = merge_tool_method_from_qualified_name(&tc.name, args_value);
             tool_id = tool_id.trim().to_string();
+            let args_value =
+                inject_host_task_board_conversation_id(&tool_id, args_value, conversation_id);
             if tool_id.is_empty() {
                 let err = "工具名为空：请检查 <tool_name>（例如 mouse:click_index、composite_action、response）。";
                 emit(
@@ -1477,6 +1595,7 @@ async fn run_sub_agent(
 
     let (skill_prompts, session_tools) = state.skills.progressive_context(&skill_ids);
     let allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
+    let sub_task_board_key = sub_agent_task_board_store_key(conversation_id, task.id.trim());
     let env_context = build_env_context();
     let session_vars = SessionInjectVars {
         workspace_root: provider.settings.workspace_root.trim(),
@@ -1563,19 +1682,22 @@ async fn run_sub_agent(
             .run_message_loop_prompts_after(&mut prompts_after_ctx)
             .await?;
 
-        let before_llm_ctx = BeforeMainLlmCallContext {
-            computer_state: state.computer_state.as_ref(),
-            lead_agent_profile: def.profile.clone(),
-        };
-        state
-            .extensions
-            .run_before_main_llm_call(&before_llm_ctx)
-            .await?;
-
         let mut prompts_clone = prompts.clone();
         if !xml_tool_prompt.is_empty() {
             prompts_clone.push(xml_tool_prompt.clone());
         }
+        let mut before_llm_ctx = BeforeMainLlmCallContext {
+            computer_state: state.computer_state.as_ref(),
+            lead_agent_profile: def.profile.clone(),
+            system_prompts: &mut prompts_clone,
+            conversation_id,
+            task_board_store: state.task_board_store.clone(),
+            task_board_store_key: sub_task_board_key.as_str(),
+        };
+        state
+            .extensions
+            .run_before_main_llm_call(&mut before_llm_ctx)
+            .await?;
         let cancel_clone = cancel.clone();
         let dump_lbl = format!("{}_{}_sub_{}", conversation_id, message_id, task.id);
         let handle = tokio::spawn(async move {
@@ -1847,6 +1969,60 @@ async fn run_sub_agent(
             });
         }
 
+        if let Err(err) = validate_envelope_tool_batch(&state.tools, &final_tool_calls) {
+            log::warn!("sub-agent tool envelope batch rejected: {err}");
+            let hint = xml_tool_envelope_batch_retry_message(&err);
+            local_history.push(ChatMessage {
+                id: new_id("fmt_retry"),
+                role: Role::User,
+                content: hint,
+                status: "done".into(),
+                created_at: now_ms(),
+                tool_calls: None,
+                tool_call_id: None,
+                error_message: None,
+                reasoning: None,
+                thoughts: None,
+                headline: None,
+                raw_content: None,
+                agent_id: None,
+                agent_name: None,
+                agent_trace: None,
+                images_base64: None,
+                computer_round_screen_rel_path: None,
+            });
+            tool_budget.record_tool_cycle();
+            if tool_budget.is_exhausted() {
+                let hint = format!(
+                    "编排（Supervisor）模式下工具调用累计已达上限（{} 轮，含子 Agent）。建议新开对话。",
+                    max_cap
+                );
+                emit(
+                    stream,
+                    StreamEvent::ToolRoundsExhausted {
+                        conversation_id: conversation_id.to_string(),
+                        max_rounds: max_cap,
+                        message: hint,
+                        will_retry_after_compress: provider.settings.context_compression_enabled,
+                    },
+                );
+                let _ = crate::context_compression::maybe_compress_after_tool_round_limit(
+                    &mut local_history,
+                    &provider.settings,
+                    provider,
+                    conversation_id,
+                    stream,
+                    cancel.clone(),
+                    false,
+                )
+                .await;
+                return Err(anyhow!(
+                    "编排（Supervisor）模式下工具调用轮次已达上限（{max_cap}）。请新开对话。"
+                ));
+            }
+            continue;
+        }
+
         let mut any_executed = false;
         for tool_call in &final_tool_calls {
             if cancel.is_cancelled() {
@@ -1857,6 +2033,8 @@ async fn run_sub_agent(
             let (mut tool_id, args_value) =
                 merge_tool_method_from_qualified_name(&tool_call.name, args_value);
             tool_id = tool_id.trim().to_string();
+            let args_value =
+                inject_host_task_board_conversation_id(&tool_id, args_value, &sub_task_board_key);
             if tool_id.is_empty() {
                 let err = "工具名为空：请检查 <tool_name>（例如 mouse:click_index、composite_action、response）。";
                 emit(
@@ -2465,6 +2643,28 @@ mod extract_user_visible_tests {
         assert_eq!(
             extract_user_visible_content("Hi<response></response>"),
             "Hi"
+        );
+    }
+}
+
+#[cfg(test)]
+mod sub_agent_task_board_key_tests {
+    use super::sub_agent_task_board_store_key;
+
+    #[test]
+    fn key_is_not_raw_conversation_id() {
+        let main = "conv-1";
+        let k = sub_agent_task_board_store_key(main, "task_a");
+        assert_ne!(k, main);
+        assert!(k.contains("ptr_sub_agent"), "{k:?}");
+        assert!(k.ends_with("task_a"), "{k:?}");
+    }
+
+    #[test]
+    fn distinct_supervisor_task_ids_differ() {
+        assert_ne!(
+            sub_agent_task_board_store_key("c", "t1"),
+            sub_agent_task_board_store_key("c", "t2")
         );
     }
 }

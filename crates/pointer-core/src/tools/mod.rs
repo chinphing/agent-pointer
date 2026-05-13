@@ -2,6 +2,7 @@ pub mod builtin;
 pub mod file;
 pub mod response;
 pub mod skill;
+pub mod task_board;
 pub mod terminal;
 pub mod tool_doc;
 pub mod tool_md;
@@ -158,6 +159,9 @@ pub struct ToolEntry {
     pub def: ToolDef,
     pub risk_level: String,
     pub requires_approval: bool,
+    /// When true, the tool may only appear inside `<sidecar_tools>` / `<call>`, not as the root
+    /// `<tool_name>` when any sidecar calls are present (see `response` tool docs).
+    pub is_sidecar: bool,
     pub doc_markdown: String,
     pub prompt: Option<ToolPrompt>,
     pub handler: ToolHandler,
@@ -172,11 +176,52 @@ impl ToolEntry {
         prompt: Option<ToolPrompt>,
         handler: ToolHandler,
     ) -> Self {
+        Self::new_inner(
+            name,
+            risk_level,
+            requires_approval,
+            false,
+            doc_markdown,
+            prompt,
+            handler,
+        )
+    }
+
+    /// Sidecar-only tools (`task_board`, …): documented under **Sidecar tools** in system prompts.
+    pub fn new_sidecar(
+        name: impl Into<String>,
+        risk_level: impl Into<String>,
+        requires_approval: bool,
+        doc_markdown: impl Into<String>,
+        prompt: Option<ToolPrompt>,
+        handler: ToolHandler,
+    ) -> Self {
+        Self::new_inner(
+            name,
+            risk_level,
+            requires_approval,
+            true,
+            doc_markdown,
+            prompt,
+            handler,
+        )
+    }
+
+    fn new_inner(
+        name: impl Into<String>,
+        risk_level: impl Into<String>,
+        requires_approval: bool,
+        is_sidecar: bool,
+        doc_markdown: impl Into<String>,
+        prompt: Option<ToolPrompt>,
+        handler: ToolHandler,
+    ) -> Self {
         let name = name.into();
         Self {
             def: ToolDef { name },
             risk_level: risk_level.into(),
             requires_approval,
+            is_sidecar,
             doc_markdown: doc_markdown.into(),
             prompt,
             handler,
@@ -248,6 +293,15 @@ impl ToolRegistry {
         self.tool_requires_approval(tool_id)
     }
 
+    /// Whether the base registry name is registered as a sidecar-only tool.
+    pub fn is_sidecar_tool(&self, raw_name: &str) -> bool {
+        let base = registry_tool_base_name(raw_name);
+        self.inner
+            .read()
+            .get(base)
+            .is_some_and(|e| e.is_sidecar)
+    }
+
     pub fn xml_tool_descriptors(&self, allow: &[String]) -> Vec<XmlToolDescriptor> {
         let mut out: Vec<XmlToolDescriptor> = self
             .inner
@@ -296,17 +350,85 @@ impl ToolRegistry {
     }
 
     pub fn prompt_context(&self, allow: &[String]) -> Vec<String> {
-        self.inner
-            .read()
-            .values()
-            .filter(|e| allow.is_empty() || allow.contains(&e.def.name))
-            .filter_map(|e| {
-                e.prompt
-                    .as_ref()
-                    .map(|p| format!("[Tool usage: {}]\n{}", e.def.name, p.system_prompt))
-            })
-            .collect()
+        let (regular, sidecar) = self.prompt_context_sections(allow);
+        let mut out = Vec::new();
+        if !regular.is_empty() {
+            out.push(format!(
+                "## Regular tools\n\n{}",
+                regular.join("\n\n")
+            ));
+        }
+        if let Some(s) = sidecar {
+            out.push(s);
+        }
+        out
     }
+
+    /// Split tool usage prompts: **Regular tools** vs **Sidecar tools** (English section titles).
+    /// Returns `(regular_blocks, optional_sidecar_chapter)`; sidecar chapter omitted when empty.
+    pub fn prompt_context_sections(&self, allow: &[String]) -> (Vec<String>, Option<String>) {
+        let g = self.inner.read();
+        let mut regular: Vec<(String, String)> = Vec::new();
+        let mut sidecar: Vec<(String, String)> = Vec::new();
+        for e in g.values() {
+            if !allow.is_empty() && !allow.contains(&e.def.name) {
+                continue;
+            }
+            let Some(p) = e.prompt.as_ref() else {
+                continue;
+            };
+            let block = format!("[Tool usage: {}]\n{}", e.def.name, p.system_prompt);
+            if e.is_sidecar {
+                sidecar.push((e.def.name.clone(), block));
+            } else {
+                regular.push((e.def.name.clone(), block));
+            }
+        }
+        drop(g);
+        regular.sort_by(|a, b| a.0.cmp(&b.0));
+        sidecar.sort_by(|a, b| a.0.cmp(&b.0));
+        let regular_strs: Vec<String> = regular.into_iter().map(|(_, b)| b).collect();
+        let sidecar_chapter = if sidecar.is_empty() {
+            None
+        } else {
+            let intro = concat!(
+                "These tools must **not** be used as the root `<tool_name>` when `<sidecar_tools>` is present.\n",
+                "They may only appear inside `<sidecar_tools>` as one or more `<call>` entries.\n",
+                "Each `<call>` uses the same `<tool_name>` / `<tool_args>` shape as a single tool invocation.\n",
+                "Use **qualified** names **`tool:method`** in `<tool_name>` (e.g. **`task_board:patch`**) per the blocks below.\n",
+            );
+            let body: String = sidecar.into_iter().map(|(_, b)| b).collect::<Vec<_>>().join("\n\n");
+            Some(format!("## Sidecar tools\n\n{intro}\n{body}"))
+        };
+        (regular_strs, sidecar_chapter)
+    }
+}
+
+/// When the model emits multiple tool calls from one `<response>` (sidecar prefix + root tool),
+/// every call except the **last** must be a registered **sidecar** tool; the last is the root primary.
+pub fn validate_envelope_tool_batch(
+    tools: &ToolRegistry,
+    batch: &[crate::models::ToolCall],
+) -> Result<(), String> {
+    if batch.len() <= 1 {
+        return Ok(());
+    }
+    for tc in &batch[..batch.len() - 1] {
+        if !tools.is_sidecar_tool(&tc.name) {
+            return Err(format!(
+                "only sidecar tools may precede the root tool; got {}",
+                tc.name
+            ));
+        }
+    }
+    let root = &batch[batch.len() - 1];
+    if tools.is_sidecar_tool(&root.name) {
+        return Err(format!(
+            "root tool must not be a sidecar-only tool when multiple calls are present; got {}",
+            root.name
+        ));
+    }
+    Ok(())
 }
 
 fn openai_description_from_doc(doc: &str) -> String {
@@ -405,5 +527,61 @@ mod parse_args_tests {
             file_tool_effective_risk_level("file:grep", &serde_json::json!({})),
             "low"
         );
+    }
+}
+
+#[cfg(test)]
+mod envelope_validation_tests {
+    use super::validate_envelope_tool_batch;
+    use super::ToolRegistry;
+    use crate::models::ToolCall;
+    use std::sync::Arc;
+
+    fn reg() -> ToolRegistry {
+        let r = ToolRegistry::new();
+        let store = Arc::new(crate::tools::task_board::TaskBoardStore::default());
+        crate::tools::builtin::register_all(&r, store);
+        r
+    }
+
+    fn tc(id: &str, name: &str) -> ToolCall {
+        ToolCall {
+            id: id.into(),
+            name: name.into(),
+            arguments: "{}".into(),
+            status: "pending".into(),
+            result: None,
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+        }
+    }
+
+    #[test]
+    fn batch_sidecar_then_terminal_ok() {
+        let tools = reg();
+        let batch = vec![tc("a", "task_board:patch"), tc("b", "terminal")];
+        assert!(validate_envelope_tool_batch(&tools, &batch).is_ok());
+    }
+
+    #[test]
+    fn batch_single_task_board_ok() {
+        let tools = reg();
+        let batch = vec![tc("a", "task_board:patch")];
+        assert!(validate_envelope_tool_batch(&tools, &batch).is_ok());
+    }
+
+    #[test]
+    fn batch_rejects_non_sidecar_prefix() {
+        let tools = reg();
+        let batch = vec![tc("a", "terminal"), tc("b", "file:read")];
+        assert!(validate_envelope_tool_batch(&tools, &batch).is_err());
+    }
+
+    #[test]
+    fn batch_rejects_sidecar_as_root_when_multiple() {
+        let tools = reg();
+        let batch = vec![tc("a", "task_board:patch"), tc("b", "task_board:replace")];
+        assert!(validate_envelope_tool_batch(&tools, &batch).is_err());
     }
 }

@@ -10,6 +10,7 @@ accessPolicy:
   allowTools:
     - skill
     - terminal
+    - task_board
   denyTools: []
   allowSkills: []
   denySkills: []

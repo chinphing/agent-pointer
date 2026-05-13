@@ -3,10 +3,11 @@ use crate::skills::SkillRegistry;
 use crate::agents::computer::ComputerState;
 use std::sync::Arc;
 
-pub fn register_all(reg: &ToolRegistry) {
+pub fn register_all(reg: &ToolRegistry, task_board_store: Arc<crate::tools::task_board::TaskBoardStore>) {
     crate::tools::terminal::register_all(reg);
     crate::tools::file::register_all(reg);
     crate::tools::response::register_all(reg);
+    crate::tools::task_board::register_all(reg, task_board_store);
 }
 
 pub fn register_skill_tools(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {

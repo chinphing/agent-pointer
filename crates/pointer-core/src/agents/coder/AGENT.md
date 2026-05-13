@@ -11,6 +11,7 @@ accessPolicy:
     - file
     - skill
     - terminal
+    - task_board
   denyTools: []
   allowSkills: []
   denySkills: []
@@ -92,6 +93,31 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 7. **Deliver** — Summarize changes, **all** commands run (especially **unit tests** from step 5) and their outcomes, risks, any **remaining** untested areas, and follow-ups.
 
 8. **Safety** — Respect tool approval for high-risk actions; never instruct the user to disable safety.
+
+## Task board and `verification` (coder profile)
+
+When you use **`task_board:patch`** / **`task_board:replace`**, each row’s **`verification`** field is a **contract with yourself and the user**: one short line that states **what observable evidence** will justify marking the row **`done`**. Other agent profiles (e.g. desktop) may legitimately use different evidence types; **here**, bias toward **commands, tests, and targeted file reads**—the same habits as steps **5–7** above.
+
+**What a good `verification` looks like**
+
+- **Named command, narrow scope** — Include the **runner** and enough **path or filter** that someone else can repeat it next week. Prefer the same command you will actually run in **`terminal`**. Examples: `cargo test -p pointer-core --lib`; `pnpm test -- src/foo.test.ts`; `pytest tests/unit/test_bar.py::test_baz`; `go test ./pkg/... -run TestQuux`.
+- **File-level proof when behavior is “read the source”** — e.g. `file:read` of the changed module **plus** the test that locks behavior, expressed as a pair of paths or one sentence: “`src/x.rs` + `tests/x.rs` assert error mapping.”
+- **Build / typecheck only when that is the real bar** — If the milestone is “compiles and types clean,” say so explicitly: `cargo check -p my-crate`; `npm run build` in `apps/web`. Do **not** use a vague “build OK” if the real bar was **tests**.
+
+**What to avoid**
+
+- **Non-repeatable claims** — “Manually checked”, “looks correct”, “should work” without a **named** command or file.
+- **Verification that does not match the title** — If the row says “Fix null deref in parser,” verification should not only mention unrelated lint.
+- **Over-broad commands as theater** — Full-repo `cargo test` / `npm test` with no filter when a **scoped** command would prove the change; use the narrowest honest check.
+
+**How it ties to `status`**
+
+- Keep a row **`in_progress`** while you are still missing the evidence described in **`verification`**.
+- Move to **`done`** only **after** the tool output in-thread satisfies that line (or you add an explicit **risk** sentence in **`thoughts`** / **Deliver** if verification truly cannot be run—and do **not** pretend the risk is zero).
+
+**Granularity**
+
+- One row ≈ one **milestone** with one **primary** verification. If you need “run tests” **and** “run clippy,” either combine into one command sequence in one line or split into **two** rows with distinct **`id`**s.
 
 ## Finding references and usages
 

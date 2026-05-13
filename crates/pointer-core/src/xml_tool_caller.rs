@@ -1,9 +1,10 @@
 /// XML tool-call parsing: buffer until a full `<response>…</response>`, then parse via
-/// [`crate::response_xml::parse_tool_response_default_chain`] (ScraperHtml → relaxed quick-xml).
+/// [`crate::response_xml::parse_tool_response_envelope_default_chain`] (ScraperHtml → relaxed quick-xml).
 
 pub use crate::response_xml::{
-    parse_tool_response_default_chain, xml_tool_arguments_to_json_string, ResponseXmlBackend,
-    ResponseXmlParseError, XmlToolCall,
+    parse_tool_response_default_chain, parse_tool_response_envelope_default_chain,
+    xml_tool_arguments_to_json_string, ResponseXmlBackend, ResponseXmlParseError, XmlToolCall,
+    XmlToolEnvelope,
 };
 
 /// Take the first complete `<response>…</response>` from `buf`, returning `(end_index, fragment)`.
@@ -81,7 +82,7 @@ pub struct XmlToolFinishDiagnostics {
 pub struct XmlToolParser {
     buffer: String,
     is_complete: bool,
-    current_call: Option<XmlToolCall>,
+    current_envelope: Option<XmlToolEnvelope>,
     last_parse_error: Option<String>,
     fallback_thoughts: Option<String>,
     fallback_headline: Option<String>,
@@ -122,7 +123,7 @@ impl XmlToolParser {
         Self {
             buffer: String::new(),
             is_complete: false,
-            current_call: None,
+            current_envelope: None,
             last_parse_error: None,
             fallback_thoughts: None,
             fallback_headline: None,
@@ -192,14 +193,14 @@ impl XmlToolParser {
         self.is_complete
     }
 
-    pub fn parse(&mut self) -> Option<XmlToolCall> {
+    pub fn parse(&mut self) -> Option<XmlToolEnvelope> {
         if !self.is_complete {
             return None;
         }
 
-        let call = self.current_call.take();
+        let env = self.current_envelope.take();
         self.is_complete = false;
-        call
+        env
     }
 
     pub fn last_parse_error(&self) -> Option<&str> {
@@ -208,7 +209,7 @@ impl XmlToolParser {
 
     pub fn reset(&mut self) {
         self.buffer.clear();
-        self.current_call = None;
+        self.current_envelope = None;
         self.is_complete = false;
         self.last_parse_error = None;
         self.fallback_thoughts = None;
@@ -228,11 +229,12 @@ impl XmlToolParser {
             return;
         }
         /// 首个 `<response>…</response>` 无工具内容（常见于 reasoning 里先打 `<response></response>` 占位，正文里才是完整块）。
-        fn is_vacuous_tool_xml(call: &XmlToolCall) -> bool {
-            call.name.trim().is_empty()
-                && call.thoughts.trim().is_empty()
-                && call.headline.trim().is_empty()
-                && call.arguments.is_empty()
+        fn is_vacuous_tool_xml(env: &XmlToolEnvelope) -> bool {
+            env.sidecar.is_empty()
+                && env.primary.name.trim().is_empty()
+                && env.primary.thoughts.trim().is_empty()
+                && env.primary.headline.trim().is_empty()
+                && env.primary.arguments.is_empty()
         }
 
         const MAX_VACUOUS_SKIPS: usize = 32;
@@ -242,9 +244,9 @@ impl XmlToolParser {
             let Some((end, frag)) = extract_response_fragment(&self.buffer) else {
                 return;
             };
-            match parse_tool_response_default_chain(&frag) {
-                Ok(call) => {
-                    let vacuous = is_vacuous_tool_xml(&call);
+            match parse_tool_response_envelope_default_chain(&frag) {
+                Ok(env) => {
+                    let vacuous = is_vacuous_tool_xml(&env);
                     if vacuous && vacuous_skips < MAX_VACUOUS_SKIPS {
                         vacuous_skips += 1;
                         self.vacuous_fragments_skipped_total += 1;
@@ -252,7 +254,7 @@ impl XmlToolParser {
                         continue;
                     }
                     self.last_parse_error = None;
-                    self.current_call = Some(call);
+                    self.current_envelope = Some(env);
                     self.fallback_thoughts = None;
                     self.fallback_headline = None;
                     self.record_consumed_fragment(&frag);
@@ -262,7 +264,7 @@ impl XmlToolParser {
                 }
                 Err(e) => {
                     self.last_parse_error = Some(e.to_string());
-                    self.current_call = None;
+                    self.current_envelope = None;
                     self.fallback_thoughts = loose_extract_first_tag_inner(&frag, "thoughts");
                     self.fallback_headline = loose_extract_first_tag_inner(&frag, "headline");
                     self.record_consumed_fragment(&frag);
@@ -322,7 +324,7 @@ mod tests {
         parser.feed(xml);
         assert!(parser.is_complete());
 
-        let call = parser.parse().unwrap();
+        let call = parser.parse().unwrap().primary;
         assert_eq!(call.name, "response");
         assert_eq!(call.thoughts.trim(), "Handle user request");
         assert_eq!(call.headline.trim(), "Execute");
@@ -348,7 +350,7 @@ mod tests {
 </response>"#,
         );
         assert!(parser.is_complete());
-        let call = parser.parse().expect("second block should win");
+        let call = parser.parse().expect("second block should win").primary;
         assert_eq!(call.name, "mouse:click_index");
         assert_eq!(call.arguments.get("index").map(String::as_str), Some("99"));
     }
@@ -366,7 +368,7 @@ mod tests {
         let mut parser = XmlToolParser::new();
         parser.feed(xml);
         assert!(parser.is_complete());
-        let call = parser.parse().expect("nested response should unwrap");
+        let call = parser.parse().expect("nested response should unwrap").primary;
         assert_eq!(call.name, "wait");
         assert_eq!(call.thoughts.trim(), "t");
         assert_eq!(call.arguments.get("seconds").map(String::as_str), Some("1"));
@@ -382,7 +384,7 @@ mod tests {
 </response>"#;
         parser.feed(xml);
         assert!(parser.is_complete());
-        let call = parser.parse().unwrap();
+        let call = parser.parse().unwrap().primary;
         assert_eq!(call.name, "wait");
         assert_eq!(call.arguments.get("seconds").unwrap(), "1");
     }
@@ -403,7 +405,7 @@ mod tests {
         parser.feed("</response>");
         assert!(parser.is_complete());
 
-        let call = parser.parse().unwrap();
+        let call = parser.parse().unwrap().primary;
         assert_eq!(call.name, "wait");
         assert_eq!(call.arguments.get("seconds").unwrap(), "5");
     }
@@ -413,7 +415,7 @@ mod tests {
         let mut parser = XmlToolParser::new();
         parser.feed("<response><tool_name>test</tool_name></response>");
 
-        let call = parser.parse().unwrap();
+        let call = parser.parse().unwrap().primary;
         assert_eq!(call.name, "test");
         assert!(call.arguments.is_empty());
     }
@@ -430,7 +432,7 @@ mod tests {
         </response>"#;
 
         parser.feed(xml);
-        let call = parser.parse().unwrap();
+        let call = parser.parse().unwrap().primary;
         assert_eq!(call.arguments.get("arg1").unwrap(), "value1");
         assert_eq!(call.arguments.get("arg2").unwrap(), "value2");
     }
@@ -447,7 +449,7 @@ mod tests {
   </tool_args>
 </response>"#;
         parser.feed(xml);
-        let call = parser.parse().unwrap();
+        let call = parser.parse().unwrap().primary;
         assert_eq!(call.name, "file:edit");
         assert_eq!(call.arguments.get("path").map(String::as_str), Some("src/App.vue"));
         assert!(call.arguments.get("oldString").unwrap().contains("v-if"));
@@ -464,7 +466,7 @@ mod tests {
         assert!(!parser.is_complete());
 
         parser.feed("<response><tool_name>test2</tool_name></response>");
-        let call = parser.parse().unwrap();
+        let call = parser.parse().unwrap().primary;
         assert_eq!(call.name, "test2");
     }
 
@@ -474,7 +476,7 @@ mod tests {
         let xml = "<response><tool_name>wait</tool_name><tool_args><seconds>5</seconds></tool_args></response>";
         parser.feed(xml);
         assert!(parser.is_complete());
-        let call = parser.parse().unwrap();
+        let call = parser.parse().unwrap().primary;
         assert_eq!(call.name, "wait");
         assert_eq!(call.arguments.get("seconds").map(String::as_str), Some("5"));
     }
@@ -529,7 +531,7 @@ mod tests {
 </response>"#;
         parser.feed(xml);
         assert!(parser.is_complete());
-        let call = parser.parse().expect("ScraperHtml should parse this fragment");
+        let call = parser.parse().expect("ScraperHtml should parse this fragment").primary;
         assert_eq!(call.thoughts.trim(), "Planning edit");
         assert_eq!(call.headline.trim(), "Patch file");
         assert_eq!(call.name, "file:edit");

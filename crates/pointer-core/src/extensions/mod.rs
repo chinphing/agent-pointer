@@ -17,6 +17,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
 
+pub mod task_board_hook;
+
 /// Per-turn context for [`ExtensionPoint::MessageLoopPromptsAfter`] (after history is cloned for the API).
 pub struct MessageLoopPromptsAfterContext<'a> {
     pub computer_state: &'a ComputerState,
@@ -34,10 +36,20 @@ pub struct MessageLoopPromptsAfterContext<'a> {
     pub round_screen_dump_prefix: Option<String>,
 }
 
-/// Context for [`ExtensionPoint::BeforeMainLlmCall`] (prompt built, immediately before the model stream).
+/// Context for [`ExtensionPoint::BeforeMainLlmCall`] immediately before [`crate::provider::OpenAIProvider::stream_chat`].
+///
+/// `system_prompts` already includes env block, communication inject, agent system prompts, tool chapters,
+/// and the XML tool appendix when enabled. Hooks usually **append** so their text sits closest to the
+/// conversational `messages` payload.
 pub struct BeforeMainLlmCallContext<'a> {
     pub computer_state: &'a ComputerState,
     pub lead_agent_profile: AgentProfile,
+    pub system_prompts: &'a mut Vec<String>,
+    /// Main chat session id (stream / logs). Not necessarily equal to [`Self::task_board_store_key`].
+    pub conversation_id: &'a str,
+    pub task_board_store: Arc<crate::tools::task_board::TaskBoardStore>,
+    /// Key for [`crate::tools::task_board::TaskBoardStore::snapshot_for_prompt`] / host `task_board` binding.
+    pub task_board_store_key: &'a str,
 }
 
 #[async_trait]
@@ -55,7 +67,7 @@ pub trait MessageLoopPromptsAfterHook: Send + Sync {
 pub trait BeforeMainLlmCallHook: Send + Sync {
     fn override_key(&self) -> &'static str;
     fn sort_key(&self) -> &'static str;
-    async fn execute(&self, ctx: &BeforeMainLlmCallContext<'_>) -> Result<()>;
+    async fn execute(&self, ctx: &mut BeforeMainLlmCallContext<'_>) -> Result<()>;
 }
 
 /// Registry of extension hooks. Intended as `Arc<ExtensionRegistry>` on [`crate::chat_service::AppState`].
@@ -98,7 +110,7 @@ impl ExtensionRegistry {
 
     pub async fn run_before_main_llm_call(
         &self,
-        ctx: &BeforeMainLlmCallContext<'_>,
+        ctx: &mut BeforeMainLlmCallContext<'_>,
     ) -> Result<()> {
         let mut hooks: Vec<_> = self.before_main_llm_call.iter().cloned().collect();
         hooks.sort_by(|a, b| a.sort_key().cmp(b.sort_key()));

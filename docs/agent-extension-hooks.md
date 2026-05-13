@@ -75,6 +75,10 @@
 |------|------|
 | `computer_state` | 同上。 |
 | `lead_agent_profile` | 同上，与本轮 `stream_chat` 的「说话者」一致。 |
+| `system_prompts` | **可变**：本轮即将传入 `stream_chat` 的 **system 字符串列表**（已含 env、公共通信、Agent system、工具分章、XML 工具附录等）。钩子通常 **push** 追加，使内容尽量靠近对话 `messages`。 |
+| `conversation_id` | 主会话 id（流式/UI）；子 Agent 下仍为**父会话** id。 |
+| `task_board_store` | `Arc<TaskBoardStore>`，供内置或自定义钩子读取任务板。 |
+| `task_board_store_key` | 传入 `TaskBoardStore::snapshot_for_prompt` 的键：主会话为 `conversation_id`；Supervisor 子 Agent 为 `sub_agent_task_board_store_key(...)` 的复合键。 |
 
 ---
 
@@ -91,14 +95,11 @@
 3. **准备 Provider** — 新建 `OpenAIProvider`、channel；尚未发 HTTP。
 4. **构造 API 消息列表** — `messages = <基础历史>.clone()`（单智能体：`history`；子 Agent：`local_history`），并填入 `round_assistant_message_id`。
 5. **`message_loop_prompts_after`** — `run_message_loop_prompts_after`：可修改 `messages`（例如追加屏幕注入）。
-6. **`before_main_llm_call`** — `run_before_main_llm_call`：只读上下文为主，默认可为空操作。
-7. **组装 system 侧 prompts** — `build_env_context`、session inject、agent system prompts、工具 markdown、`xml_tool_prompt` 等拼成 `prompts_clone`（与 Python「system + extras」一侧对应，Rust 里作为单独参数传入 `stream_chat`）。
-8. **`stream_chat`** — `tokio::spawn` 里带着 **`&history_for_api`（即上面的 `messages`）** 和 **`prompts_clone`** 请求模型；之后才是流式 delta、工具解析、写回持久化 `history` 等。
+6. **组装 system 侧 prompts** — `build_env_context`、session inject、agent system prompts、工具 markdown、`xml_tool_prompt` 等拼成 `prompts_with_env` / 子 Agent 的 `prompts_clone`（与 Python「system + extras」一侧对应，Rust 里作为单独参数传入 `stream_chat`）。
+7. **`before_main_llm_call`** — `run_before_main_llm_call`：传入 **已拼好的** `system_prompts` 的可变借用；钩子可 **追加** 文本（内置 **`TaskBoardSnapshotHook`** 在此追加 **`[TASK_BOARD]`**，使任务板快照紧贴工具说明与 XML 附录之后、最靠近本轮 `messages`）。`BeforeMainLlmCallContext` 另带 `task_board_store` 与 `task_board_store_key`。
+8. **`stream_chat`** — `tokio::spawn` 里带着 **`&history_for_api`（即上面的 `messages`）** 和 **（已被钩子改写后的）system prompts** 请求模型；之后才是流式 delta、工具解析、写回持久化 `history` 等。
 
-要点：**扩展钩子在第 5～6 步执行，严格发生在「system 文本拼完」之前还是之后？**  
-在当前实现里，**system 拼接在第 7 步**，钩子 **在第 5～6 步**，因此钩子执行时 **还看不到** 最终的 `prompts_clone` 全文；钩子只能依赖 `Context` 里已有字段和 `messages`。若某钩子需要「完整 system」，需要把拼接提前或向 `Context` 传入预览字符串（当前未做）。
-
-与 Python 的细微差别：Python 在 `prepare_prompt` 里先写入 `loop_data.system` / `history_output` 再跑 `message_loop_prompts_after`，扩展**可以**读到已组好的 system 片段；Rust 当前是 **先改 user 侧 `messages`，再组 system**，若要对齐「先 system 后扩展」，需重构 `chat_service` 顺序。
+要点：**`before_main_llm_call` 在第 7 步**，在 **system 文本与 XML 附录已拼入 `system_prompts` 之后**执行；钩子若需「完整 system 列表」，应通过 **`system_prompts` 追加** 实现。若需只读主会话 id 或子任务存储键，使用 `conversation_id` / `task_board_store_key`。
 
 ### 4.2 单智能体：`messages` 在注入时刻包含什么
 
@@ -122,17 +123,18 @@ sequenceDiagram
     participant Hist as 持久化 history
     participant Msg as messages（API 快照）
     participant Ext1 as message_loop_prompts_after
-    participant Ext2 as before_main_llm_call
     participant Sys as 拼接 system prompts
+    participant Ext2 as before_main_llm_call
     participant LLM as stream_chat
 
     Loop->>Hist: 读取当前 history（上一轮已 push）
     Loop->>Msg: messages = history.clone() 或 local_history.clone()
     Loop->>Ext1: run_message_loop_prompts_after(ctx)
     Note over Ext1,Msg: 可追加 ephemeral User / 多模态
+    Loop->>Sys: system_prompts = env + … + tools + xml…
     Loop->>Ext2: run_before_main_llm_call(ctx)
-    Loop->>Sys: prompts_clone = env + system + tools + xml…
-    Loop->>LLM: stream_chat(messages, prompts_clone)
+    Note over Ext2,Sys: 可追加 [TASK_BOARD] 等
+    Loop->>LLM: stream_chat(messages, system_prompts)
 ```
 
 ---
@@ -157,7 +159,8 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 - 每一轮子 Agent 的每次模型请求前，同样执行：
   - `messages = local_history.clone()`
   - `run_message_loop_prompts_after`（`lead_agent_profile = def.profile`，例如子 Agent 为 `computer` 时仍会注入屏幕）
-  - `run_before_main_llm_call`
+  - 组装 `prompts_clone`（静态 `prompts` + 本轮 `xml_tool_prompt`）
+  - `run_before_main_llm_call`（含 **`[TASK_BOARD]`** 追加；`task_board_store_key` 为子任务隔离键）
 - 使用的 **`ExtensionRegistry` 与单智能体相同**（`AppState.extensions`），**不是**每子 Agent 一份。
 
 ### 5.3 与主会话「不独立」的共享资源（重要）
@@ -191,8 +194,9 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 | override_key / sort_key | 扩展点 | 文件 | 行为摘要 |
 |-------------------------|--------|------|----------|
 | `_10_computer_screen_inject` | `message_loop_prompts_after` | `agents/computer/extension_hooks/screen_inject.rs` | 当 `lead_agent_profile == Computer` 时：`capture_and_annotate`，向 `messages` 追加带 PNG base64 的临时 user 消息；失败则追加纯文本说明。 |
+| `task_board_snapshot` / `_90_task_board_snapshot` | `before_main_llm_call` | `extensions/task_board_hook.rs` | 若 `TaskBoardStore` 中 `task_board_store_key` 对应板子非空：向 `system_prompts` 追加 **`[TASK_BOARD]`** 快照（主会话或子任务键）。 |
 
-`before_main_llm_call` 当前**无**默认实现；与 Python `AttachSnapshotToAgentLog` 等对位的能力可在此扩展点追加。
+自定义钩子可 **替换** 同 `override_key` 的 `task_board_snapshot` 以改变快照格式或关闭注入。
 
 ---
 
@@ -204,7 +208,8 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 
 1. `ExtensionRegistry::new()`
 2. `extensions::register_builtin_extensions(&mut registry)`
-3. `Arc::new(registry)` 存入 `AppState.extensions`
+3. `registry.register_before_main_llm_call(Arc::new(extensions::task_board_hook::TaskBoardSnapshotHook))`（`AppState::new` 内）
+4. `Arc::new(registry)` 存入 `AppState.extensions`
 
 ### 8.2 增加或覆盖钩子
 
@@ -248,7 +253,7 @@ let extensions = Arc::new(registry);
 
 - **无动态扫盘**：不支持运行时从 `usr/extensions` 加载 `.so` 或脚本；扩展均为编译进 `pointer-core` 或通过上层 crate 注册。
 - **扩展点数量**：目前仅实现与 Computer 管线强相关的两个点；若要对齐 Python 的 `tool_execute_before`、`response_stream_chunk` 等，需新增 trait、`ExtensionRegistry` 字段及在 `provider` / 工具执行路径上显式 `run_*`。
-- **上下文字段**：`BeforeMainLlmCallContext` 较精简；日志快照、conversation id 等可按需增量添加。
+- **上下文字段**：`BeforeMainLlmCallContext` 含可变的 `system_prompts` 与 `task_board_store` / `task_board_store_key`；自定义钩子可替换同 `override_key` 的内置任务板快照行为。
 - **与 Python 顺序对齐**：可选重构为「先组装 system，再跑 `message_loop_prompts_after`」，以便钩子读取完整 system 文本。
 
 ---

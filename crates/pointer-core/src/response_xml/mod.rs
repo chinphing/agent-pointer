@@ -31,6 +31,13 @@ pub(super) fn wrap_synthetic_response_root(input: &str) -> Cow<'_, str> {
 
 use serde_json::{Map, Number, Value};
 
+/// Parsed `<response>`: optional `<sidecar_tools>` calls plus the single root primary tool call.
+#[derive(Debug, Clone)]
+pub struct XmlToolEnvelope {
+    pub sidecar: Vec<XmlToolCall>,
+    pub primary: XmlToolCall,
+}
+
 /// Parsed `<response>` tool call for the XML tool-caller path.
 #[derive(Debug, Clone)]
 pub struct XmlToolCall {
@@ -76,19 +83,32 @@ impl ResponseXmlBackend {
 
 /// [`XmlToolParser`](crate::xml_tool_caller::XmlToolParser) entry: ScraperHtml, then relaxed `quick-xml`.
 pub fn parse_tool_response_default_chain(xml: &str) -> Result<XmlToolCall, ResponseXmlParseError> {
-    match scraper_html::parse_fragment(xml) {
-        Ok(c) => Ok(c),
-        Err(e_html) => match quick_xml::parse_fragment_with_relax(xml, true) {
-            Ok(c) => {
-                log::debug!(
-                    "response_xml: ScraperHtml failed ({e_html}); using relaxed QuickXml"
-                );
-                Ok(c)
-            }
-            Err(e_relaxed) => Err(ResponseXmlParseError::Scraper(format!(
-                "ScraperHtml: {e_html}; relaxed QuickXml: {e_relaxed}"
-            ))),
-        },
+    parse_tool_response_envelope_default_chain(xml).map(|e| e.primary)
+}
+
+/// Full envelope: `<sidecar_tools>` (optional) + root primary tool fields.
+pub fn parse_tool_response_envelope_default_chain(
+    xml: &str,
+) -> Result<XmlToolEnvelope, ResponseXmlParseError> {
+    match scraper_html::parse_fragment_envelope(xml) {
+        Ok(env) => Ok(env),
+        Err(e_html) => {
+            let primary = match quick_xml::parse_fragment_with_relax(xml, true) {
+                Ok(c) => c,
+                Err(e_relaxed) => {
+                    return Err(ResponseXmlParseError::Scraper(format!(
+                        "ScraperHtml envelope: {e_html}; relaxed QuickXml: {e_relaxed}"
+                    )));
+                }
+            };
+            log::debug!(
+                "response_xml: envelope ScraperHtml failed ({e_html}); using relaxed QuickXml primary-only (no sidecar)"
+            );
+            Ok(XmlToolEnvelope {
+                sidecar: Vec::new(),
+                primary,
+            })
+        }
     }
 }
 
@@ -451,5 +471,34 @@ mod tests {
         assert!(old.contains("<template>") && old.contains("id=\"a\""));
         let new_s = call.arguments.get("newString").unwrap();
         assert!(new_s.contains("<template>") && new_s.contains("ok"));
+    }
+
+    #[test]
+    fn envelope_default_chain_parses_sidecar_and_primary() {
+        let xml = r#"<response>
+  <thoughts>t</thoughts>
+  <headline>h</headline>
+  <sidecar_tools>
+    <call>
+      <tool_name>task_board:patch</tool_name>
+      <tool_args>
+        <method>patch</method>
+        <items>[]</items>
+      </tool_args>
+    </call>
+  </sidecar_tools>
+  <tool_name>terminal</tool_name>
+  <tool_args>
+    <command>echo ok</command>
+  </tool_args>
+</response>"#;
+        let env = parse_tool_response_envelope_default_chain(xml).expect("envelope");
+        assert_eq!(env.sidecar.len(), 1, "sidecar calls");
+        assert_eq!(env.sidecar[0].name.trim(), "task_board:patch");
+        assert_eq!(env.primary.name.trim(), "terminal");
+        assert_eq!(
+            env.primary.arguments.get("command").map(String::as_str),
+            Some("echo ok")
+        );
     }
 }

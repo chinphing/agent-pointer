@@ -2,7 +2,7 @@ use crate::llm_token_stats::LlmUsageSnapshot;
 use crate::models::{ChatMessage, ModelSettings, ToolCall};
 use crate::xml_tool_caller::{
     extract_xml_streaming_partial, xml_tool_arguments_to_json_string, XmlFeedLane,
-    XmlStreamingPartial, XmlToolFinishDiagnostics, XmlToolCall, XmlToolParser,
+    XmlStreamingPartial, XmlToolFinishDiagnostics, XmlToolCall, XmlToolEnvelope, XmlToolParser,
 };
 use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
@@ -582,11 +582,11 @@ async fn flush_complete_xml_fragments(
 ) {
     if xml_parser.is_complete() {
         match xml_parser.parse() {
-            Some(xml_call) => {
-                let id = format!("xml_{}_{}", stream_xml_session_id, *xml_frag_idx);
+            Some(envelope) => {
+                let base_id = format!("xml_{}_{}", stream_xml_session_id, *xml_frag_idx);
                 *xml_frag_idx += 1;
                 let (tc, thoughts, headline) =
-                    tool_calls_from_xml_tool_call(model, xml_call, Some(id));
+                    tool_calls_from_xml_envelope(model, envelope, &base_id);
                 if thoughts.is_some() {
                     last_xml_stream_meta.0 = thoughts.clone();
                 }
@@ -645,6 +645,63 @@ fn write_llm_stream_chunk_to_stderr(text: &str) {
     let mut err = std::io::stderr().lock();
     let _ = std::io::Write::write_all(&mut err, text.as_bytes());
     let _ = err.flush();
+}
+
+fn tool_calls_from_xml_envelope(
+    model: &str,
+    envelope: XmlToolEnvelope,
+    base_id: &str,
+) -> (Vec<ToolCall>, Option<String>, Option<String>) {
+    if envelope.sidecar.is_empty() {
+        return tool_calls_from_xml_tool_call(
+            model,
+            envelope.primary,
+            Some(format!("{base_id}_p")),
+        );
+    }
+    let mut finish_thoughts = None;
+    let t = envelope.primary.thoughts.trim();
+    if !t.is_empty() {
+        finish_thoughts = Some(t.to_string());
+    }
+    let mut finish_headline = None;
+    let h = envelope.primary.headline.trim();
+    if !h.is_empty() {
+        finish_headline = Some(h.to_string());
+    }
+
+    let mut out: Vec<ToolCall> = Vec::new();
+    let mut idx: u32 = 0;
+    for sc in envelope.sidecar {
+        let id = format!("{base_id}_sc{idx}");
+        idx += 1;
+        let args_json = xml_tool_arguments_to_json_string(&sc.arguments);
+        let name = sc.name.trim().to_string();
+        out.push(ToolCall {
+            id,
+            name,
+            arguments: args_json,
+            status: "pending".into(),
+            result: None,
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+        });
+    }
+    let primary_id = format!("{base_id}_p");
+    let args_json = xml_tool_arguments_to_json_string(&envelope.primary.arguments);
+    let name = envelope.primary.name.trim().to_string();
+    out.push(ToolCall {
+        id: primary_id,
+        name,
+        arguments: args_json,
+        status: "pending".into(),
+        result: None,
+        error: None,
+        duration_ms: None,
+        risk_level: None,
+    });
+    (out, finish_thoughts, finish_headline)
 }
 
 fn tool_calls_from_xml_tool_call(

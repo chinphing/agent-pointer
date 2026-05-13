@@ -2,7 +2,7 @@
 
 Use when a **delay** is needed (e.g. page loading, animation, dialog appearing).
 
-This is the **blocking `wait` tool** — not the optional **`wait`** field inside **`mouse`** / **`hotkey`** / **`composite_action`** / **`modified_click`** **`tool_args`** (screenshot settle; see **Communication (public)** → **Post-action `wait` in `tool_args` (computer desktop)**).
+This is the **blocking `wait` tool** — not the optional **`wait`** field inside **`mouse`** / **`hotkey`** / **`composite_action`** / **`modified_click`** **`tool_args`** (screenshot settle; see **Communication** (desktop agent) → **Post-action `wait` in `tool_args`**).
 
 **`wait:wait`** (`goal`, `seconds`) — Pause for the given number of seconds. `seconds`: 0–60.
 

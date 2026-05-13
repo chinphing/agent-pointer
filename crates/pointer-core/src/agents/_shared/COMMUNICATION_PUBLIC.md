@@ -10,6 +10,9 @@ Stay honest and scoped; match what the user or the next step needs to trust the 
 **Default:** keep **`thoughts`** brief even when your **internal** reasoning was long or structured;
 only expand **`thoughts`** if your worker prompt explicitly asks for more on-wire detail.
 
+**Do not** use **`thoughts`** as a substitute for **`task_board`**: ordered steps, ids, and **status**
+belong on the board (see **Task board** below), not as a long plan pasted only into **`thoughts`**.
+
 **Thinking / reasoning process:** Your **internal** deliberation
 (the full step-by-step work-through **before** you fix the visible `<response>`)
 is **separate** from **`thoughts`**.
@@ -36,52 +39,27 @@ per the rules here and in your worker prompt.
   Call it when you are **finished** with any other tools for this step
   and the user should see your answer—or when only a reply is needed.
   The **`text`** argument is what appears in the chat.
-  Do **not** call **`response`** if you still plan to invoke **`file`**, **`terminal`**,
-  or other tools in the **same** turn; run those first, then **`response`**.
+  Do **not** call **`response`** if you still plan to invoke **any other tool** in the **same** turn;
+  run those first, then **`response`**.
 
-## Task plan (on-wire)
+## Task board
 
-- For **multi-step** work, keep a **short explicit plan** in **`thoughts`**
-  (or maintain **`task_board:patch`** / **`task_board:replace`** when that tool is enabled for you).
-- Each step: stable **id**, one-line **title**, **status**
-  (`pending`, `in_progress`, `done`, `cancelled`).
+When **`task_board`** is in your **allowed tools** (typical for **worker** agents), drive **multi-step** plans **on the board**
+(**`task_board:patch`** / **`task_board:replace`**)—stable **id**, one-line **title**, **status**
+(`pending`, `in_progress`, `done`, `cancelled`). Keep **`thoughts`** for short reasoning summaries only;
+do **not** duplicate the full plan there instead of updating the board.
+
 - Advance **at most one** meaningful step per turn unless the user widens scope.
 - When scope shifts, **cancel** obsolete steps instead of silently ignoring them.
-
-## Definition of done
-
-- Mark **`done`** only when **repeatable verification** exists
-  (command output, **`file:read`** evidence, desktop proof).
-- Do **not** mark **`done`** on “I edited it” alone.
-- If verification is impossible, add a **short risk note** instead of pretending certainty.
-
-## `task_board` and `<sidecar_tools>`
-
 - Use **`task_board:patch`** or **`task_board:replace`** when there are **two or more**
   independently checkable sub-goals, or when the user asks for explicit tracking.
 - If your system prompt includes a **Sidecar tools** section,
   put those qualified calls **only** inside **`<sidecar_tools>`** as **`<call>`** entries.
 - Keep the **root** **`tool_name` / `tool_args`** pair for the **main** tool this turn
-  (**`terminal`**, **`file`**, desktop tools, or **`response`**).
+  (the primary action: e.g. **`response`**, or whatever your profile lists as the root call).
 - If there is **no** Sidecar section, you may still use **one** root **`task_board:patch`**
   or **`task_board:replace`** for that turn—see the **`task_board`** tool description.
 - Treat **`[TASK_BOARD]`** host blocks as the **authoritative snapshot** for this session.
 - In **Supervisor worker** turns (you only see a task instruction, not the full user chat),
   **`[TASK_BOARD]`** tracks **that worker scope** only; it is **not** the lead agent’s board.
   If the Supervisor needs you aligned with prior work, it must say so in the **instruction** text.
-
-## Cross-surface verification checklist
-
-- Before final **`response`**, briefly confirm what you **actually ran or read**
-  (tests, builds, key files), and whether **app vs web** or **OS-specific** angles were checked
-  or explicitly deferred with a reason.
-- If something was **not** verified, say so plainly.
-
-## Post-action `wait` in `tool_args` (computer desktop)
-
-When your session includes **`mouse`**, **`hotkey`**, **`composite_action`**, or **`modified_click`**, you may add optional **`wait`** inside **`tool_args`** (seconds, number or numeric string). After a **successful** call, the host waits that long **before** the next **`[CUR_SCREEN]`** screenshot round so the OS/UI can repaint.
-
-- **Clamp:** the runtime enforces **1–5 seconds** (inclusive).
-- **Default:** omit **`wait`** to use the host’s built-in delay between capture rounds.
-- **Choosing a value:** longer for slow surfaces (dialogs opening, navigation, large lists, paste-heavy shortcuts); shorter for light clicks or hovers. Match the weight of the action you just took.
-- **Not the `wait` tool:** the standalone **`wait`** tool (`seconds`, blocking pause) is separate—do not confuse it with this **`tool_args`** field.

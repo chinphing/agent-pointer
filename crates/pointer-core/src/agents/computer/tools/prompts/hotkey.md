@@ -9,4 +9,4 @@ Parameters (in `tool_args`):
 - **`keys`** (required): modifier and key names in order—e.g. comma-separated `command, c` (macOS) or `ctrl, c` (Windows/Linux); the runtime also accepts the same sequence as a bracket list string inside one `<keys>` element if you need to pass it as a single value.
 - **`action`** (required): See **Communication** → **Action description in tool_args**.
 
-**Optional `wait` in `tool_args`:** See **Communication (public)** → **Post-action `wait` in `tool_args` (computer desktop)**. Heuristic: longer when the shortcut triggers slow UI (large paste, modal, save).
+**Optional `wait` in `tool_args`:** See **Communication** (desktop agent) → **Post-action `wait` in `tool_args`**. Heuristic: longer when the shortcut triggers slow UI (large paste, modal, save).

@@ -28,7 +28,7 @@
 ## 系统提示：Regular tools / Sidecar tools
 
 - **`ToolRegistry::prompt_context`**：先输出 **「## Regular tools」**，再在有侧车工具被授权时输出 **「## Sidecar tools」** 及英文短说明（侧车不得在有 `<sidecar_tools>` 时占根位等语义与 **`response`** 工具文档一致）。
-- **`COMMUNICATION_PUBLIC`**（英文）：任务粒度、验证、`task_board` 与侧车的关系、跨端/验证清单等高层约定。
+- **`COMMUNICATION_PUBLIC`**（英文）：**`thoughts`** 摘要语义、**`response`** 用法、**`task_board`** 与 **`<sidecar_tools>`** 的通用约定。多步计划的 **字段与侧车规则** 以 PUBLIC 为准；**桌面** **`tool_args.wait`** 见 **`computer/COMMUNICATION.md`**（**Post-action `wait` in `tool_args`**）；**Coder** 专属的 **Definition of done** 与 **Cross-surface verification** 见 **`coder/COMMUNICATION.md`**。
 
 ## Agent 白名单
 

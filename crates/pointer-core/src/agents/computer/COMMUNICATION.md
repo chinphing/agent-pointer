@@ -2,7 +2,7 @@
 
 Each desktop reply is **one** `<response>` document: **`<thoughts>`**, **`<headline>`**, **`<tool_name>`**, **`<tool_args>`** (schema per tool prompt).
 
-**`<thoughts>`** — Holds the **five-stage block** below (**`Pointer:`** through optional **`Location:`**), in order, using the **English prefix lines** only for that reasoning. Stages **1–4**: **no** overlay **`index`** / “box N”; **`index`** appears **only** inside **`Location:`** lines.
+**`<thoughts>`** — Holds the **five-stage block** below (**`Pointer:`** through optional **`Location:`**), in order, using the **English prefix lines** only for that reasoning. Stages **1–4**: **no** overlay **`index`** / “bbox N”; **`index`** appears **only** inside **`Location:`** lines.
 
 Complete examples at the end of this document use **full XML**. Less important fields use **`...`**.
 
@@ -22,11 +22,11 @@ Run **five** stages **in order**. Use **exactly** these **English prefix lines**
 
 **Full completion** — Do not treat **subset** work (e.g. **4/10** items, half a form, truncated copy) or **repeat “done”** without **new** proof as finished; **`response`** must match verified scope.
 
-**Overlay discipline** — Stages **1–4**: **no** overlay **`index`**, digits, or “box N”. **`index`** **only** inside **`Location:`**.
+**Overlay discipline** — Stages **1–4**: **no** overlay **`index`**, digits, or “bbox N”. **`index`** **only** inside **`Location:`**.
 
 ### Tool geometry: overlay **index** vs **coordinates** (computer profile)
 
-Use **`[Annotated after action]`** overlay numbers **only** with **index-based** methods below. Use **`x`/`y`** (or drag endpoints) with **coordinate-based** methods; optional **`[CUR_SCREEN]`** prose may list **pointer neighbor reference bboxes** — those are **anchors for coordinate calls only**, not targets for `index` clicks.
+Use **`[Annotated after action]`** overlay numbers **only** with **index-based** methods below. Use **`x`/`y`** (or drag endpoints) with **coordinate-based** methods; optional **`[CUR_SCREEN]`** prose may list **pointer neighbor reference bbox** entries — those are **anchors for coordinate calls only**, not targets for `index` clicks.
 
 **Overlay-index methods** (require an overlay **`index`** / **`indices`** from the current annotated frame):  
 **`mouse`:** `mouse:click_index`, `mouse:double_click_index`, `mouse:right_click_index`, `mouse:hover_index`, `mouse:drag_from_to_index` · **`composite_action`:** `composite_action:type_text_at_index`, `composite_action:scroll_at_index` · **`modified_click`:** `modified_click:modified_click_index`.
@@ -36,17 +36,24 @@ Use **`[Annotated after action]`** overlay numbers **only** with **index-based**
 
 **Neither index nor typed point on the screenshot:** `mouse:click_current`, `mouse:double_click_current`, `mouse:right_click_current`, `mouse:scroll_at_current`, `mouse:move_offset`, `composite_action:type_text_at_focused`, **`hotkey`**, **`wait`**, **`clipboard:read`**, **`clipboard:write`**, **`response`**.
 
-**Screenshot settle:** Optional **`wait`** in **`tool_args`** for **`mouse`**, **`hotkey`**, **`composite_action`**, **`modified_click`** — see **Communication (public)** → **Post-action `wait` in `tool_args` (computer desktop)**.
+### Post-action `wait` in `tool_args`
+
+For **`mouse`**, **`hotkey`**, **`composite_action`**, and **`modified_click`**, you may add optional **`wait`** inside **`tool_args`** (seconds, number or numeric string). After a **successful** call, the host waits that long **before** the next **`[CUR_SCREEN]`** screenshot round so the OS/UI can repaint.
+
+- **Clamp:** the runtime enforces **1–5 seconds** (inclusive).
+- **Default:** omit **`wait`** — the host still waits a **fixed built-in interval** (about one second) before the next **`[CUR_SCREEN]`** round; use an explicit **`wait`** only when you need **1–5** seconds tuned to UI weight.
+- **Choosing a value:** longer for slow surfaces (dialogs opening, navigation, large lists, paste-heavy shortcuts); shorter for light clicks or hovers. Match the weight of the action you just took.
+- **Not the `wait` tool:** the standalone **`wait`** tool (`seconds`, blocking pause) is separate—do not confuse it with this **`tool_args`** field.
 
 ---
 
 ### 1) Pointer
 
-**Purpose:** Geometry only: does the **cursor/caret** on **`[Screen after action]`** overlap the **prior step’s** intended control? Prefer **`[Zoom pointer after action]`** for offset detail.
+**Purpose:** Geometry only: does the **pointer hotspot** (where a click lands on the capture) match the **prior step’s intended aim point**? Coordinate **`x`/`y`** and overlay **`index`** clicks use the **center** of the chosen control—**inside** the same field, bar, or row is **not** enough if the hotspot sits off that center (e.g. left edge of a wide search box). Prefer **`[Zoom pointer after action]`** to judge alignment.
 
 **Branch — view vs before:** **`[Screen before action]`** absent → skip “vs before”; if present, note **changed** vs **unchanged** for task-relevant UI.
 
-**Conclusion (pick one):** **`accurate`** · **`abnormal`** (“near” = **abnormal**) · **`n/a`** (target not visible, or cursor not visible).
+**Conclusion (pick one):** **`accurate`** — hotspot on the **intended center** (or **caret** placement for type-at-focus) within a **small** visible tolerance. **`abnormal`** — **near** the target, **inside** the widget but **off-center**, on the **wrong sub-part** (label vs icon), or wrong row/panel. **`n/a`** — target not visible, or cursor/hotspot not visible.
 
 **Required form**
 
@@ -64,7 +71,7 @@ Conclusion: <accurate | abnormal | n/a> — <reason>.
 Pointer:
 View vs before: changed — save dialog no longer visible.
 Intended: first file row in list.
-Evidence: list unobstructed; cursor over first row filename. Conclusion: accurate.
+Evidence: list unobstructed; zoom shows hotspot on first row center, not on trailing padding. Conclusion: accurate.
 ```
 
 ```text
@@ -80,7 +87,7 @@ Evidence: cursor on row label, left of toggle knob. Conclusion: abnormal.
 Pointer:
 View vs before: n/a — no prior before frame for comparison.
 Intended: omnibox URL bar.
-Evidence: caret in field; pointer in bar. Conclusion: accurate.
+Evidence: zoom shows hotspot on bar left edge; aim was field center. Conclusion: abnormal.
 ```
 
 **Mini examples — conclusion branch**
@@ -88,7 +95,7 @@ Evidence: caret in field; pointer in bar. Conclusion: accurate.
 ```text
 Pointer:
 View vs before: unchanged. Intended: blue Save in footer.
-Evidence: cursor overlaps Save pill body. Conclusion: accurate.
+Evidence: zoom shows hotspot on Save pill center. Conclusion: accurate.
 ```
 
 ```text
@@ -173,27 +180,27 @@ After: same table row. Concrete — no new row. non-deferred — trash icon was 
 
 ```text
 Verify:
-Before: API keys table. After: same; no toast. no visible outcome. deferred — clipboard proof. Pointer: accurate on copy icon. NFO — rule 2; next clipboard:read.
+Before: API keys table. After: same; no toast. no visible outcome. deferred — clipboard proof. Pointer: accurate — hotspot on copy icon center. NFO — rule 2; next clipboard:read.
 ```
 
 ```text
 Verify:
-Before: form with errors. After: same; Submit still enabled; no new message. no visible outcome. non-deferred — expect submit result. Pointer: accurate on Submit. FAILED — rule 3.
+Before: form with errors. After: same; Submit still enabled; no new message. no visible outcome. non-deferred — expect submit result. Pointer: accurate — hotspot on Submit center. FAILED — rule 3.
 ```
 
 ```text
 Verify:
-Before: empty search field. After: field shows typed query. Concrete — text visible. non-deferred. Pointer: accurate in field. VERIFIED — rule 4.
+Before: empty search field. After: field shows typed query. Concrete — text visible. non-deferred. Pointer: accurate — hotspot on field center. VERIFIED — rule 4.
 ```
 
 ```text
 Verify:
-Before: export dialog lists 10 files. After: progress “3 of 10 complete”; seven rows still pending. Concrete — partial batch. non-deferred — multi-file export. Pointer: accurate on Export. PARTIAL — rule 5; next wait or scroll list, then recount.
+Before: export dialog lists 10 files. After: progress “3 of 10 complete”; seven rows still pending. Concrete — partial batch. non-deferred — multi-file export. Pointer: accurate — hotspot on Export center. PARTIAL — rule 5; next wait or scroll list, then recount.
 ```
 
 ```text
 Verify:
-After: subtle spinner started; main canvas unchanged; goal was “export finished”. no visible outcome. deferred — check queue. Pointer: accurate on Export. NFO — rule 6 conservative.
+After: subtle spinner started; main canvas unchanged; goal was “export finished”. no visible outcome. deferred — check queue. Pointer: accurate — hotspot on Export center. NFO — rule 6 conservative.
 ```
 
 ```text
@@ -256,7 +263,7 @@ Rows: goal text differs last row vs prior. Screen: flat. OK — not same semanti
 
 ### 4) Next
 
-One step; describe the **target** on **`[Screen after action]`** only — **no** **`[Annotated after action]`**, **no** zoom overlay digits, **no** **`index`**, **no** “box N” / badge numbers (those belong **only** in **`Location:`**). Complete XML examples for these stages are at the end of this document under **Full chain**.
+One step; describe the **target** on **`[Screen after action]`** only — **no** **`[Annotated after action]`**, **no** zoom overlay digits, **no** **`index`**, **no** “bbox N” / badge numbers (those belong **only** in **`Location:`**). Complete XML examples for these stages are at the end of this document under **Full chain**.
 
 **Target traits (spell enough to disambiguate):** visible **label** (exact or partial text, or “unlabeled icon”), **shape** (pill, chip, row, tab, field, glyph), **color or emphasis** if it separates twins, **band / region** (dialog footer, sidebar, omnibox, table header), and **neighbors** (e.g. “left of Save”, “under error banner”, “right of masked key”). Put all of that in **`Next:`**; vague “click the button” without traits is not enough to aim precisely — fix **`Next:`** before **`Location:`** if the target is still ambiguous. For **on-screen clicks** (`mouse` / `composite_action` / `modified_click`), **`Intent`** should usually cover **label** (or “unlabeled icon”), **shape**, **band/region**, and **neighbors**, and add **color** when it disambiguates. **`clipboard`** / steps with **no** on-screen widget may omit traits that do not apply (e.g. no **label** for **`clipboard:read`**).
 
@@ -305,31 +312,33 @@ Intent: primary Submit — label “Submit” or unlabeled gray pill; shape pill
 
 Ground **`Next:`** — **do not** repeat the full-screen target line; **`Next:`** already states intent and traits. Steps **1–5** below; **do not** jump straight to “use **`index`** N”. Use the mini examples in this section for mismatch, match+single, match+multiple → coordinates, and hover deferral.
 
+**BBox:** Each **`index`** ↔ **one** axis-aligned **bbox**. **Pairing:** digit **background** **matches** that **bbox**’s **border color** **and** the digit sits **tightly on** the **bbox** border (flush with the stroke—not between two **bbox** regions). Same **bbox** for border, placement, digit-on-edge, and “inside” on lines **2–4**. In **`Location:`**, use **bbox** only so every line names the same shape.
+
 **Target vs marked element — what to write**
 
-- **Line 1 (candidate overlay on a reference frame):** Name the frame, then **`index`**. Valid frames: **`[Annotated after action]`** and **every zoom crop** — **`[Zoom top after action]`**, **`[Zoom bottom after action]`**, **`[Zoom pointer after action]`** — pick whichever shows the printed index and outline most clearly; all are allowed. Then **marked box traits**: **background color** behind the printed index **matches** **outline color** for that region (**not** “digit ink color = outline color”); where the rectangle sits; how the digit sits on the outline; **relations to other overlays** (distance, overlap, **left / right / above / below** another **`index`**, touching vs clearly separate).
-- **Line 2 (inside the outline):** **Inventory only** — control types, visible strings, icons, chrome vs page body, clutter. Feeds step **4**; **do not** use line 2 to accept or reject the **`index`** in step **3**.
+- **Line 1 (candidate overlay on a reference frame):** Name the frame, then **`index`**. Valid frames: **`[Annotated after action]`** and **every zoom crop** — **`[Zoom top after action]`**, **`[Zoom bottom after action]`**, **`[Zoom pointer after action]`** — pick whichever shows the printed index and **bbox** most clearly; all are allowed. Then **marked bbox traits**: **background color** behind the printed index **matches** this **bbox**’s **border color** (**not** “digit ink color = border color”); digit **tightly on** the **bbox** border (flush, not between neighbors); **bbox** placement; how the digit sits on the **bbox** edge; **relations to other overlays** (distance, overlap, **left / right / above / below** another **`index`**, touching vs clearly separate).
+- **Line 2 (inside that bbox — same as line 1):** **Inventory only** — control types, visible strings, icons, chrome vs page body, clutter. Feeds step **4**; **do not** use line 2 to accept or reject the **`index`** in step **3**.
 
 **Required form**
 
 ```text
 Location:
-1 <[Annotated after action] | [Zoom top after action] | [Zoom bottom after action] | [Zoom pointer after action]> index <N>: <background color behind index matches outline color; bbox placement; digit on outline (edge/corner); vs other indices when visible>.
+1 <[Annotated after action] | [Zoom top after action] | [Zoom bottom after action] | [Zoom pointer after action]> index <N>: <background color behind index matches bbox border color; digit tightly on bbox border; bbox placement; digit on bbox edge (corner/side); vs other indices when visible>.
 2 Inside bbox: <inventory only — what is wrapped>.
 3 match|mismatch: <intended target from Next inside|outside this bbox — inclusion only>.
 4 single|multiple: <distinct hit targets inside that bbox — count only after match>.
 5 index <N> | coordinates | hover: <choice; if coords/hover, why>.
 ```
 
-**Rules (short):** **3** = inclusion only (target inside outline? **Match** even if the box is “fat”; **do not** count inner widgets here). **4** = count only (after **match**). **5** maps **3+4** only: **match + single** → **`index`**; **match + multiple** → **coordinates** (or other safe aim); **mismatch** → return to line **1** with another candidate; no **match** after tries → **coordinates** or tactic change; **hover** + defer irreversible click when still uncertain.
+**Rules (short):** **3** = inclusion only (target inside **that** bbox? **Match** even if the **bbox** is “fat”; **do not** count inner widgets here). **4** = count only (after **match**). **5** maps **3+4** only: **match + single** → **`index`**; **match + multiple** → **coordinates** (or other safe aim); **mismatch** → return to line **1** with another candidate; no **match** after tries → **coordinates** or tactic change; **hover** + defer irreversible click when still uncertain.
 
-Mini examples spell **line 1** with **frame + index + background color behind index matching outline color + bbox placement + digit on outline + vs other indices** when several boxes are visible.
+Mini examples spell **line 1** with **frame + index + matching bbox border color + digit tightly on bbox border + bbox placement + digit on bbox edge + vs other indices** when several indexed **bbox** regions are visible.
 
 **Mini examples — step 3 mismatch (drop this index)**
 
 ```text
 Location:
-1 [Annotated after action] index 7: **background color** behind **7** matches green **outline color** (digit ink may differ); bbox spans left rail + first table row; digit on left edge of outline — footer Settings gear is **below** this stack, not inside the box.
+1 [Annotated after action] index 7: **background color** behind **7** matches green **bbox** border color (digit ink may differ); **bbox** spans left rail + first table row; digit on left edge of **bbox** — footer Settings gear is **below** this stack, not inside the **bbox**.
 2 Inside bbox: rail + row clutter; footer gear not isolated.
 3 mismatch: intended footer Settings gear not inside index 7 bbox — pick another index.
 ```
@@ -338,7 +347,7 @@ Location:
 
 ```text
 Location:
-1 [Annotated after action] index 11: **background color** behind **11** matches green **outline color**; tight bbox on footer gear glyph only; clear gap from neighboring footer icons — no overlap with index 10 strip to the left.
+1 [Annotated after action] index 11: **background color** behind **11** matches green **bbox** border color; tight **bbox** on footer gear glyph only; clear gap from neighboring footer icons — no overlap with index 10 strip to the left.
 2 Inside bbox: gear icon only.
 3 match: gear inside index 11 bbox.
 4 single.
@@ -349,7 +358,7 @@ Location:
 
 ```text
 Location:
-1 [Zoom pointer after action] index 4: **background color** behind **4** matches magenta **outline color**; tight box hugging ⋯ chip immediately **right** of row title; outline **not** touching a smaller box left of title (another index on full annotated view).
+1 [Zoom pointer after action] index 4: **background color** behind **4** matches magenta **bbox** border color; tight **bbox** hugging ⋯ chip immediately **right** of row title; this **bbox** **not** touching a smaller index **bbox** left of title (another index on full annotated view).
 2 Inside bbox: ⋯ only.
 3 match.
 4 single.
@@ -358,7 +367,7 @@ Location:
 
 ```text
 Location:
-1 [Annotated after action] index 12: **background color** behind **12** matches orange **outline color**; wide toolbar strip **under** tab row; digit on top edge of strip — peer indices **left**/**right** along same band; this strip is the one containing the URL field.
+1 [Annotated after action] index 12: **background color** behind **12** matches orange **bbox** border color; wide toolbar strip **under** tab row; digit on top edge of **bbox** — peer indices **left**/**right** along same band; this strip is the one containing the URL field.
 2 Inside bbox: URL + star + extensions.
 3 match: URL in bbox.
 4 multiple.
@@ -369,9 +378,9 @@ Location:
 
 ```text
 Location:
-1 [Annotated after action] index 4: **background color** behind **4** matches cyan **outline color**; one bbox wraps **both** OK and Cancel pills side by side; digit on top center of shared outline.
+1 [Annotated after action] index 4: **background color** behind **4** matches cyan **bbox** border color; one **bbox** wraps **both** OK and Cancel pills side by side; digit on top center of shared **bbox**.
 2 Inside bbox: two pills.
-3 match: OK lies inside bbox but shares box with Cancel.
+3 match: OK lies inside **bbox** but shares **bbox** with Cancel.
 4 multiple.
 5 coordinates: OK pill center on [Screen after action] scale — no exclusive click_index.
 ```
@@ -382,7 +391,7 @@ Location:
 5 hover: hover strongest toolbar candidate — defer irreversible click until next turn re-checks pointer zoom.
 ```
 
-In real replies, **each** failed candidate should still use a full **line 1** (frame + **`index`** + **background color** vs **outline color** + placement + neighbors); the line above compresses five tries for brevity.
+In real replies, **each** failed candidate should still use a full **line 1** (frame + **`index`** + **background color** vs **bbox** border color + placement + neighbors); the line above compresses five tries for brevity.
 
 ---
 
@@ -396,10 +405,10 @@ In real replies, **each** failed candidate should still use a full **line 1** (f
 <response>
   <thoughts>
 Pointer:
-View unchanged. Intended: gray Submit in dialog. Pointer on Submit pill. Conclusion: accurate.
+View unchanged. Intended: gray Submit in dialog. Zoom: hotspot on Submit pill center. Conclusion: accurate.
 
 Verify:
-Before: error banner. After: banner + Submit unchanged. no visible outcome for submit done. non-deferred. Pointer: accurate on Submit. FAILED
+Before: error banner. After: banner + Submit unchanged. no visible outcome for submit done. non-deferred. Pointer: accurate — hotspot on Submit center. FAILED
 
 Repetition:
 Last rows differ; not flat 4×. OK
@@ -408,7 +417,7 @@ Next:
 Intent: primary Submit — label “Submit” or unlabeled gray pill; shape pill; color gray; region modal dialog center stack; neighbors: under password fields — not Cancel text link. No digits here.
 
 Location:
-1 [Annotated after action] index 6: **background color** behind **6** matches green **outline color**; tall card bbox around full form stack; digit on **right** edge of card outline — neighboring indices on dialog chrome outside this card if present.
+1 [Annotated after action] index 6: **background color** behind **6** matches green **bbox** border color; tall card **bbox** around full form stack; digit on **right** edge of card **bbox** — neighboring indices on dialog chrome outside this **bbox** if present.
 2 Inside bbox: email, password, Submit.
 3 match: Submit in bbox.
 4 multiple.

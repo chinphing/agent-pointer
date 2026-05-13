@@ -29,7 +29,7 @@ Parameter constraints:
 - **`action`** is required. See **Communication** → **Action description in tool_args**.
 - For **coordinate methods**: supply `x`, `y` per the coordinate rules for this tool; stay consistent within the same turn and do not reuse numbers from an older turn’s image.
 
-**Optional `wait` in `tool_args`:** See **Communication (public)** → **Post-action `wait` in `tool_args` (computer desktop)**. Heuristic: **~1–2** s for simple clicks/hovers; **~3–5** s for dialogs, navigation, or heavy repaints.
+**Optional `wait` in `tool_args`:** See **Communication** (desktop agent) → **Post-action `wait` in `tool_args`**. Heuristic: **~1–2** s for simple clicks/hovers; **~3–5** s for dialogs, navigation, or heavy repaints.
 
 Scroll workflow: When the mouse is already in the scrollable area, use **`mouse:scroll_at_current`** directly. When you need to target a specific region first, use **`composite_action:scroll_at_index`** (overlay-index), then **`mouse:scroll_at_current`** for further scrolls.
 

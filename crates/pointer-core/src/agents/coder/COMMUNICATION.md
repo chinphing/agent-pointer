@@ -57,3 +57,21 @@ When calling **`file:write`** or **`file:edit`** via `<response>` XML, always wr
   </tool_args>
 </response>
 ```
+
+---
+
+## Task board (plan and tracking)
+
+Multi-step work is tracked with **`task_board:patch`** / **`task_board:replace`**, not by pasting the full plan only into **`thoughts`**. Step fields and Sidecar placement follow **Communication (public)** → **Task board**.
+
+## Definition of done (`task_board` and delivery)
+
+- Mark a step **`done`** only when **repeatable verification** exists for that step
+  (e.g. **`terminal`** command output, **`file:read`** on changed files, or other evidence this profile allows).
+- Do **not** mark **`done`** on “I edited it” alone.
+- If verification is impossible, add a **short risk note** on the board or in the user reply instead of pretending certainty.
+
+## Cross-surface verification (before final `response`)
+
+- Briefly confirm what you **actually ran or read** (tests, builds, key files), and whether **app vs web** or **OS-specific** angles were checked or explicitly deferred with a reason.
+- If something was **not** verified, say so plainly.

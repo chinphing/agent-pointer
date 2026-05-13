@@ -213,12 +213,20 @@ export const useChatStore = defineStore('chat', () => {
         if (r) r.msg.reasoning = (r.msg.reasoning || '') + e.text
         break
       }
-      case 'assistant_xml_partial': {
+      case 'assistant_json_partial': {
         const r = findMessage(e.messageId)
         if (!r) break
         if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
         if (e.headline != null && e.headline.trim() !== '') r.msg.headline = e.headline
-        if (e.toolName != null && e.toolName.trim() !== '') r.msg.xmlToolNamePreview = e.toolName
+        if (e.toolName != null && e.toolName.trim() !== '') {
+          r.msg.toolNamePreview = e.toolName
+          if (e.toolName.trim() !== 'response') delete r.msg.responseTextDraft
+        }
+        if (e.responseText !== undefined) {
+          const t = e.responseText ?? ''
+          if (t.trim() !== '') r.msg.responseTextDraft = t
+          else delete r.msg.responseTextDraft
+        }
         break
       }
       case 'agent_step': {
@@ -276,6 +284,7 @@ export const useChatStore = defineStore('chat', () => {
           // 忽略 JSON `null`：勿把正文/ thoughts 写成 null 导致界面丢字段
           if (e.content != null) r.msg.content = e.content
           if (e.rawContent != null) r.msg.rawContent = e.rawContent
+          delete r.msg.responseTextDraft
           // 二次 message_end（如 response 收尾）若带空串，勿覆盖首轮已写入的 thoughts/headline
           if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
           if (e.headline != null && e.headline.trim() !== '') r.msg.headline = e.headline

@@ -20,9 +20,9 @@ use crate::tools::response::response_text_from_args;
 use crate::tools::validate_envelope_tool_batch;
 use crate::tools::terminal::{run_terminal_command_streaming, terminal_stream_tool_status};
 use crate::tools::ToolRegistry;
-use crate::xml_tool_caller::XmlToolFinishDiagnostics;
 use anyhow::{anyhow, Result};
 use chrono::Local;
+use serde_json::Value;
 use std::backtrace::Backtrace;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -290,43 +290,43 @@ pub async fn run_chat(
     result
 }
 
-/// When XML tools are enabled but this turn produced no executable tool call, inject a user-line
+/// When tools appendix is enabled but this turn produced no executable tool call, inject a user-line
 /// for the next model turn. Public format rules are already in the system prompts each round via
-/// [`rendered_communication_public_inject`] / [`expand_agent_prompt_placeholders`]; this message only states the failure and CDATA/escaping hints.
-fn xml_tool_empty_calls_retry_message(
-    diag: &XmlToolFinishDiagnostics,
-    xml_tools_enabled: bool,
+/// [`rendered_communication_public_inject`] / [`expand_agent_prompt_placeholders`]; this message only states the failure and JSON escaping hints.
+fn json_tool_empty_calls_retry_message(
+    diag: &crate::json_tool_caller::JsonToolFinishDiagnostics,
+    tools_appendix_enabled: bool,
 ) -> Option<String> {
-    if !xml_tools_enabled {
+    if !tools_appendix_enabled {
         return None;
     }
-    const CDATA_NOTE: &str = "若使用 `file:write`（或 `file` 且 `method` 为 write），`content` 须整段包在 `<![CDATA[...]]>`；若使用 `file:edit`，`oldString` 与 `newString` 均须各自包在 CDATA 中。勿在外侧用 Markdown 代码块包裹整段 `<response>`。";
+    const ESCAPE_NOTE: &str = "在 JSON 的 `tool_args` 字符串字段中正确转义引号与换行；长文本（如 `file:write` 的 `content`、`file:edit` 的 `oldString`/`newString`）必须作为合法 JSON 字符串。勿在模型输出外再包一层 Markdown 代码围栏。";
 
-    let intro = if diag.attempted_tool_xml {
+    let intro = if diag.attempted_tool_json {
         if diag.fragment_complete {
             let detail = diag
                 .parse_error
                 .as_deref()
                 .filter(|s| !s.is_empty())
-                .unwrap_or("无法解析为合法的工具 XML（常见于未转义的尖括号破坏了标签结构）");
+                .unwrap_or("无法解析为合法的工具 JSON 信封（根对象需含 `tool_name` 与 `tool_args` 等字段）");
             format!(
-                "【环境反馈】本回合输出中包含工具相关 XML，但解析失败：{detail}。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 `<response>...</response>`（无围栏外长文本）。"
+                "【环境反馈】本回合输出中包含工具相关 JSON 字段，但解析失败：{detail}。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 JSON 对象（无围栏外长文本）。"
             )
         } else {
-            "【环境反馈】本回合检测到工具相关 XML（如 `<tool_name>` / `<tool_args>` 或 `<response>` 片段），但在流结束前仍未形成可解析的完整 `</response>`，因此未能执行任何工具。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 `<response>...</response>`，并确保闭合标签完整。".to_string()
+            "【环境反馈】本回合检测到工具相关 JSON 片段（如 `\"tool_name\"` / `\"tool_args\"`），但在流结束前仍未形成可解析的完整 JSON 对象，因此未能执行任何工具。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 JSON 对象，并确保花括号与引号闭合完整。".to_string()
         }
     } else {
-        "【环境反馈】本回合未解析到任何工具调用：输出中未得到有效 `<response>…</response>` 结构（需包含 `thoughts`、`headline`、`tool_name`、`tool_args`；勿用 Markdown 代码块包裹整段 XML；勿仅在标签外输出长说明代替结构化工具调用）。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 `<response>...</response>`。".to_string()
+        "【环境反馈】本回合未解析到任何工具调用：输出中未得到有效 JSON 信封（需包含 `thoughts`、`headline`、`tool_name`、`tool_args`；可选 `sidecar_tools` 数组；勿用 Markdown 代码块包裹整段 JSON；勿仅在 JSON 外输出长说明代替结构化工具调用）。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 JSON 对象。".to_string()
     };
 
-    Some(format!("{intro}\n\n【CDATA / 转义】{CDATA_NOTE}"))
+    Some(format!("{intro}\n\n【JSON】{ESCAPE_NOTE}"))
 }
 
-fn xml_tool_envelope_batch_retry_message(err: &str) -> String {
+fn json_tool_envelope_batch_retry_message(err: &str) -> String {
     format!(
         "【环境反馈】本回合工具调用组合不符合协议：{err}\n\n\
-         当使用 `<sidecar_tools>` 时：仅允许将白名单侧车工具（例如 `task_board:patch`）放在其中每个 `<call>`；根级必须恰好保留一对主工具 `tool_name`/`tool_args`，且不得仅为侧车工具。\n\
-         若无 `<sidecar_tools>`，则仍只使用根级单工具。请按系统提示中的 XML 约定重新输出完整的 `<response>...</response>`。"
+         当使用 `sidecar_tools` 数组时：仅允许将白名单侧车工具（例如 `task_board:patch`）放在其中每一项；根级必须恰好保留一对主工具 `tool_name`/`tool_args`，且不得仅为侧车工具。\n\
+         若无 `sidecar_tools`，则仍只使用根级单工具。请按系统提示中的 JSON 约定重新输出完整的 JSON 对象。"
     )
 }
 
@@ -494,7 +494,7 @@ async fn run_chat_inner(
             &state.tools,
             &agent_plan.allowed_tool_names,
         );
-        let xml_tools_enabled = !xml_tool_prompt.is_empty();
+        let tools_appendix_enabled = !xml_tool_prompt.is_empty();
         let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
         let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
         let lead_profile = state
@@ -593,7 +593,7 @@ async fn run_chat_inner(
         let mut reasoning_buf = String::new();
         let mut final_tool_calls: Vec<ToolCall> = Vec::new();
         let mut finish_reason = String::from("stop");
-        let mut xml_finish_diag = XmlToolFinishDiagnostics::default();
+        let mut json_finish_diag = crate::json_tool_caller::JsonToolFinishDiagnostics::default();
         let mut xml_thoughts: Option<String> = None;
         let mut xml_headline: Option<String> = None;
         let mut streamed_tool_call_ids: HashSet<String> = HashSet::new();
@@ -664,7 +664,7 @@ async fn run_chat_inner(
                         },
                     );
                 }
-                ProviderEvent::XmlToolStreamingReady { tool_calls, .. } => {
+                ProviderEvent::JsonToolStreamingReady { tool_calls, .. } => {
                     for tc in &tool_calls {
                         if streamed_tool_call_ids.insert(tc.id.clone()) {
                             let mut t = tc.clone();
@@ -683,31 +683,33 @@ async fn run_chat_inner(
                         }
                     }
                 }
-                ProviderEvent::AssistantXmlPartial {
+                ProviderEvent::AssistantJsonPartial {
                     thoughts,
                     headline,
                     tool_name,
+                    response_text,
                 } => {
                     emit(
                         &stream,
-                        StreamEvent::AssistantXmlPartial {
+                        StreamEvent::AssistantJsonPartial {
                             message_id: assistant_id.clone(),
                             thoughts,
                             headline,
                             tool_name,
+                            response_text,
                         },
                     );
                 }
                 ProviderEvent::Finish {
                     reason,
                     tool_calls,
-                    xml,
+                    json,
                     thoughts,
                     headline,
                     usage,
                 } => {
                     finish_reason = reason;
-                    xml_finish_diag = xml;
+                    json_finish_diag = json;
                     xml_thoughts = thoughts;
                     xml_headline = headline;
                     llm_token_session.stats.record_llm_round(usage.as_ref());
@@ -829,7 +831,7 @@ async fn run_chat_inner(
 
         if final_tool_calls.is_empty() {
             if let Some(hint) =
-                xml_tool_empty_calls_retry_message(&xml_finish_diag, xml_tools_enabled)
+                json_tool_empty_calls_retry_message(&json_finish_diag, tools_appendix_enabled)
             {
                 let retry_id = new_id("msg");
                 emit(
@@ -899,7 +901,7 @@ async fn run_chat_inner(
 
         if let Err(err) = validate_envelope_tool_batch(&state.tools, &final_tool_calls) {
             log::warn!("tool envelope batch rejected: {err}");
-            let hint = xml_tool_envelope_batch_retry_message(&err);
+            let hint = json_tool_envelope_batch_retry_message(&err);
             let retry_id = new_id("msg");
             emit(
                 &stream,
@@ -1714,7 +1716,7 @@ async fn run_sub_agent(
         let mut round_content = String::new();
         let mut round_reasoning = String::new();
         let mut final_tool_calls: Vec<ToolCall> = Vec::new();
-        let mut xml_finish_diag = XmlToolFinishDiagnostics::default();
+        let mut json_finish_diag = crate::json_tool_caller::JsonToolFinishDiagnostics::default();
         let mut round_thoughts: Option<String> = None;
         let mut round_headline: Option<String> = None;
         let mut streamed_round_tool_call_ids: HashSet<String> = HashSet::new();
@@ -1782,7 +1784,7 @@ async fn run_sub_agent(
                         },
                     );
                 }
-                ProviderEvent::XmlToolStreamingReady { tool_calls, .. } => {
+                ProviderEvent::JsonToolStreamingReady { tool_calls, .. } => {
                     for tc in &tool_calls {
                         if streamed_round_tool_call_ids.insert(tc.id.clone()) {
                             let mut t = tc.clone();
@@ -1801,30 +1803,32 @@ async fn run_sub_agent(
                         }
                     }
                 }
-                ProviderEvent::AssistantXmlPartial {
+                ProviderEvent::AssistantJsonPartial {
                     thoughts,
                     headline,
                     tool_name,
+                    response_text,
                 } => {
                     emit(
                         stream,
-                        StreamEvent::AssistantXmlPartial {
+                        StreamEvent::AssistantJsonPartial {
                             message_id: message_id.to_string(),
                             thoughts,
                             headline,
                             tool_name,
+                            response_text,
                         },
                     );
                 }
                 ProviderEvent::Finish {
                     reason: _,
                     tool_calls,
-                    xml,
+                    json,
                     thoughts,
                     headline,
                     usage,
                 } => {
-                    xml_finish_diag = xml;
+                    json_finish_diag = json;
                     round_thoughts = thoughts;
                     round_headline = headline;
                     llm_stats.record_llm_round(usage.as_ref());
@@ -1902,9 +1906,9 @@ async fn run_sub_agent(
         });
 
         if final_tool_calls.is_empty() {
-            let xml_tools_enabled = !xml_tool_prompt.is_empty();
+            let tools_appendix_enabled = !xml_tool_prompt.is_empty();
             if let Some(hint) =
-                xml_tool_empty_calls_retry_message(&xml_finish_diag, xml_tools_enabled)
+                json_tool_empty_calls_retry_message(&json_finish_diag, tools_appendix_enabled)
             {
                 local_history.push(ChatMessage {
                     id: new_id("fmt_retry"),
@@ -1971,7 +1975,7 @@ async fn run_sub_agent(
 
         if let Err(err) = validate_envelope_tool_batch(&state.tools, &final_tool_calls) {
             log::warn!("sub-agent tool envelope batch rejected: {err}");
-            let hint = xml_tool_envelope_batch_retry_message(&err);
+            let hint = json_tool_envelope_batch_retry_message(&err);
             local_history.push(ChatMessage {
                 id: new_id("fmt_retry"),
                 role: Role::User,
@@ -2590,8 +2594,26 @@ fn desktop_tool_failure_note(ok: bool, err_note: &Option<String>, tool_output: &
     }
 }
 
-/// 从原始回复中去除 XML 工具调用块，提取用户可见内容
+/// Remove structured tool JSON (or legacy XML) from assistant `content` for the user-visible bubble.
 fn extract_user_visible_content(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
+        if let Value::Object(ref obj) = v {
+            if obj.get("tool_name").and_then(|x| x.as_str()) == Some("response") {
+                return obj
+                    .get("tool_args")
+                    .and_then(|a| a.get("text"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string();
+            }
+            return String::new();
+        }
+    }
+    extract_user_visible_content_xml_legacy(raw)
+}
+
+fn extract_user_visible_content_xml_legacy(raw: &str) -> String {
     let mut result = String::with_capacity(raw.len());
     let mut remaining = raw;
 
@@ -2631,7 +2653,19 @@ mod extract_user_visible_tests {
     use super::extract_user_visible_content;
 
     #[test]
-    fn only_response_block_is_invisible() {
+    fn json_response_tool_text_visible() {
+        let j = r#"{"thoughts":"t","headline":"h","tool_name":"response","tool_args":{"text":"Hello user"}}"#;
+        assert_eq!(extract_user_visible_content(j), "Hello user");
+    }
+
+    #[test]
+    fn json_non_response_hidden() {
+        let j = r#"{"tool_name":"wait","tool_args":{"seconds":"1"}}"#;
+        assert_eq!(extract_user_visible_content(j), "");
+    }
+
+    #[test]
+    fn legacy_xml_only_response_still_stripped() {
         assert_eq!(
             extract_user_visible_content("<response><tool_name>x</tool_name></response>"),
             ""
@@ -2639,7 +2673,7 @@ mod extract_user_visible_tests {
     }
 
     #[test]
-    fn prose_outside_response_kept() {
+    fn legacy_prose_outside_response_kept() {
         assert_eq!(
             extract_user_visible_content("Hi<response></response>"),
             "Hi"

@@ -115,10 +115,6 @@ fn compact_fragment_head(s: &str, max_chars: usize) -> String {
 }
 
 impl XmlToolParser {
-    pub(crate) fn unparsed_buffer_len(&self) -> usize {
-        self.buffer.len()
-    }
-
     pub fn new() -> Self {
         Self {
             buffer: String::new(),

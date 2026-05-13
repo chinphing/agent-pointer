@@ -404,7 +404,7 @@ impl ToolRegistry {
     }
 }
 
-/// When the model emits multiple tool calls from one `<response>` (sidecar prefix + root tool),
+/// When the model emits multiple tool calls from one JSON envelope (`sidecar_tools` + root tool),
 /// every call except the **last** must be a registered **sidecar** tool; the last is the root primary.
 pub fn validate_envelope_tool_batch(
     tools: &ToolRegistry,

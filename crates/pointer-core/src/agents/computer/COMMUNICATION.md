@@ -1,10 +1,10 @@
-## On-wire shape: `<response>` XML
+## On-wire shape: JSON object
 
-Each desktop reply is **one** `<response>` document: **`<thoughts>`**, **`<headline>`**, **`<tool_name>`**, **`<tool_args>`** (schema per tool prompt).
+Each desktop reply is **one** JSON object: string fields **`thoughts`**, **`headline`**, optional **`sidecar_tools`** array, then root **`tool_name`** and object **`tool_args`** (schema per tool prompt).
 
-**`<thoughts>`** — Holds the **five-stage block** below (**`Pointer:`** through optional **`Location:`**), in order, using the **English prefix lines** only for that reasoning. Stages **1–4**: **no** overlay **`index`** / “bbox N”; **`index`** appears **only** inside **`Location:`** lines.
+**`thoughts`** — Holds the **five-stage block** below (**`Pointer:`** through optional **`Location:`**), in order, using the **English prefix lines** only for that reasoning. Stages **1–4**: **no** overlay **`index`** / “bbox N”; **`index`** appears **only** inside **`Location:`** lines.
 
-Complete examples at the end of this document use **full XML**. Less important fields use **`...`**.
+Complete examples at the end of this document use **full JSON**. Less important fields use **`...`**.
 
 ## Reasoning framework (every tool or final turn)
 
@@ -263,7 +263,7 @@ Rows: goal text differs last row vs prior. Screen: flat. OK — not same semanti
 
 ### 4) Next
 
-One step; describe the **target** on **`[Screen after action]`** only — **no** **`[Annotated after action]`**, **no** zoom overlay digits, **no** **`index`**, **no** “bbox N” / badge numbers (those belong **only** in **`Location:`**). Complete XML examples for these stages are at the end of this document under **Full chain**.
+One step; describe the **target** on **`[Screen after action]`** only — **no** **`[Annotated after action]`**, **no** zoom overlay digits, **no** **`index`**, **no** “bbox N” / badge numbers (those belong **only** in **`Location:`**). Complete JSON examples for these stages are at the end of this document under **Full chain**.
 
 **Target traits (spell enough to disambiguate):** visible **label** (exact or partial text, or “unlabeled icon”), **shape** (pill, chip, row, tab, field, glyph), **color or emphasis** if it separates twins, **band / region** (dialog footer, sidebar, omnibox, table header), and **neighbors** (e.g. “left of Save”, “under error banner”, “right of masked key”). Put all of that in **`Next:`**; vague “click the button” without traits is not enough to aim precisely — fix **`Next:`** before **`Location:`** if the target is still ambiguous. For **on-screen clicks** (`mouse` / `composite_action` / `modified_click`), **`Intent`** should usually cover **label** (or “unlabeled icon”), **shape**, **band/region**, and **neighbors**, and add **color** when it disambiguates. **`clipboard`** / steps with **no** on-screen widget may omit traits that do not apply (e.g. no **label** for **`clipboard:read`**).
 
@@ -395,59 +395,28 @@ In real replies, **each** failed candidate should still use a full **line 1** (f
 
 ---
 
-### Full chain (complete XML)
+### Full chain (complete JSON)
 
-**Screen capture** is injected by the runtime, not a **`tool_name`** in your reply; the five-stage reasoning still lives in **`<thoughts>`**.
+**Screen capture** is injected by the runtime, not a **`tool_name`** in your reply; the five-stage reasoning still lives in the **`thoughts`** string field.
 
 **Screen-targeted tool** (includes **`Location:`**):
 
-```xml
-<response>
-  <thoughts>
-Pointer:
-View unchanged. Intended: gray Submit in dialog. Zoom: hotspot on Submit pill center. Conclusion: accurate.
-
-Verify:
-Before: error banner. After: banner + Submit unchanged. no visible outcome for submit done. non-deferred. Pointer: accurate — hotspot on Submit center. FAILED
-
-Repetition:
-Last rows differ; not flat 4×. OK
-
-Next:
-Intent: primary Submit — label “Submit” or unlabeled gray pill; shape pill; color gray; region modal dialog center stack; neighbors: under password fields — not Cancel text link. No digits here.
-
-Location:
-1 [Annotated after action] index 6: **background color** behind **6** matches green **bbox** border color; tall card **bbox** around full form stack; digit on **right** edge of card **bbox** — neighboring indices on dialog chrome outside this **bbox** if present.
-2 Inside bbox: email, password, Submit.
-3 match: Submit in bbox.
-4 multiple.
-5 coordinates: Submit pill center; not index 6
-  </thoughts>
-  <headline>Retry submit via coordinates</headline>
-  <tool_name>mouse:click_at</tool_name>
-  <tool_args>...</tool_args>
-</response>
+```json
+{
+  "thoughts": "Pointer:\nView unchanged. Intended: gray Submit in dialog. Zoom: hotspot on Submit pill center. Conclusion: accurate.\n\nVerify:\nBefore: error banner. After: banner + Submit unchanged. no visible outcome for submit done. non-deferred. Pointer: accurate — hotspot on Submit center. FAILED\n\nRepetition:\nLast rows differ; not flat 4×. OK\n\nNext:\nIntent: primary Submit — label \"Submit\" or unlabeled gray pill; shape pill; color gray; region modal dialog center stack; neighbors: under password fields — not Cancel text link. No digits here.\n\nLocation:\n1 [Annotated after action] index 6: **background color** behind **6** matches green **bbox** border color; tall card **bbox** around full form stack; digit on **right** edge of card **bbox** — neighboring indices on dialog chrome outside this **bbox** if present.\n2 Inside bbox: email, password, Submit.\n3 match: Submit in bbox.\n4 multiple.\n5 coordinates: Submit pill center; not index 6",
+  "headline": "Retry submit via coordinates",
+  "tool_name": "mouse:click_at",
+  "tool_args": {}
+}
 ```
 
-**Omitting `Location:`** — whenever the method does **not** choose a new **`index`** or **`x`/`y`** on the capture (not only **`clipboard`**): e.g. **`wait`**, **`response`**, **`hotkey`**, **`mouse:…_current`**, **`move_offset`**, **`composite_action:type_text_at_focused`**, **`clipboard:read`** / **`clipboard:write`** — omit the whole **`Location:`** block inside **`<thoughts>`**. Example (clipboard read):
+**Omitting `Location:`** — whenever the method does **not** choose a new **`index`** or **`x`/`y`** on the capture (not only **`clipboard`**): e.g. **`wait`**, **`response`**, **`hotkey`**, **`mouse:…_current`**, **`move_offset`**, **`composite_action:type_text_at_focused`**, **`clipboard:read`** / **`clipboard:write`** — omit the whole **`Location:`** block inside **`thoughts`**. Example (clipboard read):
 
-```xml
-<response>
-  <thoughts>
-Pointer:
-n/a — this turn is clipboard:read.
-
-Verify:
-Tool reply present. concrete for read step. non-deferred for tool. Pointer: n/a. VERIFIED (read only).
-
-Repetition:
-OK
-
-Next:
-Intent: verify system clipboard after silent copy — no on-screen control label; region: current app surface after copy. Tool kind: clipboard:read — no digits here.
-  </thoughts>
-  <headline>Read clipboard after silent copy</headline>
-  <tool_name>clipboard:read</tool_name>
-  <tool_args>...</tool_args>
-</response>
+```json
+{
+  "thoughts": "Pointer:\nn/a — this turn is clipboard:read.\n\nVerify:\nTool reply present. concrete for read step. non-deferred for tool. Pointer: n/a. VERIFIED (read only).\n\nRepetition:\nOK\n\nNext:\nIntent: verify system clipboard after silent copy — no on-screen control label; region: current app surface after copy. Tool kind: clipboard:read — no digits here.",
+  "headline": "Read clipboard after silent copy",
+  "tool_name": "clipboard:read",
+  "tool_args": {}
+}
 ```

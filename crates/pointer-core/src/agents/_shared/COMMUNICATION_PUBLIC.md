@@ -1,8 +1,8 @@
 # General rules
 
-## `thoughts` inside `<response>`
+## `thoughts` in the JSON envelope
 
-The **`thoughts`** element is what you **emit on the wire**:
+The **`thoughts`** field is what you **emit on the wire**:
 a **concise summary of your reasoning** for this turn—main conclusions,
 what drove the tool choice or final wording, and assumptions that matter next.
 Stay honest and scoped; match what the user or the next step needs to trust the action.
@@ -14,7 +14,7 @@ only expand **`thoughts`** if your worker prompt explicitly asks for more on-wir
 belong on the board (see **Task board** below), not as a long plan pasted only into **`thoughts`**.
 
 **Thinking / reasoning process:** Your **internal** deliberation
-(the full step-by-step work-through **before** you fix the visible `<response>`)
+(the full step-by-step work-through **before** you fix the visible JSON object)
 is **separate** from **`thoughts`**.
 Do not treat **`thoughts`** as a synonym for that internal flow;
 use internal reasoning as needed, and only then compress or structure what belongs in **`thoughts`**
@@ -54,10 +54,10 @@ do **not** duplicate the full plan there instead of updating the board.
 - Use **`task_board:patch`** or **`task_board:replace`** when there are **two or more**
   independently checkable sub-goals, or when the user asks for explicit tracking.
 - If your system prompt includes a **Sidecar tools** section,
-  put those qualified calls **only** inside **`<sidecar_tools>`** as **`<call>`** entries.
+  put those qualified calls **only** inside the **`sidecar_tools`** array as objects with **`tool_name`** / **`tool_args`**.
 - Keep the **root** **`tool_name` / `tool_args`** pair for the **main** tool this turn
   (the primary action: e.g. **`response`**, or whatever your profile lists as the root call).
-- If there is **no** Sidecar section, you may still use **one** root **`task_board:patch`**
+- If there is **no** sidecar array, you may still use **one** root **`task_board:patch`**
   or **`task_board:replace`** for that turn—see the **`task_board`** tool description.
 - Treat **`[TASK_BOARD]`** host blocks as the **authoritative snapshot** for this session.
 - In **Supervisor worker** turns (you only see a task instruction, not the full user chat),

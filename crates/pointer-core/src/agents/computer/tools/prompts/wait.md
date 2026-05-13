@@ -12,17 +12,17 @@ Parameter constraints:
 
 Use **wait** when you need to pause before the next action; combine with other tools as needed (e.g. navigate then wait then click).
 
-#### XML example
+#### JSON example
 
-```xml
-<response>
-  <thoughts>Allow the dialog animation to finish.</thoughts>
-  <headline>Wait</headline>
-  <tool_name>wait</tool_name>
-  <tool_args>
-    <goal>Dialog fully visible</goal>
-    <action>pause before clicking OK</action>
-    <seconds>1.5</seconds>
-  </tool_args>
-</response>
+```json
+{
+  "thoughts": "Allow the dialog animation to finish.",
+  "headline": "Wait",
+  "tool_name": "wait",
+  "tool_args": {
+    "goal": "Dialog fully visible",
+    "action": "pause before clicking OK",
+    "seconds": "1.5"
+  }
+}
 ```

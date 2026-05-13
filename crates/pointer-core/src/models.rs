@@ -533,8 +533,8 @@ pub enum StreamEvent {
         message_id: String,
         text: String,
     },
-    /// 正文 XML 工具块尚未闭合时，已能读出的 `<thoughts>` / `<headline>` / `<tool_name>`（流式渐进更新）。
-    AssistantXmlPartial {
+    /// Progressive `thoughts` / `headline` / `tool_name` / `response` body (`tool_args.text`) from partial JSON repair while streaming.
+    AssistantJsonPartial {
         #[serde(rename = "messageId")]
         message_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -543,6 +543,8 @@ pub enum StreamEvent {
         headline: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "toolName")]
         tool_name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", rename = "responseText")]
+        response_text: Option<String>,
     },
     AgentStep {
         #[serde(rename = "messageId")]

@@ -1,9 +1,11 @@
+use crate::json_tool_caller::{
+    extract_json_streaming_partial, finalize_json_tool_envelope, JsonFeedLane, JsonStreamingPartial,
+    JsonToolFinishDiagnostics, JsonToolParser,
+};
 use crate::llm_token_stats::LlmUsageSnapshot;
 use crate::models::{ChatMessage, ModelSettings, ToolCall};
-use crate::xml_tool_caller::{
-    extract_xml_streaming_partial, xml_tool_arguments_to_json_string, XmlFeedLane,
-    XmlStreamingPartial, XmlToolFinishDiagnostics, XmlToolCall, XmlToolEnvelope, XmlToolParser,
-};
+use crate::response_xml::xml_tool_arguments_to_json_string;
+use crate::response_xml::{XmlToolCall, XmlToolEnvelope};
 use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -27,25 +29,26 @@ pub enum ProviderEvent {
         tool_call_id: String,
         args: String,
     },
-    /// 正文 `content` 中刚闭合一段完整 `<response>`（与 [`Finish`] 使用相同稳定 `tool_calls[].id`）。
-    XmlToolStreamingReady {
+    /// 正文 `content` 中已解析出完整 JSON 工具信封（与 [`Finish`] 使用相同稳定 `tool_calls[].id`）。
+    JsonToolStreamingReady {
         tool_calls: Vec<ToolCall>,
         thoughts: Option<String>,
         headline: Option<String>,
     },
-    /// 尚未形成完整 `<response>` 时，已从正文解析出的闭合子标签（渐进展示）。
-    AssistantXmlPartial {
+    /// 流式阶段：partial JSON 修复后可读出的 `thoughts` / `headline` / `tool_name` / `response` 的 `tool_args.text`。
+    AssistantJsonPartial {
         thoughts: Option<String>,
         headline: Option<String>,
         tool_name: Option<String>,
+        response_text: Option<String>,
     },
     Finish {
         reason: String,
         tool_calls: Vec<ToolCall>,
-        xml: XmlToolFinishDiagnostics,
-        /// From XML `<thoughts>` in the completed `<response>` (if any).
+        json: JsonToolFinishDiagnostics,
+        /// From JSON `thoughts` in the completed envelope (if any).
         thoughts: Option<String>,
-        /// From XML `<headline>` in the completed `<response>` (if any).
+        /// From JSON `headline` in the completed envelope (if any).
         headline: Option<String>,
         /// From final stream chunk `usage` when `stream_options.include_usage` is supported.
         usage: Option<LlmUsageSnapshot>,
@@ -53,7 +56,8 @@ pub enum ProviderEvent {
 }
 
 /// chat/completions 请求**不**携带 `tools` / `tool_choice`（部分网关拒绝空 `tools: []`）。
-/// 本应用仅解析 assistant 正文中的 XML 工具协议，不启用服务商原生 function calling。
+/// 本应用要求 assistant 正文为 **JSON 对象**（`response_format: json_object`），在应用侧解析工具信封；
+/// 不启用服务商原生 function calling。
 ///
 /// 非标准参数通过顶层 `extra_body` 传递（JSON 对象），由服务商或网关解析；与 OpenAI Python SDK 的 `extra_body={...}` 对应。
 fn skip_extra_body(v: &Option<Value>) -> bool {
@@ -75,6 +79,8 @@ struct ChatRequest<'a> {
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "stream_options")]
     stream_options: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "response_format")]
+    response_format: Option<Value>,
     #[serde(skip_serializing_if = "skip_extra_body", rename = "extra_body")]
     extra_body: Option<Value>,
 }
@@ -135,12 +141,12 @@ struct StreamDelta {
     content: Option<String>,
     #[serde(default)]
     reasoning_content: Option<String>,
-    /// Absorbed from provider SSE; native `tool_calls` are unused (XML-in-content only). Kept for serde + forward-compat.
+    /// Absorbed from provider SSE; native `tool_calls` are unused (JSON-in-content only). Kept for serde + forward-compat.
     #[serde(default)]
     #[allow(dead_code)]
     tool_calls: Option<Vec<StreamToolCall>>,
 }
-/// Native streaming `tool_calls` shape (ignored: we use XML-in-content only). Kept for serde + forward-compat.
+/// Native streaming `tool_calls` shape (ignored: we use JSON-in-content only). Kept for serde + forward-compat.
 #[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 struct StreamToolCall {
@@ -261,6 +267,7 @@ impl OpenAIProvider {
             temperature: self.settings.temperature,
             max_tokens: Some(max_tok),
             stream_options: None,
+            response_format: Some(json!({"type": "json_object"})),
             extra_body,
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
@@ -351,6 +358,7 @@ impl OpenAIProvider {
             temperature: self.settings.temperature,
             max_tokens: Some(self.settings.max_tokens),
             stream_options,
+            response_format: Some(json!({"type": "json_object"})),
             extra_body,
         };
 
@@ -382,16 +390,13 @@ impl OpenAIProvider {
         }
 
         let mut content_buf = String::new();
-        // 与正文分列存储，不进入 XML 工具解析器。
         let mut reasoning_buf = String::new();
         let mut finish_reason = String::from("stop");
-        let mut xml_parser = XmlToolParser::new();
-        // 与流式 XmlToolStreamingReady / Finish 中工具 id 对齐。
-        let stream_xml_session_id = rand_id();
-        let mut xml_frag_idx: u32 = 0;
+        let mut json_parser = JsonToolParser::new();
+        let stream_json_session_id = rand_id();
         let mut accumulated_tool_calls: Vec<ToolCall> = Vec::new();
-        let mut last_xml_stream_meta: (Option<String>, Option<String>) = (None, None);
-        let mut last_xml_partial: Option<XmlStreamingPartial> = None;
+        let mut last_json_stream_meta: (Option<String>, Option<String>) = (None, None);
+        let mut last_json_partial: Option<JsonStreamingPartial> = None;
         let stream_raw_to_console = raw_llm_stream_to_console_enabled();
         let mut last_usage: Option<LlmUsageSnapshot> = None;
 
@@ -434,30 +439,21 @@ impl OpenAIProvider {
                             }
                             content_buf.push_str(c);
                             let _ = tx.send(ProviderEvent::ContentDelta(c.clone())).await;
-                            // 仅将正文喂入 XML 解析器，避免与 reasoning 在同一缓冲内交错导致标签被截断。
-                            xml_parser.feed_lane(c, XmlFeedLane::Content);
-                            flush_complete_xml_fragments(
-                                &mut xml_parser,
-                                &self.settings.model,
-                                &stream_xml_session_id,
-                                &mut xml_frag_idx,
-                                &mut accumulated_tool_calls,
-                                &mut last_xml_stream_meta,
-                                &tx,
-                            )
-                            .await;
-                            let partial = extract_xml_streaming_partial(&content_buf);
+                            json_parser.feed_lane(c, JsonFeedLane::Content);
+                            let partial = extract_json_streaming_partial(&content_buf);
                             if partial.thoughts.is_some()
                                 || partial.headline.is_some()
                                 || partial.tool_name.is_some()
+                                || partial.response_text.is_some()
                             {
-                                if last_xml_partial.as_ref() != Some(&partial) {
-                                    last_xml_partial = Some(partial.clone());
+                                if last_json_partial.as_ref() != Some(&partial) {
+                                    last_json_partial = Some(partial.clone());
                                     let _ = tx
-                                        .send(ProviderEvent::AssistantXmlPartial {
+                                        .send(ProviderEvent::AssistantJsonPartial {
                                             thoughts: partial.thoughts,
                                             headline: partial.headline,
                                             tool_name: partial.tool_name,
+                                            response_text: partial.response_text,
                                         })
                                         .await;
                                 }
@@ -470,6 +466,7 @@ impl OpenAIProvider {
                                 write_llm_stream_chunk_to_stderr(r);
                             }
                             reasoning_buf.push_str(r);
+                            json_parser.feed_lane(r, JsonFeedLane::Reasoning);
                             let _ = tx.send(ProviderEvent::ReasoningDelta(r.clone())).await;
                         }
                     }
@@ -491,50 +488,43 @@ impl OpenAIProvider {
             }
         }
 
-        let attempted_tool_xml = content_buf.contains("<tool_name>")
-            || content_buf.contains("<tool_args>")
-            || reasoning_buf.contains("<tool_name>")
-            || reasoning_buf.contains("<tool_args>");
+        let (envelope, mut json_diag) =
+            finalize_json_tool_envelope(&content_buf, &reasoning_buf);
+        json_diag.feed_lane_tail = json_parser.feed_lane_tail.clone();
 
-        flush_complete_xml_fragments(
-            &mut xml_parser,
-            &self.settings.model,
-            &stream_xml_session_id,
-            &mut xml_frag_idx,
-            &mut accumulated_tool_calls,
-            &mut last_xml_stream_meta,
-            &tx,
-        )
-        .await;
-
-        let tool_calls = accumulated_tool_calls.clone();
-        let finish_thoughts = last_xml_stream_meta.0.clone();
-        let finish_headline = last_xml_stream_meta.1.clone();
-
-        let xml_complete = !tool_calls.is_empty() || xml_parser.is_complete();
-
-        let mut parse_error = None;
-        if tool_calls.is_empty() && attempted_tool_xml {
-            parse_error = xml_parser.last_parse_error().map(str::to_string);
+        if let Some(env) = envelope {
+            let base_id = format!("json_{}_0", stream_json_session_id);
+            let (tc, thoughts, headline) =
+                tool_calls_from_xml_envelope(&self.settings.model, env, &base_id);
+            if thoughts.is_some() {
+                last_json_stream_meta.0 = thoughts.clone();
+            }
+            if headline.is_some() {
+                last_json_stream_meta.1 = headline.clone();
+            }
+            accumulated_tool_calls.extend(tc.iter().cloned());
+            let _ = tx
+                .send(ProviderEvent::JsonToolStreamingReady {
+                    tool_calls: tc,
+                    thoughts,
+                    headline,
+                })
+                .await;
         }
 
-        let xml = XmlToolFinishDiagnostics {
-            attempted_tool_xml,
-            fragment_complete: xml_complete,
-            parse_error,
-            vacuous_fragments_skipped: xml_parser.vacuous_fragments_skipped_total,
-            feed_lane_tail: xml_parser.feed_lane_tail.clone(),
-            consumed_fragment_chars: xml_parser.last_consumed_fragment_chars,
-            consumed_fragment_head: xml_parser.last_consumed_fragment_head.clone(),
-            parser_buffer_remaining_chars: xml_parser.unparsed_buffer_len(),
-            merge_ui_order_reparse_ok: false,
-        };
+        let tool_calls = accumulated_tool_calls.clone();
+        let finish_thoughts = last_json_stream_meta.0.clone();
+        let finish_headline = last_json_stream_meta.1.clone();
+
+        if !tool_calls.is_empty() {
+            json_diag.parse_error = None;
+        }
 
         let _ = tx
             .send(ProviderEvent::Finish {
                 reason: finish_reason,
                 tool_calls,
-                xml,
+                json: json_diag,
                 thoughts: finish_thoughts,
                 headline: finish_headline,
                 usage: last_usage,
@@ -568,65 +558,6 @@ fn snapshot_from_stream_usage(u: &StreamUsage) -> LlmUsageSnapshot {
         completion_tokens,
         total_tokens,
         reasoning_tokens: reasoning,
-    }
-}
-
-async fn flush_complete_xml_fragments(
-    xml_parser: &mut XmlToolParser,
-    model: &str,
-    stream_xml_session_id: &str,
-    xml_frag_idx: &mut u32,
-    accumulated: &mut Vec<ToolCall>,
-    last_xml_stream_meta: &mut (Option<String>, Option<String>),
-    tx: &mpsc::Sender<ProviderEvent>,
-) {
-    if xml_parser.is_complete() {
-        match xml_parser.parse() {
-            Some(envelope) => {
-                let base_id = format!("xml_{}_{}", stream_xml_session_id, *xml_frag_idx);
-                *xml_frag_idx += 1;
-                let (tc, thoughts, headline) =
-                    tool_calls_from_xml_envelope(model, envelope, &base_id);
-                if thoughts.is_some() {
-                    last_xml_stream_meta.0 = thoughts.clone();
-                }
-                if headline.is_some() {
-                    last_xml_stream_meta.1 = headline.clone();
-                }
-                accumulated.extend(tc.iter().cloned());
-                let _ = tx
-                    .send(ProviderEvent::XmlToolStreamingReady {
-                        tool_calls: tc,
-                        thoughts,
-                        headline,
-                    })
-                    .await;
-            }
-            None => {
-                let (ft, fh) = xml_parser.take_fallback_thoughts_headline();
-                let thoughts = ft
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty());
-                let headline = fh
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty());
-                if thoughts.is_some() {
-                    last_xml_stream_meta.0 = thoughts.clone();
-                }
-                if headline.is_some() {
-                    last_xml_stream_meta.1 = headline.clone();
-                }
-                if thoughts.is_some() || headline.is_some() {
-                    let _ = tx
-                        .send(ProviderEvent::AssistantXmlPartial {
-                            thoughts,
-                            headline,
-                            tool_name: None,
-                        })
-                        .await;
-                }
-            }
-        }
     }
 }
 

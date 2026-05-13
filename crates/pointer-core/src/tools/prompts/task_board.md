@@ -4,7 +4,7 @@ Maintain a **session-scoped task board** (ordered items with verification hints)
 
 Use when work has **two or more** verifiable milestones, or when the user asks for explicit tracking.
 
-**Qualified `tool_name` (preferred in XML)**
+**Qualified `tool_name` (preferred in JSON)**
 
 Use the same **`tool:method`** pattern as other multi-behavior tools.
 
@@ -13,17 +13,17 @@ Use the same **`tool:method`** pattern as other multi-behavior tools.
 - **`task_board:patch`** — Merge by **`id`**: rows with a matching **`id`** are replaced;
   unknown **`id`** values are **appended**. Omit or skip rows with empty **`id`**.
 
-In **`<tool_args>`**, pass **`items`** (and any other fields below). You may also set **`<method>`**
+In **`tool_args`**, pass **`items`** (and any other fields below). You may also set **`method`**
 only when **`tool_name`** is the bare base **`task_board`**; if you use **`task_board:patch`**
 or **`task_board:replace`**, the method is already encoded in **`tool_name`**.
 
 **Where to call it**
 
 - When the system prompt includes **Sidecar tools**, put **`task_board:…`** only inside
-  **`<sidecar_tools>`** as one or more **`<call>`** entries (see the **`response`** tool docs).
+  the **`sidecar_tools`** array (see the **`response`** tool docs).
 - When you only need **one** board update and **no** other tool this round, you may use a **single**
-  root **`<tool_name>`** of **`task_board:patch`** or **`task_board:replace`** with **no**
-  **`<sidecar_tools>`** block.
+  root **`tool_name`** of **`task_board:patch`** or **`task_board:replace`** with **no**
+  **`sidecar_tools`** array.
 
 **Item fields**
 
@@ -40,23 +40,23 @@ or **`task_board:replace`**, the method is already encoded in **`tool_name`**.
   (tool output in-thread), or you state an explicit **risk** note if verification cannot be run.
 - Keep the board small and milestone-sized (roughly **3–12** items for typical work).
 
-#### XML example (sidecar + terminal)
+#### JSON example (sidecar + terminal)
 
-```xml
-<response>
-  <thoughts>Update board then run tests.</thoughts>
-  <headline>Verify</headline>
-  <sidecar_tools>
-    <call>
-      <tool_name>task_board:patch</tool_name>
-      <tool_args>
-        <items>[{"id":"1","title":"Run tests","status":"in_progress","verification":"cargo test -p my-crate"}]</items>
-      </tool_args>
-    </call>
-  </sidecar_tools>
-  <tool_name>terminal</tool_name>
-  <tool_args>
-    <command>cargo test -p my-crate</command>
-  </tool_args>
-</response>
+```json
+{
+  "thoughts": "Update board then run tests.",
+  "headline": "Verify",
+  "sidecar_tools": [
+    {
+      "tool_name": "task_board:patch",
+      "tool_args": {
+        "items": "[{\"id\":\"1\",\"title\":\"Run tests\",\"status\":\"in_progress\",\"verification\":\"cargo test -p my-crate\"}]"
+      }
+    }
+  ],
+  "tool_name": "terminal",
+  "tool_args": {
+    "command": "cargo test -p my-crate"
+  }
+}
 ```

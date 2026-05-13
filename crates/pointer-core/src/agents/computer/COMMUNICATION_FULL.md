@@ -1,6 +1,6 @@
 ## `<thoughts>`
 
-Runtime **COMMUNICATION.md** (slim) specifies **`<response>`** XML: put the **full five-stage block** (**`Pointer:`** … optional **`Location:`**`) inside **`<thoughts>`**; keep **`<headline>`** a **short** label. This file documents the same stages in more detail for authors.
+Runtime **COMMUNICATION.md** (slim) specifies **JSON** output: put the **full five-stage block** (**`Pointer:`** … optional **`Location:`**`) inside the **`thoughts`** string field; keep **`headline`** a **short** label. This file documents the same stages in more detail for authors.
 
 ## Reasoning framework (mandatory every tool or final turn)
 

@@ -31,11 +31,43 @@ marked.setOptions({ breaks: true, gfm: true })
 
 const isStreaming = computed(() => isMessageStreaming(props.message.status))
 
-const html = computed(() =>
-  props.message.content ? (marked.parse(props.message.content) as string) : ''
+/** `json_object` 回合里正文通道是整段 JSON；流式时主区勿当 Markdown 渲染，避免满屏原始 JSON。 */
+const hideStreamingJsonEnvelopeMarkdown = computed(
+  () => isStreaming.value && (props.message.content?.trimStart().startsWith('{') ?? false)
 )
 
-useMarkdownCodeCopy(bodyRef, () => props.message.content)
+/** 主气泡 Markdown：流式 JSON 信封阶段不用原始 `content` 渲染；收尾后 `message_end` 会换成 `extract_user_visible_content` 结果。 */
+const showMainMarkdownBody = computed(() => {
+  const c = props.message.content?.trim() ?? ''
+  if (!c) return false
+  return !hideStreamingJsonEnvelopeMarkdown.value
+})
+
+/** 主气泡 Markdown 源码：收尾后为 `content`；流式 JSON 阶段为 `responseTextDraft`（`response.text`）。 */
+const markdownSource = computed(() => {
+  if (showMainMarkdownBody.value) return props.message.content ?? ''
+  if (hideStreamingJsonEnvelopeMarkdown.value)
+    return props.message.responseTextDraft ?? ''
+  return props.message.content ?? ''
+})
+
+const html = computed(() => {
+  const src = markdownSource.value
+  if (!src.trim()) return ''
+  return marked.parse(src) as string
+})
+
+const showMdBody = computed(() => !!html.value)
+
+const showStreamingPlaceholderUnderThoughts = computed(
+  () =>
+    isStreaming.value &&
+    hideStreamingJsonEnvelopeMarkdown.value &&
+    !(props.message.thoughts?.trim()) &&
+    !(props.message.responseTextDraft?.trim())
+)
+
+useMarkdownCodeCopy(bodyRef, () => markdownSource.value)
 
 const rawContentViewEnabled = computed(() => settingsStore.settings.rawContentViewEnabled !== false)
 
@@ -69,9 +101,10 @@ const streamedCharCount = computed(() => {
   const c = props.message.content?.length ?? 0
   const raw = props.message.rawContent?.length ?? 0
   const thoughtsLen = props.message.thoughts?.length ?? 0
-  const xmlPreview = props.message.xmlToolNamePreview?.length ?? 0
+  const toolPreview = props.message.toolNamePreview?.length ?? 0
+  const draftLen = props.message.responseTextDraft?.length ?? 0
   const reasoningLen = props.message.reasoning?.length ?? 0
-  return Math.max(c, raw, thoughtsLen, xmlPreview, reasoningLen)
+  return Math.max(c, raw, thoughtsLen, toolPreview, draftLen, reasoningLen)
 })
 
 const showHeadlineProgressBar = computed(
@@ -137,7 +170,13 @@ function toggleHeadline() {
 }
 
 function copyBody() {
-  void navigator.clipboard.writeText(props.message.content).then(() => {
+  const fromMd = markdownSource.value.trim()
+  const text =
+    fromMd ||
+    props.message.rawContent?.trim() ||
+    props.message.content?.trim() ||
+    ''
+  void navigator.clipboard.writeText(text).then(() => {
     copied.value = true
     setTimeout(() => {
       copied.value = false
@@ -223,12 +262,15 @@ onUnmounted(() => clearHeadlineCollapseTimer())
       />
 
       <div
-        v-if="message.content"
+        v-if="showMdBody"
         ref="bodyRef"
         class="md-body"
         v-html="html"
       />
-      <div v-else-if="isStreaming" class="flex items-center text-slate-400 text-sm">
+      <div
+        v-else-if="showStreamingPlaceholderUnderThoughts"
+        class="flex items-center text-slate-400 text-sm"
+      >
         <span class="typing-dot" />
         <span class="typing-dot" style="animation-delay: 0.2s" />
         <span class="typing-dot" style="animation-delay: 0.4s" />

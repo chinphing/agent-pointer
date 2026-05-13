@@ -33,18 +33,18 @@ Parameter constraints:
 
 Scroll workflow: When the mouse is already in the scrollable area, use **`mouse:scroll_at_current`** directly. When you need to target a specific region first, use **`composite_action:scroll_at_index`** (overlay-index), then **`mouse:scroll_at_current`** for further scrolls.
 
-#### XML example — `mouse:click_index`
+#### JSON example — `mouse:click_index`
 
-```xml
-<response>
-  <thoughts>Target has an overlay index.</thoughts>
-  <headline>Click control</headline>
-  <tool_name>mouse:click_index</tool_name>
-  <tool_args>
-    <goal>Activate the highlighted button</goal>
-    <action>click the blue primary button labeled Save in the dialog footer</action>
-    <index>7</index>
-    <wait>2</wait>
-  </tool_args>
-</response>
+```json
+{
+  "thoughts": "Target has an overlay index.",
+  "headline": "Click control",
+  "tool_name": "mouse:click_index",
+  "tool_args": {
+    "goal": "Activate the highlighted button",
+    "action": "click the blue primary button labeled Save in the dialog footer",
+    "index": "7",
+    "wait": "2"
+  }
+}
 ```

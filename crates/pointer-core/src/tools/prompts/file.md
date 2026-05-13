@@ -1,6 +1,6 @@
 ### `file`
 
-Unified workspace file tools. Prefer **qualified names** in XML: **`file:read`**, **`file:write`**, **`file:edit`**, **`file:glob`**, **`file:grep`**, **`file:list`** — the runtime merges them into `tool_name` **`file`** plus **`method`**. You may also call **`file`** with a top-level **`method`** string (e.g. **`read`**), equivalent to **`file:read`**, **`file:write`**, etc.
+Unified workspace file tools. Prefer **qualified names** in JSON **`tool_name`**: **`file:read`**, **`file:write`**, **`file:edit`**, **`file:glob`**, **`file:grep`**, **`file:list`** — the runtime merges them into `tool_name` **`file`** plus **`method`**. You may also call **`file`** with a top-level **`method`** string (e.g. **`read`**), equivalent to **`file:read`**, **`file:write`**, etc.
 
 **Relative paths** resolve under the workspace root (`workspaceRoot` in settings, or the process working directory). Do not use `..` to escape the workspace on relative paths. **`file:write`** and **`file:edit`** only accept workspace-relative paths and may require user approval. For **read-only** methods (**`file:read`**, **`file:glob`**, **`file:grep`**, **`file:list`**), you may use **absolute** paths to inspect another project when the user asks.
 
@@ -19,7 +19,7 @@ Unified workspace file tools. Prefer **qualified names** in XML: **`file:read`**
 
 #### Parameters
 
-- **`method`** — Required in tool arguments unless you used a qualified XML name (**`file:read`**, **`file:write`**, **`file:edit`**, **`file:glob`**, **`file:grep`**, **`file:list`**). When split, one of: `read`, `write`, `edit`, `glob`, `grep`, `list` (same six as the **`file:…`** names above).
+- **`method`** — Required in tool arguments unless you used a qualified tool name (**`file:read`**, **`file:write`**, **`file:edit`**, **`file:glob`**, **`file:grep`**, **`file:list`**). When split, one of: `read`, `write`, `edit`, `glob`, `grep`, `list` (same six as the **`file:…`** names above).
 
 **`file:read`**
 
@@ -32,13 +32,13 @@ Unified workspace file tools. Prefer **qualified names** in XML: **`file:read`**
 **`file:write`**
 
 - **`path`** — Relative path of the file to create or overwrite (workspace only).
-- **`content`** — Full file body as UTF-8 text. In XML, wrap in **CDATA**.
+- **`content`** — Full file body as UTF-8 text. Escape quotes and newlines as valid JSON strings.
 
 **`file:edit`**
 
 - **`path`** — Relative path to an existing file (workspace only).
-- **`oldString`** — Exact snippet to replace; must match the file uniquely. Implementations also accept **`old_string`**. In XML, use **CDATA** (handles `<`, `&`, markup).
-- **`newString`** — Replacement text. Also accepts **`new_string`**. XML: **CDATA**.
+- **`oldString`** — Exact snippet to replace; must match the file uniquely. Implementations also accept **`old_string`**. Use JSON string escaping for `<`, `&`, and markup.
+- **`newString`** — Replacement text. Also accepts **`new_string`**. Same JSON string rules.
 
 **`file:glob`**
 
@@ -62,18 +62,18 @@ Unified workspace file tools. Prefer **qualified names** in XML: **`file:read`**
 - **`maxDepth`** — Optional; when **`recursive`** is true, max WalkDir depth from the listed directory (default **8**, capped by runtime). Ignored for non-recursive listing.
 - **`entryType`** — Optional; alias **`entry_type`**. One of **`all`** (default), **`file`** / **`files`**, **`dir`** / **`directory`** / **`directories`** — return only files, only directories, or both.
 
-#### XML example — `file:read` batch
+#### JSON example — `file:read` batch
 
-Put a **JSON array string** inside `<paths>` so it parses as an array (not multiple `<path>` tags).
+Use a real JSON array for **`paths`** inside **`tool_args`**.
 
-```xml
-<response>
-  <thoughts>Read implementation and tests together.</thoughts>
-  <headline>Batch read</headline>
-  <tool_name>file:read</tool_name>
-  <tool_args>
-    <paths>["crates/foo/src/lib.rs","crates/foo/src/main.rs"]</paths>
-    <lineStart>1</lineStart>
-  </tool_args>
-</response>
+```json
+{
+  "thoughts": "Read implementation and tests together.",
+  "headline": "Batch read",
+  "tool_name": "file:read",
+  "tool_args": {
+    "paths": ["crates/foo/src/lib.rs", "crates/foo/src/main.rs"],
+    "lineStart": 1
+  }
+}
 ```

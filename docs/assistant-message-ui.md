@@ -6,7 +6,7 @@
 
 | 字段 | 来源 | 主气泡（`AssistantModelMessage`） |
 |------|------|-------------------------------------|
-| **`thoughts`** | 正文流里 XML `<thoughts>`（解析后写入 `message.thoughts`） | **直接展示**：`ModelThoughtPanels` 在正文 Markdown 上方展示灰字 `thoughts`。 |
+| **`thoughts`** | 正文 JSON 对象中的 `thoughts` 字符串（解析后写入 `message.thoughts`） | **直接展示**：`ModelThoughtPanels` 在正文 Markdown 上方展示灰字 `thoughts`。 |
 | **`reasoning`** | 兼容 OpenAI 的 **`reasoning_content`** 增量（与 `content` 分流） | **不展示正文**：不得把 `reasoning` 拼进 `message.content` 或主区 Markdown；仅用于持久化/API 回传（见设置 `reasoningInMessages`）与下调试。 |
 
 ## 「原始输出」（代码图标）
@@ -22,7 +22,8 @@
   - `content`
   - `rawContent`
   - `thoughts`
-  - `xmlToolNamePreview`
+  - `toolNamePreview`
+  - `responseTextDraft`（`response` 的 `tool_args.text` 流式预览）
   - **`reasoning`**
 - **常见错误**：为「主界面可见」而从 `streamedCharCount` 里去掉 `reasoning` —— 会导致竖线在模型大量输出 reasoning、正文尚未跟进时几乎不动，与「整段输出流」语义不符。
 - **与上文的边界**：竖线可随 `reasoning` **长度**增长；**仍不得**在主气泡里渲染 `reasoning` 文本。
@@ -30,6 +31,6 @@
 ## 后端与前端事件（便于对照）
 
 - 后端对 `reasoning_content` 仍发 `reasoning_delta`；前端 `chat` store 累积到 `message.reasoning`（与是否写入下一轮 API 的设置解耦时，以当前代码为准）。
-- `thoughts` / `headline` / XML 工具预览走 `assistant_xml_partial` 等与正文解析相关的路径。
+- 流式阶段若 `content` 以 `{` 开头（`json_object` 工具信封），主气泡 **不** 把该通道当 Markdown 渲染；`response` 时由 `assistant_json_partial.responseText` 写入 **`responseTextDraft`**，主区用其做 Markdown 流式展示。`thoughts` / `headline` 仍由同事件更新。回合结束 `message_end` 后 `content` 会替换为 `extract_user_visible_content` 结果，并清除 `responseTextDraft`。
 
 修改 `AssistantModelMessage.vue`、`RawWirePanel.vue`、`ModelThoughtPanels.vue` 或 `reasoning_delta` 处理前，请先对照本文。

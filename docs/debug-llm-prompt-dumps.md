@@ -36,8 +36,8 @@
 
 实现见 `crates/pointer-core/src/provider.rs`（`stream_chat`、`write_llm_stream_chunk_to_stderr`）。
 
-### 工具 XML：流式解析（仅正文）
+### 工具 JSON：流式解析（仅正文）
 
-- **`reasoning_content` 与 `content` 分列缓冲**：推理只用于 UI / 历史；**只有 `content` 会进入 `XmlToolParser`**，避免同一缓冲内与 reasoning 交错导致标签被截断（例如 `<thoughts>` 被拆成错误 token）。
-- 流式过程中：完整闭合一段 `<response>…</response>` 后会通过 `XmlToolStreamingReady` 等路径推给前端；尚未闭合时，可从当前正文缓冲提取已闭合子标签，通过 `AssistantXmlPartial` 渐进更新（与 `StreamEvent` 定义一致）。
-- **流结束后不再做**「仅正文重放 / 仅推理重放 / 推理+正文合并」等二次解析兜底；若回合结束仍无可用 `tool_calls`，由上层按 `XmlToolFinishDiagnostics` 与既有重试提示处理。`merge_ui_order_reparse_ok` 字段保留在结构中，当前实现下恒为 `false`。
+- **`reasoning_content` 与 `content` 分列缓冲**：推理只用于 UI / 历史；**只有 `content` 参与 JSON 工具信封**（流式渐进字段用 `partial-json-fixer` 修复后再解析），避免与 reasoning 交错。
+- 流式过程中：用不完整 JSON 缓冲通过 `extract_json_streaming_partial` 推 `assistant_json_partial`；回合结束后再用 `finalize_json_tool_envelope` 得到完整工具列表，并可通过 `JsonToolStreamingReady` 推给前端（与 `StreamEvent` 定义一致）。
+- **流结束后**对正文做严格 JSON 解析（失败则再尝试修复后解析）；若仍无可用 `tool_calls`，由上层按 `JsonToolFinishDiagnostics` 与既有重试提示处理。`merge_ui_order_reparse_ok` 字段保留在结构中，当前实现下恒为 `false`。

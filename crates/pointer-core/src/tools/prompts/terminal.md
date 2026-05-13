@@ -22,17 +22,17 @@ The result includes `stdout`, `stderr`, exit code, timing, and truncation flags;
 - **`timeoutMs`** (optional) — Idle timeout in milliseconds: if neither stdout nor stderr receives new data for this long, the command is stopped. Any new output resets this idle timer. Default **30000**, per-idle segment max **120000**. Regardless of output, the command cannot run longer than **1 hour** from start.
 - **`maxOutputBytes`** (optional) — Max bytes per stream for stdout and stderr; default **20000**, max **200000**; output is truncated per stream when exceeded.
 
-#### XML example
+#### JSON example
 
-```xml
-<response>
-  <thoughts>Run tests in the workspace.</thoughts>
-  <headline>Cargo test</headline>
-  <tool_name>terminal</tool_name>
-  <tool_args>
-    <command>cargo test</command>
-    <cwd>.</cwd>
-    <timeoutMs>120000</timeoutMs>
-  </tool_args>
-</response>
+```json
+{
+  "thoughts": "Run tests in the workspace.",
+  "headline": "Cargo test",
+  "tool_name": "terminal",
+  "tool_args": {
+    "command": "cargo test",
+    "cwd": ".",
+    "timeoutMs": 120000
+  }
+}
 ```

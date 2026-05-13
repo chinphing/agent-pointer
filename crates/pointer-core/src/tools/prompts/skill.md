@@ -1,6 +1,6 @@
 ### `skill`
 
-Unified Skill progressive-disclosure tools. Prefer qualified XML names: **`skill:load_instructions`**, **`skill:read_resource`** — the runtime merges them into `tool_name` **`skill`** plus **`method`**. You may also call **`skill`** with a top-level **`method`** string (e.g. **`load_instructions`**), equivalent to **`skill:load_instructions`**, **`skill:read_resource`**.
+Unified Skill progressive-disclosure tools. Prefer qualified JSON **`tool_name`** values: **`skill:load_instructions`**, **`skill:read_resource`** — the runtime merges them into `tool_name` **`skill`** plus **`method`**. You may also call **`skill`** with a top-level **`method`** string (e.g. **`load_instructions`**), equivalent to **`skill:load_instructions`**, **`skill:read_resource`**.
 
 #### Usage
 
@@ -40,33 +40,33 @@ Progressive disclosure for enabled Skills.
 - **`skill_id`** — Same as above.
 - **`path`** — Resource-relative path listed in the Skill index, e.g. `references/api-guide.md`.
 
-#### XML examples
+#### JSON examples
 
 Only when the **`skill`** tool is available to you and the session lists the skill. `skill_id` must match an **enabled** skill for this session.
 
 **`skill:load_instructions`**
 
-```xml
-<response>
-  <thoughts>Task matches an enabled skill; load its full SKILL.md.</thoughts>
-  <headline>Load skill</headline>
-  <tool_name>skill:load_instructions</tool_name>
-  <tool_args>
-    <skill_id>your-enabled-skill-id</skill_id>
-  </tool_args>
-</response>
+```json
+{
+  "thoughts": "Task matches an enabled skill; load its full SKILL.md.",
+  "headline": "Load skill",
+  "tool_name": "skill:load_instructions",
+  "tool_args": {
+    "skill_id": "your-enabled-skill-id"
+  }
+}
 ```
 
 **`skill:read_resource`** — include **`path`** (resource-relative, e.g. `references/guide.md`) alongside **`skill_id`**.
 
-```xml
-<response>
-  <thoughts>Need an asset from the skill bundle.</thoughts>
-  <headline>Read skill resource</headline>
-  <tool_name>skill:read_resource</tool_name>
-  <tool_args>
-    <skill_id>your-enabled-skill-id</skill_id>
-    <path>references/guide.md</path>
-  </tool_args>
-</response>
+```json
+{
+  "thoughts": "Need an asset from the skill bundle.",
+  "headline": "Read skill resource",
+  "tool_name": "skill:read_resource",
+  "tool_args": {
+    "skill_id": "your-enabled-skill-id",
+    "path": "references/guide.md"
+  }
+}
 ```

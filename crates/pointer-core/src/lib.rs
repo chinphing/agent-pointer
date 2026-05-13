@@ -12,5 +12,6 @@ pub mod skills;
 pub mod storage;
 pub mod tools;
 pub mod response_xml;
+pub mod json_tool_caller;
 pub mod xml_tool_caller;
 pub mod xml_tool_prompt;

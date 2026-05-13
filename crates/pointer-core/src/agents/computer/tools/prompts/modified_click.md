@@ -19,3 +19,5 @@ Use for **modifier+click** to multi-select: **Cmd/Ctrl+click** (add non-contiguo
 Parameter constraints:
 - **`goal`** is required. Describe the **target elements**: if an item is **text**, include the **exact visible text**; if **other** (icon, row, checkbox), give a **brief description of its features**. Then state which items you are selecting and the expected result.
 - **`action`** is required. See **Communication** → **Action description in tool_args**.
+
+**Optional `wait` in `tool_args`:** See **Communication (public)** → **Post-action `wait` in `tool_args` (computer desktop)**. Heuristic: multi-select / range-select often **~2–3** s for selection highlight to settle.

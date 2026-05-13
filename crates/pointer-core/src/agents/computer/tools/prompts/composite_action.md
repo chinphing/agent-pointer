@@ -26,3 +26,5 @@ Parameter constraints:
 - **`action`** is required. See **Communication** → **Action description in tool_args**.
 - `auto_enter` defaults to **false**. Set it to **true** only when Enter is intended as the next action. On **Windows PowerShell / terminal** input, set `auto_enter=true` so the command executes immediately after typing (the tool blocks until after submit before returning — do not duplicate that delay yourself). If the next screenshot still shows no new output and no new prompt line, **do not press Enter again** — Enter was already sent; use **wait** if more time is needed.
 - For **`composite_action:scroll_at_index`**, prefer an anchor **inside** the scrollable region (e.g. a list item); avoid large headings outside the viewport.
+
+**Optional `wait` in `tool_args`:** See **Communication (public)** → **Post-action `wait` in `tool_args` (computer desktop)**. Heuristic: type-and-submit flows often **~2–4** s before the canvas updates; simple focus+type often **~1–2** s.

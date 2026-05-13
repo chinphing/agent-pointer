@@ -11,7 +11,7 @@
 > 坐标系统默认：`qwen`（0-1000 归一化）
 > 标注服务：外部 HTTP 服务（`COMPUTER_ANNOTATE_API_BASE`，默认 `http://127.0.0.1:8000`）
 > 动作底层库：`enigo`（跨平台封装，未来可扩展）
-> **桌面工具 → 下一轮截图复核前间隔**：`timing.rs` 的 `POST_DESKTOP_ACTION_DELAY_MS`（默认 1000ms）
+> **桌面工具 → 下一轮截图复核前间隔**：`timing.rs` 中 `POST_DESKTOP_ACTION_DELAY_MS`（未传 **`wait`** 时默认 1000ms）。**`mouse` / `hotkey` / `composite_action` / `modified_click`** 的 **`tool_args`** 可传可选 **`wait`**（秒，运行时钳位 **1–5**）；规范见 **`COMMUNICATION_PUBLIC.md`**「Post-action `wait` in `tool_args`」；各工具 `prompts/*.md` 仅保留一句引用与启发式。
 > **组合操作子步骤间隔**（如定位后输入、全选后输入、定位后滚动）：`timing.rs` 的 `COMPOSITE_ACTION_STEP_GAP_MS`（默认 50ms）
 > 排除范围：shell 执行、文件操作（已有现有工具覆盖）
 

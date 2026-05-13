@@ -1,10 +1,51 @@
 //! Tunable delays and desktop tool classification for the computer agent.
 
+use log::debug;
+use serde_json::Value;
+
 /// Milliseconds to wait after a **successful** desktop input tool call (`mouse`, `hotkey`,
 /// `composite_action`, `modified_click`) before the chat loop continues — i.e. before the next
 /// model round where **screenshot / verify (`[CUR_SCREEN]`)** runs. Gives the OS and target UI time
-/// to repaint.
+/// to repaint. Used when **`wait`** is **omitted** from `tool_args` (see
+/// [`post_desktop_action_delay_ms_from_tool_args`]).
 pub const POST_DESKTOP_ACTION_DELAY_MS: u64 = 1000;
+
+/// Allowed **`wait`** seconds in `tool_args` for post-action screenshot delay (inclusive).
+pub const POST_DESKTOP_ACTION_WAIT_SEC_MIN: f64 = 1.0;
+pub const POST_DESKTOP_ACTION_WAIT_SEC_MAX: f64 = 5.0;
+
+/// Milliseconds after a successful **`mouse`** / **`hotkey`** / **`composite_action`** / **`modified_click`**
+/// before the next **`[CUR_SCREEN]`** capture. Reads optional **`wait`** from `tool_args` (seconds,
+/// **1.0–5.0** clamped); if missing, invalid, non-positive, or not an object, returns
+/// [`POST_DESKTOP_ACTION_DELAY_MS`].
+pub fn post_desktop_action_delay_ms_from_tool_args(args: &Value) -> u64 {
+    let Value::Object(map) = args else {
+        return POST_DESKTOP_ACTION_DELAY_MS;
+    };
+    let Some(raw) = map.get("wait") else {
+        return POST_DESKTOP_ACTION_DELAY_MS;
+    };
+    let sec = match raw {
+        Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+        Value::String(s) => s.trim().parse::<f64>().unwrap_or(f64::NAN),
+        _ => {
+            debug!("post_action wait: ignored non-number wait value");
+            return POST_DESKTOP_ACTION_DELAY_MS;
+        }
+    };
+    if !sec.is_finite() || sec <= 0.0 {
+        debug!("post_action wait: non-positive or non-finite, using default ms");
+        return POST_DESKTOP_ACTION_DELAY_MS;
+    }
+    let clamped = sec.clamp(POST_DESKTOP_ACTION_WAIT_SEC_MIN, POST_DESKTOP_ACTION_WAIT_SEC_MAX);
+    if (clamped - sec).abs() > f64::EPSILON {
+        debug!(
+            "post_action wait: clamped wait {}s to {}s before screenshot",
+            sec, clamped
+        );
+    }
+    ((clamped * 1000.0).round() as u64).max(1)
+}
 
 /// Milliseconds between **sub-steps inside one composite desktop action** in [`super::actions::ActionExecutor`]
 /// (e.g. after focus click, before `type_text`; after select-all, before typing; after move+settle,
@@ -40,4 +81,29 @@ pub fn is_desktop_vision_log_tool(tool_id: &str) -> bool {
 #[inline]
 pub fn is_desktop_post_delay_tool(tool_id: &str) -> bool {
     DESKTOP_POST_DELAY_TOOL_IDS.contains(&tool_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn post_delay_default_when_wait_missing() {
+        assert_eq!(
+            post_desktop_action_delay_ms_from_tool_args(&json!({"goal": "x"})),
+            POST_DESKTOP_ACTION_DELAY_MS
+        );
+    }
+
+    #[test]
+    fn post_delay_clamps_wait_seconds() {
+        assert_eq!(post_desktop_action_delay_ms_from_tool_args(&json!({"wait": 2.5})), 2500);
+        assert_eq!(post_desktop_action_delay_ms_from_tool_args(&json!({"wait": 0.2})), 1000);
+        assert_eq!(post_desktop_action_delay_ms_from_tool_args(&json!({"wait": 9})), 5000);
+        assert_eq!(
+            post_desktop_action_delay_ms_from_tool_args(&json!({"wait": 0})),
+            POST_DESKTOP_ACTION_DELAY_MS
+        );
+    }
 }

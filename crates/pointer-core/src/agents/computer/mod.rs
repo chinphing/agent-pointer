@@ -17,8 +17,9 @@ pub mod capture_debug;
 pub mod reference_anchors;
 
 pub use timing::{
-    is_desktop_post_delay_tool, is_desktop_vision_log_tool, COMPOSITE_ACTION_STEP_GAP_MS,
-    POST_DESKTOP_ACTION_DELAY_MS,
+    is_desktop_post_delay_tool, is_desktop_vision_log_tool, post_desktop_action_delay_ms_from_tool_args,
+    COMPOSITE_ACTION_STEP_GAP_MS, POST_DESKTOP_ACTION_DELAY_MS, POST_DESKTOP_ACTION_WAIT_SEC_MAX,
+    POST_DESKTOP_ACTION_WAIT_SEC_MIN,
 };
 
 use crate::agents::AgentRegistry;

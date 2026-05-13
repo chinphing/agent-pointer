@@ -1039,10 +1039,15 @@ async fn run_chat_inner(
                         failed_note.as_deref(),
                     );
                     if ok && crate::agents::computer::is_desktop_post_delay_tool(tool_id.as_str()) {
-                        tokio::time::sleep(Duration::from_millis(
-                            crate::agents::computer::POST_DESKTOP_ACTION_DELAY_MS,
-                        ))
-                        .await;
+                        let delay_ms = crate::agents::computer::post_desktop_action_delay_ms_from_tool_args(
+                            &args_for_desktop_log,
+                        );
+                        log::info!(
+                            "desktop post_action sleep {}ms before next capture (tool={})",
+                            delay_ms,
+                            tool_id
+                        );
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                     }
                     let preview = truncate_str(&out, 800);
                     emit(
@@ -2044,10 +2049,15 @@ async fn run_sub_agent(
                         failed_note.as_deref(),
                     );
                     if ok && crate::agents::computer::is_desktop_post_delay_tool(tool_id.as_str()) {
-                        tokio::time::sleep(Duration::from_millis(
-                            crate::agents::computer::POST_DESKTOP_ACTION_DELAY_MS,
-                        ))
-                        .await;
+                        let delay_ms = crate::agents::computer::post_desktop_action_delay_ms_from_tool_args(
+                            &args_for_desktop_log,
+                        );
+                        log::info!(
+                            "desktop post_action sleep {}ms before next capture (tool={})",
+                            delay_ms,
+                            tool_id
+                        );
+                        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                     }
                     let preview = truncate_str(&output, 800);
                     emit(

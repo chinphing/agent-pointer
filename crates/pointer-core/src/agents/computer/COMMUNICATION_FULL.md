@@ -86,14 +86,17 @@ From [Screen after action]: pointer sits on the key text, clearly right of the c
 1. If **visible evidence** **contradicts** the intended action (wrong dialog, wrong panel, error that blocks the intent, or **`Pointer:`** **`abnormal`** when the step required hitting a **specific small control**) → **`FAILED`** (Py **`misidentified`** / wrong visible path rolls up here).
 2. Else if **`no visible outcome`** **and** **`deferred`** **and** no strong visible “wrong operation” signal → **`NFO`**. **Next** must gather evidence (**`wait`**, Transfers/history/queue, destination folder, **`clipboard:read`**, etc.) — **do not** claim success to the user; **do not** repeat the same **trigger** until failure is visible or a check surface proves the outcome (**no NFO lock** in this runtime; still follow this discipline).
 3. Else if **`no visible outcome`** **and** **`non-deferred`** → **`FAILED`** (Py: **`non-deferred`** + **`no visible outcome`** → action not verified; treat as wrong / stalled immediate UI).
-4. Else if **concrete visible outcome** matches the step’s intent **and** (for precision clicks) **`Pointer:`** was **`accurate`** → **`VERIFIED`**.
-5. Else → **`FAILED`** or **`NFO`** by conservative reading of the screen; do not invent a fourth state.
+4. Else if **concrete visible outcome** **fully** matches the step’s intent **and** (for precision clicks) **`Pointer:`** was **`accurate`** → **`VERIFIED`**.
+5. Else if **concrete** visible progress **toward** the step’s intent is present, but the **full** outcome the **`goal`** implied is **not** yet satisfied on **`[Screen after action]`**, and nothing visible **contradicts** the path so far → **`PARTIAL`**. (Example: “export **all** 10 files” shows **3** completed rows; wizard moved one pane but more panes remain.) **Do not** use **`PARTIAL`** when **`Visible evidence`** is **`no visible outcome`** on a **deferred** proof path — that remains **`NFO`**. **Do not** use **`PARTIAL`** for wrong UI — **`FAILED`**.
+6. Else → **`FAILED`** or **`NFO`** by conservative reading of the screen.
 
 **`NFO`** (**need further verification**) — Use **only** when rule **2** applies: **`deferred`** + **`no visible outcome`** + no clear wrong-operation evidence. It means **unverified**, not “probably worked.” **Do not** carry a lock across turns in this product; still route **`Next:`** to a real check surface before **`response`** claims success.
 
 **`VERIFIED`** — Rule **4** matched: visible proof on **`[Screen after action]`** (or grounded prior-tool text when that tool **is** the proof step, e.g. **`clipboard:read`** on the **same** turn you judge) **and** precision-click steps require **`Pointer:`** **`accurate`**.
 
-**`FAILED`** — Rules **1**, **3**, or conservative **5**; includes **non-deferred** steps that still show **`no visible outcome`** when the UI should have updated on canvas.
+**`PARTIAL`** — Rule **5**: **concrete** partial progress, intent **not** fully met on this frame, **no** contradiction. **`PARTIAL`** is **not** “unverified off-screen” (**`NFO`**) and **not** “all done” (**`VERIFIED`**). **`response`** must **not** claim the **whole** user task finished while **`Verify:`** is **`PARTIAL`** for remaining scope.
+
+**`FAILED`** — Rules **1**, **3**, or conservative **6**; includes **non-deferred** steps that still show **`no visible outcome`** when the UI should have updated on canvas.
 
 **Clipboard / copy flows**
 
@@ -109,7 +112,7 @@ Visible evidence: <concrete visible outcome | no visible outcome> — <one unind
 Task type: <deferred | non-deferred> — <one short reason>.
 Grounded tool output for prior step (if any): <role only; do not paste secrets>.
 Pointer alignment (echo one line): <accurate | abnormal | n/a — same as Pointer block>.
-Outcome: <VERIFIED | NFO | FAILED> — <ties to rules 1–5; no overlay digits>.
+Outcome: <VERIFIED | PARTIAL | NFO | FAILED> — <ties to rules 1–6; no overlay digits>.
 ```
 
 **Positive examples**

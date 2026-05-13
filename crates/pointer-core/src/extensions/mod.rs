@@ -39,7 +39,7 @@ pub struct MessageLoopPromptsAfterContext<'a> {
 /// Context for [`ExtensionPoint::BeforeMainLlmCall`] immediately before [`crate::provider::OpenAIProvider::stream_chat`].
 ///
 /// `system_prompts` already includes env block, communication inject, agent system prompts, tool chapters,
-/// and the XML tool appendix when enabled. Hooks usually **append** so their text sits closest to the
+/// and tool appendices (response envelope / per-tool docs) when enabled. Hooks usually **append** so their text sits closest to the
 /// conversational `messages` payload.
 pub struct BeforeMainLlmCallContext<'a> {
     pub computer_state: &'a ComputerState,

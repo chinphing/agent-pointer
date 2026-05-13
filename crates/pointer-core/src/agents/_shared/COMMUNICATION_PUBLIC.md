@@ -1,5 +1,17 @@
 # General rules
 
+## Wire format (JSON)
+
+Each assistant turn that uses tools—or ends with a structured final reply—is **one JSON object** only.
+
+- Put **no** Markdown code fences around the whole object and **no** prose outside it.
+- Top-level keys (unless your worker prompt adds a rare exception): **`thoughts`**, **`headline`**, optional **`sidecar_tools`**, then **`tool_name`** (string) and **`tool_args`** (object).
+- **`tool_args`** holds **one JSON property per tool parameter**; names and types follow each tool’s description in your tool list.
+- All **string** values must be valid JSON strings: escape **`"`**, **`\`**, and newlines as **`\"`**, **`\\`**, **`\n`**. 
+- The host requests **`json_object`** style output from the model API; keep the object **syntactically valid** so the runtime can parse it.
+
+For the full envelope rules, sidecar ordering, and copy-paste examples, follow the **`response`** tool description in your tool list (same rules for every tool).
+
 ## `thoughts` in the JSON envelope
 
 The **`thoughts`** field is what you **emit on the wire**:

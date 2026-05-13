@@ -278,56 +278,24 @@ Location:
 
 ### Full chain
 
-**Positive example** — Screen-targeted tool turn (five prefixes + Location lines 1–6 inside **`<thoughts>`**):
+**Positive example** — Screen-targeted tool turn (five prefixes + Location lines 1–6 inside the **`thoughts`** string):
 
-```xml
-<response>
-  <thoughts>
-Pointer:
-View unchanged. Intended: gray Submit in dialog. Zoom: hotspot on Submit pill center. Conclusion: accurate.
-
-Verify:
-Before: invalid-field banner. After: same banner, Submit still enabled. Visible evidence: no visible outcome for submit completing. Task type: non-deferred. Pointer: accurate — hotspot on Submit center. FAILED — submit did not complete.
-
-Repetition:
-Last two rows differ in action text; UI not flat over four same rows. OK
-
-Next:
-Click gray Submit under password fields; full column width; not Cancel link; no overlay digits in this block.
-
-Location:
-1 [Screen after action]: gray Submit under password fields.
-2 [Annotated after action] index 6: green tall card **bbox** around the form stack; **background color** behind **6** matches green **bbox** border color.
-3 Inside bbox: Email field, password fields, gray Submit — multiple distinct hit targets.
-4 match: Submit inside index 6 bbox.
-5 multiple.
-6 coordinates: Submit pill center; not index 6
-  </thoughts>
-  <headline>Retry submit via coordinates</headline>
-  <tool_name>mouse:click_at</tool_name>
-  <tool_args>...</tool_args>
-</response>
+```json
+{
+  "thoughts": "Pointer:\nView unchanged. Intended: gray Submit in dialog. Zoom: hotspot on Submit pill center. Conclusion: accurate.\n\nVerify:\nBefore: invalid-field banner. After: same banner, Submit still enabled. Visible evidence: no visible outcome for submit completing. Task type: non-deferred. Pointer: accurate — hotspot on Submit center. FAILED — submit did not complete.\n\nRepetition:\nLast two rows differ in action text; UI not flat over four same rows. OK\n\nNext:\nClick gray Submit under password fields; full column width; not Cancel link; no overlay digits in this block.\n\nLocation:\n1 [Screen after action]: gray Submit under password fields.\n2 [Annotated after action] index 6: green tall card **bbox** around the form stack; **background color** behind **6** matches green **bbox** border color.\n3 Inside bbox: Email field, password fields, gray Submit — multiple distinct hit targets.\n4 match: Submit inside index 6 bbox.\n5 multiple.\n6 coordinates: Submit pill center; not index 6",
+  "headline": "Retry submit via coordinates",
+  "tool_name": "mouse:click_at",
+  "tool_args": {}
+}
 ```
 
-**Positive example** — `wait` or **`clipboard`** turn (no screen coordinates): **omit** the entire **`Location:`** block inside **`<thoughts>`**:
+**Positive example** — `wait` or **`clipboard`** turn (no screen coordinates): **omit** the entire **`Location:`** block inside **`thoughts`**:
 
-```xml
-<response>
-  <thoughts>
-Pointer:
-n/a — this turn is clipboard:read only.
-
-Verify:
-After tool reply is in the thread: visible evidence for this read step is grounded tool text (clipboard payload). Task type: non-deferred for clipboard:read itself. Pointer: n/a. VERIFIED for clipboard read evidence only.
-
-Repetition:
-OK
-
-Next:
-clipboard:read — read system clipboard; no overlay digits in this block.
-  </thoughts>
-  <headline>Read clipboard</headline>
-  <tool_name>clipboard:read</tool_name>
-  <tool_args>...</tool_args>
-</response>
+```json
+{
+  "thoughts": "Pointer:\nn/a — this turn is clipboard:read only.\n\nVerify:\nAfter tool reply is in the thread: visible evidence for this read step is grounded tool text (clipboard payload). Task type: non-deferred for clipboard:read itself. Pointer: n/a. VERIFIED for clipboard read evidence only.\n\nRepetition:\nOK\n\nNext:\nclipboard:read — read system clipboard; no overlay digits in this block.",
+  "headline": "Read clipboard",
+  "tool_name": "clipboard:read",
+  "tool_args": {}
+}
 ```

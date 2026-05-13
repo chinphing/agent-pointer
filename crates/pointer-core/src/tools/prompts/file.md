@@ -19,7 +19,9 @@ Unified workspace file tools. Prefer **qualified names** in JSON **`tool_name`**
 
 #### Parameters
 
-- **`method`** — Required in tool arguments unless you used a qualified tool name (**`file:read`**, **`file:write`**, **`file:edit`**, **`file:glob`**, **`file:grep`**, **`file:list`**). When split, one of: `read`, `write`, `edit`, `glob`, `grep`, `list` (same six as the **`file:…`** names above).
+All keys below are **JSON properties** on the root **`tool_args`** object of your assistant JSON envelope (alongside **`method`** when using the merged `file` + `method` form).
+
+- **`method`** — Required in **`tool_args`** unless you used a qualified **`tool_name`** (**`file:read`**, **`file:write`**, **`file:edit`**, **`file:glob`**, **`file:grep`**, **`file:list`**). When split, one of: `read`, `write`, `edit`, `glob`, `grep`, `list` (same six as the **`file:…`** names above).
 
 **`file:read`**
 
@@ -32,13 +34,13 @@ Unified workspace file tools. Prefer **qualified names** in JSON **`tool_name`**
 **`file:write`**
 
 - **`path`** — Relative path of the file to create or overwrite (workspace only).
-- **`content`** — Full file body as UTF-8 text. Escape quotes and newlines as valid JSON strings.
+- **`content`** — Entire file body as one JSON **string** value. Use normal JSON escaping for quotes (`\"`), backslashes (`\\`), and newlines (`\n`); file bytes are UTF-8 text.
 
 **`file:edit`**
 
 - **`path`** — Relative path to an existing file (workspace only).
-- **`oldString`** — Exact snippet to replace; must match the file uniquely. Implementations also accept **`old_string`**. Use JSON string escaping for `<`, `&`, and markup.
-- **`newString`** — Replacement text. Also accepts **`new_string`**. Same JSON string rules.
+- **`oldString`** — Exact snippet to find and replace; must occur **exactly once** in the file. JSON **string** in **`tool_args`**; any `<`, `>`, `&`, or markup are literal characters inside that string—only JSON’s own escaping rules apply. The runtime also accepts the alias **`old_string`**.
+- **`newString`** — Replacement text as a JSON **string** in **`tool_args`**; same escaping rules as **`oldString`**. Alias **`new_string`** is accepted.
 
 **`file:glob`**
 

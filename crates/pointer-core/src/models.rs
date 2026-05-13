@@ -56,10 +56,10 @@ pub struct ChatMessage {
     pub error_message: Option<String>,
     #[serde(default)]
     pub reasoning: Option<String>,
-    /// Text inside XML `<thoughts>` for the last complete `<response>` in this turn (UI + persistence).
+    /// User-visible reasoning summary from the model’s last structured turn (`thoughts` in JSON, or legacy XML).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thoughts: Option<String>,
-    /// Text inside XML `<headline>` for the last complete `<response>` in this turn.
+    /// Short title from the model’s last structured turn (`headline` in JSON, or legacy XML).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub headline: Option<String>,
     #[serde(default, rename = "rawContent")]
@@ -477,7 +477,7 @@ pub struct SkillImportResult {
 
 /// Tool identity exposed to the UI / API. Human-readable docs and argument shapes live in markdown
 /// (`tools/prompts/*.md`, `agents/computer/tools/prompts/*.md`). Native OpenAI `tools` payloads use
-/// empty `parameters` objects; XML tool calling carries real argument structure.
+/// empty `parameters` objects; the wire format carries real argument structure in JSON (legacy XML path may still exist).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDef {
     pub name: String,

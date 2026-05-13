@@ -6,6 +6,8 @@ Unified workspace file tools. Prefer **qualified names** in JSON **`tool_name`**
 
 **Batch reads:** If you already know **two or more** file paths, use **`file:read`** with **`paths`** (array) in one call — not multiple reads with **`path`**.
 
+**Context discipline:** Each batch returns **full file bodies** (after **`lineStart`** / **`lineEnd`** / **`maxBytes`**). Filling **`paths`** with many large files can **overflow the model context** even when under the hard file count. Prefer **narrow batches** (only files you must see together), use **`file:grep`** first, use **`lineStart`** / **`lineEnd`** on huge files, lower **`maxBytes`** when a snippet is enough, or **split across multiple** **`file:read`** turns. The runtime also enforces a **combined `content` budget** per batch (see **`maxTotalBytes`**).
+
 #### Methods
 
 | Method | Purpose |
@@ -26,10 +28,11 @@ All keys below are **JSON properties** on the root **`tool_args`** object of you
 **`file:read`**
 
 - **`path`** — Path to one file (relative to workspace, or absolute for read-only). Use when reading a single file.
-- **`paths`** — Array of paths (max **32** per call). Prefer when you already know two or more paths. Response groups results under `files`.
+- **`paths`** — Array of paths (max **32** per call). Prefer when you already know two or more paths. Response groups results under `files`, and includes **`maxTotalBytes`**, **`contentBytes`**, and **`batchCapped`** (see below).
 - **`lineStart`** — Optional; 1-based first line to include. Default: start of file.
 - **`lineEnd`** — Optional; 1-based **exclusive** end line (same convention as typical slice end).
-- **`maxBytes`** — Optional; max bytes read per file (default **524288**).
+- **`maxBytes`** — Optional; max bytes read per file (default **262144**, 256 KiB).
+- **`maxTotalBytes`** — **Batch (`paths`) only.** Cap on the combined UTF-8 length of all returned **`content`** strings in this response. Default **1048576** (1 MiB) when omitted; hard maximum **4194304** (4 MiB). Explicit values are clamped to at least **1** byte. If the cap is hit, the tool may **truncate** the last file that fits (see **`batchTruncated`** on that entry) and/or return **`error`** placeholders for paths not read—check **`batchCapped`** on the root object.
 
 **`file:write`**
 

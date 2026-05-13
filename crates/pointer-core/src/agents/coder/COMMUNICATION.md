@@ -10,9 +10,15 @@ When this path is non-empty, **relative** paths for the **`file`** tool (`file:r
 
 **Primary edits** target the configured workspace; how relative paths map to disk is in **Session context** above.
 
+**Reading discipline:** locate with **`file:grep`** / **`file:glob`** / **`file:list`** before wide **`file:read`**; use **line ranges** and **small `paths` batches**; treat reads as **evidence**, not bulk copy-paste; admit **partial** reads when caps apply.
+
 For **read-only** exploration (`file:read`, `file:glob`, `file:grep`, `file:list`), you may use **absolute paths** when the user explicitly asks to reference another project or tree outside the workspace—do not refuse solely because paths are outside the workspace.
 
 **`file:write`** and **`file:edit`** stay **confined to the workspace** (relative paths only). These calls may require user approval—do not bypass controls.
+
+### When `file:read` hits caps or errors
+
+If the tool result includes **`batchCapped`**, **`batchTruncated`**, **`truncated`**, **`error`** on a path, or **file too large** for **`maxBytes`**: **do not** repeat the **same** wide **`paths`** batch. **Split** reads across turns, use **`lineStart`** / **`lineEnd`** or a **smaller `maxBytes`**, **`file:grep`** to locate the right region first, and only then widen reads. If your conclusion depends on truncated or skipped content, say so in **`thoughts`** or the user-facing summary.
 
 ---
 

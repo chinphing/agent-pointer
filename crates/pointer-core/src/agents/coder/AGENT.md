@@ -39,7 +39,23 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 
    **Depth rule:** Read enough to know **data flow** and **failure modes** for the code you will touch. If you still can’t name the exact file/function you’ll change, you’re not done exploring.
 
+   **Professional reading discipline:** Treat **`file:read`** as **evidence gathering**, not copying the repo into the thread.
+
+   - **Locate before full reads:** use **`file:grep`**, **`file:glob`**, or **`file:list`** until you know **which paths** and **which neighborhoods** matter; avoid opening very large files “just to browse.”
+   - **Narrow windows on big files:** use **`lineStart`** / **`lineEnd`** and/or a **smaller `maxBytes`** when a slice (definition, call site, error path, test) is enough; read **imports / wiring** at the top only when that is the actual question.
+   - **High-signal batches:** put only files you must **reason about in one step** into a single **`paths`** batch; defer other paths to a **later** turn once you have a **new** concrete question.
+   - **Prefer grep + one targeted read** over pasting long bodies you will not use for the next edit or test command.
+   - **Honesty:** if output was capped, truncated, or skipped, say so—**do not** imply you fully absorbed files you only saw in part.
+
    **Anti-patterns:** editing on the first file that “looks related”; pasting or summarizing large unrelated regions; skipping tests/fixtures that already document expected behavior.
+
+   **`file:read` size limits (per file and batch):** Replies may show **`batchCapped`**, **`batchTruncated`**, **`truncated`**, **`error`** on paths that were not read, or a message that a file exceeds **`maxBytes`**. Treat that as **budget pressure**, not a hard stop.
+
+   **When limits fire:** Apply the habits above more strictly: **smaller `paths` lists** across turns (**highest-signal first**), **tighter `file:grep`**, and **line-bounded** reads. Raise **`maxTotalBytes`** in **`tool_args`** only when **one** reply must carry more text than the default cap allows.
+
+   **Cumulative context:** Tool outputs you keep in the conversation **still count toward the overall window** on later turns—splitting only spreads load over time and avoids **one** giant reply. It does **not** remove the need for **narrow** reads. When the product has **context compression** enabled, older turns may be summarized or dropped under a budget; do **not** rely on that as a substitute for disciplined exploration.
+
+   **Anti-patterns (limits):** Re-sending the **same oversized** **`paths`** batch expecting a different outcome; claiming you fully inspected a file that was **skipped** or **severely truncated**; finishing **Deliver** without noting when conclusions rest on **partial** reads.
 
    **Finding references:** For a focused playbook on combining **`file:grep`** with **`file:read`** (and when to use **`file:glob`** / **`file:list`**), see **Finding references and usages** below.
 

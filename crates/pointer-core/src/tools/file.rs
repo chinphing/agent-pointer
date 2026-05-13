@@ -3,6 +3,7 @@
 use super::{ToolEntry, ToolHandler, ToolRegistry};
 use crate::storage;
 use anyhow::{anyhow, Result};
+use log::warn;
 use globset::{Glob, GlobSetBuilder};
 use regex::RegexBuilder;
 use std::fs;
@@ -13,9 +14,16 @@ use walkdir::WalkDir;
 /// Doc for registry tool `file`; keep in sync with `prompts/file.md`.
 const FILE_MD: &str = include_str!("prompts/file.md");
 
-const MAX_FILE_READ_BYTES: usize = 512 * 1024;
+const MAX_FILE_READ_BYTES: usize = 256 * 1024;
 /// Max files per `file` read batch (`paths`). **Keep in sync** with `prompts/file.md` Parameters section.
 const MAX_FILE_READ_BATCH: usize = 32;
+/// Default cap on combined UTF-8 length of all `content` fields in one `paths` batch (assistant context).
+/// **Keep in sync** with `prompts/file.md` (`maxTotalBytes`).
+const MAX_FILE_READ_BATCH_TOTAL_BYTES_DEFAULT: usize = 1024 * 1024;
+/// Hard upper bound for caller-supplied `maxTotalBytes`.
+const MAX_FILE_READ_BATCH_TOTAL_BYTES_CLAMP: usize = 4 * 1024 * 1024;
+/// Do not emit a tiny truncated slice; skip with an error instead.
+const MIN_BATCH_TRUNCATE_REMAINING: usize = 256;
 const MAX_GREP_RESULTS: usize = 200;
 const MAX_GREP_FILE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_GLOB_RESULTS: usize = 500;
@@ -298,6 +306,18 @@ fn file_read_one_json(
     })
 }
 
+/// Returns a prefix of `s` whose UTF-8 byte length does not exceed `max_bytes`.
+fn utf8_byte_prefix(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut n = max_bytes;
+    while n > 0 && !s.is_char_boundary(n) {
+        n -= 1;
+    }
+    &s[..n]
+}
+
 /// Core logic for `file_read` (single `path` or batch `paths`). Used by tests with an explicit root.
 fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result<String> {
     let line_start = args
@@ -346,11 +366,96 @@ fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result<String> {
                 paths.len()
             ));
         }
-        let files: Vec<serde_json::Value> = paths
-            .iter()
-            .map(|p| file_read_one_json(root, p, line_start, line_end_exclusive, max_bytes))
-            .collect();
-        return Ok(serde_json::json!({ "files": files }).to_string());
+        let max_total_bytes = args
+            .get("maxTotalBytes")
+            .and_then(|v| v.as_u64())
+            .map(|n| {
+                (n as usize)
+                    .max(1)
+                    .min(MAX_FILE_READ_BATCH_TOTAL_BYTES_CLAMP)
+            })
+            .unwrap_or(MAX_FILE_READ_BATCH_TOTAL_BYTES_DEFAULT);
+
+        let mut content_bytes: usize = 0;
+        let mut batch_capped = false;
+        let mut budget_done = false;
+        let mut files: Vec<serde_json::Value> = Vec::with_capacity(paths.len());
+
+        for p in &paths {
+            if budget_done || content_bytes >= max_total_bytes {
+                files.push(serde_json::json!({
+                    "path": p,
+                    "error": "未读取：本批正文已达 maxTotalBytes 上限。请减少 paths、使用 lineStart/lineEnd、降低 maxBytes，或拆成多次 file:read。",
+                }));
+                batch_capped = true;
+                continue;
+            }
+
+            let mut v = file_read_one_json(root, p, line_start, line_end_exclusive, max_bytes);
+
+            if v.get("error").is_some() {
+                files.push(v);
+                continue;
+            }
+
+            let Some(content) = v.get("content").and_then(|c| c.as_str()) else {
+                files.push(v);
+                continue;
+            };
+
+            let next_total = content_bytes.saturating_add(content.len());
+            if next_total <= max_total_bytes {
+                content_bytes = next_total;
+                files.push(v);
+                continue;
+            }
+
+            let budget = max_total_bytes.saturating_sub(content_bytes);
+            if budget < MIN_BATCH_TRUNCATE_REMAINING {
+                files.push(serde_json::json!({
+                    "path": p,
+                    "error": format!(
+                        "本批剩余空间过小（{} 字节），无法容纳此文件正文。请提高 maxTotalBytes、减少 paths，或改用 lineStart/lineEnd。",
+                        budget
+                    ),
+                }));
+                batch_capped = true;
+                budget_done = true;
+                continue;
+            }
+
+            let tail = "\n…[已截断：达到本批 maxTotalBytes]";
+            let prefix_budget = budget.saturating_sub(tail.len());
+            let prefix = utf8_byte_prefix(content, prefix_budget);
+            let new_content = format!("{prefix}{tail}");
+
+            if let serde_json::Value::Object(ref mut m) = v {
+                m.insert("content".to_string(), serde_json::json!(new_content));
+                m.insert("truncated".to_string(), serde_json::json!(true));
+                m.insert("batchTruncated".to_string(), serde_json::json!(true));
+            }
+
+            content_bytes += new_content.len();
+            batch_capped = true;
+            budget_done = true;
+            files.push(v);
+        }
+
+        if batch_capped {
+            warn!(
+                "file:read batch hit maxTotalBytes={}; returned {} file entries (truncated and/or skipped)",
+                max_total_bytes,
+                files.len()
+            );
+        }
+
+        return Ok(serde_json::json!({
+            "files": files,
+            "maxTotalBytes": max_total_bytes,
+            "contentBytes": content_bytes,
+            "batchCapped": batch_capped,
+        })
+        .to_string());
     }
 
     let path = args
@@ -757,6 +862,8 @@ mod tests {
         assert!(files[1]["content"].as_str().unwrap().contains("beta"));
         assert!(files[0].get("error").is_none());
         assert!(files[1].get("error").is_none());
+        assert_eq!(v["batchCapped"], false);
+        assert!(v["contentBytes"].as_u64().unwrap() > 0);
     }
 
     #[test]
@@ -774,6 +881,49 @@ mod tests {
         assert_eq!(files.len(), 2);
         assert!(files[0]["content"].as_str().unwrap().contains("fine"));
         assert!(files[1]["error"].as_str().unwrap().len() > 0);
+    }
+
+    #[test]
+    fn file_read_batch_truncates_when_max_total_bytes_exceeded() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("a.txt"), "a".repeat(800)).unwrap();
+        fs::write(root.join("b.txt"), "b".repeat(800)).unwrap();
+
+        let args = json!({
+            "paths": ["a.txt", "b.txt"],
+            "maxTotalBytes": 1200,
+            "maxBytes": 10_000,
+        });
+        let out = execute_file_read(&args, root).expect("batch read");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["batchCapped"], true);
+        assert!(v["contentBytes"].as_u64().unwrap() <= 1200);
+        assert!(v["contentBytes"].as_u64().unwrap() > 800);
+        let files = v["files"].as_array().unwrap();
+        assert_eq!(files[0]["content"].as_str().unwrap().len(), 800);
+        assert!(files[1]["content"].as_str().unwrap().contains("已截断"));
+    }
+
+    #[test]
+    fn file_read_batch_skips_when_remaining_budget_too_small_for_next_file() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("a.txt"), "a".repeat(800)).unwrap();
+        fs::write(root.join("b.txt"), "b".repeat(800)).unwrap();
+
+        let args = json!({
+            "paths": ["a.txt", "b.txt"],
+            "maxTotalBytes": 1000,
+            "maxBytes": 10_000,
+        });
+        let out = execute_file_read(&args, root).expect("batch read");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["batchCapped"], true);
+        assert_eq!(v["contentBytes"], 800);
+        let files = v["files"].as_array().unwrap();
+        assert_eq!(files[0]["content"].as_str().unwrap().len(), 800);
+        assert!(files[1]["error"].as_str().unwrap().contains("剩余空间"));
     }
 
     #[test]

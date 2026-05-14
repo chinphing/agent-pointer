@@ -143,7 +143,7 @@ Use this when you need **call sites**, **imports**, **symbol definitions**, or *
 
 **Core loop: grep for coordinates, read for context.**
 
-1. **Pick a high-signal anchor** — Prefer distinctive strings over generic tokens: exact **error messages**, **feature flag keys**, **route paths**, **unique type or function names**, config keys. Avoid single-letter or ultra-common names until you have narrowed the directory (use **`subdir`** on **`file:grep`** when the tool supports it, or search under a path you got from **`file:list`** / **`file:glob`**).
+1. **Pick a high-signal anchor** — Prefer distinctive strings over generic tokens: exact **error messages**, **feature flag keys**, **route paths**, **unique type or function names**, config keys. Avoid single-letter or ultra-common names until you have narrowed the scope (pass **`path`** on **`file:grep`** as a **file or directory**, like **`grep -R`**; or search under a path you got from **`file:list`** / **`file:glob`**).
 
 2. **`file:grep` first** — Map hits to **files and neighborhoods**. Scan whether results cluster in one module or spread across layers (API vs core vs UI). If you only need “where is this string defined?”, grep alone may suffice; if you need **control flow**, proceed to read.
 

@@ -16,6 +16,33 @@ For **read-only** exploration (`file:read`, `file:glob`, `file:grep`, `file:list
 
 **`file:write`** and **`file:edit`** stay **confined to the workspace** (relative paths only). These calls may require user approval—do not bypass controls.
 
+### `file:edit` and large diffs (success rate)
+
+**Prefer several small, independent patches** over one giant diff.
+Each **`file:edit`** should change **one logical slice** when possible.
+Always carry **enough unique context** in **`oldString`**
+(lines before and after the change) so the match is unambiguous.
+
+**Read before you edit** when the target is **mid-file**, **dense**, or
+**structurally complex**.
+Use **`file:read`** (with line ranges) to confirm **current text**,
+**indentation**, and **naming**—do not guess **`oldString`** from memory.
+
+**Large rewrites:**
+
+- If a **single** replacement is **uniquely matchable**, one wider
+  **`file:edit`** can be OK.
+- If uniqueness is fragile, **split** into **two or three** regional
+  edits (by function, section, or file area).
+- **Avoid whole-file `file:write`** unless the scope truly requires it
+  and the user accepts a large diff—it hides merge conflicts and is
+  harder to review.
+
+**When a patch fails** (whitespace, line endings, or the file already
+changed): **re-read** the affected region, rebuild **`oldString`** from
+**fresh** content, or **narrow** the edit scope.
+Do **not** retry the same failing patch blindly.
+
 ### When `file:read` hits caps or errors
 
 If the tool result includes **`batchCapped`**, **`batchTruncated`**, **`truncated`**, **`error`** on a path, or **file too large** for **`maxBytes`**: **do not** repeat the **same** wide **`paths`** batch. **Split** reads across turns, use **`lineStart`** / **`lineEnd`** or a **smaller `maxBytes`**, **`file:grep`** to locate the right region first, and only then widen reads. If your conclusion depends on truncated or skipped content, say so in **`thoughts`** or the user-facing summary.
@@ -24,7 +51,10 @@ If the tool result includes **`batchCapped`**, **`batchTruncated`**, **`truncate
 
 ## JSON tools: `file:write` and `file:edit`
 
-When calling **`file:write`** or **`file:edit`**, put payload fields in **`tool_args`** as JSON strings with proper escaping for markup, `&`, and newlines. You may use **`tool_name`** **`file`** plus a **`method`** field (**`write`** / **`edit`**) instead of **`file:write`** / **`file:edit`**.
+When calling **`file:write`** or **`file:edit`**, put payload fields in **`tool_args`** as **valid JSON strings**
+(see **`file`** tool prompt for **`content`** / **`oldString`** / **`newString`**: **`\"`**, **`\\`**, **`\n`**, etc.;
+`<`, `>`, **`&`** in the file body are **literals** inside the JSON string).
+You may use **`tool_name`** **`file`** plus a **`method`** field (**`write`** / **`edit`**) instead of **`file:write`** / **`file:edit`**.
 
 ### `file:edit` example
 

@@ -3,9 +3,9 @@
 use super::{ToolEntry, ToolHandler, ToolRegistry};
 use crate::storage;
 use anyhow::{anyhow, Result};
-use log::warn;
+use log::{info, warn};
 use globset::{Glob, GlobSetBuilder};
-use regex::RegexBuilder;
+use regex::{Regex, RegexBuilder};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -729,7 +729,72 @@ fn should_skip_grep(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Append grep hits for one UTF-8 file into `results`.
+/// Each hit's `path` is relative to `rel_strip_base` (walk root or workspace root).
+fn grep_one_file(
+    rel_strip_base: &Path,
+    file_path: &Path,
+    re: &Regex,
+    context: usize,
+    max_results: usize,
+    results: &mut Vec<serde_json::Value>,
+) -> Result<()> {
+    if results.len() >= max_results {
+        return Ok(());
+    }
+    if should_skip_grep(file_path) {
+        return Ok(());
+    }
+    let meta = match fs::metadata(file_path) {
+        Ok(m) => m,
+        Err(_) => return Ok(()),
+    };
+    if meta.len() > MAX_GREP_FILE_BYTES as u64 {
+        return Ok(());
+    }
+    let bytes = match fs::read(file_path) {
+        Ok(b) => b,
+        Err(_) => return Ok(()),
+    };
+    let text = match String::from_utf8(bytes) {
+        Ok(t) => t,
+        Err(_) => return Ok(()),
+    };
+    let rel = file_path.strip_prefix(rel_strip_base).unwrap_or(file_path);
+    let rel_s = rel.to_string_lossy().replace('\\', "/");
+    for (line_no, line) in text.lines().enumerate() {
+        if results.len() >= max_results {
+            break;
+        }
+        let n = line_no + 1;
+        if re.is_match(line) {
+            let lines: Vec<&str> = text.lines().collect();
+            let lo = line_no.saturating_sub(context);
+            let hi = (line_no + context + 1).min(lines.len());
+            let ctx = lines[lo..hi]
+                .iter()
+                .enumerate()
+                .map(|(i, l)| {
+                    let num = lo + i + 1;
+                    format!("{num}: {l}")
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            results.push(serde_json::json!({
+                "path": rel_s,
+                "line": n,
+                "matchLine": line,
+                "context": ctx
+            }));
+        }
+    }
+    Ok(())
+}
+
 fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
+    let root = root
+        .canonicalize()
+        .map_err(|e| anyhow!("工作区根无效: {e}"))?;
     let pattern = args
         .get("pattern")
         .and_then(|v| v.as_str())
@@ -737,7 +802,6 @@ fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<St
     if pattern.len() > 512 {
         return Err(anyhow!("正则过长"));
     }
-    let subdir = args.get("subdir").and_then(|v| v.as_str()).unwrap_or("");
     let max_results = args
         .get("maxResults")
         .and_then(|v| v.as_u64())
@@ -759,82 +823,84 @@ fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<St
         .build()
         .map_err(|e| anyhow!("正则无效: {e}"))?;
 
-    let search_root = if subdir.trim().is_empty() {
-        root.to_path_buf()
-    } else {
-        let p = resolve_accessible_path(root, subdir)?;
-        if !p.is_dir() {
-            return Err(anyhow!("grep 子目录必须是目录: {}", p.display()));
+    if let Some(obj) = args.as_object() {
+        if obj.contains_key("subdir") {
+            return Err(anyhow!("grep 已移除参数 subdir，请使用 path（文件或目录）"));
         }
-        p
+    }
+
+    let path_arg = args.get("path").and_then(|v| v.as_str()).unwrap_or("").trim();
+
+    enum GrepScope {
+        Walk { start: PathBuf, max_depth: usize },
+        SingleFile { file: PathBuf },
+    }
+
+    let scope = if path_arg.is_empty() {
+        GrepScope::Walk {
+            start: root.to_path_buf(),
+            max_depth,
+        }
+    } else {
+        let p = resolve_accessible_path(&root, path_arg)?;
+        if p.is_dir() {
+            GrepScope::Walk {
+                start: p,
+                max_depth,
+            }
+        } else if p.is_file() {
+            info!("file:grep: single file {}", p.display());
+            GrepScope::SingleFile { file: p }
+        } else {
+            return Err(anyhow!(
+                "grep path 必须是已存在的文件或目录: {}",
+                p.display()
+            ));
+        }
     };
 
     let mut results: Vec<serde_json::Value> = Vec::new();
-    for entry in WalkDir::new(&search_root)
-        .max_depth(max_depth)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        if results.len() >= max_results {
-            break;
+    let (root_field, single_file) = match &scope {
+        GrepScope::Walk { start, .. } => (start.display().to_string(), false),
+        GrepScope::SingleFile { file } => {
+            let rel = file.strip_prefix(&root).unwrap_or(file.as_path());
+            (rel.to_string_lossy().replace('\\', "/"), true)
         }
-        let p = entry.path();
-        if !p.is_file() || should_skip_grep(p) {
-            continue;
+    };
+
+    match scope {
+        GrepScope::SingleFile { file } => {
+            grep_one_file(&root, &file, &re, context, max_results, &mut results)?;
         }
-        let meta = match fs::metadata(p) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-        if meta.len() > MAX_GREP_FILE_BYTES as u64 {
-            continue;
-        }
-        let bytes = match fs::read(p) {
-            Ok(b) => b,
-            Err(_) => continue,
-        };
-        let text = match String::from_utf8(bytes) {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        let rel = p.strip_prefix(&search_root).unwrap_or(p);
-        let rel_s = rel.to_string_lossy().replace('\\', "/");
-        for (line_no, line) in text.lines().enumerate() {
-            if results.len() >= max_results {
-                break;
-            }
-            let n = line_no + 1;
-            if re.is_match(line) {
-                let lines: Vec<&str> = text.lines().collect();
-                let lo = line_no.saturating_sub(context);
-                let hi = (line_no + context + 1).min(lines.len());
-                let ctx = lines[lo..hi]
-                    .iter()
-                    .enumerate()
-                    .map(|(i, l)| {
-                        let num = lo + i + 1;
-                        format!("{num}: {l}")
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                results.push(serde_json::json!({
-                    "path": rel_s,
-                    "line": n,
-                    "matchLine": line,
-                    "context": ctx
-                }));
+        GrepScope::Walk { start, max_depth } => {
+            for entry in WalkDir::new(&start)
+                .max_depth(max_depth)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                if results.len() >= max_results {
+                    break;
+                }
+                let p = entry.path();
+                if !p.is_file() {
+                    continue;
+                }
+                grep_one_file(&start, p, &re, context, max_results, &mut results)?;
             }
         }
     }
 
-    Ok(serde_json::json!({
-        "root": search_root.display().to_string(),
+    let mut out = serde_json::json!({
+        "root": root_field,
         "pattern": pattern,
         "results": results,
         "count": results.len(),
         "truncated": results.len() >= max_results
-    })
-    .to_string())
+    });
+    if single_file {
+        out["singleFile"] = serde_json::json!(true);
+    }
+    Ok(out.to_string())
 }
 
 #[cfg(test)]
@@ -942,6 +1008,83 @@ mod tests {
         let args = json!({ "paths": [] });
         let err = execute_file_read(&args, root).unwrap_err();
         assert!(err.to_string().contains("path"));
+    }
+
+    #[test]
+    fn file_grep_path_searches_only_that_file() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("one.rs"), "fn alpha() {}\nfn beta() {}\n").unwrap();
+        fs::write(root.join("two.rs"), "fn alpha_dup() {}\n").unwrap();
+        let args = json!({
+            "pattern": "alpha",
+            "path": "one.rs",
+            "maxResults": 20,
+        });
+        let out = execute_file_grep_payload(&args, root).expect("grep");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["singleFile"], true);
+        let results = v["results"].as_array().unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["path"], "one.rs");
+    }
+
+    #[test]
+    fn file_grep_path_nested_file_single_file_scope() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::create_dir_all(root.join("pkg")).unwrap();
+        fs::write(root.join("pkg").join("a.java"), "class A { void m() {} }\n").unwrap();
+        fs::write(root.join("pkg").join("b.java"), "class A { void n() {} }\n").unwrap();
+        let args = json!({
+            "pattern": "class A",
+            "path": "pkg/a.java",
+            "maxResults": 20,
+        });
+        let out = execute_file_grep_payload(&args, root).expect("grep");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["singleFile"], true);
+        let results = v["results"].as_array().unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["path"], "pkg/a.java");
+    }
+
+    #[test]
+    fn file_grep_path_directory_scans_all_files_under() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::create_dir_all(root.join("pkg")).unwrap();
+        fs::write(root.join("pkg").join("a.java"), "class A {}\n").unwrap();
+        fs::write(root.join("pkg").join("b.java"), "class B {}\n").unwrap();
+        let args = json!({
+            "pattern": "class",
+            "path": "pkg",
+            "maxResults": 20,
+        });
+        let out = execute_file_grep_payload(&args, root).expect("grep");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert!(v.get("singleFile").is_none() || v["singleFile"] == false);
+        let results = v["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn file_grep_subdir_parameter_rejected() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("x.txt"), "a\n").unwrap();
+        let args = json!({
+            "pattern": "a",
+            "subdir": "x.txt",
+        });
+        let err = execute_file_grep_payload(&args, root).unwrap_err();
+        assert!(err.to_string().contains("subdir"));
+        let args_ok = json!({
+            "pattern": "a",
+            "path": "x.txt",
+            "maxResults": 20,
+        });
+        execute_file_grep_payload(&args_ok, root).expect("grep with path");
     }
 
     #[test]

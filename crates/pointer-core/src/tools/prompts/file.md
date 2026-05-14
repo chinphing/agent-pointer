@@ -55,10 +55,12 @@ All keys below are **JSON properties** on the root **`tool_args`** object of you
 **`file:grep`**
 
 - **`pattern`** — Rust regex (multi-line). Keep patterns reasonably short (e.g. ≤ **512** characters).
-- **`subdir`** — Optional; restrict search to this directory (relative to workspace or absolute path to an existing directory).
+- **`path`** — Optional; same idea as **`grep -R pattern PATH`**: **`PATH`** may be a **file** (search that file only) or a **directory** (walk files under it). Omit or use an empty string to search from the **workspace root**. Workspace-relative or absolute read-only.
 - **`maxResults`** — Optional cap on hit rows (default bounded by runtime).
-- **`maxDepth`** — Optional directory walk depth cap.
+- **`maxDepth`** — Optional directory walk depth cap (ignored when **`path`** targets a single file).
 - **`contextLines`** — Optional lines of context above/below each match (default **2**, clamped up to **5**).
+
+Response includes **`singleFile`: true** when **`path`** resolves to a **file**.
 
 **`file:list`**
 

@@ -5,6 +5,7 @@ import { Copy, Check, Code, Camera } from 'lucide-vue-next'
 import type { ChatMessage, ComputerAnnotatedPreview } from '../../../../types/chat'
 import ToolCallCard from '../../ToolCallCard.vue'
 import { useSettingsStore } from '../../../../stores/settings'
+import { useChatStore } from '../../../../stores/chat'
 import { previewComputerAnnotatedScreen, previewComputerRoundScreen } from '../../../../lib/api'
 import { isTauriRuntime } from '../../../../lib/runtime'
 import { useMarkdownCodeCopy } from '../../../../composables/useMarkdownCodeCopy'
@@ -184,6 +185,8 @@ function copyBody() {
   })
 }
 
+const chatStore = useChatStore()
+
 async function openScreenPreview() {
   if (!isTauriRuntime()) return
   screenLoading.value = true
@@ -195,7 +198,12 @@ async function openScreenPreview() {
     if (rel) {
       screenPreview.value = await previewComputerRoundScreen(rel)
     } else {
-      screenPreview.value = await previewComputerAnnotatedScreen()
+      const cid = chatStore.currentId
+      if (cid) {
+        screenPreview.value = await previewComputerAnnotatedScreen(cid)
+      } else {
+        screenError.value = '无法获取当前会话 ID'
+      }
     }
   } catch (e: unknown) {
     screenError.value = e instanceof Error ? e.message : String(e)

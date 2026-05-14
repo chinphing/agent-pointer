@@ -6,7 +6,7 @@ Unified workspace file tools. Prefer **qualified names** in JSON **`tool_name`**
 
 **Responses:** Whenever this tool returns a filesystem location (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**), the value is an **absolute** path. The OS may use a canonical form (e.g. resolved symlinks; on Windows, a `\\?\` prefix is normal).
 
-**Batch reads:** If you already know **two or more** file paths, use **`file:read`** with **`paths`** (array) in one call — not multiple reads with **`path`**. Each element may be a **string path** (shared root defaults below) or an **object** with its own **`path`** plus optional **`lineStart`** / **`lineEnd`** / **`maxBytes`** so regions can differ per file in one batch.
+**Batch reads:** If you already know **two or more** file paths, use **`file:read`** with **`paths`** (JSON array) in one call — not multiple reads with **`path`**. **Each array element must be an object** with required **`path`** (alias **`file`**) and optional **`lineStart`** / **`lineEnd`** / **`maxBytes`** (aliases **`line_start`**, **`line_end`**, **`max_bytes`**). Omitting a field on the object uses the root-level default for that field (see below). Do **not** use bare string paths as **`paths`** elements — the runtime rejects them.
 
 **Context discipline:** Each batch returns **full file bodies** (after per-path or root **`lineStart`** / **`lineEnd`** / **`maxBytes`**). Filling **`paths`** with many large files can **overflow the model context** even when under the hard file count. Prefer **narrow batches** (only files you must see together), use **`file:grep`** first, use **`lineStart`** / **`lineEnd`** on huge files, lower **`maxBytes`** when a snippet is enough, or **split across multiple** **`file:read`** turns. The runtime also enforces a **combined `content` budget** per batch (see **`maxTotalBytes`**).
 
@@ -18,7 +18,7 @@ Unified workspace file tools. Prefer **qualified names** in JSON **`tool_name`**
 | **`file:write`** | Create or overwrite a file; `path` is workspace-relative **or** absolute under the workspace. |
 | **`file:edit`** | Replace one unique substring per file: single file (`path` + `oldString` + `newString`) or batch (`edits` array, max **32** entries); each `path` same rule as **`file:write`**. |
 | **`file:glob`** | List files matching a glob under the search root (workspace root or optional `base`). |
-| **`file:grep`** | Search file contents with a regex. |
+| **`file:grep`** | Search file contents with a regex (ripgrep-class stack: respects `.gitignore`, skips hidden paths by default, line-oriented matching). |
 | **`file:list`** | List directory entries; optional recursion, max depth, and file/directory filter. |
 
 #### Parameters
@@ -30,7 +30,7 @@ All keys below are **JSON properties** on the root **`tool_args`** object of you
 **`file:read`**
 
 - **`path`** — Path to one file (relative to workspace, or absolute for read-only). Use when reading a single file.
-- **`paths`** — Array (max **32** entries per call). Each entry is either a **string** (path only; uses root **`lineStart`** / **`lineEnd`** / **`maxBytes`** defaults) or an **object** with **`path`** (alias **`file`**) and optional **`lineStart`** / **`lineEnd`** / **`maxBytes`** (aliases **`line_start`**, **`line_end`**, **`max_bytes`**) for that entry only—omit a field on the object to inherit the root default for that field. Strings and objects may be **mixed** in one array. Response groups results under `files`, and includes **`maxTotalBytes`**, **`contentBytes`**, and **`batchCapped`** (see below).
+- **`paths`** — Array (max **32** entries per call). **Each entry is an object** with **`path`** (alias **`file`**) and optional **`lineStart`** / **`lineEnd`** / **`maxBytes`** (aliases **`line_start`**, **`line_end`**, **`max_bytes`**). Omit a field on the object to use the root default for that field. Response groups results under `files`, and includes **`maxTotalBytes`**, **`contentBytes`**, and **`batchCapped`** (see below).
 - **`lineStart`** — Optional (root default for batch string entries and single **`path`**); 1-based first line to include. Default: start of file. Alias **`line_start`**.
 - **`lineEnd`** — Optional (root default); 1-based **exclusive** end line (same convention as typical slice end). Alias **`line_end`**.
 - **`maxBytes`** — Optional (root default); max bytes read per file (default **262144**, 256 KiB). Alias **`max_bytes`**.
@@ -57,11 +57,13 @@ All keys below are **JSON properties** on the root **`tool_args`** object of you
 
 **`file:grep`**
 
-- **`pattern`** — Rust regex (multi-line). Keep patterns reasonably short (e.g. ≤ **512** characters).
-- **`path`** — Optional; same idea as **`grep -R pattern PATH`**: **`PATH`** may be a **file** (search that file only) or a **directory** (walk files under it). Omit or use an empty string to search from the **workspace root**. Workspace-relative or absolute read-only.
+- **`pattern`** — Rust regex syntax (via the same matcher stack ripgrep uses for line search). Keep patterns reasonably short (e.g. ≤ **512** characters). Matching is **line-oriented** (not multi-line across `\\n` within one match).
+- **`path`** — Optional; same idea as **`grep -R pattern PATH`**: **`PATH`** may be a **file** (search that file only) or a **directory** (walk files under it). Omit or use an empty string to search from the **workspace root**. Workspace-relative or absolute read-only. Directory walks honor **`.gitignore`** / ignore rules and **skip hidden** entries by default (like ripgrep).
 - **`maxResults`** — Optional cap on hit rows (default bounded by runtime).
 - **`maxDepth`** — Optional directory walk depth cap (ignored when **`path`** targets a single file).
 - **`contextLines`** — Optional lines of context above/below each match (default **2**, clamped up to **5**).
+
+Binary files are skipped heuristically (NUL byte). Very large files (&gt; **2 MiB**) are skipped per file, same budget idea as before.
 
 Response includes **`singleFile`: true** when **`path`** resolves to a **file**.
 
@@ -74,7 +76,7 @@ Response includes **`singleFile`: true** when **`path`** resolves to a **file**.
 
 #### JSON example — `file:read` batch
 
-Use a real JSON array for **`paths`** inside **`tool_args`**.
+**`paths`** is a JSON array; **every element is an object** with **`path`**. Optional **`lineStart`** / **`lineEnd`** / **`maxBytes`** may sit on each object or on the root of **`tool_args`** as defaults.
 
 ```json
 {
@@ -82,15 +84,18 @@ Use a real JSON array for **`paths`** inside **`tool_args`**.
   "headline": "Batch read",
   "tool_name": "file:read",
   "tool_args": {
-    "paths": ["crates/foo/src/lib.rs", "crates/foo/src/main.rs"],
-    "lineStart": 1
+    "lineStart": 1,
+    "paths": [
+      { "path": "crates/foo/src/lib.rs" },
+      { "path": "crates/foo/src/main.rs" }
+    ]
   }
 }
 ```
 
 #### JSON example — `file:read` batch with **per-file** line ranges
 
-Root **`lineStart`** / **`lineEnd`** still apply to **string** entries. **Object** entries may override **`lineStart`**, **`lineEnd`**, and **`maxBytes`** for that path only.
+Root **`lineStart`** / **`lineEnd`** apply to objects that omit those keys. Per-object values override the root for that file only.
 
 ```json
 {
@@ -101,7 +106,7 @@ Root **`lineStart`** / **`lineEnd`** still apply to **string** entries. **Object
     "lineStart": 1,
     "lineEnd": 40,
     "paths": [
-      "crates/foo/src/lib.rs",
+      { "path": "crates/foo/src/lib.rs" },
       {
         "path": "crates/foo/src/main.rs",
         "lineStart": 80,

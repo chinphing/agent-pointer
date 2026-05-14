@@ -88,8 +88,8 @@ export async function listAgents(): Promise<AgentDef[]> {
   return await invoke<AgentDef[]>('list_agents')
 }
 
-export async function previewComputerAnnotatedScreen(): Promise<ComputerAnnotatedPreview> {
-  return await invoke<ComputerAnnotatedPreview>('preview_computer_annotated_screen')
+export async function previewComputerAnnotatedScreen(conversationId: string): Promise<ComputerAnnotatedPreview> {
+  return await invoke<ComputerAnnotatedPreview>('preview_computer_annotated_screen', { conversationId })
 }
 
 export async function previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview> {

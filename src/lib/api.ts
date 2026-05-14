@@ -43,7 +43,7 @@ export interface RuntimeApi {
   importSkillZip(file: File): Promise<SkillImportResult>
   listTools(): Promise<ToolDef[]>
   listAgents(): Promise<AgentDef[]>
-  previewComputerAnnotatedScreen(): Promise<ComputerAnnotatedPreview>
+  previewComputerAnnotatedScreen(conversationId: string): Promise<ComputerAnnotatedPreview>
   previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview>
   listComputerMonitors(): Promise<ComputerMonitor[]>
   setComputerConversationMonitor(conversationId: string, monitorId: string | null): Promise<void>

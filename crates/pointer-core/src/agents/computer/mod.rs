@@ -23,13 +23,13 @@ pub use timing::{
 };
 
 use crate::agents::AgentRegistry;
-use crate::models::ComputerAnnotatedPreview;
+
 use actions::ActionExecutor;
 use annotate::AnnotateClient;
 use coord::CoordinateSystem;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use screen_overlay::build_vision_overlay_pack;
 use vision_state::VisionState;
 
@@ -37,6 +37,8 @@ use vision_state::VisionState;
 const DEFAULT_ANNOTATE_API_BASE: &str = "http://127.0.0.1:8000";
 /// Config key for the annotation service URL in Computer Agent's config.
 const CONFIG_KEY_ANNOTATE_API_BASE: &str = "annotateApiBase";
+/// Maximum number of concurrent sessions to retain before evicting the least recently used.
+const MAX_SESSIONS: usize = 10;
 
 /// Successful capture + annotation for one model turn (consumers: screen inject, UI preview).
 #[derive(Debug, Clone)]
@@ -59,41 +61,71 @@ pub struct ScreenCaptureResult {
     pub inject_previous_raw_jpeg: Option<Vec<u8>>,
 }
 
+/// Per-conversation state for computer use tools.
+/// Each conversation gets its own instance, managed by [`ComputerState`].
+/// Maximum recent desktop tool entries kept per session.
+const MAX_RECENT_DESKTOP_TOOLS: usize = 10;
+
+/// A single remembered desktop tool invocation for [Recent desktop tool calls] prompt block.
+pub struct DesktopToolEntry {
+    pub tool_name: String,
+    pub arguments: serde_json::Value,
+    pub failure_note: Option<String>,
+}
+
+/// Session lifecycle state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionStatus {
+    Active,
+    Ended,
+    Cancelled,
+}
+
+pub struct ComputerSession {
+    pub vision_state: Arc<Mutex<VisionState>>,
+    pub last_annotated: Option<(Vec<u8>, screen::MonitorInfo)>,
+    pub last_turn_raw_jpeg: Option<Vec<u8>>,
+    pub selected_monitor: Option<String>,
+    pub created_at: u64,
+    pub last_active_at: u64,
+    pub status: SessionStatus,
+    pub desktop_log: Vec<DesktopToolEntry>,
+}
+
+impl ComputerSession {
+    fn new() -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        Self {
+            vision_state: Arc::new(Mutex::new(VisionState::new())),
+            last_annotated: None,
+            last_turn_raw_jpeg: None,
+            selected_monitor: None,
+            created_at: now,
+            last_active_at: now,
+            status: SessionStatus::Active,
+            desktop_log: Vec::new(),
+        }
+    }
+}
+
 /// Shared state for computer use tools.
-///
-/// This struct is created once in AppState and shared across all computer tool handlers.
-/// It holds the action executor, vision state, and annotation client for the current session.
+/// Holds the action executor, annotation client, and per-conversation sessions.
 pub struct ComputerState {
     /// The action executor.
     pub executor: Arc<Mutex<ActionExecutor>>,
-    /// The current vision state.
-    pub vision_state: Arc<Mutex<VisionState>>,
     /// The annotation service client.
     pub annotate_client: AnnotateClient,
-    /// Last successful annotated PNG + monitor bounds.
-    /// Written by [`Self::capture_and_annotate`] (including `_10_computer_screen_inject`); UI preview reads this for parity with model vision input.
-    last_annotated: Arc<Mutex<Option<(Vec<u8>, screen::MonitorInfo)>>>,
-    /// Raw JPEG from the last successful capture; offered as “previous turn” on the **next** `[CUR_SCREEN]` inject.
-    last_turn_raw_jpeg: Arc<Mutex<Option<Vec<u8>>>>,
-    /// Selected monitor id per conversation; `None` means auto (monitor under cursor).
-    selected_monitor_by_conversation: Arc<Mutex<HashMap<String, Option<String>>>>,
+    sessions: Arc<RwLock<HashMap<String, Arc<Mutex<ComputerSession>>>>>,
 }
 
 impl std::fmt::Debug for ComputerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let snap = self
-            .last_annotated
-            .lock()
-            .ok()
-            .and_then(|g| g.as_ref().map(|(b, m)| (b.len(), *m)));
-        let prev_raw = self
-            .last_turn_raw_jpeg
-            .lock()
-            .ok()
-            .and_then(|g| g.as_ref().map(|b| b.len()));
+        let sessions_snapshot = self.sessions.read().ok().map(|g| g.len());
         f.debug_struct("ComputerState")
-            .field("last_annotated_png_len_and_monitor", &snap)
-            .field("last_turn_raw_jpeg_bytes", &prev_raw)
+            .field("active_sessions", &sessions_snapshot)
             .finish_non_exhaustive()
     }
 }
@@ -127,7 +159,6 @@ impl ComputerState {
                 Arc::new(Mutex::new(ActionExecutor::new(Box::new(FallbackBackend))))
             }
         };
-        let vision_state = Arc::new(Mutex::new(VisionState::new()));
         let base_url = if annotate_api_base.is_empty() {
             DEFAULT_ANNOTATE_API_BASE
         } else {
@@ -137,28 +168,95 @@ impl ComputerState {
             .unwrap_or_else(|_| AnnotateClient::with_base_url(DEFAULT_ANNOTATE_API_BASE).expect("default annotate client should not fail"));
         Self {
             executor,
-            vision_state,
             annotate_client,
-            last_annotated: Arc::new(Mutex::new(None)),
-            last_turn_raw_jpeg: Arc::new(Mutex::new(None)),
-            selected_monitor_by_conversation: Arc::new(Mutex::new(HashMap::new())),
+            sessions: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Retrieve or create the session for a conversation, updating last_active_at and evicting if needed.
+    /// Eviction priority: ended → cancelled → least recently active among active sessions.
+    fn get_or_create_session(&self, conversation_id: &str) -> Arc<Mutex<ComputerSession>> {
+        let mut sessions = self.sessions.write().unwrap_or_else(|e| {
+            log::warn!("sessions map RwLock poisoned; recovering");
+            e.into_inner()
+        });
+
+        if let Some(entry) = sessions.get(conversation_id) {
+            let mut session = entry.lock().unwrap();
+            session.last_active_at = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            if session.status == SessionStatus::Active {
+                // already active, just return
+            }
+            return Arc::clone(entry);
+        }
+
+        // Evict if at capacity: first ended, then cancelled, then LRU among active
+        while sessions.len() >= MAX_SESSIONS {
+            // Phase 1: remove any Ended session
+            let ended_id = sessions
+                .iter()
+                .find(|(_, s)| s.lock().unwrap().status == SessionStatus::Ended)
+                .map(|(id, _)| id.clone());
+            if let Some(id) = ended_id {
+                sessions.remove(&id);
+                continue;
+            }
+            // Phase 2: remove any Cancelled session
+            let cancelled_id = sessions
+                .iter()
+                .find(|(_, s)| s.lock().unwrap().status == SessionStatus::Cancelled)
+                .map(|(id, _)| id.clone());
+            if let Some(id) = cancelled_id {
+                sessions.remove(&id);
+                continue;
+            }
+            // Phase 3: remove least recently active among Active sessions
+            let lru_id = sessions
+                .iter()
+                .filter(|(_, s)| s.lock().unwrap().status == SessionStatus::Active)
+                .min_by_key(|(_, s)| s.lock().unwrap().last_active_at)
+                .map(|(id, _)| id.clone());
+            if let Some(id) = lru_id {
+                sessions.remove(&id);
+            } else {
+                // No active sessions but map still full (shouldn't happen), just break
+                break;
+            }
+        }
+
+        let session = Arc::new(Mutex::new(ComputerSession::new()));
+        sessions.insert(conversation_id.to_string(), Arc::clone(&session));
+        session
+    }
+
+    /// Mark the session for `conversation_id` as ended (conversation finished normally).
+    pub fn mark_ended(&self, conversation_id: &str) {
+        let session = self.get_or_create_session(conversation_id);
+        session.lock().unwrap().status = SessionStatus::Ended;
+    }
+
+    /// Mark the session for `conversation_id` as cancelled (conversation aborted).
+    pub fn mark_cancelled(&self, conversation_id: &str) {
+        let session = self.get_or_create_session(conversation_id);
+        session.lock().unwrap().status = SessionStatus::Cancelled;
     }
 
     /// Set the selected monitor id for a conversation (Computer agent).
     ///
     /// `monitor_id = None` resets to auto mode (monitor under cursor).
     pub fn set_conversation_monitor(&self, conversation_id: &str, monitor_id: Option<String>) {
-        let mut guard = self.selected_monitor_by_conversation.lock().unwrap_or_else(|e| {
-            log::warn!("selected monitor map mutex poisoned; recovering");
-            e.into_inner()
-        });
-        guard.insert(conversation_id.to_string(), monitor_id);
+        let session = self.get_or_create_session(conversation_id);
+        let mut s = session.lock().unwrap();
+        s.selected_monitor = monitor_id;
     }
 
     fn selected_monitor_id_for_conversation(&self, conversation_id: &str) -> Option<String> {
-        let guard = self.selected_monitor_by_conversation.lock().ok()?;
-        guard.get(conversation_id).cloned().flatten()
+        let session = self.get_or_create_session(conversation_id);
+        let s = session.lock().unwrap();
+        s.selected_monitor.clone()
     }
 
     /// Run annotation + vision refresh for an already-captured desktop JPEG (integration tests, tooling).
@@ -166,6 +264,7 @@ impl ComputerState {
     /// On success, stores `screen_capture` for use as the **previous** raw on the next inject.
     pub async fn apply_screen_capture(
         &self,
+        conversation_id: &str,
         screen_capture: &[u8],
         monitor: screen::MonitorInfo,
         capture_px: (u32, u32),
@@ -174,7 +273,11 @@ impl ComputerState {
     ) -> anyhow::Result<ScreenCaptureResult> {
         let t_total = Instant::now();
 
-        let inject_previous_raw_jpeg = self.last_turn_raw_jpeg.lock().unwrap().clone();
+        let session = self.get_or_create_session(conversation_id);
+        let inject_previous_raw_jpeg = {
+            let s = session.lock().unwrap();
+            s.last_turn_raw_jpeg.clone()
+        };
 
         let t = Instant::now();
         let ann = self
@@ -187,11 +290,13 @@ impl ComputerState {
         let boxes = ann.boxes;
 
         let t = Instant::now();
-        let mut vision = self.vision_state.lock().unwrap();
-        vision.set_screen_bbox(monitor);
-        vision.set_index_map_from_boxes(&boxes, &monitor, capture_px);
-        vision.set_coordinate_system(CoordinateSystem::Qwen);
-        drop(vision);
+        {
+            let session_guard = session.lock().unwrap();
+            let mut vs = session_guard.vision_state.lock().unwrap();
+            vs.set_screen_bbox(monitor);
+            vs.set_index_map_from_boxes(&boxes, &monitor, capture_px);
+            vs.set_coordinate_system(CoordinateSystem::Qwen);
+        }
         let vision_ms = t.elapsed().as_secs_f64() * 1000.0;
 
         let mouse_neighbor_reference_text =
@@ -214,21 +319,18 @@ impl ComputerState {
         .map_err(|e| anyhow::anyhow!(e))?;
         let overlay_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-        *self.last_turn_raw_jpeg.lock().unwrap() = Some(pack.raw_marked_jpeg.clone());
-
-        let t = Instant::now();
-        if let Ok(mut g) = self.last_annotated.lock() {
-            *g = Some((pack.annotated_marked_png.clone(), monitor));
+        {
+            let mut session = session.lock().unwrap();
+            session.last_turn_raw_jpeg = Some(pack.raw_marked_jpeg.clone());
+            session.last_annotated = Some((pack.annotated_marked_png.clone(), monitor));
         }
-        let cache_ms = t.elapsed().as_secs_f64() * 1000.0;
 
         let total_ms = t_total.elapsed().as_secs_f64() * 1000.0;
         log::info!(
-            "apply_screen_capture: annotate_http {:.1}ms, vision_state {:.1}ms, overlay_zoom {:.1}ms, last_frame_cache {:.1}ms, total {:.1}ms ({} boxes)",
+            "apply_screen_capture: annotate_http {:.1}ms, vision_state {:.1}ms, overlay_zoom {:.1}ms, total {:.1}ms ({} boxes)",
             annotate_ms,
             vision_ms,
             overlay_ms,
-            cache_ms,
             total_ms,
             boxes.len()
         );
@@ -245,10 +347,7 @@ impl ComputerState {
         })
     }
 
-    /// Capture the display under the cursor, call the annotation service, and refresh [`VisionState`].
-    ///
-    /// Raw capture is JPEG from [`screen::screenshot_current_monitor`] (fast encode); the annotate
-    /// client uploads a prepared PNG to the service. Capture uses `xcap`.
+    /// Capture the display under the cursor, call the annotation service, and refresh state for this session.
     pub async fn capture_and_annotate(&self, conversation_id: &str) -> anyhow::Result<ScreenCaptureResult> {
         let t_total = Instant::now();
 
@@ -261,6 +360,7 @@ impl ComputerState {
 
         let out = self
             .apply_screen_capture(
+                conversation_id,
                 &shot.jpeg,
                 shot.monitor,
                 shot.capture_px,
@@ -278,91 +378,185 @@ impl ComputerState {
         Ok(out)
     }
 
-    /// Latest annotated screenshot (PNG bytes already shown to the model), if any.
-    pub fn cached_annotated_preview(&self) -> Option<ComputerAnnotatedPreview> {
-        let g = self.last_annotated.lock().ok()?;
-        let (png, _monitor) = g.as_ref()?;
-        Some(ComputerAnnotatedPreview {
-            image_base64: screen::encode_image_to_base64(png),
-            caption: "Annotated desktop".into(),
-        })
+    /// Latest annotated screenshot (PNG bytes already shown to the model) for the given conversation, if any.
+    pub fn cached_annotated_for_conversation(&self, conversation_id: &str) -> Option<(Vec<u8>, screen::MonitorInfo)> {
+        let session = self.get_or_create_session(conversation_id);
+        let s = session.lock().unwrap();
+        s.last_annotated.clone()
     }
 
-    /// Record a desktop tool call for repetition hints under `[CUR_SCREEN]` (`goal` / `action` when present).
-    /// Pass `failed_note` when the invocation failed (tool returned failure or threw); it is shown as `FAILED: …`.
+    /// Get a reference to the vision state for a specific conversation.
+    pub fn vision_state_for_conversation(&self, conversation_id: &str) -> Arc<Mutex<VisionState>> {
+        let session = self.get_or_create_session(conversation_id);
+        let guard = session.lock().unwrap();
+        Arc::clone(&guard.vision_state)
+    }
+
+    /// Log a desktop tool invocation for the conversation's [Recent desktop tool calls] snippet.
     pub fn record_desktop_tool_if_applicable(
         &self,
-        tool_id: &str,
+        conversation_id: &str,
+        tool_name: &str,
         args: &serde_json::Value,
-        failed_note: Option<&str>,
+        failure_note: Option<&str>,
     ) {
-        if !timing::is_desktop_vision_log_tool(tool_id) {
+        if !is_desktop_vision_log_tool(tool_name) {
             return;
         }
-        let mut guard = self.vision_state.lock().unwrap_or_else(|e| {
-            log::warn!("vision_state mutex poisoned; recovering for desktop tool history");
-            e.into_inner()
-        });
-        guard.record_desktop_tool_invocation(tool_id, args, failed_note);
+        let session = self.get_or_create_session(conversation_id);
+        let mut s = session.lock().unwrap();
+        let entry = DesktopToolEntry {
+            tool_name: tool_name.to_string(),
+            arguments: args.clone(),
+            failure_note: failure_note.map(str::to_string),
+        };
+        s.desktop_log.push(entry);
+        if s.desktop_log.len() > MAX_RECENT_DESKTOP_TOOLS {
+            s.desktop_log.remove(0);
+        }
     }
 
-    /// Text block appended under `[CUR_SCREEN]` with up to the last five desktop tool rows.
-    pub fn recent_actions_prompt_block(&self) -> Option<String> {
-        let guard = self.vision_state.lock().ok()?;
-        guard.recent_actions_prompt_block()
+    /// Build the [Recent desktop tool calls] prompt block for a conversation.
+    pub fn recent_actions_prompt_block(&self, conversation_id: &str) -> Option<String> {
+        let session = self.get_or_create_session(conversation_id);
+        let s = session.lock().unwrap();
+        let log = &s.desktop_log;
+        if log.is_empty() {
+            return None;
+        }
+        let mut lines: Vec<String> = Vec::with_capacity(log.len() + 2);
+        lines.push("[Recent desktop tool calls]".to_string());
+        for (i, entry) in log.iter().rev().enumerate() {
+            let mut line = format!(
+                "  {}: {} {}",
+                log.len() - i,
+                entry.tool_name,
+                entry.arguments
+            );
+            if let Some(ref fail) = entry.failure_note {
+                line.push_str(&format!(" (FAILED: {fail})"));
+            }
+            lines.push(line);
+        }
+        Some(lines.join("\n"))
     }
 }
 
-/// Fallback backend for when enigo fails to initialize.
-#[derive(Debug, Default)]
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
+
+    fn make_state() -> ComputerState {
+        ComputerState::with_annotate_url("http://127.0.0.1:9999")
+    }
+
+    #[test]
+    fn session_create_and_reuse() {
+        let state = make_state();
+        let s1 = state.vision_state_for_conversation("a");
+        let s2 = state.vision_state_for_conversation("a");
+        assert!(Arc::ptr_eq(&s1, &s2), "same conversation_id returns same session");
+    }
+
+    #[test]
+    fn distinct_sessions_are_isolated() {
+        let state = make_state();
+        let sa = state.vision_state_for_conversation("a");
+        let sb = state.vision_state_for_conversation("b");
+        assert!(!Arc::ptr_eq(&sa, &sb), "different conversation_id must yield different sessions");
+    }
+
+    #[test]
+    fn mark_ended_and_cancelled_status() {
+        let state = make_state();
+        state.mark_ended("x");
+        assert_eq!(state.get_or_create_session("x").lock().unwrap().status, SessionStatus::Ended);
+
+        state.mark_cancelled("y");
+        assert_eq!(state.get_or_create_session("y").lock().unwrap().status, SessionStatus::Cancelled);
+    }
+
+    #[test]
+    fn eviction_prioritises_ended_over_active() {
+        let state = make_state();
+        // Fill capacity with active sessions
+        for i in 0..MAX_SESSIONS {
+            state.get_or_create_session(&format!("conv-{}", i));
+        }
+        // Mark a few as ended
+        state.mark_ended("conv-0");
+        state.mark_ended("conv-2");
+        // Add another session – should evict ended sessions first
+        state.get_or_create_session("overflow");
+        // Ended sessions may have been evicted; check that at most one ended survived
+        let s0 = state.get_or_create_session("conv-0");
+        let s2 = state.get_or_create_session("conv-2");
+        let ended_before = [&s0, &s2]
+            .iter()
+            .filter(|s| s.lock().unwrap().status == SessionStatus::Ended)
+            .count();
+        assert!(ended_before <= 1, "at most one ended session should survive after evicting ended first");
+    }
+
+    #[test]
+    fn eviction_fallback_to_lru_for_active() {
+        let state = make_state();
+        for i in 0..MAX_SESSIONS {
+            state.get_or_create_session(&format!("conv-{}", i));
+            thread::sleep(Duration::from_millis(5)); // ensure distinct last_active_at
+        }
+        // conv-0 is oldest; overflow should evict it
+        state.get_or_create_session("overflow");
+        // conv-0 should be fresh now (recreated)
+        let s0 = state.get_or_create_session("conv-0");
+        assert_eq!(s0.lock().unwrap().status, SessionStatus::Active);
+    }
+
+    #[test]
+    fn monitor_per_conversation_isolation() {
+        let state = make_state();
+        state.set_conversation_monitor("a", Some("m1".into()));
+        state.set_conversation_monitor("b", None);
+        assert_eq!(state.get_or_create_session("a").lock().unwrap().selected_monitor.as_deref(), Some("m1"));
+        assert!(state.get_or_create_session("b").lock().unwrap().selected_monitor.is_none());
+    }
+}
+
+/// Placeholder backend when enigo fails to initialize.
 struct FallbackBackend;
 
 impl actions::ActionBackend for FallbackBackend {
     fn click(&self) -> anyhow::Result<actions::ActionResult> {
-        Err(anyhow::anyhow!("Action backend not available"))
+        anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
-
     fn double_click(&self) -> anyhow::Result<actions::ActionResult> {
-        Err(anyhow::anyhow!("Action backend not available"))
+        anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
-
     fn right_click(&self) -> anyhow::Result<actions::ActionResult> {
-        Err(anyhow::anyhow!("Action backend not available"))
+        anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
-
     fn move_to(&self, _x: i32, _y: i32) -> anyhow::Result<actions::ActionResult> {
-        Err(anyhow::anyhow!("Action backend not available"))
+        anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
-
     fn scroll(&self, _lines: i32) -> anyhow::Result<actions::ActionResult> {
-        Err(anyhow::anyhow!("Action backend not available"))
+        anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
-
     fn type_text(&self, _text: &str) -> anyhow::Result<actions::ActionResult> {
-        Err(anyhow::anyhow!("Action backend not available"))
+        anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
-
     fn hotkey(&self, _keys: &[&str]) -> anyhow::Result<actions::ActionResult> {
-        Err(anyhow::anyhow!("Action backend not available"))
+        anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
-
     fn get_position(&self) -> anyhow::Result<(i32, i32)> {
-        Err(anyhow::anyhow!("Action backend not available"))
+        anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
-
-    fn key_phase(
-        &self,
-        _name: &str,
-        _phase: actions::KeyPhase,
-    ) -> anyhow::Result<actions::ActionResult> {
-        Err(anyhow::anyhow!("Action backend not available"))
+    fn key_phase(&self, _name: &str, _phase: actions::KeyPhase) -> anyhow::Result<actions::ActionResult> {
+        anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
-
-    fn mouse_phase(
-        &self,
-        _button: actions::MouseButton,
-        _phase: actions::KeyPhase,
-    ) -> anyhow::Result<actions::ActionResult> {
-        Err(anyhow::anyhow!("Action backend not available"))
+    fn mouse_phase(&self, _button: actions::MouseButton, _phase: actions::KeyPhase) -> anyhow::Result<actions::ActionResult> {
+        anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
 }

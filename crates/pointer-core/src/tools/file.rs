@@ -5,8 +5,13 @@ use crate::storage;
 use anyhow::{anyhow, Result};
 use log::{info, warn};
 use globset::{Glob, GlobSetBuilder};
-use regex::{Regex, RegexBuilder};
+use grep_regex::RegexMatcherBuilder;
+use grep_searcher::{
+    BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkFinish, SinkMatch,
+};
+use ignore::WalkBuilder;
 use std::fs;
+use std::io;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use walkdir::WalkDir;
@@ -32,6 +37,36 @@ const MAX_GLOB_RESULTS: usize = 500;
 const MAX_LIST_ENTRIES: usize = 2000;
 const MAX_WALK_DEPTH: usize = 64;
 const CONTEXT_LINES: usize = 2;
+
+/// Trim and drop redundant trailing `/` or `\` so `.../mod.rs/` resolves like `.../mod.rs`.
+/// On Windows, leaves `C:\` unchanged when that is the whole path after trimming separators.
+fn normalize_user_fspath(user_path: &str) -> &str {
+    let s = user_path.trim();
+    if s.is_empty() {
+        return s;
+    }
+    #[cfg(unix)]
+    {
+        let t = s.trim_end_matches('/');
+        if t.is_empty() {
+            s
+        } else {
+            t
+        }
+    }
+    #[cfg(windows)]
+    {
+        let t = s.trim_end_matches(|c| c == '/' || c == '\\');
+        if t.is_empty() {
+            return s;
+        }
+        let b = t.as_bytes();
+        if b.len() == 2 && b[1] == b':' {
+            return s;
+        }
+        t
+    }
+}
 
 fn args_without_method(args: &serde_json::Value) -> serde_json::Value {
     match args {
@@ -109,7 +144,11 @@ fn resolve_absolute_under_workspace(root: &Path, abs: &Path) -> Result<PathBuf> 
                     }
                 }
             }
-            let candidate = base.join(suffix);
+            let candidate = if suffix.as_os_str().is_empty() {
+                base
+            } else {
+                base.join(suffix)
+            };
             if !candidate.starts_with(root) {
                 return Err(anyhow!("路径不在工作区内"));
             }
@@ -129,7 +168,7 @@ pub fn resolve_within_workspace_root(root: &Path, user_path: &str) -> Result<Pat
     let root = root
         .canonicalize()
         .map_err(|e| anyhow!("工作区根无效: {e}"))?;
-    let user_path = user_path.trim();
+    let user_path = normalize_user_fspath(user_path);
     if user_path.is_empty() {
         return Err(anyhow!("路径不能为空"));
     }
@@ -188,7 +227,7 @@ pub fn resolve_accessible_path(workspace_root: &Path, user_path: &str) -> Result
     let workspace_root = workspace_root
         .canonicalize()
         .map_err(|e| anyhow!("工作区根无效: {e}"))?;
-    let user_path = user_path.trim();
+    let user_path = normalize_user_fspath(user_path);
     if user_path.is_empty() {
         return Err(anyhow!("路径不能为空"));
     }
@@ -394,7 +433,7 @@ fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result<String> {
         Some(v) => {
             let arr = v
                 .as_array()
-                .ok_or_else(|| anyhow!("paths 须为字符串数组或对象数组"))?;
+                .ok_or_else(|| anyhow!("paths 须为 JSON 数组"))?;
             Some(parse_file_read_batch_paths(
                 arr,
                 line_start,
@@ -595,7 +634,9 @@ struct BatchReadSpec {
     max_bytes: usize,
 }
 
-/// `paths` may be string paths (shared defaults) or objects `{ path, lineStart?, lineEnd?, maxBytes? }`.
+/// Each `paths` element must be an object `{ path, lineStart?, lineEnd?, maxBytes? }` (see
+/// `tools/prompts/file.md`). Root-level `lineStart` / `lineEnd` / `maxBytes` apply when omitted on
+/// the object.
 fn parse_file_read_batch_paths(
     arr: &[serde_json::Value],
     default_line_start: usize,
@@ -605,17 +646,10 @@ fn parse_file_read_batch_paths(
     let mut out = Vec::new();
     for elem in arr {
         match elem {
-            serde_json::Value::String(s) => {
-                let p = s.trim();
-                if p.is_empty() {
-                    continue;
-                }
-                out.push(BatchReadSpec {
-                    path: p.to_string(),
-                    line_start: default_line_start,
-                    line_end_exclusive: default_line_end_exclusive,
-                    max_bytes: default_max_bytes,
-                });
+            serde_json::Value::String(_) => {
+                return Err(anyhow!(
+                    "paths 中每项须为 JSON 对象（含 path，可选 lineStart、lineEnd、maxBytes）；勿使用字符串元素"
+                ));
             }
             serde_json::Value::Object(_) => {
                 let path = json_str(elem, "path", "file")
@@ -657,7 +691,7 @@ fn parse_file_read_batch_paths(
             }
             _ => {
                 return Err(anyhow!(
-                    "paths 须为字符串数组，或包含 path 的对象数组（可混用字符串与对象）"
+                    "paths 中每项须为 JSON 对象（含 path，可选 lineStart、lineEnd、maxBytes）"
                 ));
             }
         }
@@ -693,8 +727,15 @@ fn file_edit_apply_one(root: &Path, path: &str, old_s: &str, new_s: &str) -> Res
         return Err(anyhow!("oldString 不能为空"));
     }
     let full = resolve_within_workspace_root(root, path)?;
-    if !full.is_file() {
-        return Err(anyhow!("不是文件: {}", full.display()));
+    if !full.exists() {
+        return Err(anyhow!("路径不存在: {}", full.display()));
+    }
+    let meta = fs::metadata(&full).map_err(|e| anyhow!("读取元数据失败: {e}"))?;
+    if meta.is_dir() {
+        return Err(anyhow!("目标是目录而非文件: {}", full.display()));
+    }
+    if !meta.is_file() {
+        return Err(anyhow!("不是常规文件: {}", full.display()));
     }
     let text = fs::read_to_string(&full).map_err(|e| anyhow!("读取失败: {e}"))?;
     let updated = try_unique_text_replace(&text, old_s, new_s)?;
@@ -982,13 +1023,107 @@ fn should_skip_grep(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Append grep hits for one UTF-8 file into `results`.
-fn grep_one_file(
-    file_path: &Path,
-    re: &Regex,
-    context: usize,
+/// One `file:grep` hit in the JSON response (same fields as the legacy walker).
+struct GrepJsonSink<'a> {
+    path_abs: String,
+    results: &'a mut Vec<serde_json::Value>,
     max_results: usize,
+    stanza: Vec<(u64, String)>,
+    pending_match_line: Option<u64>,
+    pending_match_text: Option<String>,
+}
+
+impl GrepJsonSink<'_> {
+    fn bytes_to_line(s: &[u8]) -> String {
+        String::from_utf8_lossy(s)
+            .trim_end_matches('\n')
+            .trim_end_matches('\r')
+            .to_string()
+    }
+
+    fn flush(&mut self) -> Result<(), io::Error> {
+        let Some(match_ln) = self.pending_match_line.take() else {
+            self.stanza.clear();
+            self.pending_match_text.take();
+            return Ok(());
+        };
+        let match_line = self.pending_match_text.take().unwrap_or_default();
+        let context = self
+            .stanza
+            .iter()
+            .map(|(n, s)| format!("{n}: {s}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.stanza.clear();
+        if self.results.len() < self.max_results {
+            self.results.push(serde_json::json!({
+                "path": &self.path_abs,
+                "line": match_ln,
+                "matchLine": match_line,
+                "context": context,
+            }));
+        }
+        Ok(())
+    }
+}
+
+impl Sink for GrepJsonSink<'_> {
+    type Error = io::Error;
+
+    fn matched(
+        &mut self,
+        _searcher: &Searcher,
+        mat: &SinkMatch<'_>,
+    ) -> Result<bool, io::Error> {
+        if self.results.len() >= self.max_results {
+            return Ok(false);
+        }
+        let ln = mat.line_number().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::Other, "grep: missing line number")
+        })?;
+        let text = Self::bytes_to_line(mat.bytes());
+        self.stanza.push((ln, text.clone()));
+        self.pending_match_line = Some(ln);
+        self.pending_match_text = Some(text);
+        Ok(true)
+    }
+
+    fn context(
+        &mut self,
+        _searcher: &Searcher,
+        ctx: &SinkContext<'_>,
+    ) -> Result<bool, io::Error> {
+        if self.results.len() >= self.max_results {
+            return Ok(false);
+        }
+        let ln = ctx.line_number().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::Other, "grep: missing line number")
+        })?;
+        let text = Self::bytes_to_line(ctx.bytes());
+        self.stanza.push((ln, text));
+        Ok(true)
+    }
+
+    fn context_break(&mut self, _searcher: &Searcher) -> Result<bool, io::Error> {
+        self.flush()?;
+        Ok(self.results.len() < self.max_results)
+    }
+
+    fn finish(
+        &mut self,
+        _searcher: &Searcher,
+        _finish: &SinkFinish,
+    ) -> Result<(), io::Error> {
+        self.flush()
+    }
+}
+
+fn grep_one_path_with_searcher(
+    searcher: &mut Searcher,
+    matcher: &grep_regex::RegexMatcher,
+    file_path: &Path,
     results: &mut Vec<serde_json::Value>,
+    max_results: usize,
 ) -> Result<()> {
     if results.len() >= max_results {
         return Ok(());
@@ -1003,42 +1138,18 @@ fn grep_one_file(
     if meta.len() > MAX_GREP_FILE_BYTES as u64 {
         return Ok(());
     }
-    let bytes = match fs::read(file_path) {
-        Ok(b) => b,
-        Err(_) => return Ok(()),
-    };
-    let text = match String::from_utf8(bytes) {
-        Ok(t) => t,
-        Err(_) => return Ok(()),
-    };
     let path_abs = path_display_abs(file_path);
-    for (line_no, line) in text.lines().enumerate() {
-        if results.len() >= max_results {
-            break;
-        }
-        let n = line_no + 1;
-        if re.is_match(line) {
-            let lines: Vec<&str> = text.lines().collect();
-            let lo = line_no.saturating_sub(context);
-            let hi = (line_no + context + 1).min(lines.len());
-            let ctx = lines[lo..hi]
-                .iter()
-                .enumerate()
-                .map(|(i, l)| {
-                    let num = lo + i + 1;
-                    format!("{num}: {l}")
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            results.push(serde_json::json!({
-                "path": path_abs.as_str(),
-                "line": n,
-                "matchLine": line,
-                "context": ctx
-            }));
-        }
-    }
-    Ok(())
+    let mut sink = GrepJsonSink {
+        path_abs,
+        results,
+        max_results,
+        stanza: Vec::new(),
+        pending_match_line: None,
+        pending_match_text: None,
+    };
+    searcher
+        .search_path(matcher, file_path, &mut sink)
+        .map_err(|e| anyhow!("grep 搜索失败: {e}"))
 }
 
 fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
@@ -1068,10 +1179,19 @@ fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<St
         .unwrap_or(CONTEXT_LINES as u64)
         .min(5) as usize;
 
-    let re = RegexBuilder::new(pattern)
-        .multi_line(true)
-        .build()
+    let matcher = RegexMatcherBuilder::new()
+        .multi_line(false)
+        .build(pattern)
         .map_err(|e| anyhow!("正则无效: {e}"))?;
+
+    let mut searcher = SearcherBuilder::new()
+        .multi_line(false)
+        .before_context(context)
+        .after_context(context)
+        .binary_detection(BinaryDetection::quit(b'\x00'))
+        .heap_limit(Some(MAX_GREP_FILE_BYTES))
+        .line_number(true)
+        .build();
 
     if let Some(obj) = args.as_object() {
         if obj.contains_key("subdir") {
@@ -1117,22 +1237,37 @@ fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<St
 
     match scope {
         GrepScope::SingleFile { file } => {
-            grep_one_file(&file, &re, context, max_results, &mut results)?;
+            grep_one_path_with_searcher(&mut searcher, &matcher, &file, &mut results, max_results)?;
         }
         GrepScope::Walk { start, max_depth } => {
-            for entry in WalkDir::new(&start)
-                .max_depth(max_depth)
-                .into_iter()
-                .filter_map(|e| e.ok())
-            {
+            let mut walk = WalkBuilder::new(&start);
+            walk.git_ignore(true);
+            walk.hidden(true);
+            walk.max_depth(Some(max_depth));
+            walk.filter_entry(|e| !should_skip_grep(e.path()));
+            for entry in walk.build() {
                 if results.len() >= max_results {
                     break;
                 }
-                let p = entry.path();
-                if !p.is_file() {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(err) => {
+                        warn!("file:grep walk: {err}");
+                        continue;
+                    }
+                };
+                if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
                     continue;
                 }
-                grep_one_file(p, &re, context, max_results, &mut results)?;
+                let p = entry.path();
+                let meta = match fs::metadata(p) {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                if meta.len() > MAX_GREP_FILE_BYTES as u64 {
+                    continue;
+                }
+                grep_one_path_with_searcher(&mut searcher, &matcher, p, &mut results, max_results)?;
             }
         }
     }
@@ -1164,7 +1299,7 @@ mod tests {
         fs::write(root.join("b.txt"), "beta\n").unwrap();
 
         let args = json!({
-            "paths": ["a.txt", "b.txt"],
+            "paths": [{ "path": "a.txt" }, { "path": "b.txt" }],
             "lineStart": 1
         });
         let out = execute_file_read(&args, root).expect("batch read");
@@ -1186,7 +1321,7 @@ mod tests {
         fs::write(root.join("ok.txt"), "fine\n").unwrap();
 
         let args = json!({
-            "paths": ["ok.txt", "missing.txt"],
+            "paths": [{ "path": "ok.txt" }, { "path": "missing.txt" }],
         });
         let out = execute_file_read(&args, root).expect("batch partial");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
@@ -1204,7 +1339,7 @@ mod tests {
         fs::write(root.join("b.txt"), "b".repeat(800)).unwrap();
 
         let args = json!({
-            "paths": ["a.txt", "b.txt"],
+            "paths": [{ "path": "a.txt" }, { "path": "b.txt" }],
             "maxTotalBytes": 1200,
             "maxBytes": 10_000,
         });
@@ -1226,7 +1361,7 @@ mod tests {
         fs::write(root.join("b.txt"), "b".repeat(800)).unwrap();
 
         let args = json!({
-            "paths": ["a.txt", "b.txt"],
+            "paths": [{ "path": "a.txt" }, { "path": "b.txt" }],
             "maxTotalBytes": 1000,
             "maxBytes": 10_000,
         });
@@ -1240,12 +1375,22 @@ mod tests {
     }
 
     #[test]
-    fn file_read_paths_must_be_array_of_strings() {
+    fn file_read_paths_must_be_json_array() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         let args = json!({ "paths": "not-an-array" });
         let err = execute_file_read(&args, root).unwrap_err();
         assert!(err.to_string().contains("paths"));
+    }
+
+    #[test]
+    fn file_read_batch_paths_rejects_string_entries() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("a.txt"), "x\n").unwrap();
+        let args = json!({ "paths": ["a.txt"] });
+        let err = execute_file_read(&args, root).unwrap_err();
+        assert!(err.to_string().contains("对象"));
     }
 
     #[test]
@@ -1270,7 +1415,7 @@ mod tests {
     }
 
     #[test]
-    fn file_read_batch_mixed_string_and_object_inherits_root_line_end() {
+    fn file_read_batch_objects_inherit_root_line_end() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         fs::write(root.join("x.txt"), "p1\np2\np3\np4\n").unwrap();
@@ -1280,7 +1425,7 @@ mod tests {
             "lineStart": 1,
             "lineEnd": 4,
             "paths": [
-                "x.txt",
+                { "path": "x.txt" },
                 { "path": "y.txt", "lineStart": 2 }
             ]
         });
@@ -1315,6 +1460,30 @@ mod tests {
         assert_eq!(v["success"], true);
         assert_eq!(v["replaced"], 1);
         assert!(v["path"].as_str().unwrap().contains("z.txt"));
+        assert_eq!(fs::read_to_string(root.join("z.txt")).unwrap().trim(), "bar");
+    }
+
+    #[test]
+    fn file_edit_accepts_trailing_slash_on_existing_file() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("z.txt"), "foo\n").unwrap();
+        let mut abs = root
+            .join("z.txt")
+            .canonicalize()
+            .expect("canonicalize")
+            .to_str()
+            .expect("utf8")
+            .to_string();
+        abs.push('/');
+        let args = json!({
+            "path": abs,
+            "oldString": "foo",
+            "newString": "bar"
+        });
+        let out = execute_file_edit_payload(&args, root).expect("edit");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["success"], true);
         assert_eq!(fs::read_to_string(root.join("z.txt")).unwrap().trim(), "bar");
     }
 

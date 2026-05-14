@@ -8,7 +8,7 @@
 ## 1. 读者与使用方式
 
 - **产品 / 技术负责人**：看 [§3 总览表](#3-方案总览与优先级矩阵) 与 [§4 分阶段建议](#4-推荐分阶段路线图) 做取舍。  
-- **实现者**：看 [§5 分项说明](#5-分项实现说明) 与 [§6 代码挂载点](#6-与现有代码的挂载点索引) 拆任务与估人天。  
+- **实现者**：看 [§5 分项说明](#5-分项实现说明)（含 [§5.13](#513-对标参考cursor-内置子代理subagents)、[§5.14](#514-nexplore--nbash-开发计划与优先级)）与 [§6 代码挂载点](#6-与现有代码的挂载点索引) 拆任务与估人天。  
 - **评估收益**：结合 [§7 度量与验收](#7-度量与验收建议) 定义「做完算不算变好」。
 
 ---
@@ -22,7 +22,7 @@
 | **Agent 身份** | `crates/pointer-core/src/agents/coder/AGENT.md`：澄清 → 探索 → 计划 → 实现 → 单测 → 集成检查 → 交付；含读盘纪律与超限应对。 |
 | **通信注入** | `agents/coder/COMMUNICATION.md`：工作区、`file` 政策、JSON 写编示例、`task_board` 与交付约定。 |
 | **工具白名单** | `AGENT.md` frontmatter：`file`、`skill`、`terminal`、`task_board`（无 `web` / 专用 `git` / `lsp` 等）。 |
-| **读文件** | `tools/file.rs` + `tools/prompts/file.md`：`paths` 批支持每元素为带 `path` 的对象以单独设置 `lineStart`/`lineEnd`/`maxBytes`（可与字符串路径混用）；`maxBytes` 默认 256KiB/文件；批读 `maxTotalBytes` 默认 1MiB；超限截断/跳过与 `batchCapped` 等字段。 |
+| **读文件** | `tools/file.rs` + `tools/prompts/file.md`：`paths` 批读为对象数组，每项须含 `path`，可选 `lineStart`/`lineEnd`/`maxBytes`；根级同名字段为缺省；`maxBytes` 默认 256KiB/文件；批读 `maxTotalBytes` 默认 1MiB；超限截断/跳过与 `batchCapped` 等字段。 |
 | **改文件** | `file:edit` 支持单次 **`edits`** 批（≤32 项，顺序应用；`files`/`batchPartialFailure`）；单文件仍为 `path`+`oldString`+`newString`。 |
 | **上下文** | `context_compression.rs`：超字符预算时可摘要前缀（依赖设置项）；非「无限上下文」。 |
 | **技能** | `defaultSkillIds: []`，`allowSkills: []`：技能 harness 可用但未预置领域技能包。 |
@@ -52,14 +52,16 @@
 | K | **内置 Coder Skills（Rust/TS/Monorepo 发布检查等）** | Content + Core 注册 | M | H | `skills/` 规范 | 内容腐烂需版本化 |
 | L | **离线评测集（golden tasks + 自动判分）** | 仓库外或 `scripts/` | L | H | CI 时间、维护 | 一次投入大 |
 | M | **IDE：diff 预览、分块应用、回滚** | Client | XL | H | 与 `file:edit` 协同 | 产品工作量极大 |
-| N | **子 Agent / 并行探索（大仓分片）** | Core 架构 | XL | M | 消息与 trace 模型 | 复杂度高、调试难 |
+| N | **子 Agent 编排与 trace（多子代理、resume、后台）** | Core 架构 | XL | M | 消息与 trace 模型、UI | 复杂度高、调试难 |
+| N‑Explore | **Explore 型子代理**：只读并行代码库探索（`file` / `grep` / 后续搜索能力），**摘要**回主会话；对标 Cursor **Explore**；细节见 [§5.14](#514-nexplore--nbash-开发计划与优先级) | Core + Prompt | L | H（大仓） | 最小子会话协议；**D** 稳定后收益更大 | 摘要丢关键路径、与主 Agent 重复探索 |
+| N‑Bash | **Bash 型子代理**：长输出 **`terminal`** 在子会话执行，**摘要 + exit code** 回主会话；对标 Cursor **Bash**；细节见 [§5.14](#514-nexplore--nbash-开发计划与优先级) | Core + Prompt | M | H | 现有 `terminal` 工具；可选与 **G** 协同 | 摘要漏掉失败栈顶行、安全与审计边界 |
 
 **优先级建议（仅作起点，可按你方约束调整）**
 
 - **P0（高收益 / 中低复杂度）**：**B**（上下文可预期）、**G**（测失败可读）、**K**（技能包）、**I**（纯提示自审）。  
 - **P1（高收益 / 中高复杂度）**：**C**（外部事实）、**D**（搜索增强）、**A**（模型策略）。  
-- **P2（视场景）**：**E**（LSP）、**F**（git 工具）、**H**（lint 深度）、**L**（评测集）。  
-- **P3（长期）**：**J**（自动 critique）、**M**（IDE 级体验）、**N**（子 Agent）。
+- **P2（视场景）**：**E**（LSP）、**F**（git 工具）、**H**（lint 深度）、**L**（评测集）、**N‑Bash**、**N‑Explore**（子代理专项；**实施顺序**见 [§5.14](#514-nexplore--nbash-开发计划与优先级)）。  
+- **P3（长期）**：**J**（自动 critique）、**M**（IDE 级体验）、**N**（完整多子代理编排与产品化 trace）。
 
 ---
 
@@ -80,14 +82,15 @@
 ### 阶段 2：「对齐外部世界 + 大仓」为主
 
 - **C**：MCP 或受限 HTTP fetch；白名单域、超时、响应体上限、Markdown 提取；提示词规定「改第三方 API 前必查」。  
-- **D**：明确 `file:grep` 与「新搜索工具」边界；可选封装 `rg` 做 **路径/大小/二进制跳过** 与性能一致。  
+- **D**：`file:grep` 已用 **grep-searcher / grep-regex + ignore**（与 ripgrep 同栈的库实现，尊重 `.gitignore`、默认跳过隐藏路径）；若仍要 CLI `rg`，再评估是否重复。
 - **A**：coder  profile 绑定更强模型或更高 `max_tokens`（若提供商支持）。
 
 ### 阶段 3：深度与体验
 
 - **E / F**：按语言栈落地符号或 git 只读工具。  
 - **L**：评测集与 CI 门禁。  
-- **M / N**：产品级投入。
+- **N‑Bash / N‑Explore**：按 [§5.14](#514-nexplore--nbash-开发计划与优先级) 的 **P2** 与 **实施顺序** 落地（建议阶段 3 前半启动 **N‑Bash**，后半或并行启动 **N‑Explore**）。  
+- **M / N**：产品级投入；完整 **N** 可与 **N‑Explore / N‑Bash** 共用同一套子会话协议，逐步从「单类子代理」演进到「多子代理编排」。
 
 ---
 
@@ -118,6 +121,7 @@
 
 - **目标**：超大仓库里 **更快定位**、更少误 grep。  
 - **实现要点**：评估 `file:grep` 是否已够用；若上 `rg`，需统一 **根目录、忽略规则（.gitignore）、二进制跳过**；提示词写清何时用哪个。  
+- **落地方案（草案）**：在现有库栈上补 **glob/type、`-F`、`-i`、与默认 `rg` 一致的 hidden、并行 / 文件上限** 等，见 [`docs/file-grep-d-enhancement-proposal.md`](file-grep-d-enhancement-proposal.md)。  
 - **复杂度**：`M`。  
 - **收益**：`H`（大仓）；`M`（中小仓）。
 
@@ -174,9 +178,48 @@
 ### 5.12 M / N — IDE 与子 Agent
 
 - **M**：显著降低「不敢用 agent 改代码」的心理成本。  
-- **N**：适合 **超大探索任务**；需 supervisor 消息合并策略。  
+- **N**：完整 **多子代理编排、trace、resume/后台** 等产品级能力；适合与 **N‑Explore / N‑Bash** 分阶段演进（先单类子代理 MVP，再合并为统一 **N**）。  
 - **复杂度**：`XL`。  
-- **收益**：`H`（M）、`M`–`H`（N，视场景）。
+- **收益**：`H`（M）、`M`–`H`（N，视场景）。  
+- **产品对标**：Cursor 将「探索 / 终端 / 浏览器」做成内置子智能体时的设计取舍，见 [§5.13](#513-对标参考cursor-内置子代理subagents)。**Explore / Bash 对应落地项**见 [§5.14](#514-nexplore--nbash-开发计划与优先级)。
+
+### 5.13 对标参考：Cursor 内置子代理（Subagents）
+
+以下摘自 Cursor 公开文档，用于 **方案 N、N‑Explore、N‑Bash** 立项时的「能力拆分与上下文隔离」参考，**不代表** pointer-app 必须同名或同实现。
+
+| 内置子代理 | 官方定位（摘要） | 主要解决的问题 |
+|------------|------------------|----------------|
+| **Explore** | 在代码库中 **搜索与分析**；可用更快模型、并行多路检索 | 大范围探索产生大量中间结果，避免撑爆主对话上下文 |
+| **Bash** | 串联执行 **Shell** | 终端输出冗长，隔离在子会话，父会话只收结论 |
+| **Browser** | 通过 **MCP** 驱动浏览器 | DOM、截图等噪声在子会话消化，父会话收摘要 |
+
+**机制要点**（与 N 相关）：
+
+- **独立上下文**：子智能体各自占用上下文窗口；长研究/探索不挤占主会话（见 [Subagents](https://cursor.com/docs/subagents)）。  
+- **并行**：可并行启动多个子智能体，分工作流（同上）。  
+- **工具与提示**：文档写明各内置类型有 **tuned** 的 prompts 与 tool access；FAQ 亦述子智能体可 **继承父级工具（含 MCP）**，但以官方当前版本说明为准。  
+- **搜索链路**：主流程外的「广撒网」探索常与 **语义搜索 + Instant Grep + 读文件** 组合（见 [Semantic & agentic search](https://cursor.com/docs/agent/tools/search)）。
+
+**对 pointer-app 的映射思路（待评估）**：
+
+- 若落地 **N‑Explore / N‑Bash** 或完整 **N**，可显式区分 **只读探索子循环**（多路 `file`/`grep`/后续 `code:search`）与 **主对话改码循环**，并约定 **回传摘要结构**（路径列表、结论段落、禁止整屏 dump）。  
+- **长输出命令**（`terminal`）是否拆子会话，可类比 Bash 子代理的「日志隔离」收益，再权衡实现成本。  
+- **浏览器 / 富交互验证** 若未来接入 MCP，可类比 Browser 子代理的「噪声不外溢」原则单独设计。
+
+### 5.14 N‑Explore / N‑Bash 开发计划与优先级
+
+将 Cursor 内置 **Explore**、**Bash** 映射为可立项的两条方案（矩阵 ID **N‑Explore**、**N‑Bash**），与 umbrella **N** 区分：**N** 偏「编排与基础设施完备」；**N‑Explore / N‑Bash** 可先 **MVP 单路径** 上线。
+
+| 项 | **N‑Bash**（Bash 型） | **N‑Explore**（Explore 型） |
+|----|------------------------|-----------------------------|
+| **优先级** | **P2** | **P2** |
+| **推荐实施顺序** | **① 先做**（范围相对收束：围绕 `terminal` 输出形态与子会话边界） | **② 后做**（并行多路读/搜 + 摘要协议，依赖与验证面更大） |
+| **目标** | 编译/测试/构建等 **长日志** 不撑爆主会话；主会话只保留 **短摘要、exit code、可选尾部原文片段** | 大仓 **广撒网** 探索（多文件 `grep`、批读、路径列表）在子会话完成，主会话只收 **结论与关键路径** |
+| **依赖** | 现有 `terminal`；若已做 **G**，摘要可与结构化失败信息对齐 | **B**（预算可预期）、**D**（搜索路径清晰）可降低「主从重复搜」；最小子会话/子 trace 数据结构 |
+| **验收要点** | 主会话 tool 结果长度上限内可读；失败场景下 **stderr 顶行 / 首个 error** 不得被摘要规则静默丢弃（需显式策略） | 探索子会话可并行发起多路只读调用；回传含 **文件路径 + 一句话结论**，禁止默认整文件 dump |
+| **风险** | 摘要过粗导致排障困难 | 与主 Agent 探索职责重叠、重复 token |
+
+**与 umbrella N 的关系**：**N‑Bash** 与 **N‑Explore** 可共用同一套「子上下文 + 回传摘要」协议；待两条 MVP 稳定后，再收敛到 **N**（多子代理调度、后台、resume 等 **P3** 能力）。
 
 ---
 
@@ -189,6 +232,7 @@
 | Coder Agent 定义 | `crates/pointer-core/src/agents/coder/AGENT.md` | frontmatter、`accessPolicy` |
 | Coder 通信 | `crates/pointer-core/src/agents/coder/COMMUNICATION.md` | 注入片段 |
 | File 工具 | `crates/pointer-core/src/tools/file.rs`、`tools/prompts/file.md` | 读盘上限与行为 |
+| Terminal 工具 | `crates/pointer-core/src/tools/terminal.rs` | **N‑Bash** 长输出与子会话摘要挂载点 |
 | 对话循环 / 工具调度 | `crates/pointer-core/src/chat_service.rs` | 挂新工具、改 tool result 形态需协调 |
 | 上下文压缩 | `crates/pointer-core/src/context_compression.rs` | 预算与摘要 |
 | 模型设置 | `crates/pointer-core/src/models.rs`（`ModelSettings` 等）、`storage` | 默认项与持久化 |
@@ -216,6 +260,7 @@
 
 | 风险 | 缓解 |
 |------|------|
+| 子代理摘要丢关键信息（**N‑Bash / N‑Explore**） | 摘要规则保留 exit code、首段错误、用户可配置「回传原始尾部行数」；失败时降级为截断原文而非纯述 |
 | 联网工具安全 | 白名单、禁止 file URL、响应大小上限、审计日志 |
 | 压缩丢信息 | 提高保留轮数、关键 user 消息 pin、摘要失败显式提示 |
 | 解析类工具脆弱 | 版本化 parser、失败降级为原始输出 |
@@ -231,5 +276,5 @@
 
 ---
 
-**版本**：初稿（规划用）  
+**版本**：初稿（规划用）；已补充 §5.13（Cursor 内置子代理对标）、§5.14（N‑Explore / N‑Bash 与 **P2** 实施顺序）。  
 **维护者**：实现负责人按阶段更新  

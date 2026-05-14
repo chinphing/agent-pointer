@@ -127,13 +127,13 @@ async fn computer_state_apply_screen_capture_chains_previous_raw_for_inject() {
     let monitor = MonitorInfo::new(0, 0, 64, 64);
 
     let first = state
-        .apply_screen_capture(&jpeg_a, monitor, (64, 64), (10, 10), None)
+        .apply_screen_capture("test", &jpeg_a, monitor, (64, 64), (10, 10), None)
         .await
         .expect("first pipeline");
     assert!(first.inject_previous_raw_jpeg.is_none());
 
     let second = state
-        .apply_screen_capture(&jpeg_b, monitor, (64, 64), (20, 20), None)
+        .apply_screen_capture("test", &jpeg_b, monitor, (64, 64), (20, 20), None)
         .await
         .expect("second pipeline");
     assert_eq!(
@@ -141,7 +141,7 @@ async fn computer_state_apply_screen_capture_chains_previous_raw_for_inject() {
         Some(first.raw_marked_jpeg.as_slice())
     );
 
-    let vs = state.vision_state.lock().unwrap();
-    let p = vs.resolve_index(1).expect("mapped");
+    let vs = state.vision_state_for_conversation("test");
+    let p = vs.lock().unwrap().resolve_index(1).expect("mapped");
     assert_eq!(p, (15, 15));
 }

@@ -19,6 +19,12 @@ use pointer_core::{
     storage,
 };
 use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct ConversationPreviewQuery {
+    #[serde(rename = "conversationId")]
+    conversation_id: String,
+}
 use std::{
     convert::Infallible,
     env,
@@ -172,17 +178,23 @@ async fn list_agents(State(state): State<ServerState>) -> Result<Json<Vec<AgentD
 }
 
 /// Same as Tauri `preview_computer_annotated_screen`: last cached annotated PNG from a screen inject.
+/// Requires `?conversationId=...` to select the session.
 async fn preview_computer_annotated_screen(
+    Query(q): Query<ConversationPreviewQuery>,
     State(state): State<ServerState>,
 ) -> Result<Json<ComputerAnnotatedPreview>, ApiError> {
     state
         .core
         .computer_state
-        .cached_annotated_preview()
+        .cached_annotated_for_conversation(&q.conversation_id)
+        .map(|(img, _monitor)| ComputerAnnotatedPreview {
+            image_base64: pointer_core::agents::computer::screen::encode_image_to_base64(&img),
+            caption: "Annotated screenshot".into(),
+        })
         .map(Json)
         .ok_or_else(|| {
             ApiError(anyhow::anyhow!(
-                "无标注图：请先完成一次桌面注入（发消息），或确认标注服务已启动。"
+                "无标注图：请先完成一次桌面注入（发消息），或确认会话ID正确。"
             ))
         })
 }

@@ -129,8 +129,8 @@ export async function listAgents(): Promise<AgentDef[]> {
   return await request<AgentDef[]>('/api/agents')
 }
 
-export async function previewComputerAnnotatedScreen(): Promise<ComputerAnnotatedPreview> {
-  return await request<ComputerAnnotatedPreview>('/api/computer/annotated-preview')
+export async function previewComputerAnnotatedScreen(conversationId: string): Promise<ComputerAnnotatedPreview> {
+  return await request<ComputerAnnotatedPreview>(`/api/computer/annotated-preview?conversationId=${encodeURIComponent(conversationId)}`)
 }
 
 export async function previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview> {

@@ -2,6 +2,72 @@
 
 ## Wire format (JSON)
 
+Full **single-turn** objects below show the envelope end-to-end.
+In documentation they appear inside Markdown JSON blocks; in **live model output**,
+emit **one** raw JSON object with **no** surrounding code fence and **no** prose outside it.
+
+### Example — root tool only (`response`)
+
+```json
+{
+  "thoughts": "User asked for a short acknowledgement; no other tools this turn.",
+  "headline": "Acknowledge",
+  "tool_name": "response",
+  "tool_args": {
+    "text": "Understood. I will use allowed tools next if code or tests change."
+  }
+}
+```
+
+### Example — qualified `tool_name` and structured `tool_args` (`file:read` batch)
+
+Use **`tool:method`** when the registry merges sub-tools.
+For **`file:read`**, **`paths`** is an array of **objects**, each with **`path`**
+(optional per-entry **`lineStart`**, **`lineEnd`**, **`maxBytes`**).
+Omitting those on an object inherits the root **`tool_args`** defaults when present.
+
+```json
+{
+  "thoughts": "Read the implementation and its test in one turn with a shared line window.",
+  "headline": "Batch read two files",
+  "tool_name": "file:read",
+  "tool_args": {
+    "lineStart": 1,
+    "lineEnd": 120,
+    "paths": [
+      { "path": "crates/foo/src/lib.rs" },
+      { "path": "crates/foo/tests/smoke.rs" }
+    ]
+  }
+}
+```
+
+### Example — `sidecar_tools` first, then the root tool
+
+Each sidecar entry uses the same **`tool_name`** / **`tool_args`** shape as a root call.
+The host runs **every** sidecar **in order**, then the **root** tool.
+
+```json
+{
+  "thoughts": "Mark the board step in progress, then open the spec file.",
+  "headline": "Board plus read spec",
+  "sidecar_tools": [
+    {
+      "tool_name": "task_board:patch",
+      "tool_args": {
+        "items": "[{\"id\":\"read-spec\",\"title\":\"Read spec\",\"status\":\"in_progress\",\"verification\":\"quoted in reply\"}]"
+      }
+    }
+  ],
+  "tool_name": "file:read",
+  "tool_args": {
+    "paths": [
+      { "path": "docs/design.md", "lineStart": 1, "lineEnd": 80 }
+    ]
+  }
+}
+```
+
 Each assistant turn that uses tools—or ends with a structured final reply—is **one JSON object** only.
 
 - Put **no** Markdown code fences around the whole object and **no** prose outside it.

@@ -141,15 +141,20 @@ pub fn list_agents(state: State<'_, Arc<AppState>>) -> Result<Vec<AgentDef>, Str
     Ok(state.agents.list())
 }
 
-/// Returns the last annotated PNG from [`capture_and_annotate`] (e.g. screen inject). No new capture.
+/// Returns the last annotated PNG from [`capture_and_annotate`] for a conversation.
 #[tauri::command]
 pub fn preview_computer_annotated_screen(
+    conversation_id: String,
     state: State<'_, Arc<AppState>>,
 ) -> Result<ComputerAnnotatedPreview, String> {
     state
         .computer_state
-        .cached_annotated_preview()
-        .ok_or_else(|| "无标注图：请先完成一次桌面注入（发消息），或确认标注服务已启动。".into())
+        .cached_annotated_for_conversation(&conversation_id)
+        .map(|(img, _monitor)| ComputerAnnotatedPreview {
+            image_base64: pointer_core::agents::computer::screen::encode_image_to_base64(&img),
+            caption: "Annotated screenshot".into(),
+        })
+        .ok_or_else(|| "无标注图：请先完成一次桌面注入（发消息），或确认会话ID正确。".into())
 }
 
 /// Load a saved annotated PNG by path relative to `computer-captures/` (from `AssistantRoundScreen`).

@@ -324,13 +324,16 @@ fn json_tool_envelope_batch_retry_message(err: &str) -> String {
     )
 }
 
-/// Host-only binding for `task_board` so models cannot spoof another session id.
+/// Host-only binding for `task_board` and computer tools so models cannot spoof another session id.
 fn inject_host_task_board_conversation_id(
     tool_id: &str,
     args: serde_json::Value,
     conversation_id: &str,
 ) -> serde_json::Value {
-    if tool_id != "task_board" {
+    let requires_injection = tool_id == "task_board"
+        || crate::agents::computer::is_desktop_vision_log_tool(tool_id)
+        || crate::agents::computer::is_desktop_post_delay_tool(tool_id);
+    if !requires_injection {
         return args;
     }
     let mut map = if let serde_json::Value::Object(m) = args {
@@ -436,6 +439,7 @@ async fn run_chat_inner(
 
     if agent_plan.mode == AGENT_MODE_SUPERVISOR {
         if tool_rounds_used_supervisor_start >= max_cap {
+            state.computer_state.mark_cancelled(conversation_id);
             return Err(anyhow!(
                 "本会话在编排（Supervisor）模式下工具调用轮次已达上限（{}），请新开对话或在设置中调高上限。",
                 max_cap
@@ -751,10 +755,12 @@ async fn run_chat_inner(
                     },
                 );
                 tool_budget.sync_out(consumed_single);
+                state.computer_state.mark_cancelled(conversation_id);
                 return Err(e);
             }
             Err(e) => {
                 tool_budget.sync_out(consumed_single);
+                state.computer_state.mark_cancelled(conversation_id);
                 return Err(anyhow!("任务异常：{e}"));
             }
         }
@@ -882,6 +888,7 @@ async fn run_chat_inner(
                     )
                     .await;
                     tool_budget.sync_out(consumed_single);
+                    state.computer_state.mark_cancelled(conversation_id);
                     return Err(anyhow!(
                         "单智能体模式下工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
                     ));
@@ -951,6 +958,7 @@ async fn run_chat_inner(
                 )
                 .await;
                 tool_budget.sync_out(consumed_single);
+                state.computer_state.mark_cancelled(conversation_id);
                 return Err(anyhow!(
                     "单智能体模式下工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
                 ));
@@ -962,6 +970,7 @@ async fn run_chat_inner(
         for tc in &final_tool_calls {
             if cancel.is_cancelled() {
                 tool_budget.sync_out(consumed_single);
+                state.computer_state.mark_cancelled(conversation_id);
                 return Err(anyhow!("已停止生成"));
             }
 
@@ -1165,6 +1174,7 @@ async fn run_chat_inner(
                 Ok((out, ok, err_note)) => {
                     let failed_note = desktop_tool_failure_note(ok, &err_note, &out);
                     state.computer_state.record_desktop_tool_if_applicable(
+                        conversation_id,
                         &tool_id,
                         &args_for_desktop_log,
                         failed_note.as_deref(),
@@ -1198,6 +1208,7 @@ async fn run_chat_inner(
                     let err = e.to_string();
                     let err_snip = truncate_str(&err, 400);
                     state.computer_state.record_desktop_tool_if_applicable(
+                        conversation_id,
                         &tool_id,
                         &args_for_desktop_log,
                         Some(err_snip.as_str()),
@@ -1251,6 +1262,7 @@ async fn run_chat_inner(
             )
             .await;
             tool_budget.sync_out(consumed_single);
+            state.computer_state.mark_cancelled(conversation_id);
             return Err(anyhow!(
                 "单智能体模式下工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
             ));
@@ -1486,6 +1498,7 @@ async fn run_supervisor_chat(
             headline: None,
         },
     );
+    state.computer_state.mark_ended(conversation_id);
     Ok(())
 }
 
@@ -1665,10 +1678,12 @@ async fn run_sub_agent(
 
     loop {
         if cancel.is_cancelled() {
+            state.computer_state.mark_cancelled(conversation_id);
             return Err(anyhow!("已停止生成"));
         }
 
         if tool_budget.remaining() == 0 {
+            state.computer_state.mark_cancelled(conversation_id);
             return Err(anyhow!(
                 "编排（Supervisor）模式下工具调用轮次已达上限（{}）。请新开对话。",
                 max_cap
@@ -1866,8 +1881,14 @@ async fn run_sub_agent(
 
         match handle.await {
             Ok(Ok(())) => {}
-            Ok(Err(err)) => return Err(err),
-            Err(err) => return Err(anyhow!("子 Agent 任务异常：{err}")),
+            Ok(Err(err)) => {
+                state.computer_state.mark_cancelled(conversation_id);
+                return Err(err);
+            }
+            Err(err) => {
+                state.computer_state.mark_cancelled(conversation_id);
+                return Err(anyhow!("子 Agent 任务异常：{err}"));
+            }
         }
 
         local_history.push(ChatMessage {
@@ -1964,6 +1985,7 @@ async fn run_sub_agent(
                         false,
                     )
                     .await;
+                    state.computer_state.mark_cancelled(conversation_id);
                     return Err(anyhow!(
                         "编排（Supervisor）模式下工具调用轮次已达上限（{max_cap}）。请新开对话。"
                     ));
@@ -2030,6 +2052,7 @@ async fn run_sub_agent(
                     false,
                 )
                 .await;
+                state.computer_state.mark_cancelled(conversation_id);
                 return Err(anyhow!(
                     "编排（Supervisor）模式下工具调用轮次已达上限（{max_cap}）。请新开对话。"
                 ));
@@ -2253,6 +2276,7 @@ async fn run_sub_agent(
                 Ok((output, ok, err_note)) => {
                     let failed_note = desktop_tool_failure_note(ok, &err_note, &output);
                     state.computer_state.record_desktop_tool_if_applicable(
+                        conversation_id,
                         &tool_id,
                         &args_for_desktop_log,
                         failed_note.as_deref(),
@@ -2286,6 +2310,7 @@ async fn run_sub_agent(
                     let err = err.to_string();
                     let err_snip = truncate_str(&err, 400);
                     state.computer_state.record_desktop_tool_if_applicable(
+                        conversation_id,
                         &tool_id,
                         &args_for_desktop_log,
                         Some(err_snip.as_str()),
@@ -2346,6 +2371,7 @@ async fn run_sub_agent(
                 false,
             )
             .await;
+            state.computer_state.mark_cancelled(conversation_id);
             return Err(anyhow!(
                 "编排（Supervisor）模式下工具调用轮次已达上限（{max_cap}）。请新开对话。"
             ));

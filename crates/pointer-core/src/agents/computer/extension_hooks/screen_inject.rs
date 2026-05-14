@@ -158,7 +158,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                 let images = assemble_cur_screen_base64(&cap);
                 let mut text = cur_screen_clock_prefix();
                 text.push_str(&build_cur_screen_text(has_previous_raw));
-                if let Some(block) = ctx.computer_state.recent_actions_prompt_block() {
+                if let Some(block) = ctx.computer_state.recent_actions_prompt_block(ctx.conversation_id) {
                     text.push_str("\n\n");
                     text.push_str(&block);
                     text.push('\n');

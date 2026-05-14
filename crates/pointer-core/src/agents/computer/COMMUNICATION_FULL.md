@@ -27,7 +27,7 @@ never use overlay **`index`**, digits, or “bbox N” / badge-only wording
 
 ### Tool methods: overlay **index** vs **coordinates** (computer)
 
-Same split as runtime **COMMUNICATION.md**: **index-based** calls use overlay digits on **`[Annotated after action]`**; **coordinate-based** calls use **`x`/`y`** (and optional **pointer neighbor reference bbox** entries in **`[CUR_SCREEN]`** text — anchors for coordinates only). **`clipboard:read`**, **`clipboard:write`**, **`hotkey`**, **`wait`**, **`response`**, and pointer-only **`mouse:…_current`** / **`move_offset`** / **`type_text_at_focused`** are neither.
+Same split as runtime **COMMUNICATION.md**: **index-based** calls use overlay digits on **`[Annotated after action]`**; **coordinate-based** calls use **`x`/`y`** (and optional **Pointer position** + **pointer neighbor reference bbox** entries in **`[CUR_SCREEN]`** text — anchors for coordinates only). **`clipboard:read`**, **`clipboard:write`**, **`hotkey`**, **`wait`**, **`response`**, and pointer-only **`mouse:…_current`** / **`move_offset`** / **`type_text_at_focused`** are neither.
 
 ---
 

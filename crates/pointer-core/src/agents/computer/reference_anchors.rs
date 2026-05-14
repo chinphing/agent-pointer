@@ -26,9 +26,34 @@ fn box_center_in_pointer_vicinity(b: &BoxInfo, mx: f32, my: f32) -> bool {
 
 /// When no overlay center falls in the pointer window, still inject guidance: model may aim
 /// directly without bbox anchors (no global fallback to distant boxes).
-const NO_VICINITY_ANCHORS: &str = "**Pointer neighbor reference bboxes:** None — no annotated overlay **center** lies in the **300×300 px** capture window around the pointer. Aim **directly** at the visible control with coordinate-based methods; a listed bbox anchor is **not** required. Refine **x**/**y** across turns to move **closer** even without a neighbor anchor row.";
+const NO_VICINITY_ANCHORS: &str = "**Pointer neighbor reference bboxes:** None — no annotated overlay **center** lies in the **300×300 px** capture window centered on the **Pointer position** above. Aim **directly** at the visible control with coordinate-based methods; a listed bbox anchor is **not** required. Refine **x**/**y** across turns to move **closer** even without a neighbor anchor row.";
 
-/// One-line prose for `[CUR_SCREEN]` when boxes exist and the pointer lies in the capture.
+/// Opening line for `[CUR_SCREEN]` — always paired with **Pointer neighbor reference bboxes** (same capture geometry).
+fn format_pointer_position_line(
+    mouse_bx: f32,
+    mouse_by: f32,
+    cw: f32,
+    ch: f32,
+    coord: CoordinateSystem,
+) -> String {
+    match coord {
+        CoordinateSystem::Qwen | CoordinateSystem::Kimi => {
+            let nx = (mouse_bx / cw) * 1000.0;
+            let ny = (mouse_by / ch) * 1000.0;
+            format!(
+                "**Pointer position** (same **full capture** as **`[Screen after action]`** / **`[Annotated after action]`**, origin top-left): **capture pixels** (x, y) ≈ ({:.0}, {:.0}); **normalized (x, y)** ≈ ({:.1}, {:.1}) on **0–1000** (same numeric space as coordinate-based `mouse` / `composite_action` / `modified_click` this session). The neighbor anchor list below is sorted by distance from this point.",
+                mouse_bx, mouse_by, nx, ny
+            )
+        }
+        CoordinateSystem::Pixel => format!(
+            "**Pointer position** (capture pixels, origin top-left, same as **`[Screen after action]`**): (x, y) ≈ ({:.0}, {:.0}). Neighbor anchors below use the same pixel space as `*_at` tools.",
+            mouse_bx, mouse_by
+        ),
+    }
+}
+
+/// Prose block for `[CUR_SCREEN]` when overlay boxes exist and the pointer lies inside the capture:
+/// **Pointer position** line plus **Pointer neighbor reference bboxes** (or the no-anchor paragraph).
 pub fn format_mouse_neighbor_reference_bboxes(
     boxes: &[BoxInfo],
     monitor: &MonitorInfo,
@@ -56,13 +81,15 @@ pub fn format_mouse_neighbor_reference_bboxes(
         return None;
     }
 
+    let pointer_line = format_pointer_position_line(mouse_bx, mouse_by, cw, ch, coord);
+
     let in_v: Vec<&BoxInfo> = boxes
         .iter()
         .filter(|b| box_center_in_pointer_vicinity(b, mouse_bx, mouse_by))
         .collect();
 
     if in_v.is_empty() {
-        return Some(NO_VICINITY_ANCHORS.to_string());
+        return Some(format!("{pointer_line}\n\n{NO_VICINITY_ANCHORS}"));
     }
 
     let mut scored: Vec<(f32, &BoxInfo)> = in_v
@@ -100,7 +127,7 @@ pub fn format_mouse_neighbor_reference_bboxes(
     };
 
     Some(format!(
-        "**Pointer neighbor reference bboxes** ({} nearest by pointer–center distance among overlays whose **center** lies in the **{}×{} px** capture window centered on the pointer; same geometry as **`[Annotated after action]`**): {}; {}",
+        "{pointer_line}\n\n**Pointer neighbor reference bboxes** ({} nearest by pointer–center distance among overlays whose **center** lies in the **{}×{} px** capture window centered on the **Pointer position** above; same geometry as **`[Annotated after action]`**): {}; {}",
         picked.len(),
         POINTER_VICINITY_SIDE_PX as i32,
         POINTER_VICINITY_SIDE_PX as i32,
@@ -167,6 +194,8 @@ mod tests {
             CoordinateSystem::Qwen,
         )
         .expect("line");
+        assert!(s.contains("**Pointer position**"));
+        assert!(s.contains("capture pixels"));
         assert!(s.contains("index 2"));
         assert!(s.contains("index 1"));
         let pos2 = s.find("index 2").unwrap();
@@ -195,6 +224,7 @@ mod tests {
             CoordinateSystem::Qwen,
         )
         .expect("line");
+        assert!(s.contains("**Pointer position**"));
         assert!(
             !s.contains("overlay index 1 (left"),
             "must not list distant boxes: {s}"

@@ -439,17 +439,16 @@ mod tests {
         let xml = r#"<response>
   <tool_name>file:edit</tool_name>
   <tool_args>
-    <path>src/App.vue</path>
-    <oldString><![CDATA[  <div v-if="ok">x</div>  ]]></oldString>
-    <newString><![CDATA[  <div v-if="ok">y</div>  ]]></newString>
+    <edits><![CDATA[[{"path":"src/App.vue","oldString":"  <div v-if=\"ok\">x</div>  ","newString":"  <div v-if=\"ok\">y</div>  "}]]]></edits>
   </tool_args>
 </response>"#;
         parser.feed(xml);
         let call = parser.parse().unwrap().primary;
         assert_eq!(call.name, "file:edit");
-        assert_eq!(call.arguments.get("path").map(String::as_str), Some("src/App.vue"));
-        assert!(call.arguments.get("oldString").unwrap().contains("v-if"));
-        assert!(call.arguments.get("newString").unwrap().contains("v-if"));
+        let edits: serde_json::Value =
+            serde_json::from_str(call.arguments.get("edits").unwrap()).unwrap();
+        let o = edits[0]["oldString"].as_str().unwrap();
+        assert!(o.contains("v-if"));
     }
 
     #[test]
@@ -520,9 +519,7 @@ mod tests {
   <headline>Patch file</headline>
   <tool_name>file:edit</tool_name>
   <tool_args>
-    <path>x.txt</path>
-    <oldString>if a < b</oldString>
-    <newString>z</newString>
+    <edits><![CDATA[[{"path":"x.txt","oldString":"if a < b","newString":"z"}]]]></edits>
   </tool_args>
 </response>"#;
         parser.feed(xml);
@@ -531,7 +528,9 @@ mod tests {
         assert_eq!(call.thoughts.trim(), "Planning edit");
         assert_eq!(call.headline.trim(), "Patch file");
         assert_eq!(call.name, "file:edit");
-        assert_eq!(call.arguments.get("oldString").map(String::as_str), Some("if a < b"));
-        assert_eq!(call.arguments.get("newString").map(String::as_str), Some("z"));
+        let edits: serde_json::Value =
+            serde_json::from_str(call.arguments.get("edits").unwrap()).unwrap();
+        assert_eq!(edits[0]["oldString"].as_str(), Some("if a < b"));
+        assert_eq!(edits[0]["newString"].as_str(), Some("z"));
     }
 }

@@ -16,7 +16,7 @@ Unified workspace file tools. Prefer **qualified names** in JSON **`tool_name`**
 |--------|---------|
 | **`file:read`** | Read UTF-8 text; single file or batch. With `paths`, response shape includes a `files` array. |
 | **`file:write`** | Create or overwrite a file; `path` is workspace-relative **or** absolute under the workspace. |
-| **`file:edit`** | Replace one unique substring per file: single file (`path` + `oldString` + `newString`) or batch (`edits` array, max **32** entries); each `path` same rule as **`file:write`**. |
+| **`file:edit`** | Replace one unique substring per file via **`edits`** only: a non-empty array (max **32**) of objects, each with **`path`** (alias **`file`**), **`oldString`** / **`old_string`**, **`newString`** / **`new_string`**. Single-file edits use **`edits`** with **one** object. Response includes **`files`**, **`successCount`**, **`failureCount`**, **`batchPartialFailure`**. |
 | **`file:glob`** | List files matching a glob under the search root (workspace root or optional `base`). |
 | **`file:grep`** | Search file contents with a regex (ripgrep-class stack: respects `.gitignore`, skips hidden paths by default, line-oriented matching). |
 | **`file:list`** | List directory entries; optional recursion, max depth, and file/directory filter. |
@@ -43,10 +43,7 @@ All keys below are **JSON properties** on the root **`tool_args`** object of you
 
 **`file:edit`**
 
-- **`path`** — Workspace-relative **or** absolute path under the workspace, targeting an existing file. Use with **`oldString`** and **`newString`** for a **single-file** edit.
-- **`oldString`** — Exact snippet to find and replace; must occur **exactly once** in that file. JSON **string**; the runtime also accepts **`old_string`**.
-- **`newString`** — Replacement text as a JSON **string**; same escaping rules as **`oldString`**. Alias **`new_string`**.
-- **`edits`** — **Batch mode:** non-empty array (max **32**) of objects. Each object requires **`path`** (alias **`file`**), **`oldString`** / **`old_string`**, **`newString`** / **`new_string`**. Do **not** combine **`edits`** with top-level **`path`** / **`oldString`** / **`newString`** in the same call. Entries are applied **in order**; later entries see disk state after earlier ones (including two patches to the **same** path). Response includes **`files`** (each with **`success`**, **`path`**, and either **`replaced`** or **`error`**), **`successCount`**, **`failureCount`**, and **`batchPartialFailure`** (true if any entry failed). Failed entries do **not** roll back earlier successful writes in the same batch—re-read and fix, or follow up with corrective edits.
+- **`edits`** — **Required.** Non-empty array (max **32**) of objects. Each object requires **`path`** (alias **`file`**), **`oldString`** / **`old_string`**, **`newString`** / **`new_string`**. For a **single-file** edit, pass **one** element. Entries are applied **in order**; later entries see disk state after earlier ones (including two patches to the **same** path). Response includes **`files`** (each with **`success`**, **`path`**, and either **`replaced`** or **`error`**), **`successCount`**, **`failureCount`**, and **`batchPartialFailure`** (true if any entry failed). Failed entries do **not** roll back earlier successful writes in the same batch—re-read and fix, or follow up with corrective edits. Do **not** pass top-level **`path`** / **`oldString`** / **`newString`** alongside **`edits`**.
 
 **`file:glob`**
 
@@ -117,7 +114,26 @@ Root **`lineStart`** / **`lineEnd`** apply to objects that omit those keys. Per-
 }
 ```
 
-#### JSON example — `file:edit` batch (`edits`)
+#### JSON example — `file:edit` single file (`edits` with one object)
+
+```json
+{
+  "thoughts": "Patch Vue snippet.",
+  "headline": "Edit component",
+  "tool_name": "file:edit",
+  "tool_args": {
+    "edits": [
+      {
+        "path": "src/App.vue",
+        "oldString": "  <div v-if=\"x\">before</div>  ",
+        "newString": "  <div v-if=\"x\">after</div>  "
+      }
+    ]
+  }
+}
+```
+
+#### JSON example — `file:edit` multiple files (`edits`)
 
 ```json
 {

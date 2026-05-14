@@ -21,7 +21,7 @@ For **read-only** exploration (`file:read`, `file:glob`, `file:grep`, `file:list
 ### `file:edit` and large diffs (success rate)
 
 **Prefer several small, independent patches** over one giant diff.
-Each **`file:edit`** (or each element of a batch **`edits`** array) should change **one logical slice** when possible.
+Each **`file:edit`** entry (each object in **`edits`**) should change **one logical slice** when possible.
 Always carry **enough unique context** in **`oldString`**
 (lines before and after the change) so the match is unambiguous.
 
@@ -58,7 +58,7 @@ When calling **`file:write`** or **`file:edit`**, put payload fields in **`tool_
 `<`, `>`, **`&`** in the file body are **literals** inside the JSON string).
 You may use **`tool_name`** **`file`** plus a **`method`** field (**`write`** / **`edit`**) instead of **`file:write`** / **`file:edit`**.
 
-### `file:edit` example (single file)
+### `file:edit` example (`edits` array; one object = single file)
 
 ```json
 {
@@ -66,16 +66,20 @@ You may use **`tool_name`** **`file`** plus a **`method`** field (**`write`** / 
   "headline": "Edit component",
   "tool_name": "file:edit",
   "tool_args": {
-    "path": "src/App.vue",
-    "oldString": "  <div v-if=\"x\">before</div>  ",
-    "newString": "  <div v-if=\"x\">after</div>  "
+    "edits": [
+      {
+        "path": "src/App.vue",
+        "oldString": "  <div v-if=\"x\">before</div>  ",
+        "newString": "  <div v-if=\"x\">after</div>  "
+      }
+    ]
   }
 }
 ```
 
-### `file:edit` example (batch `edits`)
+### `file:edit` example (multiple `edits` entries)
 
-Use **`edits`** when two or more files (or two disjoint regions you still want in one approval step) each need **`path` / `oldString` / `newString`**. Entries apply **in order**; if **`batchPartialFailure`** is true, inspect **`files`** for **`error`** and fix—successful entries are **not** rolled back.
+Use **`edits`** with **two or more** objects when multiple files (or two disjoint regions in one approval step) need changes. Entries apply **in order**; if **`batchPartialFailure`** is true, inspect **`files`** for **`error`** and fix—successful entries are **not** rolled back.
 
 ```json
 {

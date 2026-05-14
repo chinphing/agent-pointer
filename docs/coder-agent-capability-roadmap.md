@@ -23,7 +23,7 @@
 | **通信注入** | `agents/coder/COMMUNICATION.md`：工作区、`file` 政策、JSON 写编示例、`task_board` 与交付约定。 |
 | **工具白名单** | `AGENT.md` frontmatter：`file`、`skill`、`terminal`、`task_board`（无 `web` / 专用 `git` / `lsp` 等）。 |
 | **读文件** | `tools/file.rs` + `tools/prompts/file.md`：`paths` 批读为对象数组，每项须含 `path`，可选 `lineStart`/`lineEnd`/`maxBytes`；根级同名字段为缺省；`maxBytes` 默认 256KiB/文件；批读 `maxTotalBytes` 默认 1MiB；超限截断/跳过与 `batchCapped` 等字段。 |
-| **改文件** | `file:edit` 支持单次 **`edits`** 批（≤32 项，顺序应用；`files`/`batchPartialFailure`）；单文件仍为 `path`+`oldString`+`newString`。 |
+| **改文件** | `file:edit` 仅 **`edits`** 数组（1–32 项，每项 `path`+`oldString`+`newString`）；响应含 `files` / `batchPartialFailure` 等。 |
 | **上下文** | `context_compression.rs`：超字符预算时可摘要前缀（依赖设置项）；非「无限上下文」。 |
 | **技能** | `defaultSkillIds: []`，`allowSkills: []`：技能 harness 可用但未预置领域技能包。 |
 

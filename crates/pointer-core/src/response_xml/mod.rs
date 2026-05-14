@@ -154,9 +154,28 @@ fn coerce_xml_text_to_json_value(s: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
     fn backends() -> [ResponseXmlBackend; 2] {
         [ResponseXmlBackend::QuickXml, ResponseXmlBackend::ScraperHtml]
+    }
+
+    fn file_edit_edits_array(call: &XmlToolCall) -> Value {
+        let edits = call
+            .arguments
+            .get("edits")
+            .expect("file:edit must include <edits> JSON array");
+        serde_json::from_str(edits).expect("edits must be valid JSON")
+    }
+
+    fn file_edit_first_field(call: &XmlToolCall, key: &str) -> String {
+        let arr = file_edit_edits_array(call);
+        let first = arr.get(0).expect("edits[0]");
+        first
+            .get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| panic!("edits[0].{key} missing or not a string: {first:?}"))
+            .to_string()
     }
 
     #[test]
@@ -225,27 +244,15 @@ mod tests {
         let xml = r#"<response>
   <tool_name>file:edit</tool_name>
   <tool_args>
-    <path>src/App.vue</path>
-    <oldString><![CDATA[  <div v-if="ok">x</div>  ]]></oldString>
-    <newString><![CDATA[  <div v-if="ok">y</div>  ]]></newString>
+    <edits><![CDATA[[{"path":"src/App.vue","oldString":"  <div v-if=\"ok\">x</div>  ","newString":"  <div v-if=\"ok\">y</div>  "}]]]></edits>
   </tool_args>
 </response>"#;
         for b in backends() {
             let call = b.parse_tool_response(xml).unwrap_or_else(|e| panic!("{b:?}: {e}"));
             assert_eq!(call.name, "file:edit", "{b:?}");
-            assert_eq!(
-                call.arguments.get("path").map(String::as_str),
-                Some("src/App.vue"),
-                "{b:?}"
-            );
-            assert!(
-                call.arguments.get("oldString").unwrap().contains("v-if"),
-                "{b:?} oldString"
-            );
-            assert!(
-                call.arguments.get("newString").unwrap().contains("v-if"),
-                "{b:?} newString"
-            );
+            assert!(file_edit_first_field(&call, "oldString").contains("v-if"), "{b:?} oldString");
+            assert!(file_edit_first_field(&call, "newString").contains("v-if"), "{b:?} newString");
+            assert_eq!(file_edit_first_field(&call, "path"), "src/App.vue");
         }
     }
 
@@ -254,16 +261,14 @@ mod tests {
         let xml = r#"<response>
   <tool_name>file:edit</tool_name>
   <tool_args>
-    <path>x.txt</path>
-    <oldString>foo & bar</oldString>
-    <newString>ok</newString>
+    <edits><![CDATA[[{"path":"x.txt","oldString":"foo & bar","newString":"ok"}]]]></edits>
   </tool_args>
 </response>"#;
         for b in backends() {
             let call = b.parse_tool_response(xml).unwrap_or_else(|e| panic!("{b:?}: {e}"));
             assert_eq!(
-                call.arguments.get("oldString").map(String::as_str),
-                Some("foo & bar"),
+                file_edit_first_field(&call, "oldString"),
+                "foo & bar",
                 "{b:?}"
             );
         }
@@ -274,68 +279,43 @@ mod tests {
         let xml = r#"<response>
   <tool_name>file:edit</tool_name>
   <tool_args>
-    <path>x.txt</path>
-    <oldString>a > b</oldString>
-    <newString>z</newString>
+    <edits><![CDATA[[{"path":"x.txt","oldString":"a > b","newString":"z"}]]]></edits>
   </tool_args>
 </response>"#;
         for b in backends() {
             let call = b.parse_tool_response(xml).unwrap_or_else(|e| panic!("{b:?}: {e}"));
-            assert_eq!(
-                call.arguments.get("oldString").map(String::as_str),
-                Some("a > b"),
-                "{b:?}"
-            );
+            assert_eq!(file_edit_first_field(&call, "oldString"), "a > b", "{b:?}");
         }
     }
 
-    /// quick-xml keeps `&amp;` bytes in text; HTML5 decodes character references in text nodes.
+    /// `&` inside JSON strings in CDATA is literal for both parsers (no HTML entity decoding on the JSON blob).
     #[test]
-    fn amp_entity_differs_by_backend() {
+    fn ampersand_in_json_edits_cdata_same_for_both_backends() {
         let xml = r#"<response>
   <tool_name>file:edit</tool_name>
   <tool_args>
-    <path>x.txt</path>
-    <oldString>foo &amp; bar</oldString>
-    <newString>z</newString>
+    <edits><![CDATA[[{"path":"x.txt","oldString":"foo & bar","newString":"z"}]]]></edits>
   </tool_args>
 </response>"#;
-        let quick = ResponseXmlBackend::QuickXml
-            .parse_tool_response(xml)
-            .unwrap();
-        assert_eq!(
-            quick.arguments.get("oldString").map(String::as_str),
-            Some("foo &amp; bar")
-        );
-        let html = ResponseXmlBackend::ScraperHtml
-            .parse_tool_response(xml)
-            .unwrap();
-        assert_eq!(
-            html.arguments.get("oldString").map(String::as_str),
-            Some("foo & bar")
-        );
+        for b in backends() {
+            let call = b.parse_tool_response(xml).unwrap_or_else(|e| panic!("{b:?}: {e}"));
+            assert_eq!(file_edit_first_field(&call, "oldString"), "foo & bar", "{b:?}");
+        }
     }
 
-    /// quick-xml rejects unescaped `<` in text; HTML5 fragment parsing often keeps it inside
-    /// unknown/custom elements — this is the main reason to offer [`ResponseXmlBackend::ScraperHtml`].
+    /// Unescaped `<` inside JSON strings is safe when the whole payload lives in CDATA.
     #[test]
-    fn unescaped_lt_quick_errors_scraper_preserves_text() {
+    fn unescaped_lt_in_json_edits_cdata_parsed_by_both_backends() {
         let xml = r#"<response>
   <tool_name>file:edit</tool_name>
   <tool_args>
-    <path>x.txt</path>
-    <oldString>if a < b</oldString>
-    <newString>z</newString>
+    <edits><![CDATA[[{"path":"x.txt","oldString":"if a < b","newString":"z"}]]]></edits>
   </tool_args>
 </response>"#;
-        assert!(ResponseXmlBackend::QuickXml.parse_tool_response(xml).is_err());
-        let s = ResponseXmlBackend::ScraperHtml
-            .parse_tool_response(xml)
-            .expect("scraper should produce a tree");
-        assert_eq!(
-            s.arguments.get("oldString").map(String::as_str),
-            Some("if a < b")
-        );
+        for b in backends() {
+            let call = b.parse_tool_response(xml).unwrap_or_else(|e| panic!("{b:?}: {e}"));
+            assert_eq!(file_edit_first_field(&call, "oldString"), "if a < b", "{b:?}");
+        }
     }
 
     #[test]
@@ -343,21 +323,15 @@ mod tests {
         let xml = r#"<response>
   <tool_name>file:edit</tool_name>
   <tool_args>
-    <path>x.txt</path>
-    <oldString>if a < b</oldString>
-    <newString>z</newString>
+    <edits><![CDATA[[{"path":"x.txt","oldString":"if a < b","newString":"z"}]]]></edits>
   </tool_args>
 </response>"#;
-        assert!(quick_xml::parse_fragment_with_relax(xml, false).is_err());
-        match quick_xml::parse_fragment_with_relax(xml, true) {
-            Err(_) => {}
-            Ok(call) => {
-                assert_ne!(
-                    call.arguments.get("oldString").map(String::as_str),
-                    Some("if a < b")
-                );
-            }
-        }
+        assert!(quick_xml::parse_fragment_with_relax(xml, false).is_ok());
+        let relaxed = quick_xml::parse_fragment_with_relax(xml, true).expect("relaxed");
+        assert_eq!(
+            file_edit_first_field(&relaxed, "oldString"),
+            "if a < b"
+        );
     }
 
     #[test]
@@ -365,16 +339,14 @@ mod tests {
         let xml = r#"<response>
   <tool_name>file:edit</tool_name>
   <tool_args>
-    <path>x.txt</path>
-    <oldString>foo & bar</oldString>
-    <newString>ok</newString>
+    <edits><![CDATA[[{"path":"x.txt","oldString":"foo & bar","newString":"ok"}]]]></edits>
   </tool_args>
 </response>"#;
         let strict = quick_xml::parse_fragment_with_relax(xml, false).expect("strict");
         let relaxed = quick_xml::parse_fragment_with_relax(xml, true).expect("relaxed");
         assert_eq!(
-            strict.arguments.get("oldString"),
-            relaxed.arguments.get("oldString")
+            file_edit_first_field(&strict, "oldString"),
+            file_edit_first_field(&relaxed, "oldString")
         );
     }
 
@@ -383,93 +355,94 @@ mod tests {
         let xml = r#"<response>
   <tool_name>file:edit</tool_name>
   <tool_args>
-    <path>x.txt</path>
-    <oldString>a > b</oldString>
-    <newString>z</newString>
+    <edits><![CDATA[[{"path":"x.txt","oldString":"a > b","newString":"z"}]]]></edits>
   </tool_args>
 </response>"#;
         for relax in [false, true] {
             let call = quick_xml::parse_fragment_with_relax(xml, relax)
                 .unwrap_or_else(|e| panic!("relax={relax}: {e:?}"));
-            assert_eq!(
-                call.arguments.get("oldString").map(String::as_str),
-                Some("a > b")
-            );
+            assert_eq!(file_edit_first_field(&call, "oldString"), "a > b");
         }
     }
 
     // --- ScraperHtml: `oldString` with nested markup (beyond CDATA) ---
 
-    /// Raw child tags under `<oldString>` are real HTML nodes; the scraper backend only joins
-    /// descendant text nodes, so angle brackets are **not** preserved.
+    /// Markup inside the JSON string value is preserved (not split as HTML child nodes).
     #[test]
-    fn scraper_oldstring_nested_tags_yields_concatenated_text_only() {
+    fn scraper_edits_json_preserves_angle_brackets_in_old_string() {
         let xml = r#"<response>
   <tool_name>file:edit</tool_name>
   <tool_args>
-    <path>src/Foo.vue</path>
-    <oldString>before<span class="x">mid</span>after</oldString>
-    <newString><![CDATA[<div/>]]></newString>
+    <edits><![CDATA[[{"path":"src/Foo.vue","oldString":"before<span class=\"x\">mid</span>after","newString":"<div/>"}]]]></edits>
   </tool_args>
 </response>"#;
         let call = ResponseXmlBackend::ScraperHtml
             .parse_tool_response(xml)
             .expect("scraper parse");
         assert_eq!(call.name, "file:edit");
-        assert_eq!(call.arguments.get("path").map(String::as_str), Some("src/Foo.vue"));
-        assert_eq!(
-            call.arguments.get("oldString").map(String::as_str),
-            Some("beforemidafter")
+        let old = file_edit_first_field(&call, "oldString");
+        assert!(
+            old.contains("<span") && old.contains("</span>") && old.contains("mid"),
+            "expected markup preserved in JSON string, got {old:?}"
         );
-        assert_eq!(
-            call.arguments.get("newString").map(String::as_str),
-            Some("<div/>")
-        );
+        assert_eq!(file_edit_first_field(&call, "newString"), "<div/>");
+        assert_eq!(file_edit_first_field(&call, "path"), "src/Foo.vue");
     }
 
     /// CDATA (pre-escaped for HTML5) keeps full markup string in `oldString`, including nested tags.
     #[test]
     fn scraper_oldstring_cdata_deeply_nested_markup_round_trips() {
-        let xml = r#"<response>
+        let inner = serde_json::json!([{
+            "path": "p",
+            "oldString": "  <div a=\"1\"><span><b>x</b></span></div>  ",
+            "newString": "n"
+        }]);
+        let xml = format!(
+            r#"<response>
   <tool_name>file:edit</tool_name>
   <tool_args>
-    <path>p</path>
-    <oldString><![CDATA[  <div a="1"><span><b>x</b></span></div>  ]]></oldString>
-    <newString>n</newString>
+    <edits><![CDATA[{}]]></edits>
   </tool_args>
-</response>"#;
+</response>"#,
+            inner.to_string()
+        );
         let call = ResponseXmlBackend::ScraperHtml
-            .parse_tool_response(xml)
+            .parse_tool_response(&xml)
             .expect("scraper parse");
-        let old = call.arguments.get("oldString").expect("oldString");
+        let old = file_edit_first_field(&call, "oldString");
         assert!(
             old.contains("<div") && old.contains("</div>") && old.contains("<span>"),
             "expected markup preserved, got {old:?}"
         );
         assert!(old.contains("x"), "text inside nested tags: {old:?}");
-        assert_eq!(call.arguments.get("path").map(String::as_str), Some("p"));
-        assert_eq!(call.arguments.get("newString").map(String::as_str), Some("n"));
+        assert_eq!(file_edit_first_field(&call, "path"), "p");
+        assert_eq!(file_edit_first_field(&call, "newString"), "n");
     }
 
-    /// Another sibling arg after a large CDATA `oldString` must still parse (no swallowed `newString`).
+    /// Large strings in JSON `edits` round-trip without dropping fields.
     #[test]
     fn scraper_oldstring_cdata_then_other_args_complete() {
-        let xml = r#"<response>
+        let inner = serde_json::json!([{
+            "path": "z.ts",
+            "oldString": "<template><p id=\"a\">1</p><p>2</p></template>",
+            "newString": "<template><p>ok</p></template>"
+        }]);
+        let xml = format!(
+            r#"<response>
   <tool_name>file:edit</tool_name>
   <tool_args>
-    <path>z.ts</path>
-    <oldString><![CDATA[<template><p id="a">1</p><p>2</p></template>]]></oldString>
-    <newString><![CDATA[<template><p>ok</p></template>]]></newString>
+    <edits><![CDATA[{}]]></edits>
   </tool_args>
-</response>"#;
+</response>"#,
+            inner.to_string()
+        );
         let call = ResponseXmlBackend::ScraperHtml
-            .parse_tool_response(xml)
+            .parse_tool_response(&xml)
             .expect("scraper parse");
-        assert_eq!(call.arguments.len(), 3);
-        assert_eq!(call.arguments.get("path").map(String::as_str), Some("z.ts"));
-        let old = call.arguments.get("oldString").unwrap();
+        assert_eq!(call.arguments.len(), 1);
+        let old = file_edit_first_field(&call, "oldString");
         assert!(old.contains("<template>") && old.contains("id=\"a\""));
-        let new_s = call.arguments.get("newString").unwrap();
+        let new_s = file_edit_first_field(&call, "newString");
         assert!(new_s.contains("<template>") && new_s.contains("ok"));
     }
 

@@ -744,98 +744,88 @@ fn file_edit_apply_one(root: &Path, path: &str, old_s: &str, new_s: &str) -> Res
 }
 
 fn execute_file_edit_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
-    if let Some(edits_val) = args.get("edits") {
-        if !edits_val.is_array() {
-            return Err(anyhow!("edits 须为对象数组，每项含 path、oldString、newString"));
-        }
-        let arr = edits_val.as_array().expect("is_array checked");
-        if arr.is_empty() {
-            return Err(anyhow!(
-                "edits 至少包含一项；单文件编辑请使用 path、oldString、newString"
-            ));
-        }
-        let has_flat = args
-            .get("path")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .is_some_and(|s| !s.is_empty())
-            || json_str(args, "oldString", "old_string").is_some()
-            || json_str(args, "newString", "new_string").is_some();
-        if has_flat {
-            return Err(anyhow!(
-                "批处理时不要同时传 edits 与顶层的 path、oldString、newString"
-            ));
-        }
-        if arr.len() > MAX_FILE_EDIT_BATCH {
-            return Err(anyhow!(
-                "一次最多应用 {} 处编辑（当前 {}）",
-                MAX_FILE_EDIT_BATCH,
-                arr.len()
-            ));
-        }
-        let entries = parse_file_edit_batch_entries(arr)?;
-        info!(
-            "file:edit batch: {} path(s) under workspace",
-            entries.len()
-        );
-        let mut files: Vec<serde_json::Value> = Vec::with_capacity(entries.len());
-        let mut failures: usize = 0;
-        for (path, old_s, new_s) in entries {
-            match file_edit_apply_one(root, &path, &old_s, &new_s) {
-                Ok(full) => {
-                    files.push(serde_json::json!({
-                        "path": path_display_abs(&full),
-                        "success": true,
-                        "replaced": 1,
-                    }));
-                }
-                Err(e) => {
-                    failures += 1;
-                    warn!("file:edit batch entry failed for {}: {}", path, e);
-                    let disp = resolve_within_workspace_root(root, &path)
-                        .map(|p| path_display_abs(&p))
-                        .unwrap_or_else(|_| path.clone());
-                    files.push(serde_json::json!({
-                        "path": disp,
-                        "success": false,
-                        "error": e.to_string(),
-                    }));
-                }
-            }
-        }
-        let batch_partial_failure = failures > 0;
-        if batch_partial_failure {
-            warn!(
-                "file:edit batch completed with {} failure(s) out of {}",
-                failures,
-                files.len()
-            );
-        }
-        return Ok(serde_json::json!({
-            "files": files,
-            "successCount": files.len() - failures,
-            "failureCount": failures,
-            "batchPartialFailure": batch_partial_failure,
-        })
-        .to_string());
-    }
-
-    let path = args
+    let has_flat = args
         .get("path")
         .and_then(|v| v.as_str())
         .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| anyhow!("缺少 path；多文件编辑请传 edits 数组"))?;
-    let old_s = json_str(args, "oldString", "old_string")
-        .ok_or_else(|| anyhow!("缺少 oldString（或 old_string）"))?;
-    let new_s = json_str(args, "newString", "new_string")
-        .ok_or_else(|| anyhow!("缺少 newString（或 new_string）"))?;
+        .is_some_and(|s| !s.is_empty())
+        || json_str(args, "oldString", "old_string").is_some()
+        || json_str(args, "newString", "new_string").is_some();
 
-    let full = file_edit_apply_one(root, path, old_s, new_s)?;
+    let edits_val = args.get("edits").ok_or_else(|| {
+        anyhow!(
+            "file:edit 仅支持 edits 数组（每项含 path、oldString、newString）；单文件请传仅含一项的 edits 数组"
+        )
+    })?;
+
+    if !edits_val.is_array() {
+        return Err(anyhow!("edits 须为对象数组，每项含 path、oldString、newString"));
+    }
+    let arr = edits_val.as_array().expect("is_array checked");
+
+    if has_flat {
+        return Err(anyhow!(
+            "file:edit 不要同时使用顶层 path、oldString、newString 与 edits；请只使用 edits 数组"
+        ));
+    }
+
+    if arr.is_empty() {
+        return Err(anyhow!(
+            "edits 至少包含一项；单文件编辑请传仅一项的 edits 数组"
+        ));
+    }
+
+    if arr.len() > MAX_FILE_EDIT_BATCH {
+        return Err(anyhow!(
+            "一次最多应用 {} 处编辑（当前 {}）",
+            MAX_FILE_EDIT_BATCH,
+            arr.len()
+        ));
+    }
+
+    let entries = parse_file_edit_batch_entries(arr)?;
+    info!(
+        "file:edit: {} replacement(s) under workspace",
+        entries.len()
+    );
+    let mut files: Vec<serde_json::Value> = Vec::with_capacity(entries.len());
+    let mut failures: usize = 0;
+    for (path, old_s, new_s) in entries {
+        match file_edit_apply_one(root, &path, &old_s, &new_s) {
+            Ok(full) => {
+                files.push(serde_json::json!({
+                    "path": path_display_abs(&full),
+                    "success": true,
+                    "replaced": 1,
+                }));
+            }
+            Err(e) => {
+                failures += 1;
+                warn!("file:edit entry failed for {}: {}", path, e);
+                let disp = resolve_within_workspace_root(root, &path)
+                    .map(|p| path_display_abs(&p))
+                    .unwrap_or_else(|_| path.clone());
+                files.push(serde_json::json!({
+                    "path": disp,
+                    "success": false,
+                    "error": e.to_string(),
+                }));
+            }
+        }
+    }
+    let batch_partial_failure = failures > 0;
+    if batch_partial_failure {
+        warn!(
+            "file:edit completed with {} failure(s) out of {}",
+            failures,
+            files.len()
+        );
+    }
     Ok(serde_json::json!({
-        "path": path_display_abs(&full),
-        "replaced": 1,
-        "success": true
+        "files": files,
+        "successCount": files.len() - failures,
+        "failureCount": failures,
+        "batchPartialFailure": batch_partial_failure,
     })
     .to_string())
 }
@@ -1446,20 +1436,21 @@ mod tests {
     }
 
     #[test]
-    fn file_edit_single_path_still_ok() {
+    fn file_edit_single_entry_edits_ok() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         fs::write(root.join("z.txt"), "foo\n").unwrap();
         let args = json!({
-            "path": "z.txt",
-            "oldString": "foo",
-            "newString": "bar"
+            "edits": [
+                { "path": "z.txt", "oldString": "foo", "newString": "bar" }
+            ]
         });
         let out = execute_file_edit_payload(&args, root).expect("edit");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["success"], true);
-        assert_eq!(v["replaced"], 1);
-        assert!(v["path"].as_str().unwrap().contains("z.txt"));
+        assert_eq!(v["batchPartialFailure"], false);
+        assert_eq!(v["successCount"], 1);
+        let files = v["files"].as_array().unwrap();
+        assert!(files[0]["path"].as_str().unwrap().contains("z.txt"));
         assert_eq!(fs::read_to_string(root.join("z.txt")).unwrap().trim(), "bar");
     }
 
@@ -1477,14 +1468,28 @@ mod tests {
             .to_string();
         abs.push('/');
         let args = json!({
-            "path": abs,
-            "oldString": "foo",
-            "newString": "bar"
+            "edits": [
+                { "path": abs, "oldString": "foo", "newString": "bar" }
+            ]
         });
         let out = execute_file_edit_payload(&args, root).expect("edit");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["success"], true);
+        assert_eq!(v["successCount"], 1);
         assert_eq!(fs::read_to_string(root.join("z.txt")).unwrap().trim(), "bar");
+    }
+
+    #[test]
+    fn file_edit_rejects_flat_only_without_edits() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("z.txt"), "foo\n").unwrap();
+        let args = json!({
+            "path": "z.txt",
+            "oldString": "foo",
+            "newString": "bar"
+        });
+        let err = execute_file_edit_payload(&args, root).unwrap_err();
+        assert!(err.to_string().contains("edits"));
     }
 
     #[test]

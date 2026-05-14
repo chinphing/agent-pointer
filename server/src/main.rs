@@ -97,6 +97,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/chat", post(send_chat))
         .route("/api/chat/:conversation_id/cancel", post(cancel_chat))
+        .route(
+            "/api/chat/:conversation_id/abort-terminal",
+            post(abort_terminal_command),
+        )
         .route("/api/chat/:conversation_id/stream", get(chat_stream))
         .route("/api/tools/:tool_call_id/approve", post(approve_tool_call))
         .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
@@ -269,6 +273,14 @@ async fn cancel_chat(
 ) -> StatusCode {
     state.core.cancel(&conversation_id);
     StatusCode::NO_CONTENT
+}
+
+async fn abort_terminal_command(
+    State(state): State<ServerState>,
+    Path(conversation_id): Path<String>,
+) -> axum::Json<serde_json::Value> {
+    let aborted = state.core.abort_terminal_command(&conversation_id);
+    axum::Json(serde_json::json!({ "aborted": aborted }))
 }
 
 #[derive(Deserialize)]

@@ -7,6 +7,12 @@
 - 在较长对话中减少「做到哪了、凭什么算过」丢失：由宿主维护 **`task_board`** 状态，并在每轮系统上下文中注入 **`[TASK_BOARD]`** 快照（有内容时）。
 - 允许同一轮在跑 **`terminal` / `file` / 桌面工具`** 前，先批量执行白名单 **侧车** 管理调用（首版为 **`task_board`**），而不把根级协议改成「多组并列根 `tool_name`」。
 
+## 工具：`terminal`（取消与强制结束）
+
+- 用户 **停止生成** 或宿主对会话 **`cancel`** 时，正在执行的 **`terminal`** 子进程会被 **终止**（与无输出超时、墙钟上限触发的终止共用同一套子进程清理逻辑；Windows 上对 shell 使用 `taskkill /T /F` 等，见 `crates/pointer-core/src/tools/terminal.rs`）。
+- 工具 JSON 结果中会包含 **`cancelled`: true**（以及流式输出末尾的说明），便于区分「自然退出 / 超时」与「用户中断」。
+- **仅结束终端命令、不停止本轮对话**：宿主可调用 **`AppState::abort_terminal_command(conversation_id)`**（桌面 Tauri 命令 **`abort_terminal_command`**；网页服务端 **`POST /api/chat/:conversation_id/abort-terminal`**，响应体 **`{ "aborted": boolean }`**）。此时子进程同样被清理，但 **`CancellationToken` 不触发**；工具结果里为 **`runAborted`: true**（与 **`cancelled`** 区分）。同一会话在 **`terminal` 执行中** 时，前端工具卡可提供「结束命令」按钮调用该路径。
+
 ## 工具：`task_board`
 
 - 注册名：`task_board`；行为通过 **`task_board:replace`** / **`task_board:patch`**（与 qualified `tool_name` 解析一致）。

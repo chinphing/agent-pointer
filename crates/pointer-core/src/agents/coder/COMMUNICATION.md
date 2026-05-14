@@ -19,7 +19,7 @@ For **read-only** exploration (`file:read`, `file:glob`, `file:grep`, `file:list
 ### `file:edit` and large diffs (success rate)
 
 **Prefer several small, independent patches** over one giant diff.
-Each **`file:edit`** should change **one logical slice** when possible.
+Each **`file:edit`** (or each element of a batch **`edits`** array) should change **one logical slice** when possible.
 Always carry **enough unique context** in **`oldString`**
 (lines before and after the change) so the match is unambiguous.
 
@@ -33,7 +33,7 @@ Use **`file:read`** (with line ranges) to confirm **current text**,
 - If a **single** replacement is **uniquely matchable**, one wider
   **`file:edit`** can be OK.
 - If uniqueness is fragile, **split** into **two or three** regional
-  edits (by function, section, or file area).
+  edits (by function, section, or file area)—either **separate** tool calls or one batch **`edits`** with multiple objects.
 - **Avoid whole-file `file:write`** unless the scope truly requires it
   and the user accepts a large diff—it hides merge conflicts and is
   harder to review.
@@ -45,7 +45,7 @@ Do **not** retry the same failing patch blindly.
 
 ### When `file:read` hits caps or errors
 
-If the tool result includes **`batchCapped`**, **`batchTruncated`**, **`truncated`**, **`error`** on a path, or **file too large** for **`maxBytes`**: **do not** repeat the **same** wide **`paths`** batch. **Split** reads across turns, use **`lineStart`** / **`lineEnd`** or a **smaller `maxBytes`**, **`file:grep`** to locate the right region first, and only then widen reads. If your conclusion depends on truncated or skipped content, say so in **`thoughts`** or the user-facing summary.
+If the tool result includes **`batchCapped`**, **`batchTruncated`**, **`truncated`**, **`error`** on a path, or **file too large** for **`maxBytes`**: **do not** repeat the **same** wide **`paths`** batch. **Split** reads across turns, use **`lineStart`** / **`lineEnd`** (root defaults, or **per path** when that entry is an **object** with its own range), or a **smaller `maxBytes`**, **`file:grep`** to locate the right region first, and only then widen reads. If your conclusion depends on truncated or skipped content, say so in **`thoughts`** or the user-facing summary.
 
 ---
 
@@ -56,7 +56,7 @@ When calling **`file:write`** or **`file:edit`**, put payload fields in **`tool_
 `<`, `>`, **`&`** in the file body are **literals** inside the JSON string).
 You may use **`tool_name`** **`file`** plus a **`method`** field (**`write`** / **`edit`**) instead of **`file:write`** / **`file:edit`**.
 
-### `file:edit` example
+### `file:edit` example (single file)
 
 ```json
 {
@@ -67,6 +67,32 @@ You may use **`tool_name`** **`file`** plus a **`method`** field (**`write`** / 
     "path": "src/App.vue",
     "oldString": "  <div v-if=\"x\">before</div>  ",
     "newString": "  <div v-if=\"x\">after</div>  "
+  }
+}
+```
+
+### `file:edit` example (batch `edits`)
+
+Use **`edits`** when two or more files (or two disjoint regions you still want in one approval step) each need **`path` / `oldString` / `newString`**. Entries apply **in order**; if **`batchPartialFailure`** is true, inspect **`files`** for **`error`** and fix—successful entries are **not** rolled back.
+
+```json
+{
+  "thoughts": "Sync constant rename across two files.",
+  "headline": "Batch edit",
+  "tool_name": "file:edit",
+  "tool_args": {
+    "edits": [
+      {
+        "path": "src/a.ts",
+        "oldString": "export const OLD = 1",
+        "newString": "export const NEW = 1"
+      },
+      {
+        "path": "src/b.ts",
+        "oldString": "import { OLD } from './a'",
+        "newString": "import { NEW } from './a'"
+      }
+    ]
   }
 }
 ```

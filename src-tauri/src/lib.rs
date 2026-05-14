@@ -60,6 +60,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::send_chat,
             commands::cancel_chat,
+            commands::abort_terminal_command,
             commands::approve_tool_call,
             commands::get_settings,
             commands::update_settings,

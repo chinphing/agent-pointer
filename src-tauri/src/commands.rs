@@ -50,6 +50,15 @@ pub fn cancel_chat(state: State<'_, Arc<AppState>>, conversation_id: String) -> 
     Ok(())
 }
 
+/// Kill only the in-flight **`terminal`** subprocess for this conversation (does not stop the LLM turn).
+#[tauri::command]
+pub fn abort_terminal_command(
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+) -> Result<bool, String> {
+    Ok(state.abort_terminal_command(&conversation_id))
+}
+
 #[tauri::command]
 pub fn approve_tool_call(
     state: State<'_, Arc<AppState>>,

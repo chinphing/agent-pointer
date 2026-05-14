@@ -27,6 +27,7 @@ use std::backtrace::Backtrace;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::env;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
@@ -83,6 +84,8 @@ pub struct AppState {
     /// Lifecycle hooks aligned with Python `call_extensions(extension_point, …)`.
     pub extensions: Arc<ExtensionRegistry>,
     pub cancels: Mutex<HashMap<String, CancellationToken>>,
+    /// When set, the in-flight `terminal` tool for that conversation kills its subprocess (host-only; does not cancel the LLM turn).
+    pub terminal_run_abort: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
 }
 
@@ -117,6 +120,7 @@ impl AppState {
             task_board_store,
             extensions: Arc::new(extension_registry),
             cancels: Mutex::new(HashMap::new()),
+            terminal_run_abort: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
         }
     }
@@ -129,6 +133,19 @@ impl AppState {
         for (_, tx) in approvals {
             let _ = tx.send(false);
         }
+    }
+
+    /// Kill only the subprocess for the current **`terminal`** tool in this conversation.
+    /// Does **not** cancel the LLM stream or the rest of the turn. Returns **true** if a run was registered.
+    pub fn abort_terminal_command(&self, conversation_id: &str) -> bool {
+        self.terminal_run_abort
+            .lock()
+            .get(conversation_id)
+            .map(|f| {
+                f.store(true, Ordering::SeqCst);
+                true
+            })
+            .unwrap_or(false)
     }
 
     pub fn approve_tool_call(&self, tool_call_id: &str, approved: bool) -> bool {
@@ -1116,20 +1133,36 @@ async fn run_chat_inner(
             let args_for_desktop_log = args_value.clone();
 
             let exec: Result<(String, bool, Option<String>), anyhow::Error> = if is_terminal {
-                tokio::task::spawn_blocking(move || {
-                    run_terminal_command_streaming(args_value, move |output| {
-                        let _ = stream_for_terminal.send(StreamEvent::TerminalOutputDelta {
-                            message_id: msg_id_for_stream.clone(),
-                            tool_call_id: tc_id_for_stream.clone(),
-                            output: output.to_string(),
-                        });
-                    })
+                let cancel_terminal = cancel.clone();
+                let abort_flag = Arc::new(AtomicBool::new(false));
+                {
+                    let mut m = state.terminal_run_abort.lock();
+                    if let Some(old) = m.insert(conversation_id.to_string(), abort_flag.clone()) {
+                        old.store(true, Ordering::SeqCst);
+                    }
+                }
+                let cleanup_id = conversation_id.to_string();
+                let join = tokio::task::spawn_blocking(move || {
+                    run_terminal_command_streaming(
+                        args_value,
+                        move |output| {
+                            let _ = stream_for_terminal.send(StreamEvent::TerminalOutputDelta {
+                                message_id: msg_id_for_stream.clone(),
+                                tool_call_id: tc_id_for_stream.clone(),
+                                output: output.to_string(),
+                            });
+                        },
+                        Some(cancel_terminal),
+                        Some(abort_flag),
+                    )
                     .map(|r| {
                         let (ok, err_note) = terminal_stream_tool_status(&r);
                         let body = serde_json::json!({
                             "exitCode": r.exit_code,
                             "success": r.success,
                             "timedOut": r.timed_out,
+                            "cancelled": r.cancelled,
+                            "runAborted": r.run_aborted,
                             "durationMs": r.duration_ms,
                             "stdout": r.stdout,
                             "stderr": r.stderr,
@@ -1140,8 +1173,9 @@ async fn run_chat_inner(
                         (body, ok, err_note)
                     })
                 })
-                .await
-                .map_err(|e| anyhow!("终端执行线程异常: {e}"))?
+                .await;
+                state.terminal_run_abort.lock().remove(&cleanup_id);
+                join.map_err(|e| anyhow!("终端执行线程异常: {e}"))?
             } else {
                 state
                     .tools
@@ -2188,20 +2222,36 @@ async fn run_sub_agent(
             let args_for_desktop_log = args_value.clone();
 
             let exec: Result<(String, bool, Option<String>), anyhow::Error> = if is_terminal {
-                tokio::task::spawn_blocking(move || {
-                    run_terminal_command_streaming(args_value, move |output| {
-                        let _ = stream_for_terminal.send(StreamEvent::TerminalOutputDelta {
-                            message_id: msg_id_for_stream.clone(),
-                            tool_call_id: tc_id_for_stream.clone(),
-                            output: output.to_string(),
-                        });
-                    })
+                let cancel_terminal = cancel.clone();
+                let abort_flag = Arc::new(AtomicBool::new(false));
+                {
+                    let mut m = state.terminal_run_abort.lock();
+                    if let Some(old) = m.insert(conversation_id.to_string(), abort_flag.clone()) {
+                        old.store(true, Ordering::SeqCst);
+                    }
+                }
+                let cleanup_id = conversation_id.to_string();
+                let join = tokio::task::spawn_blocking(move || {
+                    run_terminal_command_streaming(
+                        args_value,
+                        move |output| {
+                            let _ = stream_for_terminal.send(StreamEvent::TerminalOutputDelta {
+                                message_id: msg_id_for_stream.clone(),
+                                tool_call_id: tc_id_for_stream.clone(),
+                                output: output.to_string(),
+                            });
+                        },
+                        Some(cancel_terminal),
+                        Some(abort_flag),
+                    )
                     .map(|r| {
                         let (ok, err_note) = terminal_stream_tool_status(&r);
                         let body = serde_json::json!({
                             "exitCode": r.exit_code,
                             "success": r.success,
                             "timedOut": r.timed_out,
+                            "cancelled": r.cancelled,
+                            "runAborted": r.run_aborted,
                             "durationMs": r.duration_ms,
                             "stdout": r.stdout,
                             "stderr": r.stderr,
@@ -2212,8 +2262,9 @@ async fn run_sub_agent(
                         (body, ok, err_note)
                     })
                 })
-                .await
-                .map_err(|e| anyhow!("终端执行线程异常: {e}"))?
+                .await;
+                state.terminal_run_abort.lock().remove(&cleanup_id);
+                join.map_err(|e| anyhow!("终端执行线程异常: {e}"))?
             } else {
                 state
                     .tools

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
-  sendChat, cancelChat, approveToolCall, onStream,
+  sendChat, cancelChat, abortTerminalCommand, approveToolCall, onStream,
   loadConversations, saveConversations
 } from '../lib/api'
 import type { ChatMessage, Conversation, StreamEvent, ToolCall } from '../types/chat'
@@ -451,6 +451,11 @@ export const useChatStore = defineStore('chat', () => {
     generating.value = false
   }
 
+  async function abortTerminalOnly() {
+    if (!current.value) return
+    await abortTerminalCommand(current.value.id).catch(e => console.error(e))
+  }
+
   async function retry() {
     if (!current.value) return
     const conv = current.value
@@ -496,6 +501,6 @@ export const useChatStore = defineStore('chat', () => {
   return {
     conversations, currentId, current, generating, uiToast,
     init, newConversation, selectConversation, deleteConversation,
-    sendUserMessage, stop, retry, approve, undo
+    sendUserMessage, stop, abortTerminalOnly, retry, approve, undo
   }
 })

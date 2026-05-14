@@ -4,9 +4,9 @@ Unified workspace file tools. Prefer **qualified names** in JSON **`tool_name`**
 
 **Relative paths** resolve under the workspace root (`workspaceRoot` in settings, or the process working directory). Do not use `..` to escape the workspace on relative paths. **`file:write`** and **`file:edit`** only accept workspace-relative paths and may require user approval. For **read-only** methods (**`file:read`**, **`file:glob`**, **`file:grep`**, **`file:list`**), you may use **absolute** paths to inspect another project when the user asks.
 
-**Batch reads:** If you already know **two or more** file paths, use **`file:read`** with **`paths`** (array) in one call — not multiple reads with **`path`**.
+**Batch reads:** If you already know **two or more** file paths, use **`file:read`** with **`paths`** (array) in one call — not multiple reads with **`path`**. Each element may be a **string path** (shared root defaults below) or an **object** with its own **`path`** plus optional **`lineStart`** / **`lineEnd`** / **`maxBytes`** so regions can differ per file in one batch.
 
-**Context discipline:** Each batch returns **full file bodies** (after **`lineStart`** / **`lineEnd`** / **`maxBytes`**). Filling **`paths`** with many large files can **overflow the model context** even when under the hard file count. Prefer **narrow batches** (only files you must see together), use **`file:grep`** first, use **`lineStart`** / **`lineEnd`** on huge files, lower **`maxBytes`** when a snippet is enough, or **split across multiple** **`file:read`** turns. The runtime also enforces a **combined `content` budget** per batch (see **`maxTotalBytes`**).
+**Context discipline:** Each batch returns **full file bodies** (after per-path or root **`lineStart`** / **`lineEnd`** / **`maxBytes`**). Filling **`paths`** with many large files can **overflow the model context** even when under the hard file count. Prefer **narrow batches** (only files you must see together), use **`file:grep`** first, use **`lineStart`** / **`lineEnd`** on huge files, lower **`maxBytes`** when a snippet is enough, or **split across multiple** **`file:read`** turns. The runtime also enforces a **combined `content` budget** per batch (see **`maxTotalBytes`**).
 
 #### Methods
 
@@ -14,7 +14,7 @@ Unified workspace file tools. Prefer **qualified names** in JSON **`tool_name`**
 |--------|---------|
 | **`file:read`** | Read UTF-8 text; single file or batch. With `paths`, response shape includes a `files` array. |
 | **`file:write`** | Create or overwrite a file (workspace-relative `path` only). |
-| **`file:edit`** | Replace one unique substring in a file (workspace-relative `path` only). |
+| **`file:edit`** | Replace one unique substring per file: single file (`path` + `oldString` + `newString`) or batch (`edits` array, max **32** entries). |
 | **`file:glob`** | List files matching a glob under the search root (workspace root or optional `base`). |
 | **`file:grep`** | Search file contents with a regex. |
 | **`file:list`** | List directory entries; optional recursion, max depth, and file/directory filter. |
@@ -28,10 +28,10 @@ All keys below are **JSON properties** on the root **`tool_args`** object of you
 **`file:read`**
 
 - **`path`** — Path to one file (relative to workspace, or absolute for read-only). Use when reading a single file.
-- **`paths`** — Array of paths (max **32** per call). Prefer when you already know two or more paths. Response groups results under `files`, and includes **`maxTotalBytes`**, **`contentBytes`**, and **`batchCapped`** (see below).
-- **`lineStart`** — Optional; 1-based first line to include. Default: start of file.
-- **`lineEnd`** — Optional; 1-based **exclusive** end line (same convention as typical slice end).
-- **`maxBytes`** — Optional; max bytes read per file (default **262144**, 256 KiB).
+- **`paths`** — Array (max **32** entries per call). Each entry is either a **string** (path only; uses root **`lineStart`** / **`lineEnd`** / **`maxBytes`** defaults) or an **object** with **`path`** (alias **`file`**) and optional **`lineStart`** / **`lineEnd`** / **`maxBytes`** (aliases **`line_start`**, **`line_end`**, **`max_bytes`**) for that entry only—omit a field on the object to inherit the root default for that field. Strings and objects may be **mixed** in one array. Response groups results under `files`, and includes **`maxTotalBytes`**, **`contentBytes`**, and **`batchCapped`** (see below).
+- **`lineStart`** — Optional (root default for batch string entries and single **`path`**); 1-based first line to include. Default: start of file. Alias **`line_start`**.
+- **`lineEnd`** — Optional (root default); 1-based **exclusive** end line (same convention as typical slice end). Alias **`line_end`**.
+- **`maxBytes`** — Optional (root default); max bytes read per file (default **262144**, 256 KiB). Alias **`max_bytes`**.
 - **`maxTotalBytes`** — **Batch (`paths`) only.** Cap on the combined UTF-8 length of all returned **`content`** strings in this response. Default **1048576** (1 MiB) when omitted; hard maximum **4194304** (4 MiB). Explicit values are clamped to at least **1** byte. If the cap is hit, the tool may **truncate** the last file that fits (see **`batchTruncated`** on that entry) and/or return **`error`** placeholders for paths not read—check **`batchCapped`** on the root object.
 
 **`file:write`**
@@ -41,9 +41,10 @@ All keys below are **JSON properties** on the root **`tool_args`** object of you
 
 **`file:edit`**
 
-- **`path`** — Relative path to an existing file (workspace only).
-- **`oldString`** — Exact snippet to find and replace; must occur **exactly once** in the file. JSON **string** in **`tool_args`**; any `<`, `>`, `&`, or markup are literal characters inside that string—only JSON’s own escaping rules apply. The runtime also accepts the alias **`old_string`**.
-- **`newString`** — Replacement text as a JSON **string** in **`tool_args`**; same escaping rules as **`oldString`**. Alias **`new_string`** is accepted.
+- **`path`** — Relative path to an existing file (workspace only). Use with **`oldString`** and **`newString`** for a **single-file** edit.
+- **`oldString`** — Exact snippet to find and replace; must occur **exactly once** in that file. JSON **string**; the runtime also accepts **`old_string`**.
+- **`newString`** — Replacement text as a JSON **string**; same escaping rules as **`oldString`**. Alias **`new_string`**.
+- **`edits`** — **Batch mode:** non-empty array (max **32**) of objects. Each object requires **`path`** (alias **`file`**), **`oldString`** / **`old_string`**, **`newString`** / **`new_string`**. Do **not** combine **`edits`** with top-level **`path`** / **`oldString`** / **`newString`** in the same call. Entries are applied **in order**; later entries see disk state after earlier ones (including two patches to the **same** path). Response includes **`files`** (each with **`success`**, **`path`**, and either **`replaced`** or **`error`**), **`successCount`**, **`failureCount`**, and **`batchPartialFailure`** (true if any entry failed). Failed entries do **not** roll back earlier successful writes in the same batch—re-read and fix, or follow up with corrective edits.
 
 **`file:glob`**
 
@@ -81,6 +82,54 @@ Use a real JSON array for **`paths`** inside **`tool_args`**.
   "tool_args": {
     "paths": ["crates/foo/src/lib.rs", "crates/foo/src/main.rs"],
     "lineStart": 1
+  }
+}
+```
+
+#### JSON example — `file:read` batch with **per-file** line ranges
+
+Root **`lineStart`** / **`lineEnd`** still apply to **string** entries. **Object** entries may override **`lineStart`**, **`lineEnd`**, and **`maxBytes`** for that path only.
+
+```json
+{
+  "thoughts": "Read the header of lib.rs and a middle slice of main.rs.",
+  "headline": "Batch read with ranges",
+  "tool_name": "file:read",
+  "tool_args": {
+    "lineStart": 1,
+    "lineEnd": 40,
+    "paths": [
+      "crates/foo/src/lib.rs",
+      {
+        "path": "crates/foo/src/main.rs",
+        "lineStart": 80,
+        "lineEnd": 120
+      }
+    ]
+  }
+}
+```
+
+#### JSON example — `file:edit` batch (`edits`)
+
+```json
+{
+  "thoughts": "Rename symbol in two modules.",
+  "headline": "Batch edit",
+  "tool_name": "file:edit",
+  "tool_args": {
+    "edits": [
+      {
+        "path": "src/a.ts",
+        "oldString": "export const OLD = 1",
+        "newString": "export const NEW = 1"
+      },
+      {
+        "path": "src/b.ts",
+        "oldString": "import { OLD } from './a'",
+        "newString": "import { NEW } from './a'"
+      }
+    ]
   }
 }
 ```

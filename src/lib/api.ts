@@ -31,6 +31,8 @@ export interface SendChatPayload {
 export interface RuntimeApi {
   sendChat(payload: SendChatPayload): Promise<string | void>
   cancelChat(conversationId: string): Promise<void>
+  /** Stops only the in-flight `terminal` subprocess; the chat turn continues. */
+  abortTerminalCommand(conversationId: string): Promise<boolean>
   approveToolCall(conversationId: string, toolCallId: string, approved: boolean): Promise<void>
   getSettings(): Promise<ModelSettings>
   updateSettings(settings: ModelSettings): Promise<ModelSettings>
@@ -55,6 +57,7 @@ export const api: RuntimeApi = isTauriRuntime() ? tauriApi : webApi
 
 export const sendChat = api.sendChat
 export const cancelChat = api.cancelChat
+export const abortTerminalCommand = api.abortTerminalCommand
 export const approveToolCall = api.approveToolCall
 export const getSettings = api.getSettings
 export const updateSettings = api.updateSettings

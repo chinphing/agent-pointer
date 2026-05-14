@@ -1,12 +1,15 @@
 use super::{ToolEntry, ToolHandler, ToolRegistry};
 use crate::storage;
 use anyhow::{anyhow, Result};
+use log::warn;
 use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, Instant};
+use tokio_util::sync::CancellationToken;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -87,7 +90,7 @@ fn run_terminal_command(args: serde_json::Value) -> Result<String> {
         .min(TERMINAL_MAX_OUTPUT_BYTES as u64) as usize;
     let (shell, _) = terminal_shell_command(&command);
 
-    let r = run_terminal_command_streaming(args, |_| {})?;
+    let r = run_terminal_command_streaming(args, |_| {}, None, None)?;
 
     Ok(serde_json::json!({
         "command": command.as_str(),
@@ -96,6 +99,8 @@ fn run_terminal_command(args: serde_json::Value) -> Result<String> {
         "exitCode": r.exit_code,
         "success": r.success,
         "timedOut": r.timed_out,
+        "cancelled": r.cancelled,
+        "runAborted": r.run_aborted,
         "durationMs": r.duration_ms,
         "stdout": r.stdout,
         "stderr": r.stderr,
@@ -110,6 +115,10 @@ pub struct TerminalStreamingResult {
     pub exit_code: Option<i32>,
     pub success: bool,
     pub timed_out: bool,
+    /// User stopped the assistant turn (or equivalent cancel token fired).
+    pub cancelled: bool,
+    /// Host requested abort of this terminal run only (conversation still active).
+    pub run_aborted: bool,
     pub duration_ms: u64,
     pub stdout: String,
     pub stderr: String,
@@ -117,9 +126,14 @@ pub struct TerminalStreamingResult {
     pub stderr_truncated: bool,
 }
 
+/// Run a terminal command with optional cooperative cancel.
+/// - `cancel`: whole turn stopped (e.g. user "stop generation").
+/// - `run_abort`: only this subprocess should stop (`Arc<AtomicBool>` set by host).
 pub fn run_terminal_command_streaming(
     args: serde_json::Value,
     on_output: impl Fn(&str) + Send,
+    cancel: Option<CancellationToken>,
+    run_abort: Option<Arc<AtomicBool>>,
 ) -> Result<TerminalStreamingResult> {
     let command = args
         .get("command")
@@ -133,6 +147,11 @@ pub fn run_terminal_command_streaming(
         .and_then(|v| v.as_u64())
         .unwrap_or(TERMINAL_DEFAULT_TIMEOUT_MS)
         .clamp(1_000, TERMINAL_MAX_TIMEOUT_MS);
+    let wall_cap_ms = args
+        .get("maxWallMs")
+        .and_then(|v| v.as_u64())
+        .map(|v| v.clamp(1_000, TERMINAL_ABS_MAX_WALL_MS))
+        .unwrap_or(TERMINAL_ABS_MAX_WALL_MS);
     let max_output_bytes = args
         .get("maxOutputBytes")
         .and_then(|v| v.as_u64())
@@ -167,6 +186,8 @@ pub fn run_terminal_command_streaming(
     let mut stdout_buf = String::new();
     let mut stderr_buf = String::new();
     let mut timed_out = false;
+    let mut cancelled = false;
+    let mut run_aborted = false;
     let status = loop {
         while let Ok(chunk) = rx.try_recv() {
             last_output_at = Instant::now();
@@ -186,12 +207,35 @@ pub fn run_terminal_command_streaming(
             break status;
         }
 
-        if started.elapsed() >= Duration::from_millis(TERMINAL_ABS_MAX_WALL_MS) {
+        if cancel.as_ref().is_some_and(|c| c.is_cancelled()) {
+            cancelled = true;
+            warn!("terminal: session cancelled; killing child process tree");
+            kill_terminal_child_tree_best_effort(&mut child);
+            let status = child.wait()?;
+            drain_pipe_chunks(&rx, &mut stdout_buf, &mut stderr_buf, &on_output);
+            on_output("\n进程已因会话取消被终止\n");
+            break status;
+        }
+
+        if run_abort
+            .as_ref()
+            .is_some_and(|a| a.load(Ordering::SeqCst))
+        {
+            run_aborted = true;
+            warn!("terminal: run-only abort; killing child process tree");
+            kill_terminal_child_tree_best_effort(&mut child);
+            let status = child.wait()?;
+            drain_pipe_chunks(&rx, &mut stdout_buf, &mut stderr_buf, &on_output);
+            on_output("\n进程已由宿主仅终止当前终端命令\n");
+            break status;
+        }
+
+        if started.elapsed() >= Duration::from_millis(wall_cap_ms) {
             timed_out = true;
             kill_terminal_child_tree_best_effort(&mut child);
             let status = child.wait()?;
             drain_pipe_chunks(&rx, &mut stdout_buf, &mut stderr_buf, &on_output);
-            on_output("\n进程已超时（总运行时间已达 1 小时上限），已终止执行\n");
+            on_output("\n进程已超时（达到墙钟上限），已终止执行\n");
             break status;
         }
 
@@ -215,8 +259,10 @@ pub fn run_terminal_command_streaming(
 
     Ok(TerminalStreamingResult {
         exit_code: status.code(),
-        success: status.success() && !timed_out,
+        success: status.success() && !timed_out && !cancelled && !run_aborted,
         timed_out,
+        cancelled,
+        run_aborted,
         duration_ms,
         stdout,
         stderr,
@@ -314,6 +360,12 @@ fn terminal_shell_command(command: &str) -> (&'static str, Command) {
 
 /// Tool-call UI: timeout always fails; otherwise `Some(0)` ⇒ success.
 pub fn terminal_stream_tool_status(r: &TerminalStreamingResult) -> (bool, Option<String>) {
+    if r.cancelled {
+        return (false, Some("命令已因会话取消被终止".to_string()));
+    }
+    if r.run_aborted {
+        return (false, Some("命令已由宿主终止（仅结束当前终端）".to_string()));
+    }
     if r.timed_out {
         return (false, Some("命令执行超时".to_string()));
     }

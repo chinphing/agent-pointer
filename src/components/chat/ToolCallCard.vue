@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onUnmounted } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Wrench, ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, ShieldAlert, Check, X } from 'lucide-vue-next'
 import type { ToolCall } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
@@ -45,6 +45,8 @@ type TerminalResult = {
   stderr?: string
   exitCode?: number | null
   timedOut?: boolean
+  cancelled?: boolean
+  runAborted?: boolean
 }
 
 const terminalResult = computed<TerminalResult | null>(() => {
@@ -72,6 +74,8 @@ const terminalMeta = computed(() => {
   const items = []
   if (typeof result.exitCode !== 'undefined' && result.exitCode !== null) items.push(`exit ${result.exitCode}`)
   if (result.timedOut) items.push('timeout')
+  if (result.runAborted) items.push('已结束命令')
+  if (result.cancelled) items.push('已停止')
   return items.join(' · ')
 })
 
@@ -80,6 +84,7 @@ const effectiveStatus = computed(() => {
   if (!isTerminal.value || props.toolCall.status !== 'success') return props.toolCall.status
   const r = terminalResult.value
   if (r?.timedOut === true) return 'failed' as ToolCall['status']
+  if (r?.runAborted === true || r?.cancelled === true) return 'failed' as ToolCall['status']
   const code = r?.exitCode
   if (typeof code === 'number' && code !== 0) return 'failed' as ToolCall['status']
   return props.toolCall.status
@@ -98,6 +103,10 @@ const statusInfo = computed(() => {
 
 function approve(ok: boolean) {
   chat.approve(props.toolCall, ok)
+}
+
+function abortTerminalOnly() {
+  chat.abortTerminalOnly()
 }
 </script>
 
@@ -127,10 +136,16 @@ function approve(ok: boolean) {
         <div>
           <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500 mb-1">
             <span>执行命令</span>
+            <button
+              v-if="effectiveStatus === 'running'"
+              type="button"
+              class="normal-case tracking-normal h-6 px-2 rounded-md bg-danger/15 hover:bg-danger/25 text-danger text-[11px] cursor-pointer transition"
+              @click.stop="abortTerminalOnly"
+            >结束命令</button>
           </div>
           <pre class="text-[12px] bg-black/60 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-green-400 font-mono">{{ terminalCommand || '—' }}</pre>
         </div>
-        <div v-if="toolCall.result">
+        <div v-if="toolCall.result || toolCall.terminalOutput">
           <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500 mb-1">
             <span>控制台输出</span>
             <span v-if="terminalMeta" class="normal-case tracking-normal">{{ terminalMeta }}</span>

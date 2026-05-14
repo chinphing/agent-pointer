@@ -17,6 +17,8 @@ const FILE_MD: &str = include_str!("prompts/file.md");
 const MAX_FILE_READ_BYTES: usize = 256 * 1024;
 /// Max files per `file` read batch (`paths`). **Keep in sync** with `prompts/file.md` Parameters section.
 const MAX_FILE_READ_BATCH: usize = 32;
+/// Max entries per `file:edit` batch (`edits`). **Keep in sync** with `prompts/file.md` Parameters section.
+const MAX_FILE_EDIT_BATCH: usize = 32;
 /// Default cap on combined UTF-8 length of all `content` fields in one `paths` batch (assistant context).
 /// **Keep in sync** with `prompts/file.md` (`maxTotalBytes`).
 const MAX_FILE_READ_BATCH_TOTAL_BYTES_DEFAULT: usize = 1024 * 1024;
@@ -320,54 +322,50 @@ fn utf8_byte_prefix(s: &str, max_bytes: usize) -> &str {
 
 /// Core logic for `file_read` (single `path` or batch `paths`). Used by tests with an explicit root.
 fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result<String> {
-    let line_start = args
-        .get("lineStart")
-        .and_then(|v| v.as_u64())
+    let line_start = json_u64_opt(args, "lineStart", "line_start")
         .unwrap_or(1)
         .max(1) as usize;
     // lineEnd: 1-based exclusive (与 Rust range 一致：读到「该行之前」)。缺省读到文件末尾。
-    let line_end_exclusive = args
-        .get("lineEnd")
-        .and_then(|v| v.as_u64())
-        .map(|n| n.max(1) as usize);
+    let line_end_exclusive = json_u64_opt(args, "lineEnd", "line_end").map(|n| n.max(1) as usize);
     let max_bytes = args
         .get("maxBytes")
+        .or_else(|| args.get("max_bytes"))
         .and_then(|v| v.as_u64())
         .unwrap_or(MAX_FILE_READ_BYTES as u64)
         .min(MAX_FILE_READ_BYTES as u64) as usize;
 
-    let paths_from_array: Option<Vec<String>> = match args.get("paths") {
+    let batch_specs: Option<Vec<BatchReadSpec>> = match args.get("paths") {
         None => None,
         Some(v) => {
             let arr = v
                 .as_array()
-                .ok_or_else(|| anyhow!("paths 须为字符串数组"))?;
-            Some(
-                arr.iter()
-                    .filter_map(|x| x.as_str().map(str::trim))
-                    .filter(|s| !s.is_empty())
-                    .map(String::from)
-                    .collect(),
-            )
+                .ok_or_else(|| anyhow!("paths 须为字符串数组或对象数组"))?;
+            Some(parse_file_read_batch_paths(
+                arr,
+                line_start,
+                line_end_exclusive,
+                max_bytes,
+            )?)
         }
     };
 
-    let use_batch = paths_from_array
+    let use_batch = batch_specs
         .as_ref()
         .map(|p| !p.is_empty())
         .unwrap_or(false);
 
     if use_batch {
-        let paths = paths_from_array.unwrap_or_default();
-        if paths.len() > MAX_FILE_READ_BATCH {
+        let specs = batch_specs.unwrap_or_default();
+        if specs.len() > MAX_FILE_READ_BATCH {
             return Err(anyhow!(
                 "一次最多读取 {} 个文件（当前 {}）",
                 MAX_FILE_READ_BATCH,
-                paths.len()
+                specs.len()
             ));
         }
         let max_total_bytes = args
             .get("maxTotalBytes")
+            .or_else(|| args.get("max_total_bytes"))
             .and_then(|v| v.as_u64())
             .map(|n| {
                 (n as usize)
@@ -379,19 +377,25 @@ fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result<String> {
         let mut content_bytes: usize = 0;
         let mut batch_capped = false;
         let mut budget_done = false;
-        let mut files: Vec<serde_json::Value> = Vec::with_capacity(paths.len());
+        let mut files: Vec<serde_json::Value> = Vec::with_capacity(specs.len());
 
-        for p in &paths {
+        for spec in &specs {
             if budget_done || content_bytes >= max_total_bytes {
                 files.push(serde_json::json!({
-                    "path": p,
-                    "error": "未读取：本批正文已达 maxTotalBytes 上限。请减少 paths、使用 lineStart/lineEnd、降低 maxBytes，或拆成多次 file:read。",
+                    "path": spec.path,
+                    "error": "未读取：本批正文已达 maxTotalBytes 上限。请减少 paths、为各 path 设置 lineStart/lineEnd、降低 maxBytes，或拆成多次 file:read。",
                 }));
                 batch_capped = true;
                 continue;
             }
 
-            let mut v = file_read_one_json(root, p, line_start, line_end_exclusive, max_bytes);
+            let mut v = file_read_one_json(
+                root,
+                &spec.path,
+                spec.line_start,
+                spec.line_end_exclusive,
+                spec.max_bytes,
+            );
 
             if v.get("error").is_some() {
                 files.push(v);
@@ -413,9 +417,9 @@ fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result<String> {
             let budget = max_total_bytes.saturating_sub(content_bytes);
             if budget < MIN_BATCH_TRUNCATE_REMAINING {
                 files.push(serde_json::json!({
-                    "path": p,
+                    "path": spec.path,
                     "error": format!(
-                        "本批剩余空间过小（{} 字节），无法容纳此文件正文。请提高 maxTotalBytes、减少 paths，或改用 lineStart/lineEnd。",
+                        "本批剩余空间过小（{} 字节），无法容纳此文件正文。请提高 maxTotalBytes、减少 paths，或为各 path 设置 lineStart/lineEnd。",
                         budget
                     ),
                 }));
@@ -521,19 +525,118 @@ fn json_str<'a>(args: &'a serde_json::Value, camel: &str, snake: &str) -> Option
         .or_else(|| args.get(snake).and_then(|v| v.as_str()))
 }
 
-fn execute_file_edit_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
-    let path = args
-        .get("path")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("缺少 path"))?;
-    let old_s = json_str(args, "oldString", "old_string")
-        .ok_or_else(|| anyhow!("缺少 oldString（或 old_string）"))?;
-    let new_s = json_str(args, "newString", "new_string")
-        .ok_or_else(|| anyhow!("缺少 newString（或 new_string）"))?;
+fn json_u64_opt(args: &serde_json::Value, camel: &str, snake: &str) -> Option<u64> {
+    args.get(camel)
+        .and_then(|v| v.as_u64())
+        .or_else(|| args.get(snake).and_then(|v| v.as_u64()))
+}
+
+/// One entry in a `file:read` batch (`paths` array).
+#[derive(Debug, Clone)]
+struct BatchReadSpec {
+    path: String,
+    line_start: usize,
+    line_end_exclusive: Option<usize>,
+    max_bytes: usize,
+}
+
+/// `paths` may be string paths (shared defaults) or objects `{ path, lineStart?, lineEnd?, maxBytes? }`.
+fn parse_file_read_batch_paths(
+    arr: &[serde_json::Value],
+    default_line_start: usize,
+    default_line_end_exclusive: Option<usize>,
+    default_max_bytes: usize,
+) -> Result<Vec<BatchReadSpec>> {
+    let mut out = Vec::new();
+    for elem in arr {
+        match elem {
+            serde_json::Value::String(s) => {
+                let p = s.trim();
+                if p.is_empty() {
+                    continue;
+                }
+                out.push(BatchReadSpec {
+                    path: p.to_string(),
+                    line_start: default_line_start,
+                    line_end_exclusive: default_line_end_exclusive,
+                    max_bytes: default_max_bytes,
+                });
+            }
+            serde_json::Value::Object(_) => {
+                let path = json_str(elem, "path", "file")
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| {
+                        anyhow!("paths 中每个对象须包含非空 path（可使用别名 file）")
+                    })?;
+                let line_start = match elem.get("lineStart").or_else(|| elem.get("line_start")) {
+                    None => default_line_start,
+                    Some(serde_json::Value::Null) => 1,
+                    Some(v) => v
+                        .as_u64()
+                        .ok_or_else(|| anyhow!("paths 对象中的 lineStart 须为 JSON 无符号整数"))?
+                        .max(1) as usize,
+                };
+                let line_end_exclusive = match elem.get("lineEnd").or_else(|| elem.get("line_end")) {
+                    None => default_line_end_exclusive,
+                    Some(serde_json::Value::Null) => None,
+                    Some(v) => Some(
+                        v.as_u64()
+                            .ok_or_else(|| anyhow!("paths 对象中的 lineEnd 须为 JSON 无符号整数"))?
+                            .max(1) as usize,
+                    ),
+                };
+                let max_bytes = match elem.get("maxBytes").or_else(|| elem.get("max_bytes")) {
+                    None => default_max_bytes,
+                    Some(v) => v
+                        .as_u64()
+                        .ok_or_else(|| anyhow!("paths 对象中的 maxBytes 须为 JSON 无符号整数"))?
+                        .min(MAX_FILE_READ_BYTES as u64) as usize,
+                };
+                out.push(BatchReadSpec {
+                    path: path.to_string(),
+                    line_start,
+                    line_end_exclusive,
+                    max_bytes,
+                });
+            }
+            _ => {
+                return Err(anyhow!(
+                    "paths 须为字符串数组，或包含 path 的对象数组（可混用字符串与对象）"
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
+fn parse_file_edit_batch_entries(arr: &[serde_json::Value]) -> Result<Vec<(String, String, String)>> {
+    let mut out = Vec::with_capacity(arr.len());
+    for (i, elem) in arr.iter().enumerate() {
+        if !elem.is_object() {
+            return Err(anyhow!(
+                "edits[{}] 须为 JSON 对象（含 path、oldString、newString）",
+                i
+            ));
+        }
+        let path = json_str(elem, "path", "file")
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow!("edits[{}] 缺少非空 path（可使用别名 file）", i))?;
+        let old_s = json_str(elem, "oldString", "old_string")
+            .ok_or_else(|| anyhow!("edits[{}] 缺少 oldString（或 old_string）", i))?;
+        let new_s = json_str(elem, "newString", "new_string")
+            .ok_or_else(|| anyhow!("edits[{}] 缺少 newString（或 new_string）", i))?;
+        out.push((path.to_string(), old_s.to_string(), new_s.to_string()));
+    }
+    Ok(out)
+}
+
+/// One `file:edit` replace (workspace-relative `path` only). Returns resolved path on success.
+fn file_edit_apply_one(root: &Path, path: &str, old_s: &str, new_s: &str) -> Result<PathBuf> {
     if old_s.is_empty() {
         return Err(anyhow!("oldString 不能为空"));
     }
-
     let full = resolve_within_workspace_root(root, path)?;
     if !full.is_file() {
         return Err(anyhow!("不是文件: {}", full.display()));
@@ -541,6 +644,95 @@ fn execute_file_edit_payload(args: &serde_json::Value, root: &Path) -> Result<St
     let text = fs::read_to_string(&full).map_err(|e| anyhow!("读取失败: {e}"))?;
     let updated = try_unique_text_replace(&text, old_s, new_s)?;
     fs::write(&full, updated.as_bytes()).map_err(|e| anyhow!("写入失败: {e}"))?;
+    Ok(full)
+}
+
+fn execute_file_edit_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
+    if let Some(edits_val) = args.get("edits") {
+        if !edits_val.is_array() {
+            return Err(anyhow!("edits 须为对象数组，每项含 path、oldString、newString"));
+        }
+        let arr = edits_val.as_array().expect("is_array checked");
+        if arr.is_empty() {
+            return Err(anyhow!(
+                "edits 至少包含一项；单文件编辑请使用 path、oldString、newString"
+            ));
+        }
+        let has_flat = args
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .is_some_and(|s| !s.is_empty())
+            || json_str(args, "oldString", "old_string").is_some()
+            || json_str(args, "newString", "new_string").is_some();
+        if has_flat {
+            return Err(anyhow!(
+                "批处理时不要同时传 edits 与顶层的 path、oldString、newString"
+            ));
+        }
+        if arr.len() > MAX_FILE_EDIT_BATCH {
+            return Err(anyhow!(
+                "一次最多应用 {} 处编辑（当前 {}）",
+                MAX_FILE_EDIT_BATCH,
+                arr.len()
+            ));
+        }
+        let entries = parse_file_edit_batch_entries(arr)?;
+        info!(
+            "file:edit batch: {} workspace-relative path(s)",
+            entries.len()
+        );
+        let mut files: Vec<serde_json::Value> = Vec::with_capacity(entries.len());
+        let mut failures: usize = 0;
+        for (path, old_s, new_s) in entries {
+            match file_edit_apply_one(root, &path, &old_s, &new_s) {
+                Ok(full) => {
+                    files.push(serde_json::json!({
+                        "path": full.display().to_string(),
+                        "success": true,
+                        "replaced": 1,
+                    }));
+                }
+                Err(e) => {
+                    failures += 1;
+                    warn!("file:edit batch entry failed for {}: {}", path, e);
+                    files.push(serde_json::json!({
+                        "path": path,
+                        "success": false,
+                        "error": e.to_string(),
+                    }));
+                }
+            }
+        }
+        let batch_partial_failure = failures > 0;
+        if batch_partial_failure {
+            warn!(
+                "file:edit batch completed with {} failure(s) out of {}",
+                failures,
+                files.len()
+            );
+        }
+        return Ok(serde_json::json!({
+            "files": files,
+            "successCount": files.len() - failures,
+            "failureCount": failures,
+            "batchPartialFailure": batch_partial_failure,
+        })
+        .to_string());
+    }
+
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow!("缺少 path；多文件编辑请传 edits 数组"))?;
+    let old_s = json_str(args, "oldString", "old_string")
+        .ok_or_else(|| anyhow!("缺少 oldString（或 old_string）"))?;
+    let new_s = json_str(args, "newString", "new_string")
+        .ok_or_else(|| anyhow!("缺少 newString（或 new_string）"))?;
+
+    let full = file_edit_apply_one(root, path, old_s, new_s)?;
     Ok(serde_json::json!({
         "path": full.display().to_string(),
         "replaced": 1,
@@ -1002,12 +1194,132 @@ mod tests {
     }
 
     #[test]
+    fn file_read_batch_per_path_line_ranges() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("a.txt"), "l1\nl2\nl3\nl4\n").unwrap();
+        fs::write(root.join("b.txt"), "a\nb\nc\nd\ne\n").unwrap();
+
+        let args = json!({
+            "paths": [
+                { "path": "a.txt", "lineStart": 2, "lineEnd": 4 },
+                { "path": "b.txt", "lineStart": 1, "lineEnd": 3 }
+            ]
+        });
+        let out = execute_file_read(&args, root).expect("batch read");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let files = v["files"].as_array().unwrap();
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0]["content"].as_str().unwrap(), "l2\nl3");
+        assert_eq!(files[1]["content"].as_str().unwrap(), "a\nb");
+    }
+
+    #[test]
+    fn file_read_batch_mixed_string_and_object_inherits_root_line_end() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("x.txt"), "p1\np2\np3\np4\n").unwrap();
+        fs::write(root.join("y.txt"), "q1\nq2\nq3\n").unwrap();
+
+        let args = json!({
+            "lineStart": 1,
+            "lineEnd": 4,
+            "paths": [
+                "x.txt",
+                { "path": "y.txt", "lineStart": 2 }
+            ]
+        });
+        let out = execute_file_read(&args, root).expect("batch read");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let files = v["files"].as_array().unwrap();
+        assert_eq!(files[0]["content"].as_str().unwrap(), "p1\np2\np3");
+        assert_eq!(files[1]["content"].as_str().unwrap(), "q2\nq3");
+    }
+
+    #[test]
     fn file_read_empty_paths_array_requires_path() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         let args = json!({ "paths": [] });
         let err = execute_file_read(&args, root).unwrap_err();
         assert!(err.to_string().contains("path"));
+    }
+
+    #[test]
+    fn file_edit_single_path_still_ok() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("z.txt"), "foo\n").unwrap();
+        let args = json!({
+            "path": "z.txt",
+            "oldString": "foo",
+            "newString": "bar"
+        });
+        let out = execute_file_edit_payload(&args, root).expect("edit");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["success"], true);
+        assert_eq!(v["replaced"], 1);
+        assert!(v["path"].as_str().unwrap().contains("z.txt"));
+        assert_eq!(fs::read_to_string(root.join("z.txt")).unwrap().trim(), "bar");
+    }
+
+    #[test]
+    fn file_edit_batch_two_files() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("a.txt"), "A\n").unwrap();
+        fs::write(root.join("b.txt"), "B\n").unwrap();
+        let args = json!({
+            "edits": [
+                { "path": "a.txt", "oldString": "A", "newString": "AA" },
+                { "path": "b.txt", "oldString": "B", "newString": "BB" }
+            ]
+        });
+        let out = execute_file_edit_payload(&args, root).expect("batch edit");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["batchPartialFailure"], false);
+        assert_eq!(v["successCount"], 2);
+        assert_eq!(v["failureCount"], 0);
+        let files = v["files"].as_array().unwrap();
+        assert!(files[0]["success"].as_bool().unwrap());
+        assert!(files[1]["success"].as_bool().unwrap());
+        assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap().trim(), "AA");
+        assert_eq!(fs::read_to_string(root.join("b.txt")).unwrap().trim(), "BB");
+    }
+
+    #[test]
+    fn file_edit_batch_partial_failure() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("ok.txt"), "x\n").unwrap();
+        let args = json!({
+            "edits": [
+                { "path": "ok.txt", "oldString": "x", "newString": "y" },
+                { "path": "missing.txt", "oldString": "a", "newString": "b" }
+            ]
+        });
+        let out = execute_file_edit_payload(&args, root).expect("batch edit");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["batchPartialFailure"], true);
+        assert_eq!(v["successCount"], 1);
+        assert_eq!(v["failureCount"], 1);
+        let files = v["files"].as_array().unwrap();
+        assert!(files[0]["success"].as_bool().unwrap());
+        assert_eq!(files[1]["success"], false);
+        assert!(files[1]["error"].as_str().unwrap().len() > 0);
+        assert_eq!(fs::read_to_string(root.join("ok.txt")).unwrap().trim(), "y");
+    }
+
+    #[test]
+    fn file_edit_batch_rejects_edits_with_top_level_path() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let args = json!({
+            "path": "x.txt",
+            "edits": [{ "path": "x.txt", "oldString": "a", "newString": "b" }]
+        });
+        let err = execute_file_edit_payload(&args, root).unwrap_err();
+        assert!(err.to_string().contains("同时"));
     }
 
     #[test]

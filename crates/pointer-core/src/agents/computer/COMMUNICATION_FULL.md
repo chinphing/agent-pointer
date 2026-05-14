@@ -203,76 +203,71 @@ After **`Next:`** internally, when the chosen tool needs a screen target—**do 
 (b) the digit sits **tightly on** the **bbox** border—**flush** with the stroke, **not** floating between two **bbox** regions.
 Same **bbox** for border, placement, digit-on-edge, and “inside” on inventory lines. In **`Location:`**, use **bbox** only so every line names the same shape.
 
-**Required form (fill in; numbered lines inside `Location:`)**
+**Target element features:** When describing the candidate bbox, include the target element’s **text** (exact or partial), **shape** (pill, chip, row, tab, field, glyph, etc.), **color or emphasis** if it disambiguates, **screen position** (band/region), and **neighbor features** (e.g. “left of Save”, “under error banner”). These features come from the **`Next:`** intent and are used to **match** or **mismatch** in step 3.
+
+**Required form (fill in; numbered lines inside `Location:`; 5 lines)**
 
 ```text
 Location:
-1 [Screen after action]: <target widget in full-screen words — same intent as Next; no overlay digits>.
-2 <[Annotated after action] | [Zoom top after action] | [Zoom bottom after action] | [Zoom pointer after action]> index <N>: <background color behind index matches bbox border color; digit tightly on bbox border; bbox placement; digit on bbox edge vs neighbors>.
-3 Inside bbox: <inventory of wrapped controls — feeds step 5 only>.
-4 match|mismatch: <one line — intended target inside|outside this index bbox; if mismatch, later lines retry another index>.
-5 single|multiple: <one line — hit-target count inside that bbox>.
-6 index <N> | coordinates: <x,y verbal or “center of …”; if coordinates, say why index unsafe>.
+1 <[Annotated after action] | [Zoom top after action] | [Zoom bottom after action] | [Zoom pointer after action]> index <N>: <target element text, shape, color, screen position, neighbors; bbox border color match; digit on bbox edge; vs other indices>.
+2 Inside bbox: <inventory only — what is wrapped>.
+3 match|mismatch: <compare Next Intent features: text, shape, color, screen position, neighbors — inclusive decision>.
+4 single|multiple: <distinct hit targets inside that bbox — count only after match>.
+5 index <N> | coordinates | hover: <choice; if coords/hover, why>.
 ```
 
-**Rules per line (details; same numbering as Required form):** **First** locate the control from **`Next:`** on **`[Screen after action]`** (step 1). **Step 4** **only** checks **inclusion**: is the step-1 target **inside** this candidate **`index`** bbox? **Step 5** **only** counts **one** vs **multiple** targets inside **that** bbox (after step 4 matched). **Step 6** **only** maps steps 4–5 to **`index`** or **coordinates**. Step 4 **must not** judge inner multiplicity; step 5 **must not** decide inclusion; **coordinates** are never chosen inside step 4.
+**Rules per line (details; same numbering as Required form):** 
+**First**, from the reference frames ([Annotated after action] or zoom crops), pick a candidate index whose bbox color matches the digit background. 
+**Line 1**: Name the frame and index, then describe the **target element** inside that bbox using its key features (text, shape, color, position, neighbors), as well as the bbox’s own traits (border color match, digit placement, bbox position, vs other indices).
+**Line 2**: Inventory of all controls inside that bbox (feeds step 4 only; not used for match/mismatch).
+**Line 3**: **Compare** the target element features from Line 1 with the Next Intent’s target features (text, shape, color, screen position, neighbors). If **all** features match → **match** (even if the bbox wraps extra UI). If **any** feature differs → **mismatch**: reject this index, go back to Line 1 with a **different candidate** whose features are closer to the Next Intent.
+**Line 4**: Run only after **match**. Count **one** vs **multiple** distinct hit targets inside that bbox (inventory from Line 2).
+**Line 5**: Map step 3–4: **match + single** → **`index`**; **match + multiple** → **coordinates** (or hover/defer); if no match after exhaustive tries → **coordinates** on [Screen after action].
 
-1. **Confirm target (first, full screen):** On **`[Screen after action]`** only, locate the control from **`Next:`**
-   (label, shape, band, neighbors). State clearly: **this** widget is the aim—same role and place as stage 4.
-   If it is missing or ambiguous, fix **`Next:`** mentally or switch tactic before any overlay reasoning.
-2. **Candidate overlay + frame:** Name the frame—**`[Annotated after action]`**, **`[Zoom top after action]`**, **`[Zoom bottom after action]`**, or **`[Zoom pointer after action]`**—whichever shows the **`index`** and **bbox** most clearly (**`[Zoom pointer after action]`** when the aim is near the pointer; **top**/**bottom** zooms when the target sits in the menu bar / title strip or dock / taskbar). **Then** cite a **candidate** **`index`** whose **bbox** **may** contain the step-1 target, and state the **bbox**’s own traits:
-   **background color** behind the printed index **matches** this **bbox**’s **border color** (digit glyph ink may differ);
-   digit **tightly on** that **bbox** border—**flush**, **not** between two **bbox** regions;
-   where the rectangle sits; how the digit sits on the **bbox** edge;
-   **relations to other overlays**—distance, overlap,
-   **left/right/above/below** of another **`index`**,
-   whether **bbox** regions are **touching or clearly separate**.
-3. **Element inside the bbox:** Describe **what is wrapped**—
-   control types, visible text, icons, chrome vs page body,
-   and anything salient inside that bbox. (Feeds step 5; **not** used in step 4 to accept or reject the **`index`**.)
+**Exclusivity after match:**
+- single-element: only this index (route: use index)
+- multi-elements: multiple distinct targets inside the bbox (route: use coordinates)
 
-4. **Re-compare (mandatory) — target in bbox only:** Does the step-1 target (from **`Next:`**, located in step 1) **lie inside** this candidate **`index`**’s bbox on the chosen frame?
-   **Match** = the intended widget is **inside** this **bbox** (even if the **bbox** also wraps other UI). **Do not** in step 4 reject a **bbox** for being “too fat” or for containing extra controls—that belongs to **step 5** only.
-   **Mismatch** = the target is **not** inside this **bbox** (wrong region, wrong **bbox**, no overlap with the aim).
-   This step **only** answers **which overlay digit** is a valid **container** for the target—it **does not** count inner elements and **does not** choose **coordinates**.
-   If **mismatch**, **reject** this **`index`**, **go back to step 2**, pick another candidate, repeat steps 3–4 until **match** or you exhaust plausible **`index`** values.
-   When the loop ends, carry forward either **one matched `index`** (then step 5) or **no match**
-   (then only step 6 may choose **coordinates**)—step 4 itself never outputs “use coordinates”.
-
-5. **BBox wrap count (step 5 only):** Run **only** when step 4 **matched**.
-   This step **only** counts how many distinct targets sit **inside** that bbox—it **does not** repeat step 4’s inclusion check.
-   Count **one** vs **multiple** distinct targets **inside the bbox**
-   (label + input = **two**; several icons = **multiple**; same semantic “row” still **multiple** if several pieces share one **bbox**).
-   Overlay **`index`** uses the **region center**—multiple sub-targets make numbered aiming unsafe.
-6. **Conclude (aiming method, last):** **Step 6** **only** maps steps 4–5 to a tool choice; **step 4** never chooses **coordinates**.
-   - Step 4 **matched** **and** step 5 **single** → **`index`** for that pair.
-   - Step 4 **matched** **and** step 5 **multiple** → **coordinates** (or another tool) for the exact sub-target—**not** **`index`** for that fat bbox.
-   - After step-2–4 re-search, **no** candidate **`index`** gets step-4 **match** (target never inside any tried **bbox**) → **coordinates** (or another tactic) for the step-1 target on **`[Screen after action]`** scale per the inject.
-   - Step 4 **mismatch** on the current candidate: handled **inside** step 4 by **return to step 2**; **do not** conclude **coordinates** there.
-
-**Positive example** — Single **bbox**, single target: `4 match` + `5 single` → `6 index`.
+**Positive example** — Single **bbox**, single target: `3 match` + `4 single` → `5 index`.
 
 ```text
 Location:
-1 [Screen after action]: row-title overflow ⋯ chip, just right of title.
-2 [Zoom pointer after action] index 4: **background color** behind **4** matches magenta **bbox** border color; tight **bbox** right of title; index-4 **bbox** not touching index-3 **bbox**.
-3 Inside bbox: ⋯ overflow chip only.
-4 match: ⋯ inside index 4 bbox.
-5 single.
-6 index 4
+1 [Zoom pointer after action] index 4: target = ⋯ chip (text: ⋯, shape: pill, band: row title area, neighbors: right of title). bbox border color magenta; tight bbox hugging ⋯ chip; not touching index-3 bbox.
+2 Inside bbox: ⋯ only.
+3 match: ⋯ pill matches Next intent features (pill shape, row title band, right of title).
+4 single.
+5 index 4
 ```
 
-**Positive example** — URL still `4 match` inside fat strip; `5 multiple` → `6 coordinates`.
+**Positive example** — URL in fat strip: `3 match` + `4 multiple` → `5 coordinates`.
 
 ```text
 Location:
-1 [Screen after action]: URL field only (toolbar strip).
-2 [Annotated after action] index 12: **background color** behind **12** matches orange **bbox** border color; wide toolbar strip under tabs.
-3 Inside bbox: URL field, star button, extension icons — multiple distinct hit targets.
-4 match: URL inside index 12 bbox.
-5 multiple.
-6 coordinates: URL field center; not index 12
+1 [Annotated after action] index 12: target = URL field (text: (current URL), shape: text input, band: toolbar strip below tabs, neighbors: left of star button). bbox border color orange; wide toolbar strip under tabs; digit on top edge; peer indices left/right.
+2 Inside bbox: URL field, star button, extension icons — multiple.
+3 match: URL features match (input shape, toolbar band, left of star).
+4 multiple.
+5 coordinates: URL field center; not index 12
 ```
+
+**Mismatch example** — Retry.
+
+```text
+Location:
+1 [Annotated after action] index 7: target = gear icon (shape: gear, color: gray, band: footer, neighbors: left of index 10 strip). bbox border color green; bbox spans left rail + first table row — footer gear not inside.
+2 Inside bbox: rail + row clutter.
+3 mismatch: gear icon not inside this bbox (target in footer, this bbox covers rail/row) — pick another index.
+```
+
+**After exhaustive mismatch** (no match found):
+
+```text
+Location:
+1–4: tried five candidates; each inventory vs Next intent → mismatch; no exclusive single-element index for small gear alone.
+5 hover: hover strongest toolbar candidate — defer until next turn.
+```
+
+In real replies, **each** failed candidate should still use a full **line 1** (frame + index + target features + bbox traits); the line above compresses five tries for brevity.
 
 ---
 

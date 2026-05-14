@@ -167,7 +167,8 @@
 - **目标**：改版、换模型、加工具后 **可回归**。  
 - **实现要点**：固定输入消息 + 期望「可自动判分」条件（编译通过、测试通过、文件包含子串）；Docker 或裸机 runner；不强制与 CI 同一阶段。  
 - **复杂度**：`L`。  
-- **收益**：`H`（长期）；短期无直接用户感知。
+- **收益**：`H`（长期）；短期无直接用户感知。  
+- **本地搭建（不依赖先实现完整评测产品化）**：见 [`docs/coder-agent-offline-eval-setup.md`](coder-agent-offline-eval-setup.md)（判分脚本、Docker、接 `server` HTTP/SSE、本机 LLM）。
 
 ### 5.12 M / N — IDE 与子 Agent
 

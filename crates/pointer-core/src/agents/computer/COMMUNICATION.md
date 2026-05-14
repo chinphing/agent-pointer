@@ -316,40 +316,40 @@ Ground **`Next:`** — **do not** repeat the full-screen target line; **`Next:`*
 
 **Target vs marked element — what to write**
 
-- **Line 1 (candidate overlay on a reference frame):** Name the frame, then **`index`**. Valid frames: **`[Annotated after action]`** and **every zoom crop** — **`[Zoom top after action]`**, **`[Zoom bottom after action]`**, **`[Zoom pointer after action]`** — pick whichever shows the printed index and **bbox** most clearly; all are allowed. Then **marked bbox traits**: **background color** behind the printed index **matches** this **bbox**’s **border color** (**not** “digit ink color = border color”); digit **tightly on** the **bbox** border (flush, not between neighbors); **bbox** placement; how the digit sits on the **bbox** edge; **relations to other overlays** (distance, overlap, **left / right / above / below** another **`index`**, touching vs clearly separate).
+- **Line 1 (candidate overlay on a reference frame):** Name the frame, then **`index`**. Valid frames: **`[Annotated after action]`** and **every zoom crop** — **`[Zoom top after action]`**, **`[Zoom bottom after action]`**, **`[Zoom pointer after action]`** — pick whichever shows the printed index and **bbox** most clearly; all are allowed. Then **target element features inside that bbox**: **text** (exact or partial), **shape** (pill, chip, row, tab, field, glyph, etc.), **color or emphasis** if it disambiguates, **screen position** (band/region), and **neighbor features** (e.g. “left of Save”, “under error banner”). Also note **bbox traits** as usual: **background color** behind the printed index **matches** this **bbox**’s **border color**; digit **tightly on** the **bbox** border; **bbox** placement; how the digit sits on the **bbox** edge; **relations to other overlays** (distance, overlap, **left / right / above / below** another **`index`**, touching vs clearly separate).
 - **Line 2 (inside that bbox — same as line 1):** **Inventory only** — control types, visible strings, icons, chrome vs page body, clutter. Feeds step **4**; **do not** use line 2 to accept or reject the **`index`** in step **3**.
 
 **Required form**
 
 ```text
 Location:
-1 <[Annotated after action] | [Zoom top after action] | [Zoom bottom after action] | [Zoom pointer after action]> index <N>: <background color behind index matches bbox border color; digit tightly on bbox border; bbox placement; digit on bbox edge (corner/side); vs other indices when visible>.
+1 <[Annotated after action] | [Zoom top after action] | [Zoom bottom after action] | [Zoom pointer after action]> index <N>: <target element text, shape, color, screen position, neighbors; bbox border color match; digit on bbox edge; vs other indices>.
 2 Inside bbox: <inventory only — what is wrapped>.
-3 match|mismatch: <intended target from Next inside|outside this bbox — inclusion only>.
+3 match|mismatch: <compare Next Intent features: text, shape, color, screen position, neighbors — inclusive decision>.
 4 single|multiple: <distinct hit targets inside that bbox — count only after match>.
 5 index <N> | coordinates | hover: <choice; if coords/hover, why>.
 ```
 
-**Rules (short):** **3** = inclusion only (target inside **that** bbox? **Match** even if the **bbox** is “fat”; **do not** count inner widgets here). **4** = count only (after **match**). **5** maps **3+4** only: **match + single** → **`index`**; **match + multiple** → **coordinates** (or other safe aim); **mismatch** → return to line **1** with another candidate; no **match** after tries → **coordinates** or tactic change; **hover** + defer irreversible click when still uncertain.
+**Rules (short):** **1** = describe target element and bbox. **3** = inclusion only (target inside **that** bbox? Compare core features from **`Next:`**; **Match** even if the **bbox** is “fat”; **do not** count inner widgets here). **4** = count only (after **match**). **5** maps **3+4** only: **match + single** → **`index`**; **match + multiple** → **coordinates** (or other safe aim); **mismatch** → return to line **1** with another candidate; no **match** after tries → **coordinates** or tactic change; **hover** + defer irreversible click when still uncertain.
 
-Mini examples spell **line 1** with **frame + index + matching bbox border color + digit tightly on bbox border + bbox placement + digit on bbox edge + vs other indices** when several indexed **bbox** regions are visible.
+Mini examples spell **line 1** with **target element features** and **bbox traits**; when several indexed **bbox** regions are visible, also include **vs other indices**.
 
 **Mini examples — step 3 mismatch (drop this index)**
 
 ```text
 Location:
-1 [Annotated after action] index 7: **background color** behind **7** matches green **bbox** border color (digit ink may differ); **bbox** spans left rail + first table row; digit on left edge of **bbox** — footer Settings gear is **below** this stack, not inside the **bbox**.
+1 [Annotated after action] index 7: target = footer gear icon (shape: gear, band: footer, neighbors: left of index 10 strip). **bbox** border color green; digit **7** on left edge of **bbox** — footer Settings gear is **below** this stack, not inside the **bbox**.
 2 Inside bbox: rail + row clutter; footer gear not isolated.
-3 mismatch: intended footer Settings gear not inside index 7 bbox — pick another index.
+3 mismatch: intended footer Settings gear (gear icon, footer, green) not inside index 7 bbox — pick another index.
 ```
 
 **Mini examples — step 3 match after retry (full 5 lines)**
 
 ```text
 Location:
-1 [Annotated after action] index 11: **background color** behind **11** matches green **bbox** border color; tight **bbox** on footer gear glyph only; clear gap from neighboring footer icons — no overlap with index 10 strip to the left.
+1 [Annotated after action] index 11: target = gear icon (shape: gear, color: gray, band: footer, neighbors: left of index 10). **bbox** border color green; tight **bbox** on footer gear glyph only; clear gap from neighboring footer icons — no overlap with index 10 strip to the left.
 2 Inside bbox: gear icon only.
-3 match: gear inside index 11 bbox.
+3 match: gear icon features match Next intent (gear, gray, footer).
 4 single.
 5 index 11
 ```
@@ -358,18 +358,18 @@ Location:
 
 ```text
 Location:
-1 [Zoom pointer after action] index 4: **background color** behind **4** matches magenta **bbox** border color; tight **bbox** hugging ⋯ chip immediately **right** of row title; this **bbox** **not** touching a smaller index **bbox** left of title (another index on full annotated view).
+1 [Zoom pointer after action] index 4: target = ⋯ chip (text: ⋯, shape: pill, band: row title area, neighbors: right of title). **bbox** border color magenta; tight **bbox** hugging ⋯ chip immediately **right** of row title; this **bbox** **not** touching a smaller index **bbox** left of title.
 2 Inside bbox: ⋯ only.
-3 match.
+3 match: ⋯ pill matches Next intent description.
 4 single.
 5 index 4
 ```
 
 ```text
 Location:
-1 [Annotated after action] index 12: **background color** behind **12** matches orange **bbox** border color; wide toolbar strip **under** tab row; digit on top edge of **bbox** — peer indices **left**/**right** along same band; this strip is the one containing the URL field.
+1 [Annotated after action] index 12: target = URL field (text: (current URL), shape: text input, band: toolbar strip below tabs, neighbors: left of star button). **bbox** border color orange; wide toolbar strip **under** tab row; digit on top edge of **bbox** — peer indices **left**/**right** along same band; this strip is the one containing the URL field.
 2 Inside bbox: URL + star + extensions.
-3 match: URL in bbox.
+3 match: URL features match (text input, toolbar band, neighbors star/extension).
 4 multiple.
 5 coordinates: URL center; not index 12
 ```
@@ -378,9 +378,9 @@ Location:
 
 ```text
 Location:
-1 [Annotated after action] index 4: **background color** behind **4** matches cyan **bbox** border color; one **bbox** wraps **both** OK and Cancel pills side by side; digit on top center of shared **bbox**.
+1 [Annotated after action] index 4: target = OK pill (text: OK, shape: pill, band: dialog footer, color: blue, neighbors: left of Cancel). **bbox** border color cyan; one **bbox** wraps **both** OK and Cancel pills side by side; digit on top center of shared **bbox**.
 2 Inside bbox: two pills.
-3 match: OK lies inside **bbox** but shares **bbox** with Cancel.
+3 match: OK features match (OK text, blue pill, footer).
 4 multiple.
 5 coordinates: OK pill center on [Screen after action] scale — no exclusive click_index.
 ```
@@ -391,7 +391,7 @@ Location:
 5 hover: hover strongest toolbar candidate — defer irreversible click until next turn re-checks pointer zoom.
 ```
 
-In real replies, **each** failed candidate should still use a full **line 1** (frame + **`index`** + **background color** vs **bbox** border color + placement + neighbors); the line above compresses five tries for brevity.
+In real replies, **each** failed candidate should still use a full **line 1** (frame + **`index`** + target element features + bbox traits + neighbors); the line above compresses five tries for brevity.
 
 ---
 

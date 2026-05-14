@@ -1,6 +1,6 @@
 //! Session task board tool (`task_board`), registered as a **sidecar** tool.
 
-use super::{ToolEntry, ToolHandler, ToolPrompt, ToolRegistry};
+use super::{ToolEntry, ToolHandler, ToolRegistry};
 use anyhow::{anyhow, Result};
 use parking_lot::RwLock;
 use serde_json::{json, Value};
@@ -113,9 +113,6 @@ pub fn register_all(reg: &ToolRegistry, store: Arc<TaskBoardStore>) {
         "low",
         false,
         doc,
-        Some(ToolPrompt {
-            system_prompt: doc.to_string(),
-        }),
         h,
     ));
 }

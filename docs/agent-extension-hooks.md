@@ -2,7 +2,7 @@
 
 本文档说明 **pointer-app** 中与 Python 项目 **Pointer**（`PyProjects/pointer`）里 `python.helpers.extension` 相对应的插件机制：扩展点在何时触发、如何注册、如何与 Computer 等 Agent 协作。
 
-实现位置：`crates/pointer-core/src/extensions/`。
+实现位置：`crates/pointer-core/src/extensions/`。主对话里 **system 拼接块、env、task board、历史消息** 在 HTTP 中的先后关系（含「改前」基线说明）见 **`docs/llm-prompt-assembly-order.md`**。
 
 ---
 
@@ -95,24 +95,25 @@
 3. **准备 Provider** — 新建 `OpenAIProvider`、channel；尚未发 HTTP。
 4. **构造 API 消息列表** — `messages = <基础历史>.clone()`（单智能体：`history`；子 Agent：`local_history`），并填入 `round_assistant_message_id`。
 5. **`message_loop_prompts_after`** — `run_message_loop_prompts_after`：可修改 `messages`（例如追加屏幕注入）。
-6. **组装 system 侧 prompts** — `build_env_context`、session inject、agent system prompts、工具 markdown、`xml_tool_prompt` 等拼成 `prompts_with_env` / 子 Agent 的 `prompts_clone`（与 Python「system + extras」一侧对应，Rust 里作为单独参数传入 `stream_chat`）。
-7. **`before_main_llm_call`** — `run_before_main_llm_call`：传入 **已拼好的** `system_prompts` 的可变借用；钩子可 **追加** 文本（内置 **`TaskBoardSnapshotHook`** 在此追加 **`[TASK_BOARD]`**，使任务板快照紧贴工具说明与 XML 附录之后、最靠近本轮 `messages`）。`BeforeMainLlmCallContext` 另带 `task_board_store` 与 `task_board_store_key`。
-8. **`stream_chat`** — `tokio::spawn` 里带着 **`&history_for_api`（即上面的 `messages`）** 和 **（已被钩子改写后的）system prompts** 请求模型；之后才是流式 delta、工具解析、写回持久化 `history` 等。
+6. **组装 `system_prompts`** — `rendered_communication_public_inject`、agent system prompts、skills（子 Agent）、**`generate_tools_system_appendix`** 等拼成 `prompts_with_env` / 子 Agent 的 `prompts_clone`（**此时仍不含** `[Environment]` 块）。
+7. **`before_main_llm_call`** — `run_before_main_llm_call`：传入 **已拼好的** `system_prompts` 的可变借用；钩子可 **追加** 文本（内置 **`TaskBoardSnapshotHook`** 在此追加 **`[TASK_BOARD]`**）。
+8. **`[Environment]` 系统尾块** — `push_env_context_last_in_system_prompts`（`chat_service.rs`）：在 **`run_before_main_llm_call` 返回之后**，向 **`system_prompts` 末尾**再 `push` 一条字符串，正文为 `[Environment]\n` + **`env_prompt::build_environment_system_prompt_slice`**（OS、locale、**`Local date: YYYY-MM-DD`**）。**完整日期时间**在 Computer 的 **`[CUR_SCREEN]`** `user` 消息开头以 `Local wall-clock at capture: …` 形式注入（`screen_inject.rs`）。
+9. **`stream_chat`** — `tokio::spawn` 里带着 **`&history_for_api`（即上面的 `messages`，不含尾随 Environment user）** 与 **（含 Environment 尾块的）`system_prompts`** 请求模型；之后才是流式 delta、工具解析、写回持久化 `history` 等。
 
-要点：**`before_main_llm_call` 在第 7 步**，在 **system 文本与 XML 附录已拼入 `system_prompts` 之后**执行；钩子若需「完整 system 列表」，应通过 **`system_prompts` 追加** 实现。若需只读主会话 id 或子任务存储键，使用 `conversation_id` / `task_board_store_key`。
+要点：**`before_main_llm_call` 在第 7 步**；**`[Environment]` 在第 8 步**追加到 `system_prompts`，因此排在 **`[TASK_BOARD]` 等钩子之后**。若钩子需「在环境快照之前」追加内容，应在钩子内控制 `sort_key`，或调整钩子注册策略。
 
 ### 4.2 单智能体：`messages` 在注入时刻包含什么
 
 - **来源**：`history.clone()`，即当前会话中**已持久化**的多轮消息（user / assistant / 工具轮次 flatten 前的结构由后续 `make_openai_messages` 处理）。
-- **注入追加**：例如 Computer 在列表**末尾**追加一条仅用于本次请求的 `User` 消息（带 `[CUR_SCREEN]` 文本与可选 `images_base64`）。
+- **注入追加**：例如 Computer 在列表**末尾**追加一条仅用于本次请求的 `User` 消息（**`Local wall-clock at capture:`** 含完整日期时间，接 **`[CUR_SCREEN]`** 与可选 `images_base64`）。
 - **不落盘**：本轮结束后，持久化 `history` 仍按原逻辑只追加**真实的** assistant / tool 消息；**不会**把这条 ephemeral 注入写进会话存储。
 
 ### 4.3 一轮内的多次模型调用（工具循环）
 
-用户发一条消息后，可能经历多轮「模型 → 工具 → 再模型」。**每一轮**新的模型请求都会重复上述 3～8 步：
+用户发一条消息后，可能经历多轮「模型 → 工具 → 再模型」。**每一轮**新的模型请求都会重复上述 4～9 步：
 
 - 每一轮都会重新 `history.clone()`（此时 `history` 已包含上一轮 assistant 与 tool 结果）。
-- 每一轮都会再次执行 `message_loop_prompts_after` / `before_main_llm_call`。  
+- 每一轮都会再次执行 `message_loop_prompts_after` / `before_main_llm_call`，并在钩子后再次追加 **`[Environment]`** 到 `system_prompts`。  
 因此 Computer **每一轮都会重新截图+标注**（与 Python 每轮 inject 一致）。
 
 ### 4.4 序列图（与 4.1 一致）
@@ -130,10 +131,11 @@ sequenceDiagram
     Loop->>Hist: 读取当前 history（上一轮已 push）
     Loop->>Msg: messages = history.clone() 或 local_history.clone()
     Loop->>Ext1: run_message_loop_prompts_after(ctx)
-    Note over Ext1,Msg: 可追加 ephemeral User / 多模态
-    Loop->>Sys: system_prompts = env + … + tools + xml…
+    Note over Ext1,Msg: 含 [CUR_SCREEN] 与 Local wall-clock（完整日期时间）
+    Loop->>Sys: system_prompts = 公共 / Agent / skills / 工具附录…
     Loop->>Ext2: run_before_main_llm_call(ctx)
     Note over Ext2,Sys: 可追加 [TASK_BOARD] 等
+    Note over Sys: push_env…（[Environment] 尾块，仅日历日期）
     Loop->>LLM: stream_chat(messages, system_prompts)
 ```
 
@@ -150,7 +152,7 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 - 若任务带 `dependsOn`，实现上会把依赖任务的输出摘要**前缀**拼进 `instruction`（`[Prior task outputs]` / `[Current task]`），仍是一条 user 消息，**不是**完整主聊天 transcript。
 - 子 Agent 自己的多轮工具循环里，只在 `local_history` 上累加本轮 assistant、tool 等，与主 `history` **隔离**。
 
-系统 prompt 侧子 Agent 另有：`env_context`、每轮 **`rendered_communication_public_inject`**（`COMMUNICATION_PUBLIC.md`）、一段 **sub_agent_header**（内含已展开占位符的 Agent system prompt，并明确说明「下一条 user 来自 Supervisor，**不包含主聊天历史**」）、skills、allowed tools、xml tool prompt。
+系统 prompt 侧子 Agent 与主轮同构：每轮 **`rendered_communication_public_inject`**、**sub_agent_header**（内含已展开占位符的 Agent system prompt，并说明「下一条 user 来自 Supervisor，**不包含主聊天历史**」）、skills、**`tools_system_appendix`**；再经 **`before_main_llm_call`**（如 **`[TASK_BOARD]`**）；最后由 `push_env_context_last_in_system_prompts` 追加 **`[Environment]`** 尾块（OS / locale / local time）。
 
 **结论（对话语义）**：子 Agent 在**消息列表意义上是独立的**；它只「看见」任务描述 +（可选）前置任务摘要 + 自己多轮工具产生的历史。
 
@@ -159,8 +161,9 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 - 每一轮子 Agent 的每次模型请求前，同样执行：
   - `messages = local_history.clone()`
   - `run_message_loop_prompts_after`（`lead_agent_profile = def.profile`，例如子 Agent 为 `computer` 时仍会注入屏幕）
-  - 组装 `prompts_clone`（静态 `prompts` + 本轮 `xml_tool_prompt`）
+  - 组装 `prompts_clone`（静态 `prompts` + 本轮 **`tools_system_appendix`**）
   - `run_before_main_llm_call`（含 **`[TASK_BOARD]`** 追加；`task_board_store_key` 为子任务隔离键）
+  - `push_env_context_last_in_system_prompts`（**`[Environment]`** 系统尾块）
 - 使用的 **`ExtensionRegistry` 与单智能体相同**（`AppState.extensions`），**不是**每子 Agent 一份。
 
 ### 5.3 与主会话「不独立」的共享资源（重要）

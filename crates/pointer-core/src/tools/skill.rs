@@ -26,7 +26,6 @@ pub fn register_all(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
         "low",
         false,
         doc,
-        None,
         h,
     ));
 }

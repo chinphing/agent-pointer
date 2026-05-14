@@ -27,7 +27,6 @@ pub fn register_all(reg: &ToolRegistry) {
         "low",
         false,
         doc,
-        None,
         handler,
     ));
 }

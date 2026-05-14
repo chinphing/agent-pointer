@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod chat_service;
+pub mod env_prompt;
 pub mod platform;
 pub mod extensions;
 pub mod context_compression;
@@ -14,4 +15,4 @@ pub mod tools;
 pub mod response_xml;
 pub mod json_tool_caller;
 pub mod xml_tool_caller;
-pub mod xml_tool_prompt;
+pub mod tools_system_appendix;

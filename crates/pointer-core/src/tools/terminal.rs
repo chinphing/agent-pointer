@@ -37,7 +37,6 @@ fn register_terminal(reg: &ToolRegistry) {
         "high",
         true,
         doc,
-        None,
         h,
     ));
 }

@@ -1,6 +1,9 @@
 //! `message_loop_prompts_after` — `_10_computer_screen_inject` (Python `agents/computer/extensions/...` analogue).
 //!
-//! OS / locale / local time for the model are in the shared system prompt prefix (`chat_service::build_env_context`); this hook only adds `[CUR_SCREEN]` vision payloads.
+//! OS / locale / **calendar date** for the model live in the **last slice** of merged **`system`**
+//! text (`chat_service::push_env_context_last_in_system_prompts`, after `before_main_llm_call` hooks).
+//! **Full date and time at capture** is prefixed on this hook’s `[CUR_SCREEN]` **`user`** message
+//! (`crate::env_prompt::format_local_wall_clock_full`).
 
 use crate::agents::computer::capture_debug;
 use crate::agents::computer::screen;
@@ -20,6 +23,13 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 const CUR_SCREEN_TAG: &str = "[CUR_SCREEN]";
+
+fn cur_screen_clock_prefix() -> String {
+    format!(
+        "Local wall-clock at capture: {}\n\n",
+        crate::env_prompt::format_local_wall_clock_full()
+    )
+}
 
 /// When stripping prior vision, replace stale `[CUR_SCREEN]` prose (frame order / labels) so the model is not told about screenshots that are no longer attached.
 const CUR_SCREEN_HISTORY_PLACEHOLDER: &str = "[CUR_SCREEN] Earlier desktop screenshots are omitted here; use only the latest [CUR_SCREEN] message in this request for images.\n";
@@ -146,7 +156,8 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                 strip_images_from_prior_messages(ctx.messages.as_mut_slice());
                 let has_previous_raw = cap.inject_previous_raw_jpeg.is_some();
                 let images = assemble_cur_screen_base64(&cap);
-                let mut text = build_cur_screen_text(has_previous_raw);
+                let mut text = cur_screen_clock_prefix();
+                text.push_str(&build_cur_screen_text(has_previous_raw));
                 if let Some(block) = ctx.computer_state.recent_actions_prompt_block() {
                     text.push_str("\n\n");
                     text.push_str(&block);
@@ -188,7 +199,8 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     id: new_extension_message_id("screen_inject"),
                     role: Role::User,
                     content: format!(
-                        "{CUR_SCREEN_TAG} Screen capture or UI annotation failed: {e}\nYou cannot rely on a fresh desktop image this turn. The user may need to grant screen capture access or ensure the desktop annotation service is available; suggest retrying after that."
+                        "{}{CUR_SCREEN_TAG} Screen capture or UI annotation failed: {e}\nYou cannot rely on a fresh desktop image this turn. The user may need to grant screen capture access or ensure the desktop annotation service is available; suggest retrying after that.",
+                        cur_screen_clock_prefix()
                     ),
                     status: "done".into(),
                     created_at: crate::extensions::now_ms(),

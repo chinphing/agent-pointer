@@ -21,12 +21,10 @@ use crate::tools::validate_envelope_tool_batch;
 use crate::tools::terminal::{run_terminal_command_streaming, terminal_stream_tool_status};
 use crate::tools::ToolRegistry;
 use anyhow::{anyhow, Result};
-use chrono::Local;
 use serde_json::Value;
 use std::backtrace::Backtrace;
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -172,34 +170,13 @@ fn emit(tx: &StreamTx, ev: StreamEvent) {
     }
 }
 
-/// Prepended to the system prompt for every chat (all agent profiles). Computer `[CUR_SCREEN]` inject does not repeat this block.
-fn build_env_context() -> String {
-    let os = env::consts::OS;
-    let os_label = match os {
-        "macos" => "macOS",
-        "windows" => "Windows",
-        "linux" => "Linux",
-        other => other,
-    };
-    let locale = env::var("LANG")
-        .ok()
-        .and_then(|lang| {
-            let lang = lang.split('.').next().unwrap_or(&lang);
-            if lang.starts_with("zh") {
-                Some("Chinese")
-            } else if lang.starts_with("en") {
-                Some("English")
-            } else {
-                None
-            }
-        })
-        .unwrap_or("unknown");
-    let now = Local::now().format("%Y-%m-%d %H:%M:%S %Z");
-
-    format!(
-        "Environment:\n- OS: {}\n- Locale hint: {}\n- Local time: {}",
-        os_label, locale, now
-    )
+/// Appends `[Environment]` + **calendar date only** (see [`crate::env_prompt::build_environment_system_prompt_slice`])
+/// as the **last** `system_prompts` slice (after `before_main_llm_call` hooks such as `[TASK_BOARD]`).
+fn push_env_context_last_in_system_prompts(system_prompts: &mut Vec<String>) {
+    system_prompts.push(format!(
+        "[Environment]\n{}",
+        crate::env_prompt::build_environment_system_prompt_slice()
+    ));
 }
 
 pub async fn run_chat(
@@ -507,11 +484,11 @@ async fn run_chat_inner(
 
         let assistant_id = new_id("msg");
 
-        let xml_tool_prompt = crate::xml_tool_prompt::generate_xml_tool_prompt(
+        let tools_system_appendix = crate::tools_system_appendix::generate_tools_system_appendix(
             &state.tools,
             &agent_plan.allowed_tool_names,
         );
-        let tools_appendix_enabled = !xml_tool_prompt.is_empty();
+        let tools_appendix_enabled = !tools_system_appendix.is_empty();
         let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
         let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
         let lead_profile = state
@@ -563,7 +540,7 @@ async fn run_chat_inner(
             .run_message_loop_prompts_after(&mut prompts_after_ctx)
             .await?;
 
-        let mut prompts_with_env = vec![build_env_context()];
+        let mut prompts_with_env = Vec::new();
         let session_vars = SessionInjectVars {
             workspace_root: settings.workspace_root.trim(),
         };
@@ -576,9 +553,8 @@ async fn run_chat_inner(
                 .iter()
                 .map(|p| expand_agent_prompt_placeholders(p, &session_vars)),
         );
-        prompts_with_env.extend(state.tools.prompt_context(&agent_plan.allowed_tool_names));
-        if !xml_tool_prompt.is_empty() {
-            prompts_with_env.push(xml_tool_prompt);
+        if !tools_system_appendix.is_empty() {
+            prompts_with_env.push(tools_system_appendix);
         }
         let mut before_llm_ctx = BeforeMainLlmCallContext {
             computer_state: state.computer_state.as_ref(),
@@ -592,6 +568,7 @@ async fn run_chat_inner(
             .extensions
             .run_before_main_llm_call(&mut before_llm_ctx)
             .await?;
+        push_env_context_last_in_system_prompts(&mut prompts_with_env);
         let prompts_clone = prompts_with_env;
         let cancel_clone = cancel.clone();
         let dump_lbl = format!("{}_{}", conversation_id, assistant_id);
@@ -1327,7 +1304,7 @@ async fn run_supervisor_chat(
         },
     );
 
-    let env_context = build_env_context();
+    let env_context = crate::env_prompt::build_environment_context_full();
     let tasks = match plan_agent_tasks(
         &provider,
         &state,
@@ -1632,7 +1609,6 @@ async fn run_sub_agent(
     let (skill_prompts, session_tools) = state.skills.progressive_context(&skill_ids);
     let allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
     let sub_task_board_key = sub_agent_task_board_store_key(conversation_id, task.id.trim());
-    let env_context = build_env_context();
     let session_vars = SessionInjectVars {
         workspace_root: provider.settings.workspace_root.trim(),
     };
@@ -1650,15 +1626,14 @@ async fn run_sub_agent(
             allowed_tools.join(", ")
         }
     );
-    let mut prompts = vec![env_context];
+    let mut prompts = Vec::new();
     if let Some(block) = rendered_communication_public_inject() {
         prompts.push(block);
     }
     prompts.push(sub_agent_header);
     prompts.extend(skill_prompts);
-    prompts.extend(state.tools.prompt_context(&allowed_tools));
 
-    let xml_tool_prompt = crate::xml_tool_prompt::generate_xml_tool_prompt(
+    let tools_system_appendix = crate::tools_system_appendix::generate_tools_system_appendix(
         &state.tools,
         &allowed_tools,
     );
@@ -1719,8 +1694,8 @@ async fn run_sub_agent(
             .await?;
 
         let mut prompts_clone = prompts.clone();
-        if !xml_tool_prompt.is_empty() {
-            prompts_clone.push(xml_tool_prompt.clone());
+        if !tools_system_appendix.is_empty() {
+            prompts_clone.push(tools_system_appendix.clone());
         }
         let mut before_llm_ctx = BeforeMainLlmCallContext {
             computer_state: state.computer_state.as_ref(),
@@ -1734,6 +1709,7 @@ async fn run_sub_agent(
             .extensions
             .run_before_main_llm_call(&mut before_llm_ctx)
             .await?;
+        push_env_context_last_in_system_prompts(&mut prompts_clone);
         let cancel_clone = cancel.clone();
         let dump_lbl = format!("{}_{}_sub_{}", conversation_id, message_id, task.id);
         let handle = tokio::spawn(async move {
@@ -1940,7 +1916,7 @@ async fn run_sub_agent(
         });
 
         if final_tool_calls.is_empty() {
-            let tools_appendix_enabled = !xml_tool_prompt.is_empty();
+            let tools_appendix_enabled = !tools_system_appendix.is_empty();
             if let Some(hint) =
                 json_tool_empty_calls_retry_message(&json_finish_diag, tools_appendix_enabled)
             {
@@ -2393,7 +2369,7 @@ async fn synthesize_final_answer(
             result.agent_name, result.agent_id, result.task_id, result.content
         ));
     }
-    let env_context = build_env_context();
+    let env_context = crate::env_prompt::build_environment_context_full();
     let prompt = format!(
         "{}\n\nYou are the Supervisor. From the sub-agent results below, write the final user-facing answer.\nRequirements: merge duplicates and resolve conflicts; do not state facts that sub-agents did not support; briefly note which agents contributed when helpful.\n\nSub-agent results:\n{}",
         env_context,

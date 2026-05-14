@@ -20,9 +20,9 @@
 - **主会话（单智能体 / Supervisor 主消息）**：存储键为聊天 **`conversation_id`**；`task_board` 的 **`_conversation_id`** 使用该键。每轮 **`[TASK_BOARD]`** 快照由扩展点 **`before_main_llm_call`** 中的内置 **`TaskBoardSnapshotHook`** 追加到 **`system_prompts` 末尾**（在工具分章与 XML 工具附录之后），更贴近本轮对话 `messages`。
 - **Supervisor 子 Agent**：与主会话 **隔离**。存储键为  
   **`{conversation_id}\x1fptr_sub_agent\x1f{supervisor_task_id}`**（实现见 `sub_agent_task_board_store_key`）。  
-  子 Agent 的 **`[TASK_BOARD]`** 快照同样经 **`before_main_llm_call`** 注入（每轮在 `xml_tool_prompt` 之后）；**`task_board`** 读写只针对该子任务键，**不会**看到或修改主会话任务板。
+  子 Agent 的 **`[TASK_BOARD]`** 快照同样经 **`before_main_llm_call`** 注入（每轮在 **`generate_tools_system_appendix`** 产出追加之后）；**`task_board`** 读写只针对该子任务键，**不会**看到或修改主会话任务板。
 - **可信会话键**：宿主在 `invoke` 前写入 **`_conversation_id`**，覆盖模型可能传入的同名字段，防止伪造；子 Agent 路径下写入的是上述 **子任务键**，不是裸 `conversation_id`。
-- 侧车标记：注册为 **`ToolEntry::new_sidecar`**，系统提示里出现在 **「Sidecar tools」** 章节；未授权该工具时整章省略。
+- 侧车标记：注册为 **`ToolEntry::new_sidecar`**（宿主侧 **`validate_envelope_tool_batch`** 等约束）；用法与 **`response` / `<sidecar_tools>`** 约定见 **`COMMUNICATION_PUBLIC`** 及各工具 **`doc_markdown`**（经 **`generate_tools_system_appendix`** 进入系统提示中的 **`## Tools`**）。未授权该工具时不会出现在上述附录中。
 
 ## XML：`<sidecar_tools>` + 根级主工具
 
@@ -31,9 +31,9 @@
 - **执行顺序**：先顺序执行所有侧车 **`call`**，再执行根级主工具（与产品约定一致）。
 - **宿主校验**（`validate_envelope_tool_batch`）：若一轮解析出 **多条** `ToolCall`，则除最后一条外必须均为 **侧车工具**；最后一条 **不得** 为仅侧车工具。非法组合不执行本批，并注入环境反馈消息让模型重试（占用工具轮次预算，与空工具 XML 重试类似）。
 
-## 系统提示：Regular tools / Sidecar tools
+## 系统提示：工具文档与侧车约定
 
-- **`ToolRegistry::prompt_context`**：先输出 **「## Regular tools」**，再在有侧车工具被授权时输出 **「## Sidecar tools」** 及英文短说明（侧车不得在有 `<sidecar_tools>` 时占根位等语义与 **`response`** 工具文档一致）。
+- 各工具的详细说明来自其 **`doc_markdown`**（通常 `include_str!("prompts/…")`），与授权列表一起在 **`generate_tools_system_appendix`** 中拼入系统提示（**`## Tools`** 等）。
 - **`COMMUNICATION_PUBLIC`**（英文）：**`thoughts`** 摘要语义、**`response`** 用法、**`task_board`** 与 **`<sidecar_tools>`** 的通用约定。多步计划的 **字段与侧车规则** 以 PUBLIC 为准；**桌面** **`tool_args.wait`** 见 **`computer/COMMUNICATION.md`**（**Post-action `wait` in `tool_args`**）；**Coder** 专属的 **Definition of done** 与 **Cross-surface verification** 见 **`coder/COMMUNICATION.md`**。
 
 ## Agent 白名单
@@ -57,5 +57,5 @@
 - 公共提示词：`crates/pointer-core/src/agents/_shared/COMMUNICATION_PUBLIC.md`
 - 工具 XML 说明：`crates/pointer-core/src/tools/prompts/response.md`
 - 侧车解析与多 `ToolCall`：`crates/pointer-core/src/response_xml/`、`crates/pointer-core/src/xml_tool_caller.rs`、`crates/pointer-core/src/provider.rs`
-- 批校验与分章注入：`crates/pointer-core/src/tools/mod.rs`
+- 批校验与工具注册：`crates/pointer-core/src/tools/mod.rs`
 - 会话注入与执行：`crates/pointer-core/src/chat_service.rs`；任务板快照钩子：`crates/pointer-core/src/extensions/task_board_hook.rs`

@@ -61,7 +61,6 @@ pub fn register_all(reg: &ToolRegistry) {
         "low",
         false,
         doc.trim(),
-        None,
         h,
     ));
 }
@@ -82,7 +81,50 @@ pub fn resolve_tool_workspace_root() -> Result<PathBuf> {
     std::env::current_dir().map_err(|e| anyhow!("无法获取当前目录: {e}"))
 }
 
-/// Resolve `user_path` (relative to root or absolute under root). Rejects traversal outside root.
+/// Resolve an **absolute** path for `file:write` / `file:edit`: must stay under canonical `root`.
+/// The target file (or missing parent dirs) may not exist yet; resolution walks up to an
+/// existing ancestor, canonicalizes it, then re-attaches the suffix and checks the prefix.
+fn resolve_absolute_under_workspace(root: &Path, abs: &Path) -> Result<PathBuf> {
+    let abs_owned = abs.to_path_buf();
+    let mut probe = abs_owned.clone();
+    loop {
+        if probe.as_os_str().is_empty() {
+            return Err(anyhow!("绝对路径不在工作区内"));
+        }
+        if probe.exists() {
+            let base = probe
+                .canonicalize()
+                .map_err(|e| anyhow!("绝对路径无效: {e}"))?;
+            if !base.starts_with(root) {
+                return Err(anyhow!("绝对路径不在工作区内"));
+            }
+            let suffix = abs_owned
+                .strip_prefix(&probe)
+                .map_err(|_| anyhow!("绝对路径前缀解析失败"))?;
+            for c in suffix.components() {
+                match c {
+                    Component::Normal(_) | Component::CurDir => {}
+                    Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                        return Err(anyhow!("绝对路径的尾部含非法路径组件"));
+                    }
+                }
+            }
+            let candidate = base.join(suffix);
+            if !candidate.starts_with(root) {
+                return Err(anyhow!("路径不在工作区内"));
+            }
+            return Ok(candidate);
+        }
+        if !probe.pop() {
+            return Err(anyhow!(
+                "绝对路径不在工作区内（与工作区无共同已存在目录）"
+            ));
+        }
+    }
+}
+
+/// Resolve `user_path` (relative to root, or absolute but must stay under canonical `root`).
+/// Rejects traversal outside root.
 pub fn resolve_within_workspace_root(root: &Path, user_path: &str) -> Result<PathBuf> {
     let root = root
         .canonicalize()
@@ -97,8 +139,7 @@ pub fn resolve_within_workspace_root(root: &Path, user_path: &str) -> Result<Pat
     let path = Path::new(user_path);
 
     let out = if path.is_absolute() {
-        path.canonicalize()
-            .map_err(|e| anyhow!("路径无效: {e}"))?
+        resolve_absolute_under_workspace(&root, path)?
     } else {
         let mut acc = root.clone();
         for c in path.components() {
@@ -125,6 +166,20 @@ pub fn resolve_within_workspace_root(root: &Path, user_path: &str) -> Result<Pat
         return Err(anyhow!("路径不在工作区内"));
     }
     Ok(out)
+}
+
+/// Absolute path string for tool JSON responses. Prefer [`Path::canonicalize`] when it succeeds.
+fn path_display_abs(path: &Path) -> String {
+    path.canonicalize()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| path.display().to_string())
+}
+
+/// Best-effort absolute display for a user-supplied path in read errors (batch budget skips, etc.).
+fn path_display_for_read_request(workspace_root: &Path, path_str: &str) -> String {
+    resolve_accessible_path(workspace_root, path_str)
+        .map(|p| path_display_abs(&p))
+        .unwrap_or_else(|_| path_str.to_string())
 }
 
 /// Resolve paths for **read-only** `file` methods. Relative paths must stay under `workspace_root`.
@@ -240,12 +295,12 @@ fn file_read_one_json(
         Ok(p) => p,
         Err(e) => {
             return serde_json::json!({
-                "path": path_str,
+                "path": path_display_for_read_request(root, path_str),
                 "error": e.to_string(),
             });
         }
     };
-    let full_display = full.display().to_string();
+    let full_display = path_display_abs(&full);
     if !full.is_file() {
         return serde_json::json!({
             "path": full_display,
@@ -382,7 +437,7 @@ fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result<String> {
         for spec in &specs {
             if budget_done || content_bytes >= max_total_bytes {
                 files.push(serde_json::json!({
-                    "path": spec.path,
+                    "path": path_display_for_read_request(root, &spec.path),
                     "error": "未读取：本批正文已达 maxTotalBytes 上限。请减少 paths、为各 path 设置 lineStart/lineEnd、降低 maxBytes，或拆成多次 file:read。",
                 }));
                 batch_capped = true;
@@ -417,7 +472,7 @@ fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result<String> {
             let budget = max_total_bytes.saturating_sub(content_bytes);
             if budget < MIN_BATCH_TRUNCATE_REMAINING {
                 files.push(serde_json::json!({
-                    "path": spec.path,
+                    "path": path_display_for_read_request(root, &spec.path),
                     "error": format!(
                         "本批剩余空间过小（{} 字节），无法容纳此文件正文。请提高 maxTotalBytes、减少 paths，或为各 path 设置 lineStart/lineEnd。",
                         budget
@@ -511,7 +566,7 @@ fn execute_file_write_payload(args: &serde_json::Value, root: &Path) -> Result<S
     }
     fs::write(&full, content.as_bytes()).map_err(|e| anyhow!("写入失败: {e}"))?;
     Ok(serde_json::json!({
-        "path": full.display().to_string(),
+        "path": path_display_abs(&full),
         "bytesWritten": content.as_bytes().len(),
         "success": true
     })
@@ -632,7 +687,7 @@ fn parse_file_edit_batch_entries(arr: &[serde_json::Value]) -> Result<Vec<(Strin
     Ok(out)
 }
 
-/// One `file:edit` replace (workspace-relative `path` only). Returns resolved path on success.
+/// One `file:edit` replace. `path` is workspace-relative or absolute under the workspace. Returns resolved path on success.
 fn file_edit_apply_one(root: &Path, path: &str, old_s: &str, new_s: &str) -> Result<PathBuf> {
     if old_s.is_empty() {
         return Err(anyhow!("oldString 不能为空"));
@@ -679,7 +734,7 @@ fn execute_file_edit_payload(args: &serde_json::Value, root: &Path) -> Result<St
         }
         let entries = parse_file_edit_batch_entries(arr)?;
         info!(
-            "file:edit batch: {} workspace-relative path(s)",
+            "file:edit batch: {} path(s) under workspace",
             entries.len()
         );
         let mut files: Vec<serde_json::Value> = Vec::with_capacity(entries.len());
@@ -688,7 +743,7 @@ fn execute_file_edit_payload(args: &serde_json::Value, root: &Path) -> Result<St
             match file_edit_apply_one(root, &path, &old_s, &new_s) {
                 Ok(full) => {
                     files.push(serde_json::json!({
-                        "path": full.display().to_string(),
+                        "path": path_display_abs(&full),
                         "success": true,
                         "replaced": 1,
                     }));
@@ -696,8 +751,11 @@ fn execute_file_edit_payload(args: &serde_json::Value, root: &Path) -> Result<St
                 Err(e) => {
                     failures += 1;
                     warn!("file:edit batch entry failed for {}: {}", path, e);
+                    let disp = resolve_within_workspace_root(root, &path)
+                        .map(|p| path_display_abs(&p))
+                        .unwrap_or_else(|_| path.clone());
                     files.push(serde_json::json!({
-                        "path": path,
+                        "path": disp,
                         "success": false,
                         "error": e.to_string(),
                     }));
@@ -734,7 +792,7 @@ fn execute_file_edit_payload(args: &serde_json::Value, root: &Path) -> Result<St
 
     let full = file_edit_apply_one(root, path, old_s, new_s)?;
     Ok(serde_json::json!({
-        "path": full.display().to_string(),
+        "path": path_display_abs(&full),
         "replaced": 1,
         "success": true
     })
@@ -797,10 +855,9 @@ fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -> Result<St
             if !list_entry_type_allowed(is_dir, type_filter) {
                 continue;
             }
-            let rel = p.strip_prefix(&base_canon).unwrap_or(&p);
-            let rel_s = rel.to_string_lossy().replace('\\', "/");
+            let path_abs = path_display_abs(&p);
             entries.push(serde_json::json!({
-                "path": rel_s,
+                "path": path_abs,
                 "kind": if is_dir { "directory" } else { "file" }
             }));
         }
@@ -826,10 +883,9 @@ fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -> Result<St
             if !list_entry_type_allowed(is_dir, type_filter) {
                 continue;
             }
-            let rel = p.strip_prefix(&base_canon).unwrap_or(p);
-            let rel_s = rel.to_string_lossy().replace('\\', "/");
+            let path_abs = path_display_abs(p);
             entries.push(serde_json::json!({
-                "path": rel_s,
+                "path": path_abs,
                 "kind": if is_dir { "directory" } else { "file" }
             }));
         }
@@ -879,6 +935,9 @@ fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -> Result<St
     } else {
         root.to_path_buf()
     };
+    let walk_root = walk_root
+        .canonicalize()
+        .map_err(|e| anyhow!("glob 搜索根路径无效: {e}"))?;
 
     let glob = Glob::new(pattern).map_err(|e| anyhow!("glob 模式无效: {e}"))?;
     let mut builder = GlobSetBuilder::new();
@@ -896,11 +955,13 @@ fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -> Result<St
         }
         let p = entry.path();
         if p.is_file() {
-            let rel = p.strip_prefix(&walk_root).unwrap_or(p);
-            let rel_norm = rel.to_string_lossy().replace('\\', "/");
-            if set.is_match(Path::new(&rel_norm)) {
-                matches.push(rel_norm);
+            let canon_p = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+            let rel_to_walk = canon_p.strip_prefix(&walk_root).unwrap_or(canon_p.as_path());
+            let rel_to_walk_norm = rel_to_walk.to_string_lossy().replace('\\', "/");
+            if !set.is_match(Path::new(&rel_to_walk_norm)) {
+                continue;
             }
+            matches.push(path_display_abs(canon_p.as_path()));
         }
     }
     Ok(serde_json::json!({
@@ -922,9 +983,7 @@ fn should_skip_grep(path: &Path) -> bool {
 }
 
 /// Append grep hits for one UTF-8 file into `results`.
-/// Each hit's `path` is relative to `rel_strip_base` (walk root or workspace root).
 fn grep_one_file(
-    rel_strip_base: &Path,
     file_path: &Path,
     re: &Regex,
     context: usize,
@@ -952,8 +1011,7 @@ fn grep_one_file(
         Ok(t) => t,
         Err(_) => return Ok(()),
     };
-    let rel = file_path.strip_prefix(rel_strip_base).unwrap_or(file_path);
-    let rel_s = rel.to_string_lossy().replace('\\', "/");
+    let path_abs = path_display_abs(file_path);
     for (line_no, line) in text.lines().enumerate() {
         if results.len() >= max_results {
             break;
@@ -973,7 +1031,7 @@ fn grep_one_file(
                 .collect::<Vec<_>>()
                 .join("\n");
             results.push(serde_json::json!({
-                "path": rel_s,
+                "path": path_abs.as_str(),
                 "line": n,
                 "matchLine": line,
                 "context": ctx
@@ -1053,16 +1111,13 @@ fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<St
 
     let mut results: Vec<serde_json::Value> = Vec::new();
     let (root_field, single_file) = match &scope {
-        GrepScope::Walk { start, .. } => (start.display().to_string(), false),
-        GrepScope::SingleFile { file } => {
-            let rel = file.strip_prefix(&root).unwrap_or(file.as_path());
-            (rel.to_string_lossy().replace('\\', "/"), true)
-        }
+        GrepScope::Walk { start, .. } => (path_display_abs(start), false),
+        GrepScope::SingleFile { file } => (path_display_abs(file), true),
     };
 
     match scope {
         GrepScope::SingleFile { file } => {
-            grep_one_file(&root, &file, &re, context, max_results, &mut results)?;
+            grep_one_file(&file, &re, context, max_results, &mut results)?;
         }
         GrepScope::Walk { start, max_depth } => {
             for entry in WalkDir::new(&start)
@@ -1077,7 +1132,7 @@ fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<St
                 if !p.is_file() {
                     continue;
                 }
-                grep_one_file(&start, p, &re, context, max_results, &mut results)?;
+                grep_one_file(p, &re, context, max_results, &mut results)?;
             }
         }
     }
@@ -1338,7 +1393,8 @@ mod tests {
         assert_eq!(v["singleFile"], true);
         let results = v["results"].as_array().unwrap();
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0]["path"], "one.rs");
+        let p0 = results[0]["path"].as_str().unwrap();
+        assert!(p0.ends_with("one.rs"), "expected absolute path, got {p0}");
     }
 
     #[test]
@@ -1358,7 +1414,11 @@ mod tests {
         assert_eq!(v["singleFile"], true);
         let results = v["results"].as_array().unwrap();
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0]["path"], "pkg/a.java");
+        let p0 = results[0]["path"].as_str().unwrap();
+        assert!(
+            p0.ends_with("a.java") && p0.contains("pkg"),
+            "expected absolute path under pkg, got {p0}"
+        );
     }
 
     #[test]
@@ -1408,6 +1468,43 @@ mod tests {
     }
 
     #[test]
+    fn resolve_accepts_absolute_path_under_workspace_for_new_file() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let abs = root.join("nested").join("new.txt");
+        let got = resolve_within_workspace_root(root, abs.to_str().unwrap()).unwrap();
+        let root_c = root.canonicalize().unwrap();
+        assert!(got.starts_with(&root_c));
+        assert!(got.ends_with("new.txt"));
+    }
+
+    #[test]
+    fn resolve_accepts_absolute_path_under_workspace_existing_file() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let p = root.join("z.txt");
+        fs::write(&p, "z").unwrap();
+        let abs = p.canonicalize().unwrap();
+        let got = resolve_within_workspace_root(root, abs.to_str().unwrap()).unwrap();
+        assert_eq!(got, abs);
+    }
+
+    #[test]
+    fn resolve_rejects_absolute_path_outside_workspace() {
+        let ws = tempfile::tempdir().expect("tmp");
+        let other = tempfile::tempdir().expect("tmp");
+        let f = other.path().join("x.txt");
+        fs::write(&f, "x").unwrap();
+        let abs = f.canonicalize().unwrap();
+        let err = resolve_within_workspace_root(ws.path(), abs.to_str().unwrap()).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("工作区") || msg.contains("不在"),
+            "unexpected message: {msg}"
+        );
+    }
+
+    #[test]
     fn accessible_path_absolute_outside_workspace() {
         let ws = tempfile::tempdir().expect("tmp");
         let other = tempfile::tempdir().expect("tmp");
@@ -1434,8 +1531,8 @@ mod tests {
             .iter()
             .map(|e| e["path"].as_str().unwrap())
             .collect();
-        assert!(paths.contains(&"b.txt"));
-        assert!(paths.iter().any(|p| *p == "sub"));
+        assert!(paths.iter().any(|p| p.ends_with("b.txt")));
+        assert!(paths.iter().any(|p| p.ends_with("sub") && !p.ends_with("sub\\a.txt")));
     }
 
     #[test]

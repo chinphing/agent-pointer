@@ -25,7 +25,6 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         "high",
         false,
         mouse_doc,
-        None,
         Arc::new(move |args| {
             let mouse_state = mouse_state.clone();
             run_synthetic_input(move || {
@@ -49,7 +48,6 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         "medium",
         false,
         hotkey_doc,
-        None,
         Arc::new(move |args| {
             let hotkey_state = hotkey_state.clone();
             run_synthetic_input(move || {
@@ -66,7 +64,6 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         "high",
         false,
         composite_doc,
-        None,
         Arc::new(move |args| {
             let composite_state = composite_state.clone();
             run_synthetic_input(move || {
@@ -90,7 +87,6 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         "high",
         false,
         modified_doc,
-        None,
         Arc::new(move |args| {
             let modified_state = modified_state.clone();
             run_synthetic_input(move || {
@@ -113,7 +109,6 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         "low",
         false,
         wait_doc,
-        None,
         Arc::new(move |args| {
             let tool = tool_wait::WaitTool::new();
             tool.execute("wait", &args)
@@ -126,7 +121,6 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         "medium",
         false,
         clipboard_doc,
-        None,
         Arc::new(move |args| {
             let method = args["method"]
                 .as_str()

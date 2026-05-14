@@ -2,7 +2,9 @@
 
 Unified workspace file tools. Prefer **qualified names** in JSON **`tool_name`**: **`file:read`**, **`file:write`**, **`file:edit`**, **`file:glob`**, **`file:grep`**, **`file:list`** — the runtime merges them into `tool_name` **`file`** plus **`method`**. You may also call **`file`** with a top-level **`method`** string (e.g. **`read`**), equivalent to **`file:read`**, **`file:write`**, etc.
 
-**Relative paths** resolve under the workspace root (`workspaceRoot` in settings, or the process working directory). Do not use `..` to escape the workspace on relative paths. **`file:write`** and **`file:edit`** only accept workspace-relative paths and may require user approval. For **read-only** methods (**`file:read`**, **`file:glob`**, **`file:grep`**, **`file:list`**), you may use **absolute** paths to inspect another project when the user asks.
+**Relative paths** resolve under the workspace root (`workspaceRoot` in settings, or the process working directory). Do not use `..` to escape the workspace on relative paths. **`file:write`** and **`file:edit`** accept **workspace-relative** paths **or** **absolute** paths that resolve **under the same workspace root** (prefix check after canonicalization); paths outside the workspace are rejected. These writes may require user approval. For **read-only** methods (**`file:read`**, **`file:glob`**, **`file:grep`**, **`file:list`**), you may also use **absolute** paths **outside** the workspace when the user asks.
+
+**Responses:** Whenever this tool returns a filesystem location (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**), the value is an **absolute** path. The OS may use a canonical form (e.g. resolved symlinks; on Windows, a `\\?\` prefix is normal).
 
 **Batch reads:** If you already know **two or more** file paths, use **`file:read`** with **`paths`** (array) in one call — not multiple reads with **`path`**. Each element may be a **string path** (shared root defaults below) or an **object** with its own **`path`** plus optional **`lineStart`** / **`lineEnd`** / **`maxBytes`** so regions can differ per file in one batch.
 
@@ -13,8 +15,8 @@ Unified workspace file tools. Prefer **qualified names** in JSON **`tool_name`**
 | Method | Purpose |
 |--------|---------|
 | **`file:read`** | Read UTF-8 text; single file or batch. With `paths`, response shape includes a `files` array. |
-| **`file:write`** | Create or overwrite a file (workspace-relative `path` only). |
-| **`file:edit`** | Replace one unique substring per file: single file (`path` + `oldString` + `newString`) or batch (`edits` array, max **32** entries). |
+| **`file:write`** | Create or overwrite a file; `path` is workspace-relative **or** absolute under the workspace. |
+| **`file:edit`** | Replace one unique substring per file: single file (`path` + `oldString` + `newString`) or batch (`edits` array, max **32** entries); each `path` same rule as **`file:write`**. |
 | **`file:glob`** | List files matching a glob under the search root (workspace root or optional `base`). |
 | **`file:grep`** | Search file contents with a regex. |
 | **`file:list`** | List directory entries; optional recursion, max depth, and file/directory filter. |
@@ -36,12 +38,12 @@ All keys below are **JSON properties** on the root **`tool_args`** object of you
 
 **`file:write`**
 
-- **`path`** — Relative path of the file to create or overwrite (workspace only).
+- **`path`** — Workspace-relative **or** absolute path under the workspace (runtime checks canonical prefix against workspace root).
 - **`content`** — Entire file body as one JSON **string** value. Use normal JSON escaping for quotes (`\"`), backslashes (`\\`), and newlines (`\n`); file bytes are UTF-8 text.
 
 **`file:edit`**
 
-- **`path`** — Relative path to an existing file (workspace only). Use with **`oldString`** and **`newString`** for a **single-file** edit.
+- **`path`** — Workspace-relative **or** absolute path under the workspace, targeting an existing file. Use with **`oldString`** and **`newString`** for a **single-file** edit.
 - **`oldString`** — Exact snippet to find and replace; must occur **exactly once** in that file. JSON **string**; the runtime also accepts **`old_string`**.
 - **`newString`** — Replacement text as a JSON **string**; same escaping rules as **`oldString`**. Alias **`new_string`**.
 - **`edits`** — **Batch mode:** non-empty array (max **32**) of objects. Each object requires **`path`** (alias **`file`**), **`oldString`** / **`old_string`**, **`newString`** / **`new_string`**. Do **not** combine **`edits`** with top-level **`path`** / **`oldString`** / **`newString`** in the same call. Entries are applied **in order**; later entries see disk state after earlier ones (including two patches to the **same** path). Response includes **`files`** (each with **`success`**, **`path`**, and either **`replaced`** or **`error`**), **`successCount`**, **`failureCount`**, and **`batchPartialFailure`** (true if any entry failed). Failed entries do **not** roll back earlier successful writes in the same batch—re-read and fix, or follow up with corrective edits.

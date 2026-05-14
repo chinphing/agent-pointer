@@ -38,9 +38,11 @@ pub struct MessageLoopPromptsAfterContext<'a> {
 
 /// Context for [`ExtensionPoint::BeforeMainLlmCall`] immediately before [`crate::provider::OpenAIProvider::stream_chat`].
 ///
-/// `system_prompts` already includes env block, communication inject, agent system prompts, tool chapters,
-/// and tool appendices (response envelope / per-tool docs) when enabled. Hooks usually **append** so their text sits closest to the
-/// conversational `messages` payload.
+/// `system_prompts` already includes communication inject, agent system prompts, skill prompts,
+/// and tool appendices when enabled. Hooks here **append** (e.g. `[TASK_BOARD]`). The
+/// **`[Environment]`** block (OS, locale, **calendar date only**) is **not** present yet: `chat_service` pushes
+/// it after all hooks return (`push_env_context_last_in_system_prompts`), as the final slice of the
+/// merged `system` string. **Full date+time** for Computer is added in the `[CUR_SCREEN]` inject, not here.
 pub struct BeforeMainLlmCallContext<'a> {
     pub computer_state: &'a ComputerState,
     pub lead_agent_profile: AgentProfile,

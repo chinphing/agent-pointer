@@ -148,11 +148,6 @@ pub fn merge_tool_method_from_qualified_name(raw_name: &str, mut args: Value) ->
     (base.to_string(), args)
 }
 
-#[derive(Debug, Clone)]
-pub struct ToolPrompt {
-    pub system_prompt: String,
-}
-
 /// One registered tool: identity ([`ToolDef`]), OpenAI/XML documentation, approval policy, handler.
 #[derive(Clone)]
 pub struct ToolEntry {
@@ -163,7 +158,6 @@ pub struct ToolEntry {
     /// `<tool_name>` when any sidecar calls are present (see `response` tool docs).
     pub is_sidecar: bool,
     pub doc_markdown: String,
-    pub prompt: Option<ToolPrompt>,
     pub handler: ToolHandler,
 }
 
@@ -173,7 +167,6 @@ impl ToolEntry {
         risk_level: impl Into<String>,
         requires_approval: bool,
         doc_markdown: impl Into<String>,
-        prompt: Option<ToolPrompt>,
         handler: ToolHandler,
     ) -> Self {
         Self::new_inner(
@@ -182,18 +175,16 @@ impl ToolEntry {
             requires_approval,
             false,
             doc_markdown,
-            prompt,
             handler,
         )
     }
 
-    /// Sidecar-only tools (`task_board`, …): documented under **Sidecar tools** in system prompts.
+    /// Sidecar-only tools (`task_board`, …): enforced by [`ToolRegistry::is_sidecar_tool`] / envelope validation; long-form docs live in `doc_markdown` (`generate_tools_system_appendix`).
     pub fn new_sidecar(
         name: impl Into<String>,
         risk_level: impl Into<String>,
         requires_approval: bool,
         doc_markdown: impl Into<String>,
-        prompt: Option<ToolPrompt>,
         handler: ToolHandler,
     ) -> Self {
         Self::new_inner(
@@ -202,7 +193,6 @@ impl ToolEntry {
             requires_approval,
             true,
             doc_markdown,
-            prompt,
             handler,
         )
     }
@@ -213,7 +203,6 @@ impl ToolEntry {
         requires_approval: bool,
         is_sidecar: bool,
         doc_markdown: impl Into<String>,
-        prompt: Option<ToolPrompt>,
         handler: ToolHandler,
     ) -> Self {
         let name = name.into();
@@ -223,7 +212,6 @@ impl ToolEntry {
             requires_approval,
             is_sidecar,
             doc_markdown: doc_markdown.into(),
-            prompt,
             handler,
         }
     }
@@ -347,60 +335,6 @@ impl ToolRegistry {
                 })
             })
             .collect()
-    }
-
-    pub fn prompt_context(&self, allow: &[String]) -> Vec<String> {
-        let (regular, sidecar) = self.prompt_context_sections(allow);
-        let mut out = Vec::new();
-        if !regular.is_empty() {
-            out.push(format!(
-                "## Regular tools\n\n{}",
-                regular.join("\n\n")
-            ));
-        }
-        if let Some(s) = sidecar {
-            out.push(s);
-        }
-        out
-    }
-
-    /// Split tool usage prompts: **Regular tools** vs **Sidecar tools** (English section titles).
-    /// Returns `(regular_blocks, optional_sidecar_chapter)`; sidecar chapter omitted when empty.
-    pub fn prompt_context_sections(&self, allow: &[String]) -> (Vec<String>, Option<String>) {
-        let g = self.inner.read();
-        let mut regular: Vec<(String, String)> = Vec::new();
-        let mut sidecar: Vec<(String, String)> = Vec::new();
-        for e in g.values() {
-            if !allow.is_empty() && !allow.contains(&e.def.name) {
-                continue;
-            }
-            let Some(p) = e.prompt.as_ref() else {
-                continue;
-            };
-            let block = format!("[Tool usage: {}]\n{}", e.def.name, p.system_prompt);
-            if e.is_sidecar {
-                sidecar.push((e.def.name.clone(), block));
-            } else {
-                regular.push((e.def.name.clone(), block));
-            }
-        }
-        drop(g);
-        regular.sort_by(|a, b| a.0.cmp(&b.0));
-        sidecar.sort_by(|a, b| a.0.cmp(&b.0));
-        let regular_strs: Vec<String> = regular.into_iter().map(|(_, b)| b).collect();
-        let sidecar_chapter = if sidecar.is_empty() {
-            None
-        } else {
-            let intro = concat!(
-                "These tools must **not** be used as the root `<tool_name>` when `<sidecar_tools>` is present.\n",
-                "They may only appear inside `<sidecar_tools>` as one or more `<call>` entries.\n",
-                "Each `<call>` uses the same `<tool_name>` / `<tool_args>` shape as a single tool invocation.\n",
-                "Use **qualified** names **`tool:method`** in `<tool_name>` (e.g. **`task_board:patch`**) per the blocks below.\n",
-            );
-            let body: String = sidecar.into_iter().map(|(_, b)| b).collect::<Vec<_>>().join("\n\n");
-            Some(format!("## Sidecar tools\n\n{intro}\n{body}"))
-        };
-        (regular_strs, sidecar_chapter)
     }
 }
 

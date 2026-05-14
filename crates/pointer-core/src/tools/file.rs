@@ -38,6 +38,53 @@ const MAX_LIST_ENTRIES: usize = 2000;
 const MAX_WALK_DEPTH: usize = 64;
 const CONTEXT_LINES: usize = 2;
 
+// Predefined file type globs (align with ripgrep)
+const FILE_TYPE_GLOBS: &[(&str, &[&str])] = &[
+    ("rust", &["*.rs", "*.toml"]),
+    ("py", &["*.py", "*.pyi"]),
+    ("js", &["*.js", "*.cjs", "*.mjs"]),
+    ("ts", &["*.ts", "*.tsx"]),
+    ("vue", &["*.vue"]),
+    ("md", &["*.md"]),
+    ("json", &["*.json"]),
+];
+
+fn expand_file_types(types: &[String]) -> Result<Vec<String>> {
+    let mut globs = Vec::new();
+    for t in types {
+        let found = FILE_TYPE_GLOBS.iter().find(|(name, _)| *name == t.as_str());
+        match found {
+            Some((_, g)) => globs.extend(g.iter().map(|s| s.to_string())),
+            None => return Err(anyhow!("未知文件类型: {t}")),
+        }
+    }
+    Ok(deduplicate_globs(globs))
+}
+
+fn deduplicate_globs(mut globs: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    globs.retain(|g| seen.insert(g.clone()));
+    globs
+}
+
+fn build_glob_set(globs: Option<&[String]>) -> Result<Option<globset::GlobSet>> {
+    if let Some(globs) = globs {
+        if globs.is_empty() {
+            Ok(None)
+        } else {
+            let mut builder = GlobSetBuilder::new();
+            for g in globs {
+                let glob = Glob::new(g).map_err(|e| anyhow!("无效 glob 模式 '{g}': {e}"))?;
+                builder.add(glob);
+            }
+            let set = builder.build().map_err(|e| anyhow!("构建 glob set 失败: {e}"))?;
+            Ok(Some(set))
+        }
+    } else {
+        Ok(None)
+    }
+}
+
 /// Trim and drop redundant trailing `/` or `\` so `.../mod.rs/` resolves like `.../mod.rs`.
 /// On Windows, leaves `C:\` unchanged when that is the whole path after trimming separators.
 fn normalize_user_fspath(user_path: &str) -> &str {
@@ -1169,8 +1216,47 @@ fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<St
         .unwrap_or(CONTEXT_LINES as u64)
         .min(5) as usize;
 
-    let matcher = RegexMatcherBuilder::new()
-        .multi_line(false)
+    // New parameters
+    let include_globs: Option<Vec<String>> = args
+        .get("includeGlobs")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect());
+    let exclude_globs: Option<Vec<String>> = args
+        .get("excludeGlobs")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect());
+    let file_types: Option<Vec<String>> = args
+        .get("fileTypes")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect());
+    let fixed_string = args.get("fixedString").and_then(|v| v.as_bool()).unwrap_or(false);
+    let ignore_case = args.get("ignoreCase").and_then(|v| v.as_bool()).unwrap_or(false);
+    let include_hidden = args.get("includeHidden").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    // Expand file types and merge with include_globs
+    let merged_include_globs = if let Some(types) = &file_types {
+        let mut globs = expand_file_types(types)?;
+        if let Some(inc) = &include_globs {
+            globs.extend(inc.iter().cloned());
+        }
+        Some(deduplicate_globs(globs))
+    } else {
+        include_globs.clone()
+    };
+
+    // Build glob sets
+    let include_set = build_glob_set(merged_include_globs.as_deref())?;
+    let exclude_set = build_glob_set(exclude_globs.as_deref())?;
+
+    let mut matcher_builder = RegexMatcherBuilder::new();
+    matcher_builder.multi_line(false);
+    if fixed_string {
+        matcher_builder.fixed_strings(true);
+    }
+    if ignore_case {
+        matcher_builder.case_insensitive(true);
+    }
+    let matcher = matcher_builder
         .build(pattern)
         .map_err(|e| anyhow!("正则无效: {e}"))?;
 
@@ -1232,7 +1318,7 @@ fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<St
         GrepScope::Walk { start, max_depth } => {
             let mut walk = WalkBuilder::new(&start);
             walk.git_ignore(true);
-            walk.hidden(true);
+            walk.hidden(!include_hidden);
             walk.max_depth(Some(max_depth));
             walk.filter_entry(|e| !should_skip_grep(e.path()));
             for entry in walk.build() {
@@ -1250,6 +1336,19 @@ fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<St
                     continue;
                 }
                 let p = entry.path();
+                // Apply glob filters
+                if let Ok(rel) = p.strip_prefix(&start) {
+                    if let Some(ref set) = exclude_set {
+                        if set.is_match(rel) {
+                            continue;
+                        }
+                    }
+                    if let Some(ref set) = include_set {
+                        if !set.is_match(rel) {
+                            continue;
+                        }
+                    }
+                }
                 let meta = match fs::metadata(p) {
                     Ok(m) => m,
                     Err(_) => continue,
@@ -1631,6 +1730,91 @@ mod tests {
             "maxResults": 20,
         });
         execute_file_grep_payload(&args_ok, root).expect("grep with path");
+    }
+
+    #[test]
+    fn file_grep_include_hidden() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        // create hidden file
+        fs::create_dir(root.join(".hidden_dir")).unwrap();
+        fs::write(root.join(".hidden_dir").join("file.txt"), "secret\n").unwrap();
+        // by default, hidden files are skipped
+        let args_default = json!({"pattern": "secret", "maxResults": 20});
+        let out = execute_file_grep_payload(&args_default, root).expect("grep");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["count"], 0, "hidden should be skipped by default");
+        // includeHidden: true should find
+        let args_include = json!({"pattern": "secret", "includeHidden": true, "maxResults": 20});
+        let out2 = execute_file_grep_payload(&args_include, root).expect("grep");
+        let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
+        assert_eq!(v2["count"], 1, "includeHidden should include hidden");
+    }
+
+    #[test]
+    fn file_grep_fixed_string() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("f.txt"), "x.y)\n").unwrap();
+        // regex would treat '.' as any char and ')' as literal (needs escape). But with fixedString it's literal.
+        let args = json!({"pattern": "x.y)", "fixedString": true, "maxResults": 20});
+        let out = execute_file_grep_payload(&args, root).expect("grep");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["count"], 1, "fixedString should match literal");
+    }
+
+    #[test]
+    fn file_grep_ignore_case() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("case.txt"), "Hello World\n").unwrap();
+        // default case sensitive should not match lowercase
+        let args_sensitive = json!({"pattern": "hello", "maxResults": 20});
+        let out1 = execute_file_grep_payload(&args_sensitive, root).expect("grep");
+        let v1: serde_json::Value = serde_json::from_str(&out1).unwrap();
+        assert_eq!(v1["count"], 0, "case sensitive should not match lowercase pattern if text is uppercase");
+        // ignoreCase: true should match
+        let args_ignore = json!({"pattern": "hello", "ignoreCase": true, "maxResults": 20});
+        let out2 = execute_file_grep_payload(&args_ignore, root).expect("grep");
+        let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
+        assert_eq!(v2["count"], 1, "ignoreCase should match");
+    }
+
+    #[test]
+    fn file_grep_file_types() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("a.rs"), "rust\n").unwrap();
+        fs::write(root.join("a.py"), "python\n").unwrap();
+        // fileTypes ["rust"] should only scan .rs files and not .py
+        let args = json!({"pattern": "rust|python", "fileTypes": ["rust"], "maxResults": 20});
+        let out = execute_file_grep_payload(&args, root).expect("grep");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let results = v["results"].as_array().unwrap();
+        // should only have one result from a.rs
+        assert_eq!(results.len(), 1, "fileTypes should restrict to .rs");
+        let path = results[0]["path"].as_str().unwrap();
+        assert!(path.ends_with("a.rs"), "expected a.rs, got {}", path);
+    }
+
+    #[test]
+    fn file_grep_include_exclude_globs() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("test")).unwrap();
+        fs::write(root.join("src").join("lib.rs"), "code\n").unwrap();
+        fs::write(root.join("test").join("test.rs"), "code\n").unwrap();
+        // include glob: src/**/*
+        let args_inc = json!({"pattern": "code", "includeGlobs": ["src/**/*"], "maxResults": 20});
+        let out1 = execute_file_grep_payload(&args_inc, root).expect("grep");
+        let v1: serde_json::Value = serde_json::from_str(&out1).unwrap();
+        assert_eq!(v1["count"], 1, "includeGlobs should filter");
+        // exclude glob: test/**/*
+        let args_exc = json!({"pattern": "code", "excludeGlobs": ["test/**/*"], "maxResults": 20});
+        let out2 = execute_file_grep_payload(&args_exc, root).expect("grep");
+        let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
+        assert_eq!(v2["count"], 1, "excludeGlobs should filter");
     }
 
     #[test]

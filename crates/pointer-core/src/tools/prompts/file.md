@@ -54,15 +54,21 @@ All keys below are **JSON properties** on the root **`tool_args`** object of you
 
 **`file:grep`**
 
-- **`pattern`** — Rust regex syntax (via the same matcher stack ripgrep uses for line search). Keep patterns reasonably short (e.g. ≤ **512** characters). Matching is **line-oriented** (not multi-line across `\\n` within one match).
+- **`pattern`** — Rust regex syntax (via the same matcher stack ripgrep uses for line search). Keep patterns reasonably short (e.g. ≤ **512** characters). Matching is **line-oriented** (not multi-line across `\\n` within one match). When **`fixedString`** is `true`, `pattern` is treated as a literal string, not a regex.
 - **`path`** — Optional; same idea as **`grep -R pattern PATH`**: **`PATH`** may be a **file** (search that file only) or a **directory** (walk files under it). Omit or use an empty string to search from the **workspace root**. Workspace-relative or absolute read-only. Directory walks honor **`.gitignore`** / ignore rules and **skip hidden** entries by default (like ripgrep).
 - **`maxResults`** — Optional cap on hit rows (default bounded by runtime).
 - **`maxDepth`** — Optional directory walk depth cap (ignored when **`path`** targets a single file).
 - **`contextLines`** — Optional lines of context above/below each match (default **2**, clamped up to **5**).
+- **`includeGlobs`** — Optional array of include glob patterns (e.g. `["*.rs", "src/**/*"]`). Only files matching any pattern are searched. When combined with **`fileTypes`**, those globs are merged (duplicates removed).
+- **`excludeGlobs`** — Optional array of exclude glob patterns. Files matching any pattern are skipped. Exclude takes priority over include.
+- **`fileTypes`** — Optional array of predefined type names (e.g. `["rust", "js"]`). Each name expands to a set of include globs: `"rust"` → `["*.rs", "*.toml"]`; `"py"` → `["*.py", "*.pyi"]`; `"js"` → `["*.js", "*.cjs", "*.mjs"]`; `"ts"` → `["*.ts", "*.tsx"]`; `"vue"` → `["*.vue"]`; `"md"` → `["*.md"]`; `"json"` → `["*.json"]`. Invalid type names return an error.
+- **`fixedString`** — Optional boolean; when `true` the search is literal (no regex). Default `false`.
+- **`ignoreCase`** — Optional boolean; when `true` case-insensitive matching is enabled. Default `false`.
+- **`includeHidden`** — Optional boolean; when `true` hidden files and directories are included in the walk (overrides the default skip-hidden behavior). Default `false`.
 
 Binary files are skipped heuristically (NUL byte). Very large files (&gt; **2 MiB**) are skipped per file, same budget idea as before.
 
-Response includes **`singleFile`: true** when **`path`** resolves to a **file**.
+Response includes **`singleFile`: true`** when **`path`** resolves to a **file**.
 
 **`file:list`**
 

@@ -31,27 +31,6 @@ When **`tool_name` is `response`**, you are delivering the final user-visible re
 }
 ```
 
-#### JSON example (sidecar `task_board` + root `terminal`)
-
-```json
-{
-  "thoughts": "Update board, then run tests.",
-  "headline": "Tests",
-  "sidecar_tools": [
-    {
-      "tool_name": "task_board:patch",
-      "tool_args": {
-        "items": "[{\"id\":\"1\",\"title\":\"Run tests\",\"status\":\"in_progress\",\"verification\":\"cargo test -p foo\"}]"
-      }
-    }
-  ],
-  "tool_name": "terminal",
-  "tool_args": {
-    "command": "cargo test -p foo"
-  }
-}
-```
-
 **tips**
 Use `include` patterns from the runtime when you must pull prior tool output verbatim; avoid rewriting large prior results when inclusion is available.
 Never rewrite subordinate agent responses in full.

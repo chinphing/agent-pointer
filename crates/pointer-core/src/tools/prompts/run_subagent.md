@@ -1,6 +1,17 @@
 ### `run_subagent`
 
-Hand off a **self-contained sub-task** to another **worker** agent. You get back a JSON result for this turn’s history; you then decide the next step (e.g. **`response`**, more tools, or another handoff).
+Hand off a **self-contained sub-task** to another **worker** agent. The worker’s **deliverable** (for **`explore`**, etc.)
+is **Markdown** in the tool result’s **`content`** field. You then decide the next step (e.g. **`response`**, more tools,
+or another handoff).
+
+**What the lead receives**
+
+- **`content`** — **Markdown** string: the worker’s full report (from **`response`** → **`tool_args.text`**). Treat this
+  as the canonical handoff document; merge it into your plan or implementation notes.
+- **Sibling fields** (ids, names, optional **`reasoning`**) are metadata alongside **`content`**; read them if useful,
+  but the reconnaissance body is **Markdown**, not JSON inside **`content`**.
+- If your UI or parser wraps the tool reply in JSON, read the **`content`** property’s string value — that string **is**
+  the Markdown report.
 
 **When to use**
 
@@ -18,6 +29,11 @@ Hand off a **self-contained sub-task** to another **worker** agent. You get back
 - Ordinary implementation or debugging you can do with **`file`** / **`terminal`** in this thread.
 - The sub-task still needs **ongoing** access to the main chat; the worker only sees **`instruction`** (plus its own system and tools), not the full user conversation.
 
+**`explore` vs local reconnaissance (coder lead)**
+
+- A **small** map (a few paths, a short grep→read loop) before you edit stays in **this** thread—see **Routine workflow** step **Explore** in your primary instructions.
+- Use **`agentId` `explore`** when **many** `file` rounds would bloat the main history **or** you need a **structured** reconnaissance contract (traces, evidence, coverage) spelled out in **`instruction`**—see **Delegating to the `explore` worker** there.
+
 **Target workers**
 
 - Use **`agentId`** only for ids that appear in the **delegatable sub-agents** metadata block in your system context. Any other id will fail.
@@ -34,6 +50,17 @@ Hand off a **self-contained sub-task** to another **worker** agent. You get back
 - **`instruction`** (required) — Full task text: goal, scope, inputs, **completion criteria** (what counts as done), and **ordered steps** when the user supplied them.
 - **`title`** (optional) — Short label for traces.
 - **`taskId`** (optional) — Stable id for sidecar state; omit to let the host assign one.
+
+**Two different things (do not confuse them)**
+
+1. **Examples below** — These show **your** (lead) on-wire turn: **one JSON object** with **`tool_name":"run_subagent"`**
+   and **`tool_args`** carrying **`agentId`**, **`instruction`**, etc. Same envelope as any other tool you call. This is
+   **not** the worker’s Markdown report.
+2. **After the worker run completes** — The host returns a **tool result JSON object** (metadata + **`content`**). The
+   worker finishes by calling the **`response`** tool; the host copies **`tool_args.text`** into **`content`** (legacy
+   key **`message`** in **`tool_args`** is also accepted for the same string). For **`explore`**, that string is
+   **Markdown**. So the sub-agent **does** use **`response`**; the parent reads the handoff from **`content`**, not from
+   a second nested JSON report inside **`content`**.
 
 #### JSON example (delegate implementation)
 

@@ -9,8 +9,8 @@
 | Cursor 概念 | pointer-app 对应 |
 |------------|------------------|
 | 独立上下文窗口 | [`run_sub_agent`](../../crates/pointer-core/src/chat_service.rs) 仅构造 `local_history`：单条 user = `instruction`，无主线程历史（与 [`run_subagent.md`](../../crates/pointer-core/src/tools/prompts/run_subagent.md) 一致）。 |
-| 中间过程噪声隔离在子会话 | 子 Agent 内 `file`/`terminal` 等工具往返留在子循环；父线程只收到序列化后的 [`AgentRunResult`](../../crates/pointer-core/src/agents/mod.rs) JSON。 |
-| Explore：搜索与分析代码库 | 子 worker 专注 `file:list` / `file:grep` / `file:glob` / `file:read`（只读），产出路径、符号、数据流结论。 |
+| 中间过程噪声隔离在子会话 | 子 Agent 内工具往返留在子循环；父线程收到序列化 [`AgentRunResult`](../../crates/pointer-core/src/agents/mod.rs)（元数据 + **`content`**：**Markdown** 侦察摘要）。 |
+| Explore：搜索与分析代码库 | 子 worker 专注 `file:list` / `file:grep` / `file:glob` / `file:read`（只读），产出 **Markdown** 结构化结论（路径、符号、数据流）。 |
 | 子代理默认更快模型（成本/速度） | 当前子调用复用同一 `OpenAIProvider`（`prov.stream_chat`），**未**按 Agent 切换模型；若要对齐官方「更快模型」，需后续在 `AgentDef.config` 或设置中增加「子 Agent 覆盖模型」并在 `run_sub_agent` 构造 provider 时应用（可选阶段）。 |
 | 自定义子代理 `readonly: true` | 本仓库工具粒度为**工具名**（[`resolve_agent_tools`](../../crates/pointer-core/src/chat_service.rs)），`file` 单工具包含读写方法；只读采用 **提示词约束 + 线程上下文内硬拒绝**（见 §3.4）。 |
 | 不可嵌套委派 | 已实现：`allowed_tools` 剔除 `run_subagent`，子循环内硬拒绝（[`chat_service.rs`](../../crates/pointer-core/src/chat_service.rs) 子 Agent 工具分支）。 |
@@ -41,7 +41,7 @@ flowchart LR
 
 - **explore** 是一个 **builtin worker**（`role: worker`），`id` 固定为 **`explore`**。
 - **职责**：在 workspace 内完成「定位代码 / 追踪引用 / 理清模块边界」类任务，**不**改代码、**不**跑 shell、**不**跑 lint（避免与「探索」无关的副作用和噪声）。
-- **输出**：通过既有 `response` 工具结束子会话；父级收到 JSON 中的 `content` 字符串，应约定为 **结构化摘要**（见第 4 节），便于 coder 直接进入 Plan / Implement。
+- **输出**：统一交付 **Markdown** 摘要（章节化证据与 trace）。子 Agent 通过 **`response`** 的 **`tool_args.text`** 提交；父级从 **`run_subagent`** 工具结果的 **`content`** 字段读取同一字符串（旁路为 id / 名等元数据）。子会话每轮仍遵循宿主 **JSON tool envelope**（见通信层），**不得**把裸 Markdown 当作 assistant 正文。
 - **启用方式**：与用户设置 [`allowAgents`](../guides/pointer-run-subagent.md) 一致——将 `explore` 加入列表后，[`delegatable_sub_agents_system_block`](../../crates/pointer-core/src/agents/mod.rs) 会注入元数据，coder 才能合法 `run_subagent`。
 
 ## 3. 代码与资源改动（核心）
@@ -71,9 +71,12 @@ flowchart LR
 与 [Cursor 文档](https://cursor.com/cn/docs/subagents) 中「search-agent」示例一致，正文应写明：
 
 - **使命**：只读探索仓库，返回 **高信号** 证据（路径 + 少量行号/片段），不做实现。
-- **工具习惯**：优先 `grep`/`glob`/`list` 再 `read`；大文件用 `lineStart`/`lineEnd`/`maxBytes`；批量 `paths` 读。
+- **工具习惯**：优先 `grep`/`glob`/`list` 再 `read`；大文件用 `lineStart`/`lineEnd`/`maxBytes`；批量 `paths` 读；
+  工具失败写入 **Open questions** / **Coverage**，不得静默忽略。
+- **追踪与卫生**：默认每个方向的 trace **≤10 hop**（任务可覆盖）；遇 **cycle** 显式标注；hop 可标 **prod/test/…**；
+  **敏感信息**仅 `REDACTED` + 位置指针；**inventory** 有默认剪枝并在 **Coverage** 留痕。
 - **完成判据**（呼应父级 [`instruction`](../../crates/pointer-core/src/tools/prompts/run_subagent.md)）。
-- **输出格式**（`response`）：`## Summary` / `## Key files` / `## Evidence` / `## Open questions` 等（详见已提交的 `explore/AGENT.md`）。
+- **输出格式**：**Markdown** 交付（固定章节 + Evidence 微格式 + 负向 grep）；经 **`response` → `tool_args.text`**；父级读工具结果 **`content`**。文末 **Pattern examples** 仅展示 Markdown 正文（详见 `explore/AGENT.md`）。
 
 ### 4.1 How to explore workdir（固定章节，防迷失）
 
@@ -88,12 +91,13 @@ flowchart LR
 **建议流程骨架**
 
 1. **Restate scope** — 含 Lead context 时区分待验证与父级已声称已读。
-2. **Inventory** — `list`/`glob`；记录剪枝理由。
-3. **Anchor** — `grep` 再 `read` 邻域。
-4. **Trace backward** — 至 instruction 边界。
-5. **Trace forward** — 至关键行为或 I/O 边界。
-6. **Cross-check** — 双向链汇合或解释矛盾。
-7. **Deliver** — 固定小节 + **Coverage**；推翻 Lead 事实时加 **Corrections to lead context**。
+2. **Bound workspace（若适用）** — 有边界清单时先定组件范围，再漫游。
+3. **Inventory** — `list`/`glob`；记录剪枝理由（含默认跳过的依赖/构建大目录，除非任务点名）。
+4. **Anchor** — `grep` 再 `read` 邻域；多命中时列出候选并说明取舍。
+5. **Trace backward** — 至 instruction 边界或 hop 上限 / cycle。
+6. **Trace forward** — 至关键行为或 I/O 边界，同上。
+7. **Cross-check** — 双向链汇合或解释矛盾。
+8. **Deliver** — 固定小节 + **Coverage**（含 negative searches）；推翻 Lead 事实时加 **Corrections to lead context**。
 
 ### 4.2 是否「直接复用」通用智能体的标准流程？
 
@@ -102,7 +106,7 @@ flowchart LR
 
 ## 5. Coder Agent 侧如何「使用」explore
 
-实现落点：[`coder/AGENT.md`](../../crates/pointer-core/src/agents/coder/AGENT.md) 中 **Delegating to the `explore` worker** 与 **`run_subagent`** 段；[`run_subagent.md`](../../crates/pointer-core/src/tools/prompts/run_subagent.md) 含 Lead context 与 explore JSON 示例。
+实现落点：[`coder/AGENT.md`](../../crates/pointer-core/src/agents/coder/AGENT.md) 中 **Delegating to the `explore` worker** 与 **`run_subagent`** 段；[`run_subagent.md`](../../crates/pointer-core/src/tools/prompts/run_subagent.md) 含 Lead context、**`explore` vs local reconnaissance** 与 **`run_subagent` 调用示例**；[`guides/pointer-run-subagent.md`](../guides/pointer-run-subagent.md) 含用户向设置与界限摘要。
 
 - **何时委派**：多轮仍无法收敛地图、跨目录侦察、`instruction` 可自描述。
 - **何时不委派**：单点修改、路径已明、完成标准写不清。

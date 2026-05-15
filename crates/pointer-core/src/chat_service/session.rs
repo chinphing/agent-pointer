@@ -1,30 +1,24 @@
 use crate::agents::{
-    delegatable_sub_agents_system_block, expand_agent_prompt_placeholders, register_builtin_agents,
-    rendered_communication_public_inject, rendered_json_wire_format_tail_inject, AgentDef,
+    delegatable_sub_agents_system_block, expand_agent_prompt_placeholders,
+    rendered_communication_public_inject, AgentDef,
     AgentOrchestrator, AgentProfile,
-    AgentRegistry, AgentRunLimits, AgentRunResult, AgentTask, FileToolLeadProfileGuard,
+    AgentRunLimits, AgentRunResult, AgentTask, FileToolLeadProfileGuard,
     SessionInjectVars, DEFAULT_AGENT_ID, SUPERVISOR_AGENT_ID, AGENT_MODE_SUPERVISOR,
 };
-use crate::extensions::{
-    BeforeMainLlmCallContext, ExtensionRegistry, MessageLoopPromptsAfterContext,
-};
+use crate::extensions::{BeforeMainLlmCallContext, MessageLoopPromptsAfterContext};
 use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
 use crate::models::{
     effective_reasoning_in_messages, effective_max_tokens, AgentTrace, ChatMessage, Role, StreamEvent, ToolCall,
 };
 use crate::provider::{OpenAIProvider, ProviderEvent};
-use crate::skills::SkillRegistry;
 use crate::storage;
 use crate::tools::merge_tool_method_from_qualified_name;
 use crate::tools::parse_tool_call_arguments;
 use crate::tools::response::response_text_from_args;
 use crate::tools::validate_envelope_tool_batch;
 use crate::tools::terminal::{run_terminal_command_streaming, terminal_stream_tool_status};
-use crate::tools::ToolRegistry;
 use anyhow::{anyhow, Result};
-use serde_json::Value;
 use std::backtrace::Backtrace;
-use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -32,175 +26,21 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-/// Per-pool cap: `max` tool cycles; pool is either single-agent or Supervisor (sub-agents) for the conversation.
-#[derive(Debug)]
-struct SessionToolBudget {
-    max: u32,
-    used_before_request: u32,
-    consumed_this_request: u32,
-}
-
-impl SessionToolBudget {
-    fn new(max: u32, used_before_request: u32) -> Self {
-        Self {
-            max,
-            used_before_request,
-            consumed_this_request: 0,
-        }
-    }
-
-    fn cap(&self) -> u32 {
-        self.max
-    }
-
-    fn record_tool_cycle(&mut self) {
-        self.consumed_this_request = self.consumed_this_request.saturating_add(1);
-    }
-
-    fn remaining(&self) -> u32 {
-        self.max
-            .saturating_sub(self.used_before_request)
-            .saturating_sub(self.consumed_this_request)
-    }
-
-    fn is_exhausted(&self) -> bool {
-        self.used_before_request
-            .saturating_add(self.consumed_this_request)
-            >= self.max
-    }
-
-    fn sync_out(&self, out: &mut u32) {
-        *out = self.consumed_this_request;
-    }
-}
-
-pub struct AppState {
-    pub tools: Arc<ToolRegistry>,
-    pub skills: Arc<SkillRegistry>,
-    pub agents: Arc<AgentRegistry>,
-    pub computer_state: Arc<crate::agents::computer::ComputerState>,
-    pub task_board_store: Arc<crate::tools::task_board::TaskBoardStore>,
-    /// Lifecycle hooks aligned with Python `call_extensions(extension_point, …)`.
-    pub extensions: Arc<ExtensionRegistry>,
-    pub cancels: Mutex<HashMap<String, CancellationToken>>,
-    /// When set, the in-flight `terminal` tool for that conversation kills its subprocess (host-only; does not cancel the LLM turn).
-    pub terminal_run_abort: Mutex<HashMap<String, Arc<AtomicBool>>>,
-    pub approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
-}
-
-impl AppState {
-    pub fn new() -> Self {
-        let tools = Arc::new(ToolRegistry::new());
-        let task_board_store = Arc::new(crate::tools::task_board::TaskBoardStore::default());
-        crate::tools::builtin::register_all(&tools, task_board_store.clone());
-        let skills = Arc::new(SkillRegistry::new());
-        crate::skills::builtin::register_all(&skills);
-        crate::tools::builtin::register_skill_tools(&tools, skills.clone());
-        if let Err(err) = skills.reload_external() {
-            log::warn!("load external skills failed: {err}");
-        }
-        let agents = Arc::new(AgentRegistry::new());
-        register_builtin_agents(&agents);
-        if let Err(err) = agents.reload_external() {
-            log::warn!("load external agents failed: {err}");
-        }
-        let computer_state = Arc::new(crate::agents::computer::ComputerState::new(&agents));
-        crate::tools::builtin::register_computer_tools(&tools, computer_state.clone());
-        let mut extension_registry = ExtensionRegistry::new();
-        crate::extensions::register_builtin_extensions(&mut extension_registry);
-        extension_registry.register_before_main_llm_call(Arc::new(
-            crate::extensions::task_board_hook::TaskBoardSnapshotHook,
-        ));
-        Self {
-            tools,
-            skills,
-            agents,
-            computer_state,
-            task_board_store,
-            extensions: Arc::new(extension_registry),
-            cancels: Mutex::new(HashMap::new()),
-            terminal_run_abort: Mutex::new(HashMap::new()),
-            approvals: Mutex::new(HashMap::new()),
-        }
-    }
-
-    pub fn cancel(&self, conversation_id: &str) {
-        if let Some(token) = self.cancels.lock().get(conversation_id) {
-            token.cancel();
-        }
-        let approvals: Vec<_> = self.approvals.lock().drain().collect();
-        for (_, tx) in approvals {
-            let _ = tx.send(false);
-        }
-    }
-
-    /// Kill only the subprocess for the current **`terminal`** tool in this conversation.
-    /// Does **not** cancel the LLM stream or the rest of the turn. Returns **true** if a run was registered.
-    pub fn abort_terminal_command(&self, conversation_id: &str) -> bool {
-        self.terminal_run_abort
-            .lock()
-            .get(conversation_id)
-            .map(|f| {
-                f.store(true, Ordering::SeqCst);
-                true
-            })
-            .unwrap_or(false)
-    }
-
-    pub fn approve_tool_call(&self, tool_call_id: &str, approved: bool) -> bool {
-        if let Some(tx) = self.approvals.lock().remove(tool_call_id) {
-            let _ = tx.send(approved);
-            true
-        } else {
-            false
-        }
-    }
-}
-
-impl Default for AppState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub type StreamTx = crate::models::ChatStreamSender;
-
-fn emit(tx: &StreamTx, ev: StreamEvent) {
-    if tx.send(ev).is_err() {
-        log::warn!("stream event not delivered (frontend channel closed)");
-    }
-}
-
-/// Appends `[Environment]` + **calendar date only** (see [`crate::env_prompt::build_environment_system_prompt_slice`])
-/// as the **last** `system_prompts` slice (after `before_main_llm_call` hooks such as `[TASK_BOARD]`).
-fn push_env_context_last_in_system_prompts(system_prompts: &mut Vec<String>) {
-    system_prompts.push(format!(
-        "[Environment]\n{}",
-        crate::env_prompt::build_environment_system_prompt_slice()
-    ));
-}
-
-/// After `[Environment]`, re-state the JSON-only wire contract (recency) when tools are enabled.
-fn push_json_wire_format_tail(system_prompts: &mut Vec<String>, tools_appendix_enabled: bool) {
-    if !tools_appendix_enabled {
-        return;
-    }
-    if let Some(block) = rendered_json_wire_format_tail_inject() {
-        system_prompts.push(block);
-    }
-}
-
-/// Drop a failed non-JSON assistant turn from API history so the model is not trained on plain prose.
-fn rollback_failed_json_assistant_turn(history: &mut Vec<ChatMessage>, assistant_id: &str) {
-    if history.last().is_some_and(|m| {
-        matches!(m.role, Role::Assistant) && m.id == assistant_id
-    }) {
-        history.pop();
-        log::info!(
-            "rolled back non-JSON assistant turn from API history (assistant_id={assistant_id})"
-        );
-    }
-}
+use super::agent_tool_allowlist::resolve_agent_tools;
+use super::app_state::AppState;
+use super::content_extract::extract_user_visible_content;
+use super::emit::{emit, emit_agent_content_delta, emit_agent_step};
+use super::json_tool_retries::{
+    json_tool_empty_calls_retry_message, json_tool_envelope_batch_retry_message,
+    push_injected_format_retry_turn, rollback_failed_json_assistant_turn,
+};
+use super::prompts::{push_env_context_last_in_system_prompts, push_json_wire_format_tail};
+use super::provider_stream::{is_recoverable_provider_stream_error, provider_stream_recoverable_retry_message};
+use super::session_budget::SessionToolBudget;
+use super::session_model::apply_session_agent_model_defaults;
+use super::task_board_inject::{inject_host_task_board_conversation_id, sub_agent_task_board_store_key};
+use super::util::{desktop_tool_failure_note, new_id, now_ms, tool_result_msg, truncate_str};
+use super::StreamTx;
 
 pub async fn run_chat(
     stream: StreamTx,
@@ -305,201 +145,6 @@ pub async fn run_chat(
         result.is_ok(),
     );
     result
-}
-
-/// When tools appendix is enabled but this turn produced no executable tool call, inject a user-line
-/// for the next model turn. Public format rules are already in the system prompts each round via
-/// [`rendered_communication_public_inject`] / [`expand_agent_prompt_placeholders`]; this message only states the failure and JSON escaping hints.
-fn json_tool_empty_calls_retry_message(
-    diag: &crate::json_tool_caller::JsonToolFinishDiagnostics,
-    tools_appendix_enabled: bool,
-    finish_reason: &str,
-    max_tokens: u32,
-) -> Option<String> {
-    if !tools_appendix_enabled {
-        return None;
-    }
-    const ESCAPE_NOTE: &str = "在 JSON 的 `tool_args` 字符串字段中正确转义引号与换行；长文本（如 `file:write` 的 `content`、`file:edit` 的 `oldString`/`newString`）必须作为合法 JSON 字符串。勿在模型输出外再包一层 Markdown 代码围栏，也勿在 JSON 对象前后加说明文字。";
-
-    let intro = if is_output_length_limited_finish_reason(finish_reason) {
-        format!(
-            "【环境反馈】本回合输出因达到 **max_tokens** 上限（finish_reason={finish_reason}）被截断，JSON 工具信封不完整，未能执行工具。\n\n\
-             请缩小本回合输出并重新发送**一个**完整 JSON 对象（拆分大段编辑、分多轮写入）。"
-        )
-    } else if diag.attempted_tool_json {
-        if diag.fragment_complete {
-            let detail = diag
-                .parse_error
-                .as_deref()
-                .filter(|s| !s.is_empty())
-                .unwrap_or("无法解析为合法的工具 JSON 信封（根对象需含 `tool_name` 与 `tool_args` 等字段）");
-            format!(
-                "【环境反馈】本回合输出中包含工具相关 JSON 字段，但解析失败：{detail}。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 JSON 对象（无围栏、无 JSON 外的说明文字）。"
-            )
-        } else {
-            "【环境反馈】本回合检测到工具相关 JSON 片段（如 `\"tool_name\"` / `\"tool_args\"`），但在流结束前仍未形成可解析的完整 JSON 对象，因此未能执行任何工具。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 JSON 对象，并确保花括号与引号闭合完整。".to_string()
-        }
-    } else {
-        "【环境反馈】本回合未输出 JSON 工具信封，而是普通对话文字（本应用不接受纯文本 assistant 回复）。\n\n\
-         请**只**输出**一个** JSON 对象，不要用 Markdown 围栏，不要在 JSON 外写任何说明。最小示例：\n\
-         {\"thoughts\":\"简要推理\",\"headline\":\"短标题\",\"tool_name\":\"response\",\"tool_args\":{\"text\":\"给用户看的完整回复\"}}\n\n\
-         若要调用工具，把 tool_name / tool_args 换成对应工具（如 file:read、terminal）。"
-            .to_string()
-    };
-
-    let mut body = format!("{intro}\n\n【JSON】{ESCAPE_NOTE}");
-    if is_output_length_limited_finish_reason(finish_reason) {
-        body.push_str(&output_length_retry_supplement(max_tokens, finish_reason));
-    }
-    if let Some(head) = diag
-        .consumed_fragment_head
-        .as_deref()
-        .filter(|s| !s.is_empty())
-    {
-        body.push_str("\n\n【你上一回合输出的开头片段（供对照修正）】\n");
-        body.push_str(head);
-    }
-    Some(body)
-}
-
-fn json_tool_envelope_batch_retry_message(err: &str) -> String {
-    format!(
-        "【环境反馈】本回合工具调用组合不符合协议：{err}\n\n\
-         当使用 `sidecar_tools` 数组时：仅允许将白名单侧车工具（例如 `task_board:patch`）放在其中每一项；根级必须恰好保留一对主工具 `tool_name`/`tool_args`，且不得仅为侧车工具。\n\
-         若无 `sidecar_tools`，则仍只使用根级单工具。请按系统提示中的 JSON 约定重新输出完整的 JSON 对象。"
-    )
-}
-
-fn is_output_length_limited_finish_reason(finish_reason: &str) -> bool {
-    matches!(
-        finish_reason.trim().to_ascii_lowercase().as_str(),
-        "length" | "max_tokens"
-    )
-}
-
-fn output_length_retry_supplement(max_tokens: u32, finish_reason: &str) -> String {
-    format!(
-        "\n\n【输出长度】本回合因 **输出 token 上限** 被截断（finish_reason={finish_reason}，配置 max_tokens≈{max_tokens}）。\
-         请**缩小**本回合 JSON：拆分 `file:edit` / `file:write`、缩短 `tool_args` 里的长字符串，分多轮完成；仍须输出**完整闭合**的单一 JSON 对象。"
-    )
-}
-
-/// Stream/HTTP failures that often follow truncated or oversized model JSON output.
-fn is_recoverable_provider_stream_error(err: &anyhow::Error) -> bool {
-    let s = err.to_string().to_ascii_lowercase();
-    s.contains("decoding response body")
-        || s.contains("error decoding")
-        || s.contains("unexpected eof")
-        || s.contains("connection reset")
-        || s.contains("broken pipe")
-        || s.contains("incomplete message")
-        || s.contains("body completed")
-}
-
-fn provider_stream_recoverable_retry_message(err: &anyhow::Error, max_tokens: u32) -> String {
-    format!(
-        "【环境反馈】本回合模型输出异常（{err}），常见于输出过长导致 JSON 被截断或流传输中断。\n\n\
-         请缩小本回合 payload（拆分编辑、减少单次 `content` / `oldString` 长度），重新输出**一个**完整 JSON 工具信封。\
-         当前 max_tokens≈{max_tokens}。{length_hint}",
-        length_hint = output_length_retry_supplement(max_tokens, "length")
-    )
-}
-
-fn push_injected_format_retry_turn(
-    stream: &StreamTx,
-    conversation_id: &str,
-    history: &mut Vec<ChatMessage>,
-    hint: String,
-) {
-    let retry_id = new_id("fmt_retry");
-    emit(
-        stream,
-        StreamEvent::InjectedUserMessage {
-            conversation_id: conversation_id.to_string(),
-            message_id: retry_id.clone(),
-            content: hint.clone(),
-        },
-    );
-    history.push(ChatMessage {
-        id: retry_id,
-        role: Role::User,
-        content: hint,
-        status: "done".into(),
-        created_at: now_ms(),
-        tool_calls: None,
-        tool_call_id: None,
-        error_message: None,
-        reasoning: None,
-        thoughts: None,
-        headline: None,
-        raw_content: None,
-        agent_id: None,
-        agent_name: None,
-        agent_trace: None,
-        images_base64: None,
-        computer_round_screen_rel_path: None,
-    });
-}
-
-/// Host-only binding for `task_board` and computer tools so models cannot spoof another session id.
-fn inject_host_task_board_conversation_id(
-    tool_id: &str,
-    args: serde_json::Value,
-    conversation_id: &str,
-) -> serde_json::Value {
-    let requires_injection = tool_id == "task_board"
-        || crate::agents::computer::is_desktop_vision_log_tool(tool_id)
-        || crate::agents::computer::is_desktop_post_delay_tool(tool_id);
-    if !requires_injection {
-        return args;
-    }
-    let mut map = if let serde_json::Value::Object(m) = args {
-        m
-    } else {
-        serde_json::Map::new()
-    };
-    map.insert(
-        "_conversation_id".to_string(),
-        serde_json::Value::String(conversation_id.to_string()),
-    );
-    serde_json::Value::Object(map)
-}
-
-/// Key for [`crate::tools::task_board::TaskBoardStore`] during Supervisor **sub-agent** runs.
-///
-/// Isolated from the main chat `conversation_id` board: sub-agents do not read or write the
-/// lead session’s task board unless the Supervisor copies state into instructions.
-fn sub_agent_task_board_store_key(main_conversation_id: &str, supervisor_task_id: &str) -> String {
-    format!(
-        "{main}\x1fptr_sub_agent\x1f{task}",
-        main = main_conversation_id.trim(),
-        task = supervisor_task_id.trim()
-    )
-}
-
-fn apply_session_agent_model_defaults(
-    settings: &mut crate::models::ModelSettings,
-    effective_agent_mode: &str,
-) {
-    let mode = effective_agent_mode.trim();
-    let key = if mode == AGENT_MODE_SUPERVISOR {
-        SUPERVISOR_AGENT_ID.to_string()
-    } else {
-        let id = settings.lead_agent_id.trim();
-        if id.is_empty() {
-            DEFAULT_AGENT_ID.to_string()
-        } else {
-            id.to_string()
-        }
-    };
-    if let Some(pref) = settings.agent_default_models.get(&key) {
-        if !pref.provider_id.trim().is_empty() {
-            settings.active_provider_id = pref.provider_id.trim().to_string();
-        }
-        if !pref.model.trim().is_empty() {
-            settings.model = pref.model.trim().to_string();
-        }
-    }
 }
 
 async fn run_chat_inner(
@@ -1938,7 +1583,7 @@ async fn run_sub_agent(
     };
     let expanded_role = expand_agent_prompt_placeholders(&agent.system_prompt(), &session_vars);
     let sub_agent_header = format!(
-        "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\nComplete only the subtask delivered in the next user message from the Supervisor. That message is task instructions (it may include a digest of prior task outputs) and does **not** include the main chat history. Your output should state conclusions, key evidence, risks, or open items.\nAllowed tools: {}",
+        "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\nComplete only the subtask delivered in the next user message from the Supervisor. That message is task instructions (it may include a digest of prior task outputs) and does **not** include the main chat history. Finish with the **`response`** tool: put your full handoff in **`tool_args.text`** as **Markdown** (conclusions, evidence, traces, open questions). The lead reads that Markdown from the **`run_subagent`** tool result field **`content`**.\nAllowed tools: {}",
         def.name,
         def.id,
         def.profile,
@@ -2847,55 +2492,6 @@ async fn synthesize_final_answer(
     Ok(out.text)
 }
 
-fn emit_agent_content_delta(
-    stream: &StreamTx,
-    message_id: &str,
-    trace: &mut Vec<AgentTrace>,
-    def: &AgentDef,
-    task: &AgentTask,
-    content: String,
-    trace_depth: u32,
-) {
-    emit_agent_step(
-        stream,
-        message_id,
-        trace,
-        AgentTrace {
-            id: def.id.clone(),
-            name: def.name.clone(),
-            role: def.role.clone(),
-            status: "running".into(),
-            detail: Some(if task.title.is_empty() {
-                task.instruction.clone()
-            } else {
-                task.title.clone()
-            }),
-            content: Some(content),
-            depth: Some(trace_depth),
-        },
-    );
-}
-
-fn emit_agent_step(
-    stream: &StreamTx,
-    message_id: &str,
-    trace: &mut Vec<AgentTrace>,
-    agent: AgentTrace,
-) {
-    if let Some(existing) = trace.iter_mut().find(|item| item.id == agent.id) {
-        *existing = agent.clone();
-    } else {
-        trace.push(agent.clone());
-    }
-    emit(
-        stream,
-        StreamEvent::AgentStep {
-            message_id: message_id.to_string(),
-            agent,
-        },
-    );
-}
-
 fn parse_agent_tasks(
     raw: &str,
     workers: &[AgentDef],
@@ -2999,189 +2595,4 @@ fn agent_roster(agents: &[AgentDef]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-fn resolve_agent_tools(
-    agent: &AgentDef,
-    session_tools: &[String],
-    tools: &ToolRegistry,
-) -> Vec<String> {
-    let mut names = if agent.access_policy.allow_tools.is_empty() {
-        session_tools.to_vec()
-    } else {
-        agent.access_policy.allow_tools.clone()
-    };
-    names.retain(|name| {
-        tools.get_def(name).is_some() && !agent.access_policy.deny_tools.contains(name)
-    });
-
-    if !agent.access_policy.deny_tools.iter().any(|d| d == "response")
-        && tools.get_def("response").is_some()
-        && !names.contains(&"response".into())
-    {
-        names.push("response".into());
-    }
-
-    names.sort();
-    names.dedup();
-    names
-}
-
-fn tool_result_msg(tool_call_id: &str, content: &str) -> ChatMessage {
-    ChatMessage {
-        id: new_id("tool"),
-        role: Role::Tool,
-        content: content.to_string(),
-        status: "completed".into(),
-        created_at: now_ms(),
-        tool_calls: None,
-        tool_call_id: Some(tool_call_id.to_string()),
-        error_message: None,
-        reasoning: None,
-        thoughts: None,
-        headline: None,
-        raw_content: None,
-        agent_id: None,
-        agent_name: None,
-        agent_trace: None,
-        images_base64: None,
-        computer_round_screen_rel_path: None,
-    }
-}
-
-fn truncate_str(s: &str, n: usize) -> String {
-    if s.chars().count() <= n {
-        s.to_string()
-    } else {
-        format!("{}…", s.chars().take(n).collect::<String>())
-    }
-}
-
-/// When the tool run did not succeed, short text for `[Recent desktop tool calls]` (`FAILED: …`).
-fn desktop_tool_failure_note(ok: bool, err_note: &Option<String>, tool_output: &str) -> Option<String> {
-    if ok {
-        return None;
-    }
-    let mut parts: Vec<String> = Vec::new();
-    if let Some(e) = err_note.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-        parts.push(e.to_string());
-    }
-    let out = truncate_str(tool_output, 200);
-    if !out.trim().is_empty() {
-        parts.push(out);
-    }
-    if parts.is_empty() {
-        Some("failed".into())
-    } else {
-        Some(parts.join(" | "))
-    }
-}
-
-/// Remove structured tool JSON (or legacy XML) from assistant `content` for the user-visible bubble.
-fn extract_user_visible_content(raw: &str) -> String {
-    let trimmed = raw.trim();
-    if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
-        if let Value::Object(ref obj) = v {
-            if obj.get("tool_name").and_then(|x| x.as_str()) == Some("response") {
-                return obj
-                    .get("tool_args")
-                    .and_then(|a| a.get("text"))
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("")
-                    .to_string();
-            }
-            return String::new();
-        }
-    }
-    extract_user_visible_content_xml_legacy(raw)
-}
-
-fn extract_user_visible_content_xml_legacy(raw: &str) -> String {
-    let mut result = String::with_capacity(raw.len());
-    let mut remaining = raw;
-
-    while let Some(start) = remaining.find("<response>") {
-        if start > 0 {
-            result.push_str(&remaining[..start]);
-        }
-        if let Some(end) = remaining[start..].find("</response>") {
-            remaining = &remaining[start + end + 11..];
-        } else {
-            result.push_str(&remaining[start..]);
-            break;
-        }
-    }
-
-    if !remaining.is_empty() {
-        result.push_str(remaining);
-    }
-
-    result.trim().to_string()
-}
-
-fn now_ms() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
-fn new_id(prefix: &str) -> String {
-    format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
-}
-
-#[cfg(test)]
-mod extract_user_visible_tests {
-    use super::extract_user_visible_content;
-
-    #[test]
-    fn json_response_tool_text_visible() {
-        let j = r#"{"thoughts":"t","headline":"h","tool_name":"response","tool_args":{"text":"Hello user"}}"#;
-        assert_eq!(extract_user_visible_content(j), "Hello user");
-    }
-
-    #[test]
-    fn json_non_response_hidden() {
-        let j = r#"{"tool_name":"wait","tool_args":{"seconds":"1"}}"#;
-        assert_eq!(extract_user_visible_content(j), "");
-    }
-
-    #[test]
-    fn legacy_xml_only_response_still_stripped() {
-        assert_eq!(
-            extract_user_visible_content("<response><tool_name>x</tool_name></response>"),
-            ""
-        );
-    }
-
-    #[test]
-    fn legacy_prose_outside_response_kept() {
-        assert_eq!(
-            extract_user_visible_content("Hi<response></response>"),
-            "Hi"
-        );
-    }
-}
-
-#[cfg(test)]
-mod sub_agent_task_board_key_tests {
-    use super::sub_agent_task_board_store_key;
-
-    #[test]
-    fn key_is_not_raw_conversation_id() {
-        let main = "conv-1";
-        let k = sub_agent_task_board_store_key(main, "task_a");
-        assert_ne!(k, main);
-        assert!(k.contains("ptr_sub_agent"), "{k:?}");
-        assert!(k.ends_with("task_a"), "{k:?}");
-    }
-
-    #[test]
-    fn distinct_supervisor_task_ids_differ() {
-        assert_ne!(
-            sub_agent_task_board_store_key("c", "t1"),
-            sub_agent_task_board_store_key("c", "t2")
-        );
-    }
 }

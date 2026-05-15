@@ -17,6 +17,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 partial-json-fixer = "0.5"
 serde_yaml = "0.9"
+toml = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time", "io-util"] }
 enigo = "0.2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

@@ -123,7 +123,7 @@ pub fn try_dump_round(
     label: Option<&str>,
     phase: &str,
     stream: bool,
-    max_tokens: u32,
+    _max_tokens: u32,
     messages: &[Value],
 ) {
     if !should_dump(settings) {
@@ -158,8 +158,8 @@ pub fn try_dump_round(
         "labelStem": label.map(sanitize_stem).unwrap_or_default(),
         "model": settings.model,
         "stream": stream,
-        "temperature": settings.temperature,
-        "maxTokens": max_tokens,
+        "temperature": crate::models::effective_temperature(settings),
+        "maxTokens": crate::models::effective_max_tokens(settings),
         "extraBody": extra_body,
         "messages": msgs,
     });

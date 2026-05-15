@@ -1,5 +1,7 @@
 ### response
 
+**Never reply in plain chat prose.** Every assistant turn — including final answers — is **one JSON object**. User-visible text goes only in **`tool_args.text`** when **`tool_name`** is **`response`**.
+
 **Shared tool-call envelope (all tools):** Emit **one JSON object** per turn when using tools or a structured final turn—no Markdown fences around the model’s actual output, no extra prose outside the object. Top-level keys: **`thoughts`**, **`headline`**, optional **`sidecar_tools`** (array), then **exactly one** root **`tool_name`** (string) plus **`tool_args`** (object). Under `tool_args`, use **one JSON property per argument**; names must match that tool’s parameters as described for that tool. All string values must be valid JSON strings (escape quotes and newlines).
 
 **Optional `sidecar_tools`:** Zero or more management calls that must appear **only** in this array. Each entry is an object with **`tool_name`** and **`tool_args`**, same shape as a normal single-tool invocation. For each sidecar tool, use **`tool:method`** in **`tool_name`** exactly as in that tool’s doc (e.g. **`task_board:patch`**, **`task_board:replace`**). Do **not** put **`terminal`**, **`file`**, or other **Regular tools** here. If the array is present, run **every** sidecar object **first** in order, then the **root** primary tool.

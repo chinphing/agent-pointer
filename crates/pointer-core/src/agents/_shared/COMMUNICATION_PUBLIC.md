@@ -1,5 +1,15 @@
 # General rules
 
+## Mandatory: JSON only (every turn)
+
+You **never** send plain conversational text as the assistant message.
+**Every** turn — including acknowledgements, questions, and final answers — is **one JSON object**
+with **`thoughts`**, **`headline`**, **`tool_name`**, and **`tool_args`**.
+
+- To speak to the user, use **`tool_name":"response"`** and put the full reply in **`tool_args.text`**.
+- Do **not** skip JSON because the turn feels “simple” or “conversational”.
+- Do **not** answer in Markdown or prose outside the JSON object.
+
 ## Wire format (JSON)
 
 Full **single-turn** objects below show the envelope end-to-end.
@@ -75,6 +85,15 @@ Each assistant turn that uses tools—or ends with a structured final reply—is
 - **`tool_args`** holds **one JSON property per tool parameter**; names and types follow each tool’s description in your tool list.
 - All **string** values must be valid JSON strings: escape **`"`**, **`\`**, and newlines as **`\"`**, **`\\`**, **`\n`**. 
 - The host requests **`json_object`** style output from the model API; keep the object **syntactically valid** so the runtime can parse it.
+
+### Common mistakes (avoid)
+
+- Wrapping the envelope in **\`\`\`json** fences or adding **intro/outro prose** before or after the `{…}` object.
+- Putting the tool envelope only in **reasoning / thinking** channels while **`content` stays empty** — emit the full JSON object in the **main assistant content** field.
+- **Unescaped** quotes or raw newlines inside **`tool_args`** strings (`content`, `oldString`, `newString`, shell commands, etc.).
+- Emitting **multiple** JSON objects in one turn, or a **chat reply in prose** instead of **`tool_name":"response"`** with **`tool_args.text`**.
+- Using **`sidecar_tools`** for regular tools (`file`, `terminal`, …) or making the **root** tool another sidecar-only entry when the array is present.
+- Nesting **`paths`** / **`edits`** as **strings** instead of JSON **arrays/objects** (unless a tool doc explicitly requires a string blob).
 
 For the full envelope rules, sidecar ordering, and copy-paste examples, follow the **`response`** tool description in your tool list (same rules for every tool).
 

@@ -116,6 +116,46 @@ export const useSettingsStore = defineStore('settings', () => {
     return true
   })
 
+  const DEFAULT_MODEL_TEMPERATURE = 0.7
+  const DEFAULT_MODEL_MAX_TOKENS = 2048
+
+  function modelGenerationFromConfig(
+    p: ProviderConfig,
+    model: string
+  ): { temperature: number; maxTokens: number } {
+    const over = p.modelConfigs?.[model.trim()]
+    return {
+      temperature: over?.temperature ?? stFallbackTemperature(),
+      maxTokens: over?.maxTokens ?? stFallbackMaxTokens()
+    }
+  }
+
+  function stFallbackTemperature(): number {
+    const t = settings.value.temperature
+    return Number.isFinite(t) && t >= 0 ? t : DEFAULT_MODEL_TEMPERATURE
+  }
+
+  function stFallbackMaxTokens(): number {
+    const n = settings.value.maxTokens
+    return n && n >= 64 ? n : DEFAULT_MODEL_MAX_TOKENS
+  }
+
+  /** Effective temperature for active provider + current model. */
+  const effectiveTemperature = computed((): number => {
+    const st = settings.value
+    const p = st.providers.find(x => x.id === st.activeProviderId) ?? st.providers[0]
+    if (!p) return stFallbackTemperature()
+    return modelGenerationFromConfig(p, st.model).temperature
+  })
+
+  /** Effective max output tokens for active provider + current model. */
+  const effectiveMaxTokens = computed((): number => {
+    const st = settings.value
+    const p = st.providers.find(x => x.id === st.activeProviderId) ?? st.providers[0]
+    if (!p) return stFallbackMaxTokens()
+    return modelGenerationFromConfig(p, st.model).maxTokens
+  })
+
   /** 所有 provider 的所有模型合并列表（带 provider 标识） */
   const allModels = computed(() => {
     const result: Array<{ model: string; providerId: string; providerName: string }> = []
@@ -282,7 +322,8 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   return {
-    settings, loading, testing, testResult, activeProvider, activeBaseUrl, activeModelList, effectiveReasoningInMessages, allModels,
+    settings, loading, testing, testResult, activeProvider, activeBaseUrl, activeModelList,
+    effectiveReasoningInMessages, effectiveTemperature, effectiveMaxTokens, allModels,
     load, save, setActiveProvider, addProvider, updateProvider, removeProvider,
     saveKey, removeKey, runTest,
     getAgentDefaultModelRef, setAgentDefaultModel

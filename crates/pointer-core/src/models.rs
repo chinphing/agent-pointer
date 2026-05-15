@@ -127,6 +127,10 @@ pub struct ComputerMonitor {
 pub struct ModelRuntimeOverrides {
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "reasoningInMessages")]
     pub reasoning_in_messages: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "maxTokens")]
+    pub max_tokens: Option<u32>,
     /// Serialized as chat/completions top-level `extra_body` (JSON object). Shallow-merged over the provider default for the active model.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "extraBody")]
     pub extra_body: Option<Value>,
@@ -170,6 +174,78 @@ pub fn effective_reasoning_in_messages(settings: &ModelSettings) -> bool {
         }
     }
     p.reasoning_in_messages.unwrap_or(true)
+}
+
+pub const DEFAULT_MODEL_TEMPERATURE: f32 = 0.7;
+pub const DEFAULT_MODEL_MAX_TOKENS: u32 = 2048;
+
+fn active_provider_and_model<'a>(
+    settings: &'a ModelSettings,
+) -> Option<(&'a ProviderConfig, &'a str)> {
+    let provider = settings
+        .providers
+        .iter()
+        .find(|p| p.id == settings.active_provider_id)
+        .or_else(|| settings.providers.first())?;
+    let model = settings.model.trim();
+    if model.is_empty() {
+        return None;
+    }
+    Some((provider, model))
+}
+
+/// Creativity (`temperature`) for the **active** provider + **current** `settings.model`.
+pub fn effective_temperature(settings: &ModelSettings) -> f32 {
+    if let Some((p, model)) = active_provider_and_model(settings) {
+        if let Some(t) = p
+            .model_configs
+            .get(model)
+            .and_then(|o| o.temperature)
+        {
+            return t;
+        }
+    }
+    if settings.temperature.is_finite() && settings.temperature >= 0.0 {
+        settings.temperature
+    } else {
+        DEFAULT_MODEL_TEMPERATURE
+    }
+}
+
+/// Max output tokens for the **active** provider + **current** `settings.model`.
+pub fn effective_max_tokens(settings: &ModelSettings) -> u32 {
+    if let Some((p, model)) = active_provider_and_model(settings) {
+        if let Some(n) = p.model_configs.get(model).and_then(|o| o.max_tokens) {
+            return n.max(64);
+        }
+    }
+    settings.max_tokens.max(64)
+}
+
+/// Ensure each listed model has per-model generation params (migrate legacy global values).
+pub fn ensure_model_generation_defaults(settings: &mut ModelSettings) {
+    let fallback_temp = if settings.temperature.is_finite() && settings.temperature >= 0.0 {
+        settings.temperature
+    } else {
+        DEFAULT_MODEL_TEMPERATURE
+    };
+    let fallback_max = settings.max_tokens.max(64);
+    for provider in &mut settings.providers {
+        let model_ids: Vec<String> = provider.models.clone();
+        for model in model_ids {
+            let mid = model.trim();
+            if mid.is_empty() {
+                continue;
+            }
+            let entry = provider.model_configs.entry(mid.to_string()).or_default();
+            if entry.temperature.is_none() {
+                entry.temperature = Some(fallback_temp);
+            }
+            if entry.max_tokens.is_none() {
+                entry.max_tokens = Some(fallback_max);
+            }
+        }
+    }
 }
 
 /// Build `extra_body` object from legacy `thinkingEnabled` / `thinkingBudget` (disk migration).
@@ -476,7 +552,7 @@ pub struct SkillImportResult {
 }
 
 /// Tool identity exposed to the UI / API. Human-readable docs and argument shapes live in markdown
-/// (`tools/prompts/*.md`, `agents/computer/tools/prompts/*.md`). Native OpenAI `tools` payloads use
+/// (`tools/prompts/*.md`, `agents/coder/prompts/*.md`, `agents/computer/tools/prompts/*.md`). Native OpenAI `tools` payloads use
 /// empty `parameters` objects; the wire format carries real argument structure in JSON (legacy XML path may still exist).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDef {
@@ -1158,6 +1234,55 @@ mod effective_reasoning_tests {
             },
         );
         assert!(effective_reasoning_in_messages(&s));
+    }
+}
+
+#[cfg(test)]
+mod effective_generation_tests {
+    use super::*;
+
+    #[test]
+    fn effective_temperature_model_override() {
+        let mut s = ModelSettings::default();
+        s.model = "qwen3.5-plus".into();
+        s.temperature = 0.2;
+        s.providers[0].model_configs.insert(
+            "qwen3.5-plus".into(),
+            ModelRuntimeOverrides {
+                temperature: Some(1.1),
+                ..Default::default()
+            },
+        );
+        assert!((effective_temperature(&s) - 1.1).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn effective_max_tokens_model_override() {
+        let mut s = ModelSettings::default();
+        s.model = "qwen3.5-plus".into();
+        s.max_tokens = 512;
+        s.providers[0].model_configs.insert(
+            "qwen3.5-plus".into(),
+            ModelRuntimeOverrides {
+                max_tokens: Some(4096),
+                ..Default::default()
+            },
+        );
+        assert_eq!(effective_max_tokens(&s), 4096);
+    }
+
+    #[test]
+    fn ensure_model_generation_defaults_fills_missing() {
+        let mut s = ModelSettings::default();
+        s.temperature = 0.55;
+        s.max_tokens = 3000;
+        ensure_model_generation_defaults(&mut s);
+        let mc = s.providers[0]
+            .model_configs
+            .get("qwen3.5-plus")
+            .expect("default model");
+        assert!((mc.temperature.unwrap() - 0.55).abs() < f32::EPSILON);
+        assert_eq!(mc.max_tokens.unwrap(), 3000);
     }
 }
 

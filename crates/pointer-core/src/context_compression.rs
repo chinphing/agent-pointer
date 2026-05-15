@@ -5,6 +5,7 @@ use crate::models::{ChatMessage, ModelSettings, Role, StreamEvent};
 use crate::provider::OpenAIProvider;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
+use std::time::Instant;
 
 const MAX_PREFIX_CHARS_FOR_API: usize = 100_000;
 const MAX_SNIPPET_CHARS: usize = 2_500;
@@ -168,7 +169,15 @@ async fn compress_history_inner(
     force_ignore_char_budget: bool,
     emit_history_replaced: bool,
 ) -> bool {
+    let wall = Instant::now();
+    let messages_before = history.len();
     if !settings.context_compression_enabled {
+        log::info!(
+            "context_compress: skip_disabled conversation_id={} messages={} wall_ms={}",
+            conversation_id,
+            messages_before,
+            wall.elapsed().as_millis()
+        );
         return false;
     }
     let keep_users = settings.context_keep_recent_user_turns.max(1);
@@ -176,22 +185,44 @@ async fn compress_history_inner(
 
     let est = estimate_message_payload_chars(history);
     if !force_ignore_char_budget && est <= budget as usize {
+        log::info!(
+            "context_compress: skip_under_budget conversation_id={} messages={} est_chars={} budget_chars={} wall_ms={}",
+            conversation_id,
+            messages_before,
+            est,
+            budget,
+            wall.elapsed().as_millis()
+        );
         return false;
     }
 
     let split = find_split_at_user_boundary(history, keep_users as usize);
     if split == 0 {
-        log::info!("context compression skipped: no safe user boundary");
+        log::info!(
+            "context_compress: skip_no_user_boundary conversation_id={} messages={} est_chars={} wall_ms={}",
+            conversation_id,
+            messages_before,
+            est,
+            wall.elapsed().as_millis()
+        );
         return false;
     }
 
     let prefix = &history[..split];
     if prefix.is_empty() {
+        log::info!(
+            "context_compress: skip_empty_prefix conversation_id={} messages={} wall_ms={}",
+            conversation_id,
+            messages_before,
+            wall.elapsed().as_millis()
+        );
         return false;
     }
 
     let suffix = history[split..].to_vec();
+    let t_fmt = Instant::now();
     let formatted = format_prefix_for_summary(prefix);
+    let format_prefix_ms = t_fmt.elapsed().as_millis();
 
     let input = ChatMessage {
         id: format!("sum_in_{}", uuid::Uuid::new_v4().simple()),
@@ -228,6 +259,7 @@ async fn compress_history_inner(
             "budget"
         }
     );
+    let t_llm = Instant::now();
     let summary_body = match provider
         .chat_once(
             std::slice::from_ref(&input),
@@ -240,15 +272,21 @@ async fn compress_history_inner(
     {
         Ok(out) => {
             let t = out.text.trim();
+            let summary_llm_ms = t_llm.elapsed().as_millis();
             if t.is_empty() {
-                log::warn!("context summary returned empty; using fallback notice");
+                log::warn!(
+                    "context summary returned empty; using fallback notice (summary_llm_ms={summary_llm_ms})"
+                );
                 summary_fallback_notice()
             } else {
                 format!("{summary_prefix}\n\n{t}")
             }
         }
         Err(e) => {
-            log::warn!("context summary LLM call failed: {e}; using fallback notice");
+            let summary_llm_ms = t_llm.elapsed().as_millis();
+            log::warn!(
+                "context summary LLM call failed: {e}; using fallback notice (summary_llm_ms={summary_llm_ms})"
+            );
             summary_fallback_notice()
         }
     };
@@ -257,7 +295,26 @@ async fn compress_history_inner(
     let mut new_hist = Vec::with_capacity(1 + suffix.len());
     new_hist.push(summary_msg);
     new_hist.extend(suffix);
+    let messages_after = new_hist.len();
     *history = new_hist;
+
+    log::info!(
+        "context_compress: applied conversation_id={} reason={} messages_before={} messages_after={} split_at={} est_chars={} budget_chars={} format_prefix_ms={} summary_llm_ms={} wall_ms={}",
+        conversation_id,
+        if force_ignore_char_budget {
+            "tool_limit"
+        } else {
+            "budget"
+        },
+        messages_before,
+        messages_after,
+        split,
+        est,
+        budget,
+        format_prefix_ms,
+        t_llm.elapsed().as_millis(),
+        wall.elapsed().as_millis()
+    );
 
     if emit_history_replaced {
         let _ = stream.send(StreamEvent::HistoryReplaced {

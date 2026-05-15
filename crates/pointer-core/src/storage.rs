@@ -1,6 +1,7 @@
 use crate::models::{
-    ensure_agent_model_refs_have_provider, legacy_thinking_to_extra_body, merge_shallow_json_objects,
-    AgentModelRef, Conversation, ModelRuntimeOverrides, ModelSettings, ProviderConfig,
+    ensure_agent_model_refs_have_provider, ensure_model_generation_defaults,
+    legacy_thinking_to_extra_body, merge_shallow_json_objects, AgentModelRef, Conversation,
+    ModelRuntimeOverrides, ModelSettings, ProviderConfig,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -41,6 +42,10 @@ fn conv_path() -> Result<PathBuf> {
 struct StoredModelOverrides {
     #[serde(default, rename = "reasoningInMessages")]
     reasoning_in_messages: Option<bool>,
+    #[serde(default)]
+    temperature: Option<f32>,
+    #[serde(default, rename = "maxTokens")]
+    max_tokens: Option<u32>,
     #[serde(default, rename = "extraBody")]
     extra_body: Option<serde_json::Value>,
     /// Legacy; merged into `extraBody` on load, not written back.
@@ -163,6 +168,8 @@ impl Default for StoredSettings {
                                 k.clone(),
                                 StoredModelOverrides {
                                     reasoning_in_messages: v.reasoning_in_messages,
+                                    temperature: v.temperature,
+                                    max_tokens: v.max_tokens,
                                     extra_body: v.extra_body.clone(),
                                     thinking_enabled: None,
                                     thinking_budget: None,
@@ -254,6 +261,8 @@ pub fn load_settings() -> Result<ModelSettings> {
                         k.clone(),
                         ModelRuntimeOverrides {
                             reasoning_in_messages: v.reasoning_in_messages,
+                            temperature: v.temperature,
+                            max_tokens: v.max_tokens,
                             extra_body: merged,
                         },
                     )
@@ -301,6 +310,7 @@ pub fn load_settings() -> Result<ModelSettings> {
         agent_default_models,
     };
     ensure_agent_model_refs_have_provider(&mut settings);
+    ensure_model_generation_defaults(&mut settings);
     Ok(settings)
 }
 
@@ -324,6 +334,8 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
                             k.clone(),
                                 StoredModelOverrides {
                                     reasoning_in_messages: v.reasoning_in_messages,
+                                    temperature: v.temperature,
+                                    max_tokens: v.max_tokens,
                                     extra_body: v.extra_body.clone(),
                                     thinking_enabled: None,
                                     thinking_budget: None,

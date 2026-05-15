@@ -1,6 +1,7 @@
 use crate::agents::{
     expand_agent_prompt_placeholders, register_builtin_agents,
-    rendered_communication_public_inject, AgentDef, AgentOrchestrator, AgentProfile,
+    rendered_communication_public_inject, rendered_json_wire_format_tail_inject, AgentDef,
+    AgentOrchestrator, AgentProfile,
     AgentRegistry, AgentRunLimits, AgentRunResult, AgentTask, SessionInjectVars, DEFAULT_AGENT_ID,
     SUPERVISOR_AGENT_ID, AGENT_MODE_SUPERVISOR,
 };
@@ -9,7 +10,7 @@ use crate::extensions::{
 };
 use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
 use crate::models::{
-    effective_reasoning_in_messages, AgentTrace, ChatMessage, Role, StreamEvent, ToolCall,
+    effective_reasoning_in_messages, effective_max_tokens, AgentTrace, ChatMessage, Role, StreamEvent, ToolCall,
 };
 use crate::provider::{OpenAIProvider, ProviderEvent};
 use crate::skills::SkillRegistry;
@@ -179,6 +180,28 @@ fn push_env_context_last_in_system_prompts(system_prompts: &mut Vec<String>) {
     ));
 }
 
+/// After `[Environment]`, re-state the JSON-only wire contract (recency) when tools are enabled.
+fn push_json_wire_format_tail(system_prompts: &mut Vec<String>, tools_appendix_enabled: bool) {
+    if !tools_appendix_enabled {
+        return;
+    }
+    if let Some(block) = rendered_json_wire_format_tail_inject() {
+        system_prompts.push(block);
+    }
+}
+
+/// Drop a failed non-JSON assistant turn from API history so the model is not trained on plain prose.
+fn rollback_failed_json_assistant_turn(history: &mut Vec<ChatMessage>, assistant_id: &str) {
+    if history.last().is_some_and(|m| {
+        matches!(m.role, Role::Assistant) && m.id == assistant_id
+    }) {
+        history.pop();
+        log::info!(
+            "rolled back non-JSON assistant turn from API history (assistant_id={assistant_id})"
+        );
+    }
+}
+
 pub async fn run_chat(
     stream: StreamTx,
     state: Arc<AppState>,
@@ -290,13 +313,20 @@ pub async fn run_chat(
 fn json_tool_empty_calls_retry_message(
     diag: &crate::json_tool_caller::JsonToolFinishDiagnostics,
     tools_appendix_enabled: bool,
+    finish_reason: &str,
+    max_tokens: u32,
 ) -> Option<String> {
     if !tools_appendix_enabled {
         return None;
     }
-    const ESCAPE_NOTE: &str = "在 JSON 的 `tool_args` 字符串字段中正确转义引号与换行；长文本（如 `file:write` 的 `content`、`file:edit` 的 `oldString`/`newString`）必须作为合法 JSON 字符串。勿在模型输出外再包一层 Markdown 代码围栏。";
+    const ESCAPE_NOTE: &str = "在 JSON 的 `tool_args` 字符串字段中正确转义引号与换行；长文本（如 `file:write` 的 `content`、`file:edit` 的 `oldString`/`newString`）必须作为合法 JSON 字符串。勿在模型输出外再包一层 Markdown 代码围栏，也勿在 JSON 对象前后加说明文字。";
 
-    let intro = if diag.attempted_tool_json {
+    let intro = if is_output_length_limited_finish_reason(finish_reason) {
+        format!(
+            "【环境反馈】本回合输出因达到 **max_tokens** 上限（finish_reason={finish_reason}）被截断，JSON 工具信封不完整，未能执行工具。\n\n\
+             请缩小本回合输出并重新发送**一个**完整 JSON 对象（拆分大段编辑、分多轮写入）。"
+        )
+    } else if diag.attempted_tool_json {
         if diag.fragment_complete {
             let detail = diag
                 .parse_error
@@ -304,16 +334,32 @@ fn json_tool_empty_calls_retry_message(
                 .filter(|s| !s.is_empty())
                 .unwrap_or("无法解析为合法的工具 JSON 信封（根对象需含 `tool_name` 与 `tool_args` 等字段）");
             format!(
-                "【环境反馈】本回合输出中包含工具相关 JSON 字段，但解析失败：{detail}。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 JSON 对象（无围栏外长文本）。"
+                "【环境反馈】本回合输出中包含工具相关 JSON 字段，但解析失败：{detail}。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 JSON 对象（无围栏、无 JSON 外的说明文字）。"
             )
         } else {
             "【环境反馈】本回合检测到工具相关 JSON 片段（如 `\"tool_name\"` / `\"tool_args\"`），但在流结束前仍未形成可解析的完整 JSON 对象，因此未能执行任何工具。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 JSON 对象，并确保花括号与引号闭合完整。".to_string()
         }
     } else {
-        "【环境反馈】本回合未解析到任何工具调用：输出中未得到有效 JSON 信封（需包含 `thoughts`、`headline`、`tool_name`、`tool_args`；可选 `sidecar_tools` 数组；勿用 Markdown 代码块包裹整段 JSON；勿仅在 JSON 外输出长说明代替结构化工具调用）。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 JSON 对象。".to_string()
+        "【环境反馈】本回合未输出 JSON 工具信封，而是普通对话文字（本应用不接受纯文本 assistant 回复）。\n\n\
+         请**只**输出**一个** JSON 对象，不要用 Markdown 围栏，不要在 JSON 外写任何说明。最小示例：\n\
+         {\"thoughts\":\"简要推理\",\"headline\":\"短标题\",\"tool_name\":\"response\",\"tool_args\":{\"text\":\"给用户看的完整回复\"}}\n\n\
+         若要调用工具，把 tool_name / tool_args 换成对应工具（如 file:read、terminal）。"
+            .to_string()
     };
 
-    Some(format!("{intro}\n\n【JSON】{ESCAPE_NOTE}"))
+    let mut body = format!("{intro}\n\n【JSON】{ESCAPE_NOTE}");
+    if is_output_length_limited_finish_reason(finish_reason) {
+        body.push_str(&output_length_retry_supplement(max_tokens, finish_reason));
+    }
+    if let Some(head) = diag
+        .consumed_fragment_head
+        .as_deref()
+        .filter(|s| !s.is_empty())
+    {
+        body.push_str("\n\n【你上一回合输出的开头片段（供对照修正）】\n");
+        body.push_str(head);
+    }
+    Some(body)
 }
 
 fn json_tool_envelope_batch_retry_message(err: &str) -> String {
@@ -322,6 +368,77 @@ fn json_tool_envelope_batch_retry_message(err: &str) -> String {
          当使用 `sidecar_tools` 数组时：仅允许将白名单侧车工具（例如 `task_board:patch`）放在其中每一项；根级必须恰好保留一对主工具 `tool_name`/`tool_args`，且不得仅为侧车工具。\n\
          若无 `sidecar_tools`，则仍只使用根级单工具。请按系统提示中的 JSON 约定重新输出完整的 JSON 对象。"
     )
+}
+
+fn is_output_length_limited_finish_reason(finish_reason: &str) -> bool {
+    matches!(
+        finish_reason.trim().to_ascii_lowercase().as_str(),
+        "length" | "max_tokens"
+    )
+}
+
+fn output_length_retry_supplement(max_tokens: u32, finish_reason: &str) -> String {
+    format!(
+        "\n\n【输出长度】本回合因 **输出 token 上限** 被截断（finish_reason={finish_reason}，配置 max_tokens≈{max_tokens}）。\
+         请**缩小**本回合 JSON：拆分 `file:edit` / `file:write`、缩短 `tool_args` 里的长字符串，分多轮完成；仍须输出**完整闭合**的单一 JSON 对象。"
+    )
+}
+
+/// Stream/HTTP failures that often follow truncated or oversized model JSON output.
+fn is_recoverable_provider_stream_error(err: &anyhow::Error) -> bool {
+    let s = err.to_string().to_ascii_lowercase();
+    s.contains("decoding response body")
+        || s.contains("error decoding")
+        || s.contains("unexpected eof")
+        || s.contains("connection reset")
+        || s.contains("broken pipe")
+        || s.contains("incomplete message")
+        || s.contains("body completed")
+}
+
+fn provider_stream_recoverable_retry_message(err: &anyhow::Error, max_tokens: u32) -> String {
+    format!(
+        "【环境反馈】本回合模型输出异常（{err}），常见于输出过长导致 JSON 被截断或流传输中断。\n\n\
+         请缩小本回合 payload（拆分编辑、减少单次 `content` / `oldString` 长度），重新输出**一个**完整 JSON 工具信封。\
+         当前 max_tokens≈{max_tokens}。{length_hint}",
+        length_hint = output_length_retry_supplement(max_tokens, "length")
+    )
+}
+
+fn push_injected_format_retry_turn(
+    stream: &StreamTx,
+    conversation_id: &str,
+    history: &mut Vec<ChatMessage>,
+    hint: String,
+) {
+    let retry_id = new_id("fmt_retry");
+    emit(
+        stream,
+        StreamEvent::InjectedUserMessage {
+            conversation_id: conversation_id.to_string(),
+            message_id: retry_id.clone(),
+            content: hint.clone(),
+        },
+    );
+    history.push(ChatMessage {
+        id: retry_id,
+        role: Role::User,
+        content: hint,
+        status: "done".into(),
+        created_at: now_ms(),
+        tool_calls: None,
+        tool_call_id: None,
+        error_message: None,
+        reasoning: None,
+        thoughts: None,
+        headline: None,
+        raw_content: None,
+        agent_id: None,
+        agent_name: None,
+        agent_trace: None,
+        images_base64: None,
+        computer_round_screen_rel_path: None,
+    });
 }
 
 /// Host-only binding for `task_board` and computer tools so models cannot spoof another session id.
@@ -425,6 +542,7 @@ async fn run_chat_inner(
     let provider = OpenAIProvider::new(settings.clone(), api_key);
     let mut llm_token_session = ChatLlmTokenSession::new(conversation_id.to_string());
 
+    let t_compress = Instant::now();
     crate::context_compression::maybe_compress_history(
         history,
         &settings,
@@ -434,6 +552,12 @@ async fn run_chat_inner(
         cancel.clone(),
     )
     .await;
+    log::info!(
+        "run_chat_inner: maybe_compress_history finished conversation_id={} wall_ms={} history_messages={}",
+        conversation_id,
+        t_compress.elapsed().as_millis(),
+        history.len(),
+    );
 
     let max_cap = settings.max_tool_rounds.clamp(1, 10_000);
 
@@ -529,7 +653,10 @@ async fn run_chat_inner(
             );
         }
 
+        let round_prep = Instant::now();
+        let t = Instant::now();
         let mut history_for_api = history.clone();
+        let clone_ms = t.elapsed().as_millis();
         let mut prompts_after_ctx = MessageLoopPromptsAfterContext {
             computer_state: state.computer_state.as_ref(),
             lead_agent_profile: lead_profile.clone(),
@@ -539,11 +666,14 @@ async fn run_chat_inner(
             round_assistant_message_id: Some(assistant_id.clone()),
             round_screen_dump_prefix: None,
         };
+        let t = Instant::now();
         state
             .extensions
             .run_message_loop_prompts_after(&mut prompts_after_ctx)
             .await?;
+        let message_loop_prompts_after_ms = t.elapsed().as_millis();
 
+        let t = Instant::now();
         let mut prompts_with_env = Vec::new();
         let session_vars = SessionInjectVars {
             workspace_root: settings.workspace_root.trim(),
@@ -560,6 +690,9 @@ async fn run_chat_inner(
         if !tools_system_appendix.is_empty() {
             prompts_with_env.push(tools_system_appendix);
         }
+        let assemble_system_prompts_ms = t.elapsed().as_millis();
+
+        let t = Instant::now();
         let mut before_llm_ctx = BeforeMainLlmCallContext {
             computer_state: state.computer_state.as_ref(),
             lead_agent_profile: lead_profile,
@@ -573,6 +706,19 @@ async fn run_chat_inner(
             .run_before_main_llm_call(&mut before_llm_ctx)
             .await?;
         push_env_context_last_in_system_prompts(&mut prompts_with_env);
+        push_json_wire_format_tail(&mut prompts_with_env, tools_appendix_enabled);
+        let before_main_llm_tail_ms = t.elapsed().as_millis();
+        log::info!(
+            "run_chat single_agent pre_stream_chat conversation_id={} assistant_id={} history_messages={} clone_ms={} message_loop_prompts_after_ms={} assemble_system_prompts_ms={} before_main_llm_tail_ms={} pre_stream_total_ms={}",
+            conversation_id,
+            assistant_id,
+            history.len(),
+            clone_ms,
+            message_loop_prompts_after_ms,
+            assemble_system_prompts_ms,
+            before_main_llm_tail_ms,
+            round_prep.elapsed().as_millis(),
+        );
         let prompts_clone = prompts_with_env;
         let cancel_clone = cancel.clone();
         let dump_lbl = format!("{}_{}", conversation_id, assistant_id);
@@ -737,6 +883,58 @@ async fn run_chat_inner(
         match send_handle.await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
+                if tools_appendix_enabled && is_recoverable_provider_stream_error(&e) {
+                    log::warn!(
+                        "recoverable provider stream error conversation_id={} assistant_id={}: {e:#}",
+                        conversation_id,
+                        assistant_id
+                    );
+                    emit(
+                        &stream,
+                        StreamEvent::MessageEnd {
+                            message_id: assistant_id.clone(),
+                            content: None,
+                            raw_content: None,
+                            thoughts: None,
+                            headline: None,
+                        },
+                    );
+                    let hint =
+                        provider_stream_recoverable_retry_message(&e, effective_max_tokens(&settings));
+                    push_injected_format_retry_turn(&stream, conversation_id, history, hint);
+                    tool_budget.sync_out(consumed_single);
+                    if tool_budget.is_exhausted() {
+                        let hint = format!(
+                            "单智能体模式下工具调用累计已达上限（{} 轮，含此前消息）。建议新开对话；将尝试压缩上下文以便查看摘要。",
+                            max_cap
+                        );
+                        emit(
+                            &stream,
+                            StreamEvent::ToolRoundsExhausted {
+                                conversation_id: conversation_id.to_string(),
+                                max_rounds: max_cap,
+                                message: hint,
+                                will_retry_after_compress: settings.context_compression_enabled,
+                            },
+                        );
+                        let _ = crate::context_compression::maybe_compress_after_tool_round_limit(
+                            history,
+                            &settings,
+                            &provider,
+                            conversation_id,
+                            &stream,
+                            cancel.clone(),
+                            true,
+                        )
+                        .await;
+                        tool_budget.sync_out(consumed_single);
+                        state.computer_state.mark_cancelled(conversation_id);
+                        return Err(anyhow!(
+                            "单智能体模式下工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
+                        ));
+                    }
+                    continue;
+                }
                 emit(
                     &stream,
                     StreamEvent::Error {
@@ -830,38 +1028,15 @@ async fn run_chat_inner(
         );
 
         if final_tool_calls.is_empty() {
-            if let Some(hint) =
-                json_tool_empty_calls_retry_message(&json_finish_diag, tools_appendix_enabled)
-            {
-                let retry_id = new_id("msg");
-                emit(
-                    &stream,
-                    StreamEvent::InjectedUserMessage {
-                        conversation_id: conversation_id.to_string(),
-                        message_id: retry_id.clone(),
-                        content: hint.clone(),
-                    },
-                );
-                history.push(ChatMessage {
-                    id: retry_id,
-                    role: Role::User,
-                    content: hint,
-                    status: "done".into(),
-                    created_at: now_ms(),
-                    tool_calls: None,
-                    tool_call_id: None,
-                    error_message: None,
-                    reasoning: None,
-                    thoughts: None,
-                    headline: None,
-                    raw_content: None,
-                    agent_id: None,
-                    agent_name: None,
-                    agent_trace: None,
-                    images_base64: None,
-                    computer_round_screen_rel_path: None,
-                });
-                tool_budget.record_tool_cycle();
+            if let Some(hint) = json_tool_empty_calls_retry_message(
+                &json_finish_diag,
+                tools_appendix_enabled,
+                &finish_reason,
+                effective_max_tokens(&settings),
+            ) {
+                rollback_failed_json_assistant_turn(history, &assistant_id);
+                push_injected_format_retry_turn(&stream, conversation_id, history, hint);
+                // Format-only retry: no tool executed; do not consume the tool-round budget.
                 tool_budget.sync_out(consumed_single);
                 if tool_budget.is_exhausted() {
                     let hint = format!(
@@ -931,7 +1106,7 @@ async fn run_chat_inner(
                 images_base64: None,
                 computer_round_screen_rel_path: None,
             });
-            tool_budget.record_tool_cycle();
+            // Format-only retry: no tool executed; do not consume the tool-round budget.
             tool_budget.sync_out(consumed_single);
             if tool_budget.is_exhausted() {
                 let hint = format!(
@@ -1693,7 +1868,10 @@ async fn run_sub_agent(
         let round_message_id = new_id("agent_msg");
         let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
         let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
+        let round_prep = Instant::now();
+        let t = Instant::now();
         let mut history_for_api = local_history.clone();
+        let clone_ms = t.elapsed().as_millis();
         let mut prompts_after_ctx = MessageLoopPromptsAfterContext {
             computer_state: state.computer_state.as_ref(),
             lead_agent_profile: def.profile.clone(),
@@ -1703,15 +1881,21 @@ async fn run_sub_agent(
             round_assistant_message_id: Some(message_id.to_string()),
             round_screen_dump_prefix: Some(round_message_id.clone()),
         };
+        let t = Instant::now();
         state
             .extensions
             .run_message_loop_prompts_after(&mut prompts_after_ctx)
             .await?;
+        let message_loop_prompts_after_ms = t.elapsed().as_millis();
 
+        let t = Instant::now();
         let mut prompts_clone = prompts.clone();
         if !tools_system_appendix.is_empty() {
             prompts_clone.push(tools_system_appendix.clone());
         }
+        let assemble_system_prompts_ms = t.elapsed().as_millis();
+
+        let t = Instant::now();
         let mut before_llm_ctx = BeforeMainLlmCallContext {
             computer_state: state.computer_state.as_ref(),
             lead_agent_profile: def.profile.clone(),
@@ -1725,6 +1909,23 @@ async fn run_sub_agent(
             .run_before_main_llm_call(&mut before_llm_ctx)
             .await?;
         push_env_context_last_in_system_prompts(&mut prompts_clone);
+        push_json_wire_format_tail(
+            &mut prompts_clone,
+            !tools_system_appendix.is_empty(),
+        );
+        let before_main_llm_tail_ms = t.elapsed().as_millis();
+        log::info!(
+            "run_chat supervisor_sub_agent pre_stream_chat conversation_id={} task_id={} message_id={} local_history_messages={} clone_ms={} message_loop_prompts_after_ms={} assemble_system_prompts_ms={} before_main_llm_tail_ms={} pre_stream_total_ms={}",
+            conversation_id,
+            task.id,
+            message_id,
+            local_history.len(),
+            clone_ms,
+            message_loop_prompts_after_ms,
+            assemble_system_prompts_ms,
+            before_main_llm_tail_ms,
+            round_prep.elapsed().as_millis(),
+        );
         let cancel_clone = cancel.clone();
         let dump_lbl = format!("{}_{}_sub_{}", conversation_id, message_id, task.id);
         let handle = tokio::spawn(async move {
@@ -1741,6 +1942,7 @@ async fn run_sub_agent(
         let mut round_content = String::new();
         let mut round_reasoning = String::new();
         let mut final_tool_calls: Vec<ToolCall> = Vec::new();
+        let mut finish_reason = String::from("stop");
         let mut json_finish_diag = crate::json_tool_caller::JsonToolFinishDiagnostics::default();
         let mut round_thoughts: Option<String> = None;
         let mut round_headline: Option<String> = None;
@@ -1846,13 +2048,14 @@ async fn run_sub_agent(
                     );
                 }
                 ProviderEvent::Finish {
-                    reason: _,
+                    reason,
                     tool_calls,
                     json,
                     thoughts,
                     headline,
                     usage,
                 } => {
+                    finish_reason = reason;
                     json_finish_diag = json;
                     round_thoughts = thoughts;
                     round_headline = headline;
@@ -1879,9 +2082,71 @@ async fn run_sub_agent(
             }
         }
 
+        let tools_appendix_enabled = !tools_system_appendix.is_empty();
+
         match handle.await {
             Ok(Ok(())) => {}
             Ok(Err(err)) => {
+                if tools_appendix_enabled && is_recoverable_provider_stream_error(&err) {
+                    log::warn!(
+                        "recoverable provider stream error sub_agent task_id={} agent={}: {err:#}",
+                        task.id,
+                        def.id
+                    );
+                    let hint = provider_stream_recoverable_retry_message(
+                        &err,
+                        effective_max_tokens(&provider.settings),
+                    );
+                    local_history.push(ChatMessage {
+                        id: new_id("fmt_retry"),
+                        role: Role::User,
+                        content: hint,
+                        status: "done".into(),
+                        created_at: now_ms(),
+                        tool_calls: None,
+                        tool_call_id: None,
+                        error_message: None,
+                        reasoning: None,
+                        thoughts: None,
+                        headline: None,
+                        raw_content: None,
+                        agent_id: None,
+                        agent_name: None,
+                        agent_trace: None,
+                        images_base64: None,
+                        computer_round_screen_rel_path: None,
+                    });
+                    if tool_budget.is_exhausted() {
+                        let hint = format!(
+                            "编排（Supervisor）模式下工具调用累计已达上限（{} 轮，含子 Agent）。建议新开对话。",
+                            max_cap
+                        );
+                        emit(
+                            stream,
+                            StreamEvent::ToolRoundsExhausted {
+                                conversation_id: conversation_id.to_string(),
+                                max_rounds: max_cap,
+                                message: hint,
+                                will_retry_after_compress: provider.settings.context_compression_enabled,
+                            },
+                        );
+                        let _ = crate::context_compression::maybe_compress_after_tool_round_limit(
+                            &mut local_history,
+                            &provider.settings,
+                            provider,
+                            conversation_id,
+                            stream,
+                            cancel.clone(),
+                            false,
+                        )
+                        .await;
+                        state.computer_state.mark_cancelled(conversation_id);
+                        return Err(anyhow!(
+                            "编排（Supervisor）模式下工具调用轮次已达上限（{max_cap}）。请新开对话。"
+                        ));
+                    }
+                    continue;
+                }
                 state.computer_state.mark_cancelled(conversation_id);
                 return Err(err);
             }
@@ -1937,10 +2202,13 @@ async fn run_sub_agent(
         });
 
         if final_tool_calls.is_empty() {
-            let tools_appendix_enabled = !tools_system_appendix.is_empty();
-            if let Some(hint) =
-                json_tool_empty_calls_retry_message(&json_finish_diag, tools_appendix_enabled)
-            {
+            if let Some(hint) = json_tool_empty_calls_retry_message(
+                &json_finish_diag,
+                tools_appendix_enabled,
+                &finish_reason,
+                effective_max_tokens(&provider.settings),
+            ) {
+                rollback_failed_json_assistant_turn(&mut local_history, &round_message_id);
                 local_history.push(ChatMessage {
                     id: new_id("fmt_retry"),
                     role: Role::User,
@@ -1960,7 +2228,7 @@ async fn run_sub_agent(
                     images_base64: None,
                     computer_round_screen_rel_path: None,
                 });
-                tool_budget.record_tool_cycle();
+                // Format-only retry: no tool executed; do not consume the tool-round budget.
                 if tool_budget.is_exhausted() {
                     let hint = format!(
                         "编排（Supervisor）模式下工具调用累计已达上限（{} 轮，含子 Agent）。建议新开对话。",
@@ -2027,7 +2295,7 @@ async fn run_sub_agent(
                 images_base64: None,
                 computer_round_screen_rel_path: None,
             });
-            tool_budget.record_tool_cycle();
+            // Format-only retry: no tool executed; do not consume the tool-round budget.
             if tool_budget.is_exhausted() {
                 let hint = format!(
                     "编排（Supervisor）模式下工具调用累计已达上限（{} 轮，含子 Agent）。建议新开对话。",

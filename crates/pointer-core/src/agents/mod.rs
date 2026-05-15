@@ -13,6 +13,9 @@ use std::sync::Arc;
 /// Computer agent: tools, prompts (`AGENT.md` + optional `COMMUNICATION_SHARED.md` merge), extension hooks.
 pub mod computer;
 
+/// Coder agent: embedded policy (`AGENT.md`); tools used only by the coder lead (e.g. `read_lints`).
+pub mod coder;
+
 pub const AGENT_MODE_SINGLE: &str = "single";
 pub const AGENT_MODE_SUPERVISOR: &str = "supervisor";
 pub const DEFAULT_AGENT_ID: &str = "default";
@@ -234,6 +237,14 @@ pub fn expand_agent_prompt_placeholders(template: &str, vars: &SessionInjectVars
 pub fn rendered_communication_public_inject() -> Option<String> {
     let pub_ = communication_public_md().trim();
     (!pub_.is_empty()).then(|| pub_.to_string())
+}
+
+const JSON_WIRE_TAIL: &str = include_str!("_shared/JSON_WIRE_TAIL.md");
+
+/// Short **tail** system slice (after `[Environment]`) so JSON-only output stays in recent context.
+pub fn rendered_json_wire_format_tail_inject() -> Option<String> {
+    let t = JSON_WIRE_TAIL.trim();
+    (!t.is_empty()).then(|| t.to_string())
 }
 
 #[derive(Default)]

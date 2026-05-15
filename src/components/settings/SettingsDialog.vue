@@ -30,8 +30,9 @@ const saving = ref(false)
 const activeSection = ref('provider')
 const copiedKey = ref(false)
 
-const temperature = ref(0.7)
-const maxTokens = ref(2048)
+const DEFAULT_MODEL_TEMPERATURE = 0.7
+const DEFAULT_MODEL_MAX_TOKENS = 2048
+
 const toolApprovalMode = ref<'auto' | 'manual'>('auto')
 const agentMode = ref<'single' | 'supervisor'>('single')
 const leadAgentId = ref('')
@@ -96,7 +97,60 @@ function extraBodyMeaningful(v: unknown): boolean {
 }
 
 function modelConfigHasAny(o: ModelRuntimeOverrides): boolean {
-  return o.reasoningInMessages !== undefined || extraBodyMeaningful(o.extraBody)
+  return (
+    o.reasoningInMessages !== undefined
+    || o.temperature !== undefined
+    || o.maxTokens !== undefined
+    || extraBodyMeaningful(o.extraBody)
+  )
+}
+
+function fallbackModelTemperature(): number {
+  const t = s.settings.temperature
+  return Number.isFinite(t) && t >= 0 ? t : DEFAULT_MODEL_TEMPERATURE
+}
+
+function fallbackModelMaxTokens(): number {
+  const n = s.settings.maxTokens
+  return n && n >= 64 ? n : DEFAULT_MODEL_MAX_TOKENS
+}
+
+function ensureModelConfigEntry(modelId: string): ModelRuntimeOverrides {
+  if (!editingProvider.value) return {}
+  editingProvider.value.modelConfigs = { ...(editingProvider.value.modelConfigs ?? {}) }
+  const prev = editingProvider.value.modelConfigs[modelId]
+  if (!prev) {
+    editingProvider.value.modelConfigs[modelId] = {
+      temperature: fallbackModelTemperature(),
+      maxTokens: fallbackModelMaxTokens()
+    }
+  } else {
+    const next = { ...prev }
+    if (next.temperature === undefined) next.temperature = fallbackModelTemperature()
+    if (next.maxTokens === undefined) next.maxTokens = fallbackModelMaxTokens()
+    editingProvider.value.modelConfigs[modelId] = next
+  }
+  return editingProvider.value.modelConfigs[modelId]!
+}
+
+function modelTemperature(modelId: string): number {
+  return ensureModelConfigEntry(modelId).temperature ?? fallbackModelTemperature()
+}
+
+function modelMaxTokens(modelId: string): number {
+  return ensureModelConfigEntry(modelId).maxTokens ?? fallbackModelMaxTokens()
+}
+
+function setModelTemperature(modelId: string, value: number) {
+  if (!editingProvider.value) return
+  const entry = ensureModelConfigEntry(modelId)
+  entry.temperature = Math.min(2, Math.max(0, Number(value)))
+}
+
+function setModelMaxTokens(modelId: string, value: number) {
+  if (!editingProvider.value) return
+  const entry = ensureModelConfigEntry(modelId)
+  entry.maxTokens = Math.min(32768, Math.max(64, Math.round(Number(value))))
 }
 
 function stableStringifyExtraBody(v: unknown): string {
@@ -164,6 +218,7 @@ function hasModelOverrides(modelId: string): boolean {
 function openModelConfigModal(modelId: string) {
   if (!editingProvider.value) return
   modelConfigModalError.value = ''
+  ensureModelConfigEntry(modelId)
   modelConfigModalId.value = modelId
   modelExtraBodyTexts.value = {
     ...modelExtraBodyTexts.value,
@@ -296,8 +351,6 @@ async function pickWorkspace() {
 }
 
 onMounted(() => {
-  temperature.value = s.settings.temperature
-  maxTokens.value = s.settings.maxTokens
   toolApprovalMode.value = s.settings.toolApprovalMode || 'auto'
   agentMode.value = s.settings.agentMode || 'single'
   leadAgentId.value = s.settings.leadAgentId || 'default'
@@ -394,13 +447,15 @@ function saveProvider() {
 
   const mc = { ...(editingProvider.value.modelConfigs ?? {}) }
   for (const id of editingProvider.value.models) {
-    const prev = { ...(mc[id] ?? {}) }
+    const prev = { ...(mc[id] ?? ensureModelConfigEntry(id)) }
     const eb = parsedByModel[id]
     if (eb === undefined || !extraBodyMeaningful(eb)) {
       delete prev.extraBody
     } else {
       prev.extraBody = eb
     }
+    if (prev.temperature === undefined) prev.temperature = fallbackModelTemperature()
+    if (prev.maxTokens === undefined) prev.maxTokens = fallbackModelMaxTokens()
     if (!modelConfigHasAny(prev)) {
       delete mc[id]
     } else {
@@ -415,6 +470,8 @@ function saveProvider() {
     if (!o) continue
     const clean: ModelRuntimeOverrides = {}
     if (o.reasoningInMessages !== undefined) clean.reasoningInMessages = o.reasoningInMessages
+    if (o.temperature !== undefined) clean.temperature = o.temperature
+    if (o.maxTokens !== undefined) clean.maxTokens = o.maxTokens
     if (extraBodyMeaningful(o.extraBody)) clean.extraBody = o.extraBody
     if (Object.keys(clean).length) nextMc[id] = clean
   }
@@ -480,8 +537,6 @@ async function saveAll() {
       providers: s.settings.providers,
       activeProviderId: s.settings.activeProviderId,
       model: s.settings.model,
-      temperature: Number(temperature.value),
-      maxTokens: Number(maxTokens.value),
       toolApprovalMode: toolApprovalMode.value,
       agentMode: agentMode.value,
       leadAgentId: agentMode.value === 'supervisor' ? '' : leadAgentId.value,
@@ -708,29 +763,17 @@ async function saveAll() {
               <h3 class="text-sm font-semibold text-slate-100 flex items-center gap-2">
                 <Gauge class="w-4 h-4 text-primary-cyan" />生成参数
               </h3>
-              <p class="mt-0.5 text-xs text-slate-500">控制 AI 输出的创造性和长度</p>
+              <p class="mt-0.5 text-xs text-slate-500">创造性、最大输出长度等按模型单独配置</p>
             </div>
 
-            <div class="grid grid-cols-2 gap-3">
-              <!-- Temperature -->
-              <div class="rounded-xl border border-white/5 bg-black/20 p-4">
-                <div class="flex items-center justify-between mb-3">
-                  <label class="text-[12px] text-slate-400">创造性</label>
-                  <span class="text-sm font-mono text-primary-cyan">{{ temperature }}</span>
-                </div>
-                <input v-model.number="temperature" type="range" min="0" max="2" step="0.1" class="w-full accent-[#7C3AED]" />
-                <div class="mt-2 flex justify-between text-[10px] text-slate-600">
-                  <span>精确</span>
-                  <span>均衡</span>
-                  <span>创造</span>
-                </div>
-              </div>
-              <!-- Max Tokens -->
-              <div class="rounded-xl border border-white/5 bg-black/20 p-4">
-                <label class="block text-[12px] text-slate-400 mb-2">最大输出长度</label>
-                <input v-model.number="maxTokens" type="number" min="64" max="32768" step="64" class="w-full h-10 px-3 rounded-lg bg-black/30 border border-white/10 text-sm text-slate-100 outline-none focus:border-primary/50 transition-colors" />
-                <p class="mt-2 text-[11px] text-slate-500">限制单次回复的最大 token 数</p>
-              </div>
+            <div class="rounded-xl border border-white/5 bg-black/20 p-4 text-[12px] text-slate-400 leading-relaxed">
+              请在 <span class="text-slate-200">模型服务</span> 中编辑服务商，在「各模型」列表里点击
+              <span class="text-slate-200">配置</span>，为每个模型设置
+              <span class="text-slate-200">创造性</span> 与
+              <span class="text-slate-200">最大输出长度</span>。
+              当前会话模型：
+              <span class="font-mono text-primary-cyan">{{ s.settings.model }}</span>
+              （创造性 {{ s.effectiveTemperature }}，最大输出 {{ s.effectiveMaxTokens }} tokens）。
             </div>
 
             <div class="rounded-xl border border-white/5 bg-black/20 p-4">
@@ -988,6 +1031,33 @@ async function saveAll() {
             <option value="on">回传</option>
             <option value="off">不回传</option>
           </select>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-[11px] text-slate-500">创造性</label>
+            <span class="text-sm font-mono text-primary-cyan">{{ modelTemperature(modelConfigModalId) }}</span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="2"
+            step="0.1"
+            class="w-full accent-[#7C3AED]"
+            :value="modelTemperature(modelConfigModalId)"
+            @input="setModelTemperature(modelConfigModalId, Number(($event.target as HTMLInputElement).value))"
+          />
+        </div>
+        <div>
+          <label class="block text-[11px] text-slate-500 mb-1">最大输出长度（tokens）</label>
+          <input
+            type="number"
+            min="64"
+            max="32768"
+            step="64"
+            class="w-full h-9 px-2 rounded-lg bg-black/30 border border-white/10 text-slate-200 text-[13px] outline-none focus:border-primary/50"
+            :value="modelMaxTokens(modelConfigModalId)"
+            @input="setModelMaxTokens(modelConfigModalId, Number(($event.target as HTMLInputElement).value))"
+          />
         </div>
         <div>
           <label class="block text-[11px] text-slate-500 mb-1">扩展参数（JSON，可留空）</label>

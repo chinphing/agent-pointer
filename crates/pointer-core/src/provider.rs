@@ -11,7 +11,7 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::Write;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -250,7 +250,7 @@ impl OpenAIProvider {
             system_prompts,
             crate::models::effective_reasoning_in_messages(&self.settings),
         );
-        let max_tok = max_tokens_override.unwrap_or(self.settings.max_tokens);
+        let max_tok = max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
         let extra_body = crate::models::effective_chat_extra_body(&self.settings);
         crate::llm_prompt_dump::try_dump_round(
             &self.settings,
@@ -264,7 +264,7 @@ impl OpenAIProvider {
             model: &self.settings.model,
             messages: openai_msgs,
             stream: false,
-            temperature: self.settings.temperature,
+            temperature: crate::models::effective_temperature(&self.settings),
             max_tokens: Some(max_tok),
             stream_options: None,
             response_format: Some(json!({"type": "json_object"})),
@@ -318,6 +318,7 @@ impl OpenAIProvider {
         cancel: CancellationToken,
         dump_label: Option<&str>,
     ) -> Result<()> {
+        let stream_t0 = Instant::now();
         let base_url = self
             .settings
             .providers
@@ -332,17 +333,20 @@ impl OpenAIProvider {
                     .unwrap_or_default()
             });
 
+        let t_build = Instant::now();
         let openai_msgs = crate::models::make_openai_messages(
             messages,
             system_prompts,
             crate::models::effective_reasoning_in_messages(&self.settings),
         );
+        let build_openai_messages_ms = t_build.elapsed().as_millis();
+        let api_message_count = openai_msgs.len();
         crate::llm_prompt_dump::try_dump_round(
             &self.settings,
             dump_label,
             "stream_chat",
             true,
-            self.settings.max_tokens,
+            crate::models::effective_max_tokens(&self.settings),
             &openai_msgs,
         );
         let extra_body = crate::models::effective_chat_extra_body(&self.settings);
@@ -355,8 +359,8 @@ impl OpenAIProvider {
             model: &self.settings.model,
             messages: openai_msgs,
             stream: true,
-            temperature: self.settings.temperature,
-            max_tokens: Some(self.settings.max_tokens),
+            temperature: crate::models::effective_temperature(&self.settings),
+            max_tokens: Some(crate::models::effective_max_tokens(&self.settings)),
             stream_options,
             response_format: Some(json!({"type": "json_object"})),
             extra_body,
@@ -374,6 +378,7 @@ impl OpenAIProvider {
             .timeout(Duration::from_secs(180))
             .build()?;
 
+        let t_http = Instant::now();
         let resp = tokio::select! {
             _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
             r = client
@@ -382,6 +387,16 @@ impl OpenAIProvider {
                 .json(&req)
                 .send() => r?,
         };
+        let http_until_headers_ms = t_http.elapsed().as_millis();
+        log::info!(
+            "stream_chat: build_openai_messages_ms={} http_until_response_headers_ms={} api_message_count={} system_prompt_block_count={} dump_label={:?} pre_body_stream_wall_ms={}",
+            build_openai_messages_ms,
+            http_until_headers_ms,
+            api_message_count,
+            system_prompts.len(),
+            dump_label,
+            stream_t0.elapsed().as_millis()
+        );
 
         if !resp.status().is_success() {
             let status = resp.status();

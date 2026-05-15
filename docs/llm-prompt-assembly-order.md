@@ -56,9 +56,9 @@
 | 类型 | 典型文件 / 位置 |
 |------|----------------|
 | **AGENT.md** | `crates/pointer-core/src/agents/<id>/AGENT.md`，并入 agent 的 `system_prompts` 条目 |
-| **COMMUNICATION.md** | 同上目录；与 AGENT 等合并后经 `expand_agent_prompt_placeholders` → **§1.2 第 2 行** |
+| **COMMUNICATION.md** | 同上目录；与 AGENT 等合并后经 `expand_agent_prompt_placeholders` → **§1.2 第 2 行**；Coder 含 **`read_lints`**、**Git** 等会话策略 |
 | **COMMUNICATION_PUBLIC** | `crates/pointer-core/src/agents/_shared/COMMUNICATION_PUBLIC.md` → **§1.2 第 1 行** |
-| **Tools** | `crates/pointer-core/src/tools/prompts/*.md` 等 → **`generate_tools_system_appendix`** → **§1.2 第 3 行** |
+| **Tools** | `crates/pointer-core/src/tools/prompts/*.md`（共享内置工具）与 `crates/pointer-core/src/agents/coder/prompts/*.md`（仅 Coder 的工具，如 `read_lints`）等 → **`generate_tools_system_appendix`** → **§1.2 第 3 行** |
 | **Task board** | `TaskBoardSnapshotHook` 等 → **§1.2 第 4 行** |
 | **Env** | `env_prompt::build_environment_system_prompt_slice` + **`push_env_context_last_in_system_prompts`** → **§1.2 第 5 行**（**仅日历日期**）；Computer **`screen_inject`** 在 **`[CUR_SCREEN]`** 正文前加 **`format_local_wall_clock_full`**（**完整日期时间**）；Supervisor **`chat_once`** 用 **`build_environment_context_full`** |
 | **屏幕等多模态** | `screen_inject.rs` → **§1.1**，`user` + 图，**不在** `system_prompts.join` 里 |

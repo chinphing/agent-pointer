@@ -153,6 +153,9 @@ pub struct AgentDef {
     pub source: Option<String>,
     #[serde(default, rename = "resourceFiles")]
     pub resource_files: Vec<String>,
+    /// Worker ids this lead may pass to `run_subagent`; metadata for these ids is injected at runtime.
+    #[serde(default, rename = "allowAgents")]
+    pub allow_agents: Vec<String>,
     /// Agent-specific configuration key-value pairs.
     #[serde(default)]
     pub config: HashMap<String, String>,
@@ -165,6 +168,8 @@ pub struct AgentPlan {
     pub lead_agent_name: String,
     pub system_prompts: Vec<String>,
     pub allowed_tool_names: Vec<String>,
+    /// Sorted, deduped worker ids from the lead agent manifest `allowAgents`.
+    pub allow_agents: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -232,6 +237,8 @@ struct AgentManifest {
     enabled: bool,
     #[serde(default, rename = "toolNames")]
     tool_names: Vec<String>,
+    #[serde(default, rename = "allowAgents")]
+    allow_agents: Vec<String>,
     #[serde(default)]
     config: HashMap<String, String>,
     #[serde(skip)]
@@ -334,7 +341,19 @@ impl AgentRegistry {
 
 pub struct AgentOrchestrator;
 
-/// Optional system block: worker metadata for settings `allowAgents` (used with `run_subagent`).
+/// Normalize lead manifest `allowAgents`: trim, sort, dedup.
+pub fn normalize_allow_agents(raw: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = raw
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Optional system block: worker metadata for lead manifest `allowAgents` (used with `run_subagent`).
 pub fn delegatable_sub_agents_system_block(
     registry: &AgentRegistry,
     allow_ids: &[String],
@@ -420,10 +439,11 @@ impl AgentOrchestrator {
 
             return AgentPlan {
                 mode: normalized_mode.into(),
-                lead_agent_id: agent.id,
-                lead_agent_name: agent.name,
+                lead_agent_id: agent.id.clone(),
+                lead_agent_name: agent.name.clone(),
                 system_prompts,
                 allowed_tool_names,
+                allow_agents: normalize_allow_agents(&agent.allow_agents),
             };
         }
 
@@ -456,10 +476,11 @@ impl AgentOrchestrator {
 
         AgentPlan {
             mode: normalized_mode.into(),
-            lead_agent_id: lead.id,
-            lead_agent_name: lead.name,
+            lead_agent_id: lead.id.clone(),
+            lead_agent_name: lead.name.clone(),
             system_prompts,
             allowed_tool_names,
+            allow_agents: normalize_allow_agents(&lead.allow_agents),
         }
     }
 
@@ -506,6 +527,7 @@ fn default_agent_def() -> AgentDef {
             tool_names: Vec::new(),
             source: None,
             resource_files: Vec::new(),
+            allow_agents: Vec::new(),
             config: HashMap::new(),
         })
 }
@@ -532,6 +554,7 @@ fn supervisor_agent_def() -> AgentDef {
             tool_names: Vec::new(),
             source: None,
             resource_files: Vec::new(),
+            allow_agents: Vec::new(),
             config: HashMap::new(),
         })
 }
@@ -687,6 +710,7 @@ fn manifest_to_agent(
             .map(collect_agent_resource_files)
             .transpose()?
             .unwrap_or_default(),
+        allow_agents: normalize_allow_agents(&manifest.allow_agents),
         config: manifest.config,
     };
 
@@ -994,5 +1018,16 @@ mod builtin_agent_tests {
         let expanded = expand_agent_prompt_placeholders(&agent.system_prompt, &vars);
         assert!(expanded.contains("/tmp/example-workspace"));
         assert!(!expanded.contains("{{workspace_root}}"));
+    }
+
+    #[test]
+    fn coder_builtin_allow_agents_includes_explore() {
+        let raw = include_str!("coder/AGENT.md");
+        let comm = include_str!("coder/COMMUNICATION.md");
+        let agent = load_builtin_agent("coder", raw, comm).expect("load builtin coder");
+        assert!(
+            agent.def.allow_agents.binary_search(&"explore".to_string()).is_ok(),
+            "coder allowAgents should include explore"
+        );
     }
 }

@@ -424,9 +424,6 @@ pub struct ModelSettings {
     /// Max tool-call rounds per assistant turn. Default 100.
     #[serde(default = "default_max_tool_rounds", rename = "maxToolRounds")]
     pub max_tool_rounds: u32,
-    /// Worker agent ids allowed as `run_subagent` targets; metadata for these ids is injected into the lead prompt.
-    #[serde(default, rename = "allowAgents")]
-    pub allow_agents: Vec<String>,
     /// Max tool-call rounds **inside** each `run_sub_agent` run (separate from the lead conversation pool).
     #[serde(default = "default_max_tool_rounds", rename = "maxSubAgentToolRounds")]
     pub max_sub_agent_tool_rounds: u32,
@@ -529,7 +526,6 @@ impl Default for ModelSettings {
             context_keep_recent_user_turns: default_context_keep_recent_user_turns(),
             context_summary_max_tokens: default_context_summary_max_tokens(),
             max_tool_rounds: default_max_tool_rounds(),
-            allow_agents: Vec::new(),
             max_sub_agent_tool_rounds: default_max_tool_rounds(),
             raw_content_view_enabled: default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),

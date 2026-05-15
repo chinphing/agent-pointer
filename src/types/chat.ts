@@ -58,6 +58,8 @@ export interface AgentDef {
   builtin: boolean
   enabled: boolean
   toolNames: string[]
+  /** Worker ids this lead may pass to `run_subagent` (AGENT.md frontmatter). */
+  allowAgents?: string[]
   source?: string
   resourceFiles: string[]
 }
@@ -154,8 +156,6 @@ export interface ModelSettings {
   contextSummaryMaxTokens: number
   /** Max tool-call rounds per user message (assistant loop), default 100 */
   maxToolRounds: number
-  /** Worker ids the lead may pass to `run_subagent` (must match settings + enabled workers) */
-  allowAgents?: string[]
   /** Max tool rounds inside each `run_subagent` / `run_sub_agent` inner loop */
   maxSubAgentToolRounds?: number
   /** 助手消息上「原始输出」调试入口（代码图标）；含正文通道原始字串与 API reasoning，不在主气泡展示 reasoning */

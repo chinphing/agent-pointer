@@ -57,7 +57,7 @@ pub(super) async fn run_chat_inner(
     let mut agent_plan = agent_plan;
     if agent_plan.mode != AGENT_MODE_SUPERVISOR {
         if let Some(block) =
-            delegatable_sub_agents_system_block(&state.agents, &settings.allow_agents)
+            delegatable_sub_agents_system_block(&state.agents, &agent_plan.allow_agents)
         {
             agent_plan.system_prompts.push(block);
         }

@@ -56,7 +56,7 @@ pub fn parse_run_subagent_args(args: &Value) -> Result<(String, String, String, 
     ))
 }
 
-/// `allow_agents` must be sorted and deduped (see [`crate::storage::load_settings`]).
+/// `allow_agents` must be sorted and deduped (see [`crate::agents::normalize_allow_agents`]).
 pub fn validate_run_subagent_target(
     registry: &AgentRegistry,
     allow_agents: &[String],
@@ -68,13 +68,13 @@ pub fn validate_run_subagent_target(
     }
     if allow_agents.is_empty() {
         return Err(
-            "allowAgents is empty; add worker ids under that setting before using run_subagent"
+            "allowAgents is empty on the lead agent; add worker ids to its AGENT.md frontmatter before using run_subagent"
                 .into(),
         );
     }
     if allow_agents.binary_search_by(|probe| probe.as_str().cmp(aid)).is_err() {
         return Err(format!(
-            "agentId `{aid}` is not listed in allowAgents (settings)"
+            "agentId `{aid}` is not listed in the lead agent allowAgents (AGENT.md frontmatter)"
         ));
     }
     let exec = registry

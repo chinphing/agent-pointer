@@ -42,7 +42,6 @@ const contextBudgetChars = ref(120_000)
 const contextKeepRecentUserTurns = ref(6)
 const contextSummaryMaxTokens = ref(1024)
 const maxToolRounds = ref(100)
-const allowAgentIds = ref<string[]>([])
 const maxSubAgentToolRounds = ref(100)
 const rawContentViewEnabled = ref(true)
 const debugDumpLlmPrompts = ref(false)
@@ -314,12 +313,6 @@ const sections = [
 
 const workers = computed(() => agents.value.filter(a => a.role === 'worker' && a.enabled))
 
-function setAllowAgent(id: string, checked: boolean) {
-  const next = new Set(allowAgentIds.value)
-  if (checked) next.add(id)
-  else next.delete(id)
-  allowAgentIds.value = [...next].sort()
-}
 const supervisorAgent = computed(
   () =>
     agents.value.find(a => a.id === 'supervisor' && a.enabled) ||
@@ -369,7 +362,6 @@ onMounted(() => {
   contextKeepRecentUserTurns.value = s.settings.contextKeepRecentUserTurns ?? 6
   contextSummaryMaxTokens.value = s.settings.contextSummaryMaxTokens ?? 1024
   maxToolRounds.value = s.settings.maxToolRounds ?? 100
-  allowAgentIds.value = [...(s.settings.allowAgents ?? [])].sort()
   maxSubAgentToolRounds.value = s.settings.maxSubAgentToolRounds ?? s.settings.maxToolRounds ?? 100
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled !== false
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
@@ -557,7 +549,6 @@ async function saveAll() {
       contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
       contextSummaryMaxTokens: Number(contextSummaryMaxTokens.value),
       maxToolRounds: Number(maxToolRounds.value),
-      allowAgents: [...allowAgentIds.value].sort(),
       maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
       rawContentViewEnabled: rawContentViewEnabled.value,
       debugDumpLlmPrompts: debugDumpLlmPrompts.value
@@ -958,28 +949,13 @@ async function saveAll() {
             </div>
 
             <div
-              v-if="agentMode === 'single' && workers.length > 0"
+              v-if="agentMode === 'single'"
               class="rounded-xl border border-white/5 bg-black/20 p-5 space-y-3"
             >
               <h4 class="text-sm font-medium text-slate-100">子任务委托</h4>
               <p class="text-[11px] text-slate-500">
-                勾选允许主会话代为调用的专家；未勾选的专家无法被委派。
+                可委派的 worker 由主 Agent 的 AGENT.md 中 <code class="text-slate-400">allowAgents</code> 配置。
               </p>
-              <div class="flex flex-wrap gap-2">
-                <label
-                  v-for="w in workers"
-                  :key="'allow-' + w.id"
-                  class="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-2 py-1.5 cursor-pointer text-[11px] hover:bg-white/5"
-                >
-                  <input
-                    type="checkbox"
-                    :checked="allowAgentIds.includes(w.id)"
-                    @change="setAllowAgent(w.id, ($event.target as HTMLInputElement).checked)"
-                  />
-                  <span class="text-slate-200">{{ w.name }}</span>
-                  <span class="text-slate-500 font-mono">{{ w.id }}</span>
-                </label>
-              </div>
               <div>
                 <label class="block text-[12px] text-slate-400 mb-1.5">子 Agent 内工具轮次上限</label>
                 <input

@@ -20,6 +20,7 @@ pub(super) async fn run_subagent_delegation(
     conversation_id: &str,
     message_id: &str,
     args_value: serde_json::Value,
+    allow_agents: &[String],
     enabled_skill_ids: &[String],
     agent_trace: &mut Vec<AgentTrace>,
     cancel: &CancellationToken,
@@ -31,7 +32,7 @@ pub(super) async fn run_subagent_delegation(
         Ok((agent_id, instruction, title, task_id_raw)) => {
             match crate::tools::run_subagent::validate_run_subagent_target(
                 &state.agents,
-                &provider.settings.allow_agents,
+                allow_agents,
                 &agent_id,
             ) {
                 Err(msg) => Ok((format!("ERROR: {msg}"), false, Some(msg))),

@@ -176,6 +176,7 @@ pub(super) async fn run_single_agent_loop(
             state.as_ref(),
             conversation_id,
             history,
+            &agent_plan.allow_agents,
             enabled_skill_ids,
             provider,
             tool_approval_mode,

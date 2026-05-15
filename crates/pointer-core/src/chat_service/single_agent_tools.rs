@@ -27,6 +27,7 @@ pub(super) async fn run_single_agent_tool_pass(
     state: &AppState,
     conversation_id: &str,
     history: &mut Vec<ChatMessage>,
+    allow_agents: &[String],
     enabled_skill_ids: &[String],
     provider: &OpenAIProvider,
     tool_approval_mode: &str,
@@ -58,6 +59,7 @@ pub(super) async fn run_single_agent_tool_pass(
         &mut stats,
         final_tool_calls,
         Some(LeadToolPassConfig {
+            allow_agents,
             enabled_skill_ids,
             agent_trace,
             raw_content_buf,

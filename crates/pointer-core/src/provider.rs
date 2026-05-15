@@ -4,8 +4,9 @@ use crate::json_tool_caller::{
 };
 use crate::llm_token_stats::LlmUsageSnapshot;
 use crate::models::{ChatMessage, ModelSettings, ToolCall};
-use crate::response_xml::xml_tool_arguments_to_json_string;
-use crate::response_xml::{XmlToolCall, XmlToolEnvelope};
+use crate::tool_envelope::{
+    envelope_arguments_to_json_string, ToolEnvelope, ToolEnvelopeCall,
+};
 use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -510,7 +511,7 @@ impl OpenAIProvider {
         if let Some(env) = envelope {
             let base_id = format!("json_{}_0", stream_json_session_id);
             let (tc, thoughts, headline) =
-                tool_calls_from_xml_envelope(&self.settings.model, env, &base_id);
+                tool_calls_from_envelope(&self.settings.model, env, &base_id);
             if thoughts.is_some() {
                 last_json_stream_meta.0 = thoughts.clone();
             }
@@ -593,13 +594,13 @@ fn write_llm_stream_chunk_to_stderr(text: &str) {
     let _ = err.flush();
 }
 
-fn tool_calls_from_xml_envelope(
+fn tool_calls_from_envelope(
     model: &str,
-    envelope: XmlToolEnvelope,
+    envelope: ToolEnvelope,
     base_id: &str,
 ) -> (Vec<ToolCall>, Option<String>, Option<String>) {
     if envelope.sidecar.is_empty() {
-        return tool_calls_from_xml_tool_call(
+        return tool_calls_from_envelope_call(
             model,
             envelope.primary,
             Some(format!("{base_id}_p")),
@@ -621,7 +622,7 @@ fn tool_calls_from_xml_envelope(
     for sc in envelope.sidecar {
         let id = format!("{base_id}_sc{idx}");
         idx += 1;
-        let args_json = xml_tool_arguments_to_json_string(&sc.arguments);
+        let args_json = envelope_arguments_to_json_string(&sc.arguments);
         let name = sc.name.trim().to_string();
         out.push(ToolCall {
             id,
@@ -635,7 +636,7 @@ fn tool_calls_from_xml_envelope(
         });
     }
     let primary_id = format!("{base_id}_p");
-    let args_json = xml_tool_arguments_to_json_string(&envelope.primary.arguments);
+    let args_json = envelope_arguments_to_json_string(&envelope.primary.arguments);
     let name = envelope.primary.name.trim().to_string();
     out.push(ToolCall {
         id: primary_id,
@@ -650,24 +651,24 @@ fn tool_calls_from_xml_envelope(
     (out, finish_thoughts, finish_headline)
 }
 
-fn tool_calls_from_xml_tool_call(
+fn tool_calls_from_envelope_call(
     _model: &str,
-    xml_call: XmlToolCall,
+    call: ToolEnvelopeCall,
     tool_call_id: Option<String>,
 ) -> (Vec<ToolCall>, Option<String>, Option<String>) {
     let mut finish_thoughts = None;
-    let t = xml_call.thoughts.trim();
+    let t = call.thoughts.trim();
     if !t.is_empty() {
         finish_thoughts = Some(t.to_string());
     }
     let mut finish_headline = None;
-    let h = xml_call.headline.trim();
+    let h = call.headline.trim();
     if !h.is_empty() {
         finish_headline = Some(h.to_string());
     }
-    let id = tool_call_id.unwrap_or_else(|| format!("xml_{}", rand_id()));
-    let args_json = xml_tool_arguments_to_json_string(&xml_call.arguments);
-    let name = xml_call.name.trim().to_string();
+    let id = tool_call_id.unwrap_or_else(|| format!("env_{}", rand_id()));
+    let args_json = envelope_arguments_to_json_string(&call.arguments);
+    let name = call.name.trim().to_string();
     let tc = vec![ToolCall {
         id,
         name,

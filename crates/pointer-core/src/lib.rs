@@ -12,7 +12,6 @@ pub mod provider;
 pub mod skills;
 pub mod storage;
 pub mod tools;
-pub mod response_xml;
+pub mod tool_envelope;
 pub mod json_tool_caller;
-pub mod xml_tool_caller;
 pub mod tools_system_appendix;

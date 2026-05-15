@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use partial_json_fixer::fix_json;
 use serde_json::Value;
 
-use crate::response_xml::{XmlToolCall, XmlToolEnvelope};
+use crate::tool_envelope::{ToolEnvelope, ToolEnvelopeCall};
 
 /// Diagnostics after the stream ends (JSON tool protocol).
 #[derive(Debug, Clone, Default)]
@@ -142,7 +142,7 @@ fn json_args_to_string_map(args: &Value) -> HashMap<String, String> {
     m
 }
 
-fn is_vacuous_tool_json(env: &XmlToolEnvelope) -> bool {
+fn is_vacuous_tool_json(env: &ToolEnvelope) -> bool {
     env.sidecar.is_empty()
         && env.primary.name.trim().is_empty()
         && env.primary.thoughts.trim().is_empty()
@@ -154,7 +154,7 @@ fn is_vacuous_tool_json(env: &XmlToolEnvelope) -> bool {
 pub fn finalize_json_tool_envelope(
     content_buf: &str,
     reasoning_buf: &str,
-) -> (Option<XmlToolEnvelope>, JsonToolFinishDiagnostics) {
+) -> (Option<ToolEnvelope>, JsonToolFinishDiagnostics) {
     let mut diag = JsonToolFinishDiagnostics::default();
     let attempted_tool_json = content_buf.contains("\"tool_name\"")
         || content_buf.contains("\"tool_args\"")
@@ -209,7 +209,7 @@ pub fn finalize_json_tool_envelope(
     }
 }
 
-fn envelope_from_value(v: &Value) -> Result<XmlToolEnvelope, String> {
+fn envelope_from_value(v: &Value) -> Result<ToolEnvelope, String> {
     let obj = v.as_object().ok_or("root must be a JSON object")?;
     let thoughts = obj
         .get("thoughts")
@@ -222,7 +222,7 @@ fn envelope_from_value(v: &Value) -> Result<XmlToolEnvelope, String> {
         .unwrap_or("")
         .to_string();
 
-    let mut sidecar: Vec<XmlToolCall> = Vec::new();
+    let mut sidecar: Vec<ToolEnvelopeCall> = Vec::new();
     if let Some(Value::Array(arr)) = obj.get("sidecar_tools") {
         for (i, item) in arr.iter().enumerate() {
             let o = item
@@ -234,7 +234,7 @@ fn envelope_from_value(v: &Value) -> Result<XmlToolEnvelope, String> {
                 .unwrap_or("")
                 .to_string();
             let args = o.get("tool_args").cloned().unwrap_or(Value::Object(Default::default()));
-            sidecar.push(XmlToolCall {
+            sidecar.push(ToolEnvelopeCall {
                 name,
                 arguments: json_args_to_string_map(&args),
                 thoughts: String::new(),
@@ -252,14 +252,14 @@ fn envelope_from_value(v: &Value) -> Result<XmlToolEnvelope, String> {
         .get("tool_args")
         .cloned()
         .unwrap_or(Value::Object(Default::default()));
-    let primary = XmlToolCall {
+    let primary = ToolEnvelopeCall {
         name: primary_name,
         arguments: json_args_to_string_map(&primary_args),
         thoughts,
         headline,
     };
 
-    Ok(XmlToolEnvelope { sidecar, primary })
+    Ok(ToolEnvelope { sidecar, primary })
 }
 
 fn extract_tool_args_text(obj: &serde_json::Map<String, Value>) -> Option<String> {

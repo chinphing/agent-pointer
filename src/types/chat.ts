@@ -23,6 +23,8 @@ export interface AgentTrace {
   status: string
   detail?: string
   content?: string
+  /** 0 = 顶格（主编排），1 = 委托子 Agent；缺省时 UI 对首条顶格、其余一级缩进 */
+  depth?: number
 }
 
 export type AgentProfile =
@@ -151,6 +153,10 @@ export interface ModelSettings {
   contextSummaryMaxTokens: number
   /** Max tool-call rounds per user message (assistant loop), default 100 */
   maxToolRounds: number
+  /** Worker ids the lead may pass to `run_subagent` (must match settings + enabled workers) */
+  allowAgents?: string[]
+  /** Max tool rounds inside each `run_subagent` / `run_sub_agent` inner loop */
+  maxSubAgentToolRounds?: number
   /** 助手消息上「原始输出」调试入口（代码图标）；含正文通道原始字串与 API reasoning，不在主气泡展示 reasoning */
   rawContentViewEnabled: boolean
   /** Write each LLM request payload to app data `logs/llm_prompts/` (debug) */

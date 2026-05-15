@@ -174,7 +174,7 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 |------|------|
 | `AppState.computer_state` | 同一块 `VisionState`、同一套标注客户端与执行器。子 Agent `Computer` 若跑屏幕注入，会更新**同一** `index_map` / `screen_bbox`。主会话若也使用 Computer，或连续多个 Computer 子任务，后一轮会看到上一轮写入的视觉状态，除非在业务层清空或隔离。 |
 | `AppState.tools` / `skills` / `agents` | 全局注册表，仅配置只读。 |
-| 工具预算 `SessionToolBudget` | Supervisor 与子 Agent **共用**同一预算计数（传入 `run_sub_agent` 的 `tool_budget`）。 |
+| 工具预算 `SessionToolBudget` | **外层**编排（单智能体主循环或 Supervisor 每完成一个子任务）与 **内层**子 Agent 工具循环 **分开计数**：每次 `run_sub_agent` 使用 **新的**内层预算实例（上限来自 `maxSubAgentToolRounds`）；外层在包含工具执行的一轮结束时 `record_tool_cycle` 一次（含 `run_subagent` 所在轮）。 |
 
 **结论（运行时）**：子 Agent **对话上下文独立**，**Computer 等带副作用的全局状态不独立**；设计扩展或并行子任务时需考虑 `VisionState` 与预算的语义。
 

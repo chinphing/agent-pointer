@@ -295,6 +295,44 @@ impl AgentRegistry {
 
 pub struct AgentOrchestrator;
 
+/// Optional system block: worker metadata for settings `allowAgents` (used with `run_subagent`).
+pub fn delegatable_sub_agents_system_block(
+    registry: &AgentRegistry,
+    allow_ids: &[String],
+) -> Option<String> {
+    let ids: Vec<&str> = allow_ids
+        .iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if ids.is_empty() {
+        return None;
+    }
+    let mut lines = vec![
+        "Delegatable sub-agents (tool: run_subagent). Only call ids listed here. Metadata only — not full agent prompts."
+            .to_string(),
+    ];
+    for id in ids {
+        let Some(exec) = registry.get(id) else {
+            lines.push(format!("- id: {id} (unknown or disabled; tool calls will fail)"));
+            continue;
+        };
+        let d = exec.def();
+        if d.role == "supervisor" || !d.enabled {
+            lines.push(format!(
+                "- id: {} (not a delegatable worker; tool calls will fail)",
+                d.id
+            ));
+            continue;
+        }
+        lines.push(format!(
+            "- id: {}\n  name: {}\n  role: {}\n  profile: {:?}\n  description: {}",
+            d.id, d.name, d.role, d.profile, d.description
+        ));
+    }
+    Some(lines.join("\n\n"))
+}
+
 impl AgentOrchestrator {
     pub fn build_plan(
         agents: &AgentRegistry,

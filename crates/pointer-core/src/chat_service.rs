@@ -1,5 +1,5 @@
 use crate::agents::{
-    expand_agent_prompt_placeholders, register_builtin_agents,
+    delegatable_sub_agents_system_block, expand_agent_prompt_placeholders, register_builtin_agents,
     rendered_communication_public_inject, rendered_json_wire_format_tail_inject, AgentDef,
     AgentOrchestrator, AgentProfile,
     AgentRegistry, AgentRunLimits, AgentRunResult, AgentTask, SessionInjectVars, DEFAULT_AGENT_ID,
@@ -539,6 +539,14 @@ async fn run_chat_inner(
         &effective_agent_mode,
         lead_opt,
     );
+    let mut agent_plan = agent_plan;
+    if agent_plan.mode != AGENT_MODE_SUPERVISOR {
+        if let Some(block) =
+            delegatable_sub_agents_system_block(&state.agents, &settings.allow_agents)
+        {
+            agent_plan.system_prompts.push(block);
+        }
+    }
     let provider = OpenAIProvider::new(settings.clone(), api_key);
     let mut llm_token_session = ChatLlmTokenSession::new(conversation_id.to_string());
 
@@ -634,24 +642,6 @@ async fn run_chat_inner(
         );
 
         let mut agent_trace = Vec::new();
-        if agent_plan.mode == "supervisor" {
-            let trace = AgentTrace {
-                id: agent_plan.lead_agent_id.clone(),
-                name: agent_plan.lead_agent_name.clone(),
-                role: "supervisor".into(),
-                status: "running".into(),
-                detail: Some("正在拆解任务、调度专家 Agent 并整合结果".into()),
-                content: None,
-            };
-            agent_trace.push(trace.clone());
-            emit(
-                &stream,
-                StreamEvent::AgentStep {
-                    message_id: assistant_id.clone(),
-                    agent: trace,
-                },
-            );
-        }
 
         let round_prep = Instant::now();
         let t = Instant::now();
@@ -1288,6 +1278,7 @@ async fn run_chat_inner(
             let started = Instant::now();
 
             let is_terminal = tool_id == "terminal";
+            let is_run_subagent = tool_id == "run_subagent";
             let msg_id_for_stream = assistant_id.clone();
             let tc_id_for_stream = tc.id.clone();
             let stream_for_terminal = stream.clone();
@@ -1337,6 +1328,132 @@ async fn run_chat_inner(
                 .await;
                 state.terminal_run_abort.lock().remove(&cleanup_id);
                 join.map_err(|e| anyhow!("终端执行线程异常: {e}"))?
+            } else if is_run_subagent {
+                let parsed = crate::tools::run_subagent::parse_run_subagent_args(&args_value);
+                let (body, ok, err_note): (String, bool, Option<String>) = match parsed {
+                    Err(msg) => (format!("ERROR: {msg}"), false, Some(msg)),
+                    Ok((agent_id, instruction, title, task_id_raw)) => {
+                        match crate::tools::run_subagent::validate_run_subagent_target(
+                            &state.agents,
+                            &provider.settings.allow_agents,
+                            &agent_id,
+                        ) {
+                            Err(msg) => (format!("ERROR: {msg}"), false, Some(msg)),
+                            Ok(def) => {
+                                let tid = if task_id_raw.trim().is_empty() {
+                                    new_id("sub_task")
+                                } else {
+                                    task_id_raw.trim().to_string()
+                                };
+                                let task = AgentTask {
+                                    id: tid,
+                                    agent_id: agent_id.clone(),
+                                    title: if title.trim().is_empty() {
+                                        format!("Delegated: {agent_id}")
+                                    } else {
+                                        title
+                                    },
+                                    instruction,
+                                    depends_on: vec![],
+                                };
+                                log::info!(
+                                    "run_subagent start conversation_id={} message_id={} sub_agent={} task_id={}",
+                                    conversation_id,
+                                    assistant_id,
+                                    def.id,
+                                    task.id
+                                );
+                                let detail = if task.title.len() > 200 {
+                                    format!("{}…", &task.title[..200])
+                                } else {
+                                    task.title.clone()
+                                };
+                                emit_agent_step(
+                                    &stream,
+                                    &assistant_id,
+                                    &mut agent_trace,
+                                    AgentTrace {
+                                        id: def.id.clone(),
+                                        name: def.name.clone(),
+                                        role: def.role.clone(),
+                                        status: "running".into(),
+                                        detail: Some(detail),
+                                        content: None,
+                                        depth: Some(1),
+                                    },
+                                );
+                                let sub_cap = provider
+                                    .settings
+                                    .max_sub_agent_tool_rounds
+                                    .clamp(1, 10_000);
+                                let mut sub_budget = SessionToolBudget::new(sub_cap, 0);
+                                match run_sub_agent(
+                                    &provider,
+                                    &state,
+                                    &stream,
+                                    conversation_id,
+                                    &assistant_id,
+                                    &mut agent_trace,
+                                    enabled_skill_ids,
+                                    &task,
+                                    &mut sub_budget,
+                                    cancel.clone(),
+                                    reasoning_in_messages,
+                                    &mut llm_token_session.stats,
+                                )
+                                .await
+                                {
+                                    Ok(result) => {
+                                        log::info!(
+                                            "run_subagent completed conversation_id={} sub_agent={} task_id={}",
+                                            conversation_id,
+                                            result.agent_id,
+                                            result.task_id
+                                        );
+                                        let json = serde_json::to_string(&result).unwrap_or_else(|e| {
+                                            log::warn!("run_subagent result serialize failed: {e}");
+                                            r#"{"error":"serialize_failed"}"#.to_string()
+                                        });
+                                        emit_agent_step(
+                                            &stream,
+                                            &assistant_id,
+                                            &mut agent_trace,
+                                            AgentTrace {
+                                                id: def.id.clone(),
+                                                name: def.name.clone(),
+                                                role: def.role.clone(),
+                                                status: "completed".into(),
+                                                detail: Some(truncate_str(&result.content, 160)),
+                                                content: Some(result.content.clone()),
+                                                depth: Some(1),
+                                            },
+                                        );
+                                        (json, true, None)
+                                    }
+                                    Err(e) => {
+                                        log::warn!("run_subagent failed conversation_id={}: {e:#}", conversation_id);
+                                        emit_agent_step(
+                                            &stream,
+                                            &assistant_id,
+                                            &mut agent_trace,
+                                            AgentTrace {
+                                                id: def.id.clone(),
+                                                name: def.name.clone(),
+                                                role: def.role.clone(),
+                                                status: "failed".into(),
+                                                detail: Some(e.to_string()),
+                                                content: None,
+                                                depth: Some(1),
+                                            },
+                                        );
+                                        (format!("ERROR: {e}"), false, None)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                };
+                Ok((body, ok, err_note))
             } else {
                 state
                     .tools
@@ -1488,6 +1605,7 @@ async fn run_supervisor_chat(
             status: "planning".into(),
             detail: Some("正在规划子 Agent 执行任务".into()),
             content: None,
+            depth: Some(0),
         },
     );
 
@@ -1520,6 +1638,13 @@ async fn run_supervisor_chat(
         if cancel.is_cancelled() {
             return Err(anyhow!("已停止生成"));
         }
+        if tool_budget.remaining() == 0 {
+            state.computer_state.mark_cancelled(conversation_id);
+            return Err(anyhow!(
+                "本会话在编排模式下可执行的子任务次数已达上限（{}），请新开对话或在设置中调高上限。",
+                tool_budget.cap()
+            ));
+        }
         let agent = state
             .agents
             .get(&task.agent_id)
@@ -1541,6 +1666,7 @@ async fn run_supervisor_chat(
                     task.title.clone()
                 }),
                 content: Some(String::new()),
+                depth: Some(1),
             },
         );
 
@@ -1559,6 +1685,8 @@ async fn run_supervisor_chat(
             task_run.instruction = format!("{pre}\n\n[Current task]\n{}", task.instruction);
         }
 
+        let sub_cap = provider.settings.max_sub_agent_tool_rounds.clamp(1, 10_000);
+        let mut sub_budget = SessionToolBudget::new(sub_cap, 0);
         match run_sub_agent(
             &provider,
             &state,
@@ -1568,7 +1696,7 @@ async fn run_supervisor_chat(
             &mut agent_trace,
             enabled_skill_ids,
             &task_run,
-            tool_budget,
+            &mut sub_budget,
             cancel.clone(),
             reasoning_in_messages,
             llm_stats,
@@ -1576,18 +1704,20 @@ async fn run_supervisor_chat(
         .await
         {
             Ok(result) => {
+                tool_budget.record_tool_cycle();
                 results_by_id.insert(task.id.clone(), result.clone());
                 emit_agent_step(
                     &stream,
                     &assistant_id,
                     &mut agent_trace,
                     AgentTrace {
-                        id: def.id,
-                        name: def.name,
-                        role: def.role,
+                        id: def.id.clone(),
+                        name: def.name.clone(),
+                        role: def.role.clone(),
                         status: "completed".into(),
                         detail: Some(truncate_str(&result.content, 160)),
                         content: Some(result.content.clone()),
+                        depth: Some(1),
                     },
                 );
                 results.push(result);
@@ -1598,12 +1728,13 @@ async fn run_supervisor_chat(
                     &assistant_id,
                     &mut agent_trace,
                     AgentTrace {
-                        id: def.id,
-                        name: def.name,
-                        role: def.role,
+                        id: def.id.clone(),
+                        name: def.name.clone(),
+                        role: def.role.clone(),
                         status: "failed".into(),
                         detail: Some(err.to_string()),
                         content: None,
+                        depth: Some(1),
                     },
                 );
             }
@@ -1621,6 +1752,7 @@ async fn run_supervisor_chat(
             status: "summarizing".into(),
             detail: Some("正在整合子 Agent 结果".into()),
             content: None,
+            depth: Some(0),
         },
     );
 
@@ -1775,7 +1907,7 @@ async fn run_sub_agent(
     agent_trace: &mut Vec<AgentTrace>,
     enabled_skill_ids: &[String],
     task: &AgentTask,
-    tool_budget: &mut SessionToolBudget,
+    sub_tool_budget: &mut SessionToolBudget,
     cancel: CancellationToken,
     reasoning_in_messages: bool,
     llm_stats: &mut ConversationLlmStats,
@@ -1795,7 +1927,8 @@ async fn run_sub_agent(
     skill_ids.dedup();
 
     let (skill_prompts, session_tools) = state.skills.progressive_context(&skill_ids);
-    let allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
+    let mut allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
+    allowed_tools.retain(|t| t != "run_subagent");
     let sub_task_board_key = sub_agent_task_board_store_key(conversation_id, task.id.trim());
     let session_vars = SessionInjectVars {
         workspace_root: provider.settings.workspace_root.trim(),
@@ -1828,7 +1961,7 @@ async fn run_sub_agent(
     let tool_approval_mode = storage::load_settings()
         .map(|settings| settings.tool_approval_mode)
         .unwrap_or_else(|_| "auto".into());
-    let max_cap = tool_budget.cap();
+    let max_cap = sub_tool_budget.cap();
     let mut local_history = vec![ChatMessage {
         id: new_id("sub_task"),
         role: Role::User,
@@ -1857,10 +1990,10 @@ async fn run_sub_agent(
             return Err(anyhow!("已停止生成"));
         }
 
-        if tool_budget.remaining() == 0 {
+        if sub_tool_budget.remaining() == 0 {
             state.computer_state.mark_cancelled(conversation_id);
             return Err(anyhow!(
-                "编排（Supervisor）模式下工具调用轮次已达上限（{}）。请新开对话。",
+                "子 Agent 工具调用轮次已达上限（{}）。请新开对话或在设置中调高上限。",
                 max_cap
             ));
         }
@@ -1960,6 +2093,7 @@ async fn run_sub_agent(
                         &def,
                         task,
                         content.clone(),
+                        1,
                     );
                 }
                 ProviderEvent::ReasoningDelta(delta) => {
@@ -2116,9 +2250,9 @@ async fn run_sub_agent(
                         images_base64: None,
                         computer_round_screen_rel_path: None,
                     });
-                    if tool_budget.is_exhausted() {
+                    if sub_tool_budget.is_exhausted() {
                         let hint = format!(
-                            "编排（Supervisor）模式下工具调用累计已达上限（{} 轮，含子 Agent）。建议新开对话。",
+                            "子 Agent 内工具调用累计已达上限（{} 轮）。建议新开对话。",
                             max_cap
                         );
                         emit(
@@ -2142,7 +2276,7 @@ async fn run_sub_agent(
                         .await;
                         state.computer_state.mark_cancelled(conversation_id);
                         return Err(anyhow!(
-                            "编排（Supervisor）模式下工具调用轮次已达上限（{max_cap}）。请新开对话。"
+                            "子 Agent 内工具调用轮次已达上限（{max_cap}）。请新开对话。"
                         ));
                     }
                     continue;
@@ -2229,9 +2363,9 @@ async fn run_sub_agent(
                     computer_round_screen_rel_path: None,
                 });
                 // Format-only retry: no tool executed; do not consume the tool-round budget.
-                if tool_budget.is_exhausted() {
+                if sub_tool_budget.is_exhausted() {
                     let hint = format!(
-                        "编排（Supervisor）模式下工具调用累计已达上限（{} 轮，含子 Agent）。建议新开对话。",
+                        "子 Agent 内工具调用累计已达上限（{} 轮）。建议新开对话。",
                         max_cap
                     );
                     emit(
@@ -2255,7 +2389,7 @@ async fn run_sub_agent(
                     .await;
                     state.computer_state.mark_cancelled(conversation_id);
                     return Err(anyhow!(
-                        "编排（Supervisor）模式下工具调用轮次已达上限（{max_cap}）。请新开对话。"
+                        "子 Agent 内工具调用轮次已达上限（{max_cap}）。请新开对话。"
                     ));
                 }
                 continue;
@@ -2296,9 +2430,9 @@ async fn run_sub_agent(
                 computer_round_screen_rel_path: None,
             });
             // Format-only retry: no tool executed; do not consume the tool-round budget.
-            if tool_budget.is_exhausted() {
+            if sub_tool_budget.is_exhausted() {
                 let hint = format!(
-                    "编排（Supervisor）模式下工具调用累计已达上限（{} 轮，含子 Agent）。建议新开对话。",
+                    "子 Agent 内工具调用累计已达上限（{} 轮）。建议新开对话。",
                     max_cap
                 );
                 emit(
@@ -2322,7 +2456,7 @@ async fn run_sub_agent(
                 .await;
                 state.computer_state.mark_cancelled(conversation_id);
                 return Err(anyhow!(
-                    "编排（Supervisor）模式下工具调用轮次已达上限（{max_cap}）。请新开对话。"
+                    "子 Agent 内工具调用轮次已达上限（{max_cap}）。请新开对话。"
                 ));
             }
             continue;
@@ -2402,6 +2536,27 @@ async fn run_sub_agent(
                         None
                     },
                 });
+            }
+
+            if tool_id == "run_subagent" {
+                let err = "子 Agent 内不可再次调用 run_subagent。";
+                emit(
+                    stream,
+                    StreamEvent::ToolCallStatus {
+                        message_id: message_id.to_string(),
+                        tool_call_id: tool_call.id.clone(),
+                        status: "failed".into(),
+                        result: None,
+                        error: Some(err.to_string()),
+                        duration_ms: None,
+                    },
+                );
+                local_history.push(tool_result_msg(
+                    &tool_call.id,
+                    &format!("ERROR: {err}"),
+                ));
+                any_executed = true;
+                continue;
             }
 
             if !allowed_tools.contains(&tool_id) {
@@ -2613,11 +2768,11 @@ async fn run_sub_agent(
                 },
             });
         }
-        tool_budget.record_tool_cycle();
+        sub_tool_budget.record_tool_cycle();
 
-        if tool_budget.is_exhausted() {
+        if sub_tool_budget.is_exhausted() {
             let hint = format!(
-                "编排（Supervisor）模式下工具调用累计已达上限（{} 轮，含子 Agent）。建议新开对话。",
+                "子 Agent 内工具调用累计已达上限（{} 轮）。建议新开对话。",
                 max_cap
             );
             emit(
@@ -2641,7 +2796,7 @@ async fn run_sub_agent(
             .await;
             state.computer_state.mark_cancelled(conversation_id);
             return Err(anyhow!(
-                "编排（Supervisor）模式下工具调用轮次已达上限（{max_cap}）。请新开对话。"
+                "子 Agent 内工具调用轮次已达上限（{max_cap}）。请新开对话。"
             ));
         }
     }
@@ -2694,6 +2849,7 @@ fn emit_agent_content_delta(
     def: &AgentDef,
     task: &AgentTask,
     content: String,
+    trace_depth: u32,
 ) {
     emit_agent_step(
         stream,
@@ -2710,6 +2866,7 @@ fn emit_agent_content_delta(
                 task.title.clone()
             }),
             content: Some(content),
+            depth: Some(trace_depth),
         },
     );
 }

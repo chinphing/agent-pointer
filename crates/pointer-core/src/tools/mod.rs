@@ -1,6 +1,7 @@
 pub mod builtin;
 pub mod file;
 pub mod response;
+pub mod run_subagent;
 pub mod skill;
 pub mod task_board;
 pub mod terminal;

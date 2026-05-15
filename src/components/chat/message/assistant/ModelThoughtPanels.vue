@@ -14,6 +14,13 @@ const thoughtsOpen = computed(() => {
 })
 
 const traceOpen = computed(() => (props.agentTrace?.length ?? 0) > 0)
+
+function tracePaddingLeft(agent: AgentTrace, idx: number): string {
+  let d = agent.depth
+  if (d == null) d = idx === 0 ? 0 : 1
+  const px = 8 + Math.min(d, 8) * 14
+  return `${px}px`
+}
 </script>
 
 <template>
@@ -32,11 +39,16 @@ const traceOpen = computed(() => (props.agentTrace?.length ?? 0) > 0)
       <summary
         class="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-violet-200/90 hover:bg-violet-500/10 transition list-none flex items-center gap-2"
       >
-        <span class="text-violet-300/80">多智能体轨迹</span>
-        <span class="text-slate-500 font-normal">子 Agent 步骤与中间输出</span>
+        <span class="text-violet-300/80">子任务轨迹</span>
+        <span class="text-slate-500 font-normal">子步骤与中间输出</span>
       </summary>
       <div class="border-t border-violet-500/15 px-3 py-2 space-y-2 text-[11px] text-slate-300">
-        <div v-for="agent in agentTrace" :key="agent.id" class="rounded-lg bg-black/20 p-2">
+        <div
+          v-for="(agent, idx) in agentTrace"
+          :key="agent.id + '-' + idx + '-' + (agent.status ?? '')"
+          class="rounded-lg bg-black/20 p-2"
+          :style="{ paddingLeft: tracePaddingLeft(agent, idx) }"
+        >
           <div class="flex flex-wrap gap-2">
             <span class="text-slate-100">{{ agent.name }}</span>
             <span class="text-slate-500">{{ agent.status }}</span>

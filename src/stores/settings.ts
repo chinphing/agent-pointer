@@ -86,6 +86,8 @@ export const useSettingsStore = defineStore('settings', () => {
     contextKeepRecentUserTurns: 6,
     contextSummaryMaxTokens: 1024,
     maxToolRounds: 100,
+    allowAgents: [],
+    maxSubAgentToolRounds: 100,
     rawContentViewEnabled: true,
     debugDumpLlmPrompts: false,
     agentDefaultModels: {}
@@ -189,6 +191,8 @@ export const useSettingsStore = defineStore('settings', () => {
           contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 6,
           contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 1024,
           maxToolRounds: s.maxToolRounds ?? 100,
+          allowAgents: Array.isArray(s.allowAgents) ? [...s.allowAgents] : [],
+          maxSubAgentToolRounds: s.maxSubAgentToolRounds ?? s.maxToolRounds ?? 100,
           rawContentViewEnabled: s.rawContentViewEnabled !== false,
           debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
           agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId)
@@ -207,6 +211,8 @@ export const useSettingsStore = defineStore('settings', () => {
           contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 6,
           contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 1024,
           maxToolRounds: s.maxToolRounds ?? 100,
+          allowAgents: Array.isArray(s.allowAgents) ? [...s.allowAgents] : [],
+          maxSubAgentToolRounds: s.maxSubAgentToolRounds ?? s.maxToolRounds ?? 100,
           rawContentViewEnabled: s.rawContentViewEnabled !== false,
           debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
           agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId)

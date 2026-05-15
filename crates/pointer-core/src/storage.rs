@@ -103,6 +103,10 @@ struct StoredSettings {
     context_summary_max_tokens: u32,
     #[serde(default = "default_max_tool_rounds", rename = "maxToolRounds")]
     max_tool_rounds: u32,
+    #[serde(default, rename = "allowAgents")]
+    allow_agents: Vec<String>,
+    #[serde(default = "default_max_tool_rounds", rename = "maxSubAgentToolRounds")]
+    max_sub_agent_tool_rounds: u32,
     #[serde(default = "default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
     raw_content_view_enabled: bool,
     #[serde(default, rename = "debugDumpLlmPrompts")]
@@ -140,6 +144,17 @@ fn default_context_summary_max_tokens() -> u32 {
 
 fn default_max_tool_rounds() -> u32 {
     100
+}
+
+fn normalize_allow_agents(raw: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = raw
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
 
 fn default_raw_content_view_enabled() -> bool {
@@ -195,6 +210,8 @@ impl Default for StoredSettings {
             context_keep_recent_user_turns: s.context_keep_recent_user_turns,
             context_summary_max_tokens: s.context_summary_max_tokens,
             max_tool_rounds: s.max_tool_rounds,
+            allow_agents: s.allow_agents.clone(),
+            max_sub_agent_tool_rounds: s.max_sub_agent_tool_rounds,
             raw_content_view_enabled: s.raw_content_view_enabled,
             debug_dump_llm_prompts: s.debug_dump_llm_prompts,
             agent_default_models: s
@@ -305,6 +322,12 @@ pub fn load_settings() -> Result<ModelSettings> {
         context_keep_recent_user_turns: stored.context_keep_recent_user_turns,
         context_summary_max_tokens: stored.context_summary_max_tokens,
         max_tool_rounds: stored.max_tool_rounds,
+        allow_agents: normalize_allow_agents(&stored.allow_agents),
+        max_sub_agent_tool_rounds: if stored.max_sub_agent_tool_rounds == 0 {
+            default_max_tool_rounds()
+        } else {
+            stored.max_sub_agent_tool_rounds
+        },
         raw_content_view_enabled: stored.raw_content_view_enabled,
         debug_dump_llm_prompts: stored.debug_dump_llm_prompts,
         agent_default_models,
@@ -361,6 +384,8 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
         context_keep_recent_user_turns: s.context_keep_recent_user_turns,
         context_summary_max_tokens: s.context_summary_max_tokens,
         max_tool_rounds: s.max_tool_rounds,
+        allow_agents: normalize_allow_agents(&s.allow_agents),
+        max_sub_agent_tool_rounds: s.max_sub_agent_tool_rounds.max(1),
         raw_content_view_enabled: s.raw_content_view_enabled,
         debug_dump_llm_prompts: s.debug_dump_llm_prompts,
         agent_default_models: s

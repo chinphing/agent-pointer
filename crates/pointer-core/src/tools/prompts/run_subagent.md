@@ -15,8 +15,9 @@ or another handoff).
 
 **When to use**
 
-- A **separate worker profile** is clearly better (e.g. **review** or another isolated pass) and the work can be described **without** relying on the main thread’s message list.
+- A **separate worker profile** fits the work (for **coder** leads, **`explore`** is the default for read-only mapping) and the task can be described **without** relying on the main thread’s message list.
 - You can state **goal, scope, inputs, expected output, and how “done” is judged** entirely inside **`instruction`**.
+- **Early delegation is fine** — you do not need to exhaust local **`file`** tools first when mapping is still unclear.
 
 **What belongs in `instruction`**
 
@@ -27,13 +28,14 @@ or another handoff).
 
 **When not to use**
 
-- Ordinary implementation or debugging you can do with **`file`** / **`terminal`** in this thread.
+- You already hold **exact** change paths/lines and the next step is **edit**, **test**, or **terminal**—not more mapping.
 - The sub-task still needs **ongoing** access to the main chat; the worker only sees **`instruction`** (plus its own system and tools), not the full user conversation.
 
 **`explore` vs local reconnaissance (coder lead)**
 
-- A **small** map (a few paths, a short grep→read loop) before you edit stays in **this** thread—see **Routine workflow** step **Explore** in your primary instructions.
-- Use **`agentId` `explore`** when **many** `file` rounds would bloat the main history **or** you need a **structured** reconnaissance contract (traces, evidence, coverage) spelled out in **`instruction`**—see **Delegating to the `explore` worker** there.
+- **Default:** use **`agentId` `explore`** for mapping, tracing, and “where / how” questions—**before** a long local **`file`** loop.
+- **Local only** when the map is **already tight**: one neighborhood, one symbol, or user-supplied path+line and a single confirm read is enough—see **Routine workflow** step **Explore** and **Delegating to the `explore` worker** in your primary instructions.
+- **When unsure**, choose **`explore`**; merge its **`content`** Markdown report, then edit here.
 
 **Target workers**
 

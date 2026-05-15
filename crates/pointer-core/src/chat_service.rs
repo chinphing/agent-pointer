@@ -2,8 +2,8 @@ use crate::agents::{
     delegatable_sub_agents_system_block, expand_agent_prompt_placeholders, register_builtin_agents,
     rendered_communication_public_inject, rendered_json_wire_format_tail_inject, AgentDef,
     AgentOrchestrator, AgentProfile,
-    AgentRegistry, AgentRunLimits, AgentRunResult, AgentTask, SessionInjectVars, DEFAULT_AGENT_ID,
-    SUPERVISOR_AGENT_ID, AGENT_MODE_SUPERVISOR,
+    AgentRegistry, AgentRunLimits, AgentRunResult, AgentTask, FileToolLeadProfileGuard,
+    SessionInjectVars, DEFAULT_AGENT_ID, SUPERVISOR_AGENT_ID, AGENT_MODE_SUPERVISOR,
 };
 use crate::extensions::{
     BeforeMainLlmCallContext, ExtensionRegistry, MessageLoopPromptsAfterContext,
@@ -632,6 +632,7 @@ async fn run_chat_inner(
             .get(&agent_plan.lead_agent_id)
             .map(|a| a.def().profile.clone())
             .unwrap_or(AgentProfile::General);
+        let file_tool_lead_for_invoke = lead_profile.clone();
 
         emit(
             &stream,
@@ -1455,6 +1456,8 @@ async fn run_chat_inner(
                 };
                 Ok((body, ok, err_note))
             } else {
+                let _file_tool_profile_guard =
+                    FileToolLeadProfileGuard::enter(file_tool_lead_for_invoke.clone());
                 state
                     .tools
                     .invoke(&tool_id, args_value)
@@ -2688,6 +2691,8 @@ async fn run_sub_agent(
                 state.terminal_run_abort.lock().remove(&cleanup_id);
                 join.map_err(|e| anyhow!("终端执行线程异常: {e}"))?
             } else {
+                let _file_tool_profile_guard =
+                    FileToolLeadProfileGuard::enter(def.profile.clone());
                 state
                     .tools
                     .invoke(&tool_id, args_value)

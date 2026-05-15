@@ -4,6 +4,7 @@ use crate::tools::ToolRegistry;
 use anyhow::{anyhow, Result};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
@@ -57,6 +58,11 @@ const BUILTIN_AGENT_BUNDLES: &[BuiltinAgentBundle] = &[
         communication: include_str!("coder/COMMUNICATION.md"),
     },
     BuiltinAgentBundle {
+        id: "explore",
+        manifest: include_str!("explore/AGENT.md"),
+        communication: include_str!("explore/COMMUNICATION.md"),
+    },
+    BuiltinAgentBundle {
         id: "computer",
         manifest: include_str!("computer/AGENT.md"),
         communication: concat!(
@@ -78,7 +84,40 @@ pub enum AgentProfile {
     Analyst,
     ToolUser,
     Computer,
+    Explore,
     Custom(String),
+}
+
+thread_local! {
+    static FILE_TOOL_LEAD_PROFILE: RefCell<Option<AgentProfile>> = const { RefCell::new(None) };
+}
+
+/// Thread-local lead profile for synchronous `file` tool handlers (set around `ToolRegistry::invoke`).
+pub struct FileToolLeadProfileGuard {
+    previous: Option<AgentProfile>,
+}
+
+impl FileToolLeadProfileGuard {
+    pub fn enter(profile: AgentProfile) -> Self {
+        let previous = FILE_TOOL_LEAD_PROFILE.with(|c| {
+            let mut g = c.borrow_mut();
+            std::mem::replace(&mut *g, Some(profile))
+        });
+        Self { previous }
+    }
+}
+
+impl Drop for FileToolLeadProfileGuard {
+    fn drop(&mut self) {
+        FILE_TOOL_LEAD_PROFILE.with(|c| {
+            *c.borrow_mut() = self.previous.take();
+        });
+    }
+}
+
+/// Current lead agent profile for the `file` tool on this thread, if any.
+pub fn current_file_tool_lead_profile() -> Option<AgentProfile> {
+    FILE_TOOL_LEAD_PROFILE.with(|c| c.borrow().clone())
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -926,6 +965,21 @@ mod builtin_agent_tests {
         assert!(
             agent.system_prompt.contains("[Zoom pointer after action]"),
             "shared vision legend should be merged"
+        );
+    }
+
+    #[test]
+    fn explore_builtin_manifest_parses_and_loads() {
+        let raw = include_str!("explore/AGENT.md");
+        let comm = include_str!("explore/COMMUNICATION.md");
+        let agent = load_builtin_agent("explore", raw, comm).expect("load builtin explore");
+        assert_eq!(agent.def.id, "explore");
+        assert_eq!(agent.def.role, "worker");
+        assert!(agent.def.enabled);
+        assert_eq!(agent.def.profile, AgentProfile::Explore);
+        assert!(
+            agent.system_prompt.contains("How to explore workdir"),
+            "explore body should include workdir playbook heading"
         );
     }
 

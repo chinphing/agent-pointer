@@ -37,6 +37,7 @@ export type AgentProfile =
   | 'analyst'
   | 'tool_user'
   | 'computer'
+  | 'explore'
   | { custom: string }
 
 export interface AccessPolicy {

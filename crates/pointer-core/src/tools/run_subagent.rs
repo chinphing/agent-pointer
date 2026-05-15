@@ -96,6 +96,7 @@ pub fn validate_run_subagent_target(
 mod tests {
     use super::*;
     use crate::agents::register_builtin_agents;
+    use crate::agents::AgentProfile;
     use crate::agents::AgentRegistry;
     use serde_json::json;
 
@@ -139,6 +140,16 @@ mod tests {
         let allow = vec!["coder".to_string()];
         let d = validate_run_subagent_target(&reg, &allow, "coder").unwrap();
         assert_eq!(d.id, "coder");
+    }
+
+    #[test]
+    fn validate_accepts_explore_when_listed() {
+        let reg = AgentRegistry::new();
+        register_builtin_agents(&reg);
+        let allow = vec!["explore".to_string()];
+        let d = validate_run_subagent_target(&reg, &allow, "explore").unwrap();
+        assert_eq!(d.id, "explore");
+        assert_eq!(d.profile, AgentProfile::Explore);
     }
 
     #[test]

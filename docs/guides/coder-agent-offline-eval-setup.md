@@ -107,7 +107,7 @@ npm run server:dev
 
 - **流式结果**：`GET /api/chat/:conversation_id/stream`（SSE），脚本需解析事件直至 `Done` 或工具轮结束，再从持久化对话或事件中抽取 **最终工作区是否被修改**，再回到 **§2 的 `grade.sh`** 做判分。
 
-**说明**：仓库内 **尚无** 现成「一条 CLI 跑完 eval」命令；自动化通常是自己写 **Python/Node 小脚本** 调上述 API + SSE。若未来在 `examples/` 或 `eval/` 增加官方 runner，可作为后续实现项（见 `docs/coder-agent-capability-roadmap.md` §L）。
+**说明**：仓库内 **尚无** 现成「一条 CLI 跑完 eval」命令；自动化通常是自己写 **Python/Node 小脚本** 调上述 API + SSE。若未来在 `examples/` 或 `eval/` 增加官方 runner，可作为后续实现项（见 [`coder-agent-capability-roadmap.md`](../design/coder-agent-capability-roadmap.md) §L）。
 
 ### 4.4 工具审批
 
@@ -153,4 +153,4 @@ A：不互斥。自研 `eval/` 管 **你们产品回归**；SWE-bench 管 **横�
 
 ---
 
-**相关文档**：`docs/coder-agent-capability-roadmap.md`（§5.11 L、度量 §7）
+**相关文档**：[`coder-agent-capability-roadmap.md`](../design/coder-agent-capability-roadmap.md)（§5.11 L、度量 §7）

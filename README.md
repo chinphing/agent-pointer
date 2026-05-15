@@ -13,9 +13,13 @@
 - 兼容 Web：Vue 界面可运行在浏览器中，Web 后端通过 `server` crate 复用 `crates/pointer-core`
 - API Key 通过 Tauri 后端保存（避免暴露到前端运行时）
 
+## 文档
+
+设计与使用说明等见 **[`docs/README.md`](docs/README.md)**（含 `design/`、`internals/`、`guides/` 等分类目录）。
+
 ## 开发
 
-界面约定（助手消息 `thoughts` / API `reasoning` / 竖线进度 /「原始输出」面板）见 [`docs/assistant-message-ui.md`](docs/assistant-message-ui.md)，修改对应 Vue 逻辑前请先阅读，避免回归。
+界面约定（助手消息 `thoughts` / API `reasoning` / 竖线进度 /「原始输出」面板）见 [`docs/ui/assistant-message-ui.md`](docs/ui/assistant-message-ui.md)，修改对应 Vue 逻辑前请先阅读，避免回归。
 
 桌面端：
 

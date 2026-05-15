@@ -2,7 +2,7 @@
 
 本文档说明 **pointer-app** 中与 Python 项目 **Pointer**（`PyProjects/pointer`）里 `python.helpers.extension` 相对应的插件机制：扩展点在何时触发、如何注册、如何与 Computer 等 Agent 协作。
 
-实现位置：`crates/pointer-core/src/extensions/`。主对话里 **system 拼接块、env、task board、历史消息** 在 HTTP 中的先后关系（含「改前」基线说明）见 **`docs/llm-prompt-assembly-order.md`**。
+实现位置：`crates/pointer-core/src/extensions/`。主对话里 **system 拼接块、env、task board、历史消息** 在 HTTP 中的先后关系（含「改前」基线说明）见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
 
 ---
 
@@ -263,7 +263,7 @@ let extensions = Arc::new(registry);
 
 ## 11. 相关文档与代码
 
-- 实现计划中的 Computer 数据流：`docs/computer-use-implementation-plan.md`
+- 实现计划中的 Computer 数据流：[`computer-use-implementation-plan.md`](../design/computer-use-implementation-plan.md)
 - 注册表与 trait：`crates/pointer-core/src/extensions/mod.rs`
 - Computer 屏幕注入：`crates/pointer-core/src/agents/computer/extension_hooks/screen_inject.rs`（由 `extension_hooks/mod.rs` 汇总注册）
 - 调用点：`crates/pointer-core/src/chat_service.rs`（搜索 `run_message_loop_prompts_after`、`run_before_main_llm_call`、`run_sub_agent`）

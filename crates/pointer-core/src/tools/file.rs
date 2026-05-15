@@ -1,6 +1,7 @@
 //! Workspace-scoped file tools: single registry tool `file` with `method` (like Computer `mouse:method`).
 //! Root from settings `workspaceRoot`, else `current_dir`.
 use super::{ToolEntry, ToolHandler, ToolRegistry};
+use crate::agents::{current_file_tool_lead_profile, AgentProfile};
 use crate::storage;
 use anyhow::{anyhow, Result};
 use log::{info, warn};
@@ -136,6 +137,23 @@ pub fn register_all(reg: &ToolRegistry) {
     let doc = FILE_MD.trim();
     let h: ToolHandler = Arc::new(|args| {
         let root = resolve_tool_workspace_root()?;
+        if matches!(
+            current_file_tool_lead_profile(),
+            Some(AgentProfile::Explore)
+        ) {
+            let method = args
+                .get("method")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if method == "write" || method == "edit" {
+                warn!(
+                    "file tool: rejecting mutating method `{method}` for explore lead profile"
+                );
+                return Err(anyhow!(
+                    "Explore worker is read-only: file:{method} is not allowed."
+                ));
+            }
+        }
         execute_file_tool(&args, &root)
     });
     reg.register(ToolEntry::new(

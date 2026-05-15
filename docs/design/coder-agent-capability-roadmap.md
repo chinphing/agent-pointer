@@ -121,7 +121,7 @@
 
 - **目标**：超大仓库里 **更快定位**、更少误 grep。  
 - **实现要点**：评估 `file:grep` 是否已够用；若上 `rg`，需统一 **根目录、忽略规则（.gitignore）、二进制跳过**；提示词写清何时用哪个。  
-- **落地方案（草案）**：在现有库栈上补 **glob/type、`-F`、`-i`、与默认 `rg` 一致的 hidden、并行 / 文件上限** 等，见 [`docs/file-grep-d-enhancement-proposal.md`](file-grep-d-enhancement-proposal.md)。  
+- **落地方案（草案）**：在现有库栈上补 **glob/type、`-F`、`-i`、与默认 `rg` 一致的 hidden、并行 / 文件上限** 等，见 [`file-grep-d-enhancement-proposal.md`](file-grep-d-enhancement-proposal.md)。  
 - **复杂度**：`M`。  
 - **收益**：`H`（大仓）；`M`（中小仓）。
 
@@ -173,7 +173,7 @@
 - **实现要点**：固定输入消息 + 期望「可自动判分」条件（编译通过、测试通过、文件包含子串）；Docker 或裸机 runner；不强制与 CI 同一阶段。  
 - **复杂度**：`L`。  
 - **收益**：`H`（长期）；短期无直接用户感知。  
-- **本地搭建（不依赖先实现完整评测产品化）**：见 [`docs/coder-agent-offline-eval-setup.md`](coder-agent-offline-eval-setup.md)（判分脚本、Docker、接 `server` HTTP/SSE、本机 LLM）。
+- **本地搭建（不依赖先实现完整评测产品化）**：见 [`coder-agent-offline-eval-setup.md`](../guides/coder-agent-offline-eval-setup.md)（判分脚本、Docker、接 `server` HTTP/SSE、本机 LLM）。
 
 ### 5.12 M / N — IDE 与子 Agent
 
@@ -249,7 +249,7 @@
 1. **任务成功率**：阶段 0 固定任务集上，**通过 / 需人介入补救** 比例。  
 2. **平均轮数**：完成同一任务所需 assistant 轮数（含工具）。  
 3. **回归失败类型计数**：读错文件、未跑测、API 版本错、格式未跑等分类 tally。  
-4. **成本**：每任务 token / 费用（若有日志，参见 `docs/llm-token-usage-logging.md`）。  
+4. **成本**：每任务 token / 费用（若有日志，参见 [`llm-token-usage-logging.md`](../llm/llm-token-usage-logging.md)）。  
 5. **用户修正率**：用户后续消息中「纠正 agent」的占比（若可统计）。
 
 每项方案上线后，至少跟踪 **1、2、3** 两周再决定是否扩大投入。
@@ -271,7 +271,7 @@
 
 ## 9. 文档维护
 
-- 实施过程中若新增「Coder 与全局共用」的约定，可回链到 `docs/agent-task-board-and-verification.md` 等现有文档，避免重复矛盾。  
+- 实施过程中若新增「Coder 与全局共用」的约定，可回链到 [`agent-task-board-and-verification.md`](../internals/agent-task-board-and-verification.md) 等现有文档，避免重复矛盾。  
 - 本文档建议在 **每个阶段结束时** 更新一次「已落地 ID + 实测指标」，作为阶段复盘附件。
 
 ---

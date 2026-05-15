@@ -1,6 +1,6 @@
 # LLM 请求中的提示词与消息顺序
 
-本文说明主对话 / 子 Agent 在调用 `OpenAIProvider::stream_chat` 时，**送入模型的 `messages` 与 `system_prompts` 如何拼在一起**。扩展钩子总览见 **`docs/agent-extension-hooks.md`**。
+本文说明主对话 / 子 Agent 在调用 `OpenAIProvider::stream_chat` 时，**送入模型的 `messages` 与 `system_prompts` 如何拼在一起**。扩展钩子总览见 **[`agent-extension-hooks.md`](agent-extension-hooks.md)**。
 
 > **行号**：下文中的行号便于在仓库内检索；若你本地分支与主分支不一致，请以 **符号名**（函数 / 结构体）为准，用 IDE 或 `rg` 定位。
 

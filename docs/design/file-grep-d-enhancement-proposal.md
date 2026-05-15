@@ -117,7 +117,7 @@ RegexMatcherBuilder::new()
 
 - 更新 **`crates/pointer-core/src/tools/prompts/file.md`**：`file:grep` 参数表、默认 hidden、示例（`includeGlobs` + `fileTypes` + `fixedString`）。  
 - **不写**开发文件名进提示词正文以外的 agent 文档时，遵守仓库既有规范。  
-- 在 **`docs/coder-agent-capability-roadmap.md`** §5.4 链到本文档作为 **D 的落地方案**。
+- 在 **[`coder-agent-capability-roadmap.md`](coder-agent-capability-roadmap.md)** §5.4 链到本文档作为 **D 的落地方案**。
 
 ---
 

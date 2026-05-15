@@ -11,6 +11,7 @@ Hand off a **self-contained sub-task** to another **worker** agent. You get back
 
 - **Completion criteria:** Spell out what **correctly finished** means—counts, **no duplicates**, uniqueness rules, coverage or quality bars, or other checks the worker can verify before claiming done.
 - **User steps:** If the user gave an explicit **sequence of steps**, put that order in **`instruction`** so the worker follows it.
+- **Lead context (recommended for `explore`):** The worker does **not** see the main chat. Paste **verified** facts the lead already found: paths, symbols, **negative** search results (“grep X under Y: 0 hits”), **partial** reads, and **Assumptions (unverified)** on their own lines. Optional headings: **Lead context (trusted)** / **Already checked** / **Still unknown**.
 
 **When not to use**
 
@@ -34,7 +35,7 @@ Hand off a **self-contained sub-task** to another **worker** agent. You get back
 - **`title`** (optional) — Short label for traces.
 - **`taskId`** (optional) — Stable id for sidecar state; omit to let the host assign one.
 
-#### JSON example
+#### JSON example (delegate implementation)
 
 ```json
 {
@@ -46,6 +47,22 @@ Hand off a **self-contained sub-task** to another **worker** agent. You get back
     "title": "Add retry helper",
     "instruction": "In the workspace, add exponential backoff around the HTTP client. Keep public API unchanged. Done means: (1) tests for the crate pass; (2) no duplicate retry helpers; (3) at most three new public items. Follow this order: implement, run tests, then summarize risks.",
     "taskId": "retry_http_client"
+  }
+}
+```
+
+#### JSON example (`explore` — read-only reconnaissance)
+
+```json
+{
+  "thoughts": "Map call chain before edit; isolate noisy search.",
+  "headline": "Explore subagent",
+  "tool_name": "run_subagent",
+  "tool_args": {
+    "agentId": "explore",
+    "title": "Trace request handler",
+    "instruction": "Goal: document how incoming HTTP requests reach the handler that parses JSON tool calls.\n\nScope: server crate only; do not enter UI or bundled assets.\n\nCompletion: (1) Forward trace from public entry to the parser function with path+line each hop; (2) Backward trace from parser to top-level caller; (3) List open questions if any hop is unclear.\n\n---\nLead context (trusted)\n- READ_AT src/server.rs:L40-L120 — saw router registration but not downstream.\n- GREPPED pattern=parse_tool_call hits=3 under server/.\n\nAlready checked\n- grep for `legacy_handler` under server/: 0 hits.\n\nStill unknown\n- Which module registers the stream endpoint.\n",
+    "taskId": "explore_http_tool_parse"
   }
 }
 ```

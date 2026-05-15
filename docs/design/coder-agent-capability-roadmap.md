@@ -233,7 +233,7 @@
 | Coder 通信 | `crates/pointer-core/src/agents/coder/COMMUNICATION.md` | 注入片段 |
 | File 工具 | `crates/pointer-core/src/tools/file.rs`、`tools/prompts/file.md` | 读盘上限与行为 |
 | Terminal 工具 | `crates/pointer-core/src/tools/terminal.rs` | **N‑Bash** 长输出与子会话摘要挂载点 |
-| 对话循环 / 工具调度 | `crates/pointer-core/src/chat_service.rs` | 挂新工具、改 tool result 形态需协调 |
+| 对话循环 / 工具调度 | `crates/pointer-core/src/chat_service/`（`agent_post_stream.rs`、`agent_stream_round.rs`、`agent_tool_pass.rs`、`single_agent.rs`、`session_inner.rs`、`sub_agent.rs` 等） | 挂新工具、改 tool result 形态需协调 |
 | 上下文压缩 | `crates/pointer-core/src/context_compression.rs` | 预算与摘要 |
 | 模型设置 | `crates/pointer-core/src/models.rs`（`ModelSettings` 等）、`storage` | 默认项与持久化 |
 | 技能 | `crates/pointer-core/src/skills/`、`tools/skill.rs` | 新技能注册 |

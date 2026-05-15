@@ -1,0 +1,242 @@
+//! Sub-agent (`run_sub_agent`) tool loop: isolated history, shared stream/post-stream/tool-pass with lead.
+
+use anyhow::{anyhow, Result};
+use tokio_util::sync::CancellationToken;
+
+use crate::agents::{AgentRunResult, AgentTask};
+use crate::llm_token_stats::ConversationLlmStats;
+use crate::models::{effective_max_tokens, AgentTrace};
+use crate::provider::OpenAIProvider;
+
+use super::agent_post_stream::{
+    bail_on_tool_budget_exhausted, build_sub_assistant_message_after_stream,
+    decide_when_no_tool_calls, decide_when_tool_calls_present, push_sub_assistant_turn,
+    sub_agent_run_result, FormatRetryDelivery, PostAssistantTurnAction, ToolBudgetExhaustionScope,
+};
+use super::agent_tool_pass::{
+    run_agent_tool_pass, SubToolPassConfig, ToolInvocationStats, ToolPassResult,
+};
+use super::app_state::AppState;
+use super::session_budget::SessionToolBudget;
+use super::sub_agent_prompt::{init_sub_agent_session, prepare_sub_agent_round_prompts};
+use super::sub_agent_stream::{run_sub_agent_stream_round, SubAgentStreamOutcome};
+use super::util::new_id;
+use super::StreamTx;
+
+pub(crate) async fn run_sub_agent(
+    provider: &OpenAIProvider,
+    state: &AppState,
+    stream: &StreamTx,
+    conversation_id: &str,
+    message_id: &str,
+    agent_trace: &mut Vec<AgentTrace>,
+    enabled_skill_ids: &[String],
+    task: &AgentTask,
+    sub_tool_budget: &mut SessionToolBudget,
+    cancel: CancellationToken,
+    reasoning_in_messages: bool,
+    llm_stats: &mut ConversationLlmStats,
+) -> Result<AgentRunResult> {
+    let session = init_sub_agent_session(state, provider, conversation_id, task, enabled_skill_ids)?;
+    let def = session.def;
+    let prompts = session.prompts;
+    let tools_system_appendix = session.tools_system_appendix;
+    let allowed_tools = session.allowed_tools;
+    let sub_task_board_key = session.sub_task_board_key;
+    let tool_approval_mode = session.tool_approval_mode;
+    let mut local_history = session.local_history;
+    let max_cap = sub_tool_budget.cap();
+    let tools_appendix_enabled = !tools_system_appendix.is_empty();
+    let budget_scope = ToolBudgetExhaustionScope::sub_agent(max_cap);
+    let mut content = String::new();
+    let mut reasoning = String::new();
+
+    loop {
+        if cancel.is_cancelled() {
+            state.computer_state.mark_cancelled(conversation_id);
+            return Err(anyhow!("已停止生成"));
+        }
+
+        if sub_tool_budget.remaining() == 0 {
+            state.computer_state.mark_cancelled(conversation_id);
+            return Err(anyhow!(
+                "子 Agent 工具调用轮次已达上限（{}）。请新开对话或在设置中调高上限。",
+                max_cap
+            ));
+        }
+
+        let round_message_id = new_id("agent_msg");
+        let round_prompts = prepare_sub_agent_round_prompts(
+            state,
+            stream,
+            conversation_id,
+            message_id,
+            &task.id,
+            &round_message_id,
+            &local_history,
+            &prompts,
+            &tools_system_appendix,
+            &sub_task_board_key,
+            &def,
+        )
+        .await?;
+
+        let stream_outcome = run_sub_agent_stream_round(
+            stream,
+            state,
+            provider,
+            conversation_id,
+            message_id,
+            task,
+            &def,
+            agent_trace,
+            &mut content,
+            reasoning_in_messages,
+            llm_stats,
+            &mut local_history,
+            sub_tool_budget,
+            max_cap,
+            tools_appendix_enabled,
+            cancel.clone(),
+            round_prompts.history_for_api,
+            round_prompts.prompts_for_api,
+        )
+        .await?;
+
+        let buf = match stream_outcome {
+            SubAgentStreamOutcome::RetryAfterRecoveryHint => continue,
+            SubAgentStreamOutcome::Completed(b) => b,
+        };
+
+        if reasoning_in_messages {
+            reasoning.push_str(&buf.reasoning_buf);
+        }
+
+        let assistant_msg = build_sub_assistant_message_after_stream(
+            &round_message_id,
+            buf.raw_content_buf,
+            buf.reasoning_buf,
+            reasoning_in_messages,
+            &buf.final_tool_calls,
+            buf.xml_thoughts,
+            buf.xml_headline,
+            &def,
+            state,
+        );
+        push_sub_assistant_turn(&mut local_history, assistant_msg);
+
+        let post_action = if buf.final_tool_calls.is_empty() {
+            decide_when_no_tool_calls(
+                FormatRetryDelivery::LocalHistoryOnly,
+                stream,
+                state,
+                &mut local_history,
+                &provider.settings,
+                provider,
+                conversation_id,
+                &cancel,
+                sub_tool_budget,
+                None,
+                max_cap,
+                &budget_scope,
+                &round_message_id,
+                &buf.json_finish_diag,
+                tools_appendix_enabled,
+                &buf.finish_reason,
+                effective_max_tokens(&provider.settings),
+            )
+            .await?
+        } else {
+            decide_when_tool_calls_present(
+                FormatRetryDelivery::LocalHistoryOnly,
+                stream,
+                state,
+                state.tools.as_ref(),
+                &mut local_history,
+                &provider.settings,
+                provider,
+                conversation_id,
+                &cancel,
+                sub_tool_budget,
+                None,
+                max_cap,
+                &budget_scope,
+                &buf.final_tool_calls,
+                "sub-agent",
+            )
+            .await?
+        };
+
+        match post_action {
+            PostAssistantTurnAction::FinishRun => {
+                return Ok(sub_agent_run_result(
+                    &task.id,
+                    &def,
+                    content,
+                    reasoning_in_messages,
+                    reasoning,
+                ));
+            }
+            PostAssistantTurnAction::RetryLoop => continue,
+            PostAssistantTurnAction::ExecuteTools => {}
+        }
+
+        let sub_cfg = SubToolPassConfig {
+            def: &def,
+            task,
+            allowed_tools: &allowed_tools,
+            round_message_id: &round_message_id,
+            accumulated_content: content.clone(),
+            accumulated_reasoning: reasoning.clone(),
+            reasoning_in_messages,
+        };
+        let mut stats = ToolInvocationStats::Conversation(llm_stats);
+        match Box::pin(run_agent_tool_pass(
+            stream.clone(),
+            state,
+            conversation_id,
+            message_id.to_string(),
+            &mut local_history,
+            &tool_approval_mode,
+            sub_tool_budget,
+            None,
+            cancel.clone(),
+            provider,
+            &sub_task_board_key,
+            &mut stats,
+            &buf.final_tool_calls,
+            None,
+            Some(sub_cfg),
+        ))
+        .await?
+        {
+            ToolPassResult::SubFinished(result) => return Ok(result),
+            ToolPassResult::NoopExit => {
+                return Ok(sub_agent_run_result(
+                    &task.id,
+                    &def,
+                    content,
+                    reasoning_in_messages,
+                    reasoning,
+                ));
+            }
+            ToolPassResult::LeadFinished | ToolPassResult::RanTools => {}
+        }
+
+        sub_tool_budget.record_tool_cycle();
+        bail_on_tool_budget_exhausted(
+            stream,
+            state,
+            &mut local_history,
+            &provider.settings,
+            provider,
+            conversation_id,
+            &cancel,
+            sub_tool_budget,
+            None,
+            max_cap,
+            &budget_scope,
+        )
+        .await?;
+    }
+}

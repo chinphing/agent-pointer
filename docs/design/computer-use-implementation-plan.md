@@ -41,7 +41,7 @@
 ```
 crates/pointer-core/src/
 ├── lib.rs              # 模块导出
-├── chat_service.rs     # 对话服务核心：消息循环、工具调用、历史管理
+├── chat_service/     # 对话服务核心：消息循环、工具调用、历史管理（`session.rs`、`session_inner.rs` 等）
 ├── models.rs           # 数据模型：ChatMessage, ToolCall, Conversation, AgentProfile
 ├── agents.rs           # Agent 定义与注册：AgentDef, AgentRegistry, AgentProfile
 ├── provider.rs         # LLM 提供商抽象：OpenAIProvider, ProviderEvent
@@ -134,7 +134,7 @@ User message → screen inject (capture + annotate + zoom)
 ```
 crates/pointer-core/src/
 ├── lib.rs
-├── chat_service.rs                 # 屏幕注入扩展点调用
+├── chat_service/                 # 屏幕注入扩展点调用（`single_agent.rs` / `agent_stream_round.rs` / `sub_agent_stream.rs` 等）
 ├── models.rs                       # AgentProfile::Computer, 多模态消息等
 ├── extensions/                     # 通用扩展注册表（trait + ExtensionRegistry）
 ├── agents/
@@ -331,7 +331,7 @@ pub trait ActionBackend: Send + Sync {
 |--------|------|
 | `wait` | 等待指定秒数 |
 
-#### 3.2.7 屏幕注入集成 (`chat_service.rs` 扩展)
+#### 3.2.7 屏幕注入集成 (`chat_service` 扩展)
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
@@ -418,7 +418,7 @@ async fn inject_computer_vision(
 | 拖拽验证 | "Verify on next screenshot: expected drop target..." | 中 |
 | 失败警告 | 连续失败 N 次后生成警告提示 | 中 |
 
-#### 4.2.2 历史管理优化 (`chat_service.rs`)
+#### 4.2.2 历史管理优化 (`chat_service`)
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
@@ -1192,7 +1192,7 @@ mod tests {
 | `task_data_memory.py` | `agents/computer/vision_state.rs` | 任务数据管理 |
 | `credential_store.py` | `agents/computer/credential.rs`（第三期） | 凭据存储 |
 | `os_prompts.py` | `agents/computer/tools/prompts/` + 加载逻辑 | OS prompt 加载 |
-| `extensions/.../_10_computer_screen_inject.py` | `agents/computer/extension_hooks/screen_inject.rs` + `chat_service.rs` 调用扩展点 | 屏幕注入钩子（Computer 专用） |
+| `extensions/.../_10_computer_screen_inject.py` | `agents/computer/extension_hooks/screen_inject.rs` + `chat_service/single_agent_prompt.rs` / `sub_agent_prompt.rs`（`run_message_loop_prompts_after`）调用扩展点 | 屏幕注入钩子（Computer 专用） |
 | `tools/vision_common.py` | `agents/computer/vision_state.rs` | 共享视觉状态 |
 | `tools/mouse.py` | `agents/computer/tools/tool_mouse.rs` | mouse 工具 |
 | `tools/hotkey.py` | `agents/computer/tools/tool_hotkey.rs` | hotkey 工具 |

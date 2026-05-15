@@ -84,7 +84,7 @@
 
 ## 4. 注入节点与时间线（单轮模型请求）
 
-下面按**时间先后**描述一次「模型被调用」之前发生了什么。代码路径：`chat_service.rs` 中单智能体主循环 `run_chat_inner` 内的 `loop`，以及 `run_sub_agent` 内的子循环（两者**同构**，区别只在 `messages` 的初始快照，见第 5 节）。
+下面按**时间先后**描述一次「模型被调用」之前发生了什么。代码路径：`single_agent.rs` 中 `run_single_agent_loop`；每轮 prompt 组装在 `single_agent_prompt.rs`；流式收包在 `single_agent_stream.rs`（内部共用 `agent_stream_round.rs`）；流后决策（空工具 / envelope 重试）在 `agent_post_stream.rs`（Lead 经 `single_agent_post_stream.rs` 薄封装）；工具落地在 `agent_tool_pass.rs`（Lead 经 `single_agent_tools.rs` 薄封装）。子循环见 `sub_agent.rs` + `sub_agent_prompt.rs` + `sub_agent_stream.rs`，与 Lead **同构**并共用上述 shared 模块；区别在 `messages` 初始快照与格式重试投递方式，见第 5 节。
 
 ### 4.1 时间轴（粗粒度）
 
@@ -97,7 +97,7 @@
 5. **`message_loop_prompts_after`** — `run_message_loop_prompts_after`：可修改 `messages`（例如追加屏幕注入）。
 6. **组装 `system_prompts`** — `rendered_communication_public_inject`、agent system prompts、skills（子 Agent）、**`generate_tools_system_appendix`** 等拼成 `prompts_with_env` / 子 Agent 的 `prompts_clone`（**此时仍不含** `[Environment]` 块）。
 7. **`before_main_llm_call`** — `run_before_main_llm_call`：传入 **已拼好的** `system_prompts` 的可变借用；钩子可 **追加** 文本（内置 **`TaskBoardSnapshotHook`** 在此追加 **`[TASK_BOARD]`**）。
-8. **`[Environment]` 系统尾块** — `push_env_context_last_in_system_prompts`（`chat_service.rs`）：在 **`run_before_main_llm_call` 返回之后**，向 **`system_prompts` 末尾**再 `push` 一条字符串，正文为 `[Environment]\n` + **`env_prompt::build_environment_system_prompt_slice`**（OS、locale、**`Local date: YYYY-MM-DD`**）。**完整日期时间**在 Computer 的 **`[CUR_SCREEN]`** `user` 消息开头以 `Local wall-clock at capture: …` 形式注入（`screen_inject.rs`）。
+8. **`[Environment]` 系统尾块** — `push_env_context_last_in_system_prompts`（`chat_service/prompts.rs`，由 `session_inner` / `sub_agent` 调用）：在 **`run_before_main_llm_call` 返回之后**，向 **`system_prompts` 末尾**再 `push` 一条字符串，正文为 `[Environment]\n` + **`env_prompt::build_environment_system_prompt_slice`**（OS、locale、**`Local date: YYYY-MM-DD`**）。**完整日期时间**在 Computer 的 **`[CUR_SCREEN]`** `user` 消息开头以 `Local wall-clock at capture: …` 形式注入（`screen_inject.rs`）。
 9. **`stream_chat`** — `tokio::spawn` 里带着 **`&history_for_api`（即上面的 `messages`，不含尾随 Environment user）** 与 **（含 Environment 尾块的）`system_prompts`** 请求模型；之后才是流式 delta、工具解析、写回持久化 `history` 等。
 
 要点：**`before_main_llm_call` 在第 7 步**；**`[Environment]` 在第 8 步**追加到 `system_prompts`，因此排在 **`[TASK_BOARD]` 等钩子之后**。若钩子需「在环境快照之前」追加内容，应在钩子内控制 `sort_key`，或调整钩子注册策略。
@@ -158,6 +158,7 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 
 ### 5.2 子 Agent 与扩展钩子
 
+- 会话初始化与每轮 prompt 组装在 **`sub_agent_prompt.rs`**（`init_sub_agent_session` / `prepare_sub_agent_round_prompts`）；流式收包在 **`sub_agent_stream.rs`**（内部共用 **`agent_stream_round.rs`**）；流后决策与工具执行分别共用 **`agent_post_stream.rs`** / **`agent_tool_pass.rs`**（与 Lead 同构，见 §5.2.1）。
 - 每一轮子 Agent 的每次模型请求前，同样执行：
   - `messages = local_history.clone()`
   - `run_message_loop_prompts_after`（`lead_agent_profile = def.profile`，例如子 Agent 为 `computer` 时仍会注入屏幕）
@@ -165,6 +166,16 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
   - `run_before_main_llm_call`（含 **`[TASK_BOARD]`** 追加；`task_board_store_key` 为子任务隔离键）
   - `push_env_context_last_in_system_prompts`（**`[Environment]`** 系统尾块）
 - 使用的 **`ExtensionRegistry` 与单智能体相同**（`AppState.extensions`），**不是**每子 Agent 一份。
+
+#### 5.2.1 Lead 与子 Agent 共用模块的差异（行为不变）
+
+| 环节 | Lead（`single_agent.rs`） | Sub（`sub_agent.rs`） |
+|------|---------------------------|------------------------|
+| 流式 UI | `ContentDeltaMode::LeadMessage`（`RawContentDelta` + `Delta`） | `ContentDeltaMode::SubAgentTrace`（`emit_agent_content_delta`） |
+| 格式重试 user 行 | `InjectedUserMessage` + 主 `history` | 仅 push 到 `local_history` |
+| 工具预算耗尽文案 / 压缩 | `compress_for_session = true` | `compress_for_session = false` |
+| 结束形态 | `Ok(())` | `AgentRunResult`（`response` 或自然语言无工具） |
+| 工具 pass | 可 `run_subagent` 委派 | 硬拒绝 `run_subagent`，按 `allowed_tools` 校验 |
 
 ### 5.3 与主会话「不独立」的共享资源（重要）
 
@@ -180,7 +191,7 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 
 ### 5.4 Supervisor 规划阶段与扩展的关系
 
-- `plan_agent_tasks` 使用 `provider.chat_once(history, &[planning_prompt], …)`：**不经过**本文档中的 `message_loop_prompts_after` / `before_main_llm_call`。
+- `plan_agent_tasks`（`supervisor_plan.rs`）/ `synthesize_final_answer`（`supervisor_synth.rs`）使用 `provider.chat_once(history, &[planning_prompt], …)`：**不经过**本文档中的 `message_loop_prompts_after` / `before_main_llm_call`；编排入口为 `supervisor.rs` 的 `run_supervisor_chat`。
 - 仅**子 Agent（及单智能体主循环）**在 `stream_chat` 前走扩展链。
 
 ---
@@ -266,4 +277,4 @@ let extensions = Arc::new(registry);
 - 实现计划中的 Computer 数据流：[`computer-use-implementation-plan.md`](../design/computer-use-implementation-plan.md)
 - 注册表与 trait：`crates/pointer-core/src/extensions/mod.rs`
 - Computer 屏幕注入：`crates/pointer-core/src/agents/computer/extension_hooks/screen_inject.rs`（由 `extension_hooks/mod.rs` 汇总注册）
-- 调用点：`crates/pointer-core/src/chat_service.rs`（搜索 `run_message_loop_prompts_after`、`run_before_main_llm_call`、`run_sub_agent`）
+- 调用点：`session_inner.rs`、`single_agent.rs`、`single_agent_prompt.rs`、`single_agent_stream.rs`、`agent_stream_round.rs`、`agent_post_stream.rs`、`agent_tool_pass.rs`、`sub_agent.rs`、`sub_agent_prompt.rs`、`sub_agent_stream.rs`（搜索 `run_message_loop_prompts_after`、`run_before_main_llm_call`、`run_sub_agent`）

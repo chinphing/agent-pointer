@@ -12,8 +12,8 @@
 
 | 步骤 | 行为 | 参考代码 |
 |------|------|----------|
-| 克隆 | `history.clone()`（主会话）或 `local_history.clone()`（子 Agent） | `crates/pointer-core/src/chat_service.rs` — `run_chat_inner` / `run_sub_agent` 内 `let mut history_for_api = …` |
-| 同轮扩展 | `run_message_loop_prompts_after`：在克隆的 `messages` 上追加（如 Computer **`user` + `[CUR_SCREEN]`**） | `chat_service.rs` 中 `run_message_loop_prompts_after`；Computer 见 `crates/pointer-core/src/agents/computer/extension_hooks/screen_inject.rs` |
+| 克隆 | `history.clone()`（主会话）或 `local_history.clone()`（子 Agent） | `session_inner.rs` / `single_agent.rs` / `single_agent_stream.rs` / `sub_agent.rs` — `run_chat_inner` / `run_single_agent_loop` / `run_sub_agent` 内 `let mut history_for_api = …`（子 Agent 在 `sub_agent_prompt.rs`） |
+| 同轮扩展 | `run_message_loop_prompts_after`：在克隆的 `messages` 上追加（如 Computer **`user` + `[CUR_SCREEN]`**） | `single_agent_prompt.rs` / `sub_agent_prompt.rs` 中 `prepare_*_round_prompts`；Computer 见 `crates/pointer-core/src/agents/computer/extension_hooks/screen_inject.rs` |
 
 **说明**：`messages` **不含**尾随的 `[Environment]` user；环境信息在 **§1.2** 的 `system_prompts` 末尾。
 
@@ -24,10 +24,10 @@
 | 顺序 | 内容 | 参考代码 |
 |------|------|----------|
 | 1 | **公共 COMMUNICATION** | `rendered_communication_public_inject()` |
-| 2 | **Agent 系统提示**（`AGENT.md` + profile `COMMUNICATION.md` 等，经 `expand_agent_prompt_placeholders`）；主会话含 agent 计划中的 prompts；子 Agent 另含 **sub_agent_header** + **skills** | `agent_plan.system_prompts` 或 `run_sub_agent` 内 `prompts` |
+| 2 | **Agent 系统提示**（`AGENT.md` + profile `COMMUNICATION.md` 等，经 `expand_agent_prompt_placeholders`）；主会话含 agent 计划中的 prompts；子 Agent 另含 **sub_agent_header** + **skills** | `agent_plan.system_prompts` 或 `sub_agent_prompt.rs` 中 `init_sub_agent_session` |
 | 3 | **工具系统附录**（授权工具的 `doc_markdown` 等） | 非空时 `push(tools_system_appendix)`；`crates/pointer-core/src/tools_system_appendix.rs` **`generate_tools_system_appendix`** |
 | 4 | **`[TASK_BOARD]` 等** | `run_before_main_llm_call`：`crates/pointer-core/src/extensions/task_board_hook.rs` 等钩子 `ctx.system_prompts.push(…)` |
-| 5（最后） | **`[Environment]`**（`env_prompt::build_environment_system_prompt_slice`：OS、locale、**日历日期**） | **`push_env_context_last_in_system_prompts`**（`chat_service.rs`），在 **`run_before_main_llm_call` 的 `.await` 之后**调用，保证为合并 `system` 的**最后一段**（`join("\n\n")` 时排在末尾） |
+| 5（最后） | **`[Environment]`**（`env_prompt::build_environment_system_prompt_slice`：OS、locale、**日历日期**） | **`push_env_context_last_in_system_prompts`**（`chat_service/prompts.rs`，由 `session_inner` / `sub_agent` 调用），在 **`run_before_main_llm_call` 的 `.await` 之后**调用，保证为合并 `system` 的**最后一段**（`join("\n\n")` 时排在末尾） |
 
 ### 1.3 HTTP `messages` 最终顺序（`make_openai_messages`）
 
@@ -47,7 +47,7 @@
 
 | 场景 | 说明 | 参考代码 |
 |------|------|----------|
-| Supervisor **规划** / **汇总** | 使用 `chat_once` + 独立 `system` 字符串模板；模板内可嵌入 **`env_prompt::build_environment_context_full()`**（含完整 **Local time**）；**不**走 `message_loop_prompts_after` / `before_main_llm_call` / `push_env_context_last_in_system_prompts` | `chat_service.rs` 中 `plan_agent_tasks`、`synthesize_final_answer` |
+| Supervisor **规划** / **汇总** | 使用 `chat_once` + 独立 `system` 字符串模板；模板内可嵌入 **`env_prompt::build_environment_context_full()`**（含完整 **Local time**）；**不**走 `message_loop_prompts_after` / `before_main_llm_call` / `push_env_context_last_in_system_prompts` | `chat_service/supervisor_plan.rs` 中 `plan_agent_tasks`；`supervisor_synth.rs` 中 `synthesize_final_answer`；编排入口 `supervisor.rs` |
 
 ---
 

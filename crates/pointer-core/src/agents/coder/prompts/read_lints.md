@@ -82,7 +82,7 @@ See **`docs/guides/pointer-lint-config.md`**. **`parser`** values include `eslin
   "tool_name": "read_lints",
   "tool_args": {
     "stack": "auto",
-    "paths": ["crates/pointer-core/src/chat_service.rs"],
+    "paths": ["crates/pointer-core/src/chat_service/single_agent_prompt.rs", "crates/pointer-core/src/chat_service/single_agent_post_stream.rs", "crates/pointer-core/src/chat_service/single_agent_stream.rs", "crates/pointer-core/src/chat_service/single_agent_tools.rs", "crates/pointer-core/src/chat_service/single_agent.rs", "crates/pointer-core/src/chat_service/session_inner.rs", "crates/pointer-core/src/chat_service/sub_agent.rs"],
     "timeoutMs": 300000
   }
 }

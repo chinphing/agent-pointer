@@ -58,4 +58,4 @@
 - 工具 XML 说明：`crates/pointer-core/src/tools/prompts/response.md`
 - 侧车解析与多 `ToolCall`：`crates/pointer-core/src/response_xml/`、`crates/pointer-core/src/xml_tool_caller.rs`、`crates/pointer-core/src/provider.rs`
 - 批校验与工具注册：`crates/pointer-core/src/tools/mod.rs`
-- 会话注入与执行：`crates/pointer-core/src/chat_service.rs`；任务板快照钩子：`crates/pointer-core/src/extensions/task_board_hook.rs`
+- 会话注入与执行：`crates/pointer-core/src/chat_service/`（主流程 `session_inner.rs`，单智能体 `single_agent.rs` + 薄封装，子 Agent `sub_agent.rs` + `sub_agent_prompt.rs` / `sub_agent_stream.rs`，共用 `agent_stream_round.rs` / `agent_post_stream.rs` / `agent_tool_pass.rs`）；任务板快照钩子：`crates/pointer-core/src/extensions/task_board_hook.rs`

@@ -61,11 +61,7 @@ Call **`read_lints`** in a **separate** tool turn **after** you complete a **log
 
 ## Git (via `terminal`)
 
-Use git when the user asks **when** something landed, **who** changed a line or file, or **which commit** to inspect—**`file`** shows **now**; **`git blame`**, **`git log`**, **`git show`**, pickaxe **`-S`**, and **`--follow`** answer **history**. See **AGENT** → **Git for history and attribution** for command choice and how to report hashes and dates honestly.
-
-**Default:** edit with **`file`**; verify with tests and **`read_lints`**. Commits are **not** required to finish a task.
-
-**Never commit, push, or open a PR unless the user asked.** If they did, read-only git first (`status`, `diff`), stage narrowly, no secrets.
+**How:** History needs the correct repo root (**`TOP`**) before **`blame` / `log`**. **Case 1 (file):** **How** — parent folder of the file; **Tool** — **`terminal`**; **Command** — **`git -C "<PARENT>" rev-parse --show-toplevel`** (see **AGENT**). **Case 2 (folder):** **How** — under **`ROOT`**, self + direct children (hidden) + submodules; **Tool** — **`terminal`**; **Command** — one line in **AGENT**. Then **`git -C "$TOP" …`**. Flags: **`git <cmd> -h`**. Default **`file`** + tests + **`read_lints`**; no commit/push/PR unless asked.
 
 ---
 

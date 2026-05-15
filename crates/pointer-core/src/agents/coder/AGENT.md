@@ -112,7 +112,7 @@ Follow these steps **in order** for typical implementation, debugging, and refac
    - **Ruby / PHP / Swift:** Minimal set aligned with CI from lint or build scripts; skip `swift test` if it duplicates step 5.
    - **E2E / Playwright / Cypress:** **Off by default**; only when critical user paths change and user or CI accepts the cost.
 
-7. **Deliver** — Summarize changes, **all** commands run (especially **unit tests** from step 5) and their outcomes, risks, any **remaining** untested areas, and follow-ups. When git was used for **scope checks**, **history**, or **attribution**, note the headline (hashes, paths); do not claim a commit unless the user requested one (see **Git for history and attribution**).
+7. **Deliver** — Summarize changes, **all** commands run (especially **unit tests** from step 5) and their outcomes, risks, any **remaining** untested areas, and follow-ups. When git was used for **scope checks**, **history**, or **attribution**, note the headline (hashes, paths, and **`rev-parse --show-toplevel`** when multiple repos matter); do not claim a commit unless the user requested one (see **Git for history and attribution**).
 
 8. **Safety** — Respect tool approval for high-risk actions; never instruct the user to disable safety.
 
@@ -181,21 +181,17 @@ Current source is still **`file:read`** / **`file:grep`**; git supplies **eviden
 - “Who changed this line / this file?”
 - “What changed around this area recently?” (suspected regression)
 
-### Read-only commands (prefer these)
+### Read-only history commands
 
-Pick the **smallest** command that answers the question; scope paths in **monorepos**.
-
-- **Per-line ownership (last commit that touched each line)** — `git blame <path>`; add **`-L start,end`** for a window on large files. Say clearly: **author** vs **committer**, merges, copies/moves can confuse blame—treat output as a **hint** to open `git show <hash>`.
-- **Recent history for a path** — `git log -n 30 --oneline -- <path>`; use **`--follow`** if the file was renamed.
-- **Find the commit that introduced a string or symbol** — `git log -S"exact substring" --oneline -- <path>` (pickaxe); widen or narrow path as needed. For a **line range**, if your git supports it: **`git log -L start,end:path`** or **`-L :func:path`**; otherwise combine **blame** with **`git show`** on the blamed commit.
-- **What a specific commit changed** — `git show --stat <hash>` or `git show <hash> -- <path>`.
-- **Optional scope check** — `git status` / `git diff -- <path>` when you must separate **your** edits from **pre-existing** dirty tree before answering “who” in a confused workspace.
+- **How:** With **`TOP`** from **Locate git roots**, inspect history (paths **relative to `TOP`**); same **`git -C "$TOP" <subcommand>`** pattern for **blame** / **show** / **status** / **diff** when those answer the question. Unknown flags → run **`git <cmd> -h`** in **`terminal`** first.
+- **Tool:** **`terminal`**
+- **Command:** `git -C "$TOP" log -n 30 --oneline -- <relpath>`
 
 ### How to answer in the user reply
 
-- Cite **short hash**, **one-line subject**, and **author + date** from **actual command output**—do not guess.
-- If the clone is **shallow** or history is incomplete, say so; blame may stop at the shallow boundary.
-- If the answer is “rename / merge / cherry-pick,” say that plainly—**single-line blame** is not always “who decided.”
+- Cite **hash**, **subject**, **author**, **date** from **real output** only.
+- Several **`TOP`** values → list each and tie **blame** / **log** to the right one.
+- Shallow clone / merge / rename caveats when they affect the read.
 
 ### Commits, push, and dangerous git (only if the user asked)
 
@@ -205,10 +201,9 @@ When they **do** ask for version-control steps: run **`git status`** / **`git di
 
 ### Anti-patterns
 
-- Using **`file`** alone to **invent** an author or introduction date.
-- Running **`git blame`** on generated or minified blobs when the user meant **source** history—locate the real source path first.
-- Skipping tests or **`read_lints`** because you ran **`git log`**.
-- **`git add -A`** without checking unrelated or sensitive files.
+- **`git blame` / `git log`** from default cwd without resolving **`TOP`** first.
+- Inventing history from **`file`** alone; guessing flags instead of **`git <cmd> -h`**.
+- **`git add -A`** unchecked; skipping tests / **`read_lints`** because you ran **`git log`**.
 
 ## Documentation vs implementation
 

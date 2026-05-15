@@ -17,7 +17,7 @@ Unified workspace file tools. Prefer **qualified names** in JSON **`tool_name`**
 | **`file:read`** | Read UTF-8 text; single file or batch. With `paths`, response shape includes a `files` array. |
 | **`file:write`** | Create or overwrite a file; `path` is workspace-relative **or** absolute under the workspace. |
 | **`file:edit`** | Replace one unique substring per file via **`edits`** only: a non-empty array (max **32**) of objects, each with **`path`** (alias **`file`**), **`oldString`** / **`old_string`**, **`newString`** / **`new_string`**. Single-file edits use **`edits`** with **one** object. Response includes **`files`**, **`successCount`**, **`failureCount`**, **`batchPartialFailure`**. |
-| **`file:glob`** | List files matching a glob under the search root (workspace root or optional `base`). |
+| **`file:glob`** | List paths matching a glob under the search root (workspace root or optional `base`). Default: **files only**; optional **directories** or **both**. |
 | **`file:grep`** | Search file contents with a regex (ripgrep-class stack: respects `.gitignore`, skips hidden paths by default, line-oriented matching). |
 | **`file:list`** | List directory entries; optional recursion, max depth, and file/directory filter. |
 
@@ -47,10 +47,12 @@ All keys below are **JSON properties** on the root **`tool_args`** object of you
 
 **`file:glob`**
 
-- **`pattern`** — Glob pattern (e.g. `**/*.rs`). Matched against paths relative to the search root.
+- **`pattern`** — Glob pattern (e.g. `**/*.rs`). Matched against paths relative to the search root (use `/` in patterns; the tool normalizes OS separators).
 - **`base`** — Optional; alias **`rootPath`** / **`baseDir`**. Directory to search under (relative to workspace or absolute for read-only). Default: workspace root.
 - **`maxResults`** — Optional cap on returned paths (default bounded by runtime, max **500**).
 - **`maxDepth`** — Optional directory walk depth cap (default **64**).
+- **`entryType`** — Optional; alias **`entry_type`**. One of **`file`** / **`files`** (default), **`dir`** / **`directory`** / **`directories`**, or **`all`** — return only files, only directories, or both.
+- **`includeHidden`** — Optional boolean. When **`false`** (default), the walk skips entries whose **basename** starts with **`.`** (except the search root). Set **`true`** to include those paths (e.g. to match a top-level **`.git`** directory with **`entryType`** **`dir`**). Descending **inside** a repository metadata tree under **`.git/`** is skipped for cost; the **`.git`** directory itself can still match when allowed by **`entryType`** and **`includeHidden`**.
 
 **`file:grep`**
 

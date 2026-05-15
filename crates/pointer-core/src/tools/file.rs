@@ -981,6 +981,30 @@ fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -> Result<St
     .to_string())
 }
 
+/// `repo/.git/...` (inside metadata) — skip walking these for cost; still allow `repo/.git` itself.
+fn path_is_inside_git_metadata_tree(p: &Path) -> bool {
+    p.to_string_lossy()
+        .replace('\\', "/")
+        .contains("/.git/")
+}
+
+fn parse_glob_entry_type(args: &serde_json::Value) -> Result<&'static str> {
+    let s = args
+        .get("entryType")
+        .or_else(|| args.get("entry_type"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("file")
+        .trim();
+    match s.to_ascii_lowercase().as_str() {
+        "file" | "files" => Ok("file"),
+        "dir" | "directory" | "directories" => Ok("dir"),
+        "all" => Ok("all"),
+        _ => Err(anyhow!(
+            "无效的 glob entryType（允许 file | dir | all）: {s}"
+        )),
+    }
+}
+
 fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
     let pattern = args
         .get("pattern")
@@ -996,6 +1020,11 @@ fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -> Result<St
         .and_then(|v| v.as_u64())
         .unwrap_or(MAX_WALK_DEPTH as u64)
         .min(MAX_WALK_DEPTH as u64) as usize;
+    let entry_type = parse_glob_entry_type(args)?;
+    let include_hidden = args
+        .get("includeHidden")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let walk_root = if let Some(b) = args
         .get("base")
@@ -1023,31 +1052,69 @@ fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -> Result<St
     let set = builder.build().map_err(|e| anyhow!("glob 构建失败: {e}"))?;
 
     let mut matches = Vec::new();
-    for entry in WalkDir::new(&walk_root)
+    let mut truncated = false;
+    let walker = WalkDir::new(&walk_root)
         .max_depth(max_depth)
         .into_iter()
-        .filter_map(|e| e.ok())
-    {
+        .filter_entry(|e| {
+            if path_is_inside_git_metadata_tree(e.path()) {
+                return false;
+            }
+            if !include_hidden && e.depth() > 0 {
+                if e.file_name().to_string_lossy().starts_with('.') {
+                    return false;
+                }
+            }
+            true
+        })
+        .filter_map(|e| e.ok());
+
+    for entry in walker {
         if matches.len() >= max_results {
+            truncated = true;
             break;
         }
         let p = entry.path();
-        if p.is_file() {
-            let canon_p = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-            let rel_to_walk = canon_p.strip_prefix(&walk_root).unwrap_or(canon_p.as_path());
-            let rel_to_walk_norm = rel_to_walk.to_string_lossy().replace('\\', "/");
-            if !set.is_match(Path::new(&rel_to_walk_norm)) {
-                continue;
-            }
-            matches.push(path_display_abs(canon_p.as_path()));
+        let is_dir = p.is_dir();
+        if !list_entry_type_allowed(is_dir, entry_type) {
+            continue;
         }
+        let Ok(canon_p) = p.canonicalize() else {
+            continue;
+        };
+        if !canon_p.starts_with(&walk_root) {
+            continue;
+        }
+        let rel_to_walk = match canon_p.strip_prefix(&walk_root) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let mut rel_to_walk_norm = rel_to_walk.to_string_lossy().replace('\\', "/");
+        if rel_to_walk_norm.is_empty() {
+            rel_to_walk_norm = ".".into();
+        }
+        if !set.is_match(Path::new(rel_to_walk_norm.as_str())) {
+            continue;
+        }
+        matches.push(path_display_abs(canon_p.as_path()));
     }
+
+    info!(
+        "file:glob pattern={} entryType={} includeHidden={} count={}",
+        pattern,
+        entry_type,
+        include_hidden,
+        matches.len()
+    );
+
     Ok(serde_json::json!({
         "root": walk_root.display().to_string(),
         "pattern": pattern,
+        "entryType": entry_type,
+        "includeHidden": include_hidden,
         "matches": matches,
         "count": matches.len(),
-        "truncated": matches.len() >= max_results
+        "truncated": truncated
     })
     .to_string())
 }
@@ -1933,5 +2000,105 @@ mod tests {
         let text = "line1\rline2\r";
         let out = try_unique_text_replace(text, "line1\nline2", "A\nB").unwrap();
         assert_eq!(out, "A\nB\n");
+    }
+
+    #[test]
+    fn file_glob_default_entry_type_matches_only_files() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("only.txt"), "x").unwrap();
+        fs::create_dir_all(root.join("empty_dir")).unwrap();
+        let args = json!({
+            "method": "glob",
+            "pattern": "**/*",
+            "maxResults": 50
+        });
+        let out = execute_file_tool(&args, root).expect("glob");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["entryType"], "file");
+        let matches: Vec<&str> = v["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m.as_str().unwrap())
+            .collect();
+        assert_eq!(matches.len(), 1);
+        assert!(matches[0].ends_with("only.txt"));
+    }
+
+    #[test]
+    fn file_glob_entry_type_dir_finds_dot_git_with_include_hidden() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let git_dir = root.join(".git");
+        fs::create_dir_all(&git_dir).unwrap();
+        fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let args = json!({
+            "method": "glob",
+            "pattern": "**/.git",
+            "entryType": "dir",
+            "includeHidden": true,
+            "maxResults": 20
+        });
+        let out = execute_file_tool(&args, root).expect("glob");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["entryType"], "dir");
+        assert_eq!(v["includeHidden"], true);
+        let matches: Vec<&str> = v["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m.as_str().unwrap())
+            .collect();
+        assert!(
+            matches.iter().any(|p| p.replace('\\', "/").ends_with("/.git")),
+            "expected a .git directory in matches: {matches:?}"
+        );
+    }
+
+    #[test]
+    fn file_glob_skips_under_hidden_dir_without_include_hidden() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let nested = root.join(".hidden").join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("leaf.txt"), "y").unwrap();
+        let args = json!({
+            "method": "glob",
+            "pattern": "**/leaf.txt",
+            "maxResults": 20
+        });
+        let out = execute_file_tool(&args, root).expect("glob");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["count"], 0);
+
+        let args_inc = json!({
+            "method": "glob",
+            "pattern": "**/leaf.txt",
+            "includeHidden": true,
+            "maxResults": 20
+        });
+        let out2 = execute_file_tool(&args_inc, root).expect("glob");
+        let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
+        assert_eq!(v2["count"], 1);
+    }
+
+    #[test]
+    fn file_glob_rejects_invalid_entry_type() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("z.txt"), "z").unwrap();
+        let args = json!({
+            "method": "glob",
+            "pattern": "*.txt",
+            "entryType": "bogus",
+            "maxResults": 10
+        });
+        let err = execute_file_tool(&args, root).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("entryType") || msg.contains("无效"),
+            "unexpected error: {msg}"
+        );
     }
 }

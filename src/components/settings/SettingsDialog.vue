@@ -738,6 +738,7 @@ async function saveAll() {
                         <button
                           type="button"
                           class="shrink-0 h-7 px-2.5 rounded-md bg-white/5 hover:bg-white/10 text-[11px] text-slate-200 cursor-pointer transition-colors"
+                          @mousedown="openModelConfigModal(mid)"
                           @click="openModelConfigModal(mid)"
                         >
                           配置
@@ -1004,13 +1005,15 @@ async function saveAll() {
       </footer>
     </div>
 
-    <!-- Per-model runtime overrides -->
-    <div
-      v-if="modelConfigModalId && editingProvider"
-      class="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-4"
-      @click.self="closeModelConfigModal"
-    >
-      <div class="w-full max-w-md rounded-xl border border-white/10 bg-[#12161c] shadow-2xl p-4 space-y-3" @click.stop>
+    <!-- Per-model overrides: Teleport avoids flex/stacking quirks; pointerdown opens before blur can drop click. -->
+    <Teleport to="body">
+      <div
+        v-if="modelConfigModalId && editingProvider"
+        class="pointer-events-auto fixed inset-0 z-[10001] flex items-center justify-center bg-black/55 p-4"
+        role="presentation"
+        @click.self="closeModelConfigModal"
+      >
+        <div class="w-full max-w-md rounded-xl border border-white/10 bg-[#12161c] shadow-2xl p-4 space-y-3" @click.stop>
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0">
             <h5 class="text-sm font-medium text-slate-100">模型参数</h5>
@@ -1077,7 +1080,8 @@ async function saveAll() {
           <button type="button" class="h-8 px-4 rounded-lg bg-white/5 hover:bg-white/10 text-sm text-slate-300 cursor-pointer transition-colors" @click="closeModelConfigModal">取消</button>
           <button type="button" class="h-8 px-4 rounded-lg bg-gradient-to-r from-primary to-primary-fuchsia text-white text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity" @click="confirmModelConfigModal">完成</button>
         </div>
+        </div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>

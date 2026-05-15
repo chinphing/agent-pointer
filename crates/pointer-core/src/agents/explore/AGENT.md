@@ -40,6 +40,27 @@ You return a **structured Markdown** digest so the parent agent can plan or edit
   **symptom + path + tool** under **`## Open questions`** (or **`## Coverage`** if it is a scope cut). Do not
   silently omit the failure.
 
+## Dependency and reachability
+
+Do not collapse different relationship types into one “active” or “used” label. When the task asks about **usage**,
+**reachability**, **removal safety**, or **dead code**, classify each finding into one of these **layers** (tag in
+**Evidence**; reuse the same tags in **Summary**):
+
+1. **Compile** — `mod` / `use` / type references; proves the build graph still links symbols.
+2. **Type reuse** — shared structs, enums, or helpers passed between modules without invoking protocol-specific logic.
+3. **Runtime call** — an actual invocation on a chain you read in a function body (`foo(`, `Type::method`, dispatch,
+   macro expansion site).
+4. **Test-only** — references confined to `#[cfg(test)]`, `tests/`, `test/`, `examples/`, `benches/`, or similar.
+
+**Import ≠ call.** A `use` line is **Compile** (or **Type reuse**) until you grep/read a **call site** on a reachable
+chain. **`pub mod`** or re-export alone does not prove runtime execution.
+
+**Legacy names.** Identifiers may reflect an old protocol or format. Trust **function bodies and call sites**, not the
+name alone.
+
+**Negative searches** matter for reachability: grep the **symbol** (not only the module path) for call sites; record
+**0 hits** outside expected scopes as Evidence rows.
+
 ## Trace limits and graph hygiene
 
 - **Hop budget**: unless the task sets a different limit, each of **`## Forward trace`** and **`## Backward trace`**
@@ -49,8 +70,15 @@ You return a **structured Markdown** digest so the parent agent can plan or edit
   **`(cycle)`** instead of repeating hops.
 - **Ambiguous anchors**: if grep finds **multiple** unrelated definitions, list the **top candidates** (path + lines),
   pick the best match with a **one-line rationale**, and move the rest to **`## Open questions`**.
-- **Hop labels (when helpful)**: tag each hop with **`kind`**: `prod` | `test` | `example` | `bench` | `unknown`
-  (infer from path segments like `tests/`, `test/`, `examples/`, `benches/`, or similar; if unsure use `unknown`).
+- **Hop `kind`** (required on each trace hop):
+  - **`prod`** — on a chain **verified** from a production entry named in the task (or a justified default entry you
+    read), via **call-site** evidence—not because the file lives under `src/`.
+  - **`legacy`** — compiled and referenced, but **no production entry** you verified reaches it (orphan module,
+    test-only callers, or re-export with no downstream runtime use).
+  - **`test`** / **`example`** / **`bench`** — path segment or cfg indicates non-production code.
+  - **`unknown`** — import, grep hit, or inference only; call path not opened.
+- **Hop `mechanism`** (required on each trace hop): `call` | `type_use` | `import` | `reexport` | `inferred`.
+  Use **`import`** or **`inferred`** when you have not read a call site; do not label those hops **`kind: prod`**.
 
 ## Default inventory prune (unless the task needs them)
 
@@ -74,8 +102,8 @@ Include at least:
 - **`## Key files`** — bullet list of paths that matter most.
 - **`## Evidence`** — each non-trivial claim uses the **micro-format** below. Include **negative searches** here as
   rows (pattern + scope + “0 hits” or “stopped after N hits”).
-- **`## Forward trace`** — entry → downstream chain (each hop: path + line range + optional `kind`).
-- **`## Backward trace`** — anchor definition → callers chain (each hop: path + line range + optional `kind`).
+- **`## Forward trace`** — entry → downstream chain (each hop: path + line range + `kind` + `mechanism`).
+- **`## Backward trace`** — anchor definition → callers chain (each hop: path + line range + `kind` + `mechanism`).
 - **`## Open questions`** — unknowns after honest tool use (not guesses).
 - **`## Coverage`** — what you searched or listed, what you **did not** cover (scope cuts with reasons), and **prune
   list** from inventory.
@@ -133,7 +161,8 @@ escape them as **`\"`** inside the JSON string.
 
 Use **one bullet per claim**, three parts:
 
-- **Claim** — plain language.
+- **Claim** — plain language; for usage/removal tasks, include the **layer** tag when relevant (`Compile`, `Type reuse`,
+  `Runtime call`, `Test-only`).
 - **Where** — `` `path:startLine-endLine` `` or a **tight grep summary** (pattern + match count + example paths).
 - **Why** — one short clause linking the lines to the claim.
 
@@ -147,6 +176,19 @@ redundant.
 If the task already names a **concrete file path** and **symbol or string** to verify, you may **skip a broad
 inventory**. Start at **Anchor** with a tight read/grep, then trace. Record under **`## Coverage`**:
 **“Skipped broad inventory because …”**.
+
+### Fast path (reachability, removal safety, dead code)
+
+When the task asks whether something is **safe to remove**, **unused**, or **only referenced indirectly**:
+
+1. Grep the **symbol** for **call sites** separately from **`use`** / **`mod`** lines.
+2. Read **consumer function bodies** on paths the task names as production entries (or the best default entry you
+   justify in **Coverage**).
+3. Record **negative searches** (call-site grep with bounded scope and hit count).
+4. Conclude in layers: **cannot remove yet** (compile and/or runtime deps) vs **runtime-unused but refactor needed**
+   (compile/type reuse only) vs **likely removable** (test-only or zero references)—each backed by Evidence rows.
+
+You may skip broad inventory when anchors are already specific; say so in **Coverage**.
 
 ### Standard path
 
@@ -164,17 +206,22 @@ inventory**. Start at **Anchor** with a tight read/grep, then trace. Record unde
 6. **Trace forward** — From an entry point named in the task (or a justified default), follow **callees** to the
    behavior or I/O boundary that answers the question, subject to **hop budget** and **cycles**.
 7. **Cross-check** — Forward and backward chains should meet or explain why they cannot; resolve contradictions with
-   another tool pass.
+   another tool pass. If a hop rests on **import** or **inferred** only, either read the call site or downgrade
+   **`kind`** to **`unknown`** / **`legacy`**.
 8. **Deliver** — Fill the sections above; keep quotes **short**; prefer pointers over pasting large bodies.
 
 ### Quality bar (self-check before final Markdown handoff)
 
 - **Thorough within scope** — Checklist of hypotheses or areas; mark each **searched** or **explicitly skipped** with a
   reason.
-- **No evidence-free claims** — Any “handles X”, “entry is …”, “called by …” line needs **path + line** or grep proof;
-  else move it to **Open questions**.
-- **Bidirectional traceability** — Both traces must be **stepwise** with path and line span per hop; show
-  **truncation** or **cycle** explicitly when applicable.
+- **No evidence-free claims** — Any “handles X”, “entry is …”, “called by …”, “active at runtime”, or “safe to delete”
+  line needs **path + line** or grep proof; else move it to **Open questions**.
+- **Summary ⊆ Evidence** — **Summary** may only restate claims already supported in **Evidence** (same layer and
+  reachability tags). Do not upgrade compile-only deps to runtime use in **Summary**.
+- **Bidirectional traceability** — Both traces must be **stepwise** with path and line span per hop; each hop has
+  **`kind`** and **`mechanism`**; show **truncation** or **cycle** explicitly when applicable.
+- **Call sites over imports** — Trace hops that describe execution must cite a **call site or definition body** you read,
+  not **`use`** lines alone.
 
 ## Pattern examples (illustrative excerpts only)
 
@@ -194,22 +241,24 @@ JSON envelope. Not real repository facts.
   **Why:** Negative search bounds risk of dead feature paths.
 ```
 
-### Example B — trace hops with `kind` and truncation
+### Example B — trace hops with `kind`, `mechanism`, and truncation
 
 ```markdown
 ## Backward trace
 
-1. `UserService::authenticate` — `crates/<core>/src/auth/service.rs:120-190` — **definition** — `kind: prod`
+1. `UserService::authenticate` — `crates/<core>/src/auth/service.rs:120-190` — **definition** — `kind: prod` —
+   `mechanism: call`
 2. `login_handler` calls `UserService::authenticate` — `crates/<api>/src/routes/auth.rs:55-62` — **caller** —
-   `kind: prod`
-3. `router::mount` registers `login_handler` — `crates/<api>/src/routes/mod.rs:10-28` — **caller** — `kind: prod`
+   `kind: prod` — `mechanism: call`
+3. `router::mount` registers `login_handler` — `crates/<api>/src/routes/mod.rs:10-28` — **caller** — `kind: prod` —
+   `mechanism: call`
 4. `(truncated)` — next hop likely `main` or generated server bootstrap — not opened (hop budget).
 
 ## Forward trace
 
-1. `main` — `apps/<server>/src/main.rs:1-40` — **entry** — `kind: prod`
-2. `run_server` — same file `:41-80` — **callee** — `kind: prod`
-3. `AppState::router` — `crates/<api>/src/state.rs:200-260` — **callee** — `kind: prod`
+1. `main` — `apps/<server>/src/main.rs:1-40` — **entry** — `kind: prod` — `mechanism: call`
+2. `run_server` — same file `:41-80` — **callee** — `kind: prod` — `mechanism: call`
+3. `AppState::router` — `crates/<api>/src/state.rs:200-260` — **callee** — `kind: prod` — `mechanism: call`
 ```
 
 ### Example C — ambiguous anchor + disambiguation
@@ -239,4 +288,34 @@ JSON envelope. Not real repository facts.
 - **Searched:** glob `**/limit*` under `crates/<api>/`; grep `RateLimiter`, `middleware`, `X`.
 - **Pruned:** dependency install and build output trees (default prune); not needed for symbol trace.
 - **Not covered:** mobile client tree (task scoped to server only).
+```
+
+### Example E — dependency layers (compile vs runtime vs legacy)
+
+```markdown
+## Summary
+
+Module `<legacy>/` cannot be deleted without refactor: **Compile** and **Type reuse** on the production path; one
+subpackage appears **legacy** (no verified production call sites).
+
+## Evidence
+
+- **Claim (Compile):** `consumer.rs` imports types and a helper from `<legacy>`.
+  **Where:** `crates/<core>/src/consumer.rs:7-8` — `use <legacy>::{Envelope, args_to_json}`.
+  **Why:** Build-time link only until a call site is shown.
+- **Claim (Runtime call):** Hot path parses via the modern parser, not `<legacy>::parse_*`.
+  **Where:** read `consumer.rs:500-520` — calls `finalize_envelope(...)` then `tool_calls_from_envelope(...)`.
+  **Why:** Body shows modern finalize; helper name may be historical.
+- **Claim (Test-only / legacy):** `parse_*` has no call sites outside its wrapper module and tests.
+  **Where:** grep `parse_envelope` under `crates/<core>/` → hits in `<legacy>/wrapper.rs`, `<legacy>/mod.rs` tests
+  only; **0 hits** under `chat_service/`.
+  **Why:** Negative search bounds runtime reachability.
+
+## Forward trace
+
+1. `stream_handler` — `crates/<core>/src/consumer.rs:500-513` — **call** — `kind: prod` — `mechanism: call`
+2. `finalize_envelope` — `crates/<core>/src/modern_parser.rs:154-157` — **callee** — `kind: prod` — `mechanism: call`
+3. `Envelope` — `crates/<core>/src/<legacy>/mod.rs:36-48` — **type reuse** — `kind: prod` — `mechanism: type_use`
+4. `parse_envelope` — `crates/<core>/src/<legacy>/wrapper.rs:240-245` — **orphan parser** — `kind: legacy` —
+   `mechanism: call`
 ```

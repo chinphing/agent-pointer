@@ -193,6 +193,7 @@ Use **`run_subagent`** with **`agentId` `explore`** only when **`explore`** appe
 **What to put in `instruction`**
 
 - Goal, **in / out of scope** directories or packages, **stop conditions** (how deep to trace), and **done means** (e.g. forward + backward traces with path+line per hop).
+- For **reachability**, **removal safety**, or **dead-code** questions: name **production entry points** to verify; require **layered** findings (compile / type reuse / runtime call / test-only) and **call-site** proof—not **`use`** lines alone.
 - **Lead context:** paste **verified** facts from this thread so explore does not repeat work: **`READ_AT`**, **`GREPPED`**, **empty search results**, **excluded** dead ends, **`Assumptions (unverified)`** separately. Optional headings: **Lead context (trusted)** / **Already checked** / **Still unknown**.
 - **Provenance tags:** distinguish user-stated vs tool-backed lines (`USER_STATED`, `READ_AT path:Lx–Ly`, `GREPPED pattern=… hits=N`).
 - If your earlier read was **truncated** or grep was **capped**, say **Partial** so explore narrows windows instead of trusting full-file absorption.

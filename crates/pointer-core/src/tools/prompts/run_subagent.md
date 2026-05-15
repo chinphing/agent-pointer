@@ -23,6 +23,7 @@ or another handoff).
 - **Completion criteria:** Spell out what **correctly finished** means—counts, **no duplicates**, uniqueness rules, coverage or quality bars, or other checks the worker can verify before claiming done.
 - **User steps:** If the user gave an explicit **sequence of steps**, put that order in **`instruction`** so the worker follows it.
 - **Lead context (recommended for `explore`):** The worker does **not** see the main chat. Paste **verified** facts the lead already found: paths, symbols, **negative** search results (“grep X under Y: 0 hits”), **partial** reads, and **Assumptions (unverified)** on their own lines. Optional headings: **Lead context (trusted)** / **Already checked** / **Still unknown**.
+- **Reachability / removal / dead-code tasks (recommended for `explore`):** Name **production entry points** to verify (e.g. main handler, stream loop, CLI entry). Ask for **layered** conclusions (compile vs type reuse vs runtime call vs test-only), **call-site** evidence—not imports alone—and **negative greps** for symbol call sites.
 
 **When not to use**
 

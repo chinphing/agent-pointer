@@ -73,7 +73,8 @@ flowchart LR
 - **使命**：只读探索仓库，返回 **高信号** 证据（路径 + 少量行号/片段），不做实现。
 - **工具习惯**：优先 `grep`/`glob`/`list` 再 `read`；大文件用 `lineStart`/`lineEnd`/`maxBytes`；批量 `paths` 读；
   工具失败写入 **Open questions** / **Coverage**，不得静默忽略。
-- **追踪与卫生**：默认每个方向的 trace **≤10 hop**（任务可覆盖）；遇 **cycle** 显式标注；hop 可标 **prod/test/…**；
+- **追踪与卫生**：默认每个方向的 trace **≤10 hop**（任务可覆盖）；遇 **cycle** 显式标注；hop 标 **kind**（`prod` / `legacy` / `test` / …）与 **mechanism**（`call` / `import` / …）；**import ≠ call**；
+  使用/删除类任务区分 **Compile / Type reuse / Runtime call / Test-only** 四层；**Summary ⊆ Evidence**；
   **敏感信息**仅 `REDACTED` + 位置指针；**inventory** 有默认剪枝并在 **Coverage** 留痕。
 - **完成判据**（呼应父级 [`instruction`](../../crates/pointer-core/src/tools/prompts/run_subagent.md)）。
 - **输出格式**：**Markdown** 交付（固定章节 + Evidence 微格式 + 负向 grep）；经 **`response` → `tool_args.text`**；父级读工具结果 **`content`**。文末 **Pattern examples** 仅展示 Markdown 正文（详见 `explore/AGENT.md`）。
@@ -86,7 +87,8 @@ flowchart LR
 
 - **全面、少遗漏**：在 `instruction` 范围内建待查清单，逐项用工具划掉；列出已搜索项与未覆盖盲区（若有）。
 - **结论必有证据与出处**：path + 行号或 grep 摘要；禁止无出处推断；不足则写入 **Open questions**。
-- **调用链双向可追溯**：Backward（callee ← caller）与 Forward（entry → downstream）；输出中带路径与行号范围。
+- **分层与可达性**：compile 依赖、类型复用、运行时调用、仅测试引用须分开报告；trace hop 需 call site 或已读函数体，不能仅凭 `use`/`pub mod`。
+- **调用链双向可追溯**：Backward（callee ← caller）与 Forward（entry → downstream）；输出中带路径、行号范围、**kind** 与 **mechanism**。
 
 **建议流程骨架**
 

@@ -1,5 +1,9 @@
 //! JSON tool-call protocol: one JSON object per assistant turn (`response_format: json_object`).
 //! Streaming partial fields use [`partial_json_fixer::fix_json`] (partial JSON repair) plus serde.
+//! Final parsing also tries [`repair_json_unescaped_quotes`] and finalize-only
+//! [`crate::json_interior_quote_escape::munge_finalize_json_parse`] (literal newlines/tabs in
+//! strings, then quote repair) when strict JSON and `fix_json` are not enough (see
+//! [`parse_tool_json_value`]).
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -7,6 +11,7 @@ use std::collections::HashMap;
 use partial_json_fixer::fix_json;
 use serde_json::Value;
 
+use crate::json_interior_quote_escape::{munge_finalize_json_parse, repair_json_unescaped_quotes};
 use crate::tool_envelope::{ToolEnvelope, ToolEnvelopeCall};
 
 /// Diagnostics after the stream ends (JSON tool protocol).
@@ -150,6 +155,77 @@ fn is_vacuous_tool_json(env: &ToolEnvelope) -> bool {
         && env.primary.arguments.is_empty()
 }
 
+/// Try strict parse, then [`fix_json`], then [`repair_json_unescaped_quotes`] on the raw and fixed
+/// buffers, then finalize-only [`munge_finalize_json_parse`] (literal newlines/tabs in strings + quote repair).
+fn parse_tool_json_value(work_str: &str) -> Result<Value, String> {
+    if let Ok(v) = serde_json::from_str::<Value>(work_str) {
+        return Ok(v);
+    }
+
+    let fixed = fix_json(work_str);
+    if let Ok(v) = serde_json::from_str::<Value>(&fixed) {
+        if fixed != work_str {
+            log::info!(
+                "json_tool_caller: parsed tool JSON after partial-json-fixer (chars {} -> {})",
+                work_str.chars().count(),
+                fixed.chars().count()
+            );
+        }
+        return Ok(v);
+    }
+
+    let rq_work = repair_json_unescaped_quotes(work_str);
+    if rq_work != work_str {
+        if let Ok(v) = serde_json::from_str::<Value>(&rq_work) {
+            log::warn!(
+                "json_tool_caller: parsed tool JSON after repair_json_unescaped_quotes on raw buffer (chars {})",
+                work_str.chars().count()
+            );
+            return Ok(v);
+        }
+    }
+
+    let rq_fixed = repair_json_unescaped_quotes(&fixed);
+    if rq_fixed != fixed && rq_fixed != rq_work {
+        if let Ok(v) = serde_json::from_str::<Value>(&rq_fixed) {
+            log::warn!(
+                "json_tool_caller: parsed tool JSON after repair_json_unescaped_quotes on partial-json-fixer output (chars {})",
+                fixed.chars().count()
+            );
+            return Ok(v);
+        }
+    }
+
+    let munge_work = munge_finalize_json_parse(work_str);
+    if munge_work != work_str && munge_work != rq_work && munge_work != rq_fixed {
+        if let Ok(v) = serde_json::from_str::<Value>(&munge_work) {
+            log::warn!(
+                "json_tool_caller: parsed tool JSON after finalize munge (newline/tab escape + quote repair) on raw buffer (chars {})",
+                work_str.chars().count()
+            );
+            return Ok(v);
+        }
+    }
+
+    let munge_fixed = munge_finalize_json_parse(&fixed);
+    if munge_fixed != fixed && munge_fixed != rq_fixed && munge_fixed != munge_work {
+        if let Ok(v) = serde_json::from_str::<Value>(&munge_fixed) {
+            log::warn!(
+                "json_tool_caller: parsed tool JSON after finalize munge on partial-json-fixer output (chars {})",
+                fixed.chars().count()
+            );
+            return Ok(v);
+        }
+    }
+
+    serde_json::from_str::<Value>(&munge_fixed)
+        .or_else(|_| serde_json::from_str::<Value>(&munge_work))
+        .or_else(|_| serde_json::from_str::<Value>(&rq_fixed))
+        .or_else(|_| serde_json::from_str::<Value>(&rq_work))
+        .or_else(|_| serde_json::from_str::<Value>(&fixed))
+        .map_err(|e| e.to_string())
+}
+
 /// Parse the final assistant `content` buffer into the same envelope shape as the legacy XML path.
 pub fn finalize_json_tool_envelope(
     content_buf: &str,
@@ -174,10 +250,7 @@ pub fn finalize_json_tool_envelope(
         return (None, diag);
     }
 
-    let parsed: Result<Value, _> = serde_json::from_str(work_str).or_else(|_| {
-        let fixed = fix_json(work_str);
-        serde_json::from_str(&fixed)
-    });
+    let parsed = parse_tool_json_value(work_str);
 
     match parsed {
         Ok(v) => match envelope_from_value(&v) {
@@ -272,7 +345,25 @@ fn extract_tool_args_text(obj: &serde_json::Map<String, Value>) -> Option<String
         })
 }
 
-/// Progressive UI: repair partial JSON, then read string fields when present.
+fn parse_value_for_streaming_partial(work_str: &str) -> Option<Value> {
+    let fixed = fix_json(work_str);
+    if let Ok(v) = serde_json::from_str::<Value>(&fixed) {
+        return Some(v);
+    }
+    let rq_fixed = repair_json_unescaped_quotes(&fixed);
+    if rq_fixed != fixed {
+        if let Ok(v) = serde_json::from_str::<Value>(&rq_fixed) {
+            return Some(v);
+        }
+    }
+    let rq_raw = repair_json_unescaped_quotes(work_str);
+    if rq_raw != work_str && rq_raw != rq_fixed && rq_raw != fixed {
+        return serde_json::from_str(&rq_raw).ok();
+    }
+    None
+}
+
+/// Progressive UI: [`fix_json`], optional [`repair_json_unescaped_quotes`], then read string fields.
 pub fn extract_json_streaming_partial(buf: &str) -> JsonStreamingPartial {
     let trimmed = buf.trim();
     if trimmed.is_empty() {
@@ -283,8 +374,7 @@ pub fn extract_json_streaming_partial(buf: &str) -> JsonStreamingPartial {
         Cow::Borrowed(b) => *b,
         Cow::Owned(o) => o.as_str(),
     };
-    let fixed = fix_json(work_str);
-    let Ok(v) = serde_json::from_str::<Value>(&fixed) else {
+    let Some(v) = parse_value_for_streaming_partial(work_str) else {
         return JsonStreamingPartial::default();
     };
     let Some(obj) = v.as_object() else {
@@ -329,6 +419,38 @@ mod tests {
         assert_eq!(env.primary.name, "response");
         assert_eq!(env.primary.thoughts, "t");
         assert_eq!(env.primary.arguments.get("text").map(String::as_str), Some("Hello"));
+    }
+
+    #[test]
+    fn finalize_repairs_unescaped_quotes_in_response_text() {
+        // `r##` so the closing `"` before `}}` is not swallowed by `r#"…"#`.
+        let bad = r##"{"thoughts":"","headline":"","tool_name":"response","tool_args":{"text":"a"b"}}"##;
+        let (env, diag) = finalize_json_tool_envelope(bad, "");
+        assert!(diag.parse_error.is_none(), "{diag:?}");
+        let env = env.expect("envelope");
+        assert_eq!(env.primary.name, "response");
+        assert_eq!(env.primary.arguments.get("text").map(String::as_str), Some("a\"b"));
+    }
+
+    #[test]
+    fn finalize_repairs_literal_newline_in_response_text() {
+        let bad = concat!(
+            r##"{"thoughts":"","headline":"","tool_name":"response","tool_args":{"text":"line1"##,
+            "\n",
+            r##"line2"}}"##
+        );
+        assert!(
+            serde_json::from_str::<serde_json::Value>(bad).is_err(),
+            "fixture must be invalid JSON (literal newline in string)"
+        );
+        let (env, diag) = finalize_json_tool_envelope(bad, "");
+        assert!(diag.parse_error.is_none(), "{:?}", diag.parse_error);
+        let env = env.expect("envelope");
+        assert_eq!(env.primary.name, "response");
+        assert_eq!(
+            env.primary.arguments.get("text").map(String::as_str),
+            Some("line1\nline2")
+        );
     }
 
     #[test]

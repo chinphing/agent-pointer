@@ -14,4 +14,5 @@ pub mod storage;
 pub mod tools;
 pub mod tool_envelope;
 pub mod json_tool_caller;
+pub(crate) mod json_interior_quote_escape;
 pub mod tools_system_appendix;

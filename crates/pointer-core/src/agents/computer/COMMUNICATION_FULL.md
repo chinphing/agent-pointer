@@ -2,6 +2,8 @@
 
 Runtime **COMMUNICATION.md** (slim) specifies **JSON** output: put the **full five-stage block** (**`Pointer:`** … optional **`Location:`**`) inside the **`thoughts`** string field; keep **`headline`** a **short** label. This file documents the same stages in more detail for authors.
 
+**Inject slots (runtime, 2026):** when a prior turn exists — **`[Screen before action]`** → **`[Zoom pointer before action]`** (4×, ±50 px; **Pointer** geometry standard) → **`[Screen after action]`** → **`[Annotated after action]`** → three **after** zooms. **Verify** uses **12-row** lookup (**`Step result` / `Cause`**), **`Mouse judgment`** = **`non_mouse` | `mouse_miss` | `mouse_accurate`** only. Sections below may still describe older **VERIFIED/NFO** wording — follow **COMMUNICATION.md** for on-wire behavior.
+
 ## Reasoning framework (mandatory every tool or final turn)
 
 Run **five** internal stages **in this order**, using **exactly** these **English prefix lines** so the chain is scannable:
@@ -33,19 +35,11 @@ Same split as runtime **COMMUNICATION.md**: **index-based** calls use overlay di
 
 ### 1) Pointer
 
-**Purpose:** From **`[Screen after action]`** (synthetic pointer/caret on the capture), judge whether the **pointer hotspot** matches the **prior step’s intended aim point**—geometry only, **not** overall task success. Coordinate **`x`/`y`** and overlay **`index`** clicks land on the **center** of the chosen control; **inside** the same field or strip without **center** alignment is **not** enough.
+**Purpose (runtime):** Judge **pointer hotspot vs intended control center** on **`[Zoom pointer before action]`** when injected (**4×** magnified **±50 px** crop from **`[Screen before action]`**). **`[Screen before action]`** = pre-action layout + **current** pointer (name the aim on **line 1**). **Do not** compare before/after UI change in **`Pointer:`** (**`Verify:`** **`Before vs after`** only). When **no** before inject (first capture), use **`[Screen after action]`** / **`[Zoom pointer after action]`**. **Caret** is out of scope. **Coordinate** `*_at` anchoring remains **`[Zoom pointer after action]`** (300×300 annotated) — see runtime **COMMUNICATION.md** § Tool geometry.
 
-**Source:** Use the **cursor/caret overlay** on **`[Screen after action]`** only. Prefer **`[Zoom pointer after action]`** to see whether the hotspot sits on the **center** (or expected caret) vs an edge or wrong sub-control. Do **not** use **`[Annotated after action]`** digit positions as a substitute for “where the pointer is.”
+**Conclusion** (runtime): **`accurate` | `abnormal` | `n/a`** per **Center-only rule** on the geometry image — **not** **`n/a`** because the target vanished on **after** while **before** zoom still shows aim + pointer.
 
-**Branch on view delta** (when **`[Screen before action]`** exists): note whether task-relevant UI **changed** vs before; then still judge pointer vs **that step’s** target widget (label/shape/region), without overlay numbers.
-
-**Conclusion** (one of):
-
-- **`accurate`** — The **hotspot** (click point) aligns with the **intended aim**: for compact controls (buttons, icons, toggles, inputs, address/search bars), that is the **control center** within a **small** visible tolerance. For **type-at-focus** steps, the **caret/I-beam** sits at the expected **insertion** point.
-- **`abnormal`** — The hotspot is **near** but **off-center** on the same widget, on a **wrong sub-part** (e.g. row label vs trash icon), **inside** a wide field but **not** at center, or visibly offset above/below/left/right of the aim. “Near” counts as **abnormal**, not **accurate**.
-- **`n/a`** — The prior target is **not** visible after a view change, or the cursor overlay is **missing** on **`[Screen after action]`** so position cannot be judged.
-
-**Do not** use prior tool JSON, overlay indices, or “we clicked N” to set **`accurate`**; only pixel evidence on **`[Screen after action]`** (and pointer zoom).
+**Legacy note:** Older paragraphs below used **`View vs before`** and **`[Screen after action]`** only; prefer runtime **COMMUNICATION.md** numbered **`Pointer:`** chain (**lines 1–2 + `3 Conclusion`**).
 
 **Required form (fill in; one block per turn)**
 

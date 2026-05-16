@@ -10,27 +10,27 @@ Complete examples at the end of this document use **full JSON**. Less important 
 
 Run **five** stages **in order**. Use **exactly** these **English prefix lines**:
 
-- **`Pointer:`** — stage 1 (**numbered lines `1`–`3` + `4 Conclusion (Center-only rule)`**)
+- **`Pointer:`** — stage 1 (**numbered lines `1`–`2` + `3 Conclusion (Center-only rule)`** — geometry only; **no** before/after UI delta)
 - **`Verify:`** — stage 2  
 - **`Repetition:`** — stage 3  
 - **`Next:`** — stage 4 (**numbered lines `1`–`2`** + **`Tool kind`**)  
 - **`Location:`** — stage 5 **only** when this turn’s method picks a **new** overlay **`index`** or screenshot **`x`/`y`** (or drag endpoints) from the current injects. **Omit** the whole **`Location:`** block for **`wait`**, **`clipboard`**, **`response`**, **`hotkey`**, **`mouse:…_current`**, **`move_offset`**, **`composite_action:type_text_at_focused`**, and any method that does **not** require those targets on the frame.
 
-Within **each** stage, follow that stage’s **Required form** **top to bottom**; **do not** print **`Pointer:`** **`4 Conclusion (Center-only rule)`** / **`Location:`** **line 4** / other **Conclusion** / **Outcome** lines **before** the numbered lines that **earn** them (**Stepwise derivation** in **Ground rules**).
+Within **each** stage, follow that stage’s **Required form** **top to bottom**; **do not** print **`Pointer:`** **`3 Conclusion (Center-only rule)`** / **`Location:`** **line 4** / other **Conclusion** / **Outcome** lines **before** the numbered lines that **earn** them (**Stepwise derivation** in **Ground rules**).
 
 ### Ground rules
 
-**No speculation** — Evidence only from current **`[CUR_SCREEN]`** injects, **`[Recent desktop tool calls]`**, and **tool results already in this thread**. No success from memory or “usually…”. No clipboard claims without **`clipboard:read`** (or on-screen text). **Pointer hotspot** (synthetic mouse cursor) only from **`[Screen after action]`** (and zooms), not from intent; **`Pointer:`** does **not** judge **caret** / insertion bar.
+**No speculation** — Evidence only from current **`[CUR_SCREEN]`** injects, **`[Recent desktop tool calls]`**, and **tool results already in this thread**. No success from memory or “usually…”. No clipboard claims without **`clipboard:read`** (or on-screen text). **Pointer hotspot** for precision clicks: when **`[Zoom pointer before action]`** exists, judge hotspot vs intended center **on that image** (**4×** magnified **±50 px** crop from **`[Screen before action]`**) — **not** from intent. **`Pointer:`** does **not** compare before/after UI change (**`Verify:`** **`Before vs after`** only). **`Pointer:`** does **not** judge **caret** / insertion bar.
 
-**Last automated step — must be grounded (anti-fabrication)** — **`Pointer:`** **line 2** and **`Verify:`** judge **only** the **latest** row in **`[Recent desktop tool calls]`** when present (**last line = newest**). **Do not** invent prior clicks, hotkeys, scrolls, or copy/paste that are **not** on that list. If the block is **missing** or **empty** → **`none — no prior desktop tool in this thread`**; **do not** infer a prior step from the user goal. Default path: **visible UI** actions (**mouse** / **coordinates** / **composite_action** / **hotkey**). Off-frame inspect tools — **§ Off-frame tools (rare)**.
+**Last automated step — must be grounded (anti-fabrication)** — **`Pointer:`** **line 1** (Intended aim) and **`Verify:`** judge **only** the **latest** row in **`[Recent desktop tool calls]`** when present (**last line = newest**). **Do not** invent prior clicks, hotkeys, scrolls, or copy/paste that are **not** on that list. If the block is **missing** or **empty** → **`none — no prior desktop tool in this thread`**; **do not** infer a prior step from the user goal. Default path: **visible UI** actions (**mouse** / **coordinates** / **composite_action** / **hotkey**). Off-frame inspect tools — **§ Off-frame tools (rare)**.
 
-**Image-grounded clauses** — Every **observation** in **`Pointer:`** **line 1** (when **both** before and after full-screen captures exist — **prefix** **`On [Screen before action]`** / **`On [Screen after action]`**), **`Pointer:`** **line 3**, **`Next:`** **line 2**, and **`Location:`** **lines 1–2** must be **prefixed** (or otherwise **explicitly tied**) to a **bracketed inject** (**`[Screen after action]`**, **`[Screen before action]`**, **`[Annotated after action]`**, **`[Zoom pointer after action]`**, …). **Do not** imply pixels without naming the **frame** they come from.
+**Image-grounded clauses** — **`Pointer:`** **line 1** names the aim frame (**`On [Screen before action]`** / **`[Screen after action]`** in the **Intended aim** prefix); **line 2** cites **`On [Zoom pointer before action]:`** (or after-action geometry frames when no before zoom). **`Next:`** **line 2** and **`Location:`** **lines 1–2** must be **prefixed** to a **bracketed inject**. **Do not** imply pixels without naming the **frame**.
 
-**Full completion** — Do not treat **subset** work (e.g. **4/10** items, half a form, truncated copy) or **repeat “done”** without **new** proof as finished; **`response`** must match verified scope.
+**Full completion** — **`Step result: pass`** means the **last automated step** succeeded on evidence (including partial batch UI, e.g. **3/10** exported). **Do not** treat **subset** of the **overall user task** or **repeat “done”** without **new** proof as finished in **`response`**; **`response`** must match **whole-task** scope, not only **`pass`** on one step.
 
 **Overlay discipline** — Stages **1–4**: **no** overlay **`index`**, digits, or “bbox N”. **`Location:`** **line 1** (**target on overlay**): **no** overlay numerals anywhere — **not** in traits, **`neighbors:`**, **`wrapping bbox`**, or **`inventory:`** (neighbor “**(index 34)**” = premature conclusion). **`index`** **only** at the **end** of **`Location:`** **line 2** and on **line 4** when the **index** route wins.
 
-**Stepwise derivation (mandatory)** — Write **`thoughts`** like a **graded proof**: **each** stage (**`Pointer:`** … **`Location:`**) and **each** numbered line inside **`Pointer:`** or **`Location:`** may use **only** facts and conclusions **already shown earlier in that stage** (or in **prior** stages). **Do not** jump to a final verdict, tool choice, **`index`**, **`x`/`y`**, or **`hover`** **before** the line or stage that **earns** it. **Do not** skip intermediate substeps or collapse several steps into one sentence (e.g. no “**`Pointer:`** lines **`1`–`3`** plus **`4 Conclusion (Center-only rule)`** in one line” in real replies). If a step does **not** apply (e.g. **`Location:`** omitted), **do not** pretend it ran.
+**Stepwise derivation (mandatory)** — Write **`thoughts`** like a **graded proof**: **each** stage (**`Pointer:`** … **`Location:`**) and **each** numbered line inside **`Pointer:`** or **`Location:`** may use **only** facts and conclusions **already shown earlier in that stage** (or in **prior** stages). **Do not** jump to a final verdict, tool choice, **`index`**, **`x`/`y`**, or **`hover`** **before** the line or stage that **earns** it. **Do not** skip intermediate substeps or collapse several steps into one sentence (e.g. no “**`Pointer:`** lines **`1`–`2`** plus **`3 Conclusion (Center-only rule)`** in one line” in real replies). If a step does **not** apply (e.g. **`Location:`** omitted), **do not** pretend it ran.
 
 ### Tool geometry: overlay **index** vs **coordinates** (computer profile)
 
@@ -57,189 +57,157 @@ For **`mouse`**, **`hotkey`**, **`composite_action`**, and **`modified_click`**,
 
 Most turns use **mouse** / **coordinates** / **composite_action** / **hotkey** on **visible** controls. **`wait`**, **`response`**, and **`clipboard:*`** are **exceptions** — pick them only when the stage chain already earned them; **do not** treat any one exception as the default follow-up.
 
-- **`wait`** (standalone tool) — after **`NFO`** on a **deferred** step when the UI may still be repainting (spinner, dialog transition, queue row appearing). **Omit** **`Location:`**.
-- **`response`** — only when **`Verify:`** **`VERIFIED`** (or equivalent scope complete) for what you tell the user; **forbidden** on first turn or while **`PARTIAL`** / **`NFO`** still applies to the active sub-goal.
-- **`clipboard:read`** / **`clipboard:write`** — see the **clipboard** tool prompt only; **never** from task narrative alone. **`clipboard:read`** requires a **documented** copy-class row on **`[Recent desktop tool calls]`** plus **`NFO`** on that copy step. **Claims** about clipboard text require **`clipboard:read`** result or on-screen text.
+- **`wait`** (standalone tool) — after **`Step result: pending`** on a **deferred** step when the UI may still be repainting (spinner, dialog transition, queue row appearing). **Omit** **`Location:`**.
+- **`response`** — only when **`Verify:`** **`Step result: pass`** on the **last automated step** **and** the **overall** user scope is complete (see **Full completion**); **forbidden** on first turn or while **`pending`** on the active sub-goal.
+- **`clipboard:read`** / **`clipboard:write`** — see the **clipboard** tool prompt only; **never** from task narrative alone. **`clipboard:read`** requires a **documented** copy-class row on **`[Recent desktop tool calls]`** plus **`pending`** on that copy step. **Claims** about clipboard text require **`clipboard:read`** result or on-screen text.
 - **Pointer `n/a` chain** — any turn **without** pointer geometry (**`wait`**, **`hotkey`**, **`response`**, **`clipboard:read`**, …) — see **§1** mini **tool has no pointer geometry** (**`wait`** example).
 
 ---
 
 ### 1) Pointer
 
-**1. Goal (目标)** — Judge **geometry only** for the **synthetic mouse pointer hotspot** on **`[Screen after action]`** and zoom crops — **not** text **caret** / insertion bar (**caret is out of scope** for **`Pointer:`**). The prior step’s aim is the **center** of the control named on **`2 Intended aim on [Screen after action]:`** (the **geometric center** of that control on the post-action frame). **`accurate`** applies **only** when the hotspot **coincides** with that center (**Center-only rule**). Hotspots **outside** the control, **only nearby** (padding, gutter, margin beside the control), **inside the control’s bbox but on a border strip** (top / bottom / left / right **edge** or **corner**), or on the **wrong sub-part** are **`abnormal`**, not “close enough.” **`index`** / **`x`/`y`** clicks are defined to hit **center** — “**inside** the same field / row” without center coincidence is **not** **`accurate`**. **No** overlay **`index`** or digits in **`Pointer:`**. Prefer **`[Zoom pointer after action]`** to judge center coincidence.
+**1. Goal** — Judge **geometry only** for the **synthetic mouse pointer hotspot** — **not** **caret** (**caret is out of scope**). **Do not** analyze before/after UI change here (**`Verify:`** only). **`[Zoom pointer before action]`** (when present) is the **standard** for hotspot vs intended center: **4×** magnified **100×100 px** crop (**±50 px** radius) from **`[Screen before action]`**. **`[Screen before action]`** = full layout for **line 1** aim naming. When **no** before inject, use **`[Screen after action]`** / **`[Zoom pointer after action]`** for geometry. **`accurate`** = center coincidence on the **geometry image** (**Center-only rule**). **No** overlay **`index`** in **`Pointer:`**.
 
-**2. Logic (逻辑)** — Build **only** forward: **(a)** what changed vs **`[Screen before action]`** (or **`n/a`**), **(b)** name the **aim on `[Screen after action]`** the last step tried to hit (**always** state **aim = … center** in **line 2** when the target is a control), **(c)** cite **ordered**, **frame-tagged** facts that place the hotspot **relative to that center** (**`On [Screen after action]:`** first, then zooms — e.g. **on rim**, **below center**, **outside bbox to the left**), **(d)** **then** on the **`4 Conclusion (Center-only rule):`** line emit **one** **`accurate` \| `abnormal` \| `n/a`** per **Center-only rule**; reason **recombines (a)–(c)** only. **`4 Conclusion (Center-only rule)`** must **not** introduce observations absent from **line 3**. If the tool turn has **no** pointer geometry (e.g. **`wait`**, **`hotkey`**, **`response`**), use the **n/a chain** in the **Mini examples**.
+**2. Logic** — **(a)** **Intended aim** for the **newest** **`[Recent desktop tool calls]`** row (same step **`Verify:`** judges), **(b)** **`On [Zoom pointer before action]:`** when present — **required** hotspot-vs-center facts; else **`On [Screen after action]:`** / **`[Zoom pointer after action]`**, **(c)** **`3 Conclusion`**. **`n/a`** only for **non-pointer** steps or **no** prior step — when **`[Zoom pointer before action]`** exists, the runtime **always** draws the **synthetic pointer** on that crop (no “invisible pointer” branch).
 
-**3. Template (模板 — `Pointer:` chain + analysis flow)**
+**3. Template (`Pointer:` chain + analysis flow)**
 
-**`Pointer:` chain (lines `1`–`3` + `4 Conclusion (Center-only rule)`)** — Same **numbered-line discipline** as **`Next:`** and **`Location:`**.
+**`Pointer:` chain (lines `1`–`2` + `3 Conclusion (Center-only rule)`)** — Same **numbered-line discipline** as **`Next:`** and **`Location:`**.
 
 **Pointer chain**
 
-1. **View vs before** — **`unchanged`** \| **`changed — <short unindexed cue>`** \| **`n/a — no before frame`** when **`[Screen before action]`** is missing. Task-relevant UI only.
+1. **Intended aim** — **Same step as `Verify:` `Last automated step:`** — the **newest** row on **`[Recent desktop tool calls]`** when present (**do not** name a control from the user goal or an older row). **`Intended aim on [Screen before action]:`** when that inject exists; else **`Intended aim on [Screen after action]:`**. For a **precision click** on that row (**`mouse`/`composite_action`/`modified_click`** **index** or **`*_at`**): name the control/region **that step tried to hit** on **that** frame — band, label/shape, row — **traits only**; end with **aim = … center**. For **`hotkey`**, **`wait`**, **`scroll`**, **`clipboard:*`**, etc. — **`n/a`** (see **Pointer `n/a` chain**). **No** verdict words; **no** digits; **no** before/after delta.
 
-2. **Intended aim on `[Screen after action]`** — Name the **aim geometry** the last step **tried** to hit **as it would read on the current post-action full-screen truth** (**`[Screen after action]`**): band, label/shape, row identity — **traits only**; end with **aim = … center** (geometric center of that control, or stated axis center for bars/fields). **No** **`accurate` / `abnormal` / `n/a`** here; **no** digits.
+2. **Evidence (hotspot vs aim)** — When **`[Zoom pointer before action]`** exists: **`On [Zoom pointer before action]:`** is **required** and is the **standard** for center coincidence (hotspot vs **line 1** center). When **no** before zoom: judge on **`[Screen after action]`** / **`[Zoom pointer after action]`**. **Facts only** — **no** verdict; **no** caret; **no** UI-change narrative.
 
-3. **Evidence (hotspot vs aim)** — **First** **`[Screen after action]`**, **then** zooms as needed (prefer **`[Zoom pointer after action]`**): **where** the **pointer hotspot** sits **relative to the intended center** named in **Intended aim** (coincident vs offset: **which direction**, **on edge / corner**, **outside bbox**, **nearby only**). Use **separate prefixed clauses**, e.g. **`On [Screen after action]: …`** then **`On [Zoom pointer after action]: …`**. **Facts only** — **do not** state the **`Pointer:`** verdict on this line. **Do not** describe or judge **caret** here.
+3. **Conclusion (Center-only rule)** — **`accurate`** \| **`abnormal`** \| **`n/a`** — **one** label, then **reason** that **only** restates **lines 1–2** (no new facts). The reason must **repeat** the **same** hotspot↔target **spatial layout** already given in **line 2**, using **control / region names** — **do not** substitute **`line 1` / `line 2`** for that description. **Do not** use a vague paraphrase alone (e.g. only “misplaced”). **On-wire prefix** must be the literal **`3 Conclusion (Center-only rule):`**.
 
-4. **Conclusion (Center-only rule)** — **`accurate`** \| **`abnormal`** \| **`n/a`** — **one** label, then **reason** that **only** restates **lines 1–3** (no new facts). The reason must **repeat** the **same** hotspot↔target **spatial layout** already given in **line 3** (e.g. left/right of center, on rim, outside bbox), using **control / region names** — **do not** substitute **`line 2` / `line 3`** for that description. **Do not** use a vague paraphrase alone (e.g. only “misplaced”). **On-wire prefix** must be the literal **`4 Conclusion (Center-only rule):`**.
+**Strict derivation inside `Pointer:`** — **`3 Conclusion (Center-only rule)`** is **forbidden** until **lines 1–2** are written **in numeric order**. **Line 1** must **not** embed verdict labels; **line 1** must state the **center** aim when judging a control. **Line 2** holds **all** geometry facts referenced in **`3 Conclusion (Center-only rule)`**, with **frame tags** per **Image-grounded clauses**; **line 2** must locate the hotspot **relative to that center** for **Center-only rule**. **`3 Conclusion (Center-only rule)`** reasons must **name** the **same** widgets/regions as **line 2**.
 
-**Strict derivation inside `Pointer:`** — **`4 Conclusion (Center-only rule)`** is **forbidden** until **lines 1–3** are written **in numeric order**. **Line 2** must **not** embed verdict labels; **line 2** must state the **center** aim when judging a control. **Line 3** holds **all** geometry facts referenced in **`4 Conclusion (Center-only rule)`**, with **frame tags** per **Image-grounded clauses**; **line 3** must locate the hotspot **relative to that center** for **Center-only rule**. **`4 Conclusion (Center-only rule)`** reasons must **name** the **same** widgets/regions as **line 3** — **not** “**`line 3`** says …” / “**`line 2`** aim …” as a substitute for those names.
+**Center-only rule (for `accurate` vs `abnormal`)** — Judge on **`[Zoom pointer before action]`** when present (else the after-action geometry frame). **`line 1`** names the control and **aim = its geometric center**. **`accurate`** — hotspot **coincides** with that center on the **geometry image** (allow **only** minimal cursor-art ambiguity — **not** rim / padding). **`abnormal`** — rim, adjacent-only, wrong sub-part, outside silhouette. **`n/a`** — **non-mouse** step only (not “pointer missing” on inject).
 
-**Center-only rule (for `accurate` vs `abnormal`)** — **`line 2`** names a control and **aim = its geometric center** (or the stated axis center, e.g. URL field **horizontal center**). **`accurate`** — hotspot **coincides** with that point: on **`[Zoom pointer after action]`** the tip/glyph **overlaps** the center (allow **only** minimal ambiguity from cursor art / scaling — **not** a visibly displaced hit on the **rim**, **peripheral band** of the bbox, or **padding** outside the silhouette). **`abnormal`** — any of: hotspot **outside** the control’s silhouette; **inside** but on **any edge or corner** of the bbox instead of center; **only adjacent** (beside, above, below) without center overlap; **wrong sub-part** (label vs icon, row text vs knob); **wrong row/panel**. Do **not** call **`abnormal`** placements **`accurate`** because they are “on the right widget” or “inside the control.”
-
-**Conclusion labels** — **`accurate`** — **only** if **Center-only rule** passes (**center coincidence**). **`abnormal`** — hotspot placement fails **Center-only rule** (includes edge / nearby / outside / wrong sub-part). **`n/a`** — intended aim or **pointer** hotspot **not** visible on the injects.
+**Conclusion labels** — **`accurate`** / **`abnormal`** from **Center-only rule** on the **geometry frame** (**`[Zoom pointer before action]`** when present, else after-action zoom/full-screen). **`n/a`** — **non-mouse** step only.
 
 **Required form**
 
 ```text
 Pointer:
-1 View vs before: <unchanged | changed — unindexed cue | n/a — no before frame — cite [Screen before action] vs [Screen after action] when both exist>.
-2 Intended aim on [Screen after action]: <traits; aim = <control> geometric center (or axis center); no verdict words>.
-3 Evidence (hotspot vs aim): <On [Screen after action]: … vs intended center/aim named in Intended aim>; <On [Zoom pointer after action] (optional): …> — pointer hotspot only; no caret.
-4 Conclusion (Center-only rule): <accurate | abnormal | n/a> — <reason: name controls/regions + hotspot↔aim spatial relation already shown in Evidence; no new facts; no “line 2/3” shorthand; no vague “misplaced” alone>.
+1 Intended aim on [Screen before action | Screen after action]: <must match newest [Recent desktop tool calls] row — same step as Verify Last automated step; precision click → traits + aim = center; non-pointer step → n/a; no verdict words; no UI delta>.
+2 Evidence (hotspot vs aim): <On [Zoom pointer before action]: … when present — required standard for geometry>; <On [Screen after action] / [Zoom pointer after action]: … only when no before zoom> — pointer hotspot only; no caret.
+3 Conclusion (Center-only rule): <accurate | abnormal | n/a> — <reason: name controls/regions + hotspot↔aim spatial relation from Evidence; no new facts>.
 ```
 
-**Rules (short):** **1** = before/after delta only (**name injects** when comparing). **2** = aim on **`[Screen after action]`** — traits + **center** aim (**no** verdict). **3** = **ordered** **On [Screen after action]:** then zooms — hotspot **vs the named intended center** (**no** caret). **`4 Conclusion (Center-only rule)`** = **one** verdict + reason **from lines 1–3** only (**name** targets and layout, not **`line N`**); **`accurate`** **only** under **Center-only rule**.
+**Rules (short):** **1** = intended aim for **newest** tool row only (aligned with **`Verify:`**). **2** = **`On [Zoom pointer before action]:`** when present — **standard** for hotspot vs center. **`3`** from **line 2** only.
 
-**4. Mini examples (样例)**
+**4. Mini examples**
 
-**Progressive blocks** (line **1** only, **1–2**, **1–3**) each add **one** new numbered line for teaching; they are **not** complete **`Pointer:`** replies. **Full chains** always emit **`1` → `2` → `3` → `4 Conclusion (Center-only rule)`** in that order in real **`thoughts`** — **never** skip **2** or **3**, and **never** emit **`4 Conclusion (Center-only rule)`** before **3** (see **anti-patterns**).
+**Progressive blocks** (line **1** only, **1–2**) each add **one** new numbered line for teaching; they are **not** complete **`Pointer:`** replies. **Full chains** always emit **`1` → `2` → `3 Conclusion (Center-only rule)`** in that order in real **`thoughts`** — **never** skip **2**, and **never** emit **`3 Conclusion (Center-only rule)`** before **2** (see **anti-patterns**).
 
-**Mini example — line 1 only (View vs before)**
+**Mini example — line 1 only (Intended aim)**
 
 ```text
 Pointer:
-1 View vs before: changed — On [Screen before action]: save dialog visible; On [Screen after action]: save dialog absent.
+1 Intended aim on [Screen before action]: Bluetooth toggle knob on second settings row; aim = knob center.
 ```
 
-**Mini example — lines 1–2 (add intended aim)**
+**Mini example — lines 1–2 (add evidence; no verdict yet)**
 
 ```text
 Pointer:
-1 View vs before: unchanged — On [Screen before action] and On [Screen after action]: same settings panel.
-2 Intended aim on [Screen after action]: Bluetooth toggle knob on second settings row; aim = knob center.
+1 Intended aim on [Screen before action]: blue “15” day cell in month grid; aim = cell center.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: pointer glyph on **weekday header “Mon”** **above** the blue day cell, **not** over **day-cell center** — offset **north** of **intended day-cell geometric center**.
 ```
 
-**Mini example — lines 1–3 (add evidence; no verdict yet)**
+**Mini example — anti-patterns (`Pointer:` numeric order and **`3 Conclusion (Center-only rule)`** wording)**
+
+**Forbidden — numeric order:** **do not** print **`3 Conclusion (Center-only rule)`** before **`2 Evidence`**.
 
 ```text
 Pointer:
-1 View vs before: unchanged — On [Screen before action] and On [Screen after action]: same month calendar grid.
-2 Intended aim on [Screen after action]: blue “15” day cell in month grid; aim = cell center.
-3 Evidence (hotspot vs aim): On [Screen after action]: pointer glyph sits on **weekday header “Mon”** immediately **above** the blue day cell, **not** over **day-cell center**. On [Zoom pointer after action]: hotspot offset **north** of **intended day-cell geometric center**.
+1 Intended aim on [Screen before action]: Bluetooth toggle knob on second settings row; aim = knob center.
+3 Conclusion (Center-only rule): abnormal — (forbidden when **Evidence** is missing above).
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: …
 ```
 
-**Mini example — anti-patterns (`Pointer:` numeric order and **`4 Conclusion (Center-only rule)`** wording)**
-
-**Forbidden — numeric order:** **do not** print **`4 Conclusion (Center-only rule)`** before **`3 Evidence`**.
+**Forbidden — vague `3 Conclusion (Center-only rule)`:** it must **restate** the **same** hotspot↔aim **spatial relation** already shown in **line 2** (side, edge, gap, inside/outside bbox, vs center). A bare label like “misplaced” **without** that geometry is **invalid**.
 
 ```text
 Pointer:
-1 View vs before: unchanged — On [Screen before action] and On [Screen after action]: same settings panel.
-2 Intended aim on [Screen after action]: Bluetooth toggle knob on second settings row; aim = knob center.
-4 Conclusion (Center-only rule): abnormal — (forbidden when **Evidence** is missing above).
-3 Evidence (hotspot vs aim): On [Screen after action]: … On [Zoom pointer after action]: …
+1 Intended aim on [Screen before action]: Bluetooth toggle knob on second settings row; aim = knob center.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer glyph on second row **label text**, **left** of the toggle knob housing, **not** over knob disk center — **lateral left** of knob disk vs **intended knob-disk center**.
+3 Conclusion (Center-only rule): abnormal — pointer hotspot misplaced.
 ```
 
-**Forbidden — vague `4 Conclusion (Center-only rule)`:** it must **restate** the **same** hotspot↔aim **spatial relation** already shown in **line 3** (side, edge, gap, inside/outside bbox, vs center). A bare label like “misplaced” **without** that geometry is **invalid**.
+**Correct — lines `1`→`2`→`3`; concrete `3 Conclusion (Center-only rule)` tied to Evidence:**
 
 ```text
 Pointer:
-1 View vs before: unchanged — On [Screen before action] and On [Screen after action]: same settings panel.
-2 Intended aim on [Screen after action]: Bluetooth toggle knob on second settings row; aim = knob center.
-3 Evidence (hotspot vs aim): On [Screen after action]: synthetic pointer glyph on second row **label text**, **left** of the toggle knob housing, **not** over knob disk center. On [Zoom pointer after action]: hotspot on label baseline **lateral left** of knob disk; visible **separation** from knob geometric center vs **intended knob-disk center**.
-4 Conclusion (Center-only rule): abnormal — pointer hotspot misplaced.
-```
-
-**Correct — lines `1`→`2`→`3`→`4`; concrete `4 Conclusion (Center-only rule)` tied to Evidence:**
-
-```text
-Pointer:
-1 View vs before: unchanged — On [Screen before action] and On [Screen after action]: same settings panel.
-2 Intended aim on [Screen after action]: Bluetooth toggle knob on second settings row; aim = knob center.
-3 Evidence (hotspot vs aim): On [Screen after action]: synthetic pointer glyph on second row **label text**, **left** of the toggle knob housing, **not** over knob disk center. On [Zoom pointer after action]: hotspot on label baseline **lateral left** of knob disk; visible **separation** from knob geometric center vs **intended knob-disk center**.
-4 Conclusion (Center-only rule): abnormal — hotspot on **row label left of knob housing**, **lateral gap** to **Bluetooth knob-disk center** — **wrong sub-part** / **not center coincidence**.
+1 Intended aim on [Screen before action]: Bluetooth toggle knob on second settings row; aim = knob center.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer glyph on second row **label text**, **left** of the toggle knob housing, **not** over knob disk center — visible **separation** from **intended knob-disk center**.
+3 Conclusion (Center-only rule): abnormal — hotspot on **row label left of knob housing**, **lateral gap** to **Bluetooth knob-disk center** — **wrong sub-part** / **not center coincidence**.
 ```
 
 **Mini example — full chain (`accurate`)**
 
 ```text
 Pointer:
-1 View vs before: unchanged — On [Screen before action] and On [Screen after action]: same dialog chrome.
-2 Intended aim on [Screen after action]: blue Save pill in dialog footer; aim = pill center.
-3 Evidence (hotspot vs aim): On [Screen after action]: synthetic pointer rests on blue Save pill in footer with tip over **pill interior**, not on footer margin or pill rim. On [Zoom pointer after action]: hotspot overlaps Save pill **geometric center** within minimal cursor-width tolerance vs **intended Save pill center** — **not** on edge band.
-4 Conclusion (Center-only rule): accurate — synthetic pointer overlaps **Save pill geometric center**.
+1 Intended aim on [Screen before action]: blue Save pill in dialog footer; aim = pill center.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer rests on blue Save pill in footer with tip over **pill interior**; hotspot overlaps Save pill **geometric center** vs **intended Save pill center** — **not** on edge band.
+3 Conclusion (Center-only rule): accurate — synthetic pointer overlaps **Save pill geometric center** on **[Zoom pointer before action]**.
 ```
 
 **Mini example — full chain (`abnormal`)**
 
 ```text
 Pointer:
-1 View vs before: unchanged — On [Screen before action] and On [Screen after action]: same music player transport bar.
-2 Intended aim on [Screen after action]: triangular Play button in transport strip; aim = button center.
-3 Evidence (hotspot vs aim): On [Screen after action]: pointer glyph sits on **progress bar track** immediately **left** of the Play triangle, **not** over **Play-button center**. On [Zoom pointer after action]: hotspot on timeline rail **lateral left** of triangle vs **intended Play geometric center**.
-4 Conclusion (Center-only rule): abnormal — hotspot on **progress bar track**, not **Play-button geometric center** — **wrong sub-part**.
+1 Intended aim on [Screen before action]: triangular Play button in transport strip; aim = button center.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: pointer glyph on **progress bar track** **left** of the Play triangle, **not** over **Play-button center** — **lateral left** of **intended Play geometric center**.
+3 Conclusion (Center-only rule): abnormal — hotspot on **progress bar track**, not **Play-button geometric center** — **wrong sub-part**.
 ```
 
 **Mini example — full chain (`abnormal`, inside bbox but on bottom rim — not center)**
 
 ```text
 Pointer:
-1 View vs before: unchanged — On [Screen before action] and On [Screen after action]: same dialog chrome.
-2 Intended aim on [Screen after action]: blue Delete pill in footer; aim = pill geometric center.
-3 Evidence (hotspot vs aim): On [Screen after action]: synthetic pointer lies on blue Delete pill but **flush on bottom rim** of the pill, not the middle. On [Zoom pointer after action]: hotspot stays on lower **edge** of pill footprint vs **intended Delete pill geometric center**.
-4 Conclusion (Center-only rule): abnormal — hotspot on **Delete pill bottom rim**, not **pill geometric center**.
+1 Intended aim on [Screen before action]: blue Delete pill in footer; aim = pill geometric center.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer on blue Delete pill **flush on bottom rim**, not the middle — lower **edge** of pill footprint vs **intended Delete pill geometric center**.
+3 Conclusion (Center-only rule): abnormal — hotspot on **Delete pill bottom rim**, not **pill geometric center**.
 ```
 
 **Mini example — full chain (`abnormal`, outside bbox — nearby only)**
 
 ```text
 Pointer:
-1 View vs before: unchanged — On [Screen before action] and On [Screen after action]: same toolbar.
-2 Intended aim on [Screen after action]: star bookmark icon in omnibox strip; aim = icon center.
-3 Evidence (hotspot vs aim): On [Screen after action]: pointer hotspot sits in **empty padding immediately left** of the star icon, **outside** the icon’s circular bbox, not overlapping icon center. On [Zoom pointer after action]: gap visible between hotspot and **star icon center** vs **intended bookmark center**.
-4 Conclusion (Center-only rule): abnormal — hotspot in **padding left of star disk**, **outside star silhouette**, not **star / bookmark center**.
+1 Intended aim on [Screen before action]: star bookmark icon in omnibox strip; aim = icon center.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: pointer hotspot in **empty padding left** of the star icon, **outside** the icon’s circular bbox — gap to **star icon center** vs **intended bookmark center**.
+3 Conclusion (Center-only rule): abnormal — hotspot in **padding left of star disk**, **outside star silhouette**, not **star / bookmark center**.
 ```
 
-**Mini example — full chain (`n/a` before frame, `abnormal` off-center)**
+**Mini example — full chain (no before inject, `abnormal` off-center)**
 
 ```text
 Pointer:
-1 View vs before: n/a — no before frame for comparison.
-2 Intended aim on [Screen after action]: omnibox URL field; aim = field horizontal center.
-3 Evidence (hotspot vs aim): On [Screen after action]: synthetic pointer visible on URL bar **left** edge (off center). On [Zoom pointer after action]: same left-edge placement, **left** of **intended omnibox URL field horizontal-center**.
-4 Conclusion (Center-only rule): abnormal — pointer on **URL bar left edge**, not on **URL field horizontal-center**.
+1 Intended aim on [Screen after action] — first [CUR_SCREEN] in thread; [Screen before action] and [Zoom pointer before action] absent; newest [Recent desktop tool calls] row precision-clicked omnibox URL field; aim = field horizontal center.
+2 Evidence (hotspot vs aim): On [Screen after action]: synthetic pointer on URL bar **left** edge (off center). On [Zoom pointer after action]: same left-edge placement, **left** of **intended omnibox URL field horizontal-center**.
+3 Conclusion (Center-only rule): abnormal — pointer on **URL bar left edge**, not on **URL field horizontal-center**.
 ```
 
-**Mini example — full chain (`n/a`, target gone)**
+**Mini example — full chain (`abnormal` — geometry on before zoom; post-action modal irrelevant to Pointer)**
 
 ```text
 Pointer:
-1 View vs before: changed — On [Screen before action]: list with trash row; On [Screen after action]: full-window modal replaces list.
-2 Intended aim on [Screen after action]: trash icon on prior list row; aim = icon center.
-3 Evidence (hotspot vs aim): On [Screen after action]: prior list / trash icon region not visible; cannot place pointer hotspot against **intended trash icon center**.
-4 Conclusion (Center-only rule): n/a — **trash row / trash icon** not visible on **[Screen after action]**; cannot compare hotspot to **trash icon center aim**.
-```
-
-**Mini example — full chain (`n/a`, pointer invisible)**
-
-```text
-Pointer:
-1 View vs before: unchanged — On [Screen before action] and On [Screen after action]: same modal dialog chrome.
-2 Intended aim on [Screen after action]: primary button in modal dialog; aim = button center.
-3 Evidence (hotspot vs aim): On [Screen after action]: no visible synthetic **pointer** glyph over the dialog.
-4 Conclusion (Center-only rule): n/a — no **synthetic pointer** over modal; cannot verify hotspot vs **primary button center aim**.
+1 Intended aim on [Screen before action]: trash icon on list row; aim = icon center.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: pointer hotspot on **row label text**, **left** of trash icon disk, **not** over **trash icon center**.
+3 Conclusion (Center-only rule): abnormal — hotspot on **row label**, not **trash icon center** on **[Zoom pointer before action]**.
 ```
 
 **Mini example — full chain (`n/a`, tool has no pointer geometry)**
 
 ```text
 Pointer:
-1 View vs before: n/a — standalone wait turn; no new click aim on this frame.
-2 Intended aim on [Screen after action]: n/a — wait does not target a control center.
-3 Evidence (hotspot vs aim): On [Screen after action]: n/a — no pointer hotspot vs click center for this tool class.
-4 Conclusion (Center-only rule): n/a — Pointer not used for wait-only geometry.
+1 Intended aim on [Screen after action]: n/a — wait does not target a control center.
+2 Evidence (hotspot vs aim): On [Screen after action]: n/a — no pointer hotspot vs click center for this tool class.
+3 Conclusion (Center-only rule): n/a — Pointer not used for wait-only geometry.
 ```
 
 ---
@@ -248,159 +216,163 @@ Pointer:
 
 **Purpose:** Judge the **last automated step** using **Pointer** + before/after screens + grounded tool text — **only** if that step appears on **`[Recent desktop tool calls]`** (latest row). **Never** verify a step you only assume from the task narrative.
 
-**Last automated step (required grounding)** — Before **Visible evidence**, state **`Last automated step:`** — **quote** the **newest** **`[Recent desktop tool calls]`** row, or **`none — no prior desktop tool in this thread`**. **Outcome** judges **that** step only (see **Ground rules** — do not invent prior actions).
+**Last automated step (required grounding)** — Before **Clear evidence**, state **`Last automated step:`** — **quote** the **newest** **`[Recent desktop tool calls]`** row, or **`none — no prior desktop tool in this thread`**. The **lookup table** judges **that** step only (see **Ground rules** — do not invent prior actions).
 
-**Step A — Visible evidence:** **concrete visible outcome** · **`no visible outcome`**.
+**Analysis order (fixed)** — Fill **three inputs** in order, then **look up** **Step result** + **`Cause`**. **Do not** emit **`Outcome:`** in **`Verify:`** (**`Outcome:`** is **only** for **`Location:`** route lines).
 
-**Step B — Task type:** Pick **exactly** one — **`deferred`** · **`non-deferred`** (always add a **short reason** on the **`Task type:`** line).
+1. **Clear evidence** — **`supporting_evidence`** · **`contradicting_evidence`** · **`no_clear_evidence`**
+2. **Task type** — **`deferred`** · **`non-deferred`** (short reason on the line)
+3. **Mouse judgment** — **`non_mouse`** · **`mouse_miss`** · **`mouse_accurate`** (must match **`Pointer:`** **`3 Conclusion (Center-only rule)`**; see mapping below — **no** **`mouse_unknown`**)
+4. **Lookup** — **one** row in the **decision table** → **`Step result`** + **`Cause`**
 
-- **`deferred`** — Success/failure is **not** settled on **this** screenshot alone (download/upload/export/queue/sync/background work, or other off-screen proof). Same step can still be **`FAILED`** if the UI clearly shows the wrong action.
+**First turn (outside table):** **`Last automated step:`** = **`none — no prior desktop tool in this thread`** → **`Step result: n/a`** · omit **`Cause:`** — do **not** invent a prior step or **`pass`**.
 
-- **`non-deferred`** — Expect an **immediate on-canvas** change: dialog open/close, toggle, focus, tab switch, inline validation, scroll/viewport motion, new row, submit error/success on this view, etc.
+**1 — Clear evidence**
 
-**Deferred off-frame:** export/upload/queue/sync/save-to-disk/background jobs and similar may use **`deferred`** when proof is off-frame — but **`NFO`** applies **only** on **Branch F** below (**not** when **Branch B** applies). **Off-frame inspect** tools (per **§ Off-frame tools (rare)**) **only** after a **valid** on-frame trigger and **`NFO`** on **that** step — **never** after **Branch B** (re-aim the control first).
+| Value | When |
+|-------|------|
+| **`supporting_evidence`** | On-frame proof **supports** **Last automated step** intent (dialog opened, text appeared, batch progress **3/10**, save modal on canvas, etc.). |
+| **`contradicting_evidence`** | On-frame proof **contradicts** intent (wrong panel/app, error blocks goal, strong wrong-control cue). |
+| **`no_clear_evidence`** | **`no visible outcome`** on **`[Screen after action]`** for what the step should have changed. |
 
-**Step C — Outcome:** Use **Step A** + **Step B** + **`Pointer echo`** (must match **`Pointer:`** **`4 Conclusion (Center-only rule)`**). Walk the **branch tree top → bottom**; **stop at the first match**. Cite the branch letter on the **`Outcome:`** line.
+**2 — Task type**
 
-**Inputs (set before branching)**
+- **`deferred`** — Pass/fail **not** settled on this screenshot alone (download/upload/export/queue/sync/save-to-disk/background). **`pending`** only with **`no_clear_evidence`** + valid mouse judgment (not **`mouse_miss`**).
+- **`non-deferred`** — Expect an **immediate on-canvas** change (dialog, toggle, focus, validation, scroll, new row, submit feedback, etc.).
 
-| Factor | Source | Values / notes |
-|--------|--------|----------------|
-| **Last automated step** | **`[Recent desktop tool calls]`** newest row | What you judge; quote on **`Last automated step:`** line |
-| **Visible evidence** | Step A | **`concrete visible outcome`** \| **`no visible outcome`** |
-| **Task type** | Step B | **`deferred`** (off-frame / later proof) \| **`non-deferred`** (expect on-canvas change now) |
-| **Pointer echo** | Re-echo **`Pointer:`** | **`accurate`** \| **`abnormal`** \| **`n/a`** (hotkey / wait / no hotspot geometry) |
-| **Precision click?** | Last step tool | **`yes`** — **`mouse`/`composite_action`/`modified_click`** **index** or **`*_at`** aimed at **one** control center · **`no`** — hotkey, scroll, **`wait`**, etc. |
+**Off-frame inspect** (per **§ Off-frame tools (rare)**) — only after **`Step result: pending`** on a **valid** deferred trigger — **never** right after **`mouse_miss`** / **`precision_miss`** (re-aim first).
 
-**Branch tree (first match wins)**
+**3 — Mouse judgment** (from **`Pointer:`** + last tool)
 
-- **Branch A → `FAILED` (wrong operation on frame)**  
-  **If** **visible evidence** is **`concrete`** and **contradicts** what **Last automated step** claimed (wrong panel/dialog, error blocks intent, opened wrong app, etc.).  
-  **Or if** a **strong wrong-operation cue** is visible even when evidence is **`no visible outcome`** (e.g. clicked control clearly not the intended one on screen).  
-  **`Next:`** — different tactic; **do not** use **off-frame inspect** to excuse a visible miss.
+| Value | When |
+|-------|------|
+| **`non_mouse`** | Last step has **no** precision click geometry (**`hotkey`**, **`wait`**, **`scroll`**, …) — **`Pointer:`** **`n/a`**. |
+| **`mouse_miss`** | Precision click and **`Pointer:`** **`abnormal`** (hotspot vs center on **`[Zoom pointer before action]`** when present). |
+| **`mouse_accurate`** | Precision click and **`Pointer:`** **`accurate`**. Post-action UI change does **not** yield a fourth mouse label — use **before** for geometry. |
 
-- **Branch B → `FAILED` (precision click miss — blocks `NFO`)**  
-  **If** **Precision click?** = **`yes`** **and** **`Pointer echo`** = **`abnormal`**.  
-  Applies even when **Task type** = **`deferred`** and **Visible evidence** = **`no visible outcome`** (e.g. small icon missed — hotspot on adjacent label or row chrome instead of icon center).  
-  **Forbidden:** **`Outcome: NFO`** or **off-frame inspect** (per **§ Off-frame tools (rare)**) to “verify” a **deferred** step while **Branch B** applies — the click did **not** hit the intended control center.  
-  **`Next:`** — re-aim (new **`Location:`** / coordinates), **not** off-frame inspect first.
+**4 — Decision table (exactly one row)**
 
-- **Branch C → `VERIFIED`**  
-  **If** **Visible evidence** = **`concrete visible outcome`** **and** the outcome **fully** matches **Last automated step** intent **and** (**Precision click?** = **`no`** **or** **`Pointer echo`** = **`accurate`** or **`n/a`** with center not applicable).  
-  Do **not** use **`VERIFIED`** on **`deferred`** + **`no visible outcome`** alone (that is **Branch F** or **Branch B/E**).
+| **Clear evidence** | **Task type** | **Mouse judgment** | **Step result** | **Cause** |
+|--------------------|---------------|--------------------|-----------------|----------|
+| **`contradicting_evidence`** | either | **`mouse_miss`** | **`fail`** | **`precision_miss`** |
+| **`contradicting_evidence`** | either | **`mouse_accurate`** | **`fail`** | **`wrong_operation`** |
+| **`contradicting_evidence`** | either | **`non_mouse`** | **`fail`** | **`wrong_operation`** |
+| **`supporting_evidence`** | either | **`mouse_miss`** | **`fail`** | **`precision_miss`** |
+| **`supporting_evidence`** | either | **`mouse_accurate`** | **`pass`** | — |
+| **`supporting_evidence`** | either | **`non_mouse`** | **`pass`** | — |
+| **`no_clear_evidence`** | **`non-deferred`** | **`mouse_miss`** | **`fail`** | **`precision_miss`** |
+| **`no_clear_evidence`** | **`non-deferred`** | **`mouse_accurate`** | **`fail`** | **`no_immediate_feedback`** |
+| **`no_clear_evidence`** | **`non-deferred`** | **`non_mouse`** | **`fail`** | **`no_immediate_feedback`** |
+| **`no_clear_evidence`** | **`deferred`** | **`mouse_miss`** | **`fail`** | **`precision_miss`** |
+| **`no_clear_evidence`** | **`deferred`** | **`mouse_accurate`** | **`pending`** | **`off_frame_unverified`** |
+| **`no_clear_evidence`** | **`deferred`** | **`non_mouse`** | **`pending`** | **`off_frame_unverified`** |
 
-- **Branch D → `PARTIAL`**  
-  **If** **Visible evidence** = **`concrete visible outcome`** showing **clear forward progress** toward the step’s goal but the **full** scope is **not** met yet (e.g. 3/10 exported), **and** nothing contradicts intent (**not** Branch A).  
-  **Not** for **`no visible outcome`** — that is **Branch E/F**, not **`PARTIAL`**.
+**Rules**
 
-- **Branch E → `FAILED` (non-deferred, no change)**  
-  **If** **Visible evidence** = **`no visible outcome`** **and** **Task type** = **`non-deferred`**.  
-  The UI should have updated on this frame; unchanged canvas = step not verified.
+- **`wrong_operation`** only when the table row says so — requires **`mouse_accurate`** or **`non_mouse`** with **`contradicting_evidence`**, **never** **`mouse_miss`**.
+- **`pass`** = **this** **Last automated step** succeeded on evidence (**`supporting_evidence`** + not **`mouse_miss`**). **Overall** user task may still be incomplete — see **Full completion** before **`response`**.
+- **`pending`** only from the **three** **`deferred`** + **`no_clear_evidence`** rows — **never** when unsure; use **`no_immediate_feedback`** on **`non-deferred`**.
 
-- **Branch F → `NFO` (deferred, unverified — only branch for `NFO`)**  
-  **If** **Visible evidence** = **`no visible outcome`** **and** **Task type** = **`deferred`** **and** **Branch A** / **Branch B** did **not** apply (**`Pointer echo`** = **`accurate`** or **`n/a`**, not **`abnormal`** on a precision click).  
-  Cannot tell pass/fail from this screenshot alone; proof is elsewhere or later.  
-  **`Next:`** must **inspect** (**`wait`**, status/history surface, queue/folder view, **scroll** to reveal rows, or other **off-frame inspect** per **§ Off-frame tools (rare)** only when the last row documents a **valid** deferred trigger) — **no** repeating the **same** trigger until pass/fail is known.
+**After lookup:** **`Next:`** line 1 + **`Tool kind`** follow **§4 Verify → Next** for the same **`Step result`** / **`Cause`**.
 
-- **Branch G → `FAILED` (default)**  
-  **Else** → **`FAILED`** (conservative). **Do not** default to **`NFO`** when unsure.
-
-**Outcome map:** **`FAILED`** = A, B, E, G · **`VERIFIED`** = C · **`PARTIAL`** = D · **`NFO`** = F only.
-
-**`PARTIAL` vs `NFO`:** **`PARTIAL`** (**Branch D**) needs **concrete** partial proof on **`[Screen after action]`**; **`NFO`** (**Branch F**) is **`no visible outcome`** on **deferred** with **no** precision miss (**not** **Branch B**).
-
-**`PARTIAL` vs `VERIFIED`:** **`VERIFIED`** (**Branch C**) = step intent **complete** on evidence; **`PARTIAL`** = progress only — **`Next:`** continues until **`VERIFIED`** or **`FAILED`**. **`response`** must **not** claim the **overall** user task is done while **`Verify:`** stays **`PARTIAL`** (see **Full completion**).
 **Required form**
 
 ```text
 Verify:
 Last automated step: <newest [Recent desktop tool calls] row — tool:method — summary | none — no prior desktop tool in this thread>.
 Before vs after: <delta | same>.
-Visible evidence: <concrete | no visible outcome> — <cue>.
+Clear evidence: <supporting_evidence | contradicting_evidence | no_clear_evidence> — <one cue on [Screen after action] or before/after>.
 Task type: <deferred | non-deferred> — <reason>.
+Mouse judgment: <non_mouse | mouse_miss | mouse_accurate> — <must match Pointer 3 Conclusion; cite On [Zoom pointer before action]: when present for hotspot geometry>.
 Prior tool text (if any): <role only; no secrets>.
-Pointer echo: <accurate | abnormal | n/a> — <must agree with **`Pointer:`** **`4 Conclusion (Center-only rule)`**; when stating hotspot placement, prefix On [Screen after action]: or other bracketed inject used in **`Pointer:`** **line 3**>.
-Outcome: <VERIFIED | PARTIAL | NFO | FAILED> — Branch <A–G>.
+Step result: <pass | fail | pending | n/a>.
+Cause: <wrong_operation | precision_miss | no_immediate_feedback | off_frame_unverified — omit when pass; n/a when Step result is n/a>.
 ```
 
-**`Pointer echo`** — **One** line that **re-echoes** **`Pointer:`** **`4 Conclusion (Center-only rule)`** (label + reason). **Do not** contradict **`Pointer:`** **lines 1–3** or **`4 Conclusion (Center-only rule)`**; **do not** introduce **new** geometry not already on **`Pointer:`** **line 3**. When the echo mentions **where** the hotspot sits, use the **same** **bracketed frame** tags as **`Pointer:`** **line 3** (typically **`On [Screen after action]:`** first).
-
-**Mini examples — Step C rules**
+**Mini examples — lookup rows (+ anti-pattern)**
 
 ```text
 Verify:
-Before: export dialog. After: history dialog open instead. Concrete — wrong panel. non-deferred. Pointer echo: n/a — verdict driven by wrong panel, not hotspot geometry. Outcome: FAILED — Branch A.
+Last automated step: 2. mouse:click_index — Export in toolbar.
+Before vs after: History panel open instead of export flow. Clear evidence: contradicting_evidence — wrong panel vs export intent. Task type: non-deferred. Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on Export toolbar center.
+Step result: fail. Cause: wrong_operation.
 ```
 
 ```text
 Verify:
-After: same table row. no visible outcome. non-deferred — trash icon was target. Pointer echo: abnormal — On [Screen after action]: hotspot on row text left of trash icon vs icon-center aim. Outcome: FAILED — Branch B.
+Last automated step: 1. mouse:click_index — Export in toolbar.
+Before vs after: History panel open. Clear evidence: contradicting_evidence — wrong panel. Task type: non-deferred. Mouse judgment: mouse_miss — On [Zoom pointer before action]: hotspot on History chip, not Export center.
+Step result: fail. Cause: precision_miss (forbidden: wrong_operation).
 ```
 
-**Mini example — NFO after hotkey save (deferred, full form)**
+```text
+Verify:
+Clear evidence: no_clear_evidence — trash row unchanged. Task type: non-deferred. Mouse judgment: mouse_miss — On [Zoom pointer before action]: hotspot on row text, not trash icon center.
+Step result: fail. Cause: precision_miss.
+```
+
+**Mini example — pending after hotkey save (deferred, full form)**
 
 ```text
 Verify:
 Last automated step: 4. hotkey — Save document (Ctrl+S).
-Before vs after: same document canvas; title bar unchanged on frame.
-Visible evidence: no visible outcome — no “Saved” toast or disk indicator on canvas.
-Task type: deferred — persistence proof is off-frame or later frame.
-Pointer echo: n/a — hotkey step has no pointer hotspot geometry.
-Outcome: NFO — Branch F.
+Before vs after: same document canvas; no “Saved” toast on frame.
+Clear evidence: no_clear_evidence — persistence not visible on canvas.
+Task type: deferred — proof off-frame or later frame.
+Mouse judgment: non_mouse — hotkey; Pointer n/a.
+Step result: pending. Cause: off_frame_unverified.
 ```
 
-**Anti-pattern — deferred step + `Pointer echo: abnormal` → must not be `NFO`**
+**Anti-pattern — deferred + `mouse_miss` → must not be `pending`**
 
 ```text
 Verify:
 Last automated step: 3. mouse:click_index — download icon on attachment row.
 Before vs after: same list; no progress on canvas.
-Visible evidence: no visible outcome — save/queue proof may be off-frame if click hit control.
-Task type: deferred — file outcome not settled on this frame alone.
-Pointer echo: abnormal — On [Screen after action]: hotspot on attachment filename text, not download icon center.
-Outcome: FAILED — Branch B (forbidden: NFO + off-frame inspect while precision click missed).
+Clear evidence: no_clear_evidence. Task type: deferred. Mouse judgment: mouse_miss — On [Zoom pointer before action]: hotspot on filename text, not download icon center.
+Step result: fail. Cause: precision_miss (forbidden: pending).
 ```
 
 ```text
 Verify:
-Before: form with errors. After: same; Submit still enabled; no new message. no visible outcome. non-deferred — expect submit result. Pointer echo: accurate — On [Screen after action]: hotspot on Submit pill center. Outcome: FAILED — Branch E.
+Before vs after: same; Submit still enabled; no new message. Clear evidence: no_clear_evidence. Task type: non-deferred. Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on Submit pill center.
+Step result: fail. Cause: no_immediate_feedback.
 ```
 
 ```text
 Verify:
-Before: empty search field. After: field shows typed query. Concrete — text visible. non-deferred. Pointer echo: accurate — On [Screen after action]: hotspot on field center. Outcome: VERIFIED — Branch C.
+Before vs after: field shows typed query. Clear evidence: supporting_evidence — text visible. Task type: non-deferred. Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on field center.
+Step result: pass.
 ```
 
 ```text
 Verify:
-Before: export dialog lists 10 files. After: progress “3 of 10 complete”; seven rows still pending. Concrete — partial batch. non-deferred — multi-file export. Pointer echo: accurate — On [Screen after action]: hotspot on Export control center. Outcome: PARTIAL — Branch D.
+Before vs after: progress “3 of 10 complete”. Clear evidence: supporting_evidence — export batch progressing. Task type: non-deferred. Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on Export control center.
+Step result: pass.
 ```
 
 ```text
 Verify:
-After: subtle spinner started; main canvas unchanged; goal was “export finished”. no visible outcome. deferred — check queue. Pointer echo: accurate — On [Screen after action]: hotspot on Export control center. Outcome: NFO — Branch F.
+Before vs after: spinner started; main canvas unchanged. Clear evidence: no_clear_evidence. Task type: deferred — queue proof off-frame. Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on Export center.
+Step result: pending. Cause: off_frame_unverified.
 ```
 
 ```text
 Verify:
-After: same idle page; goal was “open sidebar”. no visible outcome. non-deferred. Pointer echo: n/a — On [Screen after action]: no new sidebar chrome vs intent. Outcome: FAILED — Branch G.
+Before vs after: same idle page; no new sidebar. Clear evidence: no_clear_evidence. Task type: non-deferred. Mouse judgment: mouse_miss — On [Zoom pointer before action]: hotspot on History chip, not sidebar toggle center (toggle visible on pre-action layout).
+Step result: fail. Cause: precision_miss.
 ```
 
-**Mini examples — evidence / task type (Step A / B)**
+**Mini example — save dialog after Ctrl+S (`supporting_evidence` + `pass`)**
 
 ```text
 Verify:
-Visible evidence: concrete — red banner text changed to a new error line. Task type: non-deferred — inline validation.
-```
-
-```text
-Verify:
-Visible evidence: no visible outcome — list tail unchanged after scroll attempt. Task type: non-deferred — viewport should move.
-```
-
-```text
-Verify:
-Task type: deferred — started upload; completion on progress URL or queue, not this frame.
+Last automated step: 3. hotkey — Save document (Ctrl+S).
+Before vs after: save modal appeared on canvas.
+Clear evidence: supporting_evidence — “Save changes?” dialog visible.
+Task type: non-deferred — dialog on canvas.
+Mouse judgment: non_mouse — hotkey turn.
+Step result: pass.
 ```
 
 ---
@@ -449,13 +421,22 @@ Rows: goal text differs last row vs prior. Screen: flat. OK — not same semanti
 
 **No speculative or procedural text in line 2** — **Do not** use **modal** qualifiers (**“might”**, **“probably”**, **“could be labeled”**) or **multi-phase** hunt language (**“locate … then identify”**, **“find the right row first”**, **“need to pick among …”**) in **line 2**. If nothing is **yet** uniquely nameable on the frame, **line 2** must describe a **preparatory** visible target for **this** turn’s **`Tool kind`** (**scroll** surface, **expand** chevron, **wait** region, etc.), or **`Tool kind`** must be **inspect-only** (**`wait`**, **`scroll`**, **`hotkey`**, per **§ Off-frame tools (rare)**) until a later turn can name a unique click target on **line 2**. **`Tool kind`** is the **tool class only** — **no** search narrative there either.
 
-**Branch (feeds line 1):** If **`Verify:`** was **`NFO`** → **line 1** must show **`Next:`** will **inspect** (**`wait`**, status/history tab, folder queue, **scroll** to reveal rows, etc.) — **not** repeat the same trigger first — **only** when **`Last automated step:`** named a **real** deferred step. If **`Verify:`** was **`PARTIAL`** → **line 1** must show **continuation** toward the **remaining** scope—**not** claiming the **full** user task is done in **`response`** until a later turn **`VERIFIED`** that scope.
+**Verify → Next (line 1 + Tool kind)** — After the **lookup table**, read **`Step result`** + **`Cause`**; **line 1** must restate them and follow the matching row below (no overlay digits).
+
+| **Step result** | **Cause** | **Next line 1 must…** | **Tool kind** (typical) |
+|-----------------|-----------|------------------------|-------------------------|
+| **`pass`** | — | Advance the **next** sub-goal toward the user task; may use **`response`** only if **Full completion** is met — **`pass`** on one step does not suffice alone. | **mouse** / **hotkey** / **composite_action** on visible target |
+| **`fail`** | **`wrong_operation`** | **Pivot** — different surface, panel, or tactic (**only** after geometry gate passed); **do not** off-frame inspect to excuse a visible miss. | Different visible control — **not** repeat same wrong path |
+| **`fail`** | **`precision_miss`** | **Re-aim** the **same** intent (**`Location:`** / coordinates); cite **`fail — precision_miss`**. | **mouse click** / **coordinates** — **not** off-frame inspect first |
+| **`fail`** | **`no_immediate_feedback`** | **Retry or unblock** — **`wait`**, **scroll**, alternate control, or second attempt; re-check **Task type** if canvas truly cannot show proof yet. | **`wait`** · **scroll** · **mouse click** |
+| **`pending`** | **`off_frame_unverified`** | **Inspect only** — **`wait`**, status/history, queue/folder, **scroll**; **no** repeating the **same** trigger until **`pass`** or **`fail`**. | **`wait`** · **scroll** · off-frame per **§ Off-frame tools (rare)** when earned |
+| **`n/a`** | — | First turn or no prior step — open task from user goal; **no** invented **`pass`**. | Per user task on visible UI |
 
 **Required form**
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: <verdict + short reason>; Repetition: <OK | …>; this turn: <one concrete advance — no overlay digits>.
+1 Prior stages & sub-goal: Verify: <Step result> — <Cause or short reason>; Repetition: <OK | …>; this turn: <one concrete advance — no overlay digits>.
 2 Target on [Screen after action]: <label or unlabeled icon; shape; color if needed; band/region; neighbors — visible on this frame only>.
 Tool kind: <e.g. mouse click | scroll | wait | hotkey | response — tool class only; no digits; no search narrative>.
 ```
@@ -464,7 +445,7 @@ Tool kind: <e.g. mouse click | scroll | wait | hotkey | response — tool class 
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: VERIFIED; Repetition: OK; this turn: open the intended personal chat from the sidebar.
+1 Prior stages & sub-goal: Verify: pass; Repetition: OK; this turn: open the intended personal chat from the sidebar.
 2 Target on [Screen after action]: locate a specific person’s thread — might be a personal chat; look for familiar avatar or name.
 Tool kind: mouse click — need to identify the right row first.
 ```
@@ -473,7 +454,7 @@ Tool kind: mouse click — need to identify the right row first.
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: VERIFIED; Repetition: OK; this turn: open one chat row by its on-screen title.
+1 Prior stages & sub-goal: Verify: pass; Repetition: OK; this turn: open one chat row by its on-screen title.
 2 Target on [Screen after action]: sidebar chat row whose **visible title text** matches the on-frame spelling (example: “Alice”); shape list row with avatar + title; band left chat list; neighbors: under the search field if visible.
 Tool kind: mouse click — no digits here.
 ```
@@ -484,16 +465,15 @@ Tool kind: mouse click — no digits here.
 
 ```text
 Pointer:
-1 View vs before: n/a — no before frame.
-2 Intended aim on [Screen after action]: WeChat dock icon; aim = icon center.
-3 Evidence (hotspot vs aim): On [Zoom bottom after action]: WeChat tile visible — (forbidden: no prior click to judge hotspot vs center).
-4 Conclusion (Center-only rule): n/a — invented “first step” rule (forbidden).
+1 Intended aim on [Screen after action]: WeChat dock icon; aim = icon center.
+2 Evidence (hotspot vs aim): On [Zoom bottom after action]: WeChat tile visible — (forbidden: no prior click to judge hotspot vs center).
+3 Conclusion (Center-only rule): n/a — invented “first step” rule (forbidden).
 
 Verify:
-Tool reply present. VERIFIED (read only) (forbidden format + no Last automated step line).
+Tool reply present. Step result: pass (forbidden format + no Last automated step line).
 
 Next:
-1 Prior stages & sub-goal: Verify: VERIFIED — user task complete (forbidden: WeChat not open; no [Recent desktop tool calls] row).
+1 Prior stages & sub-goal: Verify: pass — user task complete (forbidden: WeChat not open; no [Recent desktop tool calls] row).
 Tool kind: response (forbidden on first turn while app still closed).
 ```
 
@@ -501,18 +481,17 @@ Tool kind: response (forbidden on first turn while app still closed).
 
 ```text
 Pointer:
-1 View vs before: n/a — no before frame for comparison.
-2 Intended aim on [Screen after action]: n/a — no prior automated step to judge (no [Recent desktop tool calls] row).
-3 Evidence (hotspot vs aim): On [Screen after action]: n/a — no prior click hotspot to compare.
-4 Conclusion (Center-only rule): n/a — no last automated step in thread.
+1 Intended aim on [Screen after action]: n/a — no prior automated step to judge (no [Recent desktop tool calls] row).
+2 Evidence (hotspot vs aim): On [Screen after action]: n/a — no prior click hotspot to compare.
+3 Conclusion (Center-only rule): n/a — no last automated step in thread.
 
 Verify:
 Last automated step: none — no prior desktop tool in this thread.
 Before vs after: n/a — first capture baseline.
-Visible evidence: n/a — nothing to verify yet for a prior step.
+Clear evidence: n/a — no prior step.
 Task type: n/a — no prior step.
-Pointer echo: n/a — agrees with Pointer 4 Conclusion.
-Outcome: n/a — no prior step to judge (do not invent prior steps or VERIFIED read).
+Mouse judgment: n/a — agrees with Pointer 3 Conclusion.
+Step result: n/a — no prior step to judge (do not invent prior steps or pass).
 
 Next:
 1 Prior stages & sub-goal: Verify: n/a — no prior step; Repetition: OK; this turn: open WeChat from dock per user task.
@@ -522,28 +501,35 @@ Tool kind: mouse click — no digits here.
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: FAILED — inline email error; Repetition: OK; this turn: focus email field to correct address.
+1 Prior stages & sub-goal: Verify: fail — no_immediate_feedback; Repetition: OK; this turn: focus email field to correct address.
 2 Target on [Screen after action]: email text field with red outline; shape single-line input; band signup form stack; neighbors: under “Email” label, above password field.
 Tool kind: mouse click — no digits.
 ```
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: NFO — save deferred; Repetition: OK; this turn: pause for OS save indicator.
+1 Prior stages & sub-goal: Verify: fail — precision_miss; Repetition: OK; this turn: re-click download icon center on same attachment row.
+2 Target on [Screen after action]: unlabeled download glyph on attachment row; shape small square icon; band list row right; neighbors: filename text cell to the left of icon.
+Tool kind: mouse click — no digits.
+```
+
+```text
+Next:
+1 Prior stages & sub-goal: Verify: pending — off_frame_unverified; Repetition: OK; this turn: pause for OS save indicator.
 2 Target on [Screen after action]: n/a — no click target; allow repaint after Ctrl+S.
 Tool kind: wait — no digits.
 ```
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: PARTIAL — 3 of 10 files exported; Repetition: OK; this turn: scroll export list to expose remaining rows.
+1 Prior stages & sub-goal: Verify: pass — export batch progressing; Repetition: OK; this turn: scroll export list to expose remaining rows.
 2 Target on [Screen after action]: vertical scroll track on file list panel; shape narrow scrollbar; band center-right of export dialog; neighbors: bottom rows clip at panel edge.
 Tool kind: scroll — no digits.
 ```
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: VERIFIED last send; Repetition: OK; this turn: dismiss success snackbar.
+1 Prior stages & sub-goal: Verify: pass; Repetition: OK; this turn: dismiss success snackbar.
 2 Target on [Screen after action]: label “×” or short “Done” if visible; shape slim horizontal banner; color green emphasis; region top of page canvas; neighbors: below title/tabs strip, above main content.
 Tool kind: mouse click — no digits.
 ```
@@ -552,7 +538,7 @@ Tool kind: mouse click — no digits.
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: FAILED — error banner + Submit still present; Repetition: OK; this turn: retry submit from modal.
+1 Prior stages & sub-goal: Verify: fail — no_immediate_feedback; Repetition: OK; this turn: retry submit from modal.
 2 Target on [Screen after action]: label “Submit” or unlabeled gray pill; shape pill; color gray; region modal dialog center stack; neighbors: under password fields, full column width — not Cancel text link.
 Tool kind: mouse click — no digits.
 ```
@@ -769,7 +755,7 @@ Location:
 
 ```json
 {
-  "thoughts": "Pointer:\n1 View vs before: unchanged — On [Screen before action] and On [Screen after action]: same error banner + Submit modal stack.\n2 Intended aim on [Screen after action]: gray Submit pill in modal dialog center stack; aim = pill center.\n3 Evidence (hotspot vs aim): On [Screen after action]: synthetic pointer rests on gray Submit pill in modal stack with tip over pill interior. On [Zoom pointer after action]: hotspot overlaps Submit pill geometric center within minimal cursor-width tolerance vs **intended Submit pill center** — not on rim.\n4 Conclusion (Center-only rule): accurate — synthetic pointer overlaps **Submit pill geometric center**.\n\nVerify:\nBefore: error banner. After: banner + Submit unchanged. no visible outcome for submit done. non-deferred. Pointer echo: accurate — On [Screen after action]: hotspot on Submit pill center. FAILED\n\nRepetition:\nLast rows differ; not flat 4×. OK\n\nNext:\n1 Prior stages & sub-goal: Verify: FAILED — error banner + Submit still present; no visible submit success; Repetition: OK; this turn: retry primary Submit from modal.\n2 Target on [Screen after action]: label \"Submit\" or unlabeled gray pill; shape pill; color gray; region modal dialog center stack; neighbors: under password fields — not Cancel text link.\nTool kind: mouse click — no digits here.\n\nLocation:\n1 Placement→frame: On [Screen after action]: Submit pill in **central** modal form stack (not top/bottom OS chrome) → therefore analyze on **[Annotated after action]**. [Annotated after action] — target on overlay (paraphrase **Next** line 2): gray pill labeled Submit or unlabeled gray pill; shape pill; color gray; band modal dialog center stack; neighbors: under password fields, Cancel text link present in strip adjacent to footer actions; wrapping bbox: tall **green**-stroke card bbox covering full form stack under modal title; traits inside bbox: visible gray pill labeled Submit under password fields; neighbor strip includes Cancel text link; inventory: email field, password fields, Submit pill.\n2 On [Annotated after action] — target→bbox→index: (a) line 1 wrapping **bbox** border **green** (tall card / full form stack); (b) on frame, overlay digit **background** **green**, **only** flush-adjacent to that **green**-stroke card **bbox**; (c) **bbox** wraps line 1 Submit pill among form fields; **therefore** selected overlay index **6**.\n3 Exclusivity: inventory email field + password fields + Submit pill + Cancel link strip — wrap count **4**; **multiple**; route: **coordinate** path.\n4 Outcome: route **coordinate** path (line 3 **multiple**) — **coordinates** — (a) anchor: **[Zoom pointer after action]** — Submit pill under pointer on pointer zoom crop; (b) pill center vs synthetic pointer on that crop; (c) **therefore** aim (x, y) ≈ (…, …) in session scale per **Pointer position** — not overlay index **6** for click",
+  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: gray Submit pill in modal dialog center stack; aim = pill center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer tip over **Submit pill interior**, hotspot overlaps pill **geometric center** vs **intended Submit pill center** — not on rim.\n3 Conclusion (Center-only rule): accurate — hotspot overlaps **Submit pill geometric center** on **[Zoom pointer before action]**.\n\nVerify:\nBefore vs after: banner + Submit unchanged. Clear evidence: no_clear_evidence — submit not confirmed. Task type: non-deferred. Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on Submit pill center. Step result: fail. Cause: no_immediate_feedback.\n\nRepetition:\nLast rows differ; not flat 4×. OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — no_immediate_feedback; Repetition: OK; this turn: retry primary Submit from modal.\n2 Target on [Screen after action]: label \"Submit\" or unlabeled gray pill; shape pill; color gray; region modal dialog center stack; neighbors: under password fields — not Cancel text link.\nTool kind: mouse click — no digits here.\n\nLocation:\n1 Placement→frame: On [Screen after action]: Submit pill in **central** modal form stack (not top/bottom OS chrome) → therefore analyze on **[Annotated after action]**. [Annotated after action] — target on overlay (paraphrase **Next** line 2): gray pill labeled Submit or unlabeled gray pill; shape pill; color gray; band modal dialog center stack; neighbors: under password fields, Cancel text link present in strip adjacent to footer actions; wrapping bbox: tall **green**-stroke card bbox covering full form stack under modal title; traits inside bbox: visible gray pill labeled Submit under password fields; neighbor strip includes Cancel text link; inventory: email field, password fields, Submit pill.\n2 On [Annotated after action] — target→bbox→index: (a) line 1 wrapping **bbox** border **green** (tall card / full form stack); (b) on frame, overlay digit **background** **green**, **only** flush-adjacent to that **green**-stroke card **bbox**; (c) **bbox** wraps line 1 Submit pill among form fields; **therefore** selected overlay index **6**.\n3 Exclusivity: inventory email field + password fields + Submit pill + Cancel link strip — wrap count **4**; **multiple**; route: **coordinate** path.\n4 Outcome: route **coordinate** path (line 3 **multiple**) — **coordinates** — (a) anchor: **[Zoom pointer after action]** — Submit pill under pointer on pointer zoom crop; (b) pill center vs synthetic pointer on that crop; (c) **therefore** aim (x, y) ≈ (…, …) in session scale per **Pointer position** — not overlay index **6** for click",
   "headline": "Retry submit via coordinates",
   "tool_name": "mouse:click_at",
   "tool_args": {}
@@ -782,7 +768,7 @@ Example (**`hotkey`** — confirm save dialog, no screen point):
 
 ```json
 {
-  "thoughts": "Pointer:\n1 View vs before: changed — On [Screen before action]: document only; On [Screen after action]: modal “Save changes?” over document.\n2 Intended aim on [Screen after action]: n/a — prior hotkey Save aimed at document, not this dialog button.\n3 Evidence (hotspot vs aim): On [Screen after action]: n/a — judging keyboard confirm, not pointer vs dialog button center.\n4 Conclusion (Center-only rule): n/a — hotkey turn.\n\nVerify:\nLast automated step: 3. hotkey — Save document (Ctrl+S).\nBefore vs after: save modal appeared.\nVisible evidence: concrete — modal with Save / Don’t Save / Cancel.\nTask type: non-deferred — dialog is on canvas.\nPointer echo: n/a — agrees with Pointer 4 Conclusion.\nOutcome: PARTIAL — Branch D; must confirm save in dialog.\n\nRepetition:\nRows: differ. Screen: advanced. Verdict: OK\n\nNext:\n1 Prior stages & sub-goal: Verify: PARTIAL — save dialog open; Repetition: OK; this turn: confirm Save in dialog via keyboard.\n2 Target on [Screen after action]: n/a — default button focus; use keyboard confirm, not a new overlay pick.\nTool kind: hotkey — no digits here.",
+  "thoughts": "Pointer:\n1 Intended aim on [Screen after action]: n/a — prior hotkey Save aimed at document, not this dialog button.\n2 Evidence (hotspot vs aim): On [Screen after action]: n/a — judging keyboard confirm, not pointer vs dialog button center.\n3 Conclusion (Center-only rule): n/a — hotkey turn.\n\nVerify:\nLast automated step: 3. hotkey — Save document (Ctrl+S).\nBefore vs after: save modal appeared.\nClear evidence: supporting_evidence — modal with Save / Don’t Save / Cancel.\nTask type: non-deferred — dialog on canvas.\nMouse judgment: non_mouse — hotkey; Pointer n/a.\nStep result: pass.\n\nRepetition:\nRows: differ. Screen: advanced. Verdict: OK\n\nNext:\n1 Prior stages & sub-goal: Verify: pass — save dialog open; Repetition: OK; this turn: confirm Save in dialog via keyboard.\n2 Target on [Screen after action]: n/a — default button focus; use keyboard confirm, not a new overlay pick.\nTool kind: hotkey — no digits here.",
   "headline": "Confirm save in dialog",
   "tool_name": "hotkey",
   "tool_args": {}

@@ -1029,7 +1029,8 @@ ChatService::prepare_messages()
     ├─> vision_state.set_coordinate_system(Qwen)  ← coordinate system context
     │
     ├─> build_vision_messages(raw, annotated, zooms)
-    │   ├─> [Screen before action] (if exists)
+    │   ├─> [Screen before action] (if exists; prior unmarked + current pointer)
+    │   ├─> [Zoom pointer before action] (if exists; ±50px crop, 4× from before frame)
     │   ├─> [Screen after action]
     │   ├─> [Annotated after action]
     │   ├─> [Zoom top after action]

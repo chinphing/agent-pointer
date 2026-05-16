@@ -30,7 +30,7 @@ use coord::CoordinateSystem;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use screen_overlay::build_vision_overlay_pack;
+use screen_overlay::{build_before_action_inject, build_vision_overlay_pack};
 use vision_state::VisionState;
 
 /// Default annotation service URL.
@@ -57,8 +57,8 @@ pub struct ScreenCaptureResult {
     pub mouse_neighbor_reference_text: Option<String>,
     /// Logical monitor bounds for this capture.
     pub monitor: screen::MonitorInfo,
-    /// Previous turn’s **marked** raw JPEG (`None` on first capture in a session).
-    pub inject_previous_raw_jpeg: Option<Vec<u8>>,
+    /// **`[Screen before action]`** + **`[Zoom pointer before action]`** (`None` on first capture).
+    pub inject_before_action: Option<screen_overlay::BeforeActionInject>,
 }
 
 /// Per-conversation state for computer use tools.
@@ -84,7 +84,9 @@ pub enum SessionStatus {
 pub struct ComputerSession {
     pub vision_state: Arc<Mutex<VisionState>>,
     pub last_annotated: Option<(Vec<u8>, screen::MonitorInfo)>,
-    pub last_turn_raw_jpeg: Option<Vec<u8>>,
+    /// Prior turn’s **unmarked** capture JPEG (same input as annotate that turn).
+    pub last_turn_raw_jpeg_unmarked: Option<Vec<u8>>,
+    pub last_turn_monitor: Option<screen::MonitorInfo>,
     pub selected_monitor: Option<String>,
     pub created_at: u64,
     pub last_active_at: u64,
@@ -101,7 +103,8 @@ impl ComputerSession {
         Self {
             vision_state: Arc::new(Mutex::new(VisionState::new())),
             last_annotated: None,
-            last_turn_raw_jpeg: None,
+            last_turn_raw_jpeg_unmarked: None,
+            last_turn_monitor: None,
             selected_monitor: None,
             created_at: now,
             last_active_at: now,
@@ -261,7 +264,7 @@ impl ComputerState {
 
     /// Run annotation + vision refresh for an already-captured desktop JPEG (integration tests, tooling).
     ///
-    /// On success, stores `screen_capture` for use as the **previous** raw on the next inject.
+    /// On success, stores **unmarked** `screen_capture` for the next turn’s **`[Screen before action]`** inject.
     pub async fn apply_screen_capture(
         &self,
         conversation_id: &str,
@@ -274,9 +277,24 @@ impl ComputerState {
         let t_total = Instant::now();
 
         let session = self.get_or_create_session(conversation_id);
-        let inject_previous_raw_jpeg = {
+        let inject_before_action = {
             let s = session.lock().unwrap();
-            s.last_turn_raw_jpeg.clone()
+            match (
+                s.last_turn_raw_jpeg_unmarked.as_deref(),
+                s.last_turn_monitor.as_ref(),
+            ) {
+                (Some(jpeg), Some(mon)) => match build_before_action_inject(jpeg, mon, global_pointer) {
+                    Ok(pack) => Some(pack),
+                    Err(e) => {
+                        log::warn!(
+                            "apply_screen_capture: build before-action inject from prior unmarked failed: {:#}",
+                            e
+                        );
+                        None
+                    }
+                },
+                _ => None,
+            }
         };
 
         let t = Instant::now();
@@ -321,7 +339,8 @@ impl ComputerState {
 
         {
             let mut session = session.lock().unwrap();
-            session.last_turn_raw_jpeg = Some(pack.raw_marked_jpeg.clone());
+            session.last_turn_raw_jpeg_unmarked = Some(screen_capture.to_vec());
+            session.last_turn_monitor = Some(monitor);
             session.last_annotated = Some((pack.annotated_marked_png.clone(), monitor));
         }
 
@@ -343,7 +362,7 @@ impl ComputerState {
             zoom_pointer_png: pack.zoom_pointer_png,
             mouse_neighbor_reference_text,
             monitor,
-            inject_previous_raw_jpeg,
+            inject_before_action,
         })
     }
 

@@ -122,8 +122,9 @@ pub fn save_computer_capture_debug(
         }
     };
 
-    if let Some(prev) = &cap.inject_previous_raw_jpeg {
-        write_one("screen_before_action", "jpg", prev);
+    if let Some(prev) = &cap.inject_before_action {
+        write_one("screen_before_action", "jpg", &prev.screen_jpeg);
+        write_one("zoom_pointer_before_action", "png", &prev.zoom_pointer_png);
     }
     write_one(SLOT_SCREEN_AFTER_ACTION, "jpg", &cap.raw_marked_jpeg);
     write_one("annotated", "png", &cap.annotated_marked_png);

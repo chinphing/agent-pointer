@@ -13,7 +13,7 @@ use imageproc::point::Point;
 use std::io::Cursor;
 use std::sync::OnceLock;
 
-/// Full screenshot from the **prior** observation (unindexed; pointer/caret may be drawn) — desktop state before the latest actions.
+/// Full screenshot from the **prior** observation: **unmarked** capture from the previous turn with the **current** synthetic pointer drawn on it (pre-action desktop layout; pointer shows where the cursor is **now**).
 pub const SLOT_SCREEN_BEFORE_ACTION: &str = "[Screen before action]";
 /// Full screenshot from **this** observation (unindexed; pointer/caret may be drawn) — desktop state after those actions.
 pub const SLOT_SCREEN_AFTER_ACTION: &str = "[Screen after action]";
@@ -25,10 +25,21 @@ pub const SLOT_SCREEN_ZOOMED_TOP: &str = "[Zoom top after action]";
 pub const SLOT_SCREEN_ZOOMED_BOTTOM: &str = "[Zoom bottom after action]";
 /// Pointer vicinity patch (after-action annotated frame).
 pub const SLOT_SCREEN_ZOOMED_POINTER: &str = "[Zoom pointer after action]";
+/// **4×** magnified **100×100 px** crop (±**50 px** radius) around the pointer on **`[Screen before action]`** — **authoritative** for **`Pointer:`** hotspot geometry.
+pub const SLOT_SCREEN_ZOOMED_POINTER_BEFORE: &str = "[Zoom pointer before action]";
 
 const ZOOM_MENU_H: u32 = 100;
 const ZOOM_TASK_H: u32 = 100;
 const ZOOM_POINTER_SIDE: u32 = 300;
+
+/// Half-width of the before-action pointer zoom crop in **capture pixels** (full crop = **2 × radius**).
+pub const BEFORE_POINTER_ZOOM_RADIUS_PX: u32 = 50;
+/// Crop side length on **`[Screen before action]`** before magnification.
+pub const BEFORE_POINTER_ZOOM_CROP_SIDE: u32 = BEFORE_POINTER_ZOOM_RADIUS_PX * 2;
+/// Nearest-neighbor upscale applied to the before-action pointer crop.
+pub const BEFORE_POINTER_ZOOM_FACTOR: u32 = 4;
+
+const ACCENT_POINTER_BEFORE: Rgba<u8> = Rgba([160, 80, 220, 255]);
 
 /// Raster size / hotspot — matches Python `screen_overlay.py` (`_CURSOR_SIZE`, `_CURSOR_HOTSPOT`).
 const POINTER_CURSOR_SIZE: u32 = 32;
@@ -420,6 +431,64 @@ pub fn build_vision_overlay_pack(
     })
 }
 
+/// Assets for **`[Screen before action]`** + **`[Zoom pointer before action]`** inject slots.
+#[derive(Debug, Clone)]
+pub struct BeforeActionInject {
+    /// Full-frame marked JPEG (`[Screen before action]`).
+    pub screen_jpeg: Vec<u8>,
+    /// **4×** magnified pointer crop PNG (`[Zoom pointer before action]`).
+    pub zoom_pointer_png: Vec<u8>,
+}
+
+fn magnify_nearest(img: &RgbaImage, factor: u32) -> RgbaImage {
+    if factor <= 1 {
+        return img.clone();
+    }
+    let nw = img.width().saturating_mul(factor);
+    let nh = img.height().saturating_mul(factor);
+    image::imageops::resize(img, nw, nh, image::imageops::FilterType::Nearest)
+}
+
+/// Build before-action inject: prior turn’s **unmarked** JPEG + **current** pointer, plus a **±50 px** crop magnified **4×** for geometry.
+///
+/// `prior_monitor` must be the monitor bounds from when `prior_raw_jpeg_unmarked` was captured.
+pub fn build_before_action_inject(
+    prior_raw_jpeg_unmarked: &[u8],
+    prior_monitor: &MonitorInfo,
+    current_global_pointer: (i32, i32),
+) -> Result<BeforeActionInject> {
+    let mut raw_rgba = decode_jpeg_to_rgba(prior_raw_jpeg_unmarked)?;
+    let (w, h) = (raw_rgba.width(), raw_rgba.height());
+    let (mx, my) = local_on_monitor(current_global_pointer.0, current_global_pointer.1, prior_monitor);
+    let mouse = overlay_position_if_inside(mx, my, w, h);
+    apply_pointer_and_caret_overlays(&mut raw_rgba, None, mouse);
+
+    let zmx = mx.clamp(0, w.saturating_sub(1) as i32);
+    let zmy = my.clamp(0, h.saturating_sub(1) as i32);
+    let mut zoom_crop = crop_square_around(&raw_rgba, zmx, zmy, BEFORE_POINTER_ZOOM_CROP_SIDE);
+    zoom_crop = magnify_nearest(&zoom_crop, BEFORE_POINTER_ZOOM_FACTOR);
+    tint_zoom_border(&mut zoom_crop, ACCENT_POINTER_BEFORE, ZoomBorderMode::LeftAccent);
+
+    Ok(BeforeActionInject {
+        screen_jpeg: screen::rgba_to_jpeg_bytes(raw_rgba, screen::SCREENSHOT_JPEG_QUALITY)?,
+        zoom_pointer_png: rgba_to_png_bytes(&zoom_crop)?,
+    })
+}
+
+/// Back-compat helper: full-frame only (tests).
+pub fn build_before_action_raw_jpeg(
+    prior_raw_jpeg_unmarked: &[u8],
+    prior_monitor: &MonitorInfo,
+    current_global_pointer: (i32, i32),
+) -> Result<Vec<u8>> {
+    Ok(build_before_action_inject(
+        prior_raw_jpeg_unmarked,
+        prior_monitor,
+        current_global_pointer,
+    )?
+    .screen_jpeg)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,5 +513,27 @@ mod tests {
         let c = pointer_cursor_rgba();
         assert_eq!(c.dimensions(), (POINTER_CURSOR_SIZE, POINTER_CURSOR_SIZE));
         assert!(c.get_pixel(3, 2)[3] > 200);
+    }
+
+    #[test]
+    fn before_action_draws_current_pointer_on_prior_unmarked() {
+        let monitor = MonitorInfo::new(0, 0, 32, 32);
+        let prior = RgbaImage::from_pixel(32, 32, Rgba([40, 80, 120, 255]));
+        let jpeg_prior = screen::rgba_to_jpeg_bytes(prior.clone(), screen::SCREENSHOT_JPEG_QUALITY).unwrap();
+        let out = build_before_action_raw_jpeg(&jpeg_prior, &monitor, (16, 16)).unwrap();
+        let marked = decode_jpeg_to_rgba(&out).unwrap();
+        let unmarked = decode_jpeg_to_rgba(&jpeg_prior).unwrap();
+        assert_ne!(marked.get_pixel(16, 16), unmarked.get_pixel(16, 16));
+    }
+
+    #[test]
+    fn before_action_zoom_is_4x_crop_side() {
+        let monitor = MonitorInfo::new(0, 0, 200, 200);
+        let prior = RgbaImage::from_pixel(200, 200, Rgba([40, 80, 120, 255]));
+        let jpeg_prior = screen::rgba_to_jpeg_bytes(prior, screen::SCREENSHOT_JPEG_QUALITY).unwrap();
+        let pack = build_before_action_inject(&jpeg_prior, &monitor, (100, 100)).unwrap();
+        let zoom = decode_png_to_rgba(&pack.zoom_pointer_png).unwrap();
+        assert_eq!(zoom.width(), BEFORE_POINTER_ZOOM_CROP_SIDE * BEFORE_POINTER_ZOOM_FACTOR);
+        assert_eq!(zoom.height(), BEFORE_POINTER_ZOOM_CROP_SIDE * BEFORE_POINTER_ZOOM_FACTOR);
     }
 }

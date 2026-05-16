@@ -3,12 +3,14 @@
 Ordered images under **`[CUR_SCREEN]`** (slot names in the first line).
 Older desktop turns are stripped—use **only** this inject.
 
+**Order when a prior turn exists:** **`[Screen before action]`** → **`[Zoom pointer before action]`** → **`[Screen after action]`** → **`[Annotated after action]`** → **`[Zoom top after action]`** → **`[Zoom bottom after action]`** → **`[Zoom pointer after action]`**. First capture in a thread omits the two **before** slots.
+
 ### Full-screen
 
-- **`[Screen before action]`** (if present) — desktop **before** the last automated step;
-  with **`[Screen after action]`** compare windows, focus, typed text, scroll.
+- **`[Screen before action]`** (if present) — **previous** turn’s unmarked capture with the **current** synthetic pointer:
+  **pre-action** desktop layout. Name **Intended aim** on this frame in **`Pointer:`** line **1**; hotspot geometry uses **`[Zoom pointer before action]`** (see **Zooms**). **UI change** vs after → **`Verify:`** **`Before vs after`** only, not **`Pointer:`**.
 
-- **`[Screen after action]`** — **after** that step; layout truth + synthetic pointer/caret.
+- **`[Screen after action]`** — **after** that step; full-screen layout truth + synthetic pointer/caret.
   In **internal** stages **1–4** (**`Pointer:`** / **`Verify:`** / **`Repetition:`** / **`Next:`**), must **not** name overlay digits,
   **`index`**, or “bbox N”; describe targets from this full-screen frame only.
   **`index`** is allowed **only** in **internal** stage **5** (**`Location:`**).
@@ -38,15 +40,19 @@ Older desktop turns are stripped—use **only** this inject.
   If several digits are plausible, prefer the one **on** the intended control;
   if one **bbox** spans **multiple** controls or none fits, use **coordinates** per the inject’s scale instead.
 
-### Zooms (after-action crops)
+### Zooms (crops — not full-screen)
 
-All zooms align with **`[Screen after action]`** / **`[Annotated after action]`**,
-not the before frame.
+**Before-action** (if present; sourced from **`[Screen before action]`**):
+
+- **`[Zoom pointer before action]`** — **4×** magnified **100×100 px** crop (**±50 px** radius around the pointer), with the **synthetic pointer always drawn** on the crop.
+  **`Pointer:`** / **`Verify:`** mouse geometry uses this image as the **standard** (hotspot vs intended center). **Do not** use “pointer not visible” as **`n/a`** when this slot is present.
+
+**After-action** (same moment as **`[Screen after action]`** / **`[Annotated after action]`**):
 
 - **`[Zoom top after action]`** — top strip (menu bar / title): small chrome, app name, top-edge controls.
 - **`[Zoom bottom after action]`** — bottom strip (dock / taskbar): launcher icons, status UI.
-- **`[Zoom pointer after action]`** — patch around pointer at capture;
-  prefer for what is under the cursor and fine detail there.
+- **`[Zoom pointer after action]`** — **300×300 px** annotated patch around pointer at capture;
+  prefer for coordinate **`*_at`** layout and fine detail under the cursor.
 
 In **`Location:`**, **first** state **placement / bearing** on **`[Screen after action]`** (**top / bottom / near pointer / central** from **`Next:`** line 2 band), **then** **`therefore analyze on [Zoom … | Annotated …]`** — **then** **`bbox` → `index`**. Do **not** skip bearing and pick a frame by habit.
 

@@ -8,8 +8,10 @@
 use crate::agents::computer::capture_debug;
 use crate::agents::computer::screen;
 use crate::agents::computer::screen_overlay::{
+    BEFORE_POINTER_ZOOM_CROP_SIDE, BEFORE_POINTER_ZOOM_FACTOR, BEFORE_POINTER_ZOOM_RADIUS_PX,
     SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED, SLOT_SCREEN_BEFORE_ACTION,
-    SLOT_SCREEN_ZOOMED_BOTTOM, SLOT_SCREEN_ZOOMED_POINTER, SLOT_SCREEN_ZOOMED_TOP,
+    SLOT_SCREEN_ZOOMED_BOTTOM, SLOT_SCREEN_ZOOMED_POINTER, SLOT_SCREEN_ZOOMED_POINTER_BEFORE,
+    SLOT_SCREEN_ZOOMED_TOP,
 };
 use crate::agents::computer::ScreenCaptureResult;
 use crate::agents::AgentProfile;
@@ -47,17 +49,34 @@ pub(crate) fn strip_images_from_prior_messages(messages: &mut [ChatMessage]) {
 }
 
 fn build_cur_screen_text(has_previous_raw: bool) -> String {
-    let tail = "[Annotated after action] carries overlay index numbers (not shown on [Screen before action]). [Zoom top after action], [Zoom bottom after action], and [Zoom pointer after action] magnify that same after-action view. A pointer and text caret may be drawn on full-screen captures and on the annotated image. When the next block begins with **Pointer position**, it gives the synthetic pointer in **capture pixels** and (for coordinate tools) **normalized 0–1000** on the full capture. **Pointer coordinate anchor** tells you to use **`[Zoom pointer after action]`** — the **300×300 px** annotated crop centered on that position — as the visual anchor for **coordinate-based** `*_at` calls (read layout on that image, map to session x/y via **Pointer position**).";
+    let zoom_before = if has_previous_raw {
+        format!(
+            " {SLOT_SCREEN_ZOOMED_POINTER_BEFORE} is a **{factor}×** magnified **{crop}×{crop} px** crop (±{radius} px radius around the pointer) from **[Screen before action]** — use it as the **standard** for **Pointer:** hotspot-vs-center geometry.",
+            factor = BEFORE_POINTER_ZOOM_FACTOR,
+            crop = BEFORE_POINTER_ZOOM_CROP_SIDE,
+            radius = BEFORE_POINTER_ZOOM_RADIUS_PX,
+        )
+    } else {
+        String::new()
+    };
+    let before_line = if has_previous_raw {
+        "[Screen before action] is the **previous** turn’s unmarked full-screen capture with the **current** synthetic pointer — desktop layout **before** the last automated step."
+    } else {
+        ""
+    };
+    let tail = format!(
+        "{before_line}{zoom_before} [Annotated after action] carries overlay index numbers. [Zoom top after action], [Zoom bottom after action], and [Zoom pointer after action] magnify the **after-action** annotated view. A pointer and text caret may be drawn on [Screen after action] and on the annotated image. When the next block begins with **Pointer position**, it gives the synthetic pointer in **capture pixels** and (for coordinate tools) **normalized 0–1000** on the full capture. **Pointer coordinate anchor** tells you to use **`[Zoom pointer after action]`** — the **300×300 px** annotated crop centered on that position — as the visual anchor for **coordinate-based** `*_at` calls (read layout on that image, map to session x/y via **Pointer position**)."
+    );
     let hint = if has_previous_raw {
         format!(
-            "Compare [Screen before action] to [Screen after action] to see what changed since the last step; {tail}"
+            "Compare [Screen before action] to [Screen after action] for task-relevant UI change; judge pointer hotspot vs intended center on {SLOT_SCREEN_ZOOMED_POINTER_BEFORE} when present; {tail}"
         )
     } else {
         format!("[Screen after action] is the current full-screen capture; {tail}")
     };
     let order = if has_previous_raw {
         format!(
-            "Order: (1) {SLOT_SCREEN_BEFORE_ACTION} (2) {SLOT_SCREEN_AFTER_ACTION} (3) {SLOT_SCREEN_ANNOTATED} (4) {SLOT_SCREEN_ZOOMED_TOP} (5) {SLOT_SCREEN_ZOOMED_BOTTOM} (6) {SLOT_SCREEN_ZOOMED_POINTER}. {hint}"
+            "Order: (1) {SLOT_SCREEN_BEFORE_ACTION} (2) {SLOT_SCREEN_ZOOMED_POINTER_BEFORE} (3) {SLOT_SCREEN_AFTER_ACTION} (4) {SLOT_SCREEN_ANNOTATED} (5) {SLOT_SCREEN_ZOOMED_TOP} (6) {SLOT_SCREEN_ZOOMED_BOTTOM} (7) {SLOT_SCREEN_ZOOMED_POINTER}. {hint}"
         )
     } else {
         format!(
@@ -68,9 +87,10 @@ fn build_cur_screen_text(has_previous_raw: bool) -> String {
 }
 
 fn assemble_cur_screen_base64(cap: &ScreenCaptureResult) -> Vec<String> {
-    let mut out = Vec::with_capacity(6);
-    if let Some(p) = &cap.inject_previous_raw_jpeg {
-        out.push(screen::encode_image_to_base64(p));
+    let mut out = Vec::with_capacity(7);
+    if let Some(before) = &cap.inject_before_action {
+        out.push(screen::encode_image_to_base64(&before.screen_jpeg));
+        out.push(screen::encode_image_to_base64(&before.zoom_pointer_png));
     }
     out.push(screen::encode_image_to_base64(&cap.raw_marked_jpeg));
     out.push(screen::encode_image_to_base64(&cap.annotated_marked_png));
@@ -154,7 +174,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     "【桌面】已更新当前画面（原图/标注/放大）。".to_string(),
                 );
                 strip_images_from_prior_messages(ctx.messages.as_mut_slice());
-                let has_previous_raw = cap.inject_previous_raw_jpeg.is_some();
+                let has_previous_raw = cap.inject_before_action.is_some();
                 let images = assemble_cur_screen_base64(&cap);
                 let mut text = cur_screen_clock_prefix();
                 text.push_str(&build_cur_screen_text(has_previous_raw));
@@ -290,5 +310,13 @@ mod tests {
         let t = build_cur_screen_text(false);
         assert!(t.contains(SLOT_SCREEN_AFTER_ACTION));
         assert!(t.contains(SLOT_SCREEN_ZOOMED_POINTER));
+        assert!(!t.contains(&format!("(2) {SLOT_SCREEN_ZOOMED_POINTER_BEFORE}")));
+    }
+
+    #[test]
+    fn legend_lists_before_zoom_when_prev() {
+        let t = build_cur_screen_text(true);
+        assert!(t.contains(SLOT_SCREEN_ZOOMED_POINTER_BEFORE));
+        assert!(t.contains(SLOT_SCREEN_BEFORE_ACTION));
     }
 }

@@ -1,34 +1,14 @@
-//! Nearest annotated regions to the pointer as **coordinate-method** anchor text
-//! (aligned with PyProjects `_10_computer_screen_inject.py` `reference_bbox_text`).
+//! **Pointer position** numeric line and **`[Zoom pointer after action]`** anchor prose for `[CUR_SCREEN]`.
+//! Coordinate-based tools use the pointer zoom crop as the visual anchor (not a separate bbox text list).
 
-use super::annotate::BoxInfo;
 use super::coord::CoordinateSystem;
 use super::screen::MonitorInfo;
 
-/// Same side length as `[Zoom pointer after action]` (`screen_overlay::ZOOM_POINTER_SIDE`): only
-/// boxes whose **center** lies in this axis-aligned square (in capture pixels) enter the distance sort.
-const POINTER_VICINITY_SIDE_PX: f32 = 300.0;
+/// Same side length as `[Zoom pointer after action]` (`screen_overlay::ZOOM_POINTER_SIDE`).
+pub const POINTER_VICINITY_SIDE_PX: f32 = 300.0;
 
-/// Count of overlay regions nearest the pointer to list as bbox anchors (PyProjects used 4; we use 5).
-const NEAREST_MOUSE_REFERENCE_BOXES: usize = 5;
+const ZOOM_POINTER_ANCHOR: &str = "**Pointer coordinate anchor:** Use the attached **`[Zoom pointer after action]`** image — the **300×300 px** annotated crop centered on **Pointer position** above (overlay digits and **bbox** border colors match **`[Annotated after action]`**). For **coordinate-based** `*_at` calls, read the **line 1** sub-target’s placement **on that crop** relative to the synthetic pointer hotspot, then map to session **(x, y)** using the **Pointer position** line (full-capture space). Do **not** treat overlay **`index`** on this crop as a click target when the **bbox** wraps multiple controls. If the sub-target is **not visible** inside **`[Zoom pointer after action]`**, anchor from **`[Screen after action]`** or the **`Location:`** line 1 overlay frame instead — still derive **(x, y)** from visible layout, not from memory.";
 
-#[inline]
-fn half_vicinity() -> f32 {
-    POINTER_VICINITY_SIDE_PX / 2.0
-}
-
-/// True if the box center lies in the `POINTER_VICINITY_SIDE_PX` square centered on `(mx, my)` (capture space).
-fn box_center_in_pointer_vicinity(b: &BoxInfo, mx: f32, my: f32) -> bool {
-    let (cx, cy) = b.center();
-    let h = half_vicinity();
-    (cx - mx).abs() <= h && (cy - my).abs() <= h
-}
-
-/// When no overlay center falls in the pointer window, still inject guidance: model may aim
-/// directly without bbox anchors (no global fallback to distant boxes).
-const NO_VICINITY_ANCHORS: &str = "**Pointer neighbor reference bboxes:** None — no annotated overlay **center** lies in the **300×300 px** capture window centered on the **Pointer position** above. Aim **directly** at the visible control with coordinate-based methods; a listed bbox anchor is **not** required. Refine **x**/**y** across turns to move **closer** even without a neighbor anchor row.";
-
-/// Opening line for `[CUR_SCREEN]` — always paired with **Pointer neighbor reference bboxes** (same capture geometry).
 fn format_pointer_position_line(
     mouse_bx: f32,
     mouse_by: f32,
@@ -41,29 +21,24 @@ fn format_pointer_position_line(
             let nx = (mouse_bx / cw) * 1000.0;
             let ny = (mouse_by / ch) * 1000.0;
             format!(
-                "**Pointer position** (same **full capture** as **`[Screen after action]`** / **`[Annotated after action]`**, origin top-left): **capture pixels** (x, y) ≈ ({:.0}, {:.0}); **normalized (x, y)** ≈ ({:.1}, {:.1}) on **0–1000** (same numeric space as coordinate-based `mouse` / `composite_action` / `modified_click` this session). The neighbor anchor list below is sorted by distance from this point.",
+                "**Pointer position** (same **full capture** as **`[Screen after action]`** / **`[Annotated after action]`**, origin top-left): **capture pixels** (x, y) ≈ ({:.0}, {:.0}); **normalized (x, y)** ≈ ({:.1}, {:.1}) on **0–1000** (same numeric space as coordinate-based `mouse` / `composite_action` / `modified_click` this session). **`[Zoom pointer after action]`** is the **300×300 px** crop centered on this point.",
                 mouse_bx, mouse_by, nx, ny
             )
         }
         CoordinateSystem::Pixel => format!(
-            "**Pointer position** (capture pixels, origin top-left, same as **`[Screen after action]`**): (x, y) ≈ ({:.0}, {:.0}). Neighbor anchors below use the same pixel space as `*_at` tools.",
+            "**Pointer position** (capture pixels, origin top-left, same as **`[Screen after action]`**): (x, y) ≈ ({:.0}, {:.0}). **`[Zoom pointer after action]`** is the **300×300 px** crop centered on this point.",
             mouse_bx, mouse_by
         ),
     }
 }
 
-/// Prose block for `[CUR_SCREEN]` when overlay boxes exist and the pointer lies inside the capture:
-/// **Pointer position** line plus **Pointer neighbor reference bboxes** (or the no-anchor paragraph).
-pub fn format_mouse_neighbor_reference_bboxes(
-    boxes: &[BoxInfo],
+/// Prose block appended after `[CUR_SCREEN]` slot order: **Pointer position** + **Zoom pointer** coordinate-anchor guidance.
+pub fn format_pointer_coordinate_anchor(
     monitor: &MonitorInfo,
     capture_px: (u32, u32),
     global_pointer: (i32, i32),
     coord: CoordinateSystem,
 ) -> Option<String> {
-    if boxes.is_empty() {
-        return None;
-    }
     let cw = capture_px.0.max(1) as f32;
     let ch = capture_px.1.max(1) as f32;
     let mw = monitor.width.max(1) as f32;
@@ -82,81 +57,18 @@ pub fn format_mouse_neighbor_reference_bboxes(
     }
 
     let pointer_line = format_pointer_position_line(mouse_bx, mouse_by, cw, ch, coord);
-
-    let in_v: Vec<&BoxInfo> = boxes
-        .iter()
-        .filter(|b| box_center_in_pointer_vicinity(b, mouse_bx, mouse_by))
-        .collect();
-
-    if in_v.is_empty() {
-        return Some(format!("{pointer_line}\n\n{NO_VICINITY_ANCHORS}"));
-    }
-
-    let mut scored: Vec<(f32, &BoxInfo)> = in_v
-        .iter()
-        .copied()
-        .map(|b| {
-            let (cx, cy) = b.center();
-            let dx = cx - mouse_bx;
-            let dy = cy - mouse_by;
-            (dx * dx + dy * dy, b)
-        })
-        .collect();
-    scored.sort_by(|a, b| a.0.total_cmp(&b.0));
-
-    let mut picked: Vec<&BoxInfo> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for (_, b) in scored {
-        if seen.insert(b.index) && picked.len() < NEAREST_MOUSE_REFERENCE_BOXES {
-            picked.push(b);
-        }
-    }
-    if picked.is_empty() {
-        return None;
-    }
-
-    let parts: Vec<String> = picked.iter().map(|b| format_box(b, cw, ch, coord)).collect();
-
-    let range_hint = match coord {
-        CoordinateSystem::Qwen | CoordinateSystem::Kimi => {
-            "**left**/**top**/**right**/**bottom** are **0–1000** normalized on the **full capture** (same numeric space as `x`/`y` for coordinate-based `mouse` / `composite_action` / `modified_click` methods this session). Use only as nearby anchors for **coordinate** calls — not as overlay-`index` click targets."
-        }
-        CoordinateSystem::Pixel => {
-            "**left**/**top**/**right**/**bottom** are **screenshot pixel** coords (origin top-left), same as `x`/`y` for `*_at` methods. Anchors only — not overlay indices."
-        }
-    };
-
-    Some(format!(
-        "{pointer_line}\n\n**Pointer neighbor reference bboxes** ({} nearest by pointer–center distance among overlays whose **center** lies in the **{}×{} px** capture window centered on the **Pointer position** above; same geometry as **`[Annotated after action]`**): {}; {}",
-        picked.len(),
-        POINTER_VICINITY_SIDE_PX as i32,
-        POINTER_VICINITY_SIDE_PX as i32,
-        parts.join("; "),
-        range_hint
-    ))
+    Some(format!("{pointer_line}\n\n{ZOOM_POINTER_ANCHOR}"))
 }
 
-fn format_box(b: &BoxInfo, cw: f32, ch: f32, coord: CoordinateSystem) -> String {
-    let x1 = b.x;
-    let y1 = b.y;
-    let x2 = b.x + b.width;
-    let y2 = b.y + b.height;
-    match coord {
-        CoordinateSystem::Qwen | CoordinateSystem::Kimi => {
-            let nx1 = (x1 / cw) * 1000.0;
-            let ny1 = (y1 / ch) * 1000.0;
-            let nx2 = (x2 / cw) * 1000.0;
-            let ny2 = (y2 / ch) * 1000.0;
-            format!(
-                "overlay index {} (left,top,right,bottom)=({:.1},{:.1},{:.1},{:.1})",
-                b.index, nx1, ny1, nx2, ny2
-            )
-        }
-        CoordinateSystem::Pixel => format!(
-            "overlay index {} (left,top,right,bottom)=({:.0},{:.0},{:.0},{:.0})",
-            b.index, x1, y1, x2, y2
-        ),
-    }
+/// Back-compat alias (call sites may still use the old name).
+pub fn format_mouse_neighbor_reference_bboxes(
+    _boxes: &[super::annotate::BoxInfo],
+    monitor: &MonitorInfo,
+    capture_px: (u32, u32),
+    global_pointer: (i32, i32),
+    coord: CoordinateSystem,
+) -> Option<String> {
+    format_pointer_coordinate_anchor(monitor, capture_px, global_pointer, coord)
 }
 
 #[cfg(test)]
@@ -164,72 +76,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn picks_nearest_by_center_distance() {
+    fn injects_pointer_position_and_zoom_anchor() {
         let monitor = MonitorInfo::new(0, 0, 1000, 1000);
-        let capture_px = (1000, 1000);
-        let pointer = (500, 500);
-        let boxes = vec![
-            BoxInfo {
-                index: 1,
-                x: 390.0,
-                y: 390.0,
-                width: 20.0,
-                height: 20.0,
-                confidence: 1.0,
-            },
-            BoxInfo {
-                index: 2,
-                x: 490.0,
-                y: 490.0,
-                width: 20.0,
-                height: 20.0,
-                confidence: 1.0,
-            },
-        ];
-        let s = format_mouse_neighbor_reference_bboxes(
-            &boxes,
+        let s = format_pointer_coordinate_anchor(
             &monitor,
-            capture_px,
-            pointer,
+            (1000, 1000),
+            (500, 500),
             CoordinateSystem::Qwen,
         )
         .expect("line");
         assert!(s.contains("**Pointer position**"));
-        assert!(s.contains("capture pixels"));
-        assert!(s.contains("index 2"));
-        assert!(s.contains("index 1"));
-        let pos2 = s.find("index 2").unwrap();
-        let pos1 = s.find("index 1").unwrap();
-        assert!(pos2 < pos1, "nearest (2) should appear before farther (1)");
-    }
-
-    #[test]
-    fn no_anchor_list_when_vicinity_empty_direct_aim_ok() {
-        let monitor = MonitorInfo::new(0, 0, 1000, 1000);
-        let capture_px = (1000, 1000);
-        let pointer = (500, 500);
-        let boxes = vec![BoxInfo {
-            index: 1,
-            x: 0.0,
-            y: 0.0,
-            width: 10.0,
-            height: 10.0,
-            confidence: 1.0,
-        }];
-        let s = format_mouse_neighbor_reference_bboxes(
-            &boxes,
-            &monitor,
-            capture_px,
-            pointer,
-            CoordinateSystem::Qwen,
-        )
-        .expect("line");
-        assert!(s.contains("**Pointer position**"));
+        assert!(s.contains("**Pointer coordinate anchor:**"));
+        assert!(s.contains("[Zoom pointer after action]"));
         assert!(
-            !s.contains("overlay index 1 (left"),
-            "must not list distant boxes: {s}"
+            !s.contains("Pointer neighbor reference bboxes"),
+            "bbox list removed: {s}"
         );
-        assert!(s.contains("None —"), "expected no-anchor guidance: {s}");
-        assert!(s.contains("directly"), "expected direct-aim hint: {s}");
+        assert!(!s.contains("overlay index 1 (left"), "no bbox rows: {s}");
     }
 }

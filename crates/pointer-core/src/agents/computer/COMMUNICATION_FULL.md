@@ -27,7 +27,7 @@ never use overlay **`index`**, digits, or “bbox N” / badge-only wording
 
 ### Tool methods: overlay **index** vs **coordinates** (computer)
 
-Same split as runtime **COMMUNICATION.md**: **index-based** calls use overlay digits on **`[Annotated after action]`**; **coordinate-based** calls use **`x`/`y`** (and optional **Pointer position** + **pointer neighbor reference bbox** entries in **`[CUR_SCREEN]`** text — anchors for coordinates only). **`clipboard:read`**, **`clipboard:write`**, **`hotkey`**, **`wait`**, **`response`**, and pointer-only **`mouse:…_current`** / **`move_offset`** / **`type_text_at_focused`** are neither.
+Same split as runtime **COMMUNICATION.md**: **index-based** calls use overlay digits on **`[Annotated after action]`**; **coordinate-based** calls use **`x`/`y`** with **Pointer position** + **`[Zoom pointer after action]`** as the coordinate anchor crop. **`clipboard:read`**, **`clipboard:write`**, **`hotkey`**, **`wait`**, **`response`**, and pointer-only **`mouse:…_current`** / **`move_offset`** / **`type_text_at_focused`** are neither.
 
 ---
 
@@ -61,8 +61,8 @@ Conclusion: <accurate | abnormal | n/a> — <one short reason>.
 
 ```text
 Pointer:
-View unchanged vs before. Intended target: small copy-to-clipboard icon right of masked API key text.
-From [Screen after action]: pointer sits on the key text, clearly right of the copy icon. Conclusion: abnormal.
+View unchanged vs before. Intended target: download arrow icon on an attachment row in the Downloads list.
+From [Screen after action]: pointer sits on the filename text, left of the download icon. Conclusion: abnormal.
 ```
 
 ---
@@ -100,8 +100,8 @@ From [Screen after action]: pointer sits on the key text, clearly right of the c
 
 **Clipboard / copy flows**
 
-- **Copy** with **no** toast or on-screen status: success is **off-screen** (clipboard) → treat **task type** as **`deferred`** for verification → with **`no visible outcome`**, use **`NFO`** and then **`clipboard:read`** (or user paste) before asserting the key was copied. **Do not** output **`VERIFIED`** from the screenshot alone.
-- If **`Pointer:`** shows the click missed the copy icon (**`abnormal`** for that target) → **`FAILED`** (rule **1**), not **`NFO`**.
+- **Copy** with **no** toast or on-screen status: success is **off-screen** (clipboard) → treat **task type** as **`deferred`** for verification → with **`no visible outcome`**, use **`NFO`** and then **`clipboard:read`** (or user paste) before asserting the payload was copied. **Do not** output **`VERIFIED`** from the screenshot alone.
+- If **`Pointer:`** shows the click missed the intended small control (**`abnormal`** for that target) → **`FAILED`** (rule **1**), not **`NFO`**.
 
 **Required form (fill in; one block per turn)**
 
@@ -124,12 +124,12 @@ Before: Save dialog open. After: dialog gone; pointer on canvas. Visible evidenc
 
 ```text
 Verify:
-After: same API keys page; no toast. Visible evidence: no visible outcome for copy success. Task type: non-deferred for the click target. Pointer: abnormal — on key text, not copy icon. FAILED
+After: same Downloads list; no new “Saved” row. Visible evidence: no visible outcome for download started. Task type: non-deferred for the click target. Pointer: abnormal — on filename text, not download icon. FAILED
 ```
 
 ```text
 Verify:
-After: same page; no toast after copy click. Visible evidence: no visible outcome for clipboard payload. Task type: deferred — proof surface is clipboard, not canvas. Pointer: accurate — hotspot on copy icon center. NFO — next clipboard:read or user paste before asserting success.
+After: same canvas; subtle upload spinner at toolbar edge. Visible evidence: concrete — spinner started; file count unchanged. Task type: deferred — completion on cloud activity surface. Pointer: accurate — hotspot on Upload control center. NFO — open activity/history panel before asserting upload finished.
 ```
 
 ---

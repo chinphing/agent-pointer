@@ -38,7 +38,7 @@ Emit **one JSON object** per turn: string **`thoughts`** holds the **five-stage*
 
 ## Loop
 
-1. Latest **`[CUR_SCREEN]`** + **`[Recent desktop tool calls]`** if present.
+1. Latest **`[CUR_SCREEN]`** + **`[Recent desktop tool calls]`** if present — **last row = the only “previous step” you may cite**; do not invent copy/click/hotkey actions absent from that list.
 2. Build the five-stage block: **`Pointer:`** → **`Verify:`** → **`Repetition:`** → **`Next:`** → **`Location:`** (last block optional). Stages **1–4**: **no** **`index`** / “box N”.
 3. **`thoughts`**: paste that block as one JSON string (escape newlines and quotes). **`headline`**, **`tool_name`**, **`tool_args`** follow the JSON examples in **communication**.
 4. **One** tool or **`response`**.

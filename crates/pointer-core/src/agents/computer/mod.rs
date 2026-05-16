@@ -53,7 +53,7 @@ pub struct ScreenCaptureResult {
     pub zoom_task_bar_png: Vec<u8>,
     /// Zoom: ≤300×300 around pointer on marked annotated.
     pub zoom_pointer_png: Vec<u8>,
-    /// Optional prose: five nearest overlay bboxes to the pointer for coordinate-tool anchors (see `reference_anchors`).
+    /// Optional prose: **Pointer position** + **`[Zoom pointer after action]`** coordinate-anchor guidance (see `reference_anchors`).
     pub mouse_neighbor_reference_text: Option<String>,
     /// Logical monitor bounds for this capture.
     pub monitor: screen::MonitorInfo,

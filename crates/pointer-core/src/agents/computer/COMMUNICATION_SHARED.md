@@ -20,7 +20,7 @@ Older desktop turns are stripped—use **only** this inject.
   Use **`index`** in **`mouse` / composite / modified_click`** overlay methods
   only when **one** region’s **bbox** wraps **a single** target (one control / one icon / one field alone).
   If the **bbox** encloses **multiple** distinct elements—label + field, several icons, title + chips in one **bbox**, etc.—treat as **multiple** even for one semantic “row”; use **coordinates** instead, because **`index`** clicks the **region center** and will miss the intended sub-target.
-  In **internal** stage **5** (**`Location:`**): **Re-compare** = **inclusion** only—the intended target from **`Next:`** **line 2** **inside** this candidate **`index`** **bbox** or not (re-scan other digits when not). **bbox wrap count** = **only** whether that **bbox** wraps **one** vs **multiple** targets; then choose **`index`** or **coordinates**. Do not use inclusion to decide single vs multiple, or vice versa.
+  In **internal** stage **5** (**`Location:`**): **line 1** grounds the target from **`Next:`** **line 2** — **no** overlay **`index`** on **line 1** (**including** **`neighbors:`**; e.g. “**(index 34)**” is forbidden — layout/label/stroke only). **line 2** picks **`index` N** only after **(a)(b)(c)** when digit **background** = **`bbox` border stroke** and the digit is **flush-adjacent only** to that **`bbox`**. **bbox wrap count** (**`inventory:`**) = **only** whether that **`bbox`** wraps **one** vs **multiple** targets; then choose **`index`** or **coordinates**. On **coordinates**, anchor on **`[Zoom pointer after action]`** when the sub-target is in the pointer zoom (else **`[Screen after action]`** or the **line 1** frame); map **(x, y)** via **Pointer position**, not from overlay **`index`** clicks.
 
 - **Digit ↔ bbox:** Each **printed index** pairs with **exactly one** **bbox** when **both** hold: **background color** behind the digit **matches** that **bbox**’s **border color** (**not** “digit ink = border color”), **and** the digit sits **tightly on** the **bbox** border—**flush** with the stroke, **not** suspended between two **bbox** regions. Match **`index`** to **bbox** by that **color** tie **plus** **contiguous** placement
   (the integer labels the **bbox** it **touches**, not a neighbor’s **bbox**).
@@ -48,4 +48,13 @@ not the before frame.
 - **`[Zoom pointer after action]`** — patch around pointer at capture;
   prefer for what is under the cursor and fine detail there.
 
-Pick **`index`** on **`[Annotated after action]`** or on **any** after-action zoom — **`[Zoom top after action]`**, **`[Zoom bottom after action]`**, **`[Zoom pointer after action]`** — whichever frame shows **background color** behind the index **matching** **bbox** border color **and** the digit **tightly on** that **bbox** border most clearly; all zoom crops are valid references. When you cite a **bbox**, name **which frame** you used.
+In **`Location:`**, **first** state **placement / bearing** on **`[Screen after action]`** (**top / bottom / near pointer / central** from **`Next:`** line 2 band), **then** **`therefore analyze on [Zoom … | Annotated …]`** — **then** **`bbox` → `index`**. Do **not** skip bearing and pick a frame by habit.
+
+| Bearing on full screen | Prefer overlay frame |
+|------------------------|----------------------|
+| **Top** — menu, title, tabs under chrome | **`[Zoom top after action]`** (crowded digits) or **`[Annotated after action]`** |
+| **Bottom** — dock / taskbar | **`[Zoom bottom after action]`** |
+| **Near synthetic pointer** — row chip, inline control | **`[Zoom pointer after action]`** |
+| **Central / wide** — dialog body, full toolbar | **`[Annotated after action]`** |
+
+On the **chosen** frame, match **`index`** when **digit background** = **`bbox` border** and the digit is **flush-adjacent only** to that **`bbox`**. When you cite a **bbox**, name **which frame** you used.

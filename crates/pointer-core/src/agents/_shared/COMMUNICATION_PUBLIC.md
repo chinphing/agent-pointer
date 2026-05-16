@@ -86,6 +86,35 @@ Each assistant turn that uses tools—or ends with a structured final reply—is
 - All **string** values must be valid JSON strings: escape **`"`**, **`\`**, and newlines as **`\"`**, **`\\`**, **`\n`**. 
 - The host requests **`json_object`** style output from the model API; keep the object **syntactically valid** so the runtime can parse it.
 
+### JSON string escapes (examples)
+
+Documentation only; live output stays **one** raw object with **no** outer fence.
+
+**Double quotes inside a string** — invalid vs valid:
+
+```json
+"tool_args": { "text": "He said "hello"" }
+```
+
+```json
+"tool_args": { "text": "He said \"hello\"" }
+```
+
+**Backslashes** (paths, regex, escapes) — each backslash is **`\\`** in JSON:
+
+```json
+"tool_args": { "path": "C:\\Users\\alice\\repo" }
+```
+
+**Newlines** — use **`\n`** inside the string; do **not** break the JSON string across physical lines:
+
+```json
+"tool_args": {
+  "oldString": "fn foo() {\n}\n",
+  "newString": "fn foo() {\n    bar();\n}\n"
+}
+```
+
 ### Common mistakes (avoid)
 
 - Wrapping the envelope in **\`\`\`json** fences or adding **intro/outro prose** before or after the `{…}` object.

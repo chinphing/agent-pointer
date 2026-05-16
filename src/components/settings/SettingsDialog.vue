@@ -127,9 +127,18 @@ function ensureModelConfigEntry(modelId: string): ModelRuntimeOverrides {
     }
   } else {
     const next = { ...prev }
-    if (next.temperature === undefined) next.temperature = fallbackModelTemperature()
-    if (next.maxTokens === undefined) next.maxTokens = fallbackModelMaxTokens()
-    editingProvider.value.modelConfigs[modelId] = next
+    let changed = false
+    if (next.temperature === undefined) {
+      next.temperature = fallbackModelTemperature()
+      changed = true
+    }
+    if (next.maxTokens === undefined) {
+      next.maxTokens = fallbackModelMaxTokens()
+      changed = true
+    }
+    if (changed) {
+      editingProvider.value.modelConfigs[modelId] = next
+    }
   }
   return editingProvider.value.modelConfigs[modelId]!
 }
@@ -742,7 +751,6 @@ async function saveAll() {
                         <button
                           type="button"
                           class="shrink-0 h-7 px-2.5 rounded-md bg-white/5 hover:bg-white/10 text-[11px] text-slate-200 cursor-pointer transition-colors"
-                          @mousedown="openModelConfigModal(mid)"
                           @click="openModelConfigModal(mid)"
                         >
                           配置

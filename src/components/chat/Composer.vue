@@ -226,11 +226,17 @@ async function onPickScreen(monitorId: string) {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (composing.value) return
+  if (e.isComposing || composing.value) return
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     send()
   }
+}
+
+function onCompositionEnd() {
+  setTimeout(() => {
+    composing.value = false
+  }, 50)
 }
 
 function selectModel(model: string) {
@@ -344,7 +350,7 @@ onUnmounted(() => {
             @keydown="onKeydown"
             @input="autoResize"
             @compositionstart="composing = true"
-            @compositionend="composing = false"
+            @compositionend="onCompositionEnd"
           />
           <button
             v-if="chat.generating"

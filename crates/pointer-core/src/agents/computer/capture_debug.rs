@@ -91,6 +91,7 @@ pub fn purge_computer_captures_older_than_days(days: i64) -> std::io::Result<usi
 
 /// Writes JPEG/PNG files as `{prefix}_{type}_{timestamp_ms}.{ext}` under
 /// `{data_dir}/PointerApp/computer-captures/{YYYY-MM-DD}/{conversation_id}/` — same app root as settings and skills ([`crate::storage::app_data_dir`]).
+/// Also writes **`screen_raw_unmarked`** (OS capture before synthetic pointer).
 ///
 /// Returns the **path relative to `computer-captures/`** of the annotated PNG (for lazy UI load), e.g.
 /// `2026-05-11/my_conv/msg_abc_annotated_1715423.png`.
@@ -126,6 +127,7 @@ pub fn save_computer_capture_debug(
         write_one("screen_before_action", "jpg", &prev.screen_jpeg);
         write_one("zoom_pointer_before_action", "png", &prev.zoom_pointer_png);
     }
+    write_one("screen_raw_unmarked", "jpg", &cap.raw_unmarked_jpeg);
     write_one(SLOT_SCREEN_AFTER_ACTION, "jpg", &cap.raw_marked_jpeg);
     write_one("annotated", "png", &cap.annotated_marked_png);
     write_one("zoom_top", "png", &cap.zoom_menu_bar_png);

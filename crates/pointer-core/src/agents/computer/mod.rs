@@ -43,6 +43,8 @@ const MAX_SESSIONS: usize = 10;
 /// Successful capture + annotation for one model turn (consumers: screen inject, UI preview).
 #[derive(Debug, Clone)]
 pub struct ScreenCaptureResult {
+    /// OS capture JPEG **before** synthetic pointer/caret overlay (debug / inspection only).
+    pub raw_unmarked_jpeg: Vec<u8>,
     /// Marked raw JPEG for this turn (pointer/caret drawn after annotate step).
     pub raw_marked_jpeg: Vec<u8>,
     /// Marked annotated PNG (indices from service + pointer/caret).
@@ -355,6 +357,7 @@ impl ComputerState {
         );
 
         Ok(ScreenCaptureResult {
+            raw_unmarked_jpeg: screen_capture.to_vec(),
             raw_marked_jpeg: pack.raw_marked_jpeg,
             annotated_marked_png: pack.annotated_marked_png,
             zoom_menu_bar_png: pack.zoom_menu_bar_png,

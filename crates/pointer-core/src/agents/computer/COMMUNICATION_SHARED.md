@@ -8,9 +8,9 @@ Older desktop turns are stripped—use **only** this inject.
 ### Full-screen
 
 - **`[Screen before action]`** (if present) — **previous** turn’s unmarked capture with the **current** synthetic pointer:
-  **pre-action** desktop layout. Name **Intended aim** on this frame in **`Pointer:`** line **1**; hotspot geometry uses **`[Zoom pointer before action]`** (see **Zooms**). **UI change** vs after → **`Verify:`** **`Before vs after`** only, not **`Pointer:`**.
+  **pre-action** desktop layout. Name **Intended aim** on this frame in **`Pointer:`** line **1**; hotspot geometry uses **`[Zoom pointer before action]`** (see **Zooms**). **`Verify:`** **`Before vs after`** must compare **`[Screen before action]`** → **`[Screen after action]`** (name both frames); not **`Pointer:`**.
 
-- **`[Screen after action]`** — **after** that step; full-screen layout truth + synthetic pointer/caret.
+- **`[Screen after action]`** — **after** that action; full-screen layout truth + synthetic pointer/caret.
   In **internal** stages **1–4** (**`Pointer:`** / **`Verify:`** / **`Repetition:`** / **`Next:`**), must **not** name overlay digits,
   **`index`**, or “bbox N”; describe targets from this full-screen frame only.
   **`index`** is allowed **only** in **internal** stage **5** (**`Location:`**).

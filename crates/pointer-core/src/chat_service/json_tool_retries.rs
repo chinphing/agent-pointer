@@ -30,12 +30,14 @@ pub(crate) fn json_tool_empty_calls_retry_message(
     if !tools_appendix_enabled {
         return None;
     }
-    const ESCAPE_NOTE: &str = "在 JSON 的 `tool_args` 字符串字段中正确转义引号与换行；长文本（如 `file:write` 的 `content`、`file:edit` 的 `oldString`/`newString`）必须作为合法 JSON 字符串。勿在模型输出外再包一层 Markdown 代码围栏，也勿在 JSON 对象前后加说明文字。";
+    const JSON_FORMAT_RETRY_HINT: &str = "请确保 JSON 中特殊字符都经过转义后再输出，包括换行符、制表符、双引号。\n\
+同时请严格按照输出 JSON 格式要求输出，最小输出示例：\n\
+{\"thoughts\":\"简要推理\",\"headline\":\"短标题\",\"tool_name\":\"response\",\"tool_args\":{\"text\":\"给用户看的完整回复\"}}";
 
     let intro = if is_output_length_limited_finish_reason(finish_reason) {
         format!(
-            "【环境反馈】本回合输出因达到 **max_tokens** 上限（finish_reason={finish_reason}）被截断，JSON 工具信封不完整，未能执行工具。\n\n\
-             请缩小本回合输出并重新发送**一个**完整 JSON 对象（拆分大段编辑、分多轮写入）。"
+            "【环境反馈】本回合输出因达到 max_tokens 上限（finish_reason={finish_reason}）被截断，JSON 不完整。\
+             请缩小本回合输出并分多轮完成。\n{JSON_FORMAT_RETRY_HINT}"
         )
     } else if diag.attempted_tool_json {
         if diag.fragment_complete {
@@ -43,22 +45,18 @@ pub(crate) fn json_tool_empty_calls_retry_message(
                 .parse_error
                 .as_deref()
                 .filter(|s| !s.is_empty())
-                .unwrap_or("无法解析为合法的工具 JSON 信封（根对象需含 `tool_name` 与 `tool_args` 等字段）");
-            format!(
-                "【环境反馈】本回合输出中包含工具相关 JSON 字段，但解析失败：{detail}。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 JSON 对象（无围栏、无 JSON 外的说明文字）。"
-            )
+                .unwrap_or("无法解析为合法 JSON 工具信封");
+            format!("【环境反馈】本回合 JSON 格式异常：{detail}。\n{JSON_FORMAT_RETRY_HINT}")
         } else {
-            "【环境反馈】本回合检测到工具相关 JSON 片段（如 `\"tool_name\"` / `\"tool_args\"`），但在流结束前仍未形成可解析的完整 JSON 对象，因此未能执行任何工具。\n\n请按系统提示中的**公共输出约定**重新输出**唯一**一个 JSON 对象，并确保花括号与引号闭合完整。".to_string()
+            format!(
+                "【环境反馈】本回合 JSON 不完整（流结束前未形成可解析的完整对象）。\n{JSON_FORMAT_RETRY_HINT}"
+            )
         }
     } else {
-        "【环境反馈】本回合未输出 JSON 工具信封，而是普通对话文字（本应用不接受纯文本 assistant 回复）。\n\n\
-         请**只**输出**一个** JSON 对象，不要用 Markdown 围栏，不要在 JSON 外写任何说明。最小示例：\n\
-         {\"thoughts\":\"简要推理\",\"headline\":\"短标题\",\"tool_name\":\"response\",\"tool_args\":{\"text\":\"给用户看的完整回复\"}}\n\n\
-         若要调用工具，把 tool_name / tool_args 换成对应工具（如 file:read、terminal）。"
-            .to_string()
+        format!("【环境反馈】本回合 JSON 格式异常或未输出 JSON 格式。\n{JSON_FORMAT_RETRY_HINT}")
     };
 
-    let mut body = format!("{intro}\n\n【JSON】{ESCAPE_NOTE}");
+    let mut body = intro;
     if is_output_length_limited_finish_reason(finish_reason) {
         body.push_str(&output_length_retry_supplement(max_tokens, finish_reason));
     }

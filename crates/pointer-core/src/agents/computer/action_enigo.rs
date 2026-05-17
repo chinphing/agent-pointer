@@ -1,10 +1,13 @@
 use super::actions::{ActionBackend, ActionResult, KeyPhase, MouseButton};
+use super::mouse_move::{execute_move_plan, MouseMoveConfig, MouseMovePlanner, MouseMoveStrategy};
+use super::timing::DOUBLE_CLICK_INTERVAL_MS;
 use anyhow::{anyhow, Result};
 use enigo::{
     Direction::{Click, Press, Release},
     Enigo, Key, Keyboard, Mouse, Settings,
 };
 use std::cell::RefCell;
+use std::time::Duration;
 
 /// enigo-based implementation of ActionBackend.
 ///
@@ -47,11 +50,13 @@ impl ActionBackend for EnigoBackend {
 
     fn double_click(&self) -> Result<ActionResult> {
         let mut enigo = self.enigo.borrow_mut();
-        for _ in 0..2 {
-            enigo
-                .button(enigo::Button::Left, Click)
-                .map_err(|e| anyhow!("Double click failed: {:?}", e))?;
-        }
+        enigo
+            .button(enigo::Button::Left, Click)
+            .map_err(|e| anyhow!("Double click failed: {:?}", e))?;
+        std::thread::sleep(Duration::from_millis(DOUBLE_CLICK_INTERVAL_MS));
+        enigo
+            .button(enigo::Button::Left, Click)
+            .map_err(|e| anyhow!("Double click failed: {:?}", e))?;
         Ok(ActionResult::success("Double-clicked"))
     }
 
@@ -65,10 +70,33 @@ impl ActionBackend for EnigoBackend {
 
     fn move_to(&self, x: i32, y: i32) -> Result<ActionResult> {
         let mut enigo = self.enigo.borrow_mut();
-        enigo
-            .move_mouse(x, y, enigo::Coordinate::Abs)
-            .map_err(|e| anyhow!("Move failed: {:?}", e))?;
-        Ok(ActionResult::success(format!("Moved to ({}, {})", x, y)))
+        let from = enigo
+            .location()
+            .map_err(|e| anyhow!("Get current position before move failed: {:?}", e))?;
+        let planner = MouseMovePlanner::new(MouseMoveConfig {
+            strategy: MouseMoveStrategy::LinearUniform,
+            ..Default::default()
+        });
+        let plan = planner.plan(from, (x, y));
+        execute_move_plan(&plan, |px, py| {
+            enigo
+                .move_mouse(px, py, enigo::Coordinate::Abs)
+                .map_err(|e| anyhow!("Move failed at ({px}, {py}): {:?}", e))
+        })?;
+        if plan.points.is_empty() {
+            Ok(ActionResult::success(format!(
+                "Move skipped (already at ({}, {}))",
+                x, y
+            )))
+        } else {
+            Ok(ActionResult::success(format!(
+                "Moved to ({}, {}) using {:?} path with {} points",
+                x,
+                y,
+                plan.strategy,
+                plan.points.len()
+            )))
+        }
     }
 
     fn scroll(&self, lines: i32) -> Result<ActionResult> {

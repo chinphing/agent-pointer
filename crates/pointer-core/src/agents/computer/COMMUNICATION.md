@@ -2,21 +2,24 @@
 
 Each desktop reply is **one** JSON object: string fields **`thoughts`**, **`headline`**, optional **`sidecar_tools`** array, then root **`tool_name`** and object **`tool_args`** (schema per tool prompt).
 
-**`thoughts`** — Holds the **five-stage block** below (**`Pointer:`** through optional **`Location:`**), in order, using the **English prefix lines** only for that reasoning. Stages **1–4**: **no** overlay **`index`** / “bbox N”; inside **`Location:`**, **`index`** appears **only** at the **end** of **line 2** (after **(a)(b)(c)**) and on **line 4** **`Outcome`** when the **index** route wins — **never** on **line 1** (including **`neighbors:`**), and **never** lead any line with the chosen **`index`**.
+**`thoughts`** — Holds the **six-stage block** below (**`Pointer:`** through **`Tool route:`**), in order, using the **English prefix lines** only for that reasoning. Stages **1–4**: **no** overlay **`index`** / “bbox N”; inside **`Location:`**, **`index`** appears **only** at the **end** of **line 2** (after **(a)(b)(c)**) and when recapped in **`Tool route:`** — **never** on **line 1** (including **`neighbors:`**). **`Tool route:`** is the **only** stage that names a concrete tool (**`mouse:click_index`**, **`mouse:click_at`**, **`mouse:hover_index`**, **`hotkey`**, …).
 
 Complete examples at the end of this document use **full JSON**. Less important fields use **`...`**.
 
 ## Reasoning framework (every tool or final turn)
 
-Run **five** stages **in order**. Use **exactly** these **English prefix lines**:
+Run **six** stages **in order**. Use **exactly** these **English prefix lines**:
 
 - **`Pointer:`** — stage 1 (**numbered lines `1`–`2` + `3 Conclusion (Center-only rule)`** — geometry only; **no** before/after UI delta)
 - **`Verify:`** — stage 2  
 - **`Repetition:`** — stage 3  
-- **`Next:`** — stage 4 (**numbered lines `1`–`2`** + **`Tool kind`**)  
-- **`Location:`** — stage 5 **only** when this turn’s method picks a **new** overlay **`index`** or screenshot **`x`/`y`** (or drag endpoints) from the current injects. **Omit** the whole **`Location:`** block for **`wait`**, **`clipboard`**, **`response`**, **`hotkey`**, **`mouse:…_current`**, **`move_offset`**, **`composite_action:type_text_at_focused`**, and any method that does **not** require those targets on the frame.
+- **`Next:`** — stage 4 (**numbered lines `1`–`2` only** — **target / sub-goal**; **no** tool choice)
+- **`Location:`** — stage 5 — **overlay analysis only** (placement → frame → **`bbox`** → **`traits`** → **`index N`** → route class; optional **coordinate geometry** when **coordinate path**). **No** tool names here.
+- **`Tool route:`** — stage 6 — **`Next recap: this turn:`** first, then **`Location recap:`** → **one** tool call (**§6**; method/args from **Tool geometry** + that tool’s prompt).
 
-Within **each** stage, follow that stage’s **Required form** **top to bottom**; **do not** print **`Pointer:`** **`3 Conclusion (Center-only rule)`** / **`Location:`** **line 4** / other **Conclusion** / **Outcome** lines **before** the numbered lines that **earn** them (**Stepwise derivation** in **Ground rules**).
+Within **each** stage, follow that stage’s **Required form** **top to bottom**; **do not** print conclusions before the numbered lines that earn them (**Stepwise derivation** in **Ground rules**).
+
+**`Tool route:` → root `tool_name` (mandatory)** — **`Tool route:`** line **2** is the **only** place that picks the tool. Follow **§6** + **Tool geometry** + the **mouse** / **composite_action** / **hotkey** / **clipboard** / **wait** / **modified_click** tool prompts (methods and **`tool_args`** live there — **do not** duplicate them here).
 
 ### Ground rules
 
@@ -49,26 +52,23 @@ Off-frame inspect tools — **§ Off-frame tools (rare)**.
 
 **Overlay discipline** — Stages **1–4**: **no** overlay **`index`**, digits, or “bbox N”.
 **`Location:`** **line 1** (**target on overlay**): **no** overlay numerals anywhere —
-**not** in traits, **`neighbors:`**, **`wrapping bbox`**, or **`inventory:`** (neighbor “**(index 34)**” = premature conclusion).
-**`index`** **only** at the **end** of **`Location:`** **line 2** and on **line 4** when the **index** route wins.
+**not** in **`traits`**, **`neighbors:`**, or **`wrapping bbox:`** (neighbor “**(index 34)**” = premature conclusion).
+**`index`** **only** at the **end** of **`Location:`** **line 2** and in **`Tool route:`** when citing overlay **`N`**.
 
 **Stepwise derivation (mandatory)** — Write **`thoughts`** like a **graded proof**:
-**each** stage (**`Pointer:`** … **`Location:`**) and **each** numbered line inside **`Pointer:`** or **`Location:`**
+**each** stage (**`Pointer:`** … **`Tool route:`**) and **each** numbered line inside **`Pointer:`**, **`Location:`**, or **`Tool route:`**
 may use **only** facts and conclusions **already shown earlier in that stage** (or in **prior** stages).
 **Do not** jump to a final verdict, tool choice, **`index`**, **`x`/`y`**, or **`hover`** **before** the line or stage that **earns** it.
 **Do not** skip intermediate substeps or collapse several stages into one sentence
 (e.g. no “**`Pointer:`** lines **`1`–`2`** plus **`3 Conclusion (Center-only rule)`** in one line” in real replies).
-If a stage does **not** apply (e.g. **`Location:`** omitted), **do not** pretend it ran.
+If **`Location:`** does **not** apply, write **`Location: n/a`** — still run **`Tool route:`** unless the turn is **`response`** with no further action.
 
 ### Tool geometry: overlay **index** vs **coordinates** (computer profile)
 
 Use **`[Annotated after action]`** overlay numbers **only** with **index-based** methods below.
 Use **`x`/`y`** (or drag endpoints) with **coordinate-based** methods.
-**`[CUR_SCREEN]`** injects **Pointer position** plus **Pointer coordinate anchor** —
-use **`[Zoom pointer after action]`** (**300×300 px** crop centered on the pointer) as the **visual anchor** for coordinate calls:
-read sub-target layout **on that zoom**, map to session **(x, y)** via **Pointer position** (same space as `*_at` tools).
-**`Location:`** **line 4** on the **coordinate path** must cite **`[Zoom pointer after action]`** when the sub-target is visible there;
-if **not** in the pointer zoom, fall back to **`[Screen after action]`** or the **line 1** overlay frame — **never** invent coordinates.
+**`[CUR_SCREEN]`** injects **Pointer position** plus **Pointer neighbor reference bboxes** (session scale).
+**`Location:`** **line 4** (coordinate path) uses **two frames**: **pointer-on-`N` check** on **`[Zoom pointer after action]`**; **placement, corner, offset, therefore (x, y)** on **`[Annotated after action]`** only. **(xc, yc)** from **Pointer neighbor reference bboxes** for line **2 `N`** at the **chosen** corner. Session scale via **Pointer position** / `*_at` tools.
 
 **Overlay-index methods** (require an overlay **`index`** / **`indices`** from the current annotated frame):  
 **`mouse`:** `mouse:click_index`, `mouse:double_click_index`, `mouse:right_click_index`, `mouse:hover_index`, `mouse:drag_from_to_index` · **`composite_action`:** `composite_action:type_text_at_index`, `composite_action:scroll_at_index` · **`modified_click`:** `modified_click:modified_click_index`.
@@ -77,6 +77,14 @@ if **not** in the pointer zoom, fall back to **`[Screen after action]`** or the 
 **`mouse`:** `mouse:click_at`, `mouse:double_click_at`, `mouse:right_click_at`, `mouse:hover_at`, `mouse:drag_from_to_at` · **`composite_action`:** `composite_action:type_text_at` · **`modified_click`:** `modified_click:modified_click_at`.
 
 **Neither index nor typed point on the screenshot:** `mouse:click_current`, `mouse:double_click_current`, `mouse:right_click_current`, `mouse:scroll_at_current`, `mouse:move_offset`, `composite_action:type_text_at_focused`, **`hotkey`**, **`wait`**, **`clipboard:read`**, **`clipboard:write`**, **`response`**.
+
+**`Next:` → `Location:` → `Tool route:`**
+
+| Stage | Decides |
+|-------|---------|
+| **`Next:`** (4) | **What** — sub-goal + target traits on **`[Screen after action]`** only. **No** tools, **no** overlay digits. |
+| **`Location:`** (5) | **Where on overlay** — frame, **`bbox`**, **`traits`** (wrap count + intended sub-target), **`index N`**, route class; optional **coordinate geometry** when **coordinate path**. **No** tool names. |
+| **`Tool route:`** (6) | **How to call** — **`Next recap: this turn:`** → **`Location recap:`** → **`tool_name:method`** + args per **Tool geometry** and that tool’s prompt. |
 
 ### Post-action `wait` in `tool_args`
 
@@ -91,7 +99,7 @@ For **`mouse`**, **`hotkey`**, **`composite_action`**, and **`modified_click`**,
 
 Most turns use **mouse** / **coordinates** / **composite_action** / **hotkey** on **visible** controls. **`wait`**, **`response`**, and **`clipboard:*`** are **exceptions** — pick them only when the stage chain already earned them; **do not** treat any one exception as the default follow-up.
 
-- **`wait`** (standalone tool) — after **`Step result: pending`** on a **deferred** action when the UI may still be repainting (spinner, dialog transition, queue row appearing). **Omit** **`Location:`**.
+- **`wait`** (standalone tool) — after **`Step result: pending`** on a **deferred** action when the UI may still be repainting (spinner, dialog transition, queue row appearing). **`Location:`** **`n/a`**; route in **`Tool route:`** only.
 - **`response`** — only when **`Verify:`** **`Step result: pass`** on the **last automated action** **and** the **overall** user scope is complete (see **Full completion**); **forbidden** on first turn or while **`pending`** on the active sub-goal.
 - **`clipboard:read`** / **`clipboard:write`** — see the **clipboard** tool prompt only; **never** from task narrative alone. **`clipboard:read`** requires a **documented** copy-class row on **`[Recent desktop tool calls]`** plus **`pending`** on that copy action. **Claims** about clipboard text require **`clipboard:read`** result or on-screen text.
 - **Pointer `n/a` chain** — any turn **without** pointer geometry (**`wait`**, **`hotkey`**, **`response`**, **`clipboard:read`**, …) — see **§1** mini **tool has no pointer geometry** (**`wait`** example).
@@ -290,29 +298,37 @@ UI delta uses **only** the full-screen pair:
 
 **Clear evidence** — **Do not** re-open frames or add new pixel facts.
 Pick **`supporting_evidence`** · **`contradicting_evidence`** · **`no_clear_evidence`**
-and **restate** the **Before vs after** conclusion in verdict terms
-(match / mismatch / no visible change vs **Last automated action** intent).
+and **restate** the **Before vs after** **UI outcome** in verdict terms
+(visible success / visible wrong outcome / no visible change vs **Last automated action** intent).
+**Reuse the same UI nouns** as **Before vs after** (panel, modal, row, field, toast, enabled state, etc.) —
+**not** pointer geometry, tool execution, or “no error”.
+**Not** **`Pointer:`** / **`Mouse judgment:`** — accurate hotspot or “click landed” is **not** canvas proof.
 **Forbidden:** a second **`On [Screen …]:`** inventory on **Clear evidence**.
+**Forbidden:** action narrative on **Clear evidence** — e.g. *click executed*, *on target*, *without error*,
+*tool succeeded*, *hotspot accurate* (those belong on **`Mouse judgment:`** or **`Pointer:`**, not here).
 
-**Analysis order (fixed)** — Fill inputs in order, then **look up** **Step result** + **`Cause`**.
-**Do not** emit **`Outcome:`** in **`Verify:`** (**`Outcome:`** is **only** for **`Location:`** route lines).
+**Analysis order (fixed)** — Fill inputs in order, then **Lookup → Match** for **Step result** + **`Cause`**.
+**Do not** emit **`Outcome:`** in **`Verify:`** (**tool decisions** belong in **`Tool route:`** only).
 
 1. **Before vs after** — frame-anchored delta (**only** image read in **Verify:**)
 2. **Clear evidence** — label + **restate** **Before vs after** (**no** new image read)
 3. **Action type** — **`deferred`** · **`non-deferred`** (short reason on the line)
 4. **Mouse judgment** — **`non_mouse`** · **`mouse_miss`** · **`mouse_accurate`**
    (must match **`Pointer:`** **`3 Conclusion (Center-only rule)`**; see mapping below — **no** **`mouse_unknown`**)
-5. **Lookup** — **one** row in the **decision table** → **`Step result`** + **`Cause`**
+5. **Lookup** — keys **copied from the three fields above** (already on **`Verify:`**)
+6. **Match** — **one** row in **Verify → Step result** (below) where all three keys = **`Lookup`**
+7. **Step result** + **`Cause:`** — **must equal** **`Match`** (omit **`Cause:`** on **`pass`**; **`n/a`** first turn)
 
 **First turn (outside table):** **`Last automated action:`** = **`none — no prior desktop tool in this thread`**
+→ **`Lookup: n/a — no prior action`** · **`Match: row outside table → Step result n/a`**
 → **`Step result: n/a`** · omit **`Cause:`** — do **not** invent a prior action or **`pass`**.
 
 **1 — Clear evidence** (from **Before vs after** only)
 
 | Value | When |
 |-------|------|
-| **`supporting_evidence`** | **Before vs after** shows the **Last automated action** intent **succeeded** on canvas (restate that delta — do not re-describe pixels). |
-| **`contradicting_evidence`** | **Before vs after** **contradicts** intent (wrong panel/app, error blocks goal — restate the mismatch). |
+| **`supporting_evidence`** | **Before vs after** shows a **visible on-canvas** change that **matches** intent (restate that UI delta — do not re-describe pixels). |
+| **`contradicting_evidence`** | **Before vs after** shows a **visible** change that **contradicts** intent (wrong panel/app, error blocks goal — restate the mismatch). |
 | **`no_clear_evidence`** | **Before vs after** shows **no visible outcome** for what the action should have changed (restate “same” / unchanged). |
 
 **2 — Action type**
@@ -334,7 +350,12 @@ and **restate** the **Before vs after** conclusion in verdict terms
 | **`mouse_accurate`** | Precision click and **`Pointer:`** **`accurate`**.
   Post-action UI change does **not** yield a fourth mouse label — use **before** for geometry. |
 
-**4 — Decision table (exactly one row)**
+**Prerequisite:** Finish **`Clear evidence`**, **`Action type`**, and **`Mouse judgment`** first.
+In **`Verify:`**, **do not** write **`Step result:`** / **`Cause:`** until **Lookup → Match** (same order as **`Next:`** §4).
+
+**Verify → Step result (mandatory — `Step result` / `Cause` from this table only)**
+
+Use **`Clear evidence`** + **`Action type`** + **`Mouse judgment`** (steps **1–4** above). **`either`** in the table = **`deferred`** or **`non-deferred`** (wildcard on that column).
 
 | **Clear evidence** | **Action type** | **Mouse judgment** | **Step result** | **Cause** |
 |--------------------|---------------|--------------------|-----------------|----------|
@@ -351,16 +372,27 @@ and **restate** the **Before vs after** conclusion in verdict terms
 | **`no_clear_evidence`** | **`deferred`** | **`mouse_accurate`** | **`pending`** | **`off_frame_unverified`** |
 | **`no_clear_evidence`** | **`deferred`** | **`non_mouse`** | **`pending`** | **`off_frame_unverified`** |
 
+**Lookup → Match (fixed — after `Mouse judgment:`)**
+
+| Label | Rule |
+|-------|------|
+| **`Lookup:`** | Keys **copied from the lines above**: **`Lookup: Clear evidence=<same>, Action type=<same>, Mouse judgment=<same>;`**. |
+| **`Match:`** | **One** table row where all three = **`Lookup`**. Example: **`Match: row no_clear_evidence + non-deferred + mouse_accurate → fail, no_immediate_feedback`**. |
+| **`Step result:`** / **`Cause:`** | **Must equal** **`Match`** — do **not** invent a verdict. |
+
+**Forbidden:** **`Step result:`** / **`Cause:`** **before** **`Lookup:`** / **`Match:`** — fill inputs **1–4**, then lookup, then emit verdict.
+**Forbidden:** **`Step result`** / **`Cause`** that **disagree** with **`Match`** (e.g. **`wrong_operation`** when **`Match`** says **`precision_miss`**).
+
 **Rules**
 
-- **`wrong_operation`** only when the table row says so —
+- **`wrong_operation`** only when **`Match`** row says so —
   requires **`mouse_accurate`** or **`non_mouse`** with **`contradicting_evidence`**, **never** **`mouse_miss`**.
-- **`pass`** = **this** **Last automated action** succeeded on evidence (**`supporting_evidence`** + not **`mouse_miss`**).
+- **`pass`** = **`Match`** row **`pass`** (**`supporting_evidence`** + not **`mouse_miss`**).
   **Overall** user task may still be incomplete — see **Full completion** before **`response`**.
-- **`pending`** only from the **three** **`deferred`** + **`no_clear_evidence`** rows —
+- **`pending`** only from the **three** **`deferred`** + **`no_clear_evidence`** **`Match`** rows —
   **never** when unsure; use **`no_immediate_feedback`** on **`non-deferred`**.
 
-**After lookup:** **`Next:`** line 1 + **`Tool kind`** follow **§4 Verify → Next** for the same **`Step result`** / **`Cause`**.
+**After lookup:** **`Next:`** line **1** restates **Verify** **`Step result`** + **`Cause`**, then **its own** **Lookup → Match → this turn** (**§4**); **line 2** per **Next** **`Match`** row. **`Location:`** then **`Tool route:`** pick the tool.
 
 **Required form**
 
@@ -376,17 +408,21 @@ Before vs after:
   — only line that cites frames for UI delta.
 Clear evidence:
   <supporting_evidence | contradicting_evidence | no_clear_evidence>
-  — <restate Before vs after verdict; no new On [Screen …]: facts>.
+  — restates Before vs after: <same UI outcome words as that line; no On [Screen …]:; no click/tool/pointer narrative>.
 Action type: <deferred | non-deferred> — <reason>.
 Mouse judgment:
   <non_mouse | mouse_miss | mouse_accurate>
   — <must match Pointer 3 Conclusion;
      cite On [Zoom pointer before action]: when present for hotspot geometry>.
 Prior tool text (if any): <role only; no secrets> | omit | none.
-Step result: <pass | fail | pending | n/a>.
+Lookup: Clear evidence=<same>, Action type=<same>, Mouse judgment=<same>;
+  | n/a — no prior action (first turn).
+Match: row <Clear evidence> + <Action type or either> + <Mouse judgment> → <Step result>, <Cause or —>;
+  | row outside table → Step result n/a (first turn).
+Step result: <pass | fail | pending | n/a — must equal Match>.
 Cause:
   <wrong_operation | precision_miss | no_immediate_feedback | off_frame_unverified
-   — omit when pass; n/a when Step result is n/a>.
+   — must equal Match; omit when pass; n/a when Step result is n/a>.
 ```
 
 If no textual payload exists for the last action, either omit **`Prior tool text (if any):`**
@@ -418,6 +454,26 @@ Clear evidence: supporting_evidence — On [Screen after action]: typed text vis
 
 (truncated anti-pattern — shown only to illustrate Clear evidence re-reading pixels)
 
+**Forbidden — Clear evidence cites action execution, not UI delta:**
+
+```text
+Before vs after: On [Screen before action]: confirm dialog open, OK enabled. On [Screen after action]: same; dialog still open.
+Clear evidence: supporting_evidence — restates Before vs after: click executed on target without error.
+```
+
+(truncated anti-pattern — **supporting_evidence** requires a **visible** intent-matching change; **same** dialog → **`no_clear_evidence`** — e.g. *confirm not completed*. **Mouse judgment** may still be **`mouse_accurate`**.)
+
+**Forbidden — `Step result` before `Lookup` / `Match`:**
+
+```text
+Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on Submit pill center.
+Step result: fail.
+Cause: no_immediate_feedback.
+Lookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;
+```
+
+(truncated anti-pattern — emit **`Lookup:`** + **`Match:`** **before** **`Step result:`** / **`Cause:`**.)
+
 **Correct — Before vs after names frames; Clear evidence only restates that delta.**
 
 ```text
@@ -427,6 +483,8 @@ Before vs after: On [Screen before action]: search bar empty. On [Screen after a
 Clear evidence: supporting_evidence — restates Before vs after: typed text appeared as intended.
 Action type: non-deferred.
 Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on search field center.
+Lookup: Clear evidence=supporting_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;
+Match: row supporting_evidence + non-deferred + mouse_accurate → pass;
 Step result: pass.
 ```
 
@@ -440,6 +498,8 @@ Clear evidence: supporting_evidence — restates Before vs after: search panel o
 Action type: non-deferred.
 Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on Search button center.
 Prior tool text (if any): none.
+Lookup: Clear evidence=supporting_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;
+Match: row supporting_evidence + non-deferred + mouse_accurate → pass;
 Step result: pass.
 ```
 
@@ -452,6 +512,8 @@ Before vs after: On [Screen before action]: export toolbar idle. On [Screen afte
 Clear evidence: contradicting_evidence — restates Before vs after: wrong panel vs export intent.
 Action type: non-deferred.
 Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on Export toolbar center.
+Lookup: Clear evidence=contradicting_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;
+Match: row contradicting_evidence + either + mouse_accurate → fail, wrong_operation;
 Step result: fail.
 Cause: wrong_operation.
 ```
@@ -463,6 +525,8 @@ Before vs after: On [Screen before action]: export toolbar idle. On [Screen afte
 Clear evidence: contradicting_evidence — restates Before vs after: wrong panel vs export intent.
 Action type: non-deferred.
 Mouse judgment: mouse_miss — On [Zoom pointer before action]: hotspot on History chip, not Export center.
+Lookup: Clear evidence=contradicting_evidence, Action type=non-deferred, Mouse judgment=mouse_miss;
+Match: row contradicting_evidence + either + mouse_miss → fail, precision_miss;
 Step result: fail.
 Cause: precision_miss (forbidden: wrong_operation).
 ```
@@ -474,6 +538,8 @@ Before vs after: On [Screen before action]: row unchanged. On [Screen after acti
 Clear evidence: no_clear_evidence — restates Before vs after: no visible delete effect.
 Action type: non-deferred.
 Mouse judgment: mouse_miss — On [Zoom pointer before action]: hotspot on row text, not trash icon center.
+Lookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_miss;
+Match: row no_clear_evidence + non-deferred + mouse_miss → fail, precision_miss;
 Step result: fail.
 Cause: precision_miss.
 ```
@@ -487,6 +553,8 @@ Before vs after: On [Screen before action]: same document canvas. On [Screen aft
 Clear evidence: no_clear_evidence — restates Before vs after: no save confirmation on canvas.
 Action type: deferred — proof off-frame or later frame.
 Mouse judgment: non_mouse — hotkey; Pointer n/a.
+Lookup: Clear evidence=no_clear_evidence, Action type=deferred, Mouse judgment=non_mouse;
+Match: row no_clear_evidence + deferred + non_mouse → pending, off_frame_unverified;
 Step result: pending. Cause: off_frame_unverified.
 ```
 
@@ -499,6 +567,8 @@ Before vs after: On [Screen before action]: attachment list unchanged. On [Scree
 Clear evidence: no_clear_evidence — restates Before vs after: no download progress on canvas.
 Action type: deferred.
 Mouse judgment: mouse_miss — On [Zoom pointer before action]: hotspot on filename text, not download icon center.
+Lookup: Clear evidence=no_clear_evidence, Action type=deferred, Mouse judgment=mouse_miss;
+Match: row no_clear_evidence + deferred + mouse_miss → fail, precision_miss;
 Step result: fail.
 Cause: precision_miss (forbidden: pending).
 ```
@@ -509,6 +579,8 @@ Before vs after: On [Screen before action]: Submit enabled; no new message. On [
 Clear evidence: no_clear_evidence — restates Before vs after: submit not confirmed.
 Action type: non-deferred.
 Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on Submit pill center.
+Lookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;
+Match: row no_clear_evidence + non-deferred + mouse_accurate → fail, no_immediate_feedback;
 Step result: fail.
 Cause: no_immediate_feedback.
 ```
@@ -520,6 +592,8 @@ Before vs after: On [Screen before action]: export list at “2 of 10”. On [Sc
 Clear evidence: supporting_evidence — restates Before vs after: export batch advanced.
 Action type: non-deferred.
 Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on Export control center.
+Lookup: Clear evidence=supporting_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;
+Match: row supporting_evidence + non-deferred + mouse_accurate → pass;
 Step result: pass.
 ```
 
@@ -530,6 +604,8 @@ Before vs after: On [Screen before action]: idle export control. On [Screen afte
 Clear evidence: no_clear_evidence — restates Before vs after: spinner only; queue proof not on canvas.
 Action type: deferred — queue proof off-frame.
 Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on Export center.
+Lookup: Clear evidence=no_clear_evidence, Action type=deferred, Mouse judgment=mouse_accurate;
+Match: row no_clear_evidence + deferred + mouse_accurate → pending, off_frame_unverified;
 Step result: pending.
 Cause: off_frame_unverified.
 ```
@@ -541,6 +617,8 @@ Before vs after: On [Screen before action]: same idle page; sidebar closed. On [
 Clear evidence: no_clear_evidence — restates Before vs after: sidebar still closed.
 Action type: non-deferred.
 Mouse judgment: mouse_miss — On [Zoom pointer before action]: hotspot on History chip, not sidebar toggle center.
+Lookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_miss;
+Match: row no_clear_evidence + non-deferred + mouse_miss → fail, precision_miss;
 Step result: fail.
 Cause: precision_miss.
 ```
@@ -554,6 +632,8 @@ Before vs after: On [Screen before action]: document canvas only. On [Screen aft
 Clear evidence: supporting_evidence — restates Before vs after: save modal appeared on canvas.
 Action type: non-deferred — dialog on canvas.
 Mouse judgment: non_mouse — hotkey turn.
+Lookup: Clear evidence=supporting_evidence, Action type=non-deferred, Mouse judgment=non_mouse;
+Match: row supporting_evidence + either + non_mouse → pass;
 Step result: pass.
 ```
 
@@ -595,9 +675,19 @@ Rows: goal text differs last row vs prior. Screen: flat. OK — not same semanti
 
 ### 4) Next
 
-**`Next:` chain (two numbered lines + `Tool kind`)** — Use the **same numbered-line discipline** as **§5 Target Locating**. **Do not** put overlay **`index`**, zoom digits, or “bbox N” here (**only** in **`Location:`**). Complete JSON examples are under **Full chain**.
+**`Next:` chain (two numbered lines only)** — **What** to do this turn on **`[Screen after action]`**; **no** tools here. **`Location:`** analyzes overlay; **`Tool route:`** picks the tool. **Do not** put overlay **`index`**, zoom digits, coordinates, or tool names in **`Next:`**.
 
-1. **Prior stages & sub-goal** — **One** line that **restates** **`Verify:`** (verdict + **short** reason) · **`Repetition:`** (verdict) · **what this single turn advances** toward the user task. **No** overlay digits; **no** new evidence not already in **`Pointer:`** / **`Verify:`** / **`Repetition:`**.
+**Prerequisite:** Finish **`Verify:`** through **§2** **Lookup → Match** (steps **5–7**) first. In **`Next:`** line **1**, **restate that Verify conclusion first**, then **Lookup → Match → Next step** (you cannot lookup without the conclusion).
+
+1. **Prior stages & sub-goal** — **One** numbered item; **five labeled sub-clauses in order** (may wrap; keep labels):
+
+   | Label | Rule |
+   |-------|------|
+   | **`Verify:`** | **First** — echo **`Verify:`** **`Step result`** + **`Cause`** from the stage above (already decided). Example: **`Verify: fail — no_immediate_feedback`**. First turn: **`Verify: n/a`**. **No** overlay digits. |
+   | **`Repetition:`** | Echo **`Repetition:`** verdict (e.g. **`Repetition: OK`**). |
+   | **`Lookup:`** | **Second** — keys **copied from the `Verify:` line you just wrote**: **`Lookup: Step result=<same>, Cause=<same or —>`**. |
+   | **`Match:`** | **Third** — **one** **Verify → Next** table row (below) where **`Step result`** + **`Cause`** = **`Lookup`**. Example: **`Match: row fail + no_immediate_feedback → Retry same on-canvas intent`**. |
+   | **`this turn:`** | **Fourth** — **Next step** from **`Match`** row’s **`this turn: must…`** column; add concrete UI words; keep row action (Pivot / Re-aim / Retry / Advance / Wait). |
 
 2. **Target on `[Screen after action]`** — **One** **operationally clear** aim **on the current post-action full-screen inject only**:
    name the **control or row** you will use, with **visible** **label** (exact or partial text, or “unlabeled icon”),
@@ -605,52 +695,68 @@ Rows: goal text differs last row vs prior. Screen: flat. OK — not same semanti
    You may **prefix** sub-clauses with **`On [Screen after action]:`** for each facet group.
    Traits must be **already visible and uniquely describable** on **`[Screen after action]`**; **no** **`[Annotated after action]`** here.
    **Do not** use **relationship** nicknames as the **label** **unless** that **exact** string appears on the frame.
+   For **non-pointer** turns, line 2 may be **`n/a`** with a short visible-context note — still **no** tool name here.
 
 **No speculative or procedural text in line 2** —
 **Do not** use **modal** qualifiers (**“might”**, **“probably”**, **“could be labeled”**)
 or **multi-phase** hunt language (**“locate … then identify”**, **“find the right row first”**, **“need to pick among …”**) in **line 2**.
-If nothing is **yet** uniquely nameable on the frame, **line 2** must describe a **preparatory** visible target for **this** turn’s **`Tool kind`**
-(**scroll** surface, **expand** chevron, **wait** region, etc.),
-or **`Tool kind`** must be **inspect-only** (**`wait`**, **`scroll`**, **`hotkey`**, per **§ Off-frame tools (rare)**)
-until a later turn can name a unique click target on **line 2**.
-**`Tool kind`** is the **tool class only** — **no** search narrative there either.
+If nothing is **yet** uniquely nameable on the frame, line 2 names the **best visible preparatory surface** (scroll track, panel, chevron) — **`Tool route:`** decides **`wait`** / **scroll** / **click** route.
 
-**Verify → Next (line 1 + Tool kind)** — After the **lookup table**, read **`Step result`** + **`Cause`**; **line 1** must restate them and follow the matching row below (no overlay digits).
+**Verify → Next (mandatory — `this turn:` from this table only)**
 
-| **Step result** | **Cause** | **Next line 1 must…** | **Tool kind** (typical) |
-|-----------------|-----------|------------------------|-------------------------|
-| **`pass`** | — | Advance the **next** sub-goal toward the user task; may use **`response`** only if **Full completion** is met — **`pass`** on one action does not suffice alone. | **mouse** / **hotkey** / **composite_action** on visible target |
-| **`fail`** | **`wrong_operation`** | **Pivot** — different surface, panel, or tactic (**only** after geometry gate passed); **do not** off-frame inspect to excuse a visible miss. | Different visible control — **not** repeat same wrong path |
-| **`fail`** | **`precision_miss`** | **Re-aim** the **same** intent (**`Location:`** / coordinates); cite **`fail — precision_miss`**. | **mouse click** / **coordinates** — **not** off-frame inspect first |
-| **`fail`** | **`no_immediate_feedback`** | **Retry or unblock** — **`wait`**, **scroll**, alternate control, or second attempt; re-check **Action type** if canvas truly cannot show proof yet. | **`wait`** · **scroll** · **mouse click** |
-| **`pending`** | **`off_frame_unverified`** | **Inspect only** — **`wait`**, status/history, queue/folder, **scroll**; **no** repeating the **same** trigger until **`pass`** or **`fail`**. | **`wait`** · **scroll** · off-frame per **§ Off-frame tools (rare)** when earned |
-| **`n/a`** | — | First turn or no prior action — open task from user goal; **no** invented **`pass`**. | Per user task on visible UI |
+Use **`Verify:`** **`Step result`** + **`Cause`** (from **§2** decision table). **Line 2** must describe a target **consistent** with that row (same control for retry/re-aim; **different** surface for pivot).
+
+| **Step result** | **Cause** | **`this turn:` must…** | **Line 2 target** |
+|-----------------|-----------|-------------------------|-------------------|
+| **`pass`** | — (omit **`Cause`**) | Advance the **next** sub-goal toward the user task (not “task complete” unless whole scope is done). | **New** visible control for that sub-goal on **`[Screen after action]`**. |
+| **`fail`** | **`wrong_operation`** | **Pivot** — different surface, panel, or tactic (do **not** repeat the same wrong click). | A **different** control/panel than the failed action’s target. |
+| **`fail`** | **`precision_miss`** | **Re-aim** the **same** sub-target (same intent as last action). | **Same** control as last action; tighter center/geometry wording. |
+| **`fail`** | **`no_immediate_feedback`** | **Retry or unblock** the **same** on-canvas intent (same sub-goal, not a pivot). | **Same** control/region as the failed attempt. |
+| **`pending`** | **`off_frame_unverified`** | **Wait or inspect** for off-frame proof — **no** blind repeat of the same deferred trigger. | **`n/a`** or the visible shell (dialog/spinner) — not the off-frame artifact. |
+| **`n/a`** | — (first turn) | Open the task from the **user goal** (only row where user goal may set **`this turn:`**). | First visible control toward that goal on **`[Screen after action]`**. |
+
+**Do not** encode tool choice in **`Next:`** — **`Tool route:`** line **2** picks the tool (**§6**).
+
+**Forbidden:** **`Lookup:`** / **`Match:`** **before** **`Verify:`** on line **1** — you must **restate the Verify conclusion first**, then lookup with those keys.
 
 **Required form**
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: <Step result> — <Cause or short reason>; Repetition: <OK | …>; this turn: <one concrete advance — no overlay digits>.
-2 Target on [Screen after action]: <label or unlabeled icon; shape; color if needed; band/region; neighbors — visible on this frame only>.
-Tool kind: <e.g. mouse click | scroll | wait | hotkey | response — tool class only; no digits; no search narrative>.
+1 Prior stages & sub-goal:
+   Verify: <Step result> — <Cause when present>;
+   Repetition: <OK | …>;
+   Lookup: Step result=<same as Verify>, Cause=<same as Verify or —>;
+   Match: row <Step result> + <Cause> → <this turn must… from Verify → Next table>;
+   this turn: <Next step — concrete UI, no overlay digits>.
+2 Target on [Screen after action]: <per Match “Line 2 target” column — visible on this frame only; or n/a>.
 ```
 
-**Mini example — anti-pattern (line 2 must not read like a hunt)**
+**Mini example — anti-pattern (line 2 hunt + tool name; line 1 `this turn` not from table)**
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: pass; Repetition: OK; this turn: open the intended personal chat from the sidebar.
+1 Prior stages & sub-goal:
+   Verify: pass; Repetition: OK;
+   Lookup: Step result=pass, Cause=—;
+   Match: row pass → Advance next sub-goal;
+   this turn: open the intended personal chat from the sidebar.
 2 Target on [Screen after action]: locate a specific person’s thread — might be a personal chat; look for familiar avatar or name.
 Tool kind: mouse click — need to identify the right row first.
 ```
+
+(forbidden — **Lookup** before **Verify**; line **2** hunt/might + tool name; **`Match`** row **pass** requires on-frame target, not “locate … might be”.)
 
 **Mini example — tight line 2 when the row title is literally on-frame**
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: pass; Repetition: OK; this turn: open one chat row by its on-screen title.
+1 Prior stages & sub-goal:
+   Verify: pass; Repetition: OK;
+   Lookup: Step result=pass, Cause=—;
+   Match: row pass → Advance next sub-goal;
+   this turn: open one chat row by its on-screen title.
 2 Target on [Screen after action]: sidebar chat row whose **visible title text** matches the on-frame spelling (example: “Alice”); shape list row with avatar + title; band left chat list; neighbors: under the search field if visible.
-Tool kind: mouse click — no digits here.
 ```
 
 **Mini examples — branch**
@@ -667,8 +773,8 @@ Verify:
 Tool reply present. Step result: pass (forbidden format + no Last automated action line).
 
 Next:
-1 Prior stages & sub-goal: Verify: pass — user task complete (forbidden: WeChat not open; no [Recent desktop tool calls] row).
-Tool kind: response (forbidden on first turn while app still closed).
+1 Prior stages & sub-goal: Verify: pass — user task complete (forbidden: no Lookup/Match; WeChat not open; no [Recent desktop tool calls] row).
+2 Target on [Screen after action]: n/a — (forbidden: premature response while app still closed).
 ```
 
 **Correct — first turn, no `[Recent desktop tool calls]`**
@@ -685,56 +791,113 @@ Before vs after: n/a — no [Screen before action] (first capture).
 Clear evidence: n/a — no prior action.
 Action type: n/a — no prior action.
 Mouse judgment: n/a — agrees with Pointer 3 Conclusion.
+Lookup: n/a — no prior action;
+Match: row outside table → Step result n/a;
 Step result: n/a — no prior action to judge (do not invent prior actions or pass).
 
 Next:
-1 Prior stages & sub-goal: Verify: n/a — no prior action; Repetition: OK; this turn: open WeChat from dock per user task.
+1 Prior stages & sub-goal:
+   Verify: n/a — no prior action; Repetition: OK;
+   Lookup: Step result=n/a, Cause=—;
+   Match: row n/a → open task from user goal;
+   this turn: open WeChat from dock per user task.
 2 Target on [Screen after action]: WeChat app icon in dock; shape square app tile; band bottom dock; neighbors: adjacent dock icons; red badge on tile if visible.
-Tool kind: mouse click — no digits here.
 ```
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: fail — no_immediate_feedback; Repetition: OK; this turn: focus email field to correct address.
+1 Prior stages & sub-goal:
+   Verify: fail — no_immediate_feedback; Repetition: OK;
+   Lookup: Step result=fail, Cause=no_immediate_feedback;
+   Match: row fail + no_immediate_feedback → Retry same on-canvas intent;
+   this turn: focus email field to correct address.
 2 Target on [Screen after action]: email text field with red outline; shape single-line input; band signup form stack; neighbors: under “Email” label, above password field.
-Tool kind: mouse click — no digits.
 ```
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: fail — precision_miss; Repetition: OK; this turn: re-click download icon center on same attachment row.
+1 Prior stages & sub-goal:
+   Verify: fail — precision_miss; Repetition: OK;
+   Lookup: Step result=fail, Cause=precision_miss;
+   Match: row fail + precision_miss → Re-aim same sub-target;
+   this turn: re-aim download icon center on same attachment row.
 2 Target on [Screen after action]: unlabeled download glyph on attachment row; shape small square icon; band list row right; neighbors: filename text cell to the left of icon.
-Tool kind: mouse click — no digits.
+```
+
+**Mini example — `fail` + `wrong_operation` → pivot (pairs §2 Verify export row)**
+
+```text
+Verify:
+Last automated action: 2. mouse:click_index — Export in toolbar.
+Before vs after: On [Screen before action]: export toolbar idle. On [Screen after action]: History panel open instead of export flow.
+Clear evidence: contradicting_evidence — restates Before vs after: wrong panel vs export intent.
+Action type: non-deferred.
+Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on Export toolbar center.
+Lookup: Clear evidence=contradicting_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;
+Match: row contradicting_evidence + either + mouse_accurate → fail, wrong_operation;
+Step result: fail.
+Cause: wrong_operation.
+
+Next:
+1 Prior stages & sub-goal:
+   Verify: fail — wrong_operation; Repetition: OK;
+   Lookup: Step result=fail, Cause=wrong_operation;
+   Match: row fail + wrong_operation → Pivot — different surface;
+   this turn: pivot to Export control — open export flow, not History panel.
+2 Target on [Screen after action]: Export label or export icon in main toolbar; shape toolbar button; band top toolbar; neighbors: not the History side panel that opened by mistake.
+```
+
+**Anti-pattern — `Next:` names a tool or route (forbidden)**
+
+```text
+Next:
+1 … this turn: hover overlay 28 then click trash icon …
+2 Target on [Screen after action]: trash icon disk in file list row …
+Tool kind: mouse:hover_index
+```
+
+(forbidden — no tool names in **`Next:`**; put route + **`tool_name`** in **`Tool route:`** only.)
+
+```text
+Next:
+1 Prior stages & sub-goal:
+   Verify: pending — off_frame_unverified; Repetition: OK;
+   Lookup: Step result=pending, Cause=off_frame_unverified;
+   Match: row pending + off_frame_unverified → Wait or inspect off-frame proof;
+   this turn: pause for OS save indicator.
+2 Target on [Screen after action]: n/a — save dialog visible; allow repaint after Ctrl+S.
 ```
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: pending — off_frame_unverified; Repetition: OK; this turn: pause for OS save indicator.
-2 Target on [Screen after action]: n/a — no click target; allow repaint after Ctrl+S.
-Tool kind: wait — no digits.
-```
-
-```text
-Next:
-1 Prior stages & sub-goal: Verify: pass — export batch progressing; Repetition: OK; this turn: scroll export list to expose remaining rows.
+1 Prior stages & sub-goal:
+   Verify: pass — export batch progressing; Repetition: OK;
+   Lookup: Step result=pass, Cause=—;
+   Match: row pass → Advance next sub-goal;
+   this turn: expose more rows in export list.
 2 Target on [Screen after action]: vertical scroll track on file list panel; shape narrow scrollbar; band center-right of export dialog; neighbors: bottom rows clip at panel edge.
-Tool kind: scroll — no digits.
 ```
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: pass; Repetition: OK; this turn: dismiss success snackbar.
+1 Prior stages & sub-goal:
+   Verify: pass; Repetition: OK;
+   Lookup: Step result=pass, Cause=—;
+   Match: row pass → Advance next sub-goal;
+   this turn: dismiss success snackbar.
 2 Target on [Screen after action]: label “×” or short “Done” if visible; shape slim horizontal banner; color green emphasis; region top of page canvas; neighbors: below title/tabs strip, above main content.
-Tool kind: mouse click — no digits.
 ```
 
 **Mini example — full trait checklist on line 2 (before Target Locating)**
 
 ```text
 Next:
-1 Prior stages & sub-goal: Verify: fail — no_immediate_feedback; Repetition: OK; this turn: retry submit from modal.
+1 Prior stages & sub-goal:
+   Verify: fail — no_immediate_feedback; Repetition: OK;
+   Lookup: Step result=fail, Cause=no_immediate_feedback;
+   Match: row fail + no_immediate_feedback → Retry same on-canvas intent;
+   this turn: retry submit from modal.
 2 Target on [Screen after action]: label “Submit” or unlabeled gray pill; shape pill; color gray; region modal dialog center stack; neighbors: under password fields, full column width — not Cancel text link.
-Tool kind: mouse click — no digits.
 ```
 
 ---
@@ -743,10 +906,11 @@ Tool kind: mouse click — no digits.
 
 #### Purpose
 
-**`Location:`** turns **`Next:`** **line 2** (the **`[Screen after action]`** target traits) into a **bounded, auditable** choice of
-**`index`** / **coordinates** / **hover** on the **annotated / zoom** overlays.
-It is an **observation + routing** layer: it **does not** replace **`Next:`** line 2 wording;
-it **paraphrases** on-screen overlay evidence and records **why** one candidate wins.
+**`Location:`** turns **`Next:`** **line 2** into **bounded overlay analysis** only:
+placement → frame → **`bbox`** → **`traits`** (wrap count) → **`index N`** → route class (**index path** | **coordinate path**).
+**Lines 2–4 must follow `traits` on line 1** — do not re-count controls or pick route from task intent alone.
+Optional **line 4** records **coordinate geometry** when **coordinate path** (pointer-on-`N`, corners, **(x, y)**) — **no tool names**.
+**`Tool route:`** (stage 6) cites **`Next recap: this turn:`**, then **`Location recap:`**, and states the **explicit tool call** (**§6**; line **2** = root **`tool_name`**).
 
 - Ground **`Next:`** **line 2** only — **do not** paste **line 2** verbatim into **`Location:`**; paraphrase overlay-visible facts.
   **`Next:`** **line 1** is **context only** — **do not** paste **line 1** into **`Location:`**.
@@ -755,7 +919,7 @@ it **paraphrases** on-screen overlay evidence and records **why** one candidate 
 - **Do not** jump straight to “use **`index`** N” — follow the chain below end-to-end.
 - **Evidence before conclusion** — same discipline as **Stepwise derivation**:
   each **`Location:`** line builds **observations first**, then **one** closing label
-  (**therefore selected overlay index N**, **`single`**, **`index` N** on **Outcome**, etc.).
+  (**therefore selected overlay index N**, **`single`**, route class, coordinate geometry, etc.).
   **Line 1** must **not** name any overlay **`index`** — neighbor **“(index 34)”** is a **conclusion**, not observation.
   **Never** open a line with the final **`index`** / route / tool choice and backfill reasons afterward.
 
@@ -775,89 +939,120 @@ it **paraphrases** on-screen overlay evidence and records **why** one candidate 
 
    **Line 1** must open with this **placement → therefore frame** clause (still **no** overlay **`index`** on that clause).
 
-2. **Target features → `bbox` on that frame (evidence, then conclude `index`).** On the **chosen** frame only: target traits + **wrapping `bbox`** —
-   **no** overlay **`index`** (**forbidden** in **`neighbors:`**).
-   **Line 2:** **(a)(b)(c)** on the **same** frame — **only then** **`therefore selected overlay index N`**.
+2. **`traits inside that bbox:`** (mandatory on line **1**, before line **2**) — On the **chosen** frame, inside the **wrapping `bbox` only** (not external neighbors), list:
+   - **`distinct controls =`** every **separate visual control** partly or wholly inside that **`bbox`** (caption line, pill button, icon disk, toggle knob, …) — **visual names only**; **no** overlay digits; **no** `cell N` / `region N` / `bbox N` placeholders.
+   - **`wrap count =`** number of entries in **`distinct controls`** (count **1** vs **> 1** — do **not** collapse to one label because the user wants one action).
+   - **`intended sub-target =`** the **one** listed control that matches **`Next:`** line **2** (the control this turn will operate).
+   **Gate:** **`wrap count = 1`** ⇒ later **index path**; **`wrap count > 1`** ⇒ later **coordinate path** — **forbidden** to write **`single`** when **`distinct controls`** lists **≥ 2** controls.
+
+3. **Target → `bbox` → `index` (line 2).** **wrapping `bbox`** = border stroke color + anchor — **no** overlay **`index`** on line **1**.
+   **Line 2:** **(a)(b)(c)** on the **same** frame — **(c)** must say the **`bbox`** wraps the **`intended sub-target`** from **`traits`** — **only then** **`therefore selected overlay index N`**.
    Do **not** write **`index` N** at the **start** of **line 2**.
    If the frame was wrong (target not visible / digits unreadable), **discard** and restart **step 1** with a different bearing→frame choice.
 
-3. **Wrap count → exclusivity → route.** Count **distinct actionable elements** in **line 1** **`inventory:`**: **total = 1** ⇒ **`single`** ⇒ **index path**; **total > 1** ⇒ **`multiple`** ⇒ **coordinate path**.
+4. **Exclusivity → route (line 3, from `traits` only).** Quote **`traits`** **`wrap count`** — **do not** re-list controls or use action names (**copy**, **submit**, …) instead of **`wrap count`**:
+   - **`wrap count = 1`** ⇒ **`single`** ⇒ **`route: index path`**
+   - **`wrap count > 1`** ⇒ **`multiple`** ⇒ **`route: coordinate path`**
 
-4. **`single` (exclusive)** ⇒ **Outcome: `index` N`** (same **`N`** as **line 2**).
+5. **`single` / index path** ⇒ stop at lines **1–3** (no line **4**).
 
-5. **`multiple` (non-exclusive)** ⇒ **Outcome: `coordinates`** —
-   anchor on **`[Zoom pointer after action]`** when the sub-target appears in the pointer zoom;
-   else **`[Screen after action]`** or the **line 1** frame.
+6. **`multiple` / coordinate path** ⇒ **line 4 Coordinate geometry** (mandatory when coordinate path):
+   **pointer-on-`N`** on **`[Zoom pointer after action]`**; **coordinates** on **`[Annotated after action]`** (steps 2–6 below).
+   If pointer **not** on **`N`** → **geometry deferred** (no **(x, y)** this turn).
+   **Do not** name tools in **`Location:`** — **`Tool route:`** picks **`hover_index`** vs **`click_at`**.
+
+**Coordinate geometry (mandatory `Location:` line 4 when coordinate path)**
+
+**Pointer not on `N`:** on **`[Zoom pointer after action]`**, pointer-on-`N` check → **geometry deferred**.
+
+**Pointer on `N`:** (one line, **this order** — cite frame per step)
+1. **pointer-on-`N` check** — on **`[Zoom pointer after action]`**, synthetic pointer inside overlay **`N`** region.
+2. **Sub-target placement in bbox `N`** — on **`[Annotated after action]`**, where **intended sub-target** sits **inside / along edges of bbox `N`** (left/right/top/bottom of **`N`**). **Not** vs a sibling control center as the primary anchor — **relative to bbox `N`**.
+3. **Corner choice** — **nearest** canonical corner of **`N`** to that sub-target (**top-left | top-right | bottom-right | bottom-left**) — **after** step 2.
+4. **(xc, yc)** — that corner for **`N`** from **Pointer neighbor reference bboxes** (or annotated-frame fallback).
+5. **Offset from corner** — on **`[Annotated after action]`**, sub-target center **from that corner** (**Δx / Δy**; not pointer-pixel guesses).
+6. **therefore (x, y) ≈ (xc ± Δx, yc ± Δy)** — session scale only.
 
 #### Template (multi-line template + analysis flow)
 
 Follow **Derivation chain** above for bearing→frame choice and overall order.
 **Evidence before conclusion** on **every** numbered line (same as **Stepwise derivation** in **Ground rules**).
 
-**Required form — `Placement→frame` through `Outcome`**
+**Required form — `Placement→frame` through optional `Coordinate geometry`**
 
 Each label below is **one physical line** in output (join sub-clauses onto that line if needed).
 Internalize **`Next:`** line 2 as the search spec — **do not** paste **`Next:`** line 1 or verbatim line 2 into **`Location:`**.
 
-**`1 Placement→frame:`** (observations only — **no** overlay **`index`** anywhere, including **`neighbors:`**)
+**Line 1 vs line 2 (do not duplicate roles)**
 
-- **`On [Screen after action]:`** bearing — **top | bottom | near pointer | central** + band/neighbors from **`Next:`** line 2.
-- **`→ therefore analyze on`** one overlay frame (see bearing table in **Derivation chain**).
-- On **that frame** — target on overlay (paraphrase **`Next:`** line 2): text, shape, color, band, neighbors — **zero overlay digits**.
-- **`wrapping bbox:`** anchor + border stroke color.
-- **`traits inside that bbox:`** …
-- **`inventory:`** distinct actionable elements inside the paired **`bbox`** — names only.
+| | **Line 1 — what & where (no overlay digits)** | **Line 2 — which digit `N` (proof only)** |
+|---|------------------------------------------------|-------------------------------------------|
+| **Answers** | Full-screen bearing → overlay frame → target look → **which bbox** (stroke + anchor) → **what is inside** bbox (`traits`) | Does printed **`index N`** **legally pair** with line 1’s bbox? |
+| **Must include** | Placement, frame, target paraphrase, `wrapping bbox`, `traits` | **(a)(b)(c)** then **`therefore index N`** |
+| **Must not include** | Any overlay **`index`** / digit | Re-describe placement, frame, or full `traits` list — **cite line 1** in one phrase |
 
-**`2 … target→bbox→index:`** (same bracketed frame as line 1 — **`N` only as the last token group**)
+**`1 Placement→frame:`** — **observation block** ( **no** overlay **`index`** )
 
-- **(a)** line 1 wrapping **`bbox`** border color + anchor.
-- **(b)** candidate digit **background** matches; **only** flush-adjacent to **that** **`bbox`** (not between two **`bbox`** regions).
-- **(c)** that **`bbox`** wraps the line 1 target.
-- **`therefore selected overlay index N`** — only if **(a)–(c)** hold.
-- If **(b)** pairs a **different** **`bbox`**: **`discard trial — no index selected`** — **no** lines **3–4**; retry lines **1–2** (another digit, or restart bearing→frame).
+- **`On [Screen after action]:`** bearing + band/neighbors from **`Next:`** line 2.
+- **`→ therefore analyze on`** one overlay frame.
+- On **that frame** — target on overlay (paraphrase **`Next:`** line 2): shape, color, band — **zero overlay digits**.
+- **`wrapping bbox:`** border stroke color + what it hugs (anchor) — **not** an overlay number.
+- **`traits inside that bbox:`** **`distinct controls = …`**; **`wrap count = …`**; **`intended sub-target = …`** (sole source for line **3** route). Visual names only.
 
-**`3 Exclusivity:`** (from line 1 **`inventory:`** wrap count — evidence before route name)
+**`2 … target→bbox→index:`** — **digit pairing proof** (same frame as line **1**; **`N` only as the final token**)
 
-- **`inventory`** → wrap count → **`single`** (count = 1) | **`multiple`** (count > 1) → **`route: index path`** | **`route: coordinate path`**.
+- **(a)** digit-on-edge check: restate line **1** bbox **border color** only (no re-list traits).
+- **(b)** digit **background** = that border color; digit **only** flush-adjacent to **that** bbox.
+- **(c)** line **1** bbox wraps line **1** **`intended sub-target`** (yes/no — one short clause).
+- **`therefore selected overlay index N`** — only if **(a)–(c)** pass.
+- If **(b)** attaches to a **different** bbox: **`discard trial — no index selected`** — retry line **1–2** (another digit or frame).
 
-**`4 Outcome:`** (open with **route from line 3** — **forbidden** to lead with **`index` N** or bare **`(x, y)`**)
+**`3 Exclusivity:`** (from **`traits`** **`wrap count` only** — do not re-count; do not use task/action names)
 
-- **`single` / index path:** **`selected overlay index N`** — same **`N`** as line 2.
-- **`multiple` / coordinate path:** **(a)** anchor frame — **`[Zoom pointer after action]`** when sub-target visible there,
-  else **`[Screen after action]`** or line 1 frame; **(b)** sub-target placement on that frame vs synthetic pointer / layout;
-  **(c)** **`therefore`** **(x, y)** in session scale per **Pointer position** — not overlay **`index` N** for click.
-- **No valid digit after all trials:** one exhausted **line 4** with tactic / coordinates / hover and why — **not** one line 4 per failed digit.
+- **From traits:** wrap count **1** → **`single`** → **`route: index path`** | wrap count **> 1** → **`multiple`** → **`route: coordinate path`**.
+
+**`4 Coordinate geometry:`** (only when line **3** = **`multiple`** / **coordinate path** — **no tool names**)
+
+- pointer-on-`N` on **`[Zoom pointer after action]`** → **deferred** OR on **`[Annotated after action]`** placement → corner → **(xc,yc)** → offset → **therefore (x,y)** per **Coordinate geometry** above.
+- **No valid digit after all trials:** one exhausted note on line **4** — not one line **4** per failed digit.
 
 ```text
 Location:
-1 Placement→frame:
-   On [Screen after action]: <bearing + band/neighbors>
-   → therefore analyze on <overlay frame>.
-   <Same frame> — target on overlay: <traits; no digits>.
-   wrapping bbox: <color + anchor>.
-   traits inside bbox: <…>.
-   inventory: <names only>.
-2 On <same frame as line 1> — target→bbox→index:
-   (a) … (b) … (c) … therefore selected overlay index <N>.
-3 Exclusivity:
-   inventory … — wrap count …; <single|multiple>; route: <index|coordinate> path.
-4 Outcome:
-   route … — <index N | coordinates (a)(b)(c) therefore (x,y) | exhausted tactic>.
+1 Placement→frame: … wrapping bbox: …; traits inside that bbox: distinct controls = …; wrap count = …; intended sub-target = ….
+2 On <frame> — target→bbox→index: (a)… (b)… (c) wraps intended sub-target from traits; therefore selected overlay index <N>.
+3 Exclusivity: from traits wrap count … — <single|multiple>; route: <index|coordinate> path.
+4 Coordinate geometry: on [Zoom pointer after action] pointer-on-N …; on [Annotated after action] placement in bbox N …; nearest corner …; (xc,yc) …; offset …; therefore (x,y) … OR deferred.
+```
+
+**Minimal `Location:` (non-overlay turns)**
+
+```text
+Location:
+n/a — no overlay analysis this turn (<hotkey | wait | scroll | response | …>).
 ```
 
 **Overlay trials — discard, retry, and when `index` may appear**
 
 - Work **one overlay trial** at a time.
 - After the **first** valid lines **1–2** pair, append lines **3–4** **once** only.
-- Overlay digit **`N`** may appear **only** at the end of a successful line **2** and on line **4** when the **index** route wins — nowhere else in **`Location:`**.
+- Overlay digit **`N`** may appear **only** at the end of a successful line **2** and in line **4** (pointer-on-`N` / geometry) — nowhere else in **`Location:`**.
 
-**Forbidden patterns**
+**Forbidden patterns (Location)**
 
 - Paste **`Next:`** line 1 or verbatim line 2 into **`Location:`**.
 - Open line 1 on a zoom/annotated frame **without** bearing on **`[Screen after action]`** first.
-- Cite overlay **`index`** on line 1 (**including** **`neighbors:`** like “**(index 34)**”) — that pre-decides **`N`** before **(a)–(c)**.
-- Open line 2 with **`index` N`**, or line 4 with **`index` N** / bare **`(x, y)`** before **route** and coordinate anchor evidence.
+- Cite overlay **`index`** on line 1 (**including** **`neighbors:`** like “**(index 34)**”).
+- Open line 2 with **`index` N`**, or line 4 with bare **`(x, y)`** before pointer-on-`N` and anchor evidence.
+- Line **4** anchor from **index ≠ line 2 `N`**, or **bbox center** without a named corner for **`N`**, or **(x, y)** from **pointer-only pixel offset** without **reference bboxes for `N`**, or mixed capture-pixel vs session scales in **therefore**.
+- Line **4** **pointer-on-`N`** on **`[Annotated after action]`** instead of **`[Zoom pointer after action]`**, or **placement / corner / offset / therefore** on zoom instead of **`[Annotated after action]`**.
+- Line **4** names a **corner** before **sub-target placement in bbox `N`**, or describes sub-target vs **sibling control** instead of **inside bbox `N` / vs chosen corner**.
+- **Any tool name** in **`Location:`** (**`click_at`**, **`hover_index`**, **`hotkey`**, …) — tools belong in **`Tool route:`** only.
 - Add **`match` / `mismatch` vs Next line 2**, or emit lines **3–4** after a **discarded** line 2.
+- Non-canonical corner names on line **4** (only **top-left | top-right | bottom-right | bottom-left**).
+- **`traits`** **`distinct controls`** uses overlay digits or region/bbox/cell placeholders instead of visual control names.
+- **`traits`** lists **≥ 2** controls but line **3** writes **`single`** (or uses action name like **copy** instead of **`wrap count`**).
+- **`wrapping bbox:`** or **`traits`** cites overlay **`index`** on line **1**.
+- Line **3** **Exclusivity** without quoting **`traits`** **`wrap count`**.
 
 #### Cases (template + examples)
 
@@ -874,8 +1069,7 @@ Location:
    Settings gear icon; shape gear glyph; color gray; band footer;
    neighbors: red-border label strip **immediate left** of icon (layout names only, no overlay numerals);
    wrapping bbox: **green**-stroke region around footer gear icon;
-   traits inside bbox: visible gray gear glyph;
-   inventory: gear icon only.
+   traits inside that bbox: distinct controls = gray gear glyph only; wrap count = 1; intended sub-target = gray gear glyph.
 ```
 
 **Anti-pattern — line 1 cites neighbor `index` (forbidden; equals early conclusion)**
@@ -885,26 +1079,47 @@ Location:
 1 Placement→frame: On [Screen after action]: **bottom** OS dock band (forbidden: skipped bearing, jumped to frame). [Zoom bottom after action] — target on overlay: … neighbors: **left of Messages (index 34)** … (forbidden — overlay digits on line 1).
 ```
 
+**Anti-pattern — traits skip wrap count / use action instead (forbidden)**
+
+```text
+Location:
+1 … traits inside that bbox: masked text + copy icon;
+3 Exclusivity: single (copy action); route: index path.
+```
+
+(forbidden — **`distinct controls`** must list both controls, **`wrap count = 2`**, **`multiple`**, **coordinate path**; **forbidden** **`single (copy action)`**.)
+
+**Anti-pattern — `traits` uses overlay id as control name (forbidden)**
+
+```text
+Location:
+1 … wrapping bbox: index **109**; traits inside that bbox: distinct controls = overlay **109** only; wrap count = 1.
+```
+
+(forbidden — use visual control names in **`distinct controls`**; **`wrapping bbox`** = stroke color + anchor, not **`index`**.)
+
+**Correct `traits` for `multiple`** — see **Lines 1–3 — `multiple`** below.
+
 **Correct line 1 — dock target: bearing → bottom zoom, then overlay detail**
 
 ```text
 Location:
-1 Placement→frame: On [Screen after action]: target in **bottom** launcher strip (dock/taskbar), not main canvas → therefore analyze on **[Zoom bottom after action]**. [Zoom bottom after action] — target on overlay (paraphrase **Next** line 2): WeChat app icon in dock; shape square app tile; color green tile with chat bubble glyph; band bottom dock; neighbors: **Messages** square tile **immediate left**, **App Store** blue tile **immediate right** (labels/shapes only — no overlay digits); wrapping bbox: **blue**-stroke region hugging WeChat icon only; traits inside bbox: green WeChat tile with red notification badge; inventory: WeChat icon only.
+1 Placement→frame: On [Screen after action]: target in **bottom** launcher strip (dock/taskbar), not main canvas → therefore analyze on **[Zoom bottom after action]**. [Zoom bottom after action] — target on overlay (paraphrase **Next** line 2): WeChat app icon in dock; shape square app tile; color green tile with chat bubble glyph; band bottom dock; neighbors: **Messages** square tile **immediate left**, **App Store** blue tile **immediate right** (labels/shapes only — no overlay digits); wrapping bbox: **blue**-stroke region hugging WeChat icon only; traits inside that bbox: distinct controls = green WeChat tile only; wrap count = 1; intended sub-target = green WeChat tile.
 ```
 
 **Lines 1–2 — add derived `index` + target→bbox→index proof**
 
 ```text
 Location:
-1 Placement→frame: On [Screen after action]: app **footer** band (dialog chrome, not OS dock) → therefore analyze on **[Annotated after action]**. [Annotated after action] — target on overlay (paraphrase **Next** line 2): Settings gear icon; shape gear glyph; color gray; band footer; neighbors: red-border label strip **immediate left** of icon (layout names only, no overlay numerals); wrapping bbox: **green**-stroke region around footer gear icon; traits inside bbox: visible gray gear glyph; inventory: gear icon only.
-2 On [Annotated after action] — target→bbox→index: (a) line 1 wrapping **bbox** border **green** around footer gear icon; (b) on frame, overlay digit **background** **green**, **only** flush-adjacent to that **green**-stroke **bbox** (red-border neighbor **left** excluded — stroke mismatch); (c) **bbox** wraps line 1 gray gear target; **therefore** selected overlay index **11**.
+1 Placement→frame: On [Screen after action]: app **footer** band (dialog chrome, not OS dock) → therefore analyze on **[Annotated after action]**. [Annotated after action] — target on overlay (paraphrase **Next** line 2): Settings gear icon; shape gear glyph; color gray; band footer; neighbors: red-border label strip **immediate left** of icon (layout names only, no overlay numerals); wrapping bbox: **green**-stroke region around footer gear icon; traits inside that bbox: distinct controls = gray gear glyph only; wrap count = 1; intended sub-target = gray gear glyph.
+2 On [Annotated after action] — target→bbox→index: (a) line 1 wrapping **bbox** border **green** around footer gear icon; (b) on frame, overlay digit **background** **green**, **only** flush-adjacent to that **green**-stroke **bbox** (red-border neighbor **left** excluded — stroke mismatch); (c) **bbox** wraps **traits** intended sub-target (gray gear glyph); **therefore** selected overlay index **11**.
 ```
 
 **Discarded trial — index pairs wrong `bbox` (lines 1–2 only; retry)**
 
 ```text
 Location:
-1 Placement→frame: On [Screen after action]: app **footer** band → therefore analyze on **[Annotated after action]**. [Annotated after action] — target on overlay (paraphrase **Next** line 2): Settings gear in footer; shape gear; band footer; wrapping bbox: **green**-stroke region around footer gear icon; traits inside bbox: gray gear glyph; inventory: gear icon only.
+1 Placement→frame: On [Screen after action]: app **footer** band → therefore analyze on **[Annotated after action]**. [Annotated after action] — target on overlay (paraphrase **Next** line 2): Settings gear in footer; shape gear; band footer; wrapping bbox: **green**-stroke region around footer gear icon; traits inside that bbox: distinct controls = gray gear glyph only; wrap count = 1; intended sub-target = gray gear glyph.
 2 On [Annotated after action] — target→bbox→index: (a) line 1 wrapping **bbox** border **green** around footer gear icon; (b) on frame, **green**-background digit flush on tall **green**-stroke rail/card stack — **not** line 1 wrapping **bbox**; discard trial — no index selected.
 ```
 
@@ -912,76 +1127,201 @@ Location:
 
 ```text
 Location:
-1 Placement→frame: On [Screen after action]: ⋯ chip **beside synthetic pointer** in a list row (mid canvas) → therefore analyze on **[Zoom pointer after action]**. [Zoom pointer after action] — target on overlay (paraphrase **Next** line 2): ⋯ chip target; shape pill; band row title area; neighbors: **right** of row title text; wrapping bbox: **magenta**-stroke region hugging ⋯ chip **right** of title; traits inside bbox: text ⋯, pill, row title band, **right** of title; inventory: ⋯ chip only.
-2 On [Zoom pointer after action] — target→bbox→index: (a) line 1 wrapping **bbox** border **magenta** hugging ⋯ chip **right** of row title; (b) on frame, overlay digit **background** **magenta**, **only** flush-adjacent to that **magenta**-stroke **bbox**; (c) **bbox** wraps line 1 ⋯ chip target; **therefore** selected overlay index **4**.
-3 Exclusivity: inventory ⋯ chip only — wrap count **1**; **single**; route: **index** path.
+1 Placement→frame: On [Screen after action]: ⋯ chip **beside synthetic pointer** in a list row (mid canvas) → therefore analyze on **[Zoom pointer after action]**. [Zoom pointer after action] — target on overlay (paraphrase **Next** line 2): ⋯ chip target; shape pill; band row title area; neighbors: **right** of row title text; wrapping bbox: **magenta**-stroke region hugging ⋯ chip **right** of title; traits inside that bbox: distinct controls = ⋯ chip only; wrap count = 1; intended sub-target = ⋯ chip.
+2 On [Zoom pointer after action] — target→bbox→index: (a) line 1 wrapping **bbox** border **magenta** hugging ⋯ chip **right** of row title; (b) on frame, overlay digit **background** **magenta**, **only** flush-adjacent to that **magenta**-stroke **bbox**; (c) **bbox** wraps **traits** intended sub-target (⋯ chip); **therefore** selected overlay index **4**.
+3 Exclusivity: from traits wrap count **1** — **single**; route: **index** path.
 ```
 
-**Lines 1–3 — `multiple`**
+**Lines 1–3 — `multiple` (`traits` wrap count > 1 — reference)**
 
 ```text
 Location:
-1 Placement→frame: On [Screen after action]: URL field in **top** browser chrome under tab row → therefore analyze on **[Zoom top after action]**. [Zoom top after action] — target on overlay (paraphrase **Next** line 2): URL field in toolbar; shape text input; band toolbar under tabs; neighbors: **left** of star bookmark; wrapping bbox: wide **orange**-stroke toolbar strip under tab row; traits inside bbox: URL string visible; text-input chrome; toolbar under tabs; **left** of star; inventory: URL field + star + extensions.
-2 On [Zoom top after action] — target→bbox→index: (a) line 1 wrapping **bbox** border **orange** (wide toolbar under tabs); (b) on frame, overlay digit **background** **orange**, **only** flush-adjacent to that **orange**-stroke toolbar **bbox**; (c) **bbox** wraps line 1 URL-field target among toolbar controls; **therefore** selected overlay index **12**.
-3 Exclusivity: inventory URL field + star + extension icons — wrap count **3**; **multiple**; route: **coordinate** path.
+1 Placement→frame: On [Screen after action]: OK/Cancel in **central** modal footer → therefore analyze on **[Annotated after action]**. [Annotated after action] — target: OK primary button; wrapping bbox: **cyan**-stroke footer bar spanning **OK** + **Cancel**; traits inside that bbox: distinct controls = OK pill + Cancel pill; wrap count = 2; intended sub-target = OK pill.
+2 On [Annotated after action] — target→bbox→index: (a) **cyan** footer **bbox**; (b) digit **background** **cyan**, flush on that **bbox**; (c) **bbox** wraps **traits** intended sub-target (OK pill); **therefore** selected overlay index **4**.
+3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.
 ```
 
-**Line 4 — `index` after `single`**
+(Contrast **gear** / **WeChat** / **⋯ chip** above: **`traits`** **`wrap count = 1`** → **single** → **index path**.)
+
+**`single` — index path (no Location line 4)**
 
 ```text
 Location:
-1 Placement→frame: On [Screen after action]: ⋯ chip **near synthetic pointer** in list row → therefore analyze on **[Zoom pointer after action]**. [Zoom pointer after action] — target on overlay (paraphrase **Next** line 2): ⋯ chip target; shape pill; band row title area; neighbors: **right** of row title text; wrapping bbox: **magenta**-stroke region hugging ⋯ chip **right** of title; traits inside bbox: text ⋯, pill, row title band, **right** of title; inventory: ⋯ chip only.
-2 On [Zoom pointer after action] — target→bbox→index: (a) line 1 wrapping **bbox** border **magenta** hugging ⋯ chip; (b) on frame, overlay digit **background** **magenta**, **only** flush-adjacent to that **magenta**-stroke **bbox**; (c) **bbox** wraps line 1 ⋯ chip target; **therefore** selected overlay index **4**.
-3 Exclusivity: inventory ⋯ chip only — wrap count **1**; **single**; route: **index** path.
-4 Outcome: route **index** path (line 3 **single**) — selected overlay index **4**
+1 Placement→frame: … traits inside that bbox: distinct controls = ⋯ chip only; wrap count = 1; intended sub-target = ⋯ chip.
+2 On [Zoom pointer after action] — … therefore selected overlay index **4**.
+3 Exclusivity: from traits wrap count **1** — **single**; route: **index** path.
+
+Tool route:
+1 Next recap & Location:
+   Next recap: this turn: open row actions via ⋯ chip;
+   Location recap: **index** path — overlay **4**, **single**, ⋯ chip beside pointer in list row.
+2 Tool call this turn: **mouse:click_index** on overlay index **4** (per **mouse** tool prompt).
 ```
 
-**Line 4 — `coordinates` after `multiple` (dialog footer)**
+**`multiple` — coordinate path, pointer on `N` (modal footer OK pill)**
 
 ```text
 Location:
-1 Placement→frame: On [Screen after action]: OK/Cancel in **central** modal footer (wide footer bar, not OS chrome) → therefore analyze on **[Annotated after action]**. [Annotated after action] — target on overlay (paraphrase **Next** line 2): OK primary button; shape blue pill; band dialog footer; neighbors: **left** of Cancel pill; wrapping bbox: **cyan**-stroke footer bar spanning **OK** + **Cancel**; traits inside bbox: “OK” label on blue pill; dialog footer band; **left** of Cancel pill; inventory: OK pill + Cancel pill.
-2 On [Annotated after action] — target→bbox→index: (a) line 1 wrapping **bbox** border **cyan** (footer **OK**+**Cancel**); (b) on frame, overlay digit **background** **cyan**, **only** flush-adjacent to that **cyan**-stroke footer **bbox**; (c) **bbox** wraps line 1 OK pill among footer controls; **therefore** selected overlay index **4**.
-3 Exclusivity: inventory OK pill + Cancel pill — wrap count **2**; **multiple**; route: **coordinate** path.
-4 Outcome: route **coordinate** path (line 3 **multiple**) — **coordinates** — (a) anchor: **[Zoom pointer after action]** — OK pill and pointer hotspot both visible on pointer zoom crop; (b) OK pill center **below-left** of synthetic pointer on that crop; (c) **therefore** aim (x, y) ≈ (…, …) in session scale per **Pointer position** — not overlay index **4** for click
+1 Placement→frame: … (same **traits** as **Lines 1–3 — `multiple`** — wrap count **2**, intended sub-target = OK pill).
+2 … therefore selected overlay index **4**.
+3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.
+4 Coordinate geometry: on **[Zoom pointer after action]** pointer-on-**4** — inside overlay **4**; on **[Annotated after action]** intended sub-target (OK pill) toward **left** of bbox **4**; nearest corner **bottom-left** → **(xc, yc)** from reference bboxes for **4** ≈ (…); from that corner sub-target **right** **up**; **therefore (x, y) ≈ (xc + Δx, yc - Δy)**.
+
+Tool route:
+1 Next recap & Location:
+   Next recap: this turn: confirm dialog via OK pill;
+   Location recap: **coordinate** path — overlay **4**, **multiple**, pointer **on** **4**, aim ≈ (xc + Δx, yc - Δy).
+2 Tool call this turn: **mouse:click_at** at computed **(x, y)** — **not** overlay index **4** (per **mouse** tool prompt).
 ```
 
-**Line 4 — `coordinates` after `multiple` (wide toolbar — top zoom)**
+**`multiple` — coordinate path, pointer not on `N` (file list row — trash icon)**
 
 ```text
 Location:
-1 Placement→frame: On [Screen after action]: URL field in **top** toolbar under tabs → therefore analyze on **[Zoom top after action]**. [Zoom top after action] — target on overlay (paraphrase **Next** line 2): URL field in toolbar; shape text input; band toolbar under tabs; neighbors: **left** of star bookmark; wrapping bbox: wide **orange**-stroke toolbar strip under tab row; traits inside bbox: URL string visible; text-input chrome; toolbar under tabs; **left** of star; inventory: URL field + star + extensions.
-2 On [Zoom top after action] — target→bbox→index: (a) line 1 wrapping **bbox** border **orange** (wide toolbar under tabs); (b) on frame, overlay digit **background** **orange**, **only** flush-adjacent to that **orange**-stroke toolbar **bbox**; (c) **bbox** wraps line 1 URL-field target among toolbar controls; **therefore** selected overlay index **12**.
-3 Exclusivity: inventory URL field + star + extension icons — wrap count **3**; **multiple**; route: **coordinate** path.
-4 Outcome: route **coordinate** path (line 3 **multiple**) — **coordinates** — (a) anchor: **[Zoom top after action]** — URL field not in pointer zoom; sub-target on top-toolbar crop from line 1; (b) URL field center **right** of star bookmark on that frame; (c) **therefore** aim (x, y) ≈ (…, …) in session scale — not overlay index **12** for click
+1 Placement→frame: On [Screen after action]: trash icon in **central** file list row → therefore analyze on **[Zoom pointer after action]**. [Zoom pointer after action] — target: trash icon disk; wrapping bbox: **magenta**-stroke row strip; traits inside that bbox: distinct controls = filename label + trash icon disk; wrap count = 2; intended sub-target = trash icon disk.
+2 … therefore selected overlay index **28**.
+3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.
+4 Coordinate geometry: pointer-on-**28** check: synthetic pointer **not** inside overlay **28** region — geometry deferred until pointer on **28**.
+
+Tool route:
+1 Next recap & Location:
+   Next recap: this turn: delete file via trash icon in list row;
+   Location recap: **coordinate** path — overlay **28**, **multiple**, pointer **not** on **28**; no **(x, y)** yet.
+2 Tool call this turn: **mouse:hover_index** on overlay index **28** only — **forbidden** **click_at** / **click_index** / guessed coordinates this turn (per **mouse** tool prompt).
 ```
 
----
+**Anti-pattern — `Tool route:` says hover but JSON clicks**
 
-### Full chain (complete JSON)
-
-**Screen capture** is injected by the runtime, not a **`tool_name`** in your reply; the five-stage reasoning still lives in the **`thoughts`** string field.
-
-**Screen-targeted tool** (includes **`Location:`**):
+```text
+Tool route:
+1 Next recap & Location:
+   Next recap: this turn: re-aim trash icon on same list row;
+   Location recap: **coordinate** path — pointer **not** on **28** …
+2 Tool call this turn: **mouse:hover_index** on **28**.
+```
 
 ```json
 {
-  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: gray Submit pill in modal dialog center stack; aim = pill center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer tip over **Submit pill interior**, hotspot overlaps pill **geometric center** vs **intended Submit pill center** — not on rim.\n3 Conclusion (Center-only rule): accurate — hotspot overlaps **Submit pill geometric center** on **[Zoom pointer before action]**.\n\nVerify:\nLast automated action: 2. mouse:click_index — Submit in modal.\nBefore vs after: On [Screen before action]: banner + Submit unchanged. On [Screen after action]: same; Submit still enabled; no new message.\nClear evidence: no_clear_evidence — restates Before vs after: submit not confirmed.\nAction type: non-deferred.\nMouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on Submit pill center.\nStep result: fail. Cause: no_immediate_feedback.\n\nRepetition:\nLast rows differ; not flat 4×. OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — no_immediate_feedback; Repetition: OK; this turn: retry primary Submit from modal.\n2 Target on [Screen after action]: label \"Submit\" or unlabeled gray pill; shape pill; color gray; region modal dialog center stack; neighbors: under password fields — not Cancel text link.\nTool kind: mouse click — no digits here.\n\nLocation:\n1 Placement→frame: On [Screen after action]: Submit pill in **central** modal form stack (not top/bottom OS chrome) → therefore analyze on **[Annotated after action]**. [Annotated after action] — target on overlay (paraphrase **Next** line 2): gray pill labeled Submit or unlabeled gray pill; shape pill; color gray; band modal dialog center stack; neighbors: under password fields, Cancel text link present in strip adjacent to footer actions; wrapping bbox: tall **green**-stroke card bbox covering full form stack under modal title; traits inside bbox: visible gray pill labeled Submit under password fields; neighbor strip includes Cancel text link; inventory: email field, password fields, Submit pill.\n2 On [Annotated after action] — target→bbox→index: (a) line 1 wrapping **bbox** border **green** (tall card / full form stack); (b) on frame, overlay digit **background** **green**, **only** flush-adjacent to that **green**-stroke card **bbox**; (c) **bbox** wraps line 1 Submit pill among form fields; **therefore** selected overlay index **6**.\n3 Exclusivity: inventory email field + password fields + Submit pill + Cancel link strip — wrap count **4**; **multiple**; route: **coordinate** path.\n4 Outcome: route **coordinate** path (line 3 **multiple**) — **coordinates** — (a) anchor: **[Zoom pointer after action]** — Submit pill under pointer on pointer zoom crop; (b) pill center vs synthetic pointer on that crop; (c) **therefore** aim (x, y) ≈ (…, …) in session scale per **Pointer position** — not overlay index **6** for click",
-  "headline": "Retry submit via coordinates",
   "tool_name": "mouse:click_at",
-  "tool_args": {}
+  "tool_args": { "index": "28" }
 }
 ```
 
-**Omitting `Location:`** — whenever the method does **not** choose a new **`index`** or **`x`/`y`** on the capture: e.g. **`wait`**, **`response`**, **`hotkey`**, **`clipboard:read`** / **`clipboard:write`**, **`mouse:…_current`**, **`move_offset`**, **`composite_action:type_text_at_focused`** — omit the whole **`Location:`** block.
+(forbidden — **`Tool route:`** line **2** and root **`tool_name`** must match.)
+
+---
+
+### 6) Tool route
+
+#### Purpose
+
+**`Tool route:`** commits **one** root **`tool_name`** / **`tool_args`** for **this** turn.
+It **does not** re-run overlay matching — it **names the call** after **`Next:`** and **`Location:`** are fixed.
+
+**Prerequisite:** Finish **`Next:`** and **`Location:`** (or **`Location: n/a`**) first. On line **1**, write **`Next recap: this turn:`** first (copied from **`Next:`** line **1** — **only** the **`this turn:`** clause, not **`Verify:`** / **`Repetition:`** / **`Lookup`** / **`Match`**).
+
+#### How to choose (brief — details in tool prompts)
+
+0. **`Next recap: this turn:` (first on line 1)** — **`Next recap: this turn: <same words as Next line 1 this turn: clause>;`**. Example: **`Next recap: this turn: re-aim trash icon center in the same list row.`** When **`Location: n/a`**, still write **`Next recap: this turn:`** before **`Location recap:`** or the tool.
+
+1. **Route class** — from **`Location:`** line **3** (must match **`traits`** **`wrap count`** on line **1**):
+   - **index path** → use **overlay-index** methods only (**Tool geometry** list).
+   - **coordinate path** → use **coordinate** methods; **`index N`** is anchor only, not the click target when **`wrap count > 1`**.
+   - **`Location: n/a`** → **non-overlay** tools (**`hotkey`**, **`wait`**, **`response`**, **`clipboard:*`**, **`scroll_at_current`**, **`type_text_at_focused`**, …).
+
+2. **Pointer on `N` (coordinate path only)** — from **`Location:`** line **4**:
+   - Pointer **on** **`N`**, **(x, y)** complete → **`mouse:click_at`** / **`composite_action:type_text_at`** / etc. at that **(x, y)**.
+   - Pointer **not** on **`N`** / geometry deferred → **`mouse:hover_index`** on **`N`** **this turn only** — **forbidden** **`click_at`** / **`click_index`** / guessed **(x, y)** same turn.
+
+3. **What this step does** — from **`Next:`** line **1** **`this turn:`** only (not the whole user task):
+   - **Click / press / toggle / icon / button** (including copy/download/delete **icons**) with **no** literal text to type **this** turn → **`mouse`** **`click_*`** / **`double_click_*`** / **`right_click_*`** per **mouse** prompt — **not** **`composite_action:type_text_at_*`**.
+   - **Type or replace text in a field this turn** → **`composite_action:type_text_at_index`** or **`composite_action:type_text_at`** (requires **`text`**) per **composite_action** prompt — **not** plain **`click_index`** alone.
+   - **Scroll, multi-select, hotkey, wait, clipboard, response** → open the matching tool prompt and pick its method.
+
+4. **Pick method + args** — per tool prompts; for **`click_at`** / **`type_text_at`**, **`x`/`y`** must match **`Location:`** line **4** **therefore (x, y)** (session scale). **Do not** invent methods or args not in those prompts.
+
+#### Required form (two numbered lines)
+
+```text
+Tool route:
+1 Next recap & Location:
+   Next recap: this turn: <same words as Next line 1 this turn: clause>;
+   Location recap: <route class from Location line 3; N; pointer on/off N; (x,y) if any — or n/a when Location n/a>.
+2 Tool call this turn: <tool_name:method> — <args summary; must match Next recap, Location recap, and the tool prompt>.
+```
+
+Root JSON **`tool_name`** must match line **2**.
+
+#### Forbidden patterns (Tool route)
+
+- **`Location recap`** or **`Tool call`** **before** **`Next recap: this turn:`** on line **1**.
+- **`Next recap:`** repeats **`Verify:`** / **`Repetition:`** / **`Lookup`** / **`Match:`** — **only** **`Next recap: this turn: …`**.
+- **`Tool route:`** line **2** contradicts **`Location:`** (e.g. **`click_index`** on **coordinate path** or **`wrap count > 1`**; **`click_at`** when pointer **not** on **`N`**).
+- **`Tool call`** contradicts **`Next:`** **`this turn:`** (e.g. **`type_text_at_*`** when **`this turn:`** is only press an icon).
+- **`composite_action:type_text_at_*`** when **`this turn:`** is only **pressing a control** (no **`text`** to enter **this** turn).
+- Picking a tool because it is “fewer steps” or because the **overall task** mentions copy/type — use **`this turn:`** and the **tool prompt**.
+- Tool choice in **`Next:`** or **`Location:`** instead of **`Tool route:`** line **2**.
+- **`Tool route:`** line **2** ≠ root **`tool_name`** in JSON.
+
+**Anti-pattern — icon click routed to `type_text_at_index`**
+
+```text
+Next: … this turn: press the copy icon in the row.
+Tool route:
+1 Next recap & Location: Next recap: this turn: press the copy icon in the row; Location recap: index path — overlay **107** …
+2 Tool call: composite_action:type_text_at_index … copy secret.
+```
+
+(forbidden — line **1** must start with **`Next recap: this turn:`**; press icon → **`mouse:click_index`** / **`click_at`** per **mouse** prompt, not **`type_text_at_*`**.)
+
+---
+
+### Full chain
+
+Six-stage block in **`thoughts`**; fill **`tool_args`** per tool prompt (minimal below).
+
+**Screen-targeted tool — coordinate path, pointer already on `N` (click_at this turn)**:
+
+```json
+{
+  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: blue OK pill in modal dialog footer; aim = OK pill center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer tip inside footer **cyan** **bbox**, hotspot overlaps **OK pill center** vs **intended OK center** — not on Cancel pill.\n3 Conclusion (Center-only rule): accurate — hotspot on OK pill center on **[Zoom pointer before action]**.\n\nVerify:\nLast automated action: 2. mouse:click_index — footer region (missed OK).\nBefore vs after: On [Screen before action]: confirm dialog open, OK enabled. On [Screen after action]: same; dialog still open.\nClear evidence: no_clear_evidence — restates Before vs after: confirm not completed.\nAction type: non-deferred.\nMouse judgment: mouse_accurate — hotspot on OK pill center.\nLookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;\nMatch: row no_clear_evidence + non-deferred + mouse_accurate → fail, no_immediate_feedback;\nStep result: fail. Cause: no_immediate_feedback.\n\nRepetition:\nLast rows differ. OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — no_immediate_feedback; Repetition: OK; this turn: confirm dialog via OK pill.\n2 Target on [Screen after action]: blue OK pill; shape pill; color blue primary; region modal dialog footer; neighbors: Cancel pill **right**.\n\nLocation:\n1 Placement→frame: On [Screen after action]: OK in **central** modal footer → therefore analyze on **[Annotated after action]**. [Annotated after action] — target: blue OK pill; wrapping bbox: **cyan**-stroke footer **OK**+**Cancel**; traits inside that bbox: distinct controls = OK pill + Cancel pill; wrap count = 2; intended sub-target = OK pill.\n2 On [Annotated after action] — target→bbox→index: (a) **cyan** footer **bbox**; (b) digit **background** **cyan**, flush on that **bbox**; (c) wraps **traits** intended sub-target (OK pill); **therefore** selected overlay index **4**.\n3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.\n4 Coordinate geometry: pointer-on-**4** check: pointer inside overlay **4**; nearest corner **bottom-left**; corner from **Pointer neighbor reference bboxes** for **4** ≈ (xc, yc); OK center **right** Δx **up** Δy; **therefore** aim (x, y) ≈ (xc + Δx, yc - Δy).\n\nTool route:\n1 Next recap & Location:\n   Next recap: this turn: confirm dialog via OK pill;\n   Location recap: **coordinate** path — overlay **4**, **multiple**, pointer **on** **4**, aim ≈ (xc + Δx, yc - Δy).\n2 Tool call this turn: **mouse:click_at** at computed **(x, y)** — not overlay index **4**.",
+  "headline": "Confirm dialog via OK coordinates",
+  "tool_name": "mouse:click_at",
+  "tool_args": { "goal": "Confirm dialog via OK pill", "action": "click OK pill center", "x": 520, "y": 880 }
+}
+```
+
+**Screen-targeted tool — coordinate path, pointer not on `N` (hover_index this turn only)**:
+
+```json
+{
+  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: trash icon disk in file list row; aim = trash icon center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: hotspot on **filename label**, **left** of trash icon disk — not over trash center.\n3 Conclusion (Center-only rule): abnormal — hotspot not on intended trash icon center.\n\nVerify:\nLast automated action: 1. mouse:click_at — mis-aimed row click.\nBefore vs after: On [Screen before action]: file row unchanged. On [Screen after action]: same list row.\nClear evidence: no_clear_evidence — restates Before vs after: row not deleted.\nAction type: non-deferred.\nMouse judgment: mouse_miss — hotspot on filename, not trash icon.\nLookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_miss;\nMatch: row no_clear_evidence + non-deferred + mouse_miss → fail, precision_miss;\nStep result: fail. Cause: precision_miss.\n\nRepetition:\nLast rows differ. OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — precision_miss; Repetition: OK; this turn: delete file via trash icon in list row.\n2 Target on [Screen after action]: trash icon disk; shape circular glyph; band file list row; neighbors: filename label **left**.\n\nLocation:\n1 Placement→frame: On [Screen after action]: trash icon in **central** file list → therefore analyze on **[Zoom pointer after action]**. [Zoom pointer after action] — target: trash icon disk; wrapping bbox: **magenta**-stroke list row strip; traits inside that bbox: distinct controls = filename label + trash icon disk; wrap count = 2; intended sub-target = trash icon disk.\n2 On [Zoom pointer after action] — target→bbox→index: (a) **magenta** row **bbox**; (b) digit **background** **magenta**, flush on that **bbox**; (c) wraps **traits** intended sub-target (trash icon disk); **therefore** selected overlay index **28**.\n3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.\n4 Coordinate geometry: pointer-on-**28** check: pointer **not** inside overlay **28** — geometry deferred.\n\nTool route:\n1 Next recap & Location:\n   Next recap: this turn: delete file via trash icon in list row;\n   Location recap: **coordinate** path — overlay **28**, **multiple**, pointer **not** on **28**.\n2 Tool call this turn: **mouse:hover_index** on overlay index **28** only.",
+  "headline": "Hover list row overlay before trash click",
+  "tool_name": "mouse:hover_index",
+  "tool_args": { "goal": "Anchor pointer on list row overlay 28", "action": "hover row overlay 28", "index": 28 }
+}
+```
+
+**Non-location routes (`hotkey`, `wait`, `response`, …)** — **`Location:`** **`n/a`**; route in **`Tool route:`** only. Example:
+
+```text
+Location:
+n/a — confirm save dialog via Enter.
+
+Tool route:
+1 Next recap & Location:
+   Next recap: this turn: confirm save dialog via Enter;
+   Location recap: n/a — save dialog open; default button focused.
+2 Tool call this turn: **hotkey** — **Enter** (default Save); per **hotkey** prompt.
+```
 
 Example (**`hotkey`** — confirm save dialog, no screen point):
 
 ```json
 {
-  "thoughts": "Pointer:\n1 Intended aim on [Screen after action]: n/a — prior hotkey Save aimed at document, not this dialog button.\n2 Evidence (hotspot vs aim): On [Screen after action]: n/a — judging keyboard confirm, not pointer vs dialog button center.\n3 Conclusion (Center-only rule): n/a — hotkey turn.\n\nVerify:\nLast automated action: 3. hotkey — Save document (Ctrl+S).\nBefore vs after: On [Screen before action]: document canvas only. On [Screen after action]: save modal appeared.\nClear evidence: supporting_evidence — restates Before vs after: save modal appeared.\nAction type: non-deferred — dialog on canvas.\nMouse judgment: non_mouse — hotkey; Pointer n/a.\nStep result: pass.\n\nRepetition:\nRows: differ. Screen: advanced. Verdict: OK\n\nNext:\n1 Prior stages & sub-goal: Verify: pass — save dialog open; Repetition: OK; this turn: confirm Save in dialog via keyboard.\n2 Target on [Screen after action]: n/a — default button focus; use keyboard confirm, not a new overlay pick.\nTool kind: hotkey — no digits here.",
+  "thoughts": "Pointer:\n1 Intended aim on [Screen after action]: n/a — prior hotkey Save aimed at document, not this dialog button.\n2 Evidence (hotspot vs aim): On [Screen after action]: n/a — judging keyboard confirm, not pointer vs dialog button center.\n3 Conclusion (Center-only rule): n/a — hotkey turn.\n\nVerify:\nLast automated action: 3. hotkey — Save document (Ctrl+S).\nBefore vs after: On [Screen before action]: document canvas only. On [Screen after action]: save modal appeared.\nClear evidence: supporting_evidence — restates Before vs after: save modal appeared.\nAction type: non-deferred — dialog on canvas.\nMouse judgment: non_mouse — hotkey; Pointer n/a.\nLookup: Clear evidence=supporting_evidence, Action type=non-deferred, Mouse judgment=non_mouse;\nMatch: row supporting_evidence + either + non_mouse → pass;\nStep result: pass.\n\nRepetition:\nRows: differ. Screen: advanced. Verdict: OK\n\nNext:\n1 Prior stages & sub-goal: Verify: pass — save dialog open; Repetition: OK; this turn: confirm save dialog via Enter.\n2 Target on [Screen after action]: n/a — save modal visible; default button focus on dialog.\n\nLocation:\nn/a — no overlay analysis this turn.\n\nTool route:\n1 Next recap & Location:\n   Next recap: this turn: confirm save dialog via Enter;\n   Location recap: n/a — save dialog; default button focused.\n2 Tool call this turn: **hotkey** — Enter.",
   "headline": "Confirm save in dialog",
   "tool_name": "hotkey",
-  "tool_args": {}
+  "tool_args": { "goal": "Confirm save in dialog", "action": "press Enter for default Save", "keys": "enter" }
 }
 ```

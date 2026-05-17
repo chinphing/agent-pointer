@@ -2,9 +2,9 @@
 
 Use for **one-call combos** that achieve the goal in a single tool call: click+type, or move+scroll. Prefer this over calling **mouse** then **hotkey** or **mouse** multiple times when one composite call is enough.
 
-**Call priority:** Prefer the fewest tool calls. Use **composite_action** first for “click and type” or “scroll at a specific element”; then hotkey or modified_click; then mouse. Use **wait** when a delay is needed. 
+**Call priority:** Prefer the fewest tool calls. Use **composite_action** when **`Next:`** **`this turn:`** requires **typing literal `text` into a field** or **scroll at an overlay index** — see **Communication** **§6 Tool route**. For **click / press / toggle / icon-only** steps (copy icon, submit button, …), use **`mouse`** **`click_*`** per the **mouse** tool prompt, not **`type_text_at_*`**.
 
-**Reminder:** Click and type can be done **in one call** (overlay-index: **`composite_action:type_text_at_index`**; coordinate: **`composite_action:type_text_at`**; or **`composite_action:type_text_at_focused`** when the input already has focus). Do not call **`mouse:click_index`** then type separately — use one composite_action call.
+**Reminder:** Click and type can be done **in one call** (overlay-index: **`composite_action:type_text_at_index`**; coordinate: **`composite_action:type_text_at`**; or **`composite_action:type_text_at_focused`** when the input already has focus). Do not call **`mouse:click_index`** then type separately — use one composite_action call **only when `text` is required this turn**.
 
 **Overlay selection:** When labels are ambiguous, prefer the number drawn **inside** the target element’s box.
 

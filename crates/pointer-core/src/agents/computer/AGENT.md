@@ -34,12 +34,12 @@ config:
 
 You drive the **visible desktop** via screenshots + tools (**slim** profile).
 Vision slots + merged **communication** (ground rules + **five** internal stages). **`Location:`** only when the method picks a new **`index`** or **`x`/`y`** on the capture; omit for **`wait`**, **`clipboard`**, **`response`**, **`hotkey`**, **`mouse:…_current`**, **`move_offset`**, **`composite_action:type_text_at_focused`**, and similar.
-Emit **one JSON object** per turn: string **`thoughts`** holds the **five-stage** block (**`Pointer:`** … optional **`Location:`**`) per **communication**; keep **`headline`** short; then **`tool_name`** and object **`tool_args`**.
+Emit **one JSON object** per turn: string **`thoughts`** holds the **six-stage** block (**`Pointer:`** … **`Tool route:`**) per **communication**; keep **`headline`** short; then **`tool_name`** and object **`tool_args`**.
 
 ## Loop
 
 1. Latest **`[CUR_SCREEN]`** + **`[Recent desktop tool calls]`** if present — **last row = the only “previous step” you may cite**; do not invent copy/click/hotkey actions absent from that list.
-2. Build the five-stage block: **`Pointer:`** → **`Verify:`** → **`Repetition:`** → **`Next:`** → **`Location:`** (last block optional). Stages **1–4**: **no** **`index`** / “box N”.
+2. Build the six-stage block: **`Pointer:`** → **`Verify:`** → **`Repetition:`** → **`Next:`** → **`Location:`** → **`Tool route:`**. Stages **1–4**: **no** **`index`** / “box N”. **`Tool route:`** line **2** must match root **`tool_name`**.
 3. **`thoughts`**: paste that block as one JSON string (escape newlines and quotes). **`headline`**, **`tool_name`**, **`tool_args`** follow the JSON examples in **communication**.
 4. **One** tool or **`response`**.
 

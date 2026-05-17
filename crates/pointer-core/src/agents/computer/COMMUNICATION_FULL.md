@@ -1,18 +1,19 @@
 ## `<thoughts>`
 
-Runtime **COMMUNICATION.md** (slim) specifies **JSON** output: put the **full five-stage block** (**`Pointer:`** … optional **`Location:`**`) inside the **`thoughts`** string field; keep **`headline`** a **short** label. This file documents the same stages in more detail for authors.
+Runtime **COMMUNICATION.md** (slim) specifies **JSON** output: put the **full six-stage block** (**`Pointer:`** … **`Tool route:`**`) inside the **`thoughts`** string field; keep **`headline`** a **short** label. This file documents the same stages in more detail for authors.
 
 **Inject slots (runtime, 2026):** when a prior turn exists — **`[Screen before action]`** → **`[Zoom pointer before action]`** (4×, ±50 px; **Pointer** geometry standard) → **`[Screen after action]`** → **`[Annotated after action]`** → three **after** zooms. **Verify** uses **12-row** lookup (**`Step result` / `Cause`**), **`Mouse judgment`** = **`non_mouse` | `mouse_miss` | `mouse_accurate`** only. Sections below may still describe older **VERIFIED/NFO** wording — follow **COMMUNICATION.md** for on-wire behavior.
 
 ## Reasoning framework (mandatory every tool or final turn)
 
-Run **five** internal stages **in this order**, using **exactly** these **English prefix lines** so the chain is scannable:
+Run **six** internal stages **in this order**, using **exactly** these **English prefix lines** so the chain is scannable:
 
 - **`Pointer:`** — stage 1  
 - **`Verify:`** — stage 2  
 - **`Repetition:`** — stage 3  
 - **`Next:`** — stage 4  
-- **`Location:`** — stage 5 (only when this turn chooses a **screen-targeted** tool: `mouse` / `hotkey` / `composite_action` / `modified_click`; **omit** the whole **`Location:`** block when `next:` is `wait`, `clipboard`, or **`response`**)
+- **`Location:`** — stage 5 (overlay analysis; **`n/a`** when no overlay work)
+- **`Tool route:`** — stage 6 (explicit tool call; line **2** = root **`tool_name`**)
 
 ### No speculation
 
@@ -195,7 +196,7 @@ After **`Next:`** internally, when the chosen tool needs a screen target—**do 
 **BBox:** Each overlay **`index`** labels **one** axis-aligned **bbox**. **Pairing rule:** count digit ↔ **bbox** as matched **only** when **both** hold:
 (a) **background color** behind the digit **matches** that **bbox**’s **border color**;
 (b) the digit sits **tightly on** the **bbox** border—**flush** with the stroke, **not** floating between two **bbox** regions.
-Same **bbox** for border, placement, digit-on-edge, and “inside” on inventory lines. In **`Location:`**, use **bbox** only so every line names the same shape.
+Same **bbox** for border, placement, digit-on-edge, and **`traits inside that bbox`**. In **`Location:`**, use **bbox** only so every line names the same shape.
 
 **Target element features:** When describing the candidate bbox, include the target element’s **text** (exact or partial), **shape** (pill, chip, row, tab, field, glyph, etc.), **color or emphasis** if it disambiguates, **screen position** (band/region), and **neighbor features** (e.g. “left of Save”, “under error banner”). These features come from the **`Next:`** intent and are used to **match** or **mismatch** in step 3.
 
@@ -204,7 +205,7 @@ Same **bbox** for border, placement, digit-on-edge, and “inside” on inventor
 ```text
 Location:
 1 <[Annotated after action] | [Zoom top after action] | [Zoom bottom after action] | [Zoom pointer after action]> index <N>: <target element text, shape, color, screen position, neighbors; bbox border color match; digit on bbox edge; vs other indices>.
-2 Inside bbox: <inventory only — what is wrapped>.
+2 Inside bbox: <traits — distinct controls, wrap count, intended sub-target>.
 3 match|mismatch: <compare Next Intent features: text, shape, color, screen position, neighbors — inclusive decision>.
 4 single|multiple: <distinct hit targets inside that bbox — count only after match>.
 5 index <N> | coordinates | hover: <choice; if coords/hover, why>.
@@ -215,7 +216,7 @@ Location:
 **Line 1**: Name the frame and index, then describe the **target element** inside that bbox using its key features (text, shape, color, position, neighbors), as well as the bbox’s own traits (border color match, digit placement, bbox position, vs other indices).
 **Line 2**: Inventory of all controls inside that bbox (feeds step 4 only; not used for match/mismatch).
 **Line 3**: **Compare** the target element features from Line 1 with the Next Intent’s target features (text, shape, color, screen position, neighbors). If **all** features match → **match** (even if the bbox wraps extra UI). If **any** feature differs → **mismatch**: reject this index, go back to Line 1 with a **different candidate** whose features are closer to the Next Intent.
-**Line 4**: Run only after **match**. Count **one** vs **multiple** distinct hit targets inside that bbox (inventory from Line 2).
+**Line 4**: Run only after **match**. Route from **`traits`** **`wrap count`** on line 1 (not re-counted on line 3).
 **Line 5**: Map step 3–4: **match + single** → **`index`**; **match + multiple** → **coordinates** (or hover/defer); if no match after exhaustive tries → **coordinates** on [Screen after action].
 
 **Exclusivity after match:**
@@ -233,15 +234,15 @@ Location:
 5 index 4
 ```
 
-**Positive example** — URL in fat strip: `3 match` + `4 multiple` → `5 coordinates`.
+**Positive example** — OK + Cancel in footer strip: `3 match` + `4 multiple` → `5 coordinates`.
 
 ```text
 Location:
-1 [Annotated after action] index 12: target = URL field (text: (current URL), shape: text input, band: toolbar strip below tabs, neighbors: left of star button). bbox border color orange; wide toolbar strip under tabs; digit on top edge; peer indices left/right.
-2 Inside bbox: URL field, star button, extension icons — multiple.
-3 match: URL features match (input shape, toolbar band, left of star).
+1 [Annotated after action] index 4: target = OK pill (text: OK, shape: blue pill, band: dialog footer, neighbors: left of Cancel pill). bbox border color cyan; footer bar spans OK + Cancel; digit on footer edge.
+2 Inside bbox: OK pill, Cancel pill — multiple.
+3 match: OK features match (blue pill, footer band, left of Cancel).
 4 multiple.
-5 coordinates: URL field center; not index 12
+5 coordinates: OK pill center; not index 4
 ```
 
 **Mismatch example** — Retry.

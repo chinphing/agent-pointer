@@ -2,7 +2,7 @@
 
 Use for a single mouse action: click, double-click, right-click, hover, drag, scroll at the current cursor, or a small offset move. Prefer **overlay-index methods** when the target has an overlay number; otherwise use **coordinate methods** and the numeric coordinate ranges documented below for this turn. When multiple labels are plausible, prefer the badge drawn **inside** the target control.
 
-**Call priority:** Prefer **composite_action**, **hotkey**, or **modified_click** when one call achieves the same goal with fewer steps.
+**Call priority:** Prefer **composite_action**, **hotkey**, or **modified_click** when one call achieves the same goal with fewer steps — unless **Communication §6** fixes this turn as **mouse** click-only (icons/buttons).
 
 **Overlay-index methods** (require `index`, `goal`): **`mouse:click_index`**, **`mouse:double_click_index`**, **`mouse:right_click_index`**, **`mouse:hover_index`**.
 

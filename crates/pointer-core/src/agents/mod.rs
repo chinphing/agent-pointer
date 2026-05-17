@@ -29,6 +29,11 @@ const AGENT_SESSION_INJECT: &str = "SESSION_INJECT.md";
 
 /// Model-facing shared rules: host context, skills, **`thoughts`** meaning, and **`response`** role (English). XML shape and examples for **`response`** stay in the tools appendix.
 const COMMUNICATION_PUBLIC: &str = include_str!("_shared/COMMUNICATION_PUBLIC.md");
+const COMPUTER_COMMUNICATION_SHARED: &str = include_str!("computer/COMMUNICATION_SHARED.md");
+const COMPUTER_COMMUNICATION_MAIN: &str = include_str!("computer/COMMUNICATION.md");
+const COMPUTER_SHORTCUTS_MACOS: &str = include_str!("computer/SHORTCUTS_MACOS.md");
+const COMPUTER_SHORTCUTS_WINDOWS: &str = include_str!("computer/SHORTCUTS_WINDOWS.md");
+const COMPUTER_SHORTCUTS_LINUX: &str = include_str!("computer/SHORTCUTS_LINUX.md");
 
 /// Injected on **every** main-LLM and sub-agent round (see `chat_service`).
 pub fn communication_public_md() -> &'static str {
@@ -65,13 +70,36 @@ const BUILTIN_AGENT_BUNDLES: &[BuiltinAgentBundle] = &[
     BuiltinAgentBundle {
         id: "computer",
         manifest: include_str!("computer/AGENT.md"),
-        communication: concat!(
-            include_str!("computer/COMMUNICATION_SHARED.md"),
-            "\n\n---\n\n",
-            include_str!("computer/COMMUNICATION.md"),
-        ),
+        communication: "",
     },
 ];
+
+fn computer_shortcuts_md_for_platform() -> &'static str {
+    if cfg!(target_os = "macos") {
+        COMPUTER_SHORTCUTS_MACOS
+    } else if cfg!(target_os = "windows") {
+        COMPUTER_SHORTCUTS_WINDOWS
+    } else {
+        COMPUTER_SHORTCUTS_LINUX
+    }
+}
+
+fn builtin_computer_communication() -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    let shared = COMPUTER_COMMUNICATION_SHARED.trim();
+    if !shared.is_empty() {
+        parts.push(shared);
+    }
+    let main = COMPUTER_COMMUNICATION_MAIN.trim();
+    if !main.is_empty() {
+        parts.push(main);
+    }
+    let platform_shortcuts = computer_shortcuts_md_for_platform().trim();
+    if !platform_shortcuts.is_empty() {
+        parts.push(platform_shortcuts);
+    }
+    parts.join("\n\n---\n\n")
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -491,7 +519,12 @@ impl AgentOrchestrator {
 
 pub fn register_builtin_agents(registry: &AgentRegistry) {
     for bundle in BUILTIN_AGENT_BUNDLES {
-        match load_builtin_agent(bundle.id, bundle.manifest, bundle.communication) {
+        let communication = if bundle.id == "computer" {
+            builtin_computer_communication()
+        } else {
+            bundle.communication.to_string()
+        };
+        match load_builtin_agent(bundle.id, bundle.manifest, &communication) {
             Ok(agent) => registry.register(agent),
             Err(err) => log::warn!("load builtin agent failed: {}: {err}", bundle.id),
         }
@@ -969,12 +1002,8 @@ mod builtin_agent_tests {
     #[test]
     fn computer_builtin_manifest_parses_and_loads() {
         let raw = include_str!("computer/AGENT.md");
-        let comm = concat!(
-            include_str!("computer/COMMUNICATION_SHARED.md"),
-            "\n\n---\n\n",
-            include_str!("computer/COMMUNICATION.md"),
-        );
-        let agent = load_builtin_agent("computer", raw, comm).expect("load builtin computer");
+        let comm = builtin_computer_communication();
+        let agent = load_builtin_agent("computer", raw, &comm).expect("load builtin computer");
         assert_eq!(agent.def.role, "worker");
         assert!(agent.def.enabled);
         assert_eq!(agent.def.profile, AgentProfile::Computer);

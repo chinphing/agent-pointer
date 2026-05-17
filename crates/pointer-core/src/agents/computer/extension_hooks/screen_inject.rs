@@ -65,7 +65,7 @@ fn build_cur_screen_text(has_previous_raw: bool) -> String {
         ""
     };
     let tail = format!(
-        "{before_line}{zoom_before} [Annotated after action] carries overlay index numbers. [Zoom top after action], [Zoom bottom after action], and [Zoom pointer after action] magnify the **after-action** annotated view. A pointer and text caret may be drawn on [Screen after action] and on the annotated image. When the next block begins with **Pointer position**, it gives the synthetic pointer in **capture pixels** and (for coordinate tools) **normalized 0–1000** on the full capture. **Pointer coordinate anchor** tells you to use **`[Zoom pointer after action]`** — the **300×300 px** annotated crop centered on that position — as the visual anchor for **coordinate-based** `*_at` calls (read layout on that image, map to session x/y via **Pointer position**)."
+        "{before_line}{zoom_before} [Annotated after action] carries overlay index numbers. **`Location:`** line **4**: pointer-on-N on **[Zoom pointer after action]**; placement, corner, (x,y) on **[Annotated after action]** + **Pointer neighbor reference bboxes** for N."
     );
     let hint = if has_previous_raw {
         format!(

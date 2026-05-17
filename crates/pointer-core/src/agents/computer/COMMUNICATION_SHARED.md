@@ -8,12 +8,13 @@ Older desktop turns are stripped—use **only** this inject.
 ### Full-screen
 
 - **`[Screen before action]`** (if present) — **previous** turn’s unmarked capture with the **current** synthetic pointer:
-  **pre-action** desktop layout. Name **Intended aim** on this frame in **`Pointer:`** line **1**; hotspot geometry uses **`[Zoom pointer before action]`** (see **Zooms**). **`Verify:`** **`Before vs after`** must compare **`[Screen before action]`** → **`[Screen after action]`** (name both frames); not **`Pointer:`**.
+  **pre-action** desktop layout. Name **Intended aim** on this frame in **`Pointer:`** line **1**; hotspot geometry uses **`[Zoom pointer before action]`** (see **Zooms**). **`Verify:`** **`Before vs after`** must compare **`[Screen before action]`** → **`[Screen after action]`** (name both frames); not **`Pointer:`**. **`Clear evidence`** restates that **UI** delta only — not click/tool success or pointer accuracy (**`Mouse judgment:`** / **`Pointer:`**).
 
 - **`[Screen after action]`** — **after** that action; full-screen layout truth + synthetic pointer/caret.
   In **internal** stages **1–4** (**`Pointer:`** / **`Verify:`** / **`Repetition:`** / **`Next:`**), must **not** name overlay digits,
   **`index`**, or “bbox N”; describe targets from this full-screen frame only.
-  **`index`** is allowed **only** in **internal** stage **5** (**`Location:`**).
+  **`Next:`** is **target only** (two numbered lines) — **no** tool choice, **no** overlay **`index`**, **no** coordinates.
+  **Overlay analysis** is **internal** stage **5** (**`Location:`**); **tool** routing is **internal** stage **6** (**`Tool route:`** line **2**).
 
 ### Annotated
 
@@ -22,7 +23,7 @@ Older desktop turns are stripped—use **only** this inject.
   Use **`index`** in **`mouse` / composite / modified_click`** overlay methods
   only when **one** region’s **bbox** wraps **a single** target (one control / one icon / one field alone).
   If the **bbox** encloses **multiple** distinct elements—label + field, several icons, title + chips in one **bbox**, etc.—treat as **multiple** even for one semantic “row”; use **coordinates** instead, because **`index`** clicks the **region center** and will miss the intended sub-target.
-  In **internal** stage **5** (**`Location:`**): **line 1** grounds the target from **`Next:`** **line 2** — **no** overlay **`index`** on **line 1** (**including** **`neighbors:`**; e.g. “**(index 34)**” is forbidden — layout/label/stroke only). **line 2** picks **`index` N** only after **(a)(b)(c)** when digit **background** = **`bbox` border stroke** and the digit is **flush-adjacent only** to that **`bbox`**. **bbox wrap count** (**`inventory:`**) = **only** whether that **`bbox`** wraps **one** vs **multiple** targets; then choose **`index`** or **coordinates**. On **coordinates**, anchor on **`[Zoom pointer after action]`** when the sub-target is in the pointer zoom (else **`[Screen after action]`** or the **line 1** frame); map **(x, y)** via **Pointer position**, not from overlay **`index`** clicks.
+  In **internal** stage **5** (**`Location:`**): **line 1** — **`traits inside that bbox:`** lists **`distinct controls`**, **`wrap count`**, **`intended sub-target`** (visual names only; no overlay digits on line 1). **Lines 2–4 follow `traits`:** **line 2** **`index` N** after **(a)(b)(c)**; **line 3** route from **`wrap count`** only (**1** → index, **>1** → coordinates); **line 4** when coordinates — **pointer-on-N** on **`[Zoom pointer after action]`**; placement → corner → **(xc,yc)** → **(x,y)** on **`[Annotated after action]`**. **line 6** **`Tool route:`** = explicit tool matching root **`tool_name`**.
 
 - **Digit ↔ bbox:** Each **printed index** pairs with **exactly one** **bbox** when **both** hold: **background color** behind the digit **matches** that **bbox**’s **border color** (**not** “digit ink = border color”), **and** the digit sits **tightly on** the **bbox** border—**flush** with the stroke, **not** suspended between two **bbox** regions. Match **`index`** to **bbox** by that **color** tie **plus** **contiguous** placement
   (the integer labels the **bbox** it **touches**, not a neighbor’s **bbox**).
@@ -51,8 +52,7 @@ Older desktop turns are stripped—use **only** this inject.
 
 - **`[Zoom top after action]`** — top strip (menu bar / title): small chrome, app name, top-edge controls.
 - **`[Zoom bottom after action]`** — bottom strip (dock / taskbar): launcher icons, status UI.
-- **`[Zoom pointer after action]`** — **300×300 px** annotated patch around pointer at capture;
-  prefer for coordinate **`*_at`** layout and fine detail under the cursor.
+- **`[Zoom pointer after action]`** — **300×300 px** annotated patch around pointer; lines **1–2** when digits are small; **`Location:`** line **4** **pointer-on-N** check only.
 
 In **`Location:`**, **first** state **placement / bearing** on **`[Screen after action]`** (**top / bottom / near pointer / central** from **`Next:`** line 2 band), **then** **`therefore analyze on [Zoom … | Annotated …]`** — **then** **`bbox` → `index`**. Do **not** skip bearing and pick a frame by habit.
 

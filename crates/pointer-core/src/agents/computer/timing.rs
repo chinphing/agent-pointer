@@ -47,10 +47,32 @@ pub fn post_desktop_action_delay_ms_from_tool_args(args: &Value) -> u64 {
     ((clamped * 1000.0).round() as u64).max(1)
 }
 
+/// After [`super::actions::ActionExecutor`] moves the cursor to an absolute target, wait before
+/// click/scroll/drag so the OS and target app can update hit-testing (hover, focus, animations).
+pub const SETTLE_AFTER_ABSOLUTE_MOVE_MS: u64 = 250;
+
+/// After any synthetic mouse button gesture (left / right / double click), brief pause before the
+/// tool returns so the target app can process the event. Used by all [`super::actions::ActionExecutor`]
+/// click entry points (`click_at`, `click_here`, `double_click_*`, `right_click_*`, batch clicks).
+pub const POST_MOUSE_BUTTON_SETTLE_MS: u64 = 50;
+
 /// Milliseconds between **sub-steps inside one composite desktop action** in [`super::actions::ActionExecutor`]
 /// (e.g. after focus click, before `type_text`; after select-all, before typing; after move+settle,
 /// before scroll). Tunable in one place; independent of [`POST_DESKTOP_ACTION_DELAY_MS`].
 pub const COMPOSITE_ACTION_STEP_GAP_MS: u64 = 50;
+
+/// Milliseconds between the two physical clicks of a synthetic double-click.
+/// Applied by the concrete input backend so the host app can recognize it
+/// as one double-click gesture reliably across platforms.
+pub const DOUBLE_CLICK_INTERVAL_MS: u64 = 60;
+
+/// Max pixel step for linear-uniform cursor movement.
+/// Lower value => smoother path but more move events.
+pub const MOUSE_MOVE_LINEAR_STEP_MAX_PX: f64 = 14.0;
+
+/// Milliseconds between adjacent linear-uniform movement points.
+/// Keeps movement visibly progressive while staying responsive.
+pub const MOUSE_MOVE_LINEAR_STEP_INTERVAL_MS: u64 = 6;
 
 /// Tools recorded under `[CUR_SCREEN]` as recent desktop rows (goal/action repetition hints). Includes `wait`
 /// so the model sees explicit pauses even though `wait` does not move the pointer. Includes `clipboard` for

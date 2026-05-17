@@ -1,4 +1,6 @@
-use super::timing::COMPOSITE_ACTION_STEP_GAP_MS;
+use super::timing::{
+    COMPOSITE_ACTION_STEP_GAP_MS, POST_MOUSE_BUTTON_SETTLE_MS, SETTLE_AFTER_ABSOLUTE_MOVE_MS,
+};
 use anyhow::{anyhow, Result};
 use std::time::Duration;
 
@@ -6,7 +8,13 @@ use std::time::Duration;
 /// window activation, text-field focus, etc.) before the next click or scroll.
 #[inline]
 fn settle_after_absolute_move() {
-    std::thread::sleep(Duration::from_millis(45));
+    std::thread::sleep(Duration::from_millis(SETTLE_AFTER_ABSOLUTE_MOVE_MS));
+}
+
+/// After left / right / double click so the target app can process the button event.
+#[inline]
+fn settle_after_mouse_button() {
+    std::thread::sleep(Duration::from_millis(POST_MOUSE_BUTTON_SETTLE_MS));
 }
 
 /// Between composite sub-steps (focus → type, select-all → type, position → scroll); see [`COMPOSITE_ACTION_STEP_GAP_MS`].
@@ -131,17 +139,23 @@ impl ActionExecutor {
 
     /// Left-click at the **current** cursor without moving (Pointer `click_current`).
     pub fn click_here(&self) -> Result<ActionResult> {
-        self.backend.click()
+        self.backend.click()?;
+        settle_after_mouse_button();
+        Ok(ActionResult::success("Clicked"))
     }
 
     /// Double-click at the current cursor.
     pub fn double_click_here(&self) -> Result<ActionResult> {
-        self.backend.double_click()
+        self.backend.double_click()?;
+        settle_after_mouse_button();
+        Ok(ActionResult::success("Double-clicked"))
     }
 
     /// Right-click at the current cursor.
     pub fn right_click_here(&self) -> Result<ActionResult> {
-        self.backend.right_click()
+        self.backend.right_click()?;
+        settle_after_mouse_button();
+        Ok(ActionResult::success("Right-clicked"))
     }
 
     /// Drag with left button from pixel (x1,y1) to (x2,y2).
@@ -172,6 +186,7 @@ impl ActionExecutor {
             self.backend.move_to(x, y)?;
             settle_after_absolute_move();
             self.backend.click()?;
+            settle_after_mouse_button();
         }
         self.backend.key_phase(meta, KeyPhase::Release)?;
         Ok(ActionResult::success("multi-select clicks"))
@@ -196,7 +211,9 @@ impl ActionExecutor {
     pub fn click_at(&self, x: i32, y: i32) -> Result<ActionResult> {
         self.backend.move_to(x, y)?;
         settle_after_absolute_move();
-        self.backend.click()
+        self.backend.click()?;
+        settle_after_mouse_button();
+        Ok(ActionResult::success("click"))
     }
 
     /// Click at an annotated element index.
@@ -217,7 +234,9 @@ impl ActionExecutor {
     pub fn double_click_at(&self, x: i32, y: i32) -> Result<ActionResult> {
         self.backend.move_to(x, y)?;
         settle_after_absolute_move();
-        self.backend.double_click()
+        self.backend.double_click()?;
+        settle_after_mouse_button();
+        Ok(ActionResult::success("double-click"))
     }
 
     /// Double-click at an annotated element index.
@@ -233,7 +252,9 @@ impl ActionExecutor {
     pub fn right_click_at(&self, x: i32, y: i32) -> Result<ActionResult> {
         self.backend.move_to(x, y)?;
         settle_after_absolute_move();
-        self.backend.right_click()
+        self.backend.right_click()?;
+        settle_after_mouse_button();
+        Ok(ActionResult::success("right-click"))
     }
 
     /// Right-click at an annotated element index.

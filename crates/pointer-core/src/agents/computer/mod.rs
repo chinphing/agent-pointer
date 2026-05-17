@@ -4,6 +4,7 @@ pub mod action_enigo;
 pub mod actions;
 pub mod annotate;
 pub mod coord;
+mod mouse_move;
 /// Computer-specific [`crate::extensions`] hooks (e.g. screen inject).
 pub mod extension_hooks;
 pub mod screen;

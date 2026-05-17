@@ -108,14 +108,6 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
             ));
             continue;
         };
-        if dir_name != manifest.name {
-            skipped.push(format!(
-                "{}: Skill 目录名必须与 frontmatter name 一致",
-                manifest.name
-            ));
-            continue;
-        }
-
         let target = root.join(&manifest.name);
         if target.exists() {
             fs::remove_dir_all(&target)?;
@@ -173,9 +165,6 @@ fn load_skill_from_dir(dir: &Path) -> Result<SkillDef> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| anyhow!("Skill 目录名无效"))?;
-    if manifest.name != dir_name {
-        return Err(anyhow!("Skill 目录名必须与 frontmatter name 一致"));
-    }
     manifest_to_skill(manifest, dir)
 }
 

@@ -594,9 +594,6 @@ fn supervisor_agent_def() -> AgentDef {
 
 fn load_builtin_agent(id: &str, raw: &str, communication: &str) -> Result<BaseAgent> {
     let manifest = parse_agent_md(raw)?;
-    if manifest.id != id {
-        return Err(anyhow!("内置 Agent id 与目录名不一致"));
-    }
     let mut agent = manifest_to_agent(manifest, None, communication)?;
     agent.def.builtin = true;
     agent.def.source = Some(format!("builtin://{id}"));
@@ -662,9 +659,6 @@ fn load_agent_from_dir(dir: &Path) -> Result<BaseAgent> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| anyhow!("Agent 目录名无效"))?;
-    if manifest.id != dir_name {
-        return Err(anyhow!("Agent 目录名必须与 frontmatter id 一致"));
-    }
     let comm_path = dir.join(AGENT_COMMUNICATION);
     let mut communication = if comm_path.exists() {
         fs::read_to_string(&comm_path)?

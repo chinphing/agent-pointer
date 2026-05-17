@@ -328,8 +328,8 @@ const supervisorAgent = computed(
     agents.value.find(a => a.role === 'supervisor')
 )
 
-function isCoderAgent(a: AgentDef): boolean {
-  return a.id === 'coder' || a.profile === 'coder'
+function isCoderAgent(_a: AgentDef): boolean {
+  return true
 }
 
 const workspaceDirName = computed(() => {

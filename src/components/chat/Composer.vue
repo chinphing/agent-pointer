@@ -36,15 +36,6 @@ const supervisorAgent = computed(
     agents.value.find(a => a.role === 'supervisor')
 )
 
-function isCoderProfile(p: AgentProfile): boolean {
-  return p === 'coder'
-}
-
-function agentNeedsWorkspace(a: AgentDef | undefined): boolean {
-  if (!a) return false
-  return a.id === 'coder' || isCoderProfile(a.profile)
-}
-
 const selectedWorker = computed(() => {
   if (settings.settings.agentMode !== 'single') return undefined
   const id = settings.settings.leadAgentId?.trim()
@@ -59,7 +50,7 @@ const isComputerAgent = computed(() => {
   return w.id === 'computer'
 })
 
-const needsWorkspace = computed(() => agentNeedsWorkspace(selectedWorker.value))
+const needsWorkspace = computed(() => settings.settings.agentMode === 'single')
 
 const workspaceDirName = computed(() => {
   const p = settings.settings.workspaceRoot

@@ -193,7 +193,7 @@ pub(crate) async fn plan_agent_tasks(
     let out = provider
         .chat_once(
             history,
-            &[prompt],
+            &crate::models::SystemPromptSections::all_cacheable(vec![prompt]),
             cancel,
             None,
             Some(dump_lbl.as_str()),

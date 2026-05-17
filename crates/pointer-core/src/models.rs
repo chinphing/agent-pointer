@@ -963,20 +963,122 @@ fn flatten_tool_rounds_computer_style_for_api(msgs: &[ChatMessage]) -> Vec<ChatM
     out
 }
 
+/// DashScope / 百炼 OpenAI 兼容接口：千问显式 Context Cache（`cache_control.type = ephemeral`）。
+/// 见 https://help.aliyun.com/zh/model-studio/context-cache
+pub fn qwen_explicit_system_cache_enabled(settings: &ModelSettings) -> bool {
+    let Some((provider, model)) = active_provider_and_model(settings) else {
+        return false;
+    };
+    if !provider_uses_dashscope_compatible_api(provider) {
+        return false;
+    }
+    qwen_model_supports_explicit_cache(model)
+}
+
+fn provider_uses_dashscope_compatible_api(provider: &ProviderConfig) -> bool {
+    if provider.id.eq_ignore_ascii_case("qwen") {
+        return true;
+    }
+    let url = provider.base_url.to_ascii_lowercase();
+    url.contains("dashscope.aliyuncs.com") || url.contains("dashscope-intl.aliyuncs.com")
+}
+
+fn qwen_model_supports_explicit_cache(model: &str) -> bool {
+    let m = model.trim().to_ascii_lowercase();
+    m.starts_with("qwen")
+}
+
+/// System prompt slices for `stream_chat`: **cacheable** (stable per session) vs **dynamic** (per round).
+#[derive(Debug, Clone, Default)]
+pub struct SystemPromptSections {
+    /// COMMUNICATION_PUBLIC, agent prompts, tool appendix — stable across tool rounds.
+    pub cacheable: Vec<String>,
+    /// Per-round slices only (e.g. `[TASK_BOARD]` from `before_main_llm_call` hooks).
+    pub dynamic: Vec<String>,
+}
+
+impl SystemPromptSections {
+    pub fn is_empty(&self) -> bool {
+        self.cacheable.is_empty() && self.dynamic.is_empty()
+    }
+
+    pub fn slice_count(&self) -> usize {
+        self.cacheable.len() + self.dynamic.len()
+    }
+
+    /// One-shot callers (`chat_once`) with no per-round dynamic tail.
+    pub fn all_cacheable(parts: Vec<String>) -> Self {
+        Self {
+            cacheable: parts,
+            dynamic: Vec::new(),
+        }
+    }
+}
+
+fn join_prompt_slices(slices: &[String]) -> String {
+    slices
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+/// Append HTTP `system` message(s) from [`SystemPromptSections`].
+///
+/// When `explicit_system_cache` is on and `cacheable` is non-empty, the cache marker sits on the
+/// **cacheable** block only; `dynamic` (typically `[TASK_BOARD]` only) follows as a second content part.
+fn push_openai_system_messages(
+    out: &mut Vec<serde_json::Value>,
+    sections: &SystemPromptSections,
+    explicit_system_cache: bool,
+) {
+    if sections.is_empty() {
+        return;
+    }
+    let cacheable_text = join_prompt_slices(&sections.cacheable);
+    let dynamic_text = join_prompt_slices(&sections.dynamic);
+
+    if explicit_system_cache && !cacheable_text.is_empty() {
+        let mut parts = vec![serde_json::json!({
+            "type": "text",
+            "text": cacheable_text,
+            "cache_control": { "type": "ephemeral" }
+        })];
+        if !dynamic_text.is_empty() {
+            parts.push(serde_json::json!({
+                "type": "text",
+                "text": dynamic_text
+            }));
+        }
+        out.push(serde_json::json!({
+            "role": "system",
+            "content": parts
+        }));
+        return;
+    }
+
+    let mut merged = sections.cacheable.clone();
+    merged.extend(sections.dynamic.clone());
+    let system_text = join_prompt_slices(&merged);
+    if !system_text.is_empty() {
+        out.push(serde_json::json!({
+            "role": "system",
+            "content": system_text
+        }));
+    }
+}
+
 pub fn make_openai_messages(
     msgs: &[ChatMessage],
-    system_prompts: &[String],
+    system: &SystemPromptSections,
     include_reasoning_in_api: bool,
+    explicit_system_cache: bool,
 ) -> Vec<serde_json::Value> {
     let expanded = expand_tool_messages_for_openai_request(msgs);
     let flattened = flatten_tool_rounds_computer_style_for_api(&expanded);
     let mut out: Vec<serde_json::Value> = Vec::new();
-    if !system_prompts.is_empty() {
-        out.push(serde_json::json!({
-            "role": "system",
-            "content": system_prompts.join("\n\n")
-        }));
-    }
+    push_openai_system_messages(&mut out, system, explicit_system_cache);
     for m in &flattened {
         match m.role {
             Role::System => out.push(serde_json::json!({
@@ -1073,11 +1175,36 @@ mod make_openai_messages_tests {
     }
 
     #[test]
+    fn system_prompt_uses_ephemeral_cache_control_on_cacheable_only() {
+        let system = SystemPromptSections {
+            cacheable: vec!["static system".into()],
+            dynamic: vec!["task board".into()],
+        };
+        let out = make_openai_messages(&[], &system, false, true);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["role"], "system");
+        let content = out[0]["content"].as_array().expect("multipart system");
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "static system");
+        assert_eq!(content[0]["cache_control"]["type"], "ephemeral");
+        assert_eq!(content[1]["text"], "task board");
+        assert!(content[1].get("cache_control").is_none());
+    }
+
+    #[test]
+    fn system_prompt_plain_string_when_cache_disabled() {
+        let system = SystemPromptSections::all_cacheable(vec!["static system".into()]);
+        let out = make_openai_messages(&[], &system, false, false);
+        assert_eq!(out[0]["content"], "static system");
+    }
+
+    #[test]
     fn user_message_with_images_uses_multipart_content() {
         let mut u = msg(Role::User);
         u.content = "see screen".into();
         u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
-        let out = make_openai_messages(&[u], &[], false);
+        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false);
         assert_eq!(out.len(), 1);
         let content = out[0]["content"].as_array().expect("multipart content");
         assert_eq!(content[0]["type"], "text");
@@ -1093,7 +1220,7 @@ mod make_openai_messages_tests {
         let mut a = msg(Role::Assistant);
         a.content = "answer".into();
         a.reasoning = Some("step 1…".into());
-        let out = make_openai_messages(&[a], &[], true);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false);
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "answer");
         assert_eq!(out[0]["reasoning_content"], "step 1…");
@@ -1104,7 +1231,7 @@ mod make_openai_messages_tests {
         let mut a = msg(Role::Assistant);
         a.content = "answer".into();
         a.reasoning = Some("hidden".into());
-        let out = make_openai_messages(&[a], &[], false);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false);
         assert!(out[0].as_object().unwrap().get("reasoning_content").is_none());
     }
 
@@ -1126,7 +1253,7 @@ mod make_openai_messages_tests {
         t.tool_call_id = Some("call_abc".into());
         t.content = "{}".into();
 
-        let out = make_openai_messages(&[a, t], &[], true);
+        let out = make_openai_messages(&[a, t], &SystemPromptSections::default(), true, false);
         assert_eq!(out.len(), 2, "assistant + user(tool_result)");
         assert_eq!(out[0]["role"], "assistant");
         assert!(out[0].as_object().unwrap().get("tool_calls").is_none());
@@ -1152,7 +1279,7 @@ mod make_openai_messages_tests {
             duration_ms: None,
             risk_level: None,
         }]);
-        let out = make_openai_messages(&[a], &[], true);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "calling");
@@ -1178,7 +1305,7 @@ mod make_openai_messages_tests {
             duration_ms: None,
             risk_level: None,
         }]);
-        let out = make_openai_messages(&[a], &[], false);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false);
         assert_eq!(out[0]["content"], "<response><tool_name>x</tool_name></response>");
     }
 
@@ -1198,7 +1325,7 @@ mod make_openai_messages_tests {
             risk_level: None,
         }]);
 
-        let out = make_openai_messages(&[a], &[], false);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false);
         assert_eq!(out.len(), 1, "assistant only, like PyProjects response tool");
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(
@@ -1209,6 +1336,34 @@ mod make_openai_messages_tests {
 }
 
 pub type ToolMap = HashMap<String, ToolDef>;
+
+#[cfg(test)]
+mod qwen_explicit_cache_tests {
+    use super::*;
+
+    #[test]
+    fn enabled_for_default_qwen_provider() {
+        let s = ModelSettings::default();
+        assert!(qwen_explicit_system_cache_enabled(&s));
+    }
+
+    #[test]
+    fn disabled_for_deepseek_provider() {
+        let mut s = ModelSettings::default();
+        s.active_provider_id = "deepseek".into();
+        s.model = "deepseek-v4-flash".into();
+        assert!(!qwen_explicit_system_cache_enabled(&s));
+    }
+
+    #[test]
+    fn enabled_for_custom_dashscope_base_url() {
+        let mut s = ModelSettings::default();
+        s.providers[0].id = "custom".into();
+        s.providers[0].base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1".into();
+        s.model = "qwen-plus".into();
+        assert!(qwen_explicit_system_cache_enabled(&s));
+    }
+}
 
 #[cfg(test)]
 mod effective_reasoning_tests {

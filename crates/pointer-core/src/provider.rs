@@ -3,7 +3,7 @@ use crate::json_tool_caller::{
     JsonToolFinishDiagnostics, JsonToolParser,
 };
 use crate::llm_token_stats::LlmUsageSnapshot;
-use crate::models::{ChatMessage, ModelSettings, ToolCall};
+use crate::models::{ChatMessage, ModelSettings, SystemPromptSections, ToolCall};
 use crate::tool_envelope::{
     envelope_arguments_to_json_string, ToolEnvelope, ToolEnvelopeCall,
 };
@@ -227,7 +227,7 @@ impl OpenAIProvider {
     pub async fn chat_once(
         &self,
         messages: &[ChatMessage],
-        system_prompts: &[String],
+        system: &SystemPromptSections,
         cancel: CancellationToken,
         max_tokens_override: Option<u32>,
         dump_label: Option<&str>,
@@ -248,8 +248,9 @@ impl OpenAIProvider {
 
         let openai_msgs = crate::models::make_openai_messages(
             messages,
-            system_prompts,
+            system,
             crate::models::effective_reasoning_in_messages(&self.settings),
+            crate::models::qwen_explicit_system_cache_enabled(&self.settings),
         );
         let max_tok = max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
         let extra_body = crate::models::effective_chat_extra_body(&self.settings);
@@ -314,7 +315,7 @@ impl OpenAIProvider {
     pub async fn stream_chat(
         &self,
         messages: &[ChatMessage],
-        system_prompts: &[String],
+        system: &SystemPromptSections,
         tx: mpsc::Sender<ProviderEvent>,
         cancel: CancellationToken,
         dump_label: Option<&str>,
@@ -337,8 +338,9 @@ impl OpenAIProvider {
         let t_build = Instant::now();
         let openai_msgs = crate::models::make_openai_messages(
             messages,
-            system_prompts,
+            system,
             crate::models::effective_reasoning_in_messages(&self.settings),
+            crate::models::qwen_explicit_system_cache_enabled(&self.settings),
         );
         let build_openai_messages_ms = t_build.elapsed().as_millis();
         let api_message_count = openai_msgs.len();
@@ -394,7 +396,7 @@ impl OpenAIProvider {
             build_openai_messages_ms,
             http_until_headers_ms,
             api_message_count,
-            system_prompts.len(),
+            system.slice_count(),
             dump_label,
             stream_t0.elapsed().as_millis()
         );

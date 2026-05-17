@@ -1,6 +1,6 @@
 # LLM 请求中的提示词与消息顺序
 
-本文说明主对话 / 子 Agent 在调用 `OpenAIProvider::stream_chat` 时，**送入模型的 `messages` 与 `system_prompts` 如何拼在一起**。扩展钩子总览见 **[`agent-extension-hooks.md`](agent-extension-hooks.md)**。
+本文说明主对话 / 子 Agent 在调用 `OpenAIProvider::stream_chat` 时，**送入模型的 `messages` 与 system 提示如何拼在一起**。扩展钩子总览见 **[`agent-extension-hooks.md`](agent-extension-hooks.md)**。千问显式 Context Cache 见 **[`../llm/qwen-context-cache.md`](../llm/qwen-context-cache.md)**。
 
 > **行号**：下文中的行号便于在仓库内检索；若你本地分支与主分支不一致，请以 **符号名**（函数 / 结构体）为准，用 IDE 或 `rg` 定位。
 
@@ -15,31 +15,66 @@
 | 克隆 | `history.clone()`（主会话）或 `local_history.clone()`（子 Agent） | `session_inner.rs` / `single_agent.rs` / `single_agent_stream.rs` / `sub_agent.rs` — `run_chat_inner` / `run_single_agent_loop` / `run_sub_agent` 内 `let mut history_for_api = …`（子 Agent 在 `sub_agent_prompt.rs`） |
 | 同轮扩展 | `run_message_loop_prompts_after`：在克隆的 `messages` 上追加（如 Computer **`user` + `[CUR_SCREEN]`**） | `single_agent_prompt.rs` / `sub_agent_prompt.rs` 中 `prepare_*_round_prompts`；Computer 见 `crates/pointer-core/src/agents/computer/extension_hooks/screen_inject.rs` |
 
-**说明**：`messages` **不含**尾随的 `[Environment]` user；环境信息在 **§1.2** 的 `system_prompts` 末尾。
+**说明**：`messages` **不含** `[Environment]` user；环境日期等在 **§1.2** cacheable 的 `[Environment]` 块中。
 
-### 1.2 `system_prompts`（合并为 HTTP 首条 `role: "system"`）
+### 1.2 `SystemPromptSections`（cacheable + dynamic）
 
-在 `run_before_main_llm_call` **之前** 依次 `push` / `extend`；**钩子**向同一 `Vec` 追加；**钩子返回之后**再由 `chat_service` 追加 **`[Environment]`**：
+每轮组装为 [`SystemPromptSections`](../../crates/pointer-core/src/models.rs)（`cacheable` / `dynamic` 两个 `Vec<String>`），在 `make_openai_messages` 中序列化为 HTTP `system`。
 
-| 顺序 | 内容 | 参考代码 |
-|------|------|----------|
-| 1 | **公共 COMMUNICATION** | `rendered_communication_public_inject()` |
-| 2 | **Agent 系统提示**（`AGENT.md` + profile `COMMUNICATION.md` 等，经 `expand_agent_prompt_placeholders`）；主会话含 agent 计划中的 prompts；子 Agent 另含 **sub_agent_header** + **skills** | `agent_plan.system_prompts` 或 `sub_agent_prompt.rs` 中 `init_sub_agent_session` |
-| 3 | **工具系统附录**（授权工具的 `doc_markdown` 等） | 非空时 `push(tools_system_appendix)`；`crates/pointer-core/src/tools_system_appendix.rs` **`generate_tools_system_appendix`** |
-| 4 | **`[TASK_BOARD]` 等** | `run_before_main_llm_call`：`crates/pointer-core/src/extensions/task_board_hook.rs` 等钩子 `ctx.system_prompts.push(…)` |
-| 5（最后） | **`[Environment]`**（`env_prompt::build_environment_system_prompt_slice`：OS、locale、**日历日期**） | **`push_env_context_last_in_system_prompts`**（`chat_service/prompts.rs`，由 `session_inner` / `sub_agent` 调用），在 **`run_before_main_llm_call` 的 `.await` 之后**调用，保证为合并 `system` 的**最后一段**（`join("\n\n")` 时排在末尾） |
+| 分区 | 顺序 | 内容 | 稳定性 |
+|------|------|------|--------|
+| **cacheable** | 1 | **公共 COMMUNICATION** | `rendered_communication_public_inject()` | 固定 |
+| | 2 | **Agent 系统提示**（`AGENT.md` + profile `COMMUNICATION.md` 等，经 `expand_agent_prompt_placeholders`）；子 Agent 含 **sub_agent_header** + **skills** | `agent_plan.system_prompts` 等 | 会话内固定（`{{workspace_root}}` 随工作区变） |
+| | 3 | **工具系统附录** | `generate_tools_system_appendix` | 工具集不变则固定 |
+| | 4 | **`[Environment]`**（OS、locale、**日历日期**） | `push_env_and_json_wire_tail_to_cacheable` | 按自然日变，**非每轮** |
+| | 5 | **JSON wire tail**（有工具时） | 同上 | 固定 |
+| **dynamic** | 6 | **`[TASK_BOARD]`** 等 | `before_main_llm_call` 钩子 → `system_prompts_dynamic` | **每轮可能变** |
+
+**组装时机**
+
+- **cacheable**：在 `run_before_main_llm_call` **之前** 填完（含 Environment / JSON tail）。
+- **dynamic**：仅钩子写入（当前内置为 **`TaskBoardSnapshotHook`**）。
+
+合并为单条 system 字符串时，顺序为 **cacheable 全文 → dynamic 全文**（故 `[TASK_BOARD]` 在 Environment / JSON tail **之后**，更靠近后续 `messages`）。
 
 ### 1.3 HTTP `messages` 最终顺序（`make_openai_messages`）
 
 | 顺序 | 角色 | 说明 |
 |------|------|------|
-| 1 | `system` | `system_prompts.join("\n\n")` — 即 **§1.2** 整表顺序拼成一条 |
-| 2… | `user` / `assistant` / … | 对 **§1.1** 中的 `msgs` 先做 `expand_tool_messages_for_openai_request`，再 `flatten_tool_rounds_computer_style_for_api`，再按展平结果依次输出 |
+| 1 | `system` | 见 **§1.4** |
+| 2… | `user` / `assistant` / … | `expand_tool_messages_for_openai_request` → `flatten_tool_rounds_computer_style_for_api` |
 
 | 参考代码 | 说明 |
 |----------|------|
-| `crates/pointer-core/src/models.rs` | `expand_tool_messages_for_openai_request`、`flatten_tool_rounds_computer_style_for_api`、`make_openai_messages` |
-| `crates/pointer-core/src/provider.rs` | `stream_chat` / `chat_once` 调用 `make_openai_messages` |
+| `crates/pointer-core/src/models.rs` | `SystemPromptSections`、`push_openai_system_messages`、`make_openai_messages` |
+| `crates/pointer-core/src/provider.rs` | `stream_chat` / `chat_once` |
+
+### 1.4 千问显式 Context Cache 序列化
+
+当 **`qwen_explicit_system_cache_enabled(settings)`** 为真且 **cacheable** 非空时：
+
+```json
+{
+  "role": "system",
+  "content": [
+    {
+      "type": "text",
+      "text": "<cacheable 各 slice 用 \\n\\n 合并>",
+      "cache_control": { "type": "ephemeral" }
+    },
+    {
+      "type": "text",
+      "text": "<dynamic：通常仅 [TASK_BOARD]>"
+    }
+  ]
+}
+```
+
+- **`[TASK_BOARD]`** 更新不会使 cacheable 缓存块失效。
+- **`[Environment]`** 仅在跨日时改变 cacheable（ acceptable）；同一天内多轮工具循环可复用 cacheable。
+- 非千问或未启用时：两分区仍按 §1.2 顺序合并为单条 `content` 字符串。
+
+官方说明：[千问 Context Cache](https://help.aliyun.com/zh/model-studio/context-cache)；应用细节见 [`qwen-context-cache.md`](../llm/qwen-context-cache.md)。
 
 ---
 
@@ -47,18 +82,19 @@
 
 | 场景 | 说明 | 参考代码 |
 |------|------|----------|
-| Supervisor **规划** / **汇总** | 使用 `chat_once` + 独立 `system` 字符串模板；模板内可嵌入 **`env_prompt::build_environment_context_full()`**（含完整 **Local time**）；**不**走 `message_loop_prompts_after` / `before_main_llm_call` / `push_env_context_last_in_system_prompts` | `chat_service/supervisor_plan.rs` 中 `plan_agent_tasks`；`supervisor_synth.rs` 中 `synthesize_final_answer`；编排入口 `supervisor.rs` |
+| Supervisor **规划** / **汇总** | `chat_once` + 独立 system 模板（可含完整 **Local time**） | `supervisor_plan.rs`、`supervisor_synth.rs`；`SystemPromptSections::all_cacheable` |
+| **上下文压缩** 摘要 | `chat_once` + 固定摘要 system | `context_compression.rs` |
 
 ---
 
 ## 3. 提示词资产与 §1 的对应关系（清单）
 
-| 类型 | 典型文件 / 位置 |
-|------|----------------|
-| **AGENT.md** | `crates/pointer-core/src/agents/<id>/AGENT.md`，并入 agent 的 `system_prompts` 条目 |
-| **COMMUNICATION.md** | 同上目录；与 AGENT 等合并后经 `expand_agent_prompt_placeholders` → **§1.2 第 2 行**；Coder 含 **`read_lints`**、**Git** 等会话策略 |
-| **COMMUNICATION_PUBLIC** | `crates/pointer-core/src/agents/_shared/COMMUNICATION_PUBLIC.md` → **§1.2 第 1 行** |
-| **Tools** | `crates/pointer-core/src/tools/prompts/*.md`（共享内置工具）与 `crates/pointer-core/src/agents/coder/prompts/*.md`（仅 Coder 的工具，如 `read_lints`）等 → **`generate_tools_system_appendix`** → **§1.2 第 3 行** |
-| **Task board** | `TaskBoardSnapshotHook` 等 → **§1.2 第 4 行** |
-| **Env** | `env_prompt::build_environment_system_prompt_slice` + **`push_env_context_last_in_system_prompts`** → **§1.2 第 5 行**（**仅日历日期**）；Computer **`screen_inject`** 在 **`[CUR_SCREEN]`** 正文前加 **`format_local_wall_clock_full`**（**完整日期时间**）；Supervisor **`chat_once`** 用 **`build_environment_context_full`** |
-| **屏幕等多模态** | `screen_inject.rs` → **§1.1**，`user` + 图，**不在** `system_prompts.join` 里 |
+| 类型 | 典型位置 | 分区 |
+|------|----------|------|
+| **COMMUNICATION_PUBLIC** | `agents/_shared/COMMUNICATION_PUBLIC.md` | cacheable |
+| **AGENT.md** / **COMMUNICATION.md** | `agents/<id>/` | cacheable |
+| **Tools** | `tools/prompts/*.md` 等 | cacheable |
+| **Env** | `env_prompt::build_environment_system_prompt_slice` | cacheable（日历日期）；Computer **`[CUR_SCREEN]`** 含完整墙钟时间 |
+| **JSON wire tail** | `_shared/JSON_WIRE_TAIL.md` | cacheable |
+| **Task board** | `TaskBoardSnapshotHook` | **dynamic** |
+| **屏幕等多模态** | `screen_inject.rs` | **§1.1** `user` + 图 |

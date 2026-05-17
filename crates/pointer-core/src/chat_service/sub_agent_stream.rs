@@ -2,7 +2,7 @@
 
 use crate::agents::{AgentDef, AgentTask};
 use crate::llm_token_stats::ConversationLlmStats;
-use crate::models::{effective_max_tokens, ChatMessage, StreamEvent};
+use crate::models::{effective_max_tokens, ChatMessage, StreamEvent, SystemPromptSections};
 use crate::provider::{OpenAIProvider, ProviderEvent};
 use anyhow::{anyhow, Result};
 use tokio::sync::mpsc;
@@ -45,16 +45,17 @@ pub(super) async fn run_sub_agent_stream_round(
     tools_appendix_enabled: bool,
     cancel: CancellationToken,
     history_for_api: Vec<ChatMessage>,
-    prompts_for_api: Vec<String>,
+    system_prompts: SystemPromptSections,
 ) -> Result<SubAgentStreamOutcome> {
     let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
     let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
     let cancel_clone = cancel.clone();
     let dump_lbl = format!("{}_{}_sub_{}", conversation_id, message_id, task.id);
+    let system_clone = system_prompts;
     let handle = tokio::spawn(async move {
         prov.stream_chat(
             &history_for_api,
-            &prompts_for_api,
+            &system_clone,
             tx,
             cancel_clone,
             Some(dump_lbl.as_str()),

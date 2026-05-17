@@ -263,7 +263,7 @@ async fn compress_history_inner(
     let summary_body = match provider
         .chat_once(
             std::slice::from_ref(&input),
-            &[SUMMARY_SYSTEM.to_string()],
+            &crate::models::SystemPromptSections::all_cacheable(vec![SUMMARY_SYSTEM.to_string()]),
             cancel.clone(),
             Some(max_tok),
             Some(dump_lbl.as_str()),

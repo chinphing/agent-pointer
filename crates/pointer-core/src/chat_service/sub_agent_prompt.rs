@@ -5,7 +5,7 @@ use crate::agents::{
     SessionInjectVars, DEFAULT_AGENT_ID,
 };
 use crate::extensions::{BeforeMainLlmCallContext, MessageLoopPromptsAfterContext};
-use crate::models::{ChatMessage, Role};
+use crate::models::{ChatMessage, Role, SystemPromptSections};
 use crate::provider::OpenAIProvider;
 use crate::storage;
 use anyhow::{anyhow, Result};
@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use super::agent_tool_allowlist::resolve_agent_tools;
 use super::app_state::AppState;
-use super::prompts::{push_env_context_last_in_system_prompts, push_json_wire_format_tail};
+use super::prompts::push_env_and_json_wire_tail_to_cacheable;
 use super::task_board_inject::sub_agent_task_board_store_key;
 use super::util::{new_id, now_ms};
 use super::StreamTx;
@@ -30,7 +30,7 @@ pub(super) struct SubAgentSession {
 
 pub(super) struct SubAgentRoundPrompts {
     pub history_for_api: Vec<ChatMessage>,
-    pub prompts_for_api: Vec<String>,
+    pub system_prompts: SystemPromptSections,
 }
 
 pub(super) fn init_sub_agent_session(
@@ -152,17 +152,22 @@ pub(super) async fn prepare_sub_agent_round_prompts(
     let message_loop_prompts_after_ms = t.elapsed().as_millis();
 
     let t = Instant::now();
-    let mut prompts_for_api = base_prompts.to_vec();
+    let mut cacheable = base_prompts.to_vec();
     if !tools_system_appendix.is_empty() {
-        prompts_for_api.push(tools_system_appendix.to_string());
+        cacheable.push(tools_system_appendix.to_string());
     }
+    push_env_and_json_wire_tail_to_cacheable(
+        &mut cacheable,
+        !tools_system_appendix.is_empty(),
+    );
     let assemble_system_prompts_ms = t.elapsed().as_millis();
 
     let t = Instant::now();
+    let mut dynamic = Vec::new();
     let mut before_llm_ctx = BeforeMainLlmCallContext {
         computer_state: state.computer_state.as_ref(),
         lead_agent_profile: def.profile.clone(),
-        system_prompts: &mut prompts_for_api,
+        system_prompts_dynamic: &mut dynamic,
         conversation_id,
         task_board_store: state.task_board_store.clone(),
         task_board_store_key: sub_task_board_key,
@@ -171,8 +176,6 @@ pub(super) async fn prepare_sub_agent_round_prompts(
         .extensions
         .run_before_main_llm_call(&mut before_llm_ctx)
         .await?;
-    push_env_context_last_in_system_prompts(&mut prompts_for_api);
-    push_json_wire_format_tail(&mut prompts_for_api, !tools_system_appendix.is_empty());
     let before_main_llm_tail_ms = t.elapsed().as_millis();
     log::info!(
         "run_chat supervisor_sub_agent pre_stream_chat conversation_id={} task_id={} message_id={} local_history_messages={} clone_ms={} message_loop_prompts_after_ms={} assemble_system_prompts_ms={} before_main_llm_tail_ms={} pre_stream_total_ms={}",
@@ -189,6 +192,6 @@ pub(super) async fn prepare_sub_agent_round_prompts(
 
     Ok(SubAgentRoundPrompts {
         history_for_api,
-        prompts_for_api,
+        system_prompts: SystemPromptSections { cacheable, dynamic },
     })
 }

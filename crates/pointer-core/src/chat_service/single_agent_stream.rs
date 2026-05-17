@@ -2,7 +2,7 @@
 
 use crate::json_tool_caller::JsonToolFinishDiagnostics;
 use crate::llm_token_stats::ChatLlmTokenSession;
-use crate::models::{effective_max_tokens, ChatMessage, ModelSettings, StreamEvent, ToolCall};
+use crate::models::{effective_max_tokens, ChatMessage, ModelSettings, StreamEvent, SystemPromptSections, ToolCall};
 use crate::provider::OpenAIProvider;
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
@@ -55,17 +55,17 @@ pub(super) async fn run_provider_stream_round(
     cancel: CancellationToken,
     reasoning_in_messages: bool,
     history_for_api: Vec<ChatMessage>,
-    prompts_with_env: Vec<String>,
+    system_prompts: SystemPromptSections,
 ) -> Result<ProviderRoundOutcome> {
     let (tx, mut rx) = mpsc::channel(64);
     let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
-    let prompts_clone = prompts_with_env;
+    let system_clone = system_prompts;
     let cancel_clone = cancel.clone();
     let dump_lbl = format!("{}_{}", conversation_id, assistant_id);
     let send_handle = tokio::spawn(async move {
         prov.stream_chat(
             &history_for_api,
-            &prompts_clone,
+            &system_clone,
             tx,
             cancel_clone,
             Some(dump_lbl.as_str()),

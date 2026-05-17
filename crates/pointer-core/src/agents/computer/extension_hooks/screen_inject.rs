@@ -1,7 +1,7 @@
 //! `message_loop_prompts_after` — `_10_computer_screen_inject` (Python `agents/computer/extensions/...` analogue).
 //!
 //! OS / locale / **calendar date** for the model live in the **last slice** of merged **`system`**
-//! text (`chat_service::prompts::push_env_context_last_in_system_prompts`, after `before_main_llm_call` hooks).
+//! text (`chat_service::prompts::push_env_and_json_wire_tail_to_cacheable`, before `before_main_llm_call`).
 //! **Full date and time at capture** is prefixed on this hook’s `[CUR_SCREEN]` **`user`** message
 //! (`crate::env_prompt::format_local_wall_clock_full`).
 

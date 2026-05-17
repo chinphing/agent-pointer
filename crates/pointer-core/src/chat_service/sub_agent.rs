@@ -99,7 +99,7 @@ pub(crate) async fn run_sub_agent(
             tools_appendix_enabled,
             cancel.clone(),
             round_prompts.history_for_api,
-            round_prompts.prompts_for_api,
+            round_prompts.system_prompts,
         )
         .await?;
 

@@ -3,14 +3,10 @@
 //! Geometry (waypoints) and timing (per-step delays) are planned separately, matching
 //! the Python `MouseMove._generate_path` / `_calculate_intervals` split.
 //!
-//! Default path: straight line at 14px steps, then 5px re-sample on the final segment; the
-//! last waypoint before the target is 1px away. Default timing: 0.5s total, ease-out. See
-//! `docs/design/computer-mouse-movement-roadmap.md`.
+//! Default path: straight line with a fixed point count (10), uniform `t`; total time 0.5s ease-out.
+//! See `docs/design/computer-mouse-movement-roadmap.md`.
 
-use super::timing::{
-    MOUSE_MOVE_APPROACH_FINAL_GAP_PX, MOUSE_MOVE_APPROACH_STEP_MAX_PX,
-    MOUSE_MOVE_LINEAR_STEP_MAX_PX, MOUSE_MOVE_TOTAL_DURATION_SECS,
-};
+use super::timing::{MOUSE_MOVE_DEFAULT_POINT_COUNT, MOUSE_MOVE_TOTAL_DURATION_SECS};
 use log::debug;
 use std::time::Duration;
 
@@ -36,26 +32,23 @@ pub struct MouseMovePlan {
 /// Planned movement strategy kind (geometry).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseMoveStrategy {
-    /// Straight line with uniform spatial stepping.
-    LinearUniform,
+    /// Straight line with `point_count` uniformly spaced waypoints (Python default ~10).
+    LinearByPointCount,
 }
 
 /// Tunables for path (geometry) planning.
 #[derive(Debug, Clone, Copy)]
 pub struct MouseMovePathConfig {
     pub strategy: MouseMoveStrategy,
-    /// Maximum pixel distance between consecutive points.
-    pub max_step_px: f64,
-    /// Re-sample the final segment at this spacing (px) for hover hit-testing near the target.
-    pub approach_max_step_px: f64,
+    /// Number of waypoints along the segment (`from` excluded, ends at `to`).
+    pub point_count: usize,
 }
 
 impl Default for MouseMovePathConfig {
     fn default() -> Self {
         Self {
-            strategy: MouseMoveStrategy::LinearUniform,
-            max_step_px: MOUSE_MOVE_LINEAR_STEP_MAX_PX,
-            approach_max_step_px: MOUSE_MOVE_APPROACH_STEP_MAX_PX,
+            strategy: MouseMoveStrategy::LinearByPointCount,
+            point_count: MOUSE_MOVE_DEFAULT_POINT_COUNT,
         }
     }
 }
@@ -107,13 +100,8 @@ impl MouseMovePathPlanner {
 
     pub fn plan(&self, from: (i32, i32), to: (i32, i32)) -> MouseMovePath {
         match self.config.strategy {
-            MouseMoveStrategy::LinearUniform => MouseMovePath {
-                points: plan_linear_uniform_with_dense_approach(
-                    from,
-                    to,
-                    self.config.max_step_px,
-                    self.config.approach_max_step_px,
-                ),
+            MouseMoveStrategy::LinearByPointCount => MouseMovePath {
+                points: plan_linear_by_point_count(from, to, self.config.point_count),
             },
         }
     }
@@ -243,116 +231,34 @@ fn progress_to_ease_in_out(p: f64) -> f64 {
     }
 }
 
-/// Coarse linear path, then 5px re-sample on the final segment toward the target.
-fn plan_linear_uniform_with_dense_approach(
+/// `point_count` waypoints along a straight line; `t = i / n` for `i = 1..=n` (ends at `to`).
+fn plan_linear_by_point_count(
     from: (i32, i32),
     to: (i32, i32),
-    max_step_px: f64,
-    approach_max_step_px: f64,
+    point_count: usize,
 ) -> Vec<(i32, i32)> {
-    let mut path = plan_linear_uniform_path(from, to, max_step_px);
-    if path.is_empty() {
-        return path;
-    }
-
-    let approach_start = if path.len() >= 2 {
-        path[path.len() - 2]
-    } else {
-        from
-    };
-    let target = path
-        .last()
-        .copied()
-        .expect("non-empty path has a last point");
-
-    let dense_tail = plan_approach_segment(
-        approach_start,
-        target,
-        approach_max_step_px,
-        MOUSE_MOVE_APPROACH_FINAL_GAP_PX,
-    );
-
-    if path.len() >= 2 {
-        path.truncate(path.len() - 2);
-    } else {
-        path.clear();
-    }
-    path.extend(dense_tail);
-    path
-}
-
-/// Dense steps toward `target`, then a 1px-from-target waypoint, then `target`.
-fn plan_approach_segment(
-    start: (i32, i32),
-    target: (i32, i32),
-    step_px: f64,
-    final_gap_px: f64,
-) -> Vec<(i32, i32)> {
-    if start == target {
+    if from == to || point_count == 0 {
         return Vec::new();
     }
-
-    let dx = (target.0 - start.0) as f64;
-    let dy = (target.1 - start.1) as f64;
-    let distance = (dx * dx + dy * dy).sqrt();
-    if distance < 1e-6 {
-        return Vec::new();
-    }
-
-    let ux = dx / distance;
-    let uy = dy / distance;
-    let gap_px = if final_gap_px.is_finite() && final_gap_px > 0.0 {
-        final_gap_px.min(distance - 1e-6)
-    } else {
-        MOUSE_MOVE_APPROACH_FINAL_GAP_PX.min(distance - 1e-6)
-    };
-
-    let gap = (
-        (target.0 as f64 - ux * gap_px).round() as i32,
-        (target.1 as f64 - uy * gap_px).round() as i32,
-    );
-
-    if gap == target {
-        return vec![target];
-    }
-
-    let mut out = if gap == start {
-        Vec::new()
-    } else {
-        plan_linear_uniform_path(start, gap, step_px)
-    };
-
-    if out.last() != Some(&gap) {
-        out.push(gap);
-    }
-    if out.last() != Some(&target) {
-        out.push(target);
-    }
-    out
-}
-
-fn plan_linear_uniform_path(from: (i32, i32), to: (i32, i32), max_step_px: f64) -> Vec<(i32, i32)> {
-    if from == to {
-        return Vec::new();
-    }
-
-    let max_step = if max_step_px.is_finite() && max_step_px > 0.0 {
-        max_step_px
-    } else {
-        MOUSE_MOVE_LINEAR_STEP_MAX_PX
-    };
-
+    let n = point_count.max(1);
     let dx = (to.0 - from.0) as f64;
     let dy = (to.1 - from.1) as f64;
-    let distance = (dx * dx + dy * dy).sqrt();
-    let steps = (distance / max_step).ceil().max(1.0) as usize;
-
-    let mut out = Vec::with_capacity(steps);
-    for i in 1..=steps {
-        let t = i as f64 / steps as f64;
+    let mut out = Vec::with_capacity(n);
+    for i in 1..=n {
+        let t = i as f64 / n as f64;
         let x = from.0 as f64 + dx * t;
         let y = from.1 as f64 + dy * t;
         out.push((x.round() as i32, y.round() as i32));
+    }
+    dedupe_consecutive_points(out)
+}
+
+fn dedupe_consecutive_points(points: Vec<(i32, i32)>) -> Vec<(i32, i32)> {
+    let mut out = Vec::with_capacity(points.len());
+    for p in points {
+        if out.last() != Some(&p) {
+            out.push(p);
+        }
     }
     out
 }
@@ -362,41 +268,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn linear_uniform_returns_empty_for_same_point() {
-        let p = plan_linear_uniform_path((10, 10), (10, 10), 12.0);
+    fn linear_by_point_count_returns_empty_for_same_point() {
+        let p = plan_linear_by_point_count((10, 10), (10, 10), 10);
         assert!(p.is_empty());
     }
 
     #[test]
-    fn linear_uniform_ends_at_target() {
-        let p = plan_linear_uniform_path((0, 0), (100, 0), 12.0);
-        assert!(!p.is_empty());
+    fn linear_by_point_count_default_has_ten_waypoints() {
+        let p = plan_linear_by_point_count((0, 0), (100, 0), MOUSE_MOVE_DEFAULT_POINT_COUNT);
+        assert_eq!(p.len(), MOUSE_MOVE_DEFAULT_POINT_COUNT);
         assert_eq!(p.last().copied(), Some((100, 0)));
     }
 
     #[test]
-    fn dense_approach_adds_points_on_final_segment() {
-        let coarse = plan_linear_uniform_path((0, 0), (100, 0), 14.0);
-        let dense = plan_linear_uniform_with_dense_approach((0, 0), (100, 0), 14.0, 5.0);
-        assert!(dense.len() > coarse.len());
-        assert_eq!(dense.last().copied(), Some((100, 0)));
-    }
-
-    #[test]
-    fn dense_approach_short_move_ends_one_px_before_target() {
-        let p = plan_linear_uniform_with_dense_approach((0, 0), (12, 0), 14.0, 5.0);
-        assert_eq!(p.last().copied(), Some((12, 0)));
-        assert_eq!(p[p.len() - 2], (11, 0));
-    }
-
-    #[test]
-    fn approach_segment_penultimate_is_one_px_from_target() {
-        let p = plan_approach_segment((0, 0), (20, 0), 5.0, 1.0);
-        assert_eq!(p.last().copied(), Some((20, 0)));
-        let pen = p[p.len() - 2];
-        let dist =
-            (((20 - pen.0).pow(2) + (0 - pen.1).pow(2)) as f64).sqrt();
-        assert!((dist - 1.0).abs() < 1e-6, "penultimate {pen:?} dist {dist}");
+    fn linear_by_point_count_ends_at_target() {
+        let p = plan_linear_by_point_count((0, 0), (100, 0), 10);
+        assert_eq!(p.last().copied(), Some((100, 0)));
     }
 
     #[test]
@@ -407,6 +294,7 @@ mod tests {
             plan.path.points.len(),
             plan.timing.step_intervals_secs.len()
         );
+        assert_eq!(plan.path.points.len(), MOUSE_MOVE_DEFAULT_POINT_COUNT);
     }
 
     #[test]

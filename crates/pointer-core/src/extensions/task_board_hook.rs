@@ -21,7 +21,7 @@ impl BeforeMainLlmCallHook for TaskBoardSnapshotHook {
             .task_board_store
             .snapshot_for_prompt(ctx.task_board_store_key)
         {
-            ctx.system_prompts.push(block);
+            ctx.system_prompts_dynamic.push(block);
         }
         Ok(())
     }

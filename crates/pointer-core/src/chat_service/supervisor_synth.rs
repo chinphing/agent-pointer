@@ -38,7 +38,7 @@ pub(crate) async fn synthesize_final_answer(
     let out = provider
         .chat_once(
             history,
-            &[prompt],
+            &crate::models::SystemPromptSections::all_cacheable(vec![prompt]),
             cancel,
             None,
             Some(dump_lbl.as_str()),

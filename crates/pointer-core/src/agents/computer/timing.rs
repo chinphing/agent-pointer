@@ -66,15 +66,8 @@ pub const COMPOSITE_ACTION_STEP_GAP_MS: u64 = 50;
 /// as one double-click gesture reliably across platforms.
 pub const DOUBLE_CLICK_INTERVAL_MS: u64 = 60;
 
-/// Max pixel step for linear-uniform cursor movement.
-/// Lower value => smoother path but more move events.
-pub const MOUSE_MOVE_LINEAR_STEP_MAX_PX: f64 = 14.0;
-
-/// Max pixel step when re-sampling the final approach segment (denser hover sampling).
-pub const MOUSE_MOVE_APPROACH_STEP_MAX_PX: f64 = 5.0;
-
-/// Last waypoint before the target sits this many pixels away (final hop triggers hover).
-pub const MOUSE_MOVE_APPROACH_FINAL_GAP_PX: f64 = 1.0;
+/// Default waypoint count for cursor path planning (aligned with Python `MouseMove` ~10 points).
+pub const MOUSE_MOVE_DEFAULT_POINT_COUNT: usize = 10;
 
 /// Default total cursor move duration (seconds) when using eased total-time mode.
 /// Matches Python `MouseHelper.move_to_position(..., duration=0.5)`.

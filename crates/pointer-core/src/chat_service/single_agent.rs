@@ -99,7 +99,7 @@ pub(super) async fn run_single_agent_loop(
             cancel.clone(),
             reasoning_in_messages,
             round_prompts.history_for_api,
-            round_prompts.prompts_with_env,
+            round_prompts.system_prompts,
         )
         .await?;
         let buf = match stream_outcome {

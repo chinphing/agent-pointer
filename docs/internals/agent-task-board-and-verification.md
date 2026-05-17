@@ -17,7 +17,7 @@
 
 - 注册名：`task_board`；行为通过 **`task_board:replace`** / **`task_board:patch`**（与 qualified `tool_name` 解析一致）。
 - 存储：`AppState` 上的 **`TaskBoardStore`**（内存，按 **存储键** 分区）。
-- **主会话（单智能体 / Supervisor 主消息）**：存储键为聊天 **`conversation_id`**；`task_board` 的 **`_conversation_id`** 使用该键。每轮 **`[TASK_BOARD]`** 快照由扩展点 **`before_main_llm_call`** 中的内置 **`TaskBoardSnapshotHook`** 追加到 **`system_prompts` 末尾**（在工具分章与 XML 工具附录之后），更贴近本轮对话 `messages`。
+- **主会话（单智能体 / Supervisor 主消息）**：存储键为聊天 **`conversation_id`**；`task_board` 的 **`_conversation_id`** 使用该键。每轮 **`[TASK_BOARD]`** 快照由 **`TaskBoardSnapshotHook`** 写入 system **dynamic** 分区（合并顺序在 cacheable 的 Environment / JSON tail **之后**）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
 - **Supervisor 子 Agent**：与主会话 **隔离**。存储键为  
   **`{conversation_id}\x1fptr_sub_agent\x1f{supervisor_task_id}`**（实现见 `sub_agent_task_board_store_key`）。  
   子 Agent 的 **`[TASK_BOARD]`** 快照同样经 **`before_main_llm_call`** 注入（每轮在 **`generate_tools_system_appendix`** 产出追加之后）；**`task_board`** 读写只针对该子任务键，**不会**看到或修改主会话任务板。

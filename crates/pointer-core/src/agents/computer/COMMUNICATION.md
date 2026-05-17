@@ -68,7 +68,7 @@ If **`Location:`** does **not** apply, write **`Location: n/a`** — still run *
 Use **`[Annotated after action]`** overlay numbers **only** with **index-based** methods below.
 Use **`x`/`y`** (or drag endpoints) with **coordinate-based** methods.
 **`[CUR_SCREEN]`** injects **Pointer position** plus **Pointer neighbor reference bboxes** (session scale).
-**`Location:`** **line 4** (coordinate path) uses **two frames**: **pointer-on-`N` check** on **`[Zoom pointer after action]`**; **placement, corner, offset, therefore (x, y)** on **`[Annotated after action]`** only. **(xc, yc)** from **Pointer neighbor reference bboxes** for line **2 `N`** at the **chosen** corner. Session scale via **Pointer position** / `*_at` tools.
+**`Location:`** **line 4** (coordinate path): if line **2 `index N`** is listed in **Pointer neighbor reference bboxes**, compute **(x,y)** on **`[Annotated after action]`** (**placement → corner → (xc,yc) → offset → therefore (x,y)**). If **`N` is not listed** → **geometry deferred** (no **(x,y)** this turn) → **`Tool route:`** → **`hover_index`** on **`N`**. Session scale via **Pointer position** / `*_at` tools.
 
 **Overlay-index methods** (require an overlay **`index`** / **`indices`** from the current annotated frame):  
 **`mouse`:** `mouse:click_index`, `mouse:double_click_index`, `mouse:right_click_index`, `mouse:hover_index`, `mouse:drag_from_to_index` · **`composite_action`:** `composite_action:type_text_at_index`, `composite_action:scroll_at_index` · **`modified_click`:** `modified_click:modified_click_index`.
@@ -114,10 +114,10 @@ Most turns use **mouse** / **coordinates** / **composite_action** / **hotkey** o
 **4×** magnified **100×100 px** crop (**±50 px** radius) from **`[Screen before action]`**.
 **`[Screen before action]`** = full layout for **line 1** aim naming.
 When **no** before inject, use **`[Screen after action]`** / **`[Zoom pointer after action]`** for geometry.
-**`accurate`** = center coincidence on the **geometry image** (**Center-only rule**).
+**`accurate`** = line **2** **`Pointer on <aim>? yes`**, line **3** **`therefore accurate`** (**Center-only rule**).
 **No** overlay **`index`** in **`Pointer:`**.
 
-**2. Logic** — **(a)** **Intended aim** for the **newest** **`[Recent desktop tool calls]`** row (same action **`Verify:`** judges), **(b)** **`On [Zoom pointer before action]:`** when present — **required** hotspot-vs-center facts; else **`On [Screen after action]:`** / **`[Zoom pointer after action]`**, **(c)** **`3 Conclusion`**. **`n/a`** only for **non-pointer** actions or **no** prior action — when **`[Zoom pointer before action]`** exists, the runtime **always** draws the **synthetic pointer** on that crop (no “invisible pointer” branch).
+**2. Logic** — **(a)** **Intended aim** for the **newest** **`[Recent desktop tool calls]`** row (same action **`Verify:`** judges), **(b)** hotspot facts on the geometry frame, then **`Pointer on <aim>? yes.`** / **`no.`** on **line 2** (immediately after the position description), **(c)** **`3 Conclusion`** restates that yes/no and **`therefore accurate | abnormal`**. **`n/a`** only for **non-pointer** actions or **no** prior action — when **`[Zoom pointer before action]`** exists, the runtime **always** draws the **synthetic pointer** on that crop (no “invisible pointer” branch).
 
 **3. Template (`Pointer:` chain + analysis flow)**
 
@@ -133,15 +133,31 @@ When **no** before inject, use **`[Screen after action]`** / **`[Zoom pointer af
    For **`hotkey`**, **`wait`**, **`scroll`**, **`clipboard:*`**, etc. — **`n/a`** (see **Pointer `n/a` chain**).
    **No** verdict words; **no** digits; **no** before/after delta.
 
-2. **Evidence (hotspot vs aim)** — When **`[Zoom pointer before action]`** exists: **`On [Zoom pointer before action]:`** is **required** and is the **standard** for center coincidence (hotspot vs **line 1** center). When **no** before zoom: judge on **`[Screen after action]`** / **`[Zoom pointer after action]`**. **Facts only** — **no** verdict; **no** caret; **no** UI-change narrative.
+2. **Evidence (hotspot vs aim)** — When **`[Zoom pointer before action]`** exists: **`On [Zoom pointer before action]:`** is **required** and is the **standard** for center coincidence (hotspot vs **line 1** center). When **no** before zoom: judge on **`[Screen after action]`** / **`[Zoom pointer after action]`**. **Facts only** on the geometry clause — hotspot placement **relative to line 1 center** — **no** caret; **no** UI-change narrative; **no** **`therefore accurate | abnormal`** on line **2**.
 
-3. **Conclusion (Center-only rule)** — **`accurate`** \| **`abnormal`** \| **`n/a`** — **one** label, then **reason** that **only** restates **lines 1–2** (no new facts). The reason must **repeat** the **same** hotspot↔target **spatial layout** already given in **line 2**, using **control / region names** — **do not** substitute **`line 1` / `line 2`** for that description. **Do not** use a vague paraphrase alone (e.g. only “misplaced”). **On-wire prefix** must be the literal **`3 Conclusion (Center-only rule):`**.
+   **End line 2** (precision clicks only) — immediately after the hotspot description, on the **same** line:
 
-**Strict derivation inside `Pointer:`** — **`3 Conclusion (Center-only rule)`** is **forbidden** until **lines 1–2** are written **in numeric order**. **Line 1** must **not** embed verdict labels; **line 1** must state the **center** aim when judging a control. **Line 2** holds **all** geometry facts referenced in **`3 Conclusion (Center-only rule)`**, with **frame tags** per **Image-grounded clauses**; **line 2** must locate the hotspot **relative to that center** for **Center-only rule**. **`3 Conclusion (Center-only rule)`** reasons must **name** the **same** widgets/regions as **line 2**.
+   **`Pointer on <aim>? yes.`** or **`Pointer on <aim>? no.`**
 
-**Center-only rule (for `accurate` vs `abnormal`)** — Judge on **`[Zoom pointer before action]`** when present (else the after-action geometry frame). **`line 1`** names the control and **aim = its geometric center**. **`accurate`** — hotspot **coincides** with that center on the **geometry image** (allow **only** minimal cursor-art ambiguity — **not** rim / padding). **`abnormal`** — rim, adjacent-only, wrong sub-part, outside silhouette. **`n/a`** — **non-mouse** action only (not “pointer missing” on inject).
+   - **`<aim>`** = the **same** control/region named in **line 1** (**aim = … center**) — **not** parent row/cell/bbox alone.
+   - **`yes`** only if hotspot **coincides** with that **center** on the geometry image (minimal cursor-art ambiguity only).
+   - **`no`** if rim, wrong sub-part, adjacent-only, or parent region only — **inside row/cell/bbox ≠ yes**.
 
-**Conclusion labels** — **`accurate`** / **`abnormal`** from **Center-only rule** on the **geometry frame** (**`[Zoom pointer before action]`** when present, else after-action zoom/full-screen). **`n/a`** — **non-mouse** action only.
+3. **Conclusion (Center-only rule)** — **Restate** line **2** yes/no, then **`therefore`** label (precision clicks only):
+
+   **`Pointer on <aim>? yes. — therefore accurate — …`** or **`Pointer on <aim>? no. — therefore abnormal — …`**
+
+   - The **`Pointer on <aim>? yes.`** / **`no.`** clause must **match line 2** verbatim (same **yes**/**no**).
+   - After **`therefore`**, one short clause may restate the hotspot↔aim relation already in **line 2** — **no new facts**.
+   - **`n/a`** — non-pointer action only; **omit** yes/no on lines **2–3**.
+
+   **On-wire prefix** must be the literal **`3 Conclusion (Center-only rule):`**.
+
+**Strict derivation inside `Pointer:`** — **`3 Conclusion (Center-only rule)`** is **forbidden** until **lines 1–2** are written **in numeric order**. **Line 1** must **not** embed verdict labels; **line 1** must state the **center** aim when judging a control. **Line 2** holds **all** geometry facts **and** the **`Pointer on <aim>? yes | no`** judgment. **Line 3** **restates** that judgment, then **`therefore accurate | abnormal`** — **forbidden** to change **yes**↔**no** between lines **2** and **3**.
+
+**Center-only rule (for `accurate` vs `abnormal`)** — Judge on **`[Zoom pointer before action]`** when present (else the after-action geometry frame). **`line 1`** names the control and **aim = its geometric center**. **`Pointer on <aim>? yes.`** (line **2**) ⇔ **`therefore accurate`** (line **3**). **`Pointer on <aim>? no.`** ⇔ **`therefore abnormal`**. **`n/a`** — **non-mouse** action only (not “pointer missing” on inject).
+
+**Conclusion labels** — **`accurate`** / **`abnormal`** only on line **3**, **after** restating line **2** yes/no. **`n/a`** — **non-mouse** action only.
 
 **Required form**
 
@@ -152,15 +168,15 @@ Pointer:
     precision click → traits + aim = center; non-pointer action → n/a;
     no verdict words; no UI delta>.
 2 Evidence (hotspot vs aim):
-   <On [Zoom pointer before action]: … when present — required standard for geometry>;
+   <On [Zoom pointer before action]: … hotspot vs line 1 center — when present>;
     <On [Screen after action] / [Zoom pointer after action]: … only when no before zoom>
-   — pointer hotspot only; no caret.
+   — then on the same line: Pointer on <aim from line 1>? yes. | no.
 3 Conclusion (Center-only rule):
-   <accurate | abnormal | n/a>
-   — <reason: name controls/regions + hotspot↔aim spatial relation from Evidence; no new facts>.
+   <restate Pointer on <aim>? yes | no from line 2> — therefore accurate | abnormal — <optional short restate from line 2>
+   | n/a — <non-pointer only>.
 ```
 
-**Rules (short):** **1** = intended aim for **newest** tool row only (aligned with **`Verify:`**). **2** = **`On [Zoom pointer before action]:`** when present — **standard** for hotspot vs center. **`3`** from **line 2** only.
+**Rules (short):** **1** = intended aim for **newest** tool row only (aligned with **`Verify:`**). **2** = hotspot facts + **`Pointer on <aim>? yes | no`**. **3** = restate yes/no + **`therefore accurate | abnormal`**.
 
 **4. Mini examples**
 
@@ -173,12 +189,12 @@ Pointer:
 1 Intended aim on [Screen before action]: Bluetooth toggle knob on second settings row; aim = knob center.
 ```
 
-**Mini example — lines 1–2 (add evidence; no verdict yet)**
+**Mini example — lines 1–2 (evidence + yes/no on line 2; no therefore yet)**
 
 ```text
 Pointer:
 1 Intended aim on [Screen before action]: blue “15” day cell in month grid; aim = cell center.
-2 Evidence (hotspot vs aim): On [Zoom pointer before action]: pointer glyph on **weekday header “Mon”** **above** the blue day cell, **not** over **day-cell center** — offset **north** of **intended day-cell geometric center**.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: pointer glyph on **weekday header “Mon”** **above** the blue day cell, **not** over **day-cell center** — offset **north** of **intended day-cell geometric center**. **Pointer on day-cell center? no.**
 ```
 
 **Mini example — anti-patterns (`Pointer:` numeric order and **`3 Conclusion (Center-only rule)`** wording)**
@@ -192,22 +208,22 @@ Pointer:
 2 Evidence (hotspot vs aim): On [Zoom pointer before action]: …
 ```
 
-**Forbidden — vague `3 Conclusion (Center-only rule)`:** it must **restate** the **same** hotspot↔aim **spatial relation** already shown in **line 2** (side, edge, gap, inside/outside bbox, vs center). A bare label like “misplaced” **without** that geometry is **invalid**.
+**Forbidden — yes/no only on line 3, or skip line 2 yes/no:** **forbidden** to put **`Pointer on <aim>?`** only on line **3** without line **2** ending with the same judgment. **Forbidden** **`therefore accurate | abnormal`** on line **2**. **Forbidden** line **3** **yes**↔**no** that **contradicts** line **2**. **Forbidden** region-only reasons without naming **line 1** **aim** center.
 
 ```text
 Pointer:
 1 Intended aim on [Screen before action]: Bluetooth toggle knob on second settings row; aim = knob center.
-2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer glyph on second row **label text**, **left** of the toggle knob housing, **not** over knob disk center — **lateral left** of knob disk vs **intended knob-disk center**.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: … label left of knob — (forbidden: missing **Pointer on knob center? no.** on line 2).
 3 Conclusion (Center-only rule): abnormal — pointer hotspot misplaced.
 ```
 
-**Correct — lines `1`→`2`→`3`; concrete `3 Conclusion (Center-only rule)` tied to Evidence:**
+**Correct — yes/no on line 2; line 3 restates + therefore:**
 
 ```text
 Pointer:
 1 Intended aim on [Screen before action]: Bluetooth toggle knob on second settings row; aim = knob center.
-2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer glyph on second row **label text**, **left** of the toggle knob housing, **not** over knob disk center — visible **separation** from **intended knob-disk center**.
-3 Conclusion (Center-only rule): abnormal — hotspot on **row label left of knob housing**, **lateral gap** to **Bluetooth knob-disk center** — **wrong sub-part** / **not center coincidence**.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer glyph on second row **label text**, **left** of the toggle knob housing, **not** over knob disk center — visible **separation** from **intended knob-disk center**. **Pointer on Bluetooth knob center? no.**
+3 Conclusion (Center-only rule): **Pointer on Bluetooth knob center? no.** — therefore **abnormal** — hotspot on **row label**, not **knob-disk center** — **wrong sub-part**.
 ```
 
 **Mini example — full chain (`accurate`)**
@@ -215,8 +231,8 @@ Pointer:
 ```text
 Pointer:
 1 Intended aim on [Screen before action]: blue Save pill in dialog footer; aim = pill center.
-2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer rests on blue Save pill in footer with tip over **pill interior**; hotspot overlaps Save pill **geometric center** vs **intended Save pill center** — **not** on edge band.
-3 Conclusion (Center-only rule): accurate — synthetic pointer overlaps **Save pill geometric center** on **[Zoom pointer before action]**.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer rests on blue Save pill in footer with tip over **pill interior**; hotspot overlaps Save pill **geometric center** vs **intended Save pill center** — **not** on edge band. **Pointer on Save pill center? yes.**
+3 Conclusion (Center-only rule): **Pointer on Save pill center? yes.** — therefore **accurate** — hotspot on **Save pill geometric center** on **[Zoom pointer before action]**.
 ```
 
 **Mini example — full chain (`abnormal`)**
@@ -224,8 +240,8 @@ Pointer:
 ```text
 Pointer:
 1 Intended aim on [Screen before action]: triangular Play button in transport strip; aim = button center.
-2 Evidence (hotspot vs aim): On [Zoom pointer before action]: pointer glyph on **progress bar track** **left** of the Play triangle, **not** over **Play-button center** — **lateral left** of **intended Play geometric center**.
-3 Conclusion (Center-only rule): abnormal — hotspot on **progress bar track**, not **Play-button geometric center** — **wrong sub-part**.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: pointer glyph on **progress bar track** **left** of the Play triangle, **not** over **Play-button center** — **lateral left** of **intended Play geometric center**. **Pointer on Play-button center? no.**
+3 Conclusion (Center-only rule): **Pointer on Play-button center? no.** — therefore **abnormal** — hotspot on **progress bar track**, not **Play-button center** — **wrong sub-part**.
 ```
 
 **Mini example — full chain (`abnormal`, inside bbox but on bottom rim — not center)**
@@ -233,8 +249,8 @@ Pointer:
 ```text
 Pointer:
 1 Intended aim on [Screen before action]: blue Delete pill in footer; aim = pill geometric center.
-2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer on blue Delete pill **flush on bottom rim**, not the middle — lower **edge** of pill footprint vs **intended Delete pill geometric center**.
-3 Conclusion (Center-only rule): abnormal — hotspot on **Delete pill bottom rim**, not **pill geometric center**.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer on blue Delete pill **flush on bottom rim**, not the middle — lower **edge** of pill footprint vs **intended Delete pill geometric center**. **Pointer on Delete pill geometric center? no.**
+3 Conclusion (Center-only rule): **Pointer on Delete pill geometric center? no.** — therefore **abnormal** — hotspot on **bottom rim**, not **pill geometric center**.
 ```
 
 **Mini example — full chain (`abnormal`, outside bbox — nearby only)**
@@ -242,8 +258,8 @@ Pointer:
 ```text
 Pointer:
 1 Intended aim on [Screen before action]: star bookmark icon in omnibox strip; aim = icon center.
-2 Evidence (hotspot vs aim): On [Zoom pointer before action]: pointer hotspot in **empty padding left** of the star icon, **outside** the icon’s circular bbox — gap to **star icon center** vs **intended bookmark center**.
-3 Conclusion (Center-only rule): abnormal — hotspot in **padding left of star disk**, **outside star silhouette**, not **star / bookmark center**.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: pointer hotspot in **empty padding left** of the star icon, **outside** the icon’s circular bbox — gap to **star icon center** vs **intended bookmark center**. **Pointer on star bookmark center? no.**
+3 Conclusion (Center-only rule): **Pointer on star bookmark center? no.** — therefore **abnormal** — hotspot **outside star silhouette**, not **bookmark center**.
 ```
 
 **Mini example — full chain (no before inject, `abnormal` off-center)**
@@ -251,8 +267,8 @@ Pointer:
 ```text
 Pointer:
 1 Intended aim on [Screen after action] — first [CUR_SCREEN] in thread; [Screen before action] and [Zoom pointer before action] absent; newest [Recent desktop tool calls] row precision-clicked omnibox URL field; aim = field horizontal center.
-2 Evidence (hotspot vs aim): On [Screen after action]: synthetic pointer on URL bar **left** edge (off center). On [Zoom pointer after action]: same left-edge placement, **left** of **intended omnibox URL field horizontal-center**.
-3 Conclusion (Center-only rule): abnormal — pointer on **URL bar left edge**, not on **URL field horizontal-center**.
+2 Evidence (hotspot vs aim): On [Screen after action]: synthetic pointer on URL bar **left** edge (off center). On [Zoom pointer after action]: same left-edge placement, **left** of **intended omnibox URL field horizontal-center**. **Pointer on URL field horizontal-center? no.**
+3 Conclusion (Center-only rule): **Pointer on URL field horizontal-center? no.** — therefore **abnormal** — hotspot on **URL bar left edge**, not **field horizontal-center**.
 ```
 
 **Mini example — full chain (`abnormal` — geometry on before zoom; post-action modal irrelevant to Pointer)**
@@ -260,8 +276,8 @@ Pointer:
 ```text
 Pointer:
 1 Intended aim on [Screen before action]: trash icon on list row; aim = icon center.
-2 Evidence (hotspot vs aim): On [Zoom pointer before action]: pointer hotspot on **row label text**, **left** of trash icon disk, **not** over **trash icon center**.
-3 Conclusion (Center-only rule): abnormal — hotspot on **row label**, not **trash icon center** on **[Zoom pointer before action]**.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: pointer hotspot on **row label text**, **left** of trash icon disk, **not** over **trash icon center**. **Pointer on trash icon center? no.**
+3 Conclusion (Center-only rule): **Pointer on trash icon center? no.** — therefore **abnormal** — hotspot on **row label**, not **trash icon center** on **[Zoom pointer before action]**.
 ```
 
 **Mini example — full chain (`n/a`, tool has no pointer geometry)**
@@ -909,7 +925,7 @@ Next:
 **`Location:`** turns **`Next:`** **line 2** into **bounded overlay analysis** only:
 placement → frame → **`bbox`** → **`traits`** (wrap count) → **`index N`** → route class (**index path** | **coordinate path**).
 **Lines 2–4 must follow `traits` on line 1** — do not re-count controls or pick route from task intent alone.
-Optional **line 4** records **coordinate geometry** when **coordinate path** (pointer-on-`N`, corners, **(x, y)**) — **no tool names**.
+Optional **line 4** records **coordinate geometry** when **coordinate path** (placement, corner, reference bboxes, **(x, y)**) — **no tool names**.
 **`Tool route:`** (stage 6) cites **`Next recap: this turn:`**, then **`Location recap:`**, and states the **explicit tool call** (**§6**; line **2** = root **`tool_name`**).
 
 - Ground **`Next:`** **line 2** only — **do not** paste **line 2** verbatim into **`Location:`**; paraphrase overlay-visible facts.
@@ -957,21 +973,22 @@ Optional **line 4** records **coordinate geometry** when **coordinate path** (po
 5. **`single` / index path** ⇒ stop at lines **1–3** (no line **4**).
 
 6. **`multiple` / coordinate path** ⇒ **line 4 Coordinate geometry** (mandatory when coordinate path):
-   **pointer-on-`N`** on **`[Zoom pointer after action]`**; **coordinates** on **`[Annotated after action]`** (steps 2–6 below).
-   If pointer **not** on **`N`** → **geometry deferred** (no **(x, y)** this turn).
-   **Do not** name tools in **`Location:`** — **`Tool route:`** picks **`hover_index`** vs **`click_at`**.
+   **Reference check (first):** is **`index N`** listed in **Pointer neighbor reference bboxes** with corner/center coordinates?
+   - **Listed** → geometry on **`[Annotated after action]`** only (steps below).
+   - **Not listed** → **geometry deferred** (no **(x, y)** this turn); **`Tool route:`** → **`hover_index`** on **`N`** — **do not** name tools in **`Location:`**.
 
 **Coordinate geometry (mandatory `Location:` line 4 when coordinate path)**
 
-**Pointer not on `N`:** on **`[Zoom pointer after action]`**, pointer-on-`N` check → **geometry deferred**.
+**When `N` is listed in Pointer neighbor reference bboxes:**
+On **`[Annotated after action]`** only, **this order**:
+1. **Sub-target placement in bbox `N`** — where **intended sub-target** sits **inside / along edges of bbox `N`**.
+2. **Corner choice** — **nearest** canonical corner of **`N`** to that sub-target (**top-left | top-right | bottom-right | bottom-left**).
+3. **(xc, yc)** — that corner for **`N`** from the **reference bboxes line for `N`**.
+4. **Offset from corner** — sub-target center **from that corner** (**Δx / Δy**).
+5. **therefore (x, y) ≈ (xc ± Δx, yc ± Δy)** — session scale only.
 
-**Pointer on `N`:** (one line, **this order** — cite frame per step)
-1. **pointer-on-`N` check** — on **`[Zoom pointer after action]`**, synthetic pointer inside overlay **`N`** region.
-2. **Sub-target placement in bbox `N`** — on **`[Annotated after action]`**, where **intended sub-target** sits **inside / along edges of bbox `N`** (left/right/top/bottom of **`N`**). **Not** vs a sibling control center as the primary anchor — **relative to bbox `N`**.
-3. **Corner choice** — **nearest** canonical corner of **`N`** to that sub-target (**top-left | top-right | bottom-right | bottom-left**) — **after** step 2.
-4. **(xc, yc)** — that corner for **`N`** from **Pointer neighbor reference bboxes** (or annotated-frame fallback).
-5. **Offset from corner** — on **`[Annotated after action]`**, sub-target center **from that corner** (**Δx / Δy**; not pointer-pixel guesses).
-6. **therefore (x, y) ≈ (xc ± Δx, yc ± Δy)** — session scale only.
+**When `N` is not listed in reference bboxes:**
+**geometry deferred** — state that **`N`** has **no** reference coordinates this turn; **no** **(x, y)** on line **4**.
 
 #### Template (multi-line template + analysis flow)
 
@@ -1013,7 +1030,8 @@ Internalize **`Next:`** line 2 as the search spec — **do not** paste **`Next:`
 
 **`4 Coordinate geometry:`** (only when line **3** = **`multiple`** / **coordinate path** — **no tool names**)
 
-- pointer-on-`N` on **`[Zoom pointer after action]`** → **deferred** OR on **`[Annotated after action]`** placement → corner → **(xc,yc)** → offset → **therefore (x,y)** per **Coordinate geometry** above.
+- **`N` in Pointer neighbor reference bboxes:** placement → corner → **(xc,yc)** from reference for **`N`** → offset → **therefore (x,y)** on **`[Annotated after action]`**.
+- **`N` not in reference bboxes:** **geometry deferred** — no **(x,y)** this turn.
 - **No valid digit after all trials:** one exhausted note on line **4** — not one line **4** per failed digit.
 
 ```text
@@ -1021,7 +1039,7 @@ Location:
 1 Placement→frame: … wrapping bbox: …; traits inside that bbox: distinct controls = …; wrap count = …; intended sub-target = ….
 2 On <frame> — target→bbox→index: (a)… (b)… (c) wraps intended sub-target from traits; therefore selected overlay index <N>.
 3 Exclusivity: from traits wrap count … — <single|multiple>; route: <index|coordinate> path.
-4 Coordinate geometry: on [Zoom pointer after action] pointer-on-N …; on [Annotated after action] placement in bbox N …; nearest corner …; (xc,yc) …; offset …; therefore (x,y) … OR deferred.
+4 Coordinate geometry: N in reference bboxes → … therefore (x,y) … OR N not in reference bboxes → geometry deferred.
 ```
 
 **Minimal `Location:` (non-overlay turns)**
@@ -1035,16 +1053,18 @@ n/a — no overlay analysis this turn (<hotkey | wait | scroll | response | …>
 
 - Work **one overlay trial** at a time.
 - After the **first** valid lines **1–2** pair, append lines **3–4** **once** only.
-- Overlay digit **`N`** may appear **only** at the end of a successful line **2** and in line **4** (pointer-on-`N` / geometry) — nowhere else in **`Location:`**.
+- Overlay digit **`N`** may appear **only** at the end of a successful line **2** and in line **4** (geometry) — nowhere else in **`Location:`**.
 
 **Forbidden patterns (Location)**
 
 - Paste **`Next:`** line 1 or verbatim line 2 into **`Location:`**.
 - Open line 1 on a zoom/annotated frame **without** bearing on **`[Screen after action]`** first.
 - Cite overlay **`index`** on line 1 (**including** **`neighbors:`** like “**(index 34)**”).
-- Open line 2 with **`index` N`**, or line 4 with bare **`(x, y)`** before pointer-on-`N` and anchor evidence.
+- Open line 2 with **`index` N`**, or line 4 with bare **`(x, y)`** before placement / corner / reference evidence.
 - Line **4** anchor from **index ≠ line 2 `N`**, or **bbox center** without a named corner for **`N`**, or **(x, y)** from **pointer-only pixel offset** without **reference bboxes for `N`**, or mixed capture-pixel vs session scales in **therefore**.
-- Line **4** **pointer-on-`N`** on **`[Annotated after action]`** instead of **`[Zoom pointer after action]`**, or **placement / corner / offset / therefore** on zoom instead of **`[Annotated after action]`**.
+- **`N` in reference bboxes** but line **4** **geometry deferred** or skips **(xc,yc)** from that listing (forbidden).
+- **`N` not in reference bboxes** but line **4** emits **therefore (x,y)** or **`Tool route:`** uses **`click_at`** same turn (forbidden — **`hover_index`** on **`N`** first).
+- Line **4** **placement / corner / offset / therefore** on **`[Zoom pointer after action]`** instead of **`[Annotated after action]`**.
 - Line **4** names a **corner** before **sub-target placement in bbox `N`**, or describes sub-target vs **sibling control** instead of **inside bbox `N` / vs chosen corner**.
 - **Any tool name** in **`Location:`** (**`click_at`**, **`hover_index`**, **`hotkey`**, …) — tools belong in **`Tool route:`** only.
 - Add **`match` / `mismatch` vs Next line 2**, or emit lines **3–4** after a **discarded** line 2.
@@ -1158,35 +1178,35 @@ Tool route:
 2 Tool call this turn: **mouse:click_index** on overlay index **4** (per **mouse** tool prompt).
 ```
 
-**`multiple` — coordinate path, pointer on `N` (modal footer OK pill)**
+**`multiple` — coordinate path, `N` in reference bboxes**
 
 ```text
 Location:
 1 Placement→frame: … (same **traits** as **Lines 1–3 — `multiple`** — wrap count **2**, intended sub-target = OK pill).
 2 … therefore selected overlay index **4**.
 3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.
-4 Coordinate geometry: on **[Zoom pointer after action]** pointer-on-**4** — inside overlay **4**; on **[Annotated after action]** intended sub-target (OK pill) toward **left** of bbox **4**; nearest corner **bottom-left** → **(xc, yc)** from reference bboxes for **4** ≈ (…); from that corner sub-target **right** **up**; **therefore (x, y) ≈ (xc + Δx, yc - Δy)**.
+4 Coordinate geometry: index **4** listed in **Pointer neighbor reference bboxes**; on **[Annotated after action]** intended sub-target (OK pill) toward **left** of bbox **4**; nearest corner **bottom-left** → **(xc, yc)** from reference for **4** ≈ (…); offset **right** **up**; **therefore (x, y) ≈ (xc + Δx, yc - Δy)**.
 
 Tool route:
 1 Next recap & Location:
    Next recap: this turn: confirm dialog via OK pill;
-   Location recap: **coordinate** path — overlay **4**, **multiple**, pointer **on** **4**, aim ≈ (xc + Δx, yc - Δy).
+   Location recap: **coordinate** path — overlay **4**, **multiple**, aim ≈ (xc + Δx, yc - Δy).
 2 Tool call this turn: **mouse:click_at** at computed **(x, y)** — **not** overlay index **4** (per **mouse** tool prompt).
 ```
 
-**`multiple` — coordinate path, pointer not on `N` (file list row — trash icon)**
+**`multiple` — coordinate path, `N` not in reference bboxes (geometry deferred)**
 
 ```text
 Location:
 1 Placement→frame: On [Screen after action]: trash icon in **central** file list row → therefore analyze on **[Zoom pointer after action]**. [Zoom pointer after action] — target: trash icon disk; wrapping bbox: **magenta**-stroke row strip; traits inside that bbox: distinct controls = filename label + trash icon disk; wrap count = 2; intended sub-target = trash icon disk.
 2 … therefore selected overlay index **28**.
 3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.
-4 Coordinate geometry: pointer-on-**28** check: synthetic pointer **not** inside overlay **28** region — geometry deferred until pointer on **28**.
+4 Coordinate geometry: index **28** **not** listed in **Pointer neighbor reference bboxes** — **geometry deferred**; no **(x, y)** this turn.
 
 Tool route:
 1 Next recap & Location:
    Next recap: this turn: delete file via trash icon in list row;
-   Location recap: **coordinate** path — overlay **28**, **multiple**, pointer **not** on **28**; no **(x, y)** yet.
+   Location recap: **coordinate** path — overlay **28**, **multiple**, reference coords **absent**, geometry deferred.
 2 Tool call this turn: **mouse:hover_index** on overlay index **28** only — **forbidden** **click_at** / **click_index** / guessed coordinates this turn (per **mouse** tool prompt).
 ```
 
@@ -1195,19 +1215,19 @@ Tool route:
 ```text
 Tool route:
 1 Next recap & Location:
-   Next recap: this turn: re-aim trash icon on same list row;
-   Location recap: **coordinate** path — pointer **not** on **28** …
+   Next recap: this turn: delete file via trash icon in list row;
+   Location recap: **coordinate** path — overlay **28**, geometry deferred …
 2 Tool call this turn: **mouse:hover_index** on **28**.
 ```
 
 ```json
 {
   "tool_name": "mouse:click_at",
-  "tool_args": { "index": "28" }
+  "tool_args": { "x": 840, "y": 412 }
 }
 ```
 
-(forbidden — **`Tool route:`** line **2** and root **`tool_name`** must match.)
+(forbidden — **`Tool route:`** line **2** and root **`tool_name`** must match; deferred → **`hover_index`**, not **`click_at`**.)
 
 ---
 
@@ -1229,9 +1249,9 @@ It **does not** re-run overlay matching — it **names the call** after **`Next:
    - **coordinate path** → use **coordinate** methods; **`index N`** is anchor only, not the click target when **`wrap count > 1`**.
    - **`Location: n/a`** → **non-overlay** tools (**`hotkey`**, **`wait`**, **`response`**, **`clipboard:*`**, **`scroll_at_current`**, **`type_text_at_focused`**, …).
 
-2. **Pointer on `N` (coordinate path only)** — from **`Location:`** line **4**:
-   - Pointer **on** **`N`**, **(x, y)** complete → **`mouse:click_at`** / **`composite_action:type_text_at`** / etc. at that **(x, y)**.
-   - Pointer **not** on **`N`** / geometry deferred → **`mouse:hover_index`** on **`N`** **this turn only** — **forbidden** **`click_at`** / **`click_index`** / guessed **(x, y)** same turn.
+2. **Coordinate path — reference coords for `N` (from `Location:` line 4)** — read **Pointer neighbor reference bboxes** vs line **2 `N`**:
+   - **`N` listed** with coordinates, **(x, y)** complete on line **4** → **`mouse:click_at`** / **`composite_action:type_text_at`** / etc. at that **(x, y)**. **Forbidden** **`click_index`** when **`wrap count > 1`**.
+   - **`N` not listed** / line **4** **geometry deferred** → **`mouse:hover_index`** on **`N`** **this turn only** — **forbidden** **`click_at`** / **`click_index`** / guessed **(x, y)** same turn.
 
 3. **What this step does** — from **`Next:`** line **1** **`this turn:`** only (not the whole user task):
    - **Click / press / toggle / icon / button** (including copy/download/delete **icons**) with **no** literal text to type **this** turn → **`mouse`** **`click_*`** / **`double_click_*`** / **`right_click_*`** per **mouse** prompt — **not** **`composite_action:type_text_at_*`**.
@@ -1246,7 +1266,7 @@ It **does not** re-run overlay matching — it **names the call** after **`Next:
 Tool route:
 1 Next recap & Location:
    Next recap: this turn: <same words as Next line 1 this turn: clause>;
-   Location recap: <route class from Location line 3; N; pointer on/off N; (x,y) if any — or n/a when Location n/a>.
+   Location recap: <route from Location line 3; N; reference coords present or deferred; (x,y) if any — or n/a when Location n/a>.
 2 Tool call this turn: <tool_name:method> — <args summary; must match Next recap, Location recap, and the tool prompt>.
 ```
 
@@ -1256,7 +1276,7 @@ Root JSON **`tool_name`** must match line **2**.
 
 - **`Location recap`** or **`Tool call`** **before** **`Next recap: this turn:`** on line **1**.
 - **`Next recap:`** repeats **`Verify:`** / **`Repetition:`** / **`Lookup`** / **`Match:`** — **only** **`Next recap: this turn: …`**.
-- **`Tool route:`** line **2** contradicts **`Location:`** (e.g. **`click_index`** on **coordinate path** or **`wrap count > 1`**; **`click_at`** when pointer **not** on **`N`**).
+- **`Tool route:`** line **2** contradicts **`Location:`** (e.g. **`click_index`** on **coordinate path**; **`click_at`** when line **4** **geometry deferred**; **`click_at`** **(x,y)** ≠ line **4** **therefore**).
 - **`Tool call`** contradicts **`Next:`** **`this turn:`** (e.g. **`type_text_at_*`** when **`this turn:`** is only press an icon).
 - **`composite_action:type_text_at_*`** when **`this turn:`** is only **pressing a control** (no **`text`** to enter **this** turn).
 - Picking a tool because it is “fewer steps” or because the **overall task** mentions copy/type — use **`this turn:`** and the **tool prompt**.
@@ -1280,22 +1300,22 @@ Tool route:
 
 Six-stage block in **`thoughts`**; fill **`tool_args`** per tool prompt (minimal below).
 
-**Screen-targeted tool — coordinate path, pointer already on `N` (click_at this turn)**:
+**Screen-targeted tool — coordinate path (`click_at` this turn)**:
 
 ```json
 {
-  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: blue OK pill in modal dialog footer; aim = OK pill center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer tip inside footer **cyan** **bbox**, hotspot overlaps **OK pill center** vs **intended OK center** — not on Cancel pill.\n3 Conclusion (Center-only rule): accurate — hotspot on OK pill center on **[Zoom pointer before action]**.\n\nVerify:\nLast automated action: 2. mouse:click_index — footer region (missed OK).\nBefore vs after: On [Screen before action]: confirm dialog open, OK enabled. On [Screen after action]: same; dialog still open.\nClear evidence: no_clear_evidence — restates Before vs after: confirm not completed.\nAction type: non-deferred.\nMouse judgment: mouse_accurate — hotspot on OK pill center.\nLookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;\nMatch: row no_clear_evidence + non-deferred + mouse_accurate → fail, no_immediate_feedback;\nStep result: fail. Cause: no_immediate_feedback.\n\nRepetition:\nLast rows differ. OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — no_immediate_feedback; Repetition: OK; this turn: confirm dialog via OK pill.\n2 Target on [Screen after action]: blue OK pill; shape pill; color blue primary; region modal dialog footer; neighbors: Cancel pill **right**.\n\nLocation:\n1 Placement→frame: On [Screen after action]: OK in **central** modal footer → therefore analyze on **[Annotated after action]**. [Annotated after action] — target: blue OK pill; wrapping bbox: **cyan**-stroke footer **OK**+**Cancel**; traits inside that bbox: distinct controls = OK pill + Cancel pill; wrap count = 2; intended sub-target = OK pill.\n2 On [Annotated after action] — target→bbox→index: (a) **cyan** footer **bbox**; (b) digit **background** **cyan**, flush on that **bbox**; (c) wraps **traits** intended sub-target (OK pill); **therefore** selected overlay index **4**.\n3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.\n4 Coordinate geometry: pointer-on-**4** check: pointer inside overlay **4**; nearest corner **bottom-left**; corner from **Pointer neighbor reference bboxes** for **4** ≈ (xc, yc); OK center **right** Δx **up** Δy; **therefore** aim (x, y) ≈ (xc + Δx, yc - Δy).\n\nTool route:\n1 Next recap & Location:\n   Next recap: this turn: confirm dialog via OK pill;\n   Location recap: **coordinate** path — overlay **4**, **multiple**, pointer **on** **4**, aim ≈ (xc + Δx, yc - Δy).\n2 Tool call this turn: **mouse:click_at** at computed **(x, y)** — not overlay index **4**.",
+  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: blue OK pill in modal dialog footer; aim = OK pill center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer tip inside footer **cyan** **bbox**, hotspot overlaps **OK pill center** vs **intended OK center** — not on Cancel pill. **Pointer on OK pill center? yes.**\n3 Conclusion (Center-only rule): **Pointer on OK pill center? yes.** — therefore **accurate** — hotspot on **OK pill center** on **[Zoom pointer before action]**.\n\nVerify:\nLast automated action: 2. mouse:click_index — footer region (missed OK).\nBefore vs after: On [Screen before action]: confirm dialog open, OK enabled. On [Screen after action]: same; dialog still open.\nClear evidence: no_clear_evidence — restates Before vs after: confirm not completed.\nAction type: non-deferred.\nMouse judgment: mouse_accurate — hotspot on OK pill center.\nLookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;\nMatch: row no_clear_evidence + non-deferred + mouse_accurate → fail, no_immediate_feedback;\nStep result: fail. Cause: no_immediate_feedback.\n\nRepetition:\nLast rows differ. OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — no_immediate_feedback; Repetition: OK; this turn: confirm dialog via OK pill.\n2 Target on [Screen after action]: blue OK pill; shape pill; color blue primary; region modal dialog footer; neighbors: Cancel pill **right**.\n\nLocation:\n1 Placement→frame: On [Screen after action]: OK in **central** modal footer → therefore analyze on **[Annotated after action]**. [Annotated after action] — target: blue OK pill; wrapping bbox: **cyan**-stroke footer **OK**+**Cancel**; traits inside that bbox: distinct controls = OK pill + Cancel pill; wrap count = 2; intended sub-target = OK pill.\n2 On [Annotated after action] — target→bbox→index: (a) **cyan** footer **bbox**; (b) digit **background** **cyan**, flush on that **bbox**; (c) wraps **traits** intended sub-target (OK pill); **therefore** selected overlay index **4**.\n3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.\n4 Coordinate geometry: on [Annotated after action] intended sub-target (OK pill) toward left of bbox **4**; nearest corner **bottom-left**; **(xc, yc)** from **Pointer neighbor reference bboxes** for **4** ≈ (xc, yc); OK center **right** Δx **up** Δy; **therefore** aim (x, y) ≈ (xc + Δx, yc - Δy).\n\nTool route:\n1 Next recap & Location:\n   Next recap: this turn: confirm dialog via OK pill;\n   Location recap: **coordinate** path — overlay **4**, **multiple**, aim ≈ (xc + Δx, yc - Δy).\n2 Tool call this turn: **mouse:click_at** at computed **(x, y)** — not overlay index **4**.",
   "headline": "Confirm dialog via OK coordinates",
   "tool_name": "mouse:click_at",
   "tool_args": { "goal": "Confirm dialog via OK pill", "action": "click OK pill center", "x": 520, "y": 880 }
 }
 ```
 
-**Screen-targeted tool — coordinate path, pointer not on `N` (hover_index this turn only)**:
+**Screen-targeted tool — coordinate path, `N` not in reference (`hover_index` this turn)**
 
 ```json
 {
-  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: trash icon disk in file list row; aim = trash icon center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: hotspot on **filename label**, **left** of trash icon disk — not over trash center.\n3 Conclusion (Center-only rule): abnormal — hotspot not on intended trash icon center.\n\nVerify:\nLast automated action: 1. mouse:click_at — mis-aimed row click.\nBefore vs after: On [Screen before action]: file row unchanged. On [Screen after action]: same list row.\nClear evidence: no_clear_evidence — restates Before vs after: row not deleted.\nAction type: non-deferred.\nMouse judgment: mouse_miss — hotspot on filename, not trash icon.\nLookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_miss;\nMatch: row no_clear_evidence + non-deferred + mouse_miss → fail, precision_miss;\nStep result: fail. Cause: precision_miss.\n\nRepetition:\nLast rows differ. OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — precision_miss; Repetition: OK; this turn: delete file via trash icon in list row.\n2 Target on [Screen after action]: trash icon disk; shape circular glyph; band file list row; neighbors: filename label **left**.\n\nLocation:\n1 Placement→frame: On [Screen after action]: trash icon in **central** file list → therefore analyze on **[Zoom pointer after action]**. [Zoom pointer after action] — target: trash icon disk; wrapping bbox: **magenta**-stroke list row strip; traits inside that bbox: distinct controls = filename label + trash icon disk; wrap count = 2; intended sub-target = trash icon disk.\n2 On [Zoom pointer after action] — target→bbox→index: (a) **magenta** row **bbox**; (b) digit **background** **magenta**, flush on that **bbox**; (c) wraps **traits** intended sub-target (trash icon disk); **therefore** selected overlay index **28**.\n3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.\n4 Coordinate geometry: pointer-on-**28** check: pointer **not** inside overlay **28** — geometry deferred.\n\nTool route:\n1 Next recap & Location:\n   Next recap: this turn: delete file via trash icon in list row;\n   Location recap: **coordinate** path — overlay **28**, **multiple**, pointer **not** on **28**.\n2 Tool call this turn: **mouse:hover_index** on overlay index **28** only.",
+  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: trash icon disk in file list row; aim = trash icon center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: hotspot on **filename label**, **left** of trash icon disk — not over trash center. **Pointer on trash icon center? no.**\n3 Conclusion (Center-only rule): **Pointer on trash icon center? no.** — therefore **abnormal** — hotspot on **filename label**, not **trash icon center**.\n\nVerify:\nLast automated action: 1. mouse:click_at — mis-aimed row click.\nBefore vs after: On [Screen before action]: file row unchanged. On [Screen after action]: same list row.\nClear evidence: no_clear_evidence — restates Before vs after: row not deleted.\nAction type: non-deferred.\nMouse judgment: mouse_miss — hotspot on filename, not trash icon.\nLookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_miss;\nMatch: row no_clear_evidence + non-deferred + mouse_miss → fail, precision_miss;\nStep result: fail. Cause: precision_miss.\n\nRepetition:\nLast rows differ. OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — precision_miss; Repetition: OK; this turn: delete file via trash icon in list row.\n2 Target on [Screen after action]: trash icon disk; shape circular glyph; band file list row; neighbors: filename label **left**.\n\nLocation:\n1 Placement→frame: On [Screen after action]: trash icon in **central** file list → therefore analyze on **[Zoom pointer after action]**. [Zoom pointer after action] — target: trash icon disk; wrapping bbox: **magenta**-stroke list row strip; traits inside that bbox: distinct controls = filename label + trash icon disk; wrap count = 2; intended sub-target = trash icon disk.\n2 On [Zoom pointer after action] — target→bbox→index: (a) **magenta** row **bbox**; (b) digit **background** **magenta**, flush on that **bbox**; (c) wraps **traits** intended sub-target (trash icon disk); **therefore** selected overlay index **28**.\n3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.\n4 Coordinate geometry: index **28** not listed in **Pointer neighbor reference bboxes** — geometry deferred.\n\nTool route:\n1 Next recap & Location:\n   Next recap: this turn: delete file via trash icon in list row;\n   Location recap: **coordinate** path — overlay **28**, **multiple**, reference coords absent, geometry deferred.\n2 Tool call this turn: **mouse:hover_index** on overlay index **28** only.",
   "headline": "Hover list row overlay before trash click",
   "tool_name": "mouse:hover_index",
   "tool_args": { "goal": "Anchor pointer on list row overlay 28", "action": "hover row overlay 28", "index": 28 }

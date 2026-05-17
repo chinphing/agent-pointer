@@ -1,84 +1,115 @@
-# Computer Mouse Movement Roadmap
+# Computer Mouse Movement
 
 ## Goal
 
-Build a standalone and extensible mouse movement layer for the computer agent.
-The first production version uses straight-line uniform movement only.
-Future strategies can be introduced without changing tool handlers.
+Standalone, extensible mouse movement for the computer agent. Path geometry and per-step timing are planned separately (aligned with Python `MouseMove._generate_path` / `_calculate_intervals`). Tool handlers call `ActionBackend::move_to` only; they do not configure movement profiles yet.
 
-## Current implementation (v1)
+## Current implementation
 
-- Added dedicated module: `crates/pointer-core/src/agents/computer/mouse_move.rs`
-- Split responsibilities:
-  - `MouseMovePlanner`: converts `(from -> to)` into waypoints
-  - `execute_move_plan`: executes waypoints against backend move API
-- Strategy abstraction:
-  - `MouseMoveStrategy` enum (currently `LinearUniform`)
-  - `MouseMoveConfig` for tunables
-- Runtime behavior:
-  - read current cursor position
-  - generate straight-line waypoints with uniform step size
-  - move point by point with fixed sleep interval
-- Integration point:
-  - `EnigoBackend::move_to` now goes through planner + executor path
+**Modules:** `crates/pointer-core/src/agents/computer/mouse_move.rs`, `timing.rs`, `action_enigo.rs`
 
-## Tunables (v1 defaults)
+### Architecture
 
-- `MOUSE_MOVE_LINEAR_STEP_MAX_PX = 14.0`
-- `MOUSE_MOVE_LINEAR_STEP_INTERVAL_MS = 6`
+| Component | Role |
+|-----------|------|
+| `MouseMovePathPlanner` | `(from, to)` → waypoint list (geometry only) |
+| `MouseMoveTimingPlanner` | waypoint count → per-step sleep intervals |
+| `MouseMovePlanner` | composes path + timing → `MouseMovePlan` |
+| `execute_move_plan` | each waypoint: backend `move_abs` + `sleep(dt)`; then one more `move_abs` at `target` for OS hover refresh |
+| `EnigoBackend::move_to` | read position → plan → execute via enigo |
 
-These are centralized in `crates/pointer-core/src/agents/computer/timing.rs`
-so we can tune movement smoothness/latency without touching call sites.
+### Path geometry (`LinearUniform`)
+
+1. **Main segment:** straight line from current cursor to target, uniform parameter `t`, max **14px** between consecutive points (`MOUSE_MOVE_LINEAR_STEP_MAX_PX`). Point count scales with distance (`ceil(distance / 14)`).
+2. **Final approach:** re-sample only the **last coarse segment** (second-to-last waypoint → target; if the coarse path has one point, from `from` → target) at **5px** steps (`MOUSE_MOVE_APPROACH_STEP_MAX_PX`), then a **1px** hop to the target (`MOUSE_MOVE_APPROACH_FINAL_GAP_PX`: penultimate waypoint sits one pixel before the aim point, last waypoint is the target). Helps OS / app hover and hit-testing without changing the intended pixel.
+3. **Same point:** `from == to` → empty path, move skipped.
+
+No Bézier / jitter yet. Spatial density on the final segment is higher; there is no separate “denser only in time” rule on geometry.
+
+### Timing (default)
+
+| Setting | Value |
+|---------|--------|
+| Mode | `MouseMoveDurationMode::Total` |
+| Total duration | **0.5s** (`MOUSE_MOVE_TOTAL_DURATION_SECS`) |
+| Curve | **ease-out** (`ease_in_out = false`), same formula as Python `_ease_out_intervals` |
+| Distribution | One interval per waypoint; intervals sum to 0.5s; **shorter sleeps early, longer near the end** |
+
+Reserved but unused by default: `Step` mode (fixed **0.03s** per point, `MOUSE_MOVE_STEP_DURATION_SECS`), `ease_in_out`.
+
+### Click / hover flow (`actions.rs`)
+
+All absolute moves go through `EnigoBackend::move_to` (path above). Additional delays:
+
+| Constant | Value | When |
+|----------|-------|------|
+| `SETTLE_AFTER_ABSOLUTE_MOVE_MS` | 100ms | After move, before click / double-click / right-click / scroll-at |
+| `POST_MOUSE_BUTTON_SETTLE_MS` | 50ms | After button gesture |
+| — | — | `hover_at` / `hover_index`: move only, **no** settle |
+
+Typical `click_at`: ~0.5s move sleeps + 100ms settle + click + 50ms (plus optional `tool_args.wait` before next screenshot).
+
+### Backend
+
+- **enigo** `move_mouse(Abs)` on macOS / Windows / Linux (HID-level synthetic events).
+- Prompt `human_like` is **not** wired to Rust yet; all moves use `MouseMoveConfig::default()`.
+
+### Removed / not used
+
+- Fixed **6ms** per-step interval (replaced by total-time ease-out).
+- macOS Session-tap post-move nudge (`mouse_hover_refresh`) — removed after dense approach proved sufficient in testing.
+
+## Tunables (`timing.rs`)
+
+```text
+MOUSE_MOVE_LINEAR_STEP_MAX_PX      = 14.0
+MOUSE_MOVE_APPROACH_STEP_MAX_PX    = 5.0
+MOUSE_MOVE_APPROACH_FINAL_GAP_PX   = 1.0
+MOUSE_MOVE_TOTAL_DURATION_SECS     = 0.5
+MOUSE_MOVE_STEP_DURATION_SECS      = 0.03   # Step mode only
+SETTLE_AFTER_ABSOLUTE_MOVE_MS      = 100
+POST_MOUSE_BUTTON_SETTLE_MS        = 50
+```
 
 ## Why this structure
 
-- Keeps action API stable (`move_to` stays unchanged for callers)
-- Makes strategy evolution low-risk (new enum branch + planner logic)
-- Makes behavior testable (planner and executor are unit-testable)
-- Preserves cross-platform compatibility by reusing enigo absolute move calls
+- Stable `move_to` API for `ActionExecutor` and tools
+- Path vs timing split matches Python and allows new strategies without touching call sites
+- Unit tests on planners and ease curves (`mouse_move` tests)
+- Cross-platform: same planner; enigo for execution (APP + WEB share backend)
 
 ## Extension roadmap
 
-### Phase 1: Configurable linear profiles
+### Phase 1 — Profiles
 
-- Add profile presets: `fast`, `balanced`, `precise`
-- Dynamically tune step size by distance and action type
-- Optional per-tool override (e.g. drag may require denser sampling)
+- Presets: `fast`, `balanced`, `precise` (step sizes, total duration)
+- Optional per-tool override (e.g. drag)
 
-### Phase 2: Easing and timing curves
+### Phase 2 — Curved paths
 
-- Add ease-in/ease-out timing on top of linear geometry
-- Keep endpoint precision guaranteed
-- Add guardrails to avoid over-slow behavior on short distances
+- Bézier / spline branch (Python `mouse_path.py` parity)
+- Optional jitter with caps; deterministic mode for CI
 
-### Phase 3: Curved/human-like paths
+### Phase 3 — Tool integration
 
-- Add Bezier/spline path planner branch
-- Optional jitter/noise model with strict caps
-- Keep deterministic mode for test and CI reproducibility
+- Map `human_like` in `tool_args` to `MouseMoveConfig`
+- Structured logs: strategy, point count, elapsed time
 
-### Phase 4: Safety and observability
+### Phase 4 — Guards
 
-- Emit structured logs for movement stats:
-  - strategy, point count, total distance, elapsed time
-- Add optional safety clamps:
-  - max duration
-  - max points
-  - fail-fast on backend repeated move errors
+- Max duration, max points, fail-fast on repeated backend errors
 
-## Implementation plan for next iteration
+## Cross-platform notes
 
-1. Introduce `MouseMoveProfile` presets mapped to config values.
-2. Thread profile through action layer (internal only, no tool schema change yet).
-3. Add integration tests:
-   - long-distance move point count bounds
-   - endpoint correctness under all profiles
-4. Add movement metrics log at info/debug level.
-5. Evaluate if drag path should adopt a separate movement policy.
+- **macOS / Windows / Linux:** shared planner and enigo execution; Accessibility / input permissions required where applicable.
+- **Surface:** runtime backend only; no protocol change between APP and WEB clients.
 
-## Cross-platform and cross-surface notes
+## Reference (Python)
 
-- Platform: v1 implementation is shared for macOS/Windows/Linux because it uses
-  the same enigo absolute movement API.
-- Surface: logic is backend runtime behavior; APP and WEB entry points consume
-  the same backend capability and require no divergent protocol changes.
+| Aspect | Python (`human_like=True`) | Rust (current default) |
+|--------|---------------------------|-------------------------|
+| Path | Bézier ~10 points | Straight 14px + final 5px segment |
+| Time | 0.5s ease-out total | 0.5s ease-out total |
+| Pre-click settle | 100ms | 100ms |
+
+See `PyProjects/pointer/agents/computer/mouse_move.py`, `mouse_path.py`.

@@ -75,7 +75,7 @@ impl ActionBackend for EnigoBackend {
             .map_err(|e| anyhow!("Get current position before move failed: {:?}", e))?;
         let planner = MouseMovePlanner::new(MouseMoveConfig::default());
         let plan = planner.plan(from, (x, y));
-        execute_move_plan(&plan, |px, py| {
+        execute_move_plan(&plan, (x, y), |px, py| {
             enigo
                 .move_mouse(px, py, enigo::Coordinate::Abs)
                 .map_err(|e| anyhow!("Move failed at ({px}, {py}): {:?}", e))

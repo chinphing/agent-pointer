@@ -5,10 +5,11 @@ use super::annotate::BoxInfo;
 use super::coord::CoordinateSystem;
 use super::screen::MonitorInfo;
 
-/// Same side length as `[Zoom pointer after action]` (`screen_overlay::ZOOM_POINTER_SIDE`).
-pub const POINTER_VICINITY_SIDE_PX: f32 = 300.0;
+/// Same crop side as `[Zoom pointer after action]` before magnification (`screen_overlay::ZOOM_POINTER_CROP_SIDE`).
+pub const POINTER_VICINITY_SIDE_PX: f32 =
+    crate::agents::computer::screen_overlay::ZOOM_POINTER_CROP_SIDE as f32;
 
-const ZOOM_POINTER_ANCHOR: &str = "**Pointer coordinate anchor:** **`Location:`** line **4** — **pointer-on-N** on **`[Zoom pointer after action]`**; **placement, corner, offset, therefore (x,y)** on **`[Annotated after action]`**. Order: placement in bbox **N** → nearest corner → **(xc,yc)** for **N** from reference bboxes. Do not mix frames; not sibling-control anchors; not corner before placement.";
+const ZOOM_POINTER_ANCHOR: &str = "**Pointer coordinate anchor:** **`Location:`** line **4** — if **index N** is listed in **Pointer neighbor reference bboxes**, compute **(x,y)** on **`[Annotated after action]`** (**placement → corner → (xc,yc) → offset → therefore (x,y)**). If **N** is **not** listed, **geometry deferred** → **`hover_index`** on **N** this turn. Do not mix frames; not sibling-control anchors; not corner before placement.";
 
 fn pointer_capture_position(
     monitor: &MonitorInfo,
@@ -78,9 +79,10 @@ fn format_pointer_neighbor_bbox_block(
         CoordinateSystem::Qwen | CoordinateSystem::Kimi => "session 0-1000",
         CoordinateSystem::Pixel => "session pixels",
     };
+    let crop = super::screen_overlay::ZOOM_POINTER_CROP_SIDE;
 
     let mut lines = vec![format!(
-        "**Pointer neighbor reference bboxes** (for **`Location:`** line **4** — anchor **line 2 index N** here when listed; session {session_label}; nearest-first in pointer 300×300 vicinity):"
+        "**Pointer neighbor reference bboxes** (for **`Location:`** line **4** — anchor **line 2 index N** here when listed; session {session_label}; nearest-first in pointer {crop}×{crop} px vicinity):",
     )];
 
     if candidates.is_empty() {
@@ -112,6 +114,11 @@ fn format_pointer_neighbor_bbox_block(
     lines.join("\n")
 }
 
+fn zoom_pointer_output_side() -> u32 {
+    super::screen_overlay::ZOOM_POINTER_CROP_SIDE
+        * super::screen_overlay::ZOOM_POINTER_MAGNIFY_FACTOR
+}
+
 fn format_pointer_position_line(
     mouse_bx: f32,
     mouse_by: f32,
@@ -119,17 +126,20 @@ fn format_pointer_position_line(
     ch: f32,
     coord: CoordinateSystem,
 ) -> String {
+    let crop = super::screen_overlay::ZOOM_POINTER_CROP_SIDE;
+    let factor = super::screen_overlay::ZOOM_POINTER_MAGNIFY_FACTOR;
+    let out = zoom_pointer_output_side();
     match coord {
         CoordinateSystem::Qwen | CoordinateSystem::Kimi => {
             let nx = (mouse_bx / cw) * 1000.0;
             let ny = (mouse_by / ch) * 1000.0;
             format!(
-                "**Pointer position** (same **full capture** as **`[Screen after action]`** / **`[Annotated after action]`**, origin top-left): **capture pixels** (x, y) ≈ ({:.0}, {:.0}); **normalized (x, y)** ≈ ({:.1}, {:.1}) on **0–1000** (same numeric space as coordinate-based `mouse` / `composite_action` / `modified_click` this session). **`[Zoom pointer after action]`** is the **300×300 px** crop centered on this point.",
+                "**Pointer position** (same **full capture** as **`[Screen after action]`** / **`[Annotated after action]`**, origin top-left): **capture pixels** (x, y) ≈ ({:.0}, {:.0}); **normalized (x, y)** ≈ ({:.1}, {:.1}) on **0–1000** (same numeric space as coordinate-based `mouse` / `composite_action` / `modified_click` this session). **`[Zoom pointer after action]`** is a **{out}×{out} px** patch ({factor}× magnified from {crop}×{crop} px) centered on this point.",
                 mouse_bx, mouse_by, nx, ny
             )
         }
         CoordinateSystem::Pixel => format!(
-            "**Pointer position** (capture pixels, origin top-left, same as **`[Screen after action]`**): (x, y) ≈ ({:.0}, {:.0}). **`[Zoom pointer after action]`** is the **300×300 px** crop centered on this point.",
+            "**Pointer position** (capture pixels, origin top-left, same as **`[Screen after action]`**): (x, y) ≈ ({:.0}, {:.0}). **`[Zoom pointer after action]`** is a **{out}×{out} px** patch ({factor}× magnified from {crop}×{crop} px) centered on this point.",
             mouse_bx, mouse_by
         ),
     }
@@ -179,7 +189,7 @@ mod tests {
         assert!(s.contains("**Pointer coordinate anchor:**"));
         assert!(s.contains("[Zoom pointer after action]"));
         assert!(
-            !s.contains("intersecting pointer 300x300 vicinity"),
+            !s.contains("intersecting pointer 200x200 vicinity"),
             "anchor-only helper should not include bbox rows: {s}"
         );
     }

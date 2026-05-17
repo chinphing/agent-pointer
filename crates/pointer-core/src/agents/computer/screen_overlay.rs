@@ -25,19 +25,26 @@ pub const SLOT_SCREEN_ZOOMED_TOP: &str = "[Zoom top after action]";
 pub const SLOT_SCREEN_ZOOMED_BOTTOM: &str = "[Zoom bottom after action]";
 /// Pointer vicinity patch (after-action annotated frame).
 pub const SLOT_SCREEN_ZOOMED_POINTER: &str = "[Zoom pointer after action]";
-/// **4×** magnified **100×100 px** crop (±**50 px** radius) around the pointer on **`[Screen before action]`** — **authoritative** for **`Pointer:`** hotspot geometry.
+/// **4×** magnified **200×200 px** crop (±**100 px** radius) around the pointer on **`[Screen before action]`** — **authoritative** for **`Pointer:`** hotspot geometry.
 pub const SLOT_SCREEN_ZOOMED_POINTER_BEFORE: &str = "[Zoom pointer before action]";
+
+/// When false, skip drawing the synthetic pointer bitmap (for A/B against OS cursor in capture).
+pub const DRAW_SYNTHETIC_POINTER_OVERLAY: bool = true;
 
 const ZOOM_MENU_H: u32 = 100;
 const ZOOM_TASK_H: u32 = 100;
-const ZOOM_POINTER_SIDE: u32 = 300;
+
+/// Pointer vicinity crop side (before 4× magnification) for after- and before-action zoom slots.
+pub const ZOOM_POINTER_CROP_SIDE: u32 = 200;
+/// Nearest-neighbor upscale for `[Zoom pointer after action]` and `[Zoom pointer before action]`.
+pub const ZOOM_POINTER_MAGNIFY_FACTOR: u32 = 4;
 
 /// Half-width of the before-action pointer zoom crop in **capture pixels** (full crop = **2 × radius**).
-pub const BEFORE_POINTER_ZOOM_RADIUS_PX: u32 = 50;
+pub const BEFORE_POINTER_ZOOM_RADIUS_PX: u32 = ZOOM_POINTER_CROP_SIDE / 2;
 /// Crop side length on **`[Screen before action]`** before magnification.
-pub const BEFORE_POINTER_ZOOM_CROP_SIDE: u32 = BEFORE_POINTER_ZOOM_RADIUS_PX * 2;
+pub const BEFORE_POINTER_ZOOM_CROP_SIDE: u32 = ZOOM_POINTER_CROP_SIDE;
 /// Nearest-neighbor upscale applied to the before-action pointer crop.
-pub const BEFORE_POINTER_ZOOM_FACTOR: u32 = 4;
+pub const BEFORE_POINTER_ZOOM_FACTOR: u32 = ZOOM_POINTER_MAGNIFY_FACTOR;
 
 const ACCENT_POINTER_BEFORE: Rgba<u8> = Rgba([160, 80, 220, 255]);
 
@@ -236,8 +243,10 @@ fn apply_pointer_and_caret_overlays(
     if let Some((fx, fy)) = caret {
         draw_focus_caret_overlay(img, fx, fy);
     }
-    if let Some((mx, my)) = mouse {
-        composite_pointer_cursor(img, mx, my);
+    if DRAW_SYNTHETIC_POINTER_OVERLAY {
+        if let Some((mx, my)) = mouse {
+            composite_pointer_cursor(img, mx, my);
+        }
     }
 }
 
@@ -419,7 +428,8 @@ pub fn build_vision_overlay_pack(
     let mut zoom_task = crop_bottom_strip(&ann_rgba, ZOOM_TASK_H);
     tint_zoom_border(&mut zoom_task, ACCENT_TASK, ZoomBorderMode::BottomAccent);
 
-    let mut zoom_ptr = crop_square_around(&ann_rgba, zmx, zmy, ZOOM_POINTER_SIDE);
+    let mut zoom_ptr = crop_square_around(&ann_rgba, zmx, zmy, ZOOM_POINTER_CROP_SIDE);
+    zoom_ptr = magnify_nearest(&zoom_ptr, ZOOM_POINTER_MAGNIFY_FACTOR);
     tint_zoom_border(&mut zoom_ptr, ACCENT_POINTER, ZoomBorderMode::LeftAccent);
 
     Ok(VisionOverlayPack {
@@ -465,7 +475,8 @@ pub fn build_before_action_inject(
 
     let zmx = mx.clamp(0, w.saturating_sub(1) as i32);
     let zmy = my.clamp(0, h.saturating_sub(1) as i32);
-    let mut zoom_crop = crop_square_around(&raw_rgba, zmx, zmy, BEFORE_POINTER_ZOOM_CROP_SIDE);
+    let mut zoom_crop =
+        crop_square_around(&raw_rgba, zmx, zmy, BEFORE_POINTER_ZOOM_CROP_SIDE);
     zoom_crop = magnify_nearest(&zoom_crop, BEFORE_POINTER_ZOOM_FACTOR);
     tint_zoom_border(&mut zoom_crop, ACCENT_POINTER_BEFORE, ZoomBorderMode::LeftAccent);
 
@@ -497,7 +508,7 @@ mod tests {
     fn crop_square_clamps_inside() {
         let mut img = RgbaImage::new(50, 50);
         img.put_pixel(10, 10, Rgba([1, 2, 3, 255]));
-        let sub = crop_square_around(&img, 5, 5, 300);
+        let sub = crop_square_around(&img, 5, 5, ZOOM_POINTER_CROP_SIDE);
         assert_eq!(sub.width(), 50);
         assert_eq!(sub.height(), 50);
     }
@@ -516,14 +527,33 @@ mod tests {
     }
 
     #[test]
-    fn before_action_draws_current_pointer_on_prior_unmarked() {
+    fn before_action_synthetic_pointer_toggle() {
         let monitor = MonitorInfo::new(0, 0, 32, 32);
         let prior = RgbaImage::from_pixel(32, 32, Rgba([40, 80, 120, 255]));
         let jpeg_prior = screen::rgba_to_jpeg_bytes(prior.clone(), screen::SCREENSHOT_JPEG_QUALITY).unwrap();
         let out = build_before_action_raw_jpeg(&jpeg_prior, &monitor, (16, 16)).unwrap();
         let marked = decode_jpeg_to_rgba(&out).unwrap();
         let unmarked = decode_jpeg_to_rgba(&jpeg_prior).unwrap();
-        assert_ne!(marked.get_pixel(16, 16), unmarked.get_pixel(16, 16));
+        if DRAW_SYNTHETIC_POINTER_OVERLAY {
+            assert_ne!(marked.get_pixel(16, 16), unmarked.get_pixel(16, 16));
+        } else {
+            assert_eq!(marked.get_pixel(16, 16), unmarked.get_pixel(16, 16));
+        }
+    }
+
+    #[test]
+    fn after_action_pointer_zoom_is_4x_200_crop() {
+        let monitor = MonitorInfo::new(0, 0, 400, 400);
+        let ann = RgbaImage::from_pixel(400, 400, Rgba([10, 20, 30, 255]));
+        let ann_png = rgba_to_png_bytes(&ann).unwrap();
+        let raw_jpeg =
+            screen::rgba_to_jpeg_bytes(ann.clone(), screen::SCREENSHOT_JPEG_QUALITY).unwrap();
+        let pack = build_vision_overlay_pack(&raw_jpeg, &ann_png, &monitor, (200, 200), None)
+            .unwrap();
+        let zoom = decode_png_to_rgba(&pack.zoom_pointer_png).unwrap();
+        let expected = ZOOM_POINTER_CROP_SIDE * ZOOM_POINTER_MAGNIFY_FACTOR;
+        assert_eq!(zoom.width(), expected);
+        assert_eq!(zoom.height(), expected);
     }
 
     #[test]

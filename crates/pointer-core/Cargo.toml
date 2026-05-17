@@ -23,7 +23,7 @@ enigo = "0.2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 imageproc = "0.25"
 base64 = "0.22"
-xcap = "0.9"
+xcap = { version = "0.9", features = ["wgc"] }
 
 tokio-util = "0.7"
 uuid = { version = "1", features = ["v4"] }

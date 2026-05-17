@@ -120,9 +120,7 @@ pub fn screenshot_monitor_by_id(monitor_id: &str) -> Result<ScreenshotPacket> {
     let setup_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     let t = Instant::now();
-    let rgba_raw = monitor
-        .capture_image()
-        .map_err(|e| anyhow!("screen capture failed: {}", e))?;
+    let rgba_raw = capture_monitor_rgba(&monitor)?;
     let capture_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     let logical_w = info.width.max(1) as u32;
@@ -130,18 +128,7 @@ pub fn screenshot_monitor_by_id(monitor_id: &str) -> Result<ScreenshotPacket> {
     let physical = (rgba_raw.width(), rgba_raw.height());
 
     let t = Instant::now();
-    let rgba = if physical.0 == logical_w && physical.1 == logical_h {
-        rgba_raw
-    } else {
-        log::debug!(
-            "screenshot_monitor_by_id: resampling physical {}x{} -> logical {}x{} (pointer / overlay space)",
-            physical.0,
-            physical.1,
-            logical_w,
-            logical_h
-        );
-        image::imageops::resize(&rgba_raw, logical_w, logical_h, FilterType::Triangle)
-    };
+    let rgba = resample_capture_to_logical(rgba_raw, logical_w, logical_h, "screenshot_monitor_by_id");
     let resample_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     let capture_px = (rgba.width(), rgba.height());
@@ -189,11 +176,10 @@ pub fn screenshot_monitor_by_id(monitor_id: &str) -> Result<ScreenshotPacket> {
 /// the same coordinate space as synthetic clicks—no separate Retina scale factor.
 ///
 /// # Platform notes
-/// Uses the [`xcap`](https://crates.io/crates/xcap) library (macOS, Windows, Linux). Linux under
-/// **Wayland** may be limited depending on compositor and permissions; **X11** is generally
-/// supported. If the cursor position cannot be read (e.g. input backend unavailable), the
-/// **primary display** is used and a center point is chosen so the correct monitor is still
-/// selected.
+/// Uses [`xcap`] (Windows WGC omits the hardware cursor). Synthetic pointer is drawn in [`super::screen_overlay`].
+/// The synthetic pointer is drawn afterward in [`super::screen_overlay`]. Linux under **Wayland**
+/// may be limited depending on compositor and permissions; **X11** is generally supported. If the
+/// cursor position cannot be read (e.g. input backend unavailable), the **primary display** is used.
 ///
 /// # Errors
 /// Returns an error if no display is available or capture/encoding fails.
@@ -212,9 +198,7 @@ pub fn screenshot_current_monitor() -> Result<ScreenshotPacket> {
     let setup_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     let t = Instant::now();
-    let rgba_raw = monitor
-        .capture_image()
-        .map_err(|e| anyhow!("screen capture failed: {}", e))?;
+    let rgba_raw = capture_monitor_rgba(&monitor)?;
     let capture_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     let logical_w = info.width.max(1) as u32;
@@ -222,18 +206,7 @@ pub fn screenshot_current_monitor() -> Result<ScreenshotPacket> {
     let physical = (rgba_raw.width(), rgba_raw.height());
 
     let t = Instant::now();
-    let rgba = if physical.0 == logical_w && physical.1 == logical_h {
-        rgba_raw
-    } else {
-        log::debug!(
-            "screenshot_current_monitor: resampling physical {}x{} -> logical {}x{} (pointer / overlay space)",
-            physical.0,
-            physical.1,
-            logical_w,
-            logical_h
-        );
-        image::imageops::resize(&rgba_raw, logical_w, logical_h, FilterType::Triangle)
-    };
+    let rgba = resample_capture_to_logical(rgba_raw, logical_w, logical_h, "screenshot_current_monitor");
     let resample_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     let capture_px = (rgba.width(), rgba.height());
@@ -268,6 +241,34 @@ pub fn screenshot_current_monitor() -> Result<ScreenshotPacket> {
         global_pointer,
         global_caret,
     })
+}
+
+/// OS framebuffer capture for one monitor via xcap.
+fn capture_monitor_rgba(monitor: &Monitor) -> Result<image::RgbaImage> {
+    monitor
+        .capture_image()
+        .map_err(|e| anyhow!("screen capture failed: {e}"))
+}
+
+fn resample_capture_to_logical(
+    rgba_raw: image::RgbaImage,
+    logical_w: u32,
+    logical_h: u32,
+    log_label: &str,
+) -> image::RgbaImage {
+    let physical = (rgba_raw.width(), rgba_raw.height());
+    if physical.0 == logical_w && physical.1 == logical_h {
+        rgba_raw
+    } else {
+        log::debug!(
+            "{log_label}: resampling physical {}x{} -> logical {}x{} (pointer / overlay space)",
+            physical.0,
+            physical.1,
+            logical_w,
+            logical_h
+        );
+        image::imageops::resize(&rgba_raw, logical_w, logical_h, FilterType::Triangle)
+    }
 }
 
 /// Encode logical RGBA to JPEG (overlay pipeline after pointer marks).

@@ -49,7 +49,7 @@ pub fn post_desktop_action_delay_ms_from_tool_args(args: &Value) -> u64 {
 
 /// After [`super::actions::ActionExecutor`] moves the cursor to an absolute target, wait before
 /// click/scroll/drag so the OS and target app can update hit-testing (hover, focus, animations).
-pub const SETTLE_AFTER_ABSOLUTE_MOVE_MS: u64 = 250;
+pub const SETTLE_AFTER_ABSOLUTE_MOVE_MS: u64 = 100;
 
 /// After any synthetic mouse button gesture (left / right / double click), brief pause before the
 /// tool returns so the target app can process the event. Used by all [`super::actions::ActionExecutor`]
@@ -70,12 +70,15 @@ pub const DOUBLE_CLICK_INTERVAL_MS: u64 = 60;
 /// Lower value => smoother path but more move events.
 pub const MOUSE_MOVE_LINEAR_STEP_MAX_PX: f64 = 14.0;
 
+/// Max pixel step when re-sampling the final approach segment (denser hover sampling).
+pub const MOUSE_MOVE_APPROACH_STEP_MAX_PX: f64 = 5.0;
+
+/// Last waypoint before the target sits this many pixels away (final hop triggers hover).
+pub const MOUSE_MOVE_APPROACH_FINAL_GAP_PX: f64 = 1.0;
+
 /// Default total cursor move duration (seconds) when using eased total-time mode.
 /// Matches Python `MouseHelper.move_to_position(..., duration=0.5)`.
 pub const MOUSE_MOVE_TOTAL_DURATION_SECS: f64 = 0.5;
-
-/// Per-step interval (seconds) for fixed step-duration mode (Python `MoveOptions` step default).
-pub const MOUSE_MOVE_STEP_DURATION_SECS: f64 = 0.03;
 
 /// Tools recorded under `[CUR_SCREEN]` as recent desktop rows (goal/action repetition hints). Includes `wait`
 /// so the model sees explicit pauses even though `wait` does not move the pointer. Includes `clipboard` for

@@ -275,6 +275,13 @@ pub trait ActionBackend: Send + Sync {
 | 粘贴输入 | 大文本使用剪贴板 + 粘贴快捷键 | 中 |
 | 人性化延迟 | 操作间添加随机延迟模拟人类 | 低 |
 
+**鼠标移动（`mouse_move.rs` + `EnigoBackend::move_to`）** — 详见 [`computer-mouse-movement-roadmap.md`](computer-mouse-movement-roadmap.md)：
+
+- 路径与时间分开规划；默认直线 **14px** 步进，**最后一段**再按 **5px** 加密，便于目标处触发 hover。
+- 总移动时长 **0.5s**，**ease-out** 分配到每个路点（先快后慢，靠近目标更慢）。
+- 点击类动作：`move_to` 后 **100ms** settle（`SETTLE_AFTER_ABSOLUTE_MOVE_MS`），再点击；`hover_*` 仅移动、无 settle。
+- 工具参数 `human_like` 尚未接入 Rust；常量集中在 `timing.rs`。
+
 #### 3.2.5 视觉状态管理 (`agents/computer/vision_state.rs`)
 
 | 任务 | 说明 | 优先级 |
@@ -511,13 +518,15 @@ async fn inject_computer_vision(
 | 顶部/底部条放大 | 100px 全宽条带 2× 放大（工具栏/状态栏） | 中 |
 | 鼠标周围放大 | 300px 区域 3× 放大 | 中 |
 
-#### 5.2.5 人性化鼠标移动 (`agents/computer/mouse_path.rs`)
+#### 5.2.5 鼠标移动 (`agents/computer/mouse_move.rs`)
+
+**已实现（见 [`computer-mouse-movement-roadmap.md`](computer-mouse-movement-roadmap.md)）：** 14px 直线 + 末段 5px 加密；0.5s ease-out；路径/时间分离规划。
 
 | 任务 | 说明 | 优先级 |
 |------|------|--------|
-| 贝塞尔曲线路径 | 生成人类-like 的鼠标移动轨迹 | 低 |
-| 速度变化 | 起始加速、中间匀速、结尾减速 | 低 |
-| 随机扰动 | 添加轻微随机偏移 | 低 |
+| 贝塞尔曲线路径 | Python `mouse_path.py`  parity | 低 |
+| `human_like` 工具参数接入 | 映射到 `MouseMoveConfig` | 低 |
+| 随机扰动 | 可选 jitter，带上限 | 低 |
 
 #### 5.2.6 数据持久化 (`storage.rs` 扩展)
 
@@ -1186,7 +1195,7 @@ mod tests {
 | `som_util.py` | `agents/computer/annotate.rs` | UI 标注客户端 |
 | `coord_convert.py` | `agents/computer/coord.rs` | 坐标转换 |
 | `actions.py` | `agents/computer/actions.rs` + `action_enigo.rs` | 动作抽象 + 实现 |
-| `mouse_move.py` | `agents/computer/mouse_path.rs`（第三期） | 鼠标移动辅助 |
+| `mouse_move.py` | `agents/computer/mouse_move.rs` | 鼠标移动（路径 + 时间规划；见 `computer-mouse-movement-roadmap.md`） |
 | `screen_overlay.py` | `agents/computer/screen.rs`（扩展） | 覆盖图绘制 |
 | `focus_position.py` | `agents/computer/screen.rs`（扩展） | 焦点位置检测 |
 | `storage_paths.py` | `storage.rs`（扩展） | 存储路径 |

@@ -54,7 +54,7 @@ pub struct ScreenCaptureResult {
     pub zoom_menu_bar_png: Vec<u8>,
     /// Zoom: bottom 100px of marked annotated (task bar).
     pub zoom_task_bar_png: Vec<u8>,
-    /// Zoom: ≤300×300 around pointer on marked annotated.
+    /// Zoom: 200×200 crop, 4× magnified (800×800) around pointer on marked annotated.
     pub zoom_pointer_png: Vec<u8>,
     /// Optional prose: **Pointer position** + **`[Zoom pointer after action]`** coordinate-anchor guidance (see `reference_anchors`).
     pub mouse_neighbor_reference_text: Option<String>,
@@ -375,10 +375,13 @@ impl ComputerState {
         let t_total = Instant::now();
 
         let t = Instant::now();
-        let shot = match self.selected_monitor_id_for_conversation(conversation_id) {
-            Some(id) => screen::screenshot_monitor_by_id(&id)?,
-            None => screen::screenshot_current_monitor()?,
-        };
+        let monitor_id = self.selected_monitor_id_for_conversation(conversation_id);
+        let shot = tokio::task::spawn_blocking(move || match monitor_id.as_deref() {
+            Some(id) => screen::screenshot_monitor_by_id(id),
+            None => screen::screenshot_current_monitor(),
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("screenshot task join: {e}"))??;
         let screen_ms = t.elapsed().as_secs_f64() * 1000.0;
 
         let out = self

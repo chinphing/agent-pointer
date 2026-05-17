@@ -40,7 +40,7 @@ const workspaceRoot = ref('')
 const contextCompressionEnabled = ref(true)
 const contextBudgetChars = ref(120_000)
 const contextKeepRecentUserTurns = ref(6)
-const contextSummaryMaxTokens = ref(1024)
+const contextSummaryMaxTokens = ref(2048)
 const maxToolRounds = ref(100)
 const maxSubAgentToolRounds = ref(100)
 const rawContentViewEnabled = ref(true)
@@ -369,7 +369,7 @@ onMounted(() => {
   contextCompressionEnabled.value = s.settings.contextCompressionEnabled !== false
   contextBudgetChars.value = s.settings.contextBudgetChars ?? 120_000
   contextKeepRecentUserTurns.value = s.settings.contextKeepRecentUserTurns ?? 6
-  contextSummaryMaxTokens.value = s.settings.contextSummaryMaxTokens ?? 1024
+  contextSummaryMaxTokens.value = s.settings.contextSummaryMaxTokens ?? 2048
   maxToolRounds.value = s.settings.maxToolRounds ?? 100
   maxSubAgentToolRounds.value = s.settings.maxSubAgentToolRounds ?? s.settings.maxToolRounds ?? 100
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled !== false

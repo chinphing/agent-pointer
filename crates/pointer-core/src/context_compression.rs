@@ -8,7 +8,12 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 
 const MAX_PREFIX_CHARS_FOR_API: usize = 100_000;
-const MAX_SNIPPET_CHARS: usize = 2_500;
+const MAX_USER_SNIPPET_CHARS: usize = 4_000;
+const MAX_ASSISTANT_SNIPPET_CHARS: usize = 2_500;
+const MAX_TOOL_SNIPPET_CHARS: usize = 2_000;
+const MAX_TOOL_ARGS_CHARS: usize = 1_200;
+const MAX_TOOL_ERROR_CHARS: usize = 1_000;
+const MAX_REASONING_SNIPPET_CHARS: usize = 1_000;
 
 /// Prefix on summary user rows after compression (UI detects this for dedicated styling).
 pub const SUMMARY_PREFIX_BUDGET: &str = "[Conversation summary (auto-compression)]";
@@ -192,6 +197,29 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
     }
 }
 
+fn content_snippet_limit(role: &Role) -> usize {
+    match role {
+        Role::User => MAX_USER_SNIPPET_CHARS,
+        Role::Assistant => MAX_ASSISTANT_SNIPPET_CHARS,
+        Role::Tool => MAX_TOOL_SNIPPET_CHARS,
+        Role::System => MAX_ASSISTANT_SNIPPET_CHARS,
+    }
+}
+
+/// Tool results that carry paths, hits, or handoffs deserve a larger excerpt for summarization.
+fn tool_output_snippet_limit(tool_name: &str) -> usize {
+    let n = tool_name.trim().to_lowercase();
+    if n.starts_with("file:grep") || n == "run_subagent" {
+        3_500
+    } else if n.starts_with("file:read") {
+        1_800
+    } else if n.starts_with("terminal") || n.starts_with("read_lints") {
+        2_500
+    } else {
+        MAX_TOOL_SNIPPET_CHARS
+    }
+}
+
 fn format_prefix_for_summary(msgs: &[ChatMessage]) -> String {
     let mut blocks = Vec::with_capacity(msgs.len());
     for m in msgs {
@@ -201,11 +229,12 @@ fn format_prefix_for_summary(msgs: &[ChatMessage]) -> String {
             Role::Assistant => "assistant",
             Role::Tool => "tool",
         };
-        let mut body = truncate_chars(&m.content, MAX_SNIPPET_CHARS);
+        let limit = content_snippet_limit(&m.role);
+        let mut body = truncate_chars(&m.content, limit);
         if let Some(r) = &m.reasoning {
             if !r.is_empty() {
                 body.push_str("\n[reasoning_snippet] ");
-                body.push_str(&truncate_chars(r, 800));
+                body.push_str(&truncate_chars(r, MAX_REASONING_SNIPPET_CHARS));
             }
         }
         if let Some(tcs) = &m.tool_calls {
@@ -213,20 +242,20 @@ fn format_prefix_for_summary(msgs: &[ChatMessage]) -> String {
                 body.push_str(&format!(
                     "\n[tool {} args] {}",
                     t.name,
-                    truncate_chars(&t.arguments, 1200)
+                    truncate_chars(&t.arguments, MAX_TOOL_ARGS_CHARS)
                 ));
                 if let Some(res) = &t.result {
                     body.push_str(&format!(
                         "\n[tool {} output] {}",
                         t.name,
-                        truncate_chars(res, MAX_SNIPPET_CHARS)
+                        truncate_chars(res, tool_output_snippet_limit(&t.name))
                     ));
                 }
                 if let Some(err) = &t.error {
                     body.push_str(&format!(
                         "\n[tool {} error] {}",
                         t.name,
-                        truncate_chars(err, 800)
+                        truncate_chars(err, MAX_TOOL_ERROR_CHARS)
                     ));
                 }
             }
@@ -250,14 +279,64 @@ fn format_prefix_for_summary(msgs: &[ChatMessage]) -> String {
     out
 }
 
-const SUMMARY_SYSTEM: &str = r#"You compress older chat history. The user message is a multi-turn excerpt (including tool calls and outputs where present).
-Produce a structured summary in English. Preserve:
-1) The user's goals and constraints
-2) Key decisions, conclusions, edited file paths, and commands run
-3) Open issues, TODOs, and error messages
-4) Important numbers, config keys, and API names
+const SUMMARY_SYSTEM: &str = r#"You compress an OLDER prefix of a multi-turn agent session (user, assistant, tools).
+The next message is that prefix excerpt. Tool lines use markers like [tool NAME args/output/error].
 
-Do not invent facts; if unclear, say "not explicit in source". Keep output compact (short paragraphs or bullets), no small talk."#;
+Output ONE structured summary. Use the section headings below in order.
+Write section content in the same language the user mainly used (keep paths, commands, symbols, and errors literal).
+If a section has nothing, write "(none)".
+
+## Goals & constraints
+## Decisions
+## Code & files
+## Commands & verification
+## Tool evidence
+## Sub-agent / explore handoffs
+## Open issues & TODOs
+## Unknown / truncated / not explicit in source
+
+Retention rules (highest first):
+1) User goals, hard constraints, and unfinished work
+2) File paths with line ranges, symbols, and what was changed or planned
+3) Shell/test/lint commands with pass/fail — never fabricate results
+4) Errors and tool failures — quote or tightly paraphrase
+5) run_subagent / explore conclusions and open questions
+6) task_board status and verification contracts
+
+Drop: repeated tool dumps, large file bodies, small talk, duplicate facts.
+Never summarize tool output as "files were read" without naming paths and conclusions.
+
+Never invent paths, line numbers, test outcomes, or config values.
+If the excerpt was truncated, say so under Unknown.
+Be dense; prefer bullets over prose."#;
+
+fn build_summary_system_prompt(ui: &CompressionUiContext, keep_users: u32) -> String {
+    let mut prompt = SUMMARY_SYSTEM.to_string();
+    prompt.push_str(&format!(
+        "\n\nHost context: the newest {keep_users} user turn(s) after this summary stay verbatim. \
+         Summarize ONLY the older prefix; do not repeat facts likely still visible verbatim."
+    ));
+    match ui.scope {
+        CompressionScope::SubAgent => {
+            if ui.sub_agent_id.as_deref() == Some("explore") {
+                prompt.push_str(
+                    "\n\nSub-agent scope: read-only explore worker. Prioritize paths:lines, call chains, \
+                     negative greps, and corrections to lead assumptions — not full file bodies.",
+                );
+            } else if let Some(name) = ui.sub_agent_name.as_deref().filter(|s| !s.is_empty()) {
+                prompt.push_str(&format!(
+                    "\n\nSub-agent scope: {name}. Preserve handoff conclusions the lead agent will need."
+                ));
+            } else {
+                prompt.push_str(
+                    "\n\nSub-agent scope: isolated worker thread. Preserve conclusions needed for the lead handoff.",
+                );
+            }
+        }
+        CompressionScope::Main => {}
+    }
+    prompt
+}
 
 fn summary_fallback_notice() -> String {
     format!(
@@ -403,10 +482,11 @@ async fn compress_history_inner(
     );
     let t_llm = Instant::now();
     let mut summary_failed = false;
+    let summary_system = build_summary_system_prompt(ui, keep_users);
     let summary_body = match provider
         .chat_once(
             std::slice::from_ref(&input),
-            &crate::models::SystemPromptSections::all_cacheable(vec![SUMMARY_SYSTEM.to_string()]),
+            &crate::models::SystemPromptSections::all_cacheable(vec![summary_system]),
             cancel.clone(),
             Some(max_tok),
             Some(dump_lbl.as_str()),
@@ -593,5 +673,24 @@ mod tests {
         assert_eq!(ui.scope, CompressionScope::SubAgent);
         assert_eq!(ui.sub_agent_id.as_deref(), Some("explore"));
         assert_eq!(ui.task_id.as_deref(), Some("task_a"));
+    }
+
+    #[test]
+    fn user_messages_get_larger_snippet_than_assistant() {
+        assert!(content_snippet_limit(&Role::User) > content_snippet_limit(&Role::Assistant));
+    }
+
+    #[test]
+    fn grep_tool_output_limit_exceeds_file_read() {
+        assert!(tool_output_snippet_limit("file:grep") > tool_output_snippet_limit("file:read"));
+    }
+
+    #[test]
+    fn summary_system_prompt_includes_keep_users_and_explore_hint() {
+        let ui = CompressionUiContext::sub_agent("m", "explore", "Explore Agent", "t");
+        let p = build_summary_system_prompt(&ui, 6);
+        assert!(p.contains("## Goals & constraints"));
+        assert!(p.contains("newest 6 user turn"));
+        assert!(p.contains("read-only explore"));
     }
 }

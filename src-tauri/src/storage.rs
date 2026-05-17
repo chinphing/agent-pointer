@@ -85,7 +85,7 @@ impl Default for StoredSettings {
             context_compression_enabled: true,
             context_budget_chars: 120_000,
             context_keep_recent_user_turns: 6,
-            context_summary_max_tokens: 1024,
+            context_summary_max_tokens: 2048,
             max_tool_rounds: 100,
             raw_content_view_enabled: true,
             agent_default_models: HashMap::new(),

@@ -1,5 +1,5 @@
 use super::actions::{ActionBackend, ActionResult, KeyPhase, MouseButton};
-use super::mouse_move::{execute_move_plan, MouseMoveConfig, MouseMovePlanner, MouseMoveStrategy};
+use super::mouse_move::{execute_move_plan, MouseMoveConfig, MouseMovePlanner};
 use super::timing::DOUBLE_CLICK_INTERVAL_MS;
 use anyhow::{anyhow, Result};
 use enigo::{
@@ -73,28 +73,25 @@ impl ActionBackend for EnigoBackend {
         let from = enigo
             .location()
             .map_err(|e| anyhow!("Get current position before move failed: {:?}", e))?;
-        let planner = MouseMovePlanner::new(MouseMoveConfig {
-            strategy: MouseMoveStrategy::LinearUniform,
-            ..Default::default()
-        });
+        let planner = MouseMovePlanner::new(MouseMoveConfig::default());
         let plan = planner.plan(from, (x, y));
         execute_move_plan(&plan, |px, py| {
             enigo
                 .move_mouse(px, py, enigo::Coordinate::Abs)
                 .map_err(|e| anyhow!("Move failed at ({px}, {py}): {:?}", e))
         })?;
-        if plan.points.is_empty() {
+        if plan.path.points.is_empty() {
             Ok(ActionResult::success(format!(
                 "Move skipped (already at ({}, {}))",
                 x, y
             )))
         } else {
             Ok(ActionResult::success(format!(
-                "Moved to ({}, {}) using {:?} path with {} points",
+                "Moved to ({}, {}) with {} points over {:.2}s (eased)",
                 x,
                 y,
-                plan.strategy,
-                plan.points.len()
+                plan.path.points.len(),
+                plan.timing.step_intervals_secs.iter().sum::<f64>()
             )))
         }
     }

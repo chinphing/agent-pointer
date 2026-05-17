@@ -70,9 +70,12 @@ pub const DOUBLE_CLICK_INTERVAL_MS: u64 = 60;
 /// Lower value => smoother path but more move events.
 pub const MOUSE_MOVE_LINEAR_STEP_MAX_PX: f64 = 14.0;
 
-/// Milliseconds between adjacent linear-uniform movement points.
-/// Keeps movement visibly progressive while staying responsive.
-pub const MOUSE_MOVE_LINEAR_STEP_INTERVAL_MS: u64 = 6;
+/// Default total cursor move duration (seconds) when using eased total-time mode.
+/// Matches Python `MouseHelper.move_to_position(..., duration=0.5)`.
+pub const MOUSE_MOVE_TOTAL_DURATION_SECS: f64 = 0.5;
+
+/// Per-step interval (seconds) for fixed step-duration mode (Python `MoveOptions` step default).
+pub const MOUSE_MOVE_STEP_DURATION_SECS: f64 = 0.03;
 
 /// Tools recorded under `[CUR_SCREEN]` as recent desktop rows (goal/action repetition hints). Includes `wait`
 /// so the model sees explicit pauses even though `wait` does not move the pointer. Includes `clipboard` for

@@ -1,16 +1,61 @@
 //! When conversation history grows past a rough character budget, replace an older prefix
 //! with a single user message containing an LLM-generated summary (see settings).
 
-use crate::models::{ChatMessage, ModelSettings, Role, StreamEvent};
+use crate::models::{ChatMessage, ContextCompressionInfo, ModelSettings, Role, StreamEvent};
 use crate::provider::OpenAIProvider;
+use std::time::Instant;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
-use std::time::Instant;
 
 const MAX_PREFIX_CHARS_FOR_API: usize = 100_000;
 const MAX_SNIPPET_CHARS: usize = 2_500;
 
+/// Prefix on summary user rows after compression (UI detects this for dedicated styling).
+pub const SUMMARY_PREFIX_BUDGET: &str = "[Conversation summary (auto-compression)]";
+pub const SUMMARY_PREFIX_TOOL_LIMIT: &str =
+    "[Conversation summary (auto-compression after tool rounds)]";
+
 type StreamTx = UnboundedSender<StreamEvent>;
+
+/// Whether compression UI/events target the main thread or an isolated sub-agent loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CompressionScope {
+    #[default]
+    Main,
+    SubAgent,
+}
+
+/// Optional anchors for compression UI (main thread vs delegated sub-agent such as `explore`).
+#[derive(Debug, Clone, Default)]
+pub struct CompressionUiContext {
+    pub scope: CompressionScope,
+    /// Parent assistant message id (sub-agent trace anchoring).
+    pub message_id: Option<String>,
+    pub sub_agent_id: Option<String>,
+    pub sub_agent_name: Option<String>,
+    pub task_id: Option<String>,
+}
+
+impl CompressionUiContext {
+    pub fn main() -> Self {
+        Self::default()
+    }
+
+    pub fn sub_agent(
+        message_id: &str,
+        agent_id: &str,
+        agent_name: &str,
+        task_id: &str,
+    ) -> Self {
+        Self {
+            scope: CompressionScope::SubAgent,
+            message_id: Some(message_id.to_string()),
+            sub_agent_id: Some(agent_id.to_string()),
+            sub_agent_name: Some(agent_name.to_string()),
+            task_id: Some(task_id.to_string()),
+        }
+    }
+}
 
 fn now_ms() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -18,6 +63,87 @@ fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+fn emit_ui_toast(stream: &StreamTx, conversation_id: &str, message: &str, level: &str) {
+    let _ = stream.send(StreamEvent::UiToast {
+        conversation_id: conversation_id.to_string(),
+        message: message.to_string(),
+        level: level.to_string(),
+    });
+}
+
+fn compression_start_toast(ui: &CompressionUiContext) -> String {
+    match ui.scope {
+        CompressionScope::Main => "对话较长，正在压缩较早记录…".to_string(),
+        CompressionScope::SubAgent => {
+            let name = ui
+                .sub_agent_name
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("子 Agent");
+            format!("{name} 子任务内正在压缩较早记录…")
+        }
+    }
+}
+
+fn compression_done_toast(
+    ui: &CompressionUiContext,
+    dropped: u32,
+    keep_users: u32,
+    summary_failed: bool,
+) -> (String, &'static str) {
+    let level = if summary_failed { "warning" } else { "success" };
+    let msg = match ui.scope {
+        CompressionScope::Main => {
+            if summary_failed {
+                format!(
+                    "摘要生成失败，已丢弃较早 {dropped} 条记录，保留最近 {keep_users} 轮用户消息"
+                )
+            } else {
+                format!(
+                    "已压缩较早 {dropped} 条对话为摘要，保留最近 {keep_users} 轮用户消息"
+                )
+            }
+        }
+        CompressionScope::SubAgent => {
+            let name = ui
+                .sub_agent_name
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("子 Agent");
+            if summary_failed {
+                format!("{name} 子任务：摘要失败，已丢弃较早 {dropped} 条记录")
+            } else {
+                format!("{name} 子任务：已压缩较早 {dropped} 条记录为摘要")
+            }
+        }
+    };
+    (msg, level)
+}
+
+fn build_compression_info(
+    ui: &CompressionUiContext,
+    reason: &str,
+    messages_before: usize,
+    messages_after: usize,
+    dropped: u32,
+    keep_users: u32,
+) -> ContextCompressionInfo {
+    ContextCompressionInfo {
+        reason: reason.to_string(),
+        messages_before: messages_before as u32,
+        messages_after: messages_after as u32,
+        dropped_count: dropped,
+        keep_recent_user_turns: keep_users,
+        scope: match ui.scope {
+            CompressionScope::Main => "main".into(),
+            CompressionScope::SubAgent => "sub_agent".into(),
+        },
+        sub_agent_id: ui.sub_agent_id.clone(),
+        sub_agent_name: ui.sub_agent_name.clone(),
+        task_id: ui.task_id.clone(),
+    }
 }
 
 pub fn estimate_message_payload_chars(msgs: &[ChatMessage]) -> usize {
@@ -134,7 +260,9 @@ Produce a structured summary in English. Preserve:
 Do not invent facts; if unclear, say "not explicit in source". Keep output compact (short paragraphs or bullets), no small talk."#;
 
 fn summary_fallback_notice() -> String {
-    "[Conversation summary (auto-compression)]\n\n(Summary failed or was cancelled; older turns were dropped. Briefly restate your goal and critical context if you still need it.)".into()
+    format!(
+        "{SUMMARY_PREFIX_BUDGET}\n\n(Summary failed or was cancelled; older turns were dropped. Briefly restate your goal and critical context if you still need it.)"
+    )
 }
 
 fn new_summary_user_message(body: String) -> ChatMessage {
@@ -168,6 +296,7 @@ async fn compress_history_inner(
     cancel: CancellationToken,
     force_ignore_char_budget: bool,
     emit_history_replaced: bool,
+    ui: &CompressionUiContext,
 ) -> bool {
     let wall = Instant::now();
     let messages_before = history.len();
@@ -219,7 +348,15 @@ async fn compress_history_inner(
         return false;
     }
 
+    emit_ui_toast(
+        stream,
+        conversation_id,
+        &compression_start_toast(ui),
+        "warning",
+    );
+
     let suffix = history[split..].to_vec();
+    let dropped_count = split as u32;
     let t_fmt = Instant::now();
     let formatted = format_prefix_for_summary(prefix);
     let format_prefix_ms = t_fmt.elapsed().as_millis();
@@ -246,9 +383,14 @@ async fn compress_history_inner(
 
     let max_tok = settings.context_summary_max_tokens.max(128);
     let summary_prefix = if force_ignore_char_budget {
-        "[Conversation summary (auto-compression after tool rounds)]"
+        SUMMARY_PREFIX_TOOL_LIMIT
     } else {
-        "[Conversation summary (auto-compression)]"
+        SUMMARY_PREFIX_BUDGET
+    };
+    let reason = if force_ignore_char_budget {
+        "tool_limit"
+    } else {
+        "budget"
     };
     let dump_lbl = format!(
         "{}_context_summary_{}",
@@ -260,6 +402,7 @@ async fn compress_history_inner(
         }
     );
     let t_llm = Instant::now();
+    let mut summary_failed = false;
     let summary_body = match provider
         .chat_once(
             std::slice::from_ref(&input),
@@ -274,6 +417,7 @@ async fn compress_history_inner(
             let t = out.text.trim();
             let summary_llm_ms = t_llm.elapsed().as_millis();
             if t.is_empty() {
+                summary_failed = true;
                 log::warn!(
                     "context summary returned empty; using fallback notice (summary_llm_ms={summary_llm_ms})"
                 );
@@ -283,6 +427,7 @@ async fn compress_history_inner(
             }
         }
         Err(e) => {
+            summary_failed = true;
             let summary_llm_ms = t_llm.elapsed().as_millis();
             log::warn!(
                 "context summary LLM call failed: {e}; using fallback notice (summary_llm_ms={summary_llm_ms})"
@@ -298,14 +443,20 @@ async fn compress_history_inner(
     let messages_after = new_hist.len();
     *history = new_hist;
 
+    let compression = build_compression_info(
+        ui,
+        reason,
+        messages_before,
+        messages_after,
+        dropped_count,
+        keep_users,
+    );
+
     log::info!(
-        "context_compress: applied conversation_id={} reason={} messages_before={} messages_after={} split_at={} est_chars={} budget_chars={} format_prefix_ms={} summary_llm_ms={} wall_ms={}",
+        "context_compress: applied conversation_id={} scope={:?} reason={} messages_before={} messages_after={} split_at={} est_chars={} budget_chars={} format_prefix_ms={} summary_llm_ms={} wall_ms={}",
         conversation_id,
-        if force_ignore_char_budget {
-            "tool_limit"
-        } else {
-            "budget"
-        },
+        ui.scope,
+        reason,
         messages_before,
         messages_after,
         split,
@@ -316,11 +467,33 @@ async fn compress_history_inner(
         wall.elapsed().as_millis()
     );
 
-    if emit_history_replaced {
-        let _ = stream.send(StreamEvent::HistoryReplaced {
-            conversation_id: conversation_id.to_string(),
-            messages: history.clone(),
-        });
+    let (done_msg, done_level) =
+        compression_done_toast(ui, dropped_count, keep_users, summary_failed);
+    emit_ui_toast(stream, conversation_id, &done_msg, done_level);
+
+    match ui.scope {
+        CompressionScope::Main if emit_history_replaced => {
+            let _ = stream.send(StreamEvent::HistoryReplaced {
+                conversation_id: conversation_id.to_string(),
+                messages: history.clone(),
+                compression: Some(compression),
+            });
+        }
+        CompressionScope::SubAgent => {
+            if let Some(message_id) = ui.message_id.as_deref() {
+                let _ = stream.send(StreamEvent::ContextCompressed {
+                    conversation_id: conversation_id.to_string(),
+                    message_id: message_id.to_string(),
+                    compression,
+                });
+            } else {
+                log::warn!(
+                    "context_compress: sub_agent scope missing message_id conversation_id={}",
+                    conversation_id
+                );
+            }
+        }
+        CompressionScope::Main => {}
     }
     true
 }
@@ -333,6 +506,7 @@ pub async fn maybe_compress_history(
     conversation_id: &str,
     stream: &StreamTx,
     cancel: CancellationToken,
+    ui: CompressionUiContext,
 ) {
     let _ = compress_history_inner(
         history,
@@ -343,6 +517,7 @@ pub async fn maybe_compress_history(
         cancel,
         false,
         true,
+        &ui,
     )
     .await;
 }
@@ -356,6 +531,7 @@ pub async fn maybe_compress_after_tool_round_limit(
     stream: &StreamTx,
     cancel: CancellationToken,
     emit_history_replaced: bool,
+    ui: CompressionUiContext,
 ) -> bool {
     compress_history_inner(
         history,
@@ -366,6 +542,7 @@ pub async fn maybe_compress_after_tool_round_limit(
         cancel,
         true,
         emit_history_replaced,
+        &ui,
     )
     .await
 }
@@ -408,5 +585,13 @@ mod tests {
     fn split_fewer_users_than_keep_returns_zero() {
         let msgs = vec![u("only")];
         assert_eq!(find_split_at_user_boundary(&msgs, 2), 0);
+    }
+
+    #[test]
+    fn sub_agent_ui_context_carries_agent_fields() {
+        let ui = CompressionUiContext::sub_agent("msg_1", "explore", "Explore Agent", "task_a");
+        assert_eq!(ui.scope, CompressionScope::SubAgent);
+        assert_eq!(ui.sub_agent_id.as_deref(), Some("explore"));
+        assert_eq!(ui.task_id.as_deref(), Some("task_a"));
     }
 }

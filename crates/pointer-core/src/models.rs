@@ -591,6 +591,29 @@ pub struct SendChatPayload {
     pub tool_rounds_used_supervisor: u32,
 }
 
+/// Metadata emitted when context compression replaces older turns with a summary.
+#[derive(Debug, Clone, Serialize)]
+pub struct ContextCompressionInfo {
+    /// `budget` or `tool_limit`
+    pub reason: String,
+    #[serde(rename = "messagesBefore")]
+    pub messages_before: u32,
+    #[serde(rename = "messagesAfter")]
+    pub messages_after: u32,
+    #[serde(rename = "droppedCount")]
+    pub dropped_count: u32,
+    #[serde(rename = "keepRecentUserTurns")]
+    pub keep_recent_user_turns: u32,
+    /// `main` or `sub_agent`
+    pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "subAgentId")]
+    pub sub_agent_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "subAgentName")]
+    pub sub_agent_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "taskId")]
+    pub task_id: Option<String>,
+}
+
 /// Frontend stream event payload (mirrors src/types/chat.ts StreamEvent)
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -726,6 +749,16 @@ pub enum StreamEvent {
         #[serde(rename = "conversationId")]
         conversation_id: String,
         messages: Vec<ChatMessage>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        compression: Option<ContextCompressionInfo>,
+    },
+    /// Sub-agent local history was compressed; main thread messages are unchanged.
+    ContextCompressed {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "messageId")]
+        message_id: String,
+        compression: ContextCompressionInfo,
     },
     ToolRoundsExhausted {
         #[serde(rename = "conversationId")]

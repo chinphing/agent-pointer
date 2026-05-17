@@ -138,6 +138,12 @@ pub(super) async fn run_sub_agent_stream_round(
                         stream,
                         cancel.clone(),
                         false,
+                        crate::context_compression::CompressionUiContext::sub_agent(
+                            message_id,
+                            &def.id,
+                            &def.name,
+                            &task.id,
+                        ),
                     )
                     .await;
                     state.computer_state.mark_cancelled(conversation_id);

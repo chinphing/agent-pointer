@@ -73,6 +73,7 @@ pub(super) async fn run_chat_inner(
         conversation_id,
         &stream,
         cancel.clone(),
+        crate::context_compression::CompressionUiContext::main(),
     )
     .await;
     log::info!(

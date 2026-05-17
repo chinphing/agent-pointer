@@ -4,8 +4,9 @@ import {
   sendChat, cancelChat, abortTerminalCommand, approveToolCall, onStream,
   loadConversations, saveConversations
 } from '../lib/api'
-import type { ChatMessage, Conversation, StreamEvent, ToolCall } from '../types/chat'
+import type { ChatMessage, Conversation, StreamEvent, ToolCall, ContextCompressionInfo } from '../types/chat'
 import { isEphemeralDesktopNoticeMessage } from '../lib/assistantMessageKind'
+import { buildCompressionNoticeContent, isCompressionSummaryMessage } from '../lib/compressionMessage'
 import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
 
@@ -143,6 +144,29 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function showUiToast(message: string, level: 'success' | 'warning' | 'error') {
+    uiToast.value = { message, level }
+    if (uiToastTimer != null) window.clearTimeout(uiToastTimer)
+    uiToastTimer = window.setTimeout(() => {
+      uiToast.value = null
+      uiToastTimer = null
+    }, 4500)
+  }
+
+  function insertCompressionNotice(conv: Conversation, info: ContextCompressionInfo) {
+    const notice: ChatMessage = {
+      id: uid(),
+      role: 'assistant',
+      content: buildCompressionNoticeContent(info),
+      status: 'done',
+      createdAt: Date.now(),
+      toolCalls: []
+    }
+    const summaryIdx = conv.messages.findIndex(m => isCompressionSummaryMessage(m))
+    const insertAt = summaryIdx >= 0 ? summaryIdx + 1 : conv.messages.length
+    conv.messages.splice(insertAt, 0, notice)
+  }
+
   function handleEventInner(e: StreamEvent) {
     switch (e.kind) {
       case 'history_replaced': {
@@ -154,7 +178,26 @@ export const useChatStore = defineStore('chat', () => {
             toolCalls: m.toolCalls ?? (m.role === 'assistant' ? [] : undefined)
           }))
           .filter(m => !isEphemeralDesktopNoticeMessage(m))
+        if (e.compression) {
+          insertCompressionNotice(conv, e.compression)
+        }
         conv.updatedAt = Date.now()
+        persist()
+        break
+      }
+      case 'context_compressed': {
+        const r = findMessage(e.messageId)
+        if (!r || r.conv.id !== e.conversationId) break
+        const agentId = e.compression.subAgentId
+        if (agentId && r.msg.agentTrace?.length) {
+          const step = r.msg.agentTrace.find(a => a.id === agentId)
+          if (step) {
+            const name = e.compression.subAgentName?.trim() || step.name
+            step.detail = `${name}：上下文已压缩（${e.compression.droppedCount} 条 → 摘要）`
+          }
+        }
+        showUiToast(buildCompressionNoticeContent(e.compression), 'success')
+        r.conv.updatedAt = Date.now()
         persist()
         break
       }
@@ -163,12 +206,7 @@ export const useChatStore = defineStore('chat', () => {
         const lv = e.level
         const level: 'success' | 'warning' | 'error' =
           lv === 'error' ? 'error' : lv === 'warning' ? 'warning' : 'success'
-        uiToast.value = { message: e.message, level }
-        if (uiToastTimer != null) window.clearTimeout(uiToastTimer)
-        uiToastTimer = window.setTimeout(() => {
-          uiToast.value = null
-          uiToastTimer = null
-        }, 4500)
+        showUiToast(e.message, level)
         break
       }
       case 'tool_rounds_exhausted': {

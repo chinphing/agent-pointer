@@ -405,6 +405,7 @@ pub(super) async fn bail_on_tool_budget_exhausted(
         stream,
         cancel.clone(),
         scope.compress_for_session,
+        crate::context_compression::CompressionUiContext::main(),
     )
     .await;
     if let Some(consumed) = consumed_single.as_mut() {

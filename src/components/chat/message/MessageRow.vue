@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import type { ChatMessage } from '../../../types/chat'
+import { isCompressionSummaryMessage } from '../../../lib/compressionMessage'
 import UserMessageBubble from './UserMessageBubble.vue'
+import CompressionSummaryBubble from './CompressionSummaryBubble.vue'
 import AssistantMessage from './AssistantMessage.vue'
 
 defineProps<{ message: ChatMessage }>()
 </script>
 
 <template>
-  <UserMessageBubble v-if="message.role === 'user'" :message="message" />
+  <CompressionSummaryBubble v-if="isCompressionSummaryMessage(message)" :message="message" />
+  <UserMessageBubble v-else-if="message.role === 'user'" :message="message" />
   <AssistantMessage v-else-if="message.role === 'assistant'" :message="message" />
   <div
     v-else

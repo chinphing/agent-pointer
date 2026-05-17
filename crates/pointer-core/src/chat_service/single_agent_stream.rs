@@ -135,6 +135,7 @@ pub(super) async fn run_provider_stream_round(
                         &stream,
                         cancel.clone(),
                         true,
+                        crate::context_compression::CompressionUiContext::main(),
                     )
                     .await;
                     tool_budget.sync_out(consumed_single);

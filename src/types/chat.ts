@@ -205,6 +205,18 @@ export interface ComputerMonitor {
   isPrimary: boolean
 }
 
+export interface ContextCompressionInfo {
+  reason: 'budget' | 'tool_limit' | string
+  messagesBefore: number
+  messagesAfter: number
+  droppedCount: number
+  keepRecentUserTurns: number
+  scope: 'main' | 'sub_agent' | string
+  subAgentId?: string
+  subAgentName?: string
+  taskId?: string
+}
+
 export type StreamEvent =
   | { kind: 'message_start'; messageId: string; conversationId: string }
   | { kind: 'delta'; messageId: string; text: string }
@@ -225,7 +237,8 @@ export type StreamEvent =
   | { kind: 'injected_assistant_message_update'; conversationId: string; messageId: string; content: string }
   | { kind: 'error'; messageId?: string; message: string }
   | { kind: 'done'; conversationId: string; toolRoundsUsedTotal?: number; toolRoundsUsedSupervisorTotal?: number; maxToolRounds?: number }
-  | { kind: 'history_replaced'; conversationId: string; messages: ChatMessage[] }
+  | { kind: 'history_replaced'; conversationId: string; messages: ChatMessage[]; compression?: ContextCompressionInfo }
+  | { kind: 'context_compressed'; conversationId: string; messageId: string; compression: ContextCompressionInfo }
   | { kind: 'tool_rounds_exhausted'; conversationId: string; maxRounds: number; message: string; willRetryAfterCompress: boolean }
   /** Ephemeral UI only; not saved as a chat message or sent to the model. */
   | { kind: 'ui_toast'; conversationId: string; message: string; level: string }

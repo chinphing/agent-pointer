@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Info, Monitor } from 'lucide-vue-next'
+import { Info, Monitor, Archive } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../../types/chat'
 import { injectedNoticeFlavor } from '../../../../lib/assistantMessageKind'
 import MessageTimeChip from '../MessageTimeChip.vue'
@@ -15,12 +15,23 @@ const shellClass = computed(() => {
       return 'border-white/[0.06] bg-white/[0.02] text-slate-500'
     case 'hint':
       return 'border-white/[0.08] bg-white/[0.03] text-slate-500'
+    case 'compression':
+      return 'border-amber-500/25 bg-amber-500/[0.06] text-amber-100/80'
     default:
       return 'border-white/[0.08] bg-white/[0.03] text-slate-500'
   }
 })
 
-const icon = computed(() => (flavor.value === 'desktop' ? Monitor : Info))
+const icon = computed(() => {
+  switch (flavor.value) {
+    case 'desktop':
+      return Monitor
+    case 'compression':
+      return Archive
+    default:
+      return Info
+  }
+})
 </script>
 
 <template>

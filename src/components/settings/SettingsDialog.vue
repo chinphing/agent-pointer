@@ -882,22 +882,23 @@ async function saveAll() {
                     </div>
                     <p class="mt-0.5 text-[11px] text-slate-500">{{ w.description || '通用智能体' }}</p>
 
-                    <!-- Default Model Selector + Workspace (always visible when selected) -->
-                    <div v-if="agentMode === 'single' && leadAgentId === w.id" class="mt-2.5 flex items-center gap-3 flex-wrap">
-                      <div class="flex items-center gap-2">
-                        <Sparkles class="w-3.5 h-3.5 text-primary-fuchsia shrink-0" />
-                        <span class="text-[11px] text-slate-400 shrink-0">默认模型</span>
-                        <select
-                          :value="getAgentModelWithProvider(w.id)"
-                          @change.stop="selectAgentModelWithProvider(w.id, ($event.target as HTMLSelectElement).value)"
-                          @click.stop
-                          class="w-48 h-7 px-2 rounded bg-black/30 border border-white/10 text-[11px] text-slate-300 cursor-pointer outline-none focus:border-primary/50 transition-colors"
-                        >
-                          <option value="">使用全局默认</option>
-                          <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
-                        </select>
-                      </div>
-                      <div v-if="isCoderAgent(w)" class="flex items-center gap-1.5">
+                    <!-- Per-agent default model (lead or delegated sub-agent runs) -->
+                    <div class="mt-2.5 flex items-center gap-2" @click.stop>
+                      <Sparkles class="w-3.5 h-3.5 text-primary-fuchsia shrink-0" />
+                      <span class="text-[11px] text-slate-400 shrink-0">默认模型</span>
+                      <select
+                        :value="getAgentModelWithProvider(w.id)"
+                        @change.stop="selectAgentModelWithProvider(w.id, ($event.target as HTMLSelectElement).value)"
+                        @click.stop
+                        class="w-48 h-7 px-2 rounded bg-black/30 border border-white/10 text-[11px] text-slate-300 cursor-pointer outline-none focus:border-primary/50 transition-colors"
+                      >
+                        <option value="">使用全局默认</option>
+                        <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
+                      </select>
+                    </div>
+
+                    <!-- Workspace (coder lead only) -->
+                    <div v-if="agentMode === 'single' && leadAgentId === w.id && isCoderAgent(w)" class="mt-2 flex items-center gap-1.5">
                         <FolderOpen class="w-3.5 h-3.5 text-amber-300 shrink-0" />
                         <span
                           v-if="isTauriRuntime()"
@@ -913,7 +914,6 @@ async function saveAll() {
                           placeholder="D:\project\my-repo"
                         />
                       </div>
-                    </div>
                   </div>
                 </div>
               </div>

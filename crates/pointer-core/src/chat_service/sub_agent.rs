@@ -5,7 +5,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::agents::{AgentRunResult, AgentTask};
 use crate::llm_token_stats::ConversationLlmStats;
-use crate::models::{effective_max_tokens, AgentTrace};
+use crate::models::{effective_max_tokens, effective_reasoning_in_messages, AgentTrace};
 use crate::provider::OpenAIProvider;
 
 use super::agent_post_stream::{
@@ -18,6 +18,7 @@ use super::agent_tool_pass::{
 };
 use super::app_state::AppState;
 use super::session_budget::SessionToolBudget;
+use super::session_model::sub_agent_provider;
 use super::sub_agent_prompt::{init_sub_agent_session, prepare_sub_agent_round_prompts};
 use super::sub_agent_stream::{run_sub_agent_stream_round, SubAgentStreamOutcome};
 use super::util::new_id;
@@ -34,10 +35,13 @@ pub(crate) async fn run_sub_agent(
     task: &AgentTask,
     sub_tool_budget: &mut SessionToolBudget,
     cancel: CancellationToken,
-    reasoning_in_messages: bool,
+    _reasoning_in_messages: bool,
     llm_stats: &mut ConversationLlmStats,
 ) -> Result<AgentRunResult> {
-    let session = init_sub_agent_session(state, provider, conversation_id, task, enabled_skill_ids)?;
+    let sub_provider = sub_agent_provider(provider, &task.agent_id);
+    let reasoning_in_messages = effective_reasoning_in_messages(&sub_provider.settings);
+    let session =
+        init_sub_agent_session(state, &sub_provider, conversation_id, task, enabled_skill_ids)?;
     let def = session.def;
     let prompts = session.prompts;
     let tools_system_appendix = session.tools_system_appendix;
@@ -84,7 +88,7 @@ pub(crate) async fn run_sub_agent(
         let stream_outcome = run_sub_agent_stream_round(
             stream,
             state,
-            provider,
+            &sub_provider,
             conversation_id,
             message_id,
             task,
@@ -131,8 +135,8 @@ pub(crate) async fn run_sub_agent(
                 stream,
                 state,
                 &mut local_history,
-                &provider.settings,
-                provider,
+                &sub_provider.settings,
+                &sub_provider,
                 conversation_id,
                 &cancel,
                 sub_tool_budget,
@@ -143,7 +147,7 @@ pub(crate) async fn run_sub_agent(
                 &buf.json_finish_diag,
                 tools_appendix_enabled,
                 &buf.finish_reason,
-                effective_max_tokens(&provider.settings),
+                effective_max_tokens(&sub_provider.settings),
             )
             .await?
         } else {
@@ -153,8 +157,8 @@ pub(crate) async fn run_sub_agent(
                 state,
                 state.tools.as_ref(),
                 &mut local_history,
-                &provider.settings,
-                provider,
+                &sub_provider.settings,
+                &sub_provider,
                 conversation_id,
                 &cancel,
                 sub_tool_budget,
@@ -201,7 +205,7 @@ pub(crate) async fn run_sub_agent(
             sub_tool_budget,
             None,
             cancel.clone(),
-            provider,
+            &sub_provider,
             &sub_task_board_key,
             &mut stats,
             &buf.final_tool_calls,
@@ -228,8 +232,8 @@ pub(crate) async fn run_sub_agent(
             stream,
             state,
             &mut local_history,
-            &provider.settings,
-            provider,
+            &sub_provider.settings,
+            &sub_provider,
             conversation_id,
             &cancel,
             sub_tool_budget,

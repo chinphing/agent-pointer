@@ -52,6 +52,57 @@
 - 每轮注入 **`[TASK_BOARD]`** 可降低任务板只存在于旧 tool 消息里被压掉的风险。
 - 若后续在 **`context_compression`** 中增加高保留信号，可将 **`TASK_BOARD` / `task_board`** 输出纳入优先级（可选增强）。
 
+## task_board 触发的历史截断（规划）
+
+在 **`task_board:patch` / `task_board:replace`** 成功之后，对已启用该能力的 Agent 可对会话 history 做**硬截断**（不调用 LLM 摘要），与 [`context_compression`](../crates/pointer-core/src/context_compression.rs) 的 LLM 压缩互补。
+
+| 机制 | 触发 | 处理方式 | 成本 |
+|------|------|----------|------|
+| task_board 阶段截断 | patch/replace 成功 + 该 Agent 已启用 | 按 user 边界硬删 + 短占位 user 行 | 无 LLM |
+| context compression | 字符预算 / 工具轮次上限 | 较早前缀 LLM 摘要 | 额外 API |
+
+**保留策略（与压缩共用 `find_split_at_user_boundary` 语义，K 更小，默认 2）：**
+
+- 会话**第一条**真实用户任务（`Role::User`，非 tool 展平、非 `[CUR_SCREEN]` 注入）。
+- 从「自末尾数第 K 个 user」起的 suffix（含该 user 及之后全部 assistant / tool / 注入消息）。
+- 一条占位 user 消息（前缀如 `[History trimmed after task_board update]`），便于 UI 与调试识别。
+- 计划状态仍由每轮 system dynamic 的 **`[TASK_BOARD]`** 承担，不依赖被删掉的旧 tool 正文。
+
+**仅 1 条 user 时不截断：** `find_split_at_user_boundary` 在 user 条数 &lt; K 时返回 `0`，宿主跳过截断（与压缩路径一致）。
+
+### Computer Agent 与按 user 边界截断
+
+**结论：** Computer Use 每一轮工具循环后都会追加 **user 型**消息，因此用「按 user 消息找分割点」做阶段截断时，**不会出现「中间很长一段 assistant/tool 噪声却没有任何 user 边界、导致无法截断」** 的情况。
+
+典型一轮在**存储 history** 中为：
+
+```text
+assistant（JSON 规划 + tool_calls）
+tool（工具原始输出，role: tool）
+user（[CUR_SCREEN] 截图，screen_inject 注入）
+```
+
+发给 LLM API 时经 [`flatten_tool_rounds_computer_style_for_api`](../crates/pointer-core/src/models.rs) 展平：工具结果变为 **`role: user`** 的 `{"tool_name","tool_result"}` JSON，assistant 保留 wire 正文；下一轮前旧 `[CUR_SCREEN]` 的去图占位仍为 user。故长会话中 user 边界**密度高**，`find_split_at_user_boundary(history, K)` 能有效切掉更早的探索/操作轮次。
+
+这与 Coder 等不同：Coder 可能连续多轮只有 assistant + tool、user 边界较疏；Computer 因视觉注入，**更适合**依赖 user 边界的 task_board 阶段截断（亦可另行规划 API 层剥离旧 assistant，见下文维护讨论，首版不强制）。
+
+### 按 Agent 启用（前端配置）
+
+**结论：** **task_board 阶段截断**（patch/replace 后硬截断）默认**仅对 `computer` Agent 启用**；其它 Agent（`coder`、`default`、`explore` 等）默认关闭。
+
+- **配置面：** 设置界面中的 **按智能体**开关（与 `leadAgentId`、`agentDefaultModels` 等同属会话/Agent 偏好），**每个 worker id 可单独**启用或禁用；持久化在应用设置（`ModelSettings` / `StoredSettings`，具体字段名实现时定为如 `agentTaskBoardHistoryTrim: Record<agentId, boolean>`）。
+- **运行时：** `agent_tool_pass` 在 task_board 变更成功后查**当前 lead / 子 Agent 的 id** 对应开关，为 false 则跳过截断。
+- **默认表：** `computer` → `true`；其余内置 Agent → `false`。用户可在前端为 Coder 等单独打开。
+
+**不在 `AGENT.md` frontmatter 中写死**该开关：产品策略由用户在前端调整，避免改仓库内 manifest 才能换行为。
+
+### 与 LLM 压缩的执行顺序
+
+1. 本回合 tool batch 结束 → 若 task_board 变更且 Agent 开关为 on → 可能硬截断。
+2. 下一轮 `run_chat_inner` 开始 → 若仍超 `contextBudgetChars` → `maybe_compress_history`（LLM 摘要）。
+
+无 task_board 的长任务**不**靠阶段截断，仍只靠字符预算 / 工具轮次触发的 LLM 压缩（见 [`context_compression.rs`](../crates/pointer-core/src/context_compression.rs)）。
+
 ## 相关代码入口（维护索引）
 
 - 公共提示词：`crates/pointer-core/src/agents/_shared/COMMUNICATION_PUBLIC.md`
@@ -59,3 +110,5 @@
 - 侧车解析与多 `ToolCall`：`crates/pointer-core/src/tool_envelope.rs`、`crates/pointer-core/src/json_tool_caller.rs`、`crates/pointer-core/src/provider.rs`
 - 批校验与工具注册：`crates/pointer-core/src/tools/mod.rs`
 - 会话注入与执行：`crates/pointer-core/src/chat_service/`（主流程 `session_inner.rs`，单智能体 `single_agent.rs` + 薄封装，子 Agent `sub_agent.rs` + `sub_agent_prompt.rs` / `sub_agent_stream.rs`，共用 `agent_stream_round.rs` / `agent_post_stream.rs` / `agent_tool_pass.rs`）；任务板快照钩子：`crates/pointer-core/src/extensions/task_board_hook.rs`
+- task_board 阶段截断（规划）：`task_board_history_trim.rs`（待实现）、`context_compression.rs`（`find_split_at_user_boundary`）、`agent_tool_pass.rs`（挂载点）
+- Computer 每轮 user 注入：`crates/pointer-core/src/agents/computer/extension_hooks/screen_inject.rs`；API 展平：`models.rs`（`flatten_tool_rounds_computer_style_for_api`）

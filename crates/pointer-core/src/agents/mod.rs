@@ -655,10 +655,6 @@ fn load_agent_from_dir(dir: &Path) -> Result<BaseAgent> {
 
     let raw = fs::read_to_string(&manifest_path)?;
     let manifest = parse_agent_md(&raw)?;
-    let dir_name = dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| anyhow!("Agent 目录名无效"))?;
     let comm_path = dir.join(AGENT_COMMUNICATION);
     let mut communication = if comm_path.exists() {
         fs::read_to_string(&comm_path)?

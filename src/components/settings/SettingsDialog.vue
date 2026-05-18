@@ -118,13 +118,17 @@ function fallbackModelMaxTokens(): number {
 
 function ensureModelConfigEntry(modelId: string): ModelRuntimeOverrides {
   if (!editingProvider.value) return {}
-  editingProvider.value.modelConfigs = { ...(editingProvider.value.modelConfigs ?? {}) }
-  const prev = editingProvider.value.modelConfigs[modelId]
+  let prev = editingProvider.value.modelConfigs?.[modelId]
   if (!prev) {
-    editingProvider.value.modelConfigs[modelId] = {
+    const next: ModelRuntimeOverrides = {
       temperature: fallbackModelTemperature(),
       maxTokens: fallbackModelMaxTokens()
     }
+    editingProvider.value.modelConfigs = {
+      ...(editingProvider.value.modelConfigs ?? {}),
+      [modelId]: next
+    }
+    prev = next
   } else {
     const next = { ...prev }
     let changed = false
@@ -137,10 +141,14 @@ function ensureModelConfigEntry(modelId: string): ModelRuntimeOverrides {
       changed = true
     }
     if (changed) {
-      editingProvider.value.modelConfigs[modelId] = next
+      editingProvider.value.modelConfigs = {
+        ...(editingProvider.value.modelConfigs ?? {}),
+        [modelId]: next
+      }
+      prev = next
     }
   }
-  return editingProvider.value.modelConfigs[modelId]!
+  return prev!
 }
 
 function modelTemperature(modelId: string): number {

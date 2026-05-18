@@ -101,13 +101,13 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
             continue;
         }
 
-        let Some(dir_name) = base.file_name().and_then(|name| name.to_str()) else {
+        if base.file_name().and_then(|name| name.to_str()).is_none() {
             skipped.push(format!(
                 "{}: SKILL.md 必须位于 kebab-case Skill 目录中",
                 manifest.name
             ));
             continue;
-        };
+        }
         let target = root.join(&manifest.name);
         if target.exists() {
             fs::remove_dir_all(&target)?;
@@ -161,10 +161,6 @@ fn load_skill_from_dir(dir: &Path) -> Result<SkillDef> {
 
     let raw = fs::read_to_string(&manifest_path)?;
     let manifest = parse_skill_md(&raw)?;
-    let dir_name = dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| anyhow!("Skill 目录名无效"))?;
     manifest_to_skill(manifest, dir)
 }
 

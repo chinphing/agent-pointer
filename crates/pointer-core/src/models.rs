@@ -439,6 +439,9 @@ pub struct ModelSettings {
     /// When true for a worker id, successful `task_board` updates hard-trim older history (no LLM).
     #[serde(default, rename = "agentTaskBoardHistoryTrim")]
     pub agent_task_board_history_trim: HashMap<String, bool>,
+    /// When true, computer agent uses Bézier / jitter mouse paths by default (`human_like` preset).
+    #[serde(default, rename = "computerHumanLike")]
+    pub computer_human_like: bool,
 }
 
 pub fn ensure_agent_model_refs_have_provider(settings: &mut ModelSettings) {
@@ -534,6 +537,7 @@ impl Default for ModelSettings {
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             agent_default_models: HashMap::new(),
             agent_task_board_history_trim: HashMap::new(),
+            computer_human_like: false,
         }
     }
 }

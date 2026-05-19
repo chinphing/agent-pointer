@@ -5,6 +5,7 @@ pub mod actions;
 pub mod annotate;
 pub mod coord;
 mod mouse_move;
+mod mouse_path;
 /// Computer-specific [`crate::extensions`] hooks (e.g. screen inject).
 pub mod extension_hooks;
 pub mod screen;
@@ -38,6 +39,8 @@ use vision_state::VisionState;
 const DEFAULT_ANNOTATE_API_BASE: &str = "http://127.0.0.1:8000";
 /// Config key for the annotation service URL in Computer Agent's config.
 const CONFIG_KEY_ANNOTATE_API_BASE: &str = "annotateApiBase";
+/// Config key for default human-like mouse movement in Computer Agent's config.
+const CONFIG_KEY_COMPUTER_HUMAN_LIKE: &str = "computerHumanLike";
 /// Maximum number of concurrent sessions to retain before evicting the least recently used.
 const MAX_SESSIONS: usize = 10;
 
@@ -124,6 +127,8 @@ pub struct ComputerState {
     pub executor: Arc<Mutex<ActionExecutor>>,
     /// The annotation service client.
     pub annotate_client: AnnotateClient,
+    /// Default for `human_like` when omitted from tool args (Python `computer_human_like`).
+    pub human_like_default: bool,
     sessions: Arc<RwLock<HashMap<String, Arc<Mutex<ComputerSession>>>>>,
 }
 
@@ -145,12 +150,17 @@ impl ComputerState {
     /// The backend will be initialized with the enigo implementation.
     /// If enigo fails to initialize, tools will return errors at runtime.
     pub fn new(agents: &AgentRegistry) -> Self {
-        let annotate_api_base = agents
-            .get("computer")
-            .map(|agent| agent.def())
-            .and_then(|def| def.config.get(CONFIG_KEY_ANNOTATE_API_BASE).cloned())
+        let def = agents.get("computer").map(|agent| agent.def());
+        let annotate_api_base = def
+            .as_ref()
+            .and_then(|d| d.config.get(CONFIG_KEY_ANNOTATE_API_BASE).cloned())
             .unwrap_or_else(|| DEFAULT_ANNOTATE_API_BASE.to_string());
-        Self::with_annotate_url(&annotate_api_base)
+        let human_like_default = def
+            .as_ref()
+            .and_then(|d| d.config.get(CONFIG_KEY_COMPUTER_HUMAN_LIKE))
+            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
+            .unwrap_or(false);
+        Self::with_annotate_url_and_human_like(&annotate_api_base, human_like_default)
     }
 
     /// Create a new ComputerState with an explicit annotation service URL.
@@ -158,6 +168,14 @@ impl ComputerState {
     /// # Arguments
     /// * `annotate_api_base` - Base URL for the annotation service. If empty, uses the default.
     pub fn with_annotate_url(annotate_api_base: &str) -> Self {
+        Self::with_annotate_url_and_human_like(annotate_api_base, false)
+    }
+
+    /// Create state with explicit annotation URL and human-like default.
+    pub fn with_annotate_url_and_human_like(
+        annotate_api_base: &str,
+        human_like_default: bool,
+    ) -> Self {
         let executor = match action_enigo::EnigoBackend::new() {
             Ok(backend) => Arc::new(Mutex::new(ActionExecutor::new(Box::new(backend)))),
             Err(err) => {
@@ -175,6 +193,7 @@ impl ComputerState {
         Self {
             executor,
             annotate_client,
+            human_like_default,
             sessions: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -564,7 +583,12 @@ impl actions::ActionBackend for FallbackBackend {
     fn right_click(&self) -> anyhow::Result<actions::ActionResult> {
         anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
-    fn move_to(&self, _x: i32, _y: i32) -> anyhow::Result<actions::ActionResult> {
+    fn move_to_with_profile(
+        &self,
+        _x: i32,
+        _y: i32,
+        _profile: mouse_move::MouseMoveProfile,
+    ) -> anyhow::Result<actions::ActionResult> {
         anyhow::bail!("enigo backend not available; computer actions are disabled")
     }
     fn scroll(&self, _lines: i32) -> anyhow::Result<actions::ActionResult> {

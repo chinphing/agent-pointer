@@ -1,5 +1,5 @@
 use super::actions::{ActionBackend, ActionResult, KeyPhase, MouseButton};
-use super::mouse_move::{execute_move_plan, MouseMoveConfig, MouseMovePlanner};
+use super::mouse_move::{execute_move_plan, MouseMovePlanner, MouseMoveProfile};
 use super::timing::DOUBLE_CLICK_INTERVAL_MS;
 use anyhow::{anyhow, Result};
 use enigo::{
@@ -68,30 +68,57 @@ impl ActionBackend for EnigoBackend {
         Ok(ActionResult::success("Right-clicked"))
     }
 
-    fn move_to(&self, x: i32, y: i32) -> Result<ActionResult> {
+    fn move_to_with_profile(
+        &self,
+        x: i32,
+        y: i32,
+        profile: MouseMoveProfile,
+    ) -> Result<ActionResult> {
         let mut enigo = self.enigo.borrow_mut();
         let from = enigo
             .location()
             .map_err(|e| anyhow!("Get current position before move failed: {:?}", e))?;
-        let planner = MouseMovePlanner::new(MouseMoveConfig::default());
-        let plan = planner.plan(from, (x, y));
-        execute_move_plan(&plan, (x, y), |px, py| {
-            enigo
-                .move_mouse(px, py, enigo::Coordinate::Abs)
-                .map_err(|e| anyhow!("Move failed at ({px}, {py}): {:?}", e))
-        })?;
-        if plan.path.points.is_empty() {
-            Ok(ActionResult::success(format!(
+        let target = (x, y);
+        if from == target && !profile.exec.pre_jitter {
+            return Ok(ActionResult::success(format!(
                 "Move skipped (already at ({}, {}))",
+                x, y
+            )));
+        }
+
+        let mut rng = rand::thread_rng();
+        let planner = MouseMovePlanner::from_profile(profile);
+        let exec_cfg = profile.exec;
+        let plan = planner.plan(from, target, &mut rng);
+
+        let move_result = execute_move_plan(
+            &plan,
+            from,
+            target,
+            &exec_cfg,
+            |px, py| {
+                enigo
+                    .move_mouse(px, py, enigo::Coordinate::Abs)
+                    .map_err(|e| anyhow!("Move failed at ({px}, {py}): {:?}", e))
+            },
+            &mut rng,
+        );
+
+        move_result?;
+
+        let total_secs: f64 = plan.timing.step_intervals_secs.iter().sum();
+        if plan.path.points.is_empty() && !profile.exec.pre_jitter {
+            Ok(ActionResult::success(format!(
+                "Moved to ({}, {}) (direct)",
                 x, y
             )))
         } else {
             Ok(ActionResult::success(format!(
-                "Moved to ({}, {}) with {} points over {:.2}s (eased)",
+                "Moved to ({}, {}) with {} points over {:.2}s",
                 x,
                 y,
                 plan.path.points.len(),
-                plan.timing.step_intervals_secs.iter().sum::<f64>()
+                total_secs
             )))
         }
     }

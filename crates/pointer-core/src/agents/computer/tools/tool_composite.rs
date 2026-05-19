@@ -1,7 +1,7 @@
 use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::vision_state::VisionState;
-use super::args_util::{clamp_scroll_lines, json_bool_loose, require_non_empty_str};
+use super::args_util::{clamp_scroll_lines, human_like_from_args, json_bool_loose, require_non_empty_str};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -11,18 +11,25 @@ pub struct CompositeActionTool {
     executor: Arc<Mutex<ActionExecutor>>,
     vision_state: Arc<Mutex<VisionState>>,
     verify: VerifyHintGenerator,
+    human_like_default: bool,
 }
 
 impl CompositeActionTool {
     pub fn new(
         executor: Arc<Mutex<ActionExecutor>>,
         vision_state: Arc<Mutex<VisionState>>,
+        human_like_default: bool,
     ) -> Self {
         Self {
             executor,
             vision_state,
             verify: VerifyHintGenerator::new(),
+            human_like_default,
         }
+    }
+
+    fn human_like(&self, args: &Value) -> bool {
+        human_like_from_args(args, self.human_like_default)
     }
 
     pub fn execute(&self, method: &str, args: &Value) -> Result<String> {
@@ -53,8 +60,9 @@ impl CompositeActionTool {
             .resolve_index(index)
             .ok_or_else(|| anyhow!("Index {} not found in current annotation", index))?;
         drop(vision);
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.type_text_at_with_options(x, y, text, clear_first, auto_enter)?;
+        executor.type_text_at_with_options(x, y, text, clear_first, auto_enter, hl)?;
         let mut hint = self.verify.type_hint(text);
         if auto_enter {
             hint.push_str(" Enter was sent if auto_enter=true; do not press Enter again unless the UI clearly needs it.");
@@ -79,8 +87,9 @@ impl CompositeActionTool {
             .resolve_coordinate(x, y)
             .ok_or_else(|| anyhow!("Screen bounds not set"))?;
         drop(vision);
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.type_text_at_with_options(px, py, text, clear_first, auto_enter)?;
+        executor.type_text_at_with_options(px, py, text, clear_first, auto_enter, hl)?;
         Ok(self.verify.type_hint(text))
     }
 
@@ -108,8 +117,9 @@ impl CompositeActionTool {
             .resolve_index(index)
             .ok_or_else(|| anyhow!("Index {} not found in current annotation", index))?;
         drop(vision);
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.scroll_at(x, y, lines)?;
+        executor.scroll_at(x, y, lines, hl)?;
         Ok(self.verify.scroll_hint(lines))
     }
 }

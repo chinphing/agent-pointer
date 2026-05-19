@@ -1,6 +1,6 @@
 use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::vision_state::VisionState;
-use super::args_util::{json_bool_loose, parse_indices, require_non_empty_str};
+use super::args_util::{human_like_from_args, json_bool_loose, parse_indices, require_non_empty_str};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -9,17 +9,24 @@ use std::sync::{Arc, Mutex};
 pub struct ModifiedClickTool {
     executor: Arc<Mutex<ActionExecutor>>,
     vision_state: Arc<Mutex<VisionState>>,
+    human_like_default: bool,
 }
 
 impl ModifiedClickTool {
     pub fn new(
         executor: Arc<Mutex<ActionExecutor>>,
         vision_state: Arc<Mutex<VisionState>>,
+        human_like_default: bool,
     ) -> Self {
         Self {
             executor,
             vision_state,
+            human_like_default,
         }
+    }
+
+    fn human_like(&self, args: &Value) -> bool {
+        human_like_from_args(args, self.human_like_default)
     }
 
     pub fn execute(&self, method: &str, args: &Value) -> Result<String> {
@@ -47,6 +54,7 @@ impl ModifiedClickTool {
         if positions.is_empty() {
             return Err(anyhow!("No valid indices resolved to positions."));
         }
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
         if range_select {
             if positions.len() != 2 {
@@ -56,12 +64,12 @@ impl ModifiedClickTool {
             }
             let first = positions[0];
             let last = positions[1];
-            executor.click_range_shift(first, last)?;
+            executor.click_range_shift(first, last, hl)?;
             return Ok(
                 "Shift+click range selection applied. Verify result on next screenshot.".into(),
             );
         }
-        executor.click_add_to_selection_batch(&positions)?;
+        executor.click_add_to_selection_batch(&positions, hl)?;
         Ok(format!(
             "Cmd/Ctrl+click multi-select on {} item(s). Verify on next screenshot.",
             positions.len()
@@ -107,6 +115,7 @@ impl ModifiedClickTool {
         if positions.is_empty() {
             return Err(anyhow!("No positions resolved."));
         }
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
         if range_select {
             if positions.len() != 2 {
@@ -114,12 +123,12 @@ impl ModifiedClickTool {
                     "For range_select, positions must be exactly two [first, last]."
                 ));
             }
-            executor.click_range_shift(positions[0], positions[1])?;
+            executor.click_range_shift(positions[0], positions[1], hl)?;
             return Ok(
                 "Shift+click range by coordinates. Verify result on next screenshot.".into(),
             );
         }
-        executor.click_add_to_selection_batch(&positions)?;
+        executor.click_add_to_selection_batch(&positions, hl)?;
         Ok(format!(
             "Cmd/Ctrl+click {} position(s). Verify on next screenshot.",
             positions.len()

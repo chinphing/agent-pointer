@@ -19,6 +19,22 @@ pub fn clamp_scroll_lines(lines: i32) -> Result<i32> {
     })
 }
 
+/// Resolve `human_like` from tool args or session default (Python `_get_human_like`).
+pub fn human_like_from_args(args: &Value, default: bool) -> bool {
+    if args.get("human_like").is_some() {
+        json_bool_loose(args.get("human_like"))
+    } else {
+        default
+    }
+}
+
+/// App settings `computerHumanLike`, falling back to agent manifest default when load fails.
+pub fn effective_human_like_default(agent_fallback: bool) -> bool {
+    crate::storage::load_settings()
+        .map(|s| s.computer_human_like)
+        .unwrap_or(agent_fallback)
+}
+
 pub fn json_bool_loose(v: Option<&Value>) -> bool {
     match v {
         None => false,
@@ -114,6 +130,20 @@ mod tests {
     #[test]
     fn clamp_scroll_rejects_zero() {
         assert!(clamp_scroll_lines(0).is_err());
+    }
+
+    #[test]
+    fn human_like_from_args_uses_default_when_missing() {
+        use serde_json::json;
+        assert!(!human_like_from_args(&json!({"goal": "x"}), false));
+        assert!(human_like_from_args(&json!({"goal": "x"}), true));
+    }
+
+    #[test]
+    fn human_like_from_args_overrides_default() {
+        use serde_json::json;
+        assert!(human_like_from_args(&json!({"human_like": true}), false));
+        assert!(!human_like_from_args(&json!({"human_like": false}), true));
     }
 
     #[test]

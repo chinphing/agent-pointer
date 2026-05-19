@@ -11,6 +11,7 @@ mod tool_mouse;
 mod tool_wait;
 
 use crate::agents::computer::ComputerState;
+use args_util::effective_human_like_default;
 use crate::platform::run_synthetic_input;
 use crate::tools::{ToolEntry, ToolRegistry};
 use std::sync::Arc;
@@ -43,9 +44,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
                     .to_string();
                 let vision = mouse_state.vision_state_for_conversation(&cid);
+                let hl_default =
+                    effective_human_like_default(mouse_state.human_like_default);
                 let tool = tool_mouse::MouseTool::new(
                     mouse_state.executor.clone(),
                     vision,
+                    hl_default,
                 );
                 tool.execute(&method, &args)
             })
@@ -86,9 +90,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
                     .to_string();
                 let vision = composite_state.vision_state_for_conversation(&cid);
+                let hl_default =
+                    effective_human_like_default(composite_state.human_like_default);
                 let tool = tool_composite::CompositeActionTool::new(
                     composite_state.executor.clone(),
                     vision,
+                    hl_default,
                 );
                 tool.execute(&method, &args)
             })
@@ -113,9 +120,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
                     .to_string();
                 let vision = modified_state.vision_state_for_conversation(&cid);
+                let hl_default =
+                    effective_human_like_default(modified_state.human_like_default);
                 let tool = ModifiedClickTool::new(
                     modified_state.executor.clone(),
                     vision,
+                    hl_default,
                 );
                 tool.execute(&method, &args)
             })

@@ -1,7 +1,7 @@
 use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::vision_state::VisionState;
-use super::args_util::{clamp_scroll_lines, require_non_empty_str, MOVE_OFFSET_MAX};
+use super::args_util::{clamp_scroll_lines, human_like_from_args, require_non_empty_str, MOVE_OFFSET_MAX};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -11,18 +11,25 @@ pub struct MouseTool {
     executor: Arc<Mutex<ActionExecutor>>,
     vision_state: Arc<Mutex<VisionState>>,
     verify: VerifyHintGenerator,
+    human_like_default: bool,
 }
 
 impl MouseTool {
     pub fn new(
         executor: Arc<Mutex<ActionExecutor>>,
         vision_state: Arc<Mutex<VisionState>>,
+        human_like_default: bool,
     ) -> Self {
         Self {
             executor,
             vision_state,
             verify: VerifyHintGenerator::new(),
+            human_like_default,
         }
+    }
+
+    fn human_like(&self, args: &Value) -> bool {
+        human_like_from_args(args, self.human_like_default)
     }
 
     pub fn execute(&self, method: &str, args: &Value) -> Result<String> {
@@ -59,8 +66,9 @@ impl MouseTool {
             .resolve_index(index)
             .ok_or_else(|| anyhow!("Index {} not found in current annotation", index))?;
         drop(vision);
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.click_index(x, y)?;
+        executor.click_index(x, y, hl)?;
         Ok(self.verify.click_hint(Some(index), None))
     }
 
@@ -73,8 +81,9 @@ impl MouseTool {
             .resolve_index(index)
             .ok_or_else(|| anyhow!("Index {} not found in current annotation", index))?;
         drop(vision);
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.double_click_index(x, y)?;
+        executor.double_click_index(x, y, hl)?;
         Ok(self.verify.click_hint(Some(index), None))
     }
 
@@ -87,8 +96,9 @@ impl MouseTool {
             .resolve_index(index)
             .ok_or_else(|| anyhow!("Index {} not found in current annotation", index))?;
         drop(vision);
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.right_click_index(x, y)?;
+        executor.right_click_index(x, y, hl)?;
         Ok(self.verify.click_hint(Some(index), None))
     }
 
@@ -101,8 +111,9 @@ impl MouseTool {
             .resolve_index(index)
             .ok_or_else(|| anyhow!("Index {} not found in current annotation", index))?;
         drop(vision);
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.hover_index(x, y)?;
+        executor.hover_index(x, y, hl)?;
         Ok(format!("Hovered over element index {}", index))
     }
 
@@ -118,8 +129,9 @@ impl MouseTool {
             .resolve_coordinate(x, y)
             .ok_or_else(|| anyhow!("Screen bounds not set"))?;
         drop(vision);
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.click_at(px, py)?;
+        executor.click_at(px, py, hl)?;
         Ok(self.verify.click_hint(None, Some((px, py))))
     }
 
@@ -135,8 +147,9 @@ impl MouseTool {
             .resolve_coordinate(x, y)
             .ok_or_else(|| anyhow!("Screen bounds not set"))?;
         drop(vision);
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.double_click_at(px, py)?;
+        executor.double_click_at(px, py, hl)?;
         Ok(self.verify.click_hint(None, Some((px, py))))
     }
 
@@ -152,8 +165,9 @@ impl MouseTool {
             .resolve_coordinate(x, y)
             .ok_or_else(|| anyhow!("Screen bounds not set"))?;
         drop(vision);
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.right_click_at(px, py)?;
+        executor.right_click_at(px, py, hl)?;
         Ok(self.verify.click_hint(None, Some((px, py))))
     }
 
@@ -169,8 +183,9 @@ impl MouseTool {
             .resolve_coordinate(x, y)
             .ok_or_else(|| anyhow!("Screen bounds not set"))?;
         drop(vision);
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.hover_at(px, py)?;
+        executor.hover_at(px, py, hl)?;
         Ok(format!("Hovered at ({}, {}) px", px, py))
     }
 
@@ -215,8 +230,9 @@ impl MouseTool {
                 MOVE_OFFSET_MAX
             ));
         }
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.move_offset(dx, dy)?;
+        executor.move_offset(dx, dy, hl)?;
         let (nx, ny) = executor.get_position()?;
         Ok(format!(
             "Moved cursor by ({}, {}) px; now at [{}, {}]. Verify result on next screenshot.",
@@ -245,8 +261,9 @@ impl MouseTool {
             .resolve_coordinate(x2, y2)
             .ok_or_else(|| anyhow!("Screen bounds not set"))?;
         drop(vision);
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.drag_left_from_to(px1, py1, px2, py2)?;
+        executor.drag_left_from_to(px1, py1, px2, py2, hl)?;
         Ok(format!(
             "Dragged ({}, {}) -> ({}, {}). Verify on next screenshot.",
             px1, py1, px2, py2
@@ -274,8 +291,9 @@ impl MouseTool {
                 "from_index and to_index resolve to the same pixel; pick different targets."
             ));
         }
+        let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.drag_left_from_to(x1, y1, x2, y2)?;
+        executor.drag_left_from_to(x1, y1, x2, y2, hl)?;
         Ok(format!(
             "Dragged index {} -> {} ({} ,{}) -> ({}, {}). Verify on next screenshot.",
             from, to, x1, y1, x2, y2

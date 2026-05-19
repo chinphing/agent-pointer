@@ -3,12 +3,22 @@
 //! Geometry (waypoints) and timing (per-step delays) are planned separately, matching
 //! the Python `MouseMove._generate_path` / `_calculate_intervals` split.
 //!
-//! Default path: straight line with a fixed point count (10), uniform `t`; total time 0.5s ease-out.
 //! See `docs/design/computer-mouse-movement-roadmap.md`.
 
-use super::timing::{MOUSE_MOVE_DEFAULT_POINT_COUNT, MOUSE_MOVE_TOTAL_DURATION_SECS};
+use super::mouse_path::{bezier_path, BezierPathConfig, DEFAULT_CONTROL_JITTER_PX};
+use super::timing::{
+    MOUSE_MOVE_DEFAULT_POINT_COUNT, MOUSE_MOVE_FAST_DURATION_SECS, MOUSE_MOVE_TOTAL_DURATION_SECS,
+};
 use log::debug;
+use rand::Rng;
 use std::time::Duration;
+
+/// Default pre-move jitter radius in pixels (Python `DEFAULT_JITTER_RADIUS_PX`).
+pub const DEFAULT_PRE_JITTER_RADIUS_PX: i32 = 10;
+pub const DEFAULT_PRE_JITTER_SLEEP_MIN_SECS: f64 = 0.2;
+pub const DEFAULT_PRE_JITTER_SLEEP_MAX_SECS: f64 = 0.5;
+pub const DEFAULT_PATH_JITTER_MAX_PX: f64 = 2.0;
+pub const DEFAULT_INTERVAL_PERTURB_FACTOR: f64 = 0.2;
 
 /// Planned movement geometry only (excludes the current cursor point).
 #[derive(Debug, Clone)]
@@ -29,19 +39,32 @@ pub struct MouseMovePlan {
     pub timing: MouseMoveTimingPlan,
 }
 
+/// How total duration is interpreted (Python `MoveOptions.duration_mode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DurationMode {
+    /// Fixed interval per step.
+    Step,
+    /// Intervals sum to `total_duration_secs` with easing.
+    Total,
+    /// Like Total, then random per-interval perturbation preserving sum.
+    TotalPerturb,
+}
+
 /// Planned movement strategy kind (geometry).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseMoveStrategy {
-    /// Straight line with `point_count` uniformly spaced waypoints (Python default ~10).
+    /// Straight line with `point_count` uniformly spaced waypoints.
     LinearByPointCount,
+    /// Cubic Bézier (~10 points), aligned with Python `mouse_path_spline`.
+    Bezier,
 }
 
 /// Tunables for path (geometry) planning.
 #[derive(Debug, Clone, Copy)]
 pub struct MouseMovePathConfig {
     pub strategy: MouseMoveStrategy,
-    /// Number of waypoints along the segment (`from` excluded, ends at `to`).
     pub point_count: usize,
+    pub bezier: BezierPathConfig,
 }
 
 impl Default for MouseMovePathConfig {
@@ -49,6 +72,7 @@ impl Default for MouseMovePathConfig {
         Self {
             strategy: MouseMoveStrategy::LinearByPointCount,
             point_count: MOUSE_MOVE_DEFAULT_POINT_COUNT,
+            bezier: BezierPathConfig::default(),
         }
     }
 }
@@ -56,39 +80,176 @@ impl Default for MouseMovePathConfig {
 /// Tunables for timing (interval) planning.
 #[derive(Debug, Clone, Copy)]
 pub struct MouseMoveTimingConfig {
-    /// Total move time (seconds), split across waypoints with easing.
+    pub duration_mode: DurationMode,
     pub total_duration_secs: f64,
-    /// Use ease-in-out instead of ease-out.
+    pub step_duration_secs: f64,
     pub ease_in_out: bool,
+    pub interval_perturb_factor: f64,
 }
 
 impl Default for MouseMoveTimingConfig {
     fn default() -> Self {
         Self {
+            duration_mode: DurationMode::Total,
             total_duration_secs: MOUSE_MOVE_TOTAL_DURATION_SECS,
+            step_duration_secs: 0.03,
             ease_in_out: false,
+            interval_perturb_factor: DEFAULT_INTERVAL_PERTURB_FACTOR,
         }
     }
 }
 
-/// Full movement planner configuration.
+/// Pre/post execution flags (Python `MoveOptions` jitter/delay fields).
 #[derive(Debug, Clone, Copy)]
-pub struct MouseMoveConfig {
-    pub path: MouseMovePathConfig,
-    pub timing: MouseMoveTimingConfig,
+pub struct MouseMoveExecConfig {
+    pub pre_delay_secs: f64,
+    pub post_delay_secs: f64,
+    pub pre_jitter: bool,
+    pub pre_jitter_steps: u32,
+    pub pre_jitter_radius_px: i32,
+    pub pre_jitter_sleep_min_secs: f64,
+    pub pre_jitter_sleep_max_secs: f64,
+    pub path_jitter: bool,
+    pub path_jitter_max_px: f64,
 }
 
-impl Default for MouseMoveConfig {
+impl Default for MouseMoveExecConfig {
     fn default() -> Self {
         Self {
-            path: MouseMovePathConfig::default(),
-            timing: MouseMoveTimingConfig::default(),
+            pre_delay_secs: 0.0,
+            post_delay_secs: 0.0,
+            pre_jitter: false,
+            pre_jitter_steps: 2,
+            pre_jitter_radius_px: DEFAULT_PRE_JITTER_RADIUS_PX,
+            pre_jitter_sleep_min_secs: DEFAULT_PRE_JITTER_SLEEP_MIN_SECS,
+            pre_jitter_sleep_max_secs: DEFAULT_PRE_JITTER_SLEEP_MAX_SECS,
+            path_jitter: false,
+            path_jitter_max_px: DEFAULT_PATH_JITTER_MAX_PX,
         }
+    }
+}
+
+/// Full movement profile: path + timing + execution (Python `MoveOptions` + `MouseMove` config).
+#[derive(Debug, Clone, Copy)]
+pub struct MouseMoveProfile {
+    pub path: MouseMovePathConfig,
+    pub timing: MouseMoveTimingConfig,
+    pub exec: MouseMoveExecConfig,
+}
+
+impl MouseMoveProfile {
+    /// Approximate instant move (Python `human_like=False`, ~0.05s).
+    pub fn fast() -> Self {
+        Self {
+            path: MouseMovePathConfig {
+                strategy: MouseMoveStrategy::LinearByPointCount,
+                point_count: 1,
+                bezier: BezierPathConfig::default(),
+            },
+            timing: MouseMoveTimingConfig {
+                duration_mode: DurationMode::Total,
+                total_duration_secs: MOUSE_MOVE_FAST_DURATION_SECS,
+                ease_in_out: false,
+                ..Default::default()
+            },
+            exec: MouseMoveExecConfig::default(),
+        }
+    }
+
+    /// Human-like move (Python `MouseHelper.move_to_position(human_like=True)`).
+    pub fn human_like() -> Self {
+        Self {
+            path: MouseMovePathConfig {
+                strategy: MouseMoveStrategy::Bezier,
+                point_count: MOUSE_MOVE_DEFAULT_POINT_COUNT,
+                bezier: BezierPathConfig {
+                    num_points: MOUSE_MOVE_DEFAULT_POINT_COUNT,
+                    curvature: 1.0,
+                    bend_sign: None,
+                    bend_pixels: None,
+                    control_jitter_px: Some(DEFAULT_CONTROL_JITTER_PX),
+                },
+            },
+            timing: MouseMoveTimingConfig {
+                duration_mode: DurationMode::Total,
+                total_duration_secs: MOUSE_MOVE_TOTAL_DURATION_SECS,
+                ease_in_out: false,
+                ..Default::default()
+            },
+            exec: MouseMoveExecConfig {
+                pre_jitter: true,
+                pre_jitter_steps: 2,
+                path_jitter: true,
+                ..Default::default()
+            },
+        }
+    }
+
+    /// Drag: move to start (Python `drag_from_to` first segment).
+    pub fn drag_to_start() -> Self {
+        Self {
+            path: MouseMovePathConfig {
+                strategy: MouseMoveStrategy::Bezier,
+                point_count: MOUSE_MOVE_DEFAULT_POINT_COUNT,
+                bezier: BezierPathConfig::default(),
+            },
+            timing: MouseMoveTimingConfig {
+                duration_mode: DurationMode::Total,
+                total_duration_secs: 0.35,
+                ease_in_out: true,
+                ..Default::default()
+            },
+            exec: MouseMoveExecConfig {
+                pre_delay_secs: 0.05,
+                ..Default::default()
+            },
+        }
+    }
+
+    /// Drag: segment while button held.
+    pub fn drag_segment(human_like: bool) -> Self {
+        if human_like {
+            Self {
+                path: MouseMovePathConfig {
+                    strategy: MouseMoveStrategy::Bezier,
+                    point_count: MOUSE_MOVE_DEFAULT_POINT_COUNT,
+                    bezier: BezierPathConfig::default(),
+                },
+                timing: MouseMoveTimingConfig {
+                    duration_mode: DurationMode::TotalPerturb,
+                    total_duration_secs: 0.45,
+                    ease_in_out: true,
+                    interval_perturb_factor: 0.15,
+                    ..Default::default()
+                },
+                exec: MouseMoveExecConfig::default(),
+            }
+        } else {
+            Self {
+                path: MouseMovePathConfig {
+                    strategy: MouseMoveStrategy::LinearByPointCount,
+                    point_count: MOUSE_MOVE_DEFAULT_POINT_COUNT,
+                    bezier: BezierPathConfig::default(),
+                },
+                timing: MouseMoveTimingConfig {
+                    duration_mode: DurationMode::Total,
+                    total_duration_secs: 0.18,
+                    ease_in_out: false,
+                    ..Default::default()
+                },
+                exec: MouseMoveExecConfig::default(),
+            }
+        }
+    }
+}
+
+impl Default for MouseMoveProfile {
+    fn default() -> Self {
+        Self::fast()
     }
 }
 
 /// Plans cursor geometry (waypoints).
-#[derive(Debug, Clone, Copy)]
 pub struct MouseMovePathPlanner {
     config: MouseMovePathConfig,
 }
@@ -98,12 +259,22 @@ impl MouseMovePathPlanner {
         Self { config }
     }
 
-    pub fn plan(&self, from: (i32, i32), to: (i32, i32)) -> MouseMovePath {
-        match self.config.strategy {
-            MouseMoveStrategy::LinearByPointCount => MouseMovePath {
-                points: plan_linear_by_point_count(from, to, self.config.point_count),
-            },
-        }
+    pub fn plan(&self, from: (i32, i32), to: (i32, i32), rng: &mut impl Rng) -> MouseMovePath {
+        let points = match self.config.strategy {
+            MouseMoveStrategy::LinearByPointCount => {
+                plan_linear_by_point_count(from, to, self.config.point_count)
+            }
+            MouseMoveStrategy::Bezier => {
+                let from_f = (from.0 as f64, from.1 as f64);
+                let to_f = (to.0 as f64, to.1 as f64);
+                if from == to {
+                    Vec::new()
+                } else {
+                    bezier_path(from_f, to_f, self.config.bezier, rng)
+                }
+            }
+        };
+        MouseMovePath { points }
     }
 }
 
@@ -118,45 +289,78 @@ impl MouseMoveTimingPlanner {
         Self { config }
     }
 
-    pub fn plan(&self, num_steps: usize) -> MouseMoveTimingPlan {
-        let step_intervals_secs = if self.config.ease_in_out {
-            ease_in_out_intervals(num_steps, self.config.total_duration_secs)
-        } else {
-            ease_out_intervals(num_steps, self.config.total_duration_secs)
+    pub fn plan(&self, num_steps: usize, rng: &mut impl Rng) -> MouseMoveTimingPlan {
+        let mut step_intervals_secs = match self.config.duration_mode {
+            DurationMode::Step => vec![self.config.step_duration_secs; num_steps],
+            DurationMode::Total | DurationMode::TotalPerturb => {
+                if self.config.ease_in_out {
+                    ease_in_out_intervals(num_steps, self.config.total_duration_secs)
+                } else {
+                    ease_out_intervals(num_steps, self.config.total_duration_secs)
+                }
+            }
         };
+        if self.config.duration_mode == DurationMode::TotalPerturb && num_steps > 0 {
+            step_intervals_secs = spread_interval_perturbation(
+                &step_intervals_secs,
+                self.config.interval_perturb_factor,
+                rng,
+            );
+        }
         MouseMoveTimingPlan { step_intervals_secs }
     }
 }
 
 /// Composes path and timing planners (Python `MouseMove` equivalent).
-#[derive(Debug, Clone, Copy)]
 pub struct MouseMovePlanner {
     path: MouseMovePathPlanner,
     timing: MouseMoveTimingPlanner,
+    exec: MouseMoveExecConfig,
 }
 
 impl MouseMovePlanner {
-    pub fn new(config: MouseMoveConfig) -> Self {
+    pub fn from_profile(profile: MouseMoveProfile) -> Self {
         Self {
-            path: MouseMovePathPlanner::new(config.path),
-            timing: MouseMoveTimingPlanner::new(config.timing),
+            path: MouseMovePathPlanner::new(profile.path),
+            timing: MouseMoveTimingPlanner::new(profile.timing),
+            exec: profile.exec,
         }
     }
 
-    pub fn plan(&self, from: (i32, i32), to: (i32, i32)) -> MouseMovePlan {
-        let path = self.path.plan(from, to);
-        let timing = self.timing.plan(path.points.len());
+    pub fn plan(&self, from: (i32, i32), to: (i32, i32), rng: &mut impl Rng) -> MouseMovePlan {
+        let mut path = self.path.plan(from, to, rng);
+        if self.exec.path_jitter && !path.points.is_empty() {
+            path.points = add_path_jitter(&path.points, self.exec.path_jitter_max_px, rng);
+        }
+        let timing = self.timing.plan(path.points.len(), rng);
         MouseMovePlan { path, timing }
     }
 }
 
-/// Execute a movement plan by repeatedly invoking backend `move_abs`, then one more move at
-/// `target` so the OS / apps refresh hit-testing on the terminal pixel.
+/// Execute a movement plan with optional pre-jitter / delays.
 pub fn execute_move_plan<E>(
     plan: &MouseMovePlan,
+    from: (i32, i32),
     target: (i32, i32),
+    exec: &MouseMoveExecConfig,
     mut move_abs: impl FnMut(i32, i32) -> Result<(), E>,
+    rng: &mut impl Rng,
 ) -> Result<(), E> {
+    if exec.pre_delay_secs > 0.0 {
+        std::thread::sleep(Duration::from_secs_f64(exec.pre_delay_secs));
+    }
+    if exec.pre_jitter {
+        pre_jitter_near_cursor_from(
+            from,
+            exec.pre_jitter_radius_px,
+            exec.pre_jitter_steps,
+            exec.pre_jitter_sleep_min_secs,
+            exec.pre_jitter_sleep_max_secs,
+            &mut move_abs,
+            rng,
+        )?;
+    }
+
     debug_assert_eq!(
         plan.path.points.len(),
         plan.timing.step_intervals_secs.len()
@@ -180,6 +384,117 @@ pub fn execute_move_plan<E>(
         target.1,
         plan.path.points.len()
     );
+
+    if exec.post_delay_secs > 0.0 {
+        std::thread::sleep(Duration::from_secs_f64(exec.post_delay_secs));
+    }
+    Ok(())
+}
+
+/// Random normal-offset jitter on interior path points (Python `_add_path_jitter`).
+pub fn add_path_jitter(
+    points: &[(i32, i32)],
+    max_px: f64,
+    rng: &mut impl Rng,
+) -> Vec<(i32, i32)> {
+    if points.is_empty() || max_px <= 0.0 {
+        return points.to_vec();
+    }
+    let n = points.len();
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        let (x, y) = points[i];
+        if i == 0 || i == n - 1 {
+            out.push((x, y));
+            continue;
+        }
+        let (dx, dy) = if i == 0 {
+            (
+                points[1].0 as f64 - x as f64,
+                points[1].1 as f64 - y as f64,
+            )
+        } else if i == n - 1 {
+            (
+                x as f64 - points[i - 1].0 as f64,
+                y as f64 - points[i - 1].1 as f64,
+            )
+        } else {
+            (
+                (points[i + 1].0 - points[i - 1].0) as f64 / 2.0,
+                (points[i + 1].1 - points[i - 1].1) as f64 / 2.0,
+            )
+        };
+        let length = (dx * dx + dy * dy).sqrt();
+        if length < 1e-6 {
+            out.push((x, y));
+            continue;
+        }
+        let mut nx = -dy / length;
+        let mut ny = dx / length;
+        if rng.gen_bool(0.5) {
+            nx = -nx;
+            ny = -ny;
+        }
+        let jitter = max_px * (2.0 * rng.gen::<f64>() - 1.0);
+        out.push((
+            (x as f64 + nx * jitter).round() as i32,
+            (y as f64 + ny * jitter).round() as i32,
+        ));
+    }
+    dedupe_consecutive_points(out)
+}
+
+/// Random multiplicative perturbation; total sum preserved (Python `_spread_interval_perturbation`).
+pub fn spread_interval_perturbation(
+    intervals: &[f64],
+    factor: f64,
+    rng: &mut impl Rng,
+) -> Vec<f64> {
+    if intervals.is_empty() || factor <= 0.0 {
+        return intervals.to_vec();
+    }
+    let total: f64 = intervals.iter().sum();
+    let perturbed: Vec<f64> = intervals
+        .iter()
+        .map(|&iv| {
+            let scale = 1.0 + factor * (2.0 * rng.gen::<f64>() - 1.0);
+            (iv * scale).max(0.005)
+        })
+        .collect();
+    let sum_p: f64 = perturbed.iter().sum();
+    if sum_p <= 0.0 {
+        return intervals.to_vec();
+    }
+    let scale = total / sum_p;
+    perturbed.iter().map(|p| p * scale).collect()
+}
+
+/// Pre-jitter from a known cursor position (Python `_mouse_jitter_near_cursor`).
+pub fn pre_jitter_near_cursor_from<E>(
+    current: (i32, i32),
+    jitter_radius_px: i32,
+    steps: u32,
+    sleep_min: f64,
+    sleep_max: f64,
+    mut move_abs: impl FnMut(i32, i32) -> Result<(), E>,
+    rng: &mut impl Rng,
+) -> Result<(), E> {
+    let radius = jitter_radius_px.max(1);
+    for _ in 0..steps.max(1) {
+        let dx: i32 = rng.gen_range(-radius..=radius);
+        let dy: i32 = rng.gen_range(-radius..=radius);
+        let cx = current.0 + dx;
+        let cy = current.1 + dy;
+        move_abs(cx, cy)?;
+        let sleep_secs = if sleep_max > sleep_min {
+            sleep_min + rng.gen::<f64>() * (sleep_max - sleep_min)
+        } else {
+            sleep_min
+        };
+        if sleep_secs > 0.0 {
+            std::thread::sleep(Duration::from_secs_f64(sleep_secs));
+        }
+    }
     Ok(())
 }
 
@@ -231,7 +546,6 @@ fn progress_to_ease_in_out(p: f64) -> f64 {
     }
 }
 
-/// `point_count` waypoints along a straight line; `t = i / n` for `i = 1..=n` (ends at `to`).
 fn plan_linear_by_point_count(
     from: (i32, i32),
     to: (i32, i32),
@@ -266,6 +580,8 @@ fn dedupe_consecutive_points(points: Vec<(i32, i32)>) -> Vec<(i32, i32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
 
     #[test]
     fn linear_by_point_count_returns_empty_for_same_point() {
@@ -281,20 +597,19 @@ mod tests {
     }
 
     #[test]
-    fn linear_by_point_count_ends_at_target() {
-        let p = plan_linear_by_point_count((0, 0), (100, 0), 10);
-        assert_eq!(p.last().copied(), Some((100, 0)));
+    fn human_like_profile_plans_bezier_points() {
+        let mut rng = StdRng::seed_from_u64(99);
+        let planner = MouseMovePlanner::from_profile(MouseMoveProfile::human_like());
+        let plan = planner.plan((0, 0), (300, 0), &mut rng);
+        assert_eq!(plan.path.points.len(), MOUSE_MOVE_DEFAULT_POINT_COUNT);
     }
 
     #[test]
-    fn path_and_timing_planners_same_length() {
-        let planner = MouseMovePlanner::new(MouseMoveConfig::default());
-        let plan = planner.plan((0, 0), (200, 0));
-        assert_eq!(
-            plan.path.points.len(),
-            plan.timing.step_intervals_secs.len()
-        );
-        assert_eq!(plan.path.points.len(), MOUSE_MOVE_DEFAULT_POINT_COUNT);
+    fn fast_profile_single_step() {
+        let mut rng = StdRng::seed_from_u64(1);
+        let planner = MouseMovePlanner::from_profile(MouseMoveProfile::fast());
+        let plan = planner.plan((0, 0), (100, 0), &mut rng);
+        assert_eq!(plan.path.points.len(), 1);
     }
 
     #[test]
@@ -306,16 +621,21 @@ mod tests {
     }
 
     #[test]
-    fn ease_out_starts_faster_than_end() {
-        let intervals = ease_out_intervals(5, 1.0);
-        assert!(intervals[0] < intervals[4]);
+    fn spread_interval_perturbation_preserves_sum() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let base = ease_out_intervals(8, 0.45);
+        let perturbed = spread_interval_perturbation(&base, 0.15, &mut rng);
+        let sum: f64 = perturbed.iter().sum();
+        assert!((sum - 0.45).abs() < 1e-6);
     }
 
     #[test]
-    fn ease_in_out_middle_larger_than_ends() {
-        let intervals = ease_in_out_intervals(5, 1.0);
-        assert!(intervals[2] > intervals[0]);
-        assert!(intervals[2] > intervals[4]);
+    fn add_path_jitter_keeps_endpoints() {
+        let mut rng = StdRng::seed_from_u64(5);
+        let points = vec![(0, 0), (50, 10), (100, 0)];
+        let out = add_path_jitter(&points, 3.0, &mut rng);
+        assert_eq!(out.first(), Some(&(0, 0)));
+        assert_eq!(out.last(), Some(&(100, 0)));
     }
 
     #[test]
@@ -329,28 +649,12 @@ mod tests {
             },
         };
         let mut seen = Vec::new();
-        execute_move_plan(&plan, (3, 3), |x, y| -> Result<(), ()> {
+        let mut rng = StdRng::seed_from_u64(0);
+        execute_move_plan(&plan, (0, 0), (3, 3), &MouseMoveExecConfig::default(), |x, y| -> Result<(), ()> {
             seen.push((x, y));
             Ok(())
-        })
+        }, &mut rng)
         .unwrap();
         assert_eq!(seen, vec![(1, 1), (2, 2), (3, 3), (3, 3)]);
-    }
-
-    #[test]
-    fn execute_move_plan_empty_path_still_posts_target() {
-        let plan = MouseMovePlan {
-            path: MouseMovePath { points: vec![] },
-            timing: MouseMoveTimingPlan {
-                step_intervals_secs: vec![],
-            },
-        };
-        let mut seen = Vec::new();
-        execute_move_plan(&plan, (9, 9), |x, y| -> Result<(), ()> {
-            seen.push((x, y));
-            Ok(())
-        })
-        .unwrap();
-        assert_eq!(seen, vec![(9, 9)]);
     }
 }

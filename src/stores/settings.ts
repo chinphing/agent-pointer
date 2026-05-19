@@ -90,7 +90,8 @@ export const useSettingsStore = defineStore('settings', () => {
     rawContentViewEnabled: true,
     debugDumpLlmPrompts: false,
     agentDefaultModels: {},
-    agentTaskBoardHistoryTrim: {}
+    agentTaskBoardHistoryTrim: {},
+    computerHumanLike: false
   })
   const loading = ref(false)
   const testing = ref(false)
@@ -195,7 +196,8 @@ export const useSettingsStore = defineStore('settings', () => {
           rawContentViewEnabled: s.rawContentViewEnabled !== false,
           debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
           agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
-          agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) }
+          agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
+          computerHumanLike: s.computerHumanLike === true
         }
       } else {
         const activeId = s.activeProviderId || providersNorm[0]?.id || 'qwen'
@@ -215,7 +217,8 @@ export const useSettingsStore = defineStore('settings', () => {
           rawContentViewEnabled: s.rawContentViewEnabled !== false,
           debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
           agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
-          agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) }
+          agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
+          computerHumanLike: s.computerHumanLike === true
         }
         if (s.model && !settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models.includes(s.model)) {
           settings.value.model = settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models[0] || s.model
@@ -326,6 +329,14 @@ export const useSettingsStore = defineStore('settings', () => {
     await save({ agentTaskBoardHistoryTrim: next })
   }
 
+  function isComputerHumanLikeEnabled(): boolean {
+    return settings.value.computerHumanLike === true
+  }
+
+  async function setComputerHumanLike(enabled: boolean) {
+    await save({ computerHumanLike: enabled })
+  }
+
   async function setAgentDefaultModel(agentId: string, ref: AgentModelRef | null) {
     const next = { ...settings.value.agentDefaultModels }
     if (!ref || !ref.model?.trim()) {
@@ -351,6 +362,7 @@ export const useSettingsStore = defineStore('settings', () => {
     load, save, setActiveProvider, addProvider, updateProvider, removeProvider,
     saveKey, removeKey, runTest,
     getAgentDefaultModelRef, setAgentDefaultModel,
-    isTaskBoardHistoryTrimEnabled, setTaskBoardHistoryTrim, defaultTaskBoardHistoryTrim
+    isTaskBoardHistoryTrimEnabled, setTaskBoardHistoryTrim, defaultTaskBoardHistoryTrim,
+    isComputerHumanLikeEnabled, setComputerHumanLike
   }
 })

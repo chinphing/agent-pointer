@@ -46,6 +46,7 @@ const maxSubAgentToolRounds = ref(100)
 const rawContentViewEnabled = ref(true)
 const debugDumpLlmPrompts = ref(false)
 const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
+const computerHumanLike = ref(false)
 const agents = ref<AgentDef[]>([])
 
 const editingProvider = ref<ProviderConfig | null>(null)
@@ -384,6 +385,7 @@ onMounted(() => {
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled !== false
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
+  computerHumanLike.value = s.settings.computerHumanLike === true
   loadAgents()
 })
 
@@ -584,7 +586,8 @@ async function saveAll() {
       maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
       rawContentViewEnabled: rawContentViewEnabled.value,
       debugDumpLlmPrompts: debugDumpLlmPrompts.value,
-      agentTaskBoardHistoryTrim: { ...agentTaskBoardHistoryTrim.value }
+      agentTaskBoardHistoryTrim: { ...agentTaskBoardHistoryTrim.value },
+      computerHumanLike: computerHumanLike.value
     })
     emit('close')
   } finally {
@@ -930,6 +933,20 @@ async function saveAll() {
                           @change="setTaskBoardTrimLocal(w.id, ($event.target as HTMLInputElement).checked)"
                         />
                         <span class="text-[11px] text-slate-400">任务板后精简历史</span>
+                      </label>
+
+                      <label
+                        v-if="w.id === 'computer'"
+                        class="inline-flex items-center gap-1.5 cursor-pointer shrink-0"
+                        title="启用后鼠标沿曲线移动并带微抖动；关闭时使用快速直达移动"
+                      >
+                        <input
+                          type="checkbox"
+                          class="rounded border-white/20 bg-black/30 text-primary-cyan focus:ring-primary/40"
+                          :checked="computerHumanLike"
+                          @change="computerHumanLike = ($event.target as HTMLInputElement).checked"
+                        />
+                        <span class="text-[11px] text-slate-400">人性化鼠标移动</span>
                       </label>
                     </div>
 

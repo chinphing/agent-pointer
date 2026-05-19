@@ -73,6 +73,9 @@ pub const MOUSE_MOVE_DEFAULT_POINT_COUNT: usize = 10;
 /// Matches Python `MouseHelper.move_to_position(..., duration=0.5)`.
 pub const MOUSE_MOVE_TOTAL_DURATION_SECS: f64 = 0.5;
 
+/// Fast / non-human-like move duration (Python `pyautogui.moveTo(..., duration=0.05)`).
+pub const MOUSE_MOVE_FAST_DURATION_SECS: f64 = 0.05;
+
 /// Tools recorded under `[CUR_SCREEN]` as recent desktop rows (goal/action repetition hints). Includes `wait`
 /// so the model sees explicit pauses even though `wait` does not move the pointer. Includes `clipboard` for
 /// copy/paste verification chains even though it does not move the pointer.

@@ -1,3 +1,4 @@
+use super::mouse_move::MouseMoveProfile;
 use super::timing::{
     COMPOSITE_ACTION_STEP_GAP_MS, POST_MOUSE_BUTTON_SETTLE_MS, SETTLE_AFTER_ABSOLUTE_MOVE_MS,
 };
@@ -79,12 +80,18 @@ pub trait ActionBackend: Send + Sync {
     /// Perform a right-click at the current cursor position.
     fn right_click(&self) -> Result<ActionResult>;
 
-    /// Move the cursor to the specified screen coordinates.
-    ///
-    /// # Arguments
-    /// * `x` - Screen X coordinate in pixels.
-    /// * `y` - Screen Y coordinate in pixels.
-    fn move_to(&self, x: i32, y: i32) -> Result<ActionResult>;
+    /// Move the cursor to the specified screen coordinates (default profile: fast).
+    fn move_to(&self, x: i32, y: i32) -> Result<ActionResult> {
+        self.move_to_with_profile(x, y, MouseMoveProfile::default())
+    }
+
+    /// Move the cursor using a movement profile (path + timing + jitter).
+    fn move_to_with_profile(
+        &self,
+        x: i32,
+        y: i32,
+        profile: MouseMoveProfile,
+    ) -> Result<ActionResult>;
 
     /// Scroll the mouse wheel.
     ///
@@ -159,45 +166,77 @@ impl ActionExecutor {
     }
 
     /// Drag with left button from pixel (x1,y1) to (x2,y2).
-    pub fn drag_left_from_to(&self, x1: i32, y1: i32, x2: i32, y2: i32) -> Result<ActionResult> {
+    pub fn drag_left_from_to(
+        &self,
+        x1: i32,
+        y1: i32,
+        x2: i32,
+        y2: i32,
+        human_like: bool,
+    ) -> Result<ActionResult> {
         if x1 == x2 && y1 == y2 {
             return Err(anyhow!("drag start and end must differ"));
         }
-        self.backend.move_to(x1, y1)?;
+        let to_start = if human_like {
+            MouseMoveProfile::drag_to_start()
+        } else {
+            MouseMoveProfile::fast()
+        };
+        self.backend.move_to_with_profile(x1, y1, to_start)?;
         settle_after_absolute_move();
+        std::thread::sleep(Duration::from_millis(50));
         self.backend.mouse_phase(MouseButton::Left, KeyPhase::Press)?;
-        self.backend.move_to(x2, y2)?;
+        std::thread::sleep(Duration::from_millis(50));
+        self.backend
+            .move_to_with_profile(x2, y2, MouseMoveProfile::drag_segment(human_like))?;
+        std::thread::sleep(Duration::from_millis(50));
         self.backend.mouse_phase(MouseButton::Left, KeyPhase::Release)?;
+        settle_after_mouse_button();
         Ok(ActionResult::success("drag completed"))
     }
 
     /// Hold primary multi-select modifier (Cmd on macOS, Ctrl elsewhere), click each pixel, release.
-    pub fn click_add_to_selection_batch(&self, positions: &[(i32, i32)]) -> Result<ActionResult> {
+    pub fn click_add_to_selection_batch(
+        &self,
+        positions: &[(i32, i32)],
+        human_like: bool,
+    ) -> Result<ActionResult> {
         if positions.is_empty() {
             return Ok(ActionResult::success("no positions"));
         }
+        let profile = move_profile_for_human_like(human_like);
         let meta = if cfg!(target_os = "macos") {
             "command"
         } else {
             "ctrl"
         };
         self.backend.key_phase(meta, KeyPhase::Press)?;
+        std::thread::sleep(Duration::from_millis(50));
         for &(x, y) in positions {
-            self.backend.move_to(x, y)?;
+            self.backend.move_to_with_profile(x, y, profile)?;
             settle_after_absolute_move();
             self.backend.click()?;
             settle_after_mouse_button();
+            std::thread::sleep(Duration::from_millis(80));
         }
         self.backend.key_phase(meta, KeyPhase::Release)?;
+        settle_after_mouse_button();
         Ok(ActionResult::success("multi-select clicks"))
     }
 
     /// Click first, then Shift+click second (range selection).
-    pub fn click_range_shift(&self, first: (i32, i32), last: (i32, i32)) -> Result<ActionResult> {
-        self.click_at(first.0, first.1)?;
+    pub fn click_range_shift(
+        &self,
+        first: (i32, i32),
+        last: (i32, i32),
+        human_like: bool,
+    ) -> Result<ActionResult> {
+        self.click_at(first.0, first.1, human_like)?;
         self.backend.key_phase("shift", KeyPhase::Press)?;
-        self.click_at(last.0, last.1)?;
+        std::thread::sleep(Duration::from_millis(50));
+        self.click_at(last.0, last.1, human_like)?;
         self.backend.key_phase("shift", KeyPhase::Release)?;
+        settle_after_mouse_button();
         Ok(ActionResult::success("shift range click"))
     }
 
@@ -208,8 +247,9 @@ impl ActionExecutor {
     /// # Arguments
     /// * `x` - Screen X coordinate in pixels.
     /// * `y` - Screen Y coordinate in pixels.
-    pub fn click_at(&self, x: i32, y: i32) -> Result<ActionResult> {
-        self.backend.move_to(x, y)?;
+    pub fn click_at(&self, x: i32, y: i32, human_like: bool) -> Result<ActionResult> {
+        self.backend
+            .move_to_with_profile(x, y, move_profile_for_human_like(human_like))?;
         settle_after_absolute_move();
         self.backend.click()?;
         settle_after_mouse_button();
@@ -224,15 +264,16 @@ impl ActionExecutor {
     /// # Arguments
     /// * `x` - Screen X coordinate in pixels (resolved from index).
     /// * `y` - Screen Y coordinate in pixels (resolved from index).
-    pub fn click_index(&self, x: i32, y: i32) -> Result<ActionResult> {
-        self.click_at(x, y)
+    pub fn click_index(&self, x: i32, y: i32, human_like: bool) -> Result<ActionResult> {
+        self.click_at(x, y, human_like)
     }
 
     /// Double-click at the given screen coordinates.
     ///
     /// Used by the **coordinate-based** positioning path.
-    pub fn double_click_at(&self, x: i32, y: i32) -> Result<ActionResult> {
-        self.backend.move_to(x, y)?;
+    pub fn double_click_at(&self, x: i32, y: i32, human_like: bool) -> Result<ActionResult> {
+        self.backend
+            .move_to_with_profile(x, y, move_profile_for_human_like(human_like))?;
         settle_after_absolute_move();
         self.backend.double_click()?;
         settle_after_mouse_button();
@@ -242,15 +283,16 @@ impl ActionExecutor {
     /// Double-click at an annotated element index.
     ///
     /// Used by the **index-based** positioning path.
-    pub fn double_click_index(&self, x: i32, y: i32) -> Result<ActionResult> {
-        self.double_click_at(x, y)
+    pub fn double_click_index(&self, x: i32, y: i32, human_like: bool) -> Result<ActionResult> {
+        self.double_click_at(x, y, human_like)
     }
 
     /// Right-click at the given screen coordinates.
     ///
     /// Used by the **coordinate-based** positioning path.
-    pub fn right_click_at(&self, x: i32, y: i32) -> Result<ActionResult> {
-        self.backend.move_to(x, y)?;
+    pub fn right_click_at(&self, x: i32, y: i32, human_like: bool) -> Result<ActionResult> {
+        self.backend
+            .move_to_with_profile(x, y, move_profile_for_human_like(human_like))?;
         settle_after_absolute_move();
         self.backend.right_click()?;
         settle_after_mouse_button();
@@ -260,22 +302,23 @@ impl ActionExecutor {
     /// Right-click at an annotated element index.
     ///
     /// Used by the **index-based** positioning path.
-    pub fn right_click_index(&self, x: i32, y: i32) -> Result<ActionResult> {
-        self.right_click_at(x, y)
+    pub fn right_click_index(&self, x: i32, y: i32, human_like: bool) -> Result<ActionResult> {
+        self.right_click_at(x, y, human_like)
     }
 
     /// Move the cursor to the given screen coordinates without clicking.
     ///
     /// Used by the **coordinate-based** positioning path.
-    pub fn hover_at(&self, x: i32, y: i32) -> Result<ActionResult> {
-        self.backend.move_to(x, y)
+    pub fn hover_at(&self, x: i32, y: i32, human_like: bool) -> Result<ActionResult> {
+        self.backend
+            .move_to_with_profile(x, y, move_profile_for_human_like(human_like))
     }
 
     /// Move the cursor to an annotated element index.
     ///
     /// Used by the **index-based** positioning path.
-    pub fn hover_index(&self, x: i32, y: i32) -> Result<ActionResult> {
-        self.hover_at(x, y)
+    pub fn hover_index(&self, x: i32, y: i32, human_like: bool) -> Result<ActionResult> {
+        self.hover_at(x, y, human_like)
     }
 
     /// Move the cursor by a relative offset.
@@ -283,9 +326,13 @@ impl ActionExecutor {
     /// # Arguments
     /// * `dx` - Delta X in pixels.
     /// * `dy` - Delta Y in pixels.
-    pub fn move_offset(&self, dx: i32, dy: i32) -> Result<ActionResult> {
+    pub fn move_offset(&self, dx: i32, dy: i32, human_like: bool) -> Result<ActionResult> {
         let (current_x, current_y) = self.backend.get_position()?;
-        self.backend.move_to(current_x + dx, current_y + dy)
+        self.backend.move_to_with_profile(
+            current_x + dx,
+            current_y + dy,
+            move_profile_for_human_like(human_like),
+        )
     }
 
     /// Scroll at the current cursor position.
@@ -321,7 +368,7 @@ impl ActionExecutor {
     ///
     /// Sequence: move → click → type.
     pub fn type_text_at(&self, x: i32, y: i32, text: &str) -> Result<ActionResult> {
-        self.type_text_at_with_options(x, y, text, false, false)
+        self.type_text_at_with_options(x, y, text, false, false, false)
     }
 
     /// Select-all hotkey for the current OS (Cmd+A / Ctrl+A).
@@ -341,8 +388,9 @@ impl ActionExecutor {
         text: &str,
         clear_first: bool,
         auto_enter: bool,
+        human_like: bool,
     ) -> Result<ActionResult> {
-        self.click_at(x, y)?;
+        self.click_at(x, y, human_like)?;
         composite_step_gap();
         if clear_first {
             self.hotkey_select_all()?;
@@ -376,16 +424,27 @@ impl ActionExecutor {
     /// Scroll at a specific location.
     ///
     /// Sequence: move → scroll.
-    pub fn scroll_at(&self, x: i32, y: i32, lines: i32) -> Result<ActionResult> {
-        self.backend.move_to(x, y)?;
+    pub fn scroll_at(&self, x: i32, y: i32, lines: i32, human_like: bool) -> Result<ActionResult> {
+        self.backend
+            .move_to_with_profile(x, y, move_profile_for_human_like(human_like))?;
         settle_after_absolute_move();
         composite_step_gap();
         self.backend.scroll(lines)
     }
 
     /// Move to a specific location without clicking.
-    pub fn move_to(&self, x: i32, y: i32) -> Result<ActionResult> {
-        self.backend.move_to(x, y)
+    pub fn move_to(&self, x: i32, y: i32, human_like: bool) -> Result<ActionResult> {
+        self.backend
+            .move_to_with_profile(x, y, move_profile_for_human_like(human_like))
+    }
+}
+
+#[inline]
+fn move_profile_for_human_like(human_like: bool) -> MouseMoveProfile {
+    if human_like {
+        MouseMoveProfile::human_like()
+    } else {
+        MouseMoveProfile::fast()
     }
 }
 
@@ -423,8 +482,16 @@ mod tests {
             Ok(ActionResult::success("right clicked"))
         }
 
-        fn move_to(&self, x: i32, y: i32) -> Result<ActionResult> {
-            self.record(format!("move_to({},{})", x, y));
+        fn move_to_with_profile(
+            &self,
+            x: i32,
+            y: i32,
+            profile: MouseMoveProfile,
+        ) -> Result<ActionResult> {
+            self.record(format!(
+                "move_to_with_profile({},{},{:?})",
+                x, y, profile.path.strategy
+            ));
             *self.position.lock().unwrap() = (x, y);
             Ok(ActionResult::success("moved"))
         }
@@ -463,7 +530,7 @@ mod tests {
     fn test_click_at() {
         let backend = Box::new(MockBackend::default());
         let executor = ActionExecutor::new(backend);
-        let result = executor.click_at(100, 200).unwrap();
+        let result = executor.click_at(100, 200, false).unwrap();
         assert!(result.success);
     }
 
@@ -471,7 +538,7 @@ mod tests {
     fn test_click_index() {
         let backend = Box::new(MockBackend::default());
         let executor = ActionExecutor::new(backend);
-        let result = executor.click_index(100, 200).unwrap();
+        let result = executor.click_index(100, 200, false).unwrap();
         assert!(result.success);
     }
 
@@ -479,7 +546,7 @@ mod tests {
     fn test_move_offset() {
         let backend = Box::new(MockBackend::default());
         let executor = ActionExecutor::new(backend);
-        executor.move_offset(10, 20).unwrap();
+        executor.move_offset(10, 20, false).unwrap();
         let (x, y) = executor.get_position().unwrap();
         assert_eq!(x, 10);
         assert_eq!(y, 20);

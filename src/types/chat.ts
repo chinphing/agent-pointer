@@ -166,6 +166,8 @@ export interface ModelSettings {
   agentDefaultModels: Record<string, AgentModelRef>
   /** agentId → task_board 更新后是否硬截断较早对话（无 LLM 摘要） */
   agentTaskBoardHistoryTrim?: Record<string, boolean>
+  /** Computer agent: default human-like mouse movement (Bézier path + jitter) */
+  computerHumanLike?: boolean
 }
 
 export interface SkillDef {

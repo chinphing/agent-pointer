@@ -52,13 +52,18 @@
 - 每轮注入 **`[TASK_BOARD]`** 可降低任务板只存在于旧 tool 消息里被压掉的风险。
 - 若后续在 **`context_compression`** 中增加高保留信号，可将 **`TASK_BOARD` / `task_board`** 输出纳入优先级（可选增强）。
 
-## task_board 触发的历史截断（规划）
+## task_board 触发的历史截断
 
-在 **`task_board:patch` / `task_board:replace`** 成功之后，对已启用该能力的 Agent 可对会话 history 做**硬截断**（不调用 LLM 摘要），与 [`context_compression`](../crates/pointer-core/src/context_compression.rs) 的 LLM 压缩互补。
+在 **`task_board`** 变更满足 **checkpoint** 条件且工具执行成功后，对已启用该能力的 Agent 可对会话 history 做**硬截断**（不调用 LLM 摘要），与 [`context_compression`](../crates/pointer-core/src/context_compression.rs) 的 LLM 压缩互补。
+
+**Checkpoint 条件：**
+
+- **`task_board:replace`** 成功 → 总是截断（整板替换视为阶段节点）。
+- **`task_board:patch`** 成功 → 仅当本批 **`items`** 中至少一行 **`status`** 为 **`done`** 时截断（里程碑验收节点）；仅改 `pending` / `in_progress` 等不截断。
 
 | 机制 | 触发 | 处理方式 | 成本 |
 |------|------|----------|------|
-| task_board 阶段截断 | patch/replace 成功 + 该 Agent 已启用 | 按 user 边界硬删 + 短占位 user 行 | 无 LLM |
+| task_board 阶段截断 | checkpoint 满足 + 工具成功 + 该 Agent 已启用 | 按 user 边界硬删 + 短占位 user 行 | 无 LLM |
 | context compression | 字符预算 / 工具轮次上限 | 较早前缀 LLM 摘要 | 额外 API |
 
 **保留策略（与压缩共用 `find_split_at_user_boundary` 语义，K 更小，默认 2）：**
@@ -110,5 +115,5 @@ user（[CUR_SCREEN] 截图，screen_inject 注入）
 - 侧车解析与多 `ToolCall`：`crates/pointer-core/src/tool_envelope.rs`、`crates/pointer-core/src/json_tool_caller.rs`、`crates/pointer-core/src/provider.rs`
 - 批校验与工具注册：`crates/pointer-core/src/tools/mod.rs`
 - 会话注入与执行：`crates/pointer-core/src/chat_service/`（主流程 `session_inner.rs`，单智能体 `single_agent.rs` + 薄封装，子 Agent `sub_agent.rs` + `sub_agent_prompt.rs` / `sub_agent_stream.rs`，共用 `agent_stream_round.rs` / `agent_post_stream.rs` / `agent_tool_pass.rs`）；任务板快照钩子：`crates/pointer-core/src/extensions/task_board_hook.rs`
-- task_board 阶段截断（规划）：`task_board_history_trim.rs`（待实现）、`context_compression.rs`（`find_split_at_user_boundary`）、`agent_tool_pass.rs`（挂载点）
+- task_board 阶段截断：`task_board_history_trim.rs`、`context_compression.rs`（`find_split_at_user_boundary`）、`agent_tool_pass.rs`（挂载点）
 - Computer 每轮 user 注入：`crates/pointer-core/src/agents/computer/extension_hooks/screen_inject.rs`；API 展平：`models.rs`（`flatten_tool_rounds_computer_style_for_api`）

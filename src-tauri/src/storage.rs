@@ -49,6 +49,8 @@ struct StoredSettings {
     raw_content_view_enabled: bool,
     #[serde(default, rename = "agentDefaultModels")]
     agent_default_models: HashMap<String, String>,
+    #[serde(default, rename = "agentTaskBoardHistoryTrim")]
+    agent_task_board_history_trim: HashMap<String, bool>,
 }
 
 fn default_raw_content_view_enabled() -> bool {
@@ -89,6 +91,7 @@ impl Default for StoredSettings {
             max_tool_rounds: 100,
             raw_content_view_enabled: true,
             agent_default_models: HashMap::new(),
+            agent_task_board_history_trim: HashMap::new(),
         }
     }
 }
@@ -131,6 +134,7 @@ pub fn load_settings() -> Result<ModelSettings> {
         max_tool_rounds: stored.max_tool_rounds,
         raw_content_view_enabled: stored.raw_content_view_enabled,
         agent_default_models: stored.agent_default_models,
+        agent_task_board_history_trim: stored.agent_task_board_history_trim,
     })
 }
 
@@ -157,6 +161,7 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
         max_tool_rounds: s.max_tool_rounds,
         raw_content_view_enabled: s.raw_content_view_enabled,
         agent_default_models: s.agent_default_models.clone(),
+        agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
     };
     fs::write(settings_path()?, serde_json::to_vec_pretty(&stored)?)?;
     Ok(())

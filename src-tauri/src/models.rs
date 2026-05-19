@@ -106,6 +106,8 @@ pub struct ModelSettings {
     pub raw_content_view_enabled: bool,
     #[serde(default, rename = "agentDefaultModels")]
     pub agent_default_models: HashMap<String, String>,
+    #[serde(default, rename = "agentTaskBoardHistoryTrim")]
+    pub agent_task_board_history_trim: HashMap<String, bool>,
 }
 
 fn default_raw_content_view_enabled() -> bool {
@@ -162,6 +164,7 @@ impl Default for ModelSettings {
             max_tool_rounds: 100,
             raw_content_view_enabled: true,
             agent_default_models: HashMap::new(),
+            agent_task_board_history_trim: HashMap::new(),
         }
     }
 }

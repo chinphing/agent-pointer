@@ -436,6 +436,9 @@ pub struct ModelSettings {
     /// Per-agent default LLM: worker id or `"supervisor"` → explicit provider + model.
     #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
     pub agent_default_models: HashMap<String, AgentModelRef>,
+    /// When true for a worker id, successful `task_board` updates hard-trim older history (no LLM).
+    #[serde(default, rename = "agentTaskBoardHistoryTrim")]
+    pub agent_task_board_history_trim: HashMap<String, bool>,
 }
 
 pub fn ensure_agent_model_refs_have_provider(settings: &mut ModelSettings) {
@@ -530,6 +533,7 @@ impl Default for ModelSettings {
             raw_content_view_enabled: default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             agent_default_models: HashMap::new(),
+            agent_task_board_history_trim: HashMap::new(),
         }
     }
 }

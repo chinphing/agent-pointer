@@ -19,6 +19,9 @@ use super::app_state::AppState;
 use super::emit::emit;
 use super::session_budget::SessionToolBudget;
 use super::task_board_inject::inject_host_task_board_conversation_id;
+use crate::task_board_history_trim::{
+    maybe_trim_after_tool_pass, task_board_call_is_checkpoint, TaskBoardTrimHook,
+};
 use super::util::{desktop_tool_failure_note, tool_result_msg, truncate_str};
 use super::StreamTx;
 
@@ -83,8 +86,10 @@ pub(super) async fn run_agent_tool_pass(
     final_tool_calls: &[ToolCall],
     mut lead: Option<LeadToolPassConfig<'_>>,
     sub: Option<SubToolPassConfig<'_>>,
+    task_board_trim: Option<TaskBoardTrimHook<'_>>,
 ) -> Result<ToolPassResult> {
     let mut any_executed = false;
+    let mut task_board_succeeded = false;
     for tc in final_tool_calls {
         if cancel.is_cancelled() {
             if let Some(consumed) = consumed_single {
@@ -219,6 +224,10 @@ pub(super) async fn run_agent_tool_pass(
         .await;
 
         let duration = started.elapsed().as_millis() as u64;
+        let tool_ok = match &exec {
+            Ok((_, ok, _)) => *ok,
+            Err(_) => false,
+        };
         record_tool_exec_outcome(
             &stream,
             &state,
@@ -232,7 +241,14 @@ pub(super) async fn run_agent_tool_pass(
             duration,
         )
         .await;
+        if tool_ok && task_board_call_is_checkpoint(&tool_id, &args_value) {
+            task_board_succeeded = true;
+        }
         any_executed = true;
+    }
+
+    if let Some(hook) = task_board_trim.as_ref() {
+        maybe_trim_after_tool_pass(history, hook, task_board_succeeded);
     }
 
     if !any_executed {

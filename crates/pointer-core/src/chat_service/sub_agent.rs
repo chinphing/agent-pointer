@@ -16,6 +16,7 @@ use super::agent_post_stream::{
 use super::agent_tool_pass::{
     run_agent_tool_pass, SubToolPassConfig, ToolInvocationStats, ToolPassResult,
 };
+use crate::task_board_history_trim::TaskBoardTrimHook;
 use super::app_state::AppState;
 use super::session_budget::SessionToolBudget;
 use super::session_model::sub_agent_provider;
@@ -195,6 +196,13 @@ pub(crate) async fn run_sub_agent(
             reasoning_in_messages,
         };
         let mut stats = ToolInvocationStats::Conversation(llm_stats);
+        let trim_hook = TaskBoardTrimHook {
+            settings: &sub_provider.settings,
+            agent_id: &def.id,
+            conversation_id,
+            stream: &stream,
+            emit_history_replaced: false,
+        };
         match Box::pin(run_agent_tool_pass(
             stream.clone(),
             state,
@@ -211,6 +219,7 @@ pub(crate) async fn run_sub_agent(
             &buf.final_tool_calls,
             None,
             Some(sub_cfg),
+            Some(trim_hook),
         ))
         .await?
         {

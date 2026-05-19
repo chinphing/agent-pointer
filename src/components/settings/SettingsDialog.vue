@@ -45,6 +45,7 @@ const maxToolRounds = ref(100)
 const maxSubAgentToolRounds = ref(100)
 const rawContentViewEnabled = ref(true)
 const debugDumpLlmPrompts = ref(false)
+const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
 const agents = ref<AgentDef[]>([])
 
 const editingProvider = ref<ProviderConfig | null>(null)
@@ -382,8 +383,22 @@ onMounted(() => {
   maxSubAgentToolRounds.value = s.settings.maxSubAgentToolRounds ?? s.settings.maxToolRounds ?? 100
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled !== false
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
+  agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   loadAgents()
 })
+
+function taskBoardTrimChecked(agentId: string): boolean {
+  const v = agentTaskBoardHistoryTrim.value[agentId]
+  if (v !== undefined) return v
+  return s.defaultTaskBoardHistoryTrim(agentId)
+}
+
+function setTaskBoardTrimLocal(agentId: string, enabled: boolean) {
+  agentTaskBoardHistoryTrim.value = {
+    ...agentTaskBoardHistoryTrim.value,
+    [agentId]: enabled
+  }
+}
 
 function startEditProvider(provider: ProviderConfig) {
   editingProvider.value = {
@@ -568,7 +583,8 @@ async function saveAll() {
       maxToolRounds: Number(maxToolRounds.value),
       maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
       rawContentViewEnabled: rawContentViewEnabled.value,
-      debugDumpLlmPrompts: debugDumpLlmPrompts.value
+      debugDumpLlmPrompts: debugDumpLlmPrompts.value,
+      agentTaskBoardHistoryTrim: { ...agentTaskBoardHistoryTrim.value }
     })
     emit('close')
   } finally {
@@ -891,18 +907,30 @@ async function saveAll() {
                     <p class="mt-0.5 text-[11px] text-slate-500">{{ w.description || '通用智能体' }}</p>
 
                     <!-- Per-agent default model (lead or delegated sub-agent runs) -->
-                    <div class="mt-2.5 flex items-center gap-2" @click.stop>
-                      <Sparkles class="w-3.5 h-3.5 text-primary-fuchsia shrink-0" />
-                      <span class="text-[11px] text-slate-400 shrink-0">默认模型</span>
-                      <select
-                        :value="getAgentModelWithProvider(w.id)"
-                        @change.stop="selectAgentModelWithProvider(w.id, ($event.target as HTMLSelectElement).value)"
-                        @click.stop
-                        class="w-48 h-7 px-2 rounded bg-black/30 border border-white/10 text-[11px] text-slate-300 cursor-pointer outline-none focus:border-primary/50 transition-colors"
-                      >
-                        <option value="">使用全局默认</option>
-                        <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
-                      </select>
+                    <div class="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2" @click.stop>
+                      <div class="flex items-center gap-2 min-w-0">
+                        <Sparkles class="w-3.5 h-3.5 text-primary-fuchsia shrink-0" />
+                        <span class="text-[11px] text-slate-400 shrink-0">默认模型</span>
+                        <select
+                          :value="getAgentModelWithProvider(w.id)"
+                          @change.stop="selectAgentModelWithProvider(w.id, ($event.target as HTMLSelectElement).value)"
+                          @click.stop
+                          class="w-48 h-7 px-2 rounded bg-black/30 border border-white/10 text-[11px] text-slate-300 cursor-pointer outline-none focus:border-primary/50 transition-colors"
+                        >
+                          <option value="">使用全局默认</option>
+                          <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.providerId + ':' + item.model">{{ item.providerName }} / {{ item.model }}</option>
+                        </select>
+                      </div>
+
+                      <label class="inline-flex items-center gap-1.5 cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          class="rounded border-white/20 bg-black/30 text-primary-cyan focus:ring-primary/40"
+                          :checked="taskBoardTrimChecked(w.id)"
+                          @change="setTaskBoardTrimLocal(w.id, ($event.target as HTMLInputElement).checked)"
+                        />
+                        <span class="text-[11px] text-slate-400">任务板后精简历史</span>
+                      </label>
                     </div>
 
                     <!-- Workspace (coder lead only) -->

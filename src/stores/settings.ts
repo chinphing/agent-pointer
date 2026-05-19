@@ -89,7 +89,8 @@ export const useSettingsStore = defineStore('settings', () => {
     maxSubAgentToolRounds: 100,
     rawContentViewEnabled: true,
     debugDumpLlmPrompts: false,
-    agentDefaultModels: {}
+    agentDefaultModels: {},
+    agentTaskBoardHistoryTrim: {}
   })
   const loading = ref(false)
   const testing = ref(false)
@@ -193,7 +194,8 @@ export const useSettingsStore = defineStore('settings', () => {
           maxSubAgentToolRounds: s.maxSubAgentToolRounds ?? s.maxToolRounds ?? 100,
           rawContentViewEnabled: s.rawContentViewEnabled !== false,
           debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
-          agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId)
+          agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
+          agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) }
         }
       } else {
         const activeId = s.activeProviderId || providersNorm[0]?.id || 'qwen'
@@ -212,7 +214,8 @@ export const useSettingsStore = defineStore('settings', () => {
           maxSubAgentToolRounds: s.maxSubAgentToolRounds ?? s.maxToolRounds ?? 100,
           rawContentViewEnabled: s.rawContentViewEnabled !== false,
           debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
-          agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId)
+          agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
+          agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) }
         }
         if (s.model && !settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models.includes(s.model)) {
           settings.value.model = settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models[0] || s.model
@@ -305,6 +308,24 @@ export const useSettingsStore = defineStore('settings', () => {
     return settings.value.agentDefaultModels[agentId]
   }
 
+  function defaultTaskBoardHistoryTrim(agentId: string): boolean {
+    return agentId.trim() === 'computer'
+  }
+
+  function isTaskBoardHistoryTrimEnabled(agentId: string): boolean {
+    const id = agentId.trim() || 'default'
+    const v = settings.value.agentTaskBoardHistoryTrim?.[id]
+    if (v !== undefined) return v
+    return defaultTaskBoardHistoryTrim(id)
+  }
+
+  async function setTaskBoardHistoryTrim(agentId: string, enabled: boolean) {
+    const id = agentId.trim() || 'default'
+    const next = { ...(settings.value.agentTaskBoardHistoryTrim ?? {}) }
+    next[id] = enabled
+    await save({ agentTaskBoardHistoryTrim: next })
+  }
+
   async function setAgentDefaultModel(agentId: string, ref: AgentModelRef | null) {
     const next = { ...settings.value.agentDefaultModels }
     if (!ref || !ref.model?.trim()) {
@@ -329,6 +350,7 @@ export const useSettingsStore = defineStore('settings', () => {
     effectiveReasoningInMessages, effectiveTemperature, effectiveMaxTokens, allModels,
     load, save, setActiveProvider, addProvider, updateProvider, removeProvider,
     saveKey, removeKey, runTest,
-    getAgentDefaultModelRef, setAgentDefaultModel
+    getAgentDefaultModelRef, setAgentDefaultModel,
+    isTaskBoardHistoryTrimEnabled, setTaskBoardHistoryTrim, defaultTaskBoardHistoryTrim
   }
 })

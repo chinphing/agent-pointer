@@ -172,7 +172,7 @@ pub fn estimate_message_payload_chars(msgs: &[ChatMessage]) -> usize {
 }
 
 /// Start index of the Nth user message from the end (`N >= 1`). Returns 0 if fewer than N users exist.
-fn find_split_at_user_boundary(msgs: &[ChatMessage], keep_last_n_users: usize) -> usize {
+pub(crate) fn find_split_at_user_boundary(msgs: &[ChatMessage], keep_last_n_users: usize) -> usize {
     if keep_last_n_users == 0 || msgs.is_empty() {
         return 0;
     }

@@ -164,6 +164,8 @@ export interface ModelSettings {
   debugDumpLlmPrompts?: boolean
   /** agentId → 该 agent 的默认「服务商 + 模型」（显式存储，不从模型名反推服务商） */
   agentDefaultModels: Record<string, AgentModelRef>
+  /** agentId → task_board 更新后是否硬截断较早对话（无 LLM 摘要） */
+  agentTaskBoardHistoryTrim?: Record<string, boolean>
 }
 
 export interface SkillDef {

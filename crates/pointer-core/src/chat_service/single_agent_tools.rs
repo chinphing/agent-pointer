@@ -2,7 +2,8 @@
 
 use crate::agents::AgentProfile;
 use crate::llm_token_stats::ChatLlmTokenSession;
-use crate::models::{AgentTrace, ChatMessage, ToolCall};
+use crate::models::{AgentTrace, ChatMessage, ModelSettings, ToolCall};
+use crate::task_board_history_trim::TaskBoardTrimHook;
 use crate::provider::OpenAIProvider;
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;
@@ -41,9 +42,19 @@ pub(super) async fn run_single_agent_tool_pass(
     final_tool_calls: &[ToolCall],
     raw_content_buf: &str,
     agent_trace: &mut Vec<AgentTrace>,
+    settings: &ModelSettings,
+    lead_agent_id: &str,
 ) -> Result<ToolPassResult> {
     let _ = reasoning_in_messages;
     let mut stats = ToolInvocationStats::TokenSession(llm_token_session);
+    let stream_for_trim = stream.clone();
+    let trim_hook = TaskBoardTrimHook {
+        settings,
+        agent_id: lead_agent_id,
+        conversation_id,
+        stream: &stream_for_trim,
+        emit_history_replaced: true,
+    };
     match run_agent_tool_pass(
         stream,
         state,
@@ -66,6 +77,7 @@ pub(super) async fn run_single_agent_tool_pass(
             file_tool_lead_for_invoke,
         }),
         None,
+        Some(trim_hook),
     )
     .await?
     {

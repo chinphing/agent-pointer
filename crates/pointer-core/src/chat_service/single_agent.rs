@@ -190,6 +190,8 @@ pub(super) async fn run_single_agent_loop(
             &buf.final_tool_calls,
             buf.raw_content_buf.as_str(),
             &mut agent_trace,
+            settings,
+            &agent_plan.lead_agent_id,
         )
         .await?
         {

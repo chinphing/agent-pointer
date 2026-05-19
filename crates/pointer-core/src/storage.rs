@@ -111,6 +111,8 @@ struct StoredSettings {
     debug_dump_llm_prompts: bool,
     #[serde(default, rename = "agentDefaultModels")]
     agent_default_models: HashMap<String, serde_json::Value>,
+    #[serde(default, rename = "agentTaskBoardHistoryTrim")]
+    agent_task_board_history_trim: HashMap<String, bool>,
     /// Legacy global toggle; applied to each provider when that provider has no explicit value.
     #[serde(default, rename = "reasoningInMessages")]
     legacy_reasoning_in_messages: Option<bool>,
@@ -210,6 +212,7 @@ impl Default for StoredSettings {
                     )
                 })
                 .collect(),
+            agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
             legacy_reasoning_in_messages: None,
         }
     }
@@ -316,6 +319,7 @@ pub fn load_settings() -> Result<ModelSettings> {
         raw_content_view_enabled: stored.raw_content_view_enabled,
         debug_dump_llm_prompts: stored.debug_dump_llm_prompts,
         agent_default_models,
+        agent_task_board_history_trim: stored.agent_task_board_history_trim,
     };
     ensure_agent_model_refs_have_provider(&mut settings);
     ensure_model_generation_defaults(&mut settings);
@@ -382,6 +386,7 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
                 )
             })
             .collect(),
+        agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
         legacy_reasoning_in_messages: None,
     };
     fs::write(settings_path()?, serde_json::to_vec_pretty(&stored)?)?;

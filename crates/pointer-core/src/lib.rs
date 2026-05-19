@@ -4,6 +4,7 @@ pub mod env_prompt;
 pub mod platform;
 pub mod extensions;
 pub mod context_compression;
+pub mod task_board_history_trim;
 pub mod logging;
 pub mod llm_prompt_dump;
 pub mod llm_token_stats;

@@ -23,3 +23,11 @@
 
 - `RuntimeParamsForm` + `useRuntimeParams`：服务商级用 `providerScopeModelId === null`，模型定制用 `modelConfigModalId`。
 - 改 `modelConfigs` 时替换顶层对象引用（见 `useRuntimeParams.patchModel`）。
+
+## 新增模型后无法保存
+
+- 模型名写在「模型列表」输入框（`editingModelsText`），须通过 `buildProviderSnapshotFromEditor` 合并进 `snapshot.models` 再 `updateProvider`。
+- 仅点底部「保存配置」时，必须先 `flushEditingProviderToStore()`，否则会保存旧的 `providers`、新模型丢失。
+- 表单内「保存/添加」会调用 `s.save` 写入磁盘，成功后 `emit('close')` 关闭设置对话框；失败时查看 `providerSaveError`（勿静默 `return`）。
+- `applyProviderSnapshotToStore(..., reopenEdit)`：仅「保存并继续编辑」时 `reopenEdit: true`；即将关对话框时用 `false`，避免 `startEditProvider` 闪一下。
+- 新增服务商时若 **服务 ID 与已有重复**，`addProvider` 会拒绝并提示，避免 `find` 命中旧条目导致像没保存上。

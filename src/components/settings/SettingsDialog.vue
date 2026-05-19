@@ -62,6 +62,8 @@ const editingApiKey = ref('')
 
 const modelConfigModalId = ref<string | null>(null)
 const modelConfigModalError = ref('')
+/** 服务商表单内「保存/添加」失败时的提示（勿静默 return）。 */
+const providerSaveError = ref('')
 /** 固定为 null：providerRuntimeApi 绑定服务商级默认，勿与 modelConfigModalId 混用。 */
 const providerScopeModelId = ref<string | null>(null)
 
@@ -300,6 +302,7 @@ function cancelEditProvider() {
   showAddProvider.value = false
   modelConfigModalId.value = null
   modelConfigModalError.value = ''
+  providerSaveError.value = ''
 }
 
 /** 将编辑区整理为可写入 store 的快照；勿把 editingProvider 引用直接传给 updateProvider。 */
@@ -314,6 +317,9 @@ function buildProviderSnapshotFromEditor(): ProviderConfig | null {
 
   const snapshot: ProviderConfig = {
     ...draft,
+    id: draft.id.trim(),
+    name: draft.name.trim(),
+    baseUrl: draft.baseUrl.trim(),
     models,
     apiKey: editingApiKey.value
       ? editingApiKey.value
@@ -357,30 +363,81 @@ function buildProviderSnapshotFromEditor(): ProviderConfig | null {
   return snapshot
 }
 
-function saveProvider() {
-  const snapshot = buildProviderSnapshotFromEditor()
-  if (!snapshot) return
-
-  const savedId = snapshot.id
-  const wasAdd = showAddProvider.value
+/** 将编辑区快照写入内存中的 providers；返回 false 表示校验失败未写入。 */
+function applyProviderSnapshotToStore(
+  snapshot: ProviderConfig,
+  wasAdd: boolean,
+  /** false：保存后收起编辑区（用于即将关闭设置对话框时，勿再 startEditProvider 造成闪动） */
+  reopenEdit = true
+): boolean {
+  const id = snapshot.id.trim()
+  if (wasAdd && s.settings.providers.some(p => p.id === id)) {
+    providerSaveError.value = '服务 ID 已存在，请换一个 ID'
+    return false
+  }
+  if (!wasAdd && !s.settings.providers.some(p => p.id === id)) {
+    providerSaveError.value = '找不到要更新的服务商，请取消后重新编辑'
+    return false
+  }
 
   if (wasAdd) {
     s.addProvider(snapshot)
   } else {
-    s.updateProvider(savedId, snapshot)
+    s.updateProvider(id, snapshot)
   }
 
   modelConfigModalId.value = null
   modelConfigModalError.value = ''
 
-  // 保存后勿将 editingProvider 置 null：编辑区由 v-if="editingProvider" 控制，置空会像「配置界面空白」。
-  // 用 store 里规范化后的副本重新打开编辑区；仅当找不到条目时才关闭表单。
-  const saved = s.settings.providers.find(p => p.id === savedId)
-  if (saved) {
-    startEditProvider(saved)
+  if (reopenEdit) {
+    // 保存后继续编辑：用 store 副本重新打开，勿将 editingProvider 置 null（会像「配置界面空白」）。
+    const saved = s.settings.providers.find(p => p.id === id)
+    if (saved) {
+      startEditProvider(saved)
+    } else {
+      editingProvider.value = null
+      showAddProvider.value = false
+    }
   } else {
     editingProvider.value = null
     showAddProvider.value = false
+  }
+  return true
+}
+
+/** 若正在编辑服务商，先把草稿（含模型列表 editingModelsText）合并进 store。 */
+function flushEditingProviderToStore(reopenEdit = false): boolean {
+  if (!editingProvider.value) return true
+  const snapshot = buildProviderSnapshotFromEditor()
+  if (!snapshot) {
+    providerSaveError.value = '请填写服务 ID、名称和 API 地址'
+    return false
+  }
+  return applyProviderSnapshotToStore(snapshot, showAddProvider.value, reopenEdit)
+}
+
+async function saveProvider() {
+  providerSaveError.value = ''
+  const snapshot = buildProviderSnapshotFromEditor()
+  if (!snapshot) {
+    providerSaveError.value = '请填写服务 ID、名称和 API 地址'
+    return
+  }
+
+  const wasAdd = showAddProvider.value
+  if (!applyProviderSnapshotToStore(snapshot, wasAdd, false)) return
+
+  try {
+    await s.save({
+      providers: s.settings.providers,
+      activeProviderId: s.settings.activeProviderId,
+      model: s.settings.model
+    })
+    providerSaveError.value = ''
+    emit('close')
+  } catch (e) {
+    console.error(e)
+    providerSaveError.value = '保存到本地失败，请重试'
   }
 }
 
@@ -428,7 +485,13 @@ async function selectAgentModelWithProvider(agentId: string, value: string) {
 
 async function saveAll() {
   saving.value = true
+  providerSaveError.value = ''
   try {
+    // 底部「保存配置」须先合并正在编辑的服务商（含新加的模型名），否则只保存了旧列表。
+    if (editingProvider.value && !flushEditingProviderToStore()) {
+      activeSection.value = 'provider'
+      return
+    }
     await s.save({
       providers: s.settings.providers,
       activeProviderId: s.settings.activeProviderId,
@@ -635,11 +698,14 @@ async function saveAll() {
                 </div>
               </div>
 
-              <div class="flex items-center justify-end gap-2 pt-1">
-                <button class="h-8 px-4 rounded-lg bg-white/5 hover:bg-white/10 text-sm text-slate-300 cursor-pointer transition-colors" @click="cancelEditProvider">取消</button>
-                <button class="h-8 px-4 rounded-lg bg-gradient-to-r from-primary to-primary-fuchsia text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50 transition-opacity" :disabled="!editingProvider.id || !editingProvider.name || !editingProvider.baseUrl" @click="saveProvider">
-                  {{ showAddProvider ? '添加' : '保存' }}
-                </button>
+              <div class="space-y-2 pt-1">
+                <p v-if="providerSaveError" class="text-[12px] text-red-400">{{ providerSaveError }}</p>
+                <div class="flex items-center justify-end gap-2">
+                  <button class="h-8 px-4 rounded-lg bg-white/5 hover:bg-white/10 text-sm text-slate-300 cursor-pointer transition-colors" @click="cancelEditProvider">取消</button>
+                  <button class="h-8 px-4 rounded-lg bg-gradient-to-r from-primary to-primary-fuchsia text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50 transition-opacity" :disabled="!editingProvider.id?.trim() || !editingProvider.name?.trim() || !editingProvider.baseUrl?.trim()" @click="saveProvider">
+                    {{ showAddProvider ? '添加' : '保存' }}
+                  </button>
+                </div>
               </div>
             </div>
           </section>

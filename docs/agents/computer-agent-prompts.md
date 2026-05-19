@@ -4,7 +4,7 @@
 
 1. **`COMMUNICATION_SHARED.md`**（若存在）— 桌面截图槽位、原图/标注图/放大图（含 **`[Zoom pointer before action]`**）。
 2. **`COMMUNICATION.md`**（**运行时 slim**）— **Ground rules**；六段 **`Pointer:`** → **`Verify:`** → **Repetition:** → **`Next:`** → **`Location:`** → **`Tool route:`**；**Pointer** 几何以 **`[Zoom pointer before action]`**（**4×**、±**50 px** 裁剪）为准；**Verify** 固定顺序：**`Last automated action:`** → **Before vs after**（唯一读图）→ **Clear evidence**（复述 before/after 的**画面 UI 结果**；禁止 click/无报错/点中等动作叙事）→ **Action type** → **Mouse judgment** → **`Lookup`（三键）→ `Match`（12 行 Verify→Step result 表）→ `Step result` + `Cause`（须与 Match 一致）**；**Next** line 1 再复述 Verify 结论后做 **Verify→Next** 的 Lookup/Match；含 **Required form**、**Mini example**、**Full chain**。
-3. **平台快捷键补充段**（运行时按目标平台自动追加）— 用于约束 `hotkey` 的主修饰键与常见组合（macOS / Windows / Linux 分开维护）。
+3. **平台相关提示词**（运行时按目标平台自动追加，`OS_MACOS.md` / `OS_WINDOWS.md` / `OS_LINUX.md`）— 快捷键约定、**打开应用**步骤、常用路径等（三端分开维护）。
 4. **`AGENT.md` 正文** — 角色与循环要点。
 
 更长展开与历史完整段落见 **`COMMUNICATION_FULL.md`**（**不**随运行时加载，可作编辑参考）。

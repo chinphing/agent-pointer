@@ -31,9 +31,9 @@ const AGENT_SESSION_INJECT: &str = "SESSION_INJECT.md";
 const COMMUNICATION_PUBLIC: &str = include_str!("_shared/COMMUNICATION_PUBLIC.md");
 const COMPUTER_COMMUNICATION_SHARED: &str = include_str!("computer/COMMUNICATION_SHARED.md");
 const COMPUTER_COMMUNICATION_MAIN: &str = include_str!("computer/COMMUNICATION.md");
-const COMPUTER_SHORTCUTS_MACOS: &str = include_str!("computer/SHORTCUTS_MACOS.md");
-const COMPUTER_SHORTCUTS_WINDOWS: &str = include_str!("computer/SHORTCUTS_WINDOWS.md");
-const COMPUTER_SHORTCUTS_LINUX: &str = include_str!("computer/SHORTCUTS_LINUX.md");
+const COMPUTER_OS_PROMPT_MACOS: &str = include_str!("computer/OS_MACOS.md");
+const COMPUTER_OS_PROMPT_WINDOWS: &str = include_str!("computer/OS_WINDOWS.md");
+const COMPUTER_OS_PROMPT_LINUX: &str = include_str!("computer/OS_LINUX.md");
 
 /// Injected on **every** main-LLM and sub-agent round (see `chat_service`).
 pub fn communication_public_md() -> &'static str {
@@ -74,13 +74,13 @@ const BUILTIN_AGENT_BUNDLES: &[BuiltinAgentBundle] = &[
     },
 ];
 
-fn computer_shortcuts_md_for_platform() -> &'static str {
+fn computer_os_prompt_md_for_platform() -> &'static str {
     if cfg!(target_os = "macos") {
-        COMPUTER_SHORTCUTS_MACOS
+        COMPUTER_OS_PROMPT_MACOS
     } else if cfg!(target_os = "windows") {
-        COMPUTER_SHORTCUTS_WINDOWS
+        COMPUTER_OS_PROMPT_WINDOWS
     } else {
-        COMPUTER_SHORTCUTS_LINUX
+        COMPUTER_OS_PROMPT_LINUX
     }
 }
 
@@ -94,9 +94,9 @@ fn builtin_computer_communication() -> String {
     if !main.is_empty() {
         parts.push(main);
     }
-    let platform_shortcuts = computer_shortcuts_md_for_platform().trim();
-    if !platform_shortcuts.is_empty() {
-        parts.push(platform_shortcuts);
+    let os_prompt = computer_os_prompt_md_for_platform().trim();
+    if !os_prompt.is_empty() {
+        parts.push(os_prompt);
     }
     parts.join("\n\n---\n\n")
 }

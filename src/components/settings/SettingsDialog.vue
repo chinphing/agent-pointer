@@ -20,6 +20,14 @@ import {
 } from 'lucide-vue-next'
 import type { AgentDef, ModelRuntimeOverrides, ProviderConfig } from '../../types/chat'
 import { listAgents } from '../../lib/api'
+import { isDeepSeekProvider, isQwenProvider } from '../../lib/providerParams'
+import {
+  buildCustomModelEntryFromProvider,
+  DEFAULT_MODEL_MAX_TOKENS,
+  DEFAULT_MODEL_TEMPERATURE,
+  useRuntimeParams
+} from '../../composables/useRuntimeParams'
+import RuntimeParamsForm from './RuntimeParamsForm.vue'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useSettingsStore } from '../../stores/settings'
 
@@ -29,9 +37,6 @@ const s = useSettingsStore()
 const saving = ref(false)
 const activeSection = ref('provider')
 const copiedKey = ref(false)
-
-const DEFAULT_MODEL_TEMPERATURE = 0.7
-const DEFAULT_MODEL_MAX_TOKENS = 2048
 
 const toolApprovalMode = ref<'auto' | 'manual'>('auto')
 const agentMode = ref<'single' | 'supervisor'>('single')
@@ -55,12 +60,18 @@ const editingModelsText = ref('')
 const originalApiKey = ref('')
 const editingApiKey = ref('')
 
-const providerExtraBodyText = ref('')
-const providerExtraBodyError = ref('')
-const modelExtraBodyTexts = ref<Record<string, string>>({})
-const modelExtraBodyErrors = ref<Record<string, string>>({})
 const modelConfigModalId = ref<string | null>(null)
 const modelConfigModalError = ref('')
+/** 固定为 null：providerRuntimeApi 绑定服务商级默认，勿与 modelConfigModalId 混用。 */
+const providerScopeModelId = ref<string | null>(null)
+
+const globalGenFallback = {
+  temperature: () => s.settings.temperature,
+  maxTokens: () => s.settings.maxTokens
+}
+
+const providerRuntimeApi = useRuntimeParams(editingProvider, providerScopeModelId, globalGenFallback)
+const modelRuntimeApi = useRuntimeParams(editingProvider, modelConfigModalId, globalGenFallback)
 
 function maskKey(key: string): string {
   if (!key) return ''
@@ -84,6 +95,7 @@ function providerKeyDisplay(key: string): string {
   return key ? maskKey(key) : '未配置'
 }
 
+/** 浅拷贝 modelConfigs；写入时须先 clone 再赋回 editingProvider，勿在 template 渲染中创建条目（会死循环）。 */
 function cloneModelConfigs(p?: ProviderConfig['modelConfigs']): NonNullable<ProviderConfig['modelConfigs']> {
   const src = p ?? {}
   const out: Record<string, ModelRuntimeOverrides> = {}
@@ -93,127 +105,19 @@ function cloneModelConfigs(p?: ProviderConfig['modelConfigs']): NonNullable<Prov
   return out
 }
 
-function extraBodyMeaningful(v: unknown): boolean {
-  if (v == null) return false
-  if (typeof v === 'object' && !Array.isArray(v)) return Object.keys(v as object).length > 0
-  return true
-}
 
 function modelConfigHasAny(o: ModelRuntimeOverrides): boolean {
   return (
     o.reasoningInMessages !== undefined
     || o.temperature !== undefined
     || o.maxTokens !== undefined
-    || extraBodyMeaningful(o.extraBody)
+    || o.enableThinking !== undefined
+    || o.thinkingBudget !== undefined
+    || o.reasoningEffort !== undefined
   )
 }
 
-function fallbackModelTemperature(): number {
-  const t = s.settings.temperature
-  return Number.isFinite(t) && t >= 0 ? t : DEFAULT_MODEL_TEMPERATURE
-}
 
-function fallbackModelMaxTokens(): number {
-  const n = s.settings.maxTokens
-  return n && n >= 64 ? n : DEFAULT_MODEL_MAX_TOKENS
-}
-
-function ensureModelConfigEntry(modelId: string): ModelRuntimeOverrides {
-  if (!editingProvider.value) return {}
-  let prev = editingProvider.value.modelConfigs?.[modelId]
-  if (!prev) {
-    const next: ModelRuntimeOverrides = {
-      temperature: fallbackModelTemperature(),
-      maxTokens: fallbackModelMaxTokens()
-    }
-    editingProvider.value.modelConfigs = {
-      ...(editingProvider.value.modelConfigs ?? {}),
-      [modelId]: next
-    }
-    prev = next
-  } else {
-    const next = { ...prev }
-    let changed = false
-    if (next.temperature === undefined) {
-      next.temperature = fallbackModelTemperature()
-      changed = true
-    }
-    if (next.maxTokens === undefined) {
-      next.maxTokens = fallbackModelMaxTokens()
-      changed = true
-    }
-    if (changed) {
-      editingProvider.value.modelConfigs = {
-        ...(editingProvider.value.modelConfigs ?? {}),
-        [modelId]: next
-      }
-      prev = next
-    }
-  }
-  return prev!
-}
-
-function modelTemperature(modelId: string): number {
-  return ensureModelConfigEntry(modelId).temperature ?? fallbackModelTemperature()
-}
-
-function modelMaxTokens(modelId: string): number {
-  return ensureModelConfigEntry(modelId).maxTokens ?? fallbackModelMaxTokens()
-}
-
-function setModelTemperature(modelId: string, value: number) {
-  if (!editingProvider.value) return
-  const entry = ensureModelConfigEntry(modelId)
-  entry.temperature = Math.min(2, Math.max(0, Number(value)))
-}
-
-function setModelMaxTokens(modelId: string, value: number) {
-  if (!editingProvider.value) return
-  const entry = ensureModelConfigEntry(modelId)
-  entry.maxTokens = Math.min(32768, Math.max(64, Math.round(Number(value))))
-}
-
-function stableStringifyExtraBody(v: unknown): string {
-  if (!extraBodyMeaningful(v)) return ''
-  try {
-    return JSON.stringify(v, null, 2)
-  } catch {
-    return ''
-  }
-}
-
-/** Empty string → ok with undefined value (omit). */
-function parseExtraBodyJson(
-  raw: string
-): { ok: true; value?: Record<string, unknown> } | { ok: false; message: string } {
-  const t = raw.trim()
-  if (!t) return { ok: true, value: undefined }
-  try {
-    const v = JSON.parse(t) as unknown
-    if (v === null || typeof v !== 'object' || Array.isArray(v)) {
-      return { ok: false, message: '须为 JSON 对象' }
-    }
-    return { ok: true, value: v as Record<string, unknown> }
-  } catch {
-    return { ok: false, message: 'JSON 格式无效' }
-  }
-}
-
-function syncExtraBodyDrafts() {
-  if (!editingProvider.value) return
-  providerExtraBodyError.value = ''
-  modelExtraBodyErrors.value = {}
-  providerExtraBodyText.value = stableStringifyExtraBody(editingProvider.value.extraBody)
-  const mids = editingModelsText.value
-    .split(',')
-    .map(m => m.trim())
-    .filter(m => m.length > 0)
-  const next: Record<string, string> = {}
-  for (const mid of mids) {
-    next[mid] = stableStringifyExtraBody(editingProvider.value.modelConfigs?.[mid]?.extraBody)
-  }
-  modelExtraBodyTexts.value = next
-}
 
 const editingParsedModelIds = computed(() =>
   editingModelsText.value
@@ -222,31 +126,37 @@ const editingParsedModelIds = computed(() =>
     .filter(m => m.length > 0)
 )
 
-function modelReasoningMode(modelId: string): 'inherit' | 'on' | 'off' {
-  if (!editingProvider.value) return 'inherit'
-  const o = editingProvider.value.modelConfigs?.[modelId]?.reasoningInMessages
-  if (o === undefined) return 'inherit'
-  return o ? 'on' : 'off'
+function modelConfigMode(modelId: string): 'same' | 'custom' {
+  return editingProvider.value?.modelConfigs?.[modelId] ? 'custom' : 'same'
 }
 
-function hasModelOverrides(modelId: string): boolean {
-  const mc = editingProvider.value?.modelConfigs?.[modelId]
-  if (!mc) return false
-  return modelConfigHasAny(mc)
+function setModelConfigMode(modelId: string, mode: 'same' | 'custom') {
+  if (!editingProvider.value) return
+  if (mode === 'same') {
+    // 必须整体替换 modelConfigs 对象，勿 delete 后省略赋回或就地改嵌套字段。
+    const next = { ...(editingProvider.value.modelConfigs ?? {}) }
+    delete next[modelId]
+    editingProvider.value.modelConfigs = next
+    if (modelConfigModalId.value === modelId) {
+      closeModelConfigModal()
+    }
+    return
+  }
+  if (!editingProvider.value.modelConfigs?.[modelId]) {
+    editingProvider.value.modelConfigs = {
+      ...(editingProvider.value.modelConfigs ?? {}),
+      [modelId]: buildCustomModelEntryFromProvider(editingProvider.value, globalGenFallback)
+    }
+  }
 }
 
 function openModelConfigModal(modelId: string) {
-  if (!editingProvider.value) return
+  if (!editingProvider.value || modelConfigMode(modelId) !== 'custom') return
   modelConfigModalError.value = ''
-  ensureModelConfigEntry(modelId)
-  modelConfigModalId.value = modelId
-  modelExtraBodyTexts.value = {
-    ...modelExtraBodyTexts.value,
-    [modelId]: stableStringifyExtraBody(editingProvider.value.modelConfigs?.[modelId]?.extraBody)
+  if (!editingProvider.value.modelConfigs?.[modelId]) {
+    setModelConfigMode(modelId, 'custom')
   }
-  const ne = { ...modelExtraBodyErrors.value }
-  delete ne[modelId]
-  modelExtraBodyErrors.value = ne
+  modelConfigModalId.value = modelId
 }
 
 function closeModelConfigModal() {
@@ -255,58 +165,8 @@ function closeModelConfigModal() {
 }
 
 function confirmModelConfigModal() {
-  const mid = modelConfigModalId.value
-  if (!mid) return
-  const raw = modelExtraBodyTexts.value[mid] ?? ''
-  const r = parseExtraBodyJson(raw)
-  if (!r.ok) {
-    modelConfigModalError.value = r.message
-    return
-  }
   modelConfigModalError.value = ''
-  const ne = { ...modelExtraBodyErrors.value }
-  delete ne[mid]
-  modelExtraBodyErrors.value = ne
   modelConfigModalId.value = null
-}
-
-function setModelReasoningMode(modelId: string, mode: 'inherit' | 'on' | 'off') {
-  if (!editingProvider.value) return
-  editingProvider.value.modelConfigs = { ...(editingProvider.value.modelConfigs ?? {}) }
-  const prev = { ...(editingProvider.value.modelConfigs[modelId] ?? {}) }
-  if (mode === 'inherit') {
-    delete prev.reasoningInMessages
-  } else {
-    prev.reasoningInMessages = mode === 'on'
-  }
-  if (!modelConfigHasAny(prev)) {
-    delete editingProvider.value.modelConfigs[modelId]
-  } else {
-    editingProvider.value.modelConfigs[modelId] = prev
-  }
-}
-
-function onProviderExtraBodyInput(e: Event) {
-  providerExtraBodyText.value = (e.target as HTMLTextAreaElement).value
-  providerExtraBodyError.value = ''
-}
-
-function onModelExtraBodyInput(modelId: string, e: Event) {
-  modelExtraBodyTexts.value = {
-    ...modelExtraBodyTexts.value,
-    [modelId]: (e.target as HTMLTextAreaElement).value
-  }
-  const ne = { ...modelExtraBodyErrors.value }
-  delete ne[modelId]
-  modelExtraBodyErrors.value = ne
-  if (modelConfigModalId.value === modelId) {
-    modelConfigModalError.value = ''
-  }
-}
-
-function onProviderReasoningToggle(e: Event) {
-  if (!editingProvider.value) return
-  editingProvider.value.reasoningInMessages = (e.target as HTMLInputElement).checked
 }
 
 function clearMaskedInput(e: Event) {
@@ -403,18 +263,21 @@ function setTaskBoardTrimLocal(agentId: string, enabled: boolean) {
 }
 
 function startEditProvider(provider: ProviderConfig) {
+  // 从 store 拷贝草稿，勿把列表里的 provider 对象直接赋给 editingProvider（保存时会互相覆盖）。
   editingProvider.value = {
     ...provider,
+    models: [...(provider.models ?? [])],
     modelConfigs: cloneModelConfigs(provider.modelConfigs)
   }
   originalApiKey.value = provider.apiKey
   editingApiKey.value = ''
-  editingModelsText.value = provider.models.join(', ')
+  editingModelsText.value = (provider.models ?? []).join(', ')
   showAddProvider.value = false
-  syncExtraBodyDrafts()
 }
 
 function startAddProvider() {
+  const t = s.settings.temperature
+  const n = s.settings.maxTokens
   editingProvider.value = {
     id: '',
     name: '',
@@ -422,16 +285,14 @@ function startAddProvider() {
     apiKey: '',
     models: [],
     reasoningInMessages: true,
+    temperature: Number.isFinite(t) && t >= 0 ? t : DEFAULT_MODEL_TEMPERATURE,
+    maxTokens: n && n >= 64 ? n : DEFAULT_MODEL_MAX_TOKENS,
     modelConfigs: {}
   }
   originalApiKey.value = ''
   editingApiKey.value = ''
   editingModelsText.value = ''
   showAddProvider.value = true
-  providerExtraBodyText.value = ''
-  providerExtraBodyError.value = ''
-  modelExtraBodyTexts.value = {}
-  modelExtraBodyErrors.value = {}
 }
 
 function cancelEditProvider() {
@@ -441,90 +302,88 @@ function cancelEditProvider() {
   modelConfigModalError.value = ''
 }
 
-function saveProvider() {
-  if (!editingProvider.value || !editingProvider.value.id || !editingProvider.value.name || !editingProvider.value.baseUrl) {
-    return
-  }
+/** 将编辑区整理为可写入 store 的快照；勿把 editingProvider 引用直接传给 updateProvider。 */
+function buildProviderSnapshotFromEditor(): ProviderConfig | null {
+  const draft = editingProvider.value
+  if (!draft?.id || !draft.name || !draft.baseUrl) return null
 
-  editingProvider.value.models = editingModelsText.value
+  const models = editingModelsText.value
     .split(',')
     .map(m => m.trim())
     .filter(m => m.length > 0)
 
-  if (editingApiKey.value) {
-    editingProvider.value.apiKey = editingApiKey.value
-  } else if (!showAddProvider.value) {
-    editingProvider.value.apiKey = originalApiKey.value
+  const snapshot: ProviderConfig = {
+    ...draft,
+    models,
+    apiKey: editingApiKey.value
+      ? editingApiKey.value
+      : showAddProvider.value
+        ? draft.apiKey
+        : originalApiKey.value,
+    modelConfigs: { ...(draft.modelConfigs ?? {}) }
   }
 
-  const pEb = parseExtraBodyJson(providerExtraBodyText.value)
-  if (!pEb.ok) {
-    providerExtraBodyError.value = pEb.message
-    return
+  if (!isQwenProvider(snapshot)) {
+    delete snapshot.enableThinking
+    delete snapshot.thinkingBudget
+  } else if (snapshot.enableThinking !== true) {
+    delete snapshot.thinkingBudget
   }
-  providerExtraBodyError.value = ''
-  editingProvider.value.extraBody = pEb.value
-
-  const parsedByModel: Record<string, Record<string, unknown> | undefined> = {}
-  const errModels: Record<string, string> = {}
-  for (const id of editingProvider.value.models) {
-    const raw = modelExtraBodyTexts.value[id] ?? ''
-    const r = parseExtraBodyJson(raw)
-    if (!r.ok) {
-      errModels[id] = r.message
-      continue
-    }
-    parsedByModel[id] = r.value
+  if (!isDeepSeekProvider(snapshot)) {
+    delete snapshot.reasoningEffort
   }
-  if (Object.keys(errModels).length) {
-    modelExtraBodyErrors.value = errModels
-    return
-  }
-  modelExtraBodyErrors.value = {}
-
-  const mc = { ...(editingProvider.value.modelConfigs ?? {}) }
-  for (const id of editingProvider.value.models) {
-    const prev = { ...(mc[id] ?? ensureModelConfigEntry(id)) }
-    const eb = parsedByModel[id]
-    if (eb === undefined || !extraBodyMeaningful(eb)) {
-      delete prev.extraBody
-    } else {
-      prev.extraBody = eb
-    }
-    if (prev.temperature === undefined) prev.temperature = fallbackModelTemperature()
-    if (prev.maxTokens === undefined) prev.maxTokens = fallbackModelMaxTokens()
-    if (!modelConfigHasAny(prev)) {
-      delete mc[id]
-    } else {
-      mc[id] = prev
-    }
-  }
-  editingProvider.value.modelConfigs = { ...mc }
 
   const nextMc: Record<string, ModelRuntimeOverrides> = {}
-  for (const id of editingProvider.value.models) {
-    const o = editingProvider.value.modelConfigs?.[id]
+  const configs = snapshot.modelConfigs ?? {}
+  for (const id of models) {
+    const o = configs[id]
     if (!o) continue
     const clean: ModelRuntimeOverrides = {}
     if (o.reasoningInMessages !== undefined) clean.reasoningInMessages = o.reasoningInMessages
     if (o.temperature !== undefined) clean.temperature = o.temperature
     if (o.maxTokens !== undefined) clean.maxTokens = o.maxTokens
-    if (extraBodyMeaningful(o.extraBody)) clean.extraBody = o.extraBody
+    if (isDeepSeekProvider(snapshot) && o.reasoningEffort !== undefined) {
+      clean.reasoningEffort = o.reasoningEffort
+    }
+    if (isQwenProvider(snapshot) && o.enableThinking !== undefined) {
+      clean.enableThinking = o.enableThinking
+    }
+    if (isQwenProvider(snapshot) && o.enableThinking === true && o.thinkingBudget !== undefined) {
+      clean.thinkingBudget = o.thinkingBudget
+    }
     if (Object.keys(clean).length) nextMc[id] = clean
   }
-  editingProvider.value.modelConfigs = nextMc
+  snapshot.modelConfigs = nextMc
+  return snapshot
+}
 
-  if (showAddProvider.value) {
-    s.addProvider(editingProvider.value)
+function saveProvider() {
+  const snapshot = buildProviderSnapshotFromEditor()
+  if (!snapshot) return
+
+  const savedId = snapshot.id
+  const wasAdd = showAddProvider.value
+
+  if (wasAdd) {
+    s.addProvider(snapshot)
   } else {
-    s.updateProvider(editingProvider.value.id, editingProvider.value)
+    s.updateProvider(savedId, snapshot)
   }
 
-  editingProvider.value = null
-  showAddProvider.value = false
   modelConfigModalId.value = null
   modelConfigModalError.value = ''
+
+  // 保存后勿将 editingProvider 置 null：编辑区由 v-if="editingProvider" 控制，置空会像「配置界面空白」。
+  // 用 store 里规范化后的副本重新打开编辑区；仅当找不到条目时才关闭表单。
+  const saved = s.settings.providers.find(p => p.id === savedId)
+  if (saved) {
+    startEditProvider(saved)
+  } else {
+    editingProvider.value = null
+    showAddProvider.value = false
+  }
 }
+
 
 function removeProvider(id: string) {
   s.removeProvider(id)
@@ -675,7 +534,8 @@ async function saveAll() {
                     <div class="mt-1 flex items-center gap-3 text-[11px] text-slate-500">
                       <span>密钥：{{ providerKeyDisplay(p.apiKey) }}</span>
                       <span class="text-white/10">|</span>
-                      <span>模型：{{ p.models.length ? p.models.length + ' 个' : '未配置' }}</span>
+                      <!-- models 须 optional chain：normalize 前旧数据可能缺该字段，直接 .length 会导致整页白屏 -->
+                      <span>模型：{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个` : '未配置' }}</span>
                     </div>
                   </div>
                   <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -732,39 +592,12 @@ async function saveAll() {
                 </div>
                 <div class="col-span-2">
                   <label class="block text-[12px] text-slate-400 mb-1.5">模型列表</label>
-                  <input v-model="editingModelsText" type="text" class="w-full h-9 px-3 rounded-lg bg-black/30 border border-white/10 text-sm text-slate-100 outline-none focus:border-primary/50 transition-colors" placeholder="model-1, model-2, model-3" @blur="syncExtraBodyDrafts" />
+                  <input v-model="editingModelsText" type="text" class="w-full h-9 px-3 rounded-lg bg-black/30 border border-white/10 text-sm text-slate-100 outline-none focus:border-primary/50 transition-colors" placeholder="model-1, model-2, model-3"  />
                 </div>
                 <div class="col-span-2 rounded-lg border border-white/5 bg-black/20 p-4 space-y-3">
                   <h5 class="text-[12px] font-medium text-slate-200">模型参数</h5>
-                  <p class="text-[11px] text-slate-500">服务商级默认；下列各模型可单独改。续写回传与「思考模式」开关不是同一项。</p>
-                  <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0 pr-2">
-                      <span class="text-[12px] text-slate-400">续写时回传推理片段</span>
-                      <p class="mt-1 text-[11px] text-slate-600 leading-snug">多轮时是否把模型已返回的推理片段再发给接口；要开「思考模式」请看下方扩展参数（JSON）。</p>
-                    </div>
-                    <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
-                      <input
-                        type="checkbox"
-                        class="sr-only peer"
-                        :checked="editingProvider.reasoningInMessages !== false"
-                        @change="onProviderReasoningToggle"
-                      />
-                      <div class="w-9 h-5 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-cyan"></div>
-                    </label>
-                  </div>
-                  <div class="pt-2 border-t border-white/5 space-y-1">
-                    <label class="block text-[11px] text-slate-500">默认扩展参数（JSON，可留空）</label>
-                    <textarea
-                      :value="providerExtraBodyText"
-                      rows="4"
-                      spellcheck="false"
-                      class="w-full min-h-[5rem] px-2 py-2 rounded-lg bg-black/30 border text-slate-200 text-[11px] font-mono outline-none focus:border-primary/50"
-                      :class="providerExtraBodyError ? 'border-red-500/60' : 'border-white/10'"
-                      placeholder='{"enable_thinking":true}'
-                      @input="onProviderExtraBodyInput"
-                    />
-                    <p v-if="providerExtraBodyError" class="text-[11px] text-red-400">{{ providerExtraBodyError }}</p>
-                  </div>
+                  <p class="text-[11px] text-slate-500">服务商级默认；各模型可选「同上」或「定制」。</p>
+                  <RuntimeParamsForm :api="providerRuntimeApi" />
                   <div v-if="editingParsedModelIds.length" class="pt-2 border-t border-white/5 space-y-1.5">
                     <div class="text-[11px] text-slate-500">各模型</div>
                     <ul class="rounded-lg border border-white/5 bg-black/15 divide-y divide-white/5 overflow-hidden">
@@ -774,13 +607,27 @@ async function saveAll() {
                         class="flex items-center gap-2 px-3 py-2 min-h-10"
                       >
                         <span class="flex-1 min-w-0 font-mono text-[12px] text-slate-300 truncate" :title="mid">{{ mid }}</span>
-                        <span v-if="hasModelOverrides(mid)" class="shrink-0 text-[10px] text-slate-500">已调整</span>
+                        <div class="inline-flex rounded-lg bg-black/30 border border-white/10 p-0.5 shrink-0">
+                          <button
+                            type="button"
+                            class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors"
+                            :class="modelConfigMode(mid) === 'same' ? 'bg-white/15 text-slate-100' : 'text-slate-500 hover:text-slate-300'"
+                            @click="setModelConfigMode(mid, 'same')"
+                          >同上</button>
+                          <button
+                            type="button"
+                            class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors"
+                            :class="modelConfigMode(mid) === 'custom' ? 'bg-white/15 text-slate-100' : 'text-slate-500 hover:text-slate-300'"
+                            @click="setModelConfigMode(mid, 'custom')"
+                          >定制</button>
+                        </div>
                         <button
+                          v-if="modelConfigMode(mid) === 'custom'"
                           type="button"
                           class="shrink-0 h-7 px-2.5 rounded-md bg-white/5 hover:bg-white/10 text-[11px] text-slate-200 cursor-pointer transition-colors"
                           @click="openModelConfigModal(mid)"
                         >
-                          配置
+                          设置
                         </button>
                       </li>
                     </ul>
@@ -803,14 +650,15 @@ async function saveAll() {
               <h3 class="text-sm font-semibold text-slate-100 flex items-center gap-2">
                 <Gauge class="w-4 h-4 text-primary-cyan" />生成参数
               </h3>
-              <p class="mt-0.5 text-xs text-slate-500">创造性、最大输出长度等按模型单独配置</p>
+              <p class="mt-0.5 text-xs text-slate-500">创造性、最大输出等可在服务商级设默认，也可按模型定制</p>
             </div>
 
             <div class="rounded-xl border border-white/5 bg-black/20 p-4 text-[12px] text-slate-400 leading-relaxed">
-              请在 <span class="text-slate-200">模型服务</span> 中编辑服务商，在「各模型」列表里点击
-              <span class="text-slate-200">配置</span>，为每个模型设置
-              <span class="text-slate-200">创造性</span> 与
-              <span class="text-slate-200">最大输出长度</span>。
+              请在 <span class="text-slate-200">模型服务</span> 中编辑服务商，配置
+              <span class="text-slate-200">创造性</span>、
+              <span class="text-slate-200">最大输出</span> 等默认项；在「各模型」选择
+              <span class="text-slate-200">定制</span> 后点
+              <span class="text-slate-200">设置</span> 可单独覆盖。
               当前会话模型：
               <span class="font-mono text-primary-cyan">{{ s.settings.model }}</span>
               （创造性 {{ s.effectiveTemperature }}，最大输出 {{ s.effectiveMaxTokens }} tokens）。
@@ -1109,59 +957,7 @@ async function saveAll() {
             <X class="w-4 h-4" />
           </button>
         </div>
-        <div>
-          <label class="block text-[11px] text-slate-500 mb-1">续写回传推理片段</label>
-          <select
-            class="w-full h-9 px-2 rounded-lg bg-black/30 border border-white/10 text-slate-200 text-[13px] outline-none focus:border-primary/50"
-            :value="modelReasoningMode(modelConfigModalId)"
-            @change="setModelReasoningMode(modelConfigModalId, ($event.target as HTMLSelectElement).value as 'inherit' | 'on' | 'off')"
-          >
-            <option value="inherit">跟随服务商默认</option>
-            <option value="on">回传</option>
-            <option value="off">不回传</option>
-          </select>
-        </div>
-        <div>
-          <div class="flex items-center justify-between mb-2">
-            <label class="text-[11px] text-slate-500">创造性</label>
-            <span class="text-sm font-mono text-primary-cyan">{{ modelTemperature(modelConfigModalId) }}</span>
-          </div>
-          <input
-            type="range"
-            min="0"
-            max="2"
-            step="0.1"
-            class="w-full accent-[#7C3AED]"
-            :value="modelTemperature(modelConfigModalId)"
-            @input="setModelTemperature(modelConfigModalId, Number(($event.target as HTMLInputElement).value))"
-          />
-        </div>
-        <div>
-          <label class="block text-[11px] text-slate-500 mb-1">最大输出长度（tokens）</label>
-          <input
-            type="number"
-            min="64"
-            max="32768"
-            step="64"
-            class="w-full h-9 px-2 rounded-lg bg-black/30 border border-white/10 text-slate-200 text-[13px] outline-none focus:border-primary/50"
-            :value="modelMaxTokens(modelConfigModalId)"
-            @input="setModelMaxTokens(modelConfigModalId, Number(($event.target as HTMLInputElement).value))"
-          />
-        </div>
-        <div>
-          <label class="block text-[11px] text-slate-500 mb-1">扩展参数（JSON，可留空）</label>
-          <textarea
-            :value="modelExtraBodyTexts[modelConfigModalId] ?? ''"
-            rows="5"
-            spellcheck="false"
-            class="w-full min-h-[6rem] px-2 py-2 rounded-lg bg-black/30 border text-slate-200 text-[11px] font-mono outline-none focus:border-primary/50"
-            :class="modelExtraBodyErrors[modelConfigModalId] ? 'border-red-500/60' : 'border-white/10'"
-            placeholder='{"thinking_budget":500}'
-            @input="onModelExtraBodyInput(modelConfigModalId, $event)"
-          />
-          <p v-if="modelExtraBodyErrors[modelConfigModalId]" class="text-[11px] text-red-400 mt-1">{{ modelExtraBodyErrors[modelConfigModalId] }}</p>
-          <p v-if="modelConfigModalError" class="text-[11px] text-red-400 mt-1">{{ modelConfigModalError }}</p>
-        </div>
+        <RuntimeParamsForm v-if="modelConfigModalId" :api="modelRuntimeApi" />
         <div class="flex items-center justify-end gap-2 pt-1">
           <button type="button" class="h-8 px-4 rounded-lg bg-white/5 hover:bg-white/10 text-sm text-slate-300 cursor-pointer transition-colors" @click="closeModelConfigModal">取消</button>
           <button type="button" class="h-8 px-4 rounded-lg bg-gradient-to-r from-primary to-primary-fuchsia text-white text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity" @click="confirmModelConfigModal">完成</button>

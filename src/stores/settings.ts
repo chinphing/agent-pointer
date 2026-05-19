@@ -28,6 +28,8 @@ const defaultProviders: ProviderConfig[] = [
 function normalizeProvider(p: ProviderConfig, legacyReasoning?: boolean): ProviderConfig {
   return {
     ...p,
+    // 旧数据或异常响应可能缺 models；设置页模板会读 models.length，必须是数组。
+    models: Array.isArray(p.models) ? [...p.models] : [],
     modelConfigs: p.modelConfigs ? { ...p.modelConfigs } : {},
     reasoningInMessages:
       p.reasoningInMessages !== undefined
@@ -104,7 +106,7 @@ export const useSettingsStore = defineStore('settings', () => {
   })
 
   const activeBaseUrl = computed(() => activeProvider.value.baseUrl)
-  const activeModelList = computed(() => activeProvider.value.models)
+  const activeModelList = computed(() => activeProvider.value.models ?? [])
 
   /** Effective reasoning flag for active provider + current `settings.model` (model override wins). */
   const effectiveReasoningInMessages = computed((): boolean => {
@@ -163,7 +165,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const allModels = computed(() => {
     const result: Array<{ model: string; providerId: string; providerName: string }> = []
     for (const p of settings.value.providers) {
-      for (const m of p.models) {
+      for (const m of p.models ?? []) {
         result.push({ model: m, providerId: p.id, providerName: p.name })
       }
     }
@@ -237,6 +239,8 @@ export const useSettingsStore = defineStore('settings', () => {
     const updated = await updateSettings(merged)
     settings.value = {
       ...updated,
+      // 勿直接信任 API 返回的 providers；缺字段时会导致设置页主区域渲染报错、整页空白。
+      providers: normalizeProviders(updated.providers),
       agentDefaultModels: normalizeAgentDefaultModels(
         updated.agentDefaultModels as Record<string, unknown>,
         updated.activeProviderId
@@ -265,18 +269,34 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function addProvider(provider: ProviderConfig) {
-    settings.value.providers.push(provider)
-    settings.value.activeProviderId = provider.id
-    if (!provider.models.includes(settings.value.model)) {
-      settings.value.model = provider.models[0] || settings.value.model
+    const entry = normalizeProvider(provider)
+    // 用新数组 append，勿 push 编辑中的同一对象引用，避免与 editingProvider 草稿互相污染。
+    settings.value.providers = [...settings.value.providers, entry]
+    settings.value.activeProviderId = entry.id
+    const models = entry.models ?? []
+    if (!models.includes(settings.value.model)) {
+      settings.value.model = models[0] || settings.value.model
     }
   }
 
   function updateProvider(id: string, patch: Partial<ProviderConfig>) {
-    const provider = settings.value.providers.find(p => p.id === id)
-    if (provider) {
-      Object.assign(provider, patch)
-    }
+    const i = settings.value.providers.findIndex(p => p.id === id)
+    if (i < 0) return
+    const prev = settings.value.providers[i]
+    // 勿 Object.assign(provider, patch)：嵌套 modelConfigs 在 Pinia 下可能不触发列表更新。
+    // 须替换 providers[i] 并赋新数组，保证设置页服务商列表与编辑区同步刷新。
+    const next = normalizeProvider({
+      ...prev,
+      ...patch,
+      models: patch.models ?? prev.models ?? [],
+      modelConfigs:
+        patch.modelConfigs !== undefined
+          ? { ...patch.modelConfigs }
+          : { ...(prev.modelConfigs ?? {}) }
+    })
+    const list = [...settings.value.providers]
+    list[i] = next
+    settings.value.providers = list
   }
 
   function removeProvider(id: string) {

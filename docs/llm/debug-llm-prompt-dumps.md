@@ -9,7 +9,7 @@
 
 ## 控制台：打印 OpenAI 兼容请求 JSON
 
-在发往 `POST {base}/chat/completions` **之前**，可将**与请求体一致的** JSON（`model`、`messages`、`stream`、`temperature`、`max_tokens`、`extra_body`）打到 **info** 日志（stderr + 轮转日志文件）。
+在发往 `POST {base}/chat/completions` **之前**，可将**与请求体一致的** JSON（`model`、`messages`、`stream`、`temperature`、`max_tokens`；千问/DeepSeek 扩展键在根级）打到 **info** 日志（stderr + 轮转日志文件）。
 
 - **开启方式**（满足其一即可）：
   1. 与上文「LLM 请求落盘」相同：设置里打开「保存每轮对话请求」，或 `POINTER_DEBUG_LLM_PROMPTS=1`。
@@ -22,7 +22,7 @@
 
 - 目录：`{应用数据目录}/logs/llm_prompts/`
 - 文件：`{unix_ms}_{uuid}.json`
-- 内容：包含时间戳、阶段标签、模型名、流式/温度/max tokens、**合并后的** `extraBody`（与发往 chat/completions 的 `extra_body` 一致），以及 `messages` 等；消息里过长的 `data:image/...` 会替换为占位说明以控制体积。
+- 内容：包含时间戳、阶段标签、模型名、流式/温度/max tokens、**合并后的扩展参数**（与线上一致，在根级），以及 `messages` 等；消息里过长的 `data:image/...` 会替换为占位说明以控制体积。
 
 实现见 `crates/pointer-core/src/llm_prompt_dump.rs`。
 

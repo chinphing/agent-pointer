@@ -134,9 +134,15 @@ pub struct ModelRuntimeOverrides {
     pub temperature: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "maxTokens")]
     pub max_tokens: Option<u32>,
-    /// Serialized as chat/completions top-level `extra_body` (JSON object). Shallow-merged over the provider default for the active model.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "extraBody")]
-    pub extra_body: Option<Value>,
+    /// Qwen: `enable_thinking` on the chat/completions request.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "enableThinking")]
+    pub enable_thinking: Option<bool>,
+    /// Qwen: `thinking_budget` when deep thinking is enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "thinkingBudget")]
+    pub thinking_budget: Option<u32>,
+    /// DeepSeek: `reasoning_effort` — `high` or `max`.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "reasoningEffort")]
+    pub reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,12 +157,24 @@ pub struct ProviderConfig {
     /// Default for all models under this provider when `model_configs[model]` has no override.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "reasoningInMessages")]
     pub reasoning_in_messages: Option<bool>,
+    /// Default creativity when a model has no per-model `temperature`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    /// Default max output tokens when a model has no per-model `max_tokens`.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "maxTokens")]
+    pub max_tokens: Option<u32>,
     /// Key = model id string (same as entries in `models`). Values override provider default.
     #[serde(default, rename = "modelConfigs")]
     pub model_configs: HashMap<String, ModelRuntimeOverrides>,
-    /// Default `extra_body` for chat/completions (JSON object). Merged shallowly with the active model’s `modelConfigs[model].extraBody` when set.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "extraBody")]
-    pub extra_body: Option<Value>,
+    /// Qwen: default `enable_thinking` for models without a per-model override.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "enableThinking")]
+    pub enable_thinking: Option<bool>,
+    /// Qwen: default `thinking_budget` when deep thinking is enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "thinkingBudget")]
+    pub thinking_budget: Option<u32>,
+    /// DeepSeek: default `reasoning_effort` — `high` or `max`.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "reasoningEffort")]
+    pub reasoning_effort: Option<String>,
 }
 
 /// Whether to persist/stream reasoning and send `reasoning_content` on the next request,
@@ -181,6 +199,8 @@ pub fn effective_reasoning_in_messages(settings: &ModelSettings) -> bool {
 
 pub const DEFAULT_MODEL_TEMPERATURE: f32 = 0.7;
 pub const DEFAULT_MODEL_MAX_TOKENS: u32 = 2048;
+/// Qwen `thinking_budget` when deep thinking is enabled and no explicit budget is set.
+pub const DEFAULT_THINKING_BUDGET: u32 = 2048;
 
 fn active_provider_and_model<'a>(
     settings: &'a ModelSettings,
@@ -207,6 +227,9 @@ pub fn effective_temperature(settings: &ModelSettings) -> f32 {
         {
             return t;
         }
+        if let Some(t) = p.temperature {
+            return t;
+        }
     }
     if settings.temperature.is_finite() && settings.temperature >= 0.0 {
         settings.temperature
@@ -221,19 +244,24 @@ pub fn effective_max_tokens(settings: &ModelSettings) -> u32 {
         if let Some(n) = p.model_configs.get(model).and_then(|o| o.max_tokens) {
             return n.max(64);
         }
+        if let Some(n) = p.max_tokens {
+            return n.max(64);
+        }
     }
     settings.max_tokens.max(64)
 }
 
 /// Ensure each listed model has per-model generation params (migrate legacy global values).
 pub fn ensure_model_generation_defaults(settings: &mut ModelSettings) {
-    let fallback_temp = if settings.temperature.is_finite() && settings.temperature >= 0.0 {
+    let global_temp = if settings.temperature.is_finite() && settings.temperature >= 0.0 {
         settings.temperature
     } else {
         DEFAULT_MODEL_TEMPERATURE
     };
-    let fallback_max = settings.max_tokens.max(64);
+    let global_max = settings.max_tokens.max(64);
     for provider in &mut settings.providers {
+        let fallback_temp = provider.temperature.unwrap_or(global_temp);
+        let fallback_max = provider.max_tokens.unwrap_or(global_max).max(64);
         let model_ids: Vec<String> = provider.models.clone();
         for model in model_ids {
             let mid = model.trim();
@@ -294,20 +322,154 @@ pub fn merge_shallow_json_objects(base: Option<&Value>, overlay: Option<&Value>)
     }
 }
 
-/// Merged `extra_body` for **active** provider + **current** `settings.model` (model object keys win).
+fn normalize_reasoning_effort(s: &str) -> Option<String> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "high" => Some("high".into()),
+        "max" => Some("max".into()),
+        _ => None,
+    }
+}
+
+fn effective_enable_thinking(
+    provider: &ProviderConfig,
+    model_over: Option<&ModelRuntimeOverrides>,
+) -> Option<bool> {
+    model_over
+        .and_then(|o| o.enable_thinking)
+        .or(provider.enable_thinking)
+}
+
+fn effective_thinking_budget(
+    provider: &ProviderConfig,
+    model_over: Option<&ModelRuntimeOverrides>,
+) -> u32 {
+    model_over
+        .and_then(|o| o.thinking_budget)
+        .or(provider.thinking_budget)
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_THINKING_BUDGET)
+}
+
+fn effective_reasoning_effort(
+    provider: &ProviderConfig,
+    model_over: Option<&ModelRuntimeOverrides>,
+) -> Option<String> {
+    model_over
+        .and_then(|o| o.reasoning_effort.as_deref())
+        .or(provider.reasoning_effort.as_deref())
+        .and_then(|s| normalize_reasoning_effort(s))
+}
+
+/// Extension fields for **active** provider + **current** `settings.model` (per-model overrides win).
 pub fn effective_chat_extra_body(settings: &ModelSettings) -> Option<Value> {
-    let provider = settings
-        .providers
-        .iter()
-        .find(|p| p.id == settings.active_provider_id)
-        .or_else(|| settings.providers.first())?;
-    let model = settings.model.trim();
-    let prov = provider.extra_body.as_ref();
-    let mdl = provider
-        .model_configs
-        .get(model)
-        .and_then(|x| x.extra_body.as_ref());
-    merge_shallow_json_objects(prov, mdl)
+    let (provider, model) = active_provider_and_model(settings)?;
+    let model_over = provider.model_configs.get(model);
+    let mut m = Map::new();
+
+    if provider_uses_dashscope_compatible_api(provider) {
+        if let Some(enable) = effective_enable_thinking(provider, model_over) {
+            m.insert("enable_thinking".into(), Value::Bool(enable));
+            if enable {
+                m.insert(
+                    "thinking_budget".into(),
+                    Value::Number(effective_thinking_budget(provider, model_over).into()),
+                );
+            }
+        }
+    }
+
+    if provider_uses_deepseek_api(provider) {
+        if let Some(effort) = effective_reasoning_effort(provider, model_over) {
+            m.insert("reasoning_effort".into(), Value::String(effort));
+        }
+    }
+
+    if m.is_empty() {
+        None
+    } else {
+        Some(Value::Object(m))
+    }
+}
+
+/// Absorb legacy `extraBody` JSON and `thinkingEnabled` / `thinkingBudget` into structured fields.
+pub fn absorb_legacy_extension_config(
+    enable_thinking: &mut Option<bool>,
+    thinking_budget: &mut Option<u32>,
+    reasoning_effort: &mut Option<String>,
+    legacy_enable: Option<bool>,
+    legacy_budget: Option<u32>,
+    extra_body: Option<Value>,
+) {
+    if enable_thinking.is_none() {
+        if let Some(b) = legacy_enable {
+            *enable_thinking = Some(b);
+        }
+    }
+    if thinking_budget.is_none() {
+        if let Some(n) = legacy_budget.filter(|&n| n > 0) {
+            *thinking_budget = Some(n);
+        }
+    }
+    let Some(Value::Object(o)) = extra_body else {
+        return;
+    };
+    if enable_thinking.is_none() {
+        if let Some(b) = o.get("enable_thinking").and_then(|v| v.as_bool()) {
+            *enable_thinking = Some(b);
+        }
+    }
+    if thinking_budget.is_none() {
+        if let Some(n) = o.get("thinking_budget").and_then(|v| v.as_u64()) {
+            *thinking_budget = Some(n as u32);
+        }
+    }
+    if reasoning_effort.is_none() {
+        if let Some(s) = o
+            .get("reasoning_effort")
+            .and_then(|v| v.as_str())
+            .and_then(|s| normalize_reasoning_effort(s))
+        {
+            *reasoning_effort = Some(s);
+        }
+    }
+}
+
+/// DashScope / DeepSeek：扩展参数写在请求体根级，不用 `extra_body` 包裹。
+pub fn chat_request_flattens_extra_body(settings: &ModelSettings) -> bool {
+    let Some((provider, _)) = active_provider_and_model(settings) else {
+        return false;
+    };
+    provider_uses_dashscope_compatible_api(provider) || provider_uses_deepseek_api(provider)
+}
+
+pub fn provider_uses_deepseek_api(provider: &ProviderConfig) -> bool {
+    if provider.id.eq_ignore_ascii_case("deepseek") {
+        return true;
+    }
+    provider
+        .base_url
+        .to_ascii_lowercase()
+        .contains("api.deepseek.com")
+}
+
+/// When [`chat_request_flattens_extra_body`], lift `extra_body` object keys to the request root.
+pub fn flatten_chat_extra_body_on_wire(mut body: Value, settings: &ModelSettings) -> Value {
+    if !chat_request_flattens_extra_body(settings) {
+        return body;
+    }
+    let Value::Object(ref mut map) = body else {
+        return body;
+    };
+    let Some(extra) = map.remove("extra_body") else {
+        return body;
+    };
+    let Value::Object(extra_map) = extra else {
+        return body;
+    };
+    for (k, v) in extra_map {
+        map.entry(k).or_insert(v);
+    }
+    body
 }
 
 /// Per-agent default LLM routing: explicit provider + model (no inferring provider from model id).
@@ -503,8 +665,12 @@ impl Default for ModelSettings {
                         "qwen3.5-27b".into(),
                     ],
                     reasoning_in_messages: None,
+                    temperature: None,
+                    max_tokens: None,
                     model_configs: HashMap::new(),
-                    extra_body: None,
+                    enable_thinking: None,
+                    thinking_budget: None,
+                    reasoning_effort: None,
                 },
                 ProviderConfig {
                     id: "deepseek".into(),
@@ -513,8 +679,12 @@ impl Default for ModelSettings {
                     api_key: String::new(),
                     models: vec!["deepseek-v4-flash".into(), "deepseek-v4-pro".into()],
                     reasoning_in_messages: Some(true),
+                    temperature: None,
+                    max_tokens: None,
                     model_configs: HashMap::new(),
-                    extra_body: None,
+                    enable_thinking: None,
+                    thinking_budget: None,
+                    reasoning_effort: None,
                 },
             ],
             active_provider_id: "qwen".into(),
@@ -1445,6 +1615,24 @@ mod effective_generation_tests {
     use super::*;
 
     #[test]
+    fn effective_temperature_provider_default() {
+        let mut s = ModelSettings::default();
+        s.model = "qwen3.5-plus".into();
+        s.temperature = 0.2;
+        s.providers[0].temperature = Some(0.9);
+        assert!((effective_temperature(&s) - 0.9).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn effective_max_tokens_provider_default() {
+        let mut s = ModelSettings::default();
+        s.model = "qwen3.5-plus".into();
+        s.max_tokens = 512;
+        s.providers[0].max_tokens = Some(8192);
+        assert_eq!(effective_max_tokens(&s), 8192);
+    }
+
+    #[test]
     fn effective_temperature_model_override() {
         let mut s = ModelSettings::default();
         s.model = "qwen3.5-plus".into();
@@ -1503,12 +1691,13 @@ mod effective_extra_body_tests {
     fn merge_provider_then_model() {
         let mut s = ModelSettings::default();
         s.model = s.providers[0].models[0].clone();
-        s.providers[0].extra_body = Some(serde_json::json!({"enable_thinking": true, "thinking_budget": 100}));
+        s.providers[0].enable_thinking = Some(true);
+        s.providers[0].thinking_budget = Some(100);
         let m = s.model.clone();
         s.providers[0].model_configs.insert(
             m,
             ModelRuntimeOverrides {
-                extra_body: Some(serde_json::json!({"thinking_budget": 500})),
+                thinking_budget: Some(500),
                 ..Default::default()
             },
         );
@@ -1518,6 +1707,56 @@ mod effective_extra_body_tests {
         assert_eq!(
             o.get("thinking_budget"),
             Some(&Value::Number(500.into()))
+        );
+    }
+
+    #[test]
+    fn deepseek_reasoning_effort_on_wire() {
+        let mut s = ModelSettings::default();
+        s.active_provider_id = "deepseek".into();
+        s.model = "deepseek-v4-flash".into();
+        s.providers[1].reasoning_effort = Some("max".into());
+        let v = effective_chat_extra_body(&s).expect("effort");
+        assert_eq!(
+            v.get("reasoning_effort"),
+            Some(&Value::String("max".into()))
+        );
+    }
+
+    #[test]
+    fn flatten_extra_body_to_root_for_deepseek() {
+        let mut s = ModelSettings::default();
+        s.active_provider_id = "deepseek".into();
+        s.model = "deepseek-v4-flash".into();
+        assert!(chat_request_flattens_extra_body(&s));
+        let body = serde_json::json!({
+            "model": "deepseek-v4-flash",
+            "extra_body": {"reasoning_effort": "high"}
+        });
+        let out = flatten_chat_extra_body_on_wire(body, &s);
+        let o = out.as_object().unwrap();
+        assert!(!o.contains_key("extra_body"));
+        assert_eq!(
+            o.get("reasoning_effort"),
+            Some(&Value::String("high".into()))
+        );
+    }
+
+    #[test]
+    fn flatten_extra_body_to_root_for_qwen() {
+        let s = ModelSettings::default();
+        assert!(chat_request_flattens_extra_body(&s));
+        let body = serde_json::json!({
+            "model": "qwen-plus",
+            "extra_body": {"enable_thinking": true, "thinking_budget": 100}
+        });
+        let out = flatten_chat_extra_body_on_wire(body, &s);
+        let o = out.as_object().unwrap();
+        assert!(!o.contains_key("extra_body"));
+        assert_eq!(o.get("enable_thinking"), Some(&Value::Bool(true)));
+        assert_eq!(
+            o.get("thinking_budget"),
+            Some(&Value::Number(100.into()))
         );
     }
 }

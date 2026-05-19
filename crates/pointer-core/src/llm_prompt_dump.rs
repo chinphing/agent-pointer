@@ -151,7 +151,7 @@ pub fn try_dump_round(
     }
 
     let extra_body = crate::models::effective_chat_extra_body(settings);
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "dumpedAt": Local::now().to_rfc3339(),
         "phase": phase,
         "label": label.unwrap_or(""),
@@ -160,9 +160,15 @@ pub fn try_dump_round(
         "stream": stream,
         "temperature": crate::models::effective_temperature(settings),
         "maxTokens": crate::models::effective_max_tokens(settings),
-        "extraBody": extra_body,
         "messages": msgs,
     });
+    if let Some(Value::Object(extra_map)) = extra_body {
+        if let Value::Object(ref mut map) = body {
+            for (k, v) in extra_map {
+                map.insert(k, v);
+            }
+        }
+    }
 
     match serde_json::to_string_pretty(&body) {
         Ok(s) => match std::fs::write(&path, s) {

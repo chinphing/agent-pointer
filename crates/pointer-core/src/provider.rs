@@ -60,7 +60,7 @@ pub enum ProviderEvent {
 /// 本应用要求 assistant 正文为 **JSON 对象**（`response_format: json_object`），在应用侧解析工具信封；
 /// 不启用服务商原生 function calling。
 ///
-/// 非标准参数通过顶层 `extra_body` 传递（JSON 对象），由服务商或网关解析；与 OpenAI Python SDK 的 `extra_body={...}` 对应。
+/// 扩展参数（千问/DeepSeek 等）在配置侧为结构化字段，序列化后展平到请求体根级。
 fn skip_extra_body(v: &Option<Value>) -> bool {
     match v {
         None => true,
@@ -84,6 +84,11 @@ struct ChatRequest<'a> {
     response_format: Option<Value>,
     #[serde(skip_serializing_if = "skip_extra_body", rename = "extra_body")]
     extra_body: Option<Value>,
+}
+
+fn chat_request_wire_json(req: &ChatRequest<'_>, settings: &ModelSettings) -> Value {
+    let body = serde_json::to_value(req).expect("ChatRequest serializes");
+    crate::models::flatten_chat_extra_body_on_wire(body, settings)
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -273,12 +278,13 @@ impl OpenAIProvider {
             extra_body,
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+        let wire_body = chat_request_wire_json(&req, &self.settings);
         crate::llm_prompt_dump::try_log_openai_chat_request_json(
             &self.settings,
             "chat_once",
             dump_label,
             &url,
-            &req,
+            &wire_body,
         );
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(180))
@@ -288,7 +294,7 @@ impl OpenAIProvider {
             r = client
                 .post(&url)
                 .bearer_auth(&self.api_key)
-                .json(&req)
+                .json(&wire_body)
                 .send() => r?,
         };
         if !resp.status().is_success() {
@@ -370,12 +376,13 @@ impl OpenAIProvider {
         };
 
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+        let wire_body = chat_request_wire_json(&req, &self.settings);
         crate::llm_prompt_dump::try_log_openai_chat_request_json(
             &self.settings,
             "stream_chat",
             dump_label,
             &url,
-            &req,
+            &wire_body,
         );
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(180))
@@ -387,7 +394,7 @@ impl OpenAIProvider {
             r = client
                 .post(&url)
                 .bearer_auth(&self.api_key)
-                .json(&req)
+                .json(&wire_body)
                 .send() => r?,
         };
         let http_until_headers_ms = t_http.elapsed().as_millis();

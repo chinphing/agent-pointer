@@ -111,8 +111,12 @@ export interface ModelRuntimeOverrides {
   reasoningInMessages?: boolean
   temperature?: number
   maxTokens?: number
-  /** Merged into chat request top-level `extra_body` (JSON object); shallow-merge over provider default. */
-  extraBody?: Record<string, unknown>
+  /** Qwen: deep thinking (`enable_thinking` on wire). */
+  enableThinking?: boolean
+  /** Qwen: thinking token budget when `enableThinking` is true. */
+  thinkingBudget?: number
+  /** DeepSeek: `reasoning_effort` — `high` | `max`. */
+  reasoningEffort?: 'high' | 'max'
 }
 
 export interface ProviderConfig {
@@ -123,9 +127,17 @@ export interface ProviderConfig {
   models: string[]
   /** Default for all models under this provider when `modelConfigs[model]` has no override. */
   reasoningInMessages?: boolean
+  /** Default creativity for models without a per-model override. */
+  temperature?: number
+  /** Default max output tokens for models without a per-model override. */
+  maxTokens?: number
   modelConfigs?: Record<string, ModelRuntimeOverrides>
-  /** Default `extra_body` for chat/completions (JSON object). */
-  extraBody?: Record<string, unknown>
+  /** Qwen: deep thinking (`enable_thinking` on wire). */
+  enableThinking?: boolean
+  /** Qwen: thinking token budget when `enableThinking` is true. */
+  thinkingBudget?: number
+  /** DeepSeek: `reasoning_effort` — `high` | `max`. */
+  reasoningEffort?: 'high' | 'max'
 }
 
 export interface AgentModelRef {

@@ -1,6 +1,7 @@
 use crate::models::{
     ensure_agent_model_refs_have_provider, ensure_model_generation_defaults,
-    legacy_thinking_to_extra_body, merge_shallow_json_objects, AgentModelRef, Conversation,
+    absorb_legacy_extension_config, legacy_thinking_to_extra_body, merge_shallow_json_objects,
+    AgentModelRef, Conversation,
     ModelRuntimeOverrides, ModelSettings, ProviderConfig,
 };
 use anyhow::{Context, Result};
@@ -46,13 +47,18 @@ struct StoredModelOverrides {
     temperature: Option<f32>,
     #[serde(default, rename = "maxTokens")]
     max_tokens: Option<u32>,
-    #[serde(default, rename = "extraBody")]
-    extra_body: Option<serde_json::Value>,
-    /// Legacy; merged into `extraBody` on load, not written back.
-    #[serde(default, rename = "thinkingEnabled")]
-    thinking_enabled: Option<bool>,
+    #[serde(default, rename = "enableThinking")]
+    enable_thinking: Option<bool>,
     #[serde(default, rename = "thinkingBudget")]
     thinking_budget: Option<u32>,
+    #[serde(default, rename = "reasoningEffort")]
+    reasoning_effort: Option<String>,
+    /// Legacy; absorbed on load, not written back.
+    #[serde(default, rename = "extraBody")]
+    extra_body: Option<serde_json::Value>,
+    /// Legacy; absorbed on load, not written back.
+    #[serde(default, rename = "thinkingEnabled")]
+    thinking_enabled: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -66,13 +72,22 @@ struct StoredProvider {
     models: Vec<String>,
     #[serde(default, rename = "reasoningInMessages")]
     reasoning_in_messages: Option<bool>,
-    #[serde(default, rename = "extraBody")]
-    extra_body: Option<serde_json::Value>,
-    /// Legacy; merged into `extraBody` on load, cleared on save.
-    #[serde(default, rename = "thinkingEnabled")]
-    thinking_enabled: Option<bool>,
+    #[serde(default)]
+    temperature: Option<f32>,
+    #[serde(default, rename = "maxTokens")]
+    max_tokens: Option<u32>,
+    #[serde(default, rename = "enableThinking")]
+    enable_thinking: Option<bool>,
     #[serde(default, rename = "thinkingBudget")]
     thinking_budget: Option<u32>,
+    #[serde(default, rename = "reasoningEffort")]
+    reasoning_effort: Option<String>,
+    /// Legacy; absorbed on load, not written back.
+    #[serde(default, rename = "extraBody")]
+    extra_body: Option<serde_json::Value>,
+    /// Legacy; absorbed on load, not written back.
+    #[serde(default, rename = "thinkingEnabled")]
+    thinking_enabled: Option<bool>,
     #[serde(default, rename = "modelConfigs")]
     model_configs: HashMap<String, StoredModelOverrides>,
 }
@@ -152,6 +167,68 @@ fn default_raw_content_view_enabled() -> bool {
     true
 }
 
+fn stored_model_overrides_to_runtime(v: &StoredModelOverrides) -> ModelRuntimeOverrides {
+    let mut enable_thinking = v.enable_thinking.or(v.thinking_enabled);
+    let mut thinking_budget = v.thinking_budget;
+    let mut reasoning_effort = v.reasoning_effort.clone();
+    let legacy_extra = merge_shallow_json_objects(
+        legacy_thinking_to_extra_body(v.thinking_enabled, v.thinking_budget).as_ref(),
+        v.extra_body.as_ref(),
+    );
+    absorb_legacy_extension_config(
+        &mut enable_thinking,
+        &mut thinking_budget,
+        &mut reasoning_effort,
+        None,
+        None,
+        legacy_extra,
+    );
+    ModelRuntimeOverrides {
+        reasoning_in_messages: v.reasoning_in_messages,
+        temperature: v.temperature,
+        max_tokens: v.max_tokens,
+        enable_thinking,
+        thinking_budget,
+        reasoning_effort,
+    }
+}
+
+fn stored_provider_to_runtime(p: &StoredProvider, legacy_reasoning: Option<bool>) -> ProviderConfig {
+    let mut enable_thinking = p.enable_thinking.or(p.thinking_enabled);
+    let mut thinking_budget = p.thinking_budget;
+    let mut reasoning_effort = p.reasoning_effort.clone();
+    let legacy_extra = merge_shallow_json_objects(
+        legacy_thinking_to_extra_body(p.thinking_enabled, p.thinking_budget).as_ref(),
+        p.extra_body.as_ref(),
+    );
+    absorb_legacy_extension_config(
+        &mut enable_thinking,
+        &mut thinking_budget,
+        &mut reasoning_effort,
+        None,
+        None,
+        legacy_extra,
+    );
+    ProviderConfig {
+        id: p.id.clone(),
+        name: p.name.clone(),
+        base_url: p.base_url.clone(),
+        api_key: p.api_key.clone(),
+        models: p.models.clone(),
+        reasoning_in_messages: p.reasoning_in_messages.or(legacy_reasoning),
+        temperature: p.temperature,
+        max_tokens: p.max_tokens,
+        model_configs: p
+            .model_configs
+            .iter()
+            .map(|(k, v)| (k.clone(), stored_model_overrides_to_runtime(v)))
+            .collect(),
+        enable_thinking,
+        thinking_budget,
+        reasoning_effort,
+    }
+}
+
 impl Default for StoredSettings {
     fn default() -> Self {
         let s = ModelSettings::default();
@@ -166,6 +243,8 @@ impl Default for StoredSettings {
                     api_key: p.api_key.clone(),
                     models: p.models.clone(),
                     reasoning_in_messages: p.reasoning_in_messages,
+                    temperature: p.temperature,
+                    max_tokens: p.max_tokens,
                     model_configs: p
                         .model_configs
                         .iter()
@@ -176,16 +255,20 @@ impl Default for StoredSettings {
                                     reasoning_in_messages: v.reasoning_in_messages,
                                     temperature: v.temperature,
                                     max_tokens: v.max_tokens,
-                                    extra_body: v.extra_body.clone(),
+                                    enable_thinking: v.enable_thinking,
+                                    thinking_budget: v.thinking_budget,
+                                    reasoning_effort: v.reasoning_effort.clone(),
+                                    extra_body: None,
                                     thinking_enabled: None,
-                                    thinking_budget: None,
                                 },
                             )
                         })
                         .collect(),
-                    extra_body: p.extra_body.clone(),
+                    enable_thinking: p.enable_thinking,
+                    thinking_budget: p.thinking_budget,
+                    reasoning_effort: p.reasoning_effort.clone(),
+                    extra_body: None,
                     thinking_enabled: None,
-                    thinking_budget: None,
                 })
                 .collect(),
             active_provider_id: s.active_provider_id,
@@ -252,36 +335,7 @@ pub fn load_settings() -> Result<ModelSettings> {
     let providers: Vec<ProviderConfig> = stored
         .providers
         .iter()
-        .map(|p| ProviderConfig {
-            id: p.id.clone(),
-            name: p.name.clone(),
-            base_url: p.base_url.clone(),
-            api_key: p.api_key.clone(),
-            models: p.models.clone(),
-            reasoning_in_messages: p.reasoning_in_messages.or(legacy),
-            model_configs: p
-                .model_configs
-                .iter()
-                .map(|(k, v)| {
-                    let leg =
-                        legacy_thinking_to_extra_body(v.thinking_enabled, v.thinking_budget);
-                    let merged = merge_shallow_json_objects(leg.as_ref(), v.extra_body.as_ref());
-                    (
-                        k.clone(),
-                        ModelRuntimeOverrides {
-                            reasoning_in_messages: v.reasoning_in_messages,
-                            temperature: v.temperature,
-                            max_tokens: v.max_tokens,
-                            extra_body: merged,
-                        },
-                    )
-                })
-                .collect(),
-            extra_body: merge_shallow_json_objects(
-                legacy_thinking_to_extra_body(p.thinking_enabled, p.thinking_budget).as_ref(),
-                p.extra_body.as_ref(),
-            ),
-        })
+        .map(|p| stored_provider_to_runtime(p, legacy))
         .collect();
 
     let active_provider_id = if stored.active_provider_id.is_empty() {
@@ -342,27 +396,33 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
                 api_key: p.api_key.clone(),
                 models: p.models.clone(),
                 reasoning_in_messages: p.reasoning_in_messages,
+                temperature: p.temperature,
+                max_tokens: p.max_tokens,
                 model_configs: p
                     .model_configs
                     .iter()
                     .map(|(k, v)| {
                         (
                             k.clone(),
-                                StoredModelOverrides {
-                                    reasoning_in_messages: v.reasoning_in_messages,
-                                    temperature: v.temperature,
-                                    max_tokens: v.max_tokens,
-                                    extra_body: v.extra_body.clone(),
-                                    thinking_enabled: None,
-                                    thinking_budget: None,
-                                },
-                            )
-                        })
-                        .collect(),
-                    extra_body: p.extra_body.clone(),
-                    thinking_enabled: None,
-                    thinking_budget: None,
-                })
+                            StoredModelOverrides {
+                                reasoning_in_messages: v.reasoning_in_messages,
+                                temperature: v.temperature,
+                                max_tokens: v.max_tokens,
+                                enable_thinking: v.enable_thinking,
+                                thinking_budget: v.thinking_budget,
+                                reasoning_effort: v.reasoning_effort.clone(),
+                                extra_body: None,
+                                thinking_enabled: None,
+                            },
+                        )
+                    })
+                    .collect(),
+                enable_thinking: p.enable_thinking,
+                thinking_budget: p.thinking_budget,
+                reasoning_effort: p.reasoning_effort.clone(),
+                extra_body: None,
+                thinking_enabled: None,
+            })
             .collect(),
         active_provider_id: s.active_provider_id.clone(),
         model: s.model.clone(),

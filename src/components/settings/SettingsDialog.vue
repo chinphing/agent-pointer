@@ -938,7 +938,7 @@ async function saveAll() {
                       <label
                         v-if="w.id === 'computer'"
                         class="inline-flex items-center gap-1.5 cursor-pointer shrink-0"
-                        title="启用后鼠标沿曲线移动并带微抖动；关闭时使用快速直达移动"
+                        title="启用后鼠标沿曲线移动并带微抖动；关闭时使用直线匀速移动（约 0.5 秒）"
                       >
                         <input
                           type="checkbox"

@@ -6,9 +6,7 @@
 //! See `docs/design/computer-mouse-movement-roadmap.md`.
 
 use super::mouse_path::{bezier_path, BezierPathConfig, DEFAULT_CONTROL_JITTER_PX};
-use super::timing::{
-    MOUSE_MOVE_DEFAULT_POINT_COUNT, MOUSE_MOVE_FAST_DURATION_SECS, MOUSE_MOVE_TOTAL_DURATION_SECS,
-};
+use super::timing::{MOUSE_MOVE_DEFAULT_POINT_COUNT, MOUSE_MOVE_TOTAL_DURATION_SECS};
 use log::debug;
 use rand::Rng;
 use std::time::Duration;
@@ -138,20 +136,11 @@ pub struct MouseMoveProfile {
 }
 
 impl MouseMoveProfile {
-    /// Approximate instant move (Python `human_like=False`, ~0.05s).
-    pub fn fast() -> Self {
+    /// Default when `human_like` is off: straight line, 10 waypoints, 0.5s ease-out (no jitter).
+    pub fn standard() -> Self {
         Self {
-            path: MouseMovePathConfig {
-                strategy: MouseMoveStrategy::LinearByPointCount,
-                point_count: 1,
-                bezier: BezierPathConfig::default(),
-            },
-            timing: MouseMoveTimingConfig {
-                duration_mode: DurationMode::Total,
-                total_duration_secs: MOUSE_MOVE_FAST_DURATION_SECS,
-                ease_in_out: false,
-                ..Default::default()
-            },
+            path: MouseMovePathConfig::default(),
+            timing: MouseMoveTimingConfig::default(),
             exec: MouseMoveExecConfig::default(),
         }
     }
@@ -245,7 +234,7 @@ impl MouseMoveProfile {
 
 impl Default for MouseMoveProfile {
     fn default() -> Self {
-        Self::fast()
+        Self::standard()
     }
 }
 
@@ -605,11 +594,13 @@ mod tests {
     }
 
     #[test]
-    fn fast_profile_single_step() {
+    fn standard_profile_ten_linear_waypoints() {
         let mut rng = StdRng::seed_from_u64(1);
-        let planner = MouseMovePlanner::from_profile(MouseMoveProfile::fast());
+        let planner = MouseMovePlanner::from_profile(MouseMoveProfile::standard());
         let plan = planner.plan((0, 0), (100, 0), &mut rng);
-        assert_eq!(plan.path.points.len(), 1);
+        assert_eq!(plan.path.points.len(), MOUSE_MOVE_DEFAULT_POINT_COUNT);
+        let sum: f64 = plan.timing.step_intervals_secs.iter().sum();
+        assert!((sum - MOUSE_MOVE_TOTAL_DURATION_SECS).abs() < 1e-6);
     }
 
     #[test]

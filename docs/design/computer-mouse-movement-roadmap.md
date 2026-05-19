@@ -23,7 +23,7 @@ Standalone, extensible mouse movement for the computer agent. Path geometry and 
 
 | Profile | When | Path | Time |
 |---------|------|------|------|
-| `MouseMoveProfile::fast()` | Default (`human_like=false`) | 1-point straight | ~0.05s total |
+| `MouseMoveProfile::standard()` | Default (`human_like=false`) | Straight 10 pts | 0.5s ease-out |
 | `MouseMoveProfile::human_like()` | `human_like=true` or `computerHumanLike` | Bézier ~10 pts + path jitter | 0.5s ease-out + pre-jitter (2 steps) |
 | `drag_to_start` / `drag_segment` | Drag with `human_like` | Bézier | 0.35s / 0.45s ease-in-out (+ perturb on drag segment) |
 
@@ -53,7 +53,6 @@ All absolute moves go through `move_to_with_profile`. Additional delays:
 ```text
 MOUSE_MOVE_DEFAULT_POINT_COUNT      = 10
 MOUSE_MOVE_TOTAL_DURATION_SECS      = 0.5
-MOUSE_MOVE_FAST_DURATION_SECS       = 0.05
 SETTLE_AFTER_ABSOLUTE_MOVE_MS       = 100
 POST_MOUSE_BUTTON_SETTLE_MS         = 50
 ```
@@ -62,7 +61,7 @@ POST_MOUSE_BUTTON_SETTLE_MS         = 50
 
 ### Phase 1 — Profiles (done)
 
-- `fast` / `human_like` / drag presets
+- `standard` / `human_like` / drag presets
 - `human_like` tool + `computerHumanLike` config default
 
 ### Phase 2 — Settings UI (done)
@@ -88,6 +87,6 @@ POST_MOUSE_BUTTON_SETTLE_MS         = 50
 
 | Aspect | Python (`human_like=False`) | Rust (`human_like=False`) |
 |--------|------------------------------|---------------------------|
-| Path | ~instant | 1-point fast (~0.05s) |
+| Path | ~instant (pyautogui) | Straight 10 pts, 0.5s ease-out (`standard`) |
 
 See `D:\workspace\pointer\agents\computer\mouse_move.py`, `mouse_path.py`.

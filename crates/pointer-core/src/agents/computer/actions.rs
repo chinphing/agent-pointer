@@ -180,7 +180,7 @@ impl ActionExecutor {
         let to_start = if human_like {
             MouseMoveProfile::drag_to_start()
         } else {
-            MouseMoveProfile::fast()
+            MouseMoveProfile::standard()
         };
         self.backend.move_to_with_profile(x1, y1, to_start)?;
         settle_after_absolute_move();
@@ -444,7 +444,7 @@ fn move_profile_for_human_like(human_like: bool) -> MouseMoveProfile {
     if human_like {
         MouseMoveProfile::human_like()
     } else {
-        MouseMoveProfile::fast()
+        MouseMoveProfile::standard()
     }
 }
 

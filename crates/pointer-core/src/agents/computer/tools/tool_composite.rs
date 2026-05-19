@@ -1,7 +1,9 @@
 use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::vision_state::VisionState;
-use super::args_util::{clamp_scroll_lines, human_like_from_args, json_bool_loose, require_non_empty_str};
+use super::args_util::{
+    clamp_scroll_lines, human_like_from_args, json_bool_loose, require_non_empty_str, text_from_args,
+};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -50,9 +52,7 @@ impl CompositeActionTool {
         let index = args["index"]
             .as_u64()
             .ok_or_else(|| anyhow!("Missing or invalid 'index' parameter"))? as u32;
-        let text = args["text"]
-            .as_str()
-            .ok_or_else(|| anyhow!("Missing or invalid 'text' parameter"))?;
+        let text = text_from_args(args.get("text"))?;
         let clear_first = json_bool_loose(args.get("clear_first"));
         let auto_enter = json_bool_loose(args.get("auto_enter"));
         let vision = self.vision_state.lock().unwrap();
@@ -62,8 +62,8 @@ impl CompositeActionTool {
         drop(vision);
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.type_text_at_with_options(x, y, text, clear_first, auto_enter, hl)?;
-        let mut hint = self.verify.type_hint(text);
+        executor.type_text_at_with_options(x, y, &text, clear_first, auto_enter, hl)?;
+        let mut hint = self.verify.type_hint(&text);
         if auto_enter {
             hint.push_str(" Enter was sent if auto_enter=true; do not press Enter again unless the UI clearly needs it.");
         }
@@ -77,9 +77,7 @@ impl CompositeActionTool {
         let y = args["y"]
             .as_f64()
             .ok_or_else(|| anyhow!("Missing or invalid 'y' parameter"))? as f32;
-        let text = args["text"]
-            .as_str()
-            .ok_or_else(|| anyhow!("Missing or invalid 'text' parameter"))?;
+        let text = text_from_args(args.get("text"))?;
         let clear_first = json_bool_loose(args.get("clear_first"));
         let auto_enter = json_bool_loose(args.get("auto_enter"));
         let vision = self.vision_state.lock().unwrap();
@@ -89,19 +87,17 @@ impl CompositeActionTool {
         drop(vision);
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
-        executor.type_text_at_with_options(px, py, text, clear_first, auto_enter, hl)?;
-        Ok(self.verify.type_hint(text))
+        executor.type_text_at_with_options(px, py, &text, clear_first, auto_enter, hl)?;
+        Ok(self.verify.type_hint(&text))
     }
 
     fn type_text_at_focused(&self, args: &Value) -> Result<String> {
-        let text = args["text"]
-            .as_str()
-            .ok_or_else(|| anyhow!("Missing or invalid 'text' parameter"))?;
+        let text = text_from_args(args.get("text"))?;
         let clear_first = json_bool_loose(args.get("clear_first"));
         let auto_enter = json_bool_loose(args.get("auto_enter"));
         let executor = self.executor.lock().unwrap();
-        executor.type_text_focused_with_options(text, clear_first, auto_enter)?;
-        Ok(self.verify.type_hint(text))
+        executor.type_text_focused_with_options(&text, clear_first, auto_enter)?;
+        Ok(self.verify.type_hint(&text))
     }
 
     fn scroll_at_index(&self, args: &Value) -> Result<String> {

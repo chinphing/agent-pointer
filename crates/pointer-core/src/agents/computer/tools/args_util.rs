@@ -91,15 +91,40 @@ pub fn parse_indices(arg: Option<&Value>) -> Result<Vec<u32>> {
 }
 
 pub fn require_non_empty_str(args: &Value, key: &str) -> Result<String> {
-    let s = args
-        .get(key)
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim();
+    let s = text_from_args(args.get(key))?
+        .trim()
+        .to_string();
     if s.is_empty() {
         return Err(anyhow!("Missing required '{}' in tool_args.", key));
     }
-    Ok(s.to_string())
+    Ok(s)
+}
+
+/// `text` for type_* tools: JSON string, or integer/whole number (e.g. phone IDs the model emits as numbers).
+pub fn text_from_args(v: Option<&Value>) -> Result<String> {
+    let Some(v) = v else {
+        return Err(anyhow!("Missing or invalid 'text' parameter"));
+    };
+    match v {
+        Value::String(s) => Ok(s.clone()),
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                return Ok(i.to_string());
+            }
+            if let Some(u) = n.as_u64() {
+                return Ok(u.to_string());
+            }
+            let f = n
+                .as_f64()
+                .ok_or_else(|| anyhow!("Missing or invalid 'text' parameter"))?;
+            if f.fract() == 0.0 && f.is_finite() {
+                Ok(format!("{:.0}", f))
+            } else {
+                Ok(f.to_string())
+            }
+        }
+        _ => Err(anyhow!("Missing or invalid 'text' parameter")),
+    }
 }
 
 /// Wait seconds: Pointer allows 0..=60 (float).
@@ -151,5 +176,21 @@ mod tests {
         assert_eq!(clamp_scroll_lines(500).unwrap(), 300);
         assert_eq!(clamp_scroll_lines(-500).unwrap(), -300);
         assert_eq!(clamp_scroll_lines(3).unwrap(), 3);
+    }
+
+    #[test]
+    fn text_from_args_accepts_string_or_integer_number() {
+        use serde_json::json;
+        assert_eq!(
+            text_from_args(Some(&json!("13856729034"))).unwrap(),
+            "13856729034"
+        );
+        assert_eq!(
+            text_from_args(Some(&json!(13856729034_u64))).unwrap(),
+            "13856729034"
+        );
+        assert_eq!(text_from_args(Some(&json!(42))).unwrap(), "42");
+        assert!(text_from_args(None).is_err());
+        assert!(text_from_args(Some(&json!(true))).is_err());
     }
 }

@@ -24,6 +24,7 @@ Use for **one-call combos** that achieve the goal in a single tool call: click+t
 Parameter constraints:
 - **`goal`** is required. Lead with the visible outcome this step is for, not "click..." alone. Name the target only to disambiguate. See **Communication** → **Action policy**.
 - **`action`** is required. See **Communication** → **Action description in tool_args**.
+- **`text`** is required for all **`type_text_at_*`** methods. Prefer a JSON **string** (e.g. `"13856729034"`). Whole numbers are also accepted and coerced to digits-only text.
 - `auto_enter` defaults to **false**. Set it to **true** only when Enter is intended as the next action. On **Windows PowerShell / terminal** input, set `auto_enter=true` so the command executes immediately after typing (the tool blocks until after submit before returning — do not duplicate that delay yourself). If the next screenshot still shows no new output and no new prompt line, **do not press Enter again** — Enter was already sent; use **wait** if more time is needed.
 - For **`composite_action:scroll_at_index`**, prefer an anchor **inside** the scrollable region (e.g. a list item); avoid large headings outside the viewport.
 

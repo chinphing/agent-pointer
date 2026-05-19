@@ -25,6 +25,8 @@ import {
   buildCustomModelEntryFromProvider,
   DEFAULT_MODEL_MAX_TOKENS,
   DEFAULT_MODEL_TEMPERATURE,
+  hasEffectiveModelOverride,
+  pruneInheritedModelConfigs,
   useRuntimeParams
 } from '../../composables/useRuntimeParams'
 import RuntimeParamsForm from './RuntimeParamsForm.vue'
@@ -108,19 +110,6 @@ function cloneModelConfigs(p?: ProviderConfig['modelConfigs']): NonNullable<Prov
 }
 
 
-function modelConfigHasAny(o: ModelRuntimeOverrides): boolean {
-  return (
-    o.reasoningInMessages !== undefined
-    || o.temperature !== undefined
-    || o.maxTokens !== undefined
-    || o.enableThinking !== undefined
-    || o.thinkingBudget !== undefined
-    || o.reasoningEffort !== undefined
-  )
-}
-
-
-
 const editingParsedModelIds = computed(() =>
   editingModelsText.value
     .split(',')
@@ -129,7 +118,11 @@ const editingParsedModelIds = computed(() =>
 )
 
 function modelConfigMode(modelId: string): 'same' | 'custom' {
-  return editingProvider.value?.modelConfigs?.[modelId] ? 'custom' : 'same'
+  const p = editingProvider.value
+  if (!p) return 'same'
+  const o = p.modelConfigs?.[modelId]
+  if (!o) return 'same'
+  return hasEffectiveModelOverride(o, p, globalGenFallback) ? 'custom' : 'same'
 }
 
 function setModelConfigMode(modelId: string, mode: 'same' | 'custom') {
@@ -166,6 +159,7 @@ function closeModelConfigModal() {
   modelConfigModalError.value = ''
 }
 
+/** 仅关闭单模型定制弹窗；勿 emit('close')，否则会退出整个设置对话框。 */
 function confirmModelConfigModal() {
   modelConfigModalError.value = ''
   modelConfigModalId.value = null
@@ -266,10 +260,11 @@ function setTaskBoardTrimLocal(agentId: string, enabled: boolean) {
 
 function startEditProvider(provider: ProviderConfig) {
   // 从 store 拷贝草稿，勿把列表里的 provider 对象直接赋给 editingProvider（保存时会互相覆盖）。
+  const pruned = pruneInheritedModelConfigs(provider, provider.modelConfigs, globalGenFallback)
   editingProvider.value = {
     ...provider,
     models: [...(provider.models ?? [])],
-    modelConfigs: cloneModelConfigs(provider.modelConfigs)
+    modelConfigs: cloneModelConfigs(pruned)
   }
   originalApiKey.value = provider.apiKey
   editingApiKey.value = ''
@@ -357,7 +352,12 @@ function buildProviderSnapshotFromEditor(): ProviderConfig | null {
     if (isQwenProvider(snapshot) && o.enableThinking === true && o.thinkingBudget !== undefined) {
       clean.thinkingBudget = o.thinkingBudget
     }
-    if (Object.keys(clean).length) nextMc[id] = clean
+    if (
+      Object.keys(clean).length
+      && hasEffectiveModelOverride(clean, snapshot, globalGenFallback)
+    ) {
+      nextMc[id] = clean
+    }
   }
   snapshot.modelConfigs = nextMc
   return snapshot
@@ -425,6 +425,7 @@ async function saveProvider() {
   }
 
   const wasAdd = showAddProvider.value
+  // 写入 store 后退出编辑区（回到服务商列表）；勿 emit('close')——底部「保存配置」才关闭整个设置对话框。
   if (!applyProviderSnapshotToStore(snapshot, wasAdd, false)) return
 
   try {
@@ -434,7 +435,6 @@ async function saveProvider() {
       model: s.settings.model
     })
     providerSaveError.value = ''
-    emit('close')
   } catch (e) {
     console.error(e)
     providerSaveError.value = '保存到本地失败，请重试'

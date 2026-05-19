@@ -251,8 +251,11 @@ pub fn effective_max_tokens(settings: &ModelSettings) -> u32 {
     settings.max_tokens.max(64)
 }
 
-/// Ensure each listed model has per-model generation params (migrate legacy global values).
-pub fn ensure_model_generation_defaults(settings: &mut ModelSettings) {
+/// Migrate legacy global `temperature` / `max_tokens` onto each provider default.
+///
+/// Do **not** auto-fill `model_configs` for every model: an empty entry means「同上」(inherit
+/// provider). Filling per-model entries on load made「同上」 impossible to persist.
+pub fn ensure_provider_generation_defaults(settings: &mut ModelSettings) {
     let global_temp = if settings.temperature.is_finite() && settings.temperature >= 0.0 {
         settings.temperature
     } else {
@@ -260,21 +263,11 @@ pub fn ensure_model_generation_defaults(settings: &mut ModelSettings) {
     };
     let global_max = settings.max_tokens.max(64);
     for provider in &mut settings.providers {
-        let fallback_temp = provider.temperature.unwrap_or(global_temp);
-        let fallback_max = provider.max_tokens.unwrap_or(global_max).max(64);
-        let model_ids: Vec<String> = provider.models.clone();
-        for model in model_ids {
-            let mid = model.trim();
-            if mid.is_empty() {
-                continue;
-            }
-            let entry = provider.model_configs.entry(mid.to_string()).or_default();
-            if entry.temperature.is_none() {
-                entry.temperature = Some(fallback_temp);
-            }
-            if entry.max_tokens.is_none() {
-                entry.max_tokens = Some(fallback_max);
-            }
+        if provider.temperature.is_none() {
+            provider.temperature = Some(global_temp);
+        }
+        if provider.max_tokens.is_none() {
+            provider.max_tokens = Some(global_max);
         }
     }
 }
@@ -1663,17 +1656,17 @@ mod effective_generation_tests {
     }
 
     #[test]
-    fn ensure_model_generation_defaults_fills_missing() {
+    fn ensure_provider_generation_defaults_fills_provider_not_models() {
         let mut s = ModelSettings::default();
         s.temperature = 0.55;
         s.max_tokens = 3000;
-        ensure_model_generation_defaults(&mut s);
-        let mc = s.providers[0]
-            .model_configs
-            .get("qwen3.5-plus")
-            .expect("default model");
-        assert!((mc.temperature.unwrap() - 0.55).abs() < f32::EPSILON);
-        assert_eq!(mc.max_tokens.unwrap(), 3000);
+        s.providers[0].temperature = None;
+        s.providers[0].max_tokens = None;
+        ensure_provider_generation_defaults(&mut s);
+        let p = &s.providers[0];
+        assert!((p.temperature.unwrap() - 0.55).abs() < f32::EPSILON);
+        assert_eq!(p.max_tokens.unwrap(), 3000);
+        assert!(p.model_configs.get("qwen3.5-plus").is_none());
     }
 }
 

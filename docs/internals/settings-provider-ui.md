@@ -24,10 +24,19 @@
 - `RuntimeParamsForm` + `useRuntimeParams`：服务商级用 `providerScopeModelId === null`，模型定制用 `modelConfigModalId`。
 - 改 `modelConfigs` 时替换顶层对象引用（见 `useRuntimeParams.patchModel`）。
 
+## 模型「同上」与 `modelConfigs`
+
+- **同上**：该模型在 `modelConfigs` 中**无条目**（或仅有与服务商默认相同的冗余字段，保存时会被剔除）。
+- **定制**：`hasEffectiveModelOverride` 为 true 的条目才会写入磁盘。
+- 加载设置时 Rust **不会**再为每个模型自动填充 `model_configs`（否则 reload 后全部变成定制）。
+- `startEditProvider` 会 `pruneInheritedModelConfigs`；`buildProviderSnapshotFromEditor` 保存前同样按有效覆盖过滤。
+
 ## 新增模型后无法保存
 
 - 模型名写在「模型列表」输入框（`editingModelsText`），须通过 `buildProviderSnapshotFromEditor` 合并进 `snapshot.models` 再 `updateProvider`。
 - 仅点底部「保存配置」时，必须先 `flushEditingProviderToStore()`，否则会保存旧的 `providers`、新模型丢失。
-- 表单内「保存/添加」会调用 `s.save` 写入磁盘，成功后 `emit('close')` 关闭设置对话框；失败时查看 `providerSaveError`（勿静默 `return`）。
-- `applyProviderSnapshotToStore(..., reopenEdit)`：仅「保存并继续编辑」时 `reopenEdit: true`；即将关对话框时用 `false`，避免 `startEditProvider` 闪一下。
+- 单模型「设置」弹窗点「完成」：只 `closeModelConfigModal()`，**不要** `emit('close')`。
+- 服务商表单「保存/添加」：写入磁盘后退出编辑区（`reopenEdit: false`），回到服务商列表；**不要**关闭整个设置对话框。
+- 底部「保存配置」：合并草稿后 `emit('close')` 关闭整个设置对话框。
+- `applyProviderSnapshotToStore(..., reopenEdit)`：底部保存前用 `reopenEdit: false`；服务商表单保存用 `true`。
 - 新增服务商时若 **服务 ID 与已有重复**，`addProvider` 会拒绝并提示，避免 `find` 命中旧条目导致像没保存上。

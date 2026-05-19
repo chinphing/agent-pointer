@@ -254,6 +254,72 @@ export function useRuntimeParams(
   }
 }
 
+export function providerDefaultTemperature(
+  p: ProviderConfig,
+  globalFallback: { temperature: () => number }
+): number {
+  const t = p.temperature
+  if (t !== undefined && Number.isFinite(t) && t >= 0) return t
+  const g = globalFallback.temperature()
+  return Number.isFinite(g) && g >= 0 ? g : DEFAULT_MODEL_TEMPERATURE
+}
+
+export function providerDefaultMaxTokens(
+  p: ProviderConfig,
+  globalFallback: { maxTokens: () => number }
+): number {
+  const n = p.maxTokens
+  if (n !== undefined && n >= 64) return n
+  const g = globalFallback.maxTokens()
+  return g && g >= 64 ? g : DEFAULT_MODEL_MAX_TOKENS
+}
+
+/** True when overrides differ from provider defaults (empty / omitted means「同上」). */
+export function hasEffectiveModelOverride(
+  o: ModelRuntimeOverrides,
+  p: ProviderConfig,
+  globalFallback: { temperature: () => number; maxTokens: () => number }
+): boolean {
+  if (isQwenProvider(p) && (o.enableThinking !== undefined || o.thinkingBudget !== undefined)) {
+    return true
+  }
+  if (isDeepSeekProvider(p) && o.reasoningEffort !== undefined) {
+    return true
+  }
+  const providerReasoning = p.reasoningInMessages !== false
+  if (o.reasoningInMessages !== undefined && o.reasoningInMessages !== providerReasoning) {
+    return true
+  }
+  if (
+    o.temperature !== undefined
+    && Math.abs(o.temperature - providerDefaultTemperature(p, globalFallback)) > 1e-6
+  ) {
+    return true
+  }
+  if (
+    o.maxTokens !== undefined
+    && o.maxTokens !== providerDefaultMaxTokens(p, globalFallback)
+  ) {
+    return true
+  }
+  return false
+}
+
+export function pruneInheritedModelConfigs(
+  p: ProviderConfig,
+  configs: ProviderConfig['modelConfigs'] | undefined,
+  globalFallback: { temperature: () => number; maxTokens: () => number }
+): NonNullable<ProviderConfig['modelConfigs']> {
+  const src = configs ?? {}
+  const out: Record<string, ModelRuntimeOverrides> = {}
+  for (const [k, v] of Object.entries(src)) {
+    if (hasEffectiveModelOverride(v, p, globalFallback)) {
+      out[k] = { ...v }
+    }
+  }
+  return out
+}
+
 /** Build per-model custom entry from provider defaults (explicit fields). */
 export function buildCustomModelEntryFromProvider(
   p: ProviderConfig,

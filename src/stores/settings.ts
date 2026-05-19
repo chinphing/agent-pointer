@@ -2,6 +2,11 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getSettings, updateSettings, setApiKey, clearApiKey, testConnection } from '../lib/api'
 import type { AgentModelRef, ModelSettings, ProviderConfig } from '../types/chat'
+import {
+  DEFAULT_MODEL_MAX_TOKENS,
+  DEFAULT_MODEL_TEMPERATURE,
+  pruneInheritedModelConfigs
+} from '../composables/useRuntimeParams'
 
 const defaultProviders: ProviderConfig[] = [
   {
@@ -25,8 +30,12 @@ const defaultProviders: ProviderConfig[] = [
 ]
 
 /** Normalize provider entries from API; merge legacy root `reasoningInMessages` when per-provider value is absent. */
-function normalizeProvider(p: ProviderConfig, legacyReasoning?: boolean): ProviderConfig {
-  return {
+function normalizeProvider(
+  p: ProviderConfig,
+  legacyReasoning?: boolean,
+  globalFallback?: { temperature: () => number; maxTokens: () => number }
+): ProviderConfig {
+  const base: ProviderConfig = {
     ...p,
     // 旧数据或异常响应可能缺 models；设置页模板会读 models.length，必须是数组。
     models: Array.isArray(p.models) ? [...p.models] : [],
@@ -38,14 +47,23 @@ function normalizeProvider(p: ProviderConfig, legacyReasoning?: boolean): Provid
           ? legacyReasoning
           : undefined
   }
+  const fallback = globalFallback ?? {
+    temperature: () => DEFAULT_MODEL_TEMPERATURE,
+    maxTokens: () => DEFAULT_MODEL_MAX_TOKENS
+  }
+  return {
+    ...base,
+    modelConfigs: pruneInheritedModelConfigs(base, base.modelConfigs, fallback)
+  }
 }
 
 function normalizeProviders(
   list: ProviderConfig[] | undefined,
-  legacyReasoning?: boolean
+  legacyReasoning?: boolean,
+  globalFallback?: { temperature: () => number; maxTokens: () => number }
 ): ProviderConfig[] {
   const raw = list?.length ? list : defaultProviders
-  return raw.map(p => normalizeProvider(p, legacyReasoning))
+  return raw.map(p => normalizeProvider(p, legacyReasoning, globalFallback))
 }
 
 function normalizeAgentDefaultModels(
@@ -99,6 +117,13 @@ export const useSettingsStore = defineStore('settings', () => {
   const testing = ref(false)
   const testResult = ref<{ ok: boolean; latencyMs: number; message: string } | null>(null)
 
+  function globalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxTokens'>) {
+    return {
+      temperature: () => st?.temperature ?? settings.value.temperature,
+      maxTokens: () => st?.maxTokens ?? settings.value.maxTokens
+    }
+  }
+
   const activeProvider = computed((): ProviderConfig => {
     const list = settings.value.providers
     if (!list.length) return defaultProviders[0]
@@ -130,8 +155,8 @@ export const useSettingsStore = defineStore('settings', () => {
   ): { temperature: number; maxTokens: number } {
     const over = p.modelConfigs?.[model.trim()]
     return {
-      temperature: over?.temperature ?? stFallbackTemperature(),
-      maxTokens: over?.maxTokens ?? stFallbackMaxTokens()
+      temperature: over?.temperature ?? p.temperature ?? stFallbackTemperature(),
+      maxTokens: over?.maxTokens ?? p.maxTokens ?? stFallbackMaxTokens()
     }
   }
 
@@ -180,7 +205,11 @@ export const useSettingsStore = defineStore('settings', () => {
         'reasoningInMessages' in s && typeof (s as { reasoningInMessages?: boolean }).reasoningInMessages === 'boolean'
           ? (s as { reasoningInMessages?: boolean }).reasoningInMessages
           : undefined
-      const providersNorm = normalizeProviders(s.providers, legacy)
+      const providersNorm = normalizeProviders(
+        s.providers,
+        legacy,
+        globalGenFallbackFrom(s)
+      )
 
       if (s.providers && s.providers.length > 0) {
         const activeId = s.activeProviderId || providersNorm[0]?.id || 'qwen'
@@ -240,7 +269,7 @@ export const useSettingsStore = defineStore('settings', () => {
     settings.value = {
       ...updated,
       // 勿直接信任 API 返回的 providers；缺字段时会导致设置页主区域渲染报错、整页空白。
-      providers: normalizeProviders(updated.providers),
+      providers: normalizeProviders(updated.providers, undefined, globalGenFallbackFrom(updated)),
       agentDefaultModels: normalizeAgentDefaultModels(
         updated.agentDefaultModels as Record<string, unknown>,
         updated.activeProviderId
@@ -269,7 +298,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function addProvider(provider: ProviderConfig) {
-    const entry = normalizeProvider(provider)
+    const entry = normalizeProvider(provider, undefined, globalGenFallbackFrom())
     // 用新数组 append，勿 push 编辑中的同一对象引用，避免与 editingProvider 草稿互相污染。
     settings.value.providers = [...settings.value.providers, entry]
     settings.value.activeProviderId = entry.id
@@ -285,15 +314,19 @@ export const useSettingsStore = defineStore('settings', () => {
     const prev = settings.value.providers[i]
     // 勿 Object.assign(provider, patch)：嵌套 modelConfigs 在 Pinia 下可能不触发列表更新。
     // 须替换 providers[i] 并赋新数组，保证设置页服务商列表与编辑区同步刷新。
-    const next = normalizeProvider({
-      ...prev,
-      ...patch,
-      models: patch.models ?? prev.models ?? [],
-      modelConfigs:
-        patch.modelConfigs !== undefined
-          ? { ...patch.modelConfigs }
-          : { ...(prev.modelConfigs ?? {}) }
-    })
+    const next = normalizeProvider(
+      {
+        ...prev,
+        ...patch,
+        models: patch.models ?? prev.models ?? [],
+        modelConfigs:
+          patch.modelConfigs !== undefined
+            ? { ...patch.modelConfigs }
+            : { ...(prev.modelConfigs ?? {}) }
+      },
+      undefined,
+      globalGenFallbackFrom()
+    )
     const list = [...settings.value.providers]
     list[i] = next
     settings.value.providers = list

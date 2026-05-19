@@ -1,5 +1,5 @@
 use crate::models::{
-    ensure_agent_model_refs_have_provider, ensure_model_generation_defaults,
+    ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults,
     absorb_legacy_extension_config, legacy_thinking_to_extra_body, merge_shallow_json_objects,
     AgentModelRef, Conversation,
     ModelRuntimeOverrides, ModelSettings, ProviderConfig,
@@ -380,7 +380,7 @@ pub fn load_settings() -> Result<ModelSettings> {
         computer_human_like: stored.computer_human_like,
     };
     ensure_agent_model_refs_have_provider(&mut settings);
-    ensure_model_generation_defaults(&mut settings);
+    ensure_provider_generation_defaults(&mut settings);
     Ok(settings)
 }
 

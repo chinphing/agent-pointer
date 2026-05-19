@@ -164,7 +164,7 @@ When **no** before inject, use **`[Screen after action]`** / **`[Zoom pointer af
 ```text
 Pointer:
 1 Intended aim on [Screen before action | Screen after action]:
-   <must match newest [Recent desktop tool calls] row — same action as Verify Last automated action;
+   <must match newest [Recent desktop tool calls] row — same action as verify stage Last automated action;
     precision click → traits + aim = center; non-pointer action → n/a;
     no verdict words; no UI delta>.
 2 Evidence (hotspot vs aim):
@@ -297,7 +297,16 @@ Pointer:
 **only** if that action appears on **`[Recent desktop tool calls]`** (latest row).
 **Never** verify an action you only assume from the task narrative.
 
-**Last automated action (required grounding)** — First line: **`Last automated action:`** —
+**Fixed reminder (mandatory)** — Immediately after **`Verify:`**, emit **exactly** this **one** line (before **`Last automated action:`**):
+
+`Indices reset each screen — no stale overlay index.`
+
+Each **`[CUR_SCREEN]`** round re-labels overlay digits — **do not** cite **`index N`** from a **prior** annotated frame in this stage.
+
+Stages **1–4** forbid overlay **`index`**, digits, and “bbox N” in all other fields
+(**`Before vs after`**, **`Clear evidence`**, etc.) — tool method names like **`click_index`** are allowed only as **method** labels on **`Last automated action:`**, not overlay numbers.
+
+**Last automated action (required grounding)** — First labeled field: **`Last automated action:`** —
 **quote** the **newest** **`[Recent desktop tool calls]`** row, or **`none — no prior desktop tool in this thread`**.
 The **lookup table** judges **that** action only (see **Ground rules** — do not invent prior actions).
 
@@ -326,7 +335,7 @@ and **restate** the **Before vs after** **UI outcome** in verdict terms
 **Analysis order (fixed)** — Fill inputs in order, then **Lookup → Match** for **Step result** + **`Cause`**.
 **Do not** emit **`Outcome:`** in **`Verify:`** (**tool decisions** belong in **`Tool route:`** only).
 
-1. **Before vs after** — frame-anchored delta (**only** image read in **Verify:**)
+1. **Before vs after** — frame-anchored delta (**only** image read in **verify stage**)
 2. **Clear evidence** — label + **restate** **Before vs after** (**no** new image read)
 3. **Action type** — **`deferred`** · **`non-deferred`** (short reason on the line)
 4. **Mouse judgment** — **`non_mouse`** · **`mouse_miss`** · **`mouse_accurate`**
@@ -414,6 +423,8 @@ Use **`Clear evidence`** + **`Action type`** + **`Mouse judgment`** (steps **1�
 
 ```text
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Last automated action:
   <newest [Recent desktop tool calls] row — tool:method — summary
    | none — no prior desktop tool in this thread>.
@@ -444,7 +455,7 @@ Cause:
 If no textual payload exists for the last action, either omit **`Prior tool text (if any):`**
 or write **`Prior tool text (if any): none.`**
 
-In real **`Verify:`** replies, each labeled field above is **one physical line**
+In real **`Verify:`** replies, the fixed reminder and each labeled field above is **one physical line**
 (join wrapped template sub-lines if needed).
 
 **Mini examples — lookup rows (+ anti-pattern)**
@@ -456,6 +467,8 @@ assume full **`Verify:`** form is required in real replies.
 
 ```text
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Before vs after: Text appears in search bar.
 ```
 
@@ -464,7 +477,7 @@ Before vs after: Text appears in search bar.
 **Forbidden — Clear evidence re-reads frames (duplicate pixels):**
 
 ```text
-Before vs after: On [Screen before action]: search bar empty. On [Screen after action]: text “老婆” in search bar.
+Before vs after: On [Screen before action]: search bar empty. On [Screen after action]: text “hello” in search bar.
 Clear evidence: supporting_evidence — On [Screen after action]: typed text visible in search bar.
 ```
 
@@ -494,8 +507,10 @@ Lookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgme
 
 ```text
 Verify:
-Last automated action: 2. composite_action:type_text_at_index — typed “老婆” in search bar.
-Before vs after: On [Screen before action]: search bar empty. On [Screen after action]: text “老婆” in search bar.
+Indices reset each screen — no stale overlay index.
+
+Last automated action: 2. composite_action:type_text_at_index — typed “hello” in search bar.
+Before vs after: On [Screen before action]: search bar empty. On [Screen after action]: text “hello” in search bar.
 Clear evidence: supporting_evidence — restates Before vs after: typed text appeared as intended.
 Action type: non-deferred.
 Mouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on search field center.
@@ -508,6 +523,8 @@ Step result: pass.
 
 ```text
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Last automated action: 1. mouse:click_index — Search button in toolbar.
 Before vs after: On [Screen before action]: search panel closed. On [Screen after action]: search panel opened.
 Clear evidence: supporting_evidence — restates Before vs after: search panel opened as intended.
@@ -523,6 +540,8 @@ Step result: pass.
 
 ```text
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Last automated action: 2. mouse:click_index — Export in toolbar.
 Before vs after: On [Screen before action]: export toolbar idle. On [Screen after action]: History panel open instead of export flow.
 Clear evidence: contradicting_evidence — restates Before vs after: wrong panel vs export intent.
@@ -536,6 +555,8 @@ Cause: wrong_operation.
 
 ```text
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Last automated action: 1. mouse:click_index — Export in toolbar.
 Before vs after: On [Screen before action]: export toolbar idle. On [Screen after action]: History panel open.
 Clear evidence: contradicting_evidence — restates Before vs after: wrong panel vs export intent.
@@ -549,6 +570,8 @@ Cause: precision_miss (forbidden: wrong_operation).
 
 ```text
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Last automated action: 1. mouse:click_index — trash icon on list row.
 Before vs after: On [Screen before action]: row unchanged. On [Screen after action]: same row; trash row unchanged.
 Clear evidence: no_clear_evidence — restates Before vs after: no visible delete effect.
@@ -564,6 +587,8 @@ Cause: precision_miss.
 
 ```text
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Last automated action: 4. hotkey — Save document (Ctrl+S).
 Before vs after: On [Screen before action]: same document canvas. On [Screen after action]: same canvas; no “Saved” toast on frame.
 Clear evidence: no_clear_evidence — restates Before vs after: no save confirmation on canvas.
@@ -578,6 +603,8 @@ Step result: pending. Cause: off_frame_unverified.
 
 ```text
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Last automated action: 3. mouse:click_index — download icon on attachment row.
 Before vs after: On [Screen before action]: attachment list unchanged. On [Screen after action]: same list; no progress on canvas.
 Clear evidence: no_clear_evidence — restates Before vs after: no download progress on canvas.
@@ -591,6 +618,8 @@ Cause: precision_miss (forbidden: pending).
 
 ```text
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Before vs after: On [Screen before action]: Submit enabled; no new message. On [Screen after action]: same; Submit still enabled; no new message.
 Clear evidence: no_clear_evidence — restates Before vs after: submit not confirmed.
 Action type: non-deferred.
@@ -603,6 +632,8 @@ Cause: no_immediate_feedback.
 
 ```text
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Last automated action: 1. mouse:click_index — Export in export list.
 Before vs after: On [Screen before action]: export list at “2 of 10”. On [Screen after action]: progress “3 of 10 complete”.
 Clear evidence: supporting_evidence — restates Before vs after: export batch advanced.
@@ -615,6 +646,8 @@ Step result: pass.
 
 ```text
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Last automated action: 2. mouse:click_index — Export in toolbar.
 Before vs after: On [Screen before action]: idle export control. On [Screen after action]: spinner started; main canvas unchanged.
 Clear evidence: no_clear_evidence — restates Before vs after: spinner only; queue proof not on canvas.
@@ -628,6 +661,8 @@ Cause: off_frame_unverified.
 
 ```text
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Last automated action: 1. mouse:click_index — sidebar toggle.
 Before vs after: On [Screen before action]: same idle page; sidebar closed. On [Screen after action]: same idle page; no new sidebar.
 Clear evidence: no_clear_evidence — restates Before vs after: sidebar still closed.
@@ -643,6 +678,8 @@ Cause: precision_miss.
 
 ```text
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Last automated action: 3. hotkey — Save document (Ctrl+S).
 Before vs after: On [Screen before action]: document canvas only. On [Screen after action]: save modal appeared on canvas.
 Clear evidence: supporting_evidence — restates Before vs after: save modal appeared on canvas.
@@ -701,7 +738,7 @@ Rows: goal text differs last row vs prior. Screen: flat. OK — not same semanti
    |-------|------|
    | **`Verify:`** | **First** — echo **`Verify:`** **`Step result`** + **`Cause`** from the stage above (already decided). Example: **`Verify: fail — no_immediate_feedback`**. First turn: **`Verify: n/a`**. **No** overlay digits. |
    | **`Repetition:`** | Echo **`Repetition:`** verdict (e.g. **`Repetition: OK`**). |
-   | **`Lookup:`** | **Second** — keys **copied from the `Verify:` line you just wrote**: **`Lookup: Step result=<same>, Cause=<same or —>`**. |
+   | **`Lookup:`** | **Second** — keys **copied from the verify-stage echo you just wrote**: **`Lookup: Step result=<same>, Cause=<same or —>`**. |
    | **`Match:`** | **Third** — **one** **Verify → Next** table row (below) where **`Step result`** + **`Cause`** = **`Lookup`**. Example: **`Match: row fail + no_immediate_feedback → Retry same on-canvas intent`**. |
    | **`this turn:`** | **Fourth** — **Next step** from **`Match`** row’s **`this turn: must…`** column; add concrete UI words; keep row action (Pivot / Re-aim / Retry / Advance / Wait). |
 
@@ -742,7 +779,7 @@ Next:
 1 Prior stages & sub-goal:
    Verify: <Step result> — <Cause when present>;
    Repetition: <OK | …>;
-   Lookup: Step result=<same as Verify>, Cause=<same as Verify or —>;
+   Lookup: Step result=<same as verify stage>, Cause=<same as verify stage or —>;
    Match: row <Step result> + <Cause> → <this turn must… from Verify → Next table>;
    this turn: <Next step — concrete UI, no overlay digits>.
 2 Target on [Screen after action]: <per Match “Line 2 target” column — visible on this frame only; or n/a>.
@@ -786,6 +823,8 @@ Pointer:
 3 Conclusion (Center-only rule): n/a — invented “first action” rule (forbidden).
 
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Tool reply present. Step result: pass (forbidden format + no Last automated action line).
 
 Next:
@@ -802,6 +841,8 @@ Pointer:
 3 Conclusion (Center-only rule): n/a — no last automated action in thread.
 
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Last automated action: none — no prior desktop tool in this thread.
 Before vs after: n/a — no [Screen before action] (first capture).
 Clear evidence: n/a — no prior action.
@@ -844,6 +885,8 @@ Next:
 
 ```text
 Verify:
+Indices reset each screen — no stale overlay index.
+
 Last automated action: 2. mouse:click_index — Export in toolbar.
 Before vs after: On [Screen before action]: export toolbar idle. On [Screen after action]: History panel open instead of export flow.
 Clear evidence: contradicting_evidence — restates Before vs after: wrong panel vs export intent.
@@ -1304,7 +1347,7 @@ Six-stage block in **`thoughts`**; fill **`tool_args`** per tool prompt (minimal
 
 ```json
 {
-  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: blue OK pill in modal dialog footer; aim = OK pill center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer tip inside footer **cyan** **bbox**, hotspot overlaps **OK pill center** vs **intended OK center** — not on Cancel pill. **Pointer on OK pill center? yes.**\n3 Conclusion (Center-only rule): **Pointer on OK pill center? yes.** — therefore **accurate** — hotspot on **OK pill center** on **[Zoom pointer before action]**.\n\nVerify:\nLast automated action: 2. mouse:click_index — footer region (missed OK).\nBefore vs after: On [Screen before action]: confirm dialog open, OK enabled. On [Screen after action]: same; dialog still open.\nClear evidence: no_clear_evidence — restates Before vs after: confirm not completed.\nAction type: non-deferred.\nMouse judgment: mouse_accurate — hotspot on OK pill center.\nLookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;\nMatch: row no_clear_evidence + non-deferred + mouse_accurate → fail, no_immediate_feedback;\nStep result: fail. Cause: no_immediate_feedback.\n\nRepetition:\nLast rows differ. OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — no_immediate_feedback; Repetition: OK; this turn: confirm dialog via OK pill.\n2 Target on [Screen after action]: blue OK pill; shape pill; color blue primary; region modal dialog footer; neighbors: Cancel pill **right**.\n\nLocation:\n1 Placement→frame: On [Screen after action]: OK in **central** modal footer → therefore analyze on **[Annotated after action]**. [Annotated after action] — target: blue OK pill; wrapping bbox: **cyan**-stroke footer **OK**+**Cancel**; traits inside that bbox: distinct controls = OK pill + Cancel pill; wrap count = 2; intended sub-target = OK pill.\n2 On [Annotated after action] — target→bbox→index: (a) **cyan** footer **bbox**; (b) digit **background** **cyan**, flush on that **bbox**; (c) wraps **traits** intended sub-target (OK pill); **therefore** selected overlay index **4**.\n3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.\n4 Coordinate geometry: on [Annotated after action] intended sub-target (OK pill) toward left of bbox **4**; nearest corner **bottom-left**; **(xc, yc)** from **Pointer neighbor reference bboxes** for **4** ≈ (xc, yc); OK center **right** Δx **up** Δy; **therefore** aim (x, y) ≈ (xc + Δx, yc - Δy).\n\nTool route:\n1 Next recap & Location:\n   Next recap: this turn: confirm dialog via OK pill;\n   Location recap: **coordinate** path — overlay **4**, **multiple**, aim ≈ (xc + Δx, yc - Δy).\n2 Tool call this turn: **mouse:click_at** at computed **(x, y)** — not overlay index **4**.",
+  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: blue OK pill in modal dialog footer; aim = OK pill center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: synthetic pointer tip inside footer **cyan** **bbox**, hotspot overlaps **OK pill center** vs **intended OK center** — not on Cancel pill. **Pointer on OK pill center? yes.**\n3 Conclusion (Center-only rule): **Pointer on OK pill center? yes.** — therefore **accurate** — hotspot on **OK pill center** on **[Zoom pointer before action]**.\n\nVerify:\nIndices reset each screen — no stale overlay index.\nLast automated action: 2. mouse:click_index — footer region (missed OK).\nBefore vs after: On [Screen before action]: confirm dialog open, OK enabled. On [Screen after action]: same; dialog still open.\nClear evidence: no_clear_evidence — restates Before vs after: confirm not completed.\nAction type: non-deferred.\nMouse judgment: mouse_accurate — hotspot on OK pill center.\nLookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;\nMatch: row no_clear_evidence + non-deferred + mouse_accurate → fail, no_immediate_feedback;\nStep result: fail. Cause: no_immediate_feedback.\n\nRepetition:\nLast rows differ. OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — no_immediate_feedback; Repetition: OK; this turn: confirm dialog via OK pill.\n2 Target on [Screen after action]: blue OK pill; shape pill; color blue primary; region modal dialog footer; neighbors: Cancel pill **right**.\n\nLocation:\n1 Placement→frame: On [Screen after action]: OK in **central** modal footer → therefore analyze on **[Annotated after action]**. [Annotated after action] — target: blue OK pill; wrapping bbox: **cyan**-stroke footer **OK**+**Cancel**; traits inside that bbox: distinct controls = OK pill + Cancel pill; wrap count = 2; intended sub-target = OK pill.\n2 On [Annotated after action] — target→bbox→index: (a) **cyan** footer **bbox**; (b) digit **background** **cyan**, flush on that **bbox**; (c) wraps **traits** intended sub-target (OK pill); **therefore** selected overlay index **4**.\n3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.\n4 Coordinate geometry: on [Annotated after action] intended sub-target (OK pill) toward left of bbox **4**; nearest corner **bottom-left**; **(xc, yc)** from **Pointer neighbor reference bboxes** for **4** ≈ (xc, yc); OK center **right** Δx **up** Δy; **therefore** aim (x, y) ≈ (xc + Δx, yc - Δy).\n\nTool route:\n1 Next recap & Location:\n   Next recap: this turn: confirm dialog via OK pill;\n   Location recap: **coordinate** path — overlay **4**, **multiple**, aim ≈ (xc + Δx, yc - Δy).\n2 Tool call this turn: **mouse:click_at** at computed **(x, y)** — not overlay index **4**.",
   "headline": "Confirm dialog via OK coordinates",
   "tool_name": "mouse:click_at",
   "tool_args": { "goal": "Confirm dialog via OK pill", "action": "click OK pill center", "x": 520, "y": 880 }
@@ -1315,7 +1358,7 @@ Six-stage block in **`thoughts`**; fill **`tool_args`** per tool prompt (minimal
 
 ```json
 {
-  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: trash icon disk in file list row; aim = trash icon center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: hotspot on **filename label**, **left** of trash icon disk — not over trash center. **Pointer on trash icon center? no.**\n3 Conclusion (Center-only rule): **Pointer on trash icon center? no.** — therefore **abnormal** — hotspot on **filename label**, not **trash icon center**.\n\nVerify:\nLast automated action: 1. mouse:click_at — mis-aimed row click.\nBefore vs after: On [Screen before action]: file row unchanged. On [Screen after action]: same list row.\nClear evidence: no_clear_evidence — restates Before vs after: row not deleted.\nAction type: non-deferred.\nMouse judgment: mouse_miss — hotspot on filename, not trash icon.\nLookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_miss;\nMatch: row no_clear_evidence + non-deferred + mouse_miss → fail, precision_miss;\nStep result: fail. Cause: precision_miss.\n\nRepetition:\nLast rows differ. OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — precision_miss; Repetition: OK; this turn: delete file via trash icon in list row.\n2 Target on [Screen after action]: trash icon disk; shape circular glyph; band file list row; neighbors: filename label **left**.\n\nLocation:\n1 Placement→frame: On [Screen after action]: trash icon in **central** file list → therefore analyze on **[Zoom pointer after action]**. [Zoom pointer after action] — target: trash icon disk; wrapping bbox: **magenta**-stroke list row strip; traits inside that bbox: distinct controls = filename label + trash icon disk; wrap count = 2; intended sub-target = trash icon disk.\n2 On [Zoom pointer after action] — target→bbox→index: (a) **magenta** row **bbox**; (b) digit **background** **magenta**, flush on that **bbox**; (c) wraps **traits** intended sub-target (trash icon disk); **therefore** selected overlay index **28**.\n3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.\n4 Coordinate geometry: index **28** not listed in **Pointer neighbor reference bboxes** — geometry deferred.\n\nTool route:\n1 Next recap & Location:\n   Next recap: this turn: delete file via trash icon in list row;\n   Location recap: **coordinate** path — overlay **28**, **multiple**, reference coords absent, geometry deferred.\n2 Tool call this turn: **mouse:hover_index** on overlay index **28** only.",
+  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: trash icon disk in file list row; aim = trash icon center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: hotspot on **filename label**, **left** of trash icon disk — not over trash center. **Pointer on trash icon center? no.**\n3 Conclusion (Center-only rule): **Pointer on trash icon center? no.** — therefore **abnormal** — hotspot on **filename label**, not **trash icon center**.\n\nVerify:\nIndices reset each screen — no stale overlay index.\nLast automated action: 1. mouse:click_at — mis-aimed row click.\nBefore vs after: On [Screen before action]: file row unchanged. On [Screen after action]: same list row.\nClear evidence: no_clear_evidence — restates Before vs after: row not deleted.\nAction type: non-deferred.\nMouse judgment: mouse_miss — hotspot on filename, not trash icon.\nLookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_miss;\nMatch: row no_clear_evidence + non-deferred + mouse_miss → fail, precision_miss;\nStep result: fail. Cause: precision_miss.\n\nRepetition:\nLast rows differ. OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — precision_miss; Repetition: OK; this turn: delete file via trash icon in list row.\n2 Target on [Screen after action]: trash icon disk; shape circular glyph; band file list row; neighbors: filename label **left**.\n\nLocation:\n1 Placement→frame: On [Screen after action]: trash icon in **central** file list → therefore analyze on **[Zoom pointer after action]**. [Zoom pointer after action] — target: trash icon disk; wrapping bbox: **magenta**-stroke list row strip; traits inside that bbox: distinct controls = filename label + trash icon disk; wrap count = 2; intended sub-target = trash icon disk.\n2 On [Zoom pointer after action] — target→bbox→index: (a) **magenta** row **bbox**; (b) digit **background** **magenta**, flush on that **bbox**; (c) wraps **traits** intended sub-target (trash icon disk); **therefore** selected overlay index **28**.\n3 Exclusivity: from traits wrap count **2** — **multiple**; route: **coordinate** path.\n4 Coordinate geometry: index **28** not listed in **Pointer neighbor reference bboxes** — geometry deferred.\n\nTool route:\n1 Next recap & Location:\n   Next recap: this turn: delete file via trash icon in list row;\n   Location recap: **coordinate** path — overlay **28**, **multiple**, reference coords absent, geometry deferred.\n2 Tool call this turn: **mouse:hover_index** on overlay index **28** only.",
   "headline": "Hover list row overlay before trash click",
   "tool_name": "mouse:hover_index",
   "tool_args": { "goal": "Anchor pointer on list row overlay 28", "action": "hover row overlay 28", "index": 28 }
@@ -1339,7 +1382,7 @@ Example (**`hotkey`** — confirm save dialog, no screen point):
 
 ```json
 {
-  "thoughts": "Pointer:\n1 Intended aim on [Screen after action]: n/a — prior hotkey Save aimed at document, not this dialog button.\n2 Evidence (hotspot vs aim): On [Screen after action]: n/a — judging keyboard confirm, not pointer vs dialog button center.\n3 Conclusion (Center-only rule): n/a — hotkey turn.\n\nVerify:\nLast automated action: 3. hotkey — Save document (Ctrl+S).\nBefore vs after: On [Screen before action]: document canvas only. On [Screen after action]: save modal appeared.\nClear evidence: supporting_evidence — restates Before vs after: save modal appeared.\nAction type: non-deferred — dialog on canvas.\nMouse judgment: non_mouse — hotkey; Pointer n/a.\nLookup: Clear evidence=supporting_evidence, Action type=non-deferred, Mouse judgment=non_mouse;\nMatch: row supporting_evidence + either + non_mouse → pass;\nStep result: pass.\n\nRepetition:\nRows: differ. Screen: advanced. Verdict: OK\n\nNext:\n1 Prior stages & sub-goal: Verify: pass — save dialog open; Repetition: OK; this turn: confirm save dialog via Enter.\n2 Target on [Screen after action]: n/a — save modal visible; default button focus on dialog.\n\nLocation:\nn/a — no overlay analysis this turn.\n\nTool route:\n1 Next recap & Location:\n   Next recap: this turn: confirm save dialog via Enter;\n   Location recap: n/a — save dialog; default button focused.\n2 Tool call this turn: **hotkey** — Enter.",
+  "thoughts": "Pointer:\n1 Intended aim on [Screen after action]: n/a — prior hotkey Save aimed at document, not this dialog button.\n2 Evidence (hotspot vs aim): On [Screen after action]: n/a — judging keyboard confirm, not pointer vs dialog button center.\n3 Conclusion (Center-only rule): n/a — hotkey turn.\n\nVerify:\nIndices reset each screen — no stale overlay index.\nLast automated action: 3. hotkey — Save document (Ctrl+S).\nBefore vs after: On [Screen before action]: document canvas only. On [Screen after action]: save modal appeared.\nClear evidence: supporting_evidence — restates Before vs after: save modal appeared.\nAction type: non-deferred — dialog on canvas.\nMouse judgment: non_mouse — hotkey; Pointer n/a.\nLookup: Clear evidence=supporting_evidence, Action type=non-deferred, Mouse judgment=non_mouse;\nMatch: row supporting_evidence + either + non_mouse → pass;\nStep result: pass.\n\nRepetition:\nRows: differ. Screen: advanced. Verdict: OK\n\nNext:\n1 Prior stages & sub-goal: Verify: pass — save dialog open; Repetition: OK; this turn: confirm save dialog via Enter.\n2 Target on [Screen after action]: n/a — save modal visible; default button focus on dialog.\n\nLocation:\nn/a — no overlay analysis this turn.\n\nTool route:\n1 Next recap & Location:\n   Next recap: this turn: confirm save dialog via Enter;\n   Location recap: n/a — save dialog; default button focused.\n2 Tool call this turn: **hotkey** — Enter.",
   "headline": "Confirm save in dialog",
   "tool_name": "hotkey",
   "tool_args": { "goal": "Confirm save in dialog", "action": "press Enter for default Save", "keys": "enter" }

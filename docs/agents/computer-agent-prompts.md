@@ -3,7 +3,7 @@
 内置 **computer** Agent 的系统提示由三部分拼接而成（磁盘覆盖 Agent 目录时行为一致）：
 
 1. **`COMMUNICATION_SHARED.md`**（若存在）— 桌面截图槽位、原图/标注图/放大图（含 **`[Zoom pointer before action]`**）。
-2. **`COMMUNICATION.md`**（**运行时 slim**）— **Ground rules**；六段 **`Pointer:`** → **`Verify:`** → **Repetition:** → **`Next:`** → **`Location:`** → **`Tool route:`**；**Pointer** 几何以 **`[Zoom pointer before action]`**（**4×**、±**50 px** 裁剪）为准；**Verify** 固定顺序：**`Last automated action:`** → **Before vs after**（唯一读图）→ **Clear evidence**（复述 before/after 的**画面 UI 结果**；禁止 click/无报错/点中等动作叙事）→ **Action type** → **Mouse judgment** → **`Lookup`（三键）→ `Match`（12 行 Verify→Step result 表）→ `Step result` + `Cause`（须与 Match 一致）**；**Next** line 1 再复述 Verify 结论后做 **Verify→Next** 的 Lookup/Match；含 **Required form**、**Mini example**、**Full chain**。
+2. **`COMMUNICATION.md`**（**运行时 slim**）— **Ground rules**；六段 **`Pointer:`** → **`Verify:`** → **Repetition:** → **`Next:`** → **`Location:`** → **`Tool route:`**；**Verify:** 后固定一行 **`Indices reset each screen — no stale overlay index.`**（每轮重标，禁止引用上一轮 overlay index）；再按顺序 **`Last automated action:`** → **Before vs after** → **Clear evidence** → …；**Next** line 1 用 **`Verify: pass|fail|…`** 复述结论；含 **Required form**、**Mini example**、**Full chain**。
 3. **平台相关提示词**（运行时按目标平台自动追加，`OS_MACOS.md` / `OS_WINDOWS.md` / `OS_LINUX.md`）— 快捷键约定、**打开应用**步骤、常用路径等（三端分开维护）。
 4. **`AGENT.md` 正文** — 角色与循环要点。
 
@@ -15,7 +15,7 @@
 
 **`Tool route:`（2 行）：** line 1 **`Next recap: this turn: …`**（与 Next line 1 的 `this turn:` 子句一致）+ **`Location recap:`**；line 2 选工具。
 
-**防捏造上一动作：** **`Verify:`** 必须先写 **`Last automated action:`**；无历史则 **`none`**，禁止编造上一动作。**`COMMUNICATION.md`** 样例覆盖 **click / coordinates / scroll / wait / hotkey / response** 等，**`clipboard:*`** 仅见工具 prompt 与 **§ Off-frame tools (rare)** 规则，勿默认走剪贴板。
+**防捏造上一动作：** **`Verify:`** 块内（固定提醒行之后）必须先写 **`Last automated action:`**；无历史则 **`none`**，禁止编造上一动作。**`COMMUNICATION.md`** 样例覆盖 **click / coordinates / scroll / wait / hotkey / response** 等，**`clipboard:*`** 仅见工具 prompt 与 **§ Off-frame tools (rare)** 规则，勿默认走剪贴板。
 
 **`[CUR_SCREEN]` 图像顺序（有上一轮时）：** (1) **`[Screen before action]`** — 上一轮 unmarked 全屏 + 当前合成指针；(2) **`[Zoom pointer before action]`** — 自 before 帧指针 **±50 px** 裁剪并 **4×** 放大（**Pointer / Verify 鼠标几何标准**）；(3) **`[Screen after action]`** … (7) **`[Zoom pointer after action]`**。首轮无 (1)(2)。
 

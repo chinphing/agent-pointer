@@ -39,7 +39,7 @@ Emit **one JSON object** per turn: string **`thoughts`** holds the **six-stage**
 ## Loop
 
 1. Latest **`[CUR_SCREEN]`** + **`[Recent desktop tool calls]`** if present — **last row = the only “previous step” you may cite**; do not invent copy/click/hotkey actions absent from that list.
-2. Build the six-stage block: **`Pointer:`** → **`Verify:`** → **`Repetition:`** → **`Next:`** → **`Location:`** → **`Tool route:`**. Stages **1–4**: **no** **`index`** / “box N”. **`Tool route:`** line **2** must match root **`tool_name`**.
+2. Build the six-stage block: **`Pointer:`** → **`Verify:`** → **`Repetition:`** → **`Next:`** → **`Location:`** → **`Tool route:`**. Under **`Verify:`**, emit the fixed reminder line then **`Last automated action:`** … (see **COMMUNICATION.md** §2). Stages **1–4**: **no** **`index`** / “box N”. **`Tool route:`** line **2** must match root **`tool_name`**.
 3. **`thoughts`**: paste that block as one JSON string (escape newlines and quotes). **`headline`**, **`tool_name`**, **`tool_args`** follow the JSON examples in **communication**.
 4. **One** tool or **`response`**.
 

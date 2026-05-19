@@ -8,7 +8,7 @@ Older desktop turns are stripped—use **only** this inject.
 ### Full-screen
 
 - **`[Screen before action]`** (if present) — **previous** turn’s unmarked capture with the **current** synthetic pointer:
-  **pre-action** desktop layout. Name **Intended aim** on this frame in **`Pointer:`** line **1**; hotspot geometry uses **`[Zoom pointer before action]`** (see **Zooms**). **`Verify:`** **`Before vs after`** must compare **`[Screen before action]`** → **`[Screen after action]`** (name both frames); not **`Pointer:`**. **`Clear evidence`** restates that **UI** delta only — not click/tool success or pointer accuracy (**`Mouse judgment:`** / **`Pointer:`**).
+  **pre-action** desktop layout. Name **Intended aim** on this frame in **`Pointer:`** line **1**; hotspot geometry uses **`[Zoom pointer before action]`** (see **Zooms**). **verify stage** **`Before vs after`** must compare **`[Screen before action]`** → **`[Screen after action]`** (name both frames); not **`Pointer:`**. **`Clear evidence`** restates that **UI** delta only — not click/tool success or pointer accuracy (**`Mouse judgment:`** / **`Pointer:`**).
 
 - **`[Screen after action]`** — **after** that action; full-screen layout truth + synthetic pointer/caret.
   In **internal** stages **1–4** (**`Pointer:`** / **`Verify:`** / **`Repetition:`** / **`Next:`**), must **not** name overlay digits,
@@ -46,7 +46,7 @@ Older desktop turns are stripped—use **only** this inject.
 **Before-action** (if present; sourced from **`[Screen before action]`**):
 
 - **`[Zoom pointer before action]`** — **4×** magnified crop around the pointer (**±100 px** radius on the full screen).
-  **`Pointer:`** / **`Verify:`** mouse geometry uses this image as the **standard** (hotspot vs intended center). **Do not** use “pointer not visible” as **`n/a`** when this slot is present.
+  **`Pointer:`** / **verify stage** mouse geometry uses this image as the **standard** (hotspot vs intended center). **Do not** use “pointer not visible” as **`n/a`** when this slot is present.
 
 **After-action** (same moment as **`[Screen after action]`** / **`[Annotated after action]`**):
 

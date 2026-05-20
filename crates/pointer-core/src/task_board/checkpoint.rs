@@ -1,0 +1,33 @@
+//! Checkpoint detection for history trim.
+
+use super::args::{items_array_from_args, resolve_method};
+use serde_json::Value;
+
+pub fn is_task_board_tool_name(tool_id: &str) -> bool {
+    let n = tool_id.trim().to_ascii_lowercase();
+    n == "task_board" || n.starts_with("task_board:")
+}
+
+fn patch_marks_done(args: &Value) -> bool {
+    let Some(items) = items_array_from_args(args) else {
+        return false;
+    };
+    items.iter().any(|item| {
+        item.get("status")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().eq_ignore_ascii_case("done"))
+            .unwrap_or(false)
+    })
+}
+
+/// Whether a successful `task_board` call should trigger history trim.
+pub fn task_board_call_is_checkpoint(tool_id: &str, args: &Value) -> bool {
+    if !is_task_board_tool_name(tool_id) {
+        return false;
+    }
+    match resolve_method(tool_id, args).as_str() {
+        "replace" | "finalize" => true,
+        "patch" | "" => patch_marks_done(args),
+        _ => false,
+    }
+}

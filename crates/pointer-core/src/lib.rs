@@ -4,7 +4,12 @@ pub mod env_prompt;
 pub mod platform;
 pub mod extensions;
 pub mod context_compression;
-pub mod task_board_history_trim;
+pub mod task_board;
+
+/// Deprecated re-export — use [`task_board::history_trim`] instead.
+pub mod task_board_history_trim {
+    pub use crate::task_board::history_trim::*;
+}
 pub mod logging;
 pub mod llm_prompt_dump;
 pub mod llm_token_stats;

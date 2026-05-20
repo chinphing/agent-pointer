@@ -170,25 +170,16 @@ per the rules here and in your worker prompt.
 
 ## Task board
 
-When **`task_board`** is in your **allowed tools** (typical for **worker** agents), drive **multi-step** plans **on the board**
-(**`task_board:patch`** / **`task_board:replace`**)—stable **id**, one-line **title**, **status**
-(`pending`, `in_progress`, `done`, `cancelled`). Keep **`thoughts`** for short reasoning summaries only;
-do **not** duplicate the full plan there instead of updating the board.
+When **`task_board`** is in your **allowed tools** (typical for **worker** agents), you are the **project manager** for multi-step work.
+Use the board for milestones—not a long plan in **`thoughts`** only.
 
-- Advance **at most one** meaningful step per turn unless the user widens scope.
-- When scope shifts, **cancel** obsolete steps instead of silently ignoring them.
-- Use **`task_board:patch`** or **`task_board:replace`** when there are **two or more**
-  independently checkable sub-goals, or when the user asks for explicit tracking.
-- If your system prompt includes a **Sidecar tools** section,
-  put those qualified calls **only** inside the **`sidecar_tools`** array as objects with **`tool_name`** / **`tool_args`**.
-- Keep the **root** **`tool_name` / `tool_args`** pair for the **main** tool this turn
-  (the primary action: e.g. **`response`**, or whatever your profile lists as the root call).
-- If there is **no** sidecar array, you may still use **one** root **`task_board:patch`**
-  or **`task_board:replace`** for that turn—see the **`task_board`** tool description.
-- Treat **`[TASK_BOARD]`** host blocks as the **authoritative snapshot** for this session.
-- In **Supervisor worker** turns (you only see a task instruction, not the full user chat),
-  **`[TASK_BOARD]`** tracks **that worker scope** only; it is **not** the lead agent’s board.
-  If the Supervisor needs you aligned with prior work, it must say so in the **instruction** text.
+- **`task_board:init`** — goal + milestone rows (3–8). **`patch`** / **`replace`** / **`prune`** / **`finalize`** per the tool doc.
+- Row **`status`**: `pending`, `ready`, `in_progress`, `done`, `cancelled`, `failed`. Respect **`depends_on`** (host may block until prerequisites are **`done`**).
+- **`[TASK_BOARD]`** in the system prompt is the **compact authoritative** snapshot; resume from it after history trim or restart.
+- Sidecar: put **`task_board:…`** only in **`sidecar_tools`** when that section exists; root tool is the main action this turn.
+- Advance **at most one** meaningful milestone per turn unless the user widens scope. **Cancel** obsolete rows instead of ignoring them.
+- **Sub-agent (child) scope:** **`[TASK_BOARD]`** is your **local** `local_*` steps only. **`[TASK_BOARD_PARENT]`** is **read-only** (goal + findings + current milestone). Use **`task_board:sync_finding`** for breakthroughs to the parent. **Do not** patch parent milestone rows— the host reports completion.
+- **Lead / parent scope:** milestones only—no `local_*` micromanagement of child workers.
 
 ---
 

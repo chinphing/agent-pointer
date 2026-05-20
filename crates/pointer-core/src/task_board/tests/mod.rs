@@ -1,0 +1,99 @@
+#[cfg(test)]
+mod apply_tests {
+    use crate::task_board::args::items_array_from_args;
+    use crate::task_board::migrate::normalize_stored_value;
+    use crate::task_board::model::ItemStatus;
+    use crate::task_board::store::TaskBoardStore;
+    use crate::task_board::{check_dependencies, report_child_status, DependencyCheck};
+    use serde_json::json;
+
+    #[test]
+    fn string_items_patch_applies() {
+        let store = TaskBoardStore::new();
+        let key = "conv-test";
+        let args = json!({
+            "items": "[{\"id\":\"a\",\"title\":\"Step A\",\"status\":\"pending\",\"verification\":\"ok\"}]"
+        });
+        store.apply(key, "patch", &args).expect("patch");
+        let doc = store.document(key);
+        assert_eq!(doc.board.len(), 1);
+        assert_eq!(doc.board[0].id, "a");
+    }
+
+    #[test]
+    fn v1_array_migrates() {
+        let raw = json!([
+            {"id": "1", "title": "t", "status": "done"}
+        ]);
+        let doc = normalize_stored_value("k", raw);
+        assert_eq!(doc.version, 2);
+        assert_eq!(doc.board.len(), 1);
+    }
+
+    #[test]
+    fn dependency_gate_blocks() {
+        let store = TaskBoardStore::new();
+        let key = "parent";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": [
+                        {"id": "sub_01", "title": "first", "status": "pending"},
+                        {"id": "sub_02", "title": "second", "status": "pending", "depends_on": ["sub_01"]}
+                    ]
+                }),
+            )
+            .expect("init");
+        let doc = store.document(key);
+        assert!(matches!(
+            check_dependencies(&doc, "sub_02"),
+            DependencyCheck::Blocked { .. }
+        ));
+        let mut doc = store.document(key);
+        report_child_status(&mut doc, "sub_01", ItemStatus::Done, "ok").expect("report");
+        store.save_document(key, doc);
+        let doc = store.document(key);
+        assert!(matches!(
+            check_dependencies(&doc, "sub_02"),
+            DependencyCheck::Ready
+        ));
+    }
+
+    #[test]
+    fn items_array_from_string() {
+        let args = json!({"items": "[{\"id\":\"x\"}]"});
+        assert_eq!(items_array_from_args(&args).map(|a| a.len()), Some(1));
+    }
+}
+
+#[cfg(test)]
+mod sqlite_tests {
+    use crate::task_board::persistence::TaskBoardSqlite;
+    use crate::task_board::TaskBoardStore;
+    use serde_json::json;
+    #[test]
+    fn sqlite_roundtrip_survives_new_store() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("task_boards.db");
+        let db = TaskBoardSqlite::open(path).expect("open");
+        let store = TaskBoardStore::with_persistence(db.clone());
+        store
+            .apply(
+                "conv-persist",
+                "patch",
+                &json!({
+                    "items": [{"id": "m1", "title": "Milestone", "status": "in_progress"}]
+                }),
+            )
+            .expect("patch");
+        drop(store);
+        let store2 = TaskBoardStore::with_persistence(db);
+        store2.ensure_loaded("conv-persist");
+        let doc = store2.document("conv-persist");
+        assert_eq!(doc.board.len(), 1);
+        assert_eq!(doc.board[0].id, "m1");
+    }
+}

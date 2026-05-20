@@ -18,9 +18,9 @@ use tokio_util::sync::CancellationToken;
 use super::app_state::AppState;
 use super::emit::emit;
 use super::session_budget::SessionToolBudget;
-use super::task_board_inject::inject_host_task_board_conversation_id;
-use crate::task_board_history_trim::{
-    maybe_trim_after_tool_pass, task_board_call_is_checkpoint, TaskBoardTrimHook,
+use crate::task_board::{
+    inject_host_task_board_conversation_id, maybe_trim_after_tool_pass,
+    task_board_call_is_checkpoint, TaskBoardTrimHook,
 };
 use super::util::{desktop_tool_failure_note, tool_result_msg, truncate_str};
 use super::StreamTx;

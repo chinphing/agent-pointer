@@ -15,7 +15,7 @@ pub struct AppState {
     pub skills: Arc<SkillRegistry>,
     pub agents: Arc<crate::agents::AgentRegistry>,
     pub computer_state: Arc<crate::agents::computer::ComputerState>,
-    pub task_board_store: Arc<crate::tools::task_board::TaskBoardStore>,
+    pub task_board_store: Arc<crate::task_board::TaskBoardStore>,
     /// Lifecycle hooks aligned with Python `call_extensions(extension_point, …)`.
     pub extensions: Arc<ExtensionRegistry>,
     pub cancels: Mutex<HashMap<String, CancellationToken>>,
@@ -27,7 +27,13 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         let tools = Arc::new(ToolRegistry::new());
-        let task_board_store = Arc::new(crate::tools::task_board::TaskBoardStore::default());
+        let task_board_store = match crate::task_board::open_default_persistence() {
+            Some(db) => Arc::new(crate::task_board::TaskBoardStore::with_persistence(db)),
+            None => {
+                log::warn!("task_board: sqlite persistence unavailable; in-memory only");
+                Arc::new(crate::task_board::TaskBoardStore::new())
+            }
+        };
         crate::tools::builtin::register_all(&tools, task_board_store.clone());
         let skills = Arc::new(SkillRegistry::new());
         crate::skills::builtin::register_all(&skills);

@@ -14,7 +14,7 @@ use std::time::Instant;
 use super::agent_tool_allowlist::resolve_agent_tools;
 use super::app_state::AppState;
 use super::prompts::push_env_and_json_wire_tail_to_cacheable;
-use super::task_board_inject::sub_agent_task_board_store_key;
+use crate::task_board::sub_agent_task_board_store_key;
 use super::util::{new_id, now_ms};
 use super::StreamTx;
 
@@ -176,6 +176,12 @@ pub(super) async fn prepare_sub_agent_round_prompts(
         .extensions
         .run_before_main_llm_call(&mut before_llm_ctx)
         .await?;
+    if let Some(parent_block) = state
+        .task_board_store
+        .parent_tunnel_for_child(sub_task_board_key, task_id)
+    {
+        dynamic.push(parent_block);
+    }
     let before_main_llm_tail_ms = t.elapsed().as_millis();
     log::info!(
         "run_chat supervisor_sub_agent pre_stream_chat conversation_id={} task_id={} message_id={} local_history_messages={} clone_ms={} message_loop_prompts_after_ms={} assemble_system_prompts_ms={} before_main_llm_tail_ms={} pre_stream_total_ms={}",

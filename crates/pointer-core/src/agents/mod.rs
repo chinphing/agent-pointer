@@ -1060,13 +1060,11 @@ mod builtin_agent_tests {
 
     #[test]
     fn coder_communication_expands_workspace_placeholder() {
-        let raw = include_str!("coder/AGENT.md");
-        let comm = include_str!("coder/COMMUNICATION.md");
-        let agent = load_builtin_agent("coder", raw, comm).expect("load builtin coder");
         let vars = SessionInjectVars {
             workspace_root: "/tmp/example-workspace",
         };
-        let expanded = expand_agent_prompt_placeholders(&agent.system_prompt, &vars);
+        let public = rendered_communication_public_inject().expect("public inject");
+        let expanded = expand_agent_prompt_placeholders(&public, &vars);
         assert!(expanded.contains("/tmp/example-workspace"));
         assert!(!expanded.contains("{{workspace_root}}"));
     }

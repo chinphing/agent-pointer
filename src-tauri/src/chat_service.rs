@@ -27,7 +27,10 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         let tools = Arc::new(ToolRegistry::new());
-        let task_board_store = Arc::new(pointer_core::tools::task_board::TaskBoardStore::default());
+        let task_board_store = match pointer_core::task_board::open_default_persistence() {
+            Some(db) => Arc::new(pointer_core::task_board::TaskBoardStore::with_persistence(db)),
+            None => Arc::new(pointer_core::task_board::TaskBoardStore::new()),
+        };
         crate::tools::builtin::register_all(&tools, task_board_store);
         let skills = Arc::new(SkillRegistry::new());
         crate::skills::builtin::register_all(&skills);

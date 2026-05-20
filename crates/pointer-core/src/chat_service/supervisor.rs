@@ -18,6 +18,10 @@ use super::supervisor_plan::{fallback_agent_tasks, plan_agent_tasks, sort_agent_
 use super::supervisor_synth::synthesize_final_answer;
 use super::util::{new_id, now_ms, truncate_str};
 use super::StreamTx;
+use crate::task_board::{
+    check_dependencies, dispatch_to_child, report_child_status, sub_agent_task_board_store_key,
+    DependencyCheck, ItemStatus,
+};
 
 pub(crate) async fn run_supervisor_chat(
     stream: StreamTx,
@@ -127,6 +131,27 @@ pub(crate) async fn run_supervisor_chat(
             },
         );
 
+        let parent_board_key = conversation_id;
+        let child_board_key = sub_agent_task_board_store_key(conversation_id, task.id.trim());
+        let parent_doc = state.task_board_store.document(parent_board_key);
+        if parent_doc.board.iter().any(|i| i.id == task.id) {
+            if let DependencyCheck::Blocked { reason } = check_dependencies(&parent_doc, &task.id) {
+                log::warn!(
+                    "supervisor: task_board dependency blocked task_id={} reason={reason}",
+                    task.id
+                );
+            }
+            if let Err(err) = dispatch_to_child(
+                &state.task_board_store,
+                parent_board_key,
+                &child_board_key,
+                task.id.trim(),
+                None,
+            ) {
+                log::warn!("supervisor: dispatch_to_child failed: {err}");
+            }
+        }
+
         let mut task_run = task.clone();
         if !task.depends_on.is_empty() {
             let mut pre = String::from("\n\n[Prior task outputs]\n");
@@ -162,6 +187,19 @@ pub(crate) async fn run_supervisor_chat(
         {
             Ok(result) => {
                 tool_budget.record_tool_cycle();
+                let mut parent = state.task_board_store.document(parent_board_key);
+                if parent.board.iter().any(|i| i.id == task.id) {
+                    if let Err(err) = report_child_status(
+                        &mut parent,
+                        task.id.trim(),
+                        ItemStatus::Done,
+                        &result.content,
+                    ) {
+                        log::warn!("supervisor: report_child_status failed: {err}");
+                    } else {
+                        state.task_board_store.save_document(parent_board_key, parent);
+                    }
+                }
                 results_by_id.insert(task.id.clone(), result.clone());
                 emit_agent_step(
                     &stream,
@@ -180,6 +218,20 @@ pub(crate) async fn run_supervisor_chat(
                 results.push(result);
             }
             Err(err) => {
+                let mut parent = state.task_board_store.document(parent_board_key);
+                if parent.board.iter().any(|i| i.id == task.id) {
+                    let note = err.to_string();
+                    if let Err(rep) = report_child_status(
+                        &mut parent,
+                        task.id.trim(),
+                        ItemStatus::Failed,
+                        &note,
+                    ) {
+                        log::warn!("supervisor: report_child_status (failed) err: {rep}");
+                    } else {
+                        state.task_board_store.save_document(parent_board_key, parent);
+                    }
+                }
                 emit_agent_step(
                     &stream,
                     &assistant_id,

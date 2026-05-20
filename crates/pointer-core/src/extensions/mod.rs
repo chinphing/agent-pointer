@@ -47,8 +47,8 @@ pub struct BeforeMainLlmCallContext<'a> {
     pub system_prompts_dynamic: &'a mut Vec<String>,
     /// Main chat session id (stream / logs). Not necessarily equal to [`Self::task_board_store_key`].
     pub conversation_id: &'a str,
-    pub task_board_store: Arc<crate::tools::task_board::TaskBoardStore>,
-    /// Key for [`crate::tools::task_board::TaskBoardStore::snapshot_for_prompt`] / host `task_board` binding.
+    pub task_board_store: Arc<crate::task_board::TaskBoardStore>,
+    /// Key for [`crate::task_board::TaskBoardStore::snapshot_for_prompt`] / host `task_board` binding.
     pub task_board_store_key: &'a str,
 }
 

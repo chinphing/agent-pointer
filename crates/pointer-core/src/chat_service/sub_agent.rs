@@ -16,7 +16,7 @@ use super::agent_post_stream::{
 use super::agent_tool_pass::{
     run_agent_tool_pass, SubToolPassConfig, ToolInvocationStats, ToolPassResult,
 };
-use crate::task_board_history_trim::TaskBoardTrimHook;
+use crate::task_board::TaskBoardTrimHook;
 use super::app_state::AppState;
 use super::session_budget::SessionToolBudget;
 use super::session_model::sub_agent_provider;

@@ -65,65 +65,7 @@ pub fn is_task_board_history_trim_enabled(settings: &ModelSettings, agent_id: &s
         .unwrap_or_else(|| default_trim_for_agent(&id))
 }
 
-pub fn is_task_board_tool_name(tool_id: &str) -> bool {
-    let n = tool_id.trim().to_ascii_lowercase();
-    n == "task_board" || n.starts_with("task_board:")
-}
-
-fn resolve_task_board_method(tool_id: &str, args: &serde_json::Value) -> String {
-    let name = tool_id.trim().to_ascii_lowercase();
-    if name.ends_with(":replace") {
-        return "replace".into();
-    }
-    if name.ends_with(":patch") {
-        return "patch".into();
-    }
-    args.get("method")
-        .and_then(|v| v.as_str())
-        .map(|s| s.trim().to_ascii_lowercase())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "patch".into())
-}
-
-fn items_array_from_args(args: &serde_json::Value) -> Option<Vec<serde_json::Value>> {
-    let raw = args.get("items")?;
-    if let Some(arr) = raw.as_array() {
-        return Some(arr.clone());
-    }
-    if let Some(s) = raw.as_str() {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
-            return v.as_array().cloned();
-        }
-    }
-    None
-}
-
-fn patch_marks_done_checkpoint(args: &serde_json::Value) -> bool {
-    items_array_from_args(args)
-        .map(|items| {
-            items.iter().any(|item| {
-                item.get("status")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.trim().eq_ignore_ascii_case("done"))
-                    .unwrap_or(false)
-            })
-        })
-        .unwrap_or(false)
-}
-
-/// Whether a successful `task_board` call should trigger history trim.
-/// - **`replace`**: always (full board checkpoint).
-/// - **`patch`**: only when at least one row in **`items`** has **`status`** = **`done`**.
-pub fn task_board_call_is_checkpoint(tool_id: &str, args: &serde_json::Value) -> bool {
-    if !is_task_board_tool_name(tool_id) {
-        return false;
-    }
-    match resolve_task_board_method(tool_id, args).as_str() {
-        "replace" => true,
-        "patch" | "" => patch_marks_done_checkpoint(args),
-        _ => false,
-    }
-}
+pub use crate::task_board::checkpoint::{is_task_board_tool_name, task_board_call_is_checkpoint};
 
 /// User rows that are not the session's original task (injected screens, compression, trim placeholders).
 pub fn is_injected_or_synthetic_user_content(content: &str) -> bool {

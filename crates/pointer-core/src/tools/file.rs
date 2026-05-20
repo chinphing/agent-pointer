@@ -654,15 +654,29 @@ fn execute_file_tool(args: &serde_json::Value, root: &Path) -> Result<String> {
     }
 }
 
+/// `file:write` body: a JSON string, or an object/array pretty-printed as UTF-8 (common for `.json` files).
+fn resolve_file_write_content(value: Option<&serde_json::Value>) -> Result<String> {
+    let v = value.ok_or_else(|| anyhow!("缺少 content"))?;
+    match v {
+        serde_json::Value::Null => Err(anyhow!("缺少 content")),
+        serde_json::Value::String(s) => Ok(s.clone()),
+        serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+            let mut s = serde_json::to_string_pretty(v)
+                .map_err(|e| anyhow!("content JSON 序列化失败: {e}"))?;
+            s.push('\n');
+            Ok(s)
+        }
+        serde_json::Value::Number(n) => Ok(n.to_string()),
+        serde_json::Value::Bool(b) => Ok(b.to_string()),
+    }
+}
+
 fn execute_file_write_payload(args: &serde_json::Value, root: &Path) -> Result<String> {
     let path = args
         .get("path")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("缺少 path"))?;
-    let content = args
-        .get("content")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("缺少 content"))?;
+    let content = resolve_file_write_content(args.get("content"))?;
 
     let full = resolve_within_workspace_root(root, path)?;
     if let Some(parent) = full.parent() {
@@ -2118,5 +2132,66 @@ mod tests {
             msg.contains("entryType") || msg.contains("无效"),
             "unexpected error: {msg}"
         );
+    }
+
+    #[test]
+    fn file_write_accepts_string_content() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let args = json!({
+            "method": "write",
+            "path": "out.txt",
+            "content": "hello\n"
+        });
+        execute_file_tool(&args, root).expect("write");
+        assert_eq!(fs::read_to_string(root.join("out.txt")).unwrap(), "hello\n");
+    }
+
+    #[test]
+    fn file_write_survives_envelope_round_trip_for_json_file_body() {
+        use crate::json_tool_caller::finalize_json_tool_envelope;
+        use crate::tool_envelope::envelope_arguments_to_json_string;
+        use crate::tools::{merge_tool_method_from_qualified_name, parse_tool_call_arguments};
+
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let wire = r#"{
+  "thoughts": "create package.json",
+  "headline": "创建 package.json",
+  "tool_name": "file",
+  "tool_args": {
+    "method": "write",
+    "path": "package.json",
+    "content": "{\n  \"name\": \"llm-chat\",\n  \"private\": true,\n  \"version\": \"0.1.0\"\n}\n"
+  }
+}"#;
+        let (env, _diag) = finalize_json_tool_envelope(wire, "");
+        let env = env.expect("envelope");
+        let args_json = envelope_arguments_to_json_string(&env.primary.arguments);
+        let args = parse_tool_call_arguments(&args_json);
+        let (_tool_id, args) = merge_tool_method_from_qualified_name(&env.primary.name, args);
+        execute_file_tool(&args, root).expect("write after round trip");
+        let written = fs::read_to_string(root.join("package.json")).unwrap();
+        assert!(written.contains("\"name\": \"llm-chat\""));
+    }
+
+    #[test]
+    fn file_write_accepts_object_content_as_pretty_json() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let args = json!({
+            "method": "write",
+            "path": "package.json",
+            "content": {
+                "name": "llm-chat",
+                "private": true,
+                "version": "0.1.0"
+            }
+        });
+        execute_file_tool(&args, root).expect("write");
+        let written: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(root.join("package.json")).unwrap()).unwrap();
+        assert_eq!(written["name"], "llm-chat");
+        assert_eq!(written["private"], true);
     }
 }

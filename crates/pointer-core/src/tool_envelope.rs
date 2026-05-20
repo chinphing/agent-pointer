@@ -20,11 +20,36 @@ pub struct ToolEnvelopeCall {
     pub headline: String,
 }
 
+/// Tool-arg keys that must stay JSON strings even when the value looks like JSON
+/// (e.g. `file:write` `content` is the full file body, not a nested object).
+fn preserve_raw_string_arg(key: &str) -> bool {
+    matches!(
+        key,
+        "content"
+            | "oldString"
+            | "old_string"
+            | "newString"
+            | "new_string"
+            | "text"
+            | "command"
+            | "instruction"
+            | "message"
+            | "pattern"
+    )
+}
+
 /// Coerce string-map tool arguments to a JSON object string for tool handlers.
 pub fn envelope_arguments_to_json_string(args: &HashMap<String, String>) -> String {
     let map: Map<String, Value> = args
         .iter()
-        .map(|(k, v)| (k.clone(), coerce_string_arg_to_json_value(v)))
+        .map(|(k, v)| {
+            let val = if preserve_raw_string_arg(k) {
+                Value::String(v.clone())
+            } else {
+                coerce_string_arg_to_json_value(v)
+            };
+            (k.clone(), val)
+        })
         .collect();
     Value::Object(map).to_string()
 }
@@ -88,5 +113,17 @@ mod tests {
         assert_eq!(arr.len(), 2);
         assert_eq!(arr[0].as_str(), Some("command"));
         assert_eq!(arr[1].as_str(), Some("space"));
+    }
+
+    #[test]
+    fn envelope_args_content_stays_string_when_json_shaped() {
+        let body = "{\n  \"name\": \"llm-chat\",\n  \"private\": true\n}\n";
+        let mut m = HashMap::new();
+        m.insert("method".into(), "write".into());
+        m.insert("path".into(), "package.json".into());
+        m.insert("content".into(), body.to_string());
+        let j = envelope_arguments_to_json_string(&m);
+        let v: Value = serde_json::from_str(&j).unwrap();
+        assert_eq!(v["content"].as_str(), Some(body));
     }
 }

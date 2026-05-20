@@ -39,7 +39,7 @@ All keys below are **JSON properties** on the root **`tool_args`** object of you
 **`file:write`**
 
 - **`path`** — Workspace-relative **or** absolute path under the workspace (runtime checks canonical prefix against workspace root).
-- **`content`** — Entire file body as one JSON **string** value. Use normal JSON escaping for quotes (`\"`), backslashes (`\\`), and newlines (`\n`); file bytes are UTF-8 text.
+- **`content`** — Entire file body. Prefer a JSON **string** (use `\"`, `\\`, `\n` as needed). You may also pass a JSON **object** or **array**; the runtime pretty-prints it as UTF-8 text (typical for `.json` / config files).
 
 **`file:edit`**
 

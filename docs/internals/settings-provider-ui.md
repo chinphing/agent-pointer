@@ -24,6 +24,13 @@
 - `RuntimeParamsForm` + `useRuntimeParams`：服务商级用 `providerScopeModelId === null`，模型定制用 `modelConfigModalId`。
 - 改 `modelConfigs` 时替换顶层对象引用（见 `useRuntimeParams.patchModel`）。
 
+## 新增服务商与千问/深度求索一致
+
+- 添加/编辑表单顶部有 **服务类型**（千问 / 深度求索 / OpenAI 兼容），决定 `RuntimeParamsForm` 的 variant（深度思考、推理力度等）。
+- 类型可由 `id` / `baseUrl` 自动识别（如填 DashScope 地址会切到千问面板）；添加时也可直接点类型按钮套用默认 ID、地址与模型列表。
+- 配置流程与内置服务商相同：服务商级 `RuntimeParamsForm` → 模型列表 → 各模型「同上 / 定制」→ 定制弹窗内同一套 `RuntimeParamsForm`。
+- 预设与识别逻辑在 `src/lib/providerParams.ts`（`PROVIDER_TEMPLATE_OPTIONS`、`detectProviderTemplateId`）。
+
 ## 模型「同上」与 `modelConfigs`
 
 - **同上**：该模型在 `modelConfigs` 中**无条目**（或仅有与服务商默认相同的冗余字段，保存时会被剔除）。

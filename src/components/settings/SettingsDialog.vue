@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   Bot,
   Check,
@@ -20,7 +20,16 @@ import {
 } from 'lucide-vue-next'
 import type { AgentDef, ModelRuntimeOverrides, ProviderConfig } from '../../types/chat'
 import { listAgents } from '../../lib/api'
-import { isDeepSeekProvider, isQwenProvider } from '../../lib/providerParams'
+import {
+  detectProviderTemplateId,
+  isDeepSeekProvider,
+  isQwenProvider,
+  PROVIDER_TEMPLATE_OPTIONS,
+  providerDraftForTemplate,
+  providerTemplateMeta,
+  stripProviderExtensionFields,
+  type ProviderTemplateId
+} from '../../lib/providerParams'
 import {
   buildCustomModelEntryFromProvider,
   DEFAULT_MODEL_MAX_TOKENS,
@@ -68,6 +77,8 @@ const modelConfigModalError = ref('')
 const providerSaveError = ref('')
 /** 固定为 null：providerRuntimeApi 绑定服务商级默认，勿与 modelConfigModalId 混用。 */
 const providerScopeModelId = ref<string | null>(null)
+/** 与千问/深度求索相同的参数面板类型；新增服务商也须先选类型。 */
+const providerTemplate = ref<ProviderTemplateId>('openai_compatible')
 
 const globalGenFallback = {
   temperature: () => s.settings.temperature,
@@ -76,6 +87,21 @@ const globalGenFallback = {
 
 const providerRuntimeApi = useRuntimeParams(editingProvider, providerScopeModelId, globalGenFallback)
 const modelRuntimeApi = useRuntimeParams(editingProvider, modelConfigModalId, globalGenFallback)
+
+const providerTemplateHint = computed(
+  () => providerTemplateMeta(providerTemplate.value).hint
+)
+
+watch(
+  () =>
+    editingProvider.value
+      ? ([editingProvider.value.id, editingProvider.value.baseUrl] as const)
+      : null,
+  ids => {
+    if (!ids || !editingProvider.value) return
+    providerTemplate.value = detectProviderTemplateId(editingProvider.value)
+  }
+)
 
 function maskKey(key: string): string {
   if (!key) return ''
@@ -258,14 +284,58 @@ function setTaskBoardTrimLocal(agentId: string, enabled: boolean) {
   }
 }
 
+function globalGenDefaults() {
+  const t = s.settings.temperature
+  const n = s.settings.maxTokens
+  return {
+    temperature: Number.isFinite(t) && t >= 0 ? t : DEFAULT_MODEL_TEMPERATURE,
+    maxTokens: n && n >= 64 ? n : DEFAULT_MODEL_MAX_TOKENS
+  }
+}
+
+function setProviderTemplate(template: ProviderTemplateId) {
+  providerTemplate.value = template
+  const ep = editingProvider.value
+  if (!ep) return
+  const g = globalGenDefaults()
+  if (showAddProvider.value) {
+    const draft = providerDraftForTemplate(template, g)
+    editingProvider.value = stripProviderExtensionFields(
+      {
+        ...draft,
+        apiKey: ep.apiKey || draft.apiKey,
+        modelConfigs: cloneModelConfigs(ep.modelConfigs)
+      },
+      template
+    )
+    editingModelsText.value = (editingProvider.value.models ?? []).join(', ')
+    return
+  }
+  const meta = providerTemplateMeta(template)
+  editingProvider.value = stripProviderExtensionFields(
+    {
+      ...ep,
+      id: ep.id.trim() || meta.defaultId,
+      name: ep.name.trim() || meta.defaultName,
+      baseUrl: ep.baseUrl.trim() || meta.defaultBaseUrl
+    },
+    template
+  )
+}
+
 function startEditProvider(provider: ProviderConfig) {
   // 从 store 拷贝草稿，勿把列表里的 provider 对象直接赋给 editingProvider（保存时会互相覆盖）。
   const pruned = pruneInheritedModelConfigs(provider, provider.modelConfigs, globalGenFallback)
-  editingProvider.value = {
-    ...provider,
-    models: [...(provider.models ?? [])],
-    modelConfigs: cloneModelConfigs(pruned)
-  }
+  const template = detectProviderTemplateId(provider)
+  providerTemplate.value = template
+  editingProvider.value = stripProviderExtensionFields(
+    {
+      ...provider,
+      models: [...(provider.models ?? [])],
+      modelConfigs: cloneModelConfigs(pruned)
+    },
+    template
+  )
   originalApiKey.value = provider.apiKey
   editingApiKey.value = ''
   editingModelsText.value = (provider.models ?? []).join(', ')
@@ -273,22 +343,12 @@ function startEditProvider(provider: ProviderConfig) {
 }
 
 function startAddProvider() {
-  const t = s.settings.temperature
-  const n = s.settings.maxTokens
-  editingProvider.value = {
-    id: '',
-    name: '',
-    baseUrl: '',
-    apiKey: '',
-    models: [],
-    reasoningInMessages: true,
-    temperature: Number.isFinite(t) && t >= 0 ? t : DEFAULT_MODEL_TEMPERATURE,
-    maxTokens: n && n >= 64 ? n : DEFAULT_MODEL_MAX_TOKENS,
-    modelConfigs: {}
-  }
+  providerTemplate.value = 'openai_compatible'
+  const draft = providerDraftForTemplate('openai_compatible', globalGenDefaults())
+  editingProvider.value = draft
   originalApiKey.value = ''
   editingApiKey.value = ''
-  editingModelsText.value = ''
+  editingModelsText.value = (draft.models ?? []).join(', ')
   showAddProvider.value = true
 }
 
@@ -629,6 +689,26 @@ async function saveAll() {
                 <ChevronRight class="w-4 h-4 text-primary-cyan" />
                 {{ showAddProvider ? '添加模型服务' : '编辑模型服务' }}
               </h4>
+
+              <div class="space-y-2">
+                <label class="block text-[12px] text-slate-400">服务类型</label>
+                <div class="inline-flex flex-wrap gap-1 rounded-lg bg-black/30 border border-white/10 p-0.5">
+                  <button
+                    v-for="opt in PROVIDER_TEMPLATE_OPTIONS"
+                    :key="opt.id"
+                    type="button"
+                    class="h-8 px-3 rounded-md text-[12px] cursor-pointer transition-colors"
+                    :class="providerTemplate === opt.id ? 'bg-white/15 text-slate-100' : 'text-slate-500 hover:text-slate-300'"
+                    @click="setProviderTemplate(opt.id)"
+                  >
+                    {{ opt.label }}
+                  </button>
+                </div>
+                <p class="text-[11px] text-slate-500">
+                  与内置千问/深度求索相同：先设服务商默认参数，再在下方各模型选「同上」或「定制」。
+                  <span class="text-slate-400">（{{ providerTemplateHint }}）</span>
+                </p>
+              </div>
 
               <div class="grid grid-cols-2 gap-3">
                 <div>

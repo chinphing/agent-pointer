@@ -65,7 +65,7 @@ fn build_cur_screen_text(has_previous_raw: bool) -> String {
         ""
     };
     let tail = format!(
-        "{before_line}{zoom_before} [Annotated after action] carries overlay index numbers. **`Location:`** line **4**: if **index N** is in **Pointer neighbor reference bboxes**, aim on **[Annotated after action]**; if **N** is not listed, geometry deferred → **hover_index** on **N** this turn."
+        "{before_line}{zoom_before} Slot names label each image. Every visual claim in thoughts must cite On [slot name]:. Stage rules and Location routing: runtime COMMUNICATION.md."
     );
     let hint = if has_previous_raw {
         format!(

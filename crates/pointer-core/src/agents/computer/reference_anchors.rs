@@ -9,7 +9,7 @@ use super::screen::MonitorInfo;
 pub const POINTER_VICINITY_SIDE_PX: f32 =
     crate::agents::computer::screen_overlay::ZOOM_POINTER_CROP_SIDE as f32;
 
-const ZOOM_POINTER_ANCHOR: &str = "**Pointer coordinate anchor:** **`Location:`** line **4** — if **index N** is listed in **Pointer neighbor reference bboxes**, compute **(x,y)** on **`[Annotated after action]`** (**placement → corner → (xc,yc) → offset → therefore (x,y)**). If **N** is **not** listed, **geometry deferred** → **`hover_index`** on **N** this turn. Do not mix frames; not sibling-control anchors; not corner before placement.";
+const INJECT_RULES_TAIL: &str = "Image-grounded analysis: every visual claim must cite **On [slot name]:**. Stage steps and routing tables: runtime **COMMUNICATION.md**.";
 
 fn pointer_capture_position(
     monitor: &MonitorInfo,
@@ -82,7 +82,9 @@ fn format_pointer_neighbor_bbox_block(
     let crop = super::screen_overlay::ZOOM_POINTER_CROP_SIDE;
 
     let mut lines = vec![format!(
-        "**Pointer neighbor reference bboxes** (for **`Location:`** line **4** — anchor **line 2 index N** here when listed; session {session_label}; nearest-first in pointer {crop}×{crop} px vicinity):",
+        "**Pointer neighbor reference bboxes** (corner/center coordinates for overlay indices near the pointer; session {session_label}; nearest-first in {crop}×{crop} px vicinity):",
+        session_label = session_label,
+        crop = crop,
     )];
 
     if candidates.is_empty() {
@@ -154,7 +156,7 @@ pub fn format_pointer_coordinate_anchor(
 ) -> Option<String> {
     let (mouse_bx, mouse_by, cw, ch) = pointer_capture_position(monitor, capture_px, global_pointer)?;
     let pointer_line = format_pointer_position_line(mouse_bx, mouse_by, cw, ch, coord);
-    Some(format!("{pointer_line}\n\n{ZOOM_POINTER_ANCHOR}"))
+    Some(format!("{pointer_line}\n\n{INJECT_RULES_TAIL}"))
 }
 
 /// Back-compat alias (call sites may still use the old name).
@@ -168,7 +170,7 @@ pub fn format_mouse_neighbor_reference_bboxes(
     let (mouse_bx, mouse_by, cw, ch) = pointer_capture_position(monitor, capture_px, global_pointer)?;
     let pointer_line = format_pointer_position_line(mouse_bx, mouse_by, cw, ch, coord);
     let bbox_block = format_pointer_neighbor_bbox_block(boxes, mouse_bx, mouse_by, cw, ch, coord);
-    Some(format!("{pointer_line}\n\n{ZOOM_POINTER_ANCHOR}\n\n{bbox_block}"))
+    Some(format!("{pointer_line}\n\n{INJECT_RULES_TAIL}\n\n{bbox_block}"))
 }
 
 #[cfg(test)]
@@ -186,7 +188,7 @@ mod tests {
         )
         .expect("line");
         assert!(s.contains("**Pointer position**"));
-        assert!(s.contains("**Pointer coordinate anchor:**"));
+        assert!(s.contains("COMMUNICATION.md"));
         assert!(s.contains("[Zoom pointer after action]"));
         assert!(
             !s.contains("intersecting pointer 200x200 vicinity"),

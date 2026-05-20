@@ -1,8 +1,29 @@
-## `<thoughts>`
+## Author reference — not loaded at runtime
 
-Runtime **COMMUNICATION.md** (slim) specifies **JSON** output: put the **full six-stage block** (**`Pointer:`** … **`Tool route:`**`) inside the **`thoughts`** string field; keep **`headline`** a **short** label. This file documents the same stages in more detail for authors.
+**Runtime spec:** **`COMMUNICATION.md`** (slim) + **`COMMUNICATION_SHARED.md`** (image slots).
 
-**Inject slots (runtime, 2026):** when a prior turn exists — **`[Screen before action]`** → **`[Zoom pointer before action]`** (4×, ±50 px; **Pointer** geometry standard) → **`[Screen after action]`** → **`[Annotated after action]`** → three **after** zooms. **Verify** uses **12-row** lookup (**`Step result` / `Cause`**), **`Mouse judgment`** = **`non_mouse` | `mouse_miss` | `mouse_accurate`** only. Sections below may still describe older **VERIFIED/NFO** wording — follow **COMMUNICATION.md** for on-wire behavior.
+**This file** holds extended examples, anti-patterns, legacy notes, and authoring rationale.
+**On-wire behavior always follows runtime `COMMUNICATION.md`.**
+
+### Refactor notes (2026)
+
+Runtime prompt is organized as:
+
+1. **Proof discipline** — numbered lines, no skipped steps, conclusion only after evidence.
+2. **Image discipline** — every visual claim cites **`On [Frame]:`**; frame registry table.
+3. **Per-stage steps** — strict step tables (P1–P3, V0–V8, L-F1–L-4, T1–T3).
+4. **Routing tables** — Location paths L0–L3, Verify lookup, Tool route execution.
+5. **One golden example per stage** in runtime; **extended examples below**.
+
+**Inject slots:** when a prior turn exists — **`[Screen before action]`** → **`[Zoom pointer before action]`** → **`[Screen after action]`** → **`[Annotated after action]`** → three **after** zooms.
+
+---
+
+## `<thoughts>` (legacy header — see runtime COMMUNICATION.md)
+
+Runtime **COMMUNICATION.md** specifies **JSON** output: put the **full six-stage block** (**`Pointer:`** … **`Tool route:`**`) inside **`thoughts`**; keep **`headline`** short.
+
+**Verify** uses **12-row** lookup. Sections below may describe older **VERIFIED/NFO** wording — follow **COMMUNICATION.md** for on-wire behavior.
 
 ## Reasoning framework (mandatory every tool or final turn)
 
@@ -289,3 +310,56 @@ In real replies, **each** failed candidate should still use a full **line 1** (f
   "tool_args": {}
 }
 ```
+
+---
+
+## Extended anti-patterns (author reference)
+
+Violations of runtime **proof discipline** and **image discipline**. Normative rules: **`COMMUNICATION.md`**.
+
+### Pointer — skip line 2 or verdict before evidence
+
+**Forbidden — line 3 before line 2:**
+
+```text
+Pointer:
+1 Intended aim on [Screen before action]: Bluetooth toggle knob; aim = knob center.
+3 Conclusion (Center-only rule): abnormal — (forbidden: Evidence missing).
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: …
+```
+
+### Verify — no frame anchor or Step result before Lookup
+
+**Forbidden — vague Before vs after:**
+
+```text
+Before vs after: Text appears in search bar.
+(must name On [Screen before action]: … On [Screen after action]: …)
+```
+
+### Next — tool name in line 2
+
+**Forbidden:**
+
+```text
+2 Target: locate thread — might be personal chat.
+Tool kind: mouse click.
+```
+
+### Location — overlay digit on line 1
+
+**Forbidden:**
+
+```text
+1 … neighbors: left of Messages (index 34) …
+```
+
+### Tool route — contradicts Location
+
+**Forbidden:**
+
+```text
+Tool route: hover_index on 28.
+"tool_name": "mouse:click_at"
+```
+

@@ -1,15 +1,11 @@
-//! **Pointer position** numeric line and **`[Zoom pointer after action]`** anchor prose for `[CUR_SCREEN]`.
-//! Keep this inject prose descriptive only; analysis logic lives in COMMUNICATION.
+//! **Pointer position** and **Overlay reference bboxes** (all indices) for `[CUR_SCREEN]`.
+//! Keep inject prose descriptive only; analysis logic lives in COMMUNICATION.
 
 use super::annotate::BoxInfo;
 use super::coord::CoordinateSystem;
 use super::screen::MonitorInfo;
 
-/// Same crop side as `[Zoom pointer after action]` before magnification (`screen_overlay::ZOOM_POINTER_CROP_SIDE`).
-pub const POINTER_VICINITY_SIDE_PX: f32 =
-    crate::agents::computer::screen_overlay::ZOOM_POINTER_CROP_SIDE as f32;
-
-const INJECT_RULES_TAIL: &str = "Image-grounded analysis: every visual claim must cite **On [slot name]:**. Stage steps and routing tables: runtime **COMMUNICATION.md**.";
+const INJECT_RULES_TAIL: &str = "Image-grounded analysis: every visual claim must cite **On [slot name]:**. **Overlay reference bboxes** lists every index — anchors for Location math only; **`*_index` tool methods are forbidden** — copy anchor (xa,ya), compute (x,y), use **`*_at`** tools. Rules: runtime **COMMUNICATION.md**.";
 
 fn pointer_capture_position(
     monitor: &MonitorInfo,
@@ -42,76 +38,53 @@ fn to_session_xy(x: f32, y: f32, cw: f32, ch: f32, coord: CoordinateSystem) -> (
     }
 }
 
-fn intersects_pointer_vicinity(b: &BoxInfo, mouse_bx: f32, mouse_by: f32) -> bool {
-    let half = POINTER_VICINITY_SIDE_PX / 2.0;
-    let vx1 = mouse_bx - half;
-    let vy1 = mouse_by - half;
-    let vx2 = mouse_bx + half;
-    let vy2 = mouse_by + half;
-    let bx1 = b.x;
-    let by1 = b.y;
-    let bx2 = b.x + b.width;
-    let by2 = b.y + b.height;
-    bx1 <= vx2 && bx2 >= vx1 && by1 <= vy2 && by2 >= vy1
+fn format_bbox_reference_row(b: &BoxInfo, cw: f32, ch: f32, coord: CoordinateSystem) -> String {
+    let tl = to_session_xy(b.x, b.y, cw, ch, coord);
+    let tr = to_session_xy(b.x + b.width, b.y, cw, ch, coord);
+    let br = to_session_xy(b.x + b.width, b.y + b.height, cw, ch, coord);
+    let bl = to_session_xy(b.x, b.y + b.height, cw, ch, coord);
+    let (ccx, ccy) = to_session_xy(b.x + b.width / 2.0, b.y + b.height / 2.0, cw, ch, coord);
+    format!(
+        "- index {idx}: top-left ({tlx:.1}, {tly:.1}); top-right ({trx:.1}, {try_:.1}); bottom-right ({brx:.1}, {bry:.1}); bottom-left ({blx:.1}, {bly:.1}); center ({cx:.1}, {cy:.1}).",
+        idx = b.index,
+        tlx = tl.0,
+        tly = tl.1,
+        trx = tr.0,
+        try_ = tr.1,
+        brx = br.0,
+        bry = br.1,
+        blx = bl.0,
+        bly = bl.1,
+        cx = ccx,
+        cy = ccy,
+    )
 }
 
-fn format_pointer_neighbor_bbox_block(
+fn format_all_overlay_reference_bboxes(
     boxes: &[BoxInfo],
-    mouse_bx: f32,
-    mouse_by: f32,
     cw: f32,
     ch: f32,
     coord: CoordinateSystem,
 ) -> String {
-    let mut candidates: Vec<(f32, &BoxInfo)> = boxes
-        .iter()
-        .filter(|b| intersects_pointer_vicinity(b, mouse_bx, mouse_by))
-        .map(|b| {
-            let (cx, cy) = b.center();
-            let dx = cx - mouse_bx;
-            let dy = cy - mouse_by;
-            (((dx * dx + dy * dy).sqrt()), b)
-        })
-        .collect();
-    candidates.sort_by(|a, b| a.0.total_cmp(&b.0));
-
     let session_label = match coord {
         CoordinateSystem::Qwen | CoordinateSystem::Kimi => "session 0-1000",
         CoordinateSystem::Pixel => "session pixels",
     };
-    let crop = super::screen_overlay::ZOOM_POINTER_CROP_SIDE;
+
+    let mut sorted: Vec<&BoxInfo> = boxes.iter().collect();
+    sorted.sort_by_key(|b| b.index);
 
     let mut lines = vec![format!(
-        "**Pointer neighbor reference bboxes** (corner/center coordinates for overlay indices near the pointer; session {session_label}; nearest-first in {crop}×{crop} px vicinity):",
-        session_label = session_label,
-        crop = crop,
+        "**Overlay reference bboxes** (every overlay index on this capture; {session_label}; sorted by index — lookup **reference index R** here for corner/center **(x,y)**; indices are **anchors only**, not click targets):",
     )];
 
-    if candidates.is_empty() {
-        lines.push("- none in pointer vicinity; use the selected overlay index bbox corners from the chosen frame.".to_string());
+    if sorted.is_empty() {
+        lines.push("- none detected on this capture.".to_string());
         return lines.join("\n");
     }
 
-    for (_, b) in candidates.into_iter().take(6) {
-        let tl = to_session_xy(b.x, b.y, cw, ch, coord);
-        let tr = to_session_xy(b.x + b.width, b.y, cw, ch, coord);
-        let br = to_session_xy(b.x + b.width, b.y + b.height, cw, ch, coord);
-        let bl = to_session_xy(b.x, b.y + b.height, cw, ch, coord);
-        let (ccx, ccy) = to_session_xy(b.x + b.width / 2.0, b.y + b.height / 2.0, cw, ch, coord);
-        lines.push(format!(
-            "- index {idx}: top-left ({tlx:.1}, {tly:.1}); top-right ({trx:.1}, {try_:.1}); bottom-right ({brx:.1}, {bry:.1}); bottom-left ({blx:.1}, {bly:.1}); center ({cx:.1}, {cy:.1}).",
-            idx = b.index,
-            tlx = tl.0,
-            tly = tl.1,
-            trx = tr.0,
-            try_ = tr.1,
-            brx = br.0,
-            bry = br.1,
-            blx = bl.0,
-            bly = bl.1,
-            cx = ccx,
-            cy = ccy,
-        ));
+    for b in sorted {
+        lines.push(format_bbox_reference_row(b, cw, ch, coord));
     }
     lines.join("\n")
 }
@@ -147,7 +120,7 @@ fn format_pointer_position_line(
     }
 }
 
-/// Prose block appended after `[CUR_SCREEN]` slot order: **Pointer position** + **Zoom pointer** coordinate-anchor guidance.
+/// Prose block: **Pointer position** + coordinate guidance (no bbox rows).
 pub fn format_pointer_coordinate_anchor(
     monitor: &MonitorInfo,
     capture_px: (u32, u32),
@@ -159,7 +132,7 @@ pub fn format_pointer_coordinate_anchor(
     Some(format!("{pointer_line}\n\n{INJECT_RULES_TAIL}"))
 }
 
-/// Back-compat alias (call sites may still use the old name).
+/// **Pointer position** + **Overlay reference bboxes** (all indices on this capture).
 pub fn format_mouse_neighbor_reference_bboxes(
     boxes: &[BoxInfo],
     monitor: &MonitorInfo,
@@ -169,7 +142,7 @@ pub fn format_mouse_neighbor_reference_bboxes(
 ) -> Option<String> {
     let (mouse_bx, mouse_by, cw, ch) = pointer_capture_position(monitor, capture_px, global_pointer)?;
     let pointer_line = format_pointer_position_line(mouse_bx, mouse_by, cw, ch, coord);
-    let bbox_block = format_pointer_neighbor_bbox_block(boxes, mouse_bx, mouse_by, cw, ch, coord);
+    let bbox_block = format_all_overlay_reference_bboxes(boxes, cw, ch, coord);
     Some(format!("{pointer_line}\n\n{INJECT_RULES_TAIL}\n\n{bbox_block}"))
 }
 
@@ -178,7 +151,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn injects_pointer_position_and_zoom_anchor() {
+    fn injects_pointer_position_and_rules_tail() {
         let monitor = MonitorInfo::new(0, 0, 1000, 1000);
         let s = format_pointer_coordinate_anchor(
             &monitor,
@@ -188,25 +161,35 @@ mod tests {
         )
         .expect("line");
         assert!(s.contains("**Pointer position**"));
-        assert!(s.contains("COMMUNICATION.md"));
+        assert!(s.contains("Overlay reference bboxes"));
         assert!(s.contains("[Zoom pointer after action]"));
         assert!(
-            !s.contains("intersecting pointer 200x200 vicinity"),
+            !s.contains("- index "),
             "anchor-only helper should not include bbox rows: {s}"
         );
     }
 
     #[test]
-    fn injects_neighbor_reference_bbox_coordinates() {
+    fn injects_all_overlay_reference_bbox_coordinates_sorted_by_index() {
         let monitor = MonitorInfo::new(0, 0, 1000, 1000);
-        let boxes = vec![BoxInfo {
-            index: 4,
-            x: 450.0,
-            y: 480.0,
-            width: 120.0,
-            height: 80.0,
-            confidence: 0.9,
-        }];
+        let boxes = vec![
+            BoxInfo {
+                index: 12,
+                x: 100.0,
+                y: 100.0,
+                width: 50.0,
+                height: 50.0,
+                confidence: 0.9,
+            },
+            BoxInfo {
+                index: 4,
+                x: 450.0,
+                y: 480.0,
+                width: 120.0,
+                height: 80.0,
+                confidence: 0.9,
+            },
+        ];
         let s = format_mouse_neighbor_reference_bboxes(
             &boxes,
             &monitor,
@@ -215,9 +198,12 @@ mod tests {
             CoordinateSystem::Qwen,
         )
         .expect("line");
-        assert!(s.contains("**Pointer neighbor reference bboxes**"));
+        assert!(s.contains("**Overlay reference bboxes**"));
         assert!(s.contains("index 4:"));
+        assert!(s.contains("index 12:"));
         assert!(s.contains("top-left"));
-        assert!(s.contains("bottom-right"));
+        let pos_four = s.find("index 4:").expect("index 4");
+        let pos_twelve = s.find("index 12:").expect("index 12");
+        assert!(pos_four < pos_twelve, "must sort by index: {s}");
     }
 }

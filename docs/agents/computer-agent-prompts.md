@@ -34,40 +34,56 @@
 | **Verify:** | 上一动作是否成功 | `[Screen before action]` → `[Screen after action]` |
 | **Repetition:** | 是否 stuck | `[Recent desktop tool calls]` |
 | **Next:** | 本轮做什么 | `[Screen after action]` line 2 |
-| **Location:** | overlay 路由 + 可选 (x,y) | Screen after → 选一个 overlay frame → L4 用 Annotated |
-| **Tool route:** | 选工具 | 不再读图，查表执行 |
+| **Location:** | **reference index R** + **(x,y)** | Screen after → 选一个 overlay frame → L3 用 Annotated + inject |
+| **Tool route:** | 选工具 | 不再读图 — 一律 **`*_at(x,y)`** |
 
 ---
 
-## Location 路由表（简）
+## Location（全坐标实验 — 简）
 
-| 路径 | 条件 | Line 3 | Line 4 |
-|------|------|--------|--------|
-| L0 | 非 overlay | n/a | — |
-| L1 | 有 bbox，`wrap count=1` | index path | 无 |
-| L2 | 有 bbox，`wrap count>1` | coordinate path | anchor 在 reference bboxes → (x,y)，否则 deferred |
-| L3 | 无 bbox+label（unmarked） | coordinate path | 以相邻 index R 为锚，同上 |
+**原则：** overlay **index 仅作 Location 锚点**；**全回合禁用 `*_index`**，一律 **`*_at(x,y)`** 坐标方法。
 
-**Marked vs unmarked 判定（§5 T1–T3）：** 先看 **digit flush 在哪条 bbox 边框上** — 该 bbox 才是 index 所指区域。**T3 关键：** 该 bbox 是否**几何包含** intended sub-target 的可点击区域？
+**禁止：** 任何 **`click_index`** / **`type_text_at_index`** / **`modified_click_index`** 及 **`tool_args` 中的 index 字段**。
 
-- **包含** → marked → `therefore selected overlay index N`
-- **不包含**（113 在聊天列表/侧栏等邻居框上，输入框在框外）→ unmarked → `therefore adjacent reference index R=113`；**(c) 必须写包裹邻居区域，不能写包裹输入框**
+| 行 | 内容 |
+|----|------|
+| L1 | **Placement→frame** — `[Screen after action]` 方位 → 选一个 overlay frame |
+| L2 | **Reference index R** — intended sub-target；bbox **R** 内容；**`distinct hit targets = N`** |
 
-例：消息输入框无自有 digit；113 flush 于上方/左侧聊天列表 bbox → **unmarked，R=113**（~~selected index 113~~ ~~(c)包裹输入框~~ 为常见误判）。
+**Anchor gate：** **N > 1** → L3 **禁止** bbox center，必须 **corner + offset** 到 intended sub-target。
+
+**禁止：** Location 已有 **`therefore (x,y)`** 却用 **`click_index`** — 本会话 **所有回合** 均禁止 **`*_index`**，必须 **`click_at`** + 相同 **x/y**。
+| L3 | **Coordinate geometry** — **I1** 布局 → **I2** 从 inject row **R** **抄写 (xa,ya) 字面量** → **I3** offset → **I4** 算术 → **`therefore (x,y)`** |
+
+**禁止：** 只写 anchor 名称或最终 (X,Y)，不先 quote inject 里的数字。
+
+**选 R / anchor 类型：** 见 **COMMUNICATION.md** §5 — multi-control 用 corner + offset；单控件可用 center。
+
+**非 overlay：** **`Location: n/a`**
 
 ---
 
 ## inject 文案约定
 
-- **`reference_anchors.rs`** / **`screen_inject.rs`** — 只描述**注入数据格式**（Pointer position、reference bboxes 字段含义）。
+- **`reference_anchors.rs`** / **`screen_inject.rs`** — 注入 **Pointer position** + **Overlay reference bboxes**（**全部** index 的 corner/center，按 index 排序）。
 - **分析逻辑与路由** — 只在 **`COMMUNICATION.md`**，不在 inject 重复 if-else 规则。
 
 ---
 
+## Tool route（坐标 triple-lock）
+
+Location L3、Tool route recap、line **2**、root **`tool_args`** 四处 **`x`/`y` 字面量必须相同**。
+
+**禁止：** `mouse:click_at at computed (x,y)` — line **2** 必须写 `goal; action; x: …; y: …`。
+
+**小图标 / 多控件 bbox 内 sub-target：** corner + offset（禁止 row center 当点击点）。
+
+**Inject lookup（L3 必写）：** `inject row R <anchor>: (xa, ya) = (…, …)` → offset → arithmetic → `(X, Y)`。
+
 ## 维护 checklist（改分支时）
 
-1. 更新 **路由表**（唯一分支源）
-2. 更新对应 **步骤表** 与 **模板**（marked / unmarked 分离）
-3. 更新 **1 个 golden example**
-4. 在 **COMMUNICATION_FULL.md** 补 anti-pattern
-5. **禁止**在 inject 文案里加分析逻辑
+1. 更新 **Location 三行模板** 与 **Tool route 执行表**（坐标唯一路径）
+2. 更新 **1 个 golden example**（含 reference index + click_at）
+3. 在 **COMMUNICATION_FULL.md** 补 anti-pattern
+4. **禁止**在 inject 文案里加分析逻辑
+5. 确认 **`reference_anchors` 测试**通过（全 index 注入、按 index 排序）

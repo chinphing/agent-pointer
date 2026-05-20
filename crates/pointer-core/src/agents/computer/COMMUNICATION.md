@@ -24,24 +24,25 @@ Extended examples and anti-patterns: **`COMMUNICATION_FULL.md`** (not loaded at 
 
 | Part | Content | Position |
 |------|---------|----------|
-| **Analysis** | **`On [Frame]:`** facts, T1–T3 pass/fail, **(a)(b)(c)**, placement, corner, offset — **no** final label | **First** — one or more clauses |
-| **Conclusion** | **`therefore selected overlay index N`**, **`therefore adjacent reference index R`**, **`route: …`**, **`therefore (x,y)`**, **`Step result: …`** | **Last clause only** on that line |
+| **Analysis** | **`On [Frame]:`** facts, placement, anchor point (corner or center), offset — **no** final label | **First** — one or more clauses |
+| **Conclusion** | **`reference index R`**, **`therefore (x,y)`**, **`Step result: …`** | **Last clause only** on that line |
 
 **Forbidden on any line:**
 
 - Open with **`therefore …`** or **`route: …`** then backfill analysis afterward.
-- State **`selected overlay index 113`** before tracing which bbox digit 113 flush-adjacent to.
-- Line **3** route before line **2** analysis + conclusion complete.
+- State **`reference index 113`** before tracing which bbox digit 113 flush-adjacent to.
+- Line **3** **(x,y)** before line **2** **reference index R** complete.
 - **`Tool call`** before **`Location recap`** cites analysis from **Location**.
+- **`at computed (x,y)`** or any coordinate placeholder on **Tool route** line **2**.
+- **Location** line **3** **`therefore (x,y)`** before **inject row R** anchor literals are quoted in Analysis.
 
 **Required pattern (Location line 2 example):**
 
 ```text
-2 On [Annotated after action] — Analysis: T1 fail — no stroke on compose input; T2 fail — no digit on input;
-   trace digit 113 → flush on blue neighbor list bbox; T3 fail — that bbox contains list row, not input;
-   adjacent (a) blue list bbox; (b) digit 113 blue, flush on list bbox only;
-   (c) list bbox wraps chat-list neighbor — does NOT wrap compose input.
-   Conclusion: therefore adjacent reference index 113.
+2 On [Annotated after action] — Analysis: sub-target = compose input (bottom bar);
+   nearest helpful bbox = index 113 (chat-list neighbor, above-left of input);
+   sub-target sits outside bbox 113 — use 113 as anchor only.
+   Conclusion: reference index 113.
 ```
 
 ### B) Image discipline — every visual claim cites a frame
@@ -52,7 +53,9 @@ Extended examples and anti-patterns: **`COMMUNICATION_FULL.md`** (not loaded at 
 
 **Overlay digits:** stages **1–4** — **no** overlay **`index`**, digits, or “bbox N”.
 **`Location:`** line **1** — **no** overlay numerals (including in **`neighbors:`**).
-Overlay **`index`** may appear **only** at the **end** of **`Location:`** line **2** and in **`Tool route:`** recap.
+Overlay **`index`** may appear in **`Location:`** line **2** (**reference index R**) and **`Tool route:`** recap — **never** as the tool click target.
+
+**`[CUR_SCREEN]`** also injects **Pointer position** and **Overlay reference bboxes** (every overlay index with corner/center coordinates, session scale) — used in **Location** line **3**.
 
 ### C) Frame registry — which image each stage reads
 
@@ -61,14 +64,12 @@ Overlay **`index`** may appear **only** at the **end** of **`Location:`** line *
 | **`[Screen before action]`** | prior turn exists | **Pointer** line **1**; **Verify** **Before vs after** (before side) | Pre-action layout; name intended aim |
 | **`[Zoom pointer before action]`** | prior turn exists | **Pointer** line **2**; **Verify** **Mouse judgment** cite | Hotspot vs center (**4×**, ±50 px crop) — **required** when present |
 | **`[Screen after action]`** | always | **Next** line **2**; **Location** line **1** placement; **Verify** **Before vs after** (after side) | Current full-screen layout |
-| **`[Annotated after action]`** | always | **Location** lines **2–4**; coordinate geometry | Overlay digits, bbox strokes, **(x,y)** math |
-| **`[Zoom top after action]`** | always | **Location** overlay frame pick | Top band — menu, title, tabs |
+| **`[Annotated after action]`** | always | **Location** lines **2–3** | Overlay layout; pick **reference index R** |
+| **`[Zoom top after action]`** | always | **Location** overlay frame pick (lines **1–2** context) | Top band — menu, title, tabs |
 | **`[Zoom bottom after action]`** | always | **Location** overlay frame pick | Bottom band — dock, taskbar |
-| **`[Zoom pointer after action]`** | always | **Location** overlay frame pick; pointer vicinity context | Near-pointer controls; small digits |
+| **`[Zoom pointer after action]`** | always | **Location** overlay frame pick | Near-pointer controls; small digits |
 
 **First capture in thread:** omit **`[Screen before action]`** and **`[Zoom pointer before action]`** — **Pointer** uses **`[Screen after action]`** / **`[Zoom pointer after action]`** instead.
-
-**`[CUR_SCREEN]`** also injects **Pointer position** and **Pointer neighbor reference bboxes** (session scale) — used in **Location** line **4** only.
 
 ---
 
@@ -80,22 +81,26 @@ Overlay **`index`** may appear **only** at the **end** of **`Location:`** line *
 | 2 | **`Verify:`** | Did **last** action succeed? **`Step result`** + **`Cause`** | **`[Screen before action]`** → **`[Screen after action]`** |
 | 3 | **`Repetition:`** | Stuck loop? | **`[Recent desktop tool calls]`** text |
 | 4 | **`Next:`** | **What** target this turn | **`[Screen after action]`** line **2** only |
-| 5 | **`Location:`** | **Where** on overlay; route class | **`[Screen after action]`** then one overlay frame |
+| 5 | **`Location:`** | **Reference index R** + **(x,y)** for sub-target | **`[Screen after action]`** then overlay frame |
 | 6 | **`Tool route:`** | **How** — one tool call | No new image reads — cite prior stages |
 
 If **`Location:`** does not apply → **`Location: n/a`** — still run **`Tool route:`**.
 
 ---
 
-## Tool geometry (index vs coordinates)
+## Tool geometry — coordinates-only (all turns)
 
-**Index methods** (overlay **`index`** from **current** annotated frame):  
-**`mouse`:** `click_index`, `double_click_index`, `right_click_index`, `hover_index`, `drag_from_to_index` · **`composite_action`:** `type_text_at_index`, `scroll_at_index` · **`modified_click`:** `modified_click_index`.
+**All canvas actions use coordinate methods at (x,y) from Location line 3** (or pointer-only / off-frame tools below). Overlay index numbers are **reference anchors only** — lookup in **Overlay reference bboxes** inject for Location math; **never** pass index / indices / from_index / to_index in tool_args.
 
-**Coordinate methods** (**`x`/`y`** session scale, often 0–1000):  
+**Allowed — coordinate methods:**  
 **`mouse`:** `click_at`, `double_click_at`, `right_click_at`, `hover_at`, `drag_from_to_at` · **`composite_action`:** `type_text_at` · **`modified_click`:** `modified_click_at`.
 
-**Neither:** `click_current`, `scroll_at_current`, `move_offset`, `type_text_at_focused`, **`hotkey`**, **`wait`**, **`clipboard:*`**, **`response`**.
+**Forbidden — every `*_index` method (all turns, no exceptions):**  
+`click_index`, `double_click_index`, `right_click_index`, `hover_index`, `drag_from_to_index`, `type_text_at_index`, `scroll_at_index`, `modified_click_index`, and any tool arg named **`index`**, **`indices`**, **`from_index`**, or **`to_index`**.
+
+**Non-canvas / no `(x,y)` pick:** `click_current`, `double_click_current`, `right_click_current`, `scroll_at_current`, `move_offset`, `type_text_at_focused`, **`hotkey`**, **`wait`**, **`clipboard:*`**, **`response`**.
+
+**Hard rule:** **`Tool route:`** line **2** + root **`tool_name`** / **`tool_args`** must match **Allowed** only. Reference index **R** appears in **`Location:`** / recap — **not** in the tool call.
 
 Optional **`wait`** in **`tool_args`** (1–5 s) after successful mouse/hotkey/composite/modified_click — distinct from standalone **`wait`** tool.
 
@@ -312,249 +317,181 @@ Next:
 
 ### 5) Location
 
-**Goal:** Turn **Next** line **2** into overlay analysis — frame, route class, optional **(x,y)**. **No** tool names.
+**Goal:** Turn **Next** line **2** into **reference index R** + **(x,y)** for the intended sub-target. **No** tool names. **All** screen actions use **(x,y)** — overlay indices are **anchors only**.
 
 **Input:** **Next** line **2** only (paraphrase — do not paste verbatim).
 
-#### Routing table (read first — pick one path)
+**Inject:** **Overlay reference bboxes** lists **every** index with corner/center coordinates (session scale). Lookup **R** there for Location math — **forbidden** any **`*_index`** tool method.
 
-| Path | Condition | Line 2 output | Line 3 route | Line 4 |
-|------|-----------|---------------|--------------|--------|
-| **L0** | Non-overlay turn | — | — | **`Location: n/a`** |
-| **L1** | Marked target, **`wrap count = 1`** | **`therefore selected overlay index N`** | **index path** | omit |
-| **L2** | Marked target, **`wrap count > 1`** | **`therefore selected overlay index N`** | **coordinate path** | §5.4 |
-| **L3** | **Unmarked** — no bbox+label on target | **`therefore adjacent reference index R`** | **coordinate path** | §5.4 |
+#### Steps (strict order — 3 lines when overlay applies)
 
-#### Marked vs unmarked — decision gate (run on overlay frame **before** line 2)
+| Step | Line | Analysis (first) | Conclusion (last) | Frame |
+|------|------|------------------|-------------------|-------|
+| L1 | **1 Placement→frame** | **`On [Screen after action]:`** bearing → **`therefore analyze on [overlay frame]`**; target traits — **no** overlay digits | — | Screen after → overlay |
+| L2 | **2 Reference index** | **`On [overlay frame]:`** intended sub-target; digit **R**; bbox **R** contents; **`distinct hit targets = N`**; relation inside/outside | **`reference index R`** | Overlay frame |
+| L3 | **3 Coordinate geometry** | **Inject lookup** → anchor literals **(xa,ya)** from row **R** → offset → arithmetic **(X,Y)** | **`therefore (x,y) ≈ (X, Y)`** | **`[Annotated after action]`** + **Overlay reference bboxes** row **R** |
 
-**Question:** Does the **intended sub-target** (from **Next** line **2**) have its **own** legal overlay **bbox+label** pair on the chosen frame?
+**Non-overlay:** **`Location: n/a`** — skip lines **1–3**.
 
-Read **`On [overlay frame]:`** — inspect **only** the intended control, not the whole panel.
+#### Pick reference index R
 
-**Three tests — all must pass for MARKED:**
+Read **`On [overlay frame]:`** then choose **R** from **Overlay reference bboxes**:
 
-| Test | Marked = YES when… | Unmarked = YES when… |
-|------|-------------------|----------------------|
-| **T1 Stroke** | A colored **bbox border** wraps the intended sub-target (or hugs it tightly as the anchor) | Intended sub-target is **visible** but **no** colored stroke wraps **that control** |
-| **T2 Digit** | An overlay digit sits **flush** on **that** bbox border; digit **background** = border color | **No** digit pairs with the intended sub-target itself |
-| **T3 Wraps target** | The bbox **paired with the digit** **geometrically contains** the intended sub-target (you can point to target **inside** that stroke) | Digit sits on a **neighbor** bbox (list row, sidebar, header, sibling button); target is **outside** that stroke — digit labels **neighbor only** |
+| Situation | Pick **R** | Line **3** anchor |
+|-----------|------------|-------------------|
+| Sub-target **inside** bbox **R** but **R** wraps **multiple** controls | **R** whose bbox contains sub-target | **Corner** nearest sub-target + offset to sub-target center |
+| **Small icon / glyph** at row edge (copy, ×, kebab, …) inside multi-control **R** | **R** = row/list bbox | **Corner** on sub-target side (e.g. top-right) + offset to icon center — **forbidden** row **center** |
+| Sub-target **inside** bbox **R** and **R** wraps **only** sub-target | **R** | **Center** from inject row **R** (or corner + small offset if off-center) |
+| Sub-target **outside** all bboxes (unmarked control) | **R** = nearest bbox whose geometry best anchors offset | **Corner** of **R** nearest sub-target + offset |
+| Several candidates | Prefer **R** whose bbox edge is **closest** to sub-target center | Pick anchor that minimizes offset distance |
 
-**Decision (after T1–T3 analysis written — not before):**
+**Anchor rule:** **(xa,ya)** must come from inject row **R** — **corner** (top-left / top-right / bottom-right / bottom-left) **or** **center**. Use **center** when sub-target ≈ bbox center; use **corner + offset** when sub-target is off-center or outside **R**.
 
-| T1 + T2 + T3 analysis | Path | Line 2 conclusion (last clause only) |
-|-----------------------|------|--------------------------------------|
-| **All pass** | **L1** or **L2** (marked) | **`therefore selected overlay index N`** |
-| **Any fail** | **L3** (unmarked) | **`therefore adjacent reference index R`** |
+**Rule:** **R** labels the bbox the digit is flush on — trace digit → bbox on the overlay frame. **R** is **never** the click target; **(x,y)** on line **3** is.
 
-**Meaning of index:** **N** = digit labels **target's own** bbox. **R** = digit labels **neighbor** bbox only (anchor).
+#### Anchor gate (run after line 2 — before line 3)
 
-**Critical — digit labels its flush-adjacent bbox only (not “nearby target”):**
+Read **`intended sub-target`** from **Next** line **2** and **`distinct hit targets = N`** from line **2**:
 
-Before **(a)(b)(c)**, trace on the overlay frame: **which bbox stroke does the digit touch?** That bbox is what the digit **N** or **R** refers to — **not** a visually nearby control.
+| Line 2 fact | Line 3 anchor |
+|-------------|---------------|
+| **N = 1** and sub-target ≈ bbox **R** center | **Center** (inject row **R** center) — **offset none** OK |
+| **N > 1** (row/list/footer with **2+** buttons, text+icon, OK+Cancel, …) | **Corner** nearest sub-target + offset — **forbidden** **`sub-target ≈ center of bbox R`** |
+| Sub-target at **edge** of bbox **R** (icon, ×, kebab, trailing action) | **Corner** on that edge + offset — **forbidden** bbox **center** even if **N = 1** when sub-target is visibly off-center |
 
-**T3 is decisive:** Does **that** paired bbox **geometrically contain** the intended sub-target’s clickable area (center you will act on)?
+**Forbidden:** line **3** **`center`** when line **2** lists **multiple distinct hit targets** inside bbox **R**.
 
-| Situation | Correct path | Wrong path |
-|-----------|--------------|------------|
-| Digit **113** flush on **left chat-list / contact-row** bbox; intended sub-target = **bottom message input** — input has **no** own digit | **Unmarked L3** → **`adjacent R=113`**; **(c)** wraps **list row / neighbor panel**, **not** input | ~~**selected index N=113**~~ — ~~**(c) wraps input**~~ when 113 labels **neighbor** bbox |
-| Digit flush on bbox that **actually contains** input field; **(c)** input inside that same bbox | **Marked** → **`index N`** | — |
-| Bbox wraps input **+** send button; digit on shared bbox; intended = input | **Marked L2** → **`index N`** + coordinate path | ~~unmarked~~ |
-| **×** glyph; digit only on title-bar bbox left of **×** | **Unmarked L3** → **`adjacent R`** | ~~selected index N for ×~~ |
-| Pick unmarked because need coordinates | Route follows **T1–T3 facts**, not tool preference | ~~unmarked because click_at~~ |
+#### Inject lookup discipline (mandatory on line 3)
 
-**Correct — unmarked: message input; digit 113 on neighbor region:**
+Line **3** must **read inject first, then compute** — same order as a proof:
 
-```text
-2 On [Annotated after action] —
-   Analysis: intended sub-target = compose input (bottom bar);
-   T1 fail — On input: no stroke wraps input alone;
-   T2 fail — no digit flush on input bbox;
-   trace digit 113 — flush on blue border of chat-list column left/above input;
-   T3 fail — blue bbox paired with 113 contains list row, NOT compose input;
-   adjacent (a) blue list bbox; (b) digit 113 blue, flush on list bbox only;
-   (c) list bbox wraps chat-list neighbor — does NOT wrap compose input.
-   Conclusion: therefore adjacent reference index 113.
-3 Analysis: unmarked target (line 2 conclusion). Conclusion: route: coordinate path.
-4 Analysis: On [Annotated after action]: input center right-below bbox 113 corner … | geometry deferred.
-   Conclusion: therefore (x,y) ≈ … OR geometry deferred.
-```
+| Step | Write in Analysis | Required |
+|------|-------------------|----------|
+| **I1 Placement** | **`On [Annotated after action]:`** sub-target vs bbox **R**; pick anchor name (corner or center) | Visual only |
+| **I2 Inject quote** | **`inject row R <anchor>:`** **(xa, ya) = (…, …)** — copy **numeric literals** from **Overlay reference bboxes** row **R** | **Mandatory** — **forbidden** to skip |
+| **I3 Offset** | **Δx, Δy** from I1 layout (or **none** if sub-target = anchor) | When needed |
+| **I4 Arithmetic** | **(X, Y) = (xa ± Δx, ya ± Δy)** — show evaluated result | **Mandatory** before Conclusion |
 
-**Correct — marked: digit on bbox that truly contains input:**
+**Forbidden:** naming an anchor (**center**, **top-right**, …) then jumping to **`therefore (x,y) ≈ (X, Y)`** without **I2** inject literals on the same line.
+
+**Forbidden:** inventing **(X, Y)** from the image without copying **(xa, ya)** from inject first.
+
+#### Line 2 template
 
 ```text
-2 On [Annotated after action] —
-   Analysis: T1 pass — green stroke wraps input; T2 pass — digit 42 flush on green border;
-   T3 pass — green bbox contains input; (a) green border; (b) digit 42 flush; (c) wraps input.
-   Conclusion: therefore selected overlay index 42.
-3 Analysis: from line 1 traits wrap count = 1. Conclusion: route: index path.
+2 On <overlay frame> — Analysis: intended sub-target = <one control from Next>;
+   digit <R> flush on <color> bbox — bbox wraps <list every distinct control inside R>;
+   distinct hit targets = <N>; sub-target is <inside | outside> bbox <R>.
+   Conclusion: reference index <R>.
 ```
 
-**Anti-pattern — conclusion before analysis (forbidden):**
+#### Line 3 template (all paths)
+
+**Mandatory structure — four clauses then Conclusion:**
 
 ```text
-2 therefore selected overlay index 113. (a) blue border; (b) digit 113 …
-(forbidden — open with therefore / index before Analysis + T1–T3 + (a)(b)(c))
+3 Analysis: On [Annotated after action]: <I1 placement vs bbox R; anchor name>;
+   inject row <R> <anchor>: (xa, ya) = (<literal x>, <literal y>) from Overlay reference bboxes;
+   offset Δx=<…>, Δy=<…> | none;
+   arithmetic → (<X>, <Y>).
+   Conclusion: therefore (x,y) ≈ (<X>, <Y>).
 ```
 
-**Anti-pattern — neighbor digit mislabeled as target index (forbidden):**
+**Center only (no offset):**
 
 ```text
-2 … Conclusion: therefore selected overlay index 113.
-   Analysis: (c) wraps input — (forbidden order; and forbidden when 113 labels neighbor bbox)
+3 Analysis: On [Annotated after action]: sub-target ≈ center of bbox <R>;
+   inject row <R> center: (xa, ya) = (<cx>, <cy>);
+   offset none; arithmetic → (<cx>, <cy>).
+   Conclusion: therefore (x,y) ≈ (<cx>, <cy>).
 ```
 
-**Contrast (unmarked — × button, title bar has index 12):**
+**Corner + offset:**
 
 ```text
-On [Annotated after action]: intended sub-target = × dismiss glyph.
-T1: no stroke wraps × — fail.
-→ Unmarked. Adjacent: title-bar bbox with digit 12.
-(a)(b)(c) for neighbor title bbox → therefore adjacent reference index 12.
-(c) wraps title strip, not ×.
+3 Analysis: On [Annotated after action]: sub-target <placement vs bbox R>;
+   inject row <R> <corner>: (xa, ya) = (<literal x>, <literal y>);
+   offset Δx=<signed>, Δy=<signed>; arithmetic → (<X>, <Y>).
+   Conclusion: therefore (x,y) ≈ (<X>, <Y>).
 ```
 
-**Order:** F1 → F2 → **M0: write T1–T3 Analysis** → line 1 → line 2 **Analysis then Conclusion** → line 3 **Analysis then Conclusion** → line 4 **Analysis then Conclusion**.
-
-#### Frame selection (strict — two-step)
-
-**Step F1 — placement (Location line 1 opening):**  
-Read **`On [Screen after action]:`** — band / region / neighbors from **Next** line **2**.
-
-**Step F2 — overlay analysis frame:** From F1 bearing, pick **one** frame:
-
-| Bearing on **`[Screen after action]`** | Analyze on |
-|----------------------------------------|------------|
-| **Top** — menu, title, tabs | **`[Zoom top after action]`** if digits crowded; else **`[Annotated after action]`** |
-| **Bottom** — dock, taskbar | **`[Zoom bottom after action]`** |
-| **Near synthetic pointer** | **`[Zoom pointer after action]`** |
-| **Central / wide** — dialog, toolbar | **`[Annotated after action]`** |
-
-Write **`→ therefore analyze on [chosen frame]`** before any bbox / digit work.
-
-**Step F3 — coordinate geometry (line 4 only):** Always on **`[Annotated after action]`** — **not** on zoom crops.
-
-#### Steps — all paths (strict order)
-
-| Step | Line | Action | Frame |
-|------|------|--------|-------|
-| L-F1 | **1** (start) | **`On [Screen after action]:`** placement → **`therefore analyze on [F2 frame]`** | Screen after → overlay |
-| L-F2 | **1** (continue) | Target traits on overlay frame; **no** overlay digits on line **1** | F2 frame |
-| L-M0 | **gate** | **Analysis:** T1–T3 pass/fail on intended sub-target — **then** pick L1/L2/L3 | F2 frame |
-| L-M1 | **1** (marked) | **`traits inside that bbox:`** (analysis only — no route yet) | F2 frame |
-| L-U1 | **1** (unmarked) | **`unmarked target — no overlay bbox+label`**; adjacent neighbors (layout names only) | F2 frame |
-| L-2 | **2** | **Analysis:** T1–T3 + **(a)(b)(c)** → **Conclusion:** **`therefore index N`** or **`therefore adjacent R`** | Same F2 frame |
-| L-3 | **3** | **Analysis:** cite line 1 **wrap count** or line 2 unmarked → **Conclusion:** **`route: …`** | — |
-| L-4 | **4** | **Analysis:** placement, corner, offset on **`[Annotated after action]`** → **Conclusion:** **`therefore (x,y)`** or **geometry deferred** | **`[Annotated after action]`** |
-
-#### Line 2 — Analysis then Conclusion
-
-**Structure (mandatory order on one line):**
-
-```text
-2 On <overlay frame> — Analysis: <T1–T3 pass/fail; trace digit → which bbox; (a)(b)(c) facts>.
-   Conclusion: therefore selected overlay index <N> | therefore adjacent reference index <R>.
-```
-
-**Marked (L1/L2):** Analysis must show T1–T3 **pass** and **(c)** target **inside** digit's bbox → Conclusion **`therefore selected overlay index N`**.
-
-**Unmarked (L3):** Analysis must show T1–T3 **fail** on target, then **(a)(b)(c)** for **neighbor** only → Conclusion **`therefore adjacent reference index R`**.
-
-On the **same** overlay frame as line **1**:
-
-- **(a)** Restate wrapping bbox **border color** (marked) or neighbor bbox color (unmarked adjacent).
-- **(b)** Digit **background** = that border color; digit **only** flush-adjacent to **that** bbox.
-- **(c)** Bbox wraps **intended sub-target** (marked) or wraps neighbor, **not** unmarked target (unmarked).
-- **Pass** → write Analysis clauses first → **Conclusion:** **`therefore selected overlay index N`** (marked) or **`therefore adjacent reference index R`** (unmarked) — **last clause only**.
-- **Fail** → **`discard trial`** — retry; do **not** emit Conclusion.
-
-#### Line 3 — Analysis then Conclusion
-
-```text
-3 Analysis: from line 1 traits wrap count = … | line 2 unmarked target.
-   Conclusion: route: index path | coordinate path.
-```
-
-**Forbidden:** **`route: coordinate path`** before line **2** Conclusion is written.
-
-#### Line 4 — Analysis then Conclusion (L2 / L3 only)
-
-| Anchor (**N** or **R**) in **Pointer neighbor reference bboxes**? | Line 4 | Tool route (stage 6) |
-|-------------------------------------------------------------------|--------|----------------------|
-| **Yes** | placement → corner → **(xc,yc)** from reference → offset → **`therefore (x,y)`** | **`click_at`** / **`type_text_at`** at **(x,y)** |
-| **No** | **`geometry deferred`** — no **(x,y)** | **`hover_index(anchor)`** this turn only |
-
-**Coordinate geometry — Analysis clauses then Conclusion (last):**
-
-```text
-4 Analysis: On [Annotated after action]: sub-target vs anchor bbox …; corner …; (xc,yc) from reference …; offset Δx, Δy …
-   Conclusion: therefore (x,y) ≈ (xc ± Δx, yc ± Δy) | geometry deferred.
-```
-
-#### Templates (pick one path)
-
-**L0 — non-overlay**
+#### Example — single-control bbox (center anchor)
 
 ```text
 Location:
-n/a — no overlay analysis this turn (<hotkey | wait | …>).
+1 … target: Search icon button; band toolbar; neighbors: address bar left.
+2 … Analysis: digit 7 flush on orange bbox wrapping only the Search icon; sub-target inside bbox 7.
+   Conclusion: reference index 7.
+3 Analysis: On [Annotated after action]: sub-target ≈ center of bbox 7;
+   inject row 7 center: (xa, ya) = (512.0, 48.0);
+   offset none; arithmetic → (512.0, 48.0).
+   Conclusion: therefore (x,y) ≈ (512.0, 48.0).
 ```
 
-**L1 — marked, single / index path**
+#### Example — compose input; neighbor bbox 113
 
 ```text
 Location:
-1 Placement→frame: On [Screen after action]: <bearing> → therefore analyze on [<overlay frame>].
-   <overlay frame> — target: …; wrapping bbox: <stroke + anchor>;
-   traits inside that bbox: distinct controls = …; wrap count = 1; intended sub-target = ….
-2 On <overlay frame> — Analysis: T1… T2… trace digit… (a)… (b)… (c)….
-   Conclusion: therefore selected overlay index <N>.
-3 Analysis: from line 1 traits wrap count = 1. Conclusion: route: index path.
+1 Placement→frame: On [Screen after action]: message input at bottom of chat
+   → therefore analyze on [Annotated after action].
+   [Annotated after action] — target: compose input field; band bottom bar; neighbors: chat list above.
+2 On [Annotated after action] — Analysis: digit 113 flush on blue bbox wrapping chat-list row above input;
+   compose input has no own digit; sub-target is outside bbox 113.
+   Conclusion: reference index 113.
+3 Analysis: On [Annotated after action]: input center below-right of bbox 113;
+   inject row 113 bottom-right: (xa, ya) = (180.0, 720.0);
+   offset Δx=+200, Δy=+45; arithmetic → (380.0, 765.0).
+   Conclusion: therefore (x,y) ≈ (380.0, 765.0).
 ```
 
-**L2 — marked, multiple / coordinate path**
+#### Example — sub-target inside multi-control bbox 4
 
 ```text
 Location:
-1 … traits: wrap count > 1; intended sub-target = ….
-2 … Analysis: … Conclusion: therefore selected overlay index <N>.
-3 Analysis: from line 1 traits wrap count > 1. Conclusion: route: coordinate path.
-4 Analysis: On [Annotated after action]: … Conclusion: therefore (x,y) | geometry deferred.
-```
-
-**L3 — unmarked / coordinate path**
-
-```text
-Location:
-1 Placement→frame: On [Screen after action]: <bearing> → therefore analyze on [<overlay frame>].
-   <overlay frame> — target: …; unmarked target — no overlay bbox+label; adjacent neighbors: ….
-2 On <overlay frame> — Analysis: T1 fail… trace digit… adjacent (a)(b)(c)… neighbor wraps … not target.
-   Conclusion: therefore adjacent reference index <R>.
-3 Analysis: line 2 unmarked. Conclusion: route: coordinate path.
-4 Analysis: On [Annotated after action]: offset from bbox <R> … Conclusion: therefore (x,y) | geometry deferred.
+1 … target: OK pill; neighbors: Cancel pill right.
+2 … Analysis: digit 4 flush on cyan footer bbox wrapping OK pill + Cancel pill;
+   distinct hit targets = 2; intended sub-target = OK pill inside bbox 4.
+   Conclusion: reference index 4.
+3 Analysis: On [Annotated after action]: OK pill toward left inside bbox 4;
+   inject row 4 bottom-left: (xa, ya) = (480.0, 860.0);
+   offset Δx=+40, Δy=-20; arithmetic → (520.0, 840.0).
+   Conclusion: therefore (x,y) ≈ (520.0, 840.0).
 ```
 
 #### Invariants (Location)
 
-- **INV-L0:** Every deciding line — **Analysis clauses first**, **`Conclusion:` / `therefore` last** — never open with conclusion.
-- **INV-L1:** Line **1** — no overlay numerals.  
-- **INV-L2:** Line **2** — **`index`** only as final token.  
-- **INV-L3:** Line **4** — only on **`[Annotated after action]`**; anchor must match line **2**.  
-- **INV-L4:** Unmarked → always coordinate path; never **`click_index`** on unmarked target.  
-- **INV-L5:** geometry deferred → no **(x,y)**; no **`click_at`** same turn.
-- **INV-L6:** **`therefore selected overlay index N`** only when the digit’s **flush-adjacent bbox** **contains** the intended sub-target (T1–T3 pass). **`therefore adjacent reference index R`** when the digit labels a **neighbor** bbox — **forbidden** **(c) wraps intended sub-target** if target is **outside** that bbox.
+- **INV-L0:** Analysis before **`reference index R`** / **`therefore (x,y)`**.
+- **INV-L1:** Line **1** — no overlay numerals.
+- **INV-L2:** **R** must appear in **Overlay reference bboxes** inject.
+- **INV-L3:** Line **3** must include **I2 inject quote** — **(xa, ya)** literals copied from row **R** before **I4 arithmetic** / **`therefore (x,y)`**.
+- **INV-L4:** **Forbidden** inventing **(X, Y)** without inject lookup on the same line.
+- **INV-L5:** **Forbidden** all **`*_index`** tools — **(x,y)** coordinate methods only.
+- **INV-L6:** **N > 1** inside bbox **R** → line **3** **forbidden** center-only anchor.
 
-#### Example — L2 coordinate path
+#### Anti-patterns (forbidden)
 
 ```text
-Location:
-1 Placement→frame: On [Screen after action]: OK/Cancel in central modal footer → therefore analyze on [Annotated after action].
-   [Annotated after action] — target: OK pill; wrapping bbox: cyan-stroke footer OK+Cancel;
-   traits: distinct controls = OK pill + Cancel pill; wrap count = 2; intended sub-target = OK pill.
-2 On [Annotated after action] — Analysis: (a) cyan footer bbox; (b) cyan digit flush; (c) wraps OK pill.
-   Conclusion: therefore selected overlay index 4.
-3 Analysis: from line 1 traits wrap count = 2. Conclusion: route: coordinate path.
-4 Analysis: On [Annotated after action]: OK toward left of bbox 4; corner bottom-left; (xc,yc) from reference for 4; offset right+up.
-   Conclusion: therefore (x,y) ≈ (xc+Δx, yc-Δy).
+2 … bbox wraps text + icon; distinct hit targets = 2 …
+3 … sub-target ≈ center of bbox R; inject row R center …
+(forbidden — N>1; use corner + offset to intended sub-target, not bbox center)
+
+Tool route: Location recap: therefore (x,y) ≈ (<X>, <Y>);
+   Tool call: mouse:click_index … index: <R>.
+(forbidden — Location already has (x,y); must be mouse:click_at with x/y literals; index is anchor only)
+
+2 Conclusion: reference index 125. Analysis: …
+(forbidden — conclusion before analysis)
+
+Tool route: type_text_at_index(125) …
+(forbidden — index tools; use type_text_at(x,y) from line 3)
+
+3 Conclusion: therefore (x,y). Analysis: …
+(forbidden — conclusion before analysis)
+
+3 Analysis: anchor center from row R; offset … Conclusion: therefore (x,y) ≈ (189.1, 300.0).
+(forbidden — no inject row R anchor literals (xa, ya) quoted before final numbers)
+
+3 Analysis: inject row R center: (xa, ya) = (…); … (forbidden if literals not copied from Overlay reference bboxes inject)
 ```
 
 ---
@@ -565,29 +502,42 @@ Location:
 
 **Prerequisite:** **Next** + **Location** (or **`n/a`**) complete.
 
+#### Triple-lock (coordinates must match everywhere)
+
+When **Location** line **3** concludes **`therefore (x,y) ≈ (…, …)`**, the **same numeric literals** must appear in **all four** places:
+
+| # | Where | Must contain |
+|---|--------|--------------|
+| 1 | **Location** line **3** **`Conclusion:`** | **I2** inject **(xa,ya)** literals on same line, then **I4** → **`therefore (x,y) ≈ (X, Y)`** |
+| 2 | **Tool route** line **1** **`Location recap:`** | **`therefore (x,y) ≈ (X, Y)`** — copy from Location line **3** |
+| 3 | **Tool route** line **2** | **`x: X; y: Y`** (plus **`goal`**, **`action`**) |
+| 4 | Root **`tool_args`** | **`"x": X`**, **`"y": Y`** |
+
+**Forbidden placeholders on line 2:** **`at computed (x,y)`**, **`same coordinates`**, **`as above`**, **`from Location`** — write the literals.
+
 #### Execution table (from Location recap)
 
-| Location line 3 | Location line 4 | Tool route line 2 |
-|-----------------|-------------------|-------------------|
-| **index path** | — | **`mouse:click_index(N)`** etc. |
-| **coordinate path** | **`therefore (x,y)`** complete | **`mouse:click_at(x,y)`** etc. |
-| **coordinate path** | **geometry deferred** | **`mouse:hover_index(anchor)`** — forbid **`click_at`** |
-| **n/a** | — | **`hotkey`** / **`wait`** / **`scroll_at_current`** / … |
+| Location | Tool route line 2 |
+|----------|-------------------|
+| **`therefore (x,y)`** on line **3** | **`mouse:click_at(x,y)`** / **`composite_action:type_text_at(x,y,…)`** / **`modified_click:modified_click_at`** — use **(x,y)** from Location |
+| **`Location: n/a`** | **`hotkey`** / **`wait`** / **`scroll_at_current`** / **`type_text_at_focused`** / … |
+
+**Forbidden (all turns):** any **`*_index`** method or **`index:`** / **`indices:`** in **`tool_args`**.
 
 **Action kind from Next `this turn:`:**
 
-- Press icon/button/toggle **this turn** → **`mouse:click_*`** — not **`type_text_at_*`**
-- Type/replace text **this turn** → **`composite_action:type_text_at_*`**
+- Press icon/button/toggle **this turn** → **`mouse:click_at`** — not **`type_text_at`**
+- Type/replace text **this turn** → **`composite_action:type_text_at`**
 
 #### Steps
 
 | Step | Line | Content |
 |------|------|---------|
 | T1 | **1** | **`Next recap: this turn:`** — copy **Next** line **1** **`this turn:`** clause only |
-| T2 | **1** | **`Location recap:`** — route, anchor, **(x,y)** or deferred |
-| T3 | **2** | **`Tool call this turn:`** — must match T1, T2, and tool prompt |
+| T2 | **1** | **`Location recap:`** — **reference index R** + **same `(X,Y)` literals** as Location line **3**, or **`n/a`** |
+| T3 | **2** | **`Tool call this turn:`** — method + **full args** (`goal`, `action`, `x`, `y`, …); literals **identical** to **`tool_args`** |
 
-Root JSON **`tool_name`** = line **2** method.
+Root JSON **`tool_name`** = line **2** method. Root **`tool_args`** = line **2** args (same numbers).
 
 #### Output template
 
@@ -595,9 +545,29 @@ Root JSON **`tool_name`** = line **2** method.
 Tool route:
 1 Next recap & Location:
    Next recap: this turn: <same as Next line 1 this turn: clause>;
-   Location recap: <route; anchor; (x,y) or deferred | n/a>.
-2 Tool call this turn: <tool_name:method> — <args per tool prompt>.
+   Location recap: reference index <R>; therefore (x,y) ≈ (<X>, <Y>) | n/a.
+2 Tool call this turn: mouse:click_at — goal: <outcome>; action: <visible click target>; x: <X>; y: <Y>.
 ```
+
+#### Anti-patterns (forbidden)
+
+```text
+1 Location recap: … therefore (x,y) ≈ (X, Y).
+2 Tool call this turn: mouse:click_index — … index: R.
+(forbidden — Location fixed (x,y); use mouse:click_at — x: X; y: Y)
+
+1 Location recap: … therefore (x,y) ≈ (435, 300).
+2 Tool call this turn: mouse:click_at at computed (x,y).
+(forbidden — line 2 must repeat x: 435; y: 300; goal; action)
+```
+
+#### Invariants (Tool route)
+
+- **INV-T0:** Line **2** lists every required **`tool_args`** field — no placeholders.
+- **INV-T1:** **`x`/`y`** on line **2** = **`tool_args`** = Location line **3** + recap literals.
+- **INV-T2:** **Forbidden** re-analyzing images or changing **(X,Y)** vs **Location**.
+- **INV-T3:** **`tool_name`** on line **2** = root **`tool_name`**.
+- **INV-T4:** **Forbidden** **`*_index`** / **`index:`** / **`indices:`** — line **2** must be an **Allowed** coordinate method (or off-frame tool from § Tool geometry).
 
 ---
 
@@ -605,9 +575,9 @@ Tool route:
 
 ```json
 {
-  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: blue OK pill in modal footer; aim = pill center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: hotspot on OK pill center. Pointer on OK pill center? yes.\n3 Conclusion (Center-only rule): Pointer on OK pill center? yes. — therefore accurate.\n\nVerify:\nIndices reset each screen — no stale overlay index.\nLast automated action: 2. mouse:click_index — footer region.\nBefore vs after: On [Screen before action]: dialog open. On [Screen after action]: same; dialog still open.\nClear evidence: no_clear_evidence — restates Before vs after: confirm not completed.\nAction type: non-deferred.\nMouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on OK center.\nLookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;\nMatch: row no_clear_evidence + non-deferred + mouse_accurate → fail, no_immediate_feedback;\nStep result: fail. Cause: no_immediate_feedback.\n\nRepetition:\nRows: differ. Screen: flat. Verdict: OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — no_immediate_feedback; Repetition: OK; Lookup: Step result=fail, Cause=no_immediate_feedback; Match: row fail + no_immediate_feedback → Retry same on-canvas intent; this turn: confirm dialog via OK pill.\n2 Target on [Screen after action]: blue OK pill; shape pill; band modal footer; neighbors: Cancel pill right.\n\nLocation:\n1 Placement→frame: On [Screen after action]: OK in central modal footer → therefore analyze on [Annotated after action]. [Annotated after action] — target: OK pill; wrapping bbox: cyan-stroke OK+Cancel; traits: distinct controls = OK pill + Cancel pill; wrap count = 2; intended sub-target = OK pill.\n2 On [Annotated after action] — (a) cyan bbox; (b) cyan digit flush; (c) wraps OK pill; therefore selected overlay index 4.\n3 Exclusivity: wrap count 2 — multiple; route: coordinate path.\n4 Coordinate geometry: On [Annotated after action]: OK toward left of bbox 4; corner bottom-left; (xc,yc) from reference for 4; offset right+up; therefore (x,y) ≈ (xc+Δx, yc-Δy).\n\nTool route:\n1 Next recap & Location: Next recap: this turn: confirm dialog via OK pill; Location recap: coordinate path — overlay 4, multiple, aim ≈ (x,y).\n2 Tool call this turn: mouse:click_at at computed (x,y).",
+  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: blue OK pill in modal footer; aim = pill center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: hotspot on OK pill center. Pointer on OK pill center? yes.\n3 Conclusion (Center-only rule): Pointer on OK pill center? yes. — therefore accurate.\n\nVerify:\nIndices reset each screen — no stale overlay index.\nLast automated action: 2. mouse:click_at — footer region.\nBefore vs after: On [Screen before action]: dialog open. On [Screen after action]: same; dialog still open.\nClear evidence: no_clear_evidence — restates Before vs after: confirm not completed.\nAction type: non-deferred.\nMouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on OK center.\nLookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;\nMatch: row no_clear_evidence + non-deferred + mouse_accurate → fail, no_immediate_feedback;\nStep result: fail. Cause: no_immediate_feedback.\n\nRepetition:\nRows: differ. Screen: flat. Verdict: OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — no_immediate_feedback; Repetition: OK; Lookup: Step result=fail, Cause=no_immediate_feedback; Match: row fail + no_immediate_feedback → Retry same on-canvas intent; this turn: confirm dialog via OK pill.\n2 Target on [Screen after action]: blue OK pill; shape pill; band modal footer; neighbors: Cancel pill right.\n\nLocation:\n1 Placement→frame: On [Screen after action]: OK in central modal footer → therefore analyze on [Annotated after action]. [Annotated after action] — target: OK pill; band modal footer; neighbors: Cancel pill right.\n2 On [Annotated after action] — Analysis: digit 4 flush on cyan bbox wrapping OK + Cancel; intended = OK pill inside bbox 4.\n   Conclusion: reference index 4.\n3 Analysis: On [Annotated after action]: OK toward left inside bbox 4; inject row 4 bottom-left: (xa, ya) = (480.0, 860.0); offset Δx=+40, Δy=-20; arithmetic → (520.0, 840.0).\n   Conclusion: therefore (x,y) ≈ (520.0, 840.0).\n\nTool route:\n1 Next recap & Location: Next recap: this turn: confirm dialog via OK pill; Location recap: reference index 4; therefore (x,y) ≈ (520.0, 840.0).\n2 Tool call this turn: mouse:click_at — goal: Confirm dialog via OK pill; action: click OK pill center; x: 520.0; y: 840.0.",
   "headline": "Confirm dialog via OK coordinates",
   "tool_name": "mouse:click_at",
-  "tool_args": { "goal": "Confirm dialog via OK pill", "action": "click OK pill center", "x": 520, "y": 880 }
+  "tool_args": { "goal": "Confirm dialog via OK pill", "action": "click OK pill center", "x": 520.0, "y": 840.0 }
 }
 ```

@@ -1018,6 +1018,18 @@ mod builtin_agent_tests {
             "communication should require seven stages"
         );
         assert!(
+            agent.system_prompt.contains("User intent"),
+            "communication should route analyze/plan vs execute"
+        );
+        assert!(
+            agent.system_prompt.contains("Continuation turn"),
+            "communication should skip intent on post-tool turns"
+        );
+        assert!(
+            agent.system_prompt.contains("Malformed or rejected"),
+            "communication should document JSON recovery"
+        );
+        assert!(
             agent.system_prompt.contains("Visual facts"),
             "communication should include B2 visual fact discipline"
         );

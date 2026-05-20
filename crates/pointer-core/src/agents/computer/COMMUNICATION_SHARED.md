@@ -55,6 +55,8 @@ Labels follow **fixed enumeration** on the current frame (**1** = first region, 
 
 ### Stages 1–4 vs 5–7
 
+**execute only** — run on **execute** intent (**intent turn**) and on every **continuation turn**. Skip only on **intent turn** + **analyze** / **plan** / **clarify** (see **Turn kind** / **User intent** in communication rules).
+
 - **Stages 1–4** (**Pointer**, **Verify**, **Repetition**, **Next**): describe targets from **`[Screen before/after action]`** only — **no** overlay digits.
 - **Verify V1**: coordinate rows end with **`; pointer at (x,y)=(…)`** (synthetic pointer position — **not** **`executed`**). **Before vs after** opens **`Compare differences from visual information only — no speculation.`**
 - **Stage 5** (**Location**): line **2** three-step layout proof, then integer **(x,y)** on line **3** (anchor/direction + **Overlay reference bboxes** row **R**).

@@ -21,20 +21,21 @@ Runtime prompt is organized as:
 
 ## `<thoughts>` (legacy header — see runtime COMMUNICATION.md)
 
-Runtime **COMMUNICATION.md** specifies **JSON** output: put the **full six-stage block** (**`Pointer:`** … **`Tool route:`**`) inside **`thoughts`**; keep **`headline`** short.
+Runtime **COMMUNICATION.md** specifies **JSON** output: put the **full seven-stage block** (**`Pointer:`** … **`Tool route:`**; include **`Recheck coordinates:`** when **(x,y)** apply) inside **`thoughts`**; keep **`headline`** short. Integer **`x`/`y`** in **`tool_args`** — no floats.
 
 **Verify** uses **12-row** lookup. Sections below may describe older **VERIFIED/NFO** wording — follow **COMMUNICATION.md** for on-wire behavior.
 
 ## Reasoning framework (mandatory every tool or final turn)
 
-Run **six** internal stages **in this order**, using **exactly** these **English prefix lines** so the chain is scannable:
+Run **seven** internal stages **in this order**, using **exactly** these **English prefix lines** so the chain is scannable:
 
 - **`Pointer:`** — stage 1  
 - **`Verify:`** — stage 2  
 - **`Repetition:`** — stage 3  
 - **`Next:`** — stage 4  
 - **`Location:`** — stage 5 (overlay analysis; **`n/a`** when no overlay work)
-- **`Tool route:`** — stage 6 (explicit tool call; line **2** = root **`tool_name`**)
+- **`Recheck coordinates:`** — stage 6 (**only** when stage 5 has **(x,y)**; **R1** precision_miss 3px guard + **R2** target-at-point vs **Next** line 2)
+- **`Tool route:`** — stage 7 (explicit tool call; line **2** = root **`tool_name`**)
 
 ### No speculation
 
@@ -309,6 +310,46 @@ In real replies, **each** failed candidate should still use a full **line 1** (f
   "tool_name": "clipboard:read",
   "tool_args": {}
 }
+```
+
+---
+
+## Extended Location examples (author reference)
+
+Moved from runtime **COMMUNICATION.md** to save tokens. Runtime keeps compose+113 and OK pill only.
+
+### Search icon (nearest = center)
+
+```text
+Location:
+1 … band=top; text=Search; fill=orange icon; size=≈24×24 px.
+2 … digit 7 flush on orange bbox; Step 2 band=top; text=Search; fill=orange circle; size=≈24×24 px.
+   Step 3: inside bbox 7; vs bbox R center.
+3 … Bearing check consistent; anchor = center point; direction = on anchor;
+   Overlay reference bboxes row 7 center: (xa, ya) = (512, 48); offset none → (512, 48).
+```
+
+### Back chevron above-left of bbox 67
+
+```text
+2 Step 2: band=top; text=[unclear]; fill=gray chevron; size=≈24×24 px.
+   Step 3: outside bbox 67; above-left vs bbox 67 top-left corner.
+3 anchor = top-left corner; direction = up-left; offset Δx=−18, Δy=−32 → (6, 24).
+```
+
+### Menu icon top-left inside bbox 22
+
+```text
+2 Step 3: inside bbox 22; vs bbox 22 top-left corner.
+3 anchor = top-left corner; direction = on anchor → (12, 8).
+```
+
+### Send button bottom-left inside bbox 101
+
+```text
+2 Step 2: band=bottom; text=Send; fill=blue pill; size=≈48×28 px.
+   Step 3: inside bbox 101; vs bbox 101 bottom-left corner.
+3 anchor = bottom-left corner; direction = on anchor → (890, 855).
 ```
 
 ---

@@ -999,15 +999,35 @@ mod builtin_agent_tests {
         assert_eq!(agent.def.profile, AgentProfile::Computer);
         assert!(
             agent.system_prompt.contains("Verify:"),
-            "slim communication should merge Verify stage"
+            "computer communication should merge Verify stage"
         );
         assert!(
             agent.system_prompt.contains("Pointer:"),
-            "slim communication should merge Pointer stage"
+            "computer communication should merge Pointer stage"
         );
         assert!(
             agent.system_prompt.contains("[Zoom pointer after action]"),
             "shared vision legend should be merged"
+        );
+        assert!(
+            agent.system_prompt.contains("Recheck coordinates:"),
+            "communication should require Recheck stage"
+        );
+        assert!(
+            agent.system_prompt.contains("1 → 7"),
+            "communication should require seven stages"
+        );
+        assert!(
+            agent.system_prompt.contains("Visual facts"),
+            "communication should include B2 visual fact discipline"
+        );
+        assert!(
+            agent.system_prompt.contains("band="),
+            "communication should use band|text|fill|size fields"
+        );
+        assert!(
+            agent.system_prompt.contains("Diff:"),
+            "communication should require Recheck R2 diff line"
         );
     }
 

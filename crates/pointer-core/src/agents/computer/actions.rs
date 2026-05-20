@@ -1,4 +1,4 @@
-use super::mouse_move::MouseMoveProfile;
+pub use super::mouse_move::MouseMoveProfile;
 use super::timing::{
     COMPOSITE_ACTION_STEP_GAP_MS, POST_MOUSE_BUTTON_SETTLE_MS, SETTLE_AFTER_ABSOLUTE_MOVE_MS,
 };

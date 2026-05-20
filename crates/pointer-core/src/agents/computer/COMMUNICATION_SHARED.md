@@ -1,11 +1,9 @@
 ## Desktop vision (`[CUR_SCREEN]`)
 
 Ordered images under **`[CUR_SCREEN]`** (slot names in the first line).
-Older desktop turns are stripped — use **only** this inject.
+Older desktop turns are stripped — use **only** the current **`[CUR_SCREEN]`** block.
 
 **Order when a prior turn exists:** **`[Screen before action]`** → **`[Zoom pointer before action]`** → **`[Screen after action]`** → **`[Annotated after action]`** → **`[Zoom top after action]`** → **`[Zoom bottom after action]`** → **`[Zoom pointer after action]`**. First capture omits the two **before** slots.
-
-**Runtime stage rules and routing tables:** **`COMMUNICATION.md`**. This file describes **what each slot contains** and **which stage must read it**.
 
 ---
 
@@ -21,7 +19,7 @@ Older desktop turns are stripped — use **only** this inject.
 | **`[Zoom bottom after action]`** | Bottom strip crop (dock / taskbar) | **Location** overlay frame pick | Bottom-band targets |
 | **`[Zoom pointer after action]`** | **4×** annotated crop around pointer | **Location** overlay frame pick | Near-pointer targets; small digits |
 
-**Also injected (text, not an image slot):** **Pointer position** + **Overlay reference bboxes** — **every** overlay index with session-scale corner/center coordinates for **Location** line **3** geometry. Indices are **anchors only** — final tools use **(x,y)**.
+**Also included (text, not an image slot):** **Pointer position** + **Overlay reference bboxes** — **every** overlay index with session-scale corner/center coordinates for **Location** line **3** geometry. Indices are **anchors only** — final tools use **(x,y)**.
 
 **Rule:** Every visual claim in **`thoughts`** must cite **`On [slot name]:`**. **Forbidden** to describe UI from task text without reading the slot.
 
@@ -36,7 +34,7 @@ Each printed **index** pairs with **exactly one bbox** when **both** hold:
 
 Labels follow **fixed enumeration** on the current frame (**1** = first region, **2** = second, …). **Do not** re-sort or invent numbers.
 
-**Overlay vs coordinates:** Digits label bboxes — use them as **reference index R** only. Lookup corner/center in **Overlay reference bboxes** inject; compute **(x,y)**; call **`click_at`** / **`type_text_at`**. Labels **reset every turn**.
+**Overlay vs coordinates:** Digits label bboxes — use them as **reference index R** only. Lookup corner/center in **Overlay reference bboxes** row **R**; compute **(x,y)**; call **`click_at`** / **`type_text_at`**. Labels **reset every turn**.
 
 ---
 
@@ -49,12 +47,16 @@ Labels follow **fixed enumeration** on the current frame (**1** = first region, 
 | **Near synthetic pointer** | **`[Zoom pointer after action]`** |
 | **Central / wide** — dialog, toolbar | **`[Annotated after action]`** |
 
-**Location (reference index + coordinates):** see **`COMMUNICATION.md` §5** — pick **reference index R**, then **`therefore (x,y)`** on line **3**.
+**Location line 2 (three steps):** digit↔bbox pairing + bbox **W×H** → **band|text|fill|size** facts → relative position vs landmark (words only). **Recheck R2** uses the same four fields. Follow **B2 Visual facts** in communication rules.
+
+**Location line 3:** anchor (5) + direction (8) or **`on anchor`** → copy integers from **Overlay reference bboxes** row **R** → offset → arithmetic → **`therefore (x,y) ≈ (X, Y)`** (non-negative integers).
 
 ---
 
-### Stages 1–4 vs 5–6
+### Stages 1–4 vs 5–7
 
 - **Stages 1–4** (**Pointer**, **Verify**, **Repetition**, **Next**): describe targets from **`[Screen before/after action]`** only — **no** overlay digits.
-- **Stage 5** (**Location**): overlay analysis on one chosen annotated/zoom frame; **(x,y)** geometry on line **3** using **Overlay reference bboxes** inject.
-- **Stage 6** (**Tool route**): **`click_at`** / **`type_text_at`** / **`modified_click_at`** at Location **(x,y)**; **triple-lock** on **X,Y**; **forbidden** all **`*_index`** methods and **`index:`** args **every turn**.
+- **Verify V1**: coordinate rows end with **`; pointer at (x,y)=(…)`** (synthetic pointer position — **not** **`executed`**). **Before vs after** opens **`Compare differences from visual information only — no speculation.`**
+- **Stage 5** (**Location**): line **2** three-step layout proof, then integer **(x,y)** on line **3** (anchor/direction + **Overlay reference bboxes** row **R**).
+- **Stage 6** (**Recheck coordinates**): only when stage **5** has **(x,y)** — **precision_miss** 3px loop guard + target-at-**(X,Y)** vs **Next** line **2**; revise **R** / **(x,y)** if needed.
+- **Stage 7** (**Tool route**): **`click_at`** / **`type_text_at`** / **`modified_click_at`** at final integer **(x,y)**; **forbidden** all **`*_index`** methods and **`index:`** args **every turn**.

@@ -5,7 +5,7 @@ use super::annotate::BoxInfo;
 use super::coord::CoordinateSystem;
 use super::screen::MonitorInfo;
 
-const INJECT_RULES_TAIL: &str = "Image-grounded analysis: every visual claim must cite **On [slot name]:**. **Overlay reference bboxes** lists every index — anchors for Location math only; **`*_index` tool methods are forbidden** — copy anchor (xa,ya), compute (x,y), use **`*_at`** tools. Rules: runtime **COMMUNICATION.md**.";
+const INJECT_RULES_TAIL: &str = "Image-grounded analysis: every visual claim must cite **On [slot name]:**. **Overlay reference bboxes** lists every index — anchors for Location math only; **`*_index` tool methods are forbidden** — copy anchor (xa,ya), compute (x,y), use **`*_at`** tools. Follow the seven-stage **communication** rules above.";
 
 fn pointer_capture_position(
     monitor: &MonitorInfo,
@@ -38,14 +38,26 @@ fn to_session_xy(x: f32, y: f32, cw: f32, ch: f32, coord: CoordinateSystem) -> (
     }
 }
 
+/// Session coordinates in inject are non-negative integers (rounded), per COMMUNICATION.md.
+fn session_xy_int(x: f32, y: f32, cw: f32, ch: f32, coord: CoordinateSystem) -> (i32, i32) {
+    let (sx, sy) = to_session_xy(x, y, cw, ch, coord);
+    ((sx.round().max(0.0)) as i32, (sy.round().max(0.0)) as i32)
+}
+
 fn format_bbox_reference_row(b: &BoxInfo, cw: f32, ch: f32, coord: CoordinateSystem) -> String {
-    let tl = to_session_xy(b.x, b.y, cw, ch, coord);
-    let tr = to_session_xy(b.x + b.width, b.y, cw, ch, coord);
-    let br = to_session_xy(b.x + b.width, b.y + b.height, cw, ch, coord);
-    let bl = to_session_xy(b.x, b.y + b.height, cw, ch, coord);
-    let (ccx, ccy) = to_session_xy(b.x + b.width / 2.0, b.y + b.height / 2.0, cw, ch, coord);
+    let tl = session_xy_int(b.x, b.y, cw, ch, coord);
+    let tr = session_xy_int(b.x + b.width, b.y, cw, ch, coord);
+    let br = session_xy_int(b.x + b.width, b.y + b.height, cw, ch, coord);
+    let bl = session_xy_int(b.x, b.y + b.height, cw, ch, coord);
+    let (ccx, ccy) = session_xy_int(
+        b.x + b.width / 2.0,
+        b.y + b.height / 2.0,
+        cw,
+        ch,
+        coord,
+    );
     format!(
-        "- index {idx}: top-left ({tlx:.1}, {tly:.1}); top-right ({trx:.1}, {try_:.1}); bottom-right ({brx:.1}, {bry:.1}); bottom-left ({blx:.1}, {bly:.1}); center ({cx:.1}, {cy:.1}).",
+        "- index {idx}: top-left ({tlx}, {tly}); top-right ({trx}, {try_}); bottom-right ({brx}, {bry}); bottom-left ({blx}, {bly}); center ({cx}, {cy}).",
         idx = b.index,
         tlx = tl.0,
         tly = tl.1,
@@ -108,14 +120,17 @@ fn format_pointer_position_line(
         CoordinateSystem::Qwen | CoordinateSystem::Kimi => {
             let nx = (mouse_bx / cw) * 1000.0;
             let ny = (mouse_by / ch) * 1000.0;
+            let nx_i = nx.round().max(0.0) as i32;
+            let ny_i = ny.round().max(0.0) as i32;
             format!(
-                "**Pointer position** (same **full capture** as **`[Screen after action]`** / **`[Annotated after action]`**, origin top-left): **capture pixels** (x, y) ≈ ({:.0}, {:.0}); **normalized (x, y)** ≈ ({:.1}, {:.1}) on **0–1000** (same numeric space as coordinate-based `mouse` / `composite_action` / `modified_click` this session). **`[Zoom pointer after action]`** is a **{out}×{out} px** patch ({factor}× magnified from {crop}×{crop} px) centered on this point.",
-                mouse_bx, mouse_by, nx, ny
+                "**Pointer position** (same **full capture** as **`[Screen after action]`** / **`[Annotated after action]`**, origin top-left): **capture pixels** (x, y) ≈ ({:.0}, {:.0}); **normalized (x, y)** ≈ ({nx_i}, {ny_i}) on **0–1000** (non-negative integers; same space as coordinate tools this session). **`[Zoom pointer after action]`** is a **{out}×{out} px** patch ({factor}× magnified from {crop}×{crop} px) centered on this point.",
+                mouse_bx, mouse_by
             )
         }
         CoordinateSystem::Pixel => format!(
-            "**Pointer position** (capture pixels, origin top-left, same as **`[Screen after action]`**): (x, y) ≈ ({:.0}, {:.0}). **`[Zoom pointer after action]`** is a **{out}×{out} px** patch ({factor}× magnified from {crop}×{crop} px) centered on this point.",
-            mouse_bx, mouse_by
+            "**Pointer position** (capture pixels, origin top-left, same as **`[Screen after action]`**): (x, y) ≈ ({}, {}). **`[Zoom pointer after action]`** is a **{out}×{out} px** patch ({factor}× magnified from {crop}×{crop} px) centered on this point.",
+            mouse_bx.round().max(0.0) as i32,
+            mouse_by.round().max(0.0) as i32
         ),
     }
 }

@@ -77,7 +77,7 @@ pub(super) async fn run_single_agent_loop(
             agent_plan,
             settings,
             &assistant_id,
-            lead_profile,
+            lead_profile.clone(),
             tools_system_appendix,
             tools_appendix_enabled,
         )

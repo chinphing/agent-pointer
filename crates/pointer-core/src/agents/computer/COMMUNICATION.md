@@ -2,10 +2,8 @@
 
 Each desktop reply is **one** JSON object: string fields **`thoughts`**, **`headline`**, optional **`sidecar_tools`**, root **`tool_name`**, object **`tool_args`**.
 
-**`thoughts`** holds the **six-stage block** below (**`Pointer:`** … **`Tool route:`**), in order.
+**`thoughts`** holds the **seven-stage block** below (**`Pointer:`** … **`Tool route:`**), in order.
 **`Tool route:`** line **2** is the **only** place that picks the tool; it must match root **`tool_name`**.
-
-Extended examples and anti-patterns: **`COMMUNICATION_FULL.md`** (not loaded at runtime).
 
 ---
 
@@ -13,10 +11,12 @@ Extended examples and anti-patterns: **`COMMUNICATION_FULL.md`** (not loaded at 
 
 ### A) Proof discipline — write like a graded math proof
 
-1. Run stages **1 → 6** in order. **Do not** skip a stage.
-2. Within each stage, write **numbered lines in order**. **Do not** emit a conclusion before the line that earns it.
-3. A line may use **only** facts already shown **earlier in the same stage**, or conclusions from **prior** stages.
-4. **Forbidden:** jumping to **`index`**, **`(x,y)`**, **`pass`/`fail`**, tool names, or **`therefore`** labels before the substeps that justify them.
+1. Run stages **1 → 7** in order (**`Pointer:`** … **`Tool route:`**). **Do not** skip a stage.
+2. **Exception:** omit stage **6** **`Recheck coordinates:`** only when **`Location:`** is **`n/a`**; still run stage **7** **`Tool route:`**.
+3. **Forbidden:** jump from **`Location:`** line **3** to **`Tool route:`** without **`Recheck coordinates:`** when line **3** has **`therefore (x,y) ≈ (…, …)`**.
+4. Within each stage, write **numbered lines in order**. **Do not** emit a conclusion before the line that earns it.
+5. A line may use **only** facts already shown **earlier in the same stage**, or conclusions from **prior** stages.
+6. **Forbidden:** jumping to **`index`**, **`(x,y)`**, **`pass`/`fail`**, tool names, or **`therefore`** labels before the substeps that justify them.
 
 ### A2) Analysis before conclusion — on every line that decides
 
@@ -34,7 +34,7 @@ Extended examples and anti-patterns: **`COMMUNICATION_FULL.md`** (not loaded at 
 - Line **3** **(x,y)** before line **2** **reference index R** complete.
 - **`Tool call`** before **`Location recap`** cites analysis from **Location**.
 - **`at computed (x,y)`** or any coordinate placeholder on **Tool route** line **2**.
-- **Location** line **3** **`therefore (x,y)`** before **inject row R** anchor literals are quoted in Analysis.
+- **Location** line **3** **`therefore (x,y)`** before **Overlay reference bboxes** row **R** anchor literals are quoted in Analysis.
 
 **Required pattern (Location line 2 example):**
 
@@ -47,7 +47,7 @@ Extended examples and anti-patterns: **`COMMUNICATION_FULL.md`** (not loaded at 
 
 ### B) Image discipline — every visual claim cites a frame
 
-**Rule:** Any claim about pixels, layout, controls, pointer hotspot, or overlay digits must begin with **`On [Frame name]:`** naming an inject from the **current** **`[CUR_SCREEN]`** block.
+**Rule:** Any claim about pixels, layout, controls, pointer hotspot, or overlay digits must begin with **`On [Frame name]:`** naming a slot from the **current** **`[CUR_SCREEN]`** block.
 
 **Forbidden:** describing UI from task text, memory, or guesswork without naming the frame you read.
 
@@ -55,7 +55,15 @@ Extended examples and anti-patterns: **`COMMUNICATION_FULL.md`** (not loaded at 
 **`Location:`** line **1** — **no** overlay numerals (including in **`neighbors:`**).
 Overlay **`index`** may appear in **`Location:`** line **2** (**reference index R**) and **`Tool route:`** recap — **never** as the tool click target.
 
-**`[CUR_SCREEN]`** also injects **Pointer position** and **Overlay reference bboxes** (every overlay index with corner/center coordinates, session scale) — used in **Location** line **3**.
+**`[CUR_SCREEN]`** also includes **Pointer position** and **Overlay reference bboxes** (every overlay index with corner/center coordinates, session scale) — used in **Location** line **3**.
+
+### B2) Visual facts (Location + Recheck)
+
+- **Facts before labels:** list observations, then **`Conclusion`** / **`Match`** / **`Diff`**.
+- **Pixels only** on a named **`[Frame]`**; no task text, memory, or design norms.
+- **Unclear** → **`[unclear]`**; never invent text/icon/color behind occlusion.
+- **Objective fields:** **`band`** | **`text`** (quote literals) | **`fill`** (color+shape) | **`size`** (≈ w×h px); optional **`kind:`** (one word, not sole evidence).
+- **Forbidden:** pretty/modern/important; guessed intent; traits not seen this turn.
 
 ### C) Frame registry — which image each stage reads
 
@@ -73,7 +81,7 @@ Overlay **`index`** may appear in **`Location:`** line **2** (**reference index 
 
 ---
 
-## Pipeline (six stages)
+## Pipeline (seven stages)
 
 | Stage | Prefix | Decides | Primary frame(s) |
 |-------|--------|---------|------------------|
@@ -82,15 +90,20 @@ Overlay **`index`** may appear in **`Location:`** line **2** (**reference index 
 | 3 | **`Repetition:`** | Stuck loop? | **`[Recent desktop tool calls]`** text |
 | 4 | **`Next:`** | **What** target this turn | **`[Screen after action]`** line **2** only |
 | 5 | **`Location:`** | **Reference index R** + **(x,y)** for sub-target | **`[Screen after action]`** then overlay frame |
-| 6 | **`Tool route:`** | **How** — one tool call | No new image reads — cite prior stages |
+| 6 | **`Recheck coordinates:`** | **(X,Y)** still valid before click? | **`[Annotated after action]`** / **`[Zoom pointer after action]`** — **only when stage 5 has (x,y)** |
+| 7 | **`Tool route:`** | **How** — one tool call | No new image reads — cite prior stages |
 
-If **`Location:`** does not apply → **`Location: n/a`** — still run **`Tool route:`**.
+If **`Location:`** is **`n/a`** → **omit** stage **6** entirely; still run **`Tool route:`**.
+
+**Mandatory prefix order in `thoughts` (coordinate turn):**  
+`Pointer:` → `Verify:` → `Repetition:` → `Next:` → `Location:` → **`Recheck coordinates:`** → `Tool route:`  
+**Never** place **`Tool route:`** immediately after **`Location:`** when line **3** concluded **`therefore (x,y) ≈ (X, Y)`**.
 
 ---
 
 ## Tool geometry — coordinates-only (all turns)
 
-**All canvas actions use coordinate methods at (x,y) from Location line 3** (or pointer-only / off-frame tools below). Overlay index numbers are **reference anchors only** — lookup in **Overlay reference bboxes** inject for Location math; **never** pass index / indices / from_index / to_index in tool_args.
+**All canvas actions use coordinate methods at (x,y) from Location line 3** (or pointer-only / off-frame tools below). Overlay index numbers are **reference anchors only** — lookup in **Overlay reference bboxes** for Location math; **never** pass index / indices / from_index / to_index in tool_args.
 
 **Allowed — coordinate methods:**  
 **`mouse`:** `click_at`, `double_click_at`, `right_click_at`, `hover_at`, `drag_from_to_at` · **`composite_action`:** `type_text_at` · **`modified_click`:** `modified_click_at`.
@@ -120,9 +133,11 @@ Optional **`wait`** in **`tool_args`** (1–5 s) after successful mouse/hotkey/c
 
 | Condition | Line 1 frame | Line 2 geometry frame |
 |-----------|----------------|------------------------|
-| **`[Screen before action]`** present | **`[Screen before action]`** | **`[Zoom pointer before action]`** — **required** |
-| First capture (no before inject) | **`[Screen after action]`** | **`[Screen after action]`** and/or **`[Zoom pointer after action]`** |
-| **`hotkey`**, **`wait`**, **`clipboard:*`**, etc. | name frame or **`n/a`** | **`n/a`** — non-pointer action |
+| **`[Screen before action]`** present + last row is a **coordinate** tool (`click_at`, `type_text_at`, `drag_from_to_at`, `modified_click_at`, …) | **`[Screen before action]`** | **`[Zoom pointer before action]`** — **required** |
+| First capture (no before-action slots) + coordinate last row | **`[Screen after action]`** | **`[Screen after action]`** and/or **`[Zoom pointer after action]`** |
+| **`hotkey`**, **`wait`**, **`clipboard:*`**, **`type_text_at_focused`**, **`scroll_at_current`**, **`move_offset`**, **`*_current`**, etc. | name frame or **`n/a`** | **`n/a`** — non-pointer action |
+
+**Coordinate tools are pointer-precision actions.** **`composite_action:type_text_at`** clicks at **(x,y)** before typing — **not** non-pointer. Judge hotspot vs **that click aim** (input/field **center**), same as **`mouse:click_at`**. **Forbidden:** **`n/a — composite_action … is non-pointer`** when the last row has **`x`/`y`** in **`tool_args`**.
 
 #### Steps (strict order — do not skip)
 
@@ -148,13 +163,30 @@ Pointer:
    | n/a — <non-pointer>.
 ```
 
-#### Example (accurate)
+#### Example (accurate — click)
 
 ```text
 Pointer:
 1 Intended aim on [Screen before action]: blue Save pill in dialog footer; aim = pill center.
 2 Evidence (hotspot vs aim): On [Zoom pointer before action]: hotspot over Save pill geometric center. Pointer on Save pill center? yes.
 3 Conclusion (Center-only rule): Pointer on Save pill center? yes. — therefore accurate — hotspot on Save pill center on [Zoom pointer before action].
+```
+
+#### Example (accurate — type_text_at)
+
+```text
+Pointer:
+1 Intended aim on [Screen before action]: chat message input at bottom; aim = input field center.
+2 Evidence (hotspot vs aim): On [Zoom pointer before action]: hotspot inside message input, near field center. Pointer on input field center? yes.
+3 Conclusion (Center-only rule): Pointer on input field center? yes. — therefore accurate.
+```
+
+#### Anti-pattern (forbidden)
+
+```text
+2 Evidence (hotspot vs aim): n/a — composite_action type_text_at is non-pointer action.
+3 Conclusion: n/a — non-pointer action.
+(forbidden — type_text_at uses (x,y); run lines 2–3 on [Zoom pointer before action] vs line 1 aim)
 ```
 
 ---
@@ -171,7 +203,7 @@ Pointer:
 
 | Field | Frame(s) | Rule |
 |-------|----------|------|
-| **Before vs after** | **`[Screen before action]`** → **`[Screen after action]`** | **Only** line that re-reads screenshots for UI delta. **Name both frames.** |
+| **Before vs after** | **`[Screen before action]`** → **`[Screen after action]`** | **Fixed opener** then both frames. **Not** tool-recap proof. |
 | **Mouse judgment** | Cite **`On [Zoom pointer before action]:`** when present | Must agree with **Pointer** line **3** |
 | **Clear evidence** | **No** new frame read | Restate **Before vs after** outcome only |
 
@@ -182,8 +214,8 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 | Step | Field | Source |
 |------|-------|--------|
 | V0 | Fixed reminder | exact line above |
-| V1 | **Last automated action** | Newest **`[Recent desktop tool calls]`** row, or **`none — no prior desktop tool in this thread`** |
-| V2 | **Before vs after** | Read **`[Screen before action]`** → **`[Screen after action]`** — UI delta only |
+| V1 | **Last automated action** | Newest **`[Recent desktop tool calls]`** row, or **`none — no prior desktop tool in this thread`**. When that row’s **`tool_args`** has **`x`** and **`y`**, append **`; pointer at (x,y)=(<x>, <y>)`** — **synthetic pointer position** from that row only (see **V1 pointer position** below). **Forbidden** **`executed`** — that word implies success, not position. |
+| V2 | **Before vs after** | **Fixed opener** (exact): **`Compare differences from visual information only — no speculation.`** then **`On [Screen before action]:`** … **`On [Screen after action]:`** — pixel delta only (B2–B3). |
 | V3 | **Clear evidence** | Label + restate V2 — **`supporting_evidence`** · **`contradicting_evidence`** · **`no_clear_evidence`** |
 | V4 | **Action type** | **`deferred`** · **`non-deferred`** |
 | V5 | **Mouse judgment** | **`non_mouse`** · **`mouse_miss`** · **`mouse_accurate`** — must match **Pointer** |
@@ -192,6 +224,24 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 | V8 | **Step result** + **Cause** | **Must equal Match** — **forbidden** before V6–V7 |
 
 **First turn:** V1 = none → **`Lookup: n/a`** → **`Step result: n/a`** — omit **`Cause:`**.
+
+#### V1 pointer position (when last action used screen pixels)
+
+**Required when:** Newest **`[Recent desktop tool calls]`** row is a coordinate tool (**`mouse:click_at`**, **`mouse:double_click_at`**, **`mouse:drag_from_to_at`**, **`mouse:move_to`**, **`mouse:composite_action:*_at`**, etc.) and **`tool_args`** includes **`x`** and **`y`**.
+
+**Meaning:** **`pointer at (x,y)`** = where the automation placed the **synthetic pointer** for that call — **not** “action succeeded”, **not** proof that UI changed.
+
+**Especially mandatory when:** **Pointer** line **3** is **`abnormal`** and **Mouse judgment** will be **`mouse_miss`** — still cite the **same** integers from the tool row; **forbidden** to omit because the click missed.
+
+| Part | Content |
+|------|---------|
+| Tool recap | **`tool_name`** + **`goal`** / **`action`** from the newest row (tool ledger only). |
+| Pointer position | **`; pointer at (x,y)=(<x>, <y>)`** — integers only; **forbidden** floats; **forbidden** **`executed`**. |
+| Drag | If **`x2`** / **`y2`** present, also **`; pointer end (x2,y2)=(<x2>, <y2>)`**. |
+
+**Omit pointer suffix when:** **`hotkey`**, **`wait`**, **`clipboard`**, **`mouse:…_current`**, **`move_offset`**, or no **`x`/`y`** in **`tool_args`**.
+
+**Recheck R1** may reuse **V1** **`pointer at (x,y)=…`** as **`(x_prev, y_prev)`** — must match; do not invent a second pair.
 
 #### Clear evidence
 
@@ -210,7 +260,7 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 
 | Value | When |
 |-------|------|
-| **`non_mouse`** | No precision click geometry — **`Pointer:`** **`n/a`** |
+| **`non_mouse`** | **`Pointer:`** line **3** **`n/a — non-pointer`** (hotkey, wait, clipboard, focused-only type, …) — **not** for **`type_text_at`** / other **(x,y)** tools |
 | **`mouse_miss`** | Precision click + **`Pointer:`** **`abnormal`** |
 | **`mouse_accurate`** | Precision click + **`Pointer:`** **`accurate`** |
 
@@ -238,8 +288,8 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 ```text
 Verify:
 Indices reset each screen — no stale overlay index.
-Last automated action: <newest row | none — no prior desktop tool in this thread>.
-Before vs after: On [Screen before action]: … On [Screen after action]: … | n/a — no [Screen before action].
+Last automated action: <N>. <tool_name> goal=… action=…; pointer at (x,y)=(<x>, <y>) | <newest row without x/y> | none — no prior desktop tool in this thread.
+Before vs after: Compare differences from visual information only — no speculation. On [Screen before action]: … On [Screen after action]: … | n/a — no [Screen before action].
 Clear evidence: <label> — restates Before vs after: <same UI words; no new On [Screen …]:>.
 Action type: <deferred | non-deferred> — <reason>.
 Mouse judgment: <non_mouse | mouse_miss | mouse_accurate> — <On [Zoom pointer before action]: when present>.
@@ -258,11 +308,13 @@ Cause: <only when Match says so; omit on pass>.
 ```text
 Repetition:
 Rows: <same goal|action × N | differ>.
-Screen: <flat | advanced>.
-Verdict: <OK | STUCK> — <if STUCK: one tactic hint, no digits>.
+Screen: <flat | advanced> — UI progress vs prior attempts (from Verify Before vs after or [Screen after action]; no overlay digits).
+Verdict: <OK | STUCK> — if STUCK: <STUCK only | STUCK — change tactic> (no re-aim / relocate / pivot detail).
 ```
 
 **>3** consecutive same goal+action with no UI gain → **`STUCK`**.
+
+**Scope:** Count repeats in **`[Recent desktop tool calls]`** and whether the UI **advanced**. **Do not** choose **re-aim**, **relocate**, or **pivot** here — that is **Next** after **Verify** **Match**.
 
 ---
 
@@ -294,11 +346,23 @@ Verdict: <OK | STUCK> — <if STUCK: one tactic hint, no digits>.
 | Step result | Cause | this turn must… | Line 2 target |
 |-------------|-------|-----------------|---------------|
 | pass | — | Advance next sub-goal | **New** control on **`[Screen after action]`** |
-| fail | wrong_operation | **Pivot** — different surface | **Different** control than failed action |
-| fail | precision_miss | **Re-aim** same sub-target | **Same** control, tighter center wording |
+| fail | wrong_operation | **Pivot** — different surface (includes clicked wrong visible control) | **Different** control than failed action |
+| fail | precision_miss | **Re-aim** same sub-target **only if visible** on **`[Screen after action]`**; if **not visible**, **relocate** (scroll/navigate/open surface) — **then** re-aim next turn | **Same** control when visible; else **n/a** or shell that exposes the target |
 | fail | no_immediate_feedback | **Retry** same on-canvas intent | **Same** control/region |
 | pending | off_frame_unverified | **Wait or inspect** off-frame | **`n/a`** or visible shell |
 | n/a | — | Open task from user goal (first turn) | First visible control on **`[Screen after action]`** |
+
+#### Tactic vocabulary (**Next** only — not Repetition)
+
+Read **`[Screen after action]`** line **2** before **`this turn:`**.
+
+| Target **visible** on **`[Screen after action]`** | **`this turn:`** tactic |
+|---------------------------------------------------|-------------------------|
+| **Yes** — same sub-target identifiable | **re-aim** — tighter pointer on that control (**precision_miss**) |
+| **No** — off-screen, wrong surface, surface not open | **relocate** — scroll/switch/open/dismiss until target appears; **forbidden** **re-aim** until visible |
+| Wrong visible control clicked | **pivot** — different control (**wrong_operation**) |
+
+**When Repetition is `STUCK`:** still follow this table in **Next** — Repetition only flags the loop; **Match → this turn** picks the tactic.
 
 #### Output template
 
@@ -310,78 +374,161 @@ Next:
    Lookup: Step result=<same>, Cause=<same or —>;
    Match: row <Step result + Cause> → <this turn must…>;
    this turn: <concrete UI step, no overlay digits>.
-2 Target on [Screen after action]: <label, shape, color, band, neighbors — visible on this frame only>.
+2 Target on [Screen after action]: band=<…>; text=<literal|[unclear]>; fill=<color+shape>; size=≈<w>×<h> px — visible on this frame only (same fields as Location Step 2; may be shorter).
 ```
 
 ---
 
 ### 5) Location
 
+**Follow B2 Visual facts.**
+
 **Goal:** Turn **Next** line **2** into **reference index R** + **(x,y)** for the intended sub-target. **No** tool names. **All** screen actions use **(x,y)** — overlay indices are **anchors only**.
 
 **Input:** **Next** line **2** only (paraphrase — do not paste verbatim).
 
-**Inject:** **Overlay reference bboxes** lists **every** index with corner/center coordinates (session scale). Lookup **R** there for Location math — **forbidden** any **`*_index`** tool method.
+**Overlay reference bboxes** (text under **`[CUR_SCREEN]`**) lists **every** index with corner/center coordinates (session scale). Lookup **R** there for Location math — **forbidden** any **`*_index`** tool method.
 
 #### Steps (strict order — 3 lines when overlay applies)
 
-| Step | Line | Analysis (first) | Conclusion (last) | Frame |
-|------|------|------------------|-------------------|-------|
+**Proof rule:** **Location** line **2** and line **3** are one proof — **forbidden** to skip substeps or jump to **`reference index R`**, **anchor**, **direction**, or **`(x,y)`** before prior substeps earn them.
+
+| Step | Line | Substeps (in order) | Conclusion (last on line) | Frame |
+|------|------|---------------------|---------------------------|-------|
 | L1 | **1 Placement→frame** | **`On [Screen after action]:`** bearing → **`therefore analyze on [overlay frame]`**; target traits — **no** overlay digits | — | Screen after → overlay |
-| L2 | **2 Reference index** | **`On [overlay frame]:`** intended sub-target; digit **R**; bbox **R** contents; **`distinct hit targets = N`**; relation inside/outside | **`reference index R`** | Overlay frame |
-| L3 | **3 Coordinate geometry** | **Inject lookup** → anchor literals **(xa,ya)** from row **R** → offset → arithmetic **(X,Y)** | **`therefore (x,y) ≈ (X, Y)`** | **`[Annotated after action]`** + **Overlay reference bboxes** row **R** |
+| L2 | **2 Reference + layout proof** | **Step 1 → Step 2 → Step 3** (table below) — all **`On [overlay frame]:`** | **`reference index R`** | Overlay frame |
+| L3 | **3 Coordinate geometry** | **anchor (5)** → **direction (8)** → **bbox list quote** → **offset** → **arithmetic** — only after line **2** Step **3** | **`therefore (x,y) ≈ (X, Y)`** | **`[Annotated after action]`** + **Overlay reference bboxes** row **R** |
 
 **Non-overlay:** **`Location: n/a`** — skip lines **1–3**.
+
+#### Line 2 — three proof steps before `reference index R` (mandatory)
+
+Write like a **graded geometry proof** — **numbered substeps**, **no** conclusion until evidence is shown.
+
+| Substep | Must establish (on chosen overlay frame) | Forbidden |
+|---------|------------------------------------------|-----------|
+| **Step 1 — Reference digit ↔ bbox** | Digit **R** is **flush-adjacent** to bbox **R**: **background color behind digit = bbox border color** (same fill); digit sits on the bbox edge, **not** floating in empty chrome. Then bbox **width** and **height** in px (estimate from frame: “≈ W px wide, H px tall”). | Naming **R** without digit↔bbox color+flush proof |
+| **Step 2 — Target facts** | On overlay frame — **four fields in order:** **`band=`** (top/bottom/center/dialog/…); **`text=`** (visible literal or **`[unclear]`**); **`fill=`** (color+shape); **`size=`** ≈ w×h px. Optional **`kind:`** one word — not sole evidence. From **Next** line **2** intent only — **read pixels**, do not copy task wording. | Vague “input field”; subjective adjectives; guessed text |
+| **Step 3 — Relative position** | **Only after Step 1–2:** **inside / outside** bbox **R**; bearing vs **landmark** — **`vs bbox R <edge/corner>`** or **`left/right/above/below of <neighbor>`** (neighbor must be visible on this frame or named in Step 2). **No numbers.** | Vague “near input”; **`offset`**, **`anchor`**, **`(x,y)`**; landmark-free bearing |
+
+**Then** line **2** ends: **`Conclusion: reference index R.`**
+
+**Forbidden:** line **3** anchor/direction/numbers until line **2** Steps **1–3** are complete.
 
 #### Pick reference index R
 
 Read **`On [overlay frame]:`** then choose **R** from **Overlay reference bboxes**:
 
-| Situation | Pick **R** | Line **3** anchor |
-|-----------|------------|-------------------|
-| Sub-target **inside** bbox **R** but **R** wraps **multiple** controls | **R** whose bbox contains sub-target | **Corner** nearest sub-target + offset to sub-target center |
-| **Small icon / glyph** at row edge (copy, ×, kebab, …) inside multi-control **R** | **R** = row/list bbox | **Corner** on sub-target side (e.g. top-right) + offset to icon center — **forbidden** row **center** |
-| Sub-target **inside** bbox **R** and **R** wraps **only** sub-target | **R** | **Center** from inject row **R** (or corner + small offset if off-center) |
-| Sub-target **outside** all bboxes (unmarked control) | **R** = nearest bbox whose geometry best anchors offset | **Corner** of **R** nearest sub-target + offset |
-| Several candidates | Prefer **R** whose bbox edge is **closest** to sub-target center | Pick anchor that minimizes offset distance |
-
-**Anchor rule:** **(xa,ya)** must come from inject row **R** — **corner** (top-left / top-right / bottom-right / bottom-left) **or** **center**. Use **center** when sub-target ≈ bbox center; use **corner + offset** when sub-target is off-center or outside **R**.
+| Situation | Pick **R** |
+|-----------|------------|
+| Sub-target **inside** a bbox | **R** whose digit↔bbox pairing contains the sub-target |
+| Sub-target **outside** all bboxes (unmarked control) | **R** = nearest bbox whose geometry best anchors offset |
+| Several candidates | **R** whose bbox edge is **closest** to sub-target center |
 
 **Rule:** **R** labels the bbox the digit is flush on — trace digit → bbox on the overlay frame. **R** is **never** the click target; **(x,y)** on line **3** is.
 
-#### Anchor gate (run after line 2 — before line 3)
+**Line 3 anchor (after line 2 Step 3):** Pick **exactly one** of the **five** reference points on row **R** (**center**, **top-left**, **top-right**, **bottom-left**, **bottom-right**) **nearest** the sub-target. Copy **(xa, ya)** from that point in **Overlay reference bboxes**. If the sub-target **coincides** with that point → direction **`on anchor`**, **`offset none`**. Otherwise → **direction** toward the sub-target + **offset** (smallest **Δx/Δy** that reach the sub-target).
 
-Read **`intended sub-target`** from **Next** line **2** and **`distinct hit targets = N`** from line **2**:
+**Forbidden:** **`anchor = center point`** when a **corner** on row **R** is visibly **closer** to the sub-target than center (per line **2** Step **3** placement).
 
-| Line 2 fact | Line 3 anchor |
-|-------------|---------------|
-| **N = 1** and sub-target ≈ bbox **R** center | **Center** (inject row **R** center) — **offset none** OK |
-| **N > 1** (row/list/footer with **2+** buttons, text+icon, OK+Cancel, …) | **Corner** nearest sub-target + offset — **forbidden** **`sub-target ≈ center of bbox R`** |
-| Sub-target at **edge** of bbox **R** (icon, ×, kebab, trailing action) | **Corner** on that edge + offset — **forbidden** bbox **center** even if **N = 1** when sub-target is visibly off-center |
+#### Line 3 — after line 2 Steps 1–3 (anchor → bbox list → arithmetic)
 
-**Forbidden:** line **3** **`center`** when line **2** lists **multiple distinct hit targets** inside bbox **R**.
+**Prerequisite:** line **2** finished **Step 1** (digit↔bbox + bbox size), **Step 2** (target size/traits), **Step 3** (relative position words).
 
-#### Inject lookup discipline (mandatory on line 3)
+**Order is fixed:** **anchor (5) → direction (8) → copy row R corners → offset → arithmetic.**  
+**Forbidden:** **I2/I3** numbers before **anchor + direction** are named from line **2** Step **3**.
 
-Line **3** must **read inject first, then compute** — same order as a proof:
+**Screen axes (all line 3 math):** origin **top-left**; **+Δx = right**; **+Δy = down**.
+
+##### Class A — Anchor position (exactly **5**, from row **R** only)
+
+**I1** uses explicit anchor labels; **I2** copies the matching corner/center from **Overlay reference bboxes** row **R**.
+
+| # | **I1** anchor label (write in Analysis) | **I2** copy from row **R** |
+|---|----------------------------------------|----------------------------------|
+| 1 | **center point** | **center** |
+| 2 | **top-left corner** | **top-left** |
+| 3 | **top-right corner** | **top-right** |
+| 4 | **bottom-left corner** | **bottom-left** |
+| 5 | **bottom-right corner** | **bottom-right** |
+
+**Pick anchor:** the **one of five** on row **R** **nearest** the sub-target (e.g. sub-target at bbox **bottom-left** → **anchor = bottom-left corner**; sub-target at bbox center → **anchor = center point**).
+
+**Forbidden:** **I1** anchor label not in the table above. **Forbidden:** **I1** says bbox **center** while **anchor = … corner** without rewriting placement.
+
+##### Class B — Direction from anchor to sub-target (exactly **8**)
+
+After anchor is fixed, **I1** must name **one** direction — sub-target lies **from the anchor point** toward:
+
+| # | Direction label (use in **I1**) | **Δx** sign | **Δy** sign | Typical magnitude |
+|---|------------------------------|-------------|-------------|-------------------|
+| 1 | **right** | **+** | **0** | horizontal only |
+| 2 | **left** | **−** | **0** | horizontal only |
+| 3 | **down** | **0** | **+** | vertical only |
+| 4 | **up** | **0** | **−** | vertical only |
+| 5 | **down-right** | **+** | **+** | diagonal |
+| 6 | **down-left** | **−** | **+** | diagonal |
+| 7 | **up-right** | **+** | **−** | diagonal |
+| 8 | **up-left** | **−** | **−** | diagonal |
+
+**On anchor (no direction):** sub-target **coincides with** the chosen anchor point → direction **`on anchor`** → **I3** **`offset none`** (still show **I2**). Requires **I1** to say **coincides** with the **nearest** reference point.
+
+**Bearing check (mandatory before I2):** **`Bearing check: Step 3 <…>; at sub-target <inside|outside> R, <quadrant> — consistent | revise Step 3.`** If **revise Step 3** — **forbidden** I2 arithmetic until line **2** Step **3** is fixed.
+
+**I1 template clause (mandatory before copying row R numbers):**
+
+```text
+On [Annotated after action]: sub-target <inside|outside> bbox <R>, at <corner/quadrant of R>;
+Bearing check: Step 3 <…>; sub-target <quadrant vs R> — consistent;
+anchor = <center point | top-left corner | top-right corner | bottom-left corner | bottom-right corner>;
+direction from anchor = <one of 8 | on anchor>.
+```
+
+**I3 must echo direction:** **`offset Δx=…, Δy=… — direction <label> from anchor`**.
+
+**Examples (sign check):**
+
+- **anchor = top-left corner**, sub-target at **bottom-left of bbox R** (same left edge) → direction **`down`**, **Δx=0**, **Δy=+** — **not** **`down-right`**, **not** **+Δx** large.
+- **anchor = top-left corner**, sub-target **down-left** of anchor (outside **R** down and left) → direction **`down-left`**, **Δx=−**, **Δy=+**.
+
+**Forbidden:** **I3** signs that disagree with the **direction** row (e.g. direction **`down-left`** with **Δx=+120**).
+
+**Forbidden:** direction label or numeric **Δx/Δy** before anchor + direction are named in **I1**.
+
+#### Bbox list lookup (mandatory on line 3)
+
+Line **3** must **copy row R after I1** — same order as a proof:
 
 | Step | Write in Analysis | Required |
 |------|-------------------|----------|
-| **I1 Placement** | **`On [Annotated after action]:`** sub-target vs bbox **R**; pick anchor name (corner or center) | Visual only |
-| **I2 Inject quote** | **`inject row R <anchor>:`** **(xa, ya) = (…, …)** — copy **numeric literals** from **Overlay reference bboxes** row **R** | **Mandatory** — **forbidden** to skip |
-| **I3 Offset** | **Δx, Δy** from I1 layout (or **none** if sub-target = anchor) | When needed |
+| **I1 Anchor + direction** | Echo line **2** Step **3** bearing; pick **anchor** = one of **5**; **direction** = one of **8** or **`on anchor`** (must match Step **3**) | **Mandatory first on line 3** — no coordinates yet |
+| **I2 Bbox list quote** | **`Overlay reference bboxes row R <top-left|…|center>:`** **(xa, ya) = (…, …)** — copy **integer literals** from row **R** only | **Mandatory** — **forbidden** to skip |
+| **I3 Offset** | **Δx, Δy** signs from **direction** table; magnitudes from layout (or **`none`** if **`on anchor`**) | **Mandatory** — cite **direction** label |
 | **I4 Arithmetic** | **(X, Y) = (xa ± Δx, ya ± Δy)** — show evaluated result | **Mandatory** before Conclusion |
+| **I5 Round** | Round **(X, Y)** to **non-negative integers** (no decimals in Conclusion or **`tool_args`**) | **Mandatory** |
 
-**Forbidden:** naming an anchor (**center**, **top-right**, …) then jumping to **`therefore (x,y) ≈ (X, Y)`** without **I2** inject literals on the same line.
+**Forbidden:** naming an anchor (**center point**, **top-right corner**, …) then jumping to **`therefore (x,y) ≈ (X, Y)`** without **I2** literals from row **R** on the same line.
 
-**Forbidden:** inventing **(X, Y)** from the image without copying **(xa, ya)** from inject first.
+**Forbidden:** **`offset none`** when **I1** only says vague placement (“input above toolbar”, “field in bottom band”) without proving sub-target = anchor point.
+
+**Forbidden:** **I3** signs that contradict **I1** (e.g. sub-target at **bottom-left of R**, **anchor = top-left corner**, **Δx=+120**).
+
+**Forbidden:** numeric **Δx/Δy** before **I1** states inside/outside **R** and bearing (left/right/above/below vs anchor).
+
+**Forbidden:** inventing **(X, Y)** from the image without copying **(xa, ya)** from **Overlay reference bboxes** row **R** first.
+
+**Forbidden:** **`therefore (x,y) ≈ (520.0, 840.0)`** or float literals — use **`(520, 840)`** only.
+
+**Bbox list discipline:** row **R** uses **integer** corner/center values — copy those integers into **I2**, then integer arithmetic for **(X, Y)**.
 
 #### Line 2 template
 
 ```text
-2 On <overlay frame> — Analysis: intended sub-target = <one control from Next>;
-   digit <R> flush on <color> bbox — bbox wraps <list every distinct control inside R>;
-   distinct hit targets = <N>; sub-target is <inside | outside> bbox <R>.
+2 On <overlay frame> —
+   Step 1 — Reference digit ↔ bbox <R>: On <overlay frame>: digit <R> on <color> fill flush against same-color bbox border;
+   bbox <R> span: width ≈ <W> px; height ≈ <H> px.
+   Step 2 — Target facts: band=<…>; text=<literal|[unclear]>; fill=<color+shape>; size=≈<w>×<h> px; kind=<optional>.
+   Step 3 — Relative position: <inside|outside> bbox <R>; vs bbox R <edge/corner> | <left/right/above/below of neighbor> — no coordinates.
    Conclusion: reference index <R>.
 ```
 
@@ -390,18 +537,21 @@ Line **3** must **read inject first, then compute** — same order as a proof:
 **Mandatory structure — four clauses then Conclusion:**
 
 ```text
-3 Analysis: On [Annotated after action]: <I1 placement vs bbox R; anchor name>;
-   inject row <R> <anchor>: (xa, ya) = (<literal x>, <literal y>) from Overlay reference bboxes;
-   offset Δx=<…>, Δy=<…> | none;
+3 Analysis:
+   (line 2 Steps 1–3 complete)
+   Bearing check: Step 3 <…>; sub-target <quadrant vs R> — consistent;
+   anchor = <center point | … corner>; direction from anchor = <8-way | on anchor>;
+   Overlay reference bboxes row <R> <field>: (xa, ya) = (…) from Overlay reference bboxes;
+   offset Δx=…, Δy=… — direction <label> | none;
    arithmetic → (<X>, <Y>).
-   Conclusion: therefore (x,y) ≈ (<X>, <Y>).
+   Conclusion: therefore (x,y) ≈ (<X>, <Y>) — integers only.
 ```
 
 **Center only (no offset):**
 
 ```text
 3 Analysis: On [Annotated after action]: sub-target ≈ center of bbox <R>;
-   inject row <R> center: (xa, ya) = (<cx>, <cy>);
+   Overlay reference bboxes row <R> center: (xa, ya) = (<cx>, <cy>);
    offset none; arithmetic → (<cx>, <cy>).
    Conclusion: therefore (x,y) ≈ (<cx>, <cy>).
 ```
@@ -410,22 +560,9 @@ Line **3** must **read inject first, then compute** — same order as a proof:
 
 ```text
 3 Analysis: On [Annotated after action]: sub-target <placement vs bbox R>;
-   inject row <R> <corner>: (xa, ya) = (<literal x>, <literal y>);
+   Overlay reference bboxes row <R> <corner>: (xa, ya) = (<literal x>, <literal y>);
    offset Δx=<signed>, Δy=<signed>; arithmetic → (<X>, <Y>).
    Conclusion: therefore (x,y) ≈ (<X>, <Y>).
-```
-
-#### Example — single-control bbox (center anchor)
-
-```text
-Location:
-1 … target: Search icon button; band toolbar; neighbors: address bar left.
-2 … Analysis: digit 7 flush on orange bbox wrapping only the Search icon; sub-target inside bbox 7.
-   Conclusion: reference index 7.
-3 Analysis: On [Annotated after action]: sub-target ≈ center of bbox 7;
-   inject row 7 center: (xa, ya) = (512.0, 48.0);
-   offset none; arithmetic → (512.0, 48.0).
-   Conclusion: therefore (x,y) ≈ (512.0, 48.0).
 ```
 
 #### Example — compose input; neighbor bbox 113
@@ -434,46 +571,78 @@ Location:
 Location:
 1 Placement→frame: On [Screen after action]: message input at bottom of chat
    → therefore analyze on [Annotated after action].
-   [Annotated after action] — target: compose input field; band bottom bar; neighbors: chat list above.
-2 On [Annotated after action] — Analysis: digit 113 flush on blue bbox wrapping chat-list row above input;
-   compose input has no own digit; sub-target is outside bbox 113.
+   [Annotated after action] — band=bottom; text=[unclear]; fill=white rounded field; size=≈280×40 px.
+2 On [Annotated after action] —
+   Step 1 — Reference digit ↔ bbox 113: digit 113 on blue fill flush against blue bbox border;
+   bbox 113 span: width ≈ 320 px; height ≈ 72 px (one chat-list row).
+   Step 2 — Target facts: band=bottom; text=[unclear]; fill=white rounded field; size=≈280×40 px; kind=input.
+   Step 3 — Relative position: outside bbox 113; below-right vs bbox 113 bottom-right corner; left of Send icon (visible).
    Conclusion: reference index 113.
-3 Analysis: On [Annotated after action]: input center below-right of bbox 113;
-   inject row 113 bottom-right: (xa, ya) = (180.0, 720.0);
-   offset Δx=+200, Δy=+45; arithmetic → (380.0, 765.0).
-   Conclusion: therefore (x,y) ≈ (380.0, 765.0).
+3 Analysis:
+   Bearing check: Step 3 below-right outside R; sub-target outside R down-right — consistent;
+   anchor = bottom-right corner; direction from anchor = down-right.
+   Overlay reference bboxes row 113 bottom-right: (xa, ya) = (180, 720) from Overlay reference bboxes;
+   offset Δx=+200, Δy=+45 — direction down-right; arithmetic → (380, 765).
+   Conclusion: therefore (x,y) ≈ (380, 765).
 ```
 
-#### Example — sub-target inside multi-control bbox 4
+#### Example — OK pill (nearest = bottom-left corner)
 
 ```text
 Location:
 1 … target: OK pill; neighbors: Cancel pill right.
-2 … Analysis: digit 4 flush on cyan footer bbox wrapping OK pill + Cancel pill;
-   distinct hit targets = 2; intended sub-target = OK pill inside bbox 4.
+2 On [Annotated after action] —
+   Step 1 — Reference digit ↔ bbox 4: digit 4 on cyan fill flush against cyan bbox border;
+   bbox 4 span: width ≈ 200 px; height ≈ 48 px.
+   Step 2 — Target facts: band=dialog; text=OK; fill=blue pill; size=≈64×28 px; kind=button.
+   Step 3 — Relative position: inside bbox 4; vs bbox 4 left portion; left of Cancel (visible).
    Conclusion: reference index 4.
-3 Analysis: On [Annotated after action]: OK pill toward left inside bbox 4;
-   inject row 4 bottom-left: (xa, ya) = (480.0, 860.0);
-   offset Δx=+40, Δy=-20; arithmetic → (520.0, 840.0).
-   Conclusion: therefore (x,y) ≈ (520.0, 840.0).
+3 Analysis: On [Annotated after action]: sub-target bottom-left inside bbox 4;
+   Bearing check: Step 3 left portion inside R; sub-target bottom-left quadrant — consistent;
+   anchor = bottom-left corner; direction from anchor = right.
+   Overlay reference bboxes row 4 bottom-left: (xa, ya) = (480, 860);
+   offset Δx=+40, Δy=-20 — direction right; arithmetic → (520, 840).
+   Conclusion: therefore (x,y) ≈ (520, 840).
 ```
 
 #### Invariants (Location)
 
 - **INV-L0:** Analysis before **`reference index R`** / **`therefore (x,y)`**.
 - **INV-L1:** Line **1** — no overlay numerals.
-- **INV-L2:** **R** must appear in **Overlay reference bboxes** inject.
-- **INV-L3:** Line **3** must include **I2 inject quote** — **(xa, ya)** literals copied from row **R** before **I4 arithmetic** / **`therefore (x,y)`**.
-- **INV-L4:** **Forbidden** inventing **(X, Y)** without inject lookup on the same line.
+- **INV-L2:** **R** must appear in **Overlay reference bboxes**.
+- **INV-L3:** Line **3** must include **I2 bbox list quote** — **(xa, ya)** literals copied from row **R** before **I4 arithmetic** / **`therefore (x,y)`**.
+- **INV-L4:** **Forbidden** inventing **(X, Y)** without row **R** lookup on the same line.
 - **INV-L5:** **Forbidden** all **`*_index`** tools — **(x,y)** coordinate methods only.
-- **INV-L6:** **N > 1** inside bbox **R** → line **3** **forbidden** center-only anchor.
+- **INV-L6:** Line **3** **anchor** = **nearest** of the **five** row **R** reference points to the sub-target.
+- **INV-L6b:** **`offset none`** only when **I1** proves sub-target **coincides with** that nearest anchor point.
+- **INV-L7:** **(X, Y)** and **`tool_args` `x`/`y`** are **non-negative integers** — no fractional pixels.
+- **INV-L8:** Line **2** Steps **1→2→3** complete before **`reference index R`** and before line **3** numbers.
+- **INV-L8b:** Line **3** **anchor + direction** before **I2** row **R** literals — **forbidden** guessing coordinates before anchor.
+- **INV-L9:** **I1** names exactly **one** anchor (**5**) and **one** direction (**8** or **`on anchor`**) before **I2** literals.
+- **INV-L10:** **I3** **Δx/Δy** signs match the **direction** table — **forbidden** opposite quadrant (e.g. **`down-left`** with **+Δx** large).
+- **INV-L11:** **Bearing check** must be **consistent** before **I2** literals; Step **2** uses **band|text|fill|size** (B2).
 
 #### Anti-patterns (forbidden)
 
 ```text
-2 … bbox wraps text + icon; distinct hit targets = 2 …
-3 … sub-target ≈ center of bbox R; inject row R center …
-(forbidden — N>1; use corner + offset to intended sub-target, not bbox center)
+2 … Step 3 only “above toolbar” — no landmark; no Step 1 digit↔bbox; no Step 2 band|text|fill|size.
+3 … Overlay reference bboxes row 155 center; offset none.
+(forbidden — skip line 2 Steps 1–2; must prove digit↔bbox pairing + sizes before relative position and coordinates)
+
+3 Analysis: On [Annotated after action]: input field center above toolbar icons;
+   Overlay reference bboxes row 155 center: (xa, ya) = (520, 720);
+   offset none; arithmetic → (520, 720).
+(forbidden — line 3 before line 2 three-step proof; offset none without Step 3 + anchor proof)
+
+3 Analysis: On [Annotated after action]: sub-target ≈ center of bbox 19;
+   Overlay reference bboxes row 19 top-left: (xa, ya) = (890, 810);
+   offset Δx=+120, Δy=+45; arithmetic → (1010, 855).
+(forbidden — missing anchor + direction in I1; anchor = bottom-left corner + on anchor,
+ or anchor = top-left corner + direction down with Δx=0 Δy=+ — forbidden down-right / +Δx large)
+
+2 … Step 3: sub-target at bottom-left inside bbox R …
+3 … anchor = center point; Overlay reference bboxes row R center …
+(forbidden — sub-target at corner/edge; anchor must be nearest reference point, e.g. bottom-left corner + offset)
 
 Tool route: Location recap: therefore (x,y) ≈ (<X>, <Y>);
    Tool call: mouse:click_index … index: <R>.
@@ -489,18 +658,132 @@ Tool route: type_text_at_index(125) …
 (forbidden — conclusion before analysis)
 
 3 Analysis: anchor center from row R; offset … Conclusion: therefore (x,y) ≈ (189.1, 300.0).
-(forbidden — no inject row R anchor literals (xa, ya) quoted before final numbers)
+(forbidden — no Overlay reference bboxes row R anchor literals (xa, ya) quoted before final numbers)
 
-3 Analysis: inject row R center: (xa, ya) = (…); … (forbidden if literals not copied from Overlay reference bboxes inject)
+3 Analysis: Overlay reference bboxes row R center: (xa, ya) = (…); … (forbidden if literals not copied from **Overlay reference bboxes**)
+
+3 Conclusion: therefore (x,y) ≈ (189.1, 300.0).
+(forbidden — final (x,y) must be integers, e.g. (189, 300))
 ```
 
 ---
 
-### 6) Tool route
+### 6) Recheck coordinates
+
+**Follow B2 Visual facts.**
+
+**Goal:** Gate **coordinate** turns before **`Tool route:`** — confirm **(X, Y)** from **Location** line **3** is safe to click.
+
+**When required:** **Location** line **3** has **`therefore (x,y) ≈ (X, Y)`** (canvas coordinate turn).
+
+**When omitted:** **`Location: n/a`** — **do not** emit **`Recheck coordinates:`** at all (hotkey, wait, clipboard, pointer-only tools, etc.).
+
+**Prerequisite:** **Location** lines **1–3** complete with integer **(X, Y)**.
+
+**Do not** re-pick overlay frame or re-read **Next** — only validate or revise **R** / **(X, Y)**.
+
+#### Check R1 — precision_miss loop guard
+
+**Run when:** **Next** line **1** echo shows **`Cause: precision_miss`** (from **Verify**), **or** **`Match:`** row for **`fail` + `precision_miss`**.
+
+**Skip when:** No **`precision_miss`** on this turn (pass, wrong_operation, no_immediate_feedback, pending, first turn).
+
+| Step | Content |
+|------|---------|
+| R1a | Read prior **`x`**, **`y`** from **Verify** **V1** **`pointer at (x,y)=…`** when present; else from **`[Recent desktop tool calls]`** newest row with coordinate **`tool_args`**. Same integers only. |
+| R1b | Compare to **Location** line **3** integers **(X, Y)**. |
+| R1c | If **both** `\|X − x_prev\| ≤ 3` **and** `\|Y − y_prev\| ≤ 3` → **`Conclusion: change reference`** — **forbidden** to keep same **R** and nearly same **(X, Y)** after **`precision_miss`**. |
+| R1d | On **`change reference`**: pick new **reference index R′** (different digit/bbox) and recompute line **3** **(X′, Y′)** in a **`Location (revised):`** mini-block (lines **2–3** only) before **`Recheck`** line **2**. |
+
+**Also run R1 when:** **`Repetition:`** **`STUCK`** **and** **R1c** would match a prior failed coordinate row — treat as repeat loop; **`change reference`** required.
+
+#### Check R2 — target at (X, Y) vs Next line 2
+
+**Always run** when stage **6** applies. **Read pixels at (X,Y)** — **forbidden** overlay digits; **forbidden** copying **Next** into **At (X,Y)**.
+
+| Step | Name | Content |
+|------|------|---------|
+| **R2-O** | At (X,Y) facts | **`On [Annotated after action]:`** at **(X, Y)** — **`band=`** **`text=`** **`fill=`** **`size=`** (pixels only; **`[unclear]`** if needed) |
+| **R2-E** | Next expects | Same **four fields** from **Next** line **2** (paraphrase OK; must be comparable) |
+| **R2-D** | Diff | One line: **`text ✅/❌; fill ✅/❌; band ✅/❌; size ✅/❌`** — note any **❌** |
+| **R2-B** | Bearing | **`Step3 <Location line 2 Step 3> vs at (X,Y) <quadrant vs R> → ✅/❌`** |
+| **R2-C** | Conclusion | **`proceed`** only if **R2-D** all **✅** **and** **R2-B ✅**; else **`change reference`** + **`Location (revised):`** |
+
+**Mismatch → `change reference`:** empty chrome; wrong neighbor in shared bbox; any **R2-D ❌** or **R2-B ❌**.
+
+#### Output template
+
+```text
+Recheck coordinates:
+1 Precision loop (R1): <skip | run> … Conclusion: <proceed | change reference>.
+2 Target at (X,Y) (R2):
+   At (X,Y): band=…; text=…; fill=…; size=…
+   Next expects: band=…; text=…; fill=…; size=…
+   Diff: text ✅; fill ✅; band ✅; size ✅
+   Bearing: Step3 … vs at (X,Y) … → ✅
+   Conclusion: proceed | change reference — …
+```
+
+#### Example — R2 proceed
+
+```text
+2 Target at (X,Y) (R2):
+   At (380,765): band=bottom; text=[unclear]; fill=white rounded field; size=≈280×40 px
+   Next expects: band=bottom; text=[unclear]; fill=white rounded field; size=≈280×40 px
+   Diff: text ✅; fill ✅; band ✅; size ✅
+   Bearing: Step3 outside R below-right; at (380,765) bottom bar left of Send → ✅
+   Conclusion: proceed.
+```
+
+#### Example — R2 fail (Send at aim point)
+
+```text
+2 Target at (X,Y) (R2):
+   At (520,720): band=bottom; text=[unclear]; fill=green circle icon; size=≈32×32 px
+   Next expects: band=bottom; text=[unclear]; fill=white rounded field; size=≈280×40 px
+   Diff: text ✅; fill ❌; band ✅; size ❌
+   Bearing: Step3 left of Send; at (520,720) on Send icon → ❌
+   Conclusion: change reference — revise anchor/direction toward input.
+```
+
+**If either check concludes `change reference`:** append revised coordinates, then re-run **Recheck** once:
+
+```text
+Location (revised):
+2 … Conclusion: reference index <R′>.
+3 … Conclusion: therefore (x,y) ≈ (<X′>, <Y′>).
+Recheck coordinates (after revise):
+1 … Conclusion: proceed.
+2 … Conclusion: proceed.
+```
+
+**Forbidden:** **`Tool route:`** while **Recheck** still ends in **`change reference`** without a **`Location (revised):`** block and second **Recheck** with **`proceed`**.
+
+#### Invariants (Recheck)
+
+- **INV-R0:** **Omit** entire stage when **`Location: n/a`**.
+- **INV-R1:** **R2** always runs when stage **6** runs.
+- **INV-R1b:** **`precision_miss`** → **R1** mandatory.
+- **INV-R2:** **`change reference`** → new **R′** ≠ prior **R** when possible; new **(X′, Y′)** integers.
+- **INV-R3:** **`Tool route:`** only after both checks **`proceed`** (or one revise cycle completed).
+- **INV-R4:** **R2** must include **Diff** line and **Bearing** line; **At (X,Y)** facts must not copy **Next** verbatim.
+
+#### Supplementary guards (recommended)
+
+| Guard | When | Action |
+|-------|------|--------|
+| **STUCK + same coords** | **Repetition** **`STUCK`** and **R1c** true vs any recent failed row | **`change reference`** (same as R1) |
+| **Wrong control in bbox** | **R2-D** has **fill ❌** or **size ❌** (neighbor pill/button at **(X,Y)**) | **`change reference`** — different **R′** or re-pick **nearest** anchor |
+| **Off-screen (X,Y)** | **(X, Y)** outside screen capture bounds | **`change reference`** or **`Location: n/a`** + off-frame tool |
+| **Drag second point** | **`drag_from_to_at`** | Run **R2** at **(x2, y2)** separately if needed; both endpoints must match intent |
+
+---
+
+### 7) Tool route
 
 **Goal:** Commit **one** **`tool_name`** / **`tool_args`**. **Do not** re-analyze images.
 
-**Prerequisite:** **Next** + **Location** (or **`n/a`**) complete.
+**Prerequisite:** **Next** + **Location** (or **`n/a`**) complete; when coordinates apply, **Recheck coordinates** both lines **`proceed`** (after any **`Location (revised):`**).
 
 #### Triple-lock (coordinates must match everywhere)
 
@@ -508,10 +791,11 @@ When **Location** line **3** concludes **`therefore (x,y) ≈ (…, …)`**, the
 
 | # | Where | Must contain |
 |---|--------|--------------|
-| 1 | **Location** line **3** **`Conclusion:`** | **I2** inject **(xa,ya)** literals on same line, then **I4** → **`therefore (x,y) ≈ (X, Y)`** |
-| 2 | **Tool route** line **1** **`Location recap:`** | **`therefore (x,y) ≈ (X, Y)`** — copy from Location line **3** |
-| 3 | **Tool route** line **2** | **`x: X; y: Y`** (plus **`goal`**, **`action`**) |
-| 4 | Root **`tool_args`** | **`"x": X`**, **`"y": Y`** |
+| 1 | **Location** line **3** **`Conclusion:`** | **I2** row **R** **(xa,ya)** integers, **I4** → **`therefore (x,y) ≈ (X, Y)`** — same ints after **Recheck** |
+| 2 | **Recheck coordinates** | Both checks **`proceed`** (or revised block done) |
+| 3 | **Tool route** line **1** **`Location recap:`** | **`therefore (x,y) ≈ (X, Y)`** — final integers |
+| 4 | **Tool route** line **2** | **`x: X; y: Y`** (plus **`goal`**, **`action`**) |
+| 5 | Root **`tool_args`** | **`"x": X`**, **`"y": Y`** — JSON **numbers without decimals** |
 
 **Forbidden placeholders on line 2:** **`at computed (x,y)`**, **`same coordinates`**, **`as above`**, **`from Location`** — write the literals.
 
@@ -567,7 +851,7 @@ Tool route:
 - **INV-T1:** **`x`/`y`** on line **2** = **`tool_args`** = Location line **3** + recap literals.
 - **INV-T2:** **Forbidden** re-analyzing images or changing **(X,Y)** vs **Location**.
 - **INV-T3:** **`tool_name`** on line **2** = root **`tool_name`**.
-- **INV-T4:** **Forbidden** **`*_index`** / **`index:`** / **`indices:`** — line **2** must be an **Allowed** coordinate method (or off-frame tool from § Tool geometry).
+- **INV-T4:** **Forbidden** **`*_index`** / **`index:`** / **`indices:`** — line **2** must be an **Allowed** coordinate method (or off-frame tool from **Tool geometry** above).
 
 ---
 
@@ -575,9 +859,11 @@ Tool route:
 
 ```json
 {
-  "thoughts": "Pointer:\n1 Intended aim on [Screen before action]: blue OK pill in modal footer; aim = pill center.\n2 Evidence (hotspot vs aim): On [Zoom pointer before action]: hotspot on OK pill center. Pointer on OK pill center? yes.\n3 Conclusion (Center-only rule): Pointer on OK pill center? yes. — therefore accurate.\n\nVerify:\nIndices reset each screen — no stale overlay index.\nLast automated action: 2. mouse:click_at — footer region.\nBefore vs after: On [Screen before action]: dialog open. On [Screen after action]: same; dialog still open.\nClear evidence: no_clear_evidence — restates Before vs after: confirm not completed.\nAction type: non-deferred.\nMouse judgment: mouse_accurate — On [Zoom pointer before action]: hotspot on OK center.\nLookup: Clear evidence=no_clear_evidence, Action type=non-deferred, Mouse judgment=mouse_accurate;\nMatch: row no_clear_evidence + non-deferred + mouse_accurate → fail, no_immediate_feedback;\nStep result: fail. Cause: no_immediate_feedback.\n\nRepetition:\nRows: differ. Screen: flat. Verdict: OK\n\nNext:\n1 Prior stages & sub-goal: Verify: fail — no_immediate_feedback; Repetition: OK; Lookup: Step result=fail, Cause=no_immediate_feedback; Match: row fail + no_immediate_feedback → Retry same on-canvas intent; this turn: confirm dialog via OK pill.\n2 Target on [Screen after action]: blue OK pill; shape pill; band modal footer; neighbors: Cancel pill right.\n\nLocation:\n1 Placement→frame: On [Screen after action]: OK in central modal footer → therefore analyze on [Annotated after action]. [Annotated after action] — target: OK pill; band modal footer; neighbors: Cancel pill right.\n2 On [Annotated after action] — Analysis: digit 4 flush on cyan bbox wrapping OK + Cancel; intended = OK pill inside bbox 4.\n   Conclusion: reference index 4.\n3 Analysis: On [Annotated after action]: OK toward left inside bbox 4; inject row 4 bottom-left: (xa, ya) = (480.0, 860.0); offset Δx=+40, Δy=-20; arithmetic → (520.0, 840.0).\n   Conclusion: therefore (x,y) ≈ (520.0, 840.0).\n\nTool route:\n1 Next recap & Location: Next recap: this turn: confirm dialog via OK pill; Location recap: reference index 4; therefore (x,y) ≈ (520.0, 840.0).\n2 Tool call this turn: mouse:click_at — goal: Confirm dialog via OK pill; action: click OK pill center; x: 520.0; y: 840.0.",
+  "thoughts": "… Location line 3: therefore (x,y) ≈ (520, 840). Recheck coordinates: R1 skip; R2 proceed at (520,840) = OK pill vs Next. Tool route: mouse:click_at x:520 y:840 …",
   "headline": "Confirm dialog via OK coordinates",
   "tool_name": "mouse:click_at",
-  "tool_args": { "goal": "Confirm dialog via OK pill", "action": "click OK pill center", "x": 520.0, "y": 840.0 }
+  "tool_args": { "goal": "Confirm dialog via OK pill", "action": "click OK pill center", "x": 520, "y": 840 }
 }
 ```
+
+(Abbreviated **thoughts** example — emit the full seven-stage block in order, stages **1–7** above.)

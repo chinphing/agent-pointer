@@ -65,7 +65,7 @@ fn build_cur_screen_text(has_previous_raw: bool) -> String {
         ""
     };
     let tail = format!(
-        "{before_line}{zoom_before} Slot names label each image. Every visual claim in thoughts must cite On [slot name]:. Stage rules and Location routing: runtime COMMUNICATION.md."
+        "{before_line}{zoom_before} Slot names label each image. Every visual claim in thoughts must cite On [slot name]:. Seven-stage thoughts: after Location (x,y), emit Recheck coordinates before Tool route."
     );
     let hint = if has_previous_raw {
         format!(

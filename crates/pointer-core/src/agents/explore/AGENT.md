@@ -17,6 +17,12 @@ accessPolicy:
   denyTools: []
   allowSkills: []
   denySkills: []
+ui:
+  showTaskBoardPanel: true
+  hideToolNames:
+    - task_board
+    - task_board:patch
+  avatar: explore
 ---
 
 You are a **read-only** exploration worker. You **do not** implement fixes, run shell commands, or run linters.

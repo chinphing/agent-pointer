@@ -3,7 +3,6 @@ pub mod file;
 pub mod response;
 pub mod run_subagent;
 pub mod skill;
-pub mod task_board;
 pub mod terminal;
 pub mod tool_doc;
 pub mod tool_md;
@@ -474,7 +473,7 @@ mod envelope_validation_tests {
 
     fn reg() -> ToolRegistry {
         let r = ToolRegistry::new();
-        let store = Arc::new(crate::tools::task_board::TaskBoardStore::default());
+        let store = Arc::new(crate::task_board::TaskBoardStore::new());
         crate::tools::builtin::register_all(&r, store);
         r
     }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { watch } from 'vue'
-import { X } from 'lucide-vue-next'
+import { Image, X } from 'lucide-vue-next'
 import type { ComputerAnnotatedPreview } from '../../../../types/chat'
 
 const open = defineModel<boolean>('open', { required: true })
@@ -33,33 +33,47 @@ watch(
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[200] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+      class="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="标注截图预览"
       @click.self="close"
     >
       <div
-        class="relative max-w-[min(96vw,1280px)] max-h-[min(92vh,900px)] w-full overflow-auto rounded-2xl glass-strong p-4 pt-12 shadow-2xl border border-white/10"
+        class="relative max-w-[min(96vw,1280px)] max-h-[min(92vh,900px)] w-full overflow-auto rounded-2xl border border-border bg-[hsl(var(--card-elevated))] shadow-2xl"
       >
-        <button
-          type="button"
-          class="absolute top-3 right-3 z-10 h-9 w-9 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 flex items-center justify-center cursor-pointer transition"
-          title="关闭 (Esc)"
-          @click="close"
-        >
-          <X class="w-4 h-4" />
-        </button>
-        <div v-if="error" class="text-sm text-red-300 pr-10">{{ error }}</div>
-        <div v-else-if="loading" class="text-sm text-slate-400 pr-10">加载中…</div>
-        <template v-else-if="preview">
-          <p class="text-[11px] text-slate-400 mb-3 pr-10 leading-relaxed">{{ preview.caption }}</p>
+        <header class="sticky top-0 z-10 flex items-center gap-3 px-5 py-4 border-b border-border bg-[hsl(var(--card-elevated))]">
+          <div class="w-8 h-8 rounded-lg bg-accent/15 flex items-center justify-center shrink-0">
+            <Image class="w-4 h-4 text-accent" />
+          </div>
+          <div class="min-w-0 flex-1 pr-8">
+            <h2 class="text-sm font-semibold text-foreground">标注截图预览</h2>
+            <p v-if="preview?.caption" class="text-[11px] text-muted mt-0.5 leading-relaxed line-clamp-2">
+              {{ preview.caption }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="absolute top-3 right-3 p-2 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors"
+            title="关闭 (Esc)"
+            @click="close"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </header>
+
+        <div class="p-5">
+          <div v-if="error" class="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+            {{ error }}
+          </div>
+          <div v-else-if="loading" class="text-sm text-muted">加载中…</div>
           <img
+            v-else-if="preview"
             :src="`data:image/png;base64,${preview.imageBase64}`"
             alt="Annotated desktop"
-            class="max-w-full h-auto rounded-xl border border-white/10 shadow-lg"
+            class="max-w-full h-auto rounded-xl border border-border shadow-lg"
           />
-        </template>
+        </div>
       </div>
     </div>
   </Teleport>

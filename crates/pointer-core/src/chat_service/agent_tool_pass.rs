@@ -16,11 +16,11 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use super::app_state::AppState;
-use super::emit::emit;
+use super::emit::{emit, emit_task_board_updated};
 use super::session_budget::SessionToolBudget;
-use super::task_board_inject::inject_host_task_board_conversation_id;
-use crate::task_board_history_trim::{
-    maybe_trim_after_tool_pass, task_board_call_is_checkpoint, TaskBoardTrimHook,
+use crate::task_board::{
+    inject_host_task_board_conversation_id, maybe_trim_after_tool_pass,
+    task_board_call_is_checkpoint, TaskBoardTrimHook,
 };
 use super::util::{desktop_tool_failure_note, tool_result_msg, truncate_str};
 use super::StreamTx;
@@ -102,8 +102,12 @@ pub(super) async fn run_agent_tool_pass(
         let args_value = parse_tool_call_arguments(&tc.arguments);
         let (mut tool_id, args_value) = merge_tool_method_from_qualified_name(&tc.name, args_value);
         tool_id = tool_id.trim().to_string();
-        let args_value =
-            inject_host_task_board_conversation_id(&tool_id, args_value, task_board_store_key);
+        let args_value = inject_host_task_board_conversation_id(
+            &tool_id,
+            args_value,
+            task_board_store_key,
+            history,
+        );
         if tool_id.is_empty() {
             let err = "工具名为空：请检查 <tool_name>（例如 mouse:click_index、composite_action、response）。";
             emit(
@@ -243,6 +247,17 @@ pub(super) async fn run_agent_tool_pass(
         .await;
         if tool_ok && task_board_call_is_checkpoint(&tool_id, &args_value) {
             task_board_succeeded = true;
+            let doc = state.task_board_store.document(task_board_store_key);
+            let host_cid = args_value
+                .get("_conversation_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or(conversation_id);
+            emit_task_board_updated(
+                &stream,
+                host_cid,
+                task_board_store_key,
+                doc.to_value(),
+            );
         }
         any_executed = true;
     }

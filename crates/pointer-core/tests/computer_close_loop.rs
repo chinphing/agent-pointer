@@ -4,7 +4,7 @@ use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use image::{DynamicImage, RgbImage};
 use pointer_core::agents::computer::actions::{
-    ActionBackend, ActionExecutor, ActionResult, KeyPhase, MouseButton,
+    ActionBackend, ActionExecutor, ActionResult, KeyPhase, MouseButton, MouseMoveProfile,
 };
 use pointer_core::agents::computer::annotate::AnnotateClient;
 use pointer_core::agents::computer::screen::MonitorInfo;
@@ -47,7 +47,12 @@ impl ActionBackend for SharedRecordingBackend {
     fn right_click(&self) -> Result<ActionResult> {
         Ok(ActionResult::success("right"))
     }
-    fn move_to(&self, x: i32, y: i32) -> Result<ActionResult> {
+    fn move_to_with_profile(
+        &self,
+        x: i32,
+        y: i32,
+        _profile: MouseMoveProfile,
+    ) -> Result<ActionResult> {
         self.moves.lock().unwrap().push((x, y));
         Ok(ActionResult::success("move"))
     }
@@ -104,7 +109,7 @@ async fn mock_annotate_then_resolve_index_and_fake_click() {
     let executor = ActionExecutor::new(Box::new(SharedRecordingBackend {
         moves: moves.clone(),
     }));
-    executor.click_index(x, y).expect("click");
+    executor.click_index(x, y, false).expect("click");
     assert_eq!(*moves.lock().unwrap(), vec![(50, 50)]);
 }
 

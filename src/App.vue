@@ -23,7 +23,9 @@ const showPlatformLogin = ref(false)
 
 onMounted(() => {
   void loadSettingsDialog()
-  void Promise.all([platformAuth.load(), settings.load(), skills.load(), chat.init()])
+  void Promise.all([platformAuth.load(), settings.load(), skills.load(), chat.init()]).then(() => {
+    if (chat.currentId) void chat.refreshTaskBoard(chat.currentId)
+  })
     .catch(e => console.error('[app boot]', e))
     .finally(() => {
       if (!platformAuth.session.logged_in) {

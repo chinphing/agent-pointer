@@ -8,16 +8,21 @@ use tokio_util::sync::CancellationToken;
 
 use crate::agents::{AgentRunLimits, AgentRunResult, DEFAULT_AGENT_ID, SUPERVISOR_AGENT_ID};
 use crate::llm_token_stats::ConversationLlmStats;
-use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent};
+use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent, SupervisorPlanTask};
 use crate::provider::OpenAIProvider;
 
 use super::app_state::AppState;
-use super::emit::{emit, emit_agent_step};
+use super::emit::{agent_trace_step_id, emit, emit_agent_step, emit_task_board_updated};
 use super::session_budget::SessionToolBudget;
 use super::supervisor_plan::{fallback_agent_tasks, plan_agent_tasks, sort_agent_tasks_topologically};
 use super::supervisor_synth::synthesize_final_answer;
 use super::util::{new_id, now_ms, truncate_str};
 use super::StreamTx;
+use crate::task_board::{
+    check_dependencies, dispatch_to_child, observability, report_child_status,
+    sub_agent_task_board_store_key, sync_parent_board_from_supervisor_plan, BoardItem,
+    DependencyCheck, ItemStatus,
+};
 
 pub(crate) async fn run_supervisor_chat(
     stream: StreamTx,
@@ -89,6 +94,49 @@ pub(crate) async fn run_supervisor_chat(
     let tasks = sort_agent_tasks_topologically(tasks);
     let tasks: Vec<_> = tasks.into_iter().take(limits.max_sub_agents).collect();
 
+    let plan_goal = history
+        .iter()
+        .rev()
+        .find(|m| matches!(m.role, Role::User))
+        .map(|m| truncate_str(&m.content, 240))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "Supervisor sub-agent plan".to_string());
+    let plan_sync_stats = sync_parent_board_from_supervisor_plan(
+        &state.task_board_store,
+        conversation_id,
+        &tasks,
+        &plan_goal,
+    );
+    observability::log_supervisor_plan_sync(conversation_id, &plan_sync_stats, tasks.len());
+
+    let plan_tasks: Vec<SupervisorPlanTask> = tasks
+        .iter()
+        .map(|t| SupervisorPlanTask {
+            id: t.id.clone(),
+            title: if t.title.trim().is_empty() {
+                truncate_str(&t.instruction, 120)
+            } else {
+                t.title.trim().to_string()
+            },
+            agent_id: t.agent_id.clone(),
+        })
+        .collect();
+    emit(
+        &stream,
+        StreamEvent::SupervisorPlan {
+            conversation_id: conversation_id.to_string(),
+            message_id: assistant_id.clone(),
+            tasks: plan_tasks,
+        },
+    );
+    let parent_doc = state.task_board_store.document(conversation_id);
+    emit_task_board_updated(
+        &stream,
+        conversation_id,
+        conversation_id,
+        parent_doc.to_value(),
+    );
+
     let mut results = Vec::new();
     let mut results_by_id: HashMap<String, AgentRunResult> = HashMap::new();
     for task in tasks {
@@ -113,7 +161,7 @@ pub(crate) async fn run_supervisor_chat(
             &assistant_id,
             &mut agent_trace,
             AgentTrace {
-                id: def.id.clone(),
+                id: agent_trace_step_id(&task.id, &def.id),
                 name: def.name.clone(),
                 role: def.role.clone(),
                 status: "running".into(),
@@ -126,6 +174,57 @@ pub(crate) async fn run_supervisor_chat(
                 depth: Some(1),
             },
         );
+
+        let parent_board_key = conversation_id;
+        let child_board_key = sub_agent_task_board_store_key(conversation_id, task.id.trim());
+        let parent_doc = state.task_board_store.document(parent_board_key);
+        if let DependencyCheck::Blocked { reason } = check_dependencies(&parent_doc, &task.id) {
+            log::warn!(
+                "supervisor: task_board dependency blocked task_id={} reason={reason}",
+                task.id
+            );
+        }
+        let milestone = BoardItem {
+            id: task.id.clone(),
+            title: if task.title.trim().is_empty() {
+                format!("Sub-task {}", task.id.trim())
+            } else {
+                task.title.trim().to_string()
+            },
+            status: ItemStatus::Pending,
+            depends_on: task.depends_on.clone(),
+            verification: Some(truncate_str(&task.instruction, 160)),
+            ..BoardItem::default()
+        };
+        let child_was_empty = state
+            .task_board_store
+            .document(&child_board_key)
+            .board
+            .is_empty();
+        if let Err(err) = dispatch_to_child(
+            &state.task_board_store,
+            parent_board_key,
+            &child_board_key,
+            task.id.trim(),
+            Some(milestone),
+        ) {
+            log::warn!("supervisor: dispatch_to_child failed: {err}");
+        } else {
+            let child_seeded = child_was_empty
+                && !state
+                    .task_board_store
+                    .document(&child_board_key)
+                    .board
+                    .is_empty();
+            observability::log_dispatch_child(conversation_id, task.id.trim(), child_seeded);
+            let child_doc = state.task_board_store.document(&child_board_key);
+            emit_task_board_updated(
+                &stream,
+                conversation_id,
+                &child_board_key,
+                child_doc.to_value(),
+            );
+        }
 
         let mut task_run = task.clone();
         if !task.depends_on.is_empty() {
@@ -162,13 +261,32 @@ pub(crate) async fn run_supervisor_chat(
         {
             Ok(result) => {
                 tool_budget.record_tool_cycle();
+                let mut parent = state.task_board_store.document(parent_board_key);
+                if parent.board.iter().any(|i| i.id == task.id) {
+                    if let Err(err) = report_child_status(
+                        &mut parent,
+                        task.id.trim(),
+                        ItemStatus::Done,
+                        &result.content,
+                    ) {
+                        log::warn!("supervisor: report_child_status failed: {err}");
+                    } else {
+                        state.task_board_store.save_document(parent_board_key, parent.clone());
+                        emit_task_board_updated(
+                            &stream,
+                            conversation_id,
+                            parent_board_key,
+                            parent.to_value(),
+                        );
+                    }
+                }
                 results_by_id.insert(task.id.clone(), result.clone());
                 emit_agent_step(
                     &stream,
                     &assistant_id,
                     &mut agent_trace,
                     AgentTrace {
-                        id: def.id.clone(),
+                        id: agent_trace_step_id(&task.id, &def.id),
                         name: def.name.clone(),
                         role: def.role.clone(),
                         status: "completed".into(),
@@ -180,12 +298,32 @@ pub(crate) async fn run_supervisor_chat(
                 results.push(result);
             }
             Err(err) => {
+                let mut parent = state.task_board_store.document(parent_board_key);
+                if parent.board.iter().any(|i| i.id == task.id) {
+                    let note = err.to_string();
+                    if let Err(rep) = report_child_status(
+                        &mut parent,
+                        task.id.trim(),
+                        ItemStatus::Failed,
+                        &note,
+                    ) {
+                        log::warn!("supervisor: report_child_status (failed) err: {rep}");
+                    } else {
+                        state.task_board_store.save_document(parent_board_key, parent.clone());
+                        emit_task_board_updated(
+                            &stream,
+                            conversation_id,
+                            parent_board_key,
+                            parent.to_value(),
+                        );
+                    }
+                }
                 emit_agent_step(
                     &stream,
                     &assistant_id,
                     &mut agent_trace,
                     AgentTrace {
-                        id: def.id.clone(),
+                        id: agent_trace_step_id(&task.id, &def.id),
                         name: def.name.clone(),
                         role: def.role.clone(),
                         status: "failed".into(),

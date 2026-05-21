@@ -2,7 +2,7 @@
 
 Read or set the **system clipboard** as **plain text**. Does **not** paste into a field by itself.
 
-Describe each call with the qualified form **`tool_name:method`** in JSON (see **Communication**).
+Describe each call with the qualified form **`tool_name:method`** in JSON (same as **`Tool route:`** line **2**).
 
 **Methods:**
 

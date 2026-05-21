@@ -129,6 +129,15 @@ export async function listAgents(): Promise<AgentDef[]> {
   return await request<AgentDef[]>('/api/agents')
 }
 
+export async function getTaskBoardSnapshot(
+  conversationId: string,
+  taskId?: string
+): Promise<import('../types/chat').TaskBoardDocument> {
+  const q = new URLSearchParams({ conversationId })
+  if (taskId?.trim()) q.set('taskId', taskId.trim())
+  return await request(`/api/task-board/snapshot?${q}`)
+}
+
 export async function previewComputerAnnotatedScreen(conversationId: string): Promise<ComputerAnnotatedPreview> {
   return await request<ComputerAnnotatedPreview>(`/api/computer/annotated-preview?conversationId=${encodeURIComponent(conversationId)}`)
 }

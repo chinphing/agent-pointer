@@ -1,6 +1,6 @@
 # 助手消息 UI：`thoughts` 与 API `reasoning`
 
-本文约定 **主气泡展示**、**竖线进度**、**原始输出调试面板** 的分工，避免后续改动把 `reasoning` 当成主界面正文或把进度条改成「仅可见通道」而偏离产品意图。
+本文约定 **主气泡展示**、**竖线进度**、**原始输出调试面板** 的分工，避免后续改动把 `reasoning` 当成主界面正文或把竖线改成条形进度条/「仅可见通道」而偏离产品意图。
 
 ## 两个通道（勿混用）
 
@@ -33,4 +33,10 @@
 - 后端对 `reasoning_content` 仍发 `reasoning_delta`；前端 `chat` store 累积到 `message.reasoning`（与是否写入下一轮 API 的设置解耦时，以当前代码为准）。
 - 流式阶段若 `content` 以 `{` 开头（`json_object` 工具信封），主气泡 **不** 把该通道当 Markdown 渲染；`response` 时由 `assistant_json_partial.responseText` 写入 **`responseTextDraft`**，主区用其做 Markdown 流式展示。`thoughts` / `headline` 仍由同事件更新。回合结束 `message_end` 后 `content` 会替换为 `extract_user_visible_content` 结果，并清除 `responseTextDraft`。
 
-修改 `AssistantModelMessage.vue`、`RawWirePanel.vue`、`ModelThoughtPanels.vue` 或 `reasoning_delta` 处理前，请先对照本文。
+## 子 Agent / Supervisor 进度（`AgentProgressTimeline`）
+
+- 数据：`agent_step` 流事件 → `message.agentTrace`；规划列表 → `supervisor_plan` → `message.supervisorPlanTasks`。
+- 状态映射：`planning` / `running` / `completed` / `failed` / `summarizing` → 图标与中文标签。
+- 无 `headline` 时竖线数量仍由 **`streamedCharCount`** 驱动（含 **`reasoning`** 长度），见上文竖线节；**UI 为逐段增加的 `|` 字符，不是条形进度条**。
+
+修改 `AssistantModelMessage.vue`、`RawWirePanel.vue`、`ModelThoughtPanels.vue`、`AgentProgressTimeline.vue` 或 `reasoning_delta` 处理前，请先对照本文。

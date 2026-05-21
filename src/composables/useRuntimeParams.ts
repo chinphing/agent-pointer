@@ -339,8 +339,8 @@ export function buildCustomModelEntryFromProvider(
     }
   }
   if (isDeepSeekProvider(p)) {
-    const effort = normalizeReasoningEffort(p.reasoningEffort)
-    if (effort) entry.reasoningEffort = effort
+    // 显式写入，便于定制弹窗展示并与「同上」区分；未设置时默认 high
+    entry.reasoningEffort = normalizeReasoningEffort(p.reasoningEffort) ?? 'high'
   }
   return entry
 }

@@ -17,6 +17,9 @@ pub mod computer;
 /// Coder agent: embedded policy (`AGENT.md`); tools used only by the coder lead (e.g. `read_lints`).
 pub mod coder;
 
+pub mod agent_ui;
+pub use agent_ui::{resolve_agent_ui, AgentUiConfig, ResolvedAgentUi};
+
 pub const AGENT_MODE_SINGLE: &str = "single";
 pub const AGENT_MODE_SUPERVISOR: &str = "supervisor";
 pub const DEFAULT_AGENT_ID: &str = "default";
@@ -187,6 +190,9 @@ pub struct AgentDef {
     /// Agent-specific configuration key-value pairs.
     #[serde(default)]
     pub config: HashMap<String, String>,
+    /// Optional chat UI visibility overrides.
+    #[serde(default)]
+    pub ui: AgentUiConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -269,6 +275,8 @@ struct AgentManifest {
     allow_agents: Vec<String>,
     #[serde(default)]
     config: HashMap<String, String>,
+    #[serde(default)]
+    ui: AgentUiConfig,
     #[serde(skip)]
     body: String,
 }
@@ -562,6 +570,7 @@ fn default_agent_def() -> AgentDef {
             resource_files: Vec::new(),
             allow_agents: Vec::new(),
             config: HashMap::new(),
+            ui: AgentUiConfig::default(),
         })
 }
 
@@ -589,6 +598,7 @@ fn supervisor_agent_def() -> AgentDef {
             resource_files: Vec::new(),
             allow_agents: Vec::new(),
             config: HashMap::new(),
+            ui: AgentUiConfig::default(),
         })
 }
 
@@ -735,6 +745,7 @@ fn manifest_to_agent(
             .unwrap_or_default(),
         allow_agents: normalize_allow_agents(&manifest.allow_agents),
         config: manifest.config,
+        ui: manifest.ui,
     };
 
     Ok(BaseAgent {
@@ -999,15 +1010,47 @@ mod builtin_agent_tests {
         assert_eq!(agent.def.profile, AgentProfile::Computer);
         assert!(
             agent.system_prompt.contains("Verify:"),
-            "slim communication should merge Verify stage"
+            "computer communication should merge Verify stage"
         );
         assert!(
             agent.system_prompt.contains("Pointer:"),
-            "slim communication should merge Pointer stage"
+            "computer communication should merge Pointer stage"
         );
         assert!(
             agent.system_prompt.contains("[Zoom pointer after action]"),
             "shared vision legend should be merged"
+        );
+        assert!(
+            agent.system_prompt.contains("Recheck coordinates:"),
+            "communication should require Recheck stage"
+        );
+        assert!(
+            agent.system_prompt.contains("1 → 7"),
+            "communication should require seven stages"
+        );
+        assert!(
+            agent.system_prompt.contains("User intent"),
+            "communication should route analyze/plan vs execute"
+        );
+        assert!(
+            agent.system_prompt.contains("Continuation turn"),
+            "communication should skip intent on post-tool turns"
+        );
+        assert!(
+            agent.system_prompt.contains("Malformed or rejected"),
+            "communication should document JSON recovery"
+        );
+        assert!(
+            agent.system_prompt.contains("Visual facts"),
+            "communication should include B2 visual fact discipline"
+        );
+        assert!(
+            agent.system_prompt.contains("band="),
+            "communication should use band|text|fill|size fields"
+        );
+        assert!(
+            agent.system_prompt.contains("Diff:"),
+            "communication should require Recheck R2 diff line"
         );
     }
 
@@ -1028,13 +1071,11 @@ mod builtin_agent_tests {
 
     #[test]
     fn coder_communication_expands_workspace_placeholder() {
-        let raw = include_str!("coder/AGENT.md");
-        let comm = include_str!("coder/COMMUNICATION.md");
-        let agent = load_builtin_agent("coder", raw, comm).expect("load builtin coder");
         let vars = SessionInjectVars {
             workspace_root: "/tmp/example-workspace",
         };
-        let expanded = expand_agent_prompt_placeholders(&agent.system_prompt, &vars);
+        let public = rendered_communication_public_inject().expect("public inject");
+        let expanded = expand_agent_prompt_placeholders(&public, &vars);
         assert!(expanded.contains("/tmp/example-workspace"));
         assert!(!expanded.contains("{{workspace_root}}"));
     }

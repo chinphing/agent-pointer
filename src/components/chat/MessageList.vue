@@ -54,11 +54,11 @@ watch(
 
     <button
       v-if="showScrollButton"
-      class="fixed bottom-32 right-8 h-10 w-10 rounded-full glass-strong border border-white/10 shadow-lg flex items-center justify-center cursor-pointer hover:bg-white/10 transition"
+      class="fixed bottom-32 right-8 h-10 w-10 rounded-full panel shadow-lg flex items-center justify-center cursor-pointer hover:bg-hover transition"
       @click="toBottom"
       title="滚动到底部"
     >
-      <ArrowDown class="w-5 h-5 text-slate-200" />
+      <ArrowDown class="w-5 h-5 text-foreground" />
     </button>
   </div>
 </template>

@@ -141,6 +141,20 @@ pub fn list_agents(state: State<'_, Arc<AppState>>) -> Result<Vec<AgentDef>, Str
     Ok(state.agents.list())
 }
 
+#[tauri::command]
+pub fn get_task_board_snapshot(
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+    task_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    use pointer_core::task_board::sub_agent_task_board_store_key;
+    let store_key = match task_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(tid) => sub_agent_task_board_store_key(&conversation_id, tid),
+        None => conversation_id.clone(),
+    };
+    Ok(state.task_board_store.document(&store_key).to_value())
+}
+
 /// Returns the last annotated PNG from [`capture_and_annotate`] for a conversation.
 #[tauri::command]
 pub fn preview_computer_annotated_screen(

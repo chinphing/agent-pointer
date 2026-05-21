@@ -31,7 +31,7 @@ mod supervisor_plan;
 mod supervisor_synth;
 mod session_budget;
 mod session_model;
-mod task_board_inject;
+pub use crate::task_board::sub_agent_task_board_store_key;
 mod util;
 
 pub type StreamTx = crate::models::ChatStreamSender;

@@ -57,10 +57,7 @@ async fn main() -> anyhow::Result<()> {
             "pointer-server: file logging unavailable ({err}); stderr-only. log_dir={}",
             log_dir.display()
         );
-        let _ = env_logger::Builder::from_env(
-            env_logger::Env::default().default_filter_or(DEFAULT_LOG_FILTER),
-        )
-        .try_init();
+        pointer_core::logging::init_stderr_only_logging(DEFAULT_LOG_FILTER);
         pointer_core::logging::install_panic_hook();
     }
 
@@ -87,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/skills", get(list_skills).post(import_skill_zip))
         .route("/api/tools", get(list_tools))
         .route("/api/agents", get(list_agents))
+        .route("/api/task-board/snapshot", get(get_task_board_snapshot))
         .route(
             "/api/computer/annotated-preview",
             get(preview_computer_annotated_screen),
@@ -175,6 +173,32 @@ async fn list_tools(State(state): State<ServerState>) -> Json<Vec<ToolDef>> {
 
 async fn list_agents(State(state): State<ServerState>) -> Result<Json<Vec<AgentDef>>, ApiError> {
     Ok(Json(state.core.agents.list()))
+}
+
+#[derive(Deserialize)]
+struct TaskBoardSnapshotQuery {
+    #[serde(rename = "conversationId")]
+    conversation_id: String,
+    #[serde(default, rename = "taskId")]
+    task_id: Option<String>,
+}
+
+async fn get_task_board_snapshot(
+    Query(q): Query<TaskBoardSnapshotQuery>,
+    State(state): State<ServerState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    use pointer_core::task_board::sub_agent_task_board_store_key;
+    let store_key = match q.task_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(tid) => sub_agent_task_board_store_key(&q.conversation_id, tid),
+        None => q.conversation_id.clone(),
+    };
+    Ok(Json(
+        state
+            .core
+            .task_board_store
+            .document(&store_key)
+            .to_value(),
+    ))
 }
 
 /// Same as Tauri `preview_computer_annotated_screen`: last cached annotated PNG from a screen inject.

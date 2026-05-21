@@ -3,7 +3,7 @@
 use crate::agents::AgentProfile;
 use crate::llm_token_stats::ChatLlmTokenSession;
 use crate::models::{AgentTrace, ChatMessage, ModelSettings, ToolCall};
-use crate::task_board_history_trim::TaskBoardTrimHook;
+use crate::task_board::TaskBoardTrimHook;
 use crate::provider::OpenAIProvider;
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;

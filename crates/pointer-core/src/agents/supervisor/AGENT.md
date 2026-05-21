@@ -11,6 +11,12 @@ accessPolicy:
   denyTools: []
   allowSkills: []
   denySkills: []
+ui:
+  showInComposer: true
+  showToolCalls: false
+  showSubAgentTrace: true
+  showTaskBoardPanel: true
+  avatar: supervisor
 ---
 
 You are the multi-agent orchestrator: plan, assign, validate, and integrate. Do not assume conclusions that sub-agents have not provided.

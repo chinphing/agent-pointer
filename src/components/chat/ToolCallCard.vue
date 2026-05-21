@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { Wrench, ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, ShieldAlert, Check, X } from 'lucide-vue-next'
 import type { ToolCall } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
+import { toolCallBaseName, taskBoardToolSummary } from '../../lib/messageTooling'
 
 const props = defineProps<{ toolCall: ToolCall }>()
 const chat = useChatStore()
@@ -20,6 +21,8 @@ watch(
 )
 
 const isTerminal = computed(() => props.toolCall.name === 'terminal')
+const isTaskBoard = computed(() => toolCallBaseName(props.toolCall.name) === 'task_board')
+const boardSummary = computed(() => taskBoardToolSummary(props.toolCall.result))
 
 const terminalCommand = computed(() => {
   if (!isTerminal.value) return ''
@@ -93,7 +96,7 @@ const effectiveStatus = computed(() => {
 const statusInfo = computed(() => {
   switch (effectiveStatus.value) {
     case 'pending_approval': return { label: '等待确认', color: 'text-warning' }
-    case 'running': return { label: '执行中', color: 'text-primary-cyan' }
+    case 'running': return { label: '执行中', color: 'text-accent' }
     case 'success': return { label: '成功', color: 'text-success' }
     case 'failed': return { label: '失败', color: 'text-danger' }
     case 'rejected': return { label: '已拒绝', color: 'text-slate-400' }
@@ -111,14 +114,15 @@ function abortTerminalOnly() {
 </script>
 
 <template>
-  <div class="rounded-xl border border-white/5 glass overflow-hidden">
+  <div class="rounded-xl border border-border panel overflow-hidden">
     <button
-      class="w-full px-3 py-2 flex items-center gap-2 text-xs hover:bg-white/[0.04] transition cursor-pointer"
+      class="w-full px-3 py-2 flex items-center gap-2 text-xs hover:bg-hover transition cursor-pointer"
       @click="open = !open"
     >
       <component :is="open ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400" />
-      <Wrench class="w-3.5 h-3.5 text-primary-fuchsia" />
-      <span class="font-medium text-slate-100">{{ toolCall.name }}</span>
+      <Wrench class="w-3.5 h-3.5 text-accent" />
+      <span class="font-medium text-foreground">{{ toolCall.name }}</span>
+      <span v-if="boardSummary" class="text-[10px] text-muted truncate">{{ boardSummary }}</span>
       <span v-if="toolCall.riskLevel === 'high'" class="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-danger/20 text-danger flex items-center gap-1">
         <ShieldAlert class="w-3 h-3" />高风险
       </span>

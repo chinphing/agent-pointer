@@ -30,3 +30,35 @@ export function isEphemeralDesktopNoticeMessage(message: ChatMessage): boolean {
 export function isMessageStreaming(status: MessageStatus): boolean {
   return status === 'streaming' || status === 'pending'
 }
+
+/** User cancelled before any visible assistant output was produced. */
+export function isGenerationCancelledMessage(message: string): boolean {
+  return message.includes('已停止')
+}
+
+/** Assistant shell with no user-visible content (e.g. cancelled during `message_start`). */
+export function isDiscardableEmptyAssistant(message: ChatMessage): boolean {
+  if (message.role !== 'assistant') return false
+  if (message.status === 'error') return false
+  if (isEphemeralDesktopNoticeMessage(message)) return false
+  if (NOTICE_PREFIX_RE.test(message.content.trim())) return false
+
+  const hasText =
+    !!(message.content?.trim()) ||
+    !!(message.thoughts?.trim()) ||
+    !!(message.headline?.trim()) ||
+    !!(message.reasoning?.trim()) ||
+    !!(message.responseTextDraft?.trim()) ||
+    !!(
+      message.rawContent?.trim() &&
+      message.rawContent !== message.content
+    )
+
+  const hasStructured =
+    (message.toolCalls?.length ?? 0) > 0 ||
+    (message.agentTrace?.length ?? 0) > 0 ||
+    (message.supervisorPlanTasks?.length ?? 0) > 0 ||
+    !!message.computerRoundScreenRelPath
+
+  return !hasText && !hasStructured
+}

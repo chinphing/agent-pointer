@@ -1,7 +1,18 @@
 use crate::agents::{AgentDef, AgentTask};
 use crate::models::{AgentTrace, StreamEvent};
+use serde_json::Value;
 
 use super::StreamTx;
+
+/// Stable trace row id: one row per sub-task (avoids overwriting when the same agent runs twice).
+pub(crate) fn agent_trace_step_id(task_id: &str, agent_id: &str) -> String {
+    let t = task_id.trim();
+    if t.is_empty() {
+        agent_id.trim().to_string()
+    } else {
+        format!("{}:{}", t, agent_id.trim())
+    }
+}
 
 pub(crate) fn emit(tx: &StreamTx, ev: StreamEvent) {
     if tx.send(ev).is_err() {
@@ -23,7 +34,7 @@ pub(crate) fn emit_agent_content_delta(
         message_id,
         trace,
         AgentTrace {
-            id: def.id.clone(),
+            id: agent_trace_step_id(&task.id, &def.id),
             name: def.name.clone(),
             role: def.role.clone(),
             status: "running".into(),
@@ -54,6 +65,22 @@ pub(crate) fn emit_agent_step(
         StreamEvent::AgentStep {
             message_id: message_id.to_string(),
             agent,
+        },
+    );
+}
+
+pub(crate) fn emit_task_board_updated(
+    stream: &StreamTx,
+    conversation_id: &str,
+    store_key: &str,
+    document: Value,
+) {
+    emit(
+        stream,
+        StreamEvent::TaskBoardUpdated {
+            conversation_id: conversation_id.to_string(),
+            store_key: store_key.to_string(),
+            document,
         },
     );
 }

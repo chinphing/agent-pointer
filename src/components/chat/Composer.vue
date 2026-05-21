@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { Bot, ChevronDown, FolderOpen, Send, Sparkles, Square, Users } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
+import { useLeadAgentUi } from '../../composables/useAgentUi'
+import { resolveAgentUi } from '../../lib/agentUi'
 import type { AgentDef, AgentProfile, ComputerMonitor } from '../../types/chat'
 import {
   listAgents,
@@ -29,7 +31,14 @@ const agentPickerWidth = ref(0)
 
 const agents = ref<AgentDef[]>([])
 
-const workers = computed(() => agents.value.filter(a => a.role === 'worker' && a.enabled))
+const { leadUi } = useLeadAgentUi()
+
+const workers = computed(() =>
+  agents.value.filter(a => {
+    if (a.role !== 'worker' || !a.enabled) return false
+    return resolveAgentUi(a, settings.settings).showInComposer
+  })
+)
 const supervisorAgent = computed(
   () =>
     agents.value.find(a => a.id === 'supervisor' && a.enabled) ||
@@ -43,14 +52,20 @@ const selectedWorker = computed(() => {
   return workers.value.find(w => w.id === id)
 })
 
-const isComputerAgent = computed(() => {
-  const w = selectedWorker.value
-  if (!w) return false
-  if (typeof w.profile === 'string' && w.profile === 'computer') return true
-  return w.id === 'computer'
-})
+const showComputerMonitorPicker = computed(
+  () => settings.settings.agentMode === 'single' && leadUi.value.showComputerMonitorPicker
+)
 
-const needsWorkspace = computed(() => settings.settings.agentMode === 'single')
+const needsWorkspace = computed(
+  () => settings.settings.agentMode === 'single' && leadUi.value.showWorkspacePicker
+)
+
+const supervisorRoundsLabel = computed(() => {
+  if (settings.settings.agentMode !== 'supervisor' || !chat.current) return ''
+  const used = chat.current.toolRoundsUsedSupervisor ?? 0
+  const max = settings.settings.maxSubAgentToolRounds ?? settings.settings.maxToolRounds ?? 100
+  return `子任务轮次 ${used}/${max}`
+})
 
 const workspaceDirName = computed(() => {
   const p = settings.settings.workspaceRoot
@@ -159,7 +174,7 @@ async function sendWithOptionalComputerScreenPick() {
   const v = text.value
   if (!v.trim()) return
 
-  if (isComputerAgent.value) {
+  if (showComputerMonitorPicker.value) {
     try {
       screenPickerError.value = null
       screenPickerLoading.value = true
@@ -329,13 +344,13 @@ onUnmounted(() => {
 
   <div class="px-6 md:px-10 pb-5">
     <div class="max-w-3xl mx-auto">
-      <div class="glass-strong rounded-2xl p-2 neon-ring">
+      <div class="panel-elevated rounded-2xl p-2 border border-border">
         <div class="flex items-end gap-2">
           <textarea
             ref="textareaRef"
             v-model="text"
             rows="1"
-            class="flex-1 resize-none bg-transparent border-0 outline-none px-3 py-2 text-[15px] text-slate-100 placeholder:text-slate-500"
+            class="flex-1 resize-none bg-transparent border-0 outline-none px-3 py-2 text-[15px] text-foreground placeholder:text-muted"
             style="max-height: 250px; min-height: 24px;"
             :placeholder="settings.settings.hasKey ? '与 Pointer 对话…' : '请先在设置中配置 API Key'"
             @keydown="onKeydown"
@@ -353,48 +368,48 @@ onUnmounted(() => {
             v-else
             class="h-10 w-10 rounded-xl flex items-center justify-center transition"
             :class="canSend
-              ? 'bg-gradient-to-r from-primary to-primary-fuchsia text-white shadow-lg shadow-primary/30 hover:opacity-95 cursor-pointer'
-              : 'bg-white/5 text-slate-500 cursor-not-allowed'"
+              ? 'bg-accent text-white hover:opacity-90 cursor-pointer'
+              : 'bg-hover text-muted cursor-not-allowed'"
             :disabled="!canSend"
             @click="send"
           ><Send class="w-4 h-4" /></button>
         </div>
       </div>
 
-      <div class="flex items-center gap-2 mt-2">
+      <div class="flex flex-wrap items-center gap-2 mt-2">
         <!-- Agent 选择器（在前） -->
         <div class="relative">
           <button
             ref="agentBtnRef"
-            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg glass text-[11px] text-slate-300 hover:bg-white/10 cursor-pointer max-w-[220px]"
+            class="composer-chip"
             @click="showAgentPicker = !showAgentPicker"
           >
-            <Bot v-if="settings.settings.agentMode === 'single'" class="w-3 h-3 shrink-0 text-primary-fuchsia" />
-            <Users v-else class="w-3 h-3 shrink-0 text-primary-fuchsia" />
+            <Bot v-if="settings.settings.agentMode === 'single'" class="w-3 h-3 shrink-0 text-accent" />
+            <Users v-else class="w-3 h-3 shrink-0 text-accent" />
             <span class="truncate">{{ currentAgentLabel }}</span>
-            <ChevronDown class="w-3 h-3 shrink-0" />
+            <ChevronDown class="w-3 h-3 shrink-0 text-muted" />
           </button>
 
-          <div v-if="showAgentPicker" ref="agentPickerRef" class="absolute bottom-full left-0 mb-2 glass-strong rounded-xl shadow-2xl overflow-hidden z-50 max-h-72 overflow-y-auto" :style="{ minWidth: agentPickerWidth + 'px' }">
-            <div class="p-2 border-b border-white/5">
-              <div class="text-[11px] text-slate-500">执行智能体（名称来自配置）</div>
+          <div v-if="showAgentPicker" ref="agentPickerRef" class="composer-dropdown" :style="{ minWidth: agentPickerWidth + 'px' }">
+            <div class="px-3 py-2 border-b border-border">
+              <div class="text-[11px] text-muted font-medium">执行智能体</div>
             </div>
-            <div class="p-1.5 space-y-0.5">
+            <div class="p-1.5 space-y-0.5 max-h-60 overflow-y-auto">
               <button
                 v-for="w in workers"
                 :key="w.id"
-                class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 cursor-pointer flex items-center gap-2"
-                :class="settings.settings.agentMode === 'single' && (settings.settings.leadAgentId === w.id || ((!settings.settings.leadAgentId || settings.settings.leadAgentId === 'default') && w.id === 'default')) ? 'bg-primary/15 text-primary-cyan' : 'text-slate-300'"
+                class="composer-dropdown-item"
+                :class="settings.settings.agentMode === 'single' && (settings.settings.leadAgentId === w.id || ((!settings.settings.leadAgentId || settings.settings.leadAgentId === 'default') && w.id === 'default')) ? 'composer-dropdown-item-active' : ''"
                 @click="selectWorkerAgent(w)"
               >
                 <Bot class="w-3 h-3 shrink-0" />
                 <span class="min-w-0 truncate">{{ w.name }}</span>
-                <span class="text-[10px] text-slate-500 shrink-0">{{ w.id }}</span>
+                <span class="text-[10px] text-muted shrink-0">{{ w.id }}</span>
               </button>
               <button
                 v-if="supervisorAgent"
-                class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 cursor-pointer flex items-center gap-2"
-                :class="settings.settings.agentMode === 'supervisor' ? 'bg-primary/15 text-primary-cyan' : 'text-slate-300'"
+                class="composer-dropdown-item"
+                :class="settings.settings.agentMode === 'supervisor' ? 'composer-dropdown-item-active' : ''"
                 @click="selectSupervisorMode"
               >
                 <Users class="w-3 h-3 shrink-0" />
@@ -408,57 +423,59 @@ onUnmounted(() => {
         <div class="relative">
           <button
             ref="modelBtnRef"
-            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg glass text-[11px] text-slate-300 hover:bg-white/10 cursor-pointer"
+            class="composer-chip"
             @click="showModelPicker = !showModelPicker"
           >
-            <Sparkles class="w-3 h-3 text-primary-cyan" />
-            {{ currentProviderForModelButton.name }} / {{ currentModel }}
-            <ChevronDown class="w-3 h-3" />
+            <Sparkles class="w-3 h-3 shrink-0 text-accent" />
+            <span class="truncate">{{ currentProviderForModelButton.name }} / {{ currentModel }}</span>
+            <ChevronDown class="w-3 h-3 shrink-0 text-muted" />
           </button>
 
-          <div v-if="showModelPicker" ref="modelPickerRef" class="absolute bottom-full left-0 mb-2 glass-strong rounded-xl shadow-2xl overflow-hidden z-50" :style="{ minWidth: modelPickerWidth + 'px' }">
-            <div class="p-2 border-b border-white/5">
-              <div class="text-[11px] text-slate-500">选择模型（所有服务）</div>
+          <div v-if="showModelPicker" ref="modelPickerRef" class="composer-dropdown" :style="{ minWidth: modelPickerWidth + 'px' }">
+            <div class="px-3 py-2 border-b border-border">
+              <div class="text-[11px] text-muted font-medium">选择模型（所有服务）</div>
             </div>
             <div class="max-h-60 overflow-y-auto p-1.5 space-y-0.5">
               <button
                 v-for="item in settings.allModels"
-                :key="item.model"
-                class="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 cursor-pointer whitespace-nowrap"
-                :class="currentModel === item.model && effectivePickerProviderId === item.providerId ? 'bg-primary/15 text-primary-cyan' : 'text-slate-300'"
+                :key="`${item.providerId}:${item.model}`"
+                class="composer-dropdown-item whitespace-nowrap"
+                :class="currentModel === item.model && effectivePickerProviderId === item.providerId ? 'composer-dropdown-item-active' : ''"
                 @click="selectModelWithProvider(item.model, item.providerId)"
               >
-                <span class="text-slate-400 text-[10px] mr-1.5">{{ item.providerName }}</span>
+                <span class="text-[10px] text-muted mr-1.5">{{ item.providerName }}</span>
                 <span>{{ item.model }}</span>
               </button>
             </div>
           </div>
         </div>
 
-        <!-- 工作目录（仅 Coder 智能体） -->
+        <!-- 工作目录（single 模式） -->
         <div v-if="needsWorkspace" class="relative">
           <button
             v-if="isTauriRuntime()"
             type="button"
-            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg glass text-[11px] text-slate-300 hover:bg-white/10 cursor-pointer"
+            class="composer-chip"
+            :title="settings.settings.workspaceRoot || '选择工作目录'"
             @click="pickWorkspaceFolder"
           >
-            <FolderOpen class="w-3 h-3 text-amber-300 shrink-0" />
-            <span class="truncate max-w-[150px]">{{ workspaceDirName || '选择…' }}</span>
+            <FolderOpen class="w-3 h-3 shrink-0 text-warning" />
+            <span class="truncate max-w-[150px]">{{ workspaceDirName || '工作目录…' }}</span>
           </button>
           <input
             v-else
             v-model="settings.settings.workspaceRoot"
             type="text"
-            placeholder="工作目录"
-            class="h-7 px-2 rounded-lg bg-black/30 border border-white/10 text-[11px] text-slate-300 outline-none focus:border-primary/50 transition-colors"
+            placeholder="工作目录路径"
+            class="composer-workspace-input"
             @change="settings.save({ workspaceRoot: settings.settings.workspaceRoot })"
           />
         </div>
 
         <div class="flex-1" />
 
-        <span class="text-[10px] text-slate-600">
+        <span v-if="supervisorRoundsLabel" class="text-[10px] text-muted">{{ supervisorRoundsLabel }}</span>
+        <span class="text-[10px] text-muted">
           {{ settings.settings.hasKey ? '已连接' : '未配置 Key' }}
         </span>
       </div>

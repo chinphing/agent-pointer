@@ -597,6 +597,16 @@ pub struct ModelSettings {
     /// When true, computer agent uses Bézier / jitter mouse paths by default (`human_like` preset).
     #[serde(default, rename = "computerHumanLike")]
     pub computer_human_like: bool,
+    /// UI theme: `light`, `dark`, or `system`.
+    #[serde(default = "default_theme", rename = "theme")]
+    pub theme: String,
+    /// Per-agent UI overrides keyed by agent id.
+    #[serde(default, rename = "agentUiOverrides")]
+    pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
+}
+
+fn default_theme() -> String {
+    "system".into()
 }
 
 pub fn ensure_agent_model_refs_have_provider(settings: &mut ModelSettings) {
@@ -701,6 +711,8 @@ impl Default for ModelSettings {
             agent_default_models: HashMap::new(),
             agent_task_board_history_trim: HashMap::new(),
             computer_human_like: false,
+            theme: default_theme(),
+            agent_ui_overrides: HashMap::new(),
         }
     }
 }
@@ -958,6 +970,30 @@ pub enum StreamEvent {
         #[serde(rename = "annotatedRelPath")]
         annotated_rel_path: String,
     },
+    /// Supervisor finished planning; UI may show a task checklist.
+    SupervisorPlan {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "messageId")]
+        message_id: String,
+        tasks: Vec<SupervisorPlanTask>,
+    },
+    /// Task board document changed (for chat UI panel).
+    TaskBoardUpdated {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "storeKey")]
+        store_key: String,
+        document: serde_json::Value,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SupervisorPlanTask {
+    pub id: String,
+    pub title: String,
+    #[serde(rename = "agentId")]
+    pub agent_id: String,
 }
 
 /// Channel used to push [`StreamEvent`] updates to the Pointer UI (Tauri / web SSE).

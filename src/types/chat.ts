@@ -16,6 +16,23 @@ export interface ToolCall {
 
 export type AgentMode = 'single' | 'supervisor'
 
+export type ThemePreference = 'light' | 'dark' | 'system'
+
+/** Per-agent chat UI visibility (from AGENT.md `ui` block). */
+export interface AgentUiConfig {
+  showInComposer?: boolean
+  showAgentLabel?: boolean
+  showThoughts?: boolean
+  showHeadline?: boolean
+  showSubAgentTrace?: boolean
+  showToolCalls?: boolean
+  hideToolNames?: string[]
+  showWorkspacePicker?: boolean
+  showComputerMonitorPicker?: boolean
+  showTaskBoardPanel?: boolean
+  avatar?: string
+}
+
 export interface AgentTrace {
   id: string
   name: string
@@ -62,6 +79,7 @@ export interface AgentDef {
   allowAgents?: string[]
   source?: string
   resourceFiles: string[]
+  ui?: AgentUiConfig
 }
 
 export interface ChatMessage {
@@ -87,6 +105,8 @@ export interface ChatMessage {
   agentId?: string
   agentName?: string
   agentTrace?: AgentTrace[]
+  /** Supervisor plan checklist (stream `supervisor_plan`). */
+  supervisorPlanTasks?: SupervisorPlanTask[]
   /** Annotated PNG path under app `computer-captures/` (lazy load on preview); persisted when the stream emits it. */
   computerRoundScreenRelPath?: string
 }
@@ -180,6 +200,10 @@ export interface ModelSettings {
   agentTaskBoardHistoryTrim?: Record<string, boolean>
   /** Computer agent: default human-like mouse movement (Bézier path + jitter) */
   computerHumanLike?: boolean
+  /** UI color scheme */
+  theme?: ThemePreference
+  /** Per-agent UI overrides (merged over manifest `ui`) */
+  agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
 }
 
 export interface SkillDef {
@@ -260,3 +284,40 @@ export type StreamEvent =
   | { kind: 'ui_toast'; conversationId: string; message: string; level: string }
   /** Annotated screen for one assistant message (path under computer-captures/). */
   | { kind: 'assistant_round_screen'; conversationId: string; messageId: string; annotatedRelPath: string }
+  | { kind: 'supervisor_plan'; conversationId: string; messageId: string; tasks: SupervisorPlanTask[] }
+  | { kind: 'task_board_updated'; conversationId: string; storeKey: string; document: TaskBoardDocument }
+
+export interface SupervisorPlanTask {
+  id: string
+  title: string
+  agentId: string
+}
+
+export type TaskBoardItemStatus =
+  | 'pending'
+  | 'ready'
+  | 'in_progress'
+  | 'done'
+  | 'cancelled'
+  | 'failed'
+
+export interface TaskBoardItem {
+  id: string
+  title: string
+  status: TaskBoardItemStatus
+  depends_on?: string[]
+  output?: string
+  blocked_by?: string
+}
+
+export interface TaskBoardDocument {
+  version: number
+  task_id: string
+  meta: {
+    goal: string
+    status: string
+    step_count?: number
+    max_steps?: number
+  }
+  board: TaskBoardItem[]
+}

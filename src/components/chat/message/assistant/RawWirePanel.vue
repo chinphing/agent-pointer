@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { Check, Copy } from 'lucide-vue-next'
 
 const props = defineProps<{
   /** API `reasoning_content` 流（与正文分开通道）；仅在此面板内展示，不写入主气泡。 */
@@ -11,6 +12,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void
 }>()
+
+const copied = ref(false)
 
 const reasoningText = computed(() => props.reasoning?.trim() ?? '')
 const outputText = computed(() => props.rawContent ?? '')
@@ -26,27 +29,51 @@ const combinedRawText = computed(() => {
 })
 
 const hasAnything = computed(() => combinedRawText.value.length > 0)
+
+function copyAll() {
+  if (!combinedRawText.value) return
+  void navigator.clipboard.writeText(combinedRawText.value).then(() => {
+    copied.value = true
+    window.setTimeout(() => {
+      copied.value = false
+    }, 2000)
+  })
+}
 </script>
 
 <template>
-  <div class="mt-2 w-full rounded-xl border border-primary/20 bg-black/30 overflow-hidden">
-    <div class="flex items-center justify-between px-3 py-1.5 border-b border-primary/10 bg-primary/5">
-      <span class="text-[11px] font-medium text-primary-cyan">原始输出</span>
-      <button
-        type="button"
-        class="text-[11px] text-slate-400 hover:text-slate-200 transition"
-        @click="emit('close')"
-      >
-        收起
-      </button>
+  <div class="raw-wire-panel mt-2 w-full overflow-hidden">
+    <div class="raw-wire-header">
+      <span class="text-[11px] font-medium text-foreground">原始输出</span>
+      <div class="flex items-center gap-1">
+        <button
+          v-if="hasAnything"
+          type="button"
+          class="raw-wire-action"
+          :title="copied ? '已复制' : '复制全部'"
+          @click="copyAll"
+        >
+          <Check v-if="copied" class="w-3 h-3 text-success" />
+          <Copy v-else class="w-3 h-3" />
+        </button>
+        <button type="button" class="raw-wire-action text-[11px]" @click="emit('close')">
+          收起
+        </button>
+      </div>
     </div>
 
-    <div class="max-h-96 overflow-auto p-3">
-      <pre
-        v-if="hasAnything"
-        class="text-[11px] leading-relaxed text-slate-300 whitespace-pre-wrap break-words"
-      >{{ combinedRawText }}</pre>
-      <div v-else class="text-[11px] text-slate-500">
+    <div class="max-h-96 overflow-auto p-3 space-y-3">
+      <section v-if="reasoningText">
+        <div class="raw-wire-section-label">推理</div>
+        <pre class="raw-wire-block">{{ reasoningText }}</pre>
+      </section>
+
+      <section v-if="outputText">
+        <div class="raw-wire-section-label">正文通道原始</div>
+        <pre class="raw-wire-block">{{ outputText }}</pre>
+      </section>
+
+      <div v-if="!hasAnything" class="text-[11px] text-muted py-1">
         暂无内容
       </div>
     </div>

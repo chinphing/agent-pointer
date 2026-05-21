@@ -2,6 +2,12 @@
 
 本文档面向维护者，说明「多步任务可观测 + 工具协议侧车」的设计与实现落点；**不是**运行时提示词。
 
+## 聊天 UI 任务板面板
+
+- 会话消息列表上方 **`TaskBoardPanel`**（可折叠）：展示当前会话 **parent** 板 `goal`、里程碑状态与子板摘要。
+- 数据：`GET` / Tauri **`get_task_board_snapshot`**；流式 **`task_board_updated`**（`task_board` 工具成功或 Supervisor 规划同步后）。
+- Agent **`AGENT.md`** 的 **`ui.showTaskBoardPanel`** / **`ui.hideToolNames`** 控制面板与工具卡展示（见 `docs/ui/visual-theme.md` 同目录的 agent `ui` 约定）。
+
 ## 目标
 
 - 在较长对话中减少「做到哪了、凭什么算过」丢失：由宿主维护 **`task_board`** 状态，并在每轮系统上下文中注入 **`[TASK_BOARD]`** 快照（有内容时）。
@@ -16,10 +22,10 @@
 ## 工具：`task_board`
 
 - 注册名：`task_board`；行为通过 **`task_board:replace`** / **`task_board:patch`**（与 qualified `tool_name` 解析一致）。
-- 存储：`AppState` 上的 **`TaskBoardStore`**（内存，按 **存储键** 分区）。
+- 存储：`AppState` 上的 **`TaskBoardStore`**（`crates/pointer-core/src/task_board/`，内存 + SQLite `{app_data}/task_boards.db`，按 **存储键** 分区）。v2 文档见 [`task-board-v2-schema.md`](task-board-v2-schema.md)；父子协调见 [`task-board-parent-child-coordination.md`](task-board-parent-child-coordination.md)。
 - **主会话（单智能体 / Supervisor 主消息）**：存储键为聊天 **`conversation_id`**；`task_board` 的 **`_conversation_id`** 使用该键。每轮 **`[TASK_BOARD]`** 快照由 **`TaskBoardSnapshotHook`** 写入 system **dynamic** 分区（合并顺序在 cacheable 的 Environment / JSON tail **之后**）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
 - **Supervisor 子 Agent**：与主会话 **隔离**。存储键为  
-  **`{conversation_id}\x1fptr_sub_agent\x1f{supervisor_task_id}`**（实现见 `sub_agent_task_board_store_key`）。  
+  **`{conversation_id}\x1fptr_sub_agent\x1f{supervisor_task_id}`**（实现见 `task_board::sub_agent_task_board_store_key`）。  
   子 Agent 的 **`[TASK_BOARD]`** 快照同样经 **`before_main_llm_call`** 注入（每轮在 **`generate_tools_system_appendix`** 产出追加之后）；**`task_board`** 读写只针对该子任务键，**不会**看到或修改主会话任务板。
 - **可信会话键**：宿主在 `invoke` 前写入 **`_conversation_id`**，覆盖模型可能传入的同名字段，防止伪造；子 Agent 路径下写入的是上述 **子任务键**，不是裸 `conversation_id`。
 - 侧车标记：注册为 **`ToolEntry::new_sidecar`**（宿主侧 **`validate_envelope_tool_batch`** 等约束）；用法与 **`response` / `<sidecar_tools>`** 约定见 **`COMMUNICATION_PUBLIC`** 及各工具 **`doc_markdown`**（经 **`generate_tools_system_appendix`** 进入系统提示中的 **`## Tools`**）。未授权该工具时不会出现在上述附录中。
@@ -115,5 +121,6 @@ user（[CUR_SCREEN] 截图，screen_inject 注入）
 - 侧车解析与多 `ToolCall`：`crates/pointer-core/src/tool_envelope.rs`、`crates/pointer-core/src/json_tool_caller.rs`、`crates/pointer-core/src/provider.rs`
 - 批校验与工具注册：`crates/pointer-core/src/tools/mod.rs`
 - 会话注入与执行：`crates/pointer-core/src/chat_service/`（主流程 `session_inner.rs`，单智能体 `single_agent.rs` + 薄封装，子 Agent `sub_agent.rs` + `sub_agent_prompt.rs` / `sub_agent_stream.rs`，共用 `agent_stream_round.rs` / `agent_post_stream.rs` / `agent_tool_pass.rs`）；任务板快照钩子：`crates/pointer-core/src/extensions/task_board_hook.rs`
-- task_board 阶段截断：`task_board_history_trim.rs`、`context_compression.rs`（`find_split_at_user_boundary`）、`agent_tool_pass.rs`（挂载点）
+- task_board 阶段截断：`task_board/history_trim.rs`、`context_compression.rs`（`find_split_at_user_boundary`）、`agent_tool_pass.rs`（挂载点）
+- 父子 Gateway：`task_board/gateway/`、`chat_service/supervisor.rs`（`dispatch_to_child` / `report_child_status`）
 - Computer 每轮 user 注入：`crates/pointer-core/src/agents/computer/extension_hooks/screen_inject.rs`；API 展平：`models.rs`（`flatten_tool_rounds_computer_style_for_api`）

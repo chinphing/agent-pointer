@@ -17,7 +17,7 @@ pub struct AppState {
     pub agents: Arc<crate::agents::AgentRegistry>,
     pub computer_state: Arc<crate::agents::computer::ComputerState>,
     pub platform_auth: SharedPlatformAuth,
-    pub task_board_store: Arc<crate::tools::task_board::TaskBoardStore>,
+    pub task_board_store: Arc<crate::task_board::TaskBoardStore>,
     /// Lifecycle hooks aligned with Python `call_extensions(extension_point, …)`.
     pub extensions: Arc<ExtensionRegistry>,
     pub cancels: Mutex<HashMap<String, CancellationToken>>,

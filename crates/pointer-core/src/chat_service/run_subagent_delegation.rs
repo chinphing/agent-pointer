@@ -8,7 +8,7 @@ use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 
 use super::app_state::AppState;
-use super::emit::emit_agent_step;
+use super::emit::{agent_trace_step_id, emit_agent_step};
 use super::session_budget::SessionToolBudget;
 use super::util::{new_id, truncate_str};
 use super::StreamTx;
@@ -70,7 +70,7 @@ pub(super) async fn run_subagent_delegation(
                         message_id,
                         agent_trace,
                         AgentTrace {
-                            id: def.id.clone(),
+                            id: agent_trace_step_id(&task.id, &def.id),
                             name: def.name.clone(),
                             role: def.role.clone(),
                             status: "running".into(),
@@ -116,7 +116,7 @@ pub(super) async fn run_subagent_delegation(
                                 message_id,
                                 agent_trace,
                                 AgentTrace {
-                                    id: def.id.clone(),
+                                    id: agent_trace_step_id(&task.id, &def.id),
                                     name: def.name.clone(),
                                     role: def.role.clone(),
                                     status: "completed".into(),
@@ -137,7 +137,7 @@ pub(super) async fn run_subagent_delegation(
                                 message_id,
                                 agent_trace,
                                 AgentTrace {
-                                    id: def.id.clone(),
+                                    id: agent_trace_step_id(&task.id, &def.id),
                                     name: def.name.clone(),
                                     role: def.role.clone(),
                                     status: "failed".into(),

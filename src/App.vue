@@ -20,7 +20,9 @@ const showSkills = ref(false)
 
 onMounted(() => {
   void loadSettingsDialog()
-  void Promise.all([settings.load(), skills.load(), chat.init()])
+  void Promise.all([settings.load(), skills.load(), chat.init()]).then(() => {
+    if (chat.currentId) void chat.refreshTaskBoard(chat.currentId)
+  })
     .catch(e => console.error('[app boot]', e))
     .finally(() => {
       if (!settings.settings.hasKey) showSettings.value = true

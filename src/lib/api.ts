@@ -43,6 +43,7 @@ export interface RuntimeApi {
   importSkillZip(file: File): Promise<SkillImportResult>
   listTools(): Promise<ToolDef[]>
   listAgents(): Promise<AgentDef[]>
+  getTaskBoardSnapshot(conversationId: string, taskId?: string): Promise<import('../types/chat').TaskBoardDocument>
   previewComputerAnnotatedScreen(conversationId: string): Promise<ComputerAnnotatedPreview>
   previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview>
   listComputerMonitors(): Promise<ComputerMonitor[]>
@@ -68,6 +69,7 @@ export const listSkills = api.listSkills
 export const importSkillZip = api.importSkillZip
 export const listTools = api.listTools
 export const listAgents = api.listAgents
+export const getTaskBoardSnapshot = api.getTaskBoardSnapshot
 export const previewComputerAnnotatedScreen = api.previewComputerAnnotatedScreen
 export const previewComputerRoundScreen = api.previewComputerRoundScreen
 export const listComputerMonitors = api.listComputerMonitors

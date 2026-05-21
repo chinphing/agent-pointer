@@ -4,8 +4,30 @@ import {
   sendChat, cancelChat, abortTerminalCommand, approveToolCall, onStream,
   loadConversations, saveConversations
 } from '../lib/api'
-import type { ChatMessage, Conversation, StreamEvent, ToolCall, ContextCompressionInfo } from '../types/chat'
-import { isEphemeralDesktopNoticeMessage } from '../lib/assistantMessageKind'
+import type {
+  ChatMessage,
+  Conversation,
+  StreamEvent,
+  ToolCall,
+  ContextCompressionInfo,
+  TaskBoardDocument
+} from '../types/chat'
+import { getTaskBoardSnapshot } from '../lib/api'
+import { hasTaskBoardContent } from '../lib/taskBoard'
+
+const TASK_BOARD_SUB_SEP = '\u{1f}ptr_sub_agent\u{1f}'
+const TASK_BOARD_DEBOUNCE_MS = 300
+const taskBoardDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+export interface ConversationTaskBoardState {
+  parent: TaskBoardDocument | null
+  children: Record<string, TaskBoardDocument>
+}
+import {
+  isDiscardableEmptyAssistant,
+  isEphemeralDesktopNoticeMessage,
+  isGenerationCancelledMessage
+} from '../lib/assistantMessageKind'
 import { buildCompressionNoticeContent, isCompressionSummaryMessage } from '../lib/compressionMessage'
 import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
@@ -19,6 +41,29 @@ function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Con
   }))
 }
 
+function removeAssistantMessage(conv: Conversation, messageId: string): boolean {
+  const idx = conv.messages.findIndex(m => m.id === messageId)
+  if (idx < 0) return false
+  conv.messages.splice(idx, 1)
+  conv.updatedAt = Date.now()
+  return true
+}
+
+function removeDiscardableAssistant(conv: Conversation, messageId: string | null | undefined): boolean {
+  if (!messageId) return false
+  const msg = conv.messages.find(m => m.id === messageId)
+  if (!msg || !isDiscardableEmptyAssistant(msg)) return false
+  return removeAssistantMessage(conv, messageId)
+}
+
+function removeTrailingDiscardableEmptyAssistant(conv: Conversation): boolean {
+  const last = conv.messages[conv.messages.length - 1]
+  if (!last || !isDiscardableEmptyAssistant(last)) return false
+  conv.messages.pop()
+  conv.updatedAt = Date.now()
+  return true
+}
+
 const DESKTOP_NOTICE_HIDE_MS = 5000
 const desktopNoticeHideTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -26,8 +71,11 @@ export const useChatStore = defineStore('chat', () => {
   const conversations = ref<Conversation[]>([])
   const currentId = ref<string | null>(null)
   const generating = ref(false)
+  /** Assistant row currently receiving stream events for the in-flight run. */
+  const activeGeneratingMessageId = ref<string | null>(null)
   /** Ephemeral banner (e.g. computer screenshot done); not persisted. */
   const uiToast = ref<{ message: string; level: 'success' | 'warning' | 'error' } | null>(null)
+  const taskBoards = ref<Record<string, ConversationTaskBoardState>>({})
   let uiToastTimer: ReturnType<typeof setTimeout> | null = null
   let unlisten: (() => void) | null = null
   let saveTimer: number | null = null
@@ -73,6 +121,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function selectConversation(id: string) {
     currentId.value = id
+    void refreshTaskBoard(id)
   }
 
   function deleteConversation(id: string) {
@@ -142,6 +191,64 @@ export const useChatStore = defineStore('chat', () => {
     } catch (err) {
       console.error('[chat stream] handleEvent failed', err, e)
     }
+  }
+
+  function ensureTaskBoardEntry(convId: string): ConversationTaskBoardState {
+    if (!taskBoards.value[convId]) {
+      taskBoards.value[convId] = { parent: null, children: {} }
+    }
+    return taskBoards.value[convId]
+  }
+
+  function applyTaskBoardDocument(convId: string, storeKey: string, doc: TaskBoardDocument) {
+    const entry = ensureTaskBoardEntry(convId)
+    if (storeKey === convId || !storeKey.includes(TASK_BOARD_SUB_SEP)) {
+      entry.parent = hasTaskBoardContent(doc) ? doc : null
+    } else {
+      const parts = storeKey.split(TASK_BOARD_SUB_SEP)
+      const taskId = parts[parts.length - 1]?.trim()
+      if (taskId) {
+        if (hasTaskBoardContent(doc)) {
+          entry.children[taskId] = doc
+        } else {
+          delete entry.children[taskId]
+        }
+      }
+    }
+  }
+
+  function applyTaskBoardDocumentDebounced(
+    convId: string,
+    storeKey: string,
+    doc: TaskBoardDocument
+  ) {
+    const timerKey = `${convId}\u{0}|${storeKey}`
+    const prev = taskBoardDebounceTimers.get(timerKey)
+    if (prev != null) window.clearTimeout(prev)
+    taskBoardDebounceTimers.set(
+      timerKey,
+      window.setTimeout(() => {
+        taskBoardDebounceTimers.delete(timerKey)
+        applyTaskBoardDocument(convId, storeKey, doc)
+      }, TASK_BOARD_DEBOUNCE_MS)
+    )
+  }
+
+  async function refreshTaskBoard(conversationId: string, taskId?: string) {
+    try {
+      const doc = await getTaskBoardSnapshot(conversationId, taskId)
+      const storeKey = taskId?.trim()
+        ? `${conversationId}${TASK_BOARD_SUB_SEP}${taskId.trim()}`
+        : conversationId
+      applyTaskBoardDocument(conversationId, storeKey, doc as TaskBoardDocument)
+    } catch (e) {
+      console.warn('[task board] snapshot failed', e)
+    }
+  }
+
+  function taskBoardForConversation(convId: string | null): ConversationTaskBoardState | null {
+    if (!convId) return null
+    return taskBoards.value[convId] ?? null
   }
 
   function showUiToast(message: string, level: 'success' | 'warning' | 'error') {
@@ -228,6 +335,7 @@ export const useChatStore = defineStore('chat', () => {
       case 'message_start': {
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (!conv) return
+        activeGeneratingMessageId.value = e.messageId
         if (!conv.messages.find(m => m.id === e.messageId)) {
           conv.messages.push({
             id: e.messageId, role: 'assistant', content: '',
@@ -243,17 +351,24 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'raw_content_delta': {
         const r = findMessage(e.messageId)
-        if (r) r.msg.rawContent = (r.msg.rawContent || '') + e.text
+        if (r) {
+          r.msg.rawContent = (r.msg.rawContent || '') + e.text
+          r.msg.status = 'streaming'
+        }
         break
       }
       case 'reasoning_delta': {
         const r = findMessage(e.messageId)
-        if (r) r.msg.reasoning = (r.msg.reasoning || '') + e.text
+        if (r) {
+          r.msg.reasoning = (r.msg.reasoning || '') + e.text
+          r.msg.status = 'streaming'
+        }
         break
       }
       case 'assistant_json_partial': {
         const r = findMessage(e.messageId)
         if (!r) break
+        r.msg.status = 'streaming'
         if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
         if (e.headline != null && e.headline.trim() !== '') r.msg.headline = e.headline
         if (e.toolName != null && e.toolName.trim() !== '') {
@@ -270,6 +385,7 @@ export const useChatStore = defineStore('chat', () => {
       case 'agent_step': {
         const r = findMessage(e.messageId)
         if (!r) return
+        r.msg.status = 'streaming'
         r.msg.agentId = e.agent.id
         r.msg.agentName = e.agent.name
         r.msg.agentTrace = r.msg.agentTrace || []
@@ -281,9 +397,27 @@ export const useChatStore = defineStore('chat', () => {
         } else r.msg.agentTrace.push(e.agent)
         break
       }
+      case 'supervisor_plan': {
+        const r = findMessage(e.messageId)
+        if (!r || r.conv.id !== e.conversationId) break
+        r.msg.status = 'streaming'
+        r.msg.supervisorPlanTasks = e.tasks
+        break
+      }
+      case 'task_board_updated': {
+        if (e.conversationId) {
+          applyTaskBoardDocumentDebounced(
+            e.conversationId,
+            e.storeKey,
+            e.document as TaskBoardDocument
+          )
+        }
+        break
+      }
       case 'tool_call_start': {
         const r = findMessage(e.messageId)
         if (!r) return
+        r.msg.status = 'streaming'
         r.msg.toolCalls = r.msg.toolCalls || []
         if (!r.msg.toolCalls.find(t => t.id === e.toolCall.id)) {
           r.msg.toolCalls.push({ ...e.toolCall })
@@ -318,7 +452,8 @@ export const useChatStore = defineStore('chat', () => {
       case 'message_end': {
         const r = findMessage(e.messageId)
         if (r) {
-          r.msg.status = 'done'
+          // 工具轮次/Supervisor 编排中间回合也会发 message_end，此时 generating 仍为 true
+          r.msg.status = generating.value ? 'streaming' : 'done'
           // 忽略 JSON `null`：勿把正文/ thoughts 写成 null 导致界面丢字段
           if (e.content != null) r.msg.content = e.content
           if (e.rawContent != null) r.msg.rawContent = e.rawContent
@@ -410,9 +545,20 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'error': {
+        const cancelled = isGenerationCancelledMessage(e.message)
         if (e.messageId) {
           const r = findMessage(e.messageId)
-          if (r) { r.msg.status = 'error'; r.msg.errorMessage = e.message }
+          if (r) {
+            if (cancelled && isDiscardableEmptyAssistant(r.msg)) {
+              removeAssistantMessage(r.conv, e.messageId)
+            } else {
+              r.msg.status = 'error'
+              r.msg.errorMessage = e.message
+            }
+          }
+        } else if (cancelled) {
+          const conv = conversations.value.find(c => c.id === currentId.value)
+          if (conv) removeTrailingDiscardableEmptyAssistant(conv)
         } else {
           const conv = conversations.value.find(c => c.id === currentId.value)
           if (conv) {
@@ -429,13 +575,21 @@ export const useChatStore = defineStore('chat', () => {
           }
         }
         generating.value = false
+        activeGeneratingMessageId.value = null
         persist()
         break
       }
       case 'done': {
         generating.value = false
+        activeGeneratingMessageId.value = null
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (conv) {
+          for (const m of conv.messages) {
+            if (m.role === 'assistant' && (m.status === 'streaming' || m.status === 'pending')) {
+              m.status = 'done'
+            }
+          }
+          removeTrailingDiscardableEmptyAssistant(conv)
           if (e.toolRoundsUsedTotal != null) conv.toolRoundsUsed = e.toolRoundsUsedTotal
           if (e.toolRoundsUsedSupervisorTotal != null) {
             conv.toolRoundsUsedSupervisor = e.toolRoundsUsedSupervisorTotal
@@ -464,6 +618,8 @@ export const useChatStore = defineStore('chat', () => {
     generating.value = true
     persist()
 
+    void refreshTaskBoard(conv.id)
+
     await sendChat({
       conversationId: conv.id,
       messages: JSON.parse(JSON.stringify(conv.messages)),
@@ -473,6 +629,7 @@ export const useChatStore = defineStore('chat', () => {
       toolRoundsUsedSupervisor: conv.toolRoundsUsedSupervisor ?? 0
     }).catch(err => {
       generating.value = false
+      activeGeneratingMessageId.value = null
       console.error('sendChat error', err)
       conv.messages.push({
         id: uid(), role: 'assistant', content: '',
@@ -485,8 +642,12 @@ export const useChatStore = defineStore('chat', () => {
 
   async function stop() {
     if (!current.value) return
-    await cancelChat(current.value.id).catch(e => console.error(e))
+    const conv = current.value
+    const msgId = activeGeneratingMessageId.value
+    await cancelChat(conv.id).catch(e => console.error(e))
     generating.value = false
+    activeGeneratingMessageId.value = null
+    if (removeDiscardableAssistant(conv, msgId)) persist()
   }
 
   async function abortTerminalOnly() {
@@ -513,6 +674,7 @@ export const useChatStore = defineStore('chat', () => {
       toolRoundsUsedSupervisor: conv.toolRoundsUsedSupervisor ?? 0
     }).catch(err => {
       generating.value = false
+      activeGeneratingMessageId.value = null
       console.error(err)
     })
   }
@@ -537,8 +699,9 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    conversations, currentId, current, generating, uiToast,
+    conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards,
     init, newConversation, selectConversation, deleteConversation,
-    sendUserMessage, stop, abortTerminalOnly, retry, approve, undo
+    sendUserMessage, stop, abortTerminalOnly, retry, approve, undo,
+    refreshTaskBoard, taskBoardForConversation
   }
 })

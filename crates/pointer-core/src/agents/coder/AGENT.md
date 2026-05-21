@@ -19,6 +19,13 @@ accessPolicy:
   denyTools: []
   allowSkills: []
   denySkills: []
+ui:
+  showWorkspacePicker: true
+  showTaskBoardPanel: true
+  hideToolNames:
+    - task_board
+    - task_board:patch
+  avatar: coder
 ---
 
 You are a senior software engineer agent focused on implementation, debugging, architecture, and technical risk.

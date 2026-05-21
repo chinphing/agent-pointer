@@ -17,6 +17,9 @@ pub mod computer;
 /// Coder agent: embedded policy (`AGENT.md`); tools used only by the coder lead (e.g. `read_lints`).
 pub mod coder;
 
+pub mod agent_ui;
+pub use agent_ui::{resolve_agent_ui, AgentUiConfig, ResolvedAgentUi};
+
 pub const AGENT_MODE_SINGLE: &str = "single";
 pub const AGENT_MODE_SUPERVISOR: &str = "supervisor";
 pub const DEFAULT_AGENT_ID: &str = "default";
@@ -187,6 +190,9 @@ pub struct AgentDef {
     /// Agent-specific configuration key-value pairs.
     #[serde(default)]
     pub config: HashMap<String, String>,
+    /// Optional chat UI visibility overrides.
+    #[serde(default)]
+    pub ui: AgentUiConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -269,6 +275,8 @@ struct AgentManifest {
     allow_agents: Vec<String>,
     #[serde(default)]
     config: HashMap<String, String>,
+    #[serde(default)]
+    ui: AgentUiConfig,
     #[serde(skip)]
     body: String,
 }
@@ -562,6 +570,7 @@ fn default_agent_def() -> AgentDef {
             resource_files: Vec::new(),
             allow_agents: Vec::new(),
             config: HashMap::new(),
+            ui: AgentUiConfig::default(),
         })
 }
 
@@ -589,6 +598,7 @@ fn supervisor_agent_def() -> AgentDef {
             resource_files: Vec::new(),
             allow_agents: Vec::new(),
             config: HashMap::new(),
+            ui: AgentUiConfig::default(),
         })
 }
 
@@ -735,6 +745,7 @@ fn manifest_to_agent(
             .unwrap_or_default(),
         allow_agents: normalize_allow_agents(&manifest.allow_agents),
         config: manifest.config,
+        ui: manifest.ui,
     };
 
     Ok(BaseAgent {

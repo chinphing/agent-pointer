@@ -2,6 +2,12 @@
 
 本文档面向维护者，说明「多步任务可观测 + 工具协议侧车」的设计与实现落点；**不是**运行时提示词。
 
+## 聊天 UI 任务板面板
+
+- 会话消息列表上方 **`TaskBoardPanel`**（可折叠）：展示当前会话 **parent** 板 `goal`、里程碑状态与子板摘要。
+- 数据：`GET` / Tauri **`get_task_board_snapshot`**；流式 **`task_board_updated`**（`task_board` 工具成功或 Supervisor 规划同步后）。
+- Agent **`AGENT.md`** 的 **`ui.showTaskBoardPanel`** / **`ui.hideToolNames`** 控制面板与工具卡展示（见 `docs/ui/visual-theme.md` 同目录的 agent `ui` 约定）。
+
 ## 目标
 
 - 在较长对话中减少「做到哪了、凭什么算过」丢失：由宿主维护 **`task_board`** 状态，并在每轮系统上下文中注入 **`[TASK_BOARD]`** 快照（有内容时）。

@@ -171,7 +171,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                 emit_screen_notice_update(
                     ctx,
                     notice_id,
-                    "【桌面】已更新当前画面（原图/标注/放大）。".to_string(),
+                    "【桌面】已更新当前画面。".to_string(),
                 );
                 strip_images_from_prior_messages(ctx.messages.as_mut_slice());
                 let has_previous_raw = cap.inject_before_action.is_some();

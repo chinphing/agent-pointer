@@ -88,6 +88,13 @@ export async function listAgents(): Promise<AgentDef[]> {
   return await invoke<AgentDef[]>('list_agents')
 }
 
+export async function getTaskBoardSnapshot(
+  conversationId: string,
+  taskId?: string
+): Promise<import('../types/chat').TaskBoardDocument> {
+  return await invoke('get_task_board_snapshot', { conversationId, taskId: taskId ?? null })
+}
+
 export async function previewComputerAnnotatedScreen(conversationId: string): Promise<ComputerAnnotatedPreview> {
   return await invoke<ComputerAnnotatedPreview>('preview_computer_annotated_screen', { conversationId })
 }

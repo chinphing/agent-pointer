@@ -22,9 +22,16 @@ accessPolicy:
     - wait
     - clipboard
     - task_board
-  denyTools: []  
+  denyTools: []
   allowSkills: []
   denySkills: []
+ui:
+  showComputerMonitorPicker: true
+  showTaskBoardPanel: true
+  hideToolNames:
+    - task_board
+    - task_board:patch
+  avatar: computer
 defaultSkillIds: []
 config:
   annotateApiBase: "http://116.62.86.190"

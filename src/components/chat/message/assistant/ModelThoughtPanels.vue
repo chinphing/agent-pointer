@@ -1,78 +1,41 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { AgentTrace } from '../../../../types/chat'
+import type { AgentTrace, SupervisorPlanTask } from '../../../../types/chat'
+import AgentProgressTimeline from './AgentProgressTimeline.vue'
+
 const props = defineProps<{
-  /** Model `thoughts` string (from JSON envelope) — shown above the main bubble; not API `reasoning_content`. */
   xmlThoughts?: string
   agentTrace?: AgentTrace[]
+  planTasks?: SupervisorPlanTask[]
+  showThoughts?: boolean
+  showSubAgentTrace: boolean
+  isStreaming?: boolean
 }>()
 
-/** Keep open after stream ends so long `<thoughts>` are visible (was auto-collapsed at 360+ chars). */
-const thoughtsOpen = computed(() => {
-  const t = props.xmlThoughts?.trim() ?? ''
-  return t.length > 0
-})
+const showXmlThoughts = computed(
+  () => props.showThoughts !== false && !!props.xmlThoughts?.trim()
+)
 
-const traceOpen = computed(() => (props.agentTrace?.length ?? 0) > 0)
+const showTracePanel = computed(
+  () =>
+    props.showSubAgentTrace &&
+    ((props.agentTrace?.length ?? 0) > 0 || (props.planTasks?.length ?? 0) > 0)
+)
 
-function tracePaddingLeft(agent: AgentTrace, idx: number): string {
-  let d = agent.depth
-  if (d == null) d = idx === 0 ? 0 : 1
-  const px = 8 + Math.min(d, 8) * 14
-  return `${px}px`
-}
+const hasContent = computed(() => showXmlThoughts.value || showTracePanel.value)
 </script>
 
 <template>
-  <div v-if="xmlThoughts?.trim() || agentTrace?.length" class="space-y-2">
-    <!-- thoughts 直接显示，不套框 -->
+  <div v-if="hasContent" class="space-y-2">
     <div
-      v-if="xmlThoughts?.trim()"
-      class="text-[12px] leading-relaxed text-slate-400/90 whitespace-pre-wrap"
+      v-if="showXmlThoughts"
+      class="text-[12px] leading-relaxed text-muted whitespace-pre-wrap"
     >{{ xmlThoughts }}</div>
-
-    <details
-      v-if="agentTrace?.length"
-      class="rounded-xl border border-violet-500/25 bg-violet-500/5 overflow-hidden"
-      :open="traceOpen"
-    >
-      <summary
-        class="cursor-pointer select-none px-3 py-2 text-[11px] font-medium text-violet-200/90 hover:bg-violet-500/10 transition list-none flex items-center gap-2"
-      >
-        <span class="text-violet-300/80">子任务轨迹</span>
-        <span class="text-slate-500 font-normal">子步骤与中间输出</span>
-      </summary>
-      <div class="border-t border-violet-500/15 px-3 py-2 space-y-2 text-[11px] text-slate-300">
-        <div
-          v-for="(agent, idx) in agentTrace"
-          :key="agent.id + '-' + idx + '-' + (agent.status ?? '')"
-          class="rounded-lg bg-black/20 p-2"
-          :style="{ paddingLeft: tracePaddingLeft(agent, idx) }"
-        >
-          <div class="flex flex-wrap gap-2">
-            <span class="text-slate-100">{{ agent.name }}</span>
-            <span class="text-slate-500">{{ agent.status }}</span>
-            <span v-if="agent.detail" class="text-slate-400">{{ agent.detail }}</span>
-          </div>
-          <pre
-            v-if="agent.content"
-            class="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-black/30 p-2 text-[11px] leading-relaxed text-slate-400"
-          >{{ agent.content }}</pre>
-        </div>
-      </div>
-    </details>
+    <AgentProgressTimeline
+      v-if="showTracePanel"
+      :agent-trace="agentTrace"
+      :plan-tasks="planTasks"
+      :is-streaming="isStreaming"
+    />
   </div>
 </template>
-
-<style scoped>
-details > summary::-webkit-details-marker {
-  display: none;
-}
-details > summary::before {
-  content: '▸';
-  @apply inline-block w-4 shrink-0 text-slate-500 transition-transform align-top;
-}
-details[open] > summary::before {
-  transform: rotate(90deg);
-}
-</style>

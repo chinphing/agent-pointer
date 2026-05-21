@@ -4244,6 +4244,7 @@ dependencies = [
  "env_logger",
  "log",
  "pointer-core",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

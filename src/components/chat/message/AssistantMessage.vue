@@ -1,34 +1,61 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Bot } from 'lucide-vue-next'
+import { Bot, Users, Monitor, Code, Search } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
 import { assistantDisplayKind } from '../../../lib/assistantMessageKind'
+import { uiForMessageAgent, useAgentsCatalog } from '../../../composables/useAgentUi'
+import { useSettingsStore } from '../../../stores/settings'
 import AssistantModelMessage from './assistant/AssistantModelMessage.vue'
 import AssistantNoticeMessage from './assistant/AssistantNoticeMessage.vue'
 import AssistantErrorMessage from './assistant/AssistantErrorMessage.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
 
+const settings = useSettingsStore()
+const agents = useAgentsCatalog()
 const kind = computed(() => assistantDisplayKind(props.message))
+const messageUi = computed(() =>
+  uiForMessageAgent(props.message.agentId, props.message.agentName, settings.settings, agents.value)
+)
+
+const avatarIcon = computed(() => {
+  const a = messageUi.value.avatar
+  if (a === 'supervisor') return Users
+  if (a === 'computer') return Monitor
+  if (a === 'coder') return Code
+  if (a === 'explore') return Search
+  return Bot
+})
+
+const showAgentLabel = computed(
+  () => messageUi.value.showAgentLabel && !!(props.message.agentName?.trim())
+)
 </script>
 
 <template>
   <div class="flex gap-3 flex-row" :class="kind === 'injected_notice' ? 'gap-2' : ''">
     <div
-      class="rounded-lg shrink-0 flex items-center justify-center"
+      class="rounded-lg shrink-0 flex items-center justify-center border border-border"
       :class="
         kind === 'injected_notice'
-          ? 'w-6 h-6 bg-white/5 border border-white/10'
-          : 'w-8 h-8 bg-gradient-to-br from-primary via-primary-fuchsia to-primary-cyan shadow-lg shadow-primary/30'
+          ? 'w-6 h-6 bg-hover'
+          : 'w-8 h-8 bg-accent/15'
       "
     >
-      <Bot :class="kind === 'injected_notice' ? 'w-3 h-3 text-slate-500' : 'w-4 h-4 text-white'" />
+      <component
+        :is="kind === 'injected_notice' ? Bot : avatarIcon"
+        :class="kind === 'injected_notice' ? 'w-3 h-3 text-muted' : 'w-4 h-4 text-accent'"
+      />
     </div>
 
     <div
       class="min-w-0 flex flex-col w-full"
       :class="kind === 'injected_notice' ? '' : 'flex-1'"
     >
+      <div
+        v-if="showAgentLabel && kind !== 'injected_notice'"
+        class="text-[11px] text-muted mb-1"
+      >{{ message.agentName }}</div>
       <AssistantNoticeMessage v-if="kind === 'injected_notice'" :message="message" />
       <div v-else-if="kind === 'error'" class="w-full min-w-0">
         <AssistantErrorMessage :message="message" />

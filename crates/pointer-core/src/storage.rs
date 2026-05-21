@@ -130,6 +130,10 @@ struct StoredSettings {
     agent_task_board_history_trim: HashMap<String, bool>,
     #[serde(default, rename = "computerHumanLike")]
     computer_human_like: bool,
+    #[serde(default = "default_theme")]
+    theme: String,
+    #[serde(default, rename = "agentUiOverrides")]
+    agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
     /// Legacy global toggle; applied to each provider when that provider has no explicit value.
     #[serde(default, rename = "reasoningInMessages")]
     legacy_reasoning_in_messages: Option<bool>,
@@ -165,6 +169,10 @@ fn default_max_tool_rounds() -> u32 {
 
 fn default_raw_content_view_enabled() -> bool {
     true
+}
+
+fn default_theme() -> String {
+    "system".into()
 }
 
 fn stored_model_overrides_to_runtime(v: &StoredModelOverrides) -> ModelRuntimeOverrides {
@@ -299,6 +307,8 @@ impl Default for StoredSettings {
                 .collect(),
             agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
             computer_human_like: s.computer_human_like,
+            theme: s.theme.clone(),
+            agent_ui_overrides: s.agent_ui_overrides.clone(),
             legacy_reasoning_in_messages: None,
         }
     }
@@ -378,6 +388,12 @@ pub fn load_settings() -> Result<ModelSettings> {
         agent_default_models,
         agent_task_board_history_trim: stored.agent_task_board_history_trim,
         computer_human_like: stored.computer_human_like,
+        theme: if stored.theme.is_empty() {
+            default_theme()
+        } else {
+            stored.theme
+        },
+        agent_ui_overrides: stored.agent_ui_overrides,
     };
     ensure_agent_model_refs_have_provider(&mut settings);
     ensure_provider_generation_defaults(&mut settings);
@@ -452,6 +468,8 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
             .collect(),
         agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
         computer_human_like: s.computer_human_like,
+        theme: s.theme.clone(),
+        agent_ui_overrides: s.agent_ui_overrides.clone(),
         legacy_reasoning_in_messages: None,
     };
     fs::write(settings_path()?, serde_json::to_vec_pretty(&stored)?)?;

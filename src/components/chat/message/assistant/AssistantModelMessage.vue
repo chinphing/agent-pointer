@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { marked } from 'marked'
 import { Copy, Check, Code, Camera } from 'lucide-vue-next'
 import type { ChatMessage, ComputerAnnotatedPreview } from '../../../../types/chat'
@@ -10,6 +11,8 @@ import { previewComputerAnnotatedScreen, previewComputerRoundScreen } from '../.
 import { isTauriRuntime } from '../../../../lib/runtime'
 import { useMarkdownCodeCopy } from '../../../../composables/useMarkdownCodeCopy'
 import { visibleToolCalls } from '../../../../lib/messageTooling'
+import { shouldShowSubAgentTrace } from '../../../../lib/agentUi'
+import { useAgentsCatalog, uiForMessageAgent } from '../../../../composables/useAgentUi'
 import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
 import { showAnnotatedScreenAction } from '../../../../lib/computerMessageContext'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
@@ -20,6 +23,24 @@ import MessageTimeChip from '../MessageTimeChip.vue'
 const props = defineProps<{ message: ChatMessage }>()
 
 const settingsStore = useSettingsStore()
+const agentsCatalog = useAgentsCatalog()
+const messageUi = computed(() =>
+  uiForMessageAgent(
+    props.message.agentId,
+    props.message.agentName,
+    settingsStore.settings,
+    agentsCatalog.value
+  )
+)
+
+const showSubAgentTrace = computed(() =>
+  shouldShowSubAgentTrace(
+    messageUi.value,
+    props.message.agentTrace,
+    settingsStore.settings,
+    props.message.agentId
+  )
+)
 const bodyRef = ref<HTMLElement | null>(null)
 const copied = ref(false)
 const showRawWire = ref(false)
@@ -64,7 +85,7 @@ const showStreamingPlaceholderUnderThoughts = computed(
   () =>
     isStreaming.value &&
     hideStreamingJsonEnvelopeMarkdown.value &&
-    !(props.message.thoughts?.trim()) &&
+    !(messageUi.value.showThoughts && props.message.thoughts?.trim()) &&
     !(props.message.responseTextDraft?.trim())
 )
 
@@ -89,7 +110,11 @@ const showCamera = computed(() => {
   })
 })
 
-const tools = computed(() => visibleToolCalls(props.message.toolCalls))
+const tools = computed(() =>
+  messageUi.value.showToolCalls
+    ? visibleToolCalls(props.message.toolCalls, messageUi.value.hideToolNames)
+    : []
+)
 
 /** headline 未出现时，用流式字符数推进竖线 `|`，按段向上取整多一根；无百分比。 */
 const CHARS_PER_PIPE = 100
@@ -97,7 +122,7 @@ const MAX_HEADLINE_PIPES = 48
 
 const hasHeadline = computed(() => !!(props.message.headline && props.message.headline.trim()))
 
-/** 无 headline 时竖线进度：按「整段流式输出」体量推进（含 API reasoning 字符数）；reasoning 正文不在主气泡展示，仅「原始输出」面板可见。 */
+/** 无 headline 时竖线进度：按「整段流式输出」体量推进（含 API reasoning 字符数）。 */
 const streamedCharCount = computed(() => {
   const c = props.message.content?.length ?? 0
   const raw = props.message.rawContent?.length ?? 0
@@ -108,13 +133,44 @@ const streamedCharCount = computed(() => {
   return Math.max(c, raw, thoughtsLen, toolPreview, draftLen, reasoningLen)
 })
 
+const showHeadlineBlock = computed(() => !!(props.message.headline?.trim()))
+
+const chatStore = useChatStore()
+const { generating, activeGeneratingMessageId } = storeToRefs(chatStore)
+
+const isActiveGenerationMessage = computed(
+  () => props.message.id === activeGeneratingMessageId.value
+)
+
+const isRunInProgress = computed(
+  () =>
+    isStreaming.value ||
+    (generating.value && isActiveGenerationMessage.value)
+)
+
 const showHeadlineProgressBar = computed(
-  () => !hasHeadline.value && isStreaming.value
+  () => !hasHeadline.value && isRunInProgress.value
+)
+
+const showThoughtPanels = computed(
+  () =>
+    (messageUi.value.showThoughts && !!(props.message.thoughts?.trim())) ||
+    (showSubAgentTrace.value &&
+      ((props.message.agentTrace?.length ?? 0) > 0 ||
+        (props.message.supervisorPlanTasks?.length ?? 0) > 0))
+)
+
+const hasBubbleBody = computed(
+  () =>
+    showMdBody.value ||
+    showStreamingPlaceholderUnderThoughts.value ||
+    showThoughtPanels.value ||
+    showHeadlineProgressBar.value ||
+    props.message.status === 'error'
 )
 
 const headlinePipeBar = computed(() => {
   const n = streamedCharCount.value
-  // 向上取整：第 1～100 字为第 1 段…；尚无字符时也显示一根，避免一开始空白
   const segments = n <= 0 ? 1 : Math.ceil(n / CHARS_PER_PIPE)
   const pipes = Math.min(MAX_HEADLINE_PIPES, segments)
   return '|'.repeat(pipes)
@@ -185,8 +241,6 @@ function copyBody() {
   })
 }
 
-const chatStore = useChatStore()
-
 async function openScreenPreview() {
   if (!isTauriRuntime()) return
   screenLoading.value = true
@@ -218,30 +272,30 @@ onUnmounted(() => clearHeadlineCollapseTimer())
 <template>
   <div class="w-full max-w-full space-y-2">
     <div
-      v-if="message.headline?.trim()"
-      class="w-full rounded-lg border border-cyan-500/25 bg-gradient-to-r from-cyan-500/8 via-transparent to-transparent overflow-hidden"
+      v-if="showHeadlineBlock"
+      class="w-full rounded-lg border border-border bg-accent-muted/40 overflow-hidden"
     >
       <div class="flex items-center gap-2 px-1.5 py-1.5 sm:px-2 min-w-0">
         <button
           type="button"
-          class="min-w-0 flex-1 text-left flex items-center gap-1.5 cursor-pointer select-none hover:bg-cyan-500/10 transition rounded-md -mx-0.5 px-0.5 sm:-mx-1 sm:px-1"
+          class="min-w-0 flex-1 text-left flex items-center gap-1.5 cursor-pointer select-none hover:bg-hover transition rounded-md -mx-0.5 px-0.5 sm:-mx-1 sm:px-1"
           :aria-expanded="headlineOpen"
           @click="toggleHeadline"
         >
           <span
-            class="inline-block w-3.5 shrink-0 text-cyan-400/70 text-center text-[10px] transition-transform pt-0.5"
+            class="inline-block w-3.5 shrink-0 text-accent text-center text-[10px] transition-transform pt-0.5"
             :class="headlineOpen ? 'rotate-90' : ''"
           >▸</span>
           <span
-            class="min-w-0 flex-1 text-[12px] sm:text-[13px] font-medium text-cyan-50/90 leading-tight tracking-tight"
+            class="min-w-0 flex-1 text-[12px] sm:text-[13px] font-medium text-foreground leading-tight tracking-tight"
             :class="headlineOpen ? 'whitespace-pre-wrap' : 'line-clamp-2 overflow-hidden'"
-          >{{ message.headline.trim() }}</span>
+          >{{ message.headline?.trim() }}</span>
         </button>
         <MessageTimeChip :created-at="message.createdAt" class="shrink-0 self-center" />
       </div>
     </div>
 
-    <div class="block px-4 py-3 rounded-2xl border break-words glass border-white/5 overflow-x-auto">
+    <div v-if="hasBubbleBody" class="block px-4 py-3 rounded-2xl border break-words panel overflow-x-auto">
       <div
         v-if="!hasHeadline && !showHeadlineProgressBar"
         class="flex justify-end mb-2 -mt-0.5"
@@ -254,7 +308,7 @@ onUnmounted(() => clearHeadlineCollapseTimer())
         class="mb-3 flex items-start gap-2 min-w-0"
       >
         <div
-          class="flex-1 min-w-0 font-mono text-[13px] leading-tight tracking-[0.06em] text-cyan-400/80 min-h-[1.125rem] select-none break-all whitespace-pre-wrap"
+          class="flex-1 min-w-0 font-mono text-[13px] leading-tight tracking-[0.06em] text-accent/80 min-h-[1.125rem] select-none break-all whitespace-pre-wrap"
           role="status"
           aria-live="polite"
           :class="headlinePipesAtCap ? 'animate-pulse' : ''"
@@ -265,8 +319,13 @@ onUnmounted(() => clearHeadlineCollapseTimer())
       </div>
 
       <ModelThoughtPanels
+        v-if="showThoughtPanels"
         :xml-thoughts="message.thoughts"
         :agent-trace="message.agentTrace"
+        :plan-tasks="message.supervisorPlanTasks"
+        :show-thoughts="messageUi.showThoughts"
+        :show-sub-agent-trace="showSubAgentTrace"
+        :is-streaming="isRunInProgress"
       />
 
       <div
@@ -295,8 +354,8 @@ onUnmounted(() => clearHeadlineCollapseTimer())
 
     <div v-if="message.status === 'done'" class="flex items-center gap-1 w-full min-w-0">
       <button
-        class="p-1.5 rounded hover:bg-white/5 cursor-pointer transition"
-        :class="copied ? 'text-green-400' : 'text-slate-400 hover:text-slate-200'"
+        class="message-action-btn"
+        :class="copied ? 'text-success' : 'text-muted hover:text-foreground'"
         :title="copied ? '已复制' : '复制'"
         @click="copyBody"
       >
@@ -306,7 +365,7 @@ onUnmounted(() => clearHeadlineCollapseTimer())
       <button
         v-if="showCamera"
         type="button"
-        class="p-1.5 rounded hover:bg-white/5 cursor-pointer transition text-slate-400 hover:text-sky-300 disabled:opacity-40 disabled:cursor-wait"
+        class="message-action-btn text-muted hover:text-info disabled:opacity-40 disabled:cursor-wait"
         :disabled="screenLoading"
         title="查看本轮已注入模型的标注桌面图（缓存）"
         @click="openScreenPreview"
@@ -315,8 +374,8 @@ onUnmounted(() => clearHeadlineCollapseTimer())
       </button>
       <button
         v-if="hasRawWire"
-        class="p-1.5 rounded hover:bg-white/5 cursor-pointer transition"
-        :class="showRawWire ? 'text-primary-cyan' : 'text-slate-400 hover:text-slate-200'"
+        class="message-action-btn"
+        :class="showRawWire ? 'text-accent' : 'text-muted hover:text-foreground'"
         :title="showRawWire ? '隐藏原始内容' : '查看原始内容'"
         @click="showRawWire = !showRawWire"
       >

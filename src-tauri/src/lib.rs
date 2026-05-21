@@ -68,6 +68,7 @@ pub fn run() {
             commands::import_skill_zip,
             commands::list_tools,
             commands::list_agents,
+            commands::get_task_board_snapshot,
             commands::preview_computer_annotated_screen,
             commands::preview_computer_round_screen,
             commands::list_computer_monitors,

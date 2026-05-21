@@ -2,7 +2,10 @@
 import { computed, defineAsyncComponent, defineComponent, h } from 'vue'
 import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
+import TaskBoardPanel from './TaskBoardPanel.vue'
 import { useChatStore } from '../../stores/chat'
+import { useLeadAgentUi } from '../../composables/useAgentUi'
+import { hasTaskBoardContent } from '../../lib/taskBoard'
 import { Sparkles } from 'lucide-vue-next'
 
 /** 避免异步分包未返回前主区域长时间空白（Windows 杀毒/冷盘常见）。 */
@@ -35,14 +38,28 @@ const MessageList = defineAsyncComponent({
 
 const chat = useChatStore()
 const { uiToast } = storeToRefs(chat)
+const { leadUi } = useLeadAgentUi()
 const empty = computed(() => !chat.current || chat.current.messages.length === 0)
+
+const taskBoardState = computed(() =>
+  chat.currentId ? chat.taskBoardForConversation(chat.currentId) : null
+)
+
+const showTaskBoardPanel = computed(() => {
+  if (!leadUi.value.showTaskBoardPanel) return false
+  if (!chat.currentId) return false
+  const state = taskBoardState.value
+  if (!state) return false
+  if (hasTaskBoardContent(state.parent)) return true
+  return Object.values(state.children ?? {}).some(hasTaskBoardContent)
+})
 
 const toastClass = computed(() => {
   const t = uiToast.value
   if (!t) return ''
-  if (t.level === 'error') return 'border-red-500/40 bg-red-950/90 text-red-100'
-  if (t.level === 'warning') return 'border-amber-500/40 bg-amber-950/85 text-amber-50'
-  return 'border-emerald-500/35 bg-emerald-950/80 text-emerald-50'
+  if (t.level === 'error') return 'border-danger/40 bg-danger/10 text-danger'
+  if (t.level === 'warning') return 'border-warning/40 bg-warning/10 text-warning'
+  return 'border-success/35 bg-success/10 text-success'
 })
 </script>
 
@@ -55,7 +72,7 @@ const toastClass = computed(() => {
         role="status"
       >
         <div
-          class="pointer-events-auto rounded-xl border px-4 py-2.5 text-[13px] leading-snug shadow-xl backdrop-blur-md"
+          class="pointer-events-auto rounded-xl border px-4 py-2.5 text-[13px] leading-snug shadow-lg panel"
           :class="toastClass"
         >
           {{ uiToast.message }}
@@ -64,16 +81,29 @@ const toastClass = computed(() => {
     </Transition>
     <div class="flex-1 overflow-hidden relative">
       <div v-if="empty" class="h-full flex flex-col items-center justify-center px-8 text-center">
-        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary via-primary-fuchsia to-primary-cyan flex items-center justify-center shadow-xl shadow-primary/30 mb-4">
-          <Sparkles class="w-7 h-7 text-white" />
+        <div class="w-14 h-14 rounded-2xl bg-accent/15 border border-border flex items-center justify-center mb-4">
+          <Sparkles class="w-7 h-7 text-accent" />
         </div>
-        <h1 class="text-2xl font-bold gradient-text mb-1.5">你好，欢迎来到 Pointer</h1>
-        <p class="text-slate-400 max-w-md text-sm leading-6">
+        <h1 class="text-2xl font-bold brand-text mb-1.5">你好，欢迎来到 Pointer</h1>
+        <p class="text-muted max-w-md text-sm leading-6">
           你的 AI 智能助手，可以回答问题、写作、分析数据、执行任务。
         </p>
       </div>
 
-      <MessageList v-else />
+      <div v-else class="h-full flex flex-col min-h-0">
+        <div class="shrink-0 px-6 md:px-10 pt-4">
+          <div class="max-w-3xl mx-auto">
+            <TaskBoardPanel
+              v-if="showTaskBoardPanel"
+              :document="taskBoardState?.parent ?? null"
+              :child-boards="taskBoardState?.children"
+            />
+          </div>
+        </div>
+        <div class="flex-1 min-h-0 overflow-hidden">
+          <MessageList />
+        </div>
+      </div>
     </div>
     <Composer />
   </div>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
-import { X } from 'lucide-vue-next'
+import { Monitor, X } from 'lucide-vue-next'
 import type { ComputerMonitor } from '../../types/chat'
 
 const open = defineModel<boolean>('open', { required: true })
@@ -44,53 +44,64 @@ watch(
   <Teleport to="body">
     <div
       v-if="open"
-      class="fixed inset-0 z-[220] flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+      class="fixed inset-0 z-[220] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="选择屏幕"
       @click.self="close"
     >
-      <div class="relative w-full max-w-lg rounded-2xl glass-strong p-4 pt-12 shadow-2xl border border-white/10">
-        <button
-          type="button"
-          class="absolute top-3 right-3 z-10 h-9 w-9 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 flex items-center justify-center cursor-pointer transition"
-          title="关闭 (Esc)"
-          @click="close"
-        >
-          <X class="w-4 h-4" />
-        </button>
-
-        <div class="pr-10">
-          <div class="text-base text-slate-100 font-medium">选择要操作的屏幕</div>
-          <div class="text-[12px] text-slate-400 mt-1 leading-relaxed">
-            Computer Agent 会在该屏幕上截图、识别并执行鼠标键盘操作。
+      <div class="relative w-full max-w-lg rounded-2xl border border-border bg-[hsl(var(--card-elevated))] shadow-2xl overflow-hidden">
+        <header class="flex items-start gap-3 px-5 pt-5 pb-3 border-b border-border">
+          <div class="w-8 h-8 rounded-lg bg-accent/15 flex items-center justify-center shrink-0">
+            <Monitor class="w-4 h-4 text-accent" />
           </div>
-        </div>
-
-        <div v-if="error" class="mt-4 text-sm text-red-300">{{ error }}</div>
-        <div v-else-if="loading" class="mt-4 text-sm text-slate-400">正在读取屏幕列表…</div>
-        <div v-else class="mt-4 space-y-2">
+          <div class="min-w-0 flex-1 pr-8">
+            <h2 class="text-base font-semibold text-foreground">选择要操作的屏幕</h2>
+            <p class="text-[12px] text-muted mt-0.5 leading-relaxed">
+              Computer Agent 会在该屏幕上截图、识别并执行鼠标键盘操作。
+            </p>
+          </div>
           <button
-            v-for="m in sorted"
-            :key="m.id"
             type="button"
-            class="w-full text-left rounded-xl border border-white/10 bg-white/5 hover:bg-white/8 transition px-3 py-2 cursor-pointer"
-            @click="emit('pick', m.id)"
+            class="absolute top-4 right-4 p-2 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors"
+            title="关闭 (Esc)"
+            @click="close"
           >
-            <div class="flex items-center justify-between gap-3">
-              <div class="min-w-0">
-                <div class="text-sm text-slate-200 truncate">
-                  {{ m.isPrimary ? '主屏幕' : '屏幕' }}
-                </div>
-                <div class="text-[11px] text-slate-500 mt-0.5">
-                  {{ m.width }}×{{ m.height }} · ({{ m.left }}, {{ m.top }})
-                </div>
-              </div>
-              <div class="text-[10px] text-slate-600 shrink-0">
-                {{ m.id }}
-              </div>
-            </div>
+            <X class="w-4 h-4" />
           </button>
+        </header>
+
+        <div class="p-5">
+          <div v-if="error" class="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+            {{ error }}
+          </div>
+          <div v-else-if="loading" class="text-sm text-muted py-2">正在读取屏幕列表…</div>
+          <div v-else class="space-y-2">
+            <button
+              v-for="m in sorted"
+              :key="m.id"
+              type="button"
+              class="w-full text-left rounded-xl border border-border bg-card hover:bg-hover transition-colors px-3 py-2.5 cursor-pointer"
+              @click="emit('pick', m.id)"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-foreground truncate">
+                    {{ m.isPrimary ? '主屏幕' : '屏幕' }}
+                  </div>
+                  <div class="text-[11px] text-muted mt-0.5">
+                    {{ m.width }}×{{ m.height }} · ({{ m.left }}, {{ m.top }})
+                  </div>
+                </div>
+                <div class="text-[10px] text-muted font-mono shrink-0">
+                  {{ m.id }}
+                </div>
+              </div>
+            </button>
+            <div v-if="!sorted.length" class="text-center text-sm text-muted py-6">
+              未检测到可用屏幕
+            </div>
+          </div>
         </div>
       </div>
     </div>

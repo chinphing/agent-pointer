@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getSettings, updateSettings, setApiKey, clearApiKey, testConnection } from '../lib/api'
-import type { AgentModelRef, ModelSettings, ProviderConfig } from '../types/chat'
+import type { AgentModelRef, ModelSettings, ProviderConfig, ThemePreference } from '../types/chat'
+import { applyTheme } from '../lib/theme'
 import {
   DEFAULT_MODEL_MAX_TOKENS,
   DEFAULT_MODEL_TEMPERATURE,
@@ -111,7 +112,9 @@ export const useSettingsStore = defineStore('settings', () => {
     debugDumpLlmPrompts: false,
     agentDefaultModels: {},
     agentTaskBoardHistoryTrim: {},
-    computerHumanLike: false
+    computerHumanLike: false,
+    theme: 'system',
+    agentUiOverrides: {}
   })
   const loading = ref(false)
   const testing = ref(false)
@@ -228,8 +231,11 @@ export const useSettingsStore = defineStore('settings', () => {
           debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
           agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
           agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
-          computerHumanLike: s.computerHumanLike === true
+          computerHumanLike: s.computerHumanLike === true,
+          theme: (s.theme as ThemePreference) ?? 'system',
+          agentUiOverrides: { ...(s.agentUiOverrides ?? {}) }
         }
+        applyTheme(settings.value.theme)
       } else {
         const activeId = s.activeProviderId || providersNorm[0]?.id || 'qwen'
         settings.value = {
@@ -249,8 +255,11 @@ export const useSettingsStore = defineStore('settings', () => {
           debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
           agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
           agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
-          computerHumanLike: s.computerHumanLike === true
+          computerHumanLike: s.computerHumanLike === true,
+          theme: (s.theme as ThemePreference) ?? 'system',
+          agentUiOverrides: { ...(s.agentUiOverrides ?? {}) }
         }
+        applyTheme(settings.value.theme)
         if (s.model && !settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models.includes(s.model)) {
           settings.value.model = settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models[0] || s.model
         }
@@ -260,6 +269,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   async function save(patch: Partial<ModelSettings>) {
+    if (patch.theme !== undefined) applyTheme(patch.theme)
     const merged: ModelSettings = { ...settings.value, ...patch }
     merged.agentDefaultModels = normalizeAgentDefaultModels(
       merged.agentDefaultModels as Record<string, unknown>,
@@ -273,7 +283,8 @@ export const useSettingsStore = defineStore('settings', () => {
       agentDefaultModels: normalizeAgentDefaultModels(
         updated.agentDefaultModels as Record<string, unknown>,
         updated.activeProviderId
-      )
+      ),
+      agentUiOverrides: { ...(updated.agentUiOverrides ?? merged.agentUiOverrides ?? {}) }
     }
   }
 

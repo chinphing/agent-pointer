@@ -1,6 +1,6 @@
 //! Per-conversation LLM usage from chat/completions `usage` (streaming + non-stream).
 
-use crate::token_usage_queue;
+use crate::token_usage_store;
 
 /// One API `usage` snapshot (normalized to u32; missing fields treated as 0).
 #[derive(Debug, Clone, Default)]
@@ -22,6 +22,8 @@ impl LlmUsageSnapshot {
 /// Accumulates one user `run_chat` session (single-agent loop and/or supervisor subtree).
 #[derive(Debug, Default)]
 pub struct ConversationLlmStats {
+    pub(crate) conversation_id: Option<String>,
+    pub(crate) model_name: Option<String>,
     pub llm_rounds: u32,
     pub sum_prompt: u64,
     pub sum_completion: u64,
@@ -62,6 +64,15 @@ impl ConversationLlmStats {
                     "LLM round {} finished without usage (enable stream_options.include_usage on the provider; set POINTER_STREAM_INCLUDE_USAGE=0 to omit the request field)",
                     self.llm_rounds
                 );
+            }
+        }
+        if let Some(cid) = self.conversation_id.as_deref() {
+            if let Err(e) = token_usage_store::record_round(
+                cid,
+                usage,
+                self.model_name.as_deref(),
+            ) {
+                log::warn!("token_usage_store: record_round failed conversation_id={cid}: {e}");
             }
         }
     }
@@ -111,19 +122,26 @@ impl ConversationLlmStats {
     }
 }
 
-/// On drop, logs [`ConversationLlmStats::log_summary`] for this `run_chat` session.
+/// On drop, logs summary and moves SQLite accumulation into the pending report queue.
 pub(crate) struct ChatLlmTokenSession {
     pub stats: ConversationLlmStats,
     conversation_id: String,
-    model_name: Option<String>,
 }
 
 impl ChatLlmTokenSession {
     pub(crate) fn new(conversation_id: String, model_name: Option<String>) -> Self {
+        if let Err(e) = token_usage_store::begin_run(&conversation_id, model_name.as_deref()) {
+            log::warn!(
+                "token_usage_store: begin_run failed conversation_id={conversation_id}: {e}"
+            );
+        }
         Self {
-            stats: ConversationLlmStats::default(),
+            stats: ConversationLlmStats {
+                conversation_id: Some(conversation_id.clone()),
+                model_name: model_name.clone(),
+                ..ConversationLlmStats::default()
+            },
             conversation_id,
-            model_name,
         }
     }
 }
@@ -131,12 +149,11 @@ impl ChatLlmTokenSession {
 impl Drop for ChatLlmTokenSession {
     fn drop(&mut self) {
         self.stats.log_summary(&self.conversation_id);
-        if let Err(e) = token_usage_queue::enqueue_from_stats(
-            &self.stats,
-            &self.conversation_id,
-            self.model_name.clone(),
-        ) {
-            log::warn!("token_usage_queue: enqueue on session end failed: {e}");
+        if let Err(e) = token_usage_store::finalize_run(&self.conversation_id) {
+            log::warn!(
+                "token_usage_store: finalize_run failed conversation_id={}: {e}",
+                self.conversation_id
+            );
         }
     }
 }

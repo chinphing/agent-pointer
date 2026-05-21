@@ -1,5 +1,5 @@
 use pointer_core::platform_auth::{run_platform_login_flow, PlatformSessionView};
-use pointer_core::token_usage_queue;
+use pointer_core::token_usage_store;
 use pointer_core::chat_service::AppState;
 use std::sync::Arc;
 use tauri::State;
@@ -36,7 +36,7 @@ pub async fn logout_platform(state: State<'_, Arc<AppState>>) -> Result<(), Stri
 
 #[tauri::command]
 pub async fn flush_platform_token_usage(state: State<'_, Arc<AppState>>) -> Result<u32, String> {
-    let n = token_usage_queue::flush_pending_reports(&state.platform_auth)
+    let n = token_usage_store::flush_pending_reports(&state.platform_auth)
         .await
         .map_err(|e| e.to_string())?;
     Ok(n as u32)

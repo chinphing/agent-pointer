@@ -39,6 +39,7 @@ arboard = "3"
 rand = "0.8"
 sha2 = "0.10"
 keyring = "3"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [dev-dependencies]
 anyhow = "1"

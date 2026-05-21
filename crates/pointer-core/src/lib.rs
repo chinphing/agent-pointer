@@ -3,7 +3,7 @@ pub mod chat_service;
 pub mod env_prompt;
 pub mod platform;
 pub mod platform_auth;
-pub mod token_usage_queue;
+pub mod token_usage_store;
 pub mod extensions;
 pub mod context_compression;
 pub mod task_board_history_trim;

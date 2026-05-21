@@ -42,8 +42,11 @@ pub fn run() {
                 if let Err(e) = auth.load_from_keyring().await {
                     log::warn!("platform_auth: keyring load failed: {e}");
                 }
-                if let Err(e) = pointer_core::token_usage_queue::flush_pending_reports(&auth).await {
-                    log::warn!("token_usage_queue: startup flush failed: {e}");
+                if let Err(e) = pointer_core::token_usage_store::finalize_all_stale_accum() {
+                    log::warn!("token_usage_store: startup finalize stale failed: {e}");
+                }
+                if let Err(e) = pointer_core::token_usage_store::flush_pending_reports(&auth).await {
+                    log::warn!("token_usage_store: startup flush failed: {e}");
                 }
             });
             app.manage(app_state);
@@ -103,9 +106,14 @@ pub fn run() {
                     let auth = state.platform_auth.clone();
                     tauri::async_runtime::block_on(async {
                         if let Err(e) =
-                            pointer_core::token_usage_queue::flush_pending_reports(&auth).await
+                            pointer_core::token_usage_store::finalize_all_stale_accum()
                         {
-                            log::warn!("token_usage_queue: exit flush failed: {e}");
+                            log::warn!("token_usage_store: exit finalize stale failed: {e}");
+                        }
+                        if let Err(e) =
+                            pointer_core::token_usage_store::flush_pending_reports(&auth).await
+                        {
+                            log::warn!("token_usage_store: exit flush failed: {e}");
                         }
                     });
                 }

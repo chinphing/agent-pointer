@@ -102,8 +102,12 @@ pub(super) async fn run_agent_tool_pass(
         let args_value = parse_tool_call_arguments(&tc.arguments);
         let (mut tool_id, args_value) = merge_tool_method_from_qualified_name(&tc.name, args_value);
         tool_id = tool_id.trim().to_string();
-        let args_value =
-            inject_host_task_board_conversation_id(&tool_id, args_value, task_board_store_key);
+        let args_value = inject_host_task_board_conversation_id(
+            &tool_id,
+            args_value,
+            task_board_store_key,
+            history,
+        );
         if tool_id.is_empty() {
             let err = "工具名为空：请检查 <tool_name>（例如 mouse:click_index、composite_action、response）。";
             emit(

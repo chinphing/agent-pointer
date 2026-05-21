@@ -32,18 +32,35 @@ pub fn dispatch_to_child(
             .map(|i| i.title.clone())
             .unwrap_or_else(|| sub_task_id.to_string());
     }
-    if let Some(ms) = milestone {
-        if child.board.is_empty() {
+    let child_seeded = if child.board.is_empty() {
+        if let Some(ms) = milestone.as_ref() {
             child.board.push(BoardItem {
                 id: "local_01".into(),
-                title: ms.title,
+                title: ms.title.clone(),
                 status: ItemStatus::Pending,
-                verification: ms.verification,
+                verification: ms.verification.clone(),
                 ..BoardItem::default()
             });
+            true
+        } else if let Some(row) = parent.board.iter().find(|i| i.id == sub_task_id) {
+            child.board.push(BoardItem {
+                id: "local_01".into(),
+                title: row.title.clone(),
+                status: ItemStatus::Pending,
+                verification: row.verification.clone(),
+                ..BoardItem::default()
+            });
+            true
+        } else {
+            false
         }
-    }
+    } else {
+        false
+    };
     store.save_document(child_key, child);
+    log::debug!(
+        "task_board gateway: dispatch_to_child child_key={child_key} sub_task_id={sub_task_id} child_seeded={child_seeded}",
+    );
 
     let row = parent.board.iter().find(|i| i.id == sub_task_id);
     Ok(DispatchContext {

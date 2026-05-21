@@ -67,6 +67,33 @@ mod apply_tests {
         let args = json!({"items": "[{\"id\":\"x\"}]"});
         assert_eq!(items_array_from_args(&args).map(|a| a.len()), Some(1));
     }
+
+    #[test]
+    fn done_without_evidence_sets_reflection() {
+        let store = TaskBoardStore::new();
+        let key = "conv-done";
+        store
+            .apply(
+                key,
+                "patch",
+                &json!({
+                    "items": [{"id": "s1", "title": "Step", "status": "in_progress"}]
+                }),
+            )
+            .expect("patch");
+        let (body, reflection) = store
+            .apply(
+                key,
+                "patch",
+                &json!({
+                    "_recent_action_tools": false,
+                    "items": [{"id": "s1", "status": "done"}]
+                }),
+            )
+            .expect("done patch");
+        assert!(reflection);
+        assert!(body["summary"]["warnings"].as_array().is_some());
+    }
 }
 
 #[cfg(test)]

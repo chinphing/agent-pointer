@@ -33,8 +33,13 @@ pub fn apply_method(
         "init" => apply_init(store_key, doc, args)?,
         "replace" => apply_replace(doc, args)?,
         "patch" | "" => {
-            reflection_required = apply_patch(doc, args)?;
-            json_summary("patch", doc.board.len())
+            let (refl, warnings) = apply_patch(doc, args)?;
+            reflection_required = refl;
+            let mut summary = json_summary("patch", doc.board.len());
+            if !warnings.is_empty() {
+                summary["warnings"] = serde_json::json!(warnings);
+            }
+            summary
         }
         "prune" => {
             apply_prune(doc, args)?;
@@ -108,9 +113,14 @@ fn apply_replace(doc: &mut BoardDocument, args: &Value) -> Result<Value> {
     Ok(json_summary("replace", doc.board.len()))
 }
 
-fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<bool> {
+fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<String>)> {
+    let recent_action = args
+        .get("_recent_action_tools")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let rows = board_rows_from_args(args);
     let mut reflection = false;
+    let mut warnings = Vec::new();
     if let Some(gc) = args.get("global_context") {
         merge_global_context(&mut doc.global_context, gc);
     }
@@ -142,6 +152,13 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<bool> {
             {
                 reflection = true;
             }
+            maybe_warn_done_without_evidence(
+                prev,
+                &incoming,
+                recent_action,
+                &mut reflection,
+                &mut warnings,
+            );
             if incoming.title.is_empty() {
                 incoming.title = prev.title.clone();
             }
@@ -156,10 +173,61 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<bool> {
                 }
                 bump_step_count(&mut doc.meta)?;
             }
+            maybe_warn_done_without_evidence(
+                &BoardItem {
+                    id: incoming.id.clone(),
+                    title: incoming.title.clone(),
+                    status: ItemStatus::Pending,
+                    ..BoardItem::default()
+                },
+                &incoming,
+                recent_action,
+                &mut reflection,
+                &mut warnings,
+            );
             doc.board.push(incoming);
         }
     }
-    Ok(reflection)
+    Ok((reflection, warnings))
+}
+
+fn maybe_warn_done_without_evidence(
+    prev: &BoardItem,
+    incoming: &BoardItem,
+    recent_action: bool,
+    reflection: &mut bool,
+    warnings: &mut Vec<String>,
+) {
+    if incoming.status != ItemStatus::Done || prev.status == ItemStatus::Done {
+        return;
+    }
+    let has_output = incoming
+        .output
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+        .or(prev.output.as_ref())
+        .filter(|s| !s.trim().is_empty())
+        .is_some();
+    if has_output || recent_action {
+        return;
+    }
+    let has_verification = incoming
+        .verification
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+        .or(prev.verification.as_ref())
+        .filter(|s| !s.trim().is_empty())
+        .is_some();
+    if has_verification {
+        return;
+    }
+    *reflection = true;
+    let reason = "done_without_evidence: add output, set verification, or run action tools before marking done";
+    warnings.push(reason.to_string());
+    log::warn!(
+        "task_board_obs: done_soft_validation item_id={} reason={reason}",
+        incoming.id
+    );
 }
 
 fn apply_prune(doc: &mut BoardDocument, args: &Value) -> Result<()> {

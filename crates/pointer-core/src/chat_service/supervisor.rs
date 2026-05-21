@@ -19,7 +19,8 @@ use super::supervisor_synth::synthesize_final_answer;
 use super::util::{new_id, now_ms, truncate_str};
 use super::StreamTx;
 use crate::task_board::{
-    check_dependencies, dispatch_to_child, report_child_status, sub_agent_task_board_store_key,
+    check_dependencies, dispatch_to_child, observability, report_child_status,
+    sub_agent_task_board_store_key, sync_parent_board_from_supervisor_plan, BoardItem,
     DependencyCheck, ItemStatus,
 };
 
@@ -93,6 +94,21 @@ pub(crate) async fn run_supervisor_chat(
     let tasks = sort_agent_tasks_topologically(tasks);
     let tasks: Vec<_> = tasks.into_iter().take(limits.max_sub_agents).collect();
 
+    let plan_goal = history
+        .iter()
+        .rev()
+        .find(|m| matches!(m.role, Role::User))
+        .map(|m| truncate_str(&m.content, 240))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "Supervisor sub-agent plan".to_string());
+    let plan_sync_stats = sync_parent_board_from_supervisor_plan(
+        &state.task_board_store,
+        conversation_id,
+        &tasks,
+        &plan_goal,
+    );
+    observability::log_supervisor_plan_sync(conversation_id, &plan_sync_stats, tasks.len());
+
     let mut results = Vec::new();
     let mut results_by_id: HashMap<String, AgentRunResult> = HashMap::new();
     for task in tasks {
@@ -134,22 +150,45 @@ pub(crate) async fn run_supervisor_chat(
         let parent_board_key = conversation_id;
         let child_board_key = sub_agent_task_board_store_key(conversation_id, task.id.trim());
         let parent_doc = state.task_board_store.document(parent_board_key);
-        if parent_doc.board.iter().any(|i| i.id == task.id) {
-            if let DependencyCheck::Blocked { reason } = check_dependencies(&parent_doc, &task.id) {
-                log::warn!(
-                    "supervisor: task_board dependency blocked task_id={} reason={reason}",
-                    task.id
-                );
-            }
-            if let Err(err) = dispatch_to_child(
-                &state.task_board_store,
-                parent_board_key,
-                &child_board_key,
-                task.id.trim(),
-                None,
-            ) {
-                log::warn!("supervisor: dispatch_to_child failed: {err}");
-            }
+        if let DependencyCheck::Blocked { reason } = check_dependencies(&parent_doc, &task.id) {
+            log::warn!(
+                "supervisor: task_board dependency blocked task_id={} reason={reason}",
+                task.id
+            );
+        }
+        let milestone = BoardItem {
+            id: task.id.clone(),
+            title: if task.title.trim().is_empty() {
+                format!("Sub-task {}", task.id.trim())
+            } else {
+                task.title.trim().to_string()
+            },
+            status: ItemStatus::Pending,
+            depends_on: task.depends_on.clone(),
+            verification: Some(truncate_str(&task.instruction, 160)),
+            ..BoardItem::default()
+        };
+        let child_was_empty = state
+            .task_board_store
+            .document(&child_board_key)
+            .board
+            .is_empty();
+        if let Err(err) = dispatch_to_child(
+            &state.task_board_store,
+            parent_board_key,
+            &child_board_key,
+            task.id.trim(),
+            Some(milestone),
+        ) {
+            log::warn!("supervisor: dispatch_to_child failed: {err}");
+        } else {
+            let child_seeded = child_was_empty
+                && !state
+                    .task_board_store
+                    .document(&child_board_key)
+                    .board
+                    .is_empty();
+            observability::log_dispatch_child(conversation_id, task.id.trim(), child_seeded);
         }
 
         let mut task_run = task.clone();

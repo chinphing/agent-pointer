@@ -1,13 +1,62 @@
 //! 运行时日志：按日轮转写入文件，并镜像到 stderr（`RUST_LOG` 语法与 env_logger 类似）。
+//!
+//! 所有经 `log` 宏输出的行（含 `task_board_obs:`）使用统一前缀：`[本地时间] [LEVEL] target - message`。
 
 use flexi_logger::{Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming};
 use std::backtrace::Backtrace;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Once, OnceLock};
+
+/// Shared timestamp layout for file, stderr (flexi_logger), and env_logger fallback.
+pub const LOG_TIMESTAMP_FORMAT: &str = "%Y-%m-%d %H:%M:%S%.3f";
 
 static LOGGER_HANDLE: OnceLock<flexi_logger::LoggerHandle> = OnceLock::new();
 static BACKTRACE_ENV: Once = Once::new();
 static PANIC_HOOK: Once = Once::new();
+
+fn local_timestamp() -> String {
+    chrono::Local::now().format(LOG_TIMESTAMP_FORMAT).to_string()
+}
+
+/// flexi_logger: `[2026-05-21 12:34:56.789] [INFO ] pointer_core::... - …`
+pub fn unified_log_format(
+    w: &mut dyn Write,
+    _now: &mut flexi_logger::DeferredNow,
+    record: &log::Record,
+) -> Result<(), std::io::Error> {
+    writeln!(
+        w,
+        "[{}] [{:5}] {} - {}",
+        local_timestamp(),
+        record.level(),
+        record.target(),
+        record.args()
+    )
+}
+
+fn env_logger_unified_format(
+    buf: &mut env_logger::fmt::Formatter,
+    record: &log::Record,
+) -> std::io::Result<()> {
+    writeln!(
+        buf,
+        "[{}] [{:5}] {} - {}",
+        local_timestamp(),
+        record.level(),
+        record.target(),
+        record.args()
+    )
+}
+
+/// stderr-only fallback when file logging cannot start (same timestamp layout as [`init_runtime_logging`]).
+pub fn init_stderr_only_logging(default_filter: &str) {
+    let _ = env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or(default_filter),
+    )
+    .format(env_logger_unified_format)
+    .try_init();
+}
 
 /// 若未设置环境变量，则启用 **全量** panic 栈（`RUST_BACKTRACE=full`）与库错误栈（`RUST_LIB_BACKTRACE=1`）。
 pub fn init_backtrace_defaults() {
@@ -40,7 +89,11 @@ pub fn install_panic_hook() {
             };
             let bt = Backtrace::capture();
             log::error!("thread panicked at {loc}: {msg}\nBacktrace:\n{bt}");
-            eprintln!("thread panicked at {loc}: {msg}\nBacktrace:\n{bt}");
+            eprintln!(
+                "[{}] [{:5}] panic - thread panicked at {loc}: {msg}\nBacktrace:\n{bt}",
+                local_timestamp(),
+                log::Level::Error
+            );
             default_hook(info);
         }));
     });
@@ -69,6 +122,7 @@ pub fn init_runtime_logging(log_dir: &Path, default_filter: &str) -> Result<(), 
 
     let handle = Logger::try_with_env_or_str(default_filter)
         .map_err(|e| format!("log filter / RUST_LOG: {e}"))?
+        .format(unified_log_format)
         .log_to_file(
             FileSpec::default()
                 .directory(log_dir)

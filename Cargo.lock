@@ -4264,6 +4264,7 @@ dependencies = [
  "dirs 5.0.1",
  "dispatch",
  "enigo",
+ "env_logger",
  "flexi_logger",
  "futures-util",
  "globset",

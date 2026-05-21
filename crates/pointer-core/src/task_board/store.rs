@@ -72,6 +72,12 @@ impl TaskBoardStore {
         let outcome = apply_method(store_key, &mut doc, &method, args)?;
         self.inner.write().insert(store_key.to_string(), doc.clone());
         self.persist(store_key, &doc);
+        crate::task_board::observability::log_store_apply(
+            store_key,
+            &method,
+            doc.board.len(),
+            outcome.reflection_required,
+        );
         let snap = doc.to_value();
         let body = json!({
             "summary": outcome.summary,
@@ -115,7 +121,19 @@ impl TaskBoardStore {
 
     pub fn snapshot_for_prompt(&self, store_key: &str) -> Option<String> {
         let doc = self.get_or_default(store_key);
-        snapshot_for_prompt(store_key, &doc, true)
+        let block = snapshot_for_prompt(store_key, &doc, true);
+        if let Some(ref b) = block {
+            if !b.is_empty() {
+                crate::task_board::observability::log_snapshot_injected(
+                    store_key,
+                    doc.board.len(),
+                    !doc.meta.goal.is_empty(),
+                );
+            }
+        } else {
+            crate::task_board::observability::log_snapshot_skipped_empty(store_key);
+        }
+        block
     }
 
     pub fn parent_tunnel_for_child(&self, child_store_key: &str, sub_task_id: &str) -> Option<String> {

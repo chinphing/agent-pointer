@@ -4,15 +4,18 @@ pub mod apply;
 pub mod args;
 pub mod checkpoint;
 pub mod coordination;
+pub mod evidence;
 pub mod gateway;
 pub mod history_trim;
 pub mod inject;
+pub mod observability;
 pub mod migrate;
 pub mod model;
 pub mod persistence;
 pub mod snapshot;
 pub mod state_machine;
 pub mod store;
+pub mod sub_agent_hint;
 pub mod tool;
 
 pub use checkpoint::{is_task_board_tool_name, task_board_call_is_checkpoint};
@@ -21,13 +24,15 @@ pub use coordination::{
 };
 pub use gateway::{
     check_dependencies, dispatch_to_child, report_child_status, sync_global_finding,
-    DependencyCheck, DispatchContext,
+    sync_parent_board_from_supervisor_plan, DependencyCheck, DispatchContext,
+    SupervisorPlanSyncStats,
 };
 pub use history_trim::{
     default_agent_task_board_history_trim_table, is_task_board_history_trim_enabled,
     maybe_trim_after_tool_pass, trim_history_after_task_board, TaskBoardTrimHook,
     TaskBoardTrimStats, TRIM_PLACEHOLDER_PREFIX,
 };
+pub use evidence::history_has_recent_action_tools;
 pub use inject::inject_host_task_board_conversation_id;
 pub use model::{BoardDocument, BoardItem, ItemStatus, MetaStatus};
 pub use persistence::TaskBoardSqlite;

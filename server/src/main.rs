@@ -57,10 +57,7 @@ async fn main() -> anyhow::Result<()> {
             "pointer-server: file logging unavailable ({err}); stderr-only. log_dir={}",
             log_dir.display()
         );
-        let _ = env_logger::Builder::from_env(
-            env_logger::Env::default().default_filter_or(DEFAULT_LOG_FILTER),
-        )
-        .try_init();
+        pointer_core::logging::init_stderr_only_logging(DEFAULT_LOG_FILTER);
         pointer_core::logging::install_panic_hook();
     }
 

@@ -15,7 +15,8 @@ Details stay on the **child** board (`local_*`). Results are **reported** to the
 
 | API | Caller | Purpose |
 |-----|--------|---------|
-| `dispatch_to_child` | `supervisor.rs` | Init child meta + optional first local row |
+| `sync_parent_board_from_supervisor_plan` | `supervisor.rs` after plan | Upsert parent milestones from planned `AgentTask` rows |
+| `dispatch_to_child` | `supervisor.rs` before each sub-agent | Init child meta + seed `local_01` when child board empty |
 | `report_child_status` | `supervisor.rs` after sub-agent | Parent milestone → `done` / `failed` + `output` |
 | `sync_global_finding` | `task_board:sync_finding` tool | Child → parent `key_findings` only |
 | `check_dependencies` | Supervisor before dispatch | `Ready` / `Blocked` |
@@ -25,7 +26,16 @@ Details stay on the **child** board (`local_*`). Results are **reported** to the
 ## Prompt injection
 
 - Child rounds: `[TASK_BOARD]` (local) + `[TASK_BOARD_PARENT]` (read-only), see `sub_agent_prompt.rs`.
+- Sub-agent session start: `[TASK_BOARD_HINT]` when `task_board` is allowed and the child board is empty (`task_board/sub_agent_hint.rs`).
 - Compact snapshots: `task_board/snapshot.rs`.
+
+## Observability
+
+Structured logs use prefix **`task_board_obs:`** (`task_board/observability.rs`): `supervisor_plan_sync`, `dispatch_child`, `store_apply`, `snapshot_injected` / `snapshot_skipped_empty`, `sub_agent_init_hint`, `done_soft_validation`. Lines use the global log format from `pointer_core::logging` (local timestamp prefix on every `log` line).
+
+## Soft `done` validation
+
+On `patch` → `done`, the host injects `_recent_action_tools` from recent non–`task_board` assistant tool calls. If the row has no `output`, no `verification`, and no recent action tools, the tool result sets `reflection_required` and a `warnings` entry (does not block the patch).
 
 ## Not in v1 scope
 

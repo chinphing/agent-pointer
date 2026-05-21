@@ -19,6 +19,11 @@ pub async fn open_platform_login(state: State<'_, Arc<AppState>>) -> Result<(), 
 }
 
 #[tauri::command]
+pub fn cancel_platform_login(state: State<'_, Arc<AppState>>) {
+    state.platform_auth.cancel_pending_login();
+}
+
+#[tauri::command]
 pub async fn refresh_platform_session(state: State<'_, Arc<AppState>>) -> Result<PlatformSessionView, String> {
     state
         .platform_auth

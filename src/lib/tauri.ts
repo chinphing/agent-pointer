@@ -140,6 +140,10 @@ export async function openPlatformLogin(): Promise<void> {
   await invoke('open_platform_login')
 }
 
+export async function cancelPlatformLogin(): Promise<void> {
+  await invoke('cancel_platform_login')
+}
+
 export async function refreshPlatformSession(): Promise<PlatformSessionView> {
   return await invoke<PlatformSessionView>('refresh_platform_session')
 }

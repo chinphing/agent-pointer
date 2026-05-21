@@ -180,6 +180,8 @@ export async function openPlatformLogin(): Promise<void> {
   throw new Error('Web 端平台登录请使用桌面客户端')
 }
 
+export async function cancelPlatformLogin(): Promise<void> {}
+
 export async function refreshPlatformSession(): Promise<PlatformSessionView> {
   return { logged_in: false }
 }

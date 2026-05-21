@@ -86,6 +86,9 @@ export const getPlatformSession = isTauriRuntime()
 export const openPlatformLogin = isTauriRuntime()
   ? tauriApi.openPlatformLogin
   : webApi.openPlatformLogin
+export const cancelPlatformLogin = isTauriRuntime()
+  ? tauriApi.cancelPlatformLogin
+  : webApi.cancelPlatformLogin
 export const refreshPlatformSession = isTauriRuntime()
   ? tauriApi.refreshPlatformSession
   : webApi.refreshPlatformSession

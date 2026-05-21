@@ -20,6 +20,12 @@ CSS variables in `src/styles/globals.css`:
 
 Do **not** reintroduce `.glass`, `.neon-ring`, aurora body gradients, or heavy `backdrop-blur` in chat UI.
 
+## Blocking overlays (e.g. platform login)
+
+- Scrim: `hsl(var(--foreground) / 0.32)` + light blur — adapts to light/dark (avoid `bg-black/*` / `bg-white` cards).
+- Panel: `bg-card`, `border-border`, accent glow optional; controls use semantic tokens (`text-foreground`, `text-muted`, `bg-accent`, `text-danger`).
+- Reference: `src/components/auth/PlatformLoginModal.vue`
+
 ## Theme preference
 
 - Setting: `ModelSettings.theme` — `light` | `dark` | `system`

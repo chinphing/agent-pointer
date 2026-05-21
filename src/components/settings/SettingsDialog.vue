@@ -14,6 +14,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
+  UserCircle,
   Users,
   Wrench,
   X
@@ -42,10 +43,16 @@ import {
 } from '../../composables/useRuntimeParams'
 import RuntimeParamsForm from './RuntimeParamsForm.vue'
 import { isTauriRuntime } from '../../lib/runtime'
+import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { useSettingsStore } from '../../stores/settings'
 
-const emit = defineEmits<{ (e: 'close'): void }>()
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'platform-logout'): void
+  (e: 'platform-login'): void
+}>()
 const s = useSettingsStore()
+const platformAuth = usePlatformAuthStore()
 
 const saving = ref(false)
 const activeSection = ref('provider')
@@ -220,12 +227,39 @@ function copyOriginalKey() {
   }).catch(e => console.error(e))
 }
 
-const sections = [
+const baseSections = [
   { id: 'provider', label: '模型服务', desc: '管理 AI 服务', icon: Cpu },
   { id: 'generation', label: '生成参数', desc: '输出控制', icon: Gauge },
   { id: 'agent', label: '智能模式', desc: '工作方式', icon: Bot },
   { id: 'runtime', label: '运行时', desc: '存储与网络', icon: Database }
-]
+] as const
+
+const sections = computed(() => {
+  if (!isTauriRuntime()) return [...baseSections]
+  return [
+    { id: 'account', label: '平台账户', desc: '登录与凭据', icon: UserCircle },
+    ...baseSections
+  ]
+})
+
+const platformAccountTitle = computed(() => {
+  if (!platformAuth.session.logged_in) return '未登录'
+  return platformAuth.session.user_nickname?.trim() || '已登录'
+})
+
+const platformLogoutBusy = ref(false)
+
+async function logoutPlatformAccount() {
+  platformLogoutBusy.value = true
+  try {
+    await platformAuth.logout()
+    emit('platform-logout')
+  } catch (e) {
+    console.error('[settings] platform logout failed', e)
+  } finally {
+    platformLogoutBusy.value = false
+  }
+}
 
 const workers = computed(() => agents.value.filter(a => a.role === 'worker' && a.enabled))
 
@@ -1126,8 +1160,55 @@ async function saveAll() {
             </div>
           </section>
 
+          <!-- ==================== Platform account (desktop) ==================== -->
+          <section v-else-if="activeSection === 'account'" class="p-6 space-y-5">
+            <div>
+              <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
+                <UserCircle class="w-4 h-4 text-accent" />平台账户
+              </h3>
+              <p class="mt-0.5 text-xs text-muted">Pointer 平台登录状态</p>
+            </div>
+
+            <div class="rounded-xl border border-border panel p-5 space-y-4">
+              <div class="flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-foreground">{{ platformAccountTitle }}</p>
+                  <p v-if="!platformAuth.session.logged_in" class="mt-1 text-xs text-muted">
+                    登录后可使用平台相关能力
+                  </p>
+                </div>
+                <span
+                  v-if="platformAuth.session.logged_in"
+                  class="shrink-0 rounded-md border border-success/30 bg-success/10 px-2 py-0.5 text-[11px] text-success"
+                >
+                  已登录
+                </span>
+              </div>
+
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-if="platformAuth.session.logged_in"
+                  type="button"
+                  class="h-8 px-4 rounded-lg border border-border text-sm text-foreground hover:bg-hover cursor-pointer transition-colors disabled:opacity-50"
+                  :disabled="platformLogoutBusy"
+                  @click="logoutPlatformAccount"
+                >
+                  {{ platformLogoutBusy ? '退出中…' : '退出登录' }}
+                </button>
+                <button
+                  v-else
+                  type="button"
+                  class="h-8 px-4 rounded-lg bg-accent text-sm font-medium text-white hover:opacity-95 cursor-pointer transition-opacity"
+                  @click="emit('platform-login')"
+                >
+                  浏览器登录
+                </button>
+              </div>
+            </div>
+          </section>
+
           <!-- ==================== Runtime Section ==================== -->
-          <section v-else class="p-6 space-y-5">
+          <section v-else-if="activeSection === 'runtime'" class="p-6 space-y-5">
             <div>
               <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
                 <Database class="w-4 h-4 text-accent" />运行时与存储

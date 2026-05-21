@@ -91,6 +91,7 @@ pub fn run() {
             commands::save_conversations,
             platform_commands::get_platform_session,
             platform_commands::open_platform_login,
+            platform_commands::cancel_platform_login,
             platform_commands::refresh_platform_session,
             platform_commands::logout_platform,
             platform_commands::flush_platform_token_usage,

@@ -1,4 +1,4 @@
-//! Openpointer 桌面 OAuth（PKCE + refresh token + keyring）。
+//! Pointer 桌面 OAuth（PKCE + refresh token + keyring）。
 
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 use crate::platform_endpoints;
 
@@ -18,6 +19,8 @@ const DEFAULT_LOOPBACK_PORT: u16 = 19427;
 /// 从首选端口起依次尝试绑定（含首选共 N 个端口）。
 const LOOPBACK_PORT_SCAN_COUNT: u16 = 32;
 const EXPIRY_BUFFER_SEC: i64 = 300;
+/// 等待浏览器 OAuth 回调的最长时间（秒）。
+pub const OAUTH_CALLBACK_TIMEOUT_SEC: u64 = 300;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlatformUserSummary {
@@ -45,6 +48,8 @@ pub struct PlatformSessionView {
 pub struct PlatformAuthManager {
     inner: RwLock<Option<PlatformSession>>,
     http: reqwest::Client,
+    /// 进行中的 `run_platform_login_flow`；`cancel_pending_login` 可中止等待回调。
+    login_cancel: RwLock<Option<CancellationToken>>,
 }
 
 impl PlatformAuthManager {
@@ -55,6 +60,29 @@ impl PlatformAuthManager {
                 .timeout(Duration::from_secs(60))
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
+            login_cancel: RwLock::new(None),
+        }
+    }
+
+    fn replace_login_cancel_token(&self) -> CancellationToken {
+        let mut guard = self.login_cancel.write();
+        if let Some(old) = guard.take() {
+            old.cancel();
+        }
+        let token = CancellationToken::new();
+        *guard = Some(token.clone());
+        token
+    }
+
+    fn clear_login_cancel_token(&self) {
+        let _ = self.login_cancel.write().take();
+    }
+
+    /// 取消当前正在等待浏览器回调的登录（若有）。
+    pub fn cancel_pending_login(&self) {
+        if let Some(token) = self.login_cancel.write().take() {
+            token.cancel();
+            log::info!("platform_auth: login cancelled by user");
         }
     }
 
@@ -228,7 +256,7 @@ impl PlatformAuthManager {
                 Ok(true)
             }
             Err(e) => {
-                log::warn!("platform_auth: startup refresh failed: {e}");
+                log::warn!("platform_auth: startup refresh failed (keyring entry kept): {e}");
                 Ok(false)
             }
         }
@@ -506,14 +534,28 @@ pub fn open_url_in_browser(url: &str) -> Result<()> {
 }
 
 pub async fn run_platform_login_flow(auth: Arc<PlatformAuthManager>) -> Result<PlatformSession> {
+    let cancel = auth.replace_login_cancel_token();
+    let result = run_platform_login_flow_inner(auth.clone(), cancel).await;
+    auth.clear_login_cancel_token();
+    result
+}
+
+async fn run_platform_login_flow_inner(
+    auth: Arc<PlatformAuthManager>,
+    cancel: CancellationToken,
+) -> Result<PlatformSession> {
     let (verifier, challenge) = PlatformAuthManager::generate_pkce();
     let state = "pointer-app";
 
     let (listener, port) = bind_loopback_listener().await?;
     let redirect_uri = PlatformAuthManager::redirect_uri_for_port(port);
 
-    let callback_fut = wait_loopback_on_listener(listener, state, 300);
-    let callback_task = tokio::spawn(callback_fut);
+    let callback_task = tokio::spawn(async move {
+        tokio::select! {
+            _ = cancel.cancelled() => Err(anyhow!("platform_login_cancelled")),
+            r = wait_loopback_on_listener(listener, state, OAUTH_CALLBACK_TIMEOUT_SEC) => r,
+        }
+    });
 
     let url = PlatformAuthManager::build_authorize_url_for_port(port, &challenge, state);
     open_url_in_browser(&url)?;

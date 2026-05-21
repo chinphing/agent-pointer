@@ -10,11 +10,10 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::platform_endpoints;
+
 const KEYRING_SERVICE: &str = "com.pointer.app";
 const KEYRING_REFRESH: &str = "platform_refresh_token";
-const DEFAULT_API_BASE: &str = "http://127.0.0.1:8001";
-const DEFAULT_WEB_BASE: &str = "http://127.0.0.1:3000";
-const DEFAULT_CLIENT_ID: &str = "pointer-desktop";
 const DEFAULT_LOOPBACK_PORT: u16 = 19427;
 /// 从首选端口起依次尝试绑定（含首选共 N 个端口）。
 const LOOPBACK_PORT_SCAN_COUNT: u16 = 32;
@@ -35,7 +34,7 @@ pub struct PlatformSession {
     pub user: PlatformUserSummary,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PlatformSessionView {
     pub logged_in: bool,
     pub expires_at: Option<i64>,
@@ -106,15 +105,15 @@ impl PlatformAuthManager {
     }
 
     fn api_base() -> String {
-        std::env::var("POINTER_API_BASE").unwrap_or_else(|_| DEFAULT_API_BASE.to_string())
+        platform_endpoints::api_base()
     }
 
     fn web_base() -> String {
-        std::env::var("POINTER_WEB_BASE").unwrap_or_else(|_| DEFAULT_WEB_BASE.to_string())
+        platform_endpoints::web_base()
     }
 
     fn client_id() -> String {
-        std::env::var("POINTER_OAUTH_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string())
+        platform_endpoints::oauth_client_id()
     }
 
     /// 环境变量指定的首选 loopback 端口（默认 19427）。

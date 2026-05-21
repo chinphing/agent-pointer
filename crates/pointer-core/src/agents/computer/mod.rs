@@ -37,7 +37,7 @@ use screen_overlay::{build_before_action_inject, build_vision_overlay_pack};
 use vision_state::VisionState;
 
 /// Default annotation service URL.
-const DEFAULT_ANNOTATE_API_BASE: &str = "http://127.0.0.1:8000";
+use crate::platform_endpoints;
 /// Config key for the annotation service URL in Computer Agent's config.
 const CONFIG_KEY_ANNOTATE_API_BASE: &str = "annotateApiBase";
 /// Config key for default human-like mouse movement in Computer Agent's config.
@@ -155,7 +155,7 @@ impl ComputerState {
         let annotate_api_base = def
             .as_ref()
             .and_then(|d| d.config.get(CONFIG_KEY_ANNOTATE_API_BASE).cloned())
-            .unwrap_or_else(|| DEFAULT_ANNOTATE_API_BASE.to_string());
+            .unwrap_or_else(|| platform_endpoints::annotate_api_base());
         let human_like_default = def
             .as_ref()
             .and_then(|d| d.config.get(CONFIG_KEY_COMPUTER_HUMAN_LIKE))
@@ -186,13 +186,16 @@ impl ComputerState {
             }
         };
         let base_url = if annotate_api_base.is_empty() {
-            DEFAULT_ANNOTATE_API_BASE
+            platform_endpoints::annotate_api_base()
         } else {
-            annotate_api_base
+            annotate_api_base.to_string()
         };
-        let annotate_client = AnnotateClient::with_base_url_and_auth(base_url, platform_auth)
+        let annotate_client = AnnotateClient::with_base_url_and_auth(&base_url, platform_auth)
             .unwrap_or_else(|_| {
-                AnnotateClient::with_base_url_and_auth(DEFAULT_ANNOTATE_API_BASE, None)
+                AnnotateClient::with_base_url_and_auth(
+                    &platform_endpoints::annotate_api_base(),
+                    None,
+                )
                     .expect("default annotate client should not fail")
             });
         Self {

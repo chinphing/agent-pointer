@@ -7,8 +7,7 @@ use std::fmt;
 use std::io::Cursor;
 use std::time::{Duration, Instant};
 
-/// Default base URL for the annotation service.
-const DEFAULT_ANNOTATE_API_BASE: &str = "http://127.0.0.1:8000";
+use crate::platform_endpoints;
 /// Default timeout for annotation requests in seconds.
 const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
 /// Default detection threshold.
@@ -143,7 +142,7 @@ pub struct AnnotateClient {
 impl AnnotateClient {
     /// Create a new AnnotateClient with default settings.
     pub fn new() -> Result<Self, AnnotateError> {
-        Self::with_base_url(DEFAULT_ANNOTATE_API_BASE)
+        Self::with_base_url(&platform_endpoints::annotate_api_base())
     }
 
     /// Create a new AnnotateClient with a custom base URL.
@@ -171,11 +170,9 @@ impl AnnotateClient {
     }
 
     /// Create a new AnnotateClient from environment variables.
-    /// Uses `COMPUTER_ANNOTATE_API_BASE` for the base URL if set.
+    /// Uses `COMPUTER_ANNOTATE_API_BASE` or built-in default (see `platform_endpoints`).
     pub fn from_env() -> Result<Self, AnnotateError> {
-        let base_url = std::env::var("COMPUTER_ANNOTATE_API_BASE")
-            .unwrap_or_else(|_| DEFAULT_ANNOTATE_API_BASE.to_string());
-        Self::with_base_url(&base_url)
+        Self::with_base_url(&platform_endpoints::annotate_api_base())
     }
 
     /// Annotate using an explicit [`AnnotateRequest`] (thresholds + image).
@@ -433,7 +430,10 @@ mod tests {
     #[test]
     fn test_client_default_url() {
         let client = AnnotateClient::new().unwrap();
-        assert_eq!(client.base_url, DEFAULT_ANNOTATE_API_BASE);
+        assert_eq!(
+            client.base_url.trim_end_matches('/'),
+            platform_endpoints::DEFAULT_ANNOTATE_API_BASE.trim_end_matches('/')
+        );
     }
 
     #[test]

@@ -3,6 +3,7 @@ pub mod chat_service;
 pub mod env_prompt;
 pub mod platform;
 pub mod platform_auth;
+pub mod platform_endpoints;
 pub mod token_usage_store;
 pub mod extensions;
 pub mod context_compression;

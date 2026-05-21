@@ -1,9 +1,10 @@
 mod commands;
+mod platform_commands;
 
 use pointer_core::models::StreamEvent;
 use pointer_core::{chat_service::AppState, skills::external::skills_dir};
 use std::{fs, path::Path, sync::Arc};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, RunEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -35,7 +36,17 @@ pub fn run() {
             if let Err(err) = install_bundled_skills(app) {
                 log::warn!("install bundled skills failed: {err}");
             }
-            app.manage(Arc::new(AppState::new()));
+            let app_state = Arc::new(AppState::new());
+            let auth = app_state.platform_auth.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = auth.load_from_keyring().await {
+                    log::warn!("platform_auth: keyring load failed: {e}");
+                }
+                if let Err(e) = pointer_core::token_usage_queue::flush_pending_reports(&auth).await {
+                    log::warn!("token_usage_queue: startup flush failed: {e}");
+                }
+            });
+            app.manage(app_state);
             let handle = app.handle().clone();
             match pointer_core::agents::computer::capture_debug::purge_computer_captures_older_than_days(
                 pointer_core::agents::computer::capture_debug::CAPTURE_RETENTION_DAYS,
@@ -77,9 +88,29 @@ pub fn run() {
             commands::set_computer_conversation_monitor,
             commands::load_conversations,
             commands::save_conversations,
+            platform_commands::get_platform_session,
+            platform_commands::open_platform_login,
+            platform_commands::refresh_platform_session,
+            platform_commands::logout_platform,
+            platform_commands::flush_platform_token_usage,
+            platform_commands::load_platform_session_from_keyring,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<Arc<AppState>>() {
+                    let auth = state.platform_auth.clone();
+                    tauri::async_runtime::block_on(async {
+                        if let Err(e) =
+                            pointer_core::token_usage_queue::flush_pending_reports(&auth).await
+                        {
+                            log::warn!("token_usage_queue: exit flush failed: {e}");
+                        }
+                    });
+                }
+            }
+        });
 }
 
 fn install_bundled_skills(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {

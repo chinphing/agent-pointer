@@ -25,6 +25,7 @@ pub use timing::{
 };
 
 use crate::agents::AgentRegistry;
+use crate::platform_auth::SharedPlatformAuth;
 
 use actions::ActionExecutor;
 use annotate::AnnotateClient;
@@ -149,7 +150,7 @@ impl ComputerState {
     ///
     /// The backend will be initialized with the enigo implementation.
     /// If enigo fails to initialize, tools will return errors at runtime.
-    pub fn new(agents: &AgentRegistry) -> Self {
+    pub fn new(agents: &AgentRegistry, platform_auth: SharedPlatformAuth) -> Self {
         let def = agents.get("computer").map(|agent| agent.def());
         let annotate_api_base = def
             .as_ref()
@@ -160,7 +161,7 @@ impl ComputerState {
             .and_then(|d| d.config.get(CONFIG_KEY_COMPUTER_HUMAN_LIKE))
             .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
             .unwrap_or(false);
-        Self::with_annotate_url_and_human_like(&annotate_api_base, human_like_default)
+        Self::with_annotate_url_and_human_like(&annotate_api_base, human_like_default, Some(platform_auth))
     }
 
     /// Create a new ComputerState with an explicit annotation service URL.
@@ -168,13 +169,14 @@ impl ComputerState {
     /// # Arguments
     /// * `annotate_api_base` - Base URL for the annotation service. If empty, uses the default.
     pub fn with_annotate_url(annotate_api_base: &str) -> Self {
-        Self::with_annotate_url_and_human_like(annotate_api_base, false)
+        Self::with_annotate_url_and_human_like(annotate_api_base, false, None)
     }
 
     /// Create state with explicit annotation URL and human-like default.
     pub fn with_annotate_url_and_human_like(
         annotate_api_base: &str,
         human_like_default: bool,
+        platform_auth: Option<SharedPlatformAuth>,
     ) -> Self {
         let executor = match action_enigo::EnigoBackend::new() {
             Ok(backend) => Arc::new(Mutex::new(ActionExecutor::new(Box::new(backend)))),
@@ -188,8 +190,11 @@ impl ComputerState {
         } else {
             annotate_api_base
         };
-        let annotate_client = AnnotateClient::with_base_url(base_url)
-            .unwrap_or_else(|_| AnnotateClient::with_base_url(DEFAULT_ANNOTATE_API_BASE).expect("default annotate client should not fail"));
+        let annotate_client = AnnotateClient::with_base_url_and_auth(base_url, platform_auth)
+            .unwrap_or_else(|_| {
+                AnnotateClient::with_base_url_and_auth(DEFAULT_ANNOTATE_API_BASE, None)
+                    .expect("default annotate client should not fail")
+            });
         Self {
             executor,
             annotate_client,

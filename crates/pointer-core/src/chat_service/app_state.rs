@@ -7,6 +7,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::agents::register_builtin_agents;
 use crate::extensions::ExtensionRegistry;
+use crate::platform_auth::SharedPlatformAuth;
 use crate::skills::SkillRegistry;
 use crate::tools::ToolRegistry;
 
@@ -15,6 +16,7 @@ pub struct AppState {
     pub skills: Arc<SkillRegistry>,
     pub agents: Arc<crate::agents::AgentRegistry>,
     pub computer_state: Arc<crate::agents::computer::ComputerState>,
+    pub platform_auth: SharedPlatformAuth,
     pub task_board_store: Arc<crate::tools::task_board::TaskBoardStore>,
     /// Lifecycle hooks aligned with Python `call_extensions(extension_point, …)`.
     pub extensions: Arc<ExtensionRegistry>,
@@ -40,7 +42,11 @@ impl AppState {
         if let Err(err) = agents.reload_external() {
             log::warn!("load external agents failed: {err}");
         }
-        let computer_state = Arc::new(crate::agents::computer::ComputerState::new(&agents));
+        let platform_auth = Arc::new(crate::platform_auth::PlatformAuthManager::new());
+        let computer_state = Arc::new(crate::agents::computer::ComputerState::new(
+            &agents,
+            platform_auth.clone(),
+        ));
         crate::tools::builtin::register_computer_tools(&tools, computer_state.clone());
         let mut extension_registry = ExtensionRegistry::new();
         crate::extensions::register_builtin_extensions(&mut extension_registry);
@@ -52,6 +58,7 @@ impl AppState {
             skills,
             agents,
             computer_state,
+            platform_auth,
             task_board_store,
             extensions: Arc::new(extension_registry),
             cancels: Mutex::new(HashMap::new()),

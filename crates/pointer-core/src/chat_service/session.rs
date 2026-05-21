@@ -54,6 +54,12 @@ pub async fn run_chat(
     )
     .await;
 
+    if let Err(e) =
+        crate::token_usage_queue::flush_pending_reports(&state.platform_auth).await
+    {
+        log::warn!("token_usage_queue: flush after chat failed: {e}");
+    }
+
     state.cancels.lock().remove(&conversation_id);
 
     if let Err(err) = &result {

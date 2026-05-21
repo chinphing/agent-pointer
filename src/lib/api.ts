@@ -76,3 +76,20 @@ export const setComputerConversationMonitor = api.setComputerConversationMonitor
 export const loadConversations = api.loadConversations
 export const saveConversations = api.saveConversations
 export const onStream = api.onStream
+
+export type PlatformSessionView = import('./tauri').PlatformSessionView
+export const getPlatformSession = isTauriRuntime()
+  ? tauriApi.getPlatformSession
+  : webApi.getPlatformSession
+export const openPlatformLogin = isTauriRuntime()
+  ? tauriApi.openPlatformLogin
+  : webApi.openPlatformLogin
+export const refreshPlatformSession = isTauriRuntime()
+  ? tauriApi.refreshPlatformSession
+  : webApi.refreshPlatformSession
+export const logoutPlatform = isTauriRuntime()
+  ? tauriApi.logoutPlatform
+  : webApi.logoutPlatform
+export const loadPlatformSessionFromKeyring = isTauriRuntime()
+  ? tauriApi.loadPlatformSessionFromKeyring
+  : webApi.loadPlatformSessionFromKeyring

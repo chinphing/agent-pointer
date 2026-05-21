@@ -1,3 +1,4 @@
+use crate::platform_auth::SharedPlatformAuth;
 use reqwest::multipart;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -136,6 +137,7 @@ struct AnnotateAllResponse {
 pub struct AnnotateClient {
     client: Client,
     base_url: String,
+    platform_auth: Option<SharedPlatformAuth>,
 }
 
 impl AnnotateClient {
@@ -149,6 +151,13 @@ impl AnnotateClient {
     /// # Arguments
     /// * `base_url` - The base URL of the annotation service.
     pub fn with_base_url(base_url: &str) -> Result<Self, AnnotateError> {
+        Self::with_base_url_and_auth(base_url, None)
+    }
+
+    pub fn with_base_url_and_auth(
+        base_url: &str,
+        platform_auth: Option<SharedPlatformAuth>,
+    ) -> Result<Self, AnnotateError> {
         let client = Client::builder()
             .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECONDS))
             .build()
@@ -157,6 +166,7 @@ impl AnnotateClient {
         Ok(Self {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
+            platform_auth,
         })
     }
 
@@ -230,10 +240,20 @@ impl AnnotateClient {
 
         let url = format!("{}/api/v1/annotate/all", self.base_url);
         let t = Instant::now();
-        let response = self
-            .client
-            .post(&url)
-            .multipart(form)
+        let mut req = self.client.post(&url).multipart(form);
+        if let Some(auth) = &self.platform_auth {
+            match auth.ensure_access_token().await {
+                Ok(token) => {
+                    req = req.header("Authorization", format!("Bearer {token}"));
+                }
+                Err(e) => {
+                    return Err(AnnotateError::Network(format!(
+                        "platform login required: {e}"
+                    )));
+                }
+            }
+        }
+        let response = req
             .send()
             .await
             .map_err(|e| AnnotateError::Network(e.to_string()))?;

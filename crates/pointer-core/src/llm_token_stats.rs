@@ -1,5 +1,7 @@
 //! Per-conversation LLM usage from chat/completions `usage` (streaming + non-stream).
 
+use crate::token_usage_queue;
+
 /// One API `usage` snapshot (normalized to u32; missing fields treated as 0).
 #[derive(Debug, Clone, Default)]
 pub struct LlmUsageSnapshot {
@@ -113,13 +115,15 @@ impl ConversationLlmStats {
 pub(crate) struct ChatLlmTokenSession {
     pub stats: ConversationLlmStats,
     conversation_id: String,
+    model_name: Option<String>,
 }
 
 impl ChatLlmTokenSession {
-    pub(crate) fn new(conversation_id: String) -> Self {
+    pub(crate) fn new(conversation_id: String, model_name: Option<String>) -> Self {
         Self {
             stats: ConversationLlmStats::default(),
             conversation_id,
+            model_name,
         }
     }
 }
@@ -127,5 +131,12 @@ impl ChatLlmTokenSession {
 impl Drop for ChatLlmTokenSession {
     fn drop(&mut self) {
         self.stats.log_summary(&self.conversation_id);
+        if let Err(e) = token_usage_queue::enqueue_from_stats(
+            &self.stats,
+            &self.conversation_id,
+            self.model_name.clone(),
+        ) {
+            log::warn!("token_usage_queue: enqueue on session end failed: {e}");
+        }
     }
 }

@@ -63,7 +63,13 @@ pub(super) async fn run_chat_inner(
         }
     }
     let provider = OpenAIProvider::new(settings.clone(), api_key);
-    let mut llm_token_session = ChatLlmTokenSession::new(conversation_id.to_string());
+    let model_name = if settings.model.trim().is_empty() {
+        None
+    } else {
+        Some(settings.model.clone())
+    };
+    let mut llm_token_session =
+        ChatLlmTokenSession::new(conversation_id.to_string(), model_name);
 
     let t_compress = Instant::now();
     crate::context_compression::maybe_compress_history(

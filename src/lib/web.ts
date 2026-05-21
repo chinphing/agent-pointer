@@ -157,6 +157,30 @@ export async function saveConversations(conversations: Conversation[]): Promise<
   await request('/api/conversations', { method: 'PUT', body: JSON.stringify(conversations) })
 }
 
+export interface PlatformSessionView {
+  logged_in: boolean
+  expires_at?: number | null
+  user_nickname?: string | null
+}
+
+export async function getPlatformSession(): Promise<PlatformSessionView> {
+  return { logged_in: false }
+}
+
+export async function openPlatformLogin(): Promise<void> {
+  throw new Error('Web 端平台登录请使用桌面客户端')
+}
+
+export async function refreshPlatformSession(): Promise<PlatformSessionView> {
+  return { logged_in: false }
+}
+
+export async function logoutPlatform(): Promise<void> {}
+
+export async function loadPlatformSessionFromKeyring(): Promise<boolean> {
+  return false
+}
+
 export async function onStream(handler: (e: StreamEvent) => void, conversationId = 'global'): Promise<() => void> {
   let source: EventSource | null = null
   let stopped = false

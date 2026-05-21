@@ -118,3 +118,29 @@ export async function saveConversations(conversations: Conversation[]): Promise<
 export async function onStream(handler: (e: StreamEvent) => void): Promise<UnlistenFn> {
   return await listen<StreamEvent>(STREAM_EVENT, ev => handler(ev.payload))
 }
+
+export interface PlatformSessionView {
+  logged_in: boolean
+  expires_at?: number | null
+  user_nickname?: string | null
+}
+
+export async function getPlatformSession(): Promise<PlatformSessionView> {
+  return await invoke<PlatformSessionView>('get_platform_session')
+}
+
+export async function openPlatformLogin(): Promise<void> {
+  await invoke('open_platform_login')
+}
+
+export async function refreshPlatformSession(): Promise<PlatformSessionView> {
+  return await invoke<PlatformSessionView>('refresh_platform_session')
+}
+
+export async function logoutPlatform(): Promise<void> {
+  await invoke('logout_platform')
+}
+
+export async function loadPlatformSessionFromKeyring(): Promise<boolean> {
+  return await invoke<boolean>('load_platform_session_from_keyring')
+}

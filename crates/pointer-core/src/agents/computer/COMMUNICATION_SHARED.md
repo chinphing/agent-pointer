@@ -19,7 +19,7 @@ Older desktop turns are stripped — use **only** the current **`[CUR_SCREEN]`**
 | **`[Zoom bottom after action]`** | Bottom strip crop (dock / taskbar) | **Location** overlay frame pick | Bottom-band targets |
 | **`[Zoom pointer after action]`** | **4×** annotated crop around pointer | **Location** overlay frame pick | Near-pointer targets; small digits |
 
-**Also included (text, not an image slot):** **Pointer position** + **Overlay reference bboxes** — **every** overlay index with session-scale corner/center coordinates for **Location** line **3** geometry. Indices are **anchors only** — final tools use **(x,y)**.
+**Also included (text, not an image slot):** **Pointer position** + **Overlay reference bboxes** — **every** overlay index as **`R: (left, top, right, bottom)`** (session integers) for **Location** line **3** geometry. Indices are **anchors only** — final tools use **(x,y)**.
 
 **Rule:** Every visual claim in **`thoughts`** must cite **`On [slot name]:`**. **Forbidden** to describe UI from task text without reading the slot.
 
@@ -34,7 +34,7 @@ Each printed **index** pairs with **exactly one bbox** when **both** hold:
 
 Labels follow **fixed enumeration** on the current frame (**1** = first region, **2** = second, …). **Do not** re-sort or invent numbers.
 
-**Overlay vs coordinates:** Digits label bboxes — use them as **reference index R** only. Lookup corner/center in **Overlay reference bboxes** row **R**; compute **(x,y)**; call **`click_at`** / **`type_text_at`**. Labels **reset every turn**.
+**Overlay vs coordinates:** Digits on images label bboxes — use them only to pick **reference index R**. **All numeric coordinates** (**`(left, top, right, bottom)`**, anchor **(xa,ya)**, final **(x,y)**) **must be looked up** in the **`Overlay reference bboxes`** text under **`[CUR_SCREEN]`** — **forbidden** to infer **(x,y)** from the image without quoting that row. Then call **`click_at`** / **`type_text_at`**. Labels **reset every turn**.
 
 ---
 
@@ -49,7 +49,7 @@ Labels follow **fixed enumeration** on the current frame (**1** = first region, 
 
 **Location line 2 (three steps):** digit↔bbox pairing + bbox **W×H** → **band|text|fill|size** facts → relative position vs landmark (words only). **Recheck R2** uses the same four fields. Follow **B2 Visual facts** in communication rules.
 
-**Location line 3:** anchor (5) + direction (8) or **`on anchor`** → copy integers from **Overlay reference bboxes** row **R** → offset → arithmetic → **`therefore (x,y) ≈ (X, Y)`** (non-negative integers).
+**Location line 3:** **find row R in `Overlay reference bboxes`** → copy **`(L,T,R,B)`** → anchor (5) + direction (8) or **`on anchor`** → derive **(xa,ya)** → offset → arithmetic → **`therefore (x,y) ≈ (X, Y)`** (non-negative integers).
 
 ---
 

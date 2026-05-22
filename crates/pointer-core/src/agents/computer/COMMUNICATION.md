@@ -34,7 +34,7 @@ Each desktop reply is **one** JSON object: string fields **`thoughts`**, **`head
 - Line **3** **(x,y)** before line **2** **reference index R** complete.
 - **`Tool call`** before **`Location recap`** cites analysis from **Location**.
 - **`at computed (x,y)`** or any coordinate placeholder on **Tool route** line **2**.
-- **Location** line **3** **`therefore (x,y)`** before **Overlay reference bboxes** row **R** anchor literals are quoted in Analysis.
+- **Location** line **3** **`therefore (x,y)`** before **`Overlay reference bboxes row R: (L, T, R, B) = …`** is quoted (lookup the text list first).
 
 **Required pattern (Location line 2 example):**
 
@@ -55,7 +55,7 @@ Each desktop reply is **one** JSON object: string fields **`thoughts`**, **`head
 **`Location:`** line **1** — **no** overlay numerals (including in **`neighbors:`**).
 Overlay **`index`** may appear in **`Location:`** line **2** (**reference index R**) and **`Tool route:`** recap — **never** as the tool click target.
 
-**`[CUR_SCREEN]`** also includes **Pointer position** and **Overlay reference bboxes** (every overlay index with corner/center coordinates, session scale) — used in **Location** line **3**.
+**`[CUR_SCREEN]`** also includes **Pointer position** and **`Overlay reference bboxes`** (text list: every index as **`R: (left, top, right, bottom)`**, session scale). **All coordinate math for tools must look up row R in this list** — images show layout; **numbers come only from `Overlay reference bboxes`**.
 
 ### B2) Visual facts (Location + Recheck)
 
@@ -103,7 +103,26 @@ If **`Location:`** is **`n/a`** → **omit** stage **6** entirely; still run **`
 
 ## Tool geometry — coordinates-only (all turns)
 
-**All canvas actions use coordinate methods at (x,y) from Location line 3** (or pointer-only / off-frame tools below). Overlay index numbers are **reference anchors only** — lookup in **Overlay reference bboxes** for Location math; **never** pass index / indices / from_index / to_index in tool_args.
+**All canvas actions use coordinate methods at (x,y) from Location line 3** (or pointer-only / off-frame tools below). Overlay index numbers are **reference anchors only** — **never** pass index / indices / from_index / to_index in tool_args.
+
+### Coordinate source — lookup **Overlay reference bboxes** only
+
+**Rule:** Every numeric coordinate used in **`Location:`** line **3**, **`Recheck coordinates:`**, and **`tool_args` `x`/`y`** must come from the **`Overlay reference bboxes`** text block in the **current** **`[CUR_SCREEN]`** — not from guessing pixels on images, not from overlay digit positions as click points, not from memory or a prior turn.
+
+| Step | Where | What to do |
+|------|--------|------------|
+| 1 | Overlay frame image | Pick **reference index R** (digit↔bbox pairing only — **no** click numbers yet) |
+| 2 | **`Overlay reference bboxes`** (text under **`[CUR_SCREEN]`**) | **Find row `R:`** — copy **`(left, top, right, bottom)`** integers exactly |
+| 3 | **Location** line **3** | Derive **anchor (xa,ya)** from that row → offset → **`therefore (x,y) ≈ (X, Y)`** |
+
+**Mandatory phrase on Location line 3 (I2):** **`Overlay reference bboxes row R: (L, T, R, B) = (…, …, …, …)`** — proves you looked up the list.
+
+**Forbidden:**
+
+- **`therefore (x,y)`** or **`tool_args` `x`/`y`** without quoting **`Overlay reference bboxes row R`** on the same turn.
+- Using **R** not listed in **`Overlay reference bboxes`** (no row → pick another **R** or revise placement).
+- Treating overlay **digit** screen position as **`(x,y)`** — digits label bboxes; numbers live only in **`Overlay reference bboxes`**.
+- Estimating **(x,y)** from full-screen / zoom images without copying row **R** from the text list.
 
 **Allowed — coordinate methods:**  
 **`mouse`:** `click_at`, `double_click_at`, `right_click_at`, `hover_at`, `drag_from_to_at` · **`composite_action`:** `type_text_at` · **`modified_click`:** `modified_click_at`.
@@ -387,7 +406,9 @@ Next:
 
 **Input:** **Next** line **2** only (paraphrase — do not paste verbatim).
 
-**Overlay reference bboxes** (text under **`[CUR_SCREEN]`**) lists **every** index with corner/center coordinates (session scale). Lookup **R** there for Location math — **forbidden** any **`*_index`** tool method.
+**Coordinate lookup (mandatory):** Open the **`Overlay reference bboxes`** section under **`[CUR_SCREEN]`** and **find row `R:`** before any **`(xa,ya)`** or **`(x,y)`** arithmetic. That text list is the **only** source of numeric bbox coordinates this turn.
+
+**Overlay reference bboxes** lists **every** index as **`R: (left, top, right, bottom)`** (session integers; origin top-left). **Forbidden:** **(x,y)** from images alone; **forbidden** any **`*_index`** tool method.
 
 #### Steps (strict order — 3 lines when overlay applies)
 
@@ -397,7 +418,7 @@ Next:
 |------|------|---------------------|---------------------------|-------|
 | L1 | **1 Placement→frame** | **`On [Screen after action]:`** bearing → **`therefore analyze on [overlay frame]`**; target traits — **no** overlay digits | — | Screen after → overlay |
 | L2 | **2 Reference + layout proof** | **Step 1 → Step 2 → Step 3** (table below) — all **`On [overlay frame]:`** | **`reference index R`** | Overlay frame |
-| L3 | **3 Coordinate geometry** | **anchor (5)** → **direction (8)** → **bbox list quote** → **offset** → **arithmetic** — only after line **2** Step **3** | **`therefore (x,y) ≈ (X, Y)`** | **`[Annotated after action]`** + **Overlay reference bboxes** row **R** |
+| L3 | **3 Coordinate geometry** | **anchor (5)** → **direction (8)** → **quote row R rect** → **derive (xa,ya)** → **offset** → **arithmetic** — only after line **2** Step **3** | **`therefore (x,y) ≈ (X, Y)`** | **`[Annotated after action]`** + **Overlay reference bboxes** row **R** |
 
 **Non-overlay:** **`Location: n/a`** — skip lines **1–3**.
 
@@ -427,7 +448,17 @@ Read **`On [overlay frame]:`** then choose **R** from **Overlay reference bboxes
 
 **Rule:** **R** labels the bbox the digit is flush on — trace digit → bbox on the overlay frame. **R** is **never** the click target; **(x,y)** on line **3** is.
 
-**Line 3 anchor (after line 2 Step 3):** Pick **exactly one** of the **five** reference points on row **R** (**center**, **top-left**, **top-right**, **bottom-left**, **bottom-right**) **nearest** the sub-target. Copy **(xa, ya)** from that point in **Overlay reference bboxes**. If the sub-target **coincides** with that point → direction **`on anchor`**, **`offset none`**. Otherwise → **direction** toward the sub-target + **offset** (smallest **Δx/Δy** that reach the sub-target).
+**Line 3 anchor (after line 2 Step 3):** Quote row **R** as **`(L, T, R, B)`** from **Overlay reference bboxes**. Pick **exactly one** of the **five** anchor labels **nearest** the sub-target; **derive (xa, ya)** from the rect (do not invent numbers):
+
+| Anchor label | **(xa, ya)** from **`(L, T, R, B)`** |
+|--------------|--------------------------------------|
+| **top-left corner** | **(L, T)** |
+| **top-right corner** | **(R, T)** |
+| **bottom-left corner** | **(L, B)** |
+| **bottom-right corner** | **(R, B)** |
+| **center point** | **((L+R)/2, (T+B)/2)** — round to integers |
+
+If the sub-target **coincides** with that anchor → direction **`on anchor`**, **`offset none`**. Otherwise → **direction** toward the sub-target + **offset** (smallest **Δx/Δy** that reach the sub-target).
 
 **Forbidden:** **`anchor = center point`** when a **corner** on row **R** is visibly **closer** to the sub-target than center (per line **2** Step **3** placement).
 
@@ -435,24 +466,16 @@ Read **`On [overlay frame]:`** then choose **R** from **Overlay reference bboxes
 
 **Prerequisite:** line **2** finished **Step 1** (digit↔bbox + bbox size), **Step 2** (target size/traits), **Step 3** (relative position words).
 
-**Order is fixed:** **anchor (5) → direction (8) → copy row R corners → offset → arithmetic.**  
+**Order is fixed:** **anchor (5) → direction (8) → quote row R `(L,T,R,B)` → derive (xa,ya) → offset → arithmetic.**  
 **Forbidden:** **I2/I3** numbers before **anchor + direction** are named from line **2** Step **3**.
 
 **Screen axes (all line 3 math):** origin **top-left**; **+Δx = right**; **+Δy = down**.
 
-##### Class A — Anchor position (exactly **5**, from row **R** only)
+##### Class A — Anchor position (exactly **5**, derived from row **R** rect only)
 
-**I1** uses explicit anchor labels; **I2** copies the matching corner/center from **Overlay reference bboxes** row **R**.
+**I1** names the anchor label; **I2** quotes **`Overlay reference bboxes row R: (L, T, R, B)`** then **`anchor (xa, ya) = …`** using the table above (integer literals from the inject row only).
 
-| # | **I1** anchor label (write in Analysis) | **I2** copy from row **R** |
-|---|----------------------------------------|----------------------------------|
-| 1 | **center point** | **center** |
-| 2 | **top-left corner** | **top-left** |
-| 3 | **top-right corner** | **top-right** |
-| 4 | **bottom-left corner** | **bottom-left** |
-| 5 | **bottom-right corner** | **bottom-right** |
-
-**Pick anchor:** the **one of five** on row **R** **nearest** the sub-target (e.g. sub-target at bbox **bottom-left** → **anchor = bottom-left corner**; sub-target at bbox center → **anchor = center point**).
+**Pick anchor:** the **one of five** **nearest** the sub-target (e.g. sub-target at bbox **bottom-left** → **anchor = bottom-left corner** → **(xa,ya)=(L,B)**).
 
 **Forbidden:** **I1** anchor label not in the table above. **Forbidden:** **I1** says bbox **center** while **anchor = … corner** without rewriting placement.
 
@@ -502,7 +525,7 @@ Line **3** must **copy row R after I1** — same order as a proof:
 | Step | Write in Analysis | Required |
 |------|-------------------|----------|
 | **I1 Anchor + direction** | Echo line **2** Step **3** bearing; pick **anchor** = one of **5**; **direction** = one of **8** or **`on anchor`** (must match Step **3**) | **Mandatory first on line 3** — no coordinates yet |
-| **I2 Bbox list quote** | **`Overlay reference bboxes row R <top-left|…|center>:`** **(xa, ya) = (…, …)** — copy **integer literals** from row **R** only | **Mandatory** — **forbidden** to skip |
+| **I2 Rect + anchor** | **`Overlay reference bboxes row R: (L, T, R, B) = (…, …, …, …)`** — copy **four integers** from row **R**; then **`anchor (xa, ya) = (…, …)`** from anchor table | **Mandatory** — **forbidden** to skip |
 | **I3 Offset** | **Δx, Δy** signs from **direction** table; magnitudes from layout (or **`none`** if **`on anchor`**) | **Mandatory** — cite **direction** label |
 | **I4 Arithmetic** | **(X, Y) = (xa ± Δx, ya ± Δy)** — show evaluated result | **Mandatory** before Conclusion |
 | **I5 Round** | Round **(X, Y)** to **non-negative integers** (no decimals in Conclusion or **`tool_args`**) | **Mandatory** |
@@ -515,11 +538,11 @@ Line **3** must **copy row R after I1** — same order as a proof:
 
 **Forbidden:** numeric **Δx/Δy** before **I1** states inside/outside **R** and bearing (left/right/above/below vs anchor).
 
-**Forbidden:** inventing **(X, Y)** from the image without copying **(xa, ya)** from **Overlay reference bboxes** row **R** first.
+**Forbidden:** inventing **(X, Y)** or **(xa, ya)** without quoting row **R** **`(L, T, R, B)`** first.
 
 **Forbidden:** **`therefore (x,y) ≈ (520.0, 840.0)`** or float literals — use **`(520, 840)`** only.
 
-**Bbox list discipline:** row **R** uses **integer** corner/center values — copy those integers into **I2**, then integer arithmetic for **(X, Y)**.
+**Bbox list discipline:** row **R** is **four integers** **`(left, top, right, bottom)`** — copy into **I2**, derive **(xa, ya)**, then integer arithmetic for **(X, Y)**.
 
 #### Line 2 template
 
@@ -541,7 +564,7 @@ Line **3** must **copy row R after I1** — same order as a proof:
    (line 2 Steps 1–3 complete)
    Bearing check: Step 3 <…>; sub-target <quadrant vs R> — consistent;
    anchor = <center point | … corner>; direction from anchor = <8-way | on anchor>;
-   Overlay reference bboxes row <R> <field>: (xa, ya) = (…) from Overlay reference bboxes;
+   Overlay reference bboxes row <R>: (L, T, R, B) = (…, …, …, …); anchor (xa, ya) = (…, …);
    offset Δx=…, Δy=… — direction <label> | none;
    arithmetic → (<X>, <Y>).
    Conclusion: therefore (x,y) ≈ (<X>, <Y>) — integers only.
@@ -551,7 +574,7 @@ Line **3** must **copy row R after I1** — same order as a proof:
 
 ```text
 3 Analysis: On [Annotated after action]: sub-target ≈ center of bbox <R>;
-   Overlay reference bboxes row <R> center: (xa, ya) = (<cx>, <cy>);
+   Overlay reference bboxes row <R>: (L, T, R, B) = (…, …, …, …); anchor (xa, ya) = (<cx>, <cy>) from center rule;
    offset none; arithmetic → (<cx>, <cy>).
    Conclusion: therefore (x,y) ≈ (<cx>, <cy>).
 ```
@@ -560,7 +583,7 @@ Line **3** must **copy row R after I1** — same order as a proof:
 
 ```text
 3 Analysis: On [Annotated after action]: sub-target <placement vs bbox R>;
-   Overlay reference bboxes row <R> <corner>: (xa, ya) = (<literal x>, <literal y>);
+   Overlay reference bboxes row <R>: (L, T, R, B) = (…, …, …, …); anchor (xa, ya) = (<literal x>, <literal y>);
    offset Δx=<signed>, Δy=<signed>; arithmetic → (<X>, <Y>).
    Conclusion: therefore (x,y) ≈ (<X>, <Y>).
 ```
@@ -581,7 +604,7 @@ Location:
 3 Analysis:
    Bearing check: Step 3 below-right outside R; sub-target outside R down-right — consistent;
    anchor = bottom-right corner; direction from anchor = down-right.
-   Overlay reference bboxes row 113 bottom-right: (xa, ya) = (180, 720) from Overlay reference bboxes;
+   Overlay reference bboxes row 113: (L, T, R, B) = (…, …, 180, 720); anchor (xa, ya) = (180, 720);
    offset Δx=+200, Δy=+45 — direction down-right; arithmetic → (380, 765).
    Conclusion: therefore (x,y) ≈ (380, 765).
 ```
@@ -600,7 +623,7 @@ Location:
 3 Analysis: On [Annotated after action]: sub-target bottom-left inside bbox 4;
    Bearing check: Step 3 left portion inside R; sub-target bottom-left quadrant — consistent;
    anchor = bottom-left corner; direction from anchor = right.
-   Overlay reference bboxes row 4 bottom-left: (xa, ya) = (480, 860);
+   Overlay reference bboxes row 4: (L, T, R, B) = (480, …, …, 860); anchor (xa, ya) = (480, 860);
    offset Δx=+40, Δy=-20 — direction right; arithmetic → (520, 840).
    Conclusion: therefore (x,y) ≈ (520, 840).
 ```
@@ -609,9 +632,10 @@ Location:
 
 - **INV-L0:** Analysis before **`reference index R`** / **`therefore (x,y)`**.
 - **INV-L1:** Line **1** — no overlay numerals.
-- **INV-L2:** **R** must appear in **Overlay reference bboxes**.
-- **INV-L3:** Line **3** must include **I2 bbox list quote** — **(xa, ya)** literals copied from row **R** before **I4 arithmetic** / **`therefore (x,y)`**.
-- **INV-L4:** **Forbidden** inventing **(X, Y)** without row **R** lookup on the same line.
+- **INV-L2:** **R** must appear as a row in **`Overlay reference bboxes`** (current **`[CUR_SCREEN]`** text) — **forbidden** using an index not in that list.
+- **INV-L3:** Line **3** must include **I2** — **`Overlay reference bboxes row R: (L, T, R, B) = …`** copied from the list, then derived **(xa, ya)**, before **I4** / **`therefore (x,y)`**.
+- **INV-L4:** **Forbidden** inventing **(X, Y)** or **(L,T,R,B)** without looking up **`Overlay reference bboxes`** on the same line.
+- **INV-L4b:** **Forbidden** final **`(x,y)`** from screenshot pixel estimates — numbers must trace to **`Overlay reference bboxes row R`**.
 - **INV-L5:** **Forbidden** all **`*_index`** tools — **(x,y)** coordinate methods only.
 - **INV-L6:** Line **3** **anchor** = **nearest** of the **five** row **R** reference points to the sub-target.
 - **INV-L6b:** **`offset none`** only when **I1** proves sub-target **coincides with** that nearest anchor point.
@@ -664,6 +688,10 @@ Tool route: type_text_at_index(125) …
 
 3 Conclusion: therefore (x,y) ≈ (189.1, 300.0).
 (forbidden — final (x,y) must be integers, e.g. (189, 300))
+
+3 Analysis: On [Annotated after action]: sub-target on OK pill; anchor = center; offset none;
+   arithmetic → (520, 840). Conclusion: therefore (x,y) ≈ (520, 840).
+(forbidden — no **Overlay reference bboxes row R: (L,T,R,B) = …** lookup; cannot infer (x,y) from image alone)
 ```
 
 ---
@@ -787,11 +815,11 @@ Recheck coordinates (after revise):
 
 #### Triple-lock (coordinates must match everywhere)
 
-When **Location** line **3** concludes **`therefore (x,y) ≈ (…, …)`**, the **same numeric literals** must appear in **all four** places:
+When **Location** line **3** concludes **`therefore (x,y) ≈ (…, …)`**, the **same numeric literals** (all traced to **`Overlay reference bboxes row R`**) must appear in **all four** places:
 
 | # | Where | Must contain |
 |---|--------|--------------|
-| 1 | **Location** line **3** **`Conclusion:`** | **I2** row **R** **(xa,ya)** integers, **I4** → **`therefore (x,y) ≈ (X, Y)`** — same ints after **Recheck** |
+| 1 | **Location** line **3** **`Conclusion:`** | **I2** **`Overlay reference bboxes row R: (L,T,R,B)=…`** then **(xa,ya)** → **`therefore (x,y) ≈ (X, Y)`** — same ints after **Recheck** |
 | 2 | **Recheck coordinates** | Both checks **`proceed`** (or revised block done) |
 | 3 | **Tool route** line **1** **`Location recap:`** | **`therefore (x,y) ≈ (X, Y)`** — final integers |
 | 4 | **Tool route** line **2** | **`x: X; y: Y`** (plus **`goal`**, **`action`**) |

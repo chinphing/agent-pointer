@@ -4,10 +4,10 @@ Use for **one-call combos**: click+type, or focus-then-type. Prefer this over **
 
 **Call priority:** Use **composite_action** when **`Next:`** **`this turn:`** requires **typing literal `text` into a field**. For **click / press / toggle / icon-only** steps, use **`mouse:click_at`** per **`Tool route:`** — not **`type_text_at_*`**.
 
-**`*_index` methods are disabled this session.** Use coordinate methods only (see **Tool geometry** in communication rules).
+**`*_index` methods are disabled this session.** Use coordinate methods only; **`x`/`y`** from **`Overlay reference bboxes`** lookup in **Location** line **3** (see **Coordinate source** in communication rules).
 
 **Coordinate methods:**
-- **`composite_action:type_text_at`** (`goal`, `action`, `x`, `y`, `text`, optional `clear_first`, optional `auto_enter`) — Clicks at **Location** **(x,y)** then types. **`Pointer:`** must judge click aim on **`[Zoom pointer before action]`** (same as **`click_at`**), not **`n/a`**. If the field already has focus (cursor visible), use **`type_text_at_focused`** instead. `clear_first`: select all then type. `auto_enter`: press Enter after typing.
+- **`composite_action:type_text_at`** (`goal`, `action`, `x`, `y`, `text`, optional `clear_first`, optional `auto_enter`) — Clicks at **Location** **(x,y)** (must trace to **`Overlay reference bboxes row R`**) then types. **`Pointer:`** must judge click aim on **`[Zoom pointer before action]`** (same as **`click_at`**), not **`n/a`**. If the field already has focus (cursor visible), use **`type_text_at_focused`** instead. `clear_first`: select all then type. `auto_enter`: press Enter after typing.
 
 **Focused field (no new aim):**
 - **`composite_action:type_text_at_focused`** (`goal`, `action`, `text`, optional `clear_first`, optional `auto_enter`) — Types into the **currently focused** input (no click). Use when focus is already in the field.

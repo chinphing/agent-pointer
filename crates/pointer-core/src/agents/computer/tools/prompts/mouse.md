@@ -2,7 +2,7 @@
 
 Use for a single mouse action: click, double-click, right-click, hover, drag, scroll at the current cursor, or a small offset move.
 
-**`*_index` methods are disabled this session.** Use **coordinate methods** at **`Location:`** line **3** **`(x,y)`** (see **Tool geometry** in communication rules). Overlay digits are reference anchors only — **never** **`index`** in **`tool_args`**.
+**`*_index` methods are disabled this session.** Use **coordinate methods** at **`Location:`** line **3** **`(x,y)`** — integers must be traced to **`Overlay reference bboxes row R`** in **`[CUR_SCREEN]`** (see **Tool geometry** / **Coordinate source** in communication rules). Overlay digits pick **R** only — **never** **`index`** in **`tool_args`**; **never** click coords from image pixels without list lookup.
 
 **Call priority:** Prefer **composite_action**, **hotkey**, or **modified_click** when one call achieves the same goal with fewer steps — unless **`Next:`** / **`Tool route:`** fixes this turn as **mouse** click-only (icons/buttons).
 
@@ -25,7 +25,7 @@ Optional **`human_like`** (bool) on drag — smoothed move to start and eased dr
 
 Parameter constraints:
 - **`goal`** and **`action`** are required for all methods. **`goal`** = outcome; **`action`** = visible target (match **`Tool route:`** line **2** wording).
-- For coordinate methods: supply **`x`**, **`y`** per this session’s coordinate rules; do not reuse numbers from an older turn’s image.
+- For coordinate methods: **`x`**, **`y`** must match **Location** line **3** integers from **`Overlay reference bboxes`** lookup this turn; do not reuse numbers from an older turn or guess from screenshots.
 
 **Optional `wait` in `tool_args`:** After successful calls (1–5 s; distinct from standalone **`wait`** tool). Heuristic: **~1–2** s for simple clicks/hovers; **~3–5** s for dialogs or heavy repaints.
 

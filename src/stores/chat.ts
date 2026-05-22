@@ -64,6 +64,18 @@ function removeTrailingDiscardableEmptyAssistant(conv: Conversation): boolean {
   return true
 }
 
+/** After reload or stop, assistant rows must not stay `streaming`/`pending` or action buttons never appear. */
+function normalizeInterruptedAssistantStatuses(conversations: Conversation[]): void {
+  for (const conv of conversations) {
+    for (const m of conv.messages) {
+      if (m.role !== 'assistant') continue
+      if (m.status === 'streaming' || m.status === 'pending') {
+        m.status = 'done'
+      }
+    }
+  }
+}
+
 const DESKTOP_NOTICE_HIDE_MS = 5000
 const desktopNoticeHideTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
@@ -86,6 +98,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function init() {
     const list = await loadConversations().catch(() => [])
+    normalizeInterruptedAssistantStatuses(list)
     conversations.value = stripEphemeralDesktopNoticesForDisk(list)
     if (list.length === 0) newConversation()
     else currentId.value = list[0].id
@@ -584,11 +597,7 @@ export const useChatStore = defineStore('chat', () => {
         activeGeneratingMessageId.value = null
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (conv) {
-          for (const m of conv.messages) {
-            if (m.role === 'assistant' && (m.status === 'streaming' || m.status === 'pending')) {
-              m.status = 'done'
-            }
-          }
+          normalizeInterruptedAssistantStatuses([conv])
           removeTrailingDiscardableEmptyAssistant(conv)
           if (e.toolRoundsUsedTotal != null) conv.toolRoundsUsed = e.toolRoundsUsedTotal
           if (e.toolRoundsUsedSupervisorTotal != null) {
@@ -647,7 +656,14 @@ export const useChatStore = defineStore('chat', () => {
     await cancelChat(conv.id).catch(e => console.error(e))
     generating.value = false
     activeGeneratingMessageId.value = null
-    if (removeDiscardableAssistant(conv, msgId)) persist()
+    if (msgId) {
+      const row = conv.messages.find(m => m.id === msgId)
+      if (row?.role === 'assistant' && (row.status === 'streaming' || row.status === 'pending')) {
+        row.status = 'done'
+      }
+    }
+    removeDiscardableAssistant(conv, msgId)
+    persist()
   }
 
   async function abortTerminalOnly() {

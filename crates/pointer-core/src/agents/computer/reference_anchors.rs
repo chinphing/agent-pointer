@@ -5,7 +5,7 @@ use super::annotate::BoxInfo;
 use super::coord::CoordinateSystem;
 use super::screen::MonitorInfo;
 
-const INJECT_RULES_TAIL: &str = "Image-grounded analysis: every visual claim must cite **On [slot name]:**. **Overlay reference bboxes** lists every index — anchors for Location math only; **`*_index` tool methods are forbidden** — copy anchor (xa,ya), compute (x,y), use **`*_at`** tools. Follow the seven-stage **communication** rules above.";
+const INJECT_RULES_TAIL: &str = "Image-grounded analysis: cite **On [slot name]:**. **All tool (x,y) must be looked up in Overlay reference bboxes below** — find row R, copy (left,top,right,bottom), derive anchor, compute (x,y); **forbidden** pixel-guess or digit position as click; **`*_index` forbidden** — use **`*_at`**. Follow **communication** rules.";
 
 fn pointer_capture_position(
     monitor: &MonitorInfo,
@@ -45,30 +45,16 @@ fn session_xy_int(x: f32, y: f32, cw: f32, ch: f32, coord: CoordinateSystem) -> 
 }
 
 fn format_bbox_reference_row(b: &BoxInfo, cw: f32, ch: f32, coord: CoordinateSystem) -> String {
-    let tl = session_xy_int(b.x, b.y, cw, ch, coord);
-    let tr = session_xy_int(b.x + b.width, b.y, cw, ch, coord);
-    let br = session_xy_int(b.x + b.width, b.y + b.height, cw, ch, coord);
-    let bl = session_xy_int(b.x, b.y + b.height, cw, ch, coord);
-    let (ccx, ccy) = session_xy_int(
-        b.x + b.width / 2.0,
-        b.y + b.height / 2.0,
-        cw,
-        ch,
-        coord,
-    );
+    let (left, top) = session_xy_int(b.x, b.y, cw, ch, coord);
+    let (right, _) = session_xy_int(b.x + b.width, b.y, cw, ch, coord);
+    let (_, bottom) = session_xy_int(b.x, b.y + b.height, cw, ch, coord);
     format!(
-        "- index {idx}: top-left ({tlx}, {tly}); top-right ({trx}, {try_}); bottom-right ({brx}, {bry}); bottom-left ({blx}, {bly}); center ({cx}, {cy}).",
+        "- {idx}: ({left}, {top}, {right}, {bottom})",
         idx = b.index,
-        tlx = tl.0,
-        tly = tl.1,
-        trx = tr.0,
-        try_ = tr.1,
-        brx = br.0,
-        bry = br.1,
-        blx = bl.0,
-        bly = bl.1,
-        cx = ccx,
-        cy = ccy,
+        left = left,
+        top = top,
+        right = right,
+        bottom = bottom,
     )
 }
 
@@ -87,7 +73,7 @@ fn format_all_overlay_reference_bboxes(
     sorted.sort_by_key(|b| b.index);
 
     let mut lines = vec![format!(
-        "**Overlay reference bboxes** (every overlay index on this capture; {session_label}; sorted by index — lookup **reference index R** here for corner/center **(x,y)**; indices are **anchors only**, not click targets):",
+        "**Overlay reference bboxes** (lookup here for all coordinates — {session_label}; sorted by index; each row **R: (left, top, right, bottom)**; Location line 3 must copy row R from this list; indices are **anchors only**, not click targets):",
     )];
 
     if sorted.is_empty() {
@@ -214,11 +200,12 @@ mod tests {
         )
         .expect("line");
         assert!(s.contains("**Overlay reference bboxes**"));
-        assert!(s.contains("index 4:"));
-        assert!(s.contains("index 12:"));
-        assert!(s.contains("top-left"));
-        let pos_four = s.find("index 4:").expect("index 4");
-        let pos_twelve = s.find("index 12:").expect("index 12");
+        assert!(s.contains("- 4: ("));
+        assert!(s.contains("- 12: ("));
+        assert!(s.contains("450, 480, 570, 560"));
+        assert!(!s.contains("top-right"));
+        let pos_four = s.find("- 4: (").expect("index 4");
+        let pos_twelve = s.find("- 12: (").expect("index 12");
         assert!(pos_four < pos_twelve, "must sort by index: {s}");
     }
 }

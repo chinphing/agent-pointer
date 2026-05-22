@@ -21,7 +21,6 @@ export function showAnnotatedScreenAction(
   settings: ComputerUiSettings
 ): boolean {
   if (message.role !== 'assistant') return false
-  if (message.status !== 'done') return false
   if (computerSingleLead(settings)) return true
   if (settings.agentMode === 'supervisor' && messageFromComputerAgent(message)) return true
   return false

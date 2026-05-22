@@ -142,6 +142,13 @@ const isActiveGenerationMessage = computed(
   () => props.message.id === activeGeneratingMessageId.value
 )
 
+/** Copy / screenshot / raw-wire row: hide only while this row is actively streaming in the current run. */
+const showMessageActions = computed(() => {
+  if (generating.value && isActiveGenerationMessage.value) return false
+  if (props.message.status === 'pending') return false
+  return true
+})
+
 const isRunInProgress = computed(
   () =>
     isStreaming.value ||
@@ -352,7 +359,7 @@ onUnmounted(() => clearHeadlineCollapseTimer())
       <ToolCallCard v-for="tc in tools" :key="tc.id" :tool-call="tc" />
     </div>
 
-    <div v-if="message.status === 'done'" class="flex items-center gap-1 w-full min-w-0">
+    <div v-if="showMessageActions" class="flex items-center gap-1 w-full min-w-0">
       <button
         class="message-action-btn"
         :class="copied ? 'text-success' : 'text-muted hover:text-foreground'"

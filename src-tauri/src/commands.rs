@@ -166,6 +166,7 @@ pub fn preview_computer_annotated_screen(
         .cached_annotated_for_conversation(&conversation_id)
         .map(|(img, _monitor)| ComputerAnnotatedPreview {
             image_base64: pointer_core::agents::computer::screen::encode_image_to_base64(&img),
+            image_mime: pointer_core::agents::computer::screen::image_data_url_mime(&img).to_string(),
             caption: "Annotated screenshot".into(),
         })
         .ok_or_else(|| "无标注图：请先完成一次桌面注入（发消息），或确认会话ID正确。".into())

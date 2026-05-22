@@ -1,8 +1,9 @@
 //! Sub-agent session bootstrap and per-round system prompt assembly.
 
 use crate::agents::{
-    expand_agent_prompt_placeholders, rendered_communication_public_inject, AgentDef, AgentTask,
-    SessionInjectVars, DEFAULT_AGENT_ID,
+    computer_agent_body_for_tier, computer_communication_for_tier, expand_agent_prompt_placeholders,
+    rendered_communication_public_inject, AgentDef, AgentProfile, AgentTask, SessionInjectVars,
+    DEFAULT_AGENT_ID,
 };
 use crate::extensions::{BeforeMainLlmCallContext, MessageLoopPromptsAfterContext};
 use crate::models::{ChatMessage, Role, SystemPromptSections};
@@ -93,8 +94,19 @@ pub(super) fn init_sub_agent_session(
         prompts.push(hint);
     }
 
+    let computer_positioning = if def.profile == AgentProfile::Computer {
+        Some(crate::agents::computer::tools::tool_prompts::positioning_mode_for_tier(
+            state.computer_state.tier_for_conversation(conversation_id),
+        ))
+    } else {
+        None
+    };
     let tools_system_appendix =
-        crate::tools_system_appendix::generate_tools_system_appendix(&state.tools, &allowed_tools);
+        crate::tools_system_appendix::generate_tools_system_appendix_with_positioning(
+            &state.tools,
+            &allowed_tools,
+            computer_positioning,
+        );
     let tool_approval_mode = storage::load_settings()
         .map(|settings| settings.tool_approval_mode)
         .unwrap_or_else(|_| "auto".into());
@@ -114,6 +126,7 @@ pub(super) fn init_sub_agent_session(
         agent_id: None,
         agent_name: None,
         agent_trace: None,
+        image_slot_labels: None,
         images_base64: None,
         computer_round_screen_rel_path: None,
     }];
@@ -164,6 +177,19 @@ pub(super) async fn prepare_sub_agent_round_prompts(
 
     let t = Instant::now();
     let mut cacheable = base_prompts.to_vec();
+    if def.profile == AgentProfile::Computer {
+        let tier = state.computer_state.tier_for_conversation(conversation_id);
+        let tier_slice = format!(
+            "{}\n\n---\n\n{}",
+            computer_communication_for_tier(tier),
+            computer_agent_body_for_tier(tier)
+        );
+        if cacheable.len() > 1 {
+            cacheable.insert(1, tier_slice);
+        } else {
+            cacheable.push(tier_slice);
+        }
+    }
     if !tools_system_appendix.is_empty() {
         cacheable.push(tools_system_appendix.to_string());
     }

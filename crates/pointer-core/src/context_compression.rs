@@ -361,6 +361,7 @@ fn new_summary_user_message(body: String) -> ChatMessage {
         agent_id: None,
         agent_name: None,
         agent_trace: None,
+        image_slot_labels: None,
         images_base64: None,
         computer_round_screen_rel_path: None,
     }
@@ -456,6 +457,7 @@ async fn compress_history_inner(
         agent_id: None,
         agent_name: None,
         agent_trace: None,
+        image_slot_labels: None,
         images_base64: None,
         computer_round_screen_rel_path: None,
     };
@@ -660,7 +662,8 @@ mod tests {
             agent_id: None,
             agent_name: None,
             agent_trace: None,
-            images_base64: None,
+            image_slot_labels: None,
+        images_base64: None,
             computer_round_screen_rel_path: None,
         }
     }

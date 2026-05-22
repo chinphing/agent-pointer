@@ -176,8 +176,8 @@ pub fn screenshot_monitor_by_id(monitor_id: &str) -> Result<ScreenshotPacket> {
 /// the same coordinate space as synthetic clicks—no separate Retina scale factor.
 ///
 /// # Platform notes
-/// Uses [`xcap`] (Windows WGC omits the hardware cursor). Synthetic pointer is drawn in [`super::screen_overlay`].
-/// The synthetic pointer is drawn afterward in [`super::screen_overlay`]. Linux under **Wayland**
+/// Uses [`xcap`] (Windows WGC omits the hardware cursor). Synthetic pointer is drawn in [`screen_overlay`].
+/// Linux under **Wayland**
 /// may be limited depending on compositor and permissions; **X11** is generally supported. If the
 /// cursor position cannot be read (e.g. input backend unavailable), the **primary display** is used.
 ///
@@ -385,6 +385,26 @@ fn rgba_to_jpeg(rgba: image::RgbaImage, quality: u8) -> Result<Vec<u8>> {
     )
     .map_err(|e| anyhow!("JPEG encode failed: {}", e))?;
     Ok(buf)
+}
+
+/// MIME type for OpenAI-style `data:` URLs from encoded image bytes.
+pub fn image_data_url_mime(bytes: &[u8]) -> &'static str {
+    if bytes.len() >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF {
+        "image/jpeg"
+    } else if bytes.len() >= 8 && &bytes[0..8] == [137, 80, 78, 71, 13, 10, 26, 10] {
+        "image/png"
+    } else {
+        "image/jpeg"
+    }
+}
+
+/// MIME type after base64 decode (falls back to PNG on decode error).
+pub fn image_data_url_mime_from_base64(b64: &str) -> &'static str {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    STANDARD
+        .decode(b64)
+        .map(|raw| image_data_url_mime(&raw))
+        .unwrap_or("image/png")
 }
 
 /// Encode raw image bytes to a base64 string.

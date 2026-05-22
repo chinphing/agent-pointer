@@ -1,6 +1,6 @@
 //! One sub-agent `stream_chat` round: spawn provider task, drain events, await join outcome.
 
-use crate::agents::{AgentDef, AgentTask};
+use crate::agents::{AgentDef, AgentProfile, AgentTask};
 use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::{effective_max_tokens, ChatMessage, StreamEvent, SystemPromptSections};
 use crate::provider::{OpenAIProvider, ProviderEvent};
@@ -48,7 +48,14 @@ pub(super) async fn run_sub_agent_stream_round(
     system_prompts: SystemPromptSections,
 ) -> Result<SubAgentStreamOutcome> {
     let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
-    let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
+    let round_settings = if def.profile == AgentProfile::Computer {
+        state
+            .computer_state
+            .apply_round_settings(conversation_id, &provider.settings)
+    } else {
+        provider.settings.clone()
+    };
+    let prov = OpenAIProvider::new(round_settings, provider.api_key.clone());
     let cancel_clone = cancel.clone();
     let dump_lbl = format!("{}_{}_sub_{}", conversation_id, message_id, task.id);
     let system_clone = system_prompts;
@@ -113,6 +120,7 @@ pub(super) async fn run_sub_agent_stream_round(
                     agent_id: None,
                     agent_name: None,
                     agent_trace: None,
+                    image_slot_labels: None,
                     images_base64: None,
                     computer_round_screen_rel_path: None,
                 });

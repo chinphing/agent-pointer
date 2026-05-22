@@ -105,6 +105,7 @@ fn push_format_retry_user_line(
                 agent_id: None,
                 agent_name: None,
                 agent_trace: None,
+                image_slot_labels: None,
                 images_base64: None,
                 computer_round_screen_rel_path: None,
             });
@@ -179,6 +180,7 @@ pub(super) fn build_lead_assistant_message_after_stream(
         } else {
             Some(agent_trace.to_vec())
         },
+        image_slot_labels: None,
         images_base64: None,
         computer_round_screen_rel_path: None,
     }
@@ -219,6 +221,7 @@ pub(super) fn build_sub_assistant_message_after_stream(
         agent_id: Some(def.id.clone()),
         agent_name: Some(def.name.clone()),
         agent_trace: None,
+        image_slot_labels: None,
         images_base64: None,
         computer_round_screen_rel_path: None,
     }

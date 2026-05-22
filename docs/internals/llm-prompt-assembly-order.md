@@ -28,12 +28,13 @@
 | | 3 | **工具系统附录** | `generate_tools_system_appendix` | 工具集不变则固定 |
 | | 4 | **`[Environment]`**（OS、locale、**日历日期**） | `push_env_and_json_wire_tail_to_cacheable` | 按自然日变，**非每轮** |
 | | 5 | **JSON wire tail**（有工具时） | 同上 | 固定 |
-| **dynamic** | 6 | **`[TASK_BOARD]`** 等 | `before_main_llm_call` 钩子 → `system_prompts_dynamic` | **每轮可能变** |
+| **dynamic** | 6 | **`[TASK_BOARD]`**、**`[LOCKED GOAL]`**（Computer 有锁时） | `before_main_llm_call` 钩子 → `system_prompts_dynamic` | **每轮可能变** |
 
 **组装时机**
 
 - **cacheable**：在 `run_before_main_llm_call` **之前** 填完（含 Environment / JSON tail）。
-- **dynamic**：仅钩子写入（当前内置为 **`TaskBoardSnapshotHook`**）。
+- **dynamic**：仅钩子写入（**`TaskBoardSnapshotHook`**、**`ComputerTierDynamicHook`**）。
+- **Computer lead**：`prepare_single_agent_round_prompts` 每轮按 **tier** 重建 cacheable 中的档位 communication（升档时缓存失效一次）。
 
 合并为单条 system 字符串时，顺序为 **cacheable 全文 → dynamic 全文**（故 `[TASK_BOARD]` 在 Environment / JSON tail **之后**，更靠近后续 `messages`）。
 

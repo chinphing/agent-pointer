@@ -14,4 +14,4 @@ Describe each call with the qualified form **`tool_name:method`** in JSON (same 
 
 **Note:** Binary or rich clipboard formats are not exposed — text only. On some **Linux** sessions (e.g. **Wayland** without a running clipboard portal), reads/writes may fail; the tool returns an error message instead of guessing.
 
-**`action` field:** Required when the merged communication contract asks for **`action`** on tool calls; describe the visible target or intent in words, **not** overlay indices.
+**`action` field:** Required when your desktop instructions ask for **`action`** on tool calls; describe the visible target or intent in words, **not** overlay indices.

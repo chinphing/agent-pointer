@@ -2,17 +2,21 @@
 
 Each desktop reply is **one** JSON object: string fields **`thoughts`**, **`headline`**, optional **`sidecar_tools`**, root **`tool_name`**, object **`tool_args`**.
 
-**`thoughts`** holds the **seven-stage block** below (**`Pointer:`** … **`Tool route:`**), in order.
+**`thoughts`** holds **three parts** (**Verify** → **Repetition** → **Next/Location/Tool route**); in Part 1 prefix order is **`Verify:`** → **`Pointer:`** (conditional) → then **Repetition** … **Tool route:** as below.
 **`Tool route:`** line **2** is the **only** place that picks the tool; it must match root **`tool_name`**.
 
 ---
+
+## Part 1 — Verify
+
+**`thoughts` opens with `Verify:` first** — compare screenshots before judging the mouse. **Emit `Pointer:` only when** **Verify** **Clear evidence** is **`no_clear_evidence`** and the last action used coordinates; otherwise skip **`Pointer:`** entirely. Every visual claim cites **`On [slot name]:`** on the labeled image that precedes each screenshot.
 
 ## Global discipline (apply to every stage)
 
 ### A) Proof discipline — write like a graded math proof
 
-1. Run stages **1 → 7** in order (**`Pointer:`** … **`Tool route:`**). **Do not** skip a stage.
-2. **Exception:** omit stage **6** **`Recheck coordinates:`** only when **`Location:`** is **`n/a`**; still run stage **7** **`Tool route:`**.
+1. Run stages **1 → 7** in order (**`Verify:`** … **`Tool route:`**). **Do not** skip a stage.
+2. **Exception:** omit **`Pointer:`** when **Verify** **Clear evidence** is **`supporting_evidence`** or **`contradicting_evidence`**. Omit stage **6** **`Recheck coordinates:`** only when **`Location:`** is **`n/a`**; still run stage **7** **`Tool route:`**.
 3. **Forbidden:** jump from **`Location:`** line **3** to **`Tool route:`** without **`Recheck coordinates:`** when line **3** has **`therefore (x,y) ≈ (…, …)`**.
 4. Within each stage, write **numbered lines in order**. **Do not** emit a conclusion before the line that earns it.
 5. A line may use **only** facts already shown **earlier in the same stage**, or conclusions from **prior** stages.
@@ -57,27 +61,19 @@ Overlay **`index`** may appear in **`Location:`** line **2** (**reference index 
 
 **`[CUR_SCREEN]`** also includes **Pointer position** and **`Overlay reference bboxes`** (text list: every index as **`R: (left, top, right, bottom)`**, session scale). **All coordinate math for tools must look up row R in this list** — images show layout; **numbers come only from `Overlay reference bboxes`**.
 
-### B2) Visual facts (Location + Recheck)
-
-- **Facts before labels:** list observations, then **`Conclusion`** / **`Match`** / **`Diff`**.
-- **Pixels only** on a named **`[Frame]`**; no task text, memory, or design norms.
-- **Unclear** → **`[unclear]`**; never invent text/icon/color behind occlusion.
-- **Objective fields:** **`band`** | **`text`** (quote literals) | **`fill`** (color+shape) | **`size`** (≈ w×h px); optional **`kind:`** (one word, not sole evidence).
-- **Forbidden:** pretty/modern/important; guessed intent; traits not seen this turn.
-
 ### C) Frame registry — which image each stage reads
 
 | Frame | Present when | Read in stage | Must be used for |
 |-------|--------------|---------------|------------------|
-| **`[Screen before action]`** | prior turn exists | **Pointer** line **1**; **Verify** **Before vs after** (before side) | Pre-action layout; name intended aim |
-| **`[Zoom pointer before action]`** | prior turn exists | **Pointer** line **2**; **Verify** **Mouse judgment** cite | Hotspot vs center (**4×**, ±50 px crop) — **required** when present |
+| **`[Screen before action]`** | prior turn exists | **Verify** **Before vs after** (before side); **Pointer** line **1** when run | Pre-action layout; name intended aim |
+| **`[Zoom pointer before action]`** | prior turn exists | **Pointer** line **2** when **Pointer** block runs | Hotspot vs center (**4×**, ±50 px crop) — **required** when present |
 | **`[Screen after action]`** | always | **Next** line **2**; **Location** line **1** placement; **Verify** **Before vs after** (after side) | Current full-screen layout |
 | **`[Annotated after action]`** | always | **Location** lines **2–3** | Overlay layout; pick **reference index R** |
 | **`[Zoom top after action]`** | always | **Location** overlay frame pick (lines **1–2** context) | Top band — menu, title, tabs |
 | **`[Zoom bottom after action]`** | always | **Location** overlay frame pick | Bottom band — dock, taskbar |
 | **`[Zoom pointer after action]`** | always | **Location** overlay frame pick | Near-pointer controls; small digits |
 
-**First capture in thread:** omit **`[Screen before action]`** and **`[Zoom pointer before action]`** — **Pointer** uses **`[Screen after action]`** / **`[Zoom pointer after action]`** instead.
+**First capture in thread:** omit **`[Screen before action]`** and **`[Zoom pointer before action]`** — **Verify** uses **`[Screen after action]`** for Before vs after; **Pointer** (if run) uses **`[Screen after action]`** / **`[Zoom pointer after action]`** instead.
 
 ---
 
@@ -85,8 +81,8 @@ Overlay **`index`** may appear in **`Location:`** line **2** (**reference index 
 
 | Stage | Prefix | Decides | Primary frame(s) |
 |-------|--------|---------|------------------|
-| 1 | **`Pointer:`** | Hotspot vs intended center for **last** action | **`[Zoom pointer before action]`** or after-action fallback |
-| 2 | **`Verify:`** | Did **last** action succeed? **`Step result`** + **`Cause`** | **`[Screen before action]`** → **`[Screen after action]`** |
+| 1 | **`Verify:`** | Did **last** action succeed? **`Step result`** + **`Cause`** | **`[Screen before action]`** → **`[Screen after action]`** |
+| 2 | **`Pointer:`** | Hotspot vs center — **only if Verify Clear evidence = `no_clear_evidence`** | **`[Zoom pointer before action]`** or after-action fallback |
 | 3 | **`Repetition:`** | Stuck loop? | **`[Recent desktop tool calls]`** text |
 | 4 | **`Next:`** | **What** target this turn | **`[Screen after action]`** line **2** only |
 | 5 | **`Location:`** | **Reference index R** + **(x,y)** for sub-target | **`[Screen after action]`** then overlay frame |
@@ -96,53 +92,140 @@ Overlay **`index`** may appear in **`Location:`** line **2** (**reference index 
 If **`Location:`** is **`n/a`** → **omit** stage **6** entirely; still run **`Tool route:`**.
 
 **Mandatory prefix order in `thoughts` (coordinate turn):**  
-`Pointer:` → `Verify:` → `Repetition:` → `Next:` → `Location:` → **`Recheck coordinates:`** → `Tool route:`  
+`Verify:` → `Pointer:` (if needed) → `Repetition:` → `Next:` → `Location:` → **`Recheck coordinates:`** → `Tool route:`  
 **Never** place **`Tool route:`** immediately after **`Location:`** when line **3** concluded **`therefore (x,y) ≈ (X, Y)`**.
 
 ---
 
-## Tool geometry — coordinates-only (all turns)
+**Stages in Part 1:** **Verify** (screenshot comparison first), then **Pointer** (mouse geometry only when screenshots are inconclusive). Stages **1–4** use **`[Screen before action]`** / **`[Screen after action]`** only — **no** overlay digits in Pointer, Verify, Repetition, or Next line **2**.
 
-**All canvas actions use coordinate methods at (x,y) from Location line 3** (or pointer-only / off-frame tools below). Overlay index numbers are **reference anchors only** — **never** pass index / indices / from_index / to_index in tool_args.
+### 1) Verify
 
-### Coordinate source — lookup **Overlay reference bboxes** only
+**Goal:** Judge **last automated action** from **screenshots first**, then tool text. **Before vs after** is primary proof.
 
-**Rule:** Every numeric coordinate used in **`Location:`** line **3**, **`Recheck coordinates:`**, and **`tool_args` `x`/`y`** must come from the **`Overlay reference bboxes`** text block in the **current** **`[CUR_SCREEN]`** — not from guessing pixels on images, not from overlay digit positions as click points, not from memory or a prior turn.
+**Scope:** **Verify** stops at **`Step result`** (+ **`Cause`** when required). **Forbidden in Verify / Before vs after:** next-turn plans, future sub-targets, or **index** for the upcoming click — **Next** / **Location** own those.
 
-| Step | Where | What to do |
-|------|--------|------------|
-| 1 | Overlay frame image | Pick **reference index R** (digit↔bbox pairing only — **no** click numbers yet) |
-| 2 | **`Overlay reference bboxes`** (text under **`[CUR_SCREEN]`**) | **Find row `R:`** — copy **`(left, top, right, bottom)`** integers exactly |
-| 3 | **Location** line **3** | Derive **anchor (xa,ya)** from that row → offset → **`therefore (x,y) ≈ (X, Y)`** |
+**Target app & duplicates:** **Before vs after** must state **foreground window / target app** first, then **which panel/band** inside that app changed — never credit desktop, another app, or a duplicate control in the wrong shell. **Location** line **2** names target app + sub-target; **reference index R** must lie in that app’s client area and exclude nearest in-app duplicate and out-of-app indices.
 
-**Mandatory phrase on Location line 3 (I2):** **`Overlay reference bboxes row R: (L, T, R, B) = (…, …, …, …)`** — proves you looked up the list.
+**Fixed reminder** — immediately after **`Verify:`**, before **`Last automated action:`**:
 
-**Forbidden:**
+`Indices reset each screen — no stale overlay index.`
 
-- **`therefore (x,y)`** or **`tool_args` `x`/`y`** without quoting **`Overlay reference bboxes row R`** on the same turn.
-- Using **R** not listed in **`Overlay reference bboxes`** (no row → pick another **R** or revise placement).
-- Treating overlay **digit** screen position as **`(x,y)`** — digits label bboxes; numbers live only in **`Overlay reference bboxes`**.
-- Estimating **(x,y)** from full-screen / zoom images without copying row **R** from the text list.
+#### Frame selection
 
-**Allowed — coordinate methods:**  
-**`mouse`:** `click_at`, `double_click_at`, `right_click_at`, `hover_at`, `drag_from_to_at` · **`composite_action`:** `type_text_at` · **`modified_click`:** `modified_click_at`.
+| Field | Frame(s) | Rule |
+|-------|----------|------|
+| **Before vs after** | **`[Screen before action]`** → **`[Screen after action]`** | **Fixed opener** then both frames. **Not** tool-recap proof. |
+| **Mouse judgment** | Set from screenshots when Clear evidence is decisive; else from **Pointer** | See **When Pointer is required** below |
+| **Clear evidence** | **No** new frame read | Restate **Before vs after** outcome only |
 
-**Forbidden — every `*_index` method (all turns, no exceptions):**  
-`click_index`, `double_click_index`, `right_click_index`, `hover_index`, `drag_from_to_index`, `type_text_at_index`, `scroll_at_index`, `modified_click_index`, and any tool arg named **`index`**, **`indices`**, **`from_index`**, or **`to_index`**.
+First capture: **`Before vs after: n/a — no [Screen before action]`**.
 
-**Non-canvas / no `(x,y)` pick:** `click_current`, `double_click_current`, `right_click_current`, `scroll_at_current`, `move_offset`, `type_text_at_focused`, **`hotkey`**, **`wait`**, **`clipboard:*`**, **`response`**.
+#### Steps (strict order — do not skip)
 
-**Hard rule:** **`Tool route:`** line **2** + root **`tool_name`** / **`tool_args`** must match **Allowed** only. Reference index **R** appears in **`Location:`** / recap — **not** in the tool call.
+| Step | Field | Source |
+|------|-------|--------|
+| V0 | Fixed reminder | exact line above |
+| V1 | **Last automated action** | Newest **`[Recent desktop tool calls]`** row, or **`none — no prior desktop tool in this thread`**. When that row’s **`tool_args`** has **`x`** and **`y`**, append **`; pointer at (x,y)=(<x>, <y>)`** — **synthetic pointer position** from that row only (see **V1 pointer position** below). **Forbidden** **`executed`** — that word implies success, not position. |
+| V2 | **Before vs after** | **Fixed opener** (exact): **`Compare differences from visual information only — no speculation.`** then **`On [Screen before action]:`** … **`On [Screen after action]:`** — pixel delta only (B2–B3). |
+| V3 | **Clear evidence** | Label + restate V2 — **`supporting_evidence`** · **`contradicting_evidence`** · **`no_clear_evidence`** |
+| V4 | **Action type** | **`deferred`** · **`non-deferred`** |
+| V5 | **Mouse judgment** | See **When Pointer is required** — set after V3 (and **Pointer** if emitted) |
+| V6 | **Lookup** | Copy keys from V3–V5 |
+| V7 | **Match** | One row from table below |
+| V8 | **Step result** + **Cause** | **Must equal Match** — **forbidden** before V6–V7 |
 
-Optional **`wait`** in **`tool_args`** (1–5 s) after successful mouse/hotkey/composite/modified_click — distinct from standalone **`wait`** tool.
+**First turn:** V1 = none → **`Lookup: n/a`** → **`Step result: n/a`** — omit **`Cause:`**.
 
-### Off-frame tools (rare)
+#### V1 pointer position (when last action used screen pixels)
 
-**`wait`**, **`response`**, **`clipboard:*`** — only when the stage chain already earned them. See tool prompts.
+**Required when:** Newest **`[Recent desktop tool calls]`** row is a coordinate tool (**`mouse:click_at`**, **`mouse:double_click_at`**, **`mouse:drag_from_to_at`**, **`mouse:move_to`**, **`mouse:composite_action:*_at`**, etc.) and **`tool_args`** includes **`x`** and **`y`**.
+
+**Meaning:** **`pointer at (x,y)`** = where the automation placed the **synthetic pointer** for that call — **not** “action succeeded”, **not** proof that UI changed.
+
+**When `Pointer:` runs:** line **3** **`abnormal`** and **Mouse judgment** will be **`mouse_miss`** — still cite the **same** integers from the tool row; **forbidden** to omit because the click missed.
+
+| Part | Content |
+|------|---------|
+| Tool recap | **`tool_name`** + **`goal`** / **`action`** from the newest row (tool ledger only). |
+| Pointer position | **`; pointer at (x,y)=(<x>, <y>)`** — integers only; **forbidden** floats; **forbidden** **`executed`**. |
+| Drag | If **`x2`** / **`y2`** present, also **`; pointer end (x2,y2)=(<x2>, <y2>)`**. |
+
+**Omit pointer suffix when:** **`hotkey`**, **`wait`**, **`clipboard`**, **`mouse:…_current`**, **`move_offset`**, or no **`x`/`y`** in **`tool_args`**.
+
+**Recheck R1** may reuse **V1** **`pointer at (x,y)=…`** as **`(x_prev, y_prev)`** — must match; do not invent a second pair.
+
+#### Clear evidence
+
+| Value | When |
+|-------|------|
+| **`supporting_evidence`** | Before vs after shows visible change **matching** intent |
+| **`contradicting_evidence`** | Visible change **contradicts** intent |
+| **`no_clear_evidence`** | No visible outcome for what action should have changed |
+
+#### Action type
+
+- **`deferred`** — pass/fail not settled on this screenshot (download/export/save-to-disk/queue).
+- **`non-deferred`** — expect immediate on-canvas change.
+
+**Loading / in-progress:** If **`On [Screen after action]:`** shows spinner, progress bar, skeleton, or loading copy and the last **goal** is **not finished** → **`Step result: pending`** — **not** **`pass`**, **not** **`fail`**.
+
+#### When Pointer is required
+
+| **Verify** **Clear evidence** | **Emit `Pointer:`?** | **V5 Mouse judgment** |
+|-------------------------------|---------------------|------------------------|
+| **`supporting_evidence`** | **No** — screenshots sufficient | Coordinate tool → **`mouse_accurate`**; else **`non_mouse`** |
+| **`contradicting_evidence`** | **No** — screenshots sufficient | Coordinate tool → **`mouse_accurate`** (fail **`wrong_operation`**); else **`non_mouse`** |
+| **`no_clear_evidence`** | **Yes** — run **`Pointer:`** before V5 | **`mouse_miss`** if **Pointer** **`abnormal`**; **`mouse_accurate`** if **Pointer** **`accurate`**; **`non_mouse`** if **Pointer** **`n/a`** |
+
+#### Mouse judgment (detail)
+
+| Value | When |
+|-------|------|
+| **`non_mouse`** | **`Pointer:`** line **3** **`n/a — non-pointer`** (hotkey, wait, clipboard, focused-only type, …) — **not** for **`type_text_at`** / other **(x,y)** tools |
+| **`mouse_miss`** | Precision click + **`Pointer:`** **`abnormal`** |
+| **`mouse_accurate`** | Precision click + **`Pointer:`** **`accurate`** |
+
+#### Verify → Step result (lookup table)
+
+**`either`** = **`deferred`** or **`non-deferred`**.
+
+| Clear evidence | Action type | Mouse judgment | Step result | Cause |
+|----------------|-------------|----------------|-------------|-------|
+| contradicting_evidence | either | mouse_miss | fail | precision_miss |
+| contradicting_evidence | either | mouse_accurate | fail | wrong_operation |
+| contradicting_evidence | either | non_mouse | fail | wrong_operation |
+| supporting_evidence | either | mouse_miss | fail | precision_miss — only if Pointer ran and abnormal; else use screenshot pass path |
+| supporting_evidence | either | mouse_accurate | pass | — |
+| supporting_evidence | either | non_mouse | pass | — |
+| no_clear_evidence | non-deferred | mouse_miss | fail | precision_miss |
+| no_clear_evidence | non-deferred | mouse_accurate | fail | no_immediate_feedback |
+| no_clear_evidence | non-deferred | non_mouse | fail | no_immediate_feedback |
+| no_clear_evidence | deferred | mouse_miss | fail | precision_miss |
+| no_clear_evidence | deferred | mouse_accurate | pending | off_frame_unverified |
+| no_clear_evidence | deferred | non_mouse | pending | off_frame_unverified |
+
+#### Output template
+
+```text
+Verify:
+Indices reset each screen — no stale overlay index.
+Last automated action: <N>. <tool_name> goal=… action=…; pointer at (x,y)=(<x>, <y>) | <newest row without x/y> | none — no prior desktop tool in this thread.
+Before vs after: Compare differences from visual information only — no speculation. On [Screen before action]: … On [Screen after action]: … | n/a — no [Screen before action].
+Clear evidence: <label> — restates Before vs after: <same UI words; no new On [Screen …]:>.
+Action type: <deferred | non-deferred> — <reason>.
+Mouse judgment: <non_mouse | mouse_miss | mouse_accurate> — <screenshot-only | On [Zoom pointer before action]: when Pointer ran>.
+Lookup: Clear evidence=<same>, Action type=<same>, Mouse judgment=<same>; | n/a — no prior action.
+Match: row <keys> → <Step result>, <Cause>; | row outside table → Step result n/a.
+Step result: <pass | fail | pending | n/a> — evidence: <one line from Before vs after / On [Screen after action]: / On [Zoom pointer …]: facts above; not guesswork>.
+Cause: <only when Match says so; omit on pass>.
+```
 
 ---
 
-### 1) Pointer
+### 2) Pointer (conditional)
+
+**When to emit this block:** only if **Verify** **Clear evidence** is **`no_clear_evidence`** and the last action is a **coordinate** tool (`*_at`, `move_to`, `drag_from_to_at`, …). If **Clear evidence** is **`supporting_evidence`** or **`contradicting_evidence`**, **omit the entire `Pointer:` block** — screenshots already decided the outcome.
 
 **Goal:** Judge **geometry only** — synthetic pointer hotspot vs **intended control center**. **Not** before/after UI delta (**`Verify:`**). **Not** caret.
 
@@ -210,115 +293,9 @@ Pointer:
 
 ---
 
-### 2) Verify
+## Part 2 — Repetition
 
-**Goal:** Judge **last automated action** using **Pointer** + **Before vs after** screens + grounded tool text.
-
-**Fixed reminder** — immediately after **`Verify:`**, before **`Last automated action:`**:
-
-`Indices reset each screen — no stale overlay index.`
-
-#### Frame selection
-
-| Field | Frame(s) | Rule |
-|-------|----------|------|
-| **Before vs after** | **`[Screen before action]`** → **`[Screen after action]`** | **Fixed opener** then both frames. **Not** tool-recap proof. |
-| **Mouse judgment** | Cite **`On [Zoom pointer before action]:`** when present | Must agree with **Pointer** line **3** |
-| **Clear evidence** | **No** new frame read | Restate **Before vs after** outcome only |
-
-First capture: **`Before vs after: n/a — no [Screen before action]`**.
-
-#### Steps (strict order — do not skip)
-
-| Step | Field | Source |
-|------|-------|--------|
-| V0 | Fixed reminder | exact line above |
-| V1 | **Last automated action** | Newest **`[Recent desktop tool calls]`** row, or **`none — no prior desktop tool in this thread`**. When that row’s **`tool_args`** has **`x`** and **`y`**, append **`; pointer at (x,y)=(<x>, <y>)`** — **synthetic pointer position** from that row only (see **V1 pointer position** below). **Forbidden** **`executed`** — that word implies success, not position. |
-| V2 | **Before vs after** | **Fixed opener** (exact): **`Compare differences from visual information only — no speculation.`** then **`On [Screen before action]:`** … **`On [Screen after action]:`** — pixel delta only (B2–B3). |
-| V3 | **Clear evidence** | Label + restate V2 — **`supporting_evidence`** · **`contradicting_evidence`** · **`no_clear_evidence`** |
-| V4 | **Action type** | **`deferred`** · **`non-deferred`** |
-| V5 | **Mouse judgment** | **`non_mouse`** · **`mouse_miss`** · **`mouse_accurate`** — must match **Pointer** |
-| V6 | **Lookup** | Copy keys from V3–V5 |
-| V7 | **Match** | One row from table below |
-| V8 | **Step result** + **Cause** | **Must equal Match** — **forbidden** before V6–V7 |
-
-**First turn:** V1 = none → **`Lookup: n/a`** → **`Step result: n/a`** — omit **`Cause:`**.
-
-#### V1 pointer position (when last action used screen pixels)
-
-**Required when:** Newest **`[Recent desktop tool calls]`** row is a coordinate tool (**`mouse:click_at`**, **`mouse:double_click_at`**, **`mouse:drag_from_to_at`**, **`mouse:move_to`**, **`mouse:composite_action:*_at`**, etc.) and **`tool_args`** includes **`x`** and **`y`**.
-
-**Meaning:** **`pointer at (x,y)`** = where the automation placed the **synthetic pointer** for that call — **not** “action succeeded”, **not** proof that UI changed.
-
-**Especially mandatory when:** **Pointer** line **3** is **`abnormal`** and **Mouse judgment** will be **`mouse_miss`** — still cite the **same** integers from the tool row; **forbidden** to omit because the click missed.
-
-| Part | Content |
-|------|---------|
-| Tool recap | **`tool_name`** + **`goal`** / **`action`** from the newest row (tool ledger only). |
-| Pointer position | **`; pointer at (x,y)=(<x>, <y>)`** — integers only; **forbidden** floats; **forbidden** **`executed`**. |
-| Drag | If **`x2`** / **`y2`** present, also **`; pointer end (x2,y2)=(<x2>, <y2>)`**. |
-
-**Omit pointer suffix when:** **`hotkey`**, **`wait`**, **`clipboard`**, **`mouse:…_current`**, **`move_offset`**, or no **`x`/`y`** in **`tool_args`**.
-
-**Recheck R1** may reuse **V1** **`pointer at (x,y)=…`** as **`(x_prev, y_prev)`** — must match; do not invent a second pair.
-
-#### Clear evidence
-
-| Value | When |
-|-------|------|
-| **`supporting_evidence`** | Before vs after shows visible change **matching** intent |
-| **`contradicting_evidence`** | Visible change **contradicts** intent |
-| **`no_clear_evidence`** | No visible outcome for what action should have changed |
-
-#### Action type
-
-- **`deferred`** — pass/fail not settled on this screenshot (download/export/save-to-disk/queue).
-- **`non-deferred`** — expect immediate on-canvas change.
-
-#### Mouse judgment
-
-| Value | When |
-|-------|------|
-| **`non_mouse`** | **`Pointer:`** line **3** **`n/a — non-pointer`** (hotkey, wait, clipboard, focused-only type, …) — **not** for **`type_text_at`** / other **(x,y)** tools |
-| **`mouse_miss`** | Precision click + **`Pointer:`** **`abnormal`** |
-| **`mouse_accurate`** | Precision click + **`Pointer:`** **`accurate`** |
-
-#### Verify → Step result (lookup table)
-
-**`either`** = **`deferred`** or **`non-deferred`**.
-
-| Clear evidence | Action type | Mouse judgment | Step result | Cause |
-|----------------|-------------|----------------|-------------|-------|
-| contradicting_evidence | either | mouse_miss | fail | precision_miss |
-| contradicting_evidence | either | mouse_accurate | fail | wrong_operation |
-| contradicting_evidence | either | non_mouse | fail | wrong_operation |
-| supporting_evidence | either | mouse_miss | fail | precision_miss |
-| supporting_evidence | either | mouse_accurate | pass | — |
-| supporting_evidence | either | non_mouse | pass | — |
-| no_clear_evidence | non-deferred | mouse_miss | fail | precision_miss |
-| no_clear_evidence | non-deferred | mouse_accurate | fail | no_immediate_feedback |
-| no_clear_evidence | non-deferred | non_mouse | fail | no_immediate_feedback |
-| no_clear_evidence | deferred | mouse_miss | fail | precision_miss |
-| no_clear_evidence | deferred | mouse_accurate | pending | off_frame_unverified |
-| no_clear_evidence | deferred | non_mouse | pending | off_frame_unverified |
-
-#### Output template
-
-```text
-Verify:
-Indices reset each screen — no stale overlay index.
-Last automated action: <N>. <tool_name> goal=… action=…; pointer at (x,y)=(<x>, <y>) | <newest row without x/y> | none — no prior desktop tool in this thread.
-Before vs after: Compare differences from visual information only — no speculation. On [Screen before action]: … On [Screen after action]: … | n/a — no [Screen before action].
-Clear evidence: <label> — restates Before vs after: <same UI words; no new On [Screen …]:>.
-Action type: <deferred | non-deferred> — <reason>.
-Mouse judgment: <non_mouse | mouse_miss | mouse_accurate> — <On [Zoom pointer before action]: when present>.
-Lookup: Clear evidence=<same>, Action type=<same>, Mouse judgment=<same>; | n/a — no prior action.
-Match: row <keys> → <Step result>, <Cause>; | row outside table → Step result n/a.
-Step result: <pass | fail | pending | n/a>.
-Cause: <only when Match says so; omit on pass>.
-```
-
----
+**`thoughts` continues with `Repetition:`** after **Verify** (and **Pointer** if emitted).
 
 ### 3) Repetition
 
@@ -334,6 +311,83 @@ Verdict: <OK | STUCK> — if STUCK: <STUCK only | STUCK — change tactic> (no r
 **>3** consecutive same goal+action with no UI gain → **`STUCK`**.
 
 **Scope:** Count repeats in **`[Recent desktop tool calls]`** and whether the UI **advanced**. **Do not** choose **re-aim**, **relocate**, or **pivot** here — that is **Next** after **Verify** **Match**.
+
+---
+
+## Part 3 — Next, location, and tool route
+
+**`thoughts` finishes with `Next:` → `Location:` → `Recheck coordinates:` (when **(x,y)**) → `Tool route:`**.
+
+**Stages in Part 3:** pick **what** (**Next**), **where** (**Location** + **Overlay reference bboxes**), validate **(X,Y)** (**Recheck**), then **one** tool (**Tool route**).
+
+### B2) Visual facts (Location + Recheck)
+
+- **Facts before labels:** list observations, then **`Conclusion`** / **`Match`** / **`Diff`**.
+- **Pixels only** on a named **`[Frame]`**; no task text, memory, or design norms.
+- **Unclear** → **`[unclear]`**; never invent text/icon/color behind occlusion.
+- **Objective fields:** **`band`** | **`text`** (quote literals) | **`fill`** (color+shape) | **`size`** (≈ w×h px); optional **`kind:`** (one word, not sole evidence).
+- **Forbidden:** pretty/modern/important; guessed intent; traits not seen this turn.
+
+**Overlay slots (Part 3):** **`[Annotated after action]`**, **`[Zoom top after action]`**, **`[Zoom bottom after action]`**, **`[Zoom pointer after action]`**, plus **`Overlay reference bboxes`** text. Digits pick **reference index R** only — final tools use integer **(x,y)** from the bbox list.
+
+### Digit ↔ bbox pairing (on annotated / zoom annotated frames)
+
+Each printed **index** pairs with **exactly one bbox** when **both** hold:
+
+1. **Background color** behind the digit **matches** that bbox's **border color**.
+2. The digit sits **tightly on** the bbox border — **flush** with the stroke, **not** between two bbox regions.
+
+Labels follow **fixed enumeration** on the current frame (**1** = first region, **2** = second, …). **Do not** re-sort or invent numbers.
+
+**Overlay vs coordinates:** Digits on images label bboxes — use them only to pick **reference index R**. **All numeric coordinates** must be looked up in **`Overlay reference bboxes`** under **`[CUR_SCREEN]`** — **forbidden** to infer **(x,y)** from the image without quoting that row.
+
+### Location overlay frame pick (after reading `[Screen after action]`)
+
+| Bearing on **`[Screen after action]`** | Analyze on |
+|----------------------------------------|------------|
+| **Top** — menu, title, tabs | **`[Zoom top after action]`** if digits crowded; else **`[Annotated after action]`** |
+| **Bottom** — dock, taskbar | **`[Zoom bottom after action]`** |
+| **Near synthetic pointer** | **`[Zoom pointer after action]`** |
+| **Central / wide** — dialog, toolbar | **`[Annotated after action]`** |
+
+## Tool geometry — coordinates-only (all turns)
+
+**All canvas actions use coordinate methods at (x,y) from Location line 3** (or pointer-only / off-frame tools below). Overlay index numbers are **reference anchors only** — **never** pass index / indices / from_index / to_index in tool_args.
+
+### Coordinate source — lookup **Overlay reference bboxes** only
+
+**Rule:** Every numeric coordinate used in **`Location:`** line **3**, **`Recheck coordinates:`**, and **`tool_args` `x`/`y`** must come from the **`Overlay reference bboxes`** text block in the **current** **`[CUR_SCREEN]`** — not from guessing pixels on images, not from overlay digit positions as click points, not from memory or a prior turn.
+
+| Step | Where | What to do |
+|------|--------|------------|
+| 1 | Overlay frame image | Pick **reference index R** (digit↔bbox pairing only — **no** click numbers yet) |
+| 2 | **`Overlay reference bboxes`** (text under **`[CUR_SCREEN]`**) | **Find row `R:`** — copy **`(left, top, right, bottom)`** integers exactly |
+| 3 | **Location** line **3** | Derive **anchor (xa,ya)** from that row → offset → **`therefore (x,y) ≈ (X, Y)`** |
+
+**Mandatory phrase on Location line 3 (I2):** **`Overlay reference bboxes row R: (L, T, R, B) = (…, …, …, …)`** — proves you looked up the list.
+
+**Forbidden:**
+
+- **`therefore (x,y)`** or **`tool_args` `x`/`y`** without quoting **`Overlay reference bboxes row R`** on the same turn.
+- Using **R** not listed in **`Overlay reference bboxes`** (no row → pick another **R** or revise placement).
+- Treating overlay **digit** screen position as **`(x,y)`** — digits label bboxes; numbers live only in **`Overlay reference bboxes`**.
+- Estimating **(x,y)** from full-screen / zoom images without copying row **R** from the text list.
+
+**Allowed — coordinate methods:**  
+**`mouse`:** `click_at`, `double_click_at`, `right_click_at`, `hover_at`, `drag_from_to_at` · **`composite_action`:** `type_text_at` · **`modified_click`:** `modified_click_at`.
+
+**Forbidden — every `*_index` method (all turns, no exceptions):**  
+`click_index`, `double_click_index`, `right_click_index`, `hover_index`, `drag_from_to_index`, `type_text_at_index`, `scroll_at_index`, `modified_click_index`, and any tool arg named **`index`**, **`indices`**, **`from_index`**, or **`to_index`**.
+
+**Non-canvas / no `(x,y)` pick:** `click_current`, `double_click_current`, `right_click_current`, `scroll_at_current`, `move_offset`, `type_text_at_focused`, **`hotkey`**, **`wait`**, **`clipboard:*`**, **`response`**.
+
+**Hard rule:** **`Tool route:`** line **2** + root **`tool_name`** / **`tool_args`** must match **Allowed** only. Reference index **R** appears in **`Location:`** / recap — **not** in the tool call.
+
+Optional **`wait`** in **`tool_args`** (1–5 s) after successful mouse/hotkey/composite/modified_click — distinct from standalone **`wait`** tool.
+
+### Off-frame tools (rare)
+
+**`wait`**, **`response`**, **`clipboard:*`** — only when the stage chain already earned them. See tool prompts.
 
 ---
 
@@ -393,7 +447,7 @@ Next:
    Lookup: Step result=<same>, Cause=<same or —>;
    Match: row <Step result + Cause> → <this turn must…>;
    this turn: <concrete UI step, no overlay digits>.
-2 Target on [Screen after action]: band=<…>; text=<literal|[unclear]>; fill=<color+shape>; size=≈<w>×<h> px — visible on this frame only (same fields as Location Step 2; may be shorter).
+2 Target region on [Screen after action]: band=<…>; text=<literal|[unclear]>; fill=<color+shape>; size=≈<w>×<h> px — **where/what** the sub-target is; **no overlay index** (Location picks **R** after this line).
 ```
 
 ---
@@ -402,9 +456,9 @@ Next:
 
 **Follow B2 Visual facts.**
 
-**Goal:** Turn **Next** line **2** into **reference index R** + **(x,y)** for the intended sub-target. **No** tool names. **All** screen actions use **(x,y)** — overlay indices are **anchors only**.
+**Goal:** Turn **Next** line **2** (**target region**, no index) into **reference index R** + **(x,y)**. **No** tool names. Overlay digits are **anchors only** — pick **R** only after the region in line **2** is named.
 
-**Input:** **Next** line **2** only (paraphrase — do not paste verbatim).
+**Input:** **Next** line **2** (**Target region** — paraphrase, do not paste verbatim).
 
 **Coordinate lookup (mandatory):** Open the **`Overlay reference bboxes`** section under **`[CUR_SCREEN]`** and **find row `R:`** before any **`(xa,ya)`** or **`(x,y)`** arithmetic. That text list is the **only** source of numeric bbox coordinates this turn.
 
@@ -895,3 +949,5 @@ Tool route:
 ```
 
 (Abbreviated **thoughts** example — emit the full seven-stage block in order, stages **1–7** above.)
+---
+

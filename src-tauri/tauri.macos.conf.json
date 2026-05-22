@@ -1,0 +1,25 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Pointer · AI 工作台",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 640,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "acceptFirstMouse": true,
+        "transparent": false,
+        "resizable": true,
+        "fullscreen": false,
+        "trafficLightPosition": {
+          "x": 12,
+          "y": 17
+        }
+      }
+    ]
+  }
+}

@@ -19,9 +19,9 @@
 | 分区 | 内容 | 说明 |
 |------|------|------|
 | **cacheable** | `COMMUNICATION_PUBLIC`、Agent/Skills、工具 `## Tools`、`[Environment]`、JSON wire tail | 同一天、同会话配置下多轮不变；**`[Environment]` 仅日期按自然日变**，不算「每轮动态」 |
-| **dynamic** | **`[TASK_BOARD]`**（有板内容时） | 任务板 patch/replace 后每轮可能变 |
+| **dynamic** | **`[TASK_BOARD]`**（有板内容时）、**`[LOCKED GOAL]`**（Computer 锁定 `tool_args.goal` 时） | 任务板 / 锁定 goal 每轮可能变 |
 
-**设计意图**：仅把真正每轮变的 **`[TASK_BOARD]`** 放在 `cache_control` 之后，避免 task board 更新拖垮整段 system 缓存。
+**设计意图**：仅把真正每轮变的内容放在 `cache_control` 之后，避免拖垮 cacheable 前缀命中。Computer **操作历史**在 `[CUR_SCREEN]` user 消息中，不占 system 缓存。
 
 ---
 
@@ -46,3 +46,4 @@
 | `push_env_and_json_wire_tail_to_cacheable` | `chat_service/prompts.rs` |
 | `prepare_single_agent_round_prompts` | `chat_service/single_agent_prompt.rs` |
 | `TaskBoardSnapshotHook` | `extensions/task_board_hook.rs` |
+| `ComputerTierDynamicHook` | `agents/computer/extension_hooks/tier_dynamic.rs` |

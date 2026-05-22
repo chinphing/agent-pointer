@@ -394,6 +394,8 @@ pub fn load_settings() -> Result<ModelSettings> {
             stored.theme
         },
         agent_ui_overrides: stored.agent_ui_overrides,
+        round_enable_thinking: None,
+        round_thinking_budget: None,
     };
     ensure_agent_model_refs_have_provider(&mut settings);
     ensure_provider_generation_defaults(&mut settings);

@@ -1,4 +1,4 @@
-use crate::agents::computer::screen::MonitorInfo;
+use super::screen::MonitorInfo;
 
 /// Supported coordinate systems for model output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

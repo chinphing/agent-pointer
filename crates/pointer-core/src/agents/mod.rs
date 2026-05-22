@@ -11,7 +11,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Computer agent: tools, prompts (`AGENT.md` + optional `COMMUNICATION_SHARED.md` merge), extension hooks.
+/// Computer agent: `state` / `input` / `vision` / `tier`, tools, prompts (`AGENT.md` + `prompts/tiers/*`).
 pub mod computer;
 
 /// Coder agent: embedded policy (`AGENT.md`); tools used only by the coder lead (e.g. `read_lints`).
@@ -32,11 +32,22 @@ const AGENT_SESSION_INJECT: &str = "SESSION_INJECT.md";
 
 /// Model-facing shared rules: host context, skills, **`thoughts`** meaning, and **`response`** role (English). XML shape and examples for **`response`** stay in the tools appendix.
 const COMMUNICATION_PUBLIC: &str = include_str!("_shared/COMMUNICATION_PUBLIC.md");
-const COMPUTER_COMMUNICATION_SHARED: &str = include_str!("computer/COMMUNICATION_SHARED.md");
-const COMPUTER_COMMUNICATION_MAIN: &str = include_str!("computer/COMMUNICATION.md");
-const COMPUTER_OS_PROMPT_MACOS: &str = include_str!("computer/OS_MACOS.md");
-const COMPUTER_OS_PROMPT_WINDOWS: &str = include_str!("computer/OS_WINDOWS.md");
-const COMPUTER_OS_PROMPT_LINUX: &str = include_str!("computer/OS_LINUX.md");
+/// Advanced tier: `[CUR_SCREEN]` image slots, frame registry, overlay digit rules.
+const COMPUTER_VISION_SLOTS: &str =
+    include_str!("computer/prompts/tiers/advanced/vision_slots.md");
+const COMPUTER_COMMUNICATION_ADVANCED: &str =
+    include_str!("computer/prompts/tiers/advanced/communication.md");
+const COMPUTER_COMMUNICATION_PRIMARY: &str =
+    include_str!("computer/prompts/tiers/primary/communication.md");
+const COMPUTER_COMMUNICATION_INTERMEDIATE: &str =
+    include_str!("computer/prompts/tiers/intermediate/communication.md");
+const COMPUTER_AGENT_PRIMARY: &str = include_str!("computer/prompts/tiers/primary/loop.md");
+const COMPUTER_AGENT_INTERMEDIATE: &str =
+    include_str!("computer/prompts/tiers/intermediate/loop.md");
+const COMPUTER_AGENT_ADVANCED: &str = include_str!("computer/prompts/tiers/advanced/loop.md");
+const COMPUTER_OS_PROMPT_MACOS: &str = include_str!("computer/prompts/os/macos.md");
+const COMPUTER_OS_PROMPT_WINDOWS: &str = include_str!("computer/prompts/os/windows.md");
+const COMPUTER_OS_PROMPT_LINUX: &str = include_str!("computer/prompts/os/linux.md");
 
 /// Injected on **every** main-LLM and sub-agent round (see `chat_service`).
 pub fn communication_public_md() -> &'static str {
@@ -88,20 +99,42 @@ fn computer_os_prompt_md_for_platform() -> &'static str {
 }
 
 fn builtin_computer_communication() -> String {
+    computer_communication_for_tier(computer::tier::ComputerTier::Advanced)
+}
+
+/// Merged communication + OS slice for a computer tier (cacheable system prefix).
+pub fn computer_communication_for_tier(tier: computer::tier::ComputerTier) -> String {
     let mut parts: Vec<&str> = Vec::new();
-    let shared = COMPUTER_COMMUNICATION_SHARED.trim();
-    if !shared.is_empty() {
-        parts.push(shared);
+    match tier {
+        computer::tier::ComputerTier::Primary => {
+            push_trimmed(&mut parts, COMPUTER_COMMUNICATION_PRIMARY);
+        }
+        computer::tier::ComputerTier::Intermediate => {
+            push_trimmed(&mut parts, COMPUTER_COMMUNICATION_INTERMEDIATE);
+        }
+        computer::tier::ComputerTier::Advanced => {
+            push_trimmed(&mut parts, COMPUTER_VISION_SLOTS);
+            push_trimmed(&mut parts, COMPUTER_COMMUNICATION_ADVANCED);
+        }
     }
-    let main = COMPUTER_COMMUNICATION_MAIN.trim();
-    if !main.is_empty() {
-        parts.push(main);
-    }
-    let os_prompt = computer_os_prompt_md_for_platform().trim();
-    if !os_prompt.is_empty() {
-        parts.push(os_prompt);
-    }
+    push_trimmed(&mut parts, computer_os_prompt_md_for_platform());
     parts.join("\n\n---\n\n")
+}
+
+/// Agent loop body for a computer tier (merged into system prompt with communication).
+pub fn computer_agent_body_for_tier(tier: computer::tier::ComputerTier) -> String {
+    match tier {
+        computer::tier::ComputerTier::Primary => COMPUTER_AGENT_PRIMARY.trim().to_string(),
+        computer::tier::ComputerTier::Intermediate => COMPUTER_AGENT_INTERMEDIATE.trim().to_string(),
+        computer::tier::ComputerTier::Advanced => COMPUTER_AGENT_ADVANCED.trim().to_string(),
+    }
+}
+
+fn push_trimmed(parts: &mut Vec<&str>, s: &'static str) {
+    let t = s.trim();
+    if !t.is_empty() {
+        parts.push(t);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -665,17 +698,13 @@ fn load_agent_from_dir(dir: &Path) -> Result<BaseAgent> {
 
     let raw = fs::read_to_string(&manifest_path)?;
     let manifest = parse_agent_md(&raw)?;
-    let comm_path = dir.join(AGENT_COMMUNICATION);
-    let mut communication = if comm_path.exists() {
-        fs::read_to_string(&comm_path)?
+    let mut communication = if manifest.id == "computer" {
+        load_external_computer_communication(dir)?
+    } else if dir.join(AGENT_COMMUNICATION).exists() {
+        fs::read_to_string(dir.join(AGENT_COMMUNICATION))?
     } else {
         String::new()
     };
-    let shared_comm_path = dir.join("COMMUNICATION_SHARED.md");
-    if shared_comm_path.exists() {
-        let shared = fs::read_to_string(&shared_comm_path)?;
-        communication = compose_system_prompt(shared.trim(), communication.trim());
-    }
     let inject_path = dir.join(AGENT_SESSION_INJECT);
     if inject_path.exists() {
         let inj = fs::read_to_string(&inject_path)?;
@@ -684,6 +713,35 @@ fn load_agent_from_dir(dir: &Path) -> Result<BaseAgent> {
         }
     }
     manifest_to_agent(manifest, Some(dir), &communication)
+}
+
+/// External `computer` agent dir: prefer `prompts/tiers/advanced/`, fall back to legacy root filenames.
+fn load_external_computer_communication(dir: &Path) -> Result<String> {
+    let comm_candidates = [
+        dir.join("prompts/tiers/advanced/communication.md"),
+        dir.join("COMMUNICATION_ADVANCED.md"),
+        dir.join(AGENT_COMMUNICATION),
+    ];
+    let mut communication = String::new();
+    for path in comm_candidates {
+        if path.exists() {
+            communication = fs::read_to_string(&path)?;
+            break;
+        }
+    }
+    let shared_candidates = [
+        dir.join("prompts/tiers/advanced/vision_slots.md"),
+        dir.join("prompts/tiers/advanced/shared.md"),
+        dir.join("COMMUNICATION_SHARED.md"),
+    ];
+    for path in shared_candidates {
+        if path.exists() {
+            let shared = fs::read_to_string(&path)?;
+            communication = compose_system_prompt(shared.trim(), communication.trim());
+            break;
+        }
+    }
+    Ok(communication)
 }
 
 fn merge_legacy_session_into_communication(session_md: &str, communication: &str) -> String {

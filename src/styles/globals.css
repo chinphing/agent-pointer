@@ -70,14 +70,46 @@
   .glass-strong {
     @apply bg-[hsl(var(--card-elevated))] border border-border;
   }
+  .sidebar-chrome-drag,
+  .main-chrome-drag,
   .titlebar,
   .titlebar-drag,
   .titlebar-brand {
     -webkit-app-region: drag;
+    app-region: drag;
   }
+  .traffic-light-inset {
+    padding-left: 4.75rem; /* macOS overlay traffic lights */
+  }
+  /* 与系统红绿灯垂直对齐（原生位置偏上时，按钮略上移） */
+  .mac-chrome-row {
+    height: 2.5rem;
+    align-items: center;
+    box-sizing: border-box;
+  }
+  .mac-chrome-row .chrome-icon-btn {
+    width: 2rem;
+    height: 2rem;
+    transform: translateY(-1px);
+  }
+  .titlebar-brand-mac {
+    padding-left: 4.75rem;
+  }
+  .chrome-icon-btn,
+  .titlebar-actions,
+  .titlebar-action-btn,
   .window-controls,
   .window-controls-btn {
+    @apply w-9 h-9 flex items-center justify-center text-muted hover:bg-hover hover:text-foreground transition cursor-pointer rounded-lg shrink-0;
     -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+  .window-controls {
+    @apply border-l border-border;
+  }
+
+  .titlebar-action-btn {
+    @apply w-10 h-10 flex items-center justify-center text-muted hover:bg-hover hover:text-foreground transition cursor-pointer;
   }
 
   .window-controls-btn {

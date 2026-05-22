@@ -1,7 +1,7 @@
 ## Windows platform guidance
 
 Use this section for Windows-specific shortcuts, launcher habits, and paths.
-For general control logic, follow **communication**.
+For general control logic, follow the desktop rules in your system instructions.
 
 ### Keyboard shortcuts (hotkey tool)
 

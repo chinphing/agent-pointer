@@ -3,6 +3,7 @@
 //! Sibling modules (`actions`, `screen`, [`crate::agents::computer::ComputerState`], etc.) live in the parent [`crate::agents::computer`] package.
 
 pub mod args_util;
+pub mod tool_prompts;
 mod tool_clipboard;
 mod tool_composite;
 mod tool_hotkey;
@@ -27,7 +28,7 @@ fn conversation_id_from_args(args: &serde_json::Value) -> Option<&str> {
 /// Register all computer-use tools (mouse, hotkey, composite_action, modified_click, wait, clipboard).
 pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     let mouse_state = state.clone();
-    let mouse_doc = include_str!("prompts/mouse.md").trim();
+    let mouse_doc = include_str!("prompts/coordinate/mouse.md").trim();
     reg.register(ToolEntry::new(
         "mouse",
         "high",
@@ -73,7 +74,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     ));
 
     let composite_state = state.clone();
-    let composite_doc = include_str!("prompts/composite_action.md").trim();
+    let composite_doc = include_str!("prompts/coordinate/composite_action.md").trim();
     reg.register(ToolEntry::new(
         "composite_action",
         "high",
@@ -103,7 +104,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     ));
 
     let modified_state = state.clone();
-    let modified_doc = include_str!("prompts/modified_click.md").trim();
+    let modified_doc = include_str!("prompts/coordinate/modified_click.md").trim();
     reg.register(ToolEntry::new(
         "modified_click",
         "high",

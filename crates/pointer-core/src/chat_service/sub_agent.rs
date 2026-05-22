@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use tokio_util::sync::CancellationToken;
 
-use crate::agents::{AgentRunResult, AgentTask};
+use crate::agents::{AgentProfile, AgentRunResult, AgentTask};
 use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::{effective_max_tokens, effective_reasoning_in_messages, AgentTrace};
 use crate::provider::OpenAIProvider;
@@ -129,6 +129,15 @@ pub(crate) async fn run_sub_agent(
             state,
         );
         push_sub_assistant_turn(&mut local_history, assistant_msg);
+
+        if def.profile == AgentProfile::Computer {
+            state.computer_state.on_assistant_round_complete(
+                conversation_id,
+                local_history
+                    .last()
+                    .and_then(|m| m.thoughts.as_deref()),
+            );
+        }
 
         let post_action = if buf.final_tool_calls.is_empty() {
             decide_when_no_tool_calls(

@@ -69,7 +69,7 @@ watch(
           <div v-else-if="loading" class="text-sm text-muted">加载中…</div>
           <img
             v-else-if="preview"
-            :src="`data:image/png;base64,${preview.imageBase64}`"
+            :src="`data:${preview.imageMime ?? 'image/jpeg'};base64,${preview.imageBase64}`"
             alt="Annotated desktop"
             class="max-w-full h-auto rounded-xl border border-border shadow-lg"
           />

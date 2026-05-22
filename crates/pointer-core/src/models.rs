@@ -77,7 +77,14 @@ pub struct ChatMessage {
     /// present; ephemeral computer screen inject uses this without persisting to conversation files.
     #[serde(default, rename = "imagesBase64", skip_serializing_if = "Option::is_none")]
     pub images_base64: Option<Vec<String>>,
-    /// Path relative to app `computer-captures/` for this turn’s annotated PNG (lazy UI load); serialized when set.
+    /// Slot labels prepended in the API request immediately before each `images_base64` entry (same length).
+    #[serde(
+        default,
+        rename = "imageSlotLabels",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub image_slot_labels: Option<Vec<String>>,
+    /// Path relative to app `computer-captures/` for this turn’s annotated JPEG (lazy UI load); serialized when set.
     #[serde(
         default,
         rename = "computerRoundScreenRelPath",
@@ -360,13 +367,16 @@ pub fn effective_chat_extra_body(settings: &ModelSettings) -> Option<Value> {
     let mut m = Map::new();
 
     if provider_uses_dashscope_compatible_api(provider) {
-        if let Some(enable) = effective_enable_thinking(provider, model_over) {
+        let enable = settings
+            .round_enable_thinking
+            .or_else(|| effective_enable_thinking(provider, model_over));
+        if let Some(enable) = enable {
             m.insert("enable_thinking".into(), Value::Bool(enable));
             if enable {
-                m.insert(
-                    "thinking_budget".into(),
-                    Value::Number(effective_thinking_budget(provider, model_over).into()),
-                );
+                let budget = settings
+                    .round_thinking_budget
+                    .unwrap_or_else(|| effective_thinking_budget(provider, model_over));
+                m.insert("thinking_budget".into(), Value::Number(budget.into()));
             }
         }
     }
@@ -603,6 +613,11 @@ pub struct ModelSettings {
     /// Per-agent UI overrides keyed by agent id.
     #[serde(default, rename = "agentUiOverrides")]
     pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
+    /// Per-request override (e.g. computer tier); not persisted.
+    #[serde(skip)]
+    pub round_enable_thinking: Option<bool>,
+    #[serde(skip)]
+    pub round_thinking_budget: Option<u32>,
 }
 
 fn default_theme() -> String {
@@ -713,6 +728,8 @@ impl Default for ModelSettings {
             computer_human_like: false,
             theme: default_theme(),
             agent_ui_overrides: HashMap::new(),
+            round_enable_thinking: None,
+            round_thinking_budget: None,
         }
     }
 }
@@ -754,7 +771,14 @@ pub struct ToolDef {
 pub struct ComputerAnnotatedPreview {
     #[serde(rename = "imageBase64")]
     pub image_base64: String,
+    /// `image/jpeg` or `image/png` for UI `data:` URLs.
+    #[serde(rename = "imageMime", default = "default_computer_preview_mime")]
+    pub image_mime: String,
     pub caption: String,
+}
+
+pub fn default_computer_preview_mime() -> String {
+    "image/jpeg".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1068,6 +1092,7 @@ fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMess
                             agent_id: None,
                             agent_name: None,
                             agent_trace: None,
+                            image_slot_labels: None,
                             images_base64: None,
                             computer_round_screen_rel_path: None,
                         });
@@ -1170,6 +1195,7 @@ fn flatten_tool_rounds_computer_style_for_api(msgs: &[ChatMessage]) -> Vec<ChatM
                             agent_id: m.agent_id.clone(),
                             agent_name: m.agent_name.clone(),
                             agent_trace: None,
+                            image_slot_labels: None,
                             images_base64: None,
                             computer_round_screen_rel_path: None,
                         });
@@ -1334,8 +1360,27 @@ pub fn make_openai_messages(
                                 "text": m.content
                             }));
                         }
-                        for b64 in imgs {
-                            let url = format!("data:image/png;base64,{b64}");
+                        let labels = m.image_slot_labels.as_deref();
+                        if let Some(labs) = labels {
+                            if labs.len() != imgs.len() {
+                                log::warn!(
+                                    "user message image_slot_labels len {} != images_base64 len {}",
+                                    labs.len(),
+                                    imgs.len()
+                                );
+                            }
+                        }
+                        for (i, b64) in imgs.iter().enumerate() {
+                            if let Some(lab) = labels.and_then(|labs| labs.get(i)) {
+                                if !lab.trim().is_empty() {
+                                    parts.push(serde_json::json!({
+                                        "type": "text",
+                                        "text": format!("{lab}\n")
+                                    }));
+                                }
+                            }
+                            let mime = crate::agents::computer::vision::screen::image_data_url_mime_from_base64(b64);
+                            let url = format!("data:{mime};base64,{b64}");
                             parts.push(serde_json::json!({
                                 "type": "image_url",
                                 "image_url": { "url": url }
@@ -1409,6 +1454,7 @@ mod make_openai_messages_tests {
             agent_id: None,
             agent_name: None,
             agent_trace: None,
+            image_slot_labels: None,
             images_base64: None,
             computer_round_screen_rel_path: None,
         }
@@ -1453,6 +1499,20 @@ mod make_openai_messages_tests {
             .as_str()
             .unwrap()
             .starts_with("data:image/png;base64,"));
+    }
+
+    #[test]
+    fn user_message_interleaves_slot_label_before_each_image() {
+        let mut u = msg(Role::User);
+        u.content = "[CUR_SCREEN] preamble".into();
+        u.image_slot_labels = Some(vec!["[Screen after action]".into()]);
+        u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
+        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false);
+        let content = out[0]["content"].as_array().expect("multipart content");
+        assert_eq!(content.len(), 3);
+        assert_eq!(content[0]["text"], "[CUR_SCREEN] preamble");
+        assert_eq!(content[1]["text"], "[Screen after action]\n");
+        assert_eq!(content[2]["type"], "image_url");
     }
 
     #[test]

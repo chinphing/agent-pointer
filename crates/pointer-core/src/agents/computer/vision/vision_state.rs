@@ -50,6 +50,29 @@ pub struct VisionState {
     max_history_size: usize,
 }
 
+/// Corner anchor for index + offset positioning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CornerAnchor {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    Center,
+}
+
+impl CornerAnchor {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "top-left" | "topleft" => Some(Self::TopLeft),
+            "top-right" | "topright" => Some(Self::TopRight),
+            "bottom-left" | "bottomleft" => Some(Self::BottomLeft),
+            "bottom-right" | "bottomright" => Some(Self::BottomRight),
+            "center" | "center-point" => Some(Self::Center),
+            _ => None,
+        }
+    }
+}
+
 /// Information about a UI element extracted from annotation.
 #[derive(Debug, Clone)]
 pub struct ElementInfo {
@@ -63,6 +86,11 @@ pub struct ElementInfo {
     pub width: f32,
     /// Height of the element.
     pub height: f32,
+    /// Session-normalized bbox (0–1000).
+    pub norm_left: i32,
+    pub norm_top: i32,
+    pub norm_right: i32,
+    pub norm_bottom: i32,
 }
 
 impl VisionState {
@@ -112,6 +140,12 @@ impl VisionState {
                 let (cx, cy) = b.center();
                 let lx = (cx / sx).round() as i32;
                 let ly = (cy / sy).round() as i32;
+                let px_left = monitor.left + (b.x / sx).round() as i32;
+                let px_top = monitor.top + (b.y / sy).round() as i32;
+                let px_right = monitor.left + ((b.x + b.width) / sx).round() as i32;
+                let px_bottom = monitor.top + ((b.y + b.height) / sy).round() as i32;
+                let (nl, nt) = Self::screen_to_session_pair(px_left, px_top, monitor);
+                let (nr, nb) = Self::screen_to_session_pair(px_right, px_bottom, monitor);
                 (
                     b.index,
                     ElementInfo {
@@ -120,10 +154,19 @@ impl VisionState {
                         center_y: monitor.top + ly,
                         width: b.width / sx,
                         height: b.height / sy,
+                        norm_left: nl,
+                        norm_top: nt,
+                        norm_right: nr,
+                        norm_bottom: nb,
                     },
                 )
             })
             .collect();
+    }
+
+    fn screen_to_session_pair(px: i32, py: i32, monitor: &MonitorInfo) -> (i32, i32) {
+        let (nx, ny) = super::coord::screen_to_normalized((px, py), monitor, CoordinateSystem::Qwen);
+        (nx.round() as i32, ny.round() as i32)
     }
 
     /// Set the index map directly.
@@ -155,8 +198,39 @@ impl VisionState {
     ///
     /// # Returns
     /// Some((x, y)) if the index exists, None otherwise.
+    pub fn screen_bbox(&self) -> Option<MonitorInfo> {
+        self.screen_bbox
+    }
+
     pub fn resolve_index(&self, index: u32) -> Option<(i32, i32)> {
         self.index_map.get(&index).map(|e| (e.center_x, e.center_y))
+    }
+
+    /// Index + corner anchor + session-coordinate delta → screen pixels.
+    pub fn resolve_index_anchor(
+        &self,
+        index: u32,
+        anchor: CornerAnchor,
+        delta_x: i32,
+        delta_y: i32,
+    ) -> Option<(i32, i32)> {
+        let e = self.index_map.get(&index)?;
+        let monitor = self.screen_bbox.as_ref()?;
+        let (nx, ny) = match anchor {
+            CornerAnchor::TopLeft => (e.norm_left, e.norm_top),
+            CornerAnchor::TopRight => (e.norm_right, e.norm_top),
+            CornerAnchor::BottomLeft => (e.norm_left, e.norm_bottom),
+            CornerAnchor::BottomRight => (e.norm_right, e.norm_bottom),
+            CornerAnchor::Center => {
+                ((e.norm_left + e.norm_right) / 2, (e.norm_top + e.norm_bottom) / 2)
+            }
+        };
+        let (sx, sy) = super::coord::normalized_to_screen(
+            ((nx + delta_x) as f32, (ny + delta_y) as f32),
+            monitor,
+            self.coordinate_system,
+        );
+        Some((sx, sy))
     }
 
     /// Resolve normalized coordinates to screen pixel coordinates.
@@ -306,6 +380,10 @@ mod tests {
                 center_y: 200,
                 width: 50.0,
                 height: 30.0,
+                norm_left: 0,
+                norm_top: 0,
+                norm_right: 100,
+                norm_bottom: 100,
             },
         );
         state.set_index_map(index_map);
@@ -393,6 +471,10 @@ mod tests {
                 center_y: 200,
                 width: 50.0,
                 height: 30.0,
+                norm_left: 0,
+                norm_top: 0,
+                norm_right: 100,
+                norm_bottom: 100,
             },
         );
         state.set_index_map(index_map);

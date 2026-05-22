@@ -34,8 +34,21 @@ Do **not** reintroduce `.glass`, `.neon-ring`, aurora body gradients, or heavy `
 
 ## Desktop window chrome (Tauri only)
 
-- `src-tauri/tauri.conf.json`: `decorations: false`, macOS `titleBarStyle: Overlay` (native traffic lights).
-- Unified top bar in `AppShell.vue`: drag region + brand; Windows/Linux use `WindowControls.vue` (minimize / maximize / close).
+- Base `tauri.conf.json`: `decorations: false` (Windows/Linux custom chrome).
+- macOS `tauri.macos.conf.json`: `decorations: true`, `titleBarStyle: Overlay`, `hiddenTitle: true` — **required** for native traffic lights; `decorations: false` hides them entirely.
+- `AppShell.vue` (Manus-style): **sidebar top** (transparent) = macOS traffic-light inset + drag + collapse (right) + Windows `WindowControls`; **main top** = invisible drag strip only (no title/border). Skills / settings in sidebar footer. Sidebar `260px` ↔ `52px` (`useSidebarCollapse`). No in-app theme toggle (theme remains in Settings).
+- macOS: `tauri.macos.conf.json` + `configure_macos_window_chrome()` in `lib.rs` force `decorations: true` and `TitleBarStyle::Overlay`.
+- OS detection: `src/lib/desktopOs.ts` (`userAgent` first, then `platform`) — used by `useWindowChrome.ts`.
+- Drag: `data-tauri-drag-region` + `-webkit-app-region` / `app-region` in `globals.css`; `startDragging()` fallback on `mousedown` for edge cases.
+- Double-click empty title bar toggles maximize (macOS / Windows / Linux).
+
+| Platform | Window controls | Sidebar top inset | Main top |
+|----------|-----------------|-------------------|----------|
+| macOS | System traffic lights (overlay) | `4.75rem` for lights | Title + drag |
+| Windows | Custom `WindowControls` on main top | `pl-2` | Title + min/max/close |
+| Linux | Same as Windows | `pl-2` | Same as Windows |
+| Web (`dev:web`) | Browser chrome | Brand in sidebar top when expanded | Title only |
+
 - Web (`dev:web`) has no custom title bar — browser chrome unchanged.
 
 ## Cross-entry

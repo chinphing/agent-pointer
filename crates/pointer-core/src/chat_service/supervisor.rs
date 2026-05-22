@@ -387,6 +387,7 @@ pub(crate) async fn run_supervisor_chat(
         agent_id: Some("supervisor".into()),
         agent_name: Some(sup_name),
         agent_trace: Some(agent_trace),
+        image_slot_labels: None,
         images_base64: None,
         computer_round_screen_rel_path: None,
     });

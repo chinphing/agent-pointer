@@ -230,9 +230,11 @@ export interface ToolDef {
   name: string
 }
 
-/** Annotated desktop PNG (base64) for UI preview; mirrors pointer-core `ComputerAnnotatedPreview`. */
+/** Annotated desktop JPEG (base64) for UI preview; mirrors pointer-core `ComputerAnnotatedPreview`. */
 export interface ComputerAnnotatedPreview {
   imageBase64: string
+  /** `image/jpeg` or legacy `image/png`. */
+  imageMime?: string
   caption: string
 }
 

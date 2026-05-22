@@ -47,16 +47,25 @@ pub(super) async fn run_single_agent_loop(
 
         let assistant_id = new_id("msg");
 
-        let tools_system_appendix = crate::tools_system_appendix::generate_tools_system_appendix(
-            &state.tools,
-            &agent_plan.allowed_tool_names,
-        );
-        let tools_appendix_enabled = !tools_system_appendix.is_empty();
         let lead_profile = state
             .agents
             .get(&agent_plan.lead_agent_id)
             .map(|a| a.def().profile.clone())
             .unwrap_or(AgentProfile::General);
+        let computer_positioning = if lead_profile == AgentProfile::Computer {
+            Some(crate::agents::computer::tools::tool_prompts::positioning_mode_for_tier(
+                state.computer_state.tier_for_conversation(conversation_id),
+            ))
+        } else {
+            None
+        };
+        let tools_system_appendix =
+            crate::tools_system_appendix::generate_tools_system_appendix_with_positioning(
+                &state.tools,
+                &agent_plan.allowed_tool_names,
+                computer_positioning,
+            );
+        let tools_appendix_enabled = !tools_system_appendix.is_empty();
         let file_tool_lead_for_invoke = lead_profile.clone();
 
         emit(
@@ -83,11 +92,17 @@ pub(super) async fn run_single_agent_loop(
         )
         .await?;
 
+        let round_settings = if lead_profile == AgentProfile::Computer {
+            state.computer_state.apply_round_settings(conversation_id, settings)
+        } else {
+            settings.clone()
+        };
+
         let stream_outcome = super::single_agent_stream::run_provider_stream_round(
             stream.clone(),
             state.clone(),
             provider,
-            settings,
+            &round_settings,
             conversation_id,
             history,
             llm_token_session,
@@ -125,6 +140,13 @@ pub(super) async fn run_single_agent_loop(
             &assistant_id,
             &assistant_msg,
         );
+
+        if lead_profile == AgentProfile::Computer {
+            state.computer_state.on_assistant_round_complete(
+                conversation_id,
+                assistant_msg.thoughts.as_deref(),
+            );
+        }
 
         let post_action = if buf.final_tool_calls.is_empty() {
             super::single_agent_post_stream::decide_when_no_tool_calls(

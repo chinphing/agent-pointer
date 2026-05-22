@@ -1,6 +1,7 @@
 use crate::agents::computer::actions::ActionExecutor;
+use crate::agents::computer::tier::{current_computer_tier, tier_allows_index_tools};
 use crate::agents::computer::verify::VerifyHintGenerator;
-use crate::agents::computer::vision_state::VisionState;
+use crate::agents::computer::vision_state::{CornerAnchor, VisionState};
 use super::args_util::{clamp_scroll_lines, human_like_from_args, require_non_empty_str, MOVE_OFFSET_MAX};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -34,6 +35,9 @@ impl MouseTool {
 
     pub fn execute(&self, method: &str, args: &Value) -> Result<String> {
         require_non_empty_str(args, "goal")?;
+        if method.ends_with("_index") {
+            self.ensure_index_method_allowed()?;
+        }
         match method {
             "click_index" => self.click_index(args),
             "double_click_index" => self.double_click_index(args),
@@ -57,15 +61,39 @@ impl MouseTool {
         }
     }
 
+    fn ensure_index_method_allowed(&self) -> Result<()> {
+        if let Some(tier) = current_computer_tier() {
+            if !tier_allows_index_tools(tier) {
+                anyhow::bail!(
+                    "Index-based mouse methods are disabled; use *_at with session x/y from Overlay reference bboxes."
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn resolve_index_pixels(&self, args: &Value, index: u32) -> Result<(i32, i32)> {
+        let vision = self.vision_state.lock().unwrap();
+        let out = if let Some(anchor) = args
+            .get("anchor")
+            .and_then(|v| v.as_str())
+            .and_then(CornerAnchor::parse)
+        {
+            let dx = args.get("dx").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let dy = args.get("dy").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            vision.resolve_index_anchor(index, anchor, dx, dy)
+        } else {
+            vision.resolve_index(index)
+        };
+        drop(vision);
+        out.ok_or_else(|| anyhow!("Index {} not found in current annotation", index))
+    }
+
     fn click_index(&self, args: &Value) -> Result<String> {
         let index = args["index"]
             .as_u64()
             .ok_or_else(|| anyhow!("Missing or invalid 'index' parameter"))? as u32;
-        let vision = self.vision_state.lock().unwrap();
-        let (x, y) = vision
-            .resolve_index(index)
-            .ok_or_else(|| anyhow!("Index {} not found in current annotation", index))?;
-        drop(vision);
+        let (x, y) = self.resolve_index_pixels(args, index)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
         executor.click_index(x, y, hl)?;
@@ -76,11 +104,7 @@ impl MouseTool {
         let index = args["index"]
             .as_u64()
             .ok_or_else(|| anyhow!("Missing or invalid 'index' parameter"))? as u32;
-        let vision = self.vision_state.lock().unwrap();
-        let (x, y) = vision
-            .resolve_index(index)
-            .ok_or_else(|| anyhow!("Index {} not found in current annotation", index))?;
-        drop(vision);
+        let (x, y) = self.resolve_index_pixels(args, index)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
         executor.double_click_index(x, y, hl)?;
@@ -91,11 +115,7 @@ impl MouseTool {
         let index = args["index"]
             .as_u64()
             .ok_or_else(|| anyhow!("Missing or invalid 'index' parameter"))? as u32;
-        let vision = self.vision_state.lock().unwrap();
-        let (x, y) = vision
-            .resolve_index(index)
-            .ok_or_else(|| anyhow!("Index {} not found in current annotation", index))?;
-        drop(vision);
+        let (x, y) = self.resolve_index_pixels(args, index)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
         executor.right_click_index(x, y, hl)?;
@@ -106,11 +126,7 @@ impl MouseTool {
         let index = args["index"]
             .as_u64()
             .ok_or_else(|| anyhow!("Missing or invalid 'index' parameter"))? as u32;
-        let vision = self.vision_state.lock().unwrap();
-        let (x, y) = vision
-            .resolve_index(index)
-            .ok_or_else(|| anyhow!("Index {} not found in current annotation", index))?;
-        drop(vision);
+        let (x, y) = self.resolve_index_pixels(args, index)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
         executor.hover_index(x, y, hl)?;

@@ -61,6 +61,7 @@ mod tests {
             agent_id: None,
             agent_name: None,
             agent_trace: None,
+            image_slot_labels: None,
             images_base64: None,
             computer_round_screen_rel_path: None,
         }

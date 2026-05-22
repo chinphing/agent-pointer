@@ -10,9 +10,10 @@ use crate::agents::computer::screen;
 use crate::agents::computer::screen_overlay::{
     BEFORE_POINTER_ZOOM_CROP_SIDE, BEFORE_POINTER_ZOOM_FACTOR, BEFORE_POINTER_ZOOM_RADIUS_PX,
     SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED, SLOT_SCREEN_BEFORE_ACTION,
-    SLOT_SCREEN_ZOOMED_BOTTOM, SLOT_SCREEN_ZOOMED_POINTER, SLOT_SCREEN_ZOOMED_POINTER_BEFORE,
-    SLOT_SCREEN_ZOOMED_TOP,
+    SLOT_SCREEN_MARKED_AFTER_ACTION, SLOT_SCREEN_ZOOMED_BOTTOM, SLOT_SCREEN_ZOOMED_POINTER,
+    SLOT_SCREEN_ZOOMED_POINTER_BEFORE, SLOT_SCREEN_ZOOMED_TOP,
 };
+use crate::agents::computer::tier::ComputerTier;
 use crate::agents::computer::ScreenCaptureResult;
 use crate::agents::AgentProfile;
 use crate::extensions::{
@@ -33,71 +34,121 @@ fn cur_screen_clock_prefix() -> String {
     )
 }
 
-/// When stripping prior vision, replace stale `[CUR_SCREEN]` prose (frame order / labels) so the model is not told about screenshots that are no longer attached.
+/// When stripping prior vision, replace stale `[CUR_SCREEN]` prose so the model is not told about screenshots that are no longer attached.
 const CUR_SCREEN_HISTORY_PLACEHOLDER: &str = "[CUR_SCREEN] Earlier desktop screenshots are omitted here; use only the latest [CUR_SCREEN] message in this request for images.\n";
 
 /// Remove vision payloads from all messages already in history so older frames do not affect the model’s read of the latest `[CUR_SCREEN]`.
-///
-/// Historical `[CUR_SCREEN]` user turns would otherwise keep long text listing `[Screen before action]`, etc., with **no** `image_url` parts after this — that mismatch can confuse the model. Those messages get a short placeholder instead.
 pub(crate) fn strip_images_from_prior_messages(messages: &mut [ChatMessage]) {
     for m in messages.iter_mut() {
         m.images_base64 = None;
+        m.image_slot_labels = None;
         if matches!(m.role, Role::User) && m.content.trim_start().starts_with(CUR_SCREEN_TAG) {
             m.content = CUR_SCREEN_HISTORY_PLACEHOLDER.to_string();
         }
     }
 }
 
-fn build_cur_screen_text(has_previous_raw: bool) -> String {
-    let zoom_before = if has_previous_raw {
-        format!(
-            " {SLOT_SCREEN_ZOOMED_POINTER_BEFORE} is a **{factor}×** magnified **{crop}×{crop} px** crop (±{radius} px radius around the pointer) from **[Screen before action]** — use it as the **standard** for **Pointer:** hotspot-vs-center geometry.",
-            factor = BEFORE_POINTER_ZOOM_FACTOR,
-            crop = BEFORE_POINTER_ZOOM_CROP_SIDE,
-            radius = BEFORE_POINTER_ZOOM_RADIUS_PX,
-        )
-    } else {
-        String::new()
-    };
-    let before_line = if has_previous_raw {
-        "[Screen before action] is the **previous** turn’s unmarked full-screen capture with the **current** synthetic pointer — desktop layout **before** the last automated step."
-    } else {
-        ""
-    };
-    let tail = format!(
-        "{before_line}{zoom_before} Slot names label each image. Every visual claim in thoughts must cite On [slot name]:. Seven-stage thoughts: after Location (x,y), emit Recheck coordinates before Tool route."
-    );
-    let hint = if has_previous_raw {
-        format!(
-            "Compare [Screen before action] to [Screen after action] for task-relevant UI change; judge pointer hotspot vs intended center on {SLOT_SCREEN_ZOOMED_POINTER_BEFORE} when present; {tail}"
-        )
-    } else {
-        format!("[Screen after action] is the current full-screen capture; {tail}")
-    };
-    let order = if has_previous_raw {
-        format!(
-            "Order: (1) {SLOT_SCREEN_BEFORE_ACTION} (2) {SLOT_SCREEN_ZOOMED_POINTER_BEFORE} (3) {SLOT_SCREEN_AFTER_ACTION} (4) {SLOT_SCREEN_ANNOTATED} (5) {SLOT_SCREEN_ZOOMED_TOP} (6) {SLOT_SCREEN_ZOOMED_BOTTOM} (7) {SLOT_SCREEN_ZOOMED_POINTER}. {hint}"
-        )
-    } else {
-        format!(
-            "Order: (1) {SLOT_SCREEN_AFTER_ACTION} (2) {SLOT_SCREEN_ANNOTATED} (3) {SLOT_SCREEN_ZOOMED_TOP} (4) {SLOT_SCREEN_ZOOMED_BOTTOM} (5) {SLOT_SCREEN_ZOOMED_POINTER}. {hint}"
-        )
-    };
-    format!("{CUR_SCREEN_TAG} {order}\n")
+/// Labels in wire order — must match `assemble_cur_screen_base64` image sequence.
+fn slot_labels_for_tier(tier: ComputerTier, has_previous_raw: bool) -> Vec<&'static str> {
+    match tier {
+        ComputerTier::Primary => vec![SLOT_SCREEN_ANNOTATED],
+        ComputerTier::Intermediate => vec![
+            SLOT_SCREEN_AFTER_ACTION,
+            SLOT_SCREEN_MARKED_AFTER_ACTION,
+            SLOT_SCREEN_ANNOTATED,
+        ],
+        ComputerTier::Advanced => {
+            let mut labels = Vec::with_capacity(7);
+            if has_previous_raw {
+                labels.push(SLOT_SCREEN_BEFORE_ACTION);
+                labels.push(SLOT_SCREEN_ZOOMED_POINTER_BEFORE);
+            }
+            labels.push(SLOT_SCREEN_AFTER_ACTION);
+            labels.push(SLOT_SCREEN_ANNOTATED);
+            labels.push(SLOT_SCREEN_ZOOMED_TOP);
+            labels.push(SLOT_SCREEN_ZOOMED_BOTTOM);
+            labels.push(SLOT_SCREEN_ZOOMED_POINTER);
+            labels
+        }
+    }
 }
 
-fn assemble_cur_screen_base64(cap: &ScreenCaptureResult) -> Vec<String> {
+fn build_cur_screen_preamble(tier: ComputerTier, has_previous_raw: bool) -> String {
+    let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth — cite **On [slot name]:** in thoughts; do not invent UI from task text or prior turns.";
+    match tier {
+        ComputerTier::Primary => format!(
+            "{CUR_SCREEN_TAG} One labeled image: {SLOT_SCREEN_ANNOTATED}. {cite} \
+             **Verify / Repetition:** no overlay digits — cite layout only. \
+             **Next:** pick **index** from this frame. Thoughts: Verify → Repetition → Next.\n"
+        ),
+        ComputerTier::Intermediate => format!(
+            "{CUR_SCREEN_TAG} Three labeled images follow (unmarked full screen, marked full screen, annotated overlay). {cite} Thoughts: Verify → Repetition → Next with Cause on fail.\n"
+        ),
+        ComputerTier::Advanced => {
+            let zoom_before = if has_previous_raw {
+                format!(
+                    " **{SLOT_SCREEN_ZOOMED_POINTER_BEFORE}** is a **{factor}×** magnified **{crop}×{crop} px** crop (±{radius} px around the pointer) from **{SLOT_SCREEN_BEFORE_ACTION}** — use it for **Pointer:** hotspot-vs-center geometry.",
+                    factor = BEFORE_POINTER_ZOOM_FACTOR,
+                    crop = BEFORE_POINTER_ZOOM_CROP_SIDE,
+                    radius = BEFORE_POINTER_ZOOM_RADIUS_PX,
+                )
+            } else {
+                String::new()
+            };
+            let count = if has_previous_raw { 7 } else { 5 };
+            format!(
+                "{CUR_SCREEN_TAG} {count} labeled images follow in slot order.{zoom_before} {cite} Thoughts: Verify (screenshots) first; Pointer only if unclear; then Repetition, Next, Location, Recheck, Tool route.\n"
+            )
+        }
+    }
+}
+
+fn assemble_cur_screen_base64(tier: ComputerTier, cap: &ScreenCaptureResult) -> Vec<String> {
+    match tier {
+        ComputerTier::Primary => vec![screen::encode_image_to_base64(
+            &cap.annotated_marked_jpeg,
+        )],
+        ComputerTier::Intermediate => {
+            vec![
+                screen::encode_image_to_base64(&cap.raw_unmarked_jpeg),
+                screen::encode_image_to_base64(&cap.raw_marked_jpeg),
+                screen::encode_image_to_base64(&cap.annotated_marked_jpeg),
+            ]
+        }
+        ComputerTier::Advanced => assemble_cur_screen_base64_advanced(cap),
+    }
+}
+
+fn assemble_cur_screen_base64_advanced(cap: &ScreenCaptureResult) -> Vec<String> {
     let mut out = Vec::with_capacity(7);
     if let Some(before) = &cap.inject_before_action {
         out.push(screen::encode_image_to_base64(&before.screen_jpeg));
         out.push(screen::encode_image_to_base64(&before.zoom_pointer_png));
     }
     out.push(screen::encode_image_to_base64(&cap.raw_marked_jpeg));
-    out.push(screen::encode_image_to_base64(&cap.annotated_marked_png));
+    out.push(screen::encode_image_to_base64(&cap.annotated_marked_jpeg));
     out.push(screen::encode_image_to_base64(&cap.zoom_menu_bar_png));
     out.push(screen::encode_image_to_base64(&cap.zoom_task_bar_png));
     out.push(screen::encode_image_to_base64(&cap.zoom_pointer_png));
     out
+}
+
+fn assemble_cur_screen_payload(
+    tier: ComputerTier,
+    cap: &ScreenCaptureResult,
+) -> (Vec<String>, Vec<String>) {
+    let has_previous_raw = cap.inject_before_action.is_some();
+    let labels: Vec<String> = slot_labels_for_tier(tier, has_previous_raw)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    let images = assemble_cur_screen_base64(tier, cap);
+    debug_assert_eq!(
+        labels.len(),
+        images.len(),
+        "slot labels must match image count"
+    );
+    (labels, images)
 }
 
 pub fn register(registry: &mut ExtensionRegistry) {
@@ -157,8 +208,13 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     .as_deref()
                     .or(ctx.round_assistant_message_id.as_deref())
                     .unwrap_or("round_unknown");
-                let annotated_rel =
-                    capture_debug::save_computer_capture_debug(ctx.conversation_id, dump_prefix, &cap);
+                let tier = ctx.computer_state.tier_for_conversation(ctx.conversation_id);
+                let annotated_rel = capture_debug::save_computer_capture_debug(
+                    ctx.conversation_id,
+                    dump_prefix,
+                    &cap,
+                    tier,
+                );
                 if let (Some(tx), Some(mid)) = (ctx.stream, ctx.round_assistant_message_id.as_ref()) {
                     if let Some(rel) = annotated_rel {
                         let _ = tx.send(StreamEvent::AssistantRoundScreen {
@@ -175,14 +231,28 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                 );
                 strip_images_from_prior_messages(ctx.messages.as_mut_slice());
                 let has_previous_raw = cap.inject_before_action.is_some();
-                let images = assemble_cur_screen_base64(&cap);
+                let (image_slot_labels, images) = assemble_cur_screen_payload(tier, &cap);
                 let mut text = cur_screen_clock_prefix();
-                text.push_str(&build_cur_screen_text(has_previous_raw));
+                if let Some(lock) = ctx
+                    .computer_state
+                    .locked_goal_dynamic_block(ctx.conversation_id)
+                {
+                    if let Some(label) = lock.lines().nth(3) {
+                        text.push_str(&format!("Locked goal: {label}\n\n"));
+                    }
+                }
+                text.push_str(&build_cur_screen_preamble(tier, has_previous_raw));
                 if let Some(block) = ctx.computer_state.recent_actions_prompt_block(ctx.conversation_id) {
                     text.push_str("\n\n");
                     text.push_str(&block);
                     text.push('\n');
                 }
+                text.push_str("\n\n");
+                text.push_str(
+                    &ctx.computer_state
+                        .tier_runtime_prompt_block(ctx.conversation_id),
+                );
+                text.push('\n');
                 if let Some(ref anchor) = cap.mouse_neighbor_reference_text {
                     text.push_str("\n\n");
                     text.push_str(anchor);
@@ -203,6 +273,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     agent_id: None,
                     agent_name: None,
                     agent_trace: None,
+                    image_slot_labels: Some(image_slot_labels),
                     images_base64: Some(images),
                     computer_round_screen_rel_path: None,
                 });
@@ -234,6 +305,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     agent_id: None,
                     agent_name: None,
                     agent_trace: None,
+                    image_slot_labels: None,
                     images_base64: None,
                     computer_round_screen_rel_path: None,
                 });
@@ -246,6 +318,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::computer::ScreenCaptureResult;
     use crate::models::ChatMessage;
 
     fn msg_with_images(images: Option<Vec<&str>>) -> ChatMessage {
@@ -265,8 +338,28 @@ mod tests {
             agent_id: None,
             agent_name: None,
             agent_trace: None,
+            image_slot_labels: None,
             images_base64: images.map(|v| v.into_iter().map(String::from).collect()),
             computer_round_screen_rel_path: None,
+        }
+    }
+
+    fn dummy_cap(has_before: bool) -> ScreenCaptureResult {
+        use crate::agents::computer::screen::MonitorInfo;
+        use crate::agents::computer::screen_overlay::BeforeActionInject;
+        ScreenCaptureResult {
+            raw_unmarked_jpeg: vec![1, 2],
+            raw_marked_jpeg: vec![3, 4],
+            annotated_marked_jpeg: vec![5, 6],
+            zoom_menu_bar_png: vec![7],
+            zoom_task_bar_png: vec![8],
+            zoom_pointer_png: vec![9],
+            mouse_neighbor_reference_text: None,
+            monitor: MonitorInfo::new(0, 0, 100, 100),
+            inject_before_action: has_before.then(|| BeforeActionInject {
+                screen_jpeg: vec![10],
+                zoom_pointer_png: vec![11],
+            }),
         }
     }
 
@@ -278,6 +371,7 @@ mod tests {
         }];
         strip_images_from_prior_messages(&mut msgs);
         assert!(msgs[0].images_base64.is_none());
+        assert!(msgs[0].image_slot_labels.is_none());
         assert_eq!(msgs[0].content, "Plain user text.");
     }
 
@@ -306,17 +400,42 @@ mod tests {
     }
 
     #[test]
-    fn legend_lists_all_slots_when_no_prev() {
-        let t = build_cur_screen_text(false);
-        assert!(t.contains(SLOT_SCREEN_AFTER_ACTION));
-        assert!(t.contains(SLOT_SCREEN_ZOOMED_POINTER));
-        assert!(!t.contains(&format!("(2) {SLOT_SCREEN_ZOOMED_POINTER_BEFORE}")));
+    fn slot_labels_match_image_count_primary_one_annotated() {
+        for has_before in [false, true] {
+            let cap = dummy_cap(has_before);
+            let (labels, images) = assemble_cur_screen_payload(ComputerTier::Primary, &cap);
+            assert_eq!(labels.len(), 1, "has_before={has_before}");
+            assert_eq!(labels.len(), images.len());
+            assert_eq!(labels[0], SLOT_SCREEN_ANNOTATED);
+        }
     }
 
     #[test]
-    fn legend_lists_before_zoom_when_prev() {
-        let t = build_cur_screen_text(true);
-        assert!(t.contains(SLOT_SCREEN_ZOOMED_POINTER_BEFORE));
-        assert!(t.contains(SLOT_SCREEN_BEFORE_ACTION));
+    fn slot_labels_match_image_count_advanced_without_before() {
+        let cap = dummy_cap(false);
+        let (labels, images) =
+            assemble_cur_screen_payload(ComputerTier::Advanced, &cap);
+        assert_eq!(labels.len(), 5);
+        assert_eq!(labels.len(), images.len());
+        assert_eq!(labels[0], SLOT_SCREEN_AFTER_ACTION);
+        assert_eq!(labels[4], SLOT_SCREEN_ZOOMED_POINTER);
+    }
+
+    #[test]
+    fn slot_labels_match_image_count_advanced_with_before() {
+        let cap = dummy_cap(true);
+        let (labels, images) =
+            assemble_cur_screen_payload(ComputerTier::Advanced, &cap);
+        assert_eq!(labels.len(), 7);
+        assert_eq!(labels.len(), images.len());
+        assert!(labels.contains(&SLOT_SCREEN_BEFORE_ACTION.to_string()));
+        assert!(labels.contains(&SLOT_SCREEN_ZOOMED_POINTER_BEFORE.to_string()));
+    }
+
+    #[test]
+    fn preamble_mentions_labeled_images() {
+        let t = build_cur_screen_preamble(ComputerTier::Advanced, false);
+        assert!(t.contains("labeled images"));
+        assert!(t.contains("On [slot name]:"));
     }
 }

@@ -1,5 +1,6 @@
 //! Shared tool execution pass after envelope validation (lead single-agent and sub-agent).
 
+use crate::agents::computer::ComputerTierGuard;
 use crate::agents::{AgentDef, AgentProfile, AgentRunResult, AgentTask, FileToolLeadProfileGuard};
 use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
 use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent, ToolCall};
@@ -487,7 +488,14 @@ async fn execute_tool_invocation(
         .map(|l| l.file_tool_lead_for_invoke.clone())
         .or_else(|| sub.map(|s| s.def.profile.clone()))
         .unwrap_or(AgentProfile::General);
-    let _file_tool_profile_guard = FileToolLeadProfileGuard::enter(file_profile);
+    let _file_tool_profile_guard = FileToolLeadProfileGuard::enter(file_profile.clone());
+    let _tier_guard = if file_profile == AgentProfile::Computer {
+        Some(ComputerTierGuard::enter(
+            state.computer_state.tier_for_conversation(conversation_id),
+        ))
+    } else {
+        None
+    };
     state
         .tools
         .invoke(tool_id, args_value)

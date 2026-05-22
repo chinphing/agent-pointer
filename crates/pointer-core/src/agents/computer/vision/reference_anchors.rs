@@ -38,7 +38,7 @@ fn to_session_xy(x: f32, y: f32, cw: f32, ch: f32, coord: CoordinateSystem) -> (
     }
 }
 
-/// Session coordinates in inject are non-negative integers (rounded), per COMMUNICATION.md.
+/// Session coordinates in inject are non-negative integers (rounded), per tier communication md.
 fn session_xy_int(x: f32, y: f32, cw: f32, ch: f32, coord: CoordinateSystem) -> (i32, i32) {
     let (sx, sy) = to_session_xy(x, y, cw, ch, coord);
     ((sx.round().max(0.0)) as i32, (sy.round().max(0.0)) as i32)

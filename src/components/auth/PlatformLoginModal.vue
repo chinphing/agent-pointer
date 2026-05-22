@@ -1,9 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Bot, ExternalLink, Loader2, Monitor, Moon, Sun } from 'lucide-vue-next'
-import { applyTheme } from '../../lib/theme'
-import { useSettingsStore } from '../../stores/settings'
-import type { ThemePreference } from '../../types/chat'
+import { Bot, ExternalLink, Loader2 } from 'lucide-vue-next'
 
 defineProps<{
   loading: boolean
@@ -12,30 +8,6 @@ defineProps<{
 
 const emit = defineEmits<{ (e: 'login'): void; (e: 'cancel'): void }>()
 
-const settings = useSettingsStore()
-
-const themeIcon = computed(() => {
-  const t = settings.settings.theme ?? 'system'
-  if (t === 'light') return Sun
-  if (t === 'dark') return Moon
-  return Monitor
-})
-
-const themeTitle = computed(() => {
-  const t = settings.settings.theme ?? 'system'
-  if (t === 'light') return '浅色'
-  if (t === 'dark') return '深色'
-  return '跟随系统'
-})
-
-async function cycleTheme() {
-  const order: ThemePreference[] = ['system', 'light', 'dark']
-  const cur = settings.settings.theme ?? 'system'
-  const i = order.indexOf(cur)
-  const next = order[(i + 1) % order.length]
-  applyTheme(next)
-  await settings.save({ theme: next })
-}
 </script>
 
 <template>
@@ -70,15 +42,6 @@ async function cycleTheme() {
                   Pointer
                 </h2>
               </div>
-              <div class="flex-1" />
-              <button
-                type="button"
-                class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-hover hover:text-foreground cursor-pointer transition-colors"
-                :title="`主题：${themeTitle}`"
-                @click="cycleTheme"
-              >
-                <component :is="themeIcon" class="h-4 w-4" />
-              </button>
             </div>
 
             <div class="login-actions flex w-full flex-col gap-2">

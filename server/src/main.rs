@@ -213,6 +213,7 @@ async fn preview_computer_annotated_screen(
         .cached_annotated_for_conversation(&q.conversation_id)
         .map(|(img, _monitor)| ComputerAnnotatedPreview {
             image_base64: pointer_core::agents::computer::screen::encode_image_to_base64(&img),
+            image_mime: pointer_core::agents::computer::screen::image_data_url_mime(&img).to_string(),
             caption: "Annotated screenshot".into(),
         })
         .map(Json)

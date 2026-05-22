@@ -11,7 +11,7 @@
 > 坐标系统默认：`qwen`（0-1000 归一化）
 > 标注服务：外部 HTTP 服务（`COMPUTER_ANNOTATE_API_BASE`，默认 `http://127.0.0.1:8000`）
 > 动作底层库：`enigo`（跨平台封装，未来可扩展）
-> **桌面工具 → 下一轮截图复核前间隔**：`timing.rs` 中 `POST_DESKTOP_ACTION_DELAY_MS`（未传 **`wait`** 时默认 1000ms）。**`mouse` / `hotkey` / `composite_action` / `modified_click`** 的 **`tool_args`** 可传可选 **`wait`**（秒，运行时钳位 **1–5**）；规范见 **`crates/pointer-core/src/agents/computer/COMMUNICATION.md`** 章节 **Post-action `wait` in `tool_args`**；各工具 `prompts/*.md` 仅保留一句引用与启发式。
+> **桌面工具 → 下一轮截图复核前间隔**：`timing.rs` 中 `POST_DESKTOP_ACTION_DELAY_MS`（未传 **`wait`** 时默认 1000ms）。**`mouse` / `hotkey` / `composite_action` / `modified_click`** 的 **`tool_args`** 可传可选 **`wait`**（秒，运行时钳位 **1–5**）；规范见 **`crates/pointer-core/src/agents/computer/prompts/tiers/advanced/communication.md`** 章节 **Post-action `wait` in `tool_args`**；各工具 `prompts/*.md` 仅保留一句引用与启发式。
 > **组合操作子步骤间隔**（如定位后输入、全选后输入、定位后滚动）：`timing.rs` 的 `COMPOSITE_ACTION_STEP_GAP_MS`（默认 50ms）
 > 排除范围：shell 执行、文件操作（已有现有工具覆盖）
 
@@ -141,17 +141,17 @@ crates/pointer-core/src/
 │   ├── mod.rs                      # Agent 注册表 + `pub mod computer`
 │   └── computer/                   # Computer Agent：清单 + 基础能力 + tools 子目录
 │       ├── AGENT.md
-│       ├── COMMUNICATION.md
-│       ├── mod.rs                  # ComputerState
+│       ├── prompts/tiers/{primary,intermediate,advanced}/
+│       ├── prompts/os/
+│       ├── author/                 # not loaded at runtime
+│       ├── mod.rs                  # re-exports
+│       ├── state/                  # ComputerState, capture pipeline
+│       ├── input/                  # actions, enigo, mouse_move, timing
+│       ├── vision/                 # screen, annotate, coord, overlays, vision_state
+│       ├── tier/
 │       ├── extension_hooks/
-│       ├── screen.rs
-│       ├── annotate.rs
-│       ├── coord.rs
-│       ├── actions.rs
-│       ├── action_enigo.rs
-│       ├── vision_state.rs
 │       ├── verify.rs
-│       └── tools/                  # 注册到 ToolRegistry：handlers + schemas + prompts
+│       └── tools/
 │           ├── mod.rs              # register_all
 │           ├── args_util.rs
 │           ├── tool_*.rs

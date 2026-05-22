@@ -2,7 +2,7 @@
 
 Use this section for Linux-specific shortcuts, launcher habits, and paths.
 Desktop environments differ (GNOME, KDE, XFCE, etc.); prefer what is visible on screen.
-For general control logic, follow **communication**.
+For general control logic, follow the desktop rules in your system instructions.
 
 ### Keyboard shortcuts (hotkey tool)
 

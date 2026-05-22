@@ -1,16 +1,8 @@
 import { onMounted, onUnmounted, ref } from 'vue'
+import { detectDesktopOs, type DesktopOs } from '../lib/desktopOs'
 import { isTauriRuntime } from '../lib/runtime'
 
-export type DesktopOs = 'macos' | 'windows' | 'linux' | 'unknown'
-
-function detectDesktopOs(): DesktopOs {
-  if (typeof navigator === 'undefined') return 'unknown'
-  const p = navigator.platform
-  if (/Mac|iPhone|iPad|iPod/.test(p)) return 'macos'
-  if (/Win/.test(p)) return 'windows'
-  if (/Linux/.test(p)) return 'linux'
-  return 'unknown'
-}
+export type { DesktopOs }
 
 /** Native traffic lights (macOS overlay); custom buttons on Windows/Linux. */
 export function useWindowChrome() {

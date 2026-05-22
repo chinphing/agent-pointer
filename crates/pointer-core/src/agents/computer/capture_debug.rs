@@ -1,8 +1,10 @@
-//! Persist full screen-capture bundles for debugging under the app data directory.
+//! Persist screen-capture bundles for debugging under the app data directory.
+//! Only writes assets the active tier uses — no extra JPEG/PNG generation on disk.
 
-use crate::agents::computer::screen;
+use crate::agents::computer::state::ScreenCaptureResult;
+use crate::agents::computer::tier::ComputerTier;
+use crate::agents::computer::vision::screen;
 use crate::models::ComputerAnnotatedPreview;
-use crate::agents::computer::ScreenCaptureResult;
 use anyhow::Context;
 use std::fs;
 use std::path::PathBuf;
@@ -48,12 +50,13 @@ pub fn safe_capture_file_path(rel: &str) -> Option<PathBuf> {
     Some(full)
 }
 
-/// Read a saved annotated PNG and return the same shape as live preview.
+/// Read a saved annotated JPEG/PNG (legacy) and return the same shape as live preview.
 pub fn read_computer_capture_preview(rel: &str) -> anyhow::Result<ComputerAnnotatedPreview> {
     let path = safe_capture_file_path(rel).context("invalid or disallowed capture path")?;
     let bytes = fs::read(&path).with_context(|| format!("read {:?}", path))?;
     Ok(ComputerAnnotatedPreview {
         image_base64: screen::encode_image_to_base64(&bytes),
+        image_mime: screen::image_data_url_mime(&bytes).to_string(),
         caption: "本圈标注画面".into(),
     })
 }
@@ -89,17 +92,30 @@ pub fn purge_computer_captures_older_than_days(days: i64) -> std::io::Result<usi
     Ok(removed)
 }
 
-/// Writes JPEG/PNG files as `{prefix}_{type}_{timestamp_ms}.{ext}` under
-/// `{data_dir}/PointerApp/computer-captures/{YYYY-MM-DD}/{conversation_id}/` — same app root as settings and skills ([`crate::storage::app_data_dir`]).
-/// Also writes **`screen_raw_unmarked`** (OS capture before synthetic pointer).
+fn write_bytes(dir: &PathBuf, pfx: &str, name: &str, ext: &str, ts: i64, bytes: &[u8]) {
+    if bytes.is_empty() {
+        return;
+    }
+    let path = dir.join(format!("{pfx}_{name}_{ts}.{ext}"));
+    if let Err(e) = fs::write(&path, bytes) {
+        log::warn!("computer capture dump: write {:?}: {e}", path);
+    }
+}
+
+/// Writes tier-selected files under `{data_dir}/computer-captures/{YYYY-MM-DD}/{conversation_id}/`.
 ///
-/// Returns the **path relative to `computer-captures/`** of the annotated PNG (for lazy UI load), e.g.
-/// `2026-05-11/my_conv/msg_abc_annotated_1715423.png`.
+/// Returns the **path relative to `computer-captures/`** of the annotated JPEG (for lazy UI load).
 pub fn save_computer_capture_debug(
     conversation_id: &str,
     file_prefix: &str,
     cap: &ScreenCaptureResult,
+    tier: ComputerTier,
 ) -> Option<String> {
+    if cap.annotated_marked_jpeg.is_empty() {
+        log::warn!("computer capture dump: skip — empty annotated frame");
+        return None;
+    }
+
     let Some(root) = capture_root_dir() else {
         log::warn!("computer capture dump: could not resolve app data directory");
         return None;
@@ -114,28 +130,43 @@ pub fn save_computer_capture_debug(
     }
 
     let pfx = sanitize_path_segment(file_prefix);
-    // Aligns with `[Screen after action]` in `[CUR_SCREEN]` copy: full-frame marked JPEG for this turn.
-    const SLOT_SCREEN_AFTER_ACTION: &str = "screen_after_action";
-    let write_one = |name: &str, ext: &str, bytes: &[u8]| {
-        let path = dir.join(format!("{pfx}_{name}_{ts}.{ext}"));
-        if let Err(e) = fs::write(&path, bytes) {
-            log::warn!("computer capture dump: write {:?}: {e}", path);
+
+    match tier {
+        ComputerTier::Primary => {
+            write_bytes(&dir, &pfx, "annotated", "jpg", ts, &cap.annotated_marked_jpeg);
         }
-    };
-
-    if let Some(prev) = &cap.inject_before_action {
-        write_one("screen_before_action", "jpg", &prev.screen_jpeg);
-        write_one("zoom_pointer_before_action", "png", &prev.zoom_pointer_png);
+        ComputerTier::Intermediate => {
+            write_bytes(&dir, &pfx, "screen_raw_unmarked", "jpg", ts, &cap.raw_unmarked_jpeg);
+            write_bytes(&dir, &pfx, "screen_after_action", "jpg", ts, &cap.raw_marked_jpeg);
+            write_bytes(&dir, &pfx, "annotated", "jpg", ts, &cap.annotated_marked_jpeg);
+        }
+        ComputerTier::Advanced => {
+            if let Some(prev) = &cap.inject_before_action {
+                write_bytes(&dir, &pfx, "screen_before_action", "jpg", ts, &prev.screen_jpeg);
+                write_bytes(
+                    &dir,
+                    &pfx,
+                    "zoom_pointer_before_action",
+                    "png",
+                    ts,
+                    &prev.zoom_pointer_png,
+                );
+            }
+            write_bytes(&dir, &pfx, "screen_raw_unmarked", "jpg", ts, &cap.raw_unmarked_jpeg);
+            write_bytes(&dir, &pfx, "screen_after_action", "jpg", ts, &cap.raw_marked_jpeg);
+            write_bytes(&dir, &pfx, "annotated", "jpg", ts, &cap.annotated_marked_jpeg);
+            write_bytes(&dir, &pfx, "zoom_top", "png", ts, &cap.zoom_menu_bar_png);
+            write_bytes(&dir, &pfx, "zoom_bottom", "png", ts, &cap.zoom_task_bar_png);
+            write_bytes(&dir, &pfx, "zoom_pointer", "png", ts, &cap.zoom_pointer_png);
+        }
     }
-    write_one("screen_raw_unmarked", "jpg", &cap.raw_unmarked_jpeg);
-    write_one(SLOT_SCREEN_AFTER_ACTION, "jpg", &cap.raw_marked_jpeg);
-    write_one("annotated", "png", &cap.annotated_marked_png);
-    write_one("zoom_top", "png", &cap.zoom_menu_bar_png);
-    write_one("zoom_bottom", "png", &cap.zoom_task_bar_png);
-    write_one("zoom_pointer", "png", &cap.zoom_pointer_png);
 
-    let annotated_name = format!("{pfx}_annotated_{ts}.png");
+    let annotated_name = format!("{pfx}_annotated_{ts}.jpg");
     let rel = format!("{date}/{conv_seg}/{annotated_name}");
-    log::info!("computer capture dump: wrote capture set under {:?}, annotated rel={rel}", dir);
+    log::info!(
+        "computer capture dump: tier={} wrote under {:?}, annotated rel={rel}",
+        tier.label(),
+        dir
+    );
     Some(rel)
 }

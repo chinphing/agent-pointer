@@ -18,8 +18,7 @@
         "height": 820,
         "minWidth": 960,
         "minHeight": 640,
-        "decorations": false,
-        "titleBarStyle": "Overlay",
+        "acceptFirstMouse": true,
         "transparent": false,
         "resizable": true,
         "fullscreen": false

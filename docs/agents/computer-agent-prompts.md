@@ -1,89 +1,109 @@
 # Computer 子 Agent 提示词结构
 
-内置 **computer** Agent 的系统提示由三部分拼接而成（磁盘覆盖 Agent 目录时行为一致）：
+Computer Agent 使用 **三级运行时档位**（Primary / Intermediate / Advanced），每档有独立的 communication、循环正文、图像注入与模型设置。
 
-1. **`COMMUNICATION_SHARED.md`** — 图像槽位 **Frame registry**（每个 slot 哪个 stage 必须读）。
-2. **`COMMUNICATION.md`**（**运行时 slim**）— **Proof discipline** + **Image discipline** + 六阶段 **步骤表** + **路由表** + 每阶段 1 个 golden example。
-3. **平台相关提示词**（`OS_MACOS.md` / `OS_WINDOWS.md` / `OS_LINUX.md`）。
-4. **`AGENT.md` 正文** — 角色与循环要点。
+## 目录结构（`crates/pointer-core/src/agents/computer/`）
 
-扩展样例与 anti-pattern：**`COMMUNICATION_FULL.md`**（**不**随运行时加载）。
+```
+computer/
+  AGENT.md                 # manifest（id / config / tools），正文仅简短角色说明
+  mod.rs                   # 模块入口 + 对外 re-export
+  state/ input/ vision/ tier/   # Rust 实现（见 `computer/README.md`）
+  verify.rs capture_debug.rs
+  extension_hooks/ tools/
+  prompts/
+    tiers/
+      primary/             communication.md + loop.md
+      intermediate/        communication.md + loop.md
+      advanced/            vision_slots.md + communication.md + loop.md
+    os/                    macos.md | windows.md | linux.md
+    README.md              # 维护索引（不加载）
+  author/                  # 不参与运行时（样例 / 长文参考）
+    communication_full.md
+    agent_body_full.md
+  tools/                   # 工具 handler + schemas + prompts/*.md
+  extension_hooks/
+  assets/
+```
 
----
+## 提示词编写约定
 
-## 两大全局原则（运行时 COMMUNICATION.md §Global discipline）
+- **给模型的 md**（`prompts/`、`tools/prompts/`）：只写合并后模型能直接执行的规则与示例；**不要**写文件名、合并方式、manifest、档位标签、跨档引用等开发信息。
+- **开发说明**：本页、`prompts/README.md`、`author/` 下的文件。
 
-### A) 证明式推导
+## 运行时合并
 
-- 六阶段 **严格按序**；每阶段内 **编号行按序**，**禁止跳步**。
-- **先分析，再结论** — 含判断的每一行：**Analysis 在前**，**`Conclusion:` / `therefore` 在最后**；禁止行首写结论再补分析。
+`computer_communication_for_tier(tier)` + `computer_agent_body_for_tier(tier)`，段间 `\n\n---\n\n`。
 
-### B) 图像依据（禁止文本瞎猜）
+| 档位 | Communication | Loop |
+|------|---------------|------|
+| Primary | `tiers/primary/communication.md` | `tiers/primary/loop.md` |
+| Intermediate | `tiers/intermediate/communication.md` | `tiers/intermediate/loop.md` |
+| Advanced | `tiers/advanced/vision_slots.md` + `communication.md` | `tiers/advanced/loop.md` |
 
-- 任何像素/布局/控件/指针/overlay 描述必须以 **`On [Frame name]:`** 开头，引用当前 **`[CUR_SCREEN]`** 中的 slot。
-- **Stage 1–4** 禁止 overlay 编号；**Location line 1** 禁止 overlay 编号。
-- 各 stage 读哪张图见 **Frame registry**（COMMUNICATION_SHARED + COMMUNICATION §C）。
+OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 
----
+## System 组装与 Context Cache
 
-## 六阶段分工
+| 分区 | 内容 |
+|------|------|
+| **cacheable（第 1 段）** | `COMMUNICATION_PUBLIC` + 当前档 communication + loop + tools + `[Environment]` + JSON wire |
+| **dynamic（第 2 段）** | `[TASK_BOARD]`、`[LOCKED GOAL]`（有锁时） |
+| **user `[CUR_SCREEN]`** | 每张图前一行槽位标签（与 `vision_slots` / 各档 communication 同名）+ 操作历史 + bboxes |
 
-| Stage | 决定什么 | 主要读图 |
-|-------|---------|---------|
-| **Pointer:** | 上一动作指针热点 vs 目标中心 | `[Zoom pointer before action]` |
-| **Verify:** | 上一动作是否成功 | `[Screen before action]` → `[Screen after action]` |
-| **Repetition:** | 是否 stuck | `[Recent desktop tool calls]` |
-| **Next:** | 本轮做什么 | `[Screen after action]` line 2 |
-| **Location:** | **reference index R** + **(x,y)** | Screen after → 选一个 overlay frame → L3 用 Annotated + inject |
-| **Tool route:** | 选工具 | 不再读图 — 一律 **`*_at(x,y)`** |
+升档时 cacheable 中的 communication 切片会替换，前缀缓存失效一次（可接受）。
 
----
+详见 [`../internals/llm-prompt-assembly-order.md`](../internals/llm-prompt-assembly-order.md)、[`../llm/qwen-context-cache.md`](../llm/qwen-context-cache.md)。
 
-## Location（全坐标实验 — 简）
+## 三档差异（摘要）
 
-**原则：** overlay **index 仅作 Location 锚点**；**全回合禁用 `*_index`**，一律 **`*_at(x,y)`** 坐标方法。
+| 档位 | 图像 | thoughts | 模型 / 思考 |
+|------|------|----------|-------------|
+| Primary | 仅 **`[Annotated after action]`** 一张；**不生成** marked/zoom/before；本地只落盘 `annotated` | 简版 Verify → Repetition → Next；思考预算 **2048** | qwen3.5-plus |
+| Intermediate | 原图 + marked + Annotated；**无** zoom/before；本地落盘 unmarked + after + annotated | **Verify→Pointer（条件）** + **Repetition** + **Next**；思考预算 **2048** | qwen3.5-plus |
+| Advanced | 7 槽（与现网一致） | 三段：**Part 1 Verify** / **Part 2 Repetition** / **Part 3 Next+Location+Recheck+Tool route** | qwen3.6-plus，思考 8K |
 
-**禁止：** 任何 **`click_index`** / **`type_text_at_index`** / **`modified_click_index`** 及 **`tool_args` 中的 index 字段**。
+## 操作历史
 
-| 行 | 内容 |
-|----|------|
-| L1 | **Placement→frame** — `[Screen after action]` 方位 → 选一个 overlay frame |
-| L2 | **Reference index R** — intended sub-target；bbox **R** 内容；**`distinct hit targets = N`** |
+- 每档独立 `[Recent desktop tool calls]` 列表，最多 10 条。
+- 每行必填 **`goal="…"`**，坐标为 session 0–1000 **(x,y)**（不写 index）。
+- verify：Primary 历史行仅 `pass/fail/pending/n/a`（无 cause）；Intermediate/Advanced 可带 `(cause)`。
 
-**Anchor gate：** **N > 1** → L3 **禁止** bbox center，必须 **corner + offset** 到 intended sub-target。
+## Repetition 计数与升档（运行时注入）
 
-**禁止：** Location 已有 **`therefore (x,y)`** 却用 **`click_index`** — 本会话 **所有回合** 均禁止 **`*_index`**，必须 **`click_at`** + 相同 **x/y**。
-| L3 | **Coordinate geometry** — **I1** 布局 → **I2** 从 inject row **R** **抄写 (xa,ya) 字面量** → **I3** offset → **I4** 算术 → **`therefore (x,y)`** |
+每轮 `[CUR_SCREEN]` 文本末尾附带 **`[Computer tier runtime]`**（`tier/mod.rs` 计算，非截图）：
 
-**禁止：** 只写 anchor 名称或最终 (X,Y)，不先 quote inject 里的数字。
+| 字段 | 含义 |
+|------|------|
+| **Repetition fail count: N** | 与最新历史行 **同一 goal** 的 **`verify: fail`** 条数（最多统计 10 条历史内）；**N > 3** 时 `verdict=STUCK` |
+| **Verify-fail streak: N** | 连续 **`Step result: fail`** 次数；**N > 3** 且 `computerAutoUpgrade=true` 时升档（Primary→Intermediate→Advanced） |
+| **Goal-fail streak** | 同一 goal 连续 fail **>3** 会注入 **`[LOCKED GOAL]`**（`before_main_llm_call`） |
+| **pass** | 当前 goal verify 通过后 tier 重置为 **primary**，各 streak 清零 |
 
-**选 R / anchor 类型：** 见 **COMMUNICATION.md** §5 — multi-control 用 corner + offset；单控件可用 center。
+模型在 **Repetition:** 中应回显 runtime 的 **N** 与 **verdict**；升档由宿主在回合结束后执行，下一回合自动使用更高档模型/图像/提示词。
 
-**非 overlay：** **`Location: n/a`**
+## 配置（`AGENT.md` config）
 
----
+- `computerAutoUpgrade` — 是否自动升档（默认 true）
+- `computerInitialTier` — `primary` | `intermediate` | `advanced`
+- `computerModelPrimary` / `computerModelAdvanced` — 可选覆盖模型 id
 
-## inject 文案约定
+## 定位方式（按档）
 
-- **`reference_anchors.rs`** / **`screen_inject.rs`** — 注入 **Pointer position** + **Overlay reference bboxes**（**全部** index 的 corner/center，按 index 排序）。
-- **分析逻辑与路由** — 只在 **`COMMUNICATION.md`**，不在 inject 重复 if-else 规则。
+| 档位 | 定位 | communication + `## Tools` 附录 |
+|------|------|----------------------------------|
+| Primary / Intermediate | **index**（`click_index`、`type_text_at_index` 等） | `tools/prompts/index/*.md` |
+| Advanced | **coordinate**（`click_at`、`type_text_at` + Location + Overlay bboxes） | `tools/prompts/coordinate/*.md` |
 
----
+组装：`generate_tools_system_appendix_with_positioning`（见 `tools/tool_prompts.rs`）。运行时 Advanced 仍会拒绝 `*_index` 调用。
 
-## Tool route（坐标 triple-lock）
+## Advanced 七阶段
 
-Location L3、Tool route recap、line **2**、root **`tool_args`** 四处 **`x`/`y` 字面量必须相同**。
+`prompts/tiers/advanced/communication.md`：证明式七阶段、坐标 `*_at`、reference index R 仅作锚点。Primary/Intermediate 的 communication 与工具附录仅允许 **index** 族方法。
 
-**禁止：** `mouse:click_at at computed (x,y)` — line **2** 必须写 `goal; action; x: …; y: …`。
+## 外部 Agent 目录覆盖
 
-**小图标 / 多控件 bbox 内 sub-target：** corner + offset（禁止 row center 当点击点）。
+自定义 `computer` 目录时，Advanced communication 优先读：
 
-**Inject lookup（L3 必写）：** `inject row R <anchor>: (xa, ya) = (…, …)` → offset → arithmetic → `(X, Y)`。
-
-## 维护 checklist（改分支时）
-
-1. 更新 **Location 三行模板** 与 **Tool route 执行表**（坐标唯一路径）
-2. 更新 **1 个 golden example**（含 reference index + click_at）
-3. 在 **COMMUNICATION_FULL.md** 补 anti-pattern
-4. **禁止**在 inject 文案里加分析逻辑
-5. 确认 **`reference_anchors` 测试**通过（全 index 注入、按 index 排序）
+1. `prompts/tiers/advanced/vision_slots.md` + `communication.md`
+2. 兼容旧路径：`shared.md`、`COMMUNICATION_SHARED.md`、根目录 `COMMUNICATION_ADVANCED.md`

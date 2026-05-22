@@ -40,7 +40,7 @@
 ## 系统提示：工具文档与侧车约定
 
 - 各工具的详细说明来自其 **`doc_markdown`**（通常 `include_str!("prompts/…")`），与授权列表一起在 **`generate_tools_system_appendix`** 中拼入系统提示（**`## Tools`** 等）。
-- **`COMMUNICATION_PUBLIC`**（英文）：**`thoughts`** 摘要语义、**`response`** 用法、**`task_board`** 与 **`<sidecar_tools>`** 的通用约定。多步计划的 **字段与侧车规则** 以 PUBLIC 为准；**桌面** **`tool_args.wait`** 见 **`computer/COMMUNICATION.md`**（**Post-action `wait` in `tool_args`**）；**Coder** 专属的 **Definition of done** 与 **Cross-surface verification** 见 **`coder/COMMUNICATION.md`**。
+- **`COMMUNICATION_PUBLIC`**（英文）：**`thoughts`** 摘要语义、**`response`** 用法、**`task_board`** 与 **`<sidecar_tools>`** 的通用约定。多步计划的 **字段与侧车规则** 以 PUBLIC 为准；**桌面** **`tool_args.wait`** 见 **`computer/prompts/tiers/advanced/communication.md`**（**Post-action `wait` in `tool_args`**）；**Coder** 专属的 **Definition of done** 与 **Cross-surface verification** 见 **`coder/COMMUNICATION.md`**。
 
 ## Agent 白名单
 

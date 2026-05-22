@@ -1,10 +1,76 @@
 mod commands;
+#[cfg(target_os = "macos")]
+mod macos_traffic_lights;
 mod platform_commands;
 
 use pointer_core::models::StreamEvent;
 use pointer_core::{chat_service::AppState, skills::external::skills_dir};
 use std::{fs, path::Path, sync::Arc};
 use tauri::{Emitter, Manager, RunEvent};
+
+#[cfg(target_os = "macos")]
+fn apply_macos_traffic_light_inset(
+    win: &tauri::WebviewWindow<tauri::Wry>,
+    label: &'static str,
+) {
+    use tauri::LogicalPosition;
+
+    let Ok(ns_window) = win.ns_window() else {
+        log::warn!("macOS window chrome: ns_window unavailable ({label})");
+        return;
+    };
+    macos_traffic_lights::apply_inset(
+        ns_window,
+        LogicalPosition::new(
+            macos_traffic_lights::INSET_X,
+            macos_traffic_lights::INSET_Y,
+        ),
+    );
+    log::info!(
+        "macOS traffic lights inset applied ({label}, x={}, y={})",
+        macos_traffic_lights::INSET_X,
+        macos_traffic_lights::INSET_Y
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn configure_macos_window_chrome(app: &tauri::App) {
+    use std::time::Duration;
+    use tauri::{Manager, TitleBarStyle};
+
+    let Some(win) = app.get_webview_window("main") else {
+        log::warn!("macOS window chrome: main window not found");
+        return;
+    };
+
+    if let Err(e) = win.set_decorations(true) {
+        log::warn!("macOS window chrome: set_decorations(true) failed: {e}");
+    }
+    if let Err(e) = win.set_title_bar_style(TitleBarStyle::Overlay) {
+        log::warn!("macOS window chrome: set_title_bar_style(Overlay) failed: {e}");
+    }
+    if let Err(e) = win.set_title(" ") {
+        log::warn!("macOS window chrome: set_title failed: {e}");
+    }
+
+    let win_initial = win.clone();
+    if let Err(e) = win.run_on_main_thread(move || {
+        apply_macos_traffic_light_inset(&win_initial, "initial");
+    }) {
+        log::warn!("macOS window chrome: run_on_main_thread failed: {e}");
+    }
+
+    let win_delayed = win.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let win_apply = win_delayed.clone();
+        let _ = win_delayed.run_on_main_thread(move || {
+            apply_macos_traffic_light_inset(&win_apply, "delayed");
+        });
+    });
+
+    log::info!("macOS window chrome: native traffic lights enabled (decorations + overlay)");
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -30,6 +96,9 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            configure_macos_window_chrome(app);
+
             if let Err(err) = install_bundled_skills(app) {
                 log::warn!("install bundled skills failed: {err}");
             }

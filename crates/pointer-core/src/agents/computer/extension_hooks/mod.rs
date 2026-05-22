@@ -4,10 +4,12 @@
 //! this module registers hooks that only apply to the Computer agent profile.
 
 mod screen_inject;
+mod tier_dynamic;
 
 use crate::extensions::ExtensionRegistry;
 
 /// Register all Computer agent hooks with the global registry.
 pub fn register(registry: &mut ExtensionRegistry) {
     screen_inject::register(registry);
+    tier_dynamic::register(registry);
 }

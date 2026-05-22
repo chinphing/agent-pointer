@@ -21,6 +21,10 @@ const LOOPBACK_PORT_SCAN_COUNT: u16 = 32;
 const EXPIRY_BUFFER_SEC: i64 = 300;
 /// 等待浏览器 OAuth 回调的最长时间（秒）。
 pub const OAUTH_CALLBACK_TIMEOUT_SEC: u64 = 300;
+/// 桌面 OAuth 成功后跳转官网首页时携带的 query 名；官网据此展示一次性提示（见 `docs/internals/desktop-oauth-web-integration.md`）。
+pub const DESKTOP_OAUTH_SUCCESS_QUERY: &str = "desktop_oauth";
+/// 与 [`DESKTOP_OAUTH_SUCCESS_QUERY`] 搭配的值。
+pub const DESKTOP_OAUTH_SUCCESS_VALUE: &str = "success";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlatformUserSummary {
@@ -458,10 +462,24 @@ pub async fn wait_loopback_on_listener(
         .nth(1)
         .unwrap_or("/callback");
     let (code, state) = parse_callback_query(path, expected_state)?;
-    let body = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<html><body><p>授权成功，可关闭此窗口并返回 Pointer。</p></body></html>";
-    let _ = stream.write_all(body.as_bytes()).await;
+    let location = desktop_oauth_success_redirect_url();
+    let response = format!(
+        "HTTP/1.1 302 Found\r\nLocation: {location}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"
+    );
+    let _ = stream.write_all(response.as_bytes()).await;
     let _ = stream.shutdown().await;
     Ok((code, state))
+}
+
+/// 桌面 OAuth 回调成功后跳转官网首页（带一次性提示用的 query）。
+pub fn desktop_oauth_success_redirect_url() -> String {
+    let home = format!(
+        "{}/",
+        platform_endpoints::web_base().trim_end_matches('/')
+    );
+    format!(
+        "{home}?{DESKTOP_OAUTH_SUCCESS_QUERY}={DESKTOP_OAUTH_SUCCESS_VALUE}"
+    )
 }
 
 fn parse_callback_query(path: &str, expected_state: &str) -> Result<(String, String)> {
@@ -511,8 +529,17 @@ fn percent_decode(s: &str) -> String {
 pub fn open_url_in_browser(url: &str) -> Result<()> {
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", url])
+        use std::os::windows::process::CommandExt;
+
+        // OAuth authorize URLs contain `&` between query params. Passing the URL as an
+        // unquoted argument to `cmd /C start` makes cmd treat each `&segment` as a new
+        // command (e.g. `redirect_uri=...` fails as "not recognized"). Use rundll32 so
+        // the URL is a single CreateProcess argument with no cmd parsing.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        std::process::Command::new("rundll32")
+            .arg("url.dll,FileProtocolHandler")
+            .arg(url)
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .context("open browser")?;
     }
@@ -566,6 +593,40 @@ async fn run_platform_login_flow_inner(
 
     auth.exchange_authorization_code(&code, &verifier, state, &redirect_uri)
         .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_authorize_url_includes_pkce_and_encoded_redirect() {
+        let url = PlatformAuthManager::build_authorize_url_for_port(19427, "challenge_abc", "pointer-app");
+        assert!(url.starts_with(&format!("{}/oauth/authorize?", PlatformAuthManager::web_base())));
+        assert!(url.contains("client_id=pointer-desktop"));
+        assert!(url.contains("code_challenge=challenge_abc"));
+        assert!(url.contains("code_challenge_method=S256"));
+        assert!(url.contains("state=pointer-app"));
+        assert!(url.contains(
+            "redirect_uri=http%3A%2F%2F127.0.0.1%3A19427%2Fcallback"
+        ));
+        assert!(url.contains('&'), "authorize URL must keep query separators");
+    }
+
+    #[test]
+    fn redirect_uri_for_port_matches_loopback_callback() {
+        assert_eq!(
+            PlatformAuthManager::redirect_uri_for_port(19428),
+            "http://127.0.0.1:19428/callback"
+        );
+    }
+
+    #[test]
+    fn desktop_oauth_success_redirect_includes_query_flag() {
+        let url = super::desktop_oauth_success_redirect_url();
+        assert!(url.starts_with("https://pointer.readflowai.com/"));
+        assert!(url.contains("desktop_oauth=success"));
+    }
 }
 
 pub type SharedPlatformAuth = Arc<PlatformAuthManager>;

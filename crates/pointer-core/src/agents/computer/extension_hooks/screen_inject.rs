@@ -65,7 +65,7 @@ fn build_cur_screen_text(has_previous_raw: bool) -> String {
         ""
     };
     let tail = format!(
-        "{before_line}{zoom_before} Slot names label each image. Every visual claim in thoughts must cite On [slot name]:. First reply after latest user message: classify intent (analyze/plan → Observe or Plan + response only; execute → seven-stage). After your automation tool on same request: continuation only — seven-stage, no Intent line (Recheck coordinates after Location x,y, before Tool route)."
+        "{before_line}{zoom_before} Slot names label each image. Every visual claim in thoughts must cite On [slot name]:. Seven-stage thoughts: after Location (x,y), emit Recheck coordinates before Tool route."
     );
     let hint = if has_previous_raw {
         format!(

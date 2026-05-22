@@ -32,6 +32,12 @@ Do **not** reintroduce `.glass`, `.neon-ring`, aurora body gradients, or heavy `
 - Sidebar cycles: system → light → dark
 - Applied via `src/lib/theme.ts` on load and when settings save
 
+## Desktop window chrome (Tauri only)
+
+- `src-tauri/tauri.conf.json`: `decorations: false`, macOS `titleBarStyle: Overlay` (native traffic lights).
+- Unified top bar in `AppShell.vue`: drag region + brand; Windows/Linux use `WindowControls.vue` (minimize / maximize / close).
+- Web (`dev:web`) has no custom title bar — browser chrome unchanged.
+
 ## Cross-entry
 
-Same CSS for Tauri and web (`dev:web`). No platform-specific color branches in components.
+Same CSS for Tauri and web (`dev:web`). Window chrome is gated with `isTauriRuntime()`; no color branches by platform.

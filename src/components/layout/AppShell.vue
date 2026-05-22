@@ -4,12 +4,31 @@ import { Plus, Search, Settings, MessageSquare, Trash2, Bot, Sparkles, Sun, Moon
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 import { applyTheme } from '../../lib/theme'
+import { useWindowChrome } from '../../composables/useWindowChrome'
+import WindowControls from './WindowControls.vue'
 import type { ThemePreference } from '../../types/chat'
 
 defineEmits<{ (e: 'open-settings'): void; (e: 'open-skills'): void }>()
 
 const chat = useChatStore()
 const settings = useSettingsStore()
+const {
+  enabled: chromeEnabled,
+  maximized,
+  showCustomControls,
+  macTrafficLightPadding,
+  minimize,
+  toggleMaximize,
+  close: closeWindow,
+  startDrag
+} = useWindowChrome()
+
+function onTitlebarMouseDown(e: MouseEvent) {
+  if (e.button !== 0) return
+  const target = e.target as HTMLElement | null
+  if (target?.closest('button, a, input, textarea, select, [data-tauri-drag-region="false"]')) return
+  void startDrag()
+}
 
 const searchQuery = ref('')
 
@@ -48,20 +67,34 @@ async function cycleTheme() {
 
 <template>
   <div class="h-full w-full flex flex-col">
+    <header
+      v-if="chromeEnabled"
+      class="titlebar hidden md:flex h-10 shrink-0 items-stretch border-b border-border bg-card select-none"
+      @mousedown="onTitlebarMouseDown"
+    >
+      <div
+        class="titlebar-brand w-[260px] shrink-0 flex items-center gap-2 px-3"
+        :class="macTrafficLightPadding ? 'pl-[4.75rem]' : 'pl-3'"
+        data-tauri-drag-region
+      >
+        <div class="w-7 h-7 rounded-lg bg-accent/15 border border-border flex items-center justify-center shrink-0 pointer-events-none">
+          <Bot class="w-3.5 h-3.5 text-accent" />
+        </div>
+        <div class="text-[13px] font-semibold tracking-wide brand-text truncate pointer-events-none">Pointer</div>
+      </div>
+      <div class="titlebar-drag flex-1 min-w-0" data-tauri-drag-region />
+      <WindowControls
+        v-if="showCustomControls"
+        :maximized="maximized"
+        @minimize="minimize"
+        @maximize="toggleMaximize"
+        @close="closeWindow"
+      />
+    </header>
+
     <div class="flex-1 flex min-h-0">
       <aside class="w-[260px] shrink-0 hidden md:flex flex-col panel border-r">
-        <div class="p-3 flex items-center gap-2">
-          <div class="flex items-center gap-2 px-2 py-1">
-            <div class="w-7 h-7 rounded-lg bg-accent/15 border border-border flex items-center justify-center">
-              <Bot class="w-3.5 h-3.5 text-accent" />
-            </div>
-            <div class="leading-tight">
-              <div class="text-[13px] font-semibold tracking-wide brand-text">Pointer</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="px-3 pb-2">
+        <div class="px-3 pb-2 pt-3">
           <div class="flex items-center gap-2">
             <div class="flex-1 flex items-center gap-2 h-9 px-3 rounded-lg panel-elevated">
               <Search class="w-3.5 h-3.5 text-muted" />

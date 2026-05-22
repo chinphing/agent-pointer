@@ -70,6 +70,23 @@
   .glass-strong {
     @apply bg-[hsl(var(--card-elevated))] border border-border;
   }
+  .titlebar,
+  .titlebar-drag,
+  .titlebar-brand {
+    -webkit-app-region: drag;
+  }
+  .window-controls,
+  .window-controls-btn {
+    -webkit-app-region: no-drag;
+  }
+
+  .window-controls-btn {
+    @apply w-[46px] h-10 flex items-center justify-center text-muted hover:bg-hover transition cursor-pointer;
+  }
+  .window-controls-btn-close:hover {
+    @apply bg-danger text-white;
+  }
+
   .brand-text {
     @apply text-accent font-semibold;
   }

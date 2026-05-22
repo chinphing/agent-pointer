@@ -4,7 +4,11 @@
 
 **Overlay digits:** each printed **index** pairs with **exactly one bbox** when the background color behind the digit **matches** that bbox's **border color**, and the digit sits **flush** on the bbox border (not between two regions). Digits reset each turn.
 
-**Positioning:** overlay **index** methods only — **`click_index`**, **`type_text_at_index`**, **`drag_from_to_index`**, etc. Pass **`index`** with optional **`anchor`**, **`dx`**, **`dy`**. **Forbidden:** **`*_at`**, bare **`x`/`y`** in `tool_args`, and **Location** / **Overlay reference bboxes** lookup blocks.
+**Positioning:** overlay **index** methods only — **`click_index`**, **`type_text_at_index`**, **`drag_from_to_index`**, etc. Pass **`index`** with optional **`anchor`**, **`dx`**, **`dy`**.
+
+**Verify:** **Expected** UI change vs **Actual** on screen — **forbidden** **pass** when evidence is only pointer/cursor placement (see **primary** Step 1). **Offset math:** **MA-3 FOUND** — paste **`- R: (…)`** verbatim; **MA-7 placement** **compact | inside-R | outside-R** (outside → prefer tighter **R'**, else **f_x/f_y** may be **<0** or **>1**, **|dx|/|dy|** may exceed **W/H**); same **MA** branches as **primary** Step 3.
+
+**Forbidden:** **`*_at`**, bare **`x`/`y`** in `tool_args`, guessing **L/T/R/B** from pixels, and **Location** / full-screen coordinate lookup blocks.
 
 ---
 
@@ -233,9 +237,9 @@ Screen: <flat | advanced> — UI progress vs prior attempts (from Verify Before 
 Verdict: <OK | STUCK> — if STUCK: <STUCK only | STUCK — change tactic> (no re-aim / relocate / pivot detail).
 ```
 
-**>3** **`verify: fail`** rows for the **same goal** in tier history → **`STUCK`**.
+**>3** **`verify: fail`** or **`verify: pending`** rows for the **same goal** in tier history → **`STUCK: yes`**.
 
-**Host counter:** **`[Computer tier runtime]`** prints **`Repetition fail count: N … verdict=OK|STUCK`** — echo **Fail count: N** and **verdict** in **`Repetition:`** (do not recount from scratch).
+**Host counter:** **`[Computer tier runtime]`** prints **`Repetition count: N verify fail/pending … STUCK: yes|no`** — echo **Count: N** and **STUCK: yes|no** (do not recount from scratch).
 
 **Scope:** Count repeats in **`[Recent desktop tool calls]`** and whether the UI **advanced**. **Do not** choose **re-aim**, **relocate**, or **pivot** here — that is **Next** after **Verify** **Match**.
 
@@ -248,10 +252,11 @@ Verdict: <OK | STUCK> — if STUCK: <STUCK only | STUCK — change tactic> (no r
 
 ```text
 Next:
-Verify echo: Step result=… Cause=…
-Repetition: <OK | STUCK>
-Target region: On [Screen after action]: <where on screen + visual traits — no overlay index yet>
-Pick: index <R>; anchor <corner>; offset Δx=…, Δy=… — <why R matches Target region; exclude nearest duplicate>
+Verify echo: Expected=… Actual=… Step result=…
+Repetition: Count=… STUCK=…
+MA-0 … MA-3 Inject lookup: FOUND | NOT FOUND
+(Branch HOVER or PRECISION — same MA-4…MA-9 as primary Step 3)
+Pick: …
 ```
 
 No **Location** / **Recheck** / **Tool route** blocks at this tier. Pick the tool from the target above; **`goal`** required on every desktop tool.

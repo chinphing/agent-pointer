@@ -78,11 +78,14 @@ fn build_cur_screen_preamble(tier: ComputerTier, has_previous_raw: bool) -> Stri
     match tier {
         ComputerTier::Primary => format!(
             "{CUR_SCREEN_TAG} One labeled image: {SLOT_SCREEN_ANNOTATED}. {cite} \
+             Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 indices nearest the pointer; session 0–1000 rects for **W/H** and **dx/dy**). \
              **Verify / Repetition:** no overlay digits — cite layout only. \
              **Next:** pick **index** from this frame. Thoughts: Verify → Repetition → Next.\n"
         ),
         ComputerTier::Intermediate => format!(
-            "{CUR_SCREEN_TAG} Three labeled images follow (unmarked full screen, marked full screen, annotated overlay). {cite} Thoughts: Verify → Repetition → Next with Cause on fail.\n"
+            "{CUR_SCREEN_TAG} Three labeled images follow (unmarked full screen, marked full screen, annotated overlay). {cite} \
+             Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 nearest the pointer). \
+             Thoughts: Verify → Repetition → Next with Cause on fail.\n"
         ),
         ComputerTier::Advanced => {
             let zoom_before = if has_previous_raw {

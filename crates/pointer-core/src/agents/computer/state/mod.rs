@@ -47,7 +47,7 @@ pub struct ScreenCaptureResult {
     pub zoom_task_bar_png: Vec<u8>,
     /// Zoom: 200×200 crop, 4× magnified (800×800) around pointer on marked annotated.
     pub zoom_pointer_png: Vec<u8>,
-    /// Optional prose: **Pointer position** + **`[Zoom pointer after action]`** coordinate-anchor guidance (see `reference_anchors`).
+    /// Optional prose under **`[CUR_SCREEN]`**: **Pointer position** + overlay bbox rows (`reference_anchors`; Primary/Intermediate: 10 nearest pointer; Advanced: all indices).
     pub mouse_neighbor_reference_text: Option<String>,
     /// Logical monitor bounds for this capture.
     pub monitor: screen::MonitorInfo,
@@ -394,16 +394,23 @@ impl ComputerState {
         }
         let vision_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-        let mouse_neighbor_reference_text = if tier == ComputerTier::Advanced {
-            reference_anchors::format_mouse_neighbor_reference_bboxes(
+        let mouse_neighbor_reference_text = match tier {
+            ComputerTier::Advanced => reference_anchors::format_mouse_neighbor_reference_bboxes(
                 &boxes,
                 &monitor,
                 capture_px,
                 global_pointer,
                 CoordinateSystem::Qwen,
-            )
-        } else {
-            None
+            ),
+            ComputerTier::Primary | ComputerTier::Intermediate => {
+                reference_anchors::format_mouse_nearby_reference_bboxes(
+                    &boxes,
+                    &monitor,
+                    capture_px,
+                    global_pointer,
+                    CoordinateSystem::Qwen,
+                )
+            }
         };
 
         let t = Instant::now();

@@ -20,8 +20,11 @@ pub const ADVANCED_THINKING_BUDGET: u32 = 8192;
 const MAX_TIER_HISTORY: usize = 10;
 /// Consecutive **`Step result: fail`** before auto-upgrade (`>` this value → bump tier).
 pub const TIER_ERROR_THRESHOLD: u32 = 3;
-/// Same-**goal** **`verify: fail`** rows in tier history before **Repetition** **`STUCK`** (`>` this value).
-pub const REPETITION_FAIL_COUNT_STUCK_THRESHOLD: u32 = 3;
+/// Same-**goal** **`verify: fail`** or **`verify: pending`** rows before **Repetition** **`STUCK: yes`** (`>` this value).
+pub const REPETITION_STUCK_COUNT_THRESHOLD: u32 = 3;
+
+/// Back-compat alias for [`REPETITION_STUCK_COUNT_THRESHOLD`].
+pub const REPETITION_FAIL_COUNT_STUCK_THRESHOLD: u32 = REPETITION_STUCK_COUNT_THRESHOLD;
 /// Same-goal verify fails before **`[LOCKED GOAL]`** engages (`>` this value).
 pub const TASK_ERROR_THRESHOLD: u32 = 3;
 
@@ -295,8 +298,12 @@ fn stable_hash_hex16(s: &str) -> String {
     format!("{:016x}", h.finish())
 }
 
-/// Count **`verify: fail`** rows in tier history that share the **same `goal`** as the newest row.
-pub fn same_goal_fail_count_in_history(records: &[TierActionRecord]) -> u32 {
+fn verify_counts_toward_repetition_stuck(step: &str) -> bool {
+    step == "fail" || step == "pending"
+}
+
+/// Count **`verify: fail`** and **`verify: pending`** rows for the **same `goal`** as the newest history row.
+pub fn same_goal_repetition_count_in_history(records: &[TierActionRecord]) -> u32 {
     let Some(last) = records.last() else {
         return 0;
     };
@@ -307,9 +314,14 @@ pub fn same_goal_fail_count_in_history(records: &[TierActionRecord]) -> u32 {
         .filter(|r| {
             r.verify_result
                 .as_ref()
-                .is_some_and(|v| v.step_result == "fail")
+                .is_some_and(|v| verify_counts_toward_repetition_stuck(v.step_result.as_str()))
         })
         .count() as u32
+}
+
+/// Back-compat alias for [`same_goal_repetition_count_in_history`].
+pub fn same_goal_fail_count_in_history(records: &[TierActionRecord]) -> u32 {
+    same_goal_repetition_count_in_history(records)
 }
 
 /// Host-maintained counters for **`[Computer tier runtime]`** under **`[CUR_SCREEN]`**.
@@ -340,16 +352,16 @@ pub fn format_tier_runtime_block(
             rt.tier_error_streak
         ));
     }
-    let fail_count = same_goal_fail_count_in_history(records);
+    let rep_count = same_goal_repetition_count_in_history(records);
     if records.is_empty() {
         lines.push(
-            "Repetition fail count: none — no prior desktop tool rows in this tier history.".to_string(),
+            "Repetition count: none — no prior desktop tool rows in this tier history.".to_string(),
         );
     } else if let Some(last) = records.last() {
-        let stuck = fail_count > REPETITION_FAIL_COUNT_STUCK_THRESHOLD;
-        let verdict = if stuck { "STUCK" } else { "OK" };
+        let stuck = rep_count > REPETITION_STUCK_COUNT_THRESHOLD;
+        let stuck_label = if stuck { "yes" } else { "no" };
         lines.push(format!(
-            "Repetition fail count: {fail_count} verify fail(s) for goal=\"{}\" (>{REPETITION_FAIL_COUNT_STUCK_THRESHOLD} → STUCK) — verdict={verdict}",
+            "Repetition count: {rep_count} verify fail/pending for goal=\"{}\" (>{REPETITION_STUCK_COUNT_THRESHOLD} → STUCK: yes) — STUCK: {stuck_label}",
             escape_goal(&last.goal)
         ));
     }
@@ -696,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn same_goal_fail_count_sums_verify_fail_rows() {
+    fn same_goal_repetition_count_sums_fail_and_pending_rows() {
         let mk = |goal: &str, step: &str| TierActionRecord {
             tool_name: "mouse:click_index".into(),
             goal: goal.into(),
@@ -711,15 +723,15 @@ mod tests {
         let records = vec![
             mk("open settings", "pass"),
             mk("open settings", "fail"),
-            mk("open settings", "fail"),
+            mk("open settings", "pending"),
         ];
-        assert_eq!(same_goal_fail_count_in_history(&records), 2);
+        assert_eq!(same_goal_repetition_count_in_history(&records), 2);
         let switched = vec![
             mk("open settings", "fail"),
-            mk("open settings", "fail"),
+            mk("open settings", "pending"),
             mk("other", "fail"),
         ];
-        assert_eq!(same_goal_fail_count_in_history(&switched), 1);
+        assert_eq!(same_goal_repetition_count_in_history(&switched), 1);
     }
 
     #[test]
@@ -738,8 +750,8 @@ mod tests {
         let block = format_tier_runtime_block(&rt, &config, ComputerTier::Primary, &records);
         assert!(block.contains("Verify-fail streak: 2"));
         assert!(block.contains("intermediate"));
-        assert!(block.contains("Repetition fail count: 0"));
-        assert!(block.contains("verdict=OK"));
+        assert!(block.contains("Repetition count: 0"));
+        assert!(block.contains("STUCK: no"));
     }
 
     #[test]
@@ -760,8 +772,8 @@ mod tests {
             })
             .collect();
         let block = format_tier_runtime_block(&rt, &config, ComputerTier::Primary, &records);
-        assert!(block.contains("Repetition fail count: 4"));
-        assert!(block.contains("verdict=STUCK"));
+        assert!(block.contains("Repetition count: 4"));
+        assert!(block.contains("STUCK: yes"));
     }
 
     #[test]

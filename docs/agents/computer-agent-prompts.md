@@ -49,7 +49,9 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 |------|------|
 | **cacheable（第 1 段）** | `COMMUNICATION_PUBLIC` + 当前档 communication + loop + tools + `[Environment]` + JSON wire |
 | **dynamic（第 2 段）** | `[TASK_BOARD]`、`[LOCKED GOAL]`（有锁时） |
-| **user `[CUR_SCREEN]`** | 每张图前一行槽位标签（与 `vision_slots` / 各档 communication 同名）+ 操作历史 + bboxes |
+| **user `[CUR_SCREEN]`** | 槽位标签 + 图 + 操作历史 + runtime + **Pointer position** + bbox 坐标表（Primary/Intermediate：**Nearby overlay reference bboxes** 指针最近 **10** 条；Advanced：全量 **Overlay reference bboxes**） |
+
+**Primary Verify**：对比 **Expected**（上一工具 **goal** 要求的界面变化）与 **Actual**（当前截图）；仅指针到位 ≠ **pass**（见 communication 反例）。**Next**：**MA-0…MA-9** 分支 **HOVER** / **PRECISION**，**Nearby** 须与注入 bullet 字符级一致。
 
 升档时 cacheable 中的 communication 切片会替换，前缀缓存失效一次（可接受）。
 
@@ -59,8 +61,8 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 
 | 档位 | 图像 | thoughts | 模型 / 思考 |
 |------|------|----------|-------------|
-| Primary | 仅 **`[Annotated after action]`** 一张；**不生成** marked/zoom/before；本地只落盘 `annotated` | 简版 Verify → Repetition → Next；思考预算 **2048** | qwen3.5-plus |
-| Intermediate | 原图 + marked + Annotated；**无** zoom/before；本地落盘 unmarked + after + annotated | **Verify→Pointer（条件）** + **Repetition** + **Next**；思考预算 **2048** | qwen3.5-plus |
+| Primary | 仅 **`[Annotated after action]`** 一张；**不生成** marked/zoom/before；本地只落盘 `annotated` | 简版 Verify → Repetition → Next；**Nearby bboxes×10**；思考预算 **2048** | qwen3.5-plus |
+| Intermediate | 原图 + marked + Annotated；**无** zoom/before；本地落盘 unmarked + after + annotated | **Verify→Pointer（条件）** + **Repetition** + **Next**；**Nearby bboxes×10**；思考预算 **2048** | qwen3.5-plus |
 | Advanced | 7 槽（与现网一致） | 三段：**Part 1 Verify** / **Part 2 Repetition** / **Part 3 Next+Location+Recheck+Tool route** | qwen3.6-plus，思考 8K |
 
 ## 操作历史
@@ -75,7 +77,7 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 
 | 字段 | 含义 |
 |------|------|
-| **Repetition fail count: N** | 与最新历史行 **同一 goal** 的 **`verify: fail`** 条数（最多统计 10 条历史内）；**N > 3** 时 `verdict=STUCK` |
+| **Repetition count: N** | 与最新历史行 **同一 goal** 的 **`verify: fail`** + **`verify: pending`** 条数（最多统计 10 条历史内）；**N > 3** 时 **`STUCK: yes`** |
 | **Verify-fail streak: N** | 连续 **`Step result: fail`** 次数；**N > 3** 且 `computerAutoUpgrade=true` 时升档（Primary→Intermediate→Advanced） |
 | **Goal-fail streak** | 同一 goal 连续 fail **>3** 会注入 **`[LOCKED GOAL]`**（`before_main_llm_call`） |
 | **pass** | 当前 goal verify 通过后 tier 重置为 **primary**，各 streak 清零 |

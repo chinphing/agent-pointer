@@ -5,7 +5,12 @@ use super::annotate::BoxInfo;
 use super::coord::CoordinateSystem;
 use super::screen::MonitorInfo;
 
-const INJECT_RULES_TAIL: &str = "Image-grounded analysis: cite **On [slot name]:**. **All tool (x,y) must be looked up in Overlay reference bboxes below** — find row R, copy (left,top,right,bottom), derive anchor, compute (x,y); **forbidden** pixel-guess or digit position as click; **`*_index` forbidden** — use **`*_at`**. Follow **communication** rules.";
+const INJECT_RULES_TAIL_ADVANCED: &str = "Image-grounded analysis: cite **On [slot name]:**. **All tool (x,y) must be looked up in Overlay reference bboxes below** — find row R, copy (left,top,right,bottom), derive anchor, compute (x,y); **forbidden** pixel-guess or digit position as click; **`*_index` forbidden** — use **`*_at`**. Follow **communication** rules.";
+
+const INJECT_RULES_TAIL_INDEX_TIER: &str = "Image-grounded analysis: cite **On [slot name]:**. **Nearby** in thoughts must copy a bullet below character-for-character — if **`- R:`** is missing, **Inject match: NOT FOUND** and **hover_index** only; **forbidden** inventing **(left, top, right, bottom)**. **Verify:** judge **Expected vs Actual UI change** — pointer on target is **not** pass for click/copy goals. Overlay digits label bboxes only — **forbidden** treating digit position as the click point. Follow **communication** rules.";
+
+/// Max overlay rows injected near the pointer for Primary / Intermediate tiers.
+pub const MOUSE_NEARBY_REFERENCE_LIMIT: usize = 10;
 
 fn pointer_capture_position(
     monitor: &MonitorInfo,
@@ -58,33 +63,85 @@ fn format_bbox_reference_row(b: &BoxInfo, cw: f32, ch: f32, coord: CoordinateSys
     )
 }
 
+fn session_label(coord: CoordinateSystem) -> &'static str {
+    match coord {
+        CoordinateSystem::Qwen | CoordinateSystem::Kimi => "session 0-1000",
+        CoordinateSystem::Pixel => "session pixels",
+    }
+}
+
+fn center_distance_sq(b: &BoxInfo, mouse_bx: f32, mouse_by: f32) -> f32 {
+    let (cx, cy) = b.center();
+    let dx = cx - mouse_bx;
+    let dy = cy - mouse_by;
+    dx * dx + dy * dy
+}
+
+/// Pick up to `limit` boxes whose centers are closest to the pointer (capture pixel space).
+pub fn select_boxes_near_pointer<'a>(
+    boxes: &'a [BoxInfo],
+    mouse_bx: f32,
+    mouse_by: f32,
+    limit: usize,
+) -> Vec<&'a BoxInfo> {
+    let mut ranked: Vec<_> = boxes
+        .iter()
+        .map(|b| (center_distance_sq(b, mouse_bx, mouse_by), b))
+        .collect();
+    ranked.sort_by(|a, b| {
+        a.0.partial_cmp(&b.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.index.cmp(&b.1.index))
+    });
+    ranked.into_iter().take(limit).map(|(_, b)| b).collect()
+}
+
+fn format_overlay_reference_rows(
+    header: &str,
+    boxes: &[&BoxInfo],
+    cw: f32,
+    ch: f32,
+    coord: CoordinateSystem,
+) -> String {
+    let mut lines = vec![header.to_string()];
+    if boxes.is_empty() {
+        lines.push("- none detected on this capture.".to_string());
+        return lines.join("\n");
+    }
+    for b in boxes {
+        lines.push(format_bbox_reference_row(b, cw, ch, coord));
+    }
+    lines.join("\n")
+}
+
 fn format_all_overlay_reference_bboxes(
     boxes: &[BoxInfo],
     cw: f32,
     ch: f32,
     coord: CoordinateSystem,
 ) -> String {
-    let session_label = match coord {
-        CoordinateSystem::Qwen | CoordinateSystem::Kimi => "session 0-1000",
-        CoordinateSystem::Pixel => "session pixels",
-    };
-
     let mut sorted: Vec<&BoxInfo> = boxes.iter().collect();
     sorted.sort_by_key(|b| b.index);
+    let header = format!(
+        "**Overlay reference bboxes** (lookup here for all coordinates — {}; sorted by index; each row **R: (left, top, right, bottom)**; Location line 3 must copy row R from this list; indices are **anchors only**, not click targets):",
+        session_label(coord)
+    );
+    format_overlay_reference_rows(&header, &sorted, cw, ch, coord)
+}
 
-    let mut lines = vec![format!(
-        "**Overlay reference bboxes** (lookup here for all coordinates — {session_label}; sorted by index; each row **R: (left, top, right, bottom)**; Location line 3 must copy row R from this list; indices are **anchors only**, not click targets):",
-    )];
-
-    if sorted.is_empty() {
-        lines.push("- none detected on this capture.".to_string());
-        return lines.join("\n");
-    }
-
-    for b in sorted {
-        lines.push(format_bbox_reference_row(b, cw, ch, coord));
-    }
-    lines.join("\n")
+fn format_nearby_overlay_reference_bboxes(
+    boxes: &[&BoxInfo],
+    cw: f32,
+    ch: f32,
+    coord: CoordinateSystem,
+    limit: usize,
+) -> String {
+    let header = format!(
+        "**Nearby overlay reference bboxes** ({} indices nearest the **pointer** on this capture — {}; each row **R: (left, top, right, bottom)**; copy row **R** for **W/H** and **dx/dy** on index tools; sorted nearest-first; digits are **anchors only**, not click targets):",
+        boxes.len().min(limit),
+        session_label(coord)
+    );
+    format_overlay_reference_rows(&header, boxes, cw, ch, coord)
 }
 
 fn zoom_pointer_output_side() -> u32 {
@@ -130,10 +187,28 @@ pub fn format_pointer_coordinate_anchor(
 ) -> Option<String> {
     let (mouse_bx, mouse_by, cw, ch) = pointer_capture_position(monitor, capture_px, global_pointer)?;
     let pointer_line = format_pointer_position_line(mouse_bx, mouse_by, cw, ch, coord);
-    Some(format!("{pointer_line}\n\n{INJECT_RULES_TAIL}"))
+    Some(format!("{pointer_line}\n\n{INJECT_RULES_TAIL_INDEX_TIER}"))
 }
 
-/// **Pointer position** + **Overlay reference bboxes** (all indices on this capture).
+/// **Pointer position** + up to **10** nearest **Overlay reference bboxes** (Primary / Intermediate).
+pub fn format_mouse_nearby_reference_bboxes(
+    boxes: &[BoxInfo],
+    monitor: &MonitorInfo,
+    capture_px: (u32, u32),
+    global_pointer: (i32, i32),
+    coord: CoordinateSystem,
+) -> Option<String> {
+    let (mouse_bx, mouse_by, cw, ch) = pointer_capture_position(monitor, capture_px, global_pointer)?;
+    let pointer_line = format_pointer_position_line(mouse_bx, mouse_by, cw, ch, coord);
+    let nearby = select_boxes_near_pointer(boxes, mouse_bx, mouse_by, MOUSE_NEARBY_REFERENCE_LIMIT);
+    let bbox_block =
+        format_nearby_overlay_reference_bboxes(&nearby, cw, ch, coord, MOUSE_NEARBY_REFERENCE_LIMIT);
+    Some(format!(
+        "{pointer_line}\n\n{INJECT_RULES_TAIL_INDEX_TIER}\n\n{bbox_block}"
+    ))
+}
+
+/// **Pointer position** + **Overlay reference bboxes** (all indices on this capture; Advanced).
 pub fn format_mouse_neighbor_reference_bboxes(
     boxes: &[BoxInfo],
     monitor: &MonitorInfo,
@@ -144,7 +219,9 @@ pub fn format_mouse_neighbor_reference_bboxes(
     let (mouse_bx, mouse_by, cw, ch) = pointer_capture_position(monitor, capture_px, global_pointer)?;
     let pointer_line = format_pointer_position_line(mouse_bx, mouse_by, cw, ch, coord);
     let bbox_block = format_all_overlay_reference_bboxes(boxes, cw, ch, coord);
-    Some(format!("{pointer_line}\n\n{INJECT_RULES_TAIL}\n\n{bbox_block}"))
+    Some(format!(
+        "{pointer_line}\n\n{INJECT_RULES_TAIL_ADVANCED}\n\n{bbox_block}"
+    ))
 }
 
 #[cfg(test)]
@@ -162,12 +239,69 @@ mod tests {
         )
         .expect("line");
         assert!(s.contains("**Pointer position**"));
-        assert!(s.contains("Overlay reference bboxes"));
+        assert!(s.contains("Nearby overlay reference bboxes"));
         assert!(s.contains("[Zoom pointer after action]"));
         assert!(
-            !s.contains("- index "),
-            "anchor-only helper should not include bbox rows: {s}"
+            !s.contains("- 4: ("),
+            "pointer-only helper should not include bbox rows: {s}"
         );
+    }
+
+    #[test]
+    fn nearby_list_limits_to_ten_closest_to_pointer() {
+        let monitor = MonitorInfo::new(0, 0, 1000, 1000);
+        let mut boxes = Vec::new();
+        for i in 0..20u32 {
+            boxes.push(BoxInfo {
+                index: i + 1,
+                x: (i as f32) * 40.0,
+                y: 500.0,
+                width: 30.0,
+                height: 30.0,
+                confidence: 0.9,
+            });
+        }
+        // Pointer near box 10 (center ~395,515)
+        let s = format_mouse_nearby_reference_bboxes(
+            &boxes,
+            &monitor,
+            (1000, 1000),
+            (400, 520),
+            CoordinateSystem::Qwen,
+        )
+        .expect("line");
+        assert!(s.contains("**Nearby overlay reference bboxes**"));
+        assert!(s.contains("10 indices nearest"));
+        let row_count = s.lines().filter(|l| l.starts_with("- ")).count();
+        assert_eq!(row_count, 10, "{s}");
+        assert!(s.contains("- 10: ("));
+        assert!(!s.contains("- 1: ("));
+    }
+
+    #[test]
+    fn select_boxes_near_pointer_orders_by_distance() {
+        let boxes = vec![
+            BoxInfo {
+                index: 1,
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+                confidence: 1.0,
+            },
+            BoxInfo {
+                index: 2,
+                x: 100.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+                confidence: 1.0,
+            },
+        ];
+        let near = select_boxes_near_pointer(&boxes, 102.0, 5.0, 10);
+        assert_eq!(near.len(), 2);
+        assert_eq!(near[0].index, 2);
+        assert_eq!(near[1].index, 1);
     }
 
     #[test]

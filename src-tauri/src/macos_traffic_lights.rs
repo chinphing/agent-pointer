@@ -16,7 +16,6 @@ pub fn apply_inset(ns_window: *mut std::ffi::c_void, position: LogicalPosition<f
 unsafe fn inset_traffic_lights(window: &objc2_app_kit::NSWindow, position: LogicalPosition<f64>) {
     use objc2::msg_send;
     use objc2_app_kit::{NSView, NSWindowButton};
-    use objc2_foundation::NSRect;
 
     let (x, y) = (position.x, position.y);
 

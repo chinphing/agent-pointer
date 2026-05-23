@@ -18,6 +18,13 @@ Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, pl
 - **Normal users**: use platform-issued API key; cannot edit platform settings in the UI.
 - **Platform admins**: may override provider/model settings for the current session; changes are lost on restart (defaults restored, re-login re-injects keys).
 
+### Settings save actions
+
+- The settings dialog footer shows **one** save button; label depends on the active section:
+  - User-facing sections (e.g. **智能体**): **保存** — includes tool approval, Computer agent prefs, and context compression
+  - Platform/debug sections (e.g. **模型服务**, **界面配置**): **保存(本次会话)**
+- Account and runtime info sections have no footer save button.
+
 ### API
 
 - `GET get_settings` → `EffectiveSettingsView` (`user`, `platform`, `merged`, `canEditPlatform`, `isPlatformAdmin`)

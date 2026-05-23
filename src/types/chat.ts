@@ -211,6 +211,8 @@ export interface PlatformSettings {
   agentTaskBoardHistoryTrim?: Record<string, boolean>
   computerHumanLike?: boolean
   computerInitialTier?: ComputerInitialTier
+  /** Show annotated screenshot preview on Computer Use assistant messages */
+  computerAnnotatedScreenViewEnabled?: boolean
   agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
   computerTierLlm?: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
 }
@@ -260,6 +262,8 @@ export interface ModelSettings {
   computerHumanLike?: boolean
   /** Computer agent: starting tier for new conversations */
   computerInitialTier?: ComputerInitialTier
+  /** Show annotated screenshot preview on Computer Use assistant messages */
+  computerAnnotatedScreenViewEnabled?: boolean
   /** UI color scheme */
   theme?: ThemePreference
   /** Per-agent UI overrides (merged over manifest `ui`) */

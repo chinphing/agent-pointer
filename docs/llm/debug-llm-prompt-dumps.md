@@ -4,7 +4,7 @@
 
 ## 开启方式
 
-1. **设置**：在「生成参数」中打开「保存每轮对话请求」（对应 `ModelSettings.debugDumpLlmPrompts` / JSON 字段 `debugDumpLlmPrompts`）。
+1. **设置**：在「界面配置」中打开「保存每轮对话请求」（对应 `ModelSettings.debugDumpLlmPrompts` / JSON 字段 `debugDumpLlmPrompts`）。
 2. **环境变量**（不依赖设置项）：`POINTER_DEBUG_LLM_PROMPTS` 为 `1` 或 `true` 时强制开启。
 
 ## 控制台：打印 OpenAI 兼容请求 JSON

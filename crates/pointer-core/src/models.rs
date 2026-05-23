@@ -596,7 +596,7 @@ pub struct ModelSettings {
     #[serde(default = "default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
     pub raw_content_view_enabled: bool,
     /// When true, each LLM round writes request `messages` + params under app data `logs/llm_prompts/`.
-    #[serde(default, rename = "debugDumpLlmPrompts")]
+    #[serde(default = "default_debug_dump_llm_prompts", rename = "debugDumpLlmPrompts")]
     pub debug_dump_llm_prompts: bool,
     /// Per-agent default LLM: worker id or `"supervisor"` → explicit provider + model.
     #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
@@ -610,6 +610,9 @@ pub struct ModelSettings {
     /// Starting vision tier for new computer conversations (`primary` | `intermediate` | `advanced`).
     #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
     pub computer_initial_tier: String,
+    /// When true, Computer Use assistant messages show the annotated screenshot preview action.
+    #[serde(default = "default_computer_annotated_screen_view_enabled", rename = "computerAnnotatedScreenViewEnabled")]
+    pub computer_annotated_screen_view_enabled: bool,
     /// UI theme: `light`, `dark`, or `system`.
     #[serde(default = "default_theme", rename = "theme")]
     pub theme: String,
@@ -674,6 +677,10 @@ fn default_debug_dump_llm_prompts() -> bool {
     false
 }
 
+fn default_computer_annotated_screen_view_enabled() -> bool {
+    false
+}
+
 impl Default for ModelSettings {
     fn default() -> Self {
         Self {
@@ -734,6 +741,7 @@ impl Default for ModelSettings {
             agent_task_board_history_trim: HashMap::new(),
             computer_human_like: false,
             computer_initial_tier: default_computer_initial_tier(),
+            computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(),
             theme: default_theme(),
             agent_ui_overrides: HashMap::new(),
             round_enable_thinking: None,
@@ -797,7 +805,7 @@ pub struct PlatformSettings {
     pub max_sub_agent_tool_rounds: u32,
     #[serde(default = "platform_default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
     pub raw_content_view_enabled: bool,
-    #[serde(default, rename = "debugDumpLlmPrompts")]
+    #[serde(default = "default_debug_dump_llm_prompts", rename = "debugDumpLlmPrompts")]
     pub debug_dump_llm_prompts: bool,
     #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
     pub agent_default_models: HashMap<String, AgentModelRef>,
@@ -807,6 +815,8 @@ pub struct PlatformSettings {
     pub computer_human_like: bool,
     #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
     pub computer_initial_tier: String,
+    #[serde(default = "default_computer_annotated_screen_view_enabled", rename = "computerAnnotatedScreenViewEnabled")]
+    pub computer_annotated_screen_view_enabled: bool,
     #[serde(default, rename = "agentUiOverrides")]
     pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
     #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
@@ -973,11 +983,12 @@ impl Default for PlatformSettings {
             max_tool_rounds: platform_default_max_tool_rounds(),
             max_sub_agent_tool_rounds: platform_default_max_tool_rounds(),
             raw_content_view_enabled: platform_default_raw_content_view_enabled(),
-            debug_dump_llm_prompts: false,
+            debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             agent_default_models: default_platform_agent_models(),
             agent_task_board_history_trim: HashMap::new(),
             computer_human_like: false,
             computer_initial_tier: default_computer_initial_tier(),
+            computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(),
             agent_ui_overrides: HashMap::new(),
             computer_tier_llm: default_computer_tier_llm(),
         }
@@ -1022,6 +1033,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         agent_task_board_history_trim: platform.agent_task_board_history_trim.clone(),
         computer_human_like: platform.computer_human_like,
         computer_initial_tier: platform.computer_initial_tier.clone(),
+        computer_annotated_screen_view_enabled: platform.computer_annotated_screen_view_enabled,
         theme: user.theme.clone(),
         agent_ui_overrides: platform.agent_ui_overrides.clone(),
         round_enable_thinking: None,

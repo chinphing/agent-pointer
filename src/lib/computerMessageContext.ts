@@ -3,6 +3,7 @@ import type { ChatMessage } from '../types/chat'
 export interface ComputerUiSettings {
   agentMode: 'single' | 'supervisor'
   leadAgentId: string
+  annotatedScreenViewEnabled: boolean
 }
 
 export function computerSingleLead(settings: ComputerUiSettings): boolean {
@@ -20,6 +21,7 @@ export function showAnnotatedScreenAction(
   message: ChatMessage,
   settings: ComputerUiSettings
 ): boolean {
+  if (!settings.annotatedScreenViewEnabled) return false
   if (message.role !== 'assistant') return false
   if (computerSingleLead(settings)) return true
   if (settings.agentMode === 'supervisor' && messageFromComputerAgent(message)) return true

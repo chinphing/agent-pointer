@@ -111,6 +111,7 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
         computer_human_like: s.computer_human_like,
         computer_initial_tier: s.computer_initial_tier.clone(),
+        computer_annotated_screen_view_enabled: s.computer_annotated_screen_view_enabled,
         agent_ui_overrides: s.agent_ui_overrides.clone(),
         computer_tier_llm: PlatformSettings::default().computer_tier_llm,
     }

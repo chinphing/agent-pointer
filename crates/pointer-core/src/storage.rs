@@ -136,7 +136,7 @@ struct StoredSettings {
     max_sub_agent_tool_rounds: u32,
     #[serde(default = "default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
     raw_content_view_enabled: bool,
-    #[serde(default, rename = "debugDumpLlmPrompts")]
+    #[serde(default = "default_debug_dump_llm_prompts", rename = "debugDumpLlmPrompts")]
     debug_dump_llm_prompts: bool,
     #[serde(default, rename = "agentDefaultModels")]
     agent_default_models: HashMap<String, serde_json::Value>,
@@ -146,6 +146,8 @@ struct StoredSettings {
     computer_human_like: bool,
     #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
     computer_initial_tier: String,
+    #[serde(default = "default_computer_annotated_screen_view_enabled", rename = "computerAnnotatedScreenViewEnabled")]
+    computer_annotated_screen_view_enabled: bool,
     #[serde(default = "default_theme")]
     theme: String,
     #[serde(default, rename = "agentUiOverrides")]
@@ -193,6 +195,14 @@ fn default_theme() -> String {
 
 fn default_computer_initial_tier() -> String {
     "primary".into()
+}
+
+fn default_debug_dump_llm_prompts() -> bool {
+    false
+}
+
+fn default_computer_annotated_screen_view_enabled() -> bool {
+    false
 }
 
 /// Run once per process: migrate legacy `settings.json` theme → `user_settings.json`.
@@ -381,6 +391,7 @@ fn stored_settings_to_platform(stored: &StoredSettings) -> PlatformSettings {
         agent_task_board_history_trim: stored.agent_task_board_history_trim.clone(),
         computer_human_like: stored.computer_human_like,
         computer_initial_tier: stored.computer_initial_tier.clone(),
+        computer_annotated_screen_view_enabled: stored.computer_annotated_screen_view_enabled,
         agent_ui_overrides: stored.agent_ui_overrides.clone(),
         ..PlatformSettings::default()
     };
@@ -512,6 +523,7 @@ impl Default for StoredSettings {
             agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
             computer_human_like: s.computer_human_like,
             computer_initial_tier: s.computer_initial_tier.clone(),
+            computer_annotated_screen_view_enabled: s.computer_annotated_screen_view_enabled,
             theme: s.theme.clone(),
             agent_ui_overrides: s.agent_ui_overrides.clone(),
             legacy_reasoning_in_messages: None,

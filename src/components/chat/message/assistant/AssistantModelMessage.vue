@@ -106,7 +106,8 @@ const showCamera = computed(() => {
   if (!isTauriRuntime()) return false
   return showAnnotatedScreenAction(props.message, {
     agentMode: settingsStore.settings.agentMode,
-    leadAgentId: settingsStore.settings.leadAgentId ?? ''
+    leadAgentId: settingsStore.settings.leadAgentId ?? '',
+    annotatedScreenViewEnabled: settingsStore.settings.computerAnnotatedScreenViewEnabled === true
   })
 })
 

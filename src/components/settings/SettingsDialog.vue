@@ -119,6 +119,7 @@ const debugDumpLlmPrompts = ref(false)
 const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
 const computerHumanLike = ref(false)
 const computerInitialTier = ref<ComputerInitialTier>('primary')
+const computerAnnotatedScreenViewEnabled = ref(false)
 const theme = ref<ThemePreference>('system')
 const debugMenusEnabled = ref(false)
 const agentUiLocal = ref<Partial<AgentUiConfig>>({})
@@ -281,13 +282,23 @@ const alwaysSections = [
 
 const debugSections = [
   { id: 'provider', label: '模型服务', desc: '管理 AI 服务', icon: Cpu },
-  { id: 'generation', label: '生成参数', desc: '输出控制', icon: Gauge },
+  { id: 'generation', label: '界面配置', desc: '界面与调试', icon: Gauge },
   { id: 'agent', label: '智能模式', desc: '工作方式', icon: Gauge },
   { id: 'runtime', label: '运行时', desc: '存储与网络', icon: Database }
 ] as const
 
 const showDebugMenus = computed(() => s.canEditPlatform && debugMenusEnabled.value)
 const debugSectionIds = new Set(debugSections.map(s => s.id))
+const userSectionIds = new Set(['assistant'])
+const isUserConfigSection = computed(() => userSectionIds.has(activeSection.value))
+const showFooterSave = computed(() => {
+  if (activeSection.value === 'account' || activeSection.value === 'runtime') return false
+  if (isUserConfigSection.value) return true
+  return s.canEditPlatform && debugSectionIds.has(activeSection.value)
+})
+const footerSaveLabel = computed(() =>
+  isUserConfigSection.value ? '保存' : '保存(本次会话)'
+)
 const debugModeTitle = computed(() =>
   debugMenusEnabled.value ? '调试模式：已开启（点击关闭）' : '调试模式：已关闭（点击开启）'
 )
@@ -434,6 +445,7 @@ onMounted(() => {
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true
   computerInitialTier.value = s.settings.computerInitialTier ?? 'primary'
+  computerAnnotatedScreenViewEnabled.value = s.settings.computerAnnotatedScreenViewEnabled === true
   theme.value = (s.settings.theme as ThemePreference) || 'system'
   debugMenusEnabled.value = s.canEditPlatform
     && (s.settings.rawContentViewEnabled === true || s.settings.debugDumpLlmPrompts === true)
@@ -729,40 +741,46 @@ async function selectAgentModelWithProvider(agentId: string, value: string) {
   })
 }
 
-async function saveAll() {
+async function saveFromFooter() {
   saving.value = true
   providerSaveError.value = ''
   try {
-    // 底部「保存配置」须先合并正在编辑的服务商（含新加的模型名），否则只保存了旧列表。
-    if (editingProvider.value && !flushEditingProviderToStore()) {
-      activeSection.value = 'provider'
-      return
+    if (isUserConfigSection.value) {
+      await s.save({
+        toolApprovalMode: toolApprovalMode.value,
+        computerHumanLike: computerHumanLike.value,
+        computerInitialTier: computerInitialTier.value,
+        contextCompressionEnabled: contextCompressionEnabled.value,
+        contextBudgetChars: Number(contextBudgetChars.value),
+        contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
+        contextSummaryMaxTokens: Number(contextSummaryMaxTokens.value),
+        maxToolRounds: Number(maxToolRounds.value)
+      })
+    } else {
+      // 底部「保存(本次会话)」须先合并正在编辑的服务商（含新加的模型名），否则只保存了旧列表。
+      if (editingProvider.value && !flushEditingProviderToStore()) {
+        activeSection.value = 'provider'
+        return
+      }
+      await s.save({
+        providers: s.settings.providers,
+        activeProviderId: s.settings.activeProviderId,
+        model: s.settings.model,
+        agentMode: agentMode.value,
+        leadAgentId: agentMode.value === 'supervisor' ? '' : leadAgentId.value,
+        workspaceRoot: workspaceRoot.value,
+        maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
+        rawContentViewEnabled: rawContentViewEnabled.value,
+        debugDumpLlmPrompts: debugDumpLlmPrompts.value,
+        computerAnnotatedScreenViewEnabled: computerAnnotatedScreenViewEnabled.value,
+        agentTaskBoardHistoryTrim: { ...agentTaskBoardHistoryTrim.value },
+        agentUiOverrides: {
+          ...(s.settings.agentUiOverrides ?? {}),
+          [activeUiAgentId.value]: { ...agentUiLocal.value }
+        },
+        computerTierLlm: { ...s.platformSettings.computerTierLlm }
+      })
     }
-    await s.save({
-      providers: s.settings.providers,
-      activeProviderId: s.settings.activeProviderId,
-      model: s.settings.model,
-      toolApprovalMode: toolApprovalMode.value,
-      agentMode: agentMode.value,
-      leadAgentId: agentMode.value === 'supervisor' ? '' : leadAgentId.value,
-      workspaceRoot: workspaceRoot.value,
-      contextCompressionEnabled: contextCompressionEnabled.value,
-      contextBudgetChars: Number(contextBudgetChars.value),
-      contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
-      contextSummaryMaxTokens: Number(contextSummaryMaxTokens.value),
-      maxToolRounds: Number(maxToolRounds.value),
-      maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
-      rawContentViewEnabled: rawContentViewEnabled.value,
-      debugDumpLlmPrompts: debugDumpLlmPrompts.value,
-      agentTaskBoardHistoryTrim: { ...agentTaskBoardHistoryTrim.value },
-      computerHumanLike: computerHumanLike.value,
-      computerInitialTier: computerInitialTier.value,
-      agentUiOverrides: {
-        ...(s.settings.agentUiOverrides ?? {}),
-        [activeUiAgentId.value]: { ...agentUiLocal.value }
-      },
-      computerTierLlm: { ...s.platformSettings.computerTierLlm }
-    })
     emit('close')
   } finally {
     saving.value = false
@@ -780,7 +798,7 @@ async function saveAll() {
         </div>
         <div>
           <h2 class="text-base font-semibold text-foreground">设置</h2>
-          <p class="text-[11px] text-muted">配置 AI 模型、生成参数和工作模式</p>
+          <p class="text-[11px] text-muted">配置 AI 模型、界面和工作模式</p>
         </div>
         <div class="flex-1" />
         <div class="mr-1">
@@ -850,29 +868,31 @@ async function saveAll() {
               <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
                 <Bot class="w-4 h-4 text-accent" />智能体
               </h3>
-              <p class="mt-0.5 text-xs text-muted">Computer Use Agent 与工具权限设置</p>
             </div>
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
               <h4 class="text-sm font-medium text-foreground">Computer Use Agent</h4>
               <div class="grid grid-cols-2 gap-3">
-                <label
-                  class="px-1 py-1 inline-flex items-center gap-2 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    class="rounded border-border bg-card text-accent focus:ring-accent/40"
-                    :checked="computerHumanLike"
-                    @change="computerHumanLike = ($event.target as HTMLInputElement).checked"
-                  />
-                  <span class="text-[12px] text-foreground">人性化鼠标移动</span>
-                  <span
-                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                <div class="px-1 py-1 inline-flex items-center gap-2">
+                  <label class="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      class="rounded border-border bg-card text-accent focus:ring-accent/40"
+                      :checked="computerHumanLike"
+                      @change="computerHumanLike = ($event.target as HTMLInputElement).checked"
+                    />
+                    <span class="text-[12px] text-foreground">人性化鼠标移动</span>
+                  </label>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
                     title="启用后鼠标沿曲线移动并带微抖动；关闭时使用直线匀速移动（约 0.5–1.5 秒随机）"
+                    aria-label="人性化鼠标移动说明"
+                    @click.stop
                   >
-                    <Info class="w-3.5 h-3.5" />
-                  </span>
-                </label>
+                    <Info class="w-3.5 h-3.5 pointer-events-none" />
+                  </button>
+                </div>
                 <div
                   class="px-1 py-1"
                   title="新会话开始时 Computer 智能体使用的视觉级别；会话中仍可能因验证失败自动升档"
@@ -912,6 +932,36 @@ async function saveAll() {
                   <span class="block text-sm text-foreground">敏感操作确认</span>
                   <span class="mt-1 block text-[11px] text-muted">涉及文件、命令等操作时需要你确认</span>
                 </label>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
+              <div class="flex items-center justify-between">
+                <h4 class="text-sm font-medium text-foreground">上下文自动压缩</h4>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input v-model="contextCompressionEnabled" type="checkbox" class="sr-only peer" />
+                  <div class="settings-toggle-track"></div>
+                </label>
+              </div>
+              <p class="text-[11px] text-muted">当历史消息超过预算时，自动生成摘要并保留最近若干轮对话原文。</p>
+
+              <div v-if="contextCompressionEnabled" class="grid grid-cols-2 gap-3 pt-2 border-t border-border">
+                <div>
+                  <label class="block text-[12px] text-muted mb-1.5">触发预算（字符）</label>
+                  <input v-model.number="contextBudgetChars" type="number" min="8000" max="2000000" step="1000" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
+                </div>
+                <div>
+                  <label class="block text-[12px] text-muted mb-1.5">保留最近用户轮数</label>
+                  <input v-model.number="contextKeepRecentUserTurns" type="number" min="1" max="50" step="1" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
+                </div>
+                <div>
+                  <label class="block text-[12px] text-muted mb-1.5">摘要最大 tokens</label>
+                  <input v-model.number="contextSummaryMaxTokens" type="number" min="128" max="8192" step="64" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
+                </div>
+                <div>
+                  <label class="block text-[12px] text-muted mb-1.5">单轮最大工具调用轮次</label>
+                  <input v-model.number="maxToolRounds" type="number" min="1" max="10000" step="1" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
+                </div>
               </div>
             </div>
           </section>
@@ -1091,9 +1141,9 @@ async function saveAll() {
           <section v-else-if="activeSection === 'generation'" class="p-6 space-y-5">
             <div>
               <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
-                <Gauge class="w-4 h-4 text-accent" />生成参数
+                <Gauge class="w-4 h-4 text-accent" />界面配置
               </h3>
-              <p class="mt-0.5 text-xs text-muted">创造性、最大输出等可在服务商级设默认，也可按模型定制</p>
+              <p class="mt-0.5 text-xs text-muted">界面显示与调试选项；模型创造性、最大输出等在模型服务中配置</p>
             </div>
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4 text-[12px] text-muted leading-relaxed">
@@ -1139,34 +1189,19 @@ async function saveAll() {
               </div>
             </div>
 
-            <!-- Context Compression -->
-            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
-              <div class="flex items-center justify-between">
-                <h4 class="text-sm font-medium text-foreground">上下文自动压缩</h4>
-                <label class="relative inline-flex items-center cursor-pointer">
-                  <input v-model="contextCompressionEnabled" type="checkbox" class="sr-only peer" />
-                  <div class="settings-toggle-track"></div>
+            <div
+              v-if="showDebugMenus"
+              class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <h4 class="text-sm font-medium text-foreground">标记截图查看</h4>
+                  <p class="mt-1 text-[11px] text-muted">开启后，Computer Use 助手消息上显示相机按钮，可查看带标注的桌面截图。</p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input v-model="computerAnnotatedScreenViewEnabled" type="checkbox" class="sr-only peer" />
+                  <div class="settings-toggle-track" />
                 </label>
-              </div>
-              <p class="text-[11px] text-muted">当历史消息超过预算时，自动生成摘要并保留最近若干轮对话原文。</p>
-
-              <div v-if="contextCompressionEnabled" class="grid grid-cols-2 gap-3 pt-2 border-t border-border">
-                <div>
-                  <label class="block text-[12px] text-muted mb-1.5">触发预算（字符）</label>
-                  <input v-model.number="contextBudgetChars" type="number" min="8000" max="2000000" step="1000" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
-                </div>
-                <div>
-                  <label class="block text-[12px] text-muted mb-1.5">保留最近用户轮数</label>
-                  <input v-model.number="contextKeepRecentUserTurns" type="number" min="1" max="50" step="1" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
-                </div>
-                <div>
-                  <label class="block text-[12px] text-muted mb-1.5">摘要最大 tokens</label>
-                  <input v-model.number="contextSummaryMaxTokens" type="number" min="128" max="8192" step="64" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
-                </div>
-                <div>
-                  <label class="block text-[12px] text-muted mb-1.5">单轮最大工具调用轮次</label>
-                  <input v-model.number="maxToolRounds" type="number" min="1" max="10000" step="1" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
-                </div>
               </div>
             </div>
           </section>
@@ -1464,12 +1499,12 @@ async function saveAll() {
         </p>
         <button class="h-9 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="emit('close')">取消</button>
         <button
-          v-if="s.canEditPlatform"
+          v-if="showFooterSave"
           class="h-9 px-5 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50 transition-opacity"
           :disabled="saving"
-          @click="saveAll"
+          @click="saveFromFooter"
         >
-          {{ saving ? '应用中…' : '应用平台配置（本次会话）' }}
+          {{ saving ? '保存中…' : footerSaveLabel }}
         </button>
       </footer>
     </div>

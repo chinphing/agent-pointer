@@ -48,6 +48,7 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   agentTaskBoardHistoryTrim: {},
   computerHumanLike: false,
   computerInitialTier: 'primary',
+  computerAnnotatedScreenViewEnabled: false,
   agentUiOverrides: {},
   computerTierLlm: {
     primary: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
@@ -75,6 +76,7 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
     computerHumanLike: s.computerHumanLike === true,
     computerInitialTier: normalizeComputerInitialTier(s.computerInitialTier),
+    computerAnnotatedScreenViewEnabled: s.computerAnnotatedScreenViewEnabled === true,
     theme: (s.theme as ThemePreference) ?? 'system',
     agentUiOverrides: { ...(s.agentUiOverrides ?? {}) }
   }
@@ -355,6 +357,7 @@ export const useSettingsStore = defineStore('settings', () => {
         agentTaskBoardHistoryTrim: merged.agentTaskBoardHistoryTrim,
         computerHumanLike: merged.computerHumanLike,
         computerInitialTier: merged.computerInitialTier,
+        computerAnnotatedScreenViewEnabled: merged.computerAnnotatedScreenViewEnabled,
         agentUiOverrides: merged.agentUiOverrides,
         computerTierLlm: extra.computerTierLlm ?? platformSettings.value.computerTierLlm
       }

@@ -7,7 +7,6 @@ import {
   MessageSquare,
   Trash2,
   Bot,
-  Sparkles,
   PanelLeftClose,
   PanelLeftOpen
 } from 'lucide-vue-next'
@@ -16,7 +15,7 @@ import { useWindowChrome } from '../../composables/useWindowChrome'
 import { useSidebarCollapse } from '../../composables/useSidebarCollapse'
 import WindowControls from './WindowControls.vue'
 
-defineEmits<{ (e: 'open-settings'): void; (e: 'open-skills'): void }>()
+defineEmits<{ (e: 'open-settings'): void }>()
 
 const chat = useChatStore()
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapse()
@@ -210,13 +209,6 @@ const filteredConversations = computed(() => {
           v-if="!sidebarCollapsed"
           class="p-2 border-t border-border flex shrink-0 items-center gap-1"
         >
-          <button
-            class="chrome-icon-btn"
-            title="技能库"
-            @click="$emit('open-skills')"
-          >
-            <Sparkles class="w-4 h-4" />
-          </button>
           <button
             class="chrome-icon-btn"
             title="设置"

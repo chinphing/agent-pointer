@@ -4,6 +4,7 @@ use crate::agents::{
     delegatable_sub_agents_system_block, AgentOrchestrator, AGENT_MODE_SUPERVISOR,
 };
 use crate::llm_token_stats::ChatLlmTokenSession;
+use crate::tools::file::ConversationWorkspaceGuard;
 use crate::models::{effective_reasoning_in_messages, ChatMessage};
 use crate::provider::OpenAIProvider;
 use anyhow::{anyhow, Result};
@@ -25,11 +26,16 @@ pub(super) async fn run_chat_inner(
     request_agent_mode: Option<&str>,
     tool_rounds_used_single_start: u32,
     tool_rounds_used_supervisor_start: u32,
+    workspace_root: String,
     consumed_single: &mut u32,
     consumed_supervisor: &mut u32,
     cancel: CancellationToken,
 ) -> Result<()> {
+    let _workspace_guard = ConversationWorkspaceGuard::enter(workspace_root.clone());
     let mut settings = state.effective_settings();
+    if !workspace_root.trim().is_empty() {
+        settings.workspace_root = workspace_root.trim().to_string();
+    }
     if settings.api_key.is_empty() {
         return Err(anyhow!("尚未配置 API Key，请先登录平台账户或在设置中配置密钥"));
     }
@@ -95,7 +101,7 @@ pub(super) async fn run_chat_inner(
         if tool_rounds_used_supervisor_start >= max_cap {
             state.computer_state.mark_cancelled(conversation_id);
             return Err(anyhow!(
-                "本会话在编排（Supervisor）模式下工具调用轮次已达上限（{}），请新开对话或在设置中调高上限。",
+                "本会话在团队模式下工具调用轮次已达上限（{}），请新开对话或在设置中调高上限。",
                 max_cap
             ));
         }

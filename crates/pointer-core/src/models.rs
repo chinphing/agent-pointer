@@ -117,6 +117,9 @@ pub struct Conversation {
         skip_serializing_if = "Option::is_none"
     )]
     pub computer_monitor_id: Option<String>,
+    /// Per-conversation workspace root for coder/file tools (session UI only).
+    #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
+    pub workspace_root: String,
 }
 
 /// Desktop monitor descriptor for Computer agent screen selection (UI).
@@ -571,7 +574,7 @@ pub struct ModelSettings {
     /// Absolute path to workspace root for file tools & terminal default cwd (optional).
     #[serde(default, rename = "workspaceRoot")]
     pub workspace_root: String,
-    /// When agentMode is single, which worker id leads (kebab-case). Empty = default agent.
+    /// When agentMode is single, which worker id leads (kebab-case). Empty = computer agent.
     #[serde(default, rename = "leadAgentId")]
     pub lead_agent_id: String,
     /// When true, summarize older turns via a separate model call when estimated context exceeds budget.
@@ -728,7 +731,7 @@ impl Default for ModelSettings {
             tool_approval_mode: default_tool_approval_mode(),
             agent_mode: default_agent_mode(),
             workspace_root: String::new(),
-            lead_agent_id: String::new(),
+            lead_agent_id: "computer".into(),
             context_compression_enabled: default_context_compression_enabled(),
             context_budget_chars: default_context_budget_chars(),
             context_keep_recent_user_turns: default_context_keep_recent_user_turns(),
@@ -882,7 +885,7 @@ fn default_platform_agent_models() -> HashMap<String, AgentModelRef> {
         "default".into(),
         AgentModelRef {
             provider_id: "deepseek".into(),
-            model: "deepseek-v4-flash".into(),
+            model: "deepseek-v4-pro".into(),
         },
     );
     m.insert(
@@ -975,7 +978,7 @@ impl Default for PlatformSettings {
             tool_approval_mode: default_tool_approval_mode(),
             agent_mode: default_agent_mode(),
             workspace_root: String::new(),
-            lead_agent_id: String::new(),
+            lead_agent_id: "computer".into(),
             context_compression_enabled: platform_default_context_compression_enabled(),
             context_budget_chars: platform_default_context_budget_chars(),
             context_keep_recent_user_turns: platform_default_context_keep_recent_user_turns(),
@@ -1103,6 +1106,9 @@ pub struct SendChatPayload {
     /// Session cumulative tool rounds (Supervisor / sub-agents) before this user message.
     #[serde(default, rename = "toolRoundsUsedSupervisor")]
     pub tool_rounds_used_supervisor: u32,
+    /// Workspace root for this conversation run (overrides global settings when non-empty).
+    #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
+    pub workspace_root: String,
 }
 
 /// Metadata emitted when context compression replaces older turns with a summary.

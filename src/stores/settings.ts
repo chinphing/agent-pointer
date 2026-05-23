@@ -19,6 +19,7 @@ import type {
   ThemePreference,
   UserSettings
 } from '../types/chat'
+import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { applyTheme } from '../lib/theme'
 import {
   DEFAULT_MODEL_MAX_TOKENS,
@@ -35,7 +36,7 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   toolApprovalMode: 'auto',
   agentMode: 'single',
   workspaceRoot: '',
-  leadAgentId: '',
+  leadAgentId: 'computer',
   contextCompressionEnabled: true,
   contextBudgetChars: 100_000,
   contextKeepRecentUserTurns: 3,
@@ -63,7 +64,7 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     ...s,
     providers: providersNorm,
     workspaceRoot: s.workspaceRoot ?? '',
-    leadAgentId: s.leadAgentId ?? '',
+    leadAgentId: (s.leadAgentId ?? '').trim() || DEFAULT_LEAD_AGENT_ID,
     contextCompressionEnabled: s.contextCompressionEnabled ?? true,
     contextBudgetChars: s.contextBudgetChars ?? 100_000,
     contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 3,

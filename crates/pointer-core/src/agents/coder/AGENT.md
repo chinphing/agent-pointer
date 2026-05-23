@@ -20,6 +20,8 @@ accessPolicy:
   allowSkills: []
   denySkills: []
 ui:
+  userSelectable: true
+  composerLabel: 小白编程
   showWorkspacePicker: true
   showTaskBoardPanel: true
   hideToolNames:

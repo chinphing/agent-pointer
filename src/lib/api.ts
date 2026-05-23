@@ -29,6 +29,8 @@ export interface SendChatPayload {
   toolRoundsUsed?: number
   /** Cumulative Supervisor/sub-agent tool rounds before this send. */
   toolRoundsUsedSupervisor?: number
+  /** Per-conversation workspace root for this run. */
+  workspaceRoot?: string
 }
 
 export interface RuntimeApi {

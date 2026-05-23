@@ -26,7 +26,10 @@ accessPolicy:
   allowSkills: []
   denySkills: []
 ui:
+  userSelectable: true
+  composerLabel: 电脑操控
   showComputerMonitorPicker: true
+  showWorkspacePicker: false
   showTaskBoardPanel: true
   hideToolNames:
     - task_board

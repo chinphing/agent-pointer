@@ -79,12 +79,15 @@ function normalizeInterruptedAssistantStatuses(conversations: Conversation[]): v
 const DESKTOP_NOTICE_HIDE_MS = 5000
 const desktopNoticeHideTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
+interface ConversationRunState {
+  generating: boolean
+  activeMessageId: string | null
+}
+
 export const useChatStore = defineStore('chat', () => {
   const conversations = ref<Conversation[]>([])
   const currentId = ref<string | null>(null)
-  const generating = ref(false)
-  /** Assistant row currently receiving stream events for the in-flight run. */
-  const activeGeneratingMessageId = ref<string | null>(null)
+  const runByConversation = ref<Record<string, ConversationRunState>>({})
   /** Ephemeral banner (e.g. computer screenshot done); not persisted. */
   const uiToast = ref<{ message: string; level: 'success' | 'warning' | 'error' } | null>(null)
   const taskBoards = ref<Record<string, ConversationTaskBoardState>>({})
@@ -95,6 +98,39 @@ export const useChatStore = defineStore('chat', () => {
   const current = computed(() =>
     conversations.value.find(c => c.id === currentId.value) || null
   )
+
+  function runStateFor(id: string): ConversationRunState {
+    return runByConversation.value[id] ?? { generating: false, activeMessageId: null }
+  }
+
+  function patchRunState(id: string, patch: Partial<ConversationRunState>) {
+    runByConversation.value = {
+      ...runByConversation.value,
+      [id]: { ...runStateFor(id), ...patch }
+    }
+  }
+
+  function clearRunState(id: string) {
+    patchRunState(id, { generating: false, activeMessageId: null })
+  }
+
+  function clearAllRunStates() {
+    runByConversation.value = {}
+  }
+
+  function isConversationGenerating(id: string): boolean {
+    return runStateFor(id).generating
+  }
+
+  const generating = computed(() => {
+    const id = currentId.value
+    return id ? isConversationGenerating(id) : false
+  })
+
+  const activeGeneratingMessageId = computed(() => {
+    const id = currentId.value
+    return id ? runStateFor(id).activeMessageId : null
+  })
 
   async function init() {
     const list = await loadConversations().catch(() => [])
@@ -124,7 +160,8 @@ export const useChatStore = defineStore('chat', () => {
       messages: [],
       skillIds: [],
       toolRoundsUsed: 0,
-      toolRoundsUsedSupervisor: 0
+      toolRoundsUsedSupervisor: 0,
+      workspaceRoot: ''
     }
     conversations.value.unshift(c)
     currentId.value = c.id
@@ -348,7 +385,7 @@ export const useChatStore = defineStore('chat', () => {
       case 'message_start': {
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (!conv) return
-        activeGeneratingMessageId.value = e.messageId
+        patchRunState(e.conversationId, { generating: true, activeMessageId: e.messageId })
         if (!conv.messages.find(m => m.id === e.messageId)) {
           conv.messages.push({
             id: e.messageId, role: 'assistant', content: '',
@@ -466,7 +503,7 @@ export const useChatStore = defineStore('chat', () => {
         const r = findMessage(e.messageId)
         if (r) {
           // 工具轮次/Supervisor 编排中间回合也会发 message_end，此时 generating 仍为 true
-          r.msg.status = generating.value ? 'streaming' : 'done'
+          r.msg.status = isConversationGenerating(r.conv.id) ? 'streaming' : 'done'
           // 忽略 JSON `null`：勿把正文/ thoughts 写成 null 导致界面丢字段
           if (e.content != null) r.msg.content = e.content
           if (e.rawContent != null) r.msg.rawContent = e.rawContent
@@ -568,10 +605,14 @@ export const useChatStore = defineStore('chat', () => {
               r.msg.status = 'error'
               r.msg.errorMessage = e.message
             }
+            clearRunState(r.conv.id)
           }
         } else if (cancelled) {
           const conv = conversations.value.find(c => c.id === currentId.value)
-          if (conv) removeTrailingDiscardableEmptyAssistant(conv)
+          if (conv) {
+            removeTrailingDiscardableEmptyAssistant(conv)
+            clearRunState(conv.id)
+          }
         } else {
           const conv = conversations.value.find(c => c.id === currentId.value)
           if (conv) {
@@ -586,15 +627,13 @@ export const useChatStore = defineStore('chat', () => {
             })
             conv.updatedAt = Date.now()
           }
+          clearAllRunStates()
         }
-        generating.value = false
-        activeGeneratingMessageId.value = null
         persist()
         break
       }
       case 'done': {
-        generating.value = false
-        activeGeneratingMessageId.value = null
+        clearRunState(e.conversationId)
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (conv) {
           normalizeInterruptedAssistantStatuses([conv])
@@ -613,7 +652,7 @@ export const useChatStore = defineStore('chat', () => {
   async function sendUserMessage(content: string) {
     if (!current.value) newConversation()
     const conv = current.value!
-    if (!content.trim() || generating.value) return
+    if (!content.trim() || isConversationGenerating(conv.id)) return
     const skills = useSkillsStore()
     const settings = useSettingsStore()
     conv.skillIds = [...skills.enabledIds]
@@ -624,7 +663,7 @@ export const useChatStore = defineStore('chat', () => {
     }
     conv.messages.push(userMsg)
     conv.updatedAt = Date.now()
-    generating.value = true
+    patchRunState(conv.id, { generating: true, activeMessageId: null })
     persist()
 
     void refreshTaskBoard(conv.id)
@@ -635,10 +674,10 @@ export const useChatStore = defineStore('chat', () => {
       enabledSkillIds: conv.skillIds,
       agentMode: settings.settings.agentMode,
       toolRoundsUsed: conv.toolRoundsUsed ?? 0,
-      toolRoundsUsedSupervisor: conv.toolRoundsUsedSupervisor ?? 0
+      toolRoundsUsedSupervisor: conv.toolRoundsUsedSupervisor ?? 0,
+      workspaceRoot: conv.workspaceRoot ?? ''
     }).catch(err => {
-      generating.value = false
-      activeGeneratingMessageId.value = null
+      clearRunState(conv.id)
       console.error('sendChat error', err)
       conv.messages.push({
         id: uid(), role: 'assistant', content: '',
@@ -652,10 +691,9 @@ export const useChatStore = defineStore('chat', () => {
   async function stop() {
     if (!current.value) return
     const conv = current.value
-    const msgId = activeGeneratingMessageId.value
+    const msgId = runStateFor(conv.id).activeMessageId
     await cancelChat(conv.id).catch(e => console.error(e))
-    generating.value = false
-    activeGeneratingMessageId.value = null
+    clearRunState(conv.id)
     if (msgId) {
       const row = conv.messages.find(m => m.id === msgId)
       if (row?.role === 'assistant' && (row.status === 'streaming' || row.status === 'pending')) {
@@ -680,17 +718,17 @@ export const useChatStore = defineStore('chat', () => {
     }
     const last = conv.messages[conv.messages.length - 1]
     if (!last) return
-    generating.value = true
+    patchRunState(conv.id, { generating: true, activeMessageId: null })
     await sendChat({
       conversationId: conv.id,
       messages: JSON.parse(JSON.stringify(conv.messages)),
       enabledSkillIds: conv.skillIds,
       agentMode: settings.settings.agentMode,
       toolRoundsUsed: conv.toolRoundsUsed ?? 0,
-      toolRoundsUsedSupervisor: conv.toolRoundsUsedSupervisor ?? 0
+      toolRoundsUsedSupervisor: conv.toolRoundsUsedSupervisor ?? 0,
+      workspaceRoot: conv.workspaceRoot ?? ''
     }).catch(err => {
-      generating.value = false
-      activeGeneratingMessageId.value = null
+      clearRunState(conv.id)
       console.error(err)
     })
   }
@@ -702,7 +740,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function undo() {
-    if (!current.value || generating.value) return
+    if (!current.value || isConversationGenerating(current.value.id)) return
     const conv = current.value
     while (conv.messages.length && conv.messages[conv.messages.length - 1].role !== 'user') {
       conv.messages.pop()
@@ -714,10 +752,17 @@ export const useChatStore = defineStore('chat', () => {
     persist()
   }
 
+  function setConversationWorkspace(root: string) {
+    if (!current.value) newConversation()
+    if (!current.value) return
+    current.value.workspaceRoot = root
+    persist()
+  }
+
   return {
     conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards,
     init, newConversation, selectConversation, deleteConversation,
     sendUserMessage, stop, abortTerminalOnly, retry, approve, undo,
-    refreshTaskBoard, taskBoardForConversation
+    refreshTaskBoard, taskBoardForConversation, setConversationWorkspace, showUiToast
   }
 })

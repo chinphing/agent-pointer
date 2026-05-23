@@ -324,6 +324,7 @@ async fn send_chat(
             payload.agent_mode,
             payload.tool_rounds_used,
             payload.tool_rounds_used_supervisor,
+            payload.workspace_root,
         )
         .await;
         let _ = forward.await;

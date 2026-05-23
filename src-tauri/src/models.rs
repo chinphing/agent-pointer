@@ -158,7 +158,7 @@ impl Default for ModelSettings {
             tool_approval_mode: "auto".into(),
             agent_mode: "single".into(),
             workspace_root: String::new(),
-            lead_agent_id: String::new(),
+            lead_agent_id: "computer".into(),
             context_compression_enabled: true,
             context_budget_chars: 120_000,
             context_keep_recent_user_turns: 6,

@@ -55,7 +55,7 @@ pub(crate) async fn run_supervisor_chat(
     let sup_name = sup_meta
         .as_ref()
         .map(|a| a.def().name.clone())
-        .unwrap_or_else(|| "Supervisor".into());
+        .unwrap_or_else(|| "团队模式".into());
     emit_agent_step(
         &stream,
         &assistant_id,

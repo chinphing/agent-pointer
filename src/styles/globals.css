@@ -160,9 +160,20 @@
       border border-border bg-card text-[11px] text-foreground
       hover:bg-hover cursor-pointer transition-colors;
   }
+  .composer-agent-trigger {
+    @apply inline-flex items-center gap-1.5 max-w-[240px] px-1 py-1 rounded-md
+      border-0 bg-transparent text-[11px] text-foreground
+      hover:bg-hover cursor-pointer transition-colors;
+  }
   .composer-dropdown {
-    @apply absolute bottom-full left-0 mb-2 z-50 overflow-hidden rounded-xl
+    @apply absolute z-50 overflow-hidden rounded-xl
       border border-border bg-[hsl(var(--card-elevated))] shadow-lg;
+  }
+  .composer-dropdown--up {
+    @apply bottom-full left-0 mb-2;
+  }
+  .composer-dropdown--down {
+    @apply top-full left-0 mt-1;
   }
   .composer-dropdown-item {
     @apply flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm
@@ -172,9 +183,9 @@
     @apply bg-accent/10 text-accent;
   }
   .composer-workspace-input {
-    @apply h-7 min-w-[120px] max-w-[200px] rounded-lg border border-border bg-card
-      px-2 text-[11px] text-foreground outline-none transition-colors
-      placeholder:text-muted focus:border-accent/50;
+    @apply h-auto min-w-[100px] max-w-[200px] border-0 bg-transparent px-1 py-1
+      text-[11px] text-foreground outline-none transition-colors
+      placeholder:text-muted focus:ring-0;
   }
   .raw-wire-panel {
     @apply rounded-xl border border-border bg-[hsl(var(--code-bg))];

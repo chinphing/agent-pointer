@@ -14,6 +14,8 @@ export interface ToolCall {
   terminalOutput?: string
 }
 
+export const DEFAULT_LEAD_AGENT_ID = 'computer'
+
 export type AgentMode = 'single' | 'supervisor'
 
 export type ThemePreference = 'light' | 'dark' | 'system'
@@ -39,6 +41,10 @@ export interface AgentUiConfig {
   showWorkspacePicker?: boolean
   showComputerMonitorPicker?: boolean
   showTaskBoardPanel?: boolean
+  /** When true, user may pick this agent in the chat composer (not settings smart mode). */
+  userSelectable?: boolean
+  /** Label shown in the chat composer agent picker (UI only). */
+  composerLabel?: string
   avatar?: string
 }
 
@@ -133,6 +139,8 @@ export interface Conversation {
   toolRoundsUsedSupervisor?: number
   /** Selected desktop monitor for Computer agent; empty = auto (monitor under cursor). */
   computerMonitorId?: string
+  /** Per-conversation workspace for coder/file tools (set in composer). */
+  workspaceRoot?: string
 }
 
 /** Per-model API/runtime overrides; unset fields inherit from the parent provider. */
@@ -236,7 +244,7 @@ export interface ModelSettings {
   agentMode: AgentMode
   /** Absolute path to project root for coder file tools */
   workspaceRoot: string
-  /** When agentMode is single, worker agent id (kebab-case); empty = default agent */
+  /** When agentMode is single, worker agent id (kebab-case); empty = computer agent */
   leadAgentId: string
   /** Summarize older turns when estimated context exceeds budget */
   contextCompressionEnabled: boolean

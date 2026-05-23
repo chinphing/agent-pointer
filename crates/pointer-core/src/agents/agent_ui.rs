@@ -25,6 +25,12 @@ pub struct AgentUiConfig {
     pub show_computer_monitor_picker: Option<bool>,
     #[serde(default, rename = "showTaskBoardPanel", skip_serializing_if = "Option::is_none")]
     pub show_task_board_panel: Option<bool>,
+    /// When true, user may pick this worker in the chat composer agent menu.
+    #[serde(default, rename = "userSelectable", skip_serializing_if = "Option::is_none")]
+    pub user_selectable: Option<bool>,
+    /// Optional label for the chat composer agent picker (UI only).
+    #[serde(default, rename = "composerLabel", skip_serializing_if = "Option::is_none")]
+    pub composer_label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub avatar: Option<String>,
 }
@@ -41,6 +47,8 @@ pub struct ResolvedAgentUi {
     pub show_workspace_picker: bool,
     pub show_computer_monitor_picker: bool,
     pub show_task_board_panel: bool,
+    pub user_selectable: bool,
+    pub composer_label: String,
     pub avatar: String,
 }
 
@@ -61,9 +69,11 @@ fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAge
         } else {
             vec![]
         },
-        show_workspace_picker: !is_supervisor,
+        show_workspace_picker: is_coder,
         show_computer_monitor_picker: is_computer,
         show_task_board_panel: has_task_board,
+        user_selectable: false,
+        composer_label: String::new(),
         avatar: if is_supervisor {
             "supervisor".into()
         } else if is_computer {
@@ -91,6 +101,12 @@ fn merge_str(manifest: Option<String>, base: String) -> String {
         .unwrap_or(base)
 }
 
+fn merge_composer_label(manifest: Option<String>, agent_name: &str) -> String {
+    manifest
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| agent_name.to_string())
+}
+
 pub fn resolve_agent_ui(def: &AgentDef) -> ResolvedAgentUi {
     let base = profile_defaults(&def.profile, &def.role, &def.id);
     let ui = &def.ui;
@@ -108,6 +124,8 @@ pub fn resolve_agent_ui(def: &AgentDef) -> ResolvedAgentUi {
             base.show_computer_monitor_picker,
         ),
         show_task_board_panel: merge_bool(ui.show_task_board_panel, base.show_task_board_panel),
+        user_selectable: merge_bool(ui.user_selectable, base.user_selectable),
+        composer_label: merge_composer_label(ui.composer_label.clone(), &def.name),
         avatar: merge_str(ui.avatar.clone(), base.avatar),
     }
 }

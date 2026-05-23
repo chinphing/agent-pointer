@@ -1,4 +1,5 @@
 import type { AgentDef, AgentProfile, AgentUiConfig, ModelSettings } from '../types/chat'
+import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 
 export interface ResolvedAgentUi {
   showInComposer: boolean
@@ -11,6 +12,8 @@ export interface ResolvedAgentUi {
   showWorkspacePicker: boolean
   showComputerMonitorPicker: boolean
   showTaskBoardPanel: boolean
+  userSelectable: boolean
+  composerLabel: string
   avatar: string
 }
 
@@ -22,6 +25,18 @@ function profileKey(profile: AgentProfile, id: string, role: string): string {
     if (profile === 'explore' || id === 'explore') return 'explore'
   }
   return 'default'
+}
+
+const COMPOSER_LABELS: Record<string, string> = {
+  default: '综合对话',
+  coder: '小白编程',
+  computer: '电脑操控',
+  supervisor: '团队模式'
+}
+
+function composerSelectableByProfile(id: string, key: string, isSupervisor: boolean): boolean {
+  if (isSupervisor) return false
+  return id === 'default' || id === 'coder' || id === 'computer' || key === 'default' || key === 'coder' || key === 'computer'
 }
 
 function profileDefaults(profile: AgentProfile, id: string, role: string): ResolvedAgentUi {
@@ -36,14 +51,21 @@ function profileDefaults(profile: AgentProfile, id: string, role: string): Resol
     showSubAgentTrace: isSupervisor,
     showToolCalls: !isSupervisor,
     hideToolNames: hasTaskBoard ? ['task_board', 'task_board:patch'] : [],
-    showWorkspacePicker: !isSupervisor,
+    showWorkspacePicker: key === 'coder',
     showComputerMonitorPicker: key === 'computer',
     showTaskBoardPanel: hasTaskBoard,
+    userSelectable: composerSelectableByProfile(id, key, isSupervisor),
+    composerLabel: COMPOSER_LABELS[key] ?? COMPOSER_LABELS[id] ?? '',
     avatar: key
   }
 }
 
-function mergeUi(base: ResolvedAgentUi, manifest?: AgentUiConfig, overrides?: Partial<AgentUiConfig>): ResolvedAgentUi {
+function mergeUi(
+  base: ResolvedAgentUi,
+  manifest: AgentUiConfig | undefined,
+  overrides: Partial<AgentUiConfig> | undefined,
+  agentName: string
+): ResolvedAgentUi {
   const m = manifest ?? {}
   const o = overrides ?? {}
   const pick = <K extends keyof ResolvedAgentUi>(k: K): ResolvedAgentUi[K] => {
@@ -64,8 +86,19 @@ function mergeUi(base: ResolvedAgentUi, manifest?: AgentUiConfig, overrides?: Pa
     showWorkspacePicker: pick('showWorkspacePicker') as boolean,
     showComputerMonitorPicker: pick('showComputerMonitorPicker') as boolean,
     showTaskBoardPanel: pick('showTaskBoardPanel') as boolean,
+    userSelectable: pick('userSelectable') as boolean,
+    composerLabel: ((o.composerLabel ?? m.composerLabel ?? base.composerLabel) as string).trim() || agentName,
     avatar: (o.avatar ?? m.avatar ?? base.avatar) as string
   }
+}
+
+export function composerAgentLabel(
+  agent: AgentDef | undefined,
+  settings?: Pick<ModelSettings, 'agentUiOverrides'>
+): string {
+  if (!agent) return '综合对话'
+  const ui = resolveAgentUi(agent, settings)
+  return ui.composerLabel.trim() || agent.name
 }
 
 export function resolveAgentUi(
@@ -77,7 +110,15 @@ export function resolveAgentUi(
   }
   const base = profileDefaults(agent.profile, agent.id, agent.role)
   const overrides = settings?.agentUiOverrides?.[agent.id]
-  return mergeUi(base, agent.ui, overrides)
+  return mergeUi(base, agent.ui, overrides, agent.name)
+}
+
+function leadAgentProfile(id: string): AgentProfile {
+  if (id === 'computer') return 'computer'
+  if (id === 'coder') return 'coder'
+  if (id === 'explore') return 'explore'
+  if (id === 'supervisor') return 'supervisor'
+  return 'general'
 }
 
 export function resolveLeadAgentUi(
@@ -86,11 +127,13 @@ export function resolveLeadAgentUi(
 ): ResolvedAgentUi {
   if (settings.agentMode === 'supervisor') {
     const sup = agents.find(a => a.id === 'supervisor' || a.role === 'supervisor')
-    return resolveAgentUi(sup, settings)
+    if (sup) return resolveAgentUi(sup, settings)
+    return profileDefaults('supervisor', 'supervisor', 'supervisor')
   }
-  const id = settings.leadAgentId?.trim() || 'default'
-  const w = agents.find(a => a.id === id) ?? agents.find(a => a.id === 'default')
-  return resolveAgentUi(w, settings)
+  const id = settings.leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
+  const w = agents.find(a => a.id === id) ?? agents.find(a => a.id === DEFAULT_LEAD_AGENT_ID)
+  if (w) return resolveAgentUi(w, settings)
+  return profileDefaults(leadAgentProfile(id), id, 'worker')
 }
 
 /** Show sub-agent timeline when configured or when stream already has delegated steps. */

@@ -23,6 +23,8 @@ pub use agent_ui::{resolve_agent_ui, AgentUiConfig, ResolvedAgentUi};
 pub const AGENT_MODE_SINGLE: &str = "single";
 pub const AGENT_MODE_SUPERVISOR: &str = "supervisor";
 pub const DEFAULT_AGENT_ID: &str = "default";
+/// Default worker selected in single-agent mode when `leadAgentId` is unset.
+pub const DEFAULT_LEAD_AGENT_ID: &str = "computer";
 pub const SUPERVISOR_AGENT_ID: &str = "supervisor";
 const AGENTS_DIR: &str = "agents";
 const AGENT_MANIFEST: &str = "AGENT.md";
@@ -473,12 +475,14 @@ impl AgentOrchestrator {
             AGENT_MODE_SUPERVISOR => AGENT_MODE_SUPERVISOR,
             _ => AGENT_MODE_SINGLE,
         };
-        let default_agent = agents.get(DEFAULT_AGENT_ID).or_else(|| {
-            agents
-                .enabled_workers()
-                .into_iter()
-                .next()
-                .map(static_agent)
+        let default_agent = agents.get(DEFAULT_LEAD_AGENT_ID).or_else(|| {
+            agents.get(DEFAULT_AGENT_ID).or_else(|| {
+                agents
+                    .enabled_workers()
+                    .into_iter()
+                    .next()
+                    .map(static_agent)
+            })
         });
 
         if normalized_mode == AGENT_MODE_SINGLE {
@@ -616,7 +620,7 @@ fn supervisor_agent_def() -> AgentDef {
         .map(|agent| agent.def)
         .unwrap_or_else(|_| AgentDef {
             id: SUPERVISOR_AGENT_ID.into(),
-            name: "Supervisor".into(),
+            name: "团队模式".into(),
             description:
                 "Understands goals, decomposes work, selects worker agents, and merges answers."
                     .into(),
@@ -1127,6 +1131,17 @@ mod builtin_agent_tests {
     }
 
     #[test]
+
+    #[test]
+    fn agent_def_json_includes_user_selectable() {
+        let raw = include_str!("coder/AGENT.md");
+        let comm = include_str!("coder/COMMUNICATION.md");
+        let agent = load_builtin_agent("coder", raw, comm).expect("coder");
+        assert_eq!(agent.def.ui.user_selectable, Some(true));
+        let json = serde_json::to_string(&agent.def).expect("json");
+        assert!(json.contains("userSelectable"), "json missing userSelectable: {}", json);
+    }
+
     fn coder_builtin_allow_agents_includes_explore() {
         let raw = include_str!("coder/AGENT.md");
         let comm = include_str!("coder/COMMUNICATION.md");

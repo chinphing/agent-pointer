@@ -1,4 +1,5 @@
 import type { ChatMessage } from '../types/chat'
+import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 
 export interface ComputerUiSettings {
   agentMode: 'single' | 'supervisor'
@@ -8,7 +9,7 @@ export interface ComputerUiSettings {
 
 export function computerSingleLead(settings: ComputerUiSettings): boolean {
   if (settings.agentMode !== 'single') return false
-  const id = settings.leadAgentId?.trim() || 'default'
+  const id = settings.leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
   return id === 'computer'
 }
 

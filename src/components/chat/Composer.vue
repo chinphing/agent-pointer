@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { Bot, ChevronDown, FolderOpen, Send, Sparkles, Square, Users } from 'lucide-vue-next'
+import { ChevronDown, FolderOpen, Send, Square, X } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
-import { useLeadAgentUi } from '../../composables/useAgentUi'
-import { resolveAgentUi } from '../../lib/agentUi'
-import type { AgentDef, AgentProfile, ComputerMonitor } from '../../types/chat'
+import { resolveAgentUi, resolveLeadAgentUi, composerAgentLabel } from '../../lib/agentUi'
+import { iconForAgent, sortComposerAgents, TEAM_MODE_UI_ENABLED } from '../../lib/agentIcons'
+import type { AgentDef, ComputerMonitor } from '../../types/chat'
+import { DEFAULT_LEAD_AGENT_ID } from '../../types/chat'
 import {
   listAgents,
   listComputerMonitors,
@@ -13,44 +14,45 @@ import {
 } from '../../lib/api'
 import { isTauriRuntime } from '../../lib/runtime'
 import ComputerScreenPickerModal from './ComputerScreenPickerModal.vue'
+import WorkspaceRequiredModal from './WorkspaceRequiredModal.vue'
 
 const chat = useChatStore()
 const settings = useSettingsStore()
 
 const text = ref('')
 const composing = ref(false)
-const showModelPicker = ref(false)
 const showAgentPicker = ref(false)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
-const modelBtnRef = ref<HTMLButtonElement | null>(null)
 const agentBtnRef = ref<HTMLButtonElement | null>(null)
-const modelPickerRef = ref<HTMLDivElement | null>(null)
 const agentPickerRef = ref<HTMLDivElement | null>(null)
-const modelPickerWidth = ref(0)
 const agentPickerWidth = ref(0)
+const workspaceInputRef = ref<HTMLInputElement | null>(null)
 
 const agents = ref<AgentDef[]>([])
 
-const { leadUi } = useLeadAgentUi()
+const leadUi = computed(() => resolveLeadAgentUi(settings.settings, agents.value))
 
-const workers = computed(() =>
-  agents.value.filter(a => {
+const workers = computed(() => {
+  const list = agents.value.filter(a => {
     if (a.role !== 'worker' || !a.enabled) return false
-    return resolveAgentUi(a, settings.settings).showInComposer
+    return resolveAgentUi(a, settings.settings).userSelectable
   })
-)
-const supervisorAgent = computed(
-  () =>
-    agents.value.find(a => a.id === 'supervisor' && a.enabled) ||
-    agents.value.find(a => a.role === 'supervisor')
-)
+  return sortComposerAgents(list)
+})
 
 const selectedWorker = computed(() => {
   if (settings.settings.agentMode !== 'single') return undefined
   const id = settings.settings.leadAgentId?.trim()
-  if (!id) return workers.value.find(w => w.id === 'default')
+  if (!id) return workers.value.find(w => w.id === DEFAULT_LEAD_AGENT_ID)
   return workers.value.find(w => w.id === id)
 })
+
+function isLeadAgentSelected(agentId: string): boolean {
+  const st = settings.settings
+  if (st.agentMode !== 'single') return false
+  const id = st.leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
+  return id === agentId
+}
 
 const showComputerMonitorPicker = computed(
   () => settings.settings.agentMode === 'single' && leadUi.value.showComputerMonitorPicker
@@ -68,73 +70,28 @@ const supervisorRoundsLabel = computed(() => {
 })
 
 const workspaceDirName = computed(() => {
-  const p = settings.settings.workspaceRoot
+  const p = chat.current?.workspaceRoot ?? ''
   if (!p) return ''
   return p.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || ''
 })
 
-const currentAgentLabel = computed(() => {
-  if (settings.settings.agentMode === 'supervisor') {
-    return supervisorAgent.value?.name ?? 'Supervisor'
-  }
-  return selectedWorker.value?.name ?? 'Default Agent'
+const workspaceTooltip = computed(() => {
+  const p = chat.current?.workspaceRoot?.trim()
+  return p || '未设置工作目录'
 })
+
+const currentAgentLabel = computed(() => composerAgentLabel(selectedWorker.value, settings.settings))
+
+const currentAgentIcon = computed(() => iconForAgent(selectedWorker.value, settings.settings))
+
+const hasWorkspace = computed(() => !!(chat.current?.workspaceRoot?.trim()))
 
 const canSend = computed(
   () =>
     text.value.trim().length > 0 &&
     !chat.generating &&
-    settings.settings.hasKey &&
-    (!needsWorkspace.value || !!settings.settings.workspaceRoot?.trim())
+    settings.settings.hasKey
 )
-
-/** 当前实际使用的模型：优先取 agent 默认（含服务商绑定），否则取全局 model */
-const currentModel = computed(() => {
-  const st = settings.settings
-  if (st.agentMode === 'single') {
-    const id = st.leadAgentId?.trim()
-    const key = id || 'default'
-    const ref = settings.getAgentDefaultModelRef(key)
-    if (ref?.model) return ref.model
-    return st.model
-  }
-  if (st.agentMode === 'supervisor') {
-    const ref = settings.getAgentDefaultModelRef('supervisor')
-    if (ref?.model) return ref.model
-    return st.model
-  }
-  return st.model
-})
-
-/** 与 `currentModel` 同行的服务商：来自智能体默认里的 providerId，否则为全局 active */
-const currentProviderForModelButton = computed(() => {
-  const st = settings.settings
-  let pid = st.activeProviderId
-  if (st.agentMode === 'single') {
-    const id = st.leadAgentId?.trim()
-    const key = id || 'default'
-    const ref = settings.getAgentDefaultModelRef(key)
-    if (ref?.providerId) pid = ref.providerId
-  } else if (st.agentMode === 'supervisor') {
-    const ref = settings.getAgentDefaultModelRef('supervisor')
-    if (ref?.providerId) pid = ref.providerId
-  }
-  return st.providers.find(p => p.id === pid) ?? settings.activeProvider
-})
-
-/** 模型下拉中当前项高亮用的服务商 id */
-const effectivePickerProviderId = computed(() => {
-  const st = settings.settings
-  if (st.agentMode === 'single') {
-    const id = st.leadAgentId?.trim()
-    const key = id || 'default'
-    return settings.getAgentDefaultModelRef(key)?.providerId ?? st.activeProviderId
-  }
-  if (st.agentMode === 'supervisor') {
-    return settings.getAgentDefaultModelRef('supervisor')?.providerId ?? st.activeProviderId
-  }
-  return st.activeProviderId
-})
 
 async function loadAgentsList() {
   try {
@@ -146,24 +103,56 @@ async function loadAgentsList() {
 
 async function pickWorkspaceFolder() {
   if (!isTauriRuntime()) return
+  const conv = chat.current || chat.newConversation()
   try {
     const { open } = await import('@tauri-apps/plugin-dialog')
     const dir = await open({ directory: true, multiple: false })
     if (typeof dir === 'string' && dir) {
-      await settings.save({ workspaceRoot: dir })
+      chat.setConversationWorkspace(dir)
     }
   } catch (e) {
     console.error(e)
   }
 }
 
+function onWorkspaceInputChange() {
+  chat.setConversationWorkspace(chat.current?.workspaceRoot ?? '')
+}
+
+function clearWorkspace() {
+  chat.setConversationWorkspace('')
+}
+
+function onWorkspaceInput(e: Event) {
+  const conv = chat.current || chat.newConversation()
+  conv.workspaceRoot = (e.target as HTMLInputElement).value
+  onWorkspaceInputChange()
+}
+
+function remindWorkspaceRequired() {
+  showWorkspaceRequiredModal.value = true
+}
+
+async function onWorkspaceRequiredPick() {
+  showWorkspaceRequiredModal.value = false
+  if (isTauriRuntime()) {
+    await pickWorkspaceFolder()
+    return
+  }
+  nextTick(() => workspaceInputRef.value?.focus())
+}
+
 function send() {
   if (!canSend.value) return
-  if (needsWorkspace.value && !settings.settings.workspaceRoot?.trim()) return
+  if (needsWorkspace.value && !hasWorkspace.value) {
+    remindWorkspaceRequired()
+    return
+  }
   void sendWithOptionalComputerScreenPick()
 }
 
 const showScreenPicker = ref(false)
+const showWorkspaceRequiredModal = ref(false)
 const screenPickerLoading = ref(false)
 const screenPickerError = ref<string | null>(null)
 const screenPickerMonitors = ref<ComputerMonitor[]>([])
@@ -245,44 +234,8 @@ function onCompositionEnd() {
   }, 50)
 }
 
-function selectModel(model: string) {
-  void settings.save({ model })
-  void syncAgentDefaultModelForMode(model, settings.settings.activeProviderId)
-  showModelPicker.value = false
-}
-
-async function selectModelWithProvider(model: string, providerId: string) {
-  await settings.save({ activeProviderId: providerId, model })
-  await syncAgentDefaultModelForMode(model, providerId)
-  showModelPicker.value = false
-}
-
-async function syncAgentDefaultModelForMode(model: string, providerId: string) {
-  const pid = providerId || settings.settings.activeProviderId
-  if (settings.settings.agentMode === 'single') {
-    const id = settings.settings.leadAgentId?.trim()
-    const agentKey = id || 'default'
-    await settings.setAgentDefaultModel(agentKey, { providerId: pid, model })
-  } else if (settings.settings.agentMode === 'supervisor') {
-    await settings.setAgentDefaultModel('supervisor', { providerId: pid, model })
-  }
-}
-
-async function selectSupervisorMode() {
-  await settings.save({ agentMode: 'supervisor', leadAgentId: '' })
-  const ref = settings.getAgentDefaultModelRef('supervisor')
-  if (ref?.model) {
-    await settings.save({ activeProviderId: ref.providerId, model: ref.model })
-  }
-  showAgentPicker.value = false
-}
-
 async function selectWorkerAgent(agent: AgentDef) {
   await settings.save({ agentMode: 'single', leadAgentId: agent.id })
-  const ref = settings.getAgentDefaultModelRef(agent.id)
-  if (ref?.model) {
-    await settings.save({ activeProviderId: ref.providerId, model: ref.model })
-  }
   showAgentPicker.value = false
 }
 
@@ -293,10 +246,6 @@ function autoResize() {
 }
 
 function updatePickerWidths() {
-  if (modelBtnRef.value) {
-    const btnWidth = modelBtnRef.value.offsetWidth
-    modelPickerWidth.value = Math.max(btnWidth, 180)
-  }
   if (agentBtnRef.value) {
     const btnWidth = agentBtnRef.value.offsetWidth
     agentPickerWidth.value = Math.max(btnWidth, 200)
@@ -305,11 +254,6 @@ function updatePickerWidths() {
 
 function handleClickOutside(e: MouseEvent) {
   const target = e.target as HTMLElement
-  if (showModelPicker.value && modelBtnRef.value && modelPickerRef.value) {
-    if (!modelBtnRef.value.contains(target) && !modelPickerRef.value.contains(target)) {
-      showModelPicker.value = false
-    }
-  }
   if (showAgentPicker.value && agentBtnRef.value && agentPickerRef.value) {
     if (!agentBtnRef.value.contains(target) && !agentPickerRef.value.contains(target)) {
       showAgentPicker.value = false
@@ -318,12 +262,15 @@ function handleClickOutside(e: MouseEvent) {
 }
 
 watch(
-  () => [showModelPicker.value, showAgentPicker.value],
+  () => showAgentPicker.value,
   () => nextTick(() => updatePickerWidths())
 )
 
 onMounted(() => {
   loadAgentsList()
+  if (!TEAM_MODE_UI_ENABLED && settings.settings.agentMode === 'supervisor') {
+    void settings.save({ agentMode: 'single', leadAgentId: settings.settings.leadAgentId || DEFAULT_LEAD_AGENT_ID })
+  }
   updatePickerWidths()
   document.addEventListener('click', handleClickOutside)
 })
@@ -342,31 +289,108 @@ onUnmounted(() => {
     @pick="onPickScreen"
   />
 
+  <WorkspaceRequiredModal
+    v-model:open="showWorkspaceRequiredModal"
+    :is-desktop="isTauriRuntime()"
+    @pick="onWorkspaceRequiredPick"
+  />
+
   <div class="px-6 md:px-10 pb-5">
     <div class="max-w-3xl mx-auto">
-      <div class="panel-elevated rounded-2xl p-2 border border-border">
-        <div class="flex items-end gap-2">
-          <textarea
-            ref="textareaRef"
-            v-model="text"
-            rows="1"
-            class="flex-1 resize-none bg-transparent border-0 outline-none px-3 py-2 text-[15px] text-foreground placeholder:text-muted"
-            style="max-height: 250px; min-height: 24px;"
-            :placeholder="settings.settings.hasKey ? '与 Pointer 对话…' : '请先在设置中配置 API Key'"
-            @keydown="onKeydown"
-            @input="autoResize"
-            @compositionstart="composing = true"
-            @compositionend="onCompositionEnd"
-          />
+      <div class="panel-elevated rounded-2xl border border-border overflow-visible px-2 pb-2 pt-[18px]">
+        <textarea
+          ref="textareaRef"
+          v-model="text"
+          rows="1"
+          class="block w-full resize-none bg-transparent border-0 outline-none px-3 pt-[3px] pb-2 text-[15px] text-foreground placeholder:text-muted"
+          style="max-height: 250px; min-height: 24px;"
+          :placeholder="settings.settings.hasKey ? '与 Pointer 对话…' : '请先在设置中配置 API Key'"
+          @keydown="onKeydown"
+          @input="autoResize"
+          @compositionstart="composing = true"
+          @compositionend="onCompositionEnd"
+        />
+
+        <div class="flex items-center gap-2">
+          <div class="relative flex flex-1 flex-wrap items-center gap-x-3 gap-y-0 min-w-0 px-1">
+            <div class="relative">
+              <button
+                ref="agentBtnRef"
+                class="composer-agent-trigger"
+                @click="showAgentPicker = !showAgentPicker"
+              >
+                <component :is="currentAgentIcon" class="w-3 h-3 shrink-0 text-accent" />
+                <span class="truncate">{{ currentAgentLabel }}</span>
+                <ChevronDown class="w-3 h-3 shrink-0 text-muted" />
+              </button>
+
+              <div
+                v-if="showAgentPicker"
+                ref="agentPickerRef"
+                class="composer-dropdown composer-dropdown--up"
+                :style="{ minWidth: agentPickerWidth + 'px' }"
+              >
+                <div class="px-3 py-2 border-b border-border">
+                  <div class="text-[11px] text-muted font-medium">执行智能体</div>
+                </div>
+                <div class="p-1.5 space-y-0.5 max-h-60 overflow-y-auto">
+                  <button
+                    v-for="w in workers"
+                    :key="w.id"
+                    class="composer-dropdown-item"
+                    :class="isLeadAgentSelected(w.id) ? 'composer-dropdown-item-active' : ''"
+                    @click="selectWorkerAgent(w)"
+                  >
+                    <component :is="iconForAgent(w, settings.settings)" class="w-3 h-3 shrink-0" />
+                    <span class="min-w-0 truncate">{{ composerAgentLabel(w, settings.settings) }}</span>
+                    <span class="text-[10px] text-muted shrink-0">{{ w.id }}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="needsWorkspace" class="relative flex items-center gap-1 min-w-0">
+              <button
+                v-if="isTauriRuntime()"
+                type="button"
+                class="composer-agent-trigger max-w-[200px]"
+                :title="workspaceTooltip"
+                @click="pickWorkspaceFolder"
+              >
+                <FolderOpen class="w-3 h-3 shrink-0 text-warning" />
+                <span v-if="workspaceDirName" class="truncate">{{ workspaceDirName }}</span>
+              </button>
+              <input
+                v-else
+                ref="workspaceInputRef"
+                :value="chat.current?.workspaceRoot ?? ''"
+                type="text"
+                placeholder="工作目录"
+                class="composer-workspace-input"
+                :title="workspaceTooltip"
+                @input="onWorkspaceInput"
+              />
+              <button
+                v-if="hasWorkspace"
+                type="button"
+                class="composer-agent-trigger px-1 py-1 text-muted hover:text-foreground"
+                title="清除工作目录"
+                @click="clearWorkspace"
+              >
+                <X class="w-3 h-3 shrink-0" />
+              </button>
+            </div>
+          </div>
+
           <button
             v-if="chat.generating"
-            class="h-10 w-10 rounded-xl bg-danger/20 hover:bg-danger/30 text-danger flex items-center justify-center cursor-pointer transition"
+            class="h-10 w-10 shrink-0 rounded-xl bg-danger/20 hover:bg-danger/30 text-danger flex items-center justify-center cursor-pointer transition"
             @click="chat.stop()"
             title="停止"
           ><Square class="w-4 h-4" /></button>
           <button
             v-else
-            class="h-10 w-10 rounded-xl flex items-center justify-center transition"
+            class="h-10 w-10 shrink-0 rounded-xl flex items-center justify-center transition"
             :class="canSend
               ? 'bg-accent text-white hover:opacity-90 cursor-pointer'
               : 'bg-hover text-muted cursor-not-allowed'"
@@ -376,108 +400,16 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="flex flex-wrap items-center gap-2 mt-2">
-        <!-- Agent 选择器（在前） -->
-        <div class="relative">
-          <button
-            ref="agentBtnRef"
-            class="composer-chip"
-            @click="showAgentPicker = !showAgentPicker"
-          >
-            <Bot v-if="settings.settings.agentMode === 'single'" class="w-3 h-3 shrink-0 text-accent" />
-            <Users v-else class="w-3 h-3 shrink-0 text-accent" />
-            <span class="truncate">{{ currentAgentLabel }}</span>
-            <ChevronDown class="w-3 h-3 shrink-0 text-muted" />
-          </button>
 
-          <div v-if="showAgentPicker" ref="agentPickerRef" class="composer-dropdown" :style="{ minWidth: agentPickerWidth + 'px' }">
-            <div class="px-3 py-2 border-b border-border">
-              <div class="text-[11px] text-muted font-medium">执行智能体</div>
-            </div>
-            <div class="p-1.5 space-y-0.5 max-h-60 overflow-y-auto">
-              <button
-                v-for="w in workers"
-                :key="w.id"
-                class="composer-dropdown-item"
-                :class="settings.settings.agentMode === 'single' && (settings.settings.leadAgentId === w.id || ((!settings.settings.leadAgentId || settings.settings.leadAgentId === 'default') && w.id === 'default')) ? 'composer-dropdown-item-active' : ''"
-                @click="selectWorkerAgent(w)"
-              >
-                <Bot class="w-3 h-3 shrink-0" />
-                <span class="min-w-0 truncate">{{ w.name }}</span>
-                <span class="text-[10px] text-muted shrink-0">{{ w.id }}</span>
-              </button>
-              <button
-                v-if="supervisorAgent"
-                class="composer-dropdown-item"
-                :class="settings.settings.agentMode === 'supervisor' ? 'composer-dropdown-item-active' : ''"
-                @click="selectSupervisorMode"
-              >
-                <Users class="w-3 h-3 shrink-0" />
-                <span class="truncate">{{ supervisorAgent.name }}</span>
-              </button>
-            </div>
-          </div>
-        </div>
 
-        <!-- 模型选择器（在后） -->
-        <div class="relative">
-          <button
-            ref="modelBtnRef"
-            class="composer-chip"
-            @click="showModelPicker = !showModelPicker"
-          >
-            <Sparkles class="w-3 h-3 shrink-0 text-accent" />
-            <span class="truncate">{{ currentProviderForModelButton.name }} / {{ currentModel }}</span>
-            <ChevronDown class="w-3 h-3 shrink-0 text-muted" />
-          </button>
-
-          <div v-if="showModelPicker" ref="modelPickerRef" class="composer-dropdown" :style="{ minWidth: modelPickerWidth + 'px' }">
-            <div class="px-3 py-2 border-b border-border">
-              <div class="text-[11px] text-muted font-medium">选择模型（所有服务）</div>
-            </div>
-            <div class="max-h-60 overflow-y-auto p-1.5 space-y-0.5">
-              <button
-                v-for="item in settings.allModels"
-                :key="`${item.providerId}:${item.model}`"
-                class="composer-dropdown-item whitespace-nowrap"
-                :class="currentModel === item.model && effectivePickerProviderId === item.providerId ? 'composer-dropdown-item-active' : ''"
-                @click="selectModelWithProvider(item.model, item.providerId)"
-              >
-                <span class="text-[10px] text-muted mr-1.5">{{ item.providerName }}</span>
-                <span>{{ item.model }}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- 工作目录（single 模式） -->
-        <div v-if="needsWorkspace" class="relative">
-          <button
-            v-if="isTauriRuntime()"
-            type="button"
-            class="composer-chip"
-            :title="settings.settings.workspaceRoot || '选择工作目录'"
-            @click="pickWorkspaceFolder"
-          >
-            <FolderOpen class="w-3 h-3 shrink-0 text-warning" />
-            <span class="truncate max-w-[150px]">{{ workspaceDirName || '工作目录…' }}</span>
-          </button>
-          <input
-            v-else
-            v-model="settings.settings.workspaceRoot"
-            type="text"
-            placeholder="工作目录路径"
-            class="composer-workspace-input"
-            @change="settings.save({ workspaceRoot: settings.settings.workspaceRoot })"
-          />
-        </div>
-
+      <div
+        v-if="supervisorRoundsLabel || !settings.settings.hasKey"
+        class="flex flex-wrap items-center gap-2 mt-2"
+      >
         <div class="flex-1" />
 
         <span v-if="supervisorRoundsLabel" class="text-[10px] text-muted">{{ supervisorRoundsLabel }}</span>
-        <span class="text-[10px] text-muted">
-          {{ settings.settings.hasKey ? '已连接' : '未配置 Key' }}
-        </span>
+        <span v-if="!settings.settings.hasKey" class="text-[10px] text-muted">未配置 Key</span>
       </div>
     </div>
   </div>

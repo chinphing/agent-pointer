@@ -10,6 +10,7 @@ use grep_searcher::{
     BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkFinish, SinkMatch,
 };
 use ignore::WalkBuilder;
+use std::cell::RefCell;
 use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
@@ -164,10 +165,51 @@ pub fn register_all(reg: &ToolRegistry) {
     ));
 }
 
-/// Root for sandbox: configured workspace or current directory.
+/// Thread-local workspace override for an in-flight chat run (set for the whole `run_chat`).
+thread_local! {
+    static CONVERSATION_WORKSPACE_ROOT: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+pub struct ConversationWorkspaceGuard {
+    previous: Option<String>,
+}
+
+impl ConversationWorkspaceGuard {
+    pub fn enter(workspace: String) -> Self {
+        let previous = CONVERSATION_WORKSPACE_ROOT.with(|c| {
+            let mut g = c.borrow_mut();
+            let next = if workspace.trim().is_empty() {
+                None
+            } else {
+                Some(workspace)
+            };
+            std::mem::replace(&mut *g, next)
+        });
+        Self { previous }
+    }
+}
+
+impl Drop for ConversationWorkspaceGuard {
+    fn drop(&mut self) {
+        CONVERSATION_WORKSPACE_ROOT.with(|c| {
+            *c.borrow_mut() = self.previous.take();
+        });
+    }
+}
+
+pub fn workspace_root_from_override_or_settings() -> String {
+    CONVERSATION_WORKSPACE_ROOT
+        .with(|c| c.borrow().clone())
+        .unwrap_or_else(|| {
+            crate::platform_config::effective_settings_global()
+                .workspace_root
+                .clone()
+        })
+}
+
 pub fn resolve_tool_workspace_root() -> Result<PathBuf> {
-    let s = crate::platform_config::effective_settings_global();
-    let raw = s.workspace_root.trim();
+    let raw = workspace_root_from_override_or_settings();
+    let raw = raw.trim();
     if !raw.is_empty() {
         let p = PathBuf::from(raw);
         if !p.is_dir() {

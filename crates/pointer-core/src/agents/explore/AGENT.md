@@ -18,6 +18,8 @@ accessPolicy:
   allowSkills: []
   denySkills: []
 ui:
+  userSelectable: false
+  showInComposer: false
   showTaskBoardPanel: true
   hideToolNames:
     - task_board

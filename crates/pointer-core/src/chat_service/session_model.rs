@@ -1,4 +1,4 @@
-use crate::agents::{DEFAULT_AGENT_ID, SUPERVISOR_AGENT_ID, AGENT_MODE_SUPERVISOR};
+use crate::agents::{DEFAULT_LEAD_AGENT_ID, SUPERVISOR_AGENT_ID, AGENT_MODE_SUPERVISOR};
 use crate::models::ModelSettings;
 use crate::provider::OpenAIProvider;
 
@@ -34,7 +34,7 @@ pub(crate) fn apply_session_agent_model_defaults(
     } else {
         let id = settings.lead_agent_id.trim();
         if id.is_empty() {
-            DEFAULT_AGENT_ID.to_string()
+            DEFAULT_LEAD_AGENT_ID.to_string()
         } else {
             id.to_string()
         }

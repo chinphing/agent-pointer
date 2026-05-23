@@ -8,7 +8,6 @@ import {
   Copy,
   Cpu,
   Database,
-  FolderOpen,
   Gauge,
   Info,
   Monitor,
@@ -35,8 +34,10 @@ import type {
   ThemePreference
 } from '../../types/chat'
 import { COMPUTER_INITIAL_TIER_OPTIONS } from '../../types/chat'
+import { DEFAULT_LEAD_AGENT_ID } from '../../types/chat'
 import { applyTheme } from '../../lib/theme'
 import { resolveAgentUi } from '../../lib/agentUi'
+import { TEAM_MODE_UI_ENABLED } from '../../lib/agentIcons'
 import { listAgents } from '../../lib/api'
 import {
   detectProviderTemplateId,
@@ -63,6 +64,7 @@ import { useSettingsStore } from '../../stores/settings'
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'open-skills'): void
   (e: 'platform-logout'): void
   (e: 'platform-login'): void
 }>()
@@ -107,7 +109,6 @@ const copiedKey = ref(false)
 const toolApprovalMode = ref<'auto' | 'manual'>('auto')
 const agentMode = ref<'single' | 'supervisor'>('single')
 const leadAgentId = ref('')
-const workspaceRoot = ref('')
 const contextCompressionEnabled = ref(true)
 const contextBudgetChars = ref(120_000)
 const contextKeepRecentUserTurns = ref(6)
@@ -341,18 +342,8 @@ const supervisorAgent = computed(
     agents.value.find(a => a.role === 'supervisor')
 )
 
-function isCoderAgent(a: AgentDef): boolean {
-  return a.id === 'coder' || a.profile === 'coder'
-}
-
-const workspaceDirName = computed(() => {
-  const p = workspaceRoot.value
-  if (!p) return ''
-  return p.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || ''
-})
-
 const activeUiAgentId = computed(() =>
-  agentMode.value === 'supervisor' ? 'supervisor' : (leadAgentId.value?.trim() || 'default')
+  agentMode.value === 'supervisor' ? 'supervisor' : (leadAgentId.value?.trim() || DEFAULT_LEAD_AGENT_ID)
 )
 
 const effectiveDisplayUi = computed(() => {
@@ -360,9 +351,15 @@ const effectiveDisplayUi = computed(() => {
   const agent =
     agentMode.value === 'supervisor'
       ? supervisorAgent.value
-      : workers.value.find(w => w.id === id) ?? workers.value.find(w => w.id === 'default')
+      : workers.value.find(w => w.id === id) ?? workers.value.find(w => w.id === DEFAULT_LEAD_AGENT_ID)
   return resolveAgentUi(agent, { agentUiOverrides: { [id]: agentUiLocal.value } })
 })
+
+function isLeadWorkerSelected(agentId: string): boolean {
+  if (agentMode.value !== 'single') return false
+  const id = leadAgentId.value?.trim() || DEFAULT_LEAD_AGENT_ID
+  return id === agentId
+}
 
 function displayUiChecked(key: keyof AgentUiConfig): boolean {
   const map: Record<string, boolean> = {
@@ -418,22 +415,13 @@ async function loadAgents() {
   }
 }
 
-async function pickWorkspace() {
-  if (!isTauriRuntime()) return
-  try {
-    const { open } = await import('@tauri-apps/plugin-dialog')
-    const dir = await open({ directory: true, multiple: false })
-    if (typeof dir === 'string' && dir) workspaceRoot.value = dir
-  } catch (e) {
-    console.error(e)
-  }
-}
-
 onMounted(() => {
   toolApprovalMode.value = s.settings.toolApprovalMode || 'auto'
-  agentMode.value = s.settings.agentMode || 'single'
-  leadAgentId.value = s.settings.leadAgentId || 'default'
-  workspaceRoot.value = s.settings.workspaceRoot || ''
+  agentMode.value =
+    !TEAM_MODE_UI_ENABLED && s.settings.agentMode === 'supervisor'
+      ? 'single'
+      : (s.settings.agentMode || 'single')
+  leadAgentId.value = s.settings.leadAgentId || DEFAULT_LEAD_AGENT_ID
   contextCompressionEnabled.value = s.settings.contextCompressionEnabled !== false
   contextBudgetChars.value = s.settings.contextBudgetChars ?? 120_000
   contextKeepRecentUserTurns.value = s.settings.contextKeepRecentUserTurns ?? 6
@@ -768,7 +756,6 @@ async function saveFromFooter() {
         model: s.settings.model,
         agentMode: agentMode.value,
         leadAgentId: agentMode.value === 'supervisor' ? '' : leadAgentId.value,
-        workspaceRoot: workspaceRoot.value,
         maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
         rawContentViewEnabled: rawContentViewEnabled.value,
         debugDumpLlmPrompts: debugDumpLlmPrompts.value,
@@ -798,9 +785,16 @@ async function saveFromFooter() {
         </div>
         <div>
           <h2 class="text-base font-semibold text-foreground">设置</h2>
-          <p class="text-[11px] text-muted">配置 AI 模型、界面和工作模式</p>
         </div>
         <div class="flex-1" />
+        <button
+          type="button"
+          class="h-7 w-7 mr-1 rounded-md border border-border hover:bg-hover transition-colors inline-flex items-center justify-center cursor-pointer"
+          title="技能管理"
+          @click="emit('open-skills')"
+        >
+          <Sparkles class="w-4 h-4 text-accent" />
+        </button>
         <div class="mr-1">
           <button
             type="button"
@@ -1224,20 +1218,20 @@ async function saveFromFooter() {
                 v-for="w in workers"
                 :key="w.id"
                 class="rounded-xl border p-3 cursor-pointer transition-all"
-                :class="agentMode === 'single' && (leadAgentId === w.id || ((!leadAgentId || leadAgentId === 'default') && w.id === 'default')) ? 'border-accent/30 bg-accent/5' : 'border-border bg-hover/40 hover:border-border'"
+                :class="isLeadWorkerSelected(w.id) ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'"
                 @click="agentMode = 'single'; leadAgentId = w.id"
               >
                 <div class="flex items-start gap-3">
                   <!-- Icon -->
                   <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                       :class="agentMode === 'single' && (leadAgentId === w.id || ((!leadAgentId || leadAgentId === 'default') && w.id === 'default')) ? 'bg-accent/10' : 'bg-hover'">
-                    <Bot class="w-4 h-4" :class="agentMode === 'single' && (leadAgentId === w.id || ((!leadAgentId || leadAgentId === 'default') && w.id === 'default')) ? 'text-accent' : 'text-muted'" />
+                       :class="isLeadWorkerSelected(w.id) ? 'bg-accent/10' : 'bg-[hsl(var(--card-elevated))]'">
+                    <Bot class="w-4 h-4" :class="isLeadWorkerSelected(w.id) ? 'text-accent' : 'text-muted'" />
                   </div>
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
                       <span class="text-sm font-medium text-foreground">{{ w.name }}</span>
-                      <span class="px-1.5 py-0.5 rounded bg-hover text-[10px] text-muted font-mono">{{ w.id }}</span>
-                      <span v-if="agentMode === 'single' && (leadAgentId === w.id || ((!leadAgentId || leadAgentId === 'default') && w.id === 'default'))" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">已选择</span>
+                      <span class="px-1.5 py-0.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[10px] text-muted font-mono">{{ w.id }}</span>
+                      <span v-if="isLeadWorkerSelected(w.id)" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">已选择</span>
                     </div>
                     <p class="mt-0.5 text-[11px] text-muted">{{ w.description || '通用智能体' }}</p>
 
@@ -1271,7 +1265,7 @@ async function saveFromFooter() {
 
                     <div
                       v-if="w.id === 'computer'"
-                      class="col-span-full mt-3 rounded-xl border border-border panel p-4 space-y-3"
+                      class="col-span-full mt-3 rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3"
                       :class="platformReadOnly ? 'opacity-60 pointer-events-none' : ''"
                     >
                       <div class="flex items-center justify-between gap-2">
@@ -1286,7 +1280,7 @@ async function saveFromFooter() {
                         <span class="text-[11px] text-muted font-medium">{{ tier.label }}</span>
                         <select
                           :value="computerTierLlm(tier.key).model"
-                          class="h-8 px-2 rounded bg-card border border-border text-[12px] text-foreground outline-none focus:border-accent/50"
+                          class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                           @change="patchComputerTierLlm(tier.key, { model: ($event.target as HTMLSelectElement).value })"
                         >
                           <option v-for="m in qwenModelOptions" :key="m" :value="m">{{ m }}</option>
@@ -1294,7 +1288,7 @@ async function saveFromFooter() {
                         <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
                           <input
                             type="checkbox"
-                            class="rounded border-border"
+                            class="rounded border-border bg-[hsl(var(--card-elevated))]"
                             :checked="computerTierLlm(tier.key).enableThinking !== false"
                             @change="patchComputerTierLlm(tier.key, { enableThinking: ($event.target as HTMLInputElement).checked })"
                           />
@@ -1304,7 +1298,7 @@ async function saveFromFooter() {
                           type="number"
                           min="256"
                           step="256"
-                          class="h-8 w-full px-2 rounded bg-card border border-border text-[12px] text-foreground outline-none focus:border-accent/50"
+                          class="h-8 w-full px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                           :value="computerTierLlm(tier.key).thinkingBudget ?? 2048"
                           :disabled="computerTierLlm(tier.key).enableThinking === false"
                           @change="patchComputerTierLlm(tier.key, { thinkingBudget: Number(($event.target as HTMLInputElement).value) })"
@@ -1312,37 +1306,20 @@ async function saveFromFooter() {
                       </div>
                     </div>
 
-                    <!-- Workspace (coder lead only) -->
-                    <div v-if="agentMode === 'single' && leadAgentId === w.id && isCoderAgent(w)" class="mt-2 flex items-center gap-1.5">
-                        <FolderOpen class="w-3.5 h-3.5 text-amber-300 shrink-0" />
-                        <span
-                          v-if="isTauriRuntime()"
-                          class="text-[11px] text-foreground hover:text-accent cursor-pointer underline decoration-dashed underline-offset-2"
-                          :title="workspaceRoot"
-                          @click="pickWorkspace"
-                        >{{ workspaceDirName || '选择工作目录…' }}</span>
-                        <input
-                          v-else
-                          v-model="workspaceRoot"
-                          type="text"
-                          class="w-48 h-7 px-2 rounded bg-card border border-border text-[11px] text-foreground outline-none focus:border-accent/50 transition-colors"
-                          placeholder="D:\project\my-repo"
-                        />
-                      </div>
                   </div>
                 </div>
               </div>
 
-              <!-- Supervisor Agent -->
+              <!-- 团队模式（暂未开放） -->
               <div
-                v-if="supervisorAgent"
+                v-if="TEAM_MODE_UI_ENABLED && supervisorAgent"
                 class="rounded-xl border p-3 cursor-pointer transition-all"
-                :class="agentMode === 'supervisor' ? 'border-accent/30 bg-accent/5' : 'border-border bg-hover/40 hover:border-border'"
+                :class="agentMode === 'supervisor' ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'"
                 @click="agentMode = 'supervisor'"
               >
                 <div class="flex items-start gap-3">
                   <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                       :class="agentMode === 'supervisor' ? 'bg-accent/10' : 'bg-hover'">
+                       :class="agentMode === 'supervisor' ? 'bg-accent/10' : 'bg-[hsl(var(--card-elevated))]'">
                     <Users class="w-4 h-4" :class="agentMode === 'supervisor' ? 'text-accent' : 'text-muted'" />
                   </div>
                   <div class="flex-1 min-w-0">
@@ -1371,7 +1348,7 @@ async function saveFromFooter() {
               </div>
             </div>
 
-            <div class="rounded-xl border border-border panel p-5 space-y-3">
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
               <h4 class="text-sm font-medium text-foreground">聊天界面显示</h4>
               <p class="text-[11px] text-muted">
                 覆盖当前选中智能体（{{ activeUiAgentId }}）的默认展示；未勾选项使用 AGENT.md 内置默认。
@@ -1395,7 +1372,7 @@ async function saveFromFooter() {
 
             <div
               v-if="agentMode === 'single'"
-              class="rounded-xl border border-border panel p-5 space-y-3"
+              class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3"
             >
               <h4 class="text-sm font-medium text-foreground">子任务委托</h4>
               <p class="text-[11px] text-muted">
@@ -1493,10 +1470,7 @@ async function saveFromFooter() {
       </div>
 
       <!-- Footer -->
-      <footer class="px-6 h-14 flex items-center gap-3 border-t border-border shrink-0">
-        <p class="text-[11px] text-muted flex-1">
-          单智能体由所选 Worker 执行；Supervisor 为多任务编排。
-        </p>
+      <footer class="px-6 h-14 flex items-center justify-end gap-3 border-t border-border shrink-0">
         <button class="h-9 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="emit('close')">取消</button>
         <button
           v-if="showFooterSave"

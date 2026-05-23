@@ -27,6 +27,7 @@ export interface SendChatPayload {
   agentMode?: AgentMode
   toolRoundsUsed?: number
   toolRoundsUsedSupervisor?: number
+  workspaceRoot?: string
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

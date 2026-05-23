@@ -86,7 +86,7 @@ const toastClass = computed(() => {
         </div>
         <h1 class="text-2xl font-bold brand-text mb-1.5">你好，欢迎来到 Pointer</h1>
         <p class="text-muted max-w-md text-sm leading-6">
-          你的 AI 智能助手，可以回答问题、写作、分析数据、执行任务。
+          你的 AI 智能助手，可以操控电脑、编写代码。
         </p>
       </div>
 

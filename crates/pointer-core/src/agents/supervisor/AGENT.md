@@ -1,6 +1,6 @@
 ---
 id: supervisor
-name: Supervisor
+name: 团队模式
 description: Understands goals, decomposes work, selects worker agents, and merges final answers.
 role: supervisor
 profile: supervisor
@@ -12,7 +12,9 @@ accessPolicy:
   allowSkills: []
   denySkills: []
 ui:
-  showInComposer: true
+  userSelectable: false
+  composerLabel: 团队模式
+  showInComposer: false
   showToolCalls: false
   showSubAgentTrace: true
   showTaskBoardPanel: true

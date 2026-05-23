@@ -15,6 +15,9 @@ accessPolicy:
   allowSkills: []
   denySkills: []
 ui:
+  userSelectable: true
+  composerLabel: 综合对话
+  showWorkspacePicker: false
   showTaskBoardPanel: true
   hideToolNames:
     - task_board

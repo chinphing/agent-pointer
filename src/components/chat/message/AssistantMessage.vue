@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Bot, Users, Monitor, Code, Search } from 'lucide-vue-next'
+import { Bot } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
 import { assistantDisplayKind } from '../../../lib/assistantMessageKind'
+import { iconForAgentAvatar } from '../../../lib/agentIcons'
 import { uiForMessageAgent, useAgentsCatalog } from '../../../composables/useAgentUi'
 import { useSettingsStore } from '../../../stores/settings'
 import AssistantModelMessage from './assistant/AssistantModelMessage.vue'
@@ -18,14 +19,7 @@ const messageUi = computed(() =>
   uiForMessageAgent(props.message.agentId, props.message.agentName, settings.settings, agents.value)
 )
 
-const avatarIcon = computed(() => {
-  const a = messageUi.value.avatar
-  if (a === 'supervisor') return Users
-  if (a === 'computer') return Monitor
-  if (a === 'coder') return Code
-  if (a === 'explore') return Search
-  return Bot
-})
+const avatarIcon = computed(() => iconForAgentAvatar(messageUi.value.avatar))
 
 const showAgentLabel = computed(
   () => messageUi.value.showAgentLabel && !!(props.message.agentName?.trim())

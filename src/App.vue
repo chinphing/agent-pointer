@@ -60,12 +60,16 @@ async function onPlatformLogout() {
   showSettings.value = false
   showPlatformLogin.value = true
 }
+
+function onOpenSkillsFromSettings() {
+  showSettings.value = false
+  showSkills.value = true
+}
 </script>
 
 <template>
   <AppShell
     @open-settings="showSettings = true"
-    @open-skills="showSkills = true"
   >
     <ChatView />
   </AppShell>
@@ -81,6 +85,7 @@ async function onPlatformLogout() {
   <SettingsDialog
     v-if="showSettings"
     @close="showSettings = false"
+    @open-skills="onOpenSkillsFromSettings"
     @platform-logout="onPlatformLogout"
     @platform-login="onPlatformLoginRequest"
   />

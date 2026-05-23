@@ -44,13 +44,12 @@ fn effective_terminal_cwd(explicit: Option<PathBuf>) -> Result<Option<PathBuf>> 
     if explicit.is_some() {
         return Ok(explicit);
     }
-    if let Some(s) = Some(crate::platform_config::effective_settings_global()) {
-        let w = s.workspace_root.trim();
-        if !w.is_empty() {
-            let p = PathBuf::from(w);
-            if p.is_dir() {
-                return Ok(Some(p.canonicalize().unwrap_or(p)));
-            }
+    let w = crate::tools::file::workspace_root_from_override_or_settings();
+    let w = w.trim();
+    if !w.is_empty() {
+        let p = PathBuf::from(w);
+        if p.is_dir() {
+            return Ok(Some(p.canonicalize().unwrap_or(p)));
         }
     }
     Ok(None)

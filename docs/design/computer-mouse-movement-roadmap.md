@@ -23,8 +23,8 @@ Standalone, extensible mouse movement for the computer agent. Path geometry and 
 
 | Profile | When | Path | Time |
 |---------|------|------|------|
-| `MouseMoveProfile::standard()` | Default (`human_like=false`) | Straight 10 pts | 0.5s ease-out |
-| `MouseMoveProfile::human_like()` | `human_like=true` or `computerHumanLike` | Bézier ~10 pts + path jitter | 0.5s ease-out + pre-jitter (2 steps) |
+| `MouseMoveProfile::standard()` | Default (`human_like=false`) | Straight 10 pts | 0.5–1.5s ease-out (random) |
+| `MouseMoveProfile::human_like()` | `human_like=true` or `computerHumanLike` | Bézier ~10 pts + path jitter | 0.5–1.5s ease-out (random) + pre-jitter (2 steps) |
 | `drag_to_start` / `drag_segment` | Drag with `human_like` | Bézier | 0.35s / 0.45s ease-in-out (+ perturb on drag segment) |
 
 ### Click / hover flow (`actions.rs`)
@@ -52,7 +52,8 @@ All absolute moves go through `move_to_with_profile`. Additional delays:
 
 ```text
 MOUSE_MOVE_DEFAULT_POINT_COUNT      = 10
-MOUSE_MOVE_TOTAL_DURATION_SECS      = 0.5
+MOUSE_MOVE_TOTAL_DURATION_MIN_SECS   = 0.5
+MOUSE_MOVE_TOTAL_DURATION_MAX_SECS   = 1.5
 SETTLE_AFTER_ABSOLUTE_MOVE_MS       = 100
 POST_MOUSE_BUTTON_SETTLE_MS         = 50
 ```
@@ -82,11 +83,11 @@ POST_MOUSE_BUTTON_SETTLE_MS         = 50
 | Aspect | Python (`human_like=True`) | Rust (`human_like=True`) |
 |--------|---------------------------|-------------------------|
 | Path | Bézier ~10 points | Bézier ~10 points |
-| Time | 0.5s ease-out total | 0.5s ease-out total |
+| Time | 0.5–1.5s ease-out total (random) | 0.5–1.5s ease-out total (random) |
 | Pre-click settle | 100ms | 100ms |
 
 | Aspect | Python (`human_like=False`) | Rust (`human_like=False`) |
 |--------|------------------------------|---------------------------|
-| Path | ~instant (pyautogui) | Straight 10 pts, 0.5s ease-out (`standard`) |
+| Path | ~instant (pyautogui) | Straight 10 pts, 0.5–1.5s ease-out (`standard`) |
 
 See `D:\workspace\pointer\agents\computer\mouse_move.py`, `mouse_path.py`.

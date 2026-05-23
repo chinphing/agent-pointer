@@ -6,7 +6,10 @@
 //! See `docs/design/computer-mouse-movement-roadmap.md`.
 
 use super::mouse_path::{bezier_path, BezierPathConfig, DEFAULT_CONTROL_JITTER_PX};
-use super::timing::{MOUSE_MOVE_DEFAULT_POINT_COUNT, MOUSE_MOVE_TOTAL_DURATION_SECS};
+use super::timing::{
+    MOUSE_MOVE_DEFAULT_POINT_COUNT, MOUSE_MOVE_TOTAL_DURATION_MAX_SECS,
+    MOUSE_MOVE_TOTAL_DURATION_MIN_SECS, MOUSE_MOVE_TOTAL_DURATION_SECS,
+};
 use log::debug;
 use rand::Rng;
 use std::time::Duration;
@@ -79,7 +82,12 @@ impl Default for MouseMovePathConfig {
 #[derive(Debug, Clone, Copy)]
 pub struct MouseMoveTimingConfig {
     pub duration_mode: DurationMode,
+    /// Used when [`Self::use_random_total_duration`] is false.
     pub total_duration_secs: f64,
+    /// When true, each move samples [`Self::total_duration_min_secs`]..=[`Self::total_duration_max_secs`].
+    pub use_random_total_duration: bool,
+    pub total_duration_min_secs: f64,
+    pub total_duration_max_secs: f64,
     pub step_duration_secs: f64,
     pub ease_in_out: bool,
     pub interval_perturb_factor: f64,
@@ -90,6 +98,9 @@ impl Default for MouseMoveTimingConfig {
         Self {
             duration_mode: DurationMode::Total,
             total_duration_secs: MOUSE_MOVE_TOTAL_DURATION_SECS,
+            use_random_total_duration: true,
+            total_duration_min_secs: MOUSE_MOVE_TOTAL_DURATION_MIN_SECS,
+            total_duration_max_secs: MOUSE_MOVE_TOTAL_DURATION_MAX_SECS,
             step_duration_secs: 0.03,
             ease_in_out: false,
             interval_perturb_factor: DEFAULT_INTERVAL_PERTURB_FACTOR,
@@ -136,7 +147,7 @@ pub struct MouseMoveProfile {
 }
 
 impl MouseMoveProfile {
-    /// Default when `human_like` is off: straight line, 10 waypoints, 0.5s ease-out (no jitter).
+    /// Default when `human_like` is off: straight line, 10 waypoints, 0.5–1.5s ease-out (no jitter).
     pub fn standard() -> Self {
         Self {
             path: MouseMovePathConfig::default(),
@@ -161,7 +172,6 @@ impl MouseMoveProfile {
             },
             timing: MouseMoveTimingConfig {
                 duration_mode: DurationMode::Total,
-                total_duration_secs: MOUSE_MOVE_TOTAL_DURATION_SECS,
                 ease_in_out: false,
                 ..Default::default()
             },
@@ -185,6 +195,7 @@ impl MouseMoveProfile {
             timing: MouseMoveTimingConfig {
                 duration_mode: DurationMode::Total,
                 total_duration_secs: 0.35,
+                use_random_total_duration: false,
                 ease_in_out: true,
                 ..Default::default()
             },
@@ -207,6 +218,7 @@ impl MouseMoveProfile {
                 timing: MouseMoveTimingConfig {
                     duration_mode: DurationMode::TotalPerturb,
                     total_duration_secs: 0.45,
+                    use_random_total_duration: false,
                     ease_in_out: true,
                     interval_perturb_factor: 0.15,
                     ..Default::default()
@@ -223,6 +235,7 @@ impl MouseMoveProfile {
                 timing: MouseMoveTimingConfig {
                     duration_mode: DurationMode::Total,
                     total_duration_secs: 0.18,
+                    use_random_total_duration: false,
                     ease_in_out: false,
                     ..Default::default()
                 },
@@ -279,13 +292,18 @@ impl MouseMoveTimingPlanner {
     }
 
     pub fn plan(&self, num_steps: usize, rng: &mut impl Rng) -> MouseMoveTimingPlan {
+        let total_secs = if self.config.use_random_total_duration {
+            rng.gen_range(self.config.total_duration_min_secs..=self.config.total_duration_max_secs)
+        } else {
+            self.config.total_duration_secs
+        };
         let mut step_intervals_secs = match self.config.duration_mode {
             DurationMode::Step => vec![self.config.step_duration_secs; num_steps],
             DurationMode::Total | DurationMode::TotalPerturb => {
                 if self.config.ease_in_out {
-                    ease_in_out_intervals(num_steps, self.config.total_duration_secs)
+                    ease_in_out_intervals(num_steps, total_secs)
                 } else {
-                    ease_out_intervals(num_steps, self.config.total_duration_secs)
+                    ease_out_intervals(num_steps, total_secs)
                 }
             }
         };
@@ -600,7 +618,8 @@ mod tests {
         let plan = planner.plan((0, 0), (100, 0), &mut rng);
         assert_eq!(plan.path.points.len(), MOUSE_MOVE_DEFAULT_POINT_COUNT);
         let sum: f64 = plan.timing.step_intervals_secs.iter().sum();
-        assert!((sum - MOUSE_MOVE_TOTAL_DURATION_SECS).abs() < 1e-6);
+        assert!(sum >= MOUSE_MOVE_TOTAL_DURATION_MIN_SECS - 1e-6);
+        assert!(sum <= MOUSE_MOVE_TOTAL_DURATION_MAX_SECS + 1e-6);
     }
 
     #[test]

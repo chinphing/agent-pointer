@@ -69,9 +69,12 @@ pub const DOUBLE_CLICK_INTERVAL_MS: u64 = 60;
 /// Default waypoint count for cursor path planning (aligned with Python `MouseMove` ~10 points).
 pub const MOUSE_MOVE_DEFAULT_POINT_COUNT: usize = 10;
 
-/// Default total cursor move duration (seconds) when using eased total-time mode.
-/// Matches Python `MouseHelper.move_to_position(..., duration=0.5)`.
-pub const MOUSE_MOVE_TOTAL_DURATION_SECS: f64 = 0.5;
+/// Default total cursor move duration range (seconds) when using eased total-time mode.
+pub const MOUSE_MOVE_TOTAL_DURATION_MIN_SECS: f64 = 0.5;
+pub const MOUSE_MOVE_TOTAL_DURATION_MAX_SECS: f64 = 1.5;
+
+/// Midpoint of [`MOUSE_MOVE_TOTAL_DURATION_MIN_SECS`]..=[`MOUSE_MOVE_TOTAL_DURATION_MAX_SECS`].
+pub const MOUSE_MOVE_TOTAL_DURATION_SECS: f64 = MOUSE_MOVE_TOTAL_DURATION_MIN_SECS;
 
 /// Tools recorded under `[CUR_SCREEN]` as recent desktop rows (goal/action repetition hints). Includes `wait`
 /// so the model sees explicit pauses even though `wait` does not move the pointer. Includes `clipboard` for

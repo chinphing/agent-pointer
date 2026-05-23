@@ -6,11 +6,14 @@ import type {
   ComputerAnnotatedPreview,
   ComputerMonitor,
   Conversation,
+  EffectiveSettingsView,
   ModelSettings,
+  PlatformSettings,
   SkillDef,
   SkillImportResult,
   StreamEvent,
-  ToolDef
+  ToolDef,
+  UserSettings
 } from '../types/chat'
 
 import * as tauriApi from './tauri'
@@ -34,8 +37,10 @@ export interface RuntimeApi {
   /** Stops only the in-flight `terminal` subprocess; the chat turn continues. */
   abortTerminalCommand(conversationId: string): Promise<boolean>
   approveToolCall(conversationId: string, toolCallId: string, approved: boolean): Promise<void>
-  getSettings(): Promise<ModelSettings>
-  updateSettings(settings: ModelSettings): Promise<ModelSettings>
+  getSettings(): Promise<EffectiveSettingsView>
+  updateSettings(settings: ModelSettings): Promise<EffectiveSettingsView>
+  updateUserSettings(user: UserSettings): Promise<EffectiveSettingsView>
+  updatePlatformSettings(platform: PlatformSettings): Promise<EffectiveSettingsView>
   setApiKey(key: string): Promise<void>
   clearApiKey(): Promise<void>
   testConnection(): Promise<{ ok: boolean; latencyMs: number; message: string }>
@@ -62,6 +67,8 @@ export const abortTerminalCommand = api.abortTerminalCommand
 export const approveToolCall = api.approveToolCall
 export const getSettings = api.getSettings
 export const updateSettings = api.updateSettings
+export const updateUserSettings = api.updateUserSettings
+export const updatePlatformSettings = api.updatePlatformSettings
 export const setApiKey = api.setApiKey
 export const clearApiKey = api.clearApiKey
 export const testConnection = api.testConnection
@@ -95,6 +102,9 @@ export const refreshPlatformSession = isTauriRuntime()
 export const logoutPlatform = isTauriRuntime()
   ? tauriApi.logoutPlatform
   : webApi.logoutPlatform
+export const loadPlatformSessionPersisted = isTauriRuntime()
+  ? tauriApi.loadPlatformSessionPersisted
+  : webApi.loadPlatformSessionFromKeyring
 export const loadPlatformSessionFromKeyring = isTauriRuntime()
   ? tauriApi.loadPlatformSessionFromKeyring
   : webApi.loadPlatformSessionFromKeyring

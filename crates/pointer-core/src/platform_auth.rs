@@ -1,4 +1,4 @@
-//! Pointer 桌面 OAuth（PKCE + refresh token + keyring）。
+//! Pointer desktop OAuth (PKCE + refresh token + encrypted local persistence).
 
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -12,9 +12,8 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use crate::platform_endpoints;
+use crate::storage;
 
-const KEYRING_SERVICE: &str = "com.pointer.app";
-const KEYRING_REFRESH: &str = "platform_refresh_token";
 const DEFAULT_LOOPBACK_PORT: u16 = 19427;
 /// 从首选端口起依次尝试绑定（含首选共 N 个端口）。
 const LOOPBACK_PORT_SCAN_COUNT: u16 = 32;
@@ -30,6 +29,8 @@ pub const DESKTOP_OAUTH_SUCCESS_VALUE: &str = "success";
 pub struct PlatformUserSummary {
     pub id: String,
     pub nickname: Option<String>,
+    #[serde(default, rename = "isPlatformAdmin")]
+    pub is_platform_admin: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,11 +42,20 @@ pub struct PlatformSession {
     pub user: PlatformUserSummary,
 }
 
+/// LLM credentials from the last successful token exchange (not persisted).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlatformLoginCredentials {
+    pub api_key: Option<String>,
+    pub llm_provider: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PlatformSessionView {
     pub logged_in: bool,
     pub expires_at: Option<i64>,
     pub user_nickname: Option<String>,
+    #[serde(default, rename = "isPlatformAdmin")]
+    pub is_platform_admin: bool,
 }
 
 #[derive(Debug)]
@@ -97,9 +107,18 @@ impl PlatformAuthManager {
                 logged_in: !s.access_token.is_empty() && !Self::is_expired(s.expires_at),
                 expires_at: Some(s.expires_at),
                 user_nickname: s.user.nickname.clone(),
+                is_platform_admin: s.user.is_platform_admin,
             },
             None => PlatformSessionView::default(),
         }
+    }
+
+    pub fn is_platform_admin(&self) -> bool {
+        self.inner
+            .read()
+            .as_ref()
+            .map(|s| s.user.is_platform_admin)
+            .unwrap_or(false)
     }
 
     pub fn access_token(&self) -> Option<String> {
@@ -114,8 +133,8 @@ impl PlatformAuthManager {
     }
 
     pub fn set_session(&self, session: PlatformSession) {
-        if let Err(e) = save_refresh_to_keyring(&session.refresh_token) {
-            log::warn!("platform_auth: save refresh to keyring failed: {e}");
+        if let Err(e) = storage::save_platform_refresh_token(&session.refresh_token) {
+            log::warn!("platform_auth: save refresh to auth.dat failed: {e}");
         }
         *self.inner.write() = Some(session);
     }
@@ -123,8 +142,8 @@ impl PlatformAuthManager {
     pub fn clear_session(&self) {
         let refresh = self.inner.read().as_ref().map(|s| s.refresh_token.clone());
         *self.inner.write() = None;
-        if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_REFRESH) {
-            let _ = entry.delete_credential();
+        if let Err(e) = storage::clear_platform_refresh_token() {
+            log::warn!("platform_auth: clear auth.dat failed: {e}");
         }
         if let Some(rt) = refresh {
             let _ = tauri_fire_and_forget_revoke(rt);
@@ -184,7 +203,7 @@ impl PlatformAuthManager {
         code_verifier: &str,
         state: &str,
         redirect_uri: &str,
-    ) -> Result<PlatformSession> {
+    ) -> Result<(PlatformSession, PlatformLoginCredentials)> {
         let body = serde_json::json!({
             "grant_type": "authorization_code",
             "client_id": Self::client_id(),
@@ -192,26 +211,28 @@ impl PlatformAuthManager {
             "code_verifier": code_verifier,
             "redirect_uri": redirect_uri,
         });
-        let session = self.post_token(body).await?;
+        let (session, creds) = self.post_token(body).await?;
         if state != "pointer-app" {
             log::debug!("platform_auth: oauth state={state}");
         }
         self.set_session(session.clone());
-        Ok(session)
+        Ok((session, creds))
     }
 
-    pub async fn refresh_if_needed(&self) -> Result<Option<PlatformSession>> {
+    pub async fn refresh_if_needed(
+        &self,
+    ) -> Result<Option<(PlatformSession, PlatformLoginCredentials)>> {
         {
             let g = self.inner.read();
             if let Some(s) = g.as_ref() {
                 if !Self::is_expired(s.expires_at) {
-                    return Ok(Some(s.clone()));
+                    return Ok(Some((s.clone(), PlatformLoginCredentials::default())));
                 }
             }
         }
         let refresh = match self.inner.read().as_ref().map(|s| s.refresh_token.clone()) {
             Some(rt) if !rt.is_empty() => rt,
-            _ => load_refresh_from_keyring().unwrap_or_default().unwrap_or_default(),
+            _ => storage::load_platform_refresh_token().unwrap_or_default().unwrap_or_default(),
         };
         if refresh.is_empty() {
             return Ok(None);
@@ -222,9 +243,9 @@ impl PlatformAuthManager {
             "refresh_token": refresh,
         });
         match self.post_token(body).await {
-            Ok(session) => {
+            Ok((session, creds)) => {
                 self.set_session(session.clone());
-                Ok(Some(session))
+                Ok(Some((session, creds)))
             }
             Err(e) => {
                 log::warn!("platform_auth: refresh failed: {e}");
@@ -238,16 +259,20 @@ impl PlatformAuthManager {
         if let Some(tok) = self.access_token() {
             return Ok(tok);
         }
-        if let Some(s) = self.refresh_if_needed().await? {
+        if let Some((s, _)) = self.refresh_if_needed().await? {
             return Ok(s.access_token);
         }
         Err(anyhow!("platform_login_required"))
     }
 
-    pub async fn load_from_keyring(&self) -> Result<bool> {
-        let refresh = match load_refresh_from_keyring() {
+    pub async fn load_persisted_session(&self) -> Result<Option<PlatformLoginCredentials>> {
+        let refresh = match storage::load_platform_refresh_token() {
             Ok(Some(r)) => r,
-            _ => return Ok(false),
+            Ok(None) => return Ok(None),
+            Err(e) => {
+                log::warn!("platform_auth: auth.dat load failed: {e}");
+                return Ok(None);
+            }
         };
         let body = serde_json::json!({
             "grant_type": "refresh_token",
@@ -255,18 +280,26 @@ impl PlatformAuthManager {
             "refresh_token": refresh,
         });
         match self.post_token(body).await {
-            Ok(session) => {
+            Ok((session, creds)) => {
                 self.set_session(session);
-                Ok(true)
+                Ok(Some(creds))
             }
             Err(e) => {
-                log::warn!("platform_auth: startup refresh failed (keyring entry kept): {e}");
-                Ok(false)
+                log::warn!("platform_auth: startup refresh failed: {e}");
+                Ok(None)
             }
         }
     }
 
-    async fn post_token(&self, body: serde_json::Value) -> Result<PlatformSession> {
+    /// Back-compat alias; prefer [`load_persisted_session`].
+    pub async fn load_from_keyring(&self) -> Result<bool> {
+        Ok(self.load_persisted_session().await?.is_some())
+    }
+
+    async fn post_token(
+        &self,
+        body: serde_json::Value,
+    ) -> Result<(PlatformSession, PlatformLoginCredentials)> {
         let url = format!("{}/auth/app/token", Self::api_base().trim_end_matches('/'));
         let resp = self
             .http
@@ -283,7 +316,7 @@ impl PlatformAuthManager {
         let parsed: AppTokenResponse =
             serde_json::from_str(&text).context("parse token response")?;
         let expires_at = Utc::now().timestamp() + parsed.expires_in as i64;
-        Ok(PlatformSession {
+        let session = PlatformSession {
             access_token: parsed.access_token,
             refresh_token: parsed.refresh_token,
             expires_at,
@@ -291,8 +324,14 @@ impl PlatformAuthManager {
             user: PlatformUserSummary {
                 id: parsed.user.id,
                 nickname: parsed.user.nickname,
+                is_platform_admin: parsed.user.is_platform_admin,
             },
-        })
+        };
+        let creds = PlatformLoginCredentials {
+            api_key: parsed.api_key.filter(|k| !k.trim().is_empty()),
+            llm_provider: parsed.llm_provider.filter(|p| !p.trim().is_empty()),
+        };
+        Ok((session, creds))
     }
 
     pub async fn report_token_usage(&self, body: serde_json::Value) -> Result<()> {
@@ -357,20 +396,23 @@ fn urlencoding_encode(s: &str) -> String {
     out
 }
 
-fn save_refresh_to_keyring(refresh: &str) -> Result<()> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_REFRESH)?;
-    entry.set_password(refresh)?;
-    Ok(())
+#[derive(Debug, Deserialize)]
+struct AppTokenResponse {
+    access_token: String,
+    refresh_token: String,
+    expires_in: u64,
+    agent_id: String,
+    user: AppTokenUser,
+    api_key: Option<String>,
+    llm_provider: Option<String>,
 }
 
-fn load_refresh_from_keyring() -> Result<Option<String>> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_REFRESH)?;
-    match entry.get_password() {
-        Ok(p) if !p.is_empty() => Ok(Some(p)),
-        Ok(_) => Ok(None),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(e.into()),
-    }
+#[derive(Debug, Deserialize)]
+struct AppTokenUser {
+    id: String,
+    nickname: Option<String>,
+    #[serde(default, rename = "is_platform_admin")]
+    is_platform_admin: bool,
 }
 
 async fn tauri_fire_and_forget_revoke(refresh_token: String) -> Result<()> {
@@ -384,21 +426,6 @@ async fn tauri_fire_and_forget_revoke(refresh_token: String) -> Result<()> {
         .send()
         .await;
     Ok(())
-}
-
-#[derive(Debug, Deserialize)]
-struct AppTokenResponse {
-    access_token: String,
-    refresh_token: String,
-    expires_in: u64,
-    agent_id: String,
-    user: AppTokenUser,
-}
-
-#[derive(Debug, Deserialize)]
-struct AppTokenUser {
-    id: String,
-    nickname: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -560,7 +587,9 @@ pub fn open_url_in_browser(url: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn run_platform_login_flow(auth: Arc<PlatformAuthManager>) -> Result<PlatformSession> {
+pub async fn run_platform_login_flow(
+    auth: Arc<PlatformAuthManager>,
+) -> Result<(PlatformSession, PlatformLoginCredentials)> {
     let cancel = auth.replace_login_cancel_token();
     let result = run_platform_login_flow_inner(auth.clone(), cancel).await;
     auth.clear_login_cancel_token();
@@ -570,7 +599,7 @@ pub async fn run_platform_login_flow(auth: Arc<PlatformAuthManager>) -> Result<P
 async fn run_platform_login_flow_inner(
     auth: Arc<PlatformAuthManager>,
     cancel: CancellationToken,
-) -> Result<PlatformSession> {
+) -> Result<(PlatformSession, PlatformLoginCredentials)> {
     let (verifier, challenge) = PlatformAuthManager::generate_pkce();
     let state = "pointer-app";
 

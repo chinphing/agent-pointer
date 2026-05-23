@@ -742,6 +742,293 @@ impl Default for ModelSettings {
     }
 }
 
+// ── User / platform config split ─────────────────────────────────────────────
+
+/// Persisted user preferences (theme, optional UI cache).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UserSettings {
+    #[serde(default = "default_theme", rename = "theme")]
+    pub theme: String,
+    #[serde(default, rename = "userNickname")]
+    pub user_nickname: Option<String>,
+}
+
+/// Per-tier LLM overrides for Computer Use Agent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComputerTierLlmConfig {
+    #[serde(rename = "providerId")]
+    pub provider_id: String,
+    pub model: String,
+    #[serde(default, rename = "enableThinking")]
+    pub enable_thinking: bool,
+    #[serde(default, rename = "thinkingBudget")]
+    pub thinking_budget: Option<u32>,
+}
+
+/// In-memory platform configuration (not persisted across restarts).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlatformSettings {
+    pub providers: Vec<ProviderConfig>,
+    #[serde(rename = "activeProviderId")]
+    pub active_provider_id: String,
+    pub model: String,
+    pub temperature: f32,
+    #[serde(rename = "maxTokens")]
+    pub max_tokens: u32,
+    #[serde(default = "default_tool_approval_mode", rename = "toolApprovalMode")]
+    pub tool_approval_mode: String,
+    #[serde(default = "default_agent_mode", rename = "agentMode")]
+    pub agent_mode: String,
+    #[serde(default, rename = "workspaceRoot")]
+    pub workspace_root: String,
+    #[serde(default, rename = "leadAgentId")]
+    pub lead_agent_id: String,
+    #[serde(default = "platform_default_context_compression_enabled", rename = "contextCompressionEnabled")]
+    pub context_compression_enabled: bool,
+    #[serde(default = "platform_default_context_budget_chars", rename = "contextBudgetChars")]
+    pub context_budget_chars: u32,
+    #[serde(default = "platform_default_context_keep_recent_user_turns", rename = "contextKeepRecentUserTurns")]
+    pub context_keep_recent_user_turns: u32,
+    #[serde(default = "platform_default_context_summary_max_tokens", rename = "contextSummaryMaxTokens")]
+    pub context_summary_max_tokens: u32,
+    #[serde(default = "platform_default_max_tool_rounds", rename = "maxToolRounds")]
+    pub max_tool_rounds: u32,
+    #[serde(default = "platform_default_max_tool_rounds", rename = "maxSubAgentToolRounds")]
+    pub max_sub_agent_tool_rounds: u32,
+    #[serde(default = "platform_default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
+    pub raw_content_view_enabled: bool,
+    #[serde(default, rename = "debugDumpLlmPrompts")]
+    pub debug_dump_llm_prompts: bool,
+    #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
+    pub agent_default_models: HashMap<String, AgentModelRef>,
+    #[serde(default, rename = "agentTaskBoardHistoryTrim")]
+    pub agent_task_board_history_trim: HashMap<String, bool>,
+    #[serde(default, rename = "computerHumanLike")]
+    pub computer_human_like: bool,
+    #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
+    pub computer_initial_tier: String,
+    #[serde(default, rename = "agentUiOverrides")]
+    pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
+    #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
+    pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
+}
+
+fn default_computer_tier_llm() -> HashMap<String, ComputerTierLlmConfig> {
+    let mut m = HashMap::new();
+    m.insert(
+        "primary".into(),
+        ComputerTierLlmConfig {
+            provider_id: "qwen".into(),
+            model: "qwen3.5-plus".into(),
+            enable_thinking: true,
+            thinking_budget: Some(2048),
+        },
+    );
+    m.insert(
+        "intermediate".into(),
+        ComputerTierLlmConfig {
+            provider_id: "qwen".into(),
+            model: "qwen3.5-plus".into(),
+            enable_thinking: true,
+            thinking_budget: Some(2048),
+        },
+    );
+    m.insert(
+        "advanced".into(),
+        ComputerTierLlmConfig {
+            provider_id: "qwen".into(),
+            model: "qwen3.6-plus".into(),
+            enable_thinking: true,
+            thinking_budget: Some(8192),
+        },
+    );
+    m
+}
+
+fn default_platform_agent_models() -> HashMap<String, AgentModelRef> {
+    let mut m = HashMap::new();
+    m.insert(
+        "coder".into(),
+        AgentModelRef {
+            provider_id: "deepseek".into(),
+            model: "deepseek-v4-pro".into(),
+        },
+    );
+    m.insert(
+        "explore".into(),
+        AgentModelRef {
+            provider_id: "deepseek".into(),
+            model: "deepseek-v4-flash".into(),
+        },
+    );
+    m.insert(
+        "computer".into(),
+        AgentModelRef {
+            provider_id: "qwen".into(),
+            model: "qwen3.5-plus".into(),
+        },
+    );
+    m.insert(
+        "default".into(),
+        AgentModelRef {
+            provider_id: "deepseek".into(),
+            model: "deepseek-v4-flash".into(),
+        },
+    );
+    m.insert(
+        "supervisor".into(),
+        AgentModelRef {
+            provider_id: "deepseek".into(),
+            model: "deepseek-v4-pro".into(),
+        },
+    );
+    m
+}
+
+fn platform_default_context_compression_enabled() -> bool {
+    true
+}
+
+fn platform_default_context_budget_chars() -> u32 {
+    100_000
+}
+
+fn platform_default_context_keep_recent_user_turns() -> u32 {
+    3
+}
+
+fn platform_default_context_summary_max_tokens() -> u32 {
+    1024
+}
+
+fn platform_default_max_tool_rounds() -> u32 {
+    200
+}
+
+fn platform_default_raw_content_view_enabled() -> bool {
+    false
+}
+
+fn platform_default_temperature() -> f32 {
+    0.3
+}
+
+fn platform_default_max_tokens() -> u32 {
+    64_000
+}
+
+impl Default for PlatformSettings {
+    fn default() -> Self {
+        Self {
+            providers: vec![
+                ProviderConfig {
+                    id: "qwen".into(),
+                    name: "千问".into(),
+                    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+                    api_key: String::new(),
+                    models: vec![
+                        "qwen3.5-plus".into(),
+                        "qwen3.5-27b".into(),
+                        "qwen3.5-flash".into(),
+                        "qwen3.7-max".into(),
+                        "qwen3.6-plus".into(),
+                        "qwen3.6-27b".into(),
+                        "qwen3.6-flash".into(),
+                    ],
+                    reasoning_in_messages: Some(false),
+                    temperature: Some(platform_default_temperature()),
+                    max_tokens: Some(platform_default_max_tokens()),
+                    model_configs: HashMap::new(),
+                    enable_thinking: Some(true),
+                    thinking_budget: Some(2048),
+                    reasoning_effort: None,
+                },
+                ProviderConfig {
+                    id: "deepseek".into(),
+                    name: "深度求索".into(),
+                    base_url: "https://api.deepseek.com/v1".into(),
+                    api_key: String::new(),
+                    models: vec!["deepseek-v4-flash".into(), "deepseek-v4-pro".into()],
+                    reasoning_in_messages: Some(true),
+                    temperature: Some(platform_default_temperature()),
+                    max_tokens: Some(platform_default_max_tokens()),
+                    model_configs: HashMap::new(),
+                    enable_thinking: None,
+                    thinking_budget: None,
+                    reasoning_effort: None,
+                },
+            ],
+            active_provider_id: "qwen".into(),
+            model: "qwen3.5-plus".into(),
+            temperature: platform_default_temperature(),
+            max_tokens: platform_default_max_tokens(),
+            tool_approval_mode: default_tool_approval_mode(),
+            agent_mode: default_agent_mode(),
+            workspace_root: String::new(),
+            lead_agent_id: String::new(),
+            context_compression_enabled: platform_default_context_compression_enabled(),
+            context_budget_chars: platform_default_context_budget_chars(),
+            context_keep_recent_user_turns: platform_default_context_keep_recent_user_turns(),
+            context_summary_max_tokens: platform_default_context_summary_max_tokens(),
+            max_tool_rounds: platform_default_max_tool_rounds(),
+            max_sub_agent_tool_rounds: platform_default_max_tool_rounds(),
+            raw_content_view_enabled: platform_default_raw_content_view_enabled(),
+            debug_dump_llm_prompts: false,
+            agent_default_models: default_platform_agent_models(),
+            agent_task_board_history_trim: HashMap::new(),
+            computer_human_like: false,
+            computer_initial_tier: default_computer_initial_tier(),
+            agent_ui_overrides: HashMap::new(),
+            computer_tier_llm: default_computer_tier_llm(),
+        }
+    }
+}
+
+/// API response: user + platform slices and merged runtime view.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EffectiveSettingsView {
+    pub user: UserSettings,
+    pub platform: PlatformSettings,
+    pub merged: ModelSettings,
+    #[serde(rename = "canEditPlatform")]
+    pub can_edit_platform: bool,
+    #[serde(rename = "isPlatformAdmin")]
+    pub is_platform_admin: bool,
+}
+
+/// Merge persisted user settings with in-memory platform config.
+pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> ModelSettings {
+    ModelSettings {
+        providers: platform.providers.clone(),
+        active_provider_id: platform.active_provider_id.clone(),
+        model: platform.model.clone(),
+        api_key: String::new(),
+        temperature: platform.temperature,
+        max_tokens: platform.max_tokens,
+        has_key: platform.providers.iter().any(|p| !p.api_key.is_empty()),
+        tool_approval_mode: platform.tool_approval_mode.clone(),
+        agent_mode: platform.agent_mode.clone(),
+        workspace_root: platform.workspace_root.clone(),
+        lead_agent_id: platform.lead_agent_id.clone(),
+        context_compression_enabled: platform.context_compression_enabled,
+        context_budget_chars: platform.context_budget_chars,
+        context_keep_recent_user_turns: platform.context_keep_recent_user_turns,
+        context_summary_max_tokens: platform.context_summary_max_tokens,
+        max_tool_rounds: platform.max_tool_rounds,
+        max_sub_agent_tool_rounds: platform.max_sub_agent_tool_rounds,
+        raw_content_view_enabled: platform.raw_content_view_enabled,
+        debug_dump_llm_prompts: platform.debug_dump_llm_prompts,
+        agent_default_models: platform.agent_default_models.clone(),
+        agent_task_board_history_trim: platform.agent_task_board_history_trim.clone(),
+        computer_human_like: platform.computer_human_like,
+        computer_initial_tier: platform.computer_initial_tier.clone(),
+        theme: user.theme.clone(),
+        agent_ui_overrides: platform.agent_ui_overrides.clone(),
+        round_enable_thinking: None,
+        round_thinking_budget: None,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillDef {
     pub id: String,

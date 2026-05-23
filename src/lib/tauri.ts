@@ -7,11 +7,14 @@ import type {
   ComputerAnnotatedPreview,
   ComputerMonitor,
   Conversation,
+  EffectiveSettingsView,
   ModelSettings,
+  PlatformSettings,
   SkillDef,
   SkillImportResult,
   StreamEvent,
-  ToolDef
+  ToolDef,
+  UserSettings
 } from '../types/chat'
 
 export const STREAM_EVENT = 'chat://stream'
@@ -45,12 +48,20 @@ export async function approveToolCall(
   await invoke('approve_tool_call', { toolCallId, approved })
 }
 
-export async function getSettings(): Promise<ModelSettings> {
-  return await invoke<ModelSettings>('get_settings')
+export async function getSettings(): Promise<EffectiveSettingsView> {
+  return await invoke<EffectiveSettingsView>('get_settings')
 }
 
-export async function updateSettings(settings: ModelSettings): Promise<ModelSettings> {
-  return await invoke<ModelSettings>('update_settings', { settings })
+export async function updateSettings(settings: ModelSettings): Promise<EffectiveSettingsView> {
+  return await invoke<EffectiveSettingsView>('update_settings', { settings })
+}
+
+export async function updateUserSettings(user: UserSettings): Promise<EffectiveSettingsView> {
+  return await invoke<EffectiveSettingsView>('update_user_settings', { user })
+}
+
+export async function updatePlatformSettings(platform: PlatformSettings): Promise<EffectiveSettingsView> {
+  return await invoke<EffectiveSettingsView>('update_platform_settings', { platform })
 }
 
 export async function setApiKey(key: string): Promise<void> {
@@ -130,6 +141,7 @@ export interface PlatformSessionView {
   logged_in: boolean
   expires_at?: number | null
   user_nickname?: string | null
+  isPlatformAdmin?: boolean
 }
 
 export async function getPlatformSession(): Promise<PlatformSessionView> {
@@ -150,6 +162,10 @@ export async function refreshPlatformSession(): Promise<PlatformSessionView> {
 
 export async function logoutPlatform(): Promise<void> {
   await invoke('logout_platform')
+}
+
+export async function loadPlatformSessionPersisted(): Promise<boolean> {
+  return await invoke<boolean>('load_platform_session_persisted')
 }
 
 export async function loadPlatformSessionFromKeyring(): Promise<boolean> {

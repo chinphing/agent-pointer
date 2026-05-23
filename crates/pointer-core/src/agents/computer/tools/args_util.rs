@@ -30,11 +30,9 @@ pub fn human_like_from_args(args: &Value, default: bool) -> bool {
     }
 }
 
-/// App settings `computerHumanLike`, falling back to agent manifest default when load fails.
-pub fn effective_human_like_default(agent_fallback: bool) -> bool {
-    crate::storage::load_settings()
-        .map(|s| s.computer_human_like)
-        .unwrap_or(agent_fallback)
+/// App settings `computerHumanLike`.
+pub fn effective_human_like_default() -> bool {
+    crate::platform_config::effective_settings_global().computer_human_like
 }
 
 pub fn json_bool_loose(v: Option<&Value>) -> bool {

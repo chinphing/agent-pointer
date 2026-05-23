@@ -1,7 +1,24 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { getSettings, updateSettings, setApiKey, clearApiKey, testConnection } from '../lib/api'
-import type { AgentModelRef, ComputerInitialTier, ModelSettings, ProviderConfig, ThemePreference } from '../types/chat'
+import {
+  getSettings,
+  updateSettings,
+  updateUserSettings,
+  updatePlatformSettings,
+  setApiKey,
+  clearApiKey,
+  testConnection
+} from '../lib/api'
+import type {
+  AgentModelRef,
+  ComputerInitialTier,
+  EffectiveSettingsView,
+  ModelSettings,
+  PlatformSettings,
+  ProviderConfig,
+  ThemePreference,
+  UserSettings
+} from '../types/chat'
 import { applyTheme } from '../lib/theme'
 import {
   DEFAULT_MODEL_MAX_TOKENS,
@@ -9,14 +26,85 @@ import {
   pruneInheritedModelConfigs
 } from '../composables/useRuntimeParams'
 
+const defaultPlatformSettings = (): PlatformSettings => ({
+  providers: defaultProviders,
+  activeProviderId: 'qwen',
+  model: 'qwen3.5-plus',
+  temperature: 0.3,
+  maxTokens: 64_000,
+  toolApprovalMode: 'auto',
+  agentMode: 'single',
+  workspaceRoot: '',
+  leadAgentId: '',
+  contextCompressionEnabled: true,
+  contextBudgetChars: 100_000,
+  contextKeepRecentUserTurns: 3,
+  contextSummaryMaxTokens: 1024,
+  maxToolRounds: 200,
+  maxSubAgentToolRounds: 200,
+  rawContentViewEnabled: false,
+  debugDumpLlmPrompts: false,
+  agentDefaultModels: {},
+  agentTaskBoardHistoryTrim: {},
+  computerHumanLike: false,
+  computerInitialTier: 'primary',
+  agentUiOverrides: {},
+  computerTierLlm: {
+    primary: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
+    intermediate: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
+    advanced: { providerId: 'qwen', model: 'qwen3.6-plus', enableThinking: true, thinkingBudget: 8192 }
+  }
+})
+
+function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSettings {
+  const providersNorm = normalizeProviders(s.providers, undefined, globalGenFallbackFrom(s))
+  return {
+    ...s,
+    providers: providersNorm,
+    workspaceRoot: s.workspaceRoot ?? '',
+    leadAgentId: s.leadAgentId ?? '',
+    contextCompressionEnabled: s.contextCompressionEnabled ?? true,
+    contextBudgetChars: s.contextBudgetChars ?? 100_000,
+    contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 3,
+    contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 1024,
+    maxToolRounds: s.maxToolRounds ?? 200,
+    maxSubAgentToolRounds: s.maxSubAgentToolRounds ?? s.maxToolRounds ?? 200,
+    rawContentViewEnabled: s.rawContentViewEnabled === true,
+    debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
+    agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
+    agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
+    computerHumanLike: s.computerHumanLike === true,
+    computerInitialTier: normalizeComputerInitialTier(s.computerInitialTier),
+    theme: (s.theme as ThemePreference) ?? 'system',
+    agentUiOverrides: { ...(s.agentUiOverrides ?? {}) }
+  }
+}
+
+function globalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxTokens'>) {
+  return {
+    temperature: () => st?.temperature ?? 0.3,
+    maxTokens: () => st?.maxTokens ?? 64_000
+  }
+}
+
 const defaultProviders: ProviderConfig[] = [
   {
     id: 'qwen',
     name: '千问',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     apiKey: '',
-    models: ['qwen3.5-plus', 'qwen3.6-plus', 'qwen3.5-flash', 'qwen3.5-27b'],
-    reasoningInMessages: true,
+    models: [
+      'qwen3.5-plus',
+      'qwen3.5-27b',
+      'qwen3.5-flash',
+      'qwen3.7-max',
+      'qwen3.6-plus',
+      'qwen3.6-27b',
+      'qwen3.6-flash'
+    ],
+    reasoningInMessages: false,
+    enableThinking: true,
+    thinkingBudget: 2048,
     modelConfigs: {}
   },
   {
@@ -98,37 +186,35 @@ function normalizeAgentDefaultModels(
 }
 
 export const useSettingsStore = defineStore('settings', () => {
+  const userSettings = ref<UserSettings>({ theme: 'system' })
+  const platformSettings = ref<PlatformSettings>(defaultPlatformSettings())
   const settings = ref<ModelSettings>({
-    providers: defaultProviders,
-    activeProviderId: 'qwen',
-    model: 'qwen3.5-plus',
-    temperature: 0.7,
-    maxTokens: 2048,
+    ...defaultPlatformSettings(),
     hasKey: false,
-    toolApprovalMode: 'auto',
-    agentMode: 'single',
-    workspaceRoot: '',
-    leadAgentId: '',
-    contextCompressionEnabled: true,
-    contextBudgetChars: 120_000,
-    contextKeepRecentUserTurns: 6,
-    contextSummaryMaxTokens: 2048,
-    maxToolRounds: 100,
-    maxSubAgentToolRounds: 100,
-    rawContentViewEnabled: true,
-    debugDumpLlmPrompts: false,
-    agentDefaultModels: {},
-    agentTaskBoardHistoryTrim: {},
-    computerHumanLike: false,
-    computerInitialTier: 'primary',
-    theme: 'system',
-    agentUiOverrides: {}
-  })
+    theme: 'system'
+  } as ModelSettings)
+  const canEditPlatform = ref(false)
+  const isPlatformAdmin = ref(false)
   const loading = ref(false)
   const testing = ref(false)
   const testResult = ref<{ ok: boolean; latencyMs: number; message: string } | null>(null)
 
-  function globalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxTokens'>) {
+  function applyEffectiveView(view: EffectiveSettingsView) {
+    userSettings.value = { ...view.user, theme: (view.user.theme as ThemePreference) ?? 'system' }
+    platformSettings.value = {
+      ...defaultPlatformSettings(),
+      ...view.platform,
+      providers: normalizeProviders(view.platform.providers, undefined, globalGenFallbackFrom(view.merged)),
+      computerTierLlm: { ...defaultPlatformSettings().computerTierLlm, ...view.platform.computerTierLlm }
+    }
+    canEditPlatform.value = view.canEditPlatform
+    isPlatformAdmin.value = view.isPlatformAdmin
+    const activeId = view.merged.activeProviderId || 'qwen'
+    settings.value = normalizeMergedSettings(view.merged, activeId)
+    applyTheme(settings.value.theme)
+  }
+
+  function storeGlobalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxTokens'>) {
     return {
       temperature: () => st?.temperature ?? settings.value.temperature,
       maxTokens: () => st?.maxTokens ?? settings.value.maxTokens
@@ -210,91 +296,72 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function load() {
     loading.value = true
-    const s = await getSettings().catch(() => null)
-    if (s) {
-      const legacy =
-        'reasoningInMessages' in s && typeof (s as { reasoningInMessages?: boolean }).reasoningInMessages === 'boolean'
-          ? (s as { reasoningInMessages?: boolean }).reasoningInMessages
-          : undefined
-      const providersNorm = normalizeProviders(
-        s.providers,
-        legacy,
-        globalGenFallbackFrom(s)
-      )
-
-      if (s.providers && s.providers.length > 0) {
-        const activeId = s.activeProviderId || providersNorm[0]?.id || 'qwen'
-        settings.value = {
-          ...s,
-          providers: providersNorm,
-          workspaceRoot: s.workspaceRoot ?? '',
-          leadAgentId: s.leadAgentId ?? '',
-          contextCompressionEnabled: s.contextCompressionEnabled ?? true,
-          contextBudgetChars: s.contextBudgetChars ?? 120_000,
-          contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 6,
-          contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 2048,
-          maxToolRounds: s.maxToolRounds ?? 100,
-          maxSubAgentToolRounds: s.maxSubAgentToolRounds ?? s.maxToolRounds ?? 100,
-          rawContentViewEnabled: s.rawContentViewEnabled !== false,
-          debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
-          agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
-          agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
-          computerHumanLike: s.computerHumanLike === true,
-          computerInitialTier: normalizeComputerInitialTier(s.computerInitialTier),
-          theme: (s.theme as ThemePreference) ?? 'system',
-          agentUiOverrides: { ...(s.agentUiOverrides ?? {}) }
-        }
-        applyTheme(settings.value.theme)
-      } else {
-        const activeId = s.activeProviderId || providersNorm[0]?.id || 'qwen'
-        settings.value = {
-          ...settings.value,
-          ...s,
-          providers: providersNorm,
-          activeProviderId: activeId,
-          workspaceRoot: s.workspaceRoot ?? '',
-          leadAgentId: s.leadAgentId ?? '',
-          contextCompressionEnabled: s.contextCompressionEnabled ?? true,
-          contextBudgetChars: s.contextBudgetChars ?? 120_000,
-          contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 6,
-          contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 2048,
-          maxToolRounds: s.maxToolRounds ?? 100,
-          maxSubAgentToolRounds: s.maxSubAgentToolRounds ?? s.maxToolRounds ?? 100,
-          rawContentViewEnabled: s.rawContentViewEnabled !== false,
-          debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
-          agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
-          agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
-          computerHumanLike: s.computerHumanLike === true,
-          computerInitialTier: normalizeComputerInitialTier(s.computerInitialTier),
-          theme: (s.theme as ThemePreference) ?? 'system',
-          agentUiOverrides: { ...(s.agentUiOverrides ?? {}) }
-        }
-        applyTheme(settings.value.theme)
-        if (s.model && !settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models.includes(s.model)) {
-          settings.value.model = settings.value.providers.find(p => p.id === settings.value.activeProviderId)?.models[0] || s.model
-        }
-      }
+    const view = await getSettings().catch(() => null)
+    if (view) {
+      applyEffectiveView(view)
     }
     loading.value = false
   }
 
-  async function save(patch: Partial<ModelSettings>) {
+  async function saveUser(patch: Partial<UserSettings>) {
     if (patch.theme !== undefined) applyTheme(patch.theme)
+    const next: UserSettings = { ...userSettings.value, ...patch }
+    const view = await updateUserSettings(next)
+    applyEffectiveView(view)
+  }
+
+  async function savePlatform(patch: Partial<PlatformSettings>) {
+    const merged: PlatformSettings = { ...platformSettings.value, ...patch }
+    const view = await updatePlatformSettings(merged)
+    applyEffectiveView(view)
+  }
+
+  async function save(patch: Partial<ModelSettings> & Pick<Partial<PlatformSettings>, 'computerTierLlm'>) {
+    if (patch.theme !== undefined) {
+      await saveUser({ theme: patch.theme })
+      patch = { ...patch }
+      delete patch.theme
+    }
+    if (Object.keys(patch).length === 0) return
     const merged: ModelSettings = { ...settings.value, ...patch }
     merged.agentDefaultModels = normalizeAgentDefaultModels(
       merged.agentDefaultModels as Record<string, unknown>,
       merged.activeProviderId
     )
-    const updated = await updateSettings(merged)
-    settings.value = {
-      ...updated,
-      // 勿直接信任 API 返回的 providers；缺字段时会导致设置页主区域渲染报错、整页空白。
-      providers: normalizeProviders(updated.providers, undefined, globalGenFallbackFrom(updated)),
-      agentDefaultModels: normalizeAgentDefaultModels(
-        updated.agentDefaultModels as Record<string, unknown>,
-        updated.activeProviderId
-      ),
-      agentUiOverrides: { ...(updated.agentUiOverrides ?? merged.agentUiOverrides ?? {}) }
+    if (canEditPlatform.value) {
+      const extra = patch as Partial<ModelSettings> & {
+        computerTierLlm?: PlatformSettings['computerTierLlm']
+      }
+      const platformPatch: PlatformSettings = {
+        ...platformSettings.value,
+        providers: merged.providers,
+        activeProviderId: merged.activeProviderId,
+        model: merged.model,
+        temperature: merged.temperature,
+        maxTokens: merged.maxTokens,
+        toolApprovalMode: merged.toolApprovalMode,
+        agentMode: merged.agentMode,
+        workspaceRoot: merged.workspaceRoot,
+        leadAgentId: merged.leadAgentId,
+        contextCompressionEnabled: merged.contextCompressionEnabled,
+        contextBudgetChars: merged.contextBudgetChars,
+        contextKeepRecentUserTurns: merged.contextKeepRecentUserTurns,
+        contextSummaryMaxTokens: merged.contextSummaryMaxTokens,
+        maxToolRounds: merged.maxToolRounds,
+        maxSubAgentToolRounds: merged.maxSubAgentToolRounds,
+        rawContentViewEnabled: merged.rawContentViewEnabled,
+        debugDumpLlmPrompts: merged.debugDumpLlmPrompts,
+        agentDefaultModels: merged.agentDefaultModels,
+        agentTaskBoardHistoryTrim: merged.agentTaskBoardHistoryTrim,
+        computerHumanLike: merged.computerHumanLike,
+        computerInitialTier: merged.computerInitialTier,
+        agentUiOverrides: merged.agentUiOverrides,
+        computerTierLlm: extra.computerTierLlm ?? platformSettings.value.computerTierLlm
+      }
+      await savePlatform(platformPatch)
+    } else {
+      const view = await updateSettings(merged)
+      applyEffectiveView(view)
     }
   }
 
@@ -319,7 +386,7 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function addProvider(provider: ProviderConfig) {
-    const entry = normalizeProvider(provider, undefined, globalGenFallbackFrom())
+    const entry = normalizeProvider(provider, undefined, storeGlobalGenFallbackFrom())
     // 用新数组 append，勿 push 编辑中的同一对象引用，避免与 editingProvider 草稿互相污染。
     settings.value.providers = [...settings.value.providers, entry]
     settings.value.activeProviderId = entry.id
@@ -346,7 +413,7 @@ export const useSettingsStore = defineStore('settings', () => {
             : { ...(prev.modelConfigs ?? {}) }
       },
       undefined,
-      globalGenFallbackFrom()
+      storeGlobalGenFallbackFrom()
     )
     const list = [...settings.value.providers]
     list[i] = next
@@ -435,13 +502,39 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   return {
-    settings, loading, testing, testResult, activeProvider, activeBaseUrl, activeModelList,
-    effectiveReasoningInMessages, effectiveTemperature, effectiveMaxTokens, allModels,
-    load, save, setActiveProvider, addProvider, updateProvider, removeProvider,
-    saveKey, removeKey, runTest,
-    getAgentDefaultModelRef, setAgentDefaultModel,
-    isTaskBoardHistoryTrimEnabled, setTaskBoardHistoryTrim, defaultTaskBoardHistoryTrim,
-    isComputerHumanLikeEnabled, setComputerHumanLike,
+    settings,
+    userSettings,
+    platformSettings,
+    canEditPlatform,
+    isPlatformAdmin,
+    loading,
+    testing,
+    testResult,
+    activeProvider,
+    activeBaseUrl,
+    activeModelList,
+    effectiveReasoningInMessages,
+    effectiveTemperature,
+    effectiveMaxTokens,
+    allModels,
+    load,
+    save,
+    saveUser,
+    savePlatform,
+    setActiveProvider,
+    addProvider,
+    updateProvider,
+    removeProvider,
+    saveKey,
+    removeKey,
+    runTest,
+    getAgentDefaultModelRef,
+    setAgentDefaultModel,
+    isTaskBoardHistoryTrimEnabled,
+    setTaskBoardHistoryTrim,
+    defaultTaskBoardHistoryTrim,
+    isComputerHumanLikeEnabled,
+    setComputerHumanLike,
     setComputerInitialTier
   }
 })

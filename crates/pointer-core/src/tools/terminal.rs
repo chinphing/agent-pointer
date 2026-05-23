@@ -1,5 +1,4 @@
 use super::{ToolEntry, ToolHandler, ToolRegistry};
-use crate::storage;
 use anyhow::{anyhow, Result};
 use log::warn;
 use std::io::{BufRead, BufReader, Read};
@@ -45,7 +44,7 @@ fn effective_terminal_cwd(explicit: Option<PathBuf>) -> Result<Option<PathBuf>> 
     if explicit.is_some() {
         return Ok(explicit);
     }
-    if let Ok(s) = storage::load_settings() {
+    if let Some(s) = Some(crate::platform_config::effective_settings_global()) {
         let w = s.workspace_root.trim();
         if !w.is_empty() {
             let p = PathBuf::from(w);

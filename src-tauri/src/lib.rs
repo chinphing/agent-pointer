@@ -104,9 +104,12 @@ pub fn run() {
             }
             let app_state = Arc::new(AppState::new());
             let auth = app_state.platform_auth.clone();
+            let app_for_creds = app_state.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = auth.load_from_keyring().await {
-                    log::warn!("platform_auth: keyring load failed: {e}");
+                match auth.load_persisted_session().await {
+                    Ok(Some(creds)) => app_for_creds.apply_login_credentials(&creds),
+                    Ok(None) => {}
+                    Err(e) => log::warn!("platform_auth: persisted session load failed: {e}"),
                 }
                 if let Err(e) = pointer_core::token_usage_store::finalize_all_stale_accum() {
                     log::warn!("token_usage_store: startup finalize stale failed: {e}");
@@ -144,6 +147,8 @@ pub fn run() {
             commands::approve_tool_call,
             commands::get_settings,
             commands::update_settings,
+            commands::update_user_settings,
+            commands::update_platform_settings,
             commands::set_api_key,
             commands::clear_api_key,
             commands::test_connection,
@@ -164,6 +169,7 @@ pub fn run() {
             platform_commands::refresh_platform_session,
             platform_commands::logout_platform,
             platform_commands::flush_platform_token_usage,
+            platform_commands::load_platform_session_persisted,
             platform_commands::load_platform_session_from_keyring,
         ])
         .build(tauri::generate_context!())

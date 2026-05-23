@@ -7,8 +7,16 @@ use tokio_util::sync::CancellationToken;
 
 use crate::agents::register_builtin_agents;
 use crate::extensions::ExtensionRegistry;
-use crate::platform_auth::SharedPlatformAuth;
+use crate::models::{
+    ensure_agent_model_refs_have_provider, EffectiveSettingsView, PlatformSettings, UserSettings,
+};
+use crate::platform_auth::{PlatformLoginCredentials, SharedPlatformAuth};
+use crate::platform_config::{
+    apply_login_llm_credentials, finalize_merged_settings, PlatformConfigManager,
+    SharedPlatformConfig,
+};
 use crate::skills::SkillRegistry;
+use crate::storage;
 use crate::tools::ToolRegistry;
 
 pub struct AppState {
@@ -17,6 +25,7 @@ pub struct AppState {
     pub agents: Arc<crate::agents::AgentRegistry>,
     pub computer_state: Arc<crate::agents::computer::ComputerState>,
     pub platform_auth: SharedPlatformAuth,
+    pub platform_config: SharedPlatformConfig,
     pub task_board_store: Arc<crate::task_board::TaskBoardStore>,
     /// Lifecycle hooks aligned with Python `call_extensions(extension_point, …)`.
     pub extensions: Arc<ExtensionRegistry>,
@@ -28,6 +37,10 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
+        let platform_mgr = PlatformConfigManager::new();
+        let platform_config = platform_mgr.shared();
+        storage::ensure_legacy_settings_migrated();
+
         let tools = Arc::new(ToolRegistry::new());
         let task_board_store = match crate::task_board::open_default_persistence() {
             Some(db) => Arc::new(crate::task_board::TaskBoardStore::with_persistence(db)),
@@ -52,6 +65,7 @@ impl AppState {
         let computer_state = Arc::new(crate::agents::computer::ComputerState::new(
             &agents,
             platform_auth.clone(),
+            platform_config.clone(),
         ));
         crate::tools::builtin::register_computer_tools(&tools, computer_state.clone());
         let mut extension_registry = ExtensionRegistry::new();
@@ -59,18 +73,71 @@ impl AppState {
         extension_registry.register_before_main_llm_call(Arc::new(
             crate::extensions::task_board_hook::TaskBoardSnapshotHook,
         ));
+        crate::platform_config::register_global_platform_config(platform_config.clone());
         Self {
             tools,
             skills,
             agents,
             computer_state,
             platform_auth,
+            platform_config,
             task_board_store,
             extensions: Arc::new(extension_registry),
             cancels: Mutex::new(HashMap::new()),
             terminal_run_abort: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub fn load_user_settings(&self) -> UserSettings {
+        storage::load_user_settings().unwrap_or_default()
+    }
+
+    pub fn save_user_settings(&self, user: &UserSettings) -> anyhow::Result<()> {
+        storage::save_user_settings(user)
+    }
+
+    pub fn effective_settings(&self) -> crate::models::ModelSettings {
+        let user = self.load_user_settings();
+        let platform = self.platform_config.read().clone();
+        finalize_merged_settings(crate::models::merge_user_platform(&user, &platform))
+    }
+
+    pub fn effective_settings_view(&self) -> EffectiveSettingsView {
+        let user = self.load_user_settings();
+        let platform = self.platform_config.read().clone();
+        let merged = finalize_merged_settings(crate::models::merge_user_platform(&user, &platform));
+        let is_platform_admin = self.platform_auth.is_platform_admin();
+        EffectiveSettingsView {
+            user,
+            platform,
+            merged,
+            can_edit_platform: is_platform_admin,
+            is_platform_admin,
+        }
+    }
+
+    pub fn update_platform_settings(
+        &self,
+        mut patch: PlatformSettings,
+    ) -> anyhow::Result<EffectiveSettingsView> {
+        if !self.platform_auth.is_platform_admin() {
+            anyhow::bail!("only platform admins may edit platform settings");
+        }
+        let mut tmp = crate::models::merge_user_platform(&UserSettings::default(), &patch);
+        ensure_agent_model_refs_have_provider(&mut tmp);
+        patch.agent_default_models = tmp.agent_default_models;
+        *self.platform_config.write() = patch;
+        Ok(self.effective_settings_view())
+    }
+
+    pub fn apply_login_credentials(&self, creds: &PlatformLoginCredentials) {
+        let mut platform = self.platform_config.write();
+        apply_login_llm_credentials(
+            &mut platform,
+            creds.api_key.as_deref(),
+            creds.llm_provider.as_deref(),
+        );
     }
 
     pub fn cancel(&self, conversation_id: &str) {

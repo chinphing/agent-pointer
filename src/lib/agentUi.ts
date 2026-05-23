@@ -105,5 +105,5 @@ export function shouldShowSubAgentTrace(
     return false
   }
   if (ui.showSubAgentTrace) return true
-  return (agentTrace?.some(a => (a.depth ?? 0) > 0) ?? false)
+  return false
 }

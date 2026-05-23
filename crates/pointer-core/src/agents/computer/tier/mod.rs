@@ -2,6 +2,7 @@
 
 use crate::agents::computer::vision::coord::{screen_to_normalized, CoordinateSystem};
 use crate::agents::computer::vision::vision_state::{CornerAnchor, VisionState};
+use crate::models::ComputerTierLlmConfig;
 use crate::agents::AgentRegistry;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -66,13 +67,14 @@ impl ComputerTier {
     }
 }
 
-/// Static tier options from agent manifest.
+/// Static tier options from agent manifest + platform overrides.
 #[derive(Debug, Clone)]
 pub struct ComputerTierConfig {
     pub auto_upgrade: bool,
     pub initial_tier: ComputerTier,
     pub model_primary: String,
     pub model_advanced: String,
+    pub tier_llm: HashMap<String, ComputerTierLlmConfig>,
 }
 
 impl Default for ComputerTierConfig {
@@ -82,6 +84,7 @@ impl Default for ComputerTierConfig {
             initial_tier: ComputerTier::Primary,
             model_primary: DEFAULT_MODEL_PRIMARY.into(),
             model_advanced: DEFAULT_MODEL_ADVANCED.into(),
+            tier_llm: HashMap::new(),
         }
     }
 }
@@ -117,6 +120,27 @@ impl ComputerTierConfig {
         let tier = settings.computer_initial_tier.trim();
         if !tier.is_empty() {
             self.initial_tier = ComputerTier::parse(tier);
+        }
+        if settings.computer_human_like {
+            // human_like is read from platform settings at tool layer; no field here.
+        }
+    }
+
+    /// Override tier LLM profiles from platform `computerTierLlm`.
+    pub fn apply_platform_tier_llm(&mut self, m: &HashMap<String, ComputerTierLlmConfig>) {
+        if m.is_empty() {
+            return;
+        }
+        self.tier_llm = m.clone();
+        if let Some(p) = m.get("primary") {
+            if !p.model.trim().is_empty() {
+                self.model_primary = p.model.clone();
+            }
+        }
+        if let Some(a) = m.get("advanced") {
+            if !a.model.trim().is_empty() {
+                self.model_advanced = a.model.clone();
+            }
         }
     }
 }
@@ -590,6 +614,14 @@ pub struct ComputerRoundLlmOverrides {
 
 impl ComputerRoundLlmOverrides {
     pub fn for_tier(tier: ComputerTier, config: &ComputerTierConfig) -> Self {
+        let key = tier.label();
+        if let Some(t) = config.tier_llm.get(key) {
+            return Self {
+                model: t.model.clone(),
+                enable_thinking: t.enable_thinking,
+                thinking_budget: t.thinking_budget,
+            };
+        }
         match tier {
             ComputerTier::Primary | ComputerTier::Intermediate => Self {
                 model: config.model_primary.clone(),

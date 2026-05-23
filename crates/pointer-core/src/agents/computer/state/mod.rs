@@ -19,6 +19,7 @@ use crate::agents::computer::vision::screen_overlay::{
 use crate::agents::computer::vision::vision_state::VisionState;
 use crate::agents::AgentRegistry;
 use crate::platform_auth::SharedPlatformAuth;
+use crate::platform_config::SharedPlatformConfig;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -121,15 +122,20 @@ pub struct ComputerState {
     pub human_like_default: bool,
     /// Base tier options from agent manifest (overridden by app settings when loaded).
     pub tier_config: ComputerTierConfig,
+    platform_config: Option<SharedPlatformConfig>,
     sessions: Arc<RwLock<HashMap<String, Arc<Mutex<ComputerSession>>>>>,
 }
 
 impl ComputerState {
-    /// Merge agent manifest tier config with persisted app settings (`computerInitialTier`, …).
+    /// Merge agent manifest tier config with in-memory platform settings.
     fn effective_tier_config(&self) -> ComputerTierConfig {
         let mut cfg = self.tier_config.clone();
-        if let Ok(settings) = crate::storage::load_settings() {
+        if let Some(pc) = &self.platform_config {
+            let platform = pc.read();
+            let user = crate::storage::load_user_settings().unwrap_or_default();
+            let settings = crate::models::merge_user_platform(&user, &platform);
             cfg.apply_app_settings(&settings);
+            cfg.apply_platform_tier_llm(&platform.computer_tier_llm);
         }
         cfg
     }
@@ -156,7 +162,11 @@ impl ComputerState {
     ///
     /// The backend will be initialized with the enigo implementation.
     /// If enigo fails to initialize, tools will return errors at runtime.
-    pub fn new(agents: &AgentRegistry, platform_auth: SharedPlatformAuth) -> Self {
+    pub fn new(
+        agents: &AgentRegistry,
+        platform_auth: SharedPlatformAuth,
+        platform_config: SharedPlatformConfig,
+    ) -> Self {
         let def = agents.get("computer").map(|agent| agent.def());
         let annotate_api_base = def
             .as_ref()
@@ -173,6 +183,7 @@ impl ComputerState {
             human_like_default,
             tier_config,
             Some(platform_auth),
+            Some(platform_config),
         )
     }
 
@@ -185,6 +196,7 @@ impl ComputerState {
             annotate_api_base,
             false,
             ComputerTierConfig::default(),
+            None,
             None,
         )
     }
@@ -200,6 +212,7 @@ impl ComputerState {
             human_like_default,
             ComputerTierConfig::default(),
             platform_auth,
+            None,
         )
     }
 
@@ -208,6 +221,7 @@ impl ComputerState {
         human_like_default: bool,
         tier_config: ComputerTierConfig,
         platform_auth: Option<SharedPlatformAuth>,
+        platform_config: Option<SharedPlatformConfig>,
     ) -> Self {
         let executor = match EnigoBackend::new() {
             Ok(backend) => Arc::new(Mutex::new(ActionExecutor::new(Box::new(backend)))),
@@ -234,6 +248,7 @@ impl ComputerState {
             annotate_client,
             human_like_default,
             tier_config,
+            platform_config,
             sessions: Arc::new(RwLock::new(HashMap::new())),
         }
     }

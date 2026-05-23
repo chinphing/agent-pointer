@@ -73,8 +73,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             run_synthetic_computer_tool(tier, move || {
                 ensure_index_method_allowed(&method)?;
                 let vision = mouse_state.vision_state_for_conversation(&cid);
-                let hl_default =
-                    effective_human_like_default(mouse_state.human_like_default);
+                let hl_default = effective_human_like_default();
                 let tool = tool_mouse::MouseTool::new(
                     mouse_state.executor.clone(),
                     vision,
@@ -122,8 +121,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             run_synthetic_computer_tool(tier, move || {
                 ensure_index_method_allowed(&method)?;
                 let vision = composite_state.vision_state_for_conversation(&cid);
-                let hl_default =
-                    effective_human_like_default(composite_state.human_like_default);
+                let hl_default = effective_human_like_default();
                 let tool = tool_composite::CompositeActionTool::new(
                     composite_state.executor.clone(),
                     vision,
@@ -155,8 +153,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             run_synthetic_computer_tool(tier, move || {
                 ensure_index_method_allowed(&method)?;
                 let vision = modified_state.vision_state_for_conversation(&cid);
-                let hl_default =
-                    effective_human_like_default(modified_state.human_like_default);
+                let hl_default = effective_human_like_default();
                 let tool = ModifiedClickTool::new(
                     modified_state.executor.clone(),
                     vision,

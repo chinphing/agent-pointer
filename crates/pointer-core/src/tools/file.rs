@@ -2,7 +2,6 @@
 //! Root from settings `workspaceRoot`, else `current_dir`.
 use super::{ToolEntry, ToolHandler, ToolRegistry};
 use crate::agents::{current_file_tool_lead_profile, AgentProfile};
-use crate::storage;
 use anyhow::{anyhow, Result};
 use log::{info, warn};
 use globset::{Glob, GlobSetBuilder};
@@ -167,7 +166,7 @@ pub fn register_all(reg: &ToolRegistry) {
 
 /// Root for sandbox: configured workspace or current directory.
 pub fn resolve_tool_workspace_root() -> Result<PathBuf> {
-    let s = storage::load_settings().map_err(|e| anyhow!("读取设置失败: {e}"))?;
+    let s = crate::platform_config::effective_settings_global();
     let raw = s.workspace_root.trim();
     if !raw.is_empty() {
         let p = PathBuf::from(raw);

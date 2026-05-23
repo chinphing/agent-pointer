@@ -1,7 +1,6 @@
 //! Session entry: cancel registration, `run_chat_inner`, `Done` / error streaming.
 
 use crate::models::{ChatMessage, StreamEvent};
-use crate::storage;
 use anyhow::Result;
 use std::backtrace::Backtrace;
 use std::sync::Arc;
@@ -83,9 +82,9 @@ pub async fn run_chat(
             err.to_string().chars().count(),
         );
     }
-    let max_tr = storage::load_settings()
-        .map(|s| s.max_tool_rounds)
-        .unwrap_or(100);
+    let max_tr = state
+        .effective_settings()
+        .max_tool_rounds;
     let single_total = tool_rounds_used_single_start.saturating_add(consumed_single);
     let supervisor_total =
         tool_rounds_used_supervisor_start.saturating_add(consumed_supervisor);

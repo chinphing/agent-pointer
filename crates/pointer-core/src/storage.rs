@@ -1,8 +1,6 @@
 use crate::models::{
-    ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults,
-    absorb_legacy_extension_config, legacy_thinking_to_extra_body, merge_shallow_json_objects,
-    AgentModelRef, Conversation,
-    ModelRuntimeOverrides, ModelSettings, ProviderConfig,
+    ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults, merge_user_platform,
+    Conversation, ModelSettings, PlatformSettings, UserSettings,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -10,11 +8,14 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Once;
 
 /// Subfolder under the OS user data directory (`dirs::data_dir()`). Used for settings, skills, logs, computer captures, etc.
 pub const APP_DATA_SUBDIR: &str = "PointerApp";
 
 const APP_DIR: &str = APP_DATA_SUBDIR;
+
+static LEGACY_MIGRATION_ONCE: Once = Once::new();
 
 fn data_dir() -> Result<PathBuf> {
     let base = dirs::data_dir().context("无法获取数据目录")?;
@@ -31,6 +32,15 @@ pub fn app_data_dir() -> Result<PathBuf> {
 
 fn settings_path() -> Result<PathBuf> {
     Ok(data_dir()?.join("settings.json"))
+}
+fn settings_migrated_path() -> Result<PathBuf> {
+    Ok(data_dir()?.join("settings.json.migrated"))
+}
+fn user_settings_path() -> Result<PathBuf> {
+    Ok(data_dir()?.join("user_settings.json"))
+}
+fn auth_dat_path() -> Result<PathBuf> {
+    Ok(data_dir()?.join("auth.dat"))
 }
 fn key_path() -> Result<PathBuf> {
     Ok(data_dir()?.join("key.dat"))
@@ -181,66 +191,118 @@ fn default_computer_initial_tier() -> String {
     "primary".into()
 }
 
-fn stored_model_overrides_to_runtime(v: &StoredModelOverrides) -> ModelRuntimeOverrides {
-    let mut enable_thinking = v.enable_thinking.or(v.thinking_enabled);
-    let mut thinking_budget = v.thinking_budget;
-    let mut reasoning_effort = v.reasoning_effort.clone();
-    let legacy_extra = merge_shallow_json_objects(
-        legacy_thinking_to_extra_body(v.thinking_enabled, v.thinking_budget).as_ref(),
-        v.extra_body.as_ref(),
+/// Run once per process: migrate legacy `settings.json` theme → `user_settings.json`.
+pub fn ensure_legacy_settings_migrated() {
+    LEGACY_MIGRATION_ONCE.call_once(|| {
+        if let Err(e) = migrate_legacy_settings_if_needed() {
+            log::warn!("storage: legacy settings migration failed: {e}");
+        }
+    });
+}
+
+fn migrate_legacy_settings_if_needed() -> Result<()> {
+    let legacy = settings_path()?;
+    let migrated = settings_migrated_path()?;
+    if !legacy.exists() || migrated.exists() {
+        return Ok(());
+    }
+    log::info!("storage: migrating legacy settings.json → user_settings.json");
+    let raw = fs::read_to_string(&legacy)?;
+    let stored: StoredSettings = serde_json::from_str(&raw).unwrap_or_default();
+    let theme = if stored.theme.is_empty() {
+        default_theme()
+    } else {
+        stored.theme.clone()
+    };
+    let user = UserSettings {
+        theme,
+        user_nickname: None,
+    };
+    write_user_settings_file(&user)?;
+    fs::rename(&legacy, &migrated)?;
+    log::info!(
+        "storage: legacy settings.json renamed to {}",
+        migrated.display()
     );
-    absorb_legacy_extension_config(
-        &mut enable_thinking,
-        &mut thinking_budget,
-        &mut reasoning_effort,
-        None,
-        None,
-        legacy_extra,
-    );
-    ModelRuntimeOverrides {
-        reasoning_in_messages: v.reasoning_in_messages,
-        temperature: v.temperature,
-        max_tokens: v.max_tokens,
-        enable_thinking,
-        thinking_budget,
-        reasoning_effort,
+    if key_path()?.exists() {
+        if let Err(e) = fs::remove_file(key_path()?) {
+            log::warn!("storage: failed to remove deprecated key.dat: {e}");
+        } else {
+            log::info!("storage: removed deprecated key.dat");
+        }
+    }
+    Ok(())
+}
+
+pub fn load_user_settings() -> Result<UserSettings> {
+    ensure_legacy_settings_migrated();
+    let path = user_settings_path()?;
+    if !path.exists() {
+        return Ok(UserSettings::default());
+    }
+    let raw = fs::read_to_string(&path)?;
+    Ok(serde_json::from_str(&raw).unwrap_or_default())
+}
+
+fn write_user_settings_file(user: &UserSettings) -> Result<()> {
+    fs::write(user_settings_path()?, serde_json::to_vec_pretty(user)?)?;
+    Ok(())
+}
+
+pub fn save_user_settings(user: &UserSettings) -> Result<()> {
+    ensure_legacy_settings_migrated();
+    write_user_settings_file(user)
+}
+
+pub fn save_platform_refresh_token(refresh: &str) -> Result<()> {
+    let blob = crate::local_secret::encrypt_local_secret(refresh)?;
+    fs::write(auth_dat_path()?, blob)?;
+    Ok(())
+}
+
+pub fn load_platform_refresh_token() -> Result<Option<String>> {
+    let path = auth_dat_path()?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let blob = fs::read(&path)?;
+    match crate::local_secret::decrypt_local_secret(&blob) {
+        Ok(s) if !s.is_empty() => Ok(Some(s)),
+        Ok(_) => Ok(None),
+        Err(e) => {
+            log::warn!("storage: auth.dat decrypt failed: {e}; removing file");
+            let _ = fs::remove_file(&path);
+            Err(e)
+        }
     }
 }
 
-fn stored_provider_to_runtime(p: &StoredProvider, legacy_reasoning: Option<bool>) -> ProviderConfig {
-    let mut enable_thinking = p.enable_thinking.or(p.thinking_enabled);
-    let mut thinking_budget = p.thinking_budget;
-    let mut reasoning_effort = p.reasoning_effort.clone();
-    let legacy_extra = merge_shallow_json_objects(
-        legacy_thinking_to_extra_body(p.thinking_enabled, p.thinking_budget).as_ref(),
-        p.extra_body.as_ref(),
-    );
-    absorb_legacy_extension_config(
-        &mut enable_thinking,
-        &mut thinking_budget,
-        &mut reasoning_effort,
-        None,
-        None,
-        legacy_extra,
-    );
-    ProviderConfig {
-        id: p.id.clone(),
-        name: p.name.clone(),
-        base_url: p.base_url.clone(),
-        api_key: p.api_key.clone(),
-        models: p.models.clone(),
-        reasoning_in_messages: p.reasoning_in_messages.or(legacy_reasoning),
-        temperature: p.temperature,
-        max_tokens: p.max_tokens,
-        model_configs: p
-            .model_configs
-            .iter()
-            .map(|(k, v)| (k.clone(), stored_model_overrides_to_runtime(v)))
-            .collect(),
-        enable_thinking,
-        thinking_budget,
-        reasoning_effort,
+pub fn clear_platform_refresh_token() -> Result<()> {
+    let path = auth_dat_path()?;
+    if path.exists() {
+        fs::remove_file(&path)?;
     }
+    Ok(())
+}
+
+/// Legacy helper: user theme + code-default platform (no in-memory admin overrides).
+#[deprecated(note = "use AppState::effective_settings or PlatformConfigManager")]
+pub fn load_settings() -> Result<ModelSettings> {
+    ensure_legacy_settings_migrated();
+    let user = load_user_settings()?;
+    let platform = PlatformSettings::default();
+    let mut settings = merge_user_platform(&user, &platform);
+    ensure_agent_model_refs_have_provider(&mut settings);
+    ensure_provider_generation_defaults(&mut settings);
+    if let Some(p) = settings
+        .providers
+        .iter()
+        .find(|p| p.id == settings.active_provider_id)
+    {
+        settings.api_key = p.api_key.clone();
+        settings.has_key = !p.api_key.is_empty();
+    }
+    Ok(settings)
 }
 
 impl Default for StoredSettings {
@@ -321,220 +383,30 @@ impl Default for StoredSettings {
     }
 }
 
-fn normalize_disk_agent_defaults(
-    raw: &HashMap<String, serde_json::Value>,
-    legacy_active_provider: &str,
-) -> HashMap<String, AgentModelRef> {
-    let mut out = HashMap::new();
-    for (k, v) in raw {
-        let mut r = match AgentModelRef::from_json_value_flexible(v.clone()) {
-            Some(x) => x,
-            None => continue,
-        };
-        if r.provider_id.trim().is_empty() {
-            r.provider_id = legacy_active_provider.to_string();
-        }
-        out.insert(k.clone(), r);
-    }
-    out
-}
-
-pub fn load_settings() -> Result<ModelSettings> {
-    let path = settings_path()?;
-    let stored: StoredSettings = if path.exists() {
-        let raw = fs::read_to_string(&path)?;
-        serde_json::from_str(&raw).unwrap_or_default()
-    } else {
-        StoredSettings::default()
-    };
-
-    let legacy = stored.legacy_reasoning_in_messages;
-    let providers: Vec<ProviderConfig> = stored
-        .providers
-        .iter()
-        .map(|p| stored_provider_to_runtime(p, legacy))
-        .collect();
-
-    let active_provider_id = if stored.active_provider_id.is_empty() {
-        "qwen".into()
-    } else {
-        stored.active_provider_id
-    };
-
-    let key_file_present = key_path().map(|p| p.exists()).unwrap_or(false);
-    let has_key =
-        key_file_present || providers.iter().any(|p| !p.api_key.is_empty());
-
-    let agent_default_models =
-        normalize_disk_agent_defaults(&stored.agent_default_models, &active_provider_id);
-
-    let mut settings = ModelSettings {
-        providers,
-        active_provider_id,
-        model: stored.model,
-        api_key: String::new(),
-        temperature: stored.temperature,
-        max_tokens: stored.max_tokens,
-        has_key,
-        tool_approval_mode: stored.tool_approval_mode,
-        agent_mode: stored.agent_mode,
-        workspace_root: stored.workspace_root,
-        lead_agent_id: stored.lead_agent_id,
-        context_compression_enabled: stored.context_compression_enabled,
-        context_budget_chars: stored.context_budget_chars,
-        context_keep_recent_user_turns: stored.context_keep_recent_user_turns,
-        context_summary_max_tokens: stored.context_summary_max_tokens,
-        max_tool_rounds: stored.max_tool_rounds,
-        max_sub_agent_tool_rounds: if stored.max_sub_agent_tool_rounds == 0 {
-            default_max_tool_rounds()
-        } else {
-            stored.max_sub_agent_tool_rounds
-        },
-        raw_content_view_enabled: stored.raw_content_view_enabled,
-        debug_dump_llm_prompts: stored.debug_dump_llm_prompts,
-        agent_default_models,
-        agent_task_board_history_trim: stored.agent_task_board_history_trim,
-        computer_human_like: stored.computer_human_like,
-        computer_initial_tier: if stored.computer_initial_tier.trim().is_empty() {
-            default_computer_initial_tier()
-        } else {
-            stored.computer_initial_tier.clone()
-        },
-        theme: if stored.theme.is_empty() {
-            default_theme()
-        } else {
-            stored.theme
-        },
-        agent_ui_overrides: stored.agent_ui_overrides,
-        round_enable_thinking: None,
-        round_thinking_budget: None,
-    };
-    ensure_agent_model_refs_have_provider(&mut settings);
-    ensure_provider_generation_defaults(&mut settings);
-    Ok(settings)
-}
-
-pub fn save_settings(s: &ModelSettings) -> Result<()> {
-    let stored = StoredSettings {
-        providers: s
-            .providers
-            .iter()
-            .map(|p| StoredProvider {
-                id: p.id.clone(),
-                name: p.name.clone(),
-                base_url: p.base_url.clone(),
-                api_key: p.api_key.clone(),
-                models: p.models.clone(),
-                reasoning_in_messages: p.reasoning_in_messages,
-                temperature: p.temperature,
-                max_tokens: p.max_tokens,
-                model_configs: p
-                    .model_configs
-                    .iter()
-                    .map(|(k, v)| {
-                        (
-                            k.clone(),
-                            StoredModelOverrides {
-                                reasoning_in_messages: v.reasoning_in_messages,
-                                temperature: v.temperature,
-                                max_tokens: v.max_tokens,
-                                enable_thinking: v.enable_thinking,
-                                thinking_budget: v.thinking_budget,
-                                reasoning_effort: v.reasoning_effort.clone(),
-                                extra_body: None,
-                                thinking_enabled: None,
-                            },
-                        )
-                    })
-                    .collect(),
-                enable_thinking: p.enable_thinking,
-                thinking_budget: p.thinking_budget,
-                reasoning_effort: p.reasoning_effort.clone(),
-                extra_body: None,
-                thinking_enabled: None,
-            })
-            .collect(),
-        active_provider_id: s.active_provider_id.clone(),
-        model: s.model.clone(),
-        temperature: s.temperature,
-        max_tokens: s.max_tokens,
-        tool_approval_mode: s.tool_approval_mode.clone(),
-        agent_mode: s.agent_mode.clone(),
-        workspace_root: s.workspace_root.clone(),
-        lead_agent_id: s.lead_agent_id.clone(),
-        context_compression_enabled: s.context_compression_enabled,
-        context_budget_chars: s.context_budget_chars,
-        context_keep_recent_user_turns: s.context_keep_recent_user_turns,
-        context_summary_max_tokens: s.context_summary_max_tokens,
-        max_tool_rounds: s.max_tool_rounds,
-        max_sub_agent_tool_rounds: s.max_sub_agent_tool_rounds.max(1),
-        raw_content_view_enabled: s.raw_content_view_enabled,
-        debug_dump_llm_prompts: s.debug_dump_llm_prompts,
-        agent_default_models: s
-            .agent_default_models
-            .iter()
-            .map(|(k, v)| {
-                (
-                    k.clone(),
-                    json!({ "providerId": v.provider_id, "model": v.model }),
-                )
-            })
-            .collect(),
-        agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
-        computer_human_like: s.computer_human_like,
-        computer_initial_tier: s.computer_initial_tier.clone(),
-        theme: s.theme.clone(),
-        agent_ui_overrides: s.agent_ui_overrides.clone(),
-        legacy_reasoning_in_messages: None,
-    };
-    fs::write(settings_path()?, serde_json::to_vec_pretty(&stored)?)?;
+/// Deprecated: platform settings are in-memory only.
+#[deprecated(note = "use update_platform_settings API")]
+pub fn save_settings(_s: &ModelSettings) -> Result<()> {
     Ok(())
 }
 
-/// XOR-based light obfuscation (NOT real encryption; use OS keyring in production).
-fn xor_key() -> [u8; 16] {
-    *b"pointer-aiwk-v1!"
-}
-
-fn obfuscate(data: &[u8]) -> Vec<u8> {
-    let key = xor_key();
-    data.iter()
-        .enumerate()
-        .map(|(i, b)| b ^ key[i % key.len()])
-        .collect()
-}
-
-pub fn save_api_key(key: &str) -> Result<()> {
-    let path = key_path()?;
-    if key.is_empty() {
-        if path.exists() {
-            fs::remove_file(&path)?;
-        }
-        return Ok(());
-    }
-    fs::write(&path, obfuscate(key.as_bytes()))?;
+/// Deprecated: API keys live in platform config memory.
+#[deprecated(note = "keys are injected via OAuth into platform config")]
+pub fn save_api_key(_key: &str) -> Result<()> {
     Ok(())
 }
 
+#[deprecated(note = "keys are injected via OAuth into platform config")]
 pub fn load_api_key() -> Result<Option<String>> {
-    let path = key_path()?;
-    if !path.exists() {
-        return Ok(None);
-    }
-    let raw = fs::read(&path)?;
-    let plain = obfuscate(&raw);
-    Ok(Some(String::from_utf8_lossy(&plain).to_string()))
+    Ok(None)
 }
 
+#[deprecated(note = "keys are injected via OAuth into platform config")]
 pub fn has_key() -> Result<bool> {
-    Ok(key_path()?.exists())
+    Ok(false)
 }
 
+#[deprecated(note = "keys are injected via OAuth into platform config")]
 pub fn clear_api_key() -> Result<()> {
-    let path = key_path()?;
-    if path.exists() {
-        fs::remove_file(&path)?;
-    }
     Ok(())
 }
 

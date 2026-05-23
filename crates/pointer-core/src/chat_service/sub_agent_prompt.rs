@@ -8,7 +8,6 @@ use crate::agents::{
 use crate::extensions::{BeforeMainLlmCallContext, MessageLoopPromptsAfterContext};
 use crate::models::{ChatMessage, Role, SystemPromptSections};
 use crate::provider::OpenAIProvider;
-use crate::storage;
 use anyhow::{anyhow, Result};
 use std::time::Instant;
 
@@ -107,9 +106,7 @@ pub(super) fn init_sub_agent_session(
             &allowed_tools,
             computer_positioning,
         );
-    let tool_approval_mode = storage::load_settings()
-        .map(|settings| settings.tool_approval_mode)
-        .unwrap_or_else(|_| "auto".into());
+    let tool_approval_mode = state.effective_settings().tool_approval_mode;
     let local_history = vec![ChatMessage {
         id: new_id("sub_task"),
         role: Role::User,

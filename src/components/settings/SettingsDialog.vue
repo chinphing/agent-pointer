@@ -23,6 +23,8 @@ import type {
   AgentDef,
   AgentUiConfig,
   ComputerInitialTier,
+  ComputerTierKey,
+  ComputerTierLlmConfig,
   ModelRuntimeOverrides,
   ProviderConfig,
   ThemePreference
@@ -61,6 +63,37 @@ const emit = defineEmits<{
 }>()
 const s = useSettingsStore()
 const platformAuth = usePlatformAuthStore()
+
+const platformReadOnly = computed(() => !s.canEditPlatform)
+
+const COMPUTER_TIER_UI: { key: ComputerTierKey; label: string }[] = [
+  { key: 'primary', label: '初级' },
+  { key: 'intermediate', label: '中级' },
+  { key: 'advanced', label: '高级' }
+]
+
+const qwenModelOptions = computed(() => {
+  const q = s.settings.providers.find(p => p.id === 'qwen')
+  return q?.models?.length ? q.models : ['qwen3.5-plus', 'qwen3.6-plus']
+})
+
+function computerTierLlm(key: ComputerTierKey): ComputerTierLlmConfig {
+  const m = s.platformSettings.computerTierLlm?.[key]
+  return (
+    m ?? {
+      providerId: 'qwen',
+      model: key === 'advanced' ? 'qwen3.6-plus' : 'qwen3.5-plus',
+      enableThinking: true,
+      thinkingBudget: key === 'advanced' ? 8192 : 2048
+    }
+  )
+}
+
+function patchComputerTierLlm(key: ComputerTierKey, patch: Partial<ComputerTierLlmConfig>) {
+  const next = { ...(s.platformSettings.computerTierLlm ?? {}) }
+  next[key] = { ...computerTierLlm(key), ...patch }
+  s.platformSettings.computerTierLlm = next
+}
 
 const saving = ref(false)
 const activeSection = ref('provider')
@@ -322,7 +355,7 @@ function setDisplayUi(key: keyof AgentUiConfig, checked: boolean) {
 async function applyThemeChoice(t: ThemePreference) {
   theme.value = t
   applyTheme(t)
-  await s.save({ theme: t })
+  await s.saveUser({ theme: t })
 }
 
 async function loadAgents() {
@@ -669,13 +702,12 @@ async function saveAll() {
       agentTaskBoardHistoryTrim: { ...agentTaskBoardHistoryTrim.value },
       computerHumanLike: computerHumanLike.value,
       computerInitialTier: computerInitialTier.value,
-      theme: theme.value,
       agentUiOverrides: {
         ...(s.settings.agentUiOverrides ?? {}),
         [activeUiAgentId.value]: { ...agentUiLocal.value }
-      }
+      },
+      computerTierLlm: { ...s.platformSettings.computerTierLlm }
     })
-    applyTheme(theme.value)
     emit('close')
   } finally {
     saving.value = false
@@ -696,6 +728,18 @@ async function saveAll() {
           <p class="text-[11px] text-muted">配置 AI 模型、生成参数和工作模式</p>
         </div>
         <div class="flex-1" />
+        <div class="flex items-center gap-1 mr-2">
+          <button
+            v-for="t in (['system', 'light', 'dark'] as ThemePreference[])"
+            :key="t"
+            type="button"
+            class="px-2.5 py-1 rounded-md text-[11px] border transition-colors"
+            :class="theme === t ? 'border-accent bg-accent/10 text-foreground' : 'border-border text-muted hover:text-foreground'"
+            @click="applyThemeChoice(t)"
+          >
+            {{ t === 'system' ? '跟随系统' : t === 'light' ? '浅色' : '深色' }}
+          </button>
+        </div>
         <button class="p-2 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="emit('close')">
           <X class="w-4 h-4 text-muted" />
         </button>
@@ -724,6 +768,12 @@ async function saveAll() {
 
         <!-- Main Content -->
         <main class="flex-1 overflow-y-auto">
+          <p
+            v-if="platformReadOnly && activeSection !== 'account' && activeSection !== 'runtime'"
+            class="mx-6 mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-muted"
+          >
+            仅平台管理员可修改平台配置；重启后恢复默认。登录后 API 密钥由平台自动注入。
+          </p>
           <!-- ==================== Provider Section ==================== -->
           <section v-if="activeSection === 'provider'" class="p-6 space-y-5">
             <div class="flex items-center justify-between">
@@ -1070,6 +1120,46 @@ async function saveAll() {
                       </div>
                     </div>
 
+                    <div
+                      v-if="w.id === 'computer'"
+                      class="col-span-full mt-3 rounded-xl border border-border panel p-4 space-y-3"
+                      :class="platformReadOnly ? 'opacity-60 pointer-events-none' : ''"
+                    >
+                      <h4 class="text-xs font-medium text-foreground">Computer 分级模型</h4>
+                      <div
+                        v-for="tier in COMPUTER_TIER_UI"
+                        :key="tier.key"
+                        class="grid grid-cols-[4rem_1fr_auto_auto] gap-2 items-center"
+                      >
+                        <span class="text-[11px] text-muted">{{ tier.label }}</span>
+                        <select
+                          :value="computerTierLlm(tier.key).model"
+                          class="h-7 px-2 rounded bg-card border border-border text-[11px] text-foreground outline-none focus:border-accent/50"
+                          @change="patchComputerTierLlm(tier.key, { model: ($event.target as HTMLSelectElement).value })"
+                        >
+                          <option v-for="m in qwenModelOptions" :key="m" :value="m">{{ m }}</option>
+                        </select>
+                        <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
+                          <input
+                            type="checkbox"
+                            class="rounded border-border"
+                            :checked="computerTierLlm(tier.key).enableThinking !== false"
+                            @change="patchComputerTierLlm(tier.key, { enableThinking: ($event.target as HTMLInputElement).checked })"
+                          />
+                          深度思考
+                        </label>
+                        <input
+                          type="number"
+                          min="256"
+                          step="256"
+                          class="h-7 w-20 px-2 rounded bg-card border border-border text-[11px] text-foreground outline-none focus:border-accent/50"
+                          :value="computerTierLlm(tier.key).thinkingBudget ?? 2048"
+                          :disabled="computerTierLlm(tier.key).enableThinking === false"
+                          @change="patchComputerTierLlm(tier.key, { thinkingBudget: Number(($event.target as HTMLInputElement).value) })"
+                        />
+                      </div>
+                    </div>
+
                     <!-- Workspace (coder lead only) -->
                     <div v-if="agentMode === 'single' && leadAgentId === w.id && isCoderAgent(w)" class="mt-2 flex items-center gap-1.5">
                         <FolderOpen class="w-3.5 h-3.5 text-amber-300 shrink-0" />
@@ -1248,29 +1338,13 @@ async function saveAll() {
               <p class="mt-0.5 text-xs text-muted">查看当前存储与网络运行方式</p>
             </div>
 
-            <div class="rounded-xl border border-border panel p-5 space-y-3">
-              <h4 class="text-sm font-medium text-foreground">外观主题</h4>
-              <div class="flex flex-wrap gap-2">
-                <button
-                  v-for="t in (['system', 'light', 'dark'] as ThemePreference[])"
-                  :key="t"
-                  type="button"
-                  class="px-3 py-1.5 rounded-lg text-xs border transition-colors"
-                  :class="theme === t ? 'border-accent bg-accent/10 text-foreground' : 'border-border text-muted hover:text-foreground'"
-                  @click="applyThemeChoice(t)"
-                >
-                  {{ t === 'system' ? '跟随系统' : t === 'light' ? '浅色' : '深色' }}
-                </button>
-              </div>
-            </div>
-
             <div class="grid grid-cols-2 gap-3">
               <div class="rounded-xl border border-border panel p-5">
                 <div class="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center mb-3">
                   <Database class="w-4 h-4 text-accent" />
                 </div>
                 <div class="text-sm font-medium text-foreground">本地数据</div>
-                <p class="mt-1 text-xs text-muted">配置、API 密钥和会话记录保存在本机。</p>
+                <p class="mt-1 text-xs text-muted">外观主题保存在 user_settings.json；平台配置仅在本次会话有效。</p>
               </div>
               <div class="rounded-xl border border-border panel p-5">
                 <div class="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center mb-3">
@@ -1290,8 +1364,13 @@ async function saveAll() {
           单智能体由所选 Worker 执行；Supervisor 为多任务编排。
         </p>
         <button class="h-9 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="emit('close')">取消</button>
-        <button class="h-9 px-5 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50 transition-opacity" :disabled="saving" @click="saveAll">
-          {{ saving ? '保存中…' : '保存配置' }}
+        <button
+          v-if="s.canEditPlatform"
+          class="h-9 px-5 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50 transition-opacity"
+          :disabled="saving"
+          @click="saveAll"
+        >
+          {{ saving ? '应用中…' : '应用平台配置（本次会话）' }}
         </button>
       </footer>
     </div>

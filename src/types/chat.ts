@@ -174,6 +174,55 @@ export interface AgentModelRef {
   model: string
 }
 
+export interface UserSettings {
+  theme?: ThemePreference
+  userNickname?: string
+}
+
+export interface ComputerTierLlmConfig {
+  providerId: string
+  model: string
+  enableThinking?: boolean
+  thinkingBudget?: number
+}
+
+export type ComputerTierKey = 'primary' | 'intermediate' | 'advanced'
+
+/** Platform/runtime fields (in-memory; admin-editable in desktop app). */
+export interface PlatformSettings {
+  providers: ProviderConfig[]
+  activeProviderId: string
+  model: string
+  temperature: number
+  maxTokens: number
+  toolApprovalMode: 'auto' | 'manual'
+  agentMode: AgentMode
+  workspaceRoot: string
+  leadAgentId: string
+  contextCompressionEnabled: boolean
+  contextBudgetChars: number
+  contextKeepRecentUserTurns: number
+  contextSummaryMaxTokens: number
+  maxToolRounds: number
+  maxSubAgentToolRounds?: number
+  rawContentViewEnabled: boolean
+  debugDumpLlmPrompts?: boolean
+  agentDefaultModels: Record<string, AgentModelRef>
+  agentTaskBoardHistoryTrim?: Record<string, boolean>
+  computerHumanLike?: boolean
+  computerInitialTier?: ComputerInitialTier
+  agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
+  computerTierLlm?: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
+}
+
+export interface EffectiveSettingsView {
+  user: UserSettings
+  platform: PlatformSettings
+  merged: ModelSettings
+  canEditPlatform: boolean
+  isPlatformAdmin: boolean
+}
+
 export interface ModelSettings {
   providers: ProviderConfig[]
   activeProviderId: string

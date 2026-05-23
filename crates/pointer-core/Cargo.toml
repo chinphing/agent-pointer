@@ -40,8 +40,9 @@ async-trait = "0.1"
 arboard = "3"
 rand = "0.8"
 sha2 = "0.10"
-# 必须启用平台 store；无 feature 时退化为进程内 mock，重启后无法恢复登录。
-keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent"] }
+aes-gcm = "0.10"
+hkdf = "0.12"
+machine-uid = "0.5"
 
 [dev-dependencies]
 anyhow = "1"

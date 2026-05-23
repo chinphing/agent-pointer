@@ -1,11 +1,13 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import * as api from '../lib/api'
+import { useSettingsStore } from './settings'
 
 export interface PlatformSessionView {
   logged_in: boolean
   expires_at?: number | null
   user_nickname?: string | null
+  isPlatformAdmin?: boolean
 }
 
 function formatPlatformAuthError(e: unknown): string {
@@ -20,16 +22,20 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
+  const isPlatformAdmin = computed(() => session.value.isPlatformAdmin === true)
+
   async function load() {
     loading.value = true
     error.value = null
     try {
-      await api.loadPlatformSessionFromKeyring()
+      await api.loadPlatformSessionPersisted()
       try {
         session.value = await api.refreshPlatformSession()
       } catch {
         session.value = await api.getPlatformSession()
       }
+      const settings = useSettingsStore()
+      await settings.load()
     } catch (e) {
       error.value = formatPlatformAuthError(e)
       session.value = { logged_in: false }
@@ -44,6 +50,8 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     try {
       await api.openPlatformLogin()
       session.value = await api.getPlatformSession()
+      const settings = useSettingsStore()
+      await settings.load()
     } catch (e) {
       error.value = formatPlatformAuthError(e)
       throw e
@@ -61,5 +69,5 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     session.value = { logged_in: false }
   }
 
-  return { session, loading, error, load, login, cancelLogin, logout }
+  return { session, loading, error, isPlatformAdmin, load, login, cancelLogin, logout }
 })

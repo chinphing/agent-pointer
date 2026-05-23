@@ -6,7 +6,6 @@ use crate::agents::{
 use crate::llm_token_stats::ChatLlmTokenSession;
 use crate::models::{effective_reasoning_in_messages, ChatMessage};
 use crate::provider::OpenAIProvider;
-use crate::storage;
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use std::time::Instant;
@@ -30,10 +29,11 @@ pub(super) async fn run_chat_inner(
     consumed_supervisor: &mut u32,
     cancel: CancellationToken,
 ) -> Result<()> {
-    let mut settings = storage::load_settings()?;
-    let api_key = storage::load_api_key()?
-        .ok_or_else(|| anyhow!("尚未配置 API Key，请先在设置中保存密钥"))?;
-    settings.api_key = api_key.clone();
+    let mut settings = state.effective_settings();
+    if settings.api_key.is_empty() {
+        return Err(anyhow!("尚未配置 API Key，请先登录平台账户或在设置中配置密钥"));
+    }
+    let api_key = settings.api_key.clone();
     let tool_approval_mode = settings.tool_approval_mode.clone();
     let effective_agent_mode = request_agent_mode
         .filter(|mode| !mode.trim().is_empty())

@@ -2,8 +2,9 @@ use pointer_core::agents::computer::capture_debug;
 use pointer_core::agents::AgentDef;
 use pointer_core::chat_service::{run_chat, AppState};
 use pointer_core::models::{
-    ensure_agent_model_refs_have_provider, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
-    ModelSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent, ToolDef,
+    ComputerAnnotatedPreview, ComputerMonitor, Conversation,
+    EffectiveSettingsView, ModelSettings, PlatformSettings, SendChatPayload, SkillDef,
+    SkillImportResult, StreamEvent, ToolDef, UserSettings,
 };
 
 use pointer_core::provider::OpenAIProvider;
@@ -73,43 +74,100 @@ pub fn approve_tool_call(
 }
 
 #[tauri::command]
-pub fn get_settings() -> Result<ModelSettings, String> {
-    storage::load_settings().map_err(|e| e.to_string())
+pub fn get_settings(state: State<'_, Arc<AppState>>) -> Result<EffectiveSettingsView, String> {
+    Ok(state.effective_settings_view())
 }
 
 #[tauri::command]
-pub fn update_settings(mut settings: ModelSettings) -> Result<ModelSettings, String> {
-    ensure_agent_model_refs_have_provider(&mut settings);
-    // 同步激活 Provider 的 Key 到 key.dat，确保后端请求时使用正确的密钥
-    if let Some(provider) = settings.providers.iter().find(|p| p.id == settings.active_provider_id) {
-        if !provider.api_key.is_empty() {
-            storage::save_api_key(&provider.api_key).map_err(|e| e.to_string())?;
-        } else {
-            // 如果激活的 Provider 没有 Key，则清理旧 Key 防止残留
-            let _ = storage::clear_api_key();
-        }
+pub fn update_user_settings(
+    state: State<'_, Arc<AppState>>,
+    mut user: UserSettings,
+) -> Result<EffectiveSettingsView, String> {
+    if user.theme.trim().is_empty() {
+        user.theme = "system".into();
     }
-    storage::save_settings(&settings).map_err(|e| e.to_string())?;
-    storage::load_settings().map_err(|e| e.to_string())
+    state.save_user_settings(&user).map_err(|e| e.to_string())?;
+    Ok(state.effective_settings_view())
 }
 
 #[tauri::command]
-pub fn set_api_key(api_key: String) -> Result<(), String> {
-    storage::save_api_key(&api_key).map_err(|e| e.to_string())
+pub fn update_platform_settings(
+    state: State<'_, Arc<AppState>>,
+    platform: PlatformSettings,
+) -> Result<EffectiveSettingsView, String> {
+    state
+        .update_platform_settings(platform)
+        .map_err(|e| e.to_string())
+}
+
+/// Back-compat: applies full patch as platform settings (admin) or user theme only.
+#[tauri::command]
+pub fn update_settings(
+    state: State<'_, Arc<AppState>>,
+    settings: ModelSettings,
+) -> Result<EffectiveSettingsView, String> {
+    if state.platform_auth.is_platform_admin() {
+        let current = state.platform_config.read().clone();
+        let mut platform = platform_from_model_settings(&settings);
+        platform.computer_tier_llm = current.computer_tier_llm;
+        state
+            .update_platform_settings(platform)
+            .map_err(|e| e.to_string())
+    } else {
+        let user = UserSettings {
+            theme: settings.theme.clone(),
+            user_nickname: None,
+        };
+        state.save_user_settings(&user).map_err(|e| e.to_string())?;
+        Ok(state.effective_settings_view())
+    }
+}
+
+fn platform_from_model_settings(s: &ModelSettings) -> PlatformSettings {
+    PlatformSettings {
+        providers: s.providers.clone(),
+        active_provider_id: s.active_provider_id.clone(),
+        model: s.model.clone(),
+        temperature: s.temperature,
+        max_tokens: s.max_tokens,
+        tool_approval_mode: s.tool_approval_mode.clone(),
+        agent_mode: s.agent_mode.clone(),
+        workspace_root: s.workspace_root.clone(),
+        lead_agent_id: s.lead_agent_id.clone(),
+        context_compression_enabled: s.context_compression_enabled,
+        context_budget_chars: s.context_budget_chars,
+        context_keep_recent_user_turns: s.context_keep_recent_user_turns,
+        context_summary_max_tokens: s.context_summary_max_tokens,
+        max_tool_rounds: s.max_tool_rounds,
+        max_sub_agent_tool_rounds: s.max_sub_agent_tool_rounds,
+        raw_content_view_enabled: s.raw_content_view_enabled,
+        debug_dump_llm_prompts: s.debug_dump_llm_prompts,
+        agent_default_models: s.agent_default_models.clone(),
+        agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
+        computer_human_like: s.computer_human_like,
+        computer_initial_tier: s.computer_initial_tier.clone(),
+        agent_ui_overrides: s.agent_ui_overrides.clone(),
+        computer_tier_llm: PlatformSettings::default().computer_tier_llm,
+    }
+}
+
+#[tauri::command]
+pub fn set_api_key(_api_key: String) -> Result<(), String> {
+    Ok(())
 }
 
 #[tauri::command]
 pub fn clear_api_key() -> Result<(), String> {
-    storage::clear_api_key().map_err(|e| e.to_string())
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn test_connection() -> Result<u128, String> {
-    let mut settings = storage::load_settings().map_err(|e| e.to_string())?;
-    let api_key = storage::load_api_key()
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "尚未配置 API Key".to_string())?;
-    settings.api_key = api_key.clone();
+pub async fn test_connection(state: State<'_, Arc<AppState>>) -> Result<u128, String> {
+    let settings = state.effective_settings();
+    if settings.api_key.is_empty() {
+        return Err("尚未配置 API Key".into());
+    }
+    let api_key = settings.api_key.clone();
     let provider = OpenAIProvider::new(settings, api_key);
     provider.test().await.map_err(|e| e.to_string())
 }

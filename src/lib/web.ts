@@ -5,11 +5,14 @@ import type {
   ComputerAnnotatedPreview,
   ComputerMonitor,
   Conversation,
+  EffectiveSettingsView,
   ModelSettings,
+  PlatformSettings,
   SkillDef,
   SkillImportResult,
   StreamEvent,
-  ToolDef
+  ToolDef,
+  UserSettings
 } from '../types/chat'
 
 import { WEB_API_BASE } from './runtime'
@@ -84,12 +87,20 @@ export async function approveToolCall(
   })
 }
 
-export async function getSettings(): Promise<ModelSettings> {
-  return await request<ModelSettings>('/api/settings')
+export async function getSettings(): Promise<EffectiveSettingsView> {
+  return await request<EffectiveSettingsView>('/api/settings')
 }
 
-export async function updateSettings(settings: ModelSettings): Promise<ModelSettings> {
-  return await request<ModelSettings>('/api/settings', { method: 'PUT', body: JSON.stringify(settings) })
+export async function updateSettings(settings: ModelSettings): Promise<EffectiveSettingsView> {
+  return await request<EffectiveSettingsView>('/api/settings', { method: 'PUT', body: JSON.stringify(settings) })
+}
+
+export async function updateUserSettings(user: UserSettings): Promise<EffectiveSettingsView> {
+  return await request<EffectiveSettingsView>('/api/user-settings', { method: 'PUT', body: JSON.stringify(user) })
+}
+
+export async function updatePlatformSettings(_platform: PlatformSettings): Promise<EffectiveSettingsView> {
+  throw new Error('web runtime: platform settings are read-only')
 }
 
 export async function setApiKey(key: string): Promise<void> {
@@ -170,6 +181,7 @@ export interface PlatformSessionView {
   logged_in: boolean
   expires_at?: number | null
   user_nickname?: string | null
+  isPlatformAdmin?: boolean
 }
 
 export async function getPlatformSession(): Promise<PlatformSessionView> {

@@ -13,10 +13,12 @@ pub mod task_board;
 pub mod task_board_history_trim {
     pub use crate::task_board::history_trim::*;
 }
+pub mod local_secret;
 pub mod logging;
 pub mod llm_prompt_dump;
 pub mod llm_token_stats;
 pub mod models;
+pub mod platform_config;
 pub mod provider;
 pub mod skills;
 pub mod storage;

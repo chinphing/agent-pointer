@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
     response::IntoResponse,
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use futures_util::Stream;
@@ -12,8 +12,9 @@ use pointer_core::{
     agents::AgentDef,
     chat_service::{run_chat, AppState},
     models::{
-        ensure_agent_model_refs_have_provider, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
-        ModelSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent, ToolDef,
+        ComputerAnnotatedPreview, ComputerMonitor, Conversation, EffectiveSettingsView,
+        ModelSettings, PlatformSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent,
+        ToolDef, UserSettings,
     },
     provider::OpenAIProvider,
     storage,
@@ -79,6 +80,8 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/api/health", get(|| async { "ok" }))
         .route("/api/settings", get(get_settings).put(update_settings))
+        .route("/api/user-settings", put(update_user_settings))
+        .route("/api/platform-settings", put(update_platform_settings))
         .route("/api/key", post(set_api_key).delete(clear_api_key))
         .route("/api/test-connection", post(test_connection))
         .route("/api/skills", get(list_skills).post(import_skill_zip))
@@ -120,16 +123,40 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn get_settings() -> Result<Json<ModelSettings>, ApiError> {
-    Ok(Json(storage::load_settings()?))
+async fn get_settings(State(state): State<ServerState>) -> Result<Json<EffectiveSettingsView>, ApiError> {
+    Ok(Json(state.core.effective_settings_view()))
+}
+
+async fn update_user_settings(
+    State(state): State<ServerState>,
+    Json(mut user): Json<UserSettings>,
+) -> Result<Json<EffectiveSettingsView>, ApiError> {
+    if user.theme.trim().is_empty() {
+        user.theme = "system".into();
+    }
+    state.core.save_user_settings(&user)?;
+    Ok(Json(state.core.effective_settings_view()))
+}
+
+async fn update_platform_settings(
+    State(state): State<ServerState>,
+    Json(_platform): Json<PlatformSettings>,
+) -> Result<Json<EffectiveSettingsView>, ApiError> {
+    Err(ApiError(anyhow::anyhow!(
+        "web runtime: platform settings are read-only"
+    )))
 }
 
 async fn update_settings(
-    Json(mut settings): Json<ModelSettings>,
-) -> Result<Json<ModelSettings>, ApiError> {
-    ensure_agent_model_refs_have_provider(&mut settings);
-    storage::save_settings(&settings)?;
-    Ok(Json(storage::load_settings()?))
+    State(state): State<ServerState>,
+    Json(settings): Json<ModelSettings>,
+) -> Result<Json<EffectiveSettingsView>, ApiError> {
+    let user = UserSettings {
+        theme: settings.theme.clone(),
+        user_nickname: None,
+    };
+    state.core.save_user_settings(&user)?;
+    Ok(Json(state.core.effective_settings_view()))
 }
 
 #[derive(Deserialize)]
@@ -137,20 +164,20 @@ struct KeyPayload {
     api_key: String,
 }
 
-async fn set_api_key(Json(payload): Json<KeyPayload>) -> Result<StatusCode, ApiError> {
-    storage::save_api_key(&payload.api_key)?;
+async fn set_api_key(Json(_payload): Json<KeyPayload>) -> Result<StatusCode, ApiError> {
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn clear_api_key() -> Result<StatusCode, ApiError> {
-    storage::clear_api_key()?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn test_connection() -> Result<Json<u128>, ApiError> {
-    let mut settings = storage::load_settings()?;
-    let api_key = storage::load_api_key()?.ok_or_else(|| anyhow::anyhow!("尚未配置 API Key"))?;
-    settings.api_key = api_key.clone();
+async fn test_connection(State(state): State<ServerState>) -> Result<Json<u128>, ApiError> {
+    let settings = state.core.effective_settings();
+    if settings.api_key.is_empty() {
+        return Err(ApiError(anyhow::anyhow!("尚未配置 API Key")));
+    }
+    let api_key = settings.api_key.clone();
     let provider = OpenAIProvider::new(settings, api_key);
     Ok(Json(provider.test().await?))
 }

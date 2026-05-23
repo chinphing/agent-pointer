@@ -27,7 +27,15 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
     defaultId: 'qwen',
     defaultName: '千问',
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    defaultModels: ['qwen3.5-plus', 'qwen3.6-plus', 'qwen3.5-flash', 'qwen3.5-27b']
+    defaultModels: [
+      'qwen3.5-plus',
+      'qwen3.5-27b',
+      'qwen3.5-flash',
+      'qwen3.7-max',
+      'qwen3.6-plus',
+      'qwen3.6-27b',
+      'qwen3.6-flash'
+    ]
   },
   {
     id: 'deepseek',

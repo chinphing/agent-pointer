@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import {
   Bot,
+  Bug,
   Check,
   ChevronRight,
   Copy,
@@ -9,10 +10,14 @@ import {
   Database,
   FolderOpen,
   Gauge,
+  Info,
+  Monitor,
+  Moon,
   Network,
   Plus,
   SlidersHorizontal,
   Sparkles,
+  Sun,
   Trash2,
   UserCircle,
   Users,
@@ -96,7 +101,7 @@ function patchComputerTierLlm(key: ComputerTierKey, patch: Partial<ComputerTierL
 }
 
 const saving = ref(false)
-const activeSection = ref('provider')
+const activeSection = ref('assistant')
 const copiedKey = ref(false)
 
 const toolApprovalMode = ref<'auto' | 'manual'>('auto')
@@ -115,6 +120,7 @@ const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
 const computerHumanLike = ref(false)
 const computerInitialTier = ref<ComputerInitialTier>('primary')
 const theme = ref<ThemePreference>('system')
+const debugMenusEnabled = ref(false)
 const agentUiLocal = ref<Partial<AgentUiConfig>>({})
 const agents = ref<AgentDef[]>([])
 
@@ -269,18 +275,31 @@ function copyOriginalKey() {
   }).catch(e => console.error(e))
 }
 
-const baseSections = [
+const alwaysSections = [
+  { id: 'assistant', label: '智能体', desc: 'Computer 与工具权限', icon: Bot }
+] as const
+
+const debugSections = [
   { id: 'provider', label: '模型服务', desc: '管理 AI 服务', icon: Cpu },
   { id: 'generation', label: '生成参数', desc: '输出控制', icon: Gauge },
-  { id: 'agent', label: '智能模式', desc: '工作方式', icon: Bot },
+  { id: 'agent', label: '智能模式', desc: '工作方式', icon: Gauge },
   { id: 'runtime', label: '运行时', desc: '存储与网络', icon: Database }
 ] as const
 
+const showDebugMenus = computed(() => s.canEditPlatform && debugMenusEnabled.value)
+const debugSectionIds = new Set(debugSections.map(s => s.id))
+const debugModeTitle = computed(() =>
+  debugMenusEnabled.value ? '调试模式：已开启（点击关闭）' : '调试模式：已关闭（点击开启）'
+)
+
 const sections = computed(() => {
-  if (!isTauriRuntime()) return [...baseSections]
+  const merged = showDebugMenus.value
+    ? [...alwaysSections, ...debugSections]
+    : [...alwaysSections]
+  if (!isTauriRuntime()) return merged
   return [
     { id: 'account', label: '平台账户', desc: '登录与凭据', icon: UserCircle },
-    ...baseSections
+    ...merged
   ]
 })
 
@@ -358,6 +377,28 @@ async function applyThemeChoice(t: ThemePreference) {
   await s.saveUser({ theme: t })
 }
 
+function themeLabel(t: ThemePreference): string {
+  if (t === 'light') return '浅色'
+  if (t === 'dark') return '深色'
+  return '跟随系统'
+}
+
+function nextTheme(t: ThemePreference): ThemePreference {
+  if (t === 'system') return 'light'
+  if (t === 'light') return 'dark'
+  return 'system'
+}
+
+async function cycleTheme() {
+  await applyThemeChoice(nextTheme(theme.value))
+}
+
+const currentThemeIcon = computed(() => {
+  if (theme.value === 'light') return Sun
+  if (theme.value === 'dark') return Moon
+  return Monitor
+})
+
 async function loadAgents() {
   try {
     agents.value = await listAgents()
@@ -394,6 +435,8 @@ onMounted(() => {
   computerHumanLike.value = s.settings.computerHumanLike === true
   computerInitialTier.value = s.settings.computerInitialTier ?? 'primary'
   theme.value = (s.settings.theme as ThemePreference) || 'system'
+  debugMenusEnabled.value = s.canEditPlatform
+    && (s.settings.rawContentViewEnabled === true || s.settings.debugDumpLlmPrompts === true)
   agentUiLocal.value = { ...(s.settings.agentUiOverrides?.[activeUiAgentId.value] ?? {}) }
   loadAgents()
 })
@@ -401,6 +444,18 @@ onMounted(() => {
 watch(activeUiAgentId, id => {
   agentUiLocal.value = { ...(s.settings.agentUiOverrides?.[id] ?? {}) }
 })
+
+watch(showDebugMenus, enabled => {
+  if (!enabled) {
+    if (debugSectionIds.has(activeSection.value as (typeof debugSections)[number]['id'])) {
+      activeSection.value = 'assistant'
+    }
+  }
+})
+
+function onComputerInitialTierChecked(value: ComputerInitialTier, checked: boolean) {
+  if (checked) computerInitialTier.value = value
+}
 
 function taskBoardTrimChecked(agentId: string): boolean {
   const v = agentTaskBoardHistoryTrim.value[agentId]
@@ -719,7 +774,7 @@ async function saveAll() {
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="modelConfigModalId ? closeModelConfigModal() : emit('close')">
     <div class="w-[960px] max-w-[94vw] h-[740px] max-h-[90vh] glass-strong rounded-2xl border border-border shadow-2xl flex flex-col overflow-hidden">
       <!-- Header -->
-      <header class="px-6 h-14 flex items-center gap-3 border-b border-border shrink-0">
+      <header class="px-6 h-14 flex items-center gap-2 border-b border-border shrink-0">
         <div class="w-8 h-8 rounded-lg bg-accent/15 flex items-center justify-center">
           <SlidersHorizontal class="w-4 h-4 text-accent" />
         </div>
@@ -728,19 +783,34 @@ async function saveAll() {
           <p class="text-[11px] text-muted">配置 AI 模型、生成参数和工作模式</p>
         </div>
         <div class="flex-1" />
-        <div class="flex items-center gap-1 mr-2">
+        <div class="mr-1">
           <button
-            v-for="t in (['system', 'light', 'dark'] as ThemePreference[])"
-            :key="t"
             type="button"
-            class="px-2.5 py-1 rounded-md text-[11px] border transition-colors"
-            :class="theme === t ? 'border-accent bg-accent/10 text-foreground' : 'border-border text-muted hover:text-foreground'"
-            @click="applyThemeChoice(t)"
+            class="h-7 w-7 rounded-md border border-border text-foreground hover:bg-hover transition-colors inline-flex items-center justify-center"
+            :title="`主题：${themeLabel(theme)}（点击切换）`"
+            @click="cycleTheme"
           >
-            {{ t === 'system' ? '跟随系统' : t === 'light' ? '浅色' : '深色' }}
+            <component
+              :is="currentThemeIcon"
+              class="w-4 h-4"
+              :class="theme === 'light' ? 'text-amber-400' : theme === 'dark' ? 'text-indigo-400' : 'text-emerald-400'"
+            />
           </button>
         </div>
-        <button class="p-2 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="emit('close')">
+        <label
+          v-if="s.canEditPlatform"
+          class="mr-1"
+        >
+          <button
+            type="button"
+            class="h-7 w-7 rounded-md border border-border hover:bg-hover transition-colors inline-flex items-center justify-center"
+            :title="debugModeTitle"
+            @click="debugMenusEnabled = !debugMenusEnabled"
+          >
+            <Bug class="w-4 h-4" :class="debugMenusEnabled ? 'text-amber-400' : 'text-muted'" />
+          </button>
+        </label>
+        <button class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="emit('close')">
           <X class="w-4 h-4 text-muted" />
         </button>
       </header>
@@ -774,8 +844,80 @@ async function saveAll() {
           >
             仅平台管理员可修改平台配置；重启后恢复默认。登录后 API 密钥由平台自动注入。
           </p>
+          <!-- ==================== Assistant Section ==================== -->
+          <section v-if="activeSection === 'assistant'" class="p-6 space-y-5">
+            <div>
+              <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Bot class="w-4 h-4 text-accent" />智能体
+              </h3>
+              <p class="mt-0.5 text-xs text-muted">Computer Use Agent 与工具权限设置</p>
+            </div>
+
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
+              <h4 class="text-sm font-medium text-foreground">Computer Use Agent</h4>
+              <div class="grid grid-cols-2 gap-3">
+                <label
+                  class="px-1 py-1 inline-flex items-center gap-2 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    class="rounded border-border bg-card text-accent focus:ring-accent/40"
+                    :checked="computerHumanLike"
+                    @change="computerHumanLike = ($event.target as HTMLInputElement).checked"
+                  />
+                  <span class="text-[12px] text-foreground">人性化鼠标移动</span>
+                  <span
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors"
+                    title="启用后鼠标沿曲线移动并带微抖动；关闭时使用直线匀速移动（约 0.5–1.5 秒随机）"
+                  >
+                    <Info class="w-3.5 h-3.5" />
+                  </span>
+                </label>
+                <div
+                  class="px-1 py-1"
+                  title="新会话开始时 Computer 智能体使用的视觉级别；会话中仍可能因验证失败自动升档"
+                >
+                  <div class="flex items-center gap-3">
+                    <span class="text-[12px] text-foreground whitespace-nowrap">初始级别</span>
+                    <label
+                      v-for="opt in COMPUTER_INITIAL_TIER_OPTIONS"
+                      :key="opt.value"
+                      class="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-muted"
+                    >
+                      <input
+                        type="checkbox"
+                        class="rounded border-border bg-card text-accent focus:ring-accent/40"
+                        :checked="computerInitialTier === opt.value"
+                        @change="onComputerInitialTierChecked(opt.value, ($event.target as HTMLInputElement).checked)"
+                      />
+                      <span class="text-foreground">{{ opt.label }}</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
+              <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+                <Wrench class="w-4 h-4 text-accent" />工具使用权限
+              </h4>
+              <div class="grid grid-cols-2 gap-3">
+                <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'auto' ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
+                  <input v-model="toolApprovalMode" type="radio" value="auto" class="sr-only" />
+                  <span class="block text-sm text-foreground">自动执行</span>
+                  <span class="mt-1 block text-[11px] text-muted">AI 使用工具时自动执行，无需确认</span>
+                </label>
+                <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'manual' ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
+                  <input v-model="toolApprovalMode" type="radio" value="manual" class="sr-only" />
+                  <span class="block text-sm text-foreground">敏感操作确认</span>
+                  <span class="mt-1 block text-[11px] text-muted">涉及文件、命令等操作时需要你确认</span>
+                </label>
+              </div>
+            </div>
+          </section>
+
           <!-- ==================== Provider Section ==================== -->
-          <section v-if="activeSection === 'provider'" class="p-6 space-y-5">
+          <section v-else-if="activeSection === 'provider'" class="p-6 space-y-5">
             <div class="flex items-center justify-between">
               <div>
                 <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -965,7 +1107,10 @@ async function saveAll() {
               （创造性 {{ s.effectiveTemperature }}，最大输出 {{ s.effectiveMaxTokens }} tokens）。
             </div>
 
-            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4">
+            <div
+              v-if="showDebugMenus"
+              class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4"
+            >
               <div class="flex items-center justify-between gap-3">
                 <div>
                   <h4 class="text-sm font-medium text-foreground">原始内容查看</h4>
@@ -978,7 +1123,10 @@ async function saveAll() {
               </div>
             </div>
 
-            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4">
+            <div
+              v-if="showDebugMenus"
+              class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4"
+            >
               <div class="flex items-center justify-between gap-3">
                 <div>
                   <h4 class="text-sm font-medium text-foreground">保存每轮对话请求</h4>
@@ -1084,40 +1232,6 @@ async function saveAll() {
                         <span class="text-[11px] text-muted">任务板后精简历史</span>
                       </label>
 
-                      <label
-                        v-if="w.id === 'computer'"
-                        class="inline-flex items-center gap-1.5 cursor-pointer shrink-0"
-                        title="启用后鼠标沿曲线移动并带微抖动；关闭时使用直线匀速移动（约 0.5–1.5 秒随机）"
-                      >
-                        <input
-                          type="checkbox"
-                          class="rounded border-border bg-card text-accent focus:ring-accent/40"
-                          :checked="computerHumanLike"
-                          @change="computerHumanLike = ($event.target as HTMLInputElement).checked"
-                        />
-                        <span class="text-[11px] text-muted">人性化鼠标移动</span>
-                      </label>
-
-                      <div
-                        v-if="w.id === 'computer'"
-                        class="inline-flex items-center gap-1.5 shrink-0"
-                        title="新会话开始时 Computer 智能体使用的视觉级别；会话中仍可能因验证失败自动升档"
-                      >
-                        <span class="text-[11px] text-muted whitespace-nowrap">初始级别</span>
-                        <select
-                          v-model="computerInitialTier"
-                          class="h-7 px-2 rounded bg-card border border-border text-[11px] text-foreground cursor-pointer outline-none focus:border-accent/50 transition-colors"
-                          @click.stop
-                        >
-                          <option
-                            v-for="opt in COMPUTER_INITIAL_TIER_OPTIONS"
-                            :key="opt.value"
-                            :value="opt.value"
-                          >
-                            {{ opt.label }}
-                          </option>
-                        </select>
-                      </div>
                     </div>
 
                     <div
@@ -1125,16 +1239,19 @@ async function saveAll() {
                       class="col-span-full mt-3 rounded-xl border border-border panel p-4 space-y-3"
                       :class="platformReadOnly ? 'opacity-60 pointer-events-none' : ''"
                     >
-                      <h4 class="text-xs font-medium text-foreground">Computer 分级模型</h4>
+                      <div class="flex items-center justify-between gap-2">
+                        <h4 class="text-xs font-medium text-foreground">Computer 分级模型</h4>
+                        <span class="text-[10px] text-muted">按级别覆盖模型与思考参数</span>
+                      </div>
                       <div
                         v-for="tier in COMPUTER_TIER_UI"
                         :key="tier.key"
-                        class="grid grid-cols-[4rem_1fr_auto_auto] gap-2 items-center"
+                        class="grid grid-cols-[4.5rem_1fr_auto_6rem] gap-2 items-center px-2 py-1.5"
                       >
-                        <span class="text-[11px] text-muted">{{ tier.label }}</span>
+                        <span class="text-[11px] text-muted font-medium">{{ tier.label }}</span>
                         <select
                           :value="computerTierLlm(tier.key).model"
-                          class="h-7 px-2 rounded bg-card border border-border text-[11px] text-foreground outline-none focus:border-accent/50"
+                          class="h-8 px-2 rounded bg-card border border-border text-[12px] text-foreground outline-none focus:border-accent/50"
                           @change="patchComputerTierLlm(tier.key, { model: ($event.target as HTMLSelectElement).value })"
                         >
                           <option v-for="m in qwenModelOptions" :key="m" :value="m">{{ m }}</option>
@@ -1146,13 +1263,13 @@ async function saveAll() {
                             :checked="computerTierLlm(tier.key).enableThinking !== false"
                             @change="patchComputerTierLlm(tier.key, { enableThinking: ($event.target as HTMLInputElement).checked })"
                           />
-                          深度思考
+                          思考
                         </label>
                         <input
                           type="number"
                           min="256"
                           step="256"
-                          class="h-7 w-20 px-2 rounded bg-card border border-border text-[11px] text-foreground outline-none focus:border-accent/50"
+                          class="h-8 w-full px-2 rounded bg-card border border-border text-[12px] text-foreground outline-none focus:border-accent/50"
                           :value="computerTierLlm(tier.key).thinkingBudget ?? 2048"
                           :disabled="computerTierLlm(tier.key).enableThinking === false"
                           @change="patchComputerTierLlm(tier.key, { thinkingBudget: Number(($event.target as HTMLInputElement).value) })"
@@ -1262,24 +1379,6 @@ async function saveAll() {
               </div>
             </div>
 
-            <!-- Tool Approval -->
-            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
-              <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-                <Wrench class="w-4 h-4 text-accent" />工具使用权限
-              </h4>
-              <div class="grid grid-cols-2 gap-3">
-                <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'auto' ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
-                  <input v-model="toolApprovalMode" type="radio" value="auto" class="sr-only" />
-                  <span class="block text-sm text-foreground">自动执行</span>
-                  <span class="mt-1 block text-[11px] text-muted">AI 使用工具时自动执行，无需确认</span>
-                </label>
-                <label class="rounded-xl border p-3 cursor-pointer transition-all" :class="toolApprovalMode === 'manual' ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'">
-                  <input v-model="toolApprovalMode" type="radio" value="manual" class="sr-only" />
-                  <span class="block text-sm text-foreground">敏感操作确认</span>
-                  <span class="mt-1 block text-[11px] text-muted">涉及文件、命令等操作时需要你确认</span>
-                </label>
-              </div>
-            </div>
           </section>
 
           <!-- ==================== Platform account (desktop) ==================== -->

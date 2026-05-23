@@ -8,6 +8,7 @@ use crate::models::{
     ModelSettings, PlatformSettings, ProviderConfig, UserSettings,
 };
 use crate::storage;
+use std::collections::HashMap;
 
 static GLOBAL_PLATFORM_CONFIG: OnceLock<SharedPlatformConfig> = OnceLock::new();
 
@@ -84,6 +85,60 @@ pub fn finalize_merged_settings(mut settings: ModelSettings) -> ModelSettings {
     ensure_agent_model_refs_have_provider(&mut settings);
     ensure_provider_generation_defaults(&mut settings);
     settings
+}
+
+/// Build platform settings from merged UI/runtime model settings.
+pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSettings {
+    PlatformSettings {
+        providers: s.providers.clone(),
+        active_provider_id: s.active_provider_id.clone(),
+        model: s.model.clone(),
+        temperature: s.temperature,
+        max_tokens: s.max_tokens,
+        tool_approval_mode: s.tool_approval_mode.clone(),
+        agent_mode: s.agent_mode.clone(),
+        workspace_root: s.workspace_root.clone(),
+        lead_agent_id: s.lead_agent_id.clone(),
+        context_compression_enabled: s.context_compression_enabled,
+        context_budget_chars: s.context_budget_chars,
+        context_keep_recent_user_turns: s.context_keep_recent_user_turns,
+        context_summary_max_tokens: s.context_summary_max_tokens,
+        max_tool_rounds: s.max_tool_rounds,
+        max_sub_agent_tool_rounds: s.max_sub_agent_tool_rounds,
+        raw_content_view_enabled: s.raw_content_view_enabled,
+        debug_dump_llm_prompts: s.debug_dump_llm_prompts,
+        agent_default_models: s.agent_default_models.clone(),
+        agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
+        computer_human_like: s.computer_human_like,
+        computer_initial_tier: s.computer_initial_tier.clone(),
+        agent_ui_overrides: s.agent_ui_overrides.clone(),
+        computer_tier_llm: PlatformSettings::default().computer_tier_llm,
+    }
+}
+
+/// Apply UI-edited preferences while preserving empty incoming provider keys.
+pub fn merge_platform_preferences(incoming: &ModelSettings, existing: &PlatformSettings) -> PlatformSettings {
+    let mut next = platform_settings_from_model_settings(incoming);
+    next.computer_tier_llm = existing.computer_tier_llm.clone();
+    let preserved_keys: HashMap<String, String> = existing
+        .providers
+        .iter()
+        .map(|p| (p.id.clone(), p.api_key.clone()))
+        .collect();
+    for provider in &mut next.providers {
+        if provider.api_key.trim().is_empty() {
+            if let Some(key) = preserved_keys.get(&provider.id) {
+                provider.api_key = key.clone();
+            }
+        }
+    }
+    next
+}
+
+pub fn persist_local_platform_settings(platform: &PlatformSettings) {
+    if let Err(e) = storage::save_local_platform_settings(platform) {
+        log::warn!("platform_config: failed to persist local platform settings: {e}");
+    }
 }
 
 /// Inject OAuth-issued LLM credentials into platform provider list.

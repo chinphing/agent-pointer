@@ -398,7 +398,6 @@ export const useChatStore = defineStore('chat', () => {
       case 'agent_step': {
         const r = findMessage(e.messageId)
         if (!r) return
-        if ((e.agent.depth ?? 0) > 0) break
         r.msg.status = 'streaming'
         r.msg.agentId = e.agent.id
         r.msg.agentName = e.agent.name

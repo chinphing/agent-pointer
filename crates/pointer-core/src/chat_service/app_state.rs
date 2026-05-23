@@ -8,12 +8,13 @@ use tokio_util::sync::CancellationToken;
 use crate::agents::register_builtin_agents;
 use crate::extensions::ExtensionRegistry;
 use crate::models::{
-    ensure_agent_model_refs_have_provider, EffectiveSettingsView, PlatformSettings, UserSettings,
+    ensure_agent_model_refs_have_provider, EffectiveSettingsView, ModelSettings, PlatformSettings,
+    UserSettings,
 };
 use crate::platform_auth::{PlatformLoginCredentials, SharedPlatformAuth};
 use crate::platform_config::{
-    apply_login_llm_credentials, finalize_merged_settings, PlatformConfigManager,
-    SharedPlatformConfig,
+    apply_login_llm_credentials, finalize_merged_settings, merge_platform_preferences,
+    persist_local_platform_settings, PlatformConfigManager, SharedPlatformConfig,
 };
 use crate::skills::SkillRegistry;
 use crate::storage;
@@ -38,8 +39,17 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         let platform_mgr = PlatformConfigManager::new();
-        let platform_config = platform_mgr.shared();
         storage::ensure_legacy_settings_migrated();
+        match storage::load_local_platform_settings() {
+            Ok(Some(local)) => {
+                log::info!("storage: loaded local platform settings from disk");
+                platform_mgr.replace(local);
+            }
+            Ok(None) => {}
+            Err(e) => log::warn!("storage: load local platform settings failed: {e}"),
+        }
+
+        let platform_config = platform_mgr.shared();
 
         let tools = Arc::new(ToolRegistry::new());
         let task_board_store = match crate::task_board::open_default_persistence() {
@@ -127,8 +137,20 @@ impl AppState {
         let mut tmp = crate::models::merge_user_platform(&UserSettings::default(), &patch);
         ensure_agent_model_refs_have_provider(&mut tmp);
         patch.agent_default_models = tmp.agent_default_models;
-        *self.platform_config.write() = patch;
+        *self.platform_config.write() = patch.clone();
+        persist_local_platform_settings(&patch);
         Ok(self.effective_settings_view())
+    }
+
+    pub fn apply_session_platform_preferences(
+        &self,
+        incoming: &ModelSettings,
+    ) -> anyhow::Result<()> {
+        let current = self.platform_config.read().clone();
+        let next = merge_platform_preferences(incoming, &current);
+        *self.platform_config.write() = next.clone();
+        persist_local_platform_settings(&next);
+        Ok(())
     }
 
     pub fn apply_login_credentials(&self, creds: &PlatformLoginCredentials) {
@@ -138,6 +160,7 @@ impl AppState {
             creds.api_key.as_deref(),
             creds.llm_provider.as_deref(),
         );
+        persist_local_platform_settings(&platform);
     }
 
     pub fn cancel(&self, conversation_id: &str) {

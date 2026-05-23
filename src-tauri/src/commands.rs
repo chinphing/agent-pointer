@@ -8,6 +8,7 @@ use pointer_core::models::{
 };
 
 use pointer_core::provider::OpenAIProvider;
+use pointer_core::platform_config::platform_settings_from_model_settings;
 use pointer_core::storage;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
@@ -119,36 +120,17 @@ pub fn update_settings(
             user_nickname: None,
         };
         state.save_user_settings(&user).map_err(|e| e.to_string())?;
+        state
+            .apply_session_platform_preferences(&settings)
+            .map_err(|e| e.to_string())?;
         Ok(state.effective_settings_view())
     }
 }
 
 fn platform_from_model_settings(s: &ModelSettings) -> PlatformSettings {
-    PlatformSettings {
-        providers: s.providers.clone(),
-        active_provider_id: s.active_provider_id.clone(),
-        model: s.model.clone(),
-        temperature: s.temperature,
-        max_tokens: s.max_tokens,
-        tool_approval_mode: s.tool_approval_mode.clone(),
-        agent_mode: s.agent_mode.clone(),
-        workspace_root: s.workspace_root.clone(),
-        lead_agent_id: s.lead_agent_id.clone(),
-        context_compression_enabled: s.context_compression_enabled,
-        context_budget_chars: s.context_budget_chars,
-        context_keep_recent_user_turns: s.context_keep_recent_user_turns,
-        context_summary_max_tokens: s.context_summary_max_tokens,
-        max_tool_rounds: s.max_tool_rounds,
-        max_sub_agent_tool_rounds: s.max_sub_agent_tool_rounds,
-        raw_content_view_enabled: s.raw_content_view_enabled,
-        debug_dump_llm_prompts: s.debug_dump_llm_prompts,
-        agent_default_models: s.agent_default_models.clone(),
-        agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
-        computer_human_like: s.computer_human_like,
-        computer_initial_tier: s.computer_initial_tier.clone(),
-        agent_ui_overrides: s.agent_ui_overrides.clone(),
-        computer_tier_llm: PlatformSettings::default().computer_tier_llm,
-    }
+    let mut platform = platform_settings_from_model_settings(s);
+    platform.computer_tier_llm = PlatformSettings::default().computer_tier_llm;
+    platform
 }
 
 #[tauri::command]

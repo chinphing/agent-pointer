@@ -1,6 +1,7 @@
 use crate::models::{
     ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults, merge_user_platform,
-    Conversation, ModelSettings, PlatformSettings, UserSettings,
+    AgentModelRef, Conversation, ModelRuntimeOverrides, ModelSettings, PlatformSettings,
+    ProviderConfig, UserSettings,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -38,6 +39,9 @@ fn settings_migrated_path() -> Result<PathBuf> {
 }
 fn user_settings_path() -> Result<PathBuf> {
     Ok(data_dir()?.join("user_settings.json"))
+}
+fn local_platform_settings_path() -> Result<PathBuf> {
+    Ok(data_dir()?.join("local_platform_settings.json"))
 }
 fn auth_dat_path() -> Result<PathBuf> {
     Ok(data_dir()?.join("auth.dat"))
@@ -219,6 +223,8 @@ fn migrate_legacy_settings_if_needed() -> Result<()> {
         user_nickname: None,
     };
     write_user_settings_file(&user)?;
+    let platform = stored_settings_to_platform(&stored);
+    save_local_platform_settings(&platform)?;
     fs::rename(&legacy, &migrated)?;
     log::info!(
         "storage: legacy settings.json renamed to {}",
@@ -252,6 +258,136 @@ fn write_user_settings_file(user: &UserSettings) -> Result<()> {
 pub fn save_user_settings(user: &UserSettings) -> Result<()> {
     ensure_legacy_settings_migrated();
     write_user_settings_file(user)
+}
+
+/// Desktop-only persisted platform/runtime preferences (providers, workspace, agent defaults, etc.).
+pub fn load_local_platform_settings() -> Result<Option<PlatformSettings>> {
+    ensure_local_platform_imported()?;
+    let path = local_platform_settings_path()?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path)?;
+    Ok(Some(serde_json::from_str(&raw).unwrap_or_default()))
+}
+
+pub fn save_local_platform_settings(platform: &PlatformSettings) -> Result<()> {
+    fs::write(
+        local_platform_settings_path()?,
+        serde_json::to_vec_pretty(platform)?,
+    )?;
+    Ok(())
+}
+
+/// One-time import for installs that migrated theme before local platform persistence existed.
+fn ensure_local_platform_imported() -> Result<()> {
+    let local = local_platform_settings_path()?;
+    if local.exists() {
+        return Ok(());
+    }
+    let migrated = settings_migrated_path()?;
+    if !migrated.exists() {
+        return Ok(());
+    }
+    log::info!("storage: importing local platform settings from settings.json.migrated");
+    let raw = fs::read_to_string(&migrated)?;
+    let stored: StoredSettings = serde_json::from_str(&raw).unwrap_or_default();
+    let platform = stored_settings_to_platform(&stored);
+    save_local_platform_settings(&platform)?;
+    log::info!("storage: wrote local_platform_settings.json from legacy backup");
+    Ok(())
+}
+
+fn stored_model_overrides_to_runtime(v: &StoredModelOverrides) -> ModelRuntimeOverrides {
+    ModelRuntimeOverrides {
+        reasoning_in_messages: v.reasoning_in_messages,
+        temperature: v.temperature,
+        max_tokens: v.max_tokens,
+        enable_thinking: v.enable_thinking.or(v.thinking_enabled),
+        thinking_budget: v.thinking_budget,
+        reasoning_effort: v.reasoning_effort.clone(),
+    }
+}
+
+fn stored_provider_to_platform(p: &StoredProvider, legacy_reasoning: Option<bool>) -> ProviderConfig {
+    ProviderConfig {
+        id: p.id.clone(),
+        name: p.name.clone(),
+        base_url: p.base_url.clone(),
+        api_key: p.api_key.clone(),
+        models: p.models.clone(),
+        reasoning_in_messages: p.reasoning_in_messages.or(legacy_reasoning),
+        temperature: p.temperature,
+        max_tokens: p.max_tokens,
+        model_configs: p
+            .model_configs
+            .iter()
+            .map(|(k, v)| (k.clone(), stored_model_overrides_to_runtime(v)))
+            .collect(),
+        enable_thinking: p.enable_thinking.or(p.thinking_enabled),
+        thinking_budget: p.thinking_budget,
+        reasoning_effort: p.reasoning_effort.clone(),
+    }
+}
+
+fn normalize_disk_agent_defaults(
+    raw: &HashMap<String, serde_json::Value>,
+    legacy_active_provider: &str,
+) -> HashMap<String, AgentModelRef> {
+    let mut out = HashMap::new();
+    for (k, v) in raw {
+        let mut r = match AgentModelRef::from_json_value_flexible(v.clone()) {
+            Some(x) => x,
+            None => continue,
+        };
+        if r.provider_id.trim().is_empty() {
+            r.provider_id = legacy_active_provider.to_string();
+        }
+        out.insert(k.clone(), r);
+    }
+    out
+}
+
+fn stored_settings_to_platform(stored: &StoredSettings) -> PlatformSettings {
+    let legacy_reasoning = stored.legacy_reasoning_in_messages;
+    let active = if stored.active_provider_id.trim().is_empty() {
+        "qwen".to_string()
+    } else {
+        stored.active_provider_id.clone()
+    };
+    let mut platform = PlatformSettings {
+        providers: stored
+            .providers
+            .iter()
+            .map(|p| stored_provider_to_platform(p, legacy_reasoning))
+            .collect(),
+        active_provider_id: active.clone(),
+        model: stored.model.clone(),
+        temperature: stored.temperature,
+        max_tokens: stored.max_tokens,
+        tool_approval_mode: stored.tool_approval_mode.clone(),
+        agent_mode: stored.agent_mode.clone(),
+        workspace_root: stored.workspace_root.clone(),
+        lead_agent_id: stored.lead_agent_id.clone(),
+        context_compression_enabled: stored.context_compression_enabled,
+        context_budget_chars: stored.context_budget_chars,
+        context_keep_recent_user_turns: stored.context_keep_recent_user_turns,
+        context_summary_max_tokens: stored.context_summary_max_tokens,
+        max_tool_rounds: stored.max_tool_rounds,
+        max_sub_agent_tool_rounds: stored.max_sub_agent_tool_rounds,
+        raw_content_view_enabled: stored.raw_content_view_enabled,
+        debug_dump_llm_prompts: stored.debug_dump_llm_prompts,
+        agent_default_models: normalize_disk_agent_defaults(&stored.agent_default_models, &active),
+        agent_task_board_history_trim: stored.agent_task_board_history_trim.clone(),
+        computer_human_like: stored.computer_human_like,
+        computer_initial_tier: stored.computer_initial_tier.clone(),
+        agent_ui_overrides: stored.agent_ui_overrides.clone(),
+        ..PlatformSettings::default()
+    };
+    let mut merged = merge_user_platform(&UserSettings::default(), &platform);
+    ensure_agent_model_refs_have_provider(&mut merged);
+    platform.agent_default_models = merged.agent_default_models;
+    platform
 }
 
 pub fn save_platform_refresh_token(refresh: &str) -> Result<()> {

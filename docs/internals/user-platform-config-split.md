@@ -38,7 +38,7 @@ On first startup after upgrade:
 1. If `settings.json` exists and `settings.json.migrated` does not, read **theme only** → write `user_settings.json`.
 2. Rename `settings.json` → `settings.json.migrated` (backup).
 3. Remove deprecated `key.dat` if present.
-4. Platform fields are **not** migrated (restart uses new code defaults).
+4. Platform fields are imported into `local_platform_settings.json` (desktop) from legacy `settings.json` / `settings.json.migrated`.
 
 **No keyring migration** — users re-login once; refresh token is stored in `auth.dat`.
 

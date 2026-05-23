@@ -236,13 +236,11 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                 let has_previous_raw = cap.inject_before_action.is_some();
                 let (image_slot_labels, images) = assemble_cur_screen_payload(tier, &cap);
                 let mut text = cur_screen_clock_prefix();
-                if let Some(lock) = ctx
+                if let Some(label) = ctx
                     .computer_state
-                    .locked_goal_dynamic_block(ctx.conversation_id)
+                    .locked_goal_label(ctx.conversation_id)
                 {
-                    if let Some(label) = lock.lines().nth(3) {
-                        text.push_str(&format!("Locked goal: {label}\n\n"));
-                    }
+                    text.push_str(&format!("Locked goal: {label}\n\n"));
                 }
                 text.push_str(&build_cur_screen_preamble(tier, has_previous_raw));
                 if let Some(block) = ctx.computer_state.recent_actions_prompt_block(ctx.conversation_id) {

@@ -1,8 +1,11 @@
 use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::tier::{current_computer_tier, tier_allows_index_tools};
 use crate::agents::computer::verify::VerifyHintGenerator;
-use crate::agents::computer::vision_state::{CornerAnchor, VisionState};
-use super::args_util::{clamp_scroll_lines, human_like_from_args, require_non_empty_str, MOVE_OFFSET_MAX};
+use crate::agents::computer::vision_state::VisionState;
+use super::args_util::{
+    clamp_scroll_lines, human_like_from_args, method_uses_overlay_index, require_non_empty_str,
+    resolve_index_pixels as resolve_index_from_vision, MOVE_OFFSET_MAX,
+};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -35,8 +38,8 @@ impl MouseTool {
 
     pub fn execute(&self, method: &str, args: &Value) -> Result<String> {
         require_non_empty_str(args, "goal")?;
-        if method.ends_with("_index") {
-            self.ensure_index_method_allowed()?;
+        if method_uses_overlay_index(method) {
+            self.ensure_index_method_allowed(method)?;
         }
         match method {
             "click_index" => self.click_index(args),
@@ -61,11 +64,15 @@ impl MouseTool {
         }
     }
 
-    fn ensure_index_method_allowed(&self) -> Result<()> {
+    fn ensure_index_method_allowed(&self, method: &str) -> Result<()> {
+        if !method_uses_overlay_index(method) {
+            return Ok(());
+        }
         if let Some(tier) = current_computer_tier() {
             if !tier_allows_index_tools(tier) {
                 anyhow::bail!(
-                    "Index-based mouse methods are disabled; use *_at with session x/y from Overlay reference bboxes."
+                    "Index-based mouse methods are disabled at tier `{}`; use *_at with session x/y from Overlay reference bboxes.",
+                    tier.label()
                 );
             }
         }
@@ -74,19 +81,9 @@ impl MouseTool {
 
     fn resolve_index_pixels(&self, args: &Value, index: u32) -> Result<(i32, i32)> {
         let vision = self.vision_state.lock().unwrap();
-        let out = if let Some(anchor) = args
-            .get("anchor")
-            .and_then(|v| v.as_str())
-            .and_then(CornerAnchor::parse)
-        {
-            let dx = args.get("dx").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            let dy = args.get("dy").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            vision.resolve_index_anchor(index, anchor, dx, dy)
-        } else {
-            vision.resolve_index(index)
-        };
+        let out = resolve_index_from_vision(&vision, args, index);
         drop(vision);
-        out.ok_or_else(|| anyhow!("Index {} not found in current annotation", index))
+        out
     }
 
     fn click_index(&self, args: &Value) -> Result<String> {

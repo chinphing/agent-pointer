@@ -130,6 +130,8 @@ struct StoredSettings {
     agent_task_board_history_trim: HashMap<String, bool>,
     #[serde(default, rename = "computerHumanLike")]
     computer_human_like: bool,
+    #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
+    computer_initial_tier: String,
     #[serde(default = "default_theme")]
     theme: String,
     #[serde(default, rename = "agentUiOverrides")]
@@ -173,6 +175,10 @@ fn default_raw_content_view_enabled() -> bool {
 
 fn default_theme() -> String {
     "system".into()
+}
+
+fn default_computer_initial_tier() -> String {
+    "primary".into()
 }
 
 fn stored_model_overrides_to_runtime(v: &StoredModelOverrides) -> ModelRuntimeOverrides {
@@ -307,6 +313,7 @@ impl Default for StoredSettings {
                 .collect(),
             agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
             computer_human_like: s.computer_human_like,
+            computer_initial_tier: s.computer_initial_tier.clone(),
             theme: s.theme.clone(),
             agent_ui_overrides: s.agent_ui_overrides.clone(),
             legacy_reasoning_in_messages: None,
@@ -388,6 +395,11 @@ pub fn load_settings() -> Result<ModelSettings> {
         agent_default_models,
         agent_task_board_history_trim: stored.agent_task_board_history_trim,
         computer_human_like: stored.computer_human_like,
+        computer_initial_tier: if stored.computer_initial_tier.trim().is_empty() {
+            default_computer_initial_tier()
+        } else {
+            stored.computer_initial_tier.clone()
+        },
         theme: if stored.theme.is_empty() {
             default_theme()
         } else {
@@ -470,6 +482,7 @@ pub fn save_settings(s: &ModelSettings) -> Result<()> {
             .collect(),
         agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
         computer_human_like: s.computer_human_like,
+        computer_initial_tier: s.computer_initial_tier.clone(),
         theme: s.theme.clone(),
         agent_ui_overrides: s.agent_ui_overrides.clone(),
         legacy_reasoning_in_messages: None,

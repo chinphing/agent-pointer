@@ -2,7 +2,8 @@ use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::vision_state::VisionState;
 use super::args_util::{
-    clamp_scroll_lines, human_like_from_args, json_bool_loose, require_non_empty_str, text_from_args,
+    clamp_scroll_lines, ensure_index_method_allowed, human_like_from_args, json_bool_loose,
+    require_non_empty_str, resolve_index_pixels, text_from_args,
 };
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -36,6 +37,7 @@ impl CompositeActionTool {
 
     pub fn execute(&self, method: &str, args: &Value) -> Result<String> {
         require_non_empty_str(args, "goal")?;
+        ensure_index_method_allowed(method)?;
         match method {
             "type_text_at_index" => self.type_text_at_index(args),
             "type_text_at" => self.type_text_at(args),
@@ -56,9 +58,7 @@ impl CompositeActionTool {
         let clear_first = json_bool_loose(args.get("clear_first"));
         let auto_enter = json_bool_loose(args.get("auto_enter"));
         let vision = self.vision_state.lock().unwrap();
-        let (x, y) = vision
-            .resolve_index(index)
-            .ok_or_else(|| anyhow!("Index {} not found in current annotation", index))?;
+        let (x, y) = resolve_index_pixels(&vision, args, index)?;
         drop(vision);
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
@@ -109,9 +109,7 @@ impl CompositeActionTool {
             .ok_or_else(|| anyhow!("Missing or invalid 'lines' parameter"))? as i32;
         let lines = clamp_scroll_lines(lines_raw)?;
         let vision = self.vision_state.lock().unwrap();
-        let (x, y) = vision
-            .resolve_index(index)
-            .ok_or_else(|| anyhow!("Index {} not found in current annotation", index))?;
+        let (x, y) = resolve_index_pixels(&vision, args, index)?;
         drop(vision);
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();

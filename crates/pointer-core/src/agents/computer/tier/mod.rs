@@ -111,6 +111,14 @@ impl ComputerTierConfig {
         }
         cfg
     }
+
+    /// App settings override agent manifest when `computerInitialTier` is non-empty.
+    pub fn apply_app_settings(&mut self, settings: &crate::models::ModelSettings) {
+        let tier = settings.computer_initial_tier.trim();
+        if !tier.is_empty() {
+            self.initial_tier = ComputerTier::parse(tier);
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -189,6 +197,10 @@ impl ComputerTierRuntime {
     pub fn fingerprint_goal(goal: &str) -> String {
         let normalized = normalize_goal_text(goal);
         stable_hash_hex16(&normalized)
+    }
+
+    pub fn locked_goal_label(&self) -> Option<&str> {
+        self.locked_goal.as_ref().map(|l| l.label.as_str())
     }
 
     pub fn locked_goal_dynamic_block(&self) -> Option<String> {
@@ -787,5 +799,37 @@ mod tests {
         );
         let o2 = ComputerRoundLlmOverrides::for_tier(ComputerTier::Intermediate, &cfg);
         assert_eq!(o2.thinking_budget, Some(2048));
+    }
+
+    #[test]
+    fn apply_app_settings_overrides_initial_tier() {
+        let mut cfg = ComputerTierConfig::default();
+        assert_eq!(cfg.initial_tier, ComputerTier::Primary);
+        let settings = crate::models::ModelSettings {
+            computer_initial_tier: "advanced".into(),
+            ..crate::models::ModelSettings::default()
+        };
+        cfg.apply_app_settings(&settings);
+        assert_eq!(cfg.initial_tier, ComputerTier::Advanced);
+    }
+
+    #[test]
+    fn locked_goal_label_returns_goal_text_not_footer() {
+        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        rt.locked_goal = Some(LockedGoal {
+            fingerprint: "abc".into(),
+            label: "Open WeChat".into(),
+        });
+        assert_eq!(rt.locked_goal_label(), Some("Open WeChat"));
+        let block = rt.locked_goal_dynamic_block().unwrap();
+        assert!(block.contains("Open WeChat"));
+        assert_ne!(rt.locked_goal_label(), block.lines().nth(3));
+    }
+
+    #[test]
+    fn advanced_tier_disallows_index_tools() {
+        assert!(tier_allows_index_tools(ComputerTier::Primary));
+        assert!(tier_allows_index_tools(ComputerTier::Intermediate));
+        assert!(!tier_allows_index_tools(ComputerTier::Advanced));
     }
 }

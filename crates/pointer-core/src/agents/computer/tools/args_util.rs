@@ -1,5 +1,7 @@
 //! Shared argument parsing / validation aligned with PyProjects/pointer `vision_common` helpers.
 
+use crate::agents::computer::tier::{current_computer_tier, tier_allows_index_tools};
+use crate::agents::computer::vision::vision_state::{CornerAnchor, VisionState};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
@@ -90,6 +92,47 @@ pub fn parse_indices(arg: Option<&Value>) -> Result<Vec<u32>> {
     }
 }
 
+/// True when the method targets an overlay index (`click_index`, `type_text_at_index`, …).
+pub fn method_uses_overlay_index(method: &str) -> bool {
+    method.ends_with("_index")
+}
+
+/// Resolve overlay index (+ optional anchor/dx/dy) to screen pixels.
+pub fn resolve_index_pixels(
+    vision: &VisionState,
+    args: &Value,
+    index: u32,
+) -> Result<(i32, i32)> {
+    let out = if let Some(anchor) = args
+        .get("anchor")
+        .and_then(|v| v.as_str())
+        .and_then(CornerAnchor::parse)
+    {
+        let dx = args.get("dx").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        let dy = args.get("dy").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        vision.resolve_index_anchor(index, anchor, dx, dy)
+    } else {
+        vision.resolve_index(index)
+    };
+    out.ok_or_else(|| anyhow!("Index {} not found in current annotation", index))
+}
+
+/// Fail when the active tier forbids overlay index methods (Advanced → coordinate only).
+pub fn ensure_index_method_allowed(method: &str) -> Result<()> {
+    if !method_uses_overlay_index(method) {
+        return Ok(());
+    }
+    if let Some(tier) = current_computer_tier() {
+        if !tier_allows_index_tools(tier) {
+            anyhow::bail!(
+                "Index-based method `{method}` is disabled at tier `{}`; use coordinate methods (*_at) with session x/y from Overlay reference bboxes.",
+                tier.label()
+            );
+        }
+    }
+    Ok(())
+}
+
 pub fn require_non_empty_str(args: &Value, key: &str) -> Result<String> {
     let s = text_from_args(args.get(key))?
         .trim()
@@ -151,6 +194,14 @@ pub fn parse_wait_seconds(arg: Option<&Value>) -> Result<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn method_uses_overlay_index_suffix() {
+        assert!(method_uses_overlay_index("click_index"));
+        assert!(method_uses_overlay_index("type_text_at_index"));
+        assert!(!method_uses_overlay_index("click_at"));
+        assert!(!method_uses_overlay_index("type_text_at"));
+    }
 
     #[test]
     fn clamp_scroll_rejects_zero() {

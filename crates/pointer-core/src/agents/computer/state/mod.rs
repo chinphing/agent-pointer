@@ -119,8 +119,24 @@ pub struct ComputerState {
     pub annotate_client: AnnotateClient,
     /// Default for `human_like` when omitted from tool args (Python `computer_human_like`).
     pub human_like_default: bool,
+    /// Base tier options from agent manifest (overridden by app settings when loaded).
     pub tier_config: ComputerTierConfig,
     sessions: Arc<RwLock<HashMap<String, Arc<Mutex<ComputerSession>>>>>,
+}
+
+impl ComputerState {
+    /// Merge agent manifest tier config with persisted app settings (`computerInitialTier`, …).
+    fn effective_tier_config(&self) -> ComputerTierConfig {
+        let mut cfg = self.tier_config.clone();
+        if let Ok(settings) = crate::storage::load_settings() {
+            cfg.apply_app_settings(&settings);
+        }
+        cfg
+    }
+
+    fn initial_tier_for_new_session(&self) -> ComputerTier {
+        self.effective_tier_config().initial_tier
+    }
 }
 
 impl std::fmt::Debug for ComputerState {
@@ -230,7 +246,7 @@ impl ComputerState {
 
     pub fn round_llm_overrides(&self, conversation_id: &str) -> ComputerRoundLlmOverrides {
         let tier = self.tier_for_conversation(conversation_id);
-        ComputerRoundLlmOverrides::for_tier(tier, &self.tier_config)
+        ComputerRoundLlmOverrides::for_tier(tier, &self.effective_tier_config())
     }
 
     pub fn apply_round_settings(
@@ -301,7 +317,7 @@ impl ComputerState {
         }
 
         let session = Arc::new(Mutex::new(ComputerSession::new(
-            self.tier_config.initial_tier,
+            self.initial_tier_for_new_session(),
         )));
         sessions.insert(conversation_id.to_string(), Arc::clone(&session));
         session
@@ -558,7 +574,7 @@ impl ComputerState {
         let tier = s.tier_runtime.current_tier;
         format_tier_runtime_block(
             &s.tier_runtime,
-            &self.tier_config,
+            &self.effective_tier_config(),
             tier,
             s.tier_runtime.history_for(tier),
         )
@@ -582,7 +598,7 @@ impl ComputerState {
             };
             s.tier_runtime.backfill_last_verify(tier, outcome);
         }
-        let config = self.tier_config.clone();
+        let config = self.effective_tier_config();
         s.tier_runtime
             .on_round_complete(&config, parsed.as_ref(), last_goal.as_deref());
     }
@@ -591,6 +607,12 @@ impl ComputerState {
         let session = self.get_or_create_session(conversation_id);
         let block = session.lock().unwrap().tier_runtime.locked_goal_dynamic_block();
         block
+    }
+
+    pub fn locked_goal_label(&self, conversation_id: &str) -> Option<String> {
+        let session = self.get_or_create_session(conversation_id);
+        let guard = session.lock().unwrap();
+        guard.tier_runtime.locked_goal_label().map(str::to_string)
     }
 }
 

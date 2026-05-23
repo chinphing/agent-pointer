@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getSettings, updateSettings, setApiKey, clearApiKey, testConnection } from '../lib/api'
-import type { AgentModelRef, ModelSettings, ProviderConfig, ThemePreference } from '../types/chat'
+import type { AgentModelRef, ComputerInitialTier, ModelSettings, ProviderConfig, ThemePreference } from '../types/chat'
 import { applyTheme } from '../lib/theme'
 import {
   DEFAULT_MODEL_MAX_TOKENS,
@@ -56,6 +56,13 @@ function normalizeProvider(
     ...base,
     modelConfigs: pruneInheritedModelConfigs(base, base.modelConfigs, fallback)
   }
+}
+
+function normalizeComputerInitialTier(v: unknown): ComputerInitialTier {
+  const t = typeof v === 'string' ? v.trim().toLowerCase() : ''
+  if (t === 'intermediate' || t === 'mid' || t === 'medium') return 'intermediate'
+  if (t === 'advanced' || t === 'high') return 'advanced'
+  return 'primary'
 }
 
 function normalizeProviders(
@@ -113,6 +120,7 @@ export const useSettingsStore = defineStore('settings', () => {
     agentDefaultModels: {},
     agentTaskBoardHistoryTrim: {},
     computerHumanLike: false,
+    computerInitialTier: 'primary',
     theme: 'system',
     agentUiOverrides: {}
   })
@@ -232,6 +240,7 @@ export const useSettingsStore = defineStore('settings', () => {
           agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
           agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
           computerHumanLike: s.computerHumanLike === true,
+          computerInitialTier: normalizeComputerInitialTier(s.computerInitialTier),
           theme: (s.theme as ThemePreference) ?? 'system',
           agentUiOverrides: { ...(s.agentUiOverrides ?? {}) }
         }
@@ -256,6 +265,7 @@ export const useSettingsStore = defineStore('settings', () => {
           agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
           agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
           computerHumanLike: s.computerHumanLike === true,
+          computerInitialTier: normalizeComputerInitialTier(s.computerInitialTier),
           theme: (s.theme as ThemePreference) ?? 'system',
           agentUiOverrides: { ...(s.agentUiOverrides ?? {}) }
         }
@@ -401,6 +411,10 @@ export const useSettingsStore = defineStore('settings', () => {
     await save({ computerHumanLike: enabled })
   }
 
+  async function setComputerInitialTier(tier: ComputerInitialTier) {
+    await save({ computerInitialTier: tier })
+  }
+
   async function setAgentDefaultModel(agentId: string, ref: AgentModelRef | null) {
     const next = { ...settings.value.agentDefaultModels }
     if (!ref || !ref.model?.trim()) {
@@ -427,6 +441,7 @@ export const useSettingsStore = defineStore('settings', () => {
     saveKey, removeKey, runTest,
     getAgentDefaultModelRef, setAgentDefaultModel,
     isTaskBoardHistoryTrimEnabled, setTaskBoardHistoryTrim, defaultTaskBoardHistoryTrim,
-    isComputerHumanLikeEnabled, setComputerHumanLike
+    isComputerHumanLikeEnabled, setComputerHumanLike,
+    setComputerInitialTier
   }
 })

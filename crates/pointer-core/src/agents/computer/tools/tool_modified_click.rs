@@ -1,6 +1,9 @@
 use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::vision_state::VisionState;
-use super::args_util::{human_like_from_args, json_bool_loose, parse_indices, require_non_empty_str};
+use super::args_util::{
+    ensure_index_method_allowed, human_like_from_args, json_bool_loose, parse_indices,
+    require_non_empty_str,
+};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -31,6 +34,7 @@ impl ModifiedClickTool {
 
     pub fn execute(&self, method: &str, args: &Value) -> Result<String> {
         require_non_empty_str(args, "goal")?;
+        ensure_index_method_allowed(method)?;
         match method {
             "modified_click_index" => self.modified_click_index(args),
             "modified_click_at" => self.modified_click_at(args),

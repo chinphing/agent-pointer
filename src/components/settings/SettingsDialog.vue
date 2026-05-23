@@ -19,7 +19,15 @@ import {
   Wrench,
   X
 } from 'lucide-vue-next'
-import type { AgentDef, AgentUiConfig, ModelRuntimeOverrides, ProviderConfig, ThemePreference } from '../../types/chat'
+import type {
+  AgentDef,
+  AgentUiConfig,
+  ComputerInitialTier,
+  ModelRuntimeOverrides,
+  ProviderConfig,
+  ThemePreference
+} from '../../types/chat'
+import { COMPUTER_INITIAL_TIER_OPTIONS } from '../../types/chat'
 import { applyTheme } from '../../lib/theme'
 import { resolveAgentUi } from '../../lib/agentUi'
 import { listAgents } from '../../lib/api'
@@ -72,6 +80,7 @@ const rawContentViewEnabled = ref(true)
 const debugDumpLlmPrompts = ref(false)
 const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
 const computerHumanLike = ref(false)
+const computerInitialTier = ref<ComputerInitialTier>('primary')
 const theme = ref<ThemePreference>('system')
 const agentUiLocal = ref<Partial<AgentUiConfig>>({})
 const agents = ref<AgentDef[]>([])
@@ -350,6 +359,7 @@ onMounted(() => {
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true
+  computerInitialTier.value = s.settings.computerInitialTier ?? 'primary'
   theme.value = (s.settings.theme as ThemePreference) || 'system'
   agentUiLocal.value = { ...(s.settings.agentUiOverrides?.[activeUiAgentId.value] ?? {}) }
   loadAgents()
@@ -658,6 +668,7 @@ async function saveAll() {
       debugDumpLlmPrompts: debugDumpLlmPrompts.value,
       agentTaskBoardHistoryTrim: { ...agentTaskBoardHistoryTrim.value },
       computerHumanLike: computerHumanLike.value,
+      computerInitialTier: computerInitialTier.value,
       theme: theme.value,
       agentUiOverrides: {
         ...(s.settings.agentUiOverrides ?? {}),
@@ -1036,6 +1047,27 @@ async function saveAll() {
                         />
                         <span class="text-[11px] text-muted">人性化鼠标移动</span>
                       </label>
+
+                      <div
+                        v-if="w.id === 'computer'"
+                        class="inline-flex items-center gap-1.5 shrink-0"
+                        title="新会话开始时 Computer 智能体使用的视觉级别；会话中仍可能因验证失败自动升档"
+                      >
+                        <span class="text-[11px] text-muted whitespace-nowrap">初始级别</span>
+                        <select
+                          v-model="computerInitialTier"
+                          class="h-7 px-2 rounded bg-card border border-border text-[11px] text-foreground cursor-pointer outline-none focus:border-accent/50 transition-colors"
+                          @click.stop
+                        >
+                          <option
+                            v-for="opt in COMPUTER_INITIAL_TIER_OPTIONS"
+                            :key="opt.value"
+                            :value="opt.value"
+                          >
+                            {{ opt.label }}
+                          </option>
+                        </select>
+                      </div>
                     </div>
 
                     <!-- Workspace (coder lead only) -->

@@ -18,6 +18,15 @@ export type AgentMode = 'single' | 'supervisor'
 
 export type ThemePreference = 'light' | 'dark' | 'system'
 
+/** Computer agent vision tier (matches backend `ComputerTier`). */
+export type ComputerInitialTier = 'primary' | 'intermediate' | 'advanced'
+
+export const COMPUTER_INITIAL_TIER_OPTIONS: { value: ComputerInitialTier; label: string }[] = [
+  { value: 'primary', label: '初级' },
+  { value: 'intermediate', label: '中级' },
+  { value: 'advanced', label: '高级' }
+]
+
 /** Per-agent chat UI visibility (from AGENT.md `ui` block). */
 export interface AgentUiConfig {
   showInComposer?: boolean
@@ -200,6 +209,8 @@ export interface ModelSettings {
   agentTaskBoardHistoryTrim?: Record<string, boolean>
   /** Computer agent: default human-like mouse movement (Bézier path + jitter) */
   computerHumanLike?: boolean
+  /** Computer agent: starting tier for new conversations */
+  computerInitialTier?: ComputerInitialTier
   /** UI color scheme */
   theme?: ThemePreference
   /** Per-agent UI overrides (merged over manifest `ui`) */

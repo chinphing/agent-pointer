@@ -607,6 +607,9 @@ pub struct ModelSettings {
     /// When true, computer agent uses Bézier / jitter mouse paths by default (`human_like` preset).
     #[serde(default, rename = "computerHumanLike")]
     pub computer_human_like: bool,
+    /// Starting vision tier for new computer conversations (`primary` | `intermediate` | `advanced`).
+    #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
+    pub computer_initial_tier: String,
     /// UI theme: `light`, `dark`, or `system`.
     #[serde(default = "default_theme", rename = "theme")]
     pub theme: String,
@@ -622,6 +625,10 @@ pub struct ModelSettings {
 
 fn default_theme() -> String {
     "system".into()
+}
+
+fn default_computer_initial_tier() -> String {
+    "primary".into()
 }
 
 pub fn ensure_agent_model_refs_have_provider(settings: &mut ModelSettings) {
@@ -726,6 +733,7 @@ impl Default for ModelSettings {
             agent_default_models: HashMap::new(),
             agent_task_board_history_trim: HashMap::new(),
             computer_human_like: false,
+            computer_initial_tier: default_computer_initial_tier(),
             theme: default_theme(),
             agent_ui_overrides: HashMap::new(),
             round_enable_thinking: None,

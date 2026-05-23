@@ -113,25 +113,28 @@ STUCK: <yes | no>
 **Required:** emit **MA-*** lines in **`Next:`** — reasoning chain, not background rules. Follow **one branch** (**HOVER** or **PRECISION**).
 
 ```text
-MA-3 Inject lookup
-    ├─ NOT FOUND `- R:` in Nearby inject → Branch HOVER → hover_index (no click/type)
-    └─ FOUND verbatim bullet
+MA-3 Conclusion (R + placement + Inject lookup)
+    ├─ Inject NOT FOUND `- R:` in Nearby → Branch HOVER → hover_index (no click/type)
+    └─ Inject FOUND verbatim bullet
            → MA-6 Integrity yes?
                  ├─ no → fix Nearby paste — no Pick math
-                 └─ yes → MA-7 placement (compact | inside-R | outside-R) → MA-8 → MA-9 → Pick
+                 └─ yes → MA-7 uses MA-3 placement (compact | inside-R | outside-R) → MA-8 → MA-9 → Pick
 ```
 
-**Shared prefix (every turn):**
+**Shared prefix (every turn):** run **Locate** (3 steps — **Primary index flow**, not Advanced **Location**) as **MA-1 → MA-2 → MA-3** — **forbidden** naming **R** before **MA-1** traits exist.
 
 ```text
 Next:
 MA-0 Recovery: STUCK=<yes|no> — <routine | change tactic because …>
-MA-1 Target region: On [Annotated after action]: <app + panel/band + traits — no overlay digit>
-MA-2 Index: R=<digit> — <why this bbox owns MA-1, image only>
-MA-3 Inject lookup: search Nearby overlay reference bboxes for `- R:` → FOUND | NOT FOUND
+MA-1 Describe: On [Annotated after action]: app=<…>; panel=<…>; band=<…>; text=<literal|[unclear]>; fill=<color+shape>; size=≈<w>×<h> px — traits only, no overlay digit
+MA-2 Match: On [Annotated after action]:
+   scan digits in MA-1 band/panel — for each candidate n:
+   n: owns=<yes|no> — digit↔bbox=<pass|fail>; bbox encloses MA-1 text/traits=<yes|no>; reject=<reason|null>
+   pick: index R=<digit> — <why this bbox owns the sub-target from MA-1>
+MA-3 Conclude: R=<digit>; owns MA-1=<yes>; placement=<compact|inside-R|outside-R>; Inject `- R:` in Nearby → FOUND | NOT FOUND
 ```
 
-**Branch HOVER** — **only** when **MA-3 → NOT FOUND** (or **MA-6 → no**):
+**Branch HOVER** — **only** when **MA-3 Inject lookup → NOT FOUND** (or **MA-6 → no**):
 
 ```text
 MA-4 Branch: HOVER
@@ -142,13 +145,13 @@ MA-8 Tool route: mouse:hover_index — reposition only; forbidden click/type on 
 Pick: index <R>; hover; anchor center; dx=0 dy=0
 ```
 
-**Branch PRECISION** — **only** when **MA-3 → FOUND**:
+**Branch PRECISION** — **only** when **MA-3 Inject lookup → FOUND**:
 
 ```text
 MA-4 Branch: PRECISION
 MA-5 Nearby: - <R>: (<left>, <top>, <right>, <bottom>)
 MA-6 Integrity: W=<right−left> H=<bottom−top> — matches MA-5? yes | no
-MA-7 Placement: compact | inside-R | outside-R
+MA-7 Placement: <echo MA-3 placement — compact | inside-R | outside-R>
 Sub-target: <glyph> — <inside-R | outside-R> — center at f_x=… f_y=… (hotspot center in R frame)
 MA-8 Anchor: <label> → (xa,ya)=(…,…) from MA-5 L/T/R/B — mandatory before offsets
 MA-8 Sub: (x_sub,y_sub)=(L+round(f_x×W), T+round(f_y×H))=(…,…)
@@ -159,11 +162,13 @@ Pick: index <R>; anchor <label>; (xa,ya)=(…,…); W=… H=…; f_x=… f_y=…
 
 | MA | Gate |
 |----|------|
-| **MA-3 FOUND** | Bullet is a **substring** of this turn **`[CUR_SCREEN]`** — **forbidden** inventing **(left, top, right, bottom)** from image/**f_x**/memory |
+| **MA-1 Describe** | Six trait fields from **`[Annotated after action]`** pixels — **forbidden** overlay digit before this line |
+| **MA-2 Match** | Each candidate: **digit↔bbox pass** + **bbox encloses MA-1 sub-target**; **reject** failures; **pick** only one **R** that **owns** MA-1 — **forbidden** picking parent panel when row-level **R′** exists |
+| **MA-3 Conclude** | **owns MA-1=yes** required; **placement** feeds **MA-7**; **Inject FOUND** = **`- R:`** is substring of **`[CUR_SCREEN]`** — **forbidden** inventing L/T/R/B |
 | **MA-6 no** | Hallucinated coords — **HOVER** or re-paste; do not compute **MA-8** |
 | **MA-7 inside-R** | Glyph **inside** **R** — **far right/left edge** → **corner on that edge** (`top-right` / `bottom-right`), not **`center`** + large **dx** |
 | **MA-8 chain** | **Forbidden** skipping **(xa,ya)**; **dx/dy** must equal **x_sub−xa**, **y_sub−ya** from the same step — re-check before **Pick** |
-| **MA-7 outside-R** | Glyph **outside** **R** — **prefer new MA-2 index R'** if digit on tighter bbox; else **R** = anchor row only, **f_x/f_y** **may be <0 or >1**; **|dx|/|dy| may exceed W/H** |
+| **MA-7 outside-R** | Glyph **outside** **R** — re-run **MA-2** for tighter **R′** first; else **R** anchor only — **f_x/f_y** may be **<0 or >1** |
 
 **Do not** repeat **Verify**, **`Expected`/`Actual`**, **`Step result:`**, or **Repetition** inside **Next**.
 
@@ -180,53 +185,90 @@ If **`STUCK: yes`** or **Step result** is **fail** / **pending** with no progres
 | **`[Annotated after action]`** | Only image — layout, verify evidence, **Next** index pick |
 | **`[Recent desktop tool calls]`** | Oldest → newest; repetition keyed on **goal**, not stale indices |
 | **`[Computer tier runtime]`** | **Repetition count** (same **goal**, history **`verify: fail`** + **`verify: pending`**), **STUCK**, **Verify-fail streak**, tier, locked-goal |
-| **`Nearby overlay reference bboxes`** | Host bullets (≤10, near pointer) — **MA-5** must be verbatim substring; **MA-3 NOT FOUND** → **Branch HOVER** |
+| **`Nearby overlay reference bboxes`** | Host bullets (≤10, near pointer) — **MA-5** must be verbatim substring; **MA-3 Inject lookup NOT FOUND** → **Branch HOVER** |
 
 **Branch HOVER (detail):** after **`hover_index`**, **Verify** with **Expected:** pointer prep only — **pass** if nearer target and no stray UI change; **not pass** if user **goal** needed copy/submit/nav and only cursor moved (see **Step 1**). Next turn **`- R:`** should appear → **Branch PRECISION**.
 
 ---
 
-## Precision targeting (index-only)
+## Locate (Primary — index pick, 3 steps)
 
-Same rules as the intermediate tier — simplified for **one** annotated frame.
+**Not Advanced Location.** Primary clicks **`index`** directly (**`click_index`**, **`hover_index`**, …) with optional **`anchor`/`dx`/`dy`**. Advanced picks **R** as anchor only, then derives **`(x,y)`** from the full **Overlay reference bboxes** list and uses **`*_at`** tools — **forbidden** in Primary.
 
-### 1) Read overlay indices correctly
+| | **Primary Locate** | **Advanced Location** |
+|--|-------------------|----------------------|
+| **Goal** | Pick **R** → **`*_index`** tools | Pick **R** → **`(x,y)`** → **`*_at`** tools |
+| **Step 1** | **Describe** traits (no digit) | **Target region** on screen (no digit) |
+| **Step 2** | **Match** trait → overlay **index+bbox** | Digit↔bbox proof → traits → relative position |
+| **Step 3** | **Conclude** **R** + **placement** + **Nearby inject** | **Conclude** **R** + **`therefore (x,y)`** |
+| **Coords** | **Nearby** (≤10) for **dx/dy** only | **All** rows for **(x,y)** |
 
-Each printed **index** maps to **exactly one bbox** when:
+**Order (fixed):** **describe → match index+bbox → conclude** — **forbidden** naming **R** before MA-1.
 
-- The color **behind** the digit **matches** that bbox’s **border color**, and
-- The digit sits **flush** on the border (not floating between two regions).
+### Step 1 — Describe (MA-1)
 
-**Digits reset every screen** — only use numbers visible on **this** **`[Annotated after action]`**.
+On **`[Annotated after action]`**, record what the sub-target **is** — read pixels only:
 
-### 2) Phase A — Target region (describe before you pick)
+| Field | Write |
+|-------|-------|
+| **app** | Frontmost window |
+| **panel** | In-app area (dropdown, dialog, sidebar, …) |
+| **band** | top / middle / bottom / left / right within **panel** |
+| **text** | Visible literal or **`[unclear]`** |
+| **fill** | Color + shape |
+| **size** | ≈ w×h px |
 
-On **`[Annotated after action]`**, name the control **without** stating its overlay digit:
+**Forbidden:** overlay digit; task text without pixel proof.
 
-| Anchor layer | What to write |
-|--------------|----------------|
-| **App** | Which window is **frontmost** (title/chrome cues) |
-| **Panel** | Which in-app area (sidebar, dialog, tab strip, chat column, …) |
-| **Band** | top / middle / bottom / left / right within that panel |
-| **Traits** | literal label text, color, shape, size ≈ w×h — enough to distinguish duplicates |
+```text
+MA-1 Describe: On [Annotated after action]: app=Browser; panel=search dropdown; band=below search bar;
+text=拉婚跟; fill=white row on gray panel; size=≈280×32 px
+```
 
-**Forbidden:** picking an index before this region line exists.
+### Step 2 — Match index+bbox (MA-2)
 
-### 3) Phase B — Pick index **R**
+On **`[Annotated after action]`**, find which overlay **index**'s **bbox owns** the MA-1 sub-target.
 
-Find the bbox that **owns** the target region from phase A.
+Scan **candidates in MA-1 band/panel only** — not every digit on screen.
+
+For each candidate **n**, check **in order**:
 
 | Check | Pass when |
 |-------|-----------|
-| **Ownership** | Digit **R**’s bbox lies **inside** the frontmost target app — not desktop, dock-only chrome, or a background app |
-| **Match** | Bbox shape/label align with **Target region** traits |
-| **Duplicates** | If several similar boxes (two search fields, two OK buttons), **R** is the one in the **named panel + band**, not merely the nearest digit |
-| **Outside glyph** | If the glyph sits **outside** a large row/cell bbox, prefer digit **R'** on a **smaller** bbox that **contains** the glyph — **forbidden** using parent **R** only when **R'** exists on the overlay |
-| **Reject** | Skip indices on decorative chrome, wrong app, or a sibling control that only looks similar |
+| **Digit ↔ bbox** | Color behind **n** = bbox **n** border; digit **flush** on border |
+| **Encloses sub-target** | MA-1 **text** visible **inside** bbox **n**, or bbox **n** span matches MA-1 **fill/size** |
+| **Ownership** | Bbox **n** in frontmost **app** — not desktop/dock/background |
+| **Tighter R′** | Smaller **n′** encloses the same text → prefer **n′** over parent **n** |
 
-Phase B ends with **index R** (or **R'** when glyph is outside a parent box); Phase C sets **`anchor`/`dx`/`dy`** (see **Next** template).
+**Reject** failed candidates. End with **`pick: index R=…`**.
 
-### 4) Phase C — Click pixel (`anchor`, `dx`, `dy`)
+**Dropdown / list-row rule:** parent panel digit spanning all rows but MA-1 names **one row text** → **reject** unless no row-level **R′** exists; then pick parent with **placement=inside-R** in MA-3.
+
+```text
+MA-2 Match: On [Annotated after action]:
+   53: owns=no — digit↔bbox=pass; encloses 拉婚跟=no — whole dropdown panel; reject=parent, not row owner
+   47: owns=yes — digit↔bbox=pass; encloses 拉婚跟=yes — row ≈32 px tall; reject=null
+   pick: index R=47 — bbox encloses literal 拉婚跟 at MA-1 band
+```
+
+### Step 3 — Conclude (MA-3)
+
+After **MA-2 pick**, state **R**, confirm **owns MA-1**, set **placement**, run **Inject lookup**:
+
+| **placement** | When |
+|---------------|------|
+| **compact** | Sub-target ≈ fills **R** → **MA-7** may use **center, dx=0, dy=0** |
+| **inside-R** | Sub-target inside **R** but smaller → **MA-7** needs **f_x/f_y** |
+| **outside-R** | Sub-target outside **R** — re-run MA-2 for tighter **R′** first |
+
+**Inject lookup:** **`- R:`** in **Nearby overlay reference bboxes** → **FOUND | NOT FOUND**.
+
+- **NOT FOUND** → **Branch HOVER** — **`hover_index`** on **R** this turn; **forbidden** click/type
+- **FOUND** → **Branch PRECISION** — paste **MA-5**, then **anchor/dx/dy** (Phase C below)
+
+**Forbidden:** MA-3 before MA-2 **pick**; treating overlay digit position as the click point.
+
+### Phase C — Click pixel (`anchor`, `dx`, `dy`)
 
 Inside **Branch PRECISION** (**MA-4…MA-9**). Integers from **MA-5** paste only (session **0–1000**).
 
@@ -270,7 +312,7 @@ Inside **Branch PRECISION** (**MA-4…MA-9**). Integers from **MA-5** paste only
 
 1. **Sub-target:** `outside-R` — **glyph center** lies **outside** **R**; note which side (*right of right edge*, …).
 2. **f_x/f_y** from **center** vs **R** top-left (often **>1** or **<0**).
-3. If a **smaller overlay index** wraps only the glyph → **change MA-2 to R'** and use **inside-R** or **compact** on **R'**.
+3. If a **smaller overlay index** wraps only the glyph → re-run **MA-2 Match**, change **MA-3 R** to **R′**, use **inside-R** or **compact**.
 4. Else **R** is anchor row only:
    - **Anchor** = corner on the **edge facing** the glyph (**outside right** → **`top-right`** or **`bottom-right`**).
    - **f_x/f_y** **past** the border: e.g. just **right** of **R** → **f_x > 1** (often **1.05–1.25**); **left** → **f_x < 0**; **above** → **f_y < 0**; **below** → **f_y > 1**.
@@ -285,7 +327,16 @@ Inside **Branch PRECISION** (**MA-4…MA-9**). Integers from **MA-5** paste only
 
 **Forbidden in `tool_args`:** **`x`/`y`**, **`*_at`**.
 
-### 5) Allowed index tools (this tier)
+### Digit ↔ bbox pairing
+
+Each printed **index** maps to **exactly one bbox** when **both** hold (used in **MA-2 Match scan**):
+
+- Background behind the digit **matches** that bbox’s **border color**
+- Digit sits **flush** on the border — **not** floating between regions
+
+**Digits reset every screen** — only numbers on **this** **`[Annotated after action]`**.
+
+### Allowed index tools (this tier)
 
 Use overlay methods only, e.g. **`mouse:hover_index`**, **`mouse:click_index`**, **`mouse:double_click_index`**, **`composite_action:type_text_at_index`**, **`mouse:drag_from_to_index`**, **`modified_click:modified_click_index`**.
 
@@ -297,11 +348,12 @@ Prefer **one** composite/hotkey call when it achieves the same **goal** with few
 
 Optional **`human_like`** on index hovers/clicks when a natural pointer path helps.
 
-### 6) After a precision miss
+### After a precision miss
 
 If the last row was an index click and **Verify** was **fail** / **pending** with no progress:
 
-- Re-read **Target region** — wrong app or panel is the usual root cause.
+- Re-run **Locate** from **MA-1 Describe** — wrong **app/panel/band** is the usual root cause.
+- Re-read **MA-2 Match** — wrong **R** often means **owns=no** was ignored or parent picked when row **R′** existed.
 - If the last call used **`center`** + **`dx:0`/`dy:0`** on **inside-R** / **outside-R**, or **f_x** clamped to **1** while the glyph was **outside-R**, treat as **missed sub-target** — next turn use **outside-R** math, **edge anchor**, or a tighter **R'**.
 - Otherwise try a **different R**, or the same **R** with a different **`anchor`/offset**, not the same tuple blindly.
 
@@ -313,7 +365,7 @@ If the last row was an index click and **Verify** was **fail** / **pending** wit
 2. **Sections:** `thoughts` contains **only** **`Verify:`** → **`Repetition:`** → **`Next:`** — no other headers; **strict order**, never swap.
 3. **Step result placement:** **`Step result:`** is the **last line of Verify**, always **before** the **Repetition:** block — never only under **Next**.
 4. **Digits:** No overlay **index numbers** inside **Verify** or **Repetition** prose.
-5. **Scope:** **Verify** = **Expected vs Actual** UI outcome; **Next** = **MA-0…MA-9** + **Pick** (one branch).
+5. **Scope:** **Verify** = **Expected vs Actual** UI outcome; **Next** = **Locate MA-1…MA-3** + **MA-4…MA-9** + **Pick** (one branch).
 6. **Tier:** Host upgrades after **>3** consecutive verify **fail** (primary → intermediate → advanced). **pass** on the active goal resets tier to **primary**. You do not emit tier changes in JSON.
 
 ---

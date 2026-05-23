@@ -87,7 +87,7 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 ## 配置（`AGENT.md` config）
 
 - `computerAutoUpgrade` — 是否自动升档（默认 true）
-- `computerInitialTier` — `primary` | `intermediate` | `advanced`
+- `computerInitialTier` — `primary` | `intermediate` | `advanced`（设置 → 执行智能体 → Computer → **初始级别**；覆盖 AGENT.md 默认值，仅影响**新会话**起始档）
 - `computerModelPrimary` / `computerModelAdvanced` — 可选覆盖模型 id
 
 ## 定位方式（按档）

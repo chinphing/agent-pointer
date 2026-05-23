@@ -12,11 +12,36 @@ mod tool_mouse;
 mod tool_wait;
 
 use crate::agents::computer::ComputerState;
-use args_util::effective_human_like_default;
+use crate::agents::computer::tier::{tier_allows_index_tools, ComputerTier, ComputerTierGuard};
+use args_util::{effective_human_like_default, ensure_index_method_allowed, method_uses_overlay_index};
 use crate::platform::run_synthetic_input;
 use crate::tools::{ToolEntry, ToolRegistry};
+use anyhow::Result;
 use std::sync::Arc;
 use tool_modified_click::ModifiedClickTool;
+
+/// Reject index methods when the conversation tier is coordinate-only (Advanced).
+fn ensure_method_allowed_for_tier(tier: ComputerTier, method: &str) -> Result<()> {
+    if method_uses_overlay_index(method) && !tier_allows_index_tools(tier) {
+        anyhow::bail!(
+            "Index-based method `{method}` is disabled at tier `{}`; use coordinate methods (*_at) with session x/y from Overlay reference bboxes.",
+            tier.label()
+        );
+    }
+    Ok(())
+}
+
+/// Run synthetic input on the platform main thread when required, with tier context set there.
+fn run_synthetic_computer_tool<R, F>(tier: ComputerTier, f: F) -> R
+where
+    F: FnOnce() -> R + Send,
+    R: Send,
+{
+    run_synthetic_input(move || {
+        let _guard = ComputerTierGuard::enter(tier);
+        f()
+    })
+}
 
 /// Extract the authoritative `_conversation_id` from tool arguments injected by `chat_service`.
 fn conversation_id_from_args(args: &serde_json::Value) -> Option<&str> {
@@ -39,11 +64,14 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             let cid = conversation_id_from_args(&args)
                 .unwrap_or_default()
                 .to_string();
-            run_synthetic_input(move || {
-                let method = args["method"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                    .to_string();
+            let tier = mouse_state.tier_for_conversation(&cid);
+            let method = args["method"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
+                .to_string();
+            ensure_method_allowed_for_tier(tier, &method)?;
+            run_synthetic_computer_tool(tier, move || {
+                ensure_index_method_allowed(&method)?;
                 let vision = mouse_state.vision_state_for_conversation(&cid);
                 let hl_default =
                     effective_human_like_default(mouse_state.human_like_default);
@@ -85,11 +113,14 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             let cid = conversation_id_from_args(&args)
                 .unwrap_or_default()
                 .to_string();
-            run_synthetic_input(move || {
-                let method = args["method"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                    .to_string();
+            let tier = composite_state.tier_for_conversation(&cid);
+            let method = args["method"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
+                .to_string();
+            ensure_method_allowed_for_tier(tier, &method)?;
+            run_synthetic_computer_tool(tier, move || {
+                ensure_index_method_allowed(&method)?;
                 let vision = composite_state.vision_state_for_conversation(&cid);
                 let hl_default =
                     effective_human_like_default(composite_state.human_like_default);
@@ -115,11 +146,14 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             let cid = conversation_id_from_args(&args)
                 .unwrap_or_default()
                 .to_string();
-            run_synthetic_input(move || {
-                let method = args["method"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                    .to_string();
+            let tier = modified_state.tier_for_conversation(&cid);
+            let method = args["method"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
+                .to_string();
+            ensure_method_allowed_for_tier(tier, &method)?;
+            run_synthetic_computer_tool(tier, move || {
+                ensure_index_method_allowed(&method)?;
                 let vision = modified_state.vision_state_for_conversation(&cid);
                 let hl_default =
                     effective_human_like_default(modified_state.human_like_default);

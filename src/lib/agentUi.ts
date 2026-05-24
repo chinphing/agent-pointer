@@ -8,6 +8,7 @@ export interface ResolvedAgentUi {
   showHeadline: boolean
   showSubAgentTrace: boolean
   showToolCalls: boolean
+  showToolCallResults: boolean
   hideToolNames: string[]
   showWorkspacePicker: boolean
   showComputerMonitorPicker: boolean
@@ -51,6 +52,7 @@ function profileDefaults(profile: AgentProfile, id: string, role: string): Resol
     showHeadline: true,
     showSubAgentTrace: isSupervisor,
     showToolCalls: !isSupervisor,
+    showToolCallResults: false,
     hideToolNames: hasTaskBoard ? ['task_board', 'task_board:patch'] : [],
     showWorkspacePicker: key === 'coder',
     showComputerMonitorPicker: key === 'computer',
@@ -83,6 +85,7 @@ function mergeUi(
     showHeadline: pick('showHeadline') as boolean,
     showSubAgentTrace: pick('showSubAgentTrace') as boolean,
     showToolCalls: pick('showToolCalls') as boolean,
+    showToolCallResults: pick('showToolCallResults') as boolean,
     hideToolNames: (o.hideToolNames ?? m.hideToolNames ?? base.hideToolNames) as string[],
     showWorkspacePicker: pick('showWorkspacePicker') as boolean,
     showComputerMonitorPicker: pick('showComputerMonitorPicker') as boolean,

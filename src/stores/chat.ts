@@ -568,6 +568,8 @@ export const useChatStore = defineStore('chat', () => {
             if (e.result !== undefined) tc.result = e.result
             if (e.error !== undefined) tc.error = e.error
             if (e.durationMs !== undefined) tc.durationMs = e.durationMs
+            if (e.displayLabel !== undefined) tc.displayLabel = e.displayLabel
+            if (e.displaySummary !== undefined) tc.displaySummary = e.displaySummary
             if (e.status === 'success') recordSubToolSuccess(session, tc.name)
           }
         } else {
@@ -577,6 +579,8 @@ export const useChatStore = defineStore('chat', () => {
             if (e.result !== undefined) tc.result = e.result
             if (e.error !== undefined) tc.error = e.error
             if (e.durationMs !== undefined) tc.durationMs = e.durationMs
+            if (e.displayLabel !== undefined) tc.displayLabel = e.displayLabel
+            if (e.displaySummary !== undefined) tc.displaySummary = e.displaySummary
           }
         }
         break

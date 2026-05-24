@@ -17,6 +17,8 @@ pub struct AgentUiConfig {
     pub show_sub_agent_trace: Option<bool>,
     #[serde(default, rename = "showToolCalls", skip_serializing_if = "Option::is_none")]
     pub show_tool_calls: Option<bool>,
+    #[serde(default, rename = "showToolCallResults", skip_serializing_if = "Option::is_none")]
+    pub show_tool_call_results: Option<bool>,
     #[serde(default, rename = "hideToolNames", skip_serializing_if = "Option::is_none")]
     pub hide_tool_names: Option<Vec<String>>,
     #[serde(default, rename = "showWorkspacePicker", skip_serializing_if = "Option::is_none")]
@@ -43,6 +45,7 @@ pub struct ResolvedAgentUi {
     pub show_headline: bool,
     pub show_sub_agent_trace: bool,
     pub show_tool_calls: bool,
+    pub show_tool_call_results: bool,
     pub hide_tool_names: Vec<String>,
     pub show_workspace_picker: bool,
     pub show_computer_monitor_picker: bool,
@@ -64,6 +67,7 @@ fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAge
         show_headline: true,
         show_sub_agent_trace: is_supervisor,
         show_tool_calls: !is_supervisor,
+        show_tool_call_results: false,
         hide_tool_names: if has_task_board {
             vec!["task_board".into(), "task_board:patch".into()]
         } else {
@@ -117,6 +121,7 @@ pub fn resolve_agent_ui(def: &AgentDef) -> ResolvedAgentUi {
         show_headline: merge_bool(ui.show_headline, base.show_headline),
         show_sub_agent_trace: merge_bool(ui.show_sub_agent_trace, base.show_sub_agent_trace),
         show_tool_calls: merge_bool(ui.show_tool_calls, base.show_tool_calls),
+        show_tool_call_results: merge_bool(ui.show_tool_call_results, base.show_tool_call_results),
         hide_tool_names: merge_vec(ui.hide_tool_names.clone(), base.hide_tool_names),
         show_workspace_picker: merge_bool(ui.show_workspace_picker, base.show_workspace_picker),
         show_computer_monitor_picker: merge_bool(

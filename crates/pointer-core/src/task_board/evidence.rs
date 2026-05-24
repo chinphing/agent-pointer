@@ -49,6 +49,8 @@ mod tests {
                         error: None,
                         duration_ms: None,
                         risk_level: None,
+                        display_label: None,
+                        display_summary: None,
                     })
                     .collect(),
             ),

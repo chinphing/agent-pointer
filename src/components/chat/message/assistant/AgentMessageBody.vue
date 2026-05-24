@@ -316,7 +316,12 @@ onUnmounted(() => clearHeadlineCollapseTimer())
     </div>
 
     <div v-if="tools.length" class="space-y-2 w-full">
-      <ToolCallCard v-for="tc in tools" :key="tc.id" :tool-call="tc" />
+      <ToolCallCard
+        v-for="tc in tools"
+        :key="tc.id"
+        :tool-call="tc"
+        :show-tool-call-results="messageUi.showToolCallResults"
+      />
     </div>
   </div>
 </template>

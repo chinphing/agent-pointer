@@ -25,6 +25,12 @@ pub struct ToolCall {
     pub duration_ms: Option<u64>,
     #[serde(default, rename = "riskLevel")]
     pub risk_level: Option<String>,
+    /// UI-only Chinese label (not sent to the LLM).
+    #[serde(default, rename = "displayLabel", skip_serializing_if = "Option::is_none")]
+    pub display_label: Option<String>,
+    /// UI-only short parameter summary (not sent to the LLM).
+    #[serde(default, rename = "displaySummary", skip_serializing_if = "Option::is_none")]
+    pub display_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1341,6 +1347,10 @@ pub enum StreamEvent {
         error: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "durationMs")]
         duration_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "displayLabel")]
+        display_label: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "displaySummary")]
+        display_summary: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
         trace_id: Option<String>,
     },
@@ -2004,6 +2014,8 @@ mod make_openai_messages_tests {
             error: None,
             duration_ms: None,
             risk_level: None,
+            display_label: None,
+            display_summary: None,
         }]);
         let mut t = msg(Role::Tool);
         t.tool_call_id = Some("call_abc".into());
@@ -2034,6 +2046,8 @@ mod make_openai_messages_tests {
             error: None,
             duration_ms: None,
             risk_level: None,
+            display_label: None,
+            display_summary: None,
         }]);
         let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false);
         assert_eq!(out.len(), 2);
@@ -2060,6 +2074,8 @@ mod make_openai_messages_tests {
             error: None,
             duration_ms: None,
             risk_level: None,
+            display_label: None,
+            display_summary: None,
         }]);
         let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false);
         assert_eq!(out[0]["content"], "<response><tool_name>x</tool_name></response>");
@@ -2079,6 +2095,8 @@ mod make_openai_messages_tests {
             error: None,
             duration_ms: None,
             risk_level: None,
+            display_label: None,
+            display_summary: None,
         }]);
 
         let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false);

@@ -103,6 +103,7 @@ const DISPLAY_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
   { key: 'showHeadline', label: '显示 headline 标题条' },
   { key: 'showSubAgentTrace', label: '显示子 Agent 边框面板' },
   { key: 'showToolCalls', label: '显示工具调用卡片' },
+  { key: 'showToolCallResults', label: '显示工具调用结果（调试）' },
   { key: 'showTaskBoardPanel', label: '显示任务板面板' },
   { key: 'showWorkspacePicker', label: 'Composer 显示工作区选择' },
   { key: 'showComputerMonitorPicker', label: 'Composer 显示显示器选择' }
@@ -214,6 +215,7 @@ function displayUiChecked(key: keyof AgentUiConfig): boolean {
     showHeadline: effectiveDisplayUi.value.showHeadline,
     showSubAgentTrace: effectiveDisplayUi.value.showSubAgentTrace,
     showToolCalls: effectiveDisplayUi.value.showToolCalls,
+    showToolCallResults: effectiveDisplayUi.value.showToolCallResults,
     showTaskBoardPanel: effectiveDisplayUi.value.showTaskBoardPanel,
     showWorkspacePicker: effectiveDisplayUi.value.showWorkspacePicker,
     showComputerMonitorPicker: effectiveDisplayUi.value.showComputerMonitorPicker

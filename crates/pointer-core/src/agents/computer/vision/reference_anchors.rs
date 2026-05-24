@@ -239,11 +239,11 @@ mod tests {
         )
         .expect("line");
         assert!(s.contains("**Pointer position**"));
-        assert!(s.contains("Nearby overlay reference bboxes"));
+        assert!(s.contains("Image-grounded analysis"));
         assert!(s.contains("[Zoom pointer after action]"));
         assert!(
-            !s.contains("- 4: ("),
-            "pointer-only helper should not include bbox rows: {s}"
+            !s.contains("**Nearby overlay reference bboxes**"),
+            "pointer-only helper should not include nearby bbox block: {s}"
         );
     }
 

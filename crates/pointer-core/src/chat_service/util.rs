@@ -1,4 +1,5 @@
 use crate::models::{ChatMessage, Role};
+use crate::tools::ToolDisplay;
 
 pub(crate) fn now_ms() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -18,6 +19,38 @@ pub(crate) fn truncate_str(s: &str, n: usize) -> String {
     } else {
         format!("{}…", s.chars().take(n).collect::<String>())
     }
+}
+
+pub(crate) fn tool_display_stream_fields(display: &ToolDisplay) -> (Option<String>, Option<String>) {
+    let summary = if display.summary.is_empty() {
+        None
+    } else {
+        Some(display.summary.clone())
+    };
+    (Some(display.label.clone()), summary)
+}
+
+pub(crate) fn patch_assistant_tool_call_display(
+    history: &mut [ChatMessage],
+    message_id: &str,
+    tool_call_id: &str,
+    display: &ToolDisplay,
+) {
+    let Some(msg) = history.iter_mut().find(|m| m.id == message_id) else {
+        return;
+    };
+    let Some(tcs) = msg.tool_calls.as_mut() else {
+        return;
+    };
+    let Some(tc) = tcs.iter_mut().find(|t| t.id == tool_call_id) else {
+        return;
+    };
+    tc.display_label = Some(display.label.clone());
+    tc.display_summary = if display.summary.is_empty() {
+        None
+    } else {
+        Some(display.summary.clone())
+    };
 }
 
 pub(crate) fn tool_result_msg(tool_call_id: &str, content: &str) -> ChatMessage {

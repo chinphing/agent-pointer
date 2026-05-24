@@ -3,9 +3,12 @@ import { computed, ref, watch } from 'vue'
 import { Wrench, ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, ShieldAlert, Check, X } from 'lucide-vue-next'
 import type { ToolCall } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
-import { toolCallBaseName, taskBoardToolSummary } from '../../lib/messageTooling'
+import { taskBoardToolSummary } from '../../lib/messageTooling'
 
-const props = defineProps<{ toolCall: ToolCall }>()
+const props = defineProps<{
+  toolCall: ToolCall
+  showToolCallResults?: boolean
+}>()
 const chat = useChatStore()
 const open = ref(false)
 let autoCollapseTimer: ReturnType<typeof setTimeout> | null = null
@@ -21,8 +24,16 @@ watch(
 )
 
 const isTerminal = computed(() => props.toolCall.name === 'terminal')
-const isTaskBoard = computed(() => toolCallBaseName(props.toolCall.name) === 'task_board')
 const boardSummary = computed(() => taskBoardToolSummary(props.toolCall.result))
+
+const displayLabel = computed(() => props.toolCall.displayLabel?.trim() || props.toolCall.name)
+const displaySummary = computed(() => {
+  const s = props.toolCall.displaySummary?.trim()
+  if (s) return s
+  if (showResults.value) return boardSummary.value ?? ''
+  return ''
+})
+const showResults = computed(() => props.showToolCallResults === true)
 
 const terminalCommand = computed(() => {
   if (!isTerminal.value) return ''
@@ -121,8 +132,8 @@ function abortTerminalOnly() {
     >
       <component :is="open ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400" />
       <Wrench class="w-3.5 h-3.5 text-accent" />
-      <span class="font-medium text-foreground">{{ toolCall.name }}</span>
-      <span v-if="boardSummary" class="text-[10px] text-muted truncate">{{ boardSummary }}</span>
+      <span class="font-medium text-foreground truncate">{{ displayLabel }}</span>
+      <span v-if="displaySummary" class="text-[10px] text-muted truncate">· {{ displaySummary }}</span>
       <span v-if="toolCall.riskLevel === 'high'" class="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-danger/20 text-danger flex items-center gap-1">
         <ShieldAlert class="w-3 h-3" />高风险
       </span>
@@ -149,7 +160,7 @@ function abortTerminalOnly() {
           </div>
           <pre class="text-[12px] bg-black/60 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-green-400 font-mono">{{ terminalCommand || '—' }}</pre>
         </div>
-        <div v-if="toolCall.result || toolCall.terminalOutput">
+        <div v-if="showResults && (toolCall.result || toolCall.terminalOutput)">
           <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500 mb-1">
             <span>控制台输出</span>
             <span v-if="terminalMeta" class="normal-case tracking-normal">{{ terminalMeta }}</span>
@@ -164,13 +175,15 @@ function abortTerminalOnly() {
           <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200">{{ prettyArgs || '—' }}</pre>
         </div>
 
-        <div v-if="toolCall.result">
+        <div v-if="showResults && toolCall.result">
           <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">结果</div>
           <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200 max-h-48">{{ toolCall.result }}</pre>
         </div>
       </template>
 
       <div v-if="toolCall.error" class="text-[12px] text-danger">{{ toolCall.error }}</div>
+
+      <p v-if="open" class="text-[10px] text-muted font-mono truncate">{{ toolCall.name }}</p>
 
       <div v-if="toolCall.status === 'pending_approval'" class="flex items-center gap-2 pt-1">
         <button

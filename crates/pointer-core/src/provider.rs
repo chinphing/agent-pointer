@@ -642,6 +642,8 @@ fn tool_calls_from_envelope(
             error: None,
             duration_ms: None,
             risk_level: None,
+            display_label: None,
+            display_summary: None,
         });
     }
     let primary_id = format!("{base_id}_p");
@@ -656,6 +658,8 @@ fn tool_calls_from_envelope(
         error: None,
         duration_ms: None,
         risk_level: None,
+        display_label: None,
+        display_summary: None,
     });
     (out, finish_thoughts, finish_headline)
 }
@@ -687,6 +691,8 @@ fn tool_calls_from_envelope_call(
         error: None,
         duration_ms: None,
         risk_level: None,
+        display_label: None,
+        display_summary: None,
     }];
     (tc, finish_thoughts, finish_headline)
 }

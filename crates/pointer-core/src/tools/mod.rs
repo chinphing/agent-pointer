@@ -1,4 +1,5 @@
 pub mod builtin;
+pub mod display;
 pub mod file;
 pub mod response;
 pub mod run_subagent;
@@ -6,6 +7,8 @@ pub mod skill;
 pub mod terminal;
 pub mod tool_doc;
 pub mod tool_md;
+
+pub use display::{default_display, format_tool_display, ToolDisplay, ToolDisplayFn};
 
 pub use tool_doc::{doc_markdown_without_schema_fence, json_schema_from_markdown, load_tool_doc_and_schema};
 
@@ -159,6 +162,8 @@ pub struct ToolEntry {
     pub is_sidecar: bool,
     pub doc_markdown: String,
     pub handler: ToolHandler,
+    /// Optional UI label/summary formatter for chat tool cards.
+    pub display: Option<ToolDisplayFn>,
 }
 
 impl ToolEntry {
@@ -213,7 +218,13 @@ impl ToolEntry {
             is_sidecar,
             doc_markdown: doc_markdown.into(),
             handler,
+            display: None,
         }
+    }
+
+    pub fn with_display(mut self, display: ToolDisplayFn) -> Self {
+        self.display = Some(display);
+        self
     }
 }
 
@@ -313,6 +324,13 @@ impl ToolRegistry {
         let handler = entry.handler.clone();
         drop(g);
         handler(args)
+    }
+
+    /// UI display label + parameter summary for a tool invocation (not sent to the LLM).
+    pub fn format_display(&self, raw_name: &str, args: &serde_json::Value) -> ToolDisplay {
+        let base = registry_tool_base_name(raw_name);
+        let custom = self.inner.read().get(base).and_then(|e| e.display.clone());
+        format_tool_display(raw_name, args, custom.as_ref())
     }
 
     pub fn openai_tools(&self, allow: &[String]) -> Vec<serde_json::Value> {
@@ -488,6 +506,8 @@ mod envelope_validation_tests {
             error: None,
             duration_ms: None,
             risk_level: None,
+            display_label: None,
+            display_summary: None,
         }
     }
 

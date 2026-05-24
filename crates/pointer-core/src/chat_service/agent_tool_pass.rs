@@ -23,7 +23,10 @@ use crate::task_board::{
     inject_host_task_board_conversation_id, maybe_trim_after_tool_pass,
     task_board_call_is_checkpoint, TaskBoardTrimHook,
 };
-use super::util::{desktop_tool_failure_note, tool_result_msg, truncate_str};
+use super::util::{
+    desktop_tool_failure_note, patch_assistant_tool_call_display, tool_display_stream_fields,
+    tool_result_msg, truncate_str,
+};
 use super::StreamTx;
 
 /// Outcome of executing a non-empty validated tool batch for one assistant turn.
@@ -122,6 +125,8 @@ pub(super) async fn run_agent_tool_pass(
                     result: None,
                     error: Some(err.to_string()),
                     duration_ms: Some(0),
+                    display_label: None,
+                    display_summary: None,
                     trace_id: trace_id_opt(sub_trace_id),
                 },
             );
@@ -155,8 +160,10 @@ pub(super) async fn run_agent_tool_pass(
                         status: "failed".into(),
                         result: None,
                         error: Some(err.to_string()),
-                        duration_ms: None,
-                        trace_id: trace_id_opt(sub_trace_id),
+                    duration_ms: None,
+                    display_label: None,
+                    display_summary: None,
+                    trace_id: trace_id_opt(sub_trace_id),
                     },
                 );
                 history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
@@ -176,8 +183,10 @@ pub(super) async fn run_agent_tool_pass(
                         status: "failed".into(),
                         result: None,
                         error: Some(err.clone()),
-                        duration_ms: None,
-                        trace_id: trace_id_opt(sub_trace_id),
+                    duration_ms: None,
+                    display_label: None,
+                    display_summary: None,
+                    trace_id: trace_id_opt(sub_trace_id),
                     },
                 );
                 history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
@@ -204,6 +213,9 @@ pub(super) async fn run_agent_tool_pass(
             continue;
         }
 
+        let display = state.tools.format_display(&tc.name, &args_value);
+        patch_assistant_tool_call_display(history, &message_id, &tc.id, &display);
+        let (display_label, display_summary) = tool_display_stream_fields(&display);
         emit(
             &stream,
             StreamEvent::ToolCallStatus {
@@ -213,6 +225,8 @@ pub(super) async fn run_agent_tool_pass(
                 result: None,
                 error: None,
                 duration_ms: None,
+                display_label,
+                display_summary,
                 trace_id: trace_id_opt(sub_trace_id),
             },
         );
@@ -327,6 +341,8 @@ fn handle_response_tool(
             result: Some("已回复用户".into()),
             error: None,
             duration_ms: Some(0),
+            display_label: None,
+            display_summary: None,
             trace_id: trace_id_opt(sub_trace_id),
         },
     );
@@ -416,6 +432,8 @@ async fn run_approval_gate(
             result: None,
             error: None,
             duration_ms: None,
+            display_label: None,
+            display_summary: None,
             trace_id: trace_id_opt(trace_id),
         },
     );
@@ -441,6 +459,8 @@ async fn run_approval_gate(
             result: None,
             error: Some(err.clone()),
             duration_ms: None,
+            display_label: None,
+            display_summary: None,
             trace_id: trace_id_opt(trace_id),
         },
     );
@@ -621,6 +641,8 @@ async fn record_tool_exec_outcome(
                     result: Some(preview),
                     error: err_note,
                     duration_ms: Some(duration),
+                    display_label: None,
+                    display_summary: None,
                     trace_id: trace_id_opt(trace_id),
                 },
             );
@@ -644,6 +666,8 @@ async fn record_tool_exec_outcome(
                     result: None,
                     error: Some(err.clone()),
                     duration_ms: Some(duration),
+                    display_label: None,
+                    display_summary: None,
                     trace_id: trace_id_opt(trace_id),
                 },
             );

@@ -12,6 +12,10 @@ export interface ToolCall {
   durationMs?: number
   riskLevel?: 'low' | 'medium' | 'high'
   terminalOutput?: string
+  /** UI-only Chinese label from backend (not sent to the LLM). */
+  displayLabel?: string
+  /** UI-only short parameter summary from backend. */
+  displaySummary?: string
 }
 
 export const DEFAULT_LEAD_AGENT_ID = 'computer'
@@ -37,6 +41,8 @@ export interface AgentUiConfig {
   showHeadline?: boolean
   showSubAgentTrace?: boolean
   showToolCalls?: boolean
+  /** Debug: show full tool result JSON in expanded tool cards. */
+  showToolCallResults?: boolean
   hideToolNames?: string[]
   showWorkspacePicker?: boolean
   showComputerMonitorPicker?: boolean
@@ -373,7 +379,7 @@ export type StreamEvent =
   | { kind: 'agent_step'; messageId: string; agent: AgentTrace }
   | { kind: 'tool_call_start'; messageId: string; toolCall: ToolCall; traceId?: string }
   | { kind: 'tool_call_args_delta'; messageId: string; toolCallId: string; argsDelta: string; traceId?: string }
-  | { kind: 'tool_call_status'; messageId: string; toolCallId: string; status: ToolCall['status']; result?: string; error?: string; durationMs?: number; traceId?: string }
+  | { kind: 'tool_call_status'; messageId: string; toolCallId: string; status: ToolCall['status']; result?: string; error?: string; durationMs?: number; displayLabel?: string; displaySummary?: string; traceId?: string }
   | { kind: 'terminal_output_delta'; messageId: string; toolCallId: string; output: string; traceId?: string }
   | { kind: 'message_end'; messageId: string; content?: string; rawContent?: string; thoughts?: string; headline?: string; traceId?: string }
   | { kind: 'injected_user_message'; conversationId: string; messageId: string; content: string }

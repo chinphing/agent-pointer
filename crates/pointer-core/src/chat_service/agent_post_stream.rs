@@ -130,6 +130,13 @@ fn assistant_tool_calls_with_risk(
                     .tools
                     .tool_risk_level_for_invocation(&t.name, &args_v)
                     .or(Some("low".into()));
+                let display = state.tools.format_display(&t.name, &args_v);
+                t.display_label = Some(display.label);
+                t.display_summary = if display.summary.is_empty() {
+                    None
+                } else {
+                    Some(display.summary)
+                };
                 t
             })
             .collect(),
@@ -436,5 +443,90 @@ pub(super) fn sub_agent_run_result(
         } else {
             None
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::AgentPlan;
+
+    fn sample_tool_call(name: &str, arguments: &str) -> ToolCall {
+        ToolCall {
+            id: "tc_display".into(),
+            name: name.into(),
+            arguments: arguments.into(),
+            status: "pending".into(),
+            result: None,
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+            display_label: None,
+            display_summary: None,
+        }
+    }
+
+    #[test]
+    fn assistant_tool_calls_fill_display_fields_for_file_read() {
+        let state = AppState::new();
+        let tool_calls = vec![sample_tool_call(
+            "file:read",
+            r#"{"path":"src/components/App.vue"}"#,
+        )];
+        let plan = AgentPlan {
+            mode: "single".into(),
+            lead_agent_id: "coder".into(),
+            lead_agent_name: "Coder".into(),
+            system_prompts: vec![],
+             allowed_tool_names: vec![],
+            allow_agents: vec![],
+        };
+        let msg = build_lead_assistant_message_after_stream(
+            "asst_1",
+            "",
+            String::new(),
+            false,
+            &tool_calls,
+            None,
+            None,
+            &plan,
+            &[],
+            &state,
+        );
+        let tcs = msg.tool_calls.expect("tool_calls");
+        assert_eq!(tcs[0].display_label.as_deref(), Some("读取文件"));
+        assert_eq!(tcs[0].display_summary.as_deref(), Some("App.vue"));
+    }
+
+    #[test]
+    fn assistant_tool_calls_fill_display_fields_for_terminal() {
+        let state = AppState::new();
+        let tool_calls = vec![sample_tool_call(
+            "terminal",
+            r#"{"command":"npm test"}"#,
+        )];
+        let plan = AgentPlan {
+            mode: "single".into(),
+            lead_agent_id: "coder".into(),
+            lead_agent_name: "Coder".into(),
+            system_prompts: vec![],
+            allowed_tool_names: vec![],
+            allow_agents: vec![],
+        };
+        let msg = build_lead_assistant_message_after_stream(
+            "asst_2",
+            "",
+            String::new(),
+            false,
+            &tool_calls,
+            None,
+            None,
+            &plan,
+            &[],
+            &state,
+        );
+        let tcs = msg.tool_calls.expect("tool_calls");
+        assert_eq!(tcs[0].display_label.as_deref(), Some("终端命令"));
+        assert_eq!(tcs[0].display_summary.as_deref(), Some("npm test"));
     }
 }

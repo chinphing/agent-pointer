@@ -147,6 +147,8 @@ pub(super) async fn drain_provider_events(
                                     &parse_tool_call_arguments(""),
                                 )
                                 .or(Some("low".into())),
+                            display_label: None,
+                            display_summary: None,
                         },
                         trace_id: trace_id_opt(sub_trace_id),
                     },

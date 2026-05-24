@@ -127,6 +127,13 @@ fn join_display_names(names: Vec<String>, max_items: usize) -> String {
 }
 
 fn file_summary(args: &Value, method: &str) -> String {
+    // grep / glob: always show search pattern only (never base/path/directory basename).
+    if method == "grep" || method == "glob" {
+        return str_field(args, &["pattern"])
+            .map(|p| truncate(&p, SUMMARY_MAX))
+            .unwrap_or_default();
+    }
+
     if let Some(paths) = args.get("paths").and_then(|v| v.as_array()) {
         let names: Vec<String> = paths
             .iter()
@@ -325,6 +332,33 @@ mod tests {
             }),
         );
         assert_eq!(d.summary, "App.vue, main.ts");
+    }
+
+    #[test]
+    fn file_grep_shows_pattern_not_search_path() {
+        let d = default_display(
+            "file:grep",
+            &json!({"pattern": "fn main", "path": "src/components/App.vue"}),
+        );
+        assert_eq!(d.label, "搜索内容");
+        assert_eq!(d.summary, "fn main");
+    }
+
+    #[test]
+    fn file_glob_shows_pattern() {
+        let d = default_display("file:glob", &json!({"pattern": "**/*.rs", "base": "src"}));
+        assert_eq!(d.label, "搜索文件");
+        assert_eq!(d.summary, "**/*.rs");
+    }
+
+    #[test]
+    fn file_glob_shows_pattern_not_search_root() {
+        let d = default_display(
+            "file:glob",
+            &json!({"pattern": "**/*.vue", "path": "src/components", "base": "src"}),
+        );
+        assert_eq!(d.label, "搜索文件");
+        assert_eq!(d.summary, "**/*.vue");
     }
 
     #[test]

@@ -16,12 +16,12 @@ Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, pl
 - **OAuth refresh token**: encrypted in `{data_dir}/PointerApp/auth.dat` (AES-256-GCM, machine-bound key via HKDF). No OS keyring.
 - **Login / refresh**: `/auth/app/token` returns `api_key`, `llm_provider`, and `user.is_platform_admin`. Credentials are injected into the in-memory provider list (`apply_login_llm_credentials`).
 - **Normal users**: use platform-issued API key; cannot edit platform settings in the UI.
-- **Platform admins**: may override provider/model settings in memory; **智能体** fields persist to `local_platform_settings.json`.
+- **Platform admins**: may override provider/model settings in memory via debug **智能模式** (no dedicated model-service settings page).
 
 ### Settings save actions
 
 - Footer label **保存** only on **智能体** (persists tool approval, Computer prefs, context compression, max tool rounds to `local_platform_settings.json`).
-- **模型服务**, **界面配置**, **智能模式**: **保存(本次会话)** — in-memory only until restart.
+- **界面配置**, **智能模式**: **保存(本次会话)** — in-memory only until restart.
 - **平台账户**: login/logout via OAuth (`auth.dat`); no footer save.
 - Theme follows browser localStorage only (not written to `user_settings.json` from settings dialog).
 

@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::app_state::AppState;
 use super::session_budget::SessionToolBudget;
-use super::session_model::apply_session_agent_model_defaults;
+use super::session_model::prepare_session_llm_settings;
 use super::StreamTx;
 
 pub(super) async fn run_chat_inner(
@@ -36,16 +36,18 @@ pub(super) async fn run_chat_inner(
     if !workspace_root.trim().is_empty() {
         settings.workspace_root = workspace_root.trim().to_string();
     }
-    if settings.api_key.is_empty() {
-        return Err(anyhow!("尚未配置 API Key，请先登录平台账户或在设置中配置密钥"));
-    }
-    let api_key = settings.api_key.clone();
     let tool_approval_mode = settings.tool_approval_mode.clone();
     let effective_agent_mode = request_agent_mode
         .filter(|mode| !mode.trim().is_empty())
         .unwrap_or(&settings.agent_mode)
         .to_string();
-    apply_session_agent_model_defaults(&mut settings, &effective_agent_mode);
+    let api_key = prepare_session_llm_settings(&mut settings, &effective_agent_mode);
+    if api_key.is_empty() {
+        return Err(anyhow!(
+            "尚未配置 API Key（{}），请先登录平台账户或在设置中配置密钥",
+            settings.active_provider_id
+        ));
+    }
     let lead_worker_id = settings.lead_agent_id.trim();
     let lead_opt = if lead_worker_id.is_empty() {
         None

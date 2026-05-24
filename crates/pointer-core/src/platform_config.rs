@@ -234,10 +234,10 @@ mod tests {
     }
 
     #[test]
-    fn apply_login_provider_api_keys_injects_multiple() {
+    fn apply_login_provider_api_keys_maps_aliyun_qwen_alias() {
         let mut platform = PlatformSettings::default();
         let mut keys = HashMap::new();
-        keys.insert("qwen".into(), "sk-qwen".into());
+        keys.insert("aliyun_qwen".into(), "sk-qwen".into());
         keys.insert("deepseek".into(), "sk-ds".into());
         apply_login_llm_provider_api_keys(&mut platform, &keys);
         assert_eq!(

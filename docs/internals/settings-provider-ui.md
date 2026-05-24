@@ -1,5 +1,7 @@
 # 设置页：模型服务商编辑（维护说明）
 
+> **已移除（2025）**：设置侧栏「模型服务」入口已删除。Provider 列表与 API Key 由内置配置 + 平台账户 OAuth 注入；`useRuntimeParams` / `providerParams` 仍供后端默认参数使用。下文仅作历史维护参考。
+
 ## 保存后界面「空白」
 
 编辑区由 `v-if="editingProvider"` 控制。`saveProvider` 成功后**不要**把 `editingProvider` 设为 `null`，否则编辑表单消失，用户会以为配置页坏了。应使用 store 中规范化后的条目调用 `startEditProvider` 重新打开。

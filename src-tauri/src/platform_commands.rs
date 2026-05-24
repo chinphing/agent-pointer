@@ -33,7 +33,7 @@ pub async fn refresh_platform_session(state: State<'_, Arc<AppState>>) -> Result
         .await
         .map_err(|e| e.to_string())?;
     if let Some((_session, creds)) = refreshed {
-        if creds.api_key.is_some() {
+        if creds.api_key.is_some() || !creds.provider_api_keys.is_empty() {
             state.apply_login_credentials(&creds);
         }
     }

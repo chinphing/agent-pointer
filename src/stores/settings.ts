@@ -354,7 +354,13 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   async function save(patch: Partial<ModelSettings> & Pick<Partial<PlatformSettings>, 'computerTierLlm'>) {
-    await saveSession(patch)
+    const { computerTierLlm, ...sessionPatch } = patch
+    if (computerTierLlm !== undefined && canEditPlatform.value) {
+      await savePlatform({ computerTierLlm })
+    }
+    if (Object.keys(sessionPatch).length > 0) {
+      await saveSession(sessionPatch)
+    }
   }
 
   async function setActiveProvider(id: string) {

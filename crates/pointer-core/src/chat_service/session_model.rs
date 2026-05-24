@@ -42,15 +42,30 @@ pub(crate) fn apply_session_agent_model_defaults(
     let _ = apply_agent_model_defaults(settings, &key);
 }
 
-/// Resolve API key for `settings.active_provider_id`, falling back to the parent session key.
+/// Resolve API key for `settings.active_provider_id`.
+/// When the active provider entry exists but has no key, returns empty (do not borrow another provider's key).
 pub(crate) fn resolve_provider_api_key(settings: &ModelSettings, fallback_api_key: &str) -> String {
     let pid = settings.active_provider_id.trim();
     if let Some(p) = settings.providers.iter().find(|p| p.id == pid) {
         if !p.api_key.trim().is_empty() {
             return p.api_key.clone();
         }
+        return String::new();
     }
     fallback_api_key.trim().to_string()
+}
+
+/// Apply per-agent model defaults and attach the matching provider API key for the active provider.
+pub(crate) fn prepare_session_llm_settings(
+    settings: &mut ModelSettings,
+    effective_agent_mode: &str,
+) -> String {
+    let fallback_key = settings.api_key.clone();
+    apply_session_agent_model_defaults(settings, effective_agent_mode);
+    let api_key = resolve_provider_api_key(settings, &fallback_key);
+    settings.api_key = api_key.clone();
+    settings.has_key = !api_key.is_empty();
+    api_key
 }
 
 /// Build a provider for a sub-agent run, honoring per-agent `agentDefaultModels` when set.
@@ -63,7 +78,7 @@ pub(crate) fn sub_agent_provider(parent: &OpenAIProvider, sub_agent_id: &str) ->
     let provider_switched =
         settings.active_provider_id.trim() != parent.settings.active_provider_id.trim();
     let api_key = if provider_switched {
-        resolve_provider_api_key(&settings, &parent.api_key)
+        resolve_provider_api_key(&settings, "")
     } else {
         parent.api_key.clone()
     };
@@ -161,5 +176,24 @@ mod tests {
         assert_eq!(sub.settings.active_provider_id, "qwen");
         assert_eq!(sub.settings.model, "qwen-plus");
         assert_eq!(sub.api_key, "parent-key");
+    }
+
+    #[test]
+    fn resolve_provider_api_key_does_not_borrow_sibling_provider_key() {
+        let mut settings = sample_settings();
+        settings.active_provider_id = "openai".into();
+        settings.providers[1].api_key.clear();
+        assert!(resolve_provider_api_key(&settings, "qwen-key").is_empty());
+    }
+
+    #[test]
+    fn prepare_session_llm_settings_uses_target_provider_key_after_agent_override() {
+        let mut settings = sample_settings();
+        settings.api_key = "qwen-key".into();
+        settings.lead_agent_id = "explore".into();
+        let key = prepare_session_llm_settings(&mut settings, "single");
+        assert_eq!(settings.active_provider_id, "openai");
+        assert_eq!(key, "openai-key");
+        assert_ne!(key, "qwen-key");
     }
 }

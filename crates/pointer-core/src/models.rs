@@ -616,6 +616,9 @@ pub struct ModelSettings {
     /// When true, Computer Use assistant messages show the annotated screenshot preview action.
     #[serde(default = "default_computer_annotated_screen_view_enabled", rename = "computerAnnotatedScreenViewEnabled")]
     pub computer_annotated_screen_view_enabled: bool,
+    /// When true, Composer shows the monitor picker for the computer agent.
+    #[serde(default = "default_computer_show_monitor_picker", rename = "computerShowMonitorPicker")]
+    pub computer_show_monitor_picker: bool,
     /// UI theme: `light`, `dark`, or `system`.
     #[serde(default = "default_theme", rename = "theme")]
     pub theme: String,
@@ -673,7 +676,7 @@ fn default_max_tool_rounds() -> u32 {
 }
 
 fn default_raw_content_view_enabled() -> bool {
-    true
+    false
 }
 
 fn default_debug_dump_llm_prompts() -> bool {
@@ -682,6 +685,10 @@ fn default_debug_dump_llm_prompts() -> bool {
 
 fn default_computer_annotated_screen_view_enabled() -> bool {
     false
+}
+
+fn default_computer_show_monitor_picker() -> bool {
+    true
 }
 
 impl Default for ModelSettings {
@@ -745,6 +752,7 @@ impl Default for ModelSettings {
             computer_human_like: false,
             computer_initial_tier: default_computer_initial_tier(),
             computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(),
+            computer_show_monitor_picker: default_computer_show_monitor_picker(),
             theme: default_theme(),
             agent_ui_overrides: HashMap::new(),
             round_enable_thinking: None,
@@ -820,10 +828,95 @@ pub struct PlatformSettings {
     pub computer_initial_tier: String,
     #[serde(default = "default_computer_annotated_screen_view_enabled", rename = "computerAnnotatedScreenViewEnabled")]
     pub computer_annotated_screen_view_enabled: bool,
+    #[serde(default = "default_computer_show_monitor_picker", rename = "computerShowMonitorPicker")]
+    pub computer_show_monitor_picker: bool,
     #[serde(default, rename = "agentUiOverrides")]
     pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
     #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
     pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
+}
+
+/// Provider entries we do not ship or persist (legacy / third-party).
+pub fn is_openrouter_provider(p: &ProviderConfig) -> bool {
+    if p.id.eq_ignore_ascii_case("openrouter") {
+        return true;
+    }
+    let name = p.name.to_ascii_lowercase();
+    if name.contains("openrouter") || name.contains("open router") {
+        return true;
+    }
+    let url = p.base_url.to_ascii_lowercase();
+    url.contains("openrouter.ai")
+}
+
+pub fn filter_openrouter_providers(providers: Vec<ProviderConfig>) -> Vec<ProviderConfig> {
+    providers
+        .into_iter()
+        .filter(|p| !is_openrouter_provider(p))
+        .collect()
+}
+
+/// Disk-safe desktop agent preferences (智能体 section). Excludes model-service and session-only fields.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistedLocalPlatformSettings {
+    #[serde(default = "default_tool_approval_mode", rename = "toolApprovalMode")]
+    pub tool_approval_mode: String,
+    #[serde(default, rename = "computerHumanLike")]
+    pub computer_human_like: bool,
+    #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
+    pub computer_initial_tier: String,
+    #[serde(
+        default = "platform_default_context_compression_enabled",
+        rename = "contextCompressionEnabled"
+    )]
+    pub context_compression_enabled: bool,
+    #[serde(default = "platform_default_context_budget_chars", rename = "contextBudgetChars")]
+    pub context_budget_chars: u32,
+    #[serde(
+        default = "platform_default_context_keep_recent_user_turns",
+        rename = "contextKeepRecentUserTurns"
+    )]
+    pub context_keep_recent_user_turns: u32,
+    #[serde(
+        default = "platform_default_context_summary_max_tokens",
+        rename = "contextSummaryMaxTokens"
+    )]
+    pub context_summary_max_tokens: u32,
+    #[serde(default = "platform_default_max_tool_rounds", rename = "maxToolRounds")]
+    pub max_tool_rounds: u32,
+}
+
+impl PersistedLocalPlatformSettings {
+    pub fn from_platform(platform: &PlatformSettings) -> Self {
+        Self {
+            tool_approval_mode: platform.tool_approval_mode.clone(),
+            computer_human_like: platform.computer_human_like,
+            computer_initial_tier: platform.computer_initial_tier.clone(),
+            context_compression_enabled: platform.context_compression_enabled,
+            context_budget_chars: platform.context_budget_chars,
+            context_keep_recent_user_turns: platform.context_keep_recent_user_turns,
+            context_summary_max_tokens: platform.context_summary_max_tokens,
+            max_tool_rounds: platform.max_tool_rounds,
+        }
+    }
+
+    pub fn into_platform(self) -> PlatformSettings {
+        let mut platform = PlatformSettings::default();
+        self.apply_onto(&mut platform);
+        platform
+    }
+
+    /// Merge persisted agent fields onto runtime platform.
+    pub fn apply_onto(&self, platform: &mut PlatformSettings) {
+        platform.tool_approval_mode = self.tool_approval_mode.clone();
+        platform.computer_human_like = self.computer_human_like;
+        platform.computer_initial_tier = self.computer_initial_tier.clone();
+        platform.context_compression_enabled = self.context_compression_enabled;
+        platform.context_budget_chars = self.context_budget_chars;
+        platform.context_keep_recent_user_turns = self.context_keep_recent_user_turns;
+        platform.context_summary_max_tokens = self.context_summary_max_tokens;
+        platform.max_tool_rounds = self.max_tool_rounds;
+    }
 }
 
 fn default_computer_tier_llm() -> HashMap<String, ComputerTierLlmConfig> {
@@ -885,7 +978,7 @@ fn default_platform_agent_models() -> HashMap<String, AgentModelRef> {
         "default".into(),
         AgentModelRef {
             provider_id: "deepseek".into(),
-            model: "deepseek-v4-pro".into(),
+            model: "deepseek-v4-flash".into(),
         },
     );
     m.insert(
@@ -992,6 +1085,7 @@ impl Default for PlatformSettings {
             computer_human_like: false,
             computer_initial_tier: default_computer_initial_tier(),
             computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(),
+            computer_show_monitor_picker: default_computer_show_monitor_picker(),
             agent_ui_overrides: HashMap::new(),
             computer_tier_llm: default_computer_tier_llm(),
         }
@@ -1037,6 +1131,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         computer_human_like: platform.computer_human_like,
         computer_initial_tier: platform.computer_initial_tier.clone(),
         computer_annotated_screen_view_enabled: platform.computer_annotated_screen_view_enabled,
+        computer_show_monitor_picker: platform.computer_show_monitor_picker,
         theme: user.theme.clone(),
         agent_ui_overrides: platform.agent_ui_overrides.clone(),
         round_enable_thinking: None,

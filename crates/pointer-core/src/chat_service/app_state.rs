@@ -45,7 +45,7 @@ impl AppState {
         storage::ensure_legacy_settings_migrated();
         match storage::load_local_platform_settings() {
             Ok(Some(local)) => {
-                log::info!("storage: loaded local platform settings from disk");
+                log::info!("storage: loaded persisted agent settings from disk");
                 platform_mgr.replace(local);
             }
             Ok(None) => {}
@@ -141,7 +141,16 @@ impl AppState {
         ensure_agent_model_refs_have_provider(&mut tmp);
         patch.agent_default_models = tmp.agent_default_models;
         *self.platform_config.write() = patch.clone();
-        persist_local_platform_settings(&patch);
+        Ok(self.effective_settings_view())
+    }
+
+    pub fn update_agent_settings(
+        &self,
+        incoming: &ModelSettings,
+    ) -> anyhow::Result<EffectiveSettingsView> {
+        self.apply_session_platform_preferences(incoming)?;
+        let platform = self.platform_config.read().clone();
+        persist_local_platform_settings(&platform);
         Ok(self.effective_settings_view())
     }
 
@@ -151,8 +160,7 @@ impl AppState {
     ) -> anyhow::Result<()> {
         let current = self.platform_config.read().clone();
         let next = merge_platform_preferences(incoming, &current);
-        *self.platform_config.write() = next.clone();
-        persist_local_platform_settings(&next);
+        *self.platform_config.write() = next;
         Ok(())
     }
 
@@ -164,7 +172,6 @@ impl AppState {
             creds.api_key.as_deref(),
             creds.llm_provider.as_deref(),
         );
-        persist_local_platform_settings(&platform);
     }
 
     pub fn cancel(&self, conversation_id: &str) {

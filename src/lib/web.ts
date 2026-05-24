@@ -96,6 +96,10 @@ export async function updateSettings(settings: ModelSettings): Promise<Effective
   return await request<EffectiveSettingsView>('/api/settings', { method: 'PUT', body: JSON.stringify(settings) })
 }
 
+export async function updateAgentSettings(settings: ModelSettings): Promise<EffectiveSettingsView> {
+  return await request<EffectiveSettingsView>('/api/agent-settings', { method: 'PUT', body: JSON.stringify(settings) })
+}
+
 export async function updateUserSettings(user: UserSettings): Promise<EffectiveSettingsView> {
   return await request<EffectiveSettingsView>('/api/user-settings', { method: 'PUT', body: JSON.stringify(user) })
 }

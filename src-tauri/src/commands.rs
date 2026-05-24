@@ -8,7 +8,6 @@ use pointer_core::models::{
 };
 
 use pointer_core::provider::OpenAIProvider;
-use pointer_core::platform_config::platform_settings_from_model_settings;
 use pointer_core::storage;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
@@ -102,36 +101,26 @@ pub fn update_platform_settings(
         .map_err(|e| e.to_string())
 }
 
-/// Back-compat: applies full patch as platform settings (admin) or user theme only.
+/// Back-compat: session preferences in memory only; agent section uses update_agent_settings.
 #[tauri::command]
 pub fn update_settings(
     state: State<'_, Arc<AppState>>,
     settings: ModelSettings,
 ) -> Result<EffectiveSettingsView, String> {
-    if state.platform_auth.is_platform_admin() {
-        let current = state.platform_config.read().clone();
-        let mut platform = platform_from_model_settings(&settings);
-        platform.computer_tier_llm = current.computer_tier_llm;
-        state
-            .update_platform_settings(platform)
-            .map_err(|e| e.to_string())
-    } else {
-        let user = UserSettings {
-            theme: settings.theme.clone(),
-            user_nickname: None,
-        };
-        state.save_user_settings(&user).map_err(|e| e.to_string())?;
-        state
-            .apply_session_platform_preferences(&settings)
-            .map_err(|e| e.to_string())?;
-        Ok(state.effective_settings_view())
-    }
+    state
+        .apply_session_platform_preferences(&settings)
+        .map_err(|e| e.to_string())?;
+    Ok(state.effective_settings_view())
 }
 
-fn platform_from_model_settings(s: &ModelSettings) -> PlatformSettings {
-    let mut platform = platform_settings_from_model_settings(s);
-    platform.computer_tier_llm = PlatformSettings::default().computer_tier_llm;
-    platform
+#[tauri::command]
+pub fn update_agent_settings(
+    state: State<'_, Arc<AppState>>,
+    settings: ModelSettings,
+) -> Result<EffectiveSettingsView, String> {
+    state
+        .update_agent_settings(&settings)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

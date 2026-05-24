@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import {
   getSettings,
   updateSettings,
+  updateAgentSettings,
   updateUserSettings,
   updatePlatformSettings,
   setApiKey,
@@ -50,6 +51,7 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   computerHumanLike: false,
   computerInitialTier: 'primary',
   computerAnnotatedScreenViewEnabled: false,
+  computerShowMonitorPicker: true,
   agentUiOverrides: {},
   computerTierLlm: {
     primary: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
@@ -78,6 +80,7 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     computerHumanLike: s.computerHumanLike === true,
     computerInitialTier: normalizeComputerInitialTier(s.computerInitialTier),
     computerAnnotatedScreenViewEnabled: s.computerAnnotatedScreenViewEnabled === true,
+    computerShowMonitorPicker: s.computerShowMonitorPicker !== false,
     theme: (s.theme as ThemePreference) ?? 'system',
     agentUiOverrides: { ...(s.agentUiOverrides ?? {}) }
   }
@@ -319,9 +322,10 @@ export const useSettingsStore = defineStore('settings', () => {
     applyEffectiveView(view)
   }
 
-  async function save(patch: Partial<ModelSettings> & Pick<Partial<PlatformSettings>, 'computerTierLlm'>) {
+  async function saveSession(patch: Partial<ModelSettings>) {
     if (patch.theme !== undefined) {
-      await saveUser({ theme: patch.theme })
+      applyTheme(patch.theme)
+      settings.value.theme = patch.theme
       patch = { ...patch }
       delete patch.theme
     }
@@ -331,42 +335,26 @@ export const useSettingsStore = defineStore('settings', () => {
       merged.agentDefaultModels as Record<string, unknown>,
       merged.activeProviderId
     )
-    if (canEditPlatform.value) {
-      const extra = patch as Partial<ModelSettings> & {
-        computerTierLlm?: PlatformSettings['computerTierLlm']
-      }
-      const platformPatch: PlatformSettings = {
-        ...platformSettings.value,
-        providers: merged.providers,
-        activeProviderId: merged.activeProviderId,
-        model: merged.model,
-        temperature: merged.temperature,
-        maxTokens: merged.maxTokens,
-        toolApprovalMode: merged.toolApprovalMode,
-        agentMode: merged.agentMode,
-        workspaceRoot: merged.workspaceRoot,
-        leadAgentId: merged.leadAgentId,
-        contextCompressionEnabled: merged.contextCompressionEnabled,
-        contextBudgetChars: merged.contextBudgetChars,
-        contextKeepRecentUserTurns: merged.contextKeepRecentUserTurns,
-        contextSummaryMaxTokens: merged.contextSummaryMaxTokens,
-        maxToolRounds: merged.maxToolRounds,
-        maxSubAgentToolRounds: merged.maxSubAgentToolRounds,
-        rawContentViewEnabled: merged.rawContentViewEnabled,
-        debugDumpLlmPrompts: merged.debugDumpLlmPrompts,
-        agentDefaultModels: merged.agentDefaultModels,
-        agentTaskBoardHistoryTrim: merged.agentTaskBoardHistoryTrim,
-        computerHumanLike: merged.computerHumanLike,
-        computerInitialTier: merged.computerInitialTier,
-        computerAnnotatedScreenViewEnabled: merged.computerAnnotatedScreenViewEnabled,
-        agentUiOverrides: merged.agentUiOverrides,
-        computerTierLlm: extra.computerTierLlm ?? platformSettings.value.computerTierLlm
-      }
-      await savePlatform(platformPatch)
-    } else {
-      const view = await updateSettings(merged)
-      applyEffectiveView(view)
-    }
+    const view = await updateSettings(merged)
+    applyEffectiveView(view)
+  }
+
+  async function saveAgentPreferences(patch: Partial<ModelSettings>) {
+    const merged: ModelSettings = { ...settings.value, ...patch }
+    merged.agentDefaultModels = normalizeAgentDefaultModels(
+      merged.agentDefaultModels as Record<string, unknown>,
+      merged.activeProviderId
+    )
+    const view = await updateAgentSettings(merged)
+    applyEffectiveView(view)
+  }
+
+  async function saveModelService(patch: Partial<PlatformSettings>) {
+    await saveSession(patch as Partial<ModelSettings>)
+  }
+
+  async function save(patch: Partial<ModelSettings> & Pick<Partial<PlatformSettings>, 'computerTierLlm'>) {
+    await saveSession(patch)
   }
 
   async function setActiveProvider(id: string) {
@@ -385,7 +373,11 @@ export const useSettingsStore = defineStore('settings', () => {
         await clearApiKey()
         settings.value.hasKey = false
       }
-      await save({ activeProviderId: id, model: settings.value.model })
+      await saveSession({
+        providers: settings.value.providers,
+        activeProviderId: id,
+        model: settings.value.model
+      })
     }
   }
 
@@ -523,6 +515,9 @@ export const useSettingsStore = defineStore('settings', () => {
     allModels,
     load,
     save,
+    saveSession,
+    saveAgentPreferences,
+    saveModelService,
     saveUser,
     savePlatform,
     setActiveProvider,

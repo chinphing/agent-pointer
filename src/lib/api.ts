@@ -41,6 +41,7 @@ export interface RuntimeApi {
   approveToolCall(conversationId: string, toolCallId: string, approved: boolean): Promise<void>
   getSettings(): Promise<EffectiveSettingsView>
   updateSettings(settings: ModelSettings): Promise<EffectiveSettingsView>
+  updateAgentSettings(settings: ModelSettings): Promise<EffectiveSettingsView>
   updateUserSettings(user: UserSettings): Promise<EffectiveSettingsView>
   updatePlatformSettings(platform: PlatformSettings): Promise<EffectiveSettingsView>
   setApiKey(key: string): Promise<void>
@@ -69,6 +70,7 @@ export const abortTerminalCommand = api.abortTerminalCommand
 export const approveToolCall = api.approveToolCall
 export const getSettings = api.getSettings
 export const updateSettings = api.updateSettings
+export const updateAgentSettings = api.updateAgentSettings
 export const updateUserSettings = api.updateUserSettings
 export const updatePlatformSettings = api.updatePlatformSettings
 export const setApiKey = api.setApiKey

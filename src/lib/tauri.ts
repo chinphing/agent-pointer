@@ -57,6 +57,10 @@ export async function updateSettings(settings: ModelSettings): Promise<Effective
   return await invoke<EffectiveSettingsView>('update_settings', { settings })
 }
 
+export async function updateAgentSettings(settings: ModelSettings): Promise<EffectiveSettingsView> {
+  return await invoke<EffectiveSettingsView>('update_agent_settings', { settings })
+}
+
 export async function updateUserSettings(user: UserSettings): Promise<EffectiveSettingsView> {
   return await invoke<EffectiveSettingsView>('update_user_settings', { user })
 }

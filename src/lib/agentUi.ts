@@ -31,7 +31,8 @@ const COMPOSER_LABELS: Record<string, string> = {
   default: '综合对话',
   coder: '小白编程',
   computer: '电脑操控',
-  supervisor: '团队模式'
+  supervisor: '团队模式',
+  explore: '代码探索'
 }
 
 function composerSelectableByProfile(id: string, key: string, isSupervisor: boolean): boolean {
@@ -103,14 +104,23 @@ export function composerAgentLabel(
 
 export function resolveAgentUi(
   agent: AgentDef | undefined,
-  settings?: Pick<ModelSettings, 'agentUiOverrides'>
+  settings?: Pick<ModelSettings, 'agentUiOverrides' | 'computerShowMonitorPicker'>
 ): ResolvedAgentUi {
   if (!agent) {
     return profileDefaults('general', 'default', 'worker')
   }
   const base = profileDefaults(agent.profile, agent.id, agent.role)
   const overrides = settings?.agentUiOverrides?.[agent.id]
-  return mergeUi(base, agent.ui, overrides, agent.name)
+  const merged = mergeUi(base, agent.ui, overrides, agent.name)
+  const monitorOverride = settings?.agentUiOverrides?.[agent.id]?.showComputerMonitorPicker
+  if (
+    agent.id === 'computer'
+    && monitorOverride === undefined
+    && settings?.computerShowMonitorPicker !== undefined
+  ) {
+    return { ...merged, showComputerMonitorPicker: settings.computerShowMonitorPicker }
+  }
+  return merged
 }
 
 function leadAgentProfile(id: string): AgentProfile {

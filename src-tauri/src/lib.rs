@@ -147,6 +147,7 @@ pub fn run() {
             commands::approve_tool_call,
             commands::get_settings,
             commands::update_settings,
+            commands::update_agent_settings,
             commands::update_user_settings,
             commands::update_platform_settings,
             commands::set_api_key,

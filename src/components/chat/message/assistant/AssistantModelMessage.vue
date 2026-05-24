@@ -91,7 +91,7 @@ const showStreamingPlaceholderUnderThoughts = computed(
 
 useMarkdownCodeCopy(bodyRef, () => markdownSource.value)
 
-const rawContentViewEnabled = computed(() => settingsStore.settings.rawContentViewEnabled !== false)
+const rawContentViewEnabled = computed(() => settingsStore.settings.rawContentViewEnabled === true)
 
 const hasRawWire = computed(() => {
   if (!rawContentViewEnabled.value) return false

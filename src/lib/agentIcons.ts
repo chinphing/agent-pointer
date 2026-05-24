@@ -2,8 +2,8 @@ import { Bot, Code, Monitor, Search, Users, type LucideIcon } from 'lucide-vue-n
 import type { AgentDef, ModelSettings } from '../types/chat'
 import { resolveAgentUi } from './agentUi'
 
-/** Team mode is hidden from composer/settings until re-enabled. */
-export const TEAM_MODE_UI_ENABLED = false
+/** Team mode in composer and settings. */
+export const TEAM_MODE_UI_ENABLED = true
 
 export const COMPOSER_AGENT_ORDER = ['computer', 'default', 'coder'] as const
 

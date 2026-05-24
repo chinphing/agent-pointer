@@ -36,7 +36,7 @@ import type {
 import { COMPUTER_INITIAL_TIER_OPTIONS } from '../../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../../types/chat'
 import { applyTheme } from '../../lib/theme'
-import { resolveAgentUi } from '../../lib/agentUi'
+import { resolveAgentUi, composerAgentLabel } from '../../lib/agentUi'
 import { TEAM_MODE_UI_ENABLED } from '../../lib/agentIcons'
 import { listAgents } from '../../lib/api'
 import {
@@ -115,7 +115,7 @@ const contextKeepRecentUserTurns = ref(6)
 const contextSummaryMaxTokens = ref(2048)
 const maxToolRounds = ref(100)
 const maxSubAgentToolRounds = ref(100)
-const rawContentViewEnabled = ref(true)
+const rawContentViewEnabled = ref(false)
 const debugDumpLlmPrompts = ref(false)
 const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
 const computerHumanLike = ref(false)
@@ -289,16 +289,15 @@ const debugSections = [
 ] as const
 
 const showDebugMenus = computed(() => s.canEditPlatform && debugMenusEnabled.value)
-const debugSectionIds = new Set(debugSections.map(s => s.id))
-const userSectionIds = new Set(['assistant'])
-const isUserConfigSection = computed(() => userSectionIds.has(activeSection.value))
+const debugSectionIds = new Set<string>(debugSections.map(s => s.id))
+const persistedSectionIds = new Set<string>(['assistant'])
+const isPersistedSection = computed(() => persistedSectionIds.has(activeSection.value))
 const showFooterSave = computed(() => {
   if (activeSection.value === 'account' || activeSection.value === 'runtime') return false
-  if (isUserConfigSection.value) return true
-  return s.canEditPlatform && debugSectionIds.has(activeSection.value)
+  return activeSection.value === 'assistant' || (s.canEditPlatform && debugSectionIds.has(activeSection.value))
 })
 const footerSaveLabel = computed(() =>
-  isUserConfigSection.value ? '保存' : '保存(本次会话)'
+  isPersistedSection.value ? '保存' : '保存(本次会话)'
 )
 const debugModeTitle = computed(() =>
   debugMenusEnabled.value ? '调试模式：已开启（点击关闭）' : '调试模式：已关闭（点击开启）'
@@ -346,13 +345,30 @@ const activeUiAgentId = computed(() =>
   agentMode.value === 'supervisor' ? 'supervisor' : (leadAgentId.value?.trim() || DEFAULT_LEAD_AGENT_ID)
 )
 
+const displayUiFieldsForAgent = computed(() => {
+  if (activeUiAgentId.value === 'computer') return DISPLAY_UI_FIELDS
+  return DISPLAY_UI_FIELDS.filter(f => f.key !== 'showComputerMonitorPicker')
+})
+
+const activeUiAgentLabel = computed(() => {
+  const id = activeUiAgentId.value
+  if (id === 'supervisor') return composerAgentLabel(supervisorAgent.value, s.settings)
+  const agent = workers.value.find(w => w.id === id) ?? workers.value.find(w => w.id === DEFAULT_LEAD_AGENT_ID)
+  return composerAgentLabel(agent, s.settings)
+})
+
 const effectiveDisplayUi = computed(() => {
   const id = activeUiAgentId.value
   const agent =
     agentMode.value === 'supervisor'
       ? supervisorAgent.value
       : workers.value.find(w => w.id === id) ?? workers.value.find(w => w.id === DEFAULT_LEAD_AGENT_ID)
-  return resolveAgentUi(agent, { agentUiOverrides: { [id]: agentUiLocal.value } })
+  return resolveAgentUi(agent, {
+    agentUiOverrides: {
+      ...(s.settings.agentUiOverrides ?? {}),
+      [id]: agentUiLocal.value
+    }
+  })
 })
 
 function isLeadWorkerSelected(agentId: string): boolean {
@@ -382,7 +398,7 @@ function setDisplayUi(key: keyof AgentUiConfig, checked: boolean) {
 async function applyThemeChoice(t: ThemePreference) {
   theme.value = t
   applyTheme(t)
-  await s.saveUser({ theme: t })
+  s.settings.theme = t
 }
 
 function themeLabel(t: ThemePreference): string {
@@ -428,7 +444,7 @@ onMounted(() => {
   contextSummaryMaxTokens.value = s.settings.contextSummaryMaxTokens ?? 2048
   maxToolRounds.value = s.settings.maxToolRounds ?? 100
   maxSubAgentToolRounds.value = s.settings.maxSubAgentToolRounds ?? s.settings.maxToolRounds ?? 100
-  rawContentViewEnabled.value = s.settings.rawContentViewEnabled !== false
+  rawContentViewEnabled.value = s.settings.rawContentViewEnabled === true
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true
@@ -675,15 +691,17 @@ async function saveProvider() {
   if (!applyProviderSnapshotToStore(snapshot, wasAdd, false)) return
 
   try {
-    await s.save({
+    await s.saveModelService({
       providers: s.settings.providers,
       activeProviderId: s.settings.activeProviderId,
-      model: s.settings.model
+      model: s.settings.model,
+      temperature: s.settings.temperature,
+      maxTokens: s.settings.maxTokens
     })
     providerSaveError.value = ''
   } catch (e) {
     console.error(e)
-    providerSaveError.value = '保存到本地失败，请重试'
+    providerSaveError.value = '应用配置失败，请重试'
   }
 }
 
@@ -733,8 +751,20 @@ async function saveFromFooter() {
   saving.value = true
   providerSaveError.value = ''
   try {
-    if (isUserConfigSection.value) {
-      await s.save({
+    if (activeSection.value === 'provider') {
+      if (editingProvider.value && !flushEditingProviderToStore()) {
+        return
+      }
+      await s.saveModelService({
+        providers: s.settings.providers,
+        activeProviderId: s.settings.activeProviderId,
+        model: s.settings.model,
+        temperature: s.settings.temperature,
+        maxTokens: s.settings.maxTokens,
+        computerTierLlm: { ...s.platformSettings.computerTierLlm }
+      })
+    } else if (activeSection.value === 'assistant') {
+      await s.saveAgentPreferences({
         toolApprovalMode: toolApprovalMode.value,
         computerHumanLike: computerHumanLike.value,
         computerInitialTier: computerInitialTier.value,
@@ -745,15 +775,11 @@ async function saveFromFooter() {
         maxToolRounds: Number(maxToolRounds.value)
       })
     } else {
-      // 底部「保存(本次会话)」须先合并正在编辑的服务商（含新加的模型名），否则只保存了旧列表。
       if (editingProvider.value && !flushEditingProviderToStore()) {
         activeSection.value = 'provider'
         return
       }
-      await s.save({
-        providers: s.settings.providers,
-        activeProviderId: s.settings.activeProviderId,
-        model: s.settings.model,
+      await s.saveSession({
         agentMode: agentMode.value,
         leadAgentId: agentMode.value === 'supervisor' ? '' : leadAgentId.value,
         maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
@@ -764,8 +790,7 @@ async function saveFromFooter() {
         agentUiOverrides: {
           ...(s.settings.agentUiOverrides ?? {}),
           [activeUiAgentId.value]: { ...agentUiLocal.value }
-        },
-        computerTierLlm: { ...s.platformSettings.computerTierLlm }
+        }
       })
     }
     emit('close')
@@ -865,7 +890,7 @@ async function saveFromFooter() {
             </div>
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
-              <h4 class="text-sm font-medium text-foreground">Computer Use Agent</h4>
+              <h4 class="text-sm font-medium text-foreground">电脑操控</h4>
               <div class="grid grid-cols-2 gap-3">
                 <div class="px-1 py-1 inline-flex items-center gap-2">
                   <label class="inline-flex items-center gap-2 cursor-pointer">
@@ -889,7 +914,7 @@ async function saveFromFooter() {
                 </div>
                 <div
                   class="px-1 py-1"
-                  title="新会话开始时 Computer 智能体使用的视觉级别；会话中仍可能因验证失败自动升档"
+                  title="新会话开始时电脑操控智能体使用的视觉级别；会话中仍可能因验证失败自动升档"
                 >
                   <div class="flex items-center gap-3">
                     <span class="text-[12px] text-foreground whitespace-nowrap">初始级别</span>
@@ -1229,7 +1254,7 @@ async function saveFromFooter() {
                   </div>
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
-                      <span class="text-sm font-medium text-foreground">{{ w.name }}</span>
+                      <span class="text-sm font-medium text-foreground">{{ composerAgentLabel(w, s.settings) }}</span>
                       <span class="px-1.5 py-0.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[10px] text-muted font-mono">{{ w.id }}</span>
                       <span v-if="isLeadWorkerSelected(w.id)" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">已选择</span>
                     </div>
@@ -1269,7 +1294,7 @@ async function saveFromFooter() {
                       :class="platformReadOnly ? 'opacity-60 pointer-events-none' : ''"
                     >
                       <div class="flex items-center justify-between gap-2">
-                        <h4 class="text-xs font-medium text-foreground">Computer 分级模型</h4>
+                        <h4 class="text-xs font-medium text-foreground">电脑操控分级模型</h4>
                         <span class="text-[10px] text-muted">按级别覆盖模型与思考参数</span>
                       </div>
                       <div
@@ -1310,9 +1335,9 @@ async function saveFromFooter() {
                 </div>
               </div>
 
-              <!-- 团队模式（暂未开放） -->
+              <!-- 团队模式 -->
               <div
-                v-if="TEAM_MODE_UI_ENABLED && supervisorAgent"
+                v-if="supervisorAgent"
                 class="rounded-xl border p-3 cursor-pointer transition-all"
                 :class="agentMode === 'supervisor' ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'"
                 @click="agentMode = 'supervisor'"
@@ -1324,13 +1349,13 @@ async function saveFromFooter() {
                   </div>
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
-                      <span class="text-sm font-medium text-foreground">{{ supervisorAgent.name }}</span>
+                      <span class="text-sm font-medium text-foreground">{{ composerAgentLabel(supervisorAgent, s.settings) }}</span>
                       <span v-if="agentMode === 'supervisor'" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">已选择</span>
                     </div>
                     <p class="mt-0.5 text-[11px] text-muted">多子智能体编排与结果整合</p>
 
                     <!-- Default Model Selector -->
-                    <div v-if="agentMode === 'supervisor'" class="mt-2.5 flex items-center gap-2">
+                    <div class="mt-2.5 flex items-center gap-2" @click.stop>
                       <Sparkles class="w-3.5 h-3.5 text-accent shrink-0" />
                       <span class="text-[11px] text-muted shrink-0">默认模型</span>
                       <select
@@ -1351,11 +1376,11 @@ async function saveFromFooter() {
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
               <h4 class="text-sm font-medium text-foreground">聊天界面显示</h4>
               <p class="text-[11px] text-muted">
-                覆盖当前选中智能体（{{ activeUiAgentId }}）的默认展示；未勾选项使用 AGENT.md 内置默认。
+                覆盖当前选中智能体（{{ activeUiAgentLabel }}）的默认展示；未勾选项使用 AGENT.md 内置默认。
               </p>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <label
-                  v-for="f in DISPLAY_UI_FIELDS"
+                  v-for="f in displayUiFieldsForAgent"
                   :key="f.key"
                   class="inline-flex items-center gap-2 cursor-pointer text-[12px] text-foreground"
                 >
@@ -1455,7 +1480,7 @@ async function saveFromFooter() {
                   <Database class="w-4 h-4 text-accent" />
                 </div>
                 <div class="text-sm font-medium text-foreground">本地数据</div>
-                <p class="mt-1 text-xs text-muted">外观主题保存在 user_settings.json；平台配置仅在本次会话有效。</p>
+                <p class="mt-1 text-xs text-muted">平台账户凭据保存在 auth.dat；智能体配置保存在 local_platform_settings.json；其余配置仅在本次会话有效。</p>
               </div>
               <div class="rounded-xl border border-border panel p-5">
                 <div class="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center mb-3">

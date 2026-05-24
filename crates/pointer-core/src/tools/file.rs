@@ -165,11 +165,11 @@ pub fn register_all(reg: &ToolRegistry) {
     ));
 }
 
-/// Thread-local workspace override for an in-flight chat run (set for the whole `run_chat`).
 thread_local! {
     static CONVERSATION_WORKSPACE_ROOT: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
+/// Thread-local workspace override for an in-flight chat run (set for the whole `run_chat`).
 pub struct ConversationWorkspaceGuard {
     previous: Option<String>,
 }

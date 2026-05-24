@@ -1,7 +1,7 @@
 use crate::models::{
-    ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults, merge_user_platform,
-    AgentModelRef, Conversation, ModelRuntimeOverrides, ModelSettings, PlatformSettings,
-    ProviderConfig, UserSettings,
+    ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults, filter_openrouter_providers,
+    merge_user_platform, AgentModelRef, Conversation, ModelRuntimeOverrides, ModelSettings,
+    PersistedLocalPlatformSettings, PlatformSettings, ProviderConfig, UserSettings,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -234,7 +234,7 @@ fn migrate_legacy_settings_if_needed() -> Result<()> {
     };
     write_user_settings_file(&user)?;
     let platform = stored_settings_to_platform(&stored);
-    save_local_platform_settings(&platform)?;
+    save_local_platform_from_runtime(&platform)?;
     fs::rename(&legacy, &migrated)?;
     log::info!(
         "storage: legacy settings.json renamed to {}",
@@ -270,7 +270,7 @@ pub fn save_user_settings(user: &UserSettings) -> Result<()> {
     write_user_settings_file(user)
 }
 
-/// Desktop-only persisted platform/runtime preferences (providers, workspace, agent defaults, etc.).
+/// Desktop-only persisted agent preferences (智能体 section).
 pub fn load_local_platform_settings() -> Result<Option<PlatformSettings>> {
     ensure_local_platform_imported()?;
     let path = local_platform_settings_path()?;
@@ -278,15 +278,31 @@ pub fn load_local_platform_settings() -> Result<Option<PlatformSettings>> {
         return Ok(None);
     }
     let raw = fs::read_to_string(&path)?;
-    Ok(Some(serde_json::from_str(&raw).unwrap_or_default()))
+    if let Ok(persisted) = serde_json::from_str::<PersistedLocalPlatformSettings>(&raw) {
+        return Ok(Some(persisted.into_platform()));
+    }
+    // Legacy file written as full PlatformSettings (may contain apiKey / debug fields).
+    if let Ok(legacy) = serde_json::from_str::<PlatformSettings>(&raw) {
+        log::warn!("storage: sanitizing legacy local_platform_settings.json (strip secrets/debug/openrouter)");
+        let mut legacy = legacy;
+        legacy.providers = filter_openrouter_providers(legacy.providers);
+        let persisted = PersistedLocalPlatformSettings::from_platform(&legacy);
+        save_local_platform_settings(&persisted)?;
+        return Ok(Some(persisted.into_platform()));
+    }
+    Ok(None)
 }
 
-pub fn save_local_platform_settings(platform: &PlatformSettings) -> Result<()> {
+pub fn save_local_platform_settings(persisted: &PersistedLocalPlatformSettings) -> Result<()> {
     fs::write(
         local_platform_settings_path()?,
-        serde_json::to_vec_pretty(platform)?,
+        serde_json::to_vec_pretty(persisted)?,
     )?;
     Ok(())
+}
+
+pub fn save_local_platform_from_runtime(platform: &PlatformSettings) -> Result<()> {
+    save_local_platform_settings(&PersistedLocalPlatformSettings::from_platform(platform))
 }
 
 /// One-time import for installs that migrated theme before local platform persistence existed.
@@ -303,7 +319,7 @@ fn ensure_local_platform_imported() -> Result<()> {
     let raw = fs::read_to_string(&migrated)?;
     let stored: StoredSettings = serde_json::from_str(&raw).unwrap_or_default();
     let platform = stored_settings_to_platform(&stored);
-    save_local_platform_settings(&platform)?;
+    save_local_platform_from_runtime(&platform)?;
     log::info!("storage: wrote local_platform_settings.json from legacy backup");
     Ok(())
 }

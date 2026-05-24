@@ -221,6 +221,8 @@ export interface PlatformSettings {
   computerInitialTier?: ComputerInitialTier
   /** Show annotated screenshot preview on Computer Use assistant messages */
   computerAnnotatedScreenViewEnabled?: boolean
+  /** Show monitor picker in Composer when computer agent is selected */
+  computerShowMonitorPicker?: boolean
   agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
   computerTierLlm?: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
 }
@@ -272,6 +274,8 @@ export interface ModelSettings {
   computerInitialTier?: ComputerInitialTier
   /** Show annotated screenshot preview on Computer Use assistant messages */
   computerAnnotatedScreenViewEnabled?: boolean
+  /** Show monitor picker in Composer when computer agent is selected */
+  computerShowMonitorPicker?: boolean
   /** UI color scheme */
   theme?: ThemePreference
   /** Per-agent UI overrides (merged over manifest `ui`) */

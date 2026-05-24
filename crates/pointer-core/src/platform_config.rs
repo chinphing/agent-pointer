@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use crate::models::{
-    ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults, merge_user_platform,
-    ModelSettings, PlatformSettings, ProviderConfig, UserSettings,
+    ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults, filter_openrouter_providers,
+    merge_user_platform, ModelSettings, PlatformSettings, ProviderConfig, UserSettings,
 };
 use crate::storage;
 
@@ -112,6 +112,7 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         computer_human_like: s.computer_human_like,
         computer_initial_tier: s.computer_initial_tier.clone(),
         computer_annotated_screen_view_enabled: s.computer_annotated_screen_view_enabled,
+        computer_show_monitor_picker: s.computer_show_monitor_picker,
         agent_ui_overrides: s.agent_ui_overrides.clone(),
         computer_tier_llm: PlatformSettings::default().computer_tier_llm,
     }
@@ -121,6 +122,7 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
 pub fn merge_platform_preferences(incoming: &ModelSettings, existing: &PlatformSettings) -> PlatformSettings {
     let mut next = platform_settings_from_model_settings(incoming);
     next.computer_tier_llm = existing.computer_tier_llm.clone();
+    next.providers = filter_openrouter_providers(next.providers);
     let preserved_keys: HashMap<String, String> = existing
         .providers
         .iter()
@@ -137,7 +139,7 @@ pub fn merge_platform_preferences(incoming: &ModelSettings, existing: &PlatformS
 }
 
 pub fn persist_local_platform_settings(platform: &PlatformSettings) {
-    if let Err(e) = storage::save_local_platform_settings(platform) {
+    if let Err(e) = storage::save_local_platform_from_runtime(platform) {
         log::warn!("platform_config: failed to persist local platform settings: {e}");
     }
 }
@@ -221,6 +223,7 @@ fn resolve_llm_provider_id(llm_provider: Option<&str>, providers: &[ProviderConf
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::PersistedLocalPlatformSettings;
 
     #[test]
     fn apply_login_maps_aliyun_qwen() {
@@ -249,6 +252,85 @@ mod tests {
                 .unwrap()
                 .api_key,
             "sk-ds"
+        );
+    }
+
+    #[test]
+    fn persisted_local_platform_keeps_agent_fields_only() {
+        let mut platform = PlatformSettings::default();
+        platform.providers[0].api_key = "sk-secret".into();
+        platform.providers.push(ProviderConfig {
+            id: "openrouter".into(),
+            name: "OpenRouter".into(),
+            base_url: "https://openrouter.ai/api/v1".into(),
+            api_key: String::new(),
+            models: vec!["gpt-4o".into()],
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            model_configs: HashMap::new(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+        });
+        platform.active_provider_id = "qwen".into();
+        platform.model = "qwen3.5-plus".into();
+        platform.temperature = 0.9;
+        platform.max_tokens = 8192;
+        platform.tool_approval_mode = "manual".into();
+        platform.computer_human_like = true;
+        platform.computer_initial_tier = "intermediate".into();
+        platform.context_compression_enabled = false;
+        platform.context_budget_chars = 99_000;
+        platform.max_tool_rounds = 42;
+        platform.raw_content_view_enabled = true;
+        platform.debug_dump_llm_prompts = true;
+        platform.computer_annotated_screen_view_enabled = true;
+        platform.agent_ui_overrides.insert(
+            "computer".into(),
+            crate::agents::AgentUiConfig {
+                show_computer_monitor_picker: Some(false),
+                ..Default::default()
+            },
+        );
+
+        let json = serde_json::to_string(&PersistedLocalPlatformSettings::from_platform(&platform)).unwrap();
+        assert!(!json.contains("sk-secret"));
+        assert!(!json.contains("apiKey"));
+        assert!(!json.contains("openrouter"));
+        assert!(!json.contains("OpenRouter"));
+        assert!(!json.contains("activeProviderId"));
+        assert!(!json.contains("temperature"));
+        assert!(!json.contains("rawContentViewEnabled"));
+        assert!(!json.contains("debugDumpLlmPrompts"));
+        assert!(!json.contains("computerAnnotatedScreenViewEnabled"));
+        assert!(!json.contains("agentUiOverrides"));
+        assert!(json.contains("toolApprovalMode"));
+        assert!(json.contains("manual"));
+        assert!(json.contains("computerHumanLike"));
+        assert!(json.contains("maxToolRounds"));
+
+        let loaded = PersistedLocalPlatformSettings::from_platform(&platform).into_platform();
+        assert_eq!(loaded.tool_approval_mode, "manual");
+        assert!(loaded.computer_human_like);
+        assert_eq!(loaded.computer_initial_tier, "intermediate");
+        assert!(!loaded.context_compression_enabled);
+        assert_eq!(loaded.context_budget_chars, 99_000);
+        assert_eq!(loaded.max_tool_rounds, 42);
+        assert_eq!(loaded.tool_approval_mode, platform.tool_approval_mode);
+        assert_eq!(loaded.model, PlatformSettings::default().model);
+        assert!(loaded.providers.iter().all(|p| p.api_key.is_empty()));
+    }
+
+    #[test]
+    fn default_agent_model_is_deepseek_flash() {
+        let platform = PlatformSettings::default();
+        assert_eq!(
+            platform
+                .agent_default_models
+                .get("default")
+                .map(|r| r.model.as_str()),
+            Some("deepseek-v4-flash")
         );
     }
 }

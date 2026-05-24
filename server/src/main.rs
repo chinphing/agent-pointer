@@ -80,6 +80,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/api/health", get(|| async { "ok" }))
         .route("/api/settings", get(get_settings).put(update_settings))
+        .route("/api/agent-settings", put(update_agent_settings))
         .route("/api/user-settings", put(update_user_settings))
         .route("/api/platform-settings", put(update_platform_settings))
         .route("/api/key", post(set_api_key).delete(clear_api_key))
@@ -151,11 +152,20 @@ async fn update_settings(
     State(state): State<ServerState>,
     Json(settings): Json<ModelSettings>,
 ) -> Result<Json<EffectiveSettingsView>, ApiError> {
-    let user = UserSettings {
-        theme: settings.theme.clone(),
-        user_nickname: None,
-    };
-    state.core.save_user_settings(&user)?;
+    state
+        .core
+        .apply_session_platform_preferences(&settings)?;
+    Ok(Json(state.core.effective_settings_view()))
+}
+
+async fn update_agent_settings(
+    State(state): State<ServerState>,
+    Json(settings): Json<ModelSettings>,
+) -> Result<Json<EffectiveSettingsView>, ApiError> {
+    state
+        .core
+        .update_agent_settings(&settings)
+        .map_err(ApiError)?;
     Ok(Json(state.core.effective_settings_view()))
 }
 

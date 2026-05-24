@@ -1,15 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { AgentTrace, SupervisorPlanTask } from '../../../../types/chat'
-import AgentProgressTimeline from './AgentProgressTimeline.vue'
+import type { SupervisorPlanTask } from '../../../../types/chat'
 
 const props = defineProps<{
   xmlThoughts?: string
-  agentTrace?: AgentTrace[]
   planTasks?: SupervisorPlanTask[]
-  /** Debug 模式且开启「显示 thoughts 摘要」时为 true，thoughts 不限高度并在完成后保留。 */
   thoughtsDebugEnabled?: boolean
-  showSubAgentTrace: boolean
   isStreaming?: boolean
 }>()
 
@@ -24,6 +20,8 @@ const showXmlThoughts = computed(() => {
 
 const thoughtsUnlimitedHeight = computed(() => props.thoughtsDebugEnabled === true)
 
+const showPlan = computed(() => (props.planTasks?.length ?? 0) > 0)
+
 watch(
   () => props.xmlThoughts,
   () => {
@@ -36,13 +34,7 @@ watch(
   }
 )
 
-const showTracePanel = computed(
-  () =>
-    props.showSubAgentTrace &&
-    ((props.agentTrace?.length ?? 0) > 0 || (props.planTasks?.length ?? 0) > 0)
-)
-
-const hasContent = computed(() => showXmlThoughts.value || showTracePanel.value)
+const hasContent = computed(() => showXmlThoughts.value || showPlan.value)
 </script>
 
 <template>
@@ -53,11 +45,15 @@ const hasContent = computed(() => showXmlThoughts.value || showTracePanel.value)
       class="text-[12px] leading-relaxed text-muted whitespace-pre-wrap rounded-md border border-border/60 bg-[hsl(var(--card-elevated))]/60 px-2.5 py-2"
       :class="thoughtsUnlimitedHeight ? '' : 'max-h-[3rem] overflow-y-auto overflow-x-hidden'"
     >{{ xmlThoughts }}</div>
-    <AgentProgressTimeline
-      v-if="showTracePanel"
-      :agent-trace="agentTrace"
-      :plan-tasks="planTasks"
-      :is-streaming="isStreaming"
-    />
+    <ul
+      v-if="showPlan"
+      class="text-[12px] text-muted space-y-1 rounded-md border border-border/60 bg-[hsl(var(--card-elevated))]/40 px-2.5 py-2 list-none"
+    >
+      <li v-for="task in planTasks" :key="task.id" class="truncate">
+        <span class="text-accent/80">{{ task.id }}</span>
+        <span class="mx-1">·</span>
+        {{ task.title }}
+      </li>
+    </ul>
   </div>
 </template>

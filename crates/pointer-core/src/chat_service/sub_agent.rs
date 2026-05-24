@@ -18,7 +18,7 @@ use super::agent_tool_pass::{
 };
 use crate::task_board::TaskBoardTrimHook;
 use super::app_state::AppState;
-use super::emit::emit;
+use super::emit::{agent_trace_step_id, emit, trace_id_opt};
 use super::session_budget::SessionToolBudget;
 use super::session_model::sub_agent_provider;
 use super::sub_agent_prompt::{init_sub_agent_session, prepare_sub_agent_round_prompts};
@@ -114,7 +114,7 @@ pub(crate) async fn run_sub_agent(
             SubAgentStreamOutcome::Completed(b) => b,
         };
 
-        // Align with lead-agent rounds: mark parent UI row stream ended so thoughts collapse between sub rounds.
+        // Align with lead-agent rounds: mark sub session stream ended so thoughts collapse between sub rounds.
         emit(
             stream,
             StreamEvent::MessageEnd {
@@ -123,6 +123,7 @@ pub(crate) async fn run_sub_agent(
                 raw_content: None,
                 thoughts: None,
                 headline: None,
+                trace_id: trace_id_opt(Some(&agent_trace_step_id(&task.id, &def.id))),
             },
         );
 
@@ -216,6 +217,7 @@ pub(crate) async fn run_sub_agent(
             accumulated_content: content.clone(),
             accumulated_reasoning: reasoning.clone(),
             reasoning_in_messages,
+            trace_id: agent_trace_step_id(&task.id, &def.id),
         };
         let mut stats = ToolInvocationStats::Conversation(llm_stats);
         let trim_hook = TaskBoardTrimHook {

@@ -101,7 +101,7 @@ const DISPLAY_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
   { key: 'showAgentLabel', label: '消息旁显示智能体名称' },
   { key: 'showThoughts', label: '显示 thoughts 摘要（调试，完成后保留）' },
   { key: 'showHeadline', label: '显示 headline 标题条' },
-  { key: 'showSubAgentTrace', label: '显示子任务进度时间线' },
+  { key: 'showSubAgentTrace', label: '显示子 Agent 边框面板' },
   { key: 'showToolCalls', label: '显示工具调用卡片' },
   { key: 'showTaskBoardPanel', label: '显示任务板面板' },
   { key: 'showWorkspacePicker', label: 'Composer 显示工作区选择' },

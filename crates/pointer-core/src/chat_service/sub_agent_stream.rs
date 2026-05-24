@@ -12,7 +12,7 @@ use super::agent_stream_round::{
     drain_provider_events, ContentDeltaMode, LlmRoundRecorder, StreamRoundBuffers,
 };
 use super::app_state::AppState;
-use super::emit::emit;
+use super::emit::{agent_trace_step_id, emit};
 use super::provider_stream::{is_recoverable_provider_stream_error, provider_stream_recoverable_retry_message};
 use super::session_budget::SessionToolBudget;
 use super::util::{new_id, now_ms};
@@ -35,7 +35,7 @@ pub(super) async fn run_sub_agent_stream_round(
     message_id: &str,
     task: &AgentTask,
     def: &AgentDef,
-    agent_trace: &mut Vec<AgentTrace>,
+    _agent_trace: &mut Vec<AgentTrace>,
     session_content: &mut String,
     reasoning_in_messages: bool,
     llm_stats: &mut ConversationLlmStats,
@@ -70,6 +70,7 @@ pub(super) async fn run_sub_agent_stream_round(
         .await
     });
 
+    let trace_id = agent_trace_step_id(&task.id, &def.id);
     let mut buffers = StreamRoundBuffers::default();
     let mut llm_recorder = LlmRoundRecorder::Stats(llm_stats);
     drain_provider_events(
@@ -78,18 +79,14 @@ pub(super) async fn run_sub_agent_stream_round(
         message_id,
         reasoning_in_messages,
         ContentDeltaMode::SubAgentTrace {
-            stream,
-            message_id,
-            agent_trace,
-            def,
-            task,
-            session_content,
+            trace_id: trace_id.clone(),
         },
         &mut llm_recorder,
         stream,
         &mut buffers,
     )
     .await;
+    session_content.push_str(&buffers.raw_content_buf);
 
     match handle.await {
         Ok(Ok(())) => Ok(SubAgentStreamOutcome::Completed(buffers)),

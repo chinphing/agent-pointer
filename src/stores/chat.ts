@@ -29,6 +29,11 @@ import {
   isGenerationCancelledMessage
 } from '../lib/assistantMessageKind'
 import { toolCallBaseName } from '../lib/messageTooling'
+import {
+  ensureSubTrace,
+  finalizeSubSession,
+  recordSubToolSuccess
+} from '../lib/subAgentSession'
 import { buildCompressionNoticeContent, isCompressionSummaryMessage } from '../lib/compressionMessage'
 import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
@@ -407,7 +412,13 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'raw_content_delta': {
         const r = findMessage(e.messageId)
-        if (r) {
+        if (!r) break
+        if (e.traceId?.trim()) {
+          const trace = ensureSubTrace(r.msg, e.traceId.trim())
+          const session = trace.session!
+          session.rawContent = (session.rawContent || '') + e.text
+          session.contentStreaming = true
+        } else {
           r.msg.rawContent = (r.msg.rawContent || '') + e.text
           r.msg.status = 'streaming'
           r.msg.contentStreaming = true
@@ -416,7 +427,13 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'reasoning_delta': {
         const r = findMessage(e.messageId)
-        if (r) {
+        if (!r) break
+        if (e.traceId?.trim()) {
+          const trace = ensureSubTrace(r.msg, e.traceId.trim())
+          const session = trace.session!
+          session.reasoning = (session.reasoning || '') + e.text
+          session.contentStreaming = true
+        } else {
           r.msg.reasoning = (r.msg.reasoning || '') + e.text
           r.msg.status = 'streaming'
           r.msg.contentStreaming = true
@@ -426,34 +443,65 @@ export const useChatStore = defineStore('chat', () => {
       case 'assistant_json_partial': {
         const r = findMessage(e.messageId)
         if (!r) break
-        r.msg.status = 'streaming'
-        r.msg.contentStreaming = true
-        if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
-        if (e.headline != null && e.headline.trim() !== '') r.msg.headline = e.headline
-        if (e.toolName != null && e.toolName.trim() !== '') {
-          r.msg.toolNamePreview = e.toolName
-          if (e.toolName.trim() !== 'response') delete r.msg.responseTextDraft
-        }
-        if (e.responseText !== undefined) {
-          const t = e.responseText ?? ''
-          if (t.trim() !== '') r.msg.responseTextDraft = t
-          else delete r.msg.responseTextDraft
+        if (e.traceId?.trim()) {
+          const trace = ensureSubTrace(r.msg, e.traceId.trim())
+          const session = trace.session!
+          session.contentStreaming = true
+          if (e.thoughts != null && e.thoughts.trim() !== '') session.thoughts = e.thoughts
+          if (e.headline != null && e.headline.trim() !== '') session.headline = e.headline
+          if (e.toolName != null && e.toolName.trim() !== '') {
+            session.toolNamePreview = e.toolName
+            if (e.toolName.trim() !== 'response') delete session.responseTextDraft
+          }
+          if (e.responseText !== undefined) {
+            const t = e.responseText ?? ''
+            if (t.trim() !== '') session.responseTextDraft = t
+            else delete session.responseTextDraft
+          }
+        } else {
+          r.msg.status = 'streaming'
+          r.msg.contentStreaming = true
+          if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
+          if (e.headline != null && e.headline.trim() !== '') r.msg.headline = e.headline
+          if (e.toolName != null && e.toolName.trim() !== '') {
+            r.msg.toolNamePreview = e.toolName
+            if (e.toolName.trim() !== 'response') delete r.msg.responseTextDraft
+          }
+          if (e.responseText !== undefined) {
+            const t = e.responseText ?? ''
+            if (t.trim() !== '') r.msg.responseTextDraft = t
+            else delete r.msg.responseTextDraft
+          }
         }
         break
       }
       case 'agent_step': {
         const r = findMessage(e.messageId)
         if (!r) return
-        r.msg.status = 'streaming'
-        r.msg.agentId = e.agent.id
-        r.msg.agentName = e.agent.name
-        r.msg.agentTrace = r.msg.agentTrace || []
-        const existing = r.msg.agentTrace.find(a => a.id === e.agent.id)
-        if (existing) {
-          const previousContent = existing.content || ''
-          Object.assign(existing, e.agent)
-          if (e.agent.content === undefined) existing.content = previousContent
-        } else r.msg.agentTrace.push(e.agent)
+        const depth = e.agent.depth ?? 0
+        if (depth > 0) {
+          const trace = ensureSubTrace(r.msg, e.agent.id, e.agent)
+          trace.content = undefined
+          r.msg.status = 'streaming'
+          if (e.agent.status === 'completed' || e.agent.status === 'failed') {
+            finalizeSubSession(trace)
+          } else if (trace.session) {
+            trace.session.contentStreaming = true
+            trace.session.collapsed = false
+          }
+          r.conv.updatedAt = Date.now()
+        } else {
+          r.msg.status = 'streaming'
+          r.msg.agentId = e.agent.id
+          r.msg.agentName = e.agent.name
+          r.msg.agentTrace = r.msg.agentTrace || []
+          const existing = r.msg.agentTrace.find(a => a.id === e.agent.id)
+          if (existing) {
+            const previousContent = existing.content || ''
+            Object.assign(existing, e.agent)
+            if (e.agent.content === undefined) existing.content = previousContent
+          } else r.msg.agentTrace.push(e.agent)
+        }
         break
       }
       case 'supervisor_plan': {
@@ -476,61 +524,100 @@ export const useChatStore = defineStore('chat', () => {
       case 'tool_call_start': {
         const r = findMessage(e.messageId)
         if (!r) return
-        r.msg.status = 'streaming'
-        r.msg.toolCalls = r.msg.toolCalls || []
-        if (!r.msg.toolCalls.find(t => t.id === e.toolCall.id)) {
-          r.msg.toolCalls.push({ ...e.toolCall })
+        if (e.traceId?.trim()) {
+          const trace = ensureSubTrace(r.msg, e.traceId.trim())
+          const session = trace.session!
+          session.toolCalls = session.toolCalls || []
+          if (!session.toolCalls.find(t => t.id === e.toolCall.id)) {
+            session.toolCalls.push({ ...e.toolCall })
+          }
+          session.contentStreaming = true
+        } else {
+          r.msg.status = 'streaming'
+          r.msg.toolCalls = r.msg.toolCalls || []
+          if (!r.msg.toolCalls.find(t => t.id === e.toolCall.id)) {
+            r.msg.toolCalls.push({ ...e.toolCall })
+          }
         }
         break
       }
       case 'tool_call_args_delta': {
         const r = findMessage(e.messageId)
-        const tc = r?.msg.toolCalls?.find(t => t.id === e.toolCallId)
-        if (tc) tc.arguments += e.argsDelta
+        if (!r) break
+        if (e.traceId?.trim()) {
+          const trace = ensureSubTrace(r.msg, e.traceId.trim())
+          const tc = trace.session?.toolCalls?.find(t => t.id === e.toolCallId)
+          if (tc) tc.arguments += e.argsDelta
+        } else {
+          const tc = r.msg.toolCalls?.find(t => t.id === e.toolCallId)
+          if (tc) tc.arguments += e.argsDelta
+        }
         break
       }
       case 'tool_call_status': {
         const r = findMessage(e.messageId)
-        const tc = r?.msg.toolCalls?.find(t => t.id === e.toolCallId)
-        if (tc) {
-          tc.status = e.status
-          if (e.result !== undefined) tc.result = e.result
-          if (e.error !== undefined) tc.error = e.error
-          if (e.durationMs !== undefined) tc.durationMs = e.durationMs
+        if (!r) break
+        if (e.traceId?.trim()) {
+          const trace = ensureSubTrace(r.msg, e.traceId.trim())
+          const session = trace.session!
+          const tc = session.toolCalls?.find(t => t.id === e.toolCallId)
+          if (tc) {
+            tc.status = e.status
+            if (e.result !== undefined) tc.result = e.result
+            if (e.error !== undefined) tc.error = e.error
+            if (e.durationMs !== undefined) tc.durationMs = e.durationMs
+            if (e.status === 'success') recordSubToolSuccess(session, tc.name)
+          }
+        } else {
+          const tc = r.msg.toolCalls?.find(t => t.id === e.toolCallId)
+          if (tc) {
+            tc.status = e.status
+            if (e.result !== undefined) tc.result = e.result
+            if (e.error !== undefined) tc.error = e.error
+            if (e.durationMs !== undefined) tc.durationMs = e.durationMs
+          }
         }
         break
       }
       case 'terminal_output_delta': {
         const r = findMessage(e.messageId)
-        const tc = r?.msg.toolCalls?.find(t => t.id === e.toolCallId)
-        if (tc) {
-          tc.terminalOutput = (tc.terminalOutput || '') + e.output
+        if (!r) break
+        if (e.traceId?.trim()) {
+          const trace = ensureSubTrace(r.msg, e.traceId.trim())
+          const tc = trace.session?.toolCalls?.find(t => t.id === e.toolCallId)
+          if (tc) tc.terminalOutput = (tc.terminalOutput || '') + e.output
+        } else {
+          const tc = r.msg.toolCalls?.find(t => t.id === e.toolCallId)
+          if (tc) tc.terminalOutput = (tc.terminalOutput || '') + e.output
         }
         break
       }
       case 'message_end': {
         const r = findMessage(e.messageId)
         if (r) {
-          // 工具轮次/Supervisor 编排中间回合也会发 message_end，此时 generating 仍为 true
-          r.msg.status = isConversationGenerating(r.conv.id) ? 'streaming' : 'done'
-          r.msg.contentStreaming = false
-          const preview = r.msg.toolNamePreview?.trim()
-          const draft = r.msg.responseTextDraft?.trim()
-          if (draft && preview && toolCallBaseName(preview) === 'response') {
-            r.msg.content = draft
-          }
-          delete r.msg.toolNamePreview
-          // 忽略 JSON `null`：勿把正文/ thoughts 写成 null 导致界面丢字段
-          if (e.content != null) r.msg.content = e.content
-          if (e.rawContent != null) r.msg.rawContent = e.rawContent
-          delete r.msg.responseTextDraft
-          // 二次 message_end（如 response 收尾）若带空串，勿覆盖首轮已写入的 thoughts/headline
-          if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
-          if (e.headline != null && e.headline.trim() !== '') r.msg.headline = e.headline
-          r.conv.updatedAt = Date.now()
-          if (r.conv.title === '新会话') {
-            const firstUser = r.conv.messages.find(m => m.role === 'user')
-            if (firstUser) r.conv.title = firstUser.content.slice(0, 24) || '新会话'
+          if (e.traceId?.trim()) {
+            const trace = ensureSubTrace(r.msg, e.traceId.trim())
+            if (trace.session) trace.session.contentStreaming = false
+          } else {
+            // 工具轮次/Supervisor 编排中间回合也会发 message_end，此时 generating 仍为 true
+            r.msg.status = isConversationGenerating(r.conv.id) ? 'streaming' : 'done'
+            r.msg.contentStreaming = false
+            const preview = r.msg.toolNamePreview?.trim()
+            const draft = r.msg.responseTextDraft?.trim()
+            if (draft && preview && toolCallBaseName(preview) === 'response') {
+              r.msg.content = draft
+            }
+            delete r.msg.toolNamePreview
+            if (e.content != null) r.msg.content = e.content
+            if (e.rawContent != null) r.msg.rawContent = e.rawContent
+            delete r.msg.responseTextDraft
+            if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
+            if (e.headline != null && e.headline.trim() !== '') r.msg.headline = e.headline
+            r.conv.updatedAt = Date.now()
+            if (r.conv.title === '新会话') {
+              const firstUser = r.conv.messages.find(m => m.role === 'user')
+              if (firstUser) r.conv.title = firstUser.content.slice(0, 24) || '新会话'
+            }
           }
         }
         persist()

@@ -17,7 +17,7 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use super::app_state::AppState;
-use super::emit::{emit, emit_task_board_updated};
+use super::emit::{emit, emit_task_board_updated, trace_id_opt};
 use super::session_budget::SessionToolBudget;
 use crate::task_board::{
     inject_host_task_board_conversation_id, maybe_trim_after_tool_pass,
@@ -69,6 +69,7 @@ pub(super) struct SubToolPassConfig<'a> {
     pub accumulated_content: String,
     pub accumulated_reasoning: String,
     pub reasoning_in_messages: bool,
+    pub trace_id: String,
 }
 
 pub(super) async fn run_agent_tool_pass(
@@ -89,6 +90,7 @@ pub(super) async fn run_agent_tool_pass(
     sub: Option<SubToolPassConfig<'_>>,
     task_board_trim: Option<TaskBoardTrimHook<'_>>,
 ) -> Result<ToolPassResult> {
+    let sub_trace_id = sub.as_ref().map(|s| s.trace_id.as_str());
     let mut any_executed = false;
     let mut task_board_succeeded = false;
     for tc in final_tool_calls {
@@ -120,6 +122,7 @@ pub(super) async fn run_agent_tool_pass(
                     result: None,
                     error: Some(err.to_string()),
                     duration_ms: Some(0),
+                    trace_id: trace_id_opt(sub_trace_id),
                 },
             );
             history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
@@ -153,6 +156,7 @@ pub(super) async fn run_agent_tool_pass(
                         result: None,
                         error: Some(err.to_string()),
                         duration_ms: None,
+                        trace_id: trace_id_opt(sub_trace_id),
                     },
                 );
                 history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
@@ -173,6 +177,7 @@ pub(super) async fn run_agent_tool_pass(
                         result: None,
                         error: Some(err.clone()),
                         duration_ms: None,
+                        trace_id: trace_id_opt(sub_trace_id),
                     },
                 );
                 history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
@@ -191,6 +196,7 @@ pub(super) async fn run_agent_tool_pass(
             &tool_id,
             &args_value,
             &cancel,
+            sub_trace_id,
         )
         .await?
         {
@@ -207,6 +213,7 @@ pub(super) async fn run_agent_tool_pass(
                 result: None,
                 error: None,
                 duration_ms: None,
+                trace_id: trace_id_opt(sub_trace_id),
             },
         );
         stats.record_tool_invocation();
@@ -244,6 +251,7 @@ pub(super) async fn run_agent_tool_pass(
             &args_value,
             exec,
             duration,
+            sub_trace_id,
         )
         .await;
         if tool_ok && task_board_call_is_checkpoint(&tool_id, &args_value) {
@@ -299,7 +307,7 @@ fn handle_response_tool(
 ) -> Result<ToolPassResult> {
     let message = response_text_from_args(args_value).unwrap_or("");
 
-    if !message.is_empty() {
+    if !message.is_empty() && lead.is_some() {
         emit(
             stream,
             StreamEvent::Delta {
@@ -309,6 +317,7 @@ fn handle_response_tool(
         );
     }
 
+    let sub_trace_id = sub.map(|s| s.trace_id.as_str());
     emit(
         stream,
         StreamEvent::ToolCallStatus {
@@ -318,6 +327,7 @@ fn handle_response_tool(
             result: Some("已回复用户".into()),
             error: None,
             duration_ms: Some(0),
+            trace_id: trace_id_opt(sub_trace_id),
         },
     );
 
@@ -346,6 +356,7 @@ fn handle_response_tool(
                 },
                 thoughts: wire_thoughts,
                 headline: wire_headline,
+                trace_id: None,
             },
         );
         if let Some(consumed) = consumed_single {
@@ -386,6 +397,7 @@ async fn run_approval_gate(
     tool_id: &str,
     args_value: &serde_json::Value,
     cancel: &CancellationToken,
+    trace_id: Option<&str>,
 ) -> Result<bool> {
     let requires_approval = tool_approval_mode == "manual"
         && state
@@ -404,6 +416,7 @@ async fn run_approval_gate(
             result: None,
             error: None,
             duration_ms: None,
+            trace_id: trace_id_opt(trace_id),
         },
     );
     let (atx, arx) = oneshot::channel::<bool>();
@@ -428,6 +441,7 @@ async fn run_approval_gate(
             result: None,
             error: Some(err.clone()),
             duration_ms: None,
+            trace_id: trace_id_opt(trace_id),
         },
     );
     history.push(tool_result_msg(&tc.id, &err));
@@ -457,6 +471,7 @@ async fn execute_tool_invocation(
             tc,
             args_value,
             cancel,
+            sub.map(|s| s.trace_id.clone()),
         )
         .await;
     }
@@ -510,6 +525,7 @@ async fn run_terminal_tool(
     tc: &ToolCall,
     args_value: serde_json::Value,
     cancel: &CancellationToken,
+    trace_id: Option<String>,
 ) -> Result<(String, bool, Option<String>), anyhow::Error> {
     let cancel_terminal = cancel.clone();
     let abort_flag = Arc::new(AtomicBool::new(false));
@@ -523,6 +539,7 @@ async fn run_terminal_tool(
     let msg_id_for_stream = message_id.to_string();
     let tc_id_for_stream = tc.id.clone();
     let stream_for_terminal = stream.clone();
+    let trace_id_for_terminal = trace_id_opt(trace_id.as_deref());
     let join = tokio::task::spawn_blocking(move || {
         run_terminal_command_streaming(
             args_value,
@@ -531,6 +548,7 @@ async fn run_terminal_tool(
                     message_id: msg_id_for_stream.clone(),
                     tool_call_id: tc_id_for_stream.clone(),
                     output: output.to_string(),
+                    trace_id: trace_id_for_terminal.clone(),
                 });
             },
             Some(cancel_terminal),
@@ -570,6 +588,7 @@ async fn record_tool_exec_outcome(
     args_for_desktop_log: &serde_json::Value,
     exec: Result<(String, bool, Option<String>), anyhow::Error>,
     duration: u64,
+    trace_id: Option<&str>,
 ) {
     match exec {
         Ok((out, ok, err_note)) => {
@@ -602,6 +621,7 @@ async fn record_tool_exec_outcome(
                     result: Some(preview),
                     error: err_note,
                     duration_ms: Some(duration),
+                    trace_id: trace_id_opt(trace_id),
                 },
             );
             history.push(tool_result_msg(&tc.id, &out));
@@ -624,6 +644,7 @@ async fn record_tool_exec_outcome(
                     result: None,
                     error: Some(err.clone()),
                     duration_ms: Some(duration),
+                    trace_id: trace_id_opt(trace_id),
                 },
             );
             history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));

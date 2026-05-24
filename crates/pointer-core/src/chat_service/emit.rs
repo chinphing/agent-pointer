@@ -1,4 +1,3 @@
-use crate::agents::{AgentDef, AgentTask};
 use crate::models::{AgentTrace, StreamEvent};
 use serde_json::Value;
 
@@ -14,39 +13,16 @@ pub(crate) fn agent_trace_step_id(task_id: &str, agent_id: &str) -> String {
     }
 }
 
+pub(crate) fn trace_id_opt(id: Option<&str>) -> Option<String> {
+    id.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
 pub(crate) fn emit(tx: &StreamTx, ev: StreamEvent) {
     if tx.send(ev).is_err() {
         log::warn!("stream event not delivered (frontend channel closed)");
     }
-}
-
-pub(crate) fn emit_agent_content_delta(
-    stream: &StreamTx,
-    message_id: &str,
-    trace: &mut Vec<AgentTrace>,
-    def: &AgentDef,
-    task: &AgentTask,
-    content: String,
-    trace_depth: u32,
-) {
-    emit_agent_step(
-        stream,
-        message_id,
-        trace,
-        AgentTrace {
-            id: agent_trace_step_id(&task.id, &def.id),
-            name: def.name.clone(),
-            role: def.role.clone(),
-            status: "running".into(),
-            detail: Some(if task.title.is_empty() {
-                task.instruction.clone()
-            } else {
-                task.title.clone()
-            }),
-            content: Some(content),
-            depth: Some(trace_depth),
-        },
-    );
 }
 
 pub(crate) fn emit_agent_step(

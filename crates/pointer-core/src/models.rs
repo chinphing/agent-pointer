@@ -1260,11 +1260,15 @@ pub enum StreamEvent {
         #[serde(rename = "messageId")]
         message_id: String,
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
+        trace_id: Option<String>,
     },
     ReasoningDelta {
         #[serde(rename = "messageId")]
         message_id: String,
         text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
+        trace_id: Option<String>,
     },
     /// Progressive `thoughts` / `headline` / `tool_name` / `response` body (`tool_args.text`) from partial JSON repair while streaming.
     AssistantJsonPartial {
@@ -1278,6 +1282,8 @@ pub enum StreamEvent {
         tool_name: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "responseText")]
         response_text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
+        trace_id: Option<String>,
     },
     AgentStep {
         #[serde(rename = "messageId")]
@@ -1290,6 +1296,8 @@ pub enum StreamEvent {
         message_id: String,
         #[serde(rename = "toolCall")]
         tool_call: ToolCall,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
+        trace_id: Option<String>,
     },
     ToolCallArgsDelta {
         #[serde(rename = "messageId")]
@@ -1298,6 +1306,8 @@ pub enum StreamEvent {
         tool_call_id: String,
         #[serde(rename = "argsDelta")]
         args_delta: String,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
+        trace_id: Option<String>,
     },
     ToolCallStatus {
         #[serde(rename = "messageId")]
@@ -1311,6 +1321,8 @@ pub enum StreamEvent {
         error: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "durationMs")]
         duration_ms: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
+        trace_id: Option<String>,
     },
     TerminalOutputDelta {
         #[serde(rename = "messageId")]
@@ -1319,6 +1331,8 @@ pub enum StreamEvent {
         tool_call_id: String,
         #[serde(rename = "output")]
         output: String,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
+        trace_id: Option<String>,
     },
     MessageEnd {
         #[serde(rename = "messageId")]
@@ -1332,6 +1346,8 @@ pub enum StreamEvent {
         thoughts: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         headline: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
+        trace_id: Option<String>,
     },
     /// Synthetic user row so the model (and UI history) see recovery instructions mid-run.
     InjectedUserMessage {

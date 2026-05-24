@@ -48,6 +48,26 @@ export interface AgentUiConfig {
   avatar?: string
 }
 
+export interface SubAgentToolStats {
+  searchCount: number
+  readCount: number
+}
+
+export interface SubAgentSessionUi {
+  thoughts?: string
+  headline?: string
+  toolNamePreview?: string
+  responseTextDraft?: string
+  reasoning?: string
+  rawContent?: string
+  contentStreaming?: boolean
+  toolCalls?: ToolCall[]
+  stats: SubAgentToolStats
+  summaryLine?: string
+  collapsed: boolean
+  userExpanded: boolean
+}
+
 export interface AgentTrace {
   id: string
   name: string
@@ -57,6 +77,7 @@ export interface AgentTrace {
   content?: string
   /** 0 = 顶格（主编排），1 = 委托子 Agent；缺省时 UI 对首条顶格、其余一级缩进 */
   depth?: number
+  session?: SubAgentSessionUi
 }
 
 export type AgentProfile =
@@ -345,16 +366,16 @@ export interface ContextCompressionInfo {
 export type StreamEvent =
   | { kind: 'message_start'; messageId: string; conversationId: string }
   | { kind: 'delta'; messageId: string; text: string }
-  | { kind: 'raw_content_delta'; messageId: string; text: string }
-  | { kind: 'reasoning_delta'; messageId: string; text: string }
+  | { kind: 'raw_content_delta'; messageId: string; text: string; traceId?: string }
+  | { kind: 'reasoning_delta'; messageId: string; text: string; traceId?: string }
   /** 正文里 XML 工具块尚未闭合时，已能读出的子标签（流式更新）。 */
-  | { kind: 'assistant_json_partial'; messageId: string; thoughts?: string; headline?: string; toolName?: string; responseText?: string }
+  | { kind: 'assistant_json_partial'; messageId: string; thoughts?: string; headline?: string; toolName?: string; responseText?: string; traceId?: string }
   | { kind: 'agent_step'; messageId: string; agent: AgentTrace }
-  | { kind: 'tool_call_start'; messageId: string; toolCall: ToolCall }
-  | { kind: 'tool_call_args_delta'; messageId: string; toolCallId: string; argsDelta: string }
-  | { kind: 'tool_call_status'; messageId: string; toolCallId: string; status: ToolCall['status']; result?: string; error?: string; durationMs?: number }
-  | { kind: 'terminal_output_delta'; messageId: string; toolCallId: string; output: string }
-  | { kind: 'message_end'; messageId: string; content?: string; rawContent?: string; thoughts?: string; headline?: string }
+  | { kind: 'tool_call_start'; messageId: string; toolCall: ToolCall; traceId?: string }
+  | { kind: 'tool_call_args_delta'; messageId: string; toolCallId: string; argsDelta: string; traceId?: string }
+  | { kind: 'tool_call_status'; messageId: string; toolCallId: string; status: ToolCall['status']; result?: string; error?: string; durationMs?: number; traceId?: string }
+  | { kind: 'terminal_output_delta'; messageId: string; toolCallId: string; output: string; traceId?: string }
+  | { kind: 'message_end'; messageId: string; content?: string; rawContent?: string; thoughts?: string; headline?: string; traceId?: string }
   | { kind: 'injected_user_message'; conversationId: string; messageId: string; content: string }
   /** App-injected assistant line (e.g. desktop capture status); shown in thread, not from model. */
   | { kind: 'injected_assistant_message'; conversationId: string; messageId: string; content: string }

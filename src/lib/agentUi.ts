@@ -146,10 +146,10 @@ export function resolveLeadAgentUi(
   return profileDefaults(leadAgentProfile(id), id, 'worker')
 }
 
-/** Show sub-agent timeline when configured or when stream already has delegated steps. */
+/** Show sub-agent frame when configured, or when the stream already has delegated steps. */
 export function shouldShowSubAgentTrace(
   ui: ResolvedAgentUi,
-  agentTrace?: { depth?: number }[],
+  agentTrace?: { depth?: number; status?: string }[],
   settings?: Pick<ModelSettings, 'agentUiOverrides'>,
   agentId?: string
 ): boolean {
@@ -158,5 +158,25 @@ export function shouldShowSubAgentTrace(
     return false
   }
   if (ui.showSubAgentTrace) return true
-  return false
+  const hasDelegated = agentTrace?.some(t => (t.depth ?? 0) > 0) ?? false
+  return hasDelegated
+}
+
+/** UI flags for content inside a sub-agent frame (always show tools/headline). */
+export function uiForSubAgentFrame(
+  trace: { id: string; name: string; role?: string },
+  settings: Pick<ModelSettings, 'agentUiOverrides' | 'computerShowMonitorPicker' | 'agentMode' | 'leadAgentId'>,
+  agents: import('../types/chat').AgentDef[],
+  fallbackUi: ResolvedAgentUi
+): ResolvedAgentUi {
+  const sep = trace.id.lastIndexOf(':')
+  const agentId = sep >= 0 ? trace.id.slice(sep + 1).trim() : ''
+  const agent = agentId ? agents.find(a => a.id === agentId) : undefined
+  const base = agent ? resolveAgentUi(agent, settings) : fallbackUi
+  return {
+    ...base,
+    showToolCalls: true,
+    showHeadline: true,
+    showSubAgentTrace: true
+  }
 }

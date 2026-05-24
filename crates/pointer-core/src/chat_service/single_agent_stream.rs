@@ -107,6 +107,7 @@ pub(super) async fn run_provider_stream_round(
                         raw_content: None,
                         thoughts: None,
                         headline: None,
+                        trace_id: None,
                     },
                 );
                 let hint =
@@ -161,6 +162,7 @@ pub(super) async fn run_provider_stream_round(
                     raw_content: None,
                     thoughts: None,
                     headline: None,
+                    trace_id: None,
                 },
             );
             tool_budget.sync_out(consumed_single);

@@ -121,7 +121,7 @@ pub(super) async fn run_subagent_delegation(
                                     role: def.role.clone(),
                                     status: "completed".into(),
                                     detail: Some(truncate_str(&result.content, 160)),
-                                    content: Some(result.content.clone()),
+                                    content: None,
                                     depth: Some(1),
                                 },
                             );

@@ -242,6 +242,7 @@ pub(super) fn commit_lead_assistant_turn(
             raw_content: assistant_msg.raw_content.clone(),
             thoughts: assistant_msg.thoughts.clone(),
             headline: assistant_msg.headline.clone(),
+            trace_id: None,
         },
     );
 }

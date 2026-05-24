@@ -399,6 +399,7 @@ pub(crate) async fn run_supervisor_chat(
             raw_content: None,
             thoughts: None,
             headline: None,
+            trace_id: None,
         },
     );
     state.computer_state.mark_ended(conversation_id);

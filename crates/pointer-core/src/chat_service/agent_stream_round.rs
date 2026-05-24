@@ -1,15 +1,14 @@
 //! Shared `stream_chat` round: drain `ProviderEvent`s and collect assistant output.
 
-use crate::agents::{AgentDef, AgentTask};
 use crate::json_tool_caller::JsonToolFinishDiagnostics;
 use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats, LlmUsageSnapshot};
-use crate::models::{AgentTrace, StreamEvent, ToolCall};
+use crate::models::{StreamEvent, ToolCall};
 use crate::provider::ProviderEvent;
 use crate::tools::parse_tool_call_arguments;
 use std::collections::HashSet;
 
 use super::app_state::AppState;
-use super::emit::{emit, emit_agent_content_delta};
+use super::emit::{emit, trace_id_opt};
 use super::StreamTx;
 
 /// Collected output from one provider stream round (lead or sub-agent).
@@ -59,14 +58,9 @@ pub(super) enum ContentDeltaMode<'a> {
         stream: &'a StreamTx,
         message_id: String,
     },
-    /// Sub-agent under supervisor / `run_subagent`: trace + cumulative content.
+    /// Sub-agent under supervisor / `run_subagent`: UI routed by `trace_id` (no trace.content streaming).
     SubAgentTrace {
-        stream: &'a StreamTx,
-        message_id: &'a str,
-        agent_trace: &'a mut Vec<AgentTrace>,
-        def: &'a AgentDef,
-        task: &'a AgentTask,
-        session_content: &'a mut String,
+        trace_id: String,
     },
 }
 
@@ -75,24 +69,29 @@ pub(super) async fn drain_provider_events(
     state: &AppState,
     message_id: &str,
     reasoning_in_messages: bool,
-    mut content_mode: ContentDeltaMode<'_>,
+    content_mode: ContentDeltaMode<'_>,
     llm_recorder: &mut LlmRoundRecorder<'_>,
     stream: &StreamTx,
     buffers: &mut StreamRoundBuffers,
 ) {
+    let sub_trace_id = match &content_mode {
+        ContentDeltaMode::LeadMessage { .. } => None,
+        ContentDeltaMode::SubAgentTrace { trace_id } => Some(trace_id.as_str()),
+    };
     let mut streamed_tool_call_ids: HashSet<String> = HashSet::new();
 
     while let Some(ev) = rx.recv().await {
         match ev {
             ProviderEvent::ContentDelta(delta) => {
                 buffers.raw_content_buf.push_str(&delta);
-                match &mut content_mode {
+                match &content_mode {
                     ContentDeltaMode::LeadMessage { stream, message_id } => {
                         emit(
                             stream,
                             StreamEvent::RawContentDelta {
                                 message_id: message_id.clone(),
                                 text: delta.clone(),
+                                trace_id: None,
                             },
                         );
                         emit(
@@ -103,23 +102,14 @@ pub(super) async fn drain_provider_events(
                             },
                         );
                     }
-                    ContentDeltaMode::SubAgentTrace {
-                        stream,
-                        message_id,
-                        agent_trace,
-                        def,
-                        task,
-                        session_content,
-                    } => {
-                        session_content.push_str(&delta);
-                        emit_agent_content_delta(
+                    ContentDeltaMode::SubAgentTrace { trace_id } => {
+                        emit(
                             stream,
-                            message_id,
-                            agent_trace,
-                            def,
-                            task,
-                            session_content.clone(),
-                            1,
+                            StreamEvent::RawContentDelta {
+                                message_id: message_id.to_string(),
+                                text: delta,
+                                trace_id: trace_id_opt(Some(trace_id.as_str())),
+                            },
                         );
                     }
                 }
@@ -133,6 +123,7 @@ pub(super) async fn drain_provider_events(
                     StreamEvent::ReasoningDelta {
                         message_id: message_id.to_string(),
                         text: delta,
+                        trace_id: trace_id_opt(sub_trace_id),
                     },
                 );
             }
@@ -157,6 +148,7 @@ pub(super) async fn drain_provider_events(
                                 )
                                 .or(Some("low".into())),
                         },
+                        trace_id: trace_id_opt(sub_trace_id),
                     },
                 );
             }
@@ -169,6 +161,7 @@ pub(super) async fn drain_provider_events(
                         message_id: message_id.to_string(),
                         tool_call_id,
                         args_delta: args,
+                        trace_id: trace_id_opt(sub_trace_id),
                     },
                 );
             }
@@ -179,6 +172,7 @@ pub(super) async fn drain_provider_events(
                     state,
                     &tool_calls,
                     &mut streamed_tool_call_ids,
+                    sub_trace_id,
                 );
             }
             ProviderEvent::AssistantJsonPartial {
@@ -195,6 +189,7 @@ pub(super) async fn drain_provider_events(
                         headline,
                         tool_name,
                         response_text,
+                        trace_id: trace_id_opt(sub_trace_id),
                     },
                 );
             }
@@ -217,6 +212,7 @@ pub(super) async fn drain_provider_events(
                     state,
                     &tool_calls,
                     &mut streamed_tool_call_ids,
+                    sub_trace_id,
                 );
                 buffers.final_tool_calls = tool_calls;
             }
@@ -230,6 +226,7 @@ fn emit_deduped_tool_starts(
     state: &AppState,
     tool_calls: &[ToolCall],
     streamed_ids: &mut HashSet<String>,
+    trace_id: Option<&str>,
 ) {
     for tc in tool_calls {
         if streamed_ids.insert(tc.id.clone()) {
@@ -244,6 +241,7 @@ fn emit_deduped_tool_starts(
                 StreamEvent::ToolCallStart {
                     message_id: message_id.to_string(),
                     tool_call: t,
+                    trace_id: trace_id_opt(trace_id),
                 },
             );
         }

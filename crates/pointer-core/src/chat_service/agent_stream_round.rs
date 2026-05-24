@@ -38,15 +38,32 @@ impl Default for StreamRoundBuffers {
 }
 
 pub(super) enum LlmRoundRecorder<'a> {
-    TokenSession(&'a mut ChatLlmTokenSession),
-    Stats(&'a mut ConversationLlmStats),
+    TokenSession {
+        session: &'a mut ChatLlmTokenSession,
+        model_name: Option<&'a str>,
+    },
+    Scoped {
+        stats: &'a mut ConversationLlmStats,
+        scope: &'a crate::agent_instance_scope::AgentInstanceScope,
+        model_name: Option<&'a str>,
+    },
 }
 
 impl LlmRoundRecorder<'_> {
     fn record(&mut self, usage: Option<&LlmUsageSnapshot>) {
         match self {
-            LlmRoundRecorder::TokenSession(s) => s.stats.record_llm_round(usage),
-            LlmRoundRecorder::Stats(s) => s.record_llm_round(usage),
+            LlmRoundRecorder::TokenSession { session, model_name } => {
+                session.stats.record_llm_round(
+                    &session.lead_scope,
+                    usage,
+                    *model_name,
+                );
+            }
+            LlmRoundRecorder::Scoped {
+                stats,
+                scope,
+                model_name,
+            } => stats.record_llm_round(scope, usage, *model_name),
         }
     }
 }

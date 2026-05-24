@@ -199,7 +199,14 @@ pub(crate) async fn plan_agent_tasks(
             Some(dump_lbl.as_str()),
         )
         .await?;
-    llm_stats.record_llm_round(out.usage.as_ref());
+    let plan_scope =
+        crate::agent_instance_scope::AgentInstanceScope::new(conversation_id, "supervisor");
+    let model_name = if provider.settings.model.trim().is_empty() {
+        None
+    } else {
+        Some(provider.settings.model.as_str())
+    };
+    llm_stats.record_llm_round(&plan_scope, out.usage.as_ref(), model_name);
     parse_agent_tasks(&out.text, &workers, limits)
         .or_else(|| Some(fallback_agent_tasks(state, history, limits)))
         .ok_or_else(|| anyhow!("无法生成 Agent 任务计划"))

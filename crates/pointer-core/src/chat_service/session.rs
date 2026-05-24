@@ -55,6 +55,11 @@ pub async fn run_chat(
     )
     .await;
 
+    if let Err(e) = crate::token_usage_store::finalize_run(&conversation_id, &history) {
+        log::warn!(
+            "token_usage_store: finalize_run failed conversation_id={conversation_id}: {e}"
+        );
+    }
     if let Err(e) =
         crate::token_usage_store::flush_pending_reports(&state.platform_auth).await
     {

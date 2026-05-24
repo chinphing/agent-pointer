@@ -1,5 +1,7 @@
+pub mod agent_instance_scope;
 pub mod agents;
 pub mod chat_service;
+pub mod conversation_snapshot;
 pub mod env_prompt;
 pub mod platform;
 pub mod platform_auth;

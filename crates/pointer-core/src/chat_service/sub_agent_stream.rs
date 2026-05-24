@@ -35,6 +35,7 @@ pub(super) async fn run_sub_agent_stream_round(
     message_id: &str,
     task: &AgentTask,
     def: &AgentDef,
+    instance_scope: &crate::agent_instance_scope::AgentInstanceScope,
     _agent_trace: &mut Vec<AgentTrace>,
     session_content: &mut String,
     reasoning_in_messages: bool,
@@ -72,7 +73,16 @@ pub(super) async fn run_sub_agent_stream_round(
 
     let trace_id = agent_trace_step_id(&task.id, &def.id);
     let mut buffers = StreamRoundBuffers::default();
-    let mut llm_recorder = LlmRoundRecorder::Stats(llm_stats);
+    let model_name = if provider.settings.model.trim().is_empty() {
+        None
+    } else {
+        Some(provider.settings.model.as_str())
+    };
+    let mut llm_recorder = LlmRoundRecorder::Scoped {
+        stats: llm_stats,
+        scope: instance_scope,
+        model_name,
+    };
     drain_provider_events(
         &mut rx,
         state,
@@ -115,6 +125,7 @@ pub(super) async fn run_sub_agent_stream_round(
                     headline: None,
                     raw_content: None,
                     agent_id: None,
+                    agent_instance_id: None,
                     agent_name: None,
                     agent_trace: None,
                     image_slot_labels: None,
@@ -144,6 +155,7 @@ pub(super) async fn run_sub_agent_stream_round(
                         cancel.clone(),
                         false,
                         crate::context_compression::CompressionUiContext::sub_agent(
+                            instance_scope.clone(),
                             message_id,
                             &def.id,
                             &def.name,

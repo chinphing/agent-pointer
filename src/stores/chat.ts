@@ -763,6 +763,21 @@ export const useChatStore = defineStore('chat', () => {
     if (!current.value) newConversation()
     const conv = current.value!
     if (!content.trim() || isConversationGenerating(conv.id)) return
+    const { usePlatformAuthStore } = await import('./platformAuth')
+    const platformAuth = usePlatformAuthStore()
+    if (platformAuth.tokenQuotaExhausted) {
+      conv.messages.push({
+        id: uid(),
+        role: 'assistant',
+        content: '',
+        status: 'error',
+        createdAt: Date.now(),
+        errorMessage:
+          '套餐 Token 额度已用尽，请前往 Openpointer 官网充值或联系管理员。'
+      })
+      persist()
+      return
+    }
     const skills = useSkillsStore()
     const settings = useSettingsStore()
     conv.skillIds = [...skills.enabledIds]

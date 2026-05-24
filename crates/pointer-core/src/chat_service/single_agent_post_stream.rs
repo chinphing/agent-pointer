@@ -24,6 +24,7 @@ pub(super) fn build_assistant_message_after_stream(
     xml_thoughts: Option<String>,
     xml_headline: Option<String>,
     agent_plan: &AgentPlan,
+    agent_instance_id: Option<String>,
     agent_trace: &[AgentTrace],
     state: &AppState,
 ) -> ChatMessage {
@@ -36,6 +37,7 @@ pub(super) fn build_assistant_message_after_stream(
         xml_thoughts,
         xml_headline,
         agent_plan,
+        agent_instance_id,
         agent_trace,
         state,
     )
@@ -61,6 +63,7 @@ pub(super) async fn decide_when_no_tool_calls(
     tool_budget: &mut SessionToolBudget,
     consumed_single: &mut u32,
     max_cap: u32,
+    compression_scope: crate::agent_instance_scope::AgentInstanceScope,
     assistant_id: &str,
     json_finish_diag: &JsonToolFinishDiagnostics,
     tools_appendix_enabled: bool,
@@ -82,7 +85,10 @@ pub(super) async fn decide_when_no_tool_calls(
         tool_budget,
         Some(consumed_single),
         max_cap,
-        &super::agent_post_stream::ToolBudgetExhaustionScope::lead_single(max_cap),
+        &super::agent_post_stream::ToolBudgetExhaustionScope::lead_single(
+            max_cap,
+            compression_scope,
+        ),
         assistant_id,
         json_finish_diag,
         tools_appendix_enabled,
@@ -104,6 +110,7 @@ pub(super) async fn decide_when_tool_calls_present(
     tool_budget: &mut SessionToolBudget,
     consumed_single: &mut u32,
     max_cap: u32,
+    compression_scope: crate::agent_instance_scope::AgentInstanceScope,
     final_tool_calls: &[ToolCall],
 ) -> Result<PostAssistantTurnAction> {
     super::agent_post_stream::decide_when_tool_calls_present(
@@ -122,7 +129,10 @@ pub(super) async fn decide_when_tool_calls_present(
         tool_budget,
         Some(consumed_single),
         max_cap,
-        &super::agent_post_stream::ToolBudgetExhaustionScope::lead_single(max_cap),
+        &super::agent_post_stream::ToolBudgetExhaustionScope::lead_single(
+            max_cap,
+            compression_scope,
+        ),
         final_tool_calls,
         "lead",
     )
@@ -140,6 +150,7 @@ pub(super) async fn bail_on_tool_budget_exhausted(
     tool_budget: &mut SessionToolBudget,
     consumed_single: &mut u32,
     max_cap: u32,
+    compression_scope: crate::agent_instance_scope::AgentInstanceScope,
 ) -> Result<()> {
     super::agent_post_stream::bail_on_tool_budget_exhausted(
         stream,
@@ -152,7 +163,10 @@ pub(super) async fn bail_on_tool_budget_exhausted(
         tool_budget,
         Some(consumed_single),
         max_cap,
-        &super::agent_post_stream::ToolBudgetExhaustionScope::lead_single(max_cap),
+        &super::agent_post_stream::ToolBudgetExhaustionScope::lead_single(
+            max_cap,
+            compression_scope,
+        ),
     )
     .await
 }

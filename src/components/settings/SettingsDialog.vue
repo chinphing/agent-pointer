@@ -37,8 +37,6 @@ import { useSettingsStore } from '../../stores/settings'
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'open-skills'): void
-  (e: 'platform-logout'): void
-  (e: 'platform-login'): void
 }>()
 const s = useSettingsStore()
 const platformAuth = usePlatformAuthStore()
@@ -156,11 +154,18 @@ async function logoutPlatformAccount() {
   platformLogoutBusy.value = true
   try {
     await platformAuth.logout()
-    emit('platform-logout')
   } catch (e) {
     console.error('[settings] platform logout failed', e)
   } finally {
     platformLogoutBusy.value = false
+  }
+}
+
+async function loginPlatformAccount() {
+  try {
+    await platformAuth.login()
+  } catch (e) {
+    console.error('[settings] platform login failed', e)
   }
 }
 
@@ -873,12 +878,28 @@ async function saveFromFooter() {
                 <button
                   v-else
                   type="button"
-                  class="h-8 px-4 rounded-lg bg-accent text-sm font-medium text-white hover:opacity-95 cursor-pointer transition-opacity"
-                  @click="emit('platform-login')"
+                  class="h-8 px-4 rounded-lg bg-accent text-sm font-medium text-white hover:opacity-95 cursor-pointer transition-opacity disabled:opacity-50"
+                  :disabled="platformAuth.loading"
+                  @click="loginPlatformAccount"
                 >
-                  浏览器登录
+                  {{ platformAuth.loading ? '等待授权…' : '浏览器登录' }}
+                </button>
+                <button
+                  v-if="platformAuth.loading"
+                  type="button"
+                  class="h-8 px-4 rounded-lg border border-border text-sm text-foreground hover:bg-hover cursor-pointer transition-colors"
+                  @click="platformAuth.cancelLogin()"
+                >
+                  取消
                 </button>
               </div>
+              <p
+                v-if="platformAuth.error"
+                class="rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs leading-snug text-danger"
+                role="alert"
+              >
+                {{ platformAuth.error }}
+              </p>
             </div>
           </section>
 

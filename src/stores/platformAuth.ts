@@ -8,6 +8,9 @@ export interface PlatformSessionView {
   expires_at?: number | null
   user_nickname?: string | null
   isPlatformAdmin?: boolean
+  includedTokens?: number
+  consumedTokens?: number
+  tokenQuotaExhausted?: boolean
 }
 
 function formatPlatformAuthError(e: unknown): string {
@@ -37,6 +40,9 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
   const error = ref<string | null>(null)
 
   const isPlatformAdmin = computed(() => session.value.isPlatformAdmin === true)
+  const tokenQuotaExhausted = computed(
+    () => session.value.logged_in && session.value.tokenQuotaExhausted === true
+  )
 
   async function load() {
     loading.value = true
@@ -78,5 +84,15 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     session.value = { logged_in: false }
   }
 
-  return { session, loading, error, isPlatformAdmin, load, login, cancelLogin, logout }
+  return {
+    session,
+    loading,
+    error,
+    isPlatformAdmin,
+    tokenQuotaExhausted,
+    load,
+    login,
+    cancelLogin,
+    logout
+  }
 })

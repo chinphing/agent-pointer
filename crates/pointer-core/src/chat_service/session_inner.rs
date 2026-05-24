@@ -32,6 +32,16 @@ pub(super) async fn run_chat_inner(
     cancel: CancellationToken,
 ) -> Result<()> {
     let _workspace_guard = ConversationWorkspaceGuard::enter(workspace_root.clone());
+    if state.platform_auth.session_view().logged_in {
+        if let Err(e) = state.platform_auth.ensure_llm_allowed().await {
+            let msg = if e.to_string().contains("token_quota_exhausted") {
+                "套餐 Token 额度已用尽，请前往 Openpointer 官网充值或联系管理员。".to_string()
+            } else {
+                e.to_string()
+            };
+            return Err(anyhow!(msg));
+        }
+    }
     let mut settings = state.effective_settings();
     if !workspace_root.trim().is_empty() {
         settings.workspace_root = workspace_root.trim().to_string();
@@ -76,8 +86,14 @@ pub(super) async fn run_chat_inner(
     } else {
         Some(settings.model.clone())
     };
+    let lead_role = if lead_worker_id.is_empty() {
+        effective_agent_mode.clone()
+    } else {
+        lead_worker_id.to_string()
+    };
     let mut llm_token_session =
-        ChatLlmTokenSession::new(conversation_id.to_string(), model_name);
+        ChatLlmTokenSession::new(conversation_id.to_string(), lead_role, model_name);
+    let lead_scope = llm_token_session.lead_scope.clone();
 
     let t_compress = Instant::now();
     crate::context_compression::maybe_compress_history(
@@ -87,7 +103,7 @@ pub(super) async fn run_chat_inner(
         conversation_id,
         &stream,
         cancel.clone(),
-        crate::context_compression::CompressionUiContext::main(),
+        crate::context_compression::CompressionUiContext::main(lead_scope),
     )
     .await;
     log::info!(

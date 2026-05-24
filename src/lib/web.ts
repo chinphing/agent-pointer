@@ -187,6 +187,9 @@ export interface PlatformSessionView {
   expires_at?: number | null
   user_nickname?: string | null
   isPlatformAdmin?: boolean
+  includedTokens?: number
+  consumedTokens?: number
+  tokenQuotaExhausted?: boolean
 }
 
 export async function getPlatformSession(): Promise<PlatformSessionView> {

@@ -1,5 +1,6 @@
 //! Per-conversation LLM usage from chat/completions `usage` (streaming + non-stream).
 
+use crate::agent_instance_scope::AgentInstanceScope;
 use crate::token_usage_store;
 
 /// One API `usage` snapshot (normalized to u32; missing fields treated as 0).
@@ -19,23 +20,25 @@ impl LlmUsageSnapshot {
     }
 }
 
-/// Accumulates one user `run_chat` session (single-agent loop and/or supervisor subtree).
+/// Accumulates one user `run_chat` session (debug summary).
 #[derive(Debug, Default)]
 pub struct ConversationLlmStats {
-    pub(crate) conversation_id: Option<String>,
-    pub(crate) model_name: Option<String>,
     pub llm_rounds: u32,
     pub sum_prompt: u64,
     pub sum_completion: u64,
     pub sum_total: u64,
     pub sum_reasoning: u64,
-    /// Non-`response` tool executions (after validation, including failed invoke).
     pub tool_invocations: u32,
     pub rounds_missing_usage: u32,
 }
 
 impl ConversationLlmStats {
-    pub fn record_llm_round(&mut self, usage: Option<&LlmUsageSnapshot>) {
+    pub fn record_llm_round(
+        &mut self,
+        scope: &AgentInstanceScope,
+        usage: Option<&LlmUsageSnapshot>,
+        model_name: Option<&str>,
+    ) {
         self.llm_rounds = self.llm_rounds.saturating_add(1);
         match usage {
             Some(u) => {
@@ -47,33 +50,24 @@ impl ConversationLlmStats {
                 self.sum_reasoning = self
                     .sum_reasoning
                     .saturating_add(u.reasoning_tokens as u64);
-                let out = u.output_tokens();
                 log::debug!(
-                    "LLM round {} tokens: total={} prompt={} completion={} reasoning={} output={}",
+                    "LLM round {} {} tokens: total={} prompt={} completion={}",
                     self.llm_rounds,
+                    scope.log_suffix(),
                     u.total_tokens,
                     u.prompt_tokens,
-                    u.completion_tokens,
-                    u.reasoning_tokens,
-                    out
+                    u.completion_tokens
                 );
             }
             None => {
                 self.rounds_missing_usage = self.rounds_missing_usage.saturating_add(1);
-                log::debug!(
-                    "LLM round {} finished without usage (enable stream_options.include_usage on the provider; set POINTER_STREAM_INCLUDE_USAGE=0 to omit the request field)",
-                    self.llm_rounds
-                );
             }
         }
-        if let Some(cid) = self.conversation_id.as_deref() {
-            if let Err(e) = token_usage_store::record_round(
-                cid,
-                usage,
-                self.model_name.as_deref(),
-            ) {
-                log::warn!("token_usage_store: record_round failed conversation_id={cid}: {e}");
-            }
+        if let Err(e) = token_usage_store::record_round(scope, usage, model_name) {
+            log::warn!(
+                "token_usage_store: record_round failed {}: {e}",
+                scope.log_suffix()
+            );
         }
     }
 
@@ -85,75 +79,41 @@ impl ConversationLlmStats {
         if self.llm_rounds == 0 && self.tool_invocations == 0 {
             return;
         }
-        let output_sum = self.sum_completion.saturating_sub(self.sum_reasoning);
-        let avg_per_tool = if self.tool_invocations > 0 {
-            Some(self.sum_total as f64 / self.tool_invocations as f64)
-        } else {
-            None
-        };
-        match avg_per_tool {
-            Some(avg) => {
-                log::info!(
-                    "LLM token summary conversation_id={} tool_invocations={} llm_rounds={} total_tokens={} prompt_tokens={} reasoning_tokens={} output_tokens={} avg_tokens_per_tool={:.2} rounds_missing_usage={}",
-                    conversation_id,
-                    self.tool_invocations,
-                    self.llm_rounds,
-                    self.sum_total,
-                    self.sum_prompt,
-                    self.sum_reasoning,
-                    output_sum,
-                    avg,
-                    self.rounds_missing_usage
-                );
-            }
-            None => {
-                log::info!(
-                    "LLM token summary conversation_id={} tool_invocations=0 llm_rounds={} total_tokens={} prompt_tokens={} reasoning_tokens={} output_tokens={} rounds_missing_usage={}",
-                    conversation_id,
-                    self.llm_rounds,
-                    self.sum_total,
-                    self.sum_prompt,
-                    self.sum_reasoning,
-                    output_sum,
-                    self.rounds_missing_usage
-                );
-            }
-        }
+        log::info!(
+            "LLM token summary conversation_id={} llm_rounds={} total_tokens={} tool_invocations={}",
+            conversation_id,
+            self.llm_rounds,
+            self.sum_total,
+            self.tool_invocations
+        );
     }
 }
 
-/// On drop, logs summary and moves SQLite accumulation into the pending report queue.
+/// Lead-agent token session for one `run_chat`.
 pub(crate) struct ChatLlmTokenSession {
     pub stats: ConversationLlmStats,
-    conversation_id: String,
+    pub lead_scope: AgentInstanceScope,
 }
 
 impl ChatLlmTokenSession {
-    pub(crate) fn new(conversation_id: String, model_name: Option<String>) -> Self {
-        if let Err(e) = token_usage_store::begin_run(&conversation_id, model_name.as_deref()) {
+    pub(crate) fn new(conversation_id: String, agent_role_id: String, model_name: Option<String>) -> Self {
+        let lead_scope = AgentInstanceScope::new(conversation_id.clone(), agent_role_id);
+        if let Err(e) = token_usage_store::ensure_accum(&lead_scope) {
             log::warn!(
-                "token_usage_store: begin_run failed conversation_id={conversation_id}: {e}"
+                "token_usage_store: ensure_accum failed {}: {e}",
+                lead_scope.log_suffix()
             );
         }
+        let _model = model_name;
         Self {
-            stats: ConversationLlmStats {
-                conversation_id: Some(conversation_id.clone()),
-                model_name: model_name.clone(),
-                ..ConversationLlmStats::default()
-            },
-            conversation_id,
+            stats: ConversationLlmStats::default(),
+            lead_scope,
         }
     }
 }
 
 impl Drop for ChatLlmTokenSession {
     fn drop(&mut self) {
-        self.stats.log_summary(&self.conversation_id);
-        if let Err(e) = token_usage_store::finalize_run(&self.conversation_id) {
-            log::warn!(
-                "token_usage_store: finalize_run failed conversation_id={}: {e}",
-                self.conversation_id
-            );
-        }
+        self.stats.log_summary(&self.lead_scope.conversation_id);
     }
 }

@@ -122,6 +122,8 @@ pub(super) async fn run_single_agent_loop(
             super::single_agent_stream::ProviderRoundOutcome::Completed(b) => b,
         };
 
+        let lead_scope = llm_token_session.lead_scope.clone();
+        let lead_instance_id = Some(lead_scope.agent_instance_id.clone());
         let assistant_msg = super::single_agent_post_stream::build_assistant_message_after_stream(
             &assistant_id,
             buf.raw_content_buf.as_str(),
@@ -131,6 +133,7 @@ pub(super) async fn run_single_agent_loop(
             buf.xml_thoughts,
             buf.xml_headline,
             agent_plan,
+            lead_instance_id,
             &agent_trace,
             state.as_ref(),
         );
@@ -160,6 +163,7 @@ pub(super) async fn run_single_agent_loop(
                 tool_budget,
                 consumed_single,
                 max_cap,
+                lead_scope.clone(),
                 &assistant_id,
                 &buf.json_finish_diag,
                 tools_appendix_enabled,
@@ -180,6 +184,7 @@ pub(super) async fn run_single_agent_loop(
                 tool_budget,
                 consumed_single,
                 max_cap,
+                lead_scope.clone(),
                 &buf.final_tool_calls,
             )
             .await?
@@ -234,6 +239,7 @@ pub(super) async fn run_single_agent_loop(
             tool_budget,
             consumed_single,
             max_cap,
+            lead_scope,
         )
         .await?;
     }

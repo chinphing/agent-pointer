@@ -61,6 +61,7 @@ mod tests {
             headline: None,
             raw_content: None,
             agent_id: None,
+            agent_instance_id: None,
             agent_name: None,
             agent_trace: None,
             image_slot_labels: None,

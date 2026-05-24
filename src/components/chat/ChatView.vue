@@ -3,9 +3,12 @@ import { computed, defineAsyncComponent, defineComponent, h } from 'vue'
 import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
 import TaskBoardPanel from './TaskBoardPanel.vue'
+import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { useChatStore } from '../../stores/chat'
+import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { useLeadAgentUi } from '../../composables/useAgentUi'
 import { hasTaskBoardContent } from '../../lib/taskBoard'
+import { isTauriRuntime } from '../../lib/runtime'
 import { Sparkles } from 'lucide-vue-next'
 
 /** 避免异步分包未返回前主区域长时间空白（Windows 杀毒/冷盘常见）。 */
@@ -37,9 +40,23 @@ const MessageList = defineAsyncComponent({
 })
 
 const chat = useChatStore()
+const platformAuth = usePlatformAuthStore()
 const { uiToast } = storeToRefs(chat)
 const { leadUi } = useLeadAgentUi()
 const empty = computed(() => !chat.current || chat.current.messages.length === 0)
+const needsPlatformLogin = computed(() => isTauriRuntime() && !platformAuth.session.logged_in)
+
+async function onPlatformLogin() {
+  try {
+    await platformAuth.login()
+  } catch {
+    /* error in store */
+  }
+}
+
+function onPlatformLoginCancel() {
+  void platformAuth.cancelLogin()
+}
 
 const taskBoardState = computed(() =>
   chat.currentId ? chat.taskBoardForConversation(chat.currentId) : null
@@ -88,6 +105,16 @@ const toastClass = computed(() => {
         <p class="text-muted max-w-md text-sm leading-6">
           你的 AI 智能助手，可以操控电脑、编写代码。
         </p>
+        <div v-if="needsPlatformLogin" class="mt-6 flex w-full max-w-sm flex-col items-center">
+          <div class="mb-5 h-px w-full bg-border" />
+          <PlatformLoginActions
+            variant="hero"
+            :loading="platformAuth.loading"
+            :error="platformAuth.error"
+            @login="onPlatformLogin"
+            @cancel="onPlatformLoginCancel"
+          />
+        </div>
       </div>
 
       <div v-else class="h-full flex flex-col min-h-0">

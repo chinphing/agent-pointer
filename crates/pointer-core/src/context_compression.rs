@@ -1,6 +1,7 @@
 //! When conversation history grows past a rough character budget, replace an older prefix
 //! with a single user message containing an LLM-generated summary (see settings).
 
+use crate::agent_instance_scope::AgentInstanceScope;
 use crate::models::{ChatMessage, ContextCompressionInfo, ModelSettings, Role, StreamEvent};
 use crate::provider::OpenAIProvider;
 use std::time::Instant;
@@ -34,6 +35,8 @@ pub enum CompressionScope {
 #[derive(Debug, Clone, Default)]
 pub struct CompressionUiContext {
     pub scope: CompressionScope,
+    /// Token reporting scope for this compression LLM call.
+    pub agent_scope: Option<AgentInstanceScope>,
     /// Parent assistant message id (sub-agent trace anchoring).
     pub message_id: Option<String>,
     pub sub_agent_id: Option<String>,
@@ -42,11 +45,16 @@ pub struct CompressionUiContext {
 }
 
 impl CompressionUiContext {
-    pub fn main() -> Self {
-        Self::default()
+    pub fn main(agent_scope: AgentInstanceScope) -> Self {
+        Self {
+            scope: CompressionScope::Main,
+            agent_scope: Some(agent_scope),
+            ..Self::default()
+        }
     }
 
     pub fn sub_agent(
+        agent_scope: AgentInstanceScope,
         message_id: &str,
         agent_id: &str,
         agent_name: &str,
@@ -54,6 +62,7 @@ impl CompressionUiContext {
     ) -> Self {
         Self {
             scope: CompressionScope::SubAgent,
+            agent_scope: Some(agent_scope),
             message_id: Some(message_id.to_string()),
             sub_agent_id: Some(agent_id.to_string()),
             sub_agent_name: Some(agent_name.to_string()),
@@ -359,6 +368,7 @@ fn new_summary_user_message(body: String) -> ChatMessage {
         headline: None,
         raw_content: None,
         agent_id: None,
+        agent_instance_id: None,
         agent_name: None,
         agent_trace: None,
         image_slot_labels: None,
@@ -455,6 +465,7 @@ async fn compress_history_inner(
         headline: None,
         raw_content: None,
         agent_id: None,
+        agent_instance_id: None,
         agent_name: None,
         agent_trace: None,
         image_slot_labels: None,
@@ -501,12 +512,15 @@ async fn compress_history_inner(
             } else {
                 Some(provider.settings.model.as_str())
             };
-            if let Err(e) =
-                crate::token_usage_store::record_round(conversation_id, out.usage.as_ref(), model)
-            {
-                log::warn!(
-                    "token_usage_store: context compression record_round failed conversation_id={conversation_id}: {e}"
-                );
+            if let Some(scope) = ui.agent_scope.as_ref() {
+                if let Err(e) =
+                    crate::token_usage_store::record_round(scope, out.usage.as_ref(), model)
+                {
+                    log::warn!(
+                        "token_usage_store: context compression record_round failed {}: {e}",
+                        scope.log_suffix()
+                    );
+                }
             }
             let t = out.text.trim();
             let summary_llm_ms = t_llm.elapsed().as_millis();
@@ -660,6 +674,7 @@ mod tests {
             headline: None,
             raw_content: None,
             agent_id: None,
+            agent_instance_id: None,
             agent_name: None,
             agent_trace: None,
             image_slot_labels: None,
@@ -684,7 +699,13 @@ mod tests {
 
     #[test]
     fn sub_agent_ui_context_carries_agent_fields() {
-        let ui = CompressionUiContext::sub_agent("msg_1", "explore", "Explore Agent", "task_a");
+        let ui = CompressionUiContext::sub_agent(
+            AgentInstanceScope::new("conv", "explore"),
+            "msg_1",
+            "explore",
+            "Explore Agent",
+            "task_a",
+        );
         assert_eq!(ui.scope, CompressionScope::SubAgent);
         assert_eq!(ui.sub_agent_id.as_deref(), Some("explore"));
         assert_eq!(ui.task_id.as_deref(), Some("task_a"));
@@ -702,7 +723,13 @@ mod tests {
 
     #[test]
     fn summary_system_prompt_includes_keep_users_and_explore_hint() {
-        let ui = CompressionUiContext::sub_agent("m", "explore", "Explore Agent", "t");
+        let ui = CompressionUiContext::sub_agent(
+            AgentInstanceScope::new("conv", "explore"),
+            "m",
+            "explore",
+            "Explore Agent",
+            "t",
+        );
         let p = build_summary_system_prompt(&ui, 6);
         assert!(p.contains("## Goals & constraints"));
         assert!(p.contains("newest 6 user turn"));

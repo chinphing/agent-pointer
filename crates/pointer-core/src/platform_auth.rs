@@ -33,6 +33,12 @@ pub struct PlatformUserSummary {
     pub nickname: Option<String>,
     #[serde(default, rename = "isPlatformAdmin")]
     pub is_platform_admin: bool,
+    #[serde(default, rename = "includedTokens")]
+    pub included_tokens: u64,
+    #[serde(default, rename = "consumedTokens")]
+    pub consumed_tokens: u64,
+    #[serde(default, rename = "tokenQuotaExhausted")]
+    pub token_quota_exhausted: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +66,12 @@ pub struct PlatformSessionView {
     pub user_nickname: Option<String>,
     #[serde(default, rename = "isPlatformAdmin")]
     pub is_platform_admin: bool,
+    #[serde(default, rename = "includedTokens")]
+    pub included_tokens: u64,
+    #[serde(default, rename = "consumedTokens")]
+    pub consumed_tokens: u64,
+    #[serde(default, rename = "tokenQuotaExhausted")]
+    pub token_quota_exhausted: bool,
 }
 
 #[derive(Debug)]
@@ -112,6 +124,9 @@ impl PlatformAuthManager {
                 expires_at: Some(s.expires_at),
                 user_nickname: s.user.nickname.clone(),
                 is_platform_admin: s.user.is_platform_admin,
+                included_tokens: s.user.included_tokens,
+                consumed_tokens: s.user.consumed_tokens,
+                token_quota_exhausted: s.user.token_quota_exhausted,
             },
             None => PlatformSessionView::default(),
         }
@@ -329,6 +344,9 @@ impl PlatformAuthManager {
                 id: parsed.user.id,
                 nickname: parsed.user.nickname,
                 is_platform_admin: parsed.user.is_platform_admin,
+                included_tokens: parsed.user.included_tokens,
+                consumed_tokens: parsed.user.consumed_tokens,
+                token_quota_exhausted: parsed.user.token_quota_exhausted,
             },
         };
         let creds = PlatformLoginCredentials {
@@ -337,6 +355,67 @@ impl PlatformAuthManager {
             provider_api_keys: parsed.provider_api_keys,
         };
         Ok((session, creds))
+    }
+
+    pub fn platform_agent_id(&self) -> Option<String> {
+        self.inner
+            .read()
+            .as_ref()
+            .map(|s| s.agent_id.clone())
+            .filter(|id| !id.is_empty())
+    }
+
+    pub fn token_quota_exhausted(&self) -> bool {
+        self.inner
+            .read()
+            .as_ref()
+            .map(|s| s.user.token_quota_exhausted)
+            .unwrap_or(false)
+    }
+
+    pub async fn report_token_usage_multipart(
+        &self,
+        metadata: &serde_json::Value,
+        zip_path: Option<&std::path::Path>,
+    ) -> Result<()> {
+        let token = self.ensure_access_token().await?;
+        let url = format!(
+            "{}/auth/partner/token-usage",
+            Self::api_base().trim_end_matches('/')
+        );
+        let meta_str =
+            serde_json::to_string(metadata).context("serialize token usage metadata")?;
+        let mut form = reqwest::multipart::Form::new().text("metadata", meta_str);
+        if let Some(path) = zip_path {
+            let bytes = tokio::fs::read(path)
+                .await
+                .with_context(|| format!("read history archive {}", path.display()))?;
+            let part = reqwest::multipart::Part::bytes(bytes)
+                .file_name("history.zip")
+                .mime_str("application/zip")
+                .context("zip mime")?;
+            form = form.part("history_archive", part);
+        }
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", format!("Bearer {token}"))
+            .multipart(form)
+            .send()
+            .await
+            .context("token usage multipart report failed")?;
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+            self.clear_session();
+            return Err(anyhow!("platform_token_expired"));
+        }
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "token usage multipart report failed: HTTP {status}: {text}"
+            ));
+        }
+        Ok(())
     }
 
     pub async fn report_token_usage(&self, body: serde_json::Value) -> Result<()> {
@@ -358,8 +437,9 @@ impl PlatformAuthManager {
             return Err(anyhow!("platform_token_expired"));
         }
         if !resp.status().is_success() {
+            let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            return Err(anyhow!("token usage report failed: {text}"));
+            return Err(anyhow!("token usage report failed: HTTP {status}: {text}"));
         }
         Ok(())
     }
@@ -376,10 +456,17 @@ impl PlatformAuthManager {
             .header("Authorization", format!("Bearer {token}"))
             .send()
             .await?;
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+            self.clear_session();
+            return Err(anyhow!("platform_token_expired"));
+        }
         if !resp.status().is_success() {
             return Ok(None);
         }
         let parsed: PartnerLlmCredentialResponse = resp.json().await?;
+        if parsed.error_code.as_deref() == Some("token_quota_exhausted") {
+            return Err(anyhow!("token_quota_exhausted"));
+        }
         if !parsed.ok {
             return Ok(None);
         }
@@ -388,6 +475,21 @@ impl PlatformAuthManager {
             llm_provider: parsed.llm_provider.filter(|p| !p.trim().is_empty()),
             provider_api_keys: parsed.provider_api_keys,
         }))
+    }
+
+    /// Refresh partner LLM credentials; block when platform reports quota exhausted.
+    pub async fn ensure_llm_allowed(&self) -> Result<()> {
+        if !self.session_view().logged_in {
+            return Ok(());
+        }
+        if self.token_quota_exhausted() {
+            return Err(anyhow!("token_quota_exhausted"));
+        }
+        match self.fetch_llm_credentials().await {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 
     pub async fn fetch_llm_api_key(&self) -> Result<Option<String>> {
@@ -430,6 +532,12 @@ struct AppTokenUser {
     nickname: Option<String>,
     #[serde(default, rename = "is_platform_admin")]
     is_platform_admin: bool,
+    #[serde(default, rename = "included_tokens")]
+    included_tokens: u64,
+    #[serde(default, rename = "consumed_tokens")]
+    consumed_tokens: u64,
+    #[serde(default, rename = "token_quota_exhausted")]
+    token_quota_exhausted: bool,
 }
 
 async fn tauri_fire_and_forget_revoke(refresh_token: String) -> Result<()> {
@@ -452,6 +560,12 @@ struct PartnerLlmCredentialResponse {
     llm_provider: Option<String>,
     #[serde(default)]
     provider_api_keys: HashMap<String, String>,
+    #[serde(default)]
+    error_code: Option<String>,
+    #[serde(default, rename = "included_tokens")]
+    included_tokens: Option<u64>,
+    #[serde(default, rename = "consumed_tokens")]
+    consumed_tokens: Option<u64>,
 }
 
 /// 从首选端口起扫描，绑定第一个可用的 127.0.0.1 端口。

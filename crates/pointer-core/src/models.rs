@@ -75,6 +75,9 @@ pub struct ChatMessage {
     pub raw_content: Option<String>,
     #[serde(default, rename = "agentId")]
     pub agent_id: Option<String>,
+    /// Runtime agent launch UUID (one per lead / sub-agent invocation).
+    #[serde(default, rename = "agentInstanceId", skip_serializing_if = "Option::is_none")]
+    pub agent_instance_id: Option<String>,
     #[serde(default, rename = "agentName")]
     pub agent_name: Option<String>,
     #[serde(default, rename = "agentTrace")]
@@ -715,9 +718,12 @@ impl Default for ModelSettings {
                     api_key: String::new(),
                     models: vec![
                         "qwen3.5-plus".into(),
-                        "qwen3.6-plus".into(),
-                        "qwen3.5-flash".into(),
                         "qwen3.5-27b".into(),
+                        "qwen3.5-flash".into(),
+                        "qwen3.7-max".into(),
+                        "qwen3.6-plus".into(),
+                        "qwen3.6-27b".into(),
+                        "qwen3.6-flash".into(),
                     ],
                     reasoning_in_messages: None,
                     temperature: None,
@@ -1556,6 +1562,7 @@ fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMess
                             headline: None,
                             raw_content: None,
                             agent_id: None,
+                            agent_instance_id: None,
                             agent_name: None,
                             agent_trace: None,
                             image_slot_labels: None,
@@ -1659,6 +1666,7 @@ fn flatten_tool_rounds_computer_style_for_api(msgs: &[ChatMessage]) -> Vec<ChatM
                             headline: None,
                             raw_content: None,
                             agent_id: m.agent_id.clone(),
+                            agent_instance_id: m.agent_instance_id.clone(),
                             agent_name: m.agent_name.clone(),
                             agent_trace: None,
                             image_slot_labels: None,
@@ -1918,6 +1926,7 @@ mod make_openai_messages_tests {
             headline: None,
             raw_content: None,
             agent_id: None,
+            agent_instance_id: None,
             agent_name: None,
             agent_trace: None,
             image_slot_labels: None,

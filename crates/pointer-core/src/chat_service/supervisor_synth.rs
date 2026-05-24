@@ -16,7 +16,7 @@ pub(crate) async fn synthesize_final_answer(
     conversation_id: &str,
     assistant_message_id: &str,
     llm_stats: &mut ConversationLlmStats,
-) -> Result<String> {
+) -> Result<(String, String)> {
     let mut report = String::new();
     for result in results {
         report.push_str(&format!(
@@ -44,6 +44,13 @@ pub(crate) async fn synthesize_final_answer(
             Some(dump_lbl.as_str()),
         )
         .await?;
-    llm_stats.record_llm_round(out.usage.as_ref());
-    Ok(out.text)
+    let synth_scope =
+        crate::agent_instance_scope::AgentInstanceScope::new(conversation_id, "supervisor");
+    let model_name = if provider.settings.model.trim().is_empty() {
+        None
+    } else {
+        Some(provider.settings.model.as_str())
+    };
+    llm_stats.record_llm_round(&synth_scope, out.usage.as_ref(), model_name);
+    Ok((out.text, synth_scope.agent_instance_id))
 }

@@ -74,7 +74,15 @@ pub(super) async fn run_provider_stream_round(
     });
 
     let mut buffers = StreamRoundBuffers::default();
-    let mut llm_recorder = LlmRoundRecorder::TokenSession(llm_token_session);
+    let model_name = if settings.model.trim().is_empty() {
+        None
+    } else {
+        Some(settings.model.as_str())
+    };
+    let mut llm_recorder = LlmRoundRecorder::TokenSession {
+        session: llm_token_session,
+        model_name,
+    };
     drain_provider_events(
         &mut rx,
         &state,
@@ -136,7 +144,9 @@ pub(super) async fn run_provider_stream_round(
                         &stream,
                         cancel.clone(),
                         true,
-                        crate::context_compression::CompressionUiContext::main(),
+                        crate::context_compression::CompressionUiContext::main(
+                            llm_token_session.lead_scope.clone(),
+                        ),
                     )
                     .await;
                     tool_budget.sync_out(consumed_single);

@@ -3,6 +3,7 @@
 use anyhow::{anyhow, Result};
 use tokio_util::sync::CancellationToken;
 
+use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::{AgentProfile, AgentRunResult, AgentTask};
 use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::{effective_max_tokens, effective_reasoning_in_messages, AgentTrace, StreamEvent};
@@ -40,6 +41,7 @@ pub(crate) async fn run_sub_agent(
     _reasoning_in_messages: bool,
     llm_stats: &mut ConversationLlmStats,
 ) -> Result<AgentRunResult> {
+    let instance_scope = AgentInstanceScope::new(conversation_id, task.agent_id.clone());
     let sub_provider = sub_agent_provider(provider, &task.agent_id);
     let reasoning_in_messages = effective_reasoning_in_messages(&sub_provider.settings);
     let session =
@@ -53,7 +55,7 @@ pub(crate) async fn run_sub_agent(
     let mut local_history = session.local_history;
     let max_cap = sub_tool_budget.cap();
     let tools_appendix_enabled = !tools_system_appendix.is_empty();
-    let budget_scope = ToolBudgetExhaustionScope::sub_agent(max_cap);
+    let budget_scope = ToolBudgetExhaustionScope::sub_agent(max_cap, instance_scope.clone());
     let mut content = String::new();
     let mut reasoning = String::new();
 
@@ -95,6 +97,7 @@ pub(crate) async fn run_sub_agent(
             message_id,
             task,
             &def,
+            &instance_scope,
             agent_trace,
             &mut content,
             reasoning_in_messages,
@@ -140,6 +143,7 @@ pub(crate) async fn run_sub_agent(
             buf.xml_thoughts,
             buf.xml_headline,
             &def,
+            Some(instance_scope.agent_instance_id.clone()),
             state,
         );
         push_sub_assistant_turn(&mut local_history, assistant_msg);

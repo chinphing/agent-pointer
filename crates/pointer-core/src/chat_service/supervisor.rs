@@ -351,7 +351,7 @@ pub(crate) async fn run_supervisor_chat(
         },
     );
 
-    let final_answer = synthesize_final_answer(
+    let (final_answer, synth_instance_id) = synthesize_final_answer(
         &provider,
         history,
         &results,
@@ -385,6 +385,7 @@ pub(crate) async fn run_supervisor_chat(
         headline: None,
         raw_content: None,
         agent_id: Some("supervisor".into()),
+        agent_instance_id: Some(synth_instance_id),
         agent_name: Some(sup_name),
         agent_trace: Some(agent_trace),
         image_slot_labels: None,

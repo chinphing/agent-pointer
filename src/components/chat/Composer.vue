@@ -2,7 +2,9 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { ChevronDown, FolderOpen, Send, Square, X } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
+import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { useSettingsStore } from '../../stores/settings'
+import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { resolveAgentUi, resolveLeadAgentUi, composerAgentLabel } from '../../lib/agentUi'
 import { iconForAgent, sortComposerAgents, TEAM_MODE_UI_ENABLED } from '../../lib/agentIcons'
 import type { AgentDef, ComputerMonitor } from '../../types/chat'
@@ -17,7 +19,23 @@ import ComputerScreenPickerModal from './ComputerScreenPickerModal.vue'
 import WorkspaceRequiredModal from './WorkspaceRequiredModal.vue'
 
 const chat = useChatStore()
+const platformAuth = usePlatformAuthStore()
 const settings = useSettingsStore()
+
+const tokenQuotaBlocked = computed(() => platformAuth.tokenQuotaExhausted)
+const needsPlatformLogin = computed(() => isTauriRuntime() && !platformAuth.session.logged_in)
+const showLoginBanner = computed(
+  () => needsPlatformLogin.value && (chat.current?.messages.length ?? 0) > 0
+)
+const composerPlaceholder = computed(() => {
+  if (needsPlatformLogin.value) {
+    return '请先登录 Pointer 账户'
+  }
+  if (tokenQuotaBlocked.value) {
+    return '套餐 Token 额度已用尽，请前往官网充值'
+  }
+  return settings.settings.hasKey ? '与 Pointer 对话…' : '请先在设置中配置 API Key'
+})
 
 const text = ref('')
 const composing = ref(false)
@@ -90,8 +108,22 @@ const canSend = computed(
   () =>
     text.value.trim().length > 0 &&
     !chat.generating &&
+    !needsPlatformLogin.value &&
+    !tokenQuotaBlocked.value &&
     settings.settings.hasKey
 )
+
+async function onPlatformLogin() {
+  try {
+    await platformAuth.login()
+  } catch {
+    /* error in store */
+  }
+}
+
+function onPlatformLoginCancel() {
+  void platformAuth.cancelLogin()
+}
 
 async function loadAgentsList() {
   try {
@@ -300,6 +332,28 @@ onUnmounted(() => {
 
   <div class="px-6 md:px-10 pb-5">
     <div class="max-w-3xl mx-auto">
+      <div v-if="showLoginBanner" class="mb-2 flex w-fit max-w-full flex-col gap-1.5">
+        <div
+          class="inline-flex max-w-full flex-wrap items-center gap-3 rounded-xl border border-accent/20 bg-accent-muted/40 px-3.5 py-2.5"
+        >
+          <p class="shrink-0 text-xs leading-snug text-foreground">未登录，登录后可继续对话</p>
+          <PlatformLoginActions
+            variant="compact"
+            :loading="platformAuth.loading"
+            :error="null"
+            @login="onPlatformLogin"
+            @cancel="onPlatformLoginCancel"
+          />
+        </div>
+        <p
+          v-if="platformAuth.error"
+          class="max-w-full rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs leading-snug text-danger"
+          role="alert"
+        >
+          {{ platformAuth.error }}
+        </p>
+      </div>
+
       <div class="panel-elevated rounded-2xl border border-border overflow-visible px-2 pb-2 pt-[18px]">
         <textarea
           ref="textareaRef"
@@ -307,7 +361,8 @@ onUnmounted(() => {
           rows="1"
           class="block w-full resize-none bg-transparent border-0 outline-none px-3 pt-[3px] pb-2 text-[15px] text-foreground placeholder:text-muted"
           style="max-height: 250px; min-height: 24px;"
-          :placeholder="settings.settings.hasKey ? '与 Pointer 对话…' : '请先在设置中配置 API Key'"
+          :placeholder="composerPlaceholder"
+          :disabled="needsPlatformLogin || tokenQuotaBlocked"
           @keydown="onKeydown"
           @input="autoResize"
           @compositionstart="composing = true"

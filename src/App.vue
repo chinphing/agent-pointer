@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { defineAsyncComponent, onMounted, ref } from 'vue'
 import AppShell from './components/layout/AppShell.vue'
-import PlatformLoginModal from './components/auth/PlatformLoginModal.vue'
 import ChatView from './components/chat/ChatView.vue'
 import { useChatStore } from './stores/chat'
 import { usePlatformAuthStore } from './stores/platformAuth'
@@ -20,7 +19,6 @@ const skills = useSkillsStore()
 
 const showSettings = ref(false)
 const showSkills = ref(false)
-const showPlatformLogin = ref(false)
 
 onMounted(() => {
   void loadSettingsDialog()
@@ -31,38 +29,7 @@ onMounted(() => {
       if (chat.currentId) void chat.refreshTaskBoard(chat.currentId)
     })
     .catch(e => console.error('[app boot]', e))
-    .finally(() => {
-      if (!platformAuth.session.logged_in) {
-        showPlatformLogin.value = true
-      } else if (!settings.settings.hasKey) {
-        showSettings.value = true
-      }
-    })
 })
-
-async function onPlatformLogin() {
-  try {
-    await platformAuth.login()
-    showPlatformLogin.value = false
-    if (!settings.settings.hasKey) showSettings.value = true
-  } catch {
-    /* error in store */
-  }
-}
-
-function onPlatformLoginCancel() {
-  void platformAuth.cancelLogin()
-}
-
-function onPlatformLoginRequest() {
-  showSettings.value = false
-  showPlatformLogin.value = true
-}
-
-async function onPlatformLogout() {
-  showSettings.value = false
-  showPlatformLogin.value = true
-}
 
 function onOpenSkillsFromSettings() {
   showSettings.value = false
@@ -77,20 +44,10 @@ function onOpenSkillsFromSettings() {
     <ChatView />
   </AppShell>
 
-  <PlatformLoginModal
-    v-if="showPlatformLogin"
-    :loading="platformAuth.loading"
-    :error="platformAuth.error"
-    @login="onPlatformLogin"
-    @cancel="onPlatformLoginCancel"
-  />
-
   <SettingsDialog
     v-if="showSettings"
     @close="showSettings = false"
     @open-skills="onOpenSkillsFromSettings"
-    @platform-logout="onPlatformLogout"
-    @platform-login="onPlatformLoginRequest"
   />
   <SkillPicker v-if="showSkills" @close="showSkills = false" />
 </template>

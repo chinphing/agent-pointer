@@ -48,11 +48,16 @@ pub(super) struct ToolBudgetExhaustionScope {
     pub user_hint: String,
     pub error_message: String,
     pub compress_for_session: bool,
+    pub compression_scope: crate::agent_instance_scope::AgentInstanceScope,
 }
 
 impl ToolBudgetExhaustionScope {
-    pub(super) fn lead_single(max_cap: u32) -> Self {
+    pub(super) fn lead_single(
+        max_cap: u32,
+        compression_scope: crate::agent_instance_scope::AgentInstanceScope,
+    ) -> Self {
         Self {
+            compression_scope,
             user_hint: format!(
                 "单智能体模式下工具调用累计已达上限（{} 轮，含此前消息）。建议新开对话；将尝试压缩上下文以便查看摘要。",
                 max_cap
@@ -64,8 +69,12 @@ impl ToolBudgetExhaustionScope {
         }
     }
 
-    pub(super) fn sub_agent(max_cap: u32) -> Self {
+    pub(super) fn sub_agent(
+        max_cap: u32,
+        compression_scope: crate::agent_instance_scope::AgentInstanceScope,
+    ) -> Self {
         Self {
+            compression_scope,
             user_hint: format!(
                 "子 Agent 内工具调用累计已达上限（{} 轮）。建议新开对话。",
                 max_cap
@@ -103,6 +112,7 @@ fn push_format_retry_user_line(
                 headline: None,
                 raw_content: None,
                 agent_id: None,
+                agent_instance_id: None,
                 agent_name: None,
                 agent_trace: None,
                 image_slot_labels: None,
@@ -152,6 +162,7 @@ pub(super) fn build_lead_assistant_message_after_stream(
     xml_thoughts: Option<String>,
     xml_headline: Option<String>,
     agent_plan: &AgentPlan,
+    agent_instance_id: Option<String>,
     agent_trace: &[AgentTrace],
     state: &AppState,
 ) -> ChatMessage {
@@ -181,6 +192,7 @@ pub(super) fn build_lead_assistant_message_after_stream(
             Some(raw_content_buf.to_string())
         },
         agent_id: Some(agent_plan.lead_agent_id.clone()),
+        agent_instance_id,
         agent_name: Some(agent_plan.lead_agent_name.clone()),
         agent_trace: if agent_trace.is_empty() {
             None
@@ -202,6 +214,7 @@ pub(super) fn build_sub_assistant_message_after_stream(
     round_thoughts: Option<String>,
     round_headline: Option<String>,
     def: &AgentDef,
+    agent_instance_id: Option<String>,
     state: &AppState,
 ) -> ChatMessage {
     ChatMessage {
@@ -226,6 +239,7 @@ pub(super) fn build_sub_assistant_message_after_stream(
         headline: round_headline,
         raw_content: None,
         agent_id: Some(def.id.clone()),
+        agent_instance_id,
         agent_name: Some(def.name.clone()),
         agent_trace: None,
         image_slot_labels: None,
@@ -416,7 +430,7 @@ pub(super) async fn bail_on_tool_budget_exhausted(
         stream,
         cancel.clone(),
         scope.compress_for_session,
-        crate::context_compression::CompressionUiContext::main(),
+        crate::context_compression::CompressionUiContext::main(scope.compression_scope.clone()),
     )
     .await;
     if let Some(consumed) = consumed_single.as_mut() {
@@ -490,6 +504,7 @@ mod tests {
             None,
             None,
             &plan,
+            None,
             &[],
             &state,
         );
@@ -522,6 +537,7 @@ mod tests {
             None,
             None,
             &plan,
+            None,
             &[],
             &state,
         );

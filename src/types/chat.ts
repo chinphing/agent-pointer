@@ -147,6 +147,8 @@ export interface ChatMessage {
   contentStreaming?: boolean
   rawContent?: string
   agentId?: string
+  /** Runtime agent launch UUID (one per lead / sub-agent invocation). */
+  agentInstanceId?: string
   agentName?: string
   agentTrace?: AgentTrace[]
   /** Supervisor plan checklist (stream `supervisor_plan`). */

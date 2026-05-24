@@ -161,9 +161,12 @@
       hover:bg-hover cursor-pointer transition-colors;
   }
   .composer-agent-trigger {
-    @apply inline-flex items-center gap-1.5 max-w-[240px] px-1 py-1 rounded-md
-      border-0 bg-transparent text-[11px] text-foreground
-      hover:bg-hover cursor-pointer transition-colors;
+    @apply inline-flex items-center gap-1.5 max-w-[240px] px-1.5 py-1 rounded-lg
+      border border-transparent bg-transparent text-[11px] text-foreground
+      hover:bg-hover hover:border-border/70 cursor-pointer transition-colors;
+  }
+  .composer-agent-trigger > * {
+    pointer-events: none;
   }
   .composer-dropdown {
     @apply absolute z-50 overflow-hidden rounded-xl
@@ -179,12 +182,15 @@
     @apply flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm
       text-foreground hover:bg-hover cursor-pointer transition-colors;
   }
+  .composer-dropdown-item > * {
+    pointer-events: none;
+  }
   .composer-dropdown-item-active {
     @apply bg-accent/10 text-accent;
   }
   .composer-workspace-input {
     @apply h-auto min-w-[100px] max-w-[200px] border-0 bg-transparent px-1 py-1
-      text-[11px] text-foreground outline-none transition-colors
+      text-[11px] text-foreground outline-none transition-colors cursor-text
       placeholder:text-muted focus:ring-0;
   }
   .raw-wire-panel {

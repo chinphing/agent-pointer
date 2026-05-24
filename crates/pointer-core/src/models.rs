@@ -894,6 +894,12 @@ pub struct PersistedLocalPlatformSettings {
     pub context_summary_max_tokens: u32,
     #[serde(default = "platform_default_max_tool_rounds", rename = "maxToolRounds")]
     pub max_tool_rounds: u32,
+    #[serde(default = "default_agent_mode", rename = "agentMode")]
+    pub agent_mode: String,
+    #[serde(default, rename = "leadAgentId")]
+    pub lead_agent_id: String,
+    #[serde(default, rename = "workspaceRoot")]
+    pub workspace_root: String,
 }
 
 impl PersistedLocalPlatformSettings {
@@ -907,6 +913,9 @@ impl PersistedLocalPlatformSettings {
             context_keep_recent_user_turns: platform.context_keep_recent_user_turns,
             context_summary_max_tokens: platform.context_summary_max_tokens,
             max_tool_rounds: platform.max_tool_rounds,
+            agent_mode: platform.agent_mode.clone(),
+            lead_agent_id: platform.lead_agent_id.clone(),
+            workspace_root: platform.workspace_root.clone(),
         }
     }
 
@@ -926,6 +935,17 @@ impl PersistedLocalPlatformSettings {
         platform.context_keep_recent_user_turns = self.context_keep_recent_user_turns;
         platform.context_summary_max_tokens = self.context_summary_max_tokens;
         platform.max_tool_rounds = self.max_tool_rounds;
+        platform.agent_mode = if self.agent_mode.trim().is_empty() {
+            default_agent_mode()
+        } else {
+            self.agent_mode.clone()
+        };
+        platform.lead_agent_id = if self.lead_agent_id.trim().is_empty() {
+            PlatformSettings::default().lead_agent_id
+        } else {
+            self.lead_agent_id.clone()
+        };
+        platform.workspace_root = self.workspace_root.clone();
     }
 }
 

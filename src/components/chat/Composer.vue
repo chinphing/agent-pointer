@@ -235,7 +235,7 @@ function onCompositionEnd() {
 }
 
 async function selectWorkerAgent(agent: AgentDef) {
-  await settings.save({ agentMode: 'single', leadAgentId: agent.id })
+  await settings.saveAgentPreferences({ agentMode: 'single', leadAgentId: agent.id })
   showAgentPicker.value = false
 }
 
@@ -269,7 +269,10 @@ watch(
 onMounted(() => {
   loadAgentsList()
   if (!TEAM_MODE_UI_ENABLED && settings.settings.agentMode === 'supervisor') {
-    void settings.save({ agentMode: 'single', leadAgentId: settings.settings.leadAgentId || DEFAULT_LEAD_AGENT_ID })
+    void settings.saveAgentPreferences({
+      agentMode: 'single',
+      leadAgentId: settings.settings.leadAgentId || DEFAULT_LEAD_AGENT_ID
+    })
   }
   updatePickerWidths()
   document.addEventListener('click', handleClickOutside)
@@ -316,7 +319,8 @@ onUnmounted(() => {
             <div class="relative">
               <button
                 ref="agentBtnRef"
-                class="composer-agent-trigger"
+                type="button"
+                class="composer-agent-trigger cursor-pointer"
                 @click="showAgentPicker = !showAgentPicker"
               >
                 <component :is="currentAgentIcon" class="w-3 h-3 shrink-0 text-accent" />
@@ -337,7 +341,8 @@ onUnmounted(() => {
                   <button
                     v-for="w in workers"
                     :key="w.id"
-                    class="composer-dropdown-item"
+                    type="button"
+                    class="composer-dropdown-item cursor-pointer"
                     :class="isLeadAgentSelected(w.id) ? 'composer-dropdown-item-active' : ''"
                     @click="selectWorkerAgent(w)"
                   >
@@ -353,12 +358,12 @@ onUnmounted(() => {
               <button
                 v-if="isTauriRuntime()"
                 type="button"
-                class="composer-agent-trigger max-w-[200px]"
+                class="composer-agent-trigger max-w-[200px] cursor-pointer"
                 :title="workspaceTooltip"
                 @click="pickWorkspaceFolder"
               >
                 <FolderOpen class="w-3 h-3 shrink-0 text-warning" />
-                <span v-if="workspaceDirName" class="truncate">{{ workspaceDirName }}</span>
+                <span class="truncate max-w-[150px]">{{ workspaceDirName || '工作目录…' }}</span>
               </button>
               <input
                 v-else
@@ -373,7 +378,7 @@ onUnmounted(() => {
               <button
                 v-if="hasWorkspace"
                 type="button"
-                class="composer-agent-trigger px-1 py-1 text-muted hover:text-foreground"
+                class="composer-agent-trigger px-1 py-1 text-muted hover:text-foreground cursor-pointer"
                 title="清除工作目录"
                 @click="clearWorkspace"
               >

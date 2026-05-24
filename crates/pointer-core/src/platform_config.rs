@@ -284,6 +284,9 @@ mod tests {
         platform.context_compression_enabled = false;
         platform.context_budget_chars = 99_000;
         platform.max_tool_rounds = 42;
+        platform.agent_mode = "single".into();
+        platform.lead_agent_id = "coder".into();
+        platform.workspace_root = "/tmp/pointer-workspace".into();
         platform.raw_content_view_enabled = true;
         platform.debug_dump_llm_prompts = true;
         platform.computer_annotated_screen_view_enabled = true;
@@ -310,6 +313,10 @@ mod tests {
         assert!(json.contains("manual"));
         assert!(json.contains("computerHumanLike"));
         assert!(json.contains("maxToolRounds"));
+        assert!(json.contains("leadAgentId"));
+        assert!(json.contains("coder"));
+        assert!(json.contains("workspaceRoot"));
+        assert!(json.contains("/tmp/pointer-workspace"));
 
         let loaded = PersistedLocalPlatformSettings::from_platform(&platform).into_platform();
         assert_eq!(loaded.tool_approval_mode, "manual");
@@ -318,6 +325,9 @@ mod tests {
         assert!(!loaded.context_compression_enabled);
         assert_eq!(loaded.context_budget_chars, 99_000);
         assert_eq!(loaded.max_tool_rounds, 42);
+        assert_eq!(loaded.agent_mode, "single");
+        assert_eq!(loaded.lead_agent_id, "coder");
+        assert_eq!(loaded.workspace_root, "/tmp/pointer-workspace");
         assert_eq!(loaded.tool_approval_mode, platform.tool_approval_mode);
         assert_eq!(loaded.model, PlatformSettings::default().model);
         assert!(loaded.providers.iter().all(|p| p.api_key.is_empty()));

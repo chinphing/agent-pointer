@@ -20,7 +20,7 @@ Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, pl
 
 ### Settings save actions
 
-- Footer label **保存** only on **智能体** (persists tool approval, Computer prefs, context compression, max tool rounds to `local_platform_settings.json`).
+- Footer label **保存** only on **智能体** (persists tool approval, Computer prefs, context compression, max tool rounds, composer agent, last workspace to `local_platform_settings.json`).
 - **界面配置**, **智能模式**: **保存(本次会话)** — in-memory only until restart.
 - **平台账户**: login/logout via OAuth (`auth.dat`); no footer save.
 - Theme follows browser localStorage only (not written to `user_settings.json` from settings dialog).
@@ -46,7 +46,7 @@ On first startup after upgrade:
 1. If `settings.json` exists and `settings.json.migrated` does not, read **theme only** → write `user_settings.json`.
 2. Rename `settings.json` → `settings.json.migrated` (backup).
 3. Remove deprecated `key.dat` if present.
-4. Platform agent fields are imported into `local_platform_settings.json` (desktop) from legacy `settings.json` / `settings.json.migrated`. Only **智能体** fields are kept on disk (tool approval, Computer prefs, context compression, max tool rounds). Model service, API keys, and debug UI flags are never written — see `PersistedLocalPlatformSettings` in `models.rs`.
+4. Platform agent fields are imported into `local_platform_settings.json` (desktop) from legacy `settings.json` / `settings.json.migrated`. Persisted fields include tool approval, Computer prefs, context compression, max tool rounds, **composer agent mode / lead agent**, and **last workspace root** — see `PersistedLocalPlatformSettings` in `models.rs`.
 
 **No keyring migration** — users re-login once; refresh token is stored in `auth.dat`.
 

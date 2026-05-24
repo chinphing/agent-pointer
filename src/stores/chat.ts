@@ -159,6 +159,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function newConversation(): Conversation {
+    const settingsStore = useSettingsStore()
+    const defaultWorkspace = settingsStore.settings.workspaceRoot?.trim() || ''
     const c: Conversation = {
       id: uid(),
       title: '新会话',
@@ -168,7 +170,7 @@ export const useChatStore = defineStore('chat', () => {
       skillIds: [],
       toolRoundsUsed: 0,
       toolRoundsUsedSupervisor: 0,
-      workspaceRoot: ''
+      workspaceRoot: defaultWorkspace
     }
     conversations.value.unshift(c)
     currentId.value = c.id
@@ -856,17 +858,28 @@ export const useChatStore = defineStore('chat', () => {
     persist()
   }
 
+  function applyPersistedComposerDefaults() {
+    const defaultWorkspace = useSettingsStore().settings.workspaceRoot?.trim() || ''
+    if (!defaultWorkspace) return
+    const conv = current.value
+    if (conv && !conv.workspaceRoot?.trim()) {
+      conv.workspaceRoot = defaultWorkspace
+      persist()
+    }
+  }
+
   function setConversationWorkspace(root: string) {
     if (!current.value) newConversation()
     if (!current.value) return
     current.value.workspaceRoot = root
     persist()
+    void useSettingsStore().saveAgentPreferences({ workspaceRoot: root })
   }
 
   return {
     conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards,
     init, newConversation, selectConversation, deleteConversation,
     sendUserMessage, stop, abortTerminalOnly, retry, approve, undo,
-    refreshTaskBoard, taskBoardForConversation, setConversationWorkspace, showUiToast
+    refreshTaskBoard, taskBoardForConversation, setConversationWorkspace, applyPersistedComposerDefaults, showUiToast
   }
 })

@@ -4,6 +4,7 @@ import { marked } from 'marked'
 import { User, Copy, Check } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
 import { useMarkdownCodeCopy } from '../../../composables/useMarkdownCodeCopy'
+import { useMarkdownExternalLinks } from '../../../composables/useMarkdownExternalLinks'
 
 const props = defineProps<{ message: ChatMessage }>()
 
@@ -17,6 +18,7 @@ const html = computed(() =>
 )
 
 useMarkdownCodeCopy(bodyRef, () => props.message.content)
+useMarkdownExternalLinks(bodyRef, () => props.message.content)
 
 function copy() {
   void navigator.clipboard.writeText(props.message.content).then(() => {

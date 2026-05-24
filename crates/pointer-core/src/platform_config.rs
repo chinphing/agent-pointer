@@ -115,6 +115,7 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         computer_annotated_screen_view_enabled: s.computer_annotated_screen_view_enabled,
         computer_show_monitor_picker: s.computer_show_monitor_picker,
         agent_ui_overrides: s.agent_ui_overrides.clone(),
+        web_search_model: s.web_search_model.clone(),
         computer_tier_llm: PlatformSettings::default().computer_tier_llm,
     }
 }

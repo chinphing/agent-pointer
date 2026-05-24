@@ -637,6 +637,9 @@ pub struct ModelSettings {
     /// Per-agent UI overrides keyed by agent id.
     #[serde(default, rename = "agentUiOverrides")]
     pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
+    /// Model id for DashScope web search tool calls (defaults to `qwen3-max` when empty).
+    #[serde(default, rename = "webSearchModel")]
+    pub web_search_model: String,
     /// Per-request override (e.g. computer tier); not persisted.
     #[serde(skip)]
     pub round_enable_thinking: Option<bool>,
@@ -775,10 +778,46 @@ impl Default for ModelSettings {
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             theme: default_theme(),
             agent_ui_overrides: HashMap::new(),
+            web_search_model: String::new(),
             round_enable_thinking: None,
             round_thinking_budget: None,
         }
     }
+}
+
+pub const DEFAULT_WEB_SEARCH_MODEL: &str = "qwen3-max-2026-01-23";
+
+/// Effective model id for DashScope `web_search` tool (`Generation` API + `enable_search`).
+///
+/// Independent from per-agent chat defaults (e.g. `research` may orchestrate on `qwen3.6-plus`
+/// while search calls use `qwen3-max`). Env `POINTER_WEB_SEARCH_MODEL` and `webSearchModel`
+/// override the default.
+pub fn effective_web_search_model(settings: &ModelSettings, _agent_id: Option<&str>) -> String {
+    if let Ok(m) = std::env::var("POINTER_WEB_SEARCH_MODEL") {
+        let m = m.trim();
+        if !m.is_empty() {
+            return m.to_string();
+        }
+    }
+    let configured = settings.web_search_model.trim();
+    if !configured.is_empty() {
+        return configured.to_string();
+    }
+    DEFAULT_WEB_SEARCH_MODEL.to_string()
+}
+
+/// First Qwen provider, or any provider whose base URL is DashScope compatible.
+pub fn find_dashscope_provider(settings: &ModelSettings) -> Option<&ProviderConfig> {
+    settings
+        .providers
+        .iter()
+        .find(|p| p.id.eq_ignore_ascii_case("qwen"))
+        .or_else(|| {
+            settings
+                .providers
+                .iter()
+                .find(|p| provider_uses_dashscope_compatible_api(p))
+        })
 }
 
 // ── User / platform config split ─────────────────────────────────────────────
@@ -854,6 +893,9 @@ pub struct PlatformSettings {
     pub computer_show_monitor_picker: bool,
     #[serde(default, rename = "agentUiOverrides")]
     pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
+    /// Model id for DashScope web search tool calls (empty = default `qwen3-max`).
+    #[serde(default, rename = "webSearchModel")]
+    pub web_search_model: String,
     #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
     pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
 }
@@ -1030,6 +1072,13 @@ fn default_platform_agent_models() -> HashMap<String, AgentModelRef> {
             model: "deepseek-v4-pro".into(),
         },
     );
+    m.insert(
+        "research".into(),
+        AgentModelRef {
+            provider_id: "qwen".into(),
+            model: "qwen3.6-plus".into(),
+        },
+    );
     m
 }
 
@@ -1130,6 +1179,7 @@ impl Default for PlatformSettings {
             computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(),
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             agent_ui_overrides: HashMap::new(),
+            web_search_model: String::new(),
             computer_tier_llm: default_computer_tier_llm(),
         }
     }
@@ -1178,6 +1228,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         computer_show_monitor_picker: platform.computer_show_monitor_picker,
         theme: user.theme.clone(),
         agent_ui_overrides: platform.agent_ui_overrides.clone(),
+        web_search_model: platform.web_search_model.clone(),
         round_enable_thinking: None,
         round_thinking_budget: None,
     }
@@ -1271,6 +1322,17 @@ pub struct ContextCompressionInfo {
     pub sub_agent_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "taskId")]
     pub task_id: Option<String>,
+}
+
+/// Cited source entry for web-search stream UI events.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSearchSourceEntry {
+    pub index: u32,
+    pub title: String,
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site_name: Option<String>,
 }
 
 /// Frontend stream event payload (mirrors src/types/chat.ts StreamEvent)
@@ -1367,6 +1429,26 @@ pub enum StreamEvent {
         tool_call_id: String,
         #[serde(rename = "output")]
         output: String,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
+        trace_id: Option<String>,
+    },
+    WebSearchOutputDelta {
+        #[serde(rename = "messageId")]
+        message_id: String,
+        #[serde(rename = "toolCallId")]
+        tool_call_id: String,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
+        trace_id: Option<String>,
+    },
+    WebSearchSourcesReady {
+        #[serde(rename = "messageId")]
+        message_id: String,
+        #[serde(rename = "toolCallId")]
+        tool_call_id: String,
+        sources: Vec<WebSearchSourceEntry>,
+        #[serde(rename = "searchCount")]
+        search_count: u32,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
         trace_id: Option<String>,
     },
@@ -1715,7 +1797,7 @@ pub fn qwen_explicit_system_cache_enabled(settings: &ModelSettings) -> bool {
     qwen_model_supports_explicit_cache(model)
 }
 
-fn provider_uses_dashscope_compatible_api(provider: &ProviderConfig) -> bool {
+pub fn provider_uses_dashscope_compatible_api(provider: &ProviderConfig) -> bool {
     if provider.id.eq_ignore_ascii_case("qwen") {
         return true;
     }

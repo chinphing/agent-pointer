@@ -5,6 +5,7 @@ pub mod response;
 pub mod run_subagent;
 pub mod skill;
 pub mod terminal;
+pub mod web_search;
 pub mod tool_doc;
 pub mod tool_md;
 

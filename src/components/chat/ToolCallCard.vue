@@ -4,6 +4,7 @@ import { Wrench, ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, Shie
 import type { ToolCall } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
 import { taskBoardToolSummary } from '../../lib/messageTooling'
+import { openExternalUrl } from '../../lib/openExternalUrl'
 
 const props = defineProps<{
   toolCall: ToolCall
@@ -24,6 +25,7 @@ watch(
 )
 
 const isTerminal = computed(() => props.toolCall.name === 'terminal')
+const isWebSearch = computed(() => props.toolCall.name === 'web_search')
 const boardSummary = computed(() => taskBoardToolSummary(props.toolCall.result))
 
 const displayLabel = computed(() => props.toolCall.displayLabel?.trim() || props.toolCall.name)
@@ -82,6 +84,38 @@ const terminalOutput = computed(() => {
   return parts.join(result.stdout && result.stderr ? '\n' : '')
 })
 
+const webSearchQuery = computed(() => {
+  if (!isWebSearch.value) return ''
+  const text = props.toolCall.arguments?.trim()
+  if (!text) return ''
+  try {
+    const parsed = JSON.parse(text)
+    return parsed.query || ''
+  } catch { return text }
+})
+
+const webSearchOutput = computed(() => {
+  if (props.toolCall.webSearchOutput) return props.toolCall.webSearchOutput
+  if (!isWebSearch.value || !props.toolCall.result) return ''
+  try {
+    const parsed = JSON.parse(props.toolCall.result)
+    return typeof parsed.answer === 'string' ? parsed.answer : ''
+  } catch {
+    return ''
+  }
+})
+
+const webSearchSources = computed(() => {
+  if (props.toolCall.webSearchSources?.length) return props.toolCall.webSearchSources
+  if (!isWebSearch.value || !props.toolCall.result) return []
+  try {
+    const parsed = JSON.parse(props.toolCall.result)
+    return Array.isArray(parsed.sources) ? parsed.sources : []
+  } catch {
+    return []
+  }
+})
+
 const terminalMeta = computed(() => {
   const result = terminalResult.value
   if (!result) return ''
@@ -121,6 +155,10 @@ function approve(ok: boolean) {
 
 function abortTerminalOnly() {
   chat.abortTerminalOnly()
+}
+
+function openSourceUrl(url: string) {
+  void openExternalUrl(url)
 }
 </script>
 
@@ -166,6 +204,30 @@ function abortTerminalOnly() {
             <span v-if="terminalMeta" class="normal-case tracking-normal">{{ terminalMeta }}</span>
           </div>
           <pre class="text-[12px] bg-black/60 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200 max-h-64">{{ terminalOutput || '—' }}</pre>
+        </div>
+      </template>
+
+      <template v-else-if="isWebSearch">
+        <div>
+          <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">搜索问题</div>
+          <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200">{{ webSearchQuery || '—' }}</pre>
+        </div>
+        <div v-if="webSearchSources.length">
+          <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">来源</div>
+          <ul class="text-[12px] space-y-1 text-slate-300">
+            <li v-for="s in webSearchSources" :key="s.url + s.index" class="truncate">
+              <span class="text-muted">{{ s.index }}.</span>
+              <button
+                type="button"
+                class="text-accent hover:underline cursor-pointer truncate max-w-full align-baseline"
+                @click.stop="openSourceUrl(s.url)"
+              >{{ s.title || s.url }}</button>
+            </li>
+          </ul>
+        </div>
+        <div v-if="webSearchOutput || effectiveStatus === 'running'">
+          <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">回答</div>
+          <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200 max-h-64 whitespace-pre-wrap">{{ webSearchOutput || (effectiveStatus === 'running' ? '…' : '—') }}</pre>
         </div>
       </template>
 

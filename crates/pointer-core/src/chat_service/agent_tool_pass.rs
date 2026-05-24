@@ -1,5 +1,6 @@
 //! Shared tool execution pass after envelope validation (lead single-agent and sub-agent).
 
+use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::computer::ComputerTierGuard;
 use crate::agents::{AgentDef, AgentProfile, AgentRunResult, AgentTask, FileToolLeadProfileGuard};
 use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
@@ -9,6 +10,10 @@ use crate::tools::merge_tool_method_from_qualified_name;
 use crate::tools::parse_tool_call_arguments;
 use crate::tools::response::response_text_from_args;
 use crate::tools::terminal::{run_terminal_command_streaming, terminal_stream_tool_status};
+use crate::tools::web_search::{
+    dispatch_to_tool_json_async, WebSearchDispatchContext, WebSearchInvokeContext,
+    WebSearchTokenSink,
+};
 use anyhow::{anyhow, Result};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -62,12 +67,14 @@ pub(super) struct LeadToolPassConfig<'a> {
     pub agent_trace: &'a mut Vec<AgentTrace>,
     pub raw_content_buf: &'a str,
     pub file_tool_lead_for_invoke: AgentProfile,
+    pub lead_agent_id: &'a str,
 }
 
 pub(super) struct SubToolPassConfig<'a> {
     pub def: &'a AgentDef,
     pub task: &'a AgentTask,
     pub allowed_tools: &'a [String],
+    pub instance_scope: &'a AgentInstanceScope,
     pub round_message_id: &'a str,
     pub accumulated_content: String,
     pub accumulated_reasoning: String,
@@ -239,6 +246,7 @@ pub(super) async fn run_agent_tool_pass(
             provider,
             conversation_id,
             &message_id,
+            history,
             tc,
             &tool_id,
             args_value.clone(),
@@ -474,6 +482,7 @@ async fn execute_tool_invocation(
     provider: &OpenAIProvider,
     conversation_id: &str,
     message_id: &str,
+    history: &[ChatMessage],
     tc: &ToolCall,
     tool_id: &str,
     args_value: serde_json::Value,
@@ -493,6 +502,42 @@ async fn execute_tool_invocation(
             cancel,
             sub.map(|s| s.trace_id.clone()),
         )
+        .await;
+    }
+
+    if tool_id == "web_search" {
+        let invoke = if sub.as_ref().map(|s| s.def.id.as_str()) == Some("research") {
+            WebSearchInvokeContext::ResearchSubAgent {
+                history,
+                exclude_message_id: message_id,
+            }
+        } else {
+            WebSearchInvokeContext::Tool
+        };
+        let token_sink = match stats {
+            ToolInvocationStats::TokenSession(s) => WebSearchTokenSink::Lead(s),
+            ToolInvocationStats::Conversation(s) => WebSearchTokenSink::Sub {
+                stats: s,
+                scope: sub
+                    .ok_or_else(|| anyhow!("web_search sub scope missing"))?
+                    .instance_scope,
+            },
+        };
+        let agent_id = sub
+            .map(|s| s.def.id.as_str())
+            .or(lead.as_ref().map(|l| l.lead_agent_id));
+        return dispatch_to_tool_json_async(WebSearchDispatchContext {
+            settings: &provider.settings,
+            agent_id,
+            args: args_value,
+            cancel: cancel.clone(),
+            stream: stream.clone(),
+            message_id: message_id.to_string(),
+            tool_call_id: tc.id.clone(),
+            invoke,
+            token_sink,
+            trace_id: sub.map(|s| s.trace_id.clone()),
+        })
         .await;
     }
 

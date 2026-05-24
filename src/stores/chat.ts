@@ -598,6 +598,32 @@ export const useChatStore = defineStore('chat', () => {
         }
         break
       }
+      case 'web_search_output_delta': {
+        const r = findMessage(e.messageId)
+        if (!r) break
+        if (e.traceId?.trim()) {
+          const trace = ensureSubTrace(r.msg, e.traceId.trim())
+          const tc = trace.session?.toolCalls?.find(t => t.id === e.toolCallId)
+          if (tc) tc.webSearchOutput = (tc.webSearchOutput || '') + e.text
+        } else {
+          const tc = r.msg.toolCalls?.find(t => t.id === e.toolCallId)
+          if (tc) tc.webSearchOutput = (tc.webSearchOutput || '') + e.text
+        }
+        break
+      }
+      case 'web_search_sources_ready': {
+        const r = findMessage(e.messageId)
+        if (!r) break
+        if (e.traceId?.trim()) {
+          const trace = ensureSubTrace(r.msg, e.traceId.trim())
+          const tc = trace.session?.toolCalls?.find(t => t.id === e.toolCallId)
+          if (tc) tc.webSearchSources = e.sources
+        } else {
+          const tc = r.msg.toolCalls?.find(t => t.id === e.toolCallId)
+          if (tc) tc.webSearchSources = e.sources
+        }
+        break
+      }
       case 'message_end': {
         const r = findMessage(e.messageId)
         if (r) {

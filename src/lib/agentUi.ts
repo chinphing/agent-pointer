@@ -24,6 +24,7 @@ function profileKey(profile: AgentProfile, id: string, role: string): string {
     if (profile === 'computer' || id === 'computer') return 'computer'
     if (profile === 'coder' || id === 'coder') return 'coder'
     if (profile === 'explore' || id === 'explore') return 'explore'
+    if (profile === 'analyst' || id === 'research') return 'research'
   }
   return 'default'
 }
@@ -33,12 +34,22 @@ const COMPOSER_LABELS: Record<string, string> = {
   coder: '小白编程',
   computer: '电脑操控',
   supervisor: '团队模式',
-  explore: '代码探索'
+  explore: '代码探索',
+  research: '深度研究'
 }
 
 function composerSelectableByProfile(id: string, key: string, isSupervisor: boolean): boolean {
   if (isSupervisor) return false
-  return id === 'default' || id === 'coder' || id === 'computer' || key === 'default' || key === 'coder' || key === 'computer'
+  return (
+    id === 'default' ||
+    id === 'coder' ||
+    id === 'computer' ||
+    id === 'research' ||
+    key === 'default' ||
+    key === 'coder' ||
+    key === 'computer' ||
+    key === 'research'
+  )
 }
 
 function profileDefaults(profile: AgentProfile, id: string, role: string): ResolvedAgentUi {
@@ -50,7 +61,7 @@ function profileDefaults(profile: AgentProfile, id: string, role: string): Resol
     showAgentLabel: true,
     showThoughts: false,
     showHeadline: true,
-    showSubAgentTrace: isSupervisor,
+    showSubAgentTrace: isSupervisor || key === 'research',
     showToolCalls: !isSupervisor,
     showToolCallResults: false,
     hideToolNames: hasTaskBoard ? ['task_board', 'task_board:patch'] : [],
@@ -130,6 +141,7 @@ function leadAgentProfile(id: string): AgentProfile {
   if (id === 'computer') return 'computer'
   if (id === 'coder') return 'coder'
   if (id === 'explore') return 'explore'
+  if (id === 'research') return 'analyst'
   if (id === 'supervisor') return 'supervisor'
   return 'general'
 }

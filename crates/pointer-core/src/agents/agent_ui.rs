@@ -59,13 +59,14 @@ fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAge
     let is_supervisor = role == "supervisor" || id == "supervisor";
     let is_computer = matches!(profile, AgentProfile::Computer) || id == "computer";
     let is_coder = matches!(profile, AgentProfile::Coder) || id == "coder";
+    let is_research = matches!(profile, AgentProfile::Analyst) || id == "research";
     let has_task_board = !is_supervisor;
     ResolvedAgentUi {
         show_in_composer: !is_supervisor,
         show_agent_label: true,
         show_thoughts: false,
         show_headline: true,
-        show_sub_agent_trace: is_supervisor,
+        show_sub_agent_trace: is_supervisor || is_research,
         show_tool_calls: !is_supervisor,
         show_tool_call_results: false,
         hide_tool_names: if has_task_board {
@@ -76,7 +77,7 @@ fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAge
         show_workspace_picker: is_coder,
         show_computer_monitor_picker: is_computer,
         show_task_board_panel: has_task_board,
-        user_selectable: false,
+        user_selectable: is_computer || is_coder || is_research || id == "default",
         composer_label: String::new(),
         avatar: if is_supervisor {
             "supervisor".into()
@@ -86,6 +87,8 @@ fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAge
             "coder".into()
         } else if matches!(profile, AgentProfile::Explore) || id == "explore" {
             "explore".into()
+        } else if matches!(profile, AgentProfile::Analyst) || id == "research" {
+            "research".into()
         } else {
             "default".into()
         },

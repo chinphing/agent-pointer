@@ -1,5 +1,12 @@
 export type Role = 'system' | 'user' | 'assistant' | 'tool'
 
+export interface WebSearchSourceEntry {
+  index: number
+  title: string
+  url: string
+  siteName?: string
+}
+
 export type MessageStatus = 'pending' | 'streaming' | 'done' | 'error' | 'cancelled'
 
 export interface ToolCall {
@@ -12,6 +19,10 @@ export interface ToolCall {
   durationMs?: number
   riskLevel?: 'low' | 'medium' | 'high'
   terminalOutput?: string
+  /** Streaming search answer text (web_search tool). */
+  webSearchOutput?: string
+  /** Sources ready from first SSE chunk (web_search tool). */
+  webSearchSources?: WebSearchSourceEntry[]
   /** UI-only Chinese label from backend (not sent to the LLM). */
   displayLabel?: string
   /** UI-only short parameter summary from backend. */
@@ -383,6 +394,8 @@ export type StreamEvent =
   | { kind: 'tool_call_args_delta'; messageId: string; toolCallId: string; argsDelta: string; traceId?: string }
   | { kind: 'tool_call_status'; messageId: string; toolCallId: string; status: ToolCall['status']; result?: string; error?: string; durationMs?: number; displayLabel?: string; displaySummary?: string; traceId?: string }
   | { kind: 'terminal_output_delta'; messageId: string; toolCallId: string; output: string; traceId?: string }
+  | { kind: 'web_search_output_delta'; messageId: string; toolCallId: string; text: string; traceId?: string }
+  | { kind: 'web_search_sources_ready'; messageId: string; toolCallId: string; sources: WebSearchSourceEntry[]; searchCount: number; traceId?: string }
   | { kind: 'message_end'; messageId: string; content?: string; rawContent?: string; thoughts?: string; headline?: string; traceId?: string }
   | { kind: 'injected_user_message'; conversationId: string; messageId: string; content: string }
   /** App-injected assistant line (e.g. desktop capture status); shown in thread, not from model. */

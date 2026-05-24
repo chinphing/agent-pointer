@@ -18,7 +18,11 @@ fn truncate(s: &str, max: usize) -> String {
     if t.len() <= max {
         return t.to_string();
     }
-    format!("{}…", &t[..max.saturating_sub(1)])
+    let mut end = max.saturating_sub(1);
+    while end > 0 && !t.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &t[..end])
 }
 
 fn str_field(args: &Value, keys: &[&str]) -> Option<String> {
@@ -267,6 +271,13 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                     .unwrap_or_default(),
             )
         }
+        "web_search" => {
+            let q = str_field(args, &["query"]).unwrap_or_default();
+            (
+                "联网搜索".to_string(),
+                truncate(&q, SUMMARY_MAX),
+            )
+        }
         "run_subagent" => (
             "委派子任务".to_string(),
             str_field(args, &["title", "agentId"])
@@ -373,6 +384,21 @@ mod tests {
         let d = default_display("terminal", &json!({"command": "npm test"}));
         assert_eq!(d.label, "终端命令");
         assert_eq!(d.summary, "npm test");
+    }
+
+    #[test]
+    fn web_search_summary_uses_query() {
+        let d = default_display("web_search", &json!({"query": "Rust 2024 edition"}));
+        assert_eq!(d.label, "联网搜索");
+        assert_eq!(d.summary, "Rust 2024 edition");
+    }
+
+    #[test]
+    fn truncate_does_not_split_utf8_codepoint() {
+        let s = "阿里云 Qwen3.7 Max Preview Plus 2026 年 5 月 发布详情";
+        let out = truncate(s, 56);
+        assert!(out.ends_with('…'));
+        assert!(out.is_char_boundary(out.len()));
     }
 
     #[test]

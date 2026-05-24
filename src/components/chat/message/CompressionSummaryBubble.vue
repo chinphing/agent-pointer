@@ -5,6 +5,7 @@ import { Archive, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
 import { compressionSummaryBody } from '../../../lib/compressionMessage'
 import { useMarkdownCodeCopy } from '../../../composables/useMarkdownCodeCopy'
+import { useMarkdownExternalLinks } from '../../../composables/useMarkdownExternalLinks'
 import MessageTimeChip from './MessageTimeChip.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
@@ -21,6 +22,7 @@ const html = computed(() =>
 )
 
 useMarkdownCodeCopy(bodyRef, () => summaryBody.value)
+useMarkdownExternalLinks(bodyRef, () => summaryBody.value)
 </script>
 
 <template>

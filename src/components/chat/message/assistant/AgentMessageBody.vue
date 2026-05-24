@@ -5,6 +5,7 @@ import { Copy, Check } from 'lucide-vue-next'
 import type { MessageStatus, ToolCall } from '../../../../types/chat'
 import ToolCallCard from '../../ToolCallCard.vue'
 import { useMarkdownCodeCopy } from '../../../../composables/useMarkdownCodeCopy'
+import { useMarkdownExternalLinks } from '../../../../composables/useMarkdownExternalLinks'
 import { visibleToolCalls, isResponseAssistantMessage, toolCallBaseName } from '../../../../lib/messageTooling'
 import type { ResolvedAgentUi } from '../../../../lib/agentUi'
 import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
@@ -106,6 +107,7 @@ const showThoughtsPanel = computed(() => {
 })
 
 useMarkdownCodeCopy(bodyRef, () => markdownSource.value)
+useMarkdownExternalLinks(bodyRef, () => markdownSource.value)
 
 const tools = computed(() =>
   props.messageUi.showToolCalls

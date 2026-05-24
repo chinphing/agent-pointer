@@ -8,6 +8,7 @@ enabled: true
 defaultSkillIds: []
 allowAgents:
   - explore
+  - research
 accessPolicy:
   allowTools:
     - file
@@ -16,12 +17,14 @@ accessPolicy:
     - terminal
     - task_board
     - run_subagent
+    - web_search
   denyTools: []
   allowSkills: []
   denySkills: []
 ui:
   userSelectable: true
   composerLabel: 小白编程
+  showSubAgentTrace: true
   showWorkspacePicker: true
   showTaskBoardPanel: true
   hideToolNames:
@@ -191,6 +194,12 @@ Use this when you need **call sites**, **imports**, **symbol definitions**, or *
 - Many serial **`file:read`** calls when one **batched** `paths` read would do.
 - Stopping at grep **hit lines** without reading definitions when you must reason about **behavior** or **side effects**.
 - Grepping an **ambiguous** symbol without scoping directory or adding a second token (e.g. module path).
+
+## External facts (`web_search` and `research` worker)
+
+- **`web_search`** — one-shot **public web** lookup (API docs, release versions, news). Each call uses DashScope hosted search (billable). Prefer a **focused query**; cite URLs from the tool result.
+- **`research` worker** — delegate via **`run_subagent`** with **`agentId` `research`** when you need **multi-query** web investigation with a **source-backed digest** (no codebase reads). Use for doc/version reconciliation, competitive research, or “what changed in X since date Y”.
+- **Repo mapping** stays with **`explore`**; **external facts** stay with **`web_search`** / **`research`**. Do not use web tools to guess local file paths.
 
 ## Delegating to the `explore` worker (`run_subagent`)
 

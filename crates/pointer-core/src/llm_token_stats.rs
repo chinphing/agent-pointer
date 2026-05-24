@@ -18,6 +18,16 @@ impl LlmUsageSnapshot {
     pub fn output_tokens(&self) -> u32 {
         self.completion_tokens.saturating_sub(self.reasoning_tokens)
     }
+
+    /// DashScope native web search `usage` block (`input_tokens` / `output_tokens`).
+    pub fn from_dashscope_web_search(input_tokens: u32, output_tokens: u32, total_tokens: u32) -> Self {
+        Self {
+            prompt_tokens: input_tokens,
+            completion_tokens: output_tokens,
+            total_tokens,
+            reasoning_tokens: 0,
+        }
+    }
 }
 
 /// Accumulates one user `run_chat` session (debug summary).

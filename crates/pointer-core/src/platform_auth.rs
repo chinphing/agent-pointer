@@ -470,6 +470,13 @@ impl PlatformAuthManager {
         if !parsed.ok {
             return Ok(None);
         }
+        if parsed.included_tokens.is_some() || parsed.consumed_tokens.is_some() {
+            log::info!(
+                "platform_auth: llm-credentials token quota included={:?} consumed={:?}",
+                parsed.included_tokens,
+                parsed.consumed_tokens
+            );
+        }
         Ok(Some(PlatformLoginCredentials {
             api_key: parsed.api_key.filter(|k| !k.trim().is_empty()),
             llm_provider: parsed.llm_provider.filter(|p| !p.trim().is_empty()),

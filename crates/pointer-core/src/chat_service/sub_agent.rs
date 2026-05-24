@@ -217,6 +217,7 @@ pub(crate) async fn run_sub_agent(
             def: &def,
             task,
             allowed_tools: &allowed_tools,
+            instance_scope: &instance_scope,
             round_message_id: &round_message_id,
             accumulated_content: content.clone(),
             accumulated_reasoning: reasoning.clone(),

@@ -48,7 +48,9 @@ export function finalizeSubSession(trace: AgentTrace): void {
   if (!session) return
   session.contentStreaming = false
   if (trace.status === 'completed' || trace.status === 'failed') {
-    if (!session.userExpanded) session.collapsed = true
+    const agentId = trace.id.includes(':') ? trace.id.slice(trace.id.lastIndexOf(':') + 1) : ''
+    const keepExpanded = agentId === 'research'
+    if (!session.userExpanded && !keepExpanded) session.collapsed = true
     session.summaryLine = formatSubAgentSummaryLine(trace.name, trace.status, session.stats)
   }
 }

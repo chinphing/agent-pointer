@@ -243,6 +243,6 @@
 .md-body pre:hover .code-copy-btn { @apply opacity-100; }
 .md-body ul { @apply list-disc pl-6 my-2; }
 .md-body ol { @apply list-decimal pl-6 my-2; }
-.md-body a { color: hsl(var(--accent)); @apply underline underline-offset-2; }
+.md-body a { color: hsl(var(--accent)); @apply underline underline-offset-2 cursor-pointer; }
 .md-body table { @apply my-3 border-collapse overflow-x-auto block max-w-full; }
 .md-body th, .md-body td { @apply border border-border px-3 py-1.5; }

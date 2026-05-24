@@ -17,6 +17,9 @@ pub mod computer;
 /// Coder agent: embedded policy (`AGENT.md`); tools used only by the coder lead (e.g. `read_lints`).
 pub mod coder;
 
+/// Deep research agent runtime (SearchAgent web_search path, extension hooks).
+pub mod research;
+
 pub mod agent_ui;
 pub use agent_ui::{resolve_agent_ui, AgentUiConfig, ResolvedAgentUi};
 
@@ -82,6 +85,11 @@ const BUILTIN_AGENT_BUNDLES: &[BuiltinAgentBundle] = &[
         id: "explore",
         manifest: include_str!("explore/AGENT.md"),
         communication: include_str!("explore/COMMUNICATION.md"),
+    },
+    BuiltinAgentBundle {
+        id: "research",
+        manifest: include_str!("research/AGENT.md"),
+        communication: include_str!("research/COMMUNICATION.md"),
     },
     BuiltinAgentBundle {
         id: "computer",
@@ -1131,8 +1139,6 @@ mod builtin_agent_tests {
     }
 
     #[test]
-
-    #[test]
     fn agent_def_json_includes_user_selectable() {
         let raw = include_str!("coder/AGENT.md");
         let comm = include_str!("coder/COMMUNICATION.md");
@@ -1142,6 +1148,7 @@ mod builtin_agent_tests {
         assert!(json.contains("userSelectable"), "json missing userSelectable: {}", json);
     }
 
+    #[test]
     fn coder_builtin_allow_agents_includes_explore() {
         let raw = include_str!("coder/AGENT.md");
         let comm = include_str!("coder/COMMUNICATION.md");
@@ -1149,6 +1156,27 @@ mod builtin_agent_tests {
         assert!(
             agent.def.allow_agents.binary_search(&"explore".to_string()).is_ok(),
             "coder allowAgents should include explore"
+        );
+        assert!(
+            agent.def.allow_agents.binary_search(&"research".to_string()).is_ok(),
+            "coder allowAgents should include research"
+        );
+    }
+
+    #[test]
+    fn research_builtin_manifest_parses_and_loads() {
+        let raw = include_str!("research/AGENT.md");
+        let comm = include_str!("research/COMMUNICATION.md");
+        let agent = load_builtin_agent("research", raw, comm).expect("load builtin research");
+        assert_eq!(agent.def.id, "research");
+        assert_eq!(agent.def.name, "深度研究");
+        assert_eq!(agent.def.profile, AgentProfile::Analyst);
+        assert_eq!(agent.def.ui.show_sub_agent_trace, Some(true));
+        assert_eq!(agent.def.ui.user_selectable, Some(true));
+        assert_eq!(agent.def.ui.show_in_composer, Some(true));
+        assert!(
+            agent.def.access_policy.allow_tools.contains(&"web_search".to_string()),
+            "research should allow web_search"
         );
     }
 }

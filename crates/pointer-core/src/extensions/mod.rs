@@ -124,6 +124,7 @@ impl ExtensionRegistry {
 /// Register framework defaults by delegating to profile-specific modules (Computer, …).
 pub fn register_builtin_extensions(registry: &mut ExtensionRegistry) {
     crate::agents::computer::extension_hooks::register(registry);
+    crate::agents::research::extension_hooks::register(registry);
 }
 
 pub(crate) fn new_extension_message_id(prefix: &str) -> String {

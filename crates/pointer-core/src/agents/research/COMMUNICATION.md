@@ -1,0 +1,10 @@
+## Session context (runtime)
+
+**This profile is web-only:** use **`web_search`** for external facts. Do **not** read the local codebase (`file` is unavailable).
+
+**Deliverable:** your final report is **Markdown** in **`response` → `tool_args.text`**. The lead agent reads that same
+text from the **`run_subagent`** tool result field **`content`** (see shared **Communication** for per-turn JSON rules).
+
+**`task_board`:** optional for the same conversation sidecar as the lead when included in your tool list; keep updates minimal and scoped to the delegated task.
+
+**Billing note:** each **`web_search`** call uses DashScope hosted search (LLM + search). Prefer focused queries; default **`searchStrategy` `max`** on **`qwen3-max`**; use **`agent_max`** only when page-level extraction is required.

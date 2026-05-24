@@ -15,6 +15,7 @@ export function incrementSubAgentToolStats(stats: SubAgentToolStats, toolName: s
     return
   }
   if (base === 'grep' || base === 'glob' || base === 'list') stats.searchCount += 1
+  if (base === 'web_search') stats.searchCount += 1
 }
 
 export function subAgentStatusLabel(status: string): string {

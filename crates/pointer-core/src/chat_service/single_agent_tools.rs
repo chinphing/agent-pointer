@@ -75,6 +75,7 @@ pub(super) async fn run_single_agent_tool_pass(
             agent_trace,
             raw_content_buf,
             file_tool_lead_for_invoke,
+            lead_agent_id,
         }),
         None,
         Some(trim_hook),

@@ -138,6 +138,7 @@ pub fn parse_responses_response(
         model: model.to_string(),
         search_strategy: search_strategy.to_string(),
         request_id,
+        citation_base_index: None,
     })
 }
 

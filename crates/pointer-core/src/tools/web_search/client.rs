@@ -3,8 +3,11 @@
 use crate::models::{ChatMessage, ModelSettings, Role};
 use anyhow::{anyhow, Result};
 use log::{info, warn};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::LazyLock;
 
 pub const DEFAULT_WEB_SEARCH_TIMEOUT_SECS: u64 = 120;
 /// Default `search_options.search_strategy` for generic tool (Generation API).
@@ -43,6 +46,9 @@ pub struct WebSearchResult {
     pub search_strategy: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+    /// Offset applied to this call's citation indices (sum of prior search max indices in the same user turn).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub citation_base_index: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -154,6 +160,7 @@ pub fn build_tool_generation_request_body(model: &str, req: &WebSearchRequest) -
     let mut search_options = json!({
         "search_strategy": req.search_strategy,
         "enable_source": true,
+        "enable_citation": true,
     });
     if req.forced_search {
         search_options["forced_search"] = json!(true);
@@ -270,6 +277,282 @@ pub fn history_to_dashscope_messages(
         });
     }
     messages
+}
+
+/// Markdown numbered list; index matches inline `[N]` / `[ref_N]` markers in `answer`.
+pub fn format_sources_citation_markdown(sources: &[WebSearchSource]) -> String {
+    if sources.is_empty() {
+        return String::new();
+    }
+    let mut sorted: Vec<&WebSearchSource> = sources.iter().collect();
+    sorted.sort_by_key(|s| s.index);
+    let mut lines = vec![
+        "Index map ([N] in answer → source):".to_string(),
+    ];
+    for s in sorted {
+        let label = source_display_label(s);
+        lines.push(format!("{}. [{}]({})", s.index, label, s.url.trim()));
+    }
+    lines.join("\n")
+}
+
+fn normalize_source_url_key(url: &str) -> String {
+    url.trim().trim_end_matches('/').to_ascii_lowercase()
+}
+
+/// Dedupe by URL for display only (keeps first title; does not change `sources` indices).
+fn dedupe_sources_for_display(sources: &[WebSearchSource]) -> Vec<WebSearchSource> {
+    let mut seen = std::collections::HashSet::new();
+    sources
+        .iter()
+        .filter(|s| {
+            let key = normalize_source_url_key(&s.url);
+            !key.is_empty() && seen.insert(key)
+        })
+        .cloned()
+        .collect()
+}
+
+/// Single Sources block for user reply — numbered linked titles (`N` matches inline `[N]` in `answer`).
+pub fn format_sources_for_reply(sources: &[WebSearchSource]) -> String {
+    let mut deduped = dedupe_sources_for_display(sources);
+    if deduped.is_empty() {
+        return String::new();
+    }
+    deduped.sort_by_key(|s| s.index);
+    let mut lines = vec!["## Sources".to_string(), String::new()];
+    for s in deduped {
+        let label = source_display_label(&s);
+        lines.push(format!("{}. [{label}]({})", s.index, s.url.trim()));
+    }
+    lines.join("\n")
+}
+
+/// Merge sources from multiple `web_search` calls: dedupe by URL, renumber 1..N for one Sources block.
+pub fn format_merged_sources_for_reply(source_batches: &[&[WebSearchSource]]) -> String {
+    let mut merged: Vec<WebSearchSource> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for batch in source_batches {
+        let mut sorted: Vec<&WebSearchSource> = batch.iter().collect();
+        sorted.sort_by_key(|s| s.index);
+        for s in sorted {
+            let key = normalize_source_url_key(&s.url);
+            if key.is_empty() || !seen.insert(key) {
+                continue;
+            }
+            merged.push((*s).clone());
+        }
+    }
+    if merged.is_empty() {
+        return String::new();
+    }
+    let mut lines = vec!["## Sources".to_string(), String::new()];
+    for (i, s) in merged.iter().enumerate() {
+        let n = (i + 1) as u32;
+        let label = source_display_label(s);
+        lines.push(format!("{n}. [{label}]({})", s.url.trim()));
+    }
+    lines.join("\n")
+}
+
+/// Plain title list (one per line). For agent reference only — do not paste alongside `sourcesForReply`.
+pub fn format_sources_title_list(sources: &[WebSearchSource]) -> String {
+    if sources.is_empty() {
+        return String::new();
+    }
+    let mut sorted: Vec<&WebSearchSource> = sources.iter().collect();
+    sorted.sort_by_key(|s| s.index);
+    sorted
+        .iter()
+        .map(|s| source_display_label(s))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+static REF_CITATION_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\[ref_(\d+)\]").expect("ref citation regex"));
+
+fn linkify_bracket_index_citations(answer: &str, map: &HashMap<u32, &WebSearchSource>) -> String {
+    let mut out = String::with_capacity(answer.len());
+    let bytes = answer.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'[' {
+            if let Some((idx_str, consumed)) = parse_bracket_index_token(&answer[i..]) {
+                let next = i + consumed;
+                if next < bytes.len() && bytes[next] == b'(' {
+                    out.push('[');
+                    i += 1;
+                    continue;
+                }
+                out.push_str(&citation_markdown_link(idx_str, map));
+                i = next;
+                continue;
+            }
+        }
+        let ch = answer[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+/// `[N]` where N is digits; not `[ref_N]` (handled separately).
+fn parse_bracket_index_token(s: &str) -> Option<(&str, usize)> {
+    let rest = s.strip_prefix('[')?;
+    if rest.starts_with("ref_") {
+        return None;
+    }
+    let digit_len = rest.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digit_len == 0 {
+        return None;
+    }
+    let after_digits = &rest[digit_len..];
+    if !after_digits.starts_with(']') {
+        return None;
+    }
+    Some((&rest[..digit_len], 1 + digit_len + 1))
+}
+
+/// Replace DashScope `[N]` / `[ref_N]` markers with Markdown `[title](url)` using `sources[].index`.
+pub fn resolve_web_search_citations(answer: &str, sources: &[WebSearchSource]) -> String {
+    if sources.is_empty() || !answer.contains('[') {
+        return answer.to_string();
+    }
+    let map: HashMap<u32, &WebSearchSource> = sources.iter().map(|s| (s.index, s)).collect();
+    let after_ref = REF_CITATION_RE.replace_all(answer, |caps: &regex::Captures| {
+        citation_markdown_link(caps.get(1).map(|m| m.as_str()).unwrap_or(""), &map)
+    });
+    linkify_bracket_index_citations(&after_ref, &map)
+}
+
+fn source_display_label(src: &WebSearchSource) -> String {
+    let title = src.title.trim();
+    if !title.is_empty() {
+        return title.replace('[', "\\[").replace(']', "\\]");
+    }
+    if let Some(site) = src.site_name.as_deref().filter(|s| !s.trim().is_empty()) {
+        return site.trim().to_string();
+    }
+    format!("Source {}", src.index)
+}
+
+fn citation_markdown_link(index_str: &str, map: &HashMap<u32, &WebSearchSource>) -> String {
+    let Ok(idx) = index_str.parse::<u32>() else {
+        return format!("[{index_str}]");
+    };
+    let Some(src) = map.get(&idx) else {
+        return format!("[{idx}]");
+    };
+    let label = source_display_label(src);
+    format!("[{label}]({})", src.url.trim())
+}
+
+/// Max `sources[].index` from prior successful `web_search` tool results since the last user message.
+pub fn compute_citation_base_index(history: &[ChatMessage], exclude_message_id: &str) -> u32 {
+    max_web_search_source_index(web_search_turn_slice(history, exclude_message_id))
+}
+
+fn web_search_turn_slice<'a>(
+    history: &'a [ChatMessage],
+    exclude_message_id: &str,
+) -> &'a [ChatMessage] {
+    let mut start = 0usize;
+    for (i, m) in history.iter().enumerate().rev() {
+        if m.id == exclude_message_id {
+            continue;
+        }
+        if matches!(m.role, Role::User) {
+            start = i + 1;
+            break;
+        }
+    }
+    &history[start..]
+}
+
+fn max_web_search_source_index(messages: &[ChatMessage]) -> u32 {
+    let mut max_idx = 0u32;
+    for m in messages {
+        if !matches!(m.role, Role::Tool) {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(&m.content) else {
+            continue;
+        };
+        if !v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false) {
+            continue;
+        }
+        if v.get("sources").and_then(|s| s.as_array()).is_none() {
+            continue;
+        }
+        if let Some(sources) = v.get("sources").and_then(|s| s.as_array()) {
+            for item in sources {
+                if let Some(idx) = item.get("index").and_then(|x| x.as_u64()) {
+                    max_idx = max_idx.max(idx as u32);
+                }
+            }
+        }
+    }
+    max_idx
+}
+
+fn offset_bracket_index_markers(answer: &str, base: u32) -> String {
+    if base == 0 {
+        return answer.to_string();
+    }
+    let mut out = String::with_capacity(answer.len());
+    let bytes = answer.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'[' {
+            if let Some((idx_str, consumed)) = parse_bracket_index_token(&answer[i..]) {
+                let next = i + consumed;
+                if next < bytes.len() && bytes[next] == b'(' {
+                    out.push('[');
+                    i += 1;
+                    continue;
+                }
+                let Ok(idx) = idx_str.parse::<u32>() else {
+                    out.push('[');
+                    i += 1;
+                    continue;
+                };
+                out.push_str(&format!("[{}]", idx + base));
+                i = next;
+                continue;
+            }
+        }
+        let ch = answer[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+/// Shift `[N]` / `[ref_N]` and `sources[].index` by `base_index` so multi-search citations stay unique.
+pub fn apply_citation_base_index(mut result: WebSearchResult, base_index: u32) -> WebSearchResult {
+    result.citation_base_index = Some(base_index);
+    if base_index == 0 {
+        return result;
+    }
+    for s in &mut result.sources {
+        s.index = s.index.saturating_add(base_index);
+    }
+    let after_ref = REF_CITATION_RE.replace_all(&result.answer, |caps: &regex::Captures| {
+        let raw = caps.get(1).map(|m| m.as_str()).unwrap_or("0");
+        let Ok(idx) = raw.parse::<u32>() else {
+            return format!("[ref_{raw}]");
+        };
+        format!("[ref_{}]", idx.saturating_add(base_index))
+    });
+    result.answer = offset_bracket_index_markers(&after_ref, base_index);
+    result
+}
+
+/// Linkify inline citations in `answer` before returning tool JSON to the orchestrator.
+pub fn finalize_web_search_result(mut result: WebSearchResult) -> WebSearchResult {
+    result.answer = resolve_web_search_citations(&result.answer, &result.sources);
+    result
 }
 
 pub fn normalize_search_strategy(raw: &str) -> Result<&'static str> {
@@ -481,6 +764,7 @@ impl SearchSseAccumulator {
             model: model.to_string(),
             search_strategy: search_strategy.to_string(),
             request_id: self.request_id,
+            citation_base_index: None,
         }
     }
 }
@@ -551,6 +835,7 @@ pub fn parse_search_response(
         model: model.to_string(),
         search_strategy: search_strategy.to_string(),
         request_id,
+        citation_base_index: None,
     })
 }
 
@@ -709,8 +994,10 @@ mod tests {
             },
             "request_id": "req-1"
         });
-        let r = parse_search_response("test query", "qwen-plus", "turbo", &body).unwrap();
-        assert_eq!(r.answer, "Answer text [ref_1]");
+        let r = finalize_web_search_result(
+            parse_search_response("test query", "qwen-plus", "turbo", &body).unwrap(),
+        );
+        assert_eq!(r.answer, "Answer text [Example](https://example.com)");
         assert_eq!(r.sources.len(), 1);
         assert_eq!(r.search_count, 1);
         assert_eq!(r.request_id.as_deref(), Some("req-1"));
@@ -892,7 +1179,216 @@ mod tests {
             body["parameters"]["search_options"]["enable_source"],
             json!(true)
         );
+        assert_eq!(
+            body["parameters"]["search_options"]["enable_citation"],
+            json!(true)
+        );
         assert!(!body["parameters"].as_object().unwrap().contains_key("enable_thinking"));
+    }
+
+    #[test]
+    fn apply_citation_base_index_offsets_markers_and_sources() {
+        let raw = WebSearchResult {
+            ok: true,
+            query: "q".into(),
+            answer: "See [1][2] and [ref_1].".into(),
+            sources: vec![
+                WebSearchSource {
+                    index: 1,
+                    title: "A".into(),
+                    url: "https://a.example".into(),
+                    site_name: None,
+                },
+                WebSearchSource {
+                    index: 2,
+                    title: "B".into(),
+                    url: "https://b.example".into(),
+                    site_name: None,
+                },
+            ],
+            search_count: 1,
+            usage: WebSearchUsage::default(),
+            model: "qwen3-max".into(),
+            search_strategy: "pro_max".into(),
+            request_id: None,
+            citation_base_index: None,
+        };
+        let shifted = apply_citation_base_index(raw, 7);
+        assert_eq!(shifted.citation_base_index, Some(7));
+        assert_eq!(shifted.sources[0].index, 8);
+        assert_eq!(shifted.sources[1].index, 9);
+        assert_eq!(shifted.answer, "See [8][9] and [ref_8].");
+        let linked = finalize_web_search_result(shifted);
+        assert!(linked.answer.contains("[A](https://a.example)"));
+        assert!(linked.answer.contains("[B](https://b.example)"));
+    }
+
+    #[test]
+    fn compute_citation_base_index_from_prior_tool_results() {
+        use crate::models::ChatMessage;
+        let prior = serde_json::json!({
+            "ok": true,
+            "sources": [{ "index": 7, "title": "X", "url": "https://x.example" }]
+        });
+        let history = vec![
+            ChatMessage {
+                id: "u1".into(),
+                role: Role::User,
+                content: "question".into(),
+                status: "done".into(),
+                created_at: 0,
+                tool_calls: None,
+                tool_call_id: None,
+                error_message: None,
+                reasoning: None,
+                thoughts: None,
+                headline: None,
+                raw_content: None,
+                agent_id: None,
+                agent_instance_id: None,
+                agent_name: None,
+                agent_trace: None,
+                images_base64: None,
+                image_slot_labels: None,
+                computer_round_screen_rel_path: None,
+            },
+            ChatMessage {
+                id: "a1".into(),
+                role: Role::Assistant,
+                content: String::new(),
+                status: "done".into(),
+                created_at: 1,
+                tool_calls: None,
+                tool_call_id: None,
+                error_message: None,
+                reasoning: None,
+                thoughts: None,
+                headline: None,
+                raw_content: None,
+                agent_id: None,
+                agent_instance_id: None,
+                agent_name: None,
+                agent_trace: None,
+                images_base64: None,
+                image_slot_labels: None,
+                computer_round_screen_rel_path: None,
+            },
+            ChatMessage {
+                id: "t1".into(),
+                role: Role::Tool,
+                content: prior.to_string(),
+                status: "done".into(),
+                created_at: 2,
+                tool_calls: None,
+                tool_call_id: Some("tc1".into()),
+                error_message: None,
+                reasoning: None,
+                thoughts: None,
+                headline: None,
+                raw_content: None,
+                agent_id: None,
+                agent_instance_id: None,
+                agent_name: None,
+                agent_trace: None,
+                images_base64: None,
+                image_slot_labels: None,
+                computer_round_screen_rel_path: None,
+            },
+        ];
+        assert_eq!(compute_citation_base_index(&history, "a1"), 7);
+    }
+
+    #[test]
+    fn format_merged_sources_for_reply_dedupes_and_renumbers() {
+        let batch_a = [WebSearchSource {
+            index: 2,
+            title: "Report A".into(),
+            url: "https://example.com/a".into(),
+            site_name: None,
+        }];
+        let batch_b = [
+            WebSearchSource {
+                index: 1,
+                title: "Report B".into(),
+                url: "https://example.com/b".into(),
+                site_name: None,
+            },
+            WebSearchSource {
+                index: 3,
+                title: "Dup A".into(),
+                url: "https://example.com/a/".into(),
+                site_name: None,
+            },
+        ];
+        let merged = format_merged_sources_for_reply(&[&batch_a, &batch_b]);
+        assert!(merged.contains("1. [Report A](https://example.com/a)"));
+        assert!(merged.contains("2. [Report B](https://example.com/b)"));
+        assert!(!merged.contains("Dup A"));
+    }
+
+    #[test]
+    fn format_sources_for_reply_numbered_linked() {
+        let reply = format_sources_for_reply(&[
+            WebSearchSource {
+                index: 6,
+                title: "Gemini 3.5 Flash launch".into(),
+                url: "https://example.com/a".into(),
+                site_name: None,
+            },
+            WebSearchSource {
+                index: 2,
+                title: "Earlier source".into(),
+                url: "https://example.com/b".into(),
+                site_name: None,
+            },
+            WebSearchSource {
+                index: 3,
+                title: "Duplicate URL title".into(),
+                url: "https://example.com/a/".into(),
+                site_name: None,
+            },
+        ]);
+        assert!(reply.contains("## Sources"));
+        assert!(reply.contains("2. [Earlier source](https://example.com/b)"));
+        assert!(reply.contains("6. [Gemini 3.5 Flash launch](https://example.com/a)"));
+        assert!(!reply.contains("3. [Duplicate URL"));
+        let pos2 = reply.find("2. [Earlier").unwrap();
+        let pos6 = reply.find("6. [Gemini").unwrap();
+        assert!(pos2 < pos6);
+    }
+
+    #[test]
+    fn format_sources_citation_markdown_uses_title_and_url() {
+        let md = format_sources_citation_markdown(&[WebSearchSource {
+            index: 2,
+            title: "2026 market outlook".into(),
+            url: "https://example.com/report".into(),
+            site_name: Some("Example".into()),
+        }]);
+        assert!(md.contains("2. [2026 market outlook](https://example.com/report)"));
+        assert!(md.contains("Index map"));
+    }
+
+    #[test]
+    fn resolve_citations_linkifies_index_and_ref_markers() {
+        let sources = vec![
+            WebSearchSource {
+                index: 2,
+                title: "Report A".into(),
+                url: "https://a.example".into(),
+                site_name: None,
+            },
+            WebSearchSource {
+                index: 6,
+                title: "Report B".into(),
+                url: "https://b.example".into(),
+                site_name: None,
+            },
+        ];
+        let out = resolve_web_search_citations("Growth [2][6] and [ref_2].", &sources);
+        assert!(out.contains("[Report A](https://a.example)"));
+        assert!(out.contains("[Report B](https://b.example)"));
+        assert!(!out.contains("[2]"));
     }
 
     #[test]

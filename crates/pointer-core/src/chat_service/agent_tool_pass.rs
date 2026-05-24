@@ -534,6 +534,8 @@ async fn execute_tool_invocation(
             stream: stream.clone(),
             message_id: message_id.to_string(),
             tool_call_id: tc.id.clone(),
+            history,
+            exclude_message_id: message_id,
             invoke,
             token_sink,
             trace_id: sub.map(|s| s.trace_id.clone()),

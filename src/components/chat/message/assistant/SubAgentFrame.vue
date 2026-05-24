@@ -59,7 +59,7 @@ const bodyModel = computed((): AgentMessageBodyModel => {
     reasoning: s?.reasoning,
     rawContent: s?.rawContent,
     content: undefined,
-    contentStreaming: s?.contentStreaming ?? isRunning.value,
+    contentStreaming: s?.contentStreaming === true,
     toolCalls: s?.toolCalls,
     status: props.trace.status === 'failed' ? 'error' : isRunning.value ? 'streaming' : 'done',
     createdAt: props.createdAt,

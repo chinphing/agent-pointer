@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { marked } from 'marked'
 import { Wrench, ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, ShieldAlert, Check, X } from 'lucide-vue-next'
 import type { ToolCall } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
 import { taskBoardToolSummary } from '../../lib/messageTooling'
 import { openExternalUrl } from '../../lib/openExternalUrl'
+import { useMarkdownExternalLinks } from '../../composables/useMarkdownExternalLinks'
+
+marked.setOptions({ breaks: true, gfm: true })
 
 const props = defineProps<{
   toolCall: ToolCall
@@ -95,8 +99,15 @@ const webSearchQuery = computed(() => {
 })
 
 const webSearchOutput = computed(() => {
+  if (!isWebSearch.value) return ''
+  if (props.toolCall.result && effectiveStatus.value === 'success') {
+    try {
+      const parsed = JSON.parse(props.toolCall.result)
+      if (typeof parsed.answer === 'string' && parsed.answer.trim()) return parsed.answer
+    } catch { /* fall through */ }
+  }
   if (props.toolCall.webSearchOutput) return props.toolCall.webSearchOutput
-  if (!isWebSearch.value || !props.toolCall.result) return ''
+  if (!props.toolCall.result) return ''
   try {
     const parsed = JSON.parse(props.toolCall.result)
     return typeof parsed.answer === 'string' ? parsed.answer : ''
@@ -104,6 +115,15 @@ const webSearchOutput = computed(() => {
     return ''
   }
 })
+
+const webSearchAnswerRef = ref<HTMLElement | null>(null)
+const webSearchAnswerHtml = computed(() => {
+  const text = webSearchOutput.value
+  if (!text.trim() || effectiveStatus.value !== 'success') return ''
+  return marked.parse(text) as string
+})
+
+useMarkdownExternalLinks(webSearchAnswerRef, () => webSearchOutput.value)
 
 const webSearchSources = computed(() => {
   if (props.toolCall.webSearchSources?.length) return props.toolCall.webSearchSources
@@ -227,7 +247,16 @@ function openSourceUrl(url: string) {
         </div>
         <div v-if="webSearchOutput || effectiveStatus === 'running'">
           <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">回答</div>
-          <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200 max-h-64 whitespace-pre-wrap">{{ webSearchOutput || (effectiveStatus === 'running' ? '…' : '—') }}</pre>
+          <div
+            v-if="webSearchAnswerHtml"
+            ref="webSearchAnswerRef"
+            class="md-body text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 text-slate-200 max-h-64 overflow-y-auto"
+            v-html="webSearchAnswerHtml"
+          />
+          <pre
+            v-else
+            class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200 max-h-64 whitespace-pre-wrap"
+          >{{ webSearchOutput || (effectiveStatus === 'running' ? '…' : '—') }}</pre>
         </div>
       </template>
 

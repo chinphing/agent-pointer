@@ -37,7 +37,8 @@ Answer from **public web sources** only. Do not assume access to a local codebas
 
 - Read the **conversation history** for prior findings and the parent task.
 - Use the final **user message** as the **search brief** for this round (goal, scope, language/region, output shape).
-- Return a **single self-contained answer** with inline citations `[title](url)` or `[N]` matching sources.
+- Return a **single self-contained answer** with inline citations `[title](url)` or `[N]` matching **`sources`**.
+- Do **not** end with organization names only (e.g. “Sources: Org A, Site B”); every citation needs **title + URL** from retrieved pages.
 - Prefer **primary** sources (official docs, vendor blogs, standards bodies).
 - Note **conflicts**, stale pages, and low-confidence claims.
 - Do **not** invent URLs or quote pages you did not retrieve.
@@ -103,7 +104,11 @@ Bullet points with **bold lead-ins**; cite sources inline as `[title](url)` or `
 
 ### `## Sources`
 
-Numbered list: `N. [title](url)` — every URL you relied on (deduped).
+**One search used:** paste that call's **`sourcesForReply`** verbatim — **`N. [title](url)`** (**`N`** matches **`[N]`** in that answer).
+
+**Multiple searches (same user turn):** each call has **`citationBaseIndex`** — indices are globally offset; paste all **`sourcesForReply`** under one **`## Sources`** (**`[N]`** in findings matches merged list).
+
+**Forbidden:** plain title lines without **`N.`** or without markdown links.
 
 ### `## Conflicts & caveats`
 

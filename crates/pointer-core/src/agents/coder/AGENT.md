@@ -197,7 +197,7 @@ Use this when you need **call sites**, **imports**, **symbol definitions**, or *
 
 ## External facts (`web_search` and `research` worker)
 
-- **`web_search`** — one-shot **public web** lookup (API docs, release versions, news). Each call uses DashScope hosted search (billable). Prefer a **focused query**; cite URLs from the tool result.
+- **`web_search`** — one-shot **public web** lookup (API docs, release versions, news). Each call uses DashScope hosted search (billable). Prefer a **focused query**; in **`response`**, append **`sourcesForReply`** verbatim (linked titles) — never names-only Sources lines.
 - **`research` worker** — delegate via **`run_subagent`** with **`agentId` `research`** when you need **multi-query** web investigation with a **source-backed digest** (no codebase reads). Use for doc/version reconciliation, competitive research, or “what changed in X since date Y”.
 - **Repo mapping** stays with **`explore`**; **external facts** stay with **`web_search`** / **`research`**. Do not use web tools to guess local file paths.
 

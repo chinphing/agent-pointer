@@ -92,8 +92,8 @@ Tool risk: **medium**, **requires approval** (external API cost).
 1. Set Qwen API key in settings.
 2. As **coder**, ask: “What is the latest stable Rust edition?” and approve **`web_search`**.
 3. While running, confirm the tool card shows streaming **answer** text (and **sources** when available).
-4. Confirm tool result JSON has **`sources`** with URLs.
-5. Delegate: **`run_subagent`** `agentId=research` with a multi-part doc question; confirm parent receives Markdown with **`## Sources`**.
+4. Confirm tool result JSON has **`sources`** with URLs and **`sourcesForReply`** (single linked Sources block for the agent to paste).
+5. Delegate: **`run_subagent`** `agentId=research` with a multi-part doc question; confirm parent receives Markdown with **`## Sources`** (linked titles, no duplicate plain-title + numbered list).
 
 ## Tests
 

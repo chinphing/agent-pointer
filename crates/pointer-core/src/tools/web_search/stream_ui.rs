@@ -11,6 +11,8 @@ pub struct WebSearchStreamUi {
     pub message_id: String,
     pub tool_call_id: String,
     pub trace_id: Option<String>,
+    /// Added to streamed source indices so UI matches multi-search global numbering.
+    pub citation_base_index: u32,
 }
 
 fn to_entry(s: &WebSearchSource) -> WebSearchSourceEntry {
@@ -39,10 +41,23 @@ impl WebSearchStreamUi {
         if sources.is_empty() && search_count == 0 {
             return;
         }
+        let display_sources: Vec<WebSearchSource> = if self.citation_base_index == 0 {
+            sources.to_vec()
+        } else {
+            sources
+                .iter()
+                .map(|s| WebSearchSource {
+                    index: s.index.saturating_add(self.citation_base_index),
+                    title: s.title.clone(),
+                    url: s.url.clone(),
+                    site_name: s.site_name.clone(),
+                })
+                .collect()
+        };
         let _ = self.stream.send(StreamEvent::WebSearchSourcesReady {
             message_id: self.message_id.clone(),
             tool_call_id: self.tool_call_id.clone(),
-            sources: sources.iter().map(to_entry).collect(),
+            sources: display_sources.iter().map(to_entry).collect(),
             search_count,
             trace_id: self.trace_id.clone(),
         });

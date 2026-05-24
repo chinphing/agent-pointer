@@ -10,6 +10,18 @@ with **`thoughts`**, **`headline`**, **`tool_name`**, and **`tool_args`**.
 - Do **not** skip JSON because the turn feels “simple” or “conversational”.
 - Do **not** answer in Markdown or prose outside the JSON object.
 
+## Web search citations (user-facing replies)
+
+After **`web_search`** returns, the tool JSON includes **`sourcesForReply`**, **`sourcesCitationMarkdown`**, and **`citationGuide`**.
+
+When you cite external facts in **`response`**:
+
+- **One `web_search` this reply:** paste **`sourcesForReply` verbatim** — **`N. [title](url)`**; **`N`** matches **`[N]`** in that call's **`answer`** (already linkified).
+- **Several `web_search` calls in the same user turn:** each result includes **`citationBaseIndex`**; **`[N]`** / **`sources[].index`** are shifted so numbers stay unique — cite **`[N]`** across calls and concatenate all **`sourcesForReply`** under one **`## Sources`**.
+- **Do not** paste plain titles without **`N.`** or without links.
+- **Do not** hand-format from **`sources[]`** — copy **`sourcesForReply`** (or merge per **`multiSearchGuide`**).
+- **`sourcesCitationMarkdown`** is per-call index map only, not a user-facing Sources section.
+
 ## Wire format (JSON)
 
 Full **single-turn** objects below show the envelope end-to-end.

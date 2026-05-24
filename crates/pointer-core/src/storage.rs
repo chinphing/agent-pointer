@@ -138,6 +138,8 @@ struct StoredSettings {
     raw_content_view_enabled: bool,
     #[serde(default = "default_debug_dump_llm_prompts", rename = "debugDumpLlmPrompts")]
     debug_dump_llm_prompts: bool,
+    #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
+    debug_menus_enabled: bool,
     #[serde(default, rename = "agentDefaultModels")]
     agent_default_models: HashMap<String, serde_json::Value>,
     #[serde(default, rename = "agentTaskBoardHistoryTrim")]
@@ -198,6 +200,10 @@ fn default_computer_initial_tier() -> String {
 }
 
 fn default_debug_dump_llm_prompts() -> bool {
+    false
+}
+
+fn default_debug_menus_enabled() -> bool {
     false
 }
 
@@ -403,6 +409,7 @@ fn stored_settings_to_platform(stored: &StoredSettings) -> PlatformSettings {
         max_sub_agent_tool_rounds: stored.max_sub_agent_tool_rounds,
         raw_content_view_enabled: stored.raw_content_view_enabled,
         debug_dump_llm_prompts: stored.debug_dump_llm_prompts,
+        debug_menus_enabled: stored.debug_menus_enabled,
         agent_default_models: normalize_disk_agent_defaults(&stored.agent_default_models, &active),
         agent_task_board_history_trim: stored.agent_task_board_history_trim.clone(),
         computer_human_like: stored.computer_human_like,
@@ -526,6 +533,7 @@ impl Default for StoredSettings {
             max_sub_agent_tool_rounds: s.max_sub_agent_tool_rounds,
             raw_content_view_enabled: s.raw_content_view_enabled,
             debug_dump_llm_prompts: s.debug_dump_llm_prompts,
+            debug_menus_enabled: s.debug_menus_enabled,
             agent_default_models: s
                 .agent_default_models
                 .iter()

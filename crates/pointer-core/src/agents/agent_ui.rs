@@ -60,7 +60,7 @@ fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAge
     ResolvedAgentUi {
         show_in_composer: !is_supervisor,
         show_agent_label: true,
-        show_thoughts: true,
+        show_thoughts: false,
         show_headline: true,
         show_sub_agent_trace: is_supervisor,
         show_tool_calls: !is_supervisor,

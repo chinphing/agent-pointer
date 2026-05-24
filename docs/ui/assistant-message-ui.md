@@ -6,7 +6,7 @@
 
 | 字段 | 来源 | 主气泡（`AssistantModelMessage`） |
 |------|------|-------------------------------------|
-| **`thoughts`** | 正文 JSON 对象中的 `thoughts` 字符串（解析后写入 `message.thoughts`） | **直接展示**：`ModelThoughtPanels` 在正文 Markdown 上方展示灰字 `thoughts`。 |
+| **`thoughts`** | 正文 JSON 对象中的 `thoughts` 字符串（解析后写入 `message.thoughts`） | **当前 LLM 回合流式输出时**：固定约 **2 行**高度局部预览（自动滚到底部）；**该回合 `message_end` 后默认隐藏**（多轮工具调用中间间隙也会隐藏，不等整段对话结束）。调试模式且勾选「显示 thoughts 摘要」时：不限高度，回合结束后仍保留。 |
 | **`reasoning`** | 兼容 OpenAI 的 **`reasoning_content`** 增量（与 `content` 分流） | **不展示正文**：不得把 `reasoning` 拼进 `message.content` 或主区 Markdown；仅用于持久化/API 回传（见设置 `reasoningInMessages`）与下调试。 |
 
 ## 「原始输出」（代码图标）
@@ -31,7 +31,7 @@
 ## 后端与前端事件（便于对照）
 
 - 后端对 `reasoning_content` 仍发 `reasoning_delta`；前端 `chat` store 累积到 `message.reasoning`（与是否写入下一轮 API 的设置解耦时，以当前代码为准）。
-- 流式阶段若 `content` 以 `{` 开头（`json_object` 工具信封），主气泡 **不** 把该通道当 Markdown 渲染；`response` 时由 `assistant_json_partial.responseText` 写入 **`responseTextDraft`**，主区用其做 Markdown 流式展示。`thoughts` / `headline` 仍由同事件更新。回合结束 `message_end` 后 `content` 会替换为 `extract_user_visible_content` 结果，并清除 `responseTextDraft`。
+- 流式阶段若 `content` 以 `{` 开头（`json_object` 工具信封），主气泡 **不** 把该通道当 Markdown 渲染；`response` 时由 `assistant_json_partial.responseText` 写入 **`responseTextDraft`**，主区用其做 Markdown 流式展示。`thoughts` / `headline` 仍由同事件更新。回合结束 `message_end` 后 `content` 会替换为 `extract_user_visible_content` 结果，并清除 `responseTextDraft`；同时 **`contentStreaming=false`**，thoughts 预览收起（即使 `generating` 仍为 true、下轮工具仍在跑）。**子 Agent** 同样通过 `assistant_json_partial` 更新父消息上的 `thoughts`（流式可见），每轮子 Agent LLM 回合结束也会发 `message_end` 收起；`agent_step` / `tool_call_start` **不会** 重新打开 thoughts 预览。
 
 ## 子 Agent / Supervisor 进度（`AgentProgressTimeline`）
 

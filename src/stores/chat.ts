@@ -28,6 +28,7 @@ import {
   isEphemeralDesktopNoticeMessage,
   isGenerationCancelledMessage
 } from '../lib/assistantMessageKind'
+import { toolCallBaseName } from '../lib/messageTooling'
 import { buildCompressionNoticeContent, isCompressionSummaryMessage } from '../lib/compressionMessage'
 import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
@@ -72,6 +73,7 @@ function normalizeInterruptedAssistantStatuses(conversations: Conversation[]): v
       if (m.status === 'streaming' || m.status === 'pending') {
         m.status = 'done'
       }
+      m.contentStreaming = false
     }
   }
 }
@@ -386,17 +388,21 @@ export const useChatStore = defineStore('chat', () => {
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (!conv) return
         patchRunState(e.conversationId, { generating: true, activeMessageId: e.messageId })
-        if (!conv.messages.find(m => m.id === e.messageId)) {
+        const existing = conv.messages.find(m => m.id === e.messageId)
+        if (!existing) {
           conv.messages.push({
             id: e.messageId, role: 'assistant', content: '',
-            status: 'streaming', createdAt: Date.now(), toolCalls: []
+            status: 'streaming', contentStreaming: true, createdAt: Date.now(), toolCalls: []
           })
+        } else {
+          existing.status = 'streaming'
+          existing.contentStreaming = true
         }
         break
       }
       case 'delta': {
         const r = findMessage(e.messageId)
-        if (r) { r.msg.content += e.text; r.msg.status = 'streaming' }
+        if (r) { r.msg.content += e.text; r.msg.status = 'streaming'; r.msg.contentStreaming = true }
         break
       }
       case 'raw_content_delta': {
@@ -404,6 +410,7 @@ export const useChatStore = defineStore('chat', () => {
         if (r) {
           r.msg.rawContent = (r.msg.rawContent || '') + e.text
           r.msg.status = 'streaming'
+          r.msg.contentStreaming = true
         }
         break
       }
@@ -412,6 +419,7 @@ export const useChatStore = defineStore('chat', () => {
         if (r) {
           r.msg.reasoning = (r.msg.reasoning || '') + e.text
           r.msg.status = 'streaming'
+          r.msg.contentStreaming = true
         }
         break
       }
@@ -419,6 +427,7 @@ export const useChatStore = defineStore('chat', () => {
         const r = findMessage(e.messageId)
         if (!r) break
         r.msg.status = 'streaming'
+        r.msg.contentStreaming = true
         if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
         if (e.headline != null && e.headline.trim() !== '') r.msg.headline = e.headline
         if (e.toolName != null && e.toolName.trim() !== '') {
@@ -504,6 +513,13 @@ export const useChatStore = defineStore('chat', () => {
         if (r) {
           // 工具轮次/Supervisor 编排中间回合也会发 message_end，此时 generating 仍为 true
           r.msg.status = isConversationGenerating(r.conv.id) ? 'streaming' : 'done'
+          r.msg.contentStreaming = false
+          const preview = r.msg.toolNamePreview?.trim()
+          const draft = r.msg.responseTextDraft?.trim()
+          if (draft && preview && toolCallBaseName(preview) === 'response') {
+            r.msg.content = draft
+          }
+          delete r.msg.toolNamePreview
           // 忽略 JSON `null`：勿把正文/ thoughts 写成 null 导致界面丢字段
           if (e.content != null) r.msg.content = e.content
           if (e.rawContent != null) r.msg.rawContent = e.rawContent
@@ -604,6 +620,7 @@ export const useChatStore = defineStore('chat', () => {
             } else {
               r.msg.status = 'error'
               r.msg.errorMessage = e.message
+              r.msg.contentStreaming = false
             }
             clearRunState(r.conv.id)
           }

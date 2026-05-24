@@ -99,7 +99,7 @@ const agents = ref<AgentDef[]>([])
 
 const DISPLAY_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
   { key: 'showAgentLabel', label: '消息旁显示智能体名称' },
-  { key: 'showThoughts', label: '显示 thoughts 摘要' },
+  { key: 'showThoughts', label: '显示 thoughts 摘要（调试，完成后保留）' },
   { key: 'showHeadline', label: '显示 headline 标题条' },
   { key: 'showSubAgentTrace', label: '显示子任务进度时间线' },
   { key: 'showToolCalls', label: '显示工具调用卡片' },
@@ -281,8 +281,7 @@ onMounted(() => {
   computerInitialTier.value = s.settings.computerInitialTier ?? 'primary'
   computerAnnotatedScreenViewEnabled.value = s.settings.computerAnnotatedScreenViewEnabled === true
   theme.value = (s.settings.theme as ThemePreference) || 'system'
-  debugMenusEnabled.value = s.canEditPlatform
-    && (s.settings.rawContentViewEnabled === true || s.settings.debugDumpLlmPrompts === true)
+  debugMenusEnabled.value = s.canEditPlatform && s.settings.debugMenusEnabled === true
   agentUiLocal.value = { ...(s.settings.agentUiOverrides?.[activeUiAgentId.value] ?? {}) }
   loadAgents()
 })
@@ -347,6 +346,12 @@ async function selectAgentModelWithProvider(agentId: string, value: string) {
   })
 }
 
+async function toggleDebugMenus() {
+  const next = !debugMenusEnabled.value
+  debugMenusEnabled.value = next
+  await s.save({ debugMenusEnabled: next })
+}
+
 async function saveFromFooter() {
   saving.value = true
   try {
@@ -368,6 +373,7 @@ async function saveFromFooter() {
         maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
         rawContentViewEnabled: rawContentViewEnabled.value,
         debugDumpLlmPrompts: debugDumpLlmPrompts.value,
+        debugMenusEnabled: debugMenusEnabled.value,
         computerAnnotatedScreenViewEnabled: computerAnnotatedScreenViewEnabled.value,
         agentTaskBoardHistoryTrim: { ...agentTaskBoardHistoryTrim.value },
         agentUiOverrides: {
@@ -426,7 +432,7 @@ async function saveFromFooter() {
             type="button"
             class="h-7 w-7 rounded-md border border-border hover:bg-hover transition-colors inline-flex items-center justify-center"
             :title="debugModeTitle"
-            @click="debugMenusEnabled = !debugMenusEnabled"
+            @click="toggleDebugMenus"
           >
             <Bug class="w-4 h-4" :class="debugMenusEnabled ? 'text-amber-400' : 'text-muted'" />
           </button>

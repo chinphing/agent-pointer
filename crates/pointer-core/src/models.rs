@@ -601,6 +601,9 @@ pub struct ModelSettings {
     /// When true, each LLM round writes request `messages` + params under app data `logs/llm_prompts/`.
     #[serde(default = "default_debug_dump_llm_prompts", rename = "debugDumpLlmPrompts")]
     pub debug_dump_llm_prompts: bool,
+    /// When true, settings UI exposes debug sections (independent of raw wire / prompt dump toggles).
+    #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
+    pub debug_menus_enabled: bool,
     /// Per-agent default LLM: worker id or `"supervisor"` → explicit provider + model.
     #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
     pub agent_default_models: HashMap<String, AgentModelRef>,
@@ -683,6 +686,10 @@ fn default_debug_dump_llm_prompts() -> bool {
     false
 }
 
+fn default_debug_menus_enabled() -> bool {
+    false
+}
+
 fn default_computer_annotated_screen_view_enabled() -> bool {
     false
 }
@@ -747,6 +754,7 @@ impl Default for ModelSettings {
             max_sub_agent_tool_rounds: default_max_tool_rounds(),
             raw_content_view_enabled: default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
+            debug_menus_enabled: default_debug_menus_enabled(),
             agent_default_models: HashMap::new(),
             agent_task_board_history_trim: HashMap::new(),
             computer_human_like: false,
@@ -818,6 +826,8 @@ pub struct PlatformSettings {
     pub raw_content_view_enabled: bool,
     #[serde(default = "default_debug_dump_llm_prompts", rename = "debugDumpLlmPrompts")]
     pub debug_dump_llm_prompts: bool,
+    #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
+    pub debug_menus_enabled: bool,
     #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
     pub agent_default_models: HashMap<String, AgentModelRef>,
     #[serde(default, rename = "agentTaskBoardHistoryTrim")]
@@ -1080,6 +1090,7 @@ impl Default for PlatformSettings {
             max_sub_agent_tool_rounds: platform_default_max_tool_rounds(),
             raw_content_view_enabled: platform_default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
+            debug_menus_enabled: default_debug_menus_enabled(),
             agent_default_models: default_platform_agent_models(),
             agent_task_board_history_trim: HashMap::new(),
             computer_human_like: false,
@@ -1126,6 +1137,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         max_sub_agent_tool_rounds: platform.max_sub_agent_tool_rounds,
         raw_content_view_enabled: platform.raw_content_view_enabled,
         debug_dump_llm_prompts: platform.debug_dump_llm_prompts,
+        debug_menus_enabled: platform.debug_menus_enabled,
         agent_default_models: platform.agent_default_models.clone(),
         agent_task_board_history_trim: platform.agent_task_board_history_trim.clone(),
         computer_human_like: platform.computer_human_like,

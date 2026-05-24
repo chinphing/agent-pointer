@@ -208,6 +208,9 @@
   .message-action-btn {
     @apply p-1.5 rounded-md hover:bg-hover cursor-pointer transition-colors;
   }
+  .message-bubble-copy-btn {
+    @apply p-1 rounded-md hover:bg-hover cursor-pointer transition-colors;
+  }
 }
 
 /* Markdown */

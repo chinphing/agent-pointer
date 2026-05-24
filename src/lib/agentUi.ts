@@ -47,7 +47,7 @@ function profileDefaults(profile: AgentProfile, id: string, role: string): Resol
   return {
     showInComposer: !isSupervisor,
     showAgentLabel: true,
-    showThoughts: true,
+    showThoughts: false,
     showHeadline: true,
     showSubAgentTrace: isSupervisor,
     showToolCalls: !isSupervisor,

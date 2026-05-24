@@ -38,19 +38,24 @@ function copy() {
 
     <div class="flex-1 min-w-0 flex flex-col items-end">
       <div
-        class="block overflow-hidden px-4 py-3 rounded-2xl border break-words w-fit max-w-[80%] bg-primary/15 border-primary/25 text-slate-100"
+        class="relative block overflow-hidden px-4 py-3 rounded-2xl border break-words w-fit max-w-[80%] bg-primary/15 border-primary/25 text-slate-100"
       >
-        <div v-if="message.content" ref="bodyRef" class="md-body" v-html="html" />
-      </div>
-      <div class="mt-1.5 flex items-center gap-1 justify-end w-full max-w-[80%]">
+        <div
+          v-if="message.content"
+          ref="bodyRef"
+          class="md-body pb-6"
+          v-html="html"
+        />
         <button
-          class="p-1.5 rounded hover:bg-white/5 cursor-pointer transition"
+          v-if="message.content"
+          type="button"
+          class="message-bubble-copy-btn absolute bottom-1.5 right-1.5 z-10"
           :class="copied ? 'text-green-400' : 'text-slate-400 hover:text-slate-200'"
           :title="copied ? '已复制' : '复制'"
           @click="copy"
         >
-          <Check v-if="copied" class="w-3.5 h-3.5" />
-          <Copy v-else class="w-3.5 h-3.5" />
+          <Check v-if="copied" class="w-3 h-3" />
+          <Copy v-else class="w-3 h-3" />
         </button>
       </div>
     </div>

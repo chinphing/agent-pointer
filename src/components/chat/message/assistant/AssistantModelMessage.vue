@@ -10,7 +10,7 @@ import { useChatStore } from '../../../../stores/chat'
 import { previewComputerAnnotatedScreen, previewComputerRoundScreen } from '../../../../lib/api'
 import { isTauriRuntime } from '../../../../lib/runtime'
 import { useMarkdownCodeCopy } from '../../../../composables/useMarkdownCodeCopy'
-import { visibleToolCalls } from '../../../../lib/messageTooling'
+import { visibleToolCalls, isResponseAssistantMessage, toolCallBaseName } from '../../../../lib/messageTooling'
 import { shouldShowSubAgentTrace } from '../../../../lib/agentUi'
 import { useAgentsCatalog, uiForMessageAgent } from '../../../../composables/useAgentUi'
 import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
@@ -58,17 +58,27 @@ const hideStreamingJsonEnvelopeMarkdown = computed(
   () => isStreaming.value && (props.message.content?.trimStart().startsWith('{') ?? false)
 )
 
+/** 流式 `response` 预览：子 Agent 等场景 JSON 走 partial，不写入 `message.content`。 */
+const isStreamingResponseDraft = computed(() => {
+  const draft = props.message.responseTextDraft?.trim()
+  if (!draft || !isContentStreaming.value) return false
+  if (hideStreamingJsonEnvelopeMarkdown.value) return true
+  const preview = props.message.toolNamePreview?.trim()
+  return !!preview && toolCallBaseName(preview) === 'response'
+})
+
 /** 主气泡 Markdown：流式 JSON 信封阶段不用原始 `content` 渲染；收尾后 `message_end` 会换成 `extract_user_visible_content` 结果。 */
 const showMainMarkdownBody = computed(() => {
+  if (isStreamingResponseDraft.value) return false
   const c = props.message.content?.trim() ?? ''
   if (!c) return false
   return !hideStreamingJsonEnvelopeMarkdown.value
 })
 
-/** 主气泡 Markdown 源码：收尾后为 `content`；流式 JSON 阶段为 `responseTextDraft`（`response.text`）。 */
+/** 主气泡 Markdown 源码：收尾后为 `content`；流式 JSON / response 阶段为 `responseTextDraft`（`response.text`）。 */
 const markdownSource = computed(() => {
   if (showMainMarkdownBody.value) return props.message.content ?? ''
-  if (hideStreamingJsonEnvelopeMarkdown.value)
+  if (hideStreamingJsonEnvelopeMarkdown.value || isStreamingResponseDraft.value)
     return props.message.responseTextDraft ?? ''
   return props.message.content ?? ''
 })
@@ -84,10 +94,19 @@ const showMdBody = computed(() => !!html.value)
 const showStreamingPlaceholderUnderThoughts = computed(
   () =>
     isStreaming.value &&
-    hideStreamingJsonEnvelopeMarkdown.value &&
-    !(messageUi.value.showThoughts && props.message.thoughts?.trim()) &&
+    (hideStreamingJsonEnvelopeMarkdown.value || isStreamingResponseDraft.value) &&
+    !props.message.thoughts?.trim() &&
     !(props.message.responseTextDraft?.trim())
 )
+
+const thoughtsDebugEnabled = computed(() => messageUi.value.showThoughts)
+
+const showThoughtsPanel = computed(() => {
+  const t = props.message.thoughts?.trim()
+  if (!t) return false
+  if (isContentStreaming.value) return true
+  return thoughtsDebugEnabled.value
+})
 
 useMarkdownCodeCopy(bodyRef, () => markdownSource.value)
 
@@ -143,12 +162,34 @@ const isActiveGenerationMessage = computed(
   () => props.message.id === activeGeneratingMessageId.value
 )
 
+/** 当前 LLM 回合是否在流式输出（`message_end` 后为 false；多轮工具间隙也为 false）。 */
+const isContentStreaming = computed(() => {
+  if (props.message.contentStreaming === false) return false
+  if (props.message.contentStreaming === true) return true
+  // 兼容缺字段或热更新间隙：仅当前正在生成的助手行且 status 仍为 streaming/pending
+  return (
+    generating.value &&
+    isActiveGenerationMessage.value &&
+    isMessageStreaming(props.message.status)
+  )
+})
+
 /** Copy / screenshot / raw-wire row: hide only while this row is actively streaming in the current run. */
 const showMessageActions = computed(() => {
   if (generating.value && isActiveGenerationMessage.value) return false
   if (props.message.status === 'pending') return false
   return true
 })
+
+const showCopyButton = computed(
+  () => showMessageActions.value && isResponseAssistantMessage(props.message)
+)
+
+const showActionBar = computed(
+  () => showCamera.value || (showMessageActions.value && hasRawWire.value)
+)
+
+const showCopyInBubble = computed(() => showCopyButton.value && showMdBody.value)
 
 const isRunInProgress = computed(
   () =>
@@ -162,7 +203,7 @@ const showHeadlineProgressBar = computed(
 
 const showThoughtPanels = computed(
   () =>
-    (messageUi.value.showThoughts && !!(props.message.thoughts?.trim())) ||
+    showThoughtsPanel.value ||
     (showSubAgentTrace.value &&
       ((props.message.agentTrace?.length ?? 0) > 0 ||
         (props.message.supervisorPlanTasks?.length ?? 0) > 0))
@@ -303,7 +344,7 @@ onUnmounted(() => clearHeadlineCollapseTimer())
       </div>
     </div>
 
-    <div v-if="hasBubbleBody" class="block px-4 py-3 rounded-2xl border break-words panel overflow-x-auto">
+    <div v-if="hasBubbleBody" class="relative block px-4 py-3 rounded-2xl border break-words panel overflow-x-auto">
       <div
         v-if="!hasHeadline && !showHeadlineProgressBar"
         class="flex justify-end mb-2 -mt-0.5"
@@ -331,15 +372,16 @@ onUnmounted(() => clearHeadlineCollapseTimer())
         :xml-thoughts="message.thoughts"
         :agent-trace="message.agentTrace"
         :plan-tasks="message.supervisorPlanTasks"
-        :show-thoughts="messageUi.showThoughts"
+        :thoughts-debug-enabled="thoughtsDebugEnabled"
         :show-sub-agent-trace="showSubAgentTrace"
-        :is-streaming="isRunInProgress"
+        :is-streaming="isContentStreaming"
       />
 
       <div
         v-if="showMdBody"
         ref="bodyRef"
         class="md-body"
+        :class="showCopyInBubble ? 'pb-6' : ''"
         v-html="html"
       />
       <div
@@ -354,22 +396,25 @@ onUnmounted(() => clearHeadlineCollapseTimer())
       <div v-if="message.status === 'error'" class="mt-2 flex items-center gap-2 text-xs text-danger">
         {{ message.errorMessage || '生成失败' }}
       </div>
+
+      <button
+        v-if="showCopyInBubble"
+        type="button"
+        class="message-bubble-copy-btn absolute bottom-1.5 left-1.5 z-10"
+        :class="copied ? 'text-success' : 'text-muted hover:text-foreground'"
+        :title="copied ? '已复制' : '复制'"
+        @click="copyBody"
+      >
+        <Check v-if="copied" class="w-3 h-3" />
+        <Copy v-else class="w-3 h-3" />
+      </button>
     </div>
 
     <div v-if="tools.length" class="space-y-2 w-full">
       <ToolCallCard v-for="tc in tools" :key="tc.id" :tool-call="tc" />
     </div>
 
-    <div v-if="showMessageActions" class="flex items-center gap-1 w-full min-w-0">
-      <button
-        class="message-action-btn"
-        :class="copied ? 'text-success' : 'text-muted hover:text-foreground'"
-        :title="copied ? '已复制' : '复制'"
-        @click="copyBody"
-      >
-        <Check v-if="copied" class="w-3.5 h-3.5" />
-        <Copy v-else class="w-3.5 h-3.5" />
-      </button>
+    <div v-if="showActionBar" class="flex items-center gap-1 w-full min-w-0">
       <button
         v-if="showCamera"
         type="button"

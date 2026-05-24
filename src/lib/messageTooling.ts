@@ -1,8 +1,20 @@
-import type { ToolCall } from '../types/chat'
+import type { ChatMessage, ToolCall } from '../types/chat'
 
 export function toolCallBaseName(name: string): string {
   const i = name.indexOf(':')
   return i === -1 ? name : name.slice(0, i)
+}
+
+/** Assistant row used the `response` tool (final user-visible reply), not an intermediate tool round. */
+export function isResponseAssistantMessage(
+  message: Pick<ChatMessage, 'toolCalls' | 'toolNamePreview' | 'responseTextDraft' | 'content'>
+): boolean {
+  const tcs = message.toolCalls ?? []
+  if (tcs.some(tc => toolCallBaseName(tc.name) !== 'response')) return false
+  if (message.responseTextDraft?.trim()) return true
+  const preview = message.toolNamePreview?.trim()
+  if (preview) return toolCallBaseName(preview) === 'response'
+  return !!(message.content?.trim())
 }
 
 /** `response` tool is not shown as a card (matches backend). */

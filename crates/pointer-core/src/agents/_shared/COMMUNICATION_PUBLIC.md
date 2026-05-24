@@ -21,10 +21,10 @@ emit **one** raw JSON object with **no** surrounding code fence and **no** prose
 ```json
 {
   "thoughts": "User asked for a short acknowledgement; no other tools this turn.",
-  "headline": "Acknowledge",
+  "headline": "确认收到",
   "tool_name": "response",
   "tool_args": {
-    "text": "Understood. I will use allowed tools next if code or tests change."
+    "text": "好的，已了解。如需改代码或跑测试，我会接着用允许的工具处理。"
   }
 }
 ```
@@ -39,7 +39,7 @@ Omitting those on an object inherits the root **`tool_args`** defaults when pres
 ```json
 {
   "thoughts": "Read the implementation and its test in one turn with a shared line window.",
-  "headline": "Batch read two files",
+  "headline": "批量读取两个文件",
   "tool_name": "file:read",
   "tool_args": {
     "lineStart": 1,
@@ -60,7 +60,7 @@ The host runs **every** sidecar **in order**, then the **root** tool.
 ```json
 {
   "thoughts": "Mark the board step in progress, then open the spec file.",
-  "headline": "Board plus read spec",
+  "headline": "更新任务板并读取规格",
   "sidecar_tools": [
     {
       "tool_name": "task_board:patch",
@@ -167,6 +167,8 @@ per the rules here and in your worker prompt.
   The **`text`** argument is what appears in the chat.
   Do **not** call **`response`** if you still plan to invoke **any other tool** in the **same** turn;
   run those first, then **`response`**.
+
+- **User-visible language:** Write **`headline`** and **`tool_args.text`** (and any other user-facing strings in tool results you summarize back to the user) in **Chinese (简体中文)** by default. Use another language only when the user writes in that language or explicitly asks for it. **`thoughts`** may keep English section labels when your worker prompt requires structured prefixes (e.g. Computer **`Verify:`** / **`Next:`**); **`headline`** is always shown in the chat UI and must be Chinese unless an exception applies.
 
 ## Task board
 

@@ -5,7 +5,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::agents::{AgentProfile, AgentRunResult, AgentTask};
 use crate::llm_token_stats::ConversationLlmStats;
-use crate::models::{effective_max_tokens, effective_reasoning_in_messages, AgentTrace};
+use crate::models::{effective_max_tokens, effective_reasoning_in_messages, AgentTrace, StreamEvent};
 use crate::provider::OpenAIProvider;
 
 use super::agent_post_stream::{
@@ -18,6 +18,7 @@ use super::agent_tool_pass::{
 };
 use crate::task_board::TaskBoardTrimHook;
 use super::app_state::AppState;
+use super::emit::emit;
 use super::session_budget::SessionToolBudget;
 use super::session_model::sub_agent_provider;
 use super::sub_agent_prompt::{init_sub_agent_session, prepare_sub_agent_round_prompts};
@@ -112,6 +113,18 @@ pub(crate) async fn run_sub_agent(
             SubAgentStreamOutcome::RetryAfterRecoveryHint => continue,
             SubAgentStreamOutcome::Completed(b) => b,
         };
+
+        // Align with lead-agent rounds: mark parent UI row stream ended so thoughts collapse between sub rounds.
+        emit(
+            stream,
+            StreamEvent::MessageEnd {
+                message_id: message_id.to_string(),
+                content: None,
+                raw_content: None,
+                thoughts: None,
+                headline: None,
+            },
+        );
 
         if reasoning_in_messages {
             reasoning.push_str(&buf.reasoning_buf);

@@ -116,6 +116,8 @@ export interface ChatMessage {
   toolNamePreview?: string
   /** Streaming `response` tool `tool_args.text` while JSON is still incomplete. */
   responseTextDraft?: string
+  /** True while the current LLM round is actively streaming (false between tool rounds). */
+  contentStreaming?: boolean
   rawContent?: string
   agentId?: string
   agentName?: string
@@ -214,7 +216,10 @@ export interface PlatformSettings {
   maxToolRounds: number
   maxSubAgentToolRounds?: number
   rawContentViewEnabled: boolean
+  /** Write each LLM request payload to app data `logs/llm_prompts/` (debug) */
   debugDumpLlmPrompts?: boolean
+  /** Settings dialog debug sections toggle (independent of rawContentView / dump prompts) */
+  debugMenusEnabled?: boolean
   agentDefaultModels: Record<string, AgentModelRef>
   agentTaskBoardHistoryTrim?: Record<string, boolean>
   computerHumanLike?: boolean
@@ -264,6 +269,8 @@ export interface ModelSettings {
   rawContentViewEnabled: boolean
   /** Write each LLM request payload to app data `logs/llm_prompts/` (debug) */
   debugDumpLlmPrompts?: boolean
+  /** Settings dialog debug sections toggle (independent of rawContentView / dump prompts) */
+  debugMenusEnabled?: boolean
   /** agentId → 该 agent 的默认「服务商 + 模型」（显式存储，不从模型名反推服务商） */
   agentDefaultModels: Record<string, AgentModelRef>
   /** agentId → task_board 更新后是否硬截断较早对话（无 LLM 摘要） */

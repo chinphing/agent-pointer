@@ -107,6 +107,7 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         max_sub_agent_tool_rounds: s.max_sub_agent_tool_rounds,
         raw_content_view_enabled: s.raw_content_view_enabled,
         debug_dump_llm_prompts: s.debug_dump_llm_prompts,
+        debug_menus_enabled: s.debug_menus_enabled,
         agent_default_models: s.agent_default_models.clone(),
         agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),
         computer_human_like: s.computer_human_like,

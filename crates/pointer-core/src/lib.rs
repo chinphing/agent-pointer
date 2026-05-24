@@ -20,6 +20,7 @@ pub mod llm_token_stats;
 pub mod models;
 pub mod platform_config;
 pub mod provider;
+pub mod shell_env;
 pub mod skills;
 pub mod storage;
 pub mod tools;

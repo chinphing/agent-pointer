@@ -337,13 +337,12 @@ fn parse_terminal_cwd(value: Option<&serde_json::Value>) -> Result<Option<PathBu
 #[cfg(windows)]
 fn terminal_shell_command(command: &str) -> (&'static str, Command) {
     let mut cmd = Command::new("powershell");
-    cmd.arg("-NoProfile")
-        .arg("-ExecutionPolicy")
+    cmd.arg("-ExecutionPolicy")
         .arg("Bypass")
         .arg("-Command")
         .arg(command);
     (
-        "powershell -NoProfile -ExecutionPolicy Bypass -Command",
+        "powershell -ExecutionPolicy Bypass -Command",
         cmd,
     )
 }

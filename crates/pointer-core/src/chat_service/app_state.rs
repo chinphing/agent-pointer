@@ -39,6 +39,8 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
+        crate::shell_env::bootstrap_process_path_from_login_shell();
+
         let platform_mgr = PlatformConfigManager::new();
         storage::ensure_legacy_settings_migrated();
         match storage::load_local_platform_settings() {

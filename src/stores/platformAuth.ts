@@ -17,6 +17,20 @@ function formatPlatformAuthError(e: unknown): string {
   return msg
 }
 
+/** Rust 启动时会 restore session 并注入 KEY；前端只轮询 session，避免重复 refresh/inject。 */
+async function resolvePlatformSession(timeoutMs = 3000): Promise<PlatformSessionView> {
+  const first = await api.getPlatformSession()
+  if (first.logged_in) return first
+
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    const next = await api.getPlatformSession()
+    if (next.logged_in) return next
+  }
+  return first
+}
+
 export const usePlatformAuthStore = defineStore('platformAuth', () => {
   const session = ref<PlatformSessionView>({ logged_in: false })
   const loading = ref(false)
@@ -28,12 +42,7 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     loading.value = true
     error.value = null
     try {
-      await api.loadPlatformSessionPersisted()
-      try {
-        session.value = await api.refreshPlatformSession()
-      } catch {
-        session.value = await api.getPlatformSession()
-      }
+      session.value = await resolvePlatformSession()
       const settings = useSettingsStore()
       await settings.load()
     } catch (e) {

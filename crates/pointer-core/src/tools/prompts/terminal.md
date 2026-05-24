@@ -8,7 +8,7 @@ Use when you need the shell for builds, checks, tests, directory listings, or ot
 
 - Decide whether a terminal is truly needed; prefer answering from context when possible.
 - Prefer running inside the workspace; set **`cwd`** explicitly when required.
-- On Windows, commands run via `powershell -NoProfile -ExecutionPolicy Bypass -Command`; keep commands portable when you can.
+- On Windows, commands run via `powershell -ExecutionPolicy Bypass -Command` (user PowerShell profile is loaded so fnm/nvm PATH hooks apply); keep commands portable when you can.
 - Set a reasonable **`timeoutMs`** (idle: no stdout/stderr resets the timer). Use **`maxWallMs`** when you need a shorter hard wall than the default cap.
 - Do not run destructive commands unless the user clearly asked and approval allows it.
 - Do not read or exfiltrate secrets via the terminal.
@@ -17,7 +17,7 @@ The result includes `stdout`, `stderr`, exit code, timing, truncation flags, and
 
 #### Parameters
 
-- **`command`** (required) — The shell command to run. Windows: `powershell -NoProfile -ExecutionPolicy Bypass -Command`; macOS/Linux: `sh -lc`.
+- **`command`** (required) — The shell command to run. Windows: `powershell -ExecutionPolicy Bypass -Command` (profile loaded); macOS/Linux: `sh -lc`.
 - **`cwd`** (optional) — Working directory; must be an existing directory.
 - **`timeoutMs`** (optional) — Idle timeout in milliseconds: if neither stdout nor stderr receives new data for this long, the command is stopped. Any new output resets this idle timer. Default **30000**, per-idle segment max **120000**.
 - **`maxWallMs`** (optional) — Hard wall-clock cap from process start; when elapsed time reaches this value, the process tree is killed. Min **1000**, max **3600000** (1 hour). Omit to use the **1 hour** default cap.

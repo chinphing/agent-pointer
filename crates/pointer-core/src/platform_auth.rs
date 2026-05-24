@@ -3,6 +3,8 @@
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::Utc;
+use std::collections::HashMap;
+
 use parking_lot::RwLock;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -47,6 +49,8 @@ pub struct PlatformSession {
 pub struct PlatformLoginCredentials {
     pub api_key: Option<String>,
     pub llm_provider: Option<String>,
+    #[serde(default)]
+    pub provider_api_keys: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -330,6 +334,7 @@ impl PlatformAuthManager {
         let creds = PlatformLoginCredentials {
             api_key: parsed.api_key.filter(|k| !k.trim().is_empty()),
             llm_provider: parsed.llm_provider.filter(|p| !p.trim().is_empty()),
+            provider_api_keys: parsed.provider_api_keys,
         };
         Ok((session, creds))
     }
@@ -359,7 +364,7 @@ impl PlatformAuthManager {
         Ok(())
     }
 
-    pub async fn fetch_llm_api_key(&self) -> Result<Option<String>> {
+    pub async fn fetch_llm_credentials(&self) -> Result<Option<PlatformLoginCredentials>> {
         let token = self.ensure_access_token().await?;
         let url = format!(
             "{}/auth/partner/llm-credentials",
@@ -375,11 +380,21 @@ impl PlatformAuthManager {
             return Ok(None);
         }
         let parsed: PartnerLlmCredentialResponse = resp.json().await?;
-        if parsed.ok {
-            Ok(parsed.api_key)
-        } else {
-            Ok(None)
+        if !parsed.ok {
+            return Ok(None);
         }
+        Ok(Some(PlatformLoginCredentials {
+            api_key: parsed.api_key.filter(|k| !k.trim().is_empty()),
+            llm_provider: parsed.llm_provider.filter(|p| !p.trim().is_empty()),
+            provider_api_keys: parsed.provider_api_keys,
+        }))
+    }
+
+    pub async fn fetch_llm_api_key(&self) -> Result<Option<String>> {
+        Ok(self
+            .fetch_llm_credentials()
+            .await?
+            .and_then(|c| c.api_key))
     }
 }
 
@@ -405,6 +420,8 @@ struct AppTokenResponse {
     user: AppTokenUser,
     api_key: Option<String>,
     llm_provider: Option<String>,
+    #[serde(default)]
+    provider_api_keys: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -432,6 +449,9 @@ async fn tauri_fire_and_forget_revoke(refresh_token: String) -> Result<()> {
 struct PartnerLlmCredentialResponse {
     ok: bool,
     api_key: Option<String>,
+    llm_provider: Option<String>,
+    #[serde(default)]
+    provider_api_keys: HashMap<String, String>,
 }
 
 /// 从首选端口起扫描，绑定第一个可用的 127.0.0.1 端口。

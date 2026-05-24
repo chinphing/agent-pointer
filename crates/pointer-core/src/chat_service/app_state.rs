@@ -13,8 +13,9 @@ use crate::models::{
 };
 use crate::platform_auth::{PlatformLoginCredentials, SharedPlatformAuth};
 use crate::platform_config::{
-    apply_login_llm_credentials, finalize_merged_settings, merge_platform_preferences,
-    persist_local_platform_settings, PlatformConfigManager, SharedPlatformConfig,
+    apply_login_llm_credentials, apply_login_llm_provider_api_keys, finalize_merged_settings,
+    merge_platform_preferences, persist_local_platform_settings, PlatformConfigManager,
+    SharedPlatformConfig,
 };
 use crate::skills::SkillRegistry;
 use crate::storage;
@@ -155,6 +156,7 @@ impl AppState {
 
     pub fn apply_login_credentials(&self, creds: &PlatformLoginCredentials) {
         let mut platform = self.platform_config.write();
+        apply_login_llm_provider_api_keys(&mut platform, &creds.provider_api_keys);
         apply_login_llm_credentials(
             &mut platform,
             creds.api_key.as_deref(),

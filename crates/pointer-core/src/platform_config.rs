@@ -1,6 +1,7 @@
 //! In-memory platform configuration and defaults.
 
 use parking_lot::RwLock;
+use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use crate::models::{
@@ -8,7 +9,6 @@ use crate::models::{
     ModelSettings, PlatformSettings, ProviderConfig, UserSettings,
 };
 use crate::storage;
-use std::collections::HashMap;
 
 static GLOBAL_PLATFORM_CONFIG: OnceLock<SharedPlatformConfig> = OnceLock::new();
 
@@ -171,6 +171,32 @@ pub fn apply_login_llm_credentials(
     log::warn!("platform_config: provider id {pid} not found in platform config");
 }
 
+/// Inject per-provider OAuth-issued LLM credentials (provider id -> api key).
+pub fn apply_login_llm_provider_api_keys(
+    platform: &mut PlatformSettings,
+    provider_api_keys: &HashMap<String, String>,
+) {
+    if provider_api_keys.is_empty() {
+        return;
+    }
+    for (raw_provider, raw_key) in provider_api_keys {
+        let key = raw_key.trim();
+        if key.is_empty() {
+            continue;
+        }
+        let Some(pid) = resolve_llm_provider_id(Some(raw_provider.as_str()), &platform.providers) else {
+            log::warn!("platform_config: skip unknown provider {raw_provider}");
+            continue;
+        };
+        if let Some(p) = platform.providers.iter_mut().find(|p| p.id == pid) {
+            p.api_key = key.to_string();
+            log::info!("platform_config: injected api_key for provider {pid}");
+        } else {
+            log::warn!("platform_config: provider id {pid} not found in platform config");
+        }
+    }
+}
+
 fn resolve_llm_provider_id(llm_provider: Option<&str>, providers: &[ProviderConfig]) -> Option<String> {
     if let Some(raw) = llm_provider.map(str::trim).filter(|s| !s.is_empty()) {
         let lower = raw.to_ascii_lowercase();
@@ -202,5 +228,27 @@ mod tests {
         apply_login_llm_credentials(&mut platform, Some("sk-test"), Some("aliyun_qwen"));
         let qwen = platform.providers.iter().find(|p| p.id == "qwen").unwrap();
         assert_eq!(qwen.api_key, "sk-test");
+    }
+
+    #[test]
+    fn apply_login_provider_api_keys_injects_multiple() {
+        let mut platform = PlatformSettings::default();
+        let mut keys = HashMap::new();
+        keys.insert("qwen".into(), "sk-qwen".into());
+        keys.insert("deepseek".into(), "sk-ds".into());
+        apply_login_llm_provider_api_keys(&mut platform, &keys);
+        assert_eq!(
+            platform.providers.iter().find(|p| p.id == "qwen").unwrap().api_key,
+            "sk-qwen"
+        );
+        assert_eq!(
+            platform
+                .providers
+                .iter()
+                .find(|p| p.id == "deepseek")
+                .unwrap()
+                .api_key,
+            "sk-ds"
+        );
     }
 }

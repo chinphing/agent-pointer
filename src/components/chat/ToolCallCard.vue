@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { marked } from 'marked'
 import { Wrench, ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, ShieldAlert, Check, X } from 'lucide-vue-next'
-import type { ToolCall } from '../../types/chat'
+import type { ToolCall, WebSearchSourceEntry } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
 import { taskBoardToolSummary } from '../../lib/messageTooling'
 import { openExternalUrl } from '../../lib/openExternalUrl'
@@ -125,16 +125,40 @@ const webSearchAnswerHtml = computed(() => {
 
 useMarkdownExternalLinks(webSearchAnswerRef, () => webSearchOutput.value)
 
-const webSearchSources = computed(() => {
+function sourceSiteLabel(source: WebSearchSourceEntry): string {
+  const named = source.siteName?.trim()
+  if (named) return named
+  try {
+    return new URL(source.url).hostname.replace(/^www\./i, '')
+  } catch {
+    return ''
+  }
+}
+
+const webSearchSources = computed((): WebSearchSourceEntry[] => {
   if (props.toolCall.webSearchSources?.length) return props.toolCall.webSearchSources
   if (!isWebSearch.value || !props.toolCall.result) return []
   try {
-    const parsed = JSON.parse(props.toolCall.result)
-    return Array.isArray(parsed.sources) ? parsed.sources : []
+    const parsed = JSON.parse(props.toolCall.result) as { sources?: unknown }
+    if (!Array.isArray(parsed.sources)) return []
+    return parsed.sources.filter(
+      (item): item is WebSearchSourceEntry =>
+        !!item
+        && typeof item === 'object'
+        && typeof (item as WebSearchSourceEntry).index === 'number'
+        && typeof (item as WebSearchSourceEntry).url === 'string'
+    )
   } catch {
     return []
   }
 })
+
+const webSearchSourcesView = computed(() =>
+  webSearchSources.value.map((source: WebSearchSourceEntry) => ({
+    source,
+    siteLabel: sourceSiteLabel(source)
+  }))
+)
 
 const terminalMeta = computed(() => {
   const result = terminalResult.value
@@ -232,16 +256,25 @@ function openSourceUrl(url: string) {
           <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">搜索问题</div>
           <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200">{{ webSearchQuery || '—' }}</pre>
         </div>
-        <div v-if="webSearchSources.length">
+        <div v-if="webSearchSourcesView.length">
           <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">来源</div>
-          <ul class="text-[12px] space-y-1 text-slate-300">
-            <li v-for="s in webSearchSources" :key="s.url + s.index" class="truncate">
-              <span class="text-muted">{{ s.index }}.</span>
-              <button
-                type="button"
-                class="text-accent hover:underline cursor-pointer truncate max-w-full align-baseline"
-                @click.stop="openSourceUrl(s.url)"
-              >{{ s.title || s.url }}</button>
+          <ul class="text-[12px] space-y-1.5 text-slate-300">
+            <li v-for="{ source: s, siteLabel } in webSearchSourcesView" :key="s.url + s.index" class="min-w-0">
+              <div class="flex items-baseline gap-1 min-w-0 truncate">
+                <span class="text-muted shrink-0">{{ s.index }}.</span>
+                <span
+                  v-if="siteLabel"
+                  class="text-foreground/80 shrink-0 max-w-[40%] truncate"
+                  :title="siteLabel"
+                >{{ siteLabel }}</span>
+                <span v-if="siteLabel" class="text-muted shrink-0">·</span>
+                <button
+                  type="button"
+                  class="text-accent hover:underline cursor-pointer truncate min-w-0 align-baseline"
+                  :title="s.title || s.url"
+                  @click.stop="openSourceUrl(s.url)"
+                >{{ s.title || s.url }}</button>
+              </div>
             </li>
           </ul>
         </div>

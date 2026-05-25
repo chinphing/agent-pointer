@@ -97,15 +97,15 @@
   }
   .chrome-icon-btn,
   .titlebar-actions,
-  .titlebar-action-btn,
-  .window-controls,
-  .window-controls-btn {
+  .titlebar-action-btn {
     @apply w-9 h-9 flex items-center justify-center text-muted hover:bg-hover hover:text-foreground transition cursor-pointer rounded-lg shrink-0;
     -webkit-app-region: no-drag;
     app-region: no-drag;
   }
   .window-controls {
-    @apply border-l border-border;
+    @apply flex h-10 shrink-0 items-stretch border-l border-border;
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
   }
 
   .titlebar-action-btn {
@@ -113,10 +113,19 @@
   }
 
   .window-controls-btn {
-    @apply w-[46px] h-10 flex items-center justify-center text-muted hover:bg-hover transition cursor-pointer;
+    @apply flex h-10 w-[46px] shrink-0 cursor-pointer items-center justify-center text-muted transition hover:bg-hover hover:text-foreground;
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
   }
   .window-controls-btn-close:hover {
     @apply bg-danger text-white;
+  }
+  /* Windows: native-style controls on main top-right (no rounded chrome buttons). */
+  .window-controls-win {
+    @apply h-full border-l-0;
+  }
+  .window-controls-win .window-controls-btn {
+    @apply h-full rounded-none;
   }
 
   .brand-text {

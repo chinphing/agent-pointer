@@ -36,7 +36,7 @@ Do **not** reintroduce `.glass`, `.neon-ring`, aurora body gradients, or heavy `
 
 - Base `tauri.conf.json`: `decorations: false` (Windows/Linux custom chrome).
 - macOS `tauri.macos.conf.json`: `decorations: true`, `titleBarStyle: Overlay`, `hiddenTitle: true` — **required** for native traffic lights; `decorations: false` hides them entirely.
-- `AppShell.vue` (Manus-style): **sidebar top** (transparent) = macOS traffic-light inset + drag + collapse (right) + Windows `WindowControls`; **main top** = invisible drag strip only (no title/border). Skills / settings in sidebar footer. Sidebar `260px` ↔ `52px` (`useSidebarCollapse`). No in-app theme toggle (theme remains in Settings).
+- `AppShell.vue` (Manus-style): **sidebar top** (transparent) = macOS traffic-light inset + drag + collapse; **main top** = drag strip + Windows `WindowControls` (top-right). Linux keeps `WindowControls` in sidebar top. Skills / settings in sidebar footer. Sidebar `260px` ↔ collapsed (`useSidebarCollapse`). No in-app theme toggle (theme remains in Settings).
 - macOS: `tauri.macos.conf.json` + `configure_macos_window_chrome()` in `lib.rs` force `decorations: true` and `TitleBarStyle::Overlay`.
 - OS detection: `src/lib/desktopOs.ts` (`userAgent` first, then `platform`) — used by `useWindowChrome.ts`.
 - Drag: `data-tauri-drag-region` + `-webkit-app-region` / `app-region` in `globals.css`; `startDragging()` fallback on `mousedown` for edge cases.
@@ -45,8 +45,8 @@ Do **not** reintroduce `.glass`, `.neon-ring`, aurora body gradients, or heavy `
 | Platform | Window controls | Sidebar top inset | Main top |
 |----------|-----------------|-------------------|----------|
 | macOS | System traffic lights (overlay) | `4.75rem` for lights | Title + drag |
-| Windows | Custom `WindowControls` on main top | `pl-2` | Title + min/max/close |
-| Linux | Same as Windows | `pl-2` | Same as Windows |
+| Windows | Custom `WindowControls` on main top-right | `pl-2` | Drag + min/max/close |
+| Linux | Custom `WindowControls` in sidebar top | `pl-2` | Drag only |
 | Web (`dev:web`) | Browser chrome | Brand in sidebar top when expanded | Title only |
 
 - Web (`dev:web`) has no custom title bar — browser chrome unchanged.

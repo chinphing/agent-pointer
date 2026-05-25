@@ -27,7 +27,7 @@ JSON string with fields such as:
 
 - **`ok`**, **`query`**, **`answer`** — `answer` has `[N]` linkified to `[title](url)` when `sources` are available
 - **`sources`** — `{ index, title, url, siteName? }`; **`index` matches inline `[N]`**
-- **`sourcesForReply`** — **paste this once** as your Sources section: **`N. [title](url)`** per line (`N` = `sources[].index`, matches inline `[N]`)
+- **`sourcesForReply`** — **paste this once** as your Sources section: **`N. [siteName · title](url)`** per line when `siteName` is present, else **`N. [title](url)`** (`N` = `sources[].index`, matches inline `[N]`)
 - **`citationBaseIndex`** — offset applied this call (prior max index in the same user turn); multi-search **`[N]`** values are globally unique
 - **`sourcesCitationMarkdown`** — index map for `[N]` in `answer` (agent reference, not a second Sources block)
 - **`citationGuide`** — how to use the fields above

@@ -21,6 +21,7 @@ const chat = useChatStore()
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapse()
 const {
   enabled: chromeEnabled,
+  os,
   maximized,
   showCustomControls,
   macTrafficLightPadding,
@@ -29,6 +30,17 @@ const {
   close: closeWindow,
   startDrag
 } = useWindowChrome()
+
+/** Windows: min/max/close on top-right; Linux keeps sidebar placement. */
+const windowControlsInSidebar = computed(
+  () => showCustomControls.value && os.value !== 'windows'
+)
+const windowControlsOnCollapsedTop = computed(
+  () => showCustomControls.value && os.value === 'windows' && sidebarCollapsed.value
+)
+const windowControlsOnMainTop = computed(
+  () => showCustomControls.value && os.value === 'windows' && !sidebarCollapsed.value
+)
 
 function onChromeMouseDown(e: MouseEvent) {
   if (e.button !== 0) return
@@ -91,7 +103,8 @@ const filteredConversations = computed(() => {
         data-tauri-drag-region
       />
       <WindowControls
-        v-if="showCustomControls"
+        v-if="windowControlsOnCollapsedTop || windowControlsInSidebar"
+        :class="windowControlsOnCollapsedTop ? 'window-controls-win' : undefined"
         :maximized="maximized"
         @minimize="minimize"
         @maximize="toggleMaximize"
@@ -139,7 +152,7 @@ const filteredConversations = computed(() => {
           </button>
 
           <WindowControls
-            v-if="showCustomControls"
+            v-if="windowControlsInSidebar"
             :maximized="maximized"
             @minimize="minimize"
             @maximize="toggleMaximize"
@@ -230,6 +243,14 @@ const filteredConversations = computed(() => {
           <div
             class="main-chrome-drag flex-1 min-w-0 h-full"
             data-tauri-drag-region
+          />
+          <WindowControls
+            v-if="windowControlsOnMainTop"
+            class="window-controls-win"
+            :maximized="maximized"
+            @minimize="minimize"
+            @maximize="toggleMaximize"
+            @close="closeWindow"
           />
         </div>
         <main class="flex-1 min-h-0 flex flex-col">

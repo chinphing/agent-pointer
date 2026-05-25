@@ -471,6 +471,15 @@ impl PlatformAuthManager {
             return Ok(None);
         }
         if parsed.included_tokens.is_some() || parsed.consumed_tokens.is_some() {
+            let mut guard = self.inner.write();
+            if let Some(session) = guard.as_mut() {
+                if let Some(v) = parsed.included_tokens {
+                    session.user.included_tokens = v;
+                }
+                if let Some(v) = parsed.consumed_tokens {
+                    session.user.consumed_tokens = v;
+                }
+            }
             log::info!(
                 "platform_auth: llm-credentials token quota included={:?} consumed={:?}",
                 parsed.included_tokens,
@@ -569,6 +578,10 @@ struct PartnerLlmCredentialResponse {
     provider_api_keys: HashMap<String, String>,
     #[serde(default)]
     error_code: Option<String>,
+    #[serde(default, rename = "included_tokens")]
+    included_tokens: Option<u64>,
+    #[serde(default, rename = "consumed_tokens")]
+    consumed_tokens: Option<u64>,
 }
 
 /// 从首选端口起扫描，绑定第一个可用的 127.0.0.1 端口。

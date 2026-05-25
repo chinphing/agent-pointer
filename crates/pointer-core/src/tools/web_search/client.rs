@@ -322,7 +322,7 @@ pub fn format_sources_for_reply(sources: &[WebSearchSource]) -> String {
     deduped.sort_by_key(|s| s.index);
     let mut lines = vec!["## Sources".to_string(), String::new()];
     for s in deduped {
-        let label = source_display_label(&s);
+        let label = source_reply_label(&s);
         lines.push(format!("{}. [{label}]({})", s.index, s.url.trim()));
     }
     lines.join("\n")
@@ -349,7 +349,7 @@ pub fn format_merged_sources_for_reply(source_batches: &[&[WebSearchSource]]) ->
     let mut lines = vec!["## Sources".to_string(), String::new()];
     for (i, s) in merged.iter().enumerate() {
         let n = (i + 1) as u32;
-        let label = source_display_label(s);
+        let label = source_reply_label(s);
         lines.push(format!("{n}. [{label}]({})", s.url.trim()));
     }
     lines.join("\n")
@@ -435,6 +435,23 @@ fn source_display_label(src: &WebSearchSource) -> String {
         return site.trim().to_string();
     }
     format!("Source {}", src.index)
+}
+
+/// Label for Sources blocks — includes site name when available for trust/context.
+fn source_reply_label(src: &WebSearchSource) -> String {
+    let title = source_display_label(src);
+    let Some(site) = src
+        .site_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
+        return title;
+    };
+    if title.eq_ignore_ascii_case(site) {
+        return title;
+    }
+    format!("{site} · {title}")
 }
 
 fn citation_markdown_link(index_str: &str, map: &HashMap<u32, &WebSearchSource>) -> String {
@@ -1324,6 +1341,17 @@ mod tests {
         assert!(merged.contains("1. [Report A](https://example.com/a)"));
         assert!(merged.contains("2. [Report B](https://example.com/b)"));
         assert!(!merged.contains("Dup A"));
+    }
+
+    #[test]
+    fn format_sources_for_reply_includes_site_name() {
+        let reply = format_sources_for_reply(&[WebSearchSource {
+            index: 1,
+            title: "Gemini 3.5 Flash launch".into(),
+            url: "https://example.com/a".into(),
+            site_name: Some("Example News".into()),
+        }]);
+        assert!(reply.contains("1. [Example News · Gemini 3.5 Flash launch](https://example.com/a)"));
     }
 
     #[test]

@@ -14,7 +14,8 @@ import {
   Sun,
   UserCircle,
   Users,
-  Wrench
+  Wrench,
+  X
 } from 'lucide-vue-next'
 import type {
   AgentDef,
@@ -444,8 +445,14 @@ async function saveFromFooter() {
             <Bug class="w-4 h-4" :class="debugMenusEnabled ? 'text-amber-400' : 'text-muted'" />
           </button>
         </label>
-        <button class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="emit('close')">
-          <X class="w-4 h-4 text-muted" />
+        <button
+          type="button"
+          class="h-7 w-7 rounded-md border border-border text-foreground hover:bg-hover transition-colors inline-flex items-center justify-center cursor-pointer"
+          title="关闭"
+          aria-label="关闭"
+          @click="emit('close')"
+        >
+          <X class="w-4 h-4" />
         </button>
       </header>
 

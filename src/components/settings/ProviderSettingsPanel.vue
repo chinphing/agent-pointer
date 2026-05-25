@@ -1,0 +1,595 @@
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import { Check, ChevronRight, Copy, Cpu, Plus, Trash2, Wrench, X } from 'lucide-vue-next'
+import type { ModelRuntimeOverrides, ProviderConfig } from '../../types/chat'
+import {
+  detectProviderTemplateId,
+  isDeepSeekProvider,
+  isQwenProvider,
+  PROVIDER_TEMPLATE_OPTIONS,
+  providerDraftForTemplate,
+  providerTemplateMeta,
+  stripProviderExtensionFields,
+  type ProviderTemplateId
+} from '../../lib/providerParams'
+import {
+  buildCustomModelEntryFromProvider,
+  DEFAULT_MODEL_MAX_TOKENS,
+  DEFAULT_MODEL_TEMPERATURE,
+  hasEffectiveModelOverride,
+  pruneInheritedModelConfigs,
+  useRuntimeParams
+} from '../../composables/useRuntimeParams'
+import RuntimeParamsForm from './RuntimeParamsForm.vue'
+import { useSettingsStore } from '../../stores/settings'
+
+const s = useSettingsStore()
+
+const copiedKey = ref(false)
+const editingProvider = ref<ProviderConfig | null>(null)
+const showAddProvider = ref(false)
+const editingModelsText = ref('')
+const originalApiKey = ref('')
+const editingApiKey = ref('')
+
+const modelConfigModalId = ref<string | null>(null)
+const modelConfigModalError = ref('')
+const providerSaveError = ref('')
+const providerScopeModelId = ref<string | null>(null)
+const providerTemplate = ref<ProviderTemplateId>('openai_compatible')
+
+const globalGenFallback = {
+  temperature: () => s.settings.temperature,
+  maxTokens: () => s.settings.maxTokens
+}
+
+const providerRuntimeApi = useRuntimeParams(editingProvider, providerScopeModelId, globalGenFallback)
+const modelRuntimeApi = useRuntimeParams(editingProvider, modelConfigModalId, globalGenFallback)
+
+const providerTemplateHint = computed(
+  () => providerTemplateMeta(providerTemplate.value).hint
+)
+
+watch(
+  () =>
+    editingProvider.value
+      ? ([editingProvider.value.id, editingProvider.value.baseUrl] as const)
+      : null,
+  ids => {
+    if (!ids || !editingProvider.value) return
+    providerTemplate.value = detectProviderTemplateId(editingProvider.value)
+  }
+)
+
+function maskKey(key: string): string {
+  if (!key) return ''
+  if (key.length <= 8) return '••••••••'
+  return key.slice(0, 4) + '••••••••' + key.slice(-4)
+}
+
+const displayKey = computed(() => {
+  if (!editingProvider.value) return ''
+  if (showAddProvider.value) return editingApiKey.value
+  if (editingApiKey.value) return editingApiKey.value
+  return maskKey(originalApiKey.value)
+})
+
+const inputPlaceholder = computed(() => {
+  if (showAddProvider.value) return '请输入 API 密钥'
+  return '输入新密钥以替换原密钥'
+})
+
+function providerKeyDisplay(key: string): string {
+  return key ? maskKey(key) : '未配置'
+}
+
+function cloneModelConfigs(p?: ProviderConfig['modelConfigs']): NonNullable<ProviderConfig['modelConfigs']> {
+  const src = p ?? {}
+  const out: Record<string, ModelRuntimeOverrides> = {}
+  for (const [k, v] of Object.entries(src)) {
+    out[k] = { ...v }
+  }
+  return out
+}
+
+const editingParsedModelIds = computed(() =>
+  editingModelsText.value
+    .split(',')
+    .map(m => m.trim())
+    .filter(m => m.length > 0)
+)
+
+function modelConfigMode(modelId: string): 'same' | 'custom' {
+  const p = editingProvider.value
+  if (!p) return 'same'
+  return p.modelConfigs?.[modelId] ? 'custom' : 'same'
+}
+
+function setModelConfigMode(modelId: string, mode: 'same' | 'custom') {
+  if (!editingProvider.value) return
+  if (mode === 'same') {
+    const next = { ...(editingProvider.value.modelConfigs ?? {}) }
+    delete next[modelId]
+    editingProvider.value.modelConfigs = next
+    if (modelConfigModalId.value === modelId) {
+      closeModelConfigModal()
+    }
+    return
+  }
+  if (!editingProvider.value.modelConfigs?.[modelId]) {
+    editingProvider.value.modelConfigs = {
+      ...(editingProvider.value.modelConfigs ?? {}),
+      [modelId]: buildCustomModelEntryFromProvider(editingProvider.value, globalGenFallback)
+    }
+  }
+}
+
+function openModelConfigModal(modelId: string) {
+  if (!editingProvider.value || modelConfigMode(modelId) !== 'custom') return
+  modelConfigModalError.value = ''
+  if (!editingProvider.value.modelConfigs?.[modelId]) {
+    setModelConfigMode(modelId, 'custom')
+  }
+  modelConfigModalId.value = modelId
+}
+
+function closeModelConfigModal() {
+  modelConfigModalId.value = null
+  modelConfigModalError.value = ''
+}
+
+function confirmModelConfigModal() {
+  modelConfigModalError.value = ''
+  modelConfigModalId.value = null
+}
+
+function clearMaskedInput(e: Event) {
+  if (showAddProvider.value || editingApiKey.value) return
+  ;(e.target as HTMLInputElement).value = ''
+}
+
+function copyOriginalKey() {
+  const key = originalApiKey.value
+  if (!key) return
+  navigator.clipboard.writeText(key).then(() => {
+    copiedKey.value = true
+    setTimeout(() => { copiedKey.value = false }, 2000)
+  }).catch(e => console.error(e))
+}
+
+function globalGenDefaults() {
+  const t = s.settings.temperature
+  const n = s.settings.maxTokens
+  return {
+    temperature: Number.isFinite(t) && t >= 0 ? t : DEFAULT_MODEL_TEMPERATURE,
+    maxTokens: n && n >= 64 ? n : DEFAULT_MODEL_MAX_TOKENS
+  }
+}
+
+function setProviderTemplate(template: ProviderTemplateId) {
+  providerTemplate.value = template
+  const ep = editingProvider.value
+  if (!ep) return
+  const g = globalGenDefaults()
+  if (showAddProvider.value) {
+    const draft = providerDraftForTemplate(template, g)
+    editingProvider.value = stripProviderExtensionFields(
+      {
+        ...draft,
+        apiKey: ep.apiKey || draft.apiKey,
+        modelConfigs: cloneModelConfigs(ep.modelConfigs)
+      },
+      template
+    )
+    editingModelsText.value = (editingProvider.value.models ?? []).join(', ')
+    return
+  }
+  const meta = providerTemplateMeta(template)
+  editingProvider.value = stripProviderExtensionFields(
+    {
+      ...ep,
+      id: ep.id.trim() || meta.defaultId,
+      name: ep.name.trim() || meta.defaultName,
+      baseUrl: ep.baseUrl.trim() || meta.defaultBaseUrl
+    },
+    template
+  )
+}
+
+function startEditProvider(provider: ProviderConfig) {
+  const pruned = pruneInheritedModelConfigs(provider, provider.modelConfigs, globalGenFallback)
+  const template = detectProviderTemplateId(provider)
+  providerTemplate.value = template
+  editingProvider.value = stripProviderExtensionFields(
+    {
+      ...provider,
+      models: [...(provider.models ?? [])],
+      modelConfigs: cloneModelConfigs(pruned)
+    },
+    template
+  )
+  originalApiKey.value = provider.apiKey
+  editingApiKey.value = ''
+  editingModelsText.value = (provider.models ?? []).join(', ')
+  showAddProvider.value = false
+}
+
+function startAddProvider() {
+  providerTemplate.value = 'openai_compatible'
+  const draft = providerDraftForTemplate('openai_compatible', globalGenDefaults())
+  editingProvider.value = draft
+  originalApiKey.value = ''
+  editingApiKey.value = ''
+  editingModelsText.value = (draft.models ?? []).join(', ')
+  showAddProvider.value = true
+}
+
+function cancelEditProvider() {
+  editingProvider.value = null
+  showAddProvider.value = false
+  modelConfigModalId.value = null
+  modelConfigModalError.value = ''
+  providerSaveError.value = ''
+}
+
+function buildProviderSnapshotFromEditor(): ProviderConfig | null {
+  const draft = editingProvider.value
+  if (!draft?.id || !draft.name || !draft.baseUrl) return null
+
+  const models = editingModelsText.value
+    .split(',')
+    .map(m => m.trim())
+    .filter(m => m.length > 0)
+
+  const snapshot: ProviderConfig = {
+    ...draft,
+    id: draft.id.trim(),
+    name: draft.name.trim(),
+    baseUrl: draft.baseUrl.trim(),
+    models,
+    apiKey: editingApiKey.value
+      ? editingApiKey.value
+      : showAddProvider.value
+        ? draft.apiKey
+        : originalApiKey.value,
+    modelConfigs: { ...(draft.modelConfigs ?? {}) }
+  }
+
+  if (!isQwenProvider(snapshot)) {
+    delete snapshot.enableThinking
+    delete snapshot.thinkingBudget
+  } else if (snapshot.enableThinking !== true) {
+    delete snapshot.thinkingBudget
+  }
+  if (!isDeepSeekProvider(snapshot)) {
+    delete snapshot.reasoningEffort
+  }
+
+  const nextMc: Record<string, ModelRuntimeOverrides> = {}
+  const configs = snapshot.modelConfigs ?? {}
+  for (const id of models) {
+    const o = configs[id]
+    if (!o) continue
+    const clean: ModelRuntimeOverrides = {}
+    if (o.reasoningInMessages !== undefined) clean.reasoningInMessages = o.reasoningInMessages
+    if (o.temperature !== undefined) clean.temperature = o.temperature
+    if (o.maxTokens !== undefined) clean.maxTokens = o.maxTokens
+    if (isDeepSeekProvider(snapshot) && o.reasoningEffort !== undefined) {
+      clean.reasoningEffort = o.reasoningEffort
+    }
+    if (isQwenProvider(snapshot) && o.enableThinking !== undefined) {
+      clean.enableThinking = o.enableThinking
+    }
+    if (isQwenProvider(snapshot) && o.enableThinking === true && o.thinkingBudget !== undefined) {
+      clean.thinkingBudget = o.thinkingBudget
+    }
+    if (
+      Object.keys(clean).length
+      && hasEffectiveModelOverride(clean, snapshot, globalGenFallback)
+    ) {
+      nextMc[id] = clean
+    }
+  }
+  snapshot.modelConfigs = nextMc
+  return snapshot
+}
+
+function applyProviderSnapshotToStore(
+  snapshot: ProviderConfig,
+  wasAdd: boolean,
+  reopenEdit = true
+): boolean {
+  const id = snapshot.id.trim()
+  if (wasAdd && s.settings.providers.some(p => p.id === id)) {
+    providerSaveError.value = '服务 ID 已存在，请换一个 ID'
+    return false
+  }
+  if (!wasAdd && !s.settings.providers.some(p => p.id === id)) {
+    providerSaveError.value = '找不到要更新的服务商，请取消后重新编辑'
+    return false
+  }
+
+  if (wasAdd) {
+    s.addProvider(snapshot)
+  } else {
+    s.updateProvider(id, snapshot)
+  }
+
+  modelConfigModalId.value = null
+  modelConfigModalError.value = ''
+
+  if (reopenEdit) {
+    const saved = s.settings.providers.find(p => p.id === id)
+    if (saved) {
+      startEditProvider(saved)
+    } else {
+      editingProvider.value = null
+      showAddProvider.value = false
+    }
+  } else {
+    editingProvider.value = null
+    showAddProvider.value = false
+  }
+  return true
+}
+
+function flushEditingProviderToStore(reopenEdit = false): boolean {
+  if (!editingProvider.value) return true
+  const snapshot = buildProviderSnapshotFromEditor()
+  if (!snapshot) {
+    providerSaveError.value = '请填写服务 ID、名称和 API 地址'
+    return false
+  }
+  return applyProviderSnapshotToStore(snapshot, showAddProvider.value, reopenEdit)
+}
+
+async function saveProvider() {
+  providerSaveError.value = ''
+  const snapshot = buildProviderSnapshotFromEditor()
+  if (!snapshot) {
+    providerSaveError.value = '请填写服务 ID、名称和 API 地址'
+    return
+  }
+
+  const wasAdd = showAddProvider.value
+  if (!applyProviderSnapshotToStore(snapshot, wasAdd, false)) return
+
+  try {
+    await s.saveModelService({
+      providers: s.settings.providers,
+      activeProviderId: s.settings.activeProviderId,
+      model: s.settings.model,
+      temperature: s.settings.temperature,
+      maxTokens: s.settings.maxTokens
+    })
+    providerSaveError.value = ''
+  } catch (e) {
+    console.error('[settings] save provider failed', e)
+    providerSaveError.value = '应用配置失败，请重试'
+  }
+}
+
+function removeProvider(id: string) {
+  s.removeProvider(id)
+  if (editingProvider.value?.id === id) {
+    editingProvider.value = null
+    showAddProvider.value = false
+    modelConfigModalId.value = null
+    modelConfigModalError.value = ''
+  }
+}
+
+function hasUnsavedEdits(): boolean {
+  return editingProvider.value !== null
+}
+
+function isModelConfigOpen(): boolean {
+  return modelConfigModalId.value !== null
+}
+
+defineExpose({
+  flushEditingProviderToStore,
+  hasUnsavedEdits,
+  isModelConfigOpen,
+  closeModelConfigModal
+})
+</script>
+
+<template>
+  <section class="space-y-5">
+    <div class="flex items-center justify-between">
+      <div>
+        <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
+          <Cpu class="w-4 h-4 text-accent" />模型服务
+        </h3>
+        <p class="mt-0.5 text-xs text-muted">管理 AI 模型服务的连接配置（仅本次会话，重启后恢复默认）</p>
+      </div>
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-accent/10 hover:bg-accent/20 text-[12px] text-accent cursor-pointer transition-colors"
+        @click="startAddProvider"
+      >
+        <Plus class="w-3.5 h-3.5" />
+        添加服务
+      </button>
+    </div>
+
+    <div class="space-y-2">
+      <div
+        v-for="p in s.settings.providers"
+        :key="p.id"
+        class="group relative rounded-xl border p-4 transition-all"
+        :class="s.settings.activeProviderId === p.id ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'"
+      >
+        <div class="flex items-start gap-3">
+          <div class="mt-0.5 w-2 h-2 rounded-full shrink-0" :class="p.apiKey ? 'bg-success' : 'bg-warning'" />
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-medium text-foreground">{{ p.name }}</span>
+              <span v-if="s.settings.activeProviderId === p.id" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">默认全局服务商</span>
+            </div>
+            <p class="mt-0.5 text-[11px] text-muted truncate font-mono">{{ p.baseUrl }}</p>
+            <div class="mt-1 flex items-center gap-3 text-[11px] text-muted">
+              <span>密钥：{{ providerKeyDisplay(p.apiKey) }}</span>
+              <span class="text-border">|</span>
+              <span>模型：{{ (p.models?.length ?? 0) > 0 ? `${p.models!.length} 个` : '未配置' }}</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button type="button" class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="startEditProvider(p)">
+              <Wrench class="w-3.5 h-3.5 text-muted" />
+            </button>
+            <button type="button" class="p-1.5 rounded-lg hover:bg-hover cursor-pointer transition-colors" @click="removeProvider(p.id)">
+              <Trash2 class="w-3.5 h-3.5 text-danger" />
+            </button>
+            <button
+              v-if="s.settings.activeProviderId !== p.id"
+              type="button"
+              class="ml-1 h-7 px-2.5 rounded-lg bg-accent/10 text-[11px] font-medium text-accent hover:bg-accent/20 cursor-pointer transition-colors"
+              @click="s.setActiveProvider(p.id)"
+            >
+              设为默认
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="s.settings.providers.length === 0" class="rounded-xl border border-dashed border-border p-8 text-center">
+        <Cpu class="w-8 h-8 text-muted/80 mx-auto mb-2" />
+        <p class="text-sm text-muted">暂无模型服务</p>
+        <p class="text-xs text-muted/80 mt-1">点击上方「添加服务」开始配置</p>
+      </div>
+    </div>
+
+    <div v-if="editingProvider" class="rounded-xl border border-accent/30 bg-accent/5 p-5 space-y-4">
+      <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+        <ChevronRight class="w-4 h-4 text-accent" />
+        {{ showAddProvider ? '添加模型服务' : '编辑模型服务' }}
+      </h4>
+
+      <div class="space-y-2">
+        <label class="block text-[12px] text-muted">服务类型</label>
+        <div class="inline-flex flex-wrap gap-1 rounded-lg bg-card border border-border p-0.5">
+          <button
+            v-for="opt in PROVIDER_TEMPLATE_OPTIONS"
+            :key="opt.id"
+            type="button"
+            class="h-8 px-3 rounded-md text-[12px] cursor-pointer transition-colors"
+            :class="providerTemplate === opt.id ? 'bg-hover text-foreground' : 'text-muted hover:text-foreground'"
+            @click="setProviderTemplate(opt.id)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+        <p class="text-[11px] text-muted">
+          与内置千问/深度求索相同：先设服务商默认参数，再在下方各模型选「同上」或「定制」。
+          <span class="text-muted">（{{ providerTemplateHint }}）</span>
+        </p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-[12px] text-muted mb-1.5">服务 ID</label>
+          <input v-model="editingProvider.id" :disabled="!showAddProvider" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 disabled:opacity-50 transition-colors" placeholder="例如：qwen, openai" />
+        </div>
+        <div>
+          <label class="block text-[12px] text-muted mb-1.5">服务名称</label>
+          <input v-model="editingProvider.name" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" placeholder="例如：千问" />
+        </div>
+        <div class="col-span-2">
+          <label class="block text-[12px] text-muted mb-1.5">API 地址</label>
+          <input v-model="editingProvider.baseUrl" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" placeholder="https://api.example.com/v1" />
+        </div>
+        <div class="col-span-2">
+          <label class="block text-[12px] text-muted mb-1.5">API 密钥</label>
+          <div class="flex items-center gap-2 h-9 px-3 rounded-lg bg-card border border-border transition-colors focus-within:border-primary/50">
+            <input :value="displayKey" :type="editingApiKey || showAddProvider ? 'password' : 'text'" class="flex-1 bg-transparent border-0 outline-none text-sm text-foreground placeholder:text-muted font-mono" :placeholder="inputPlaceholder" @focus="clearMaskedInput" @input="e => { editingApiKey = (e.target as HTMLInputElement).value }" />
+            <button v-if="!showAddProvider && originalApiKey" type="button" class="p-1 rounded hover:bg-hover cursor-pointer transition" :class="copiedKey ? 'text-success' : 'text-muted hover:text-foreground'" :title="copiedKey ? '已复制' : '复制原始密钥'" @click="copyOriginalKey">
+              <Check v-if="copiedKey" class="w-4 h-4" />
+              <Copy v-else class="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        <div class="col-span-2">
+          <label class="block text-[12px] text-muted mb-1.5">模型列表</label>
+          <input v-model="editingModelsText" type="text" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" placeholder="model-1, model-2, model-3" />
+        </div>
+        <div class="col-span-2 rounded-lg border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3">
+          <h5 class="text-[12px] font-medium text-foreground">模型参数</h5>
+          <p class="text-[11px] text-muted">服务商级默认；各模型可选「同上」或「定制」。</p>
+          <RuntimeParamsForm :api="providerRuntimeApi" />
+          <div v-if="editingParsedModelIds.length" class="pt-2 border-t border-border space-y-1.5">
+            <div class="text-[11px] text-muted">各模型</div>
+            <ul class="rounded-lg border border-border bg-hover divide-y divide-border overflow-hidden">
+              <li
+                v-for="mid in editingParsedModelIds"
+                :key="mid"
+                class="flex items-center gap-2 px-3 py-2 min-h-10"
+              >
+                <span class="flex-1 min-w-0 font-mono text-[12px] text-foreground truncate" :title="mid">{{ mid }}</span>
+                <div class="inline-flex rounded-lg bg-card border border-border p-0.5 shrink-0">
+                  <button
+                    type="button"
+                    class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors"
+                    :class="modelConfigMode(mid) === 'same' ? 'bg-hover text-foreground' : 'text-muted hover:text-foreground'"
+                    @click="setModelConfigMode(mid, 'same')"
+                  >同上</button>
+                  <button
+                    type="button"
+                    class="h-7 px-2.5 rounded-md text-[11px] cursor-pointer transition-colors"
+                    :class="modelConfigMode(mid) === 'custom' ? 'bg-hover text-foreground' : 'text-muted hover:text-foreground'"
+                    @click="setModelConfigMode(mid, 'custom')"
+                  >定制</button>
+                </div>
+                <button
+                  v-if="modelConfigMode(mid) === 'custom'"
+                  type="button"
+                  class="shrink-0 h-7 px-2.5 rounded-md bg-hover hover:bg-hover text-[11px] text-foreground cursor-pointer transition-colors"
+                  @click="openModelConfigModal(mid)"
+                >
+                  设置
+                </button>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="space-y-2 pt-1">
+        <p v-if="providerSaveError" class="text-[12px] text-red-400">{{ providerSaveError }}</p>
+        <div class="flex items-center justify-end gap-2">
+          <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="cancelEditProvider">取消</button>
+          <button type="button" class="h-8 px-4 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50 transition-opacity" :disabled="!editingProvider.id?.trim() || !editingProvider.name?.trim() || !editingProvider.baseUrl?.trim()" @click="saveProvider">
+            {{ showAddProvider ? '添加' : '保存' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <Teleport to="body">
+    <div
+      v-if="modelConfigModalId && editingProvider"
+      class="pointer-events-auto fixed inset-0 z-[10001] flex items-center justify-center bg-black/55 p-4"
+      role="presentation"
+      @click.self="closeModelConfigModal"
+    >
+      <div class="w-full max-w-md rounded-xl border border-border bg-card shadow-2xl p-4 space-y-3" @click.stop>
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <h5 class="text-sm font-medium text-foreground">模型参数</h5>
+            <p class="mt-0.5 text-[11px] text-muted font-mono truncate" :title="modelConfigModalId">{{ modelConfigModalId }}</p>
+          </div>
+          <button type="button" class="p-1.5 rounded-lg hover:bg-hover text-muted cursor-pointer transition-colors shrink-0" aria-label="关闭" @click="closeModelConfigModal">
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+        <RuntimeParamsForm v-if="modelConfigModalId" :api="modelRuntimeApi" />
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="closeModelConfigModal">取消</button>
+          <button type="button" class="h-8 px-4 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity" @click="confirmModelConfigModal">完成</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+</template>

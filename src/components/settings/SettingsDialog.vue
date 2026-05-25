@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import {
   Bot,
   Bug,
+  Cpu,
   Database,
   Gauge,
   Info,
@@ -34,6 +35,7 @@ import { listAgents } from '../../lib/api'
 import { isTauriRuntime } from '../../lib/runtime'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { useSettingsStore } from '../../stores/settings'
+import ProviderSettingsPanel from './ProviderSettingsPanel.vue'
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -113,10 +115,13 @@ const alwaysSections = [
 ] as const
 
 const debugSections = [
+  { id: 'provider', label: '模型服务', desc: '管理 AI 服务', icon: Cpu },
   { id: 'generation', label: '界面配置', desc: '界面与调试', icon: Gauge },
   { id: 'agent', label: '智能模式', desc: '工作方式', icon: Gauge },
   { id: 'runtime', label: '运行时', desc: '存储与网络', icon: Database }
 ] as const
+
+const providerPanelRef = ref<InstanceType<typeof ProviderSettingsPanel> | null>(null)
 
 const showDebugMenus = computed(() => s.canEditPlatform && debugMenusEnabled.value)
 const debugSectionIds = new Set<string>(debugSections.map(s => s.id))
@@ -360,10 +365,29 @@ async function toggleDebugMenus() {
   await s.save({ debugMenusEnabled: next })
 }
 
+function onDialogBackdropClick() {
+  if (providerPanelRef.value?.isModelConfigOpen()) {
+    providerPanelRef.value.closeModelConfigModal()
+    return
+  }
+  emit('close')
+}
+
 async function saveFromFooter() {
   saving.value = true
   try {
-    if (activeSection.value === 'assistant') {
+    if (activeSection.value === 'provider') {
+      if (providerPanelRef.value?.hasUnsavedEdits() && !providerPanelRef.value.flushEditingProviderToStore()) {
+        return
+      }
+      await s.saveModelService({
+        providers: s.settings.providers,
+        activeProviderId: s.settings.activeProviderId,
+        model: s.settings.model,
+        temperature: s.settings.temperature,
+        maxTokens: s.settings.maxTokens
+      })
+    } else if (activeSection.value === 'assistant') {
       await s.saveAgentPreferences({
         toolApprovalMode: toolApprovalMode.value,
         computerHumanLike: computerHumanLike.value,
@@ -375,6 +399,10 @@ async function saveFromFooter() {
         maxToolRounds: Number(maxToolRounds.value)
       })
     } else {
+      if (providerPanelRef.value?.hasUnsavedEdits() && !providerPanelRef.value.flushEditingProviderToStore()) {
+        activeSection.value = 'provider'
+        return
+      }
       await s.save({
         agentMode: agentMode.value,
         leadAgentId: agentMode.value === 'supervisor' ? '' : leadAgentId.value,
@@ -399,7 +427,7 @@ async function saveFromFooter() {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="emit('close')">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="onDialogBackdropClick">
     <div class="w-[960px] max-w-[94vw] h-[740px] max-h-[90vh] glass-strong rounded-2xl border border-border shadow-2xl flex flex-col overflow-hidden">
       <!-- Header -->
       <header class="px-6 h-14 flex items-center gap-2 border-b border-border shrink-0">
@@ -595,14 +623,28 @@ async function saveFromFooter() {
               <h3 class="text-sm font-semibold text-foreground flex items-center gap-2">
                 <Gauge class="w-4 h-4 text-accent" />界面配置
               </h3>
-              <p class="mt-0.5 text-xs text-muted">界面显示与调试选项</p>
+              <p class="mt-0.5 text-xs text-muted">
+                {{ showDebugMenus ? '界面显示与调试选项；模型创造性、最大输出等在模型服务中配置' : '界面显示与调试选项' }}
+              </p>
             </div>
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4 text-[12px] text-muted leading-relaxed">
-              模型与 API 凭据由平台账户登录后自动注入；内置千问/深度求索参数使用应用默认。
-              当前会话模型：
-              <span class="font-mono text-accent">{{ s.settings.model }}</span>
-              （创造性 {{ s.effectiveTemperature }}，最大输出 {{ s.effectiveMaxTokens }} tokens）。
+              <template v-if="showDebugMenus">
+                请在 <span class="text-foreground">模型服务</span> 中编辑服务商，配置
+                <span class="text-foreground">创造性</span>、
+                <span class="text-foreground">最大输出</span> 等默认项；在「各模型」选择
+                <span class="text-foreground">定制</span> 后点
+                <span class="text-foreground">设置</span> 可单独覆盖。
+                当前会话模型：
+                <span class="font-mono text-accent">{{ s.settings.model }}</span>
+                （创造性 {{ s.effectiveTemperature }}，最大输出 {{ s.effectiveMaxTokens }} tokens）。
+              </template>
+              <template v-else>
+                模型与 API 凭据由平台账户登录后自动注入；内置千问/深度求索参数使用应用默认。
+                当前会话模型：
+                <span class="font-mono text-accent">{{ s.settings.model }}</span>
+                （创造性 {{ s.effectiveTemperature }}，最大输出 {{ s.effectiveMaxTokens }} tokens）。
+              </template>
             </div>
 
             <div
@@ -935,6 +977,11 @@ async function saveFromFooter() {
                 <p class="mt-1 text-xs text-muted">当前直接访问 AI 服务 API。</p>
               </div>
             </div>
+          </section>
+
+          <!-- Provider panel stays mounted while debug menus are on (preserves in-progress edits). -->
+          <section v-if="showDebugMenus" v-show="activeSection === 'provider'" class="p-6">
+            <ProviderSettingsPanel ref="providerPanelRef" />
           </section>
         </main>
       </div>

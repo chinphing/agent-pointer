@@ -1,6 +1,8 @@
 # 设置页：模型服务商编辑（维护说明）
 
-> **已移除（2025）**：设置侧栏「模型服务」入口已删除。Provider 列表与 API Key 由内置配置 + 平台账户 OAuth 注入；`useRuntimeParams` / `providerParams` 仍供后端默认参数使用。下文仅作历史维护参考。
+> **可见性**：设置侧栏「模型服务」仅在 **平台管理员 + 调试模式** 下显示（`canEditPlatform && debugMenusEnabled`）。普通用户通过平台账户 OAuth 注入 API Key，不可编辑服务商列表。
+
+> 配置写入内存，重启后恢复默认；底部「保存(本次会话)」调用 `saveModelService`。
 
 ## 保存后界面「空白」
 

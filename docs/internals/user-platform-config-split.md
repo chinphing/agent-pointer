@@ -16,7 +16,7 @@ Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, pl
 - **OAuth refresh token**: encrypted in `{data_dir}/PointerApp/auth.dat` (AES-256-GCM, machine-bound key via HKDF). No OS keyring.
 - **Login / refresh**: `/auth/app/token` returns `api_key`, `llm_provider`, and `user.is_platform_admin`. Credentials are injected into the in-memory provider list (`apply_login_llm_credentials`).
 - **Normal users**: use platform-issued API key; cannot edit platform settings in the UI.
-- **Platform admins**: may override provider/model settings in memory via debug **智能模式** (no dedicated model-service settings page).
+- **Platform admins**: may override provider/model settings in memory via debug **模型服务** (session-only; no disk write).
 
 ### Settings save actions
 

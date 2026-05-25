@@ -1,5 +1,6 @@
 //! Environment snippets: **calendar date only** in trailing `[Environment]` `system` text;
 //! **full date+time** in Computer `[CUR_SCREEN]` inject and Supervisor `chat_once` templates.
+//! Both include brief **OS** and **Time baseline** usage lines for every agent.
 
 use chrono::Local;
 use std::env;
@@ -39,22 +40,68 @@ fn locale_hint() -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
+fn os_usage(os: &str) -> String {
+    format!(
+        "- OS usage: **{os}** above is the user's host platform for this session. Default paths, \
+shell syntax, keyboard shortcuts, and native tooling to {os} unless the user targets another OS."
+    )
+}
+
+fn time_baseline_usage(reference_label: &str) -> String {
+    format!(
+        "- Time baseline: Treat **{reference_label}** above as this session's authoritative clock \
+unless the user states another date or time. When timing is unspecified, prefer information \
+current relative to {reference_label}—not stale training defaults or guessed years."
+    )
+}
+
 /// OS + locale + **calendar date only** — last slice of `system_prompts` for `stream_chat`.
 pub fn build_environment_system_prompt_slice() -> String {
+    let os = os_label();
     format!(
-        "Environment:\n- OS: {}\n- Locale hint: {}\n- Local date: {}",
-        os_label(),
+        "Environment:\n- OS: {os}\n{}\n- Locale hint: {}\n- Local date: {}\n{}",
+        os_usage(os),
         locale_hint(),
-        format_local_date_calendar()
+        format_local_date_calendar(),
+        time_baseline_usage("Local date")
     )
 }
 
 /// OS + locale + full local time — embedded in Supervisor `chat_once` templates.
 pub fn build_environment_context_full() -> String {
+    let os = os_label();
     format!(
-        "Environment:\n- OS: {}\n- Locale hint: {}\n- Local time: {}",
-        os_label(),
+        "Environment:\n- OS: {os}\n{}\n- Locale hint: {}\n- Local time: {}\n{}",
+        os_usage(os),
         locale_hint(),
-        format_local_wall_clock_full()
+        format_local_wall_clock_full(),
+        time_baseline_usage("Local time")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn environment_slice_includes_time_baseline_for_local_date() {
+        let slice = build_environment_system_prompt_slice();
+        assert!(slice.contains("Local date:"));
+        assert!(slice.contains("OS usage:"));
+        assert!(slice.contains("host platform"));
+        assert!(slice.contains("Time baseline:"));
+        assert!(slice.contains("**Local date**"));
+        assert!(slice.contains("authoritative clock"));
+    }
+
+    #[test]
+    fn environment_full_includes_time_baseline_for_local_time() {
+        let ctx = build_environment_context_full();
+        assert!(ctx.contains("Local time:"));
+        assert!(ctx.contains("OS usage:"));
+        assert!(ctx.contains("host platform"));
+        assert!(ctx.contains("Time baseline:"));
+        assert!(ctx.contains("**Local time**"));
+        assert!(ctx.contains("authoritative clock"));
+    }
 }

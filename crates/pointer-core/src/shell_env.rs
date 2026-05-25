@@ -1,15 +1,20 @@
 //! Bootstrap process `PATH` on Unix so GUI-launched hosts match login-shell tooling (npm, cargo, …).
 
+#[cfg(unix)]
 use log::{info, warn};
+#[cfg(unix)]
 use std::collections::HashSet;
+#[cfg(unix)]
 use std::process::Command;
 
+#[cfg(unix)]
 const PATH_VAR: &str = "PATH";
 
 #[cfg(unix)]
 const PATH_SEP: char = ':';
 
 /// Merge login-shell paths first, then append any entries only present in `current`.
+#[cfg(unix)]
 pub fn merge_path_entries(current: &str, login: &str) -> String {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
@@ -95,7 +100,7 @@ fn default_login_shell() -> String {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

@@ -18,13 +18,13 @@ impl VerifyHintGenerator {
     /// * `coords` - Optional coordinates that were clicked.
     pub fn click_hint(&self, index: Option<u32>, coords: Option<(i32, i32)>) -> String {
         match (index, coords) {
-            (Some(_), _) => "Action executed: overlay click. Verify on next screen with visible cues only; in internal verify/repetition reasoning, do not use overlay index numbers."
+            (Some(_), _) => "Attempted overlay click (index-targeted). Do not assume success. Verify on the next screenshot using visible UI cues only; in verify/repetition reasoning, do not use overlay index numbers."
                 .to_string(),
             (_, Some((x, y))) => format!(
-                "Action executed: clicked at coordinates ({}, {}). Verify the result on the next screenshot.",
+                "Attempted click at coordinates ({}, {}). Do not assume success. Verify the result on the next screenshot.",
                 x, y
             ),
-            _ => "Action executed: click performed. Verify the result on the next screenshot.".to_string(),
+            _ => "Attempted click action. Do not assume success. Verify the result on the next screenshot.".to_string(),
         }
     }
 
@@ -32,7 +32,7 @@ impl VerifyHintGenerator {
     pub fn scroll_hint(&self, lines: i32) -> String {
         let direction = if lines > 0 { "up" } else { "down" };
         format!(
-            "Action executed: scrolled {} lines {}. Runtime does not detect movement. Compare [Previous] vs [Current] screenshots to verify scroll effect.",
+            "Attempted scroll: {} lines {}. Do not assume success. Runtime does not detect movement; compare previous vs current screenshots to verify scroll effect.",
             lines.abs(), direction
         )
     }
@@ -40,7 +40,7 @@ impl VerifyHintGenerator {
     /// Generate a verification hint for a type action.
     pub fn type_hint(&self, text: &str) -> String {
         format!(
-            "Action executed: typed '{}'. Verify the text appears correctly on the next screenshot.",
+            "Attempted text input action with payload '{}'. Do not assume text appeared. Verify the field content on the next screenshot.",
             text
         )
     }
@@ -48,7 +48,7 @@ impl VerifyHintGenerator {
     /// Generate a verification hint for a hotkey action.
     pub fn hotkey_hint(&self, keys: &[&str]) -> String {
         format!(
-            "Action executed: pressed hotkey {}. Verify the effect on the next screenshot.",
+            "Attempted hotkey action: {}. Do not assume success. Verify the UI effect on the next screenshot.",
             keys.join("+")
         )
     }
@@ -63,7 +63,7 @@ impl VerifyHintGenerator {
     /// Generate a generic verification hint.
     pub fn generic_hint(&self, action_name: &str) -> String {
         format!(
-            "Action executed: {}. Verify the result on the next screenshot.",
+            "Attempted action: {}. Do not assume success. Verify the result on the next screenshot.",
             action_name
         )
     }
@@ -83,7 +83,7 @@ mod tests {
     fn test_click_hint_with_index() {
         let gen = VerifyHintGenerator::new();
         let hint = gen.click_hint(Some(3), None);
-        assert!(hint.contains("overlay click"));
+        assert!(hint.contains("Attempted overlay click"));
         assert!(hint.contains("Verify"));
         assert!(!hint.contains("index 3"));
     }
@@ -93,28 +93,30 @@ mod tests {
         let gen = VerifyHintGenerator::new();
         let hint = gen.click_hint(None, Some((100, 200)));
         assert!(hint.contains("(100, 200)"));
+        assert!(hint.contains("Do not assume success"));
     }
 
     #[test]
     fn test_click_hint_generic() {
         let gen = VerifyHintGenerator::new();
         let hint = gen.click_hint(None, None);
-        assert!(hint.contains("click performed"));
+        assert!(hint.contains("Attempted click action"));
     }
 
     #[test]
     fn test_scroll_hint() {
         let gen = VerifyHintGenerator::new();
         let hint = gen.scroll_hint(-5);
-        assert!(hint.contains("scrolled 5 lines down"));
-        assert!(hint.contains("Compare [Previous] vs [Current]"));
+        assert!(hint.contains("Attempted scroll: 5 lines down"));
+        assert!(hint.contains("Do not assume success"));
     }
 
     #[test]
     fn test_type_hint() {
         let gen = VerifyHintGenerator::new();
         let hint = gen.type_hint("hello world");
-        assert!(hint.contains("typed 'hello world'"));
+        assert!(hint.contains("payload 'hello world'"));
+        assert!(hint.contains("Do not assume text appeared"));
     }
 
     #[test]
@@ -122,6 +124,7 @@ mod tests {
         let gen = VerifyHintGenerator::new();
         let hint = gen.hotkey_hint(&["command", "c"]);
         assert!(hint.contains("command+c"));
+        assert!(hint.contains("Attempted hotkey action"));
     }
 
     #[test]

@@ -18,6 +18,7 @@ use crate::agents::computer::vision::screen_overlay::{
 };
 use crate::agents::computer::vision::vision_state::VisionState;
 use crate::agents::AgentRegistry;
+use crate::models::ToolCall;
 use crate::platform_auth::SharedPlatformAuth;
 use crate::platform_config::SharedPlatformConfig;
 use std::collections::HashMap;
@@ -383,7 +384,7 @@ impl ComputerState {
         let tier = session.lock().unwrap().tier_runtime.current_tier;
         let work = VisionOverlayWork::for_tier(tier);
 
-        let inject_before_action = if tier == ComputerTier::Advanced {
+        let inject_before_action = if matches!(tier, ComputerTier::Primary | ComputerTier::Advanced) {
             let s = session.lock().unwrap();
             match (
                 s.last_turn_raw_jpeg_unmarked.as_deref(),
@@ -458,7 +459,7 @@ impl ComputerState {
 
         {
             let mut session = session.lock().unwrap();
-            if tier == ComputerTier::Advanced {
+            if matches!(tier, ComputerTier::Primary | ComputerTier::Advanced) {
                 session.last_turn_raw_jpeg_unmarked = Some(screen_capture.to_vec());
                 session.last_turn_monitor = Some(monitor);
             } else {
@@ -599,14 +600,19 @@ impl ComputerState {
         &self,
         conversation_id: &str,
         thoughts: Option<&str>,
+        tool_calls: Option<&[ToolCall]>,
     ) {
-        let parsed = thoughts
-            .and_then(crate::agents::computer::tier::parse_verify_from_thoughts);
+        let parsed_signal = tool_calls
+            .and_then(crate::agents::computer::tier::parse_tier_signal_from_sidecar_tool_calls);
+        let parsed_verify = parsed_signal.as_ref().map(|s| crate::agents::computer::tier::ParsedVerify {
+            step_result: s.action_result.clone(),
+            cause: s.failure_cause.clone(),
+        });
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();
         let last_goal = s.tier_runtime.last_executed_goal.clone();
         let tier = s.tier_runtime.current_tier;
-        if let Some(ref pv) = parsed {
+        if let Some(ref pv) = parsed_verify {
             let outcome = crate::agents::computer::tier::VerifyOutcome {
                 step_result: pv.step_result.clone(),
                 cause: pv.cause.clone(),
@@ -615,7 +621,26 @@ impl ComputerState {
         }
         let config = self.effective_tier_config();
         s.tier_runtime
-            .on_round_complete(&config, parsed.as_ref(), last_goal.as_deref());
+            .on_round_complete(
+                &config,
+                parsed_verify.as_ref(),
+                last_goal.as_deref(),
+                parsed_signal.as_ref().map(|s| s.repetition_count),
+            );
+        if parsed_signal.is_none() {
+            let has_thoughts_step = thoughts
+                .and_then(crate::agents::computer::tier::parse_verify_from_thoughts)
+                .is_some();
+            if has_thoughts_step {
+                log::warn!(
+                    "computer tier runtime: sidecar verify signal missing; thoughts contains Step result but sidecar is authoritative"
+                );
+            } else {
+                log::warn!(
+                    "computer tier runtime: sidecar verify signal missing; cannot update action_result history or sidecar-driven upgrade signal"
+                );
+            }
+        }
     }
 
     pub fn locked_goal_dynamic_block(&self, conversation_id: &str) -> Option<String> {

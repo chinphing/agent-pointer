@@ -14,7 +14,7 @@
 
 ## Part 1 — Verify
 
-**`thoughts` opens with `Verify:` first** — compare screenshots before judging the mouse. **Emit `Pointer:` only when** **Verify** **Clear evidence** is **`no_clear_evidence`** and the last action used coordinates; otherwise skip **`Pointer:`** entirely. Rules below match advanced Part 1. Every visual claim cites **`On [slot name]:`** on the labeled image before that screenshot.
+When using expanded thoughts format, open with `Verify:` first — compare screenshots before judging the mouse. Emit `Pointer:` only when Verify Clear evidence is `no_clear_evidence` and the last action used coordinates; otherwise skip `Pointer:` entirely. Rules below match advanced Part 1. Every visual claim cites `On [slot name]:` on the labeled image before that screenshot.
 
 **Intermediate slots:** **[Screen after action]**, **[Marked screen after action]**, **[Annotated after action]** only — no before-action slots. **Verify** **Before vs after:** `n/a — no [Screen before action]`; judge on **[Screen after action]** / **[Annotated after action]**. **Pointer** (if needed): **[Marked screen after action]** or **[Screen after action]** per advanced first-capture fallbacks.
 
@@ -23,6 +23,7 @@
 **Rule:** Any claim about pixels, layout, controls, or pointer hotspot must begin with **`On [slot name]:`**.
 
 **Forbidden:** describing UI from task text, memory, or guesswork without naming the frame you read.
+**Forbidden:** speculative modal wording in `thoughts` (for example `should`, `probably`, `maybe`, `likely`). Rewrite as image-grounded facts.
 
 **Overlay digits in Part 1:** **forbidden** in **Pointer**, **Verify**, and **Repetition** — no overlay index in those sections.
 
@@ -97,7 +98,7 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 - **`deferred`** — pass/fail not settled on this screenshot (download/export/save-to-disk/queue).
 - **`non-deferred`** — expect immediate on-canvas change.
 
-**Loading / in-progress:** If **`On [Screen after action]:`** shows spinner, progress bar, skeleton, or loading copy and the last **goal** is **not finished** → **`Step result: pending`** (treat as **`deferred`**-like) — **not** **`pass`**, **not** **`fail`**.
+**Loading / in-progress:** If **`On [Screen after action]:`** shows spinner, progress bar, skeleton, or loading copy and the last **goal** is **not finished** → **`Step result: fail`** with cause **`off_frame_unverified`** (no delayed/pending state).
 
 #### When Pointer is required
 
@@ -131,8 +132,8 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 | no_clear_evidence | non-deferred | mouse_accurate | fail | no_immediate_feedback |
 | no_clear_evidence | non-deferred | non_mouse | fail | no_immediate_feedback |
 | no_clear_evidence | deferred | mouse_miss | fail | precision_miss |
-| no_clear_evidence | deferred | mouse_accurate | pending | off_frame_unverified |
-| no_clear_evidence | deferred | non_mouse | pending | off_frame_unverified |
+| no_clear_evidence | deferred | mouse_accurate | fail | off_frame_unverified |
+| no_clear_evidence | deferred | non_mouse | fail | off_frame_unverified |
 
 #### Output template
 
@@ -146,7 +147,7 @@ Action type: <deferred | non-deferred> — <reason>.
 Mouse judgment: <non_mouse | mouse_miss | mouse_accurate> — <screenshot-only | On [Zoom pointer before action]: when Pointer ran>.
 Lookup: Clear evidence=<same>, Action type=<same>, Mouse judgment=<same>; | n/a — no prior action.
 Match: row <keys> → <Step result>, <Cause>; | row outside table → Step result n/a.
-Step result: <pass | fail | pending | n/a> — evidence: <one line from Before vs after / On [Screen after action]: / On [Zoom pointer …]: facts above; not guesswork>.
+Step result: <pass | fail | n/a> — evidence: <one line from Before vs after / On [Screen after action]: / On [Zoom pointer …]: facts above; not guesswork>.
 Cause: <only when Match says so; omit on pass>.
 ```
 
@@ -232,14 +233,11 @@ Pointer:
 
 ```text
 Repetition:
-Rows: <same goal|action × N | differ>.
-Screen: <flat | advanced> — UI progress vs prior attempts (from Verify Before vs after or [Screen after action]; no overlay digits).
-Verdict: <OK | STUCK> — if STUCK: <STUCK only | STUCK — change tactic> (no re-aim / relocate / pivot detail).
+Count: <N from history>.
+Operation summary: <brief overview of distinct attempted operations and UI progress>.
 ```
 
-**>3** **`verify: fail`** or **`verify: pending`** rows for the **same goal** in tier history → **`STUCK: yes`**.
-
-**Host counter:** **`[Computer tier runtime]`** prints **`Repetition count: N verify fail/pending … STUCK: yes|no`** — echo **Count: N** and **STUCK: yes|no** (do not recount from scratch).
+Compute **Count** from **`[Recent desktop tool calls]`** for the same goal as newest row.
 
 **Scope:** Count repeats in **`[Recent desktop tool calls]`** and whether the UI **advanced**. **Do not** choose **re-aim**, **relocate**, or **pivot** here — that is **Next** after **Verify** **Match**.
 
@@ -253,7 +251,7 @@ Verdict: <OK | STUCK> — if STUCK: <STUCK only | STUCK — change tactic> (no r
 ```text
 Next:
 Verify echo: Expected=… Actual=… Step result=…
-Repetition: Count=… STUCK=…
+Repetition: Count=…; Operation summary=…
 MA-0 … MA-3 Inject lookup: FOUND | NOT FOUND
 (Branch HOVER or PRECISION — same MA-4…MA-9 as primary Step 3)
 Pick: …
@@ -265,4 +263,5 @@ No **Location** / **Recheck** / **Tool route** blocks at this tier. Pick the too
 
 ## JSON wire
 
-One JSON object per turn: `thoughts` = **Verify:** → **Pointer:** (if needed) → **Repetition:** → **Next:** (four prefix blocks in order); `headline`; `tool_name`; `tool_args` with required **`goal`**.
+One JSON object per turn: `thoughts` is a concise overview (one sentence is acceptable; labels optional) that reflects Verify outcome and this-turn Next decision; `headline`; `tool_name`; `tool_args` with required **`goal`**; optional `sidecar_tools` (place after `tool_args`).
+Include one sidecar call `verify:report` where `action_result` mirrors Verify Step result and `repetition_count` mirrors Repetition Count. Set `failure_cause` only when `action_result=fail` (`wrong_operation` or `precision_miss`).

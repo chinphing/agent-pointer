@@ -2,7 +2,7 @@
 
 Use for **one-call combos**: click+type, or focus-then-type.
 
-**This session uses coordinate methods only.** **`x`/`y`** from **`Overlay reference bboxes`** lookup. **Forbidden:** **`*_index`** methods.
+Use coordinate methods as the default route in this guide. Use **`x`/`y`** from **`Overlay reference bboxes`** lookup.
 
 **Call priority:** Use **composite_action** when this turn must **type literal `text` into a field**. For click-only steps, use **`mouse:click_at`**.
 

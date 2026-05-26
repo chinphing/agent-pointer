@@ -8,10 +8,11 @@ pub enum ComputerPositioningMode {
     Coordinate,
 }
 
-pub fn positioning_mode_for_tier(tier: ComputerTier) -> ComputerPositioningMode {
+pub fn positioning_mode_for_tier(tier: ComputerTier) -> Option<ComputerPositioningMode> {
     match tier {
-        ComputerTier::Primary | ComputerTier::Intermediate => ComputerPositioningMode::Index,
-        ComputerTier::Advanced => ComputerPositioningMode::Coordinate,
+        ComputerTier::Primary => None,
+        ComputerTier::Intermediate => Some(ComputerPositioningMode::Index),
+        ComputerTier::Advanced => Some(ComputerPositioningMode::Coordinate),
     }
 }
 
@@ -32,5 +33,18 @@ pub fn computer_tool_doc_override(tool_name: &str, mode: ComputerPositioningMode
         ("modified_click", ComputerPositioningMode::Index) => Some(INDEX_MODIFIED),
         ("modified_click", ComputerPositioningMode::Coordinate) => Some(COORD_MODIFIED),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn primary_has_no_bound_mode() {
+        assert_eq!(
+            positioning_mode_for_tier(ComputerTier::Primary),
+            None
+        );
     }
 }

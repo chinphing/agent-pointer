@@ -65,7 +65,7 @@ impl CompositeActionTool {
         executor.type_text_at_with_options(x, y, &text, clear_first, auto_enter, hl)?;
         let mut hint = self.verify.type_hint(&text);
         if auto_enter {
-            hint.push_str(" Enter was sent if auto_enter=true; do not press Enter again unless the UI clearly needs it.");
+            hint.push_str(" Enter key event was dispatched because auto_enter=true; do not press Enter again unless the UI clearly needs it.");
         }
         Ok(hint)
     }

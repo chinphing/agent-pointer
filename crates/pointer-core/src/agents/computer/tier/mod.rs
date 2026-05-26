@@ -3,6 +3,7 @@
 use crate::agents::computer::vision::coord::{screen_to_normalized, CoordinateSystem};
 use crate::agents::computer::vision::vision_state::{CornerAnchor, VisionState};
 use crate::models::ComputerTierLlmConfig;
+use crate::models::ToolCall;
 use crate::agents::AgentRegistry;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -21,7 +22,7 @@ pub const ADVANCED_THINKING_BUDGET: u32 = 8192;
 const MAX_TIER_HISTORY: usize = 10;
 /// Consecutive **`Step result: fail`** before auto-upgrade (`>` this value → bump tier).
 pub const TIER_ERROR_THRESHOLD: u32 = 3;
-/// Same-**goal** **`verify: fail`** or **`verify: pending`** rows before **Repetition** **`STUCK: yes`** (`>` this value).
+/// Same-goal repetition threshold used for internal escalation (`>` this value).
 pub const REPETITION_STUCK_COUNT_THRESHOLD: u32 = 3;
 
 /// Back-compat alias for [`REPETITION_STUCK_COUNT_THRESHOLD`].
@@ -152,6 +153,13 @@ pub struct VerifyOutcome {
 }
 
 #[derive(Debug, Clone)]
+pub struct ParsedTierSignal {
+    pub action_result: String,
+    pub repetition_count: u32,
+    pub failure_cause: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct TierActionRecord {
     pub tool_name: String,
     pub goal: String,
@@ -240,6 +248,7 @@ impl ComputerTierRuntime {
         config: &ComputerTierConfig,
         parsed: Option<&ParsedVerify>,
         last_tool_goal: Option<&str>,
+        sidecar_repetition_count: Option<u32>,
     ) {
         let Some(pv) = parsed else {
             return;
@@ -289,11 +298,21 @@ impl ComputerTierRuntime {
         }
 
         if !is_pass {
-            if self.tier_error_streak > TIER_ERROR_THRESHOLD && config.auto_upgrade {
+            let should_upgrade = if let Some(rep_count) = sidecar_repetition_count {
+                rep_count > REPETITION_STUCK_COUNT_THRESHOLD
+            } else {
+                self.tier_error_streak > TIER_ERROR_THRESHOLD
+            };
+            if should_upgrade && config.auto_upgrade {
                 let prev = self.current_tier;
                 self.current_tier = prev.bump();
                 self.tier_error_streak = 0;
-                log::info!("computer tier: auto_upgrade {:?} -> {:?}", prev, self.current_tier);
+                log::info!(
+                    "computer tier: auto_upgrade {:?} -> {:?} (repetition_count={:?})",
+                    prev,
+                    self.current_tier,
+                    sidecar_repetition_count
+                );
             }
         }
     }
@@ -334,11 +353,11 @@ fn stable_hash_hex16(s: &str) -> String {
     format!("{:016x}", h.finish())
 }
 
-fn verify_counts_toward_repetition_stuck(step: &str) -> bool {
-    step == "fail" || step == "pending"
+fn verify_counts_toward_repetition_count(step: &str) -> bool {
+    step == "fail"
 }
 
-/// Count **`verify: fail`** and **`verify: pending`** rows for the **same `goal`** as the newest history row.
+/// Count verify-fail rows for the same goal as the newest history row.
 pub fn same_goal_repetition_count_in_history(records: &[TierActionRecord]) -> u32 {
     let Some(last) = records.last() else {
         return 0;
@@ -350,7 +369,7 @@ pub fn same_goal_repetition_count_in_history(records: &[TierActionRecord]) -> u3
         .filter(|r| {
             r.verify_result
                 .as_ref()
-                .is_some_and(|v| verify_counts_toward_repetition_stuck(v.step_result.as_str()))
+                .is_some_and(|v| verify_counts_toward_repetition_count(v.step_result.as_str()))
         })
         .count() as u32
 }
@@ -360,7 +379,7 @@ pub fn same_goal_fail_count_in_history(records: &[TierActionRecord]) -> u32 {
     same_goal_repetition_count_in_history(records)
 }
 
-/// Host-maintained counters for **`[Computer tier runtime]`** under **`[CUR_SCREEN]`**.
+/// Host-maintained counters for internal runtime diagnostics.
 pub fn format_tier_runtime_block(
     rt: &ComputerTierRuntime,
     config: &ComputerTierConfig,
@@ -394,12 +413,18 @@ pub fn format_tier_runtime_block(
             "Repetition count: none — no prior desktop tool rows in this tier history.".to_string(),
         );
     } else if let Some(last) = records.last() {
-        let stuck = rep_count > REPETITION_STUCK_COUNT_THRESHOLD;
-        let stuck_label = if stuck { "yes" } else { "no" };
         lines.push(format!(
-            "Repetition count: {rep_count} verify fail/pending for goal=\"{}\" (>{REPETITION_STUCK_COUNT_THRESHOLD} → STUCK: yes) — STUCK: {stuck_label}",
+            "Repetition count: {rep_count} verify fail for goal=\"{}\"",
             escape_goal(&last.goal)
         ));
+        let rep_policy = if rep_count == 0 {
+            "repeat-policy: count=0 continue current tactic"
+        } else if rep_count <= REPETITION_STUCK_COUNT_THRESHOLD {
+            "repeat-policy: count=1..3 switch tactic/method"
+        } else {
+            "repeat-policy: count>3 escalate tier/reasoning"
+        };
+        lines.push(rep_policy.to_string());
     }
     if let Some(lock) = rt.locked_goal.as_ref() {
         lines.push(format!(
@@ -458,17 +483,17 @@ fn escape_goal(s: &str) -> String {
 
 fn format_verify_suffix(tier: ComputerTier, v: Option<&VerifyOutcome>) -> String {
     let Some(v) = v else {
-        return "verify: —".into();
+        return "action_result: —".into();
     };
     let step = v.step_result.as_str();
     if tier.includes_cause_in_history() {
         if let Some(ref c) = v.cause {
             if !c.is_empty() && step != "pass" {
-                return format!("verify: {step} ({c})");
+                return format!("action_result: {step} ({c})");
             }
         }
     }
-    format!("verify: {step}")
+    format!("action_result: {step}")
 }
 
 /// Parsed verify block from assistant `thoughts`.
@@ -497,6 +522,83 @@ pub fn parse_verify_from_thoughts(thoughts: &str) -> Option<ParsedVerify> {
         step_result,
         cause,
     })
+}
+
+/// Sidecar tool id used to carry verify/repetition signal for tier runtime.
+pub const COMPUTER_TIER_SIGNAL_TOOL_NAME: &str = "verify";
+
+/// Extract repetition signal from sidecar tool calls in one assistant round.
+///
+/// Expected sidecar payload:
+/// `{ "action_result": "pass|fail|n/a", "repetition_count": <u32>, "failure_cause"?: "wrong_operation|precision_miss" }`.
+pub fn parse_tier_signal_from_sidecar_tool_calls(tool_calls: &[ToolCall]) -> Option<ParsedTierSignal> {
+    let mut parsed: Option<ParsedTierSignal> = None;
+    for tc in tool_calls {
+        if registry_tool_base_name(tc.name.as_str()) != COMPUTER_TIER_SIGNAL_TOOL_NAME {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(&tc.arguments) else {
+            continue;
+        };
+        let Some(obj) = v.as_object() else {
+            continue;
+        };
+        let Some(action_result) = obj
+            .get("action_result")
+            .and_then(|x| x.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_ascii_lowercase())
+        else {
+            continue;
+        };
+        if !matches!(action_result.as_str(), "pass" | "fail" | "n/a") {
+            continue;
+        }
+        let Some(repetition_count) = obj
+            .get("repetition_count")
+            .and_then(|x| x.as_u64())
+            .and_then(|n| u32::try_from(n).ok())
+        else {
+            continue;
+        };
+        let failure_cause = obj
+            .get("failure_cause")
+            .and_then(|x| x.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_ascii_lowercase());
+        let failure_cause = match action_result.as_str() {
+            "fail" => {
+                let Some(cause) = failure_cause else {
+                    continue;
+                };
+                if !matches!(cause.as_str(), "wrong_operation" | "precision_miss") {
+                    continue;
+                }
+                Some(cause)
+            }
+            _ => {
+                if failure_cause.is_some() {
+                    continue;
+                }
+                None
+            }
+        };
+        parsed = Some(ParsedTierSignal {
+            action_result,
+            repetition_count,
+            failure_cause,
+        });
+    }
+    parsed
+}
+
+fn registry_tool_base_name(raw: &str) -> &str {
+    match raw.trim().split_once(':') {
+        Some((base, rest)) if !base.is_empty() && !rest.trim().is_empty() => base.trim(),
+        _ => raw.trim(),
+    }
 }
 
 fn extract_field_line(text: &str, key: &str) -> Option<String> {
@@ -670,8 +772,7 @@ pub fn current_computer_tier() -> Option<ComputerTier> {
 }
 
 pub fn tier_allows_index_tools(tier: ComputerTier) -> bool {
-    use crate::agents::computer::tools::tool_prompts::{positioning_mode_for_tier, ComputerPositioningMode};
-    positioning_mode_for_tier(tier) == ComputerPositioningMode::Index
+    tier != ComputerTier::Advanced
 }
 
 #[cfg(test)]
@@ -709,7 +810,7 @@ mod tests {
         let line = format_history_line(ComputerTier::Intermediate, &r);
         assert!(line.contains("goal=\"Open Settings\""));
         assert!(line.contains("at (412, 680)"));
-        assert!(line.contains("verify: fail (precision_miss)"));
+        assert!(line.contains("action_result: fail (precision_miss)"));
     }
 
     #[test]
@@ -728,6 +829,7 @@ mod tests {
                     cause: Some("precision_miss".into()),
                 }),
                 Some("open settings"),
+                None,
             );
         }
         assert_eq!(rt.current_tier, ComputerTier::Intermediate);
@@ -747,12 +849,12 @@ mod tests {
             extra_args_hint: None,
         };
         let line = format_history_line(ComputerTier::Primary, &r);
-        assert!(line.contains("verify: fail"));
+        assert!(line.contains("action_result: fail"));
         assert!(!line.contains("precision_miss"));
     }
 
     #[test]
-    fn same_goal_repetition_count_sums_fail_and_pending_rows() {
+    fn same_goal_repetition_count_sums_only_fail_rows() {
         let mk = |goal: &str, step: &str| TierActionRecord {
             tool_name: "mouse:click_index".into(),
             goal: goal.into(),
@@ -767,19 +869,19 @@ mod tests {
         let records = vec![
             mk("open settings", "pass"),
             mk("open settings", "fail"),
-            mk("open settings", "pending"),
+            mk("open settings", "n/a"),
         ];
-        assert_eq!(same_goal_repetition_count_in_history(&records), 2);
+        assert_eq!(same_goal_repetition_count_in_history(&records), 1);
         let switched = vec![
             mk("open settings", "fail"),
-            mk("open settings", "pending"),
+            mk("open settings", "n/a"),
             mk("other", "fail"),
         ];
         assert_eq!(same_goal_repetition_count_in_history(&switched), 1);
     }
 
     #[test]
-    fn tier_runtime_block_shows_stuck_and_upgrade_hint() {
+    fn tier_runtime_block_shows_repetition_policy_and_upgrade_hint() {
         let config = ComputerTierConfig::default();
         let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
         rt.tier_error_streak = 2;
@@ -795,11 +897,29 @@ mod tests {
         assert!(block.contains("Verify-fail streak: 2"));
         assert!(block.contains("intermediate"));
         assert!(block.contains("Repetition count: 0"));
-        assert!(block.contains("STUCK: no"));
+        assert!(block.contains("repeat-policy: count=0"));
     }
 
     #[test]
-    fn tier_runtime_block_stuck_when_four_same_goal_fails() {
+    fn history_block_keeps_verify_only_in_history_rows() {
+        let records = vec![TierActionRecord {
+            tool_name: "mouse:click_index".into(),
+            goal: "Open Settings".into(),
+            action: Some("click settings icon".into()),
+            coords: Some((400, 300)),
+            verify_result: Some(VerifyOutcome {
+                step_result: "fail".into(),
+                cause: Some("unexpected_change".into()),
+            }),
+            extra_args_hint: None,
+        }];
+        let block = format_tier_history_block(ComputerTier::Intermediate, &records).unwrap();
+        assert!(block.contains("action_result: fail (unexpected_change)"));
+        assert!(!block.contains("Last verify result (previous round):"));
+    }
+
+    #[test]
+    fn tier_runtime_block_escalates_policy_when_four_same_goal_fails() {
         let config = ComputerTierConfig::default();
         let rt = ComputerTierRuntime::new(ComputerTier::Primary);
         let records: Vec<_> = (0..4)
@@ -817,7 +937,7 @@ mod tests {
             .collect();
         let block = format_tier_runtime_block(&rt, &config, ComputerTier::Primary, &records);
         assert!(block.contains("Repetition count: 4"));
-        assert!(block.contains("STUCK: yes"));
+        assert!(block.contains("repeat-policy: count>3"));
     }
 
     #[test]
@@ -863,5 +983,51 @@ mod tests {
         assert!(tier_allows_index_tools(ComputerTier::Primary));
         assert!(tier_allows_index_tools(ComputerTier::Intermediate));
         assert!(!tier_allows_index_tools(ComputerTier::Advanced));
+    }
+
+    #[test]
+    fn parse_tier_signal_from_sidecar_tool_calls_prefers_latest_signal() {
+        let calls = vec![
+            ToolCall {
+                id: "a".into(),
+                name: "task_board:patch".into(),
+                arguments: "{}".into(),
+                status: "pending".into(),
+                result: None,
+                error: None,
+                duration_ms: None,
+                risk_level: None,
+                display_label: None,
+                display_summary: None,
+            },
+            ToolCall {
+                id: "b".into(),
+                name: "verify:report".into(),
+                arguments: r#"{"action_result":"fail","repetition_count":2,"failure_cause":"precision_miss"}"#.into(),
+                status: "pending".into(),
+                result: None,
+                error: None,
+                duration_ms: None,
+                risk_level: None,
+                display_label: None,
+                display_summary: None,
+            },
+            ToolCall {
+                id: "c".into(),
+                name: "verify:report".into(),
+                arguments: r#"{"action_result":"pass","repetition_count":4}"#.into(),
+                status: "pending".into(),
+                result: None,
+                error: None,
+                duration_ms: None,
+                risk_level: None,
+                display_label: None,
+                display_summary: None,
+            },
+        ];
+        let p = parse_tier_signal_from_sidecar_tool_calls(&calls).unwrap();
+        assert_eq!(p.action_result, "pass");
+        assert_eq!(p.repetition_count, 4);
+        assert!(p.failure_cause.is_none());
     }
 }

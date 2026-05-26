@@ -2,7 +2,7 @@
 
 Use for a single mouse action: click, double-click, right-click, hover, drag, scroll at the current cursor, or a small offset move.
 
-**This session uses coordinate methods only.** Pick **reference index R** on the overlay image, then derive integer **`(x,y)`** from **`Overlay reference bboxes`** in **`[CUR_SCREEN]`**. **Forbidden:** `index`, `indices`, `from_index`, `to_index`, and all **`*_index`** methods in `tool_args`.
+Use coordinate methods as the default route in this guide. Pick **reference index R** on the overlay image, then derive integer **`(x,y)`** from **`Overlay reference bboxes`** in **`[CUR_SCREEN]`**.
 
 **Call priority:** Prefer **composite_action**, **hotkey**, or **modified_click** when one call achieves the same goal with fewer steps — unless this turn is **mouse** click-only.
 

@@ -12,6 +12,7 @@ toolNames:
   - modified_click
   - wait
   - clipboard
+  - verify
   - task_board
 accessPolicy:
   allowTools:
@@ -21,6 +22,7 @@ accessPolicy:
     - modified_click
     - wait
     - clipboard
+    - verify
     - task_board
   denyTools: []
   allowSkills: []
@@ -34,6 +36,8 @@ ui:
   hideToolNames:
     - task_board
     - task_board:patch
+    - verify
+    - verify:report
   avatar: computer
 defaultSkillIds: []
 config:

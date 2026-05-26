@@ -2,7 +2,7 @@
 
 Use for **modifier+click** multi-select: **Cmd/Ctrl+click** (add items) or **Shift+click** (range).
 
-**This session uses coordinate methods only.** **Forbidden:** `modified_click_index` and **`indices`**.
+Use coordinate methods as the default route in this guide.
 
 **Call priority:** Prefer **modified_click** for multi-select in one call.
 

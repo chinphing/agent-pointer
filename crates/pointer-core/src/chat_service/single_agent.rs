@@ -53,9 +53,9 @@ pub(super) async fn run_single_agent_loop(
             .map(|a| a.def().profile.clone())
             .unwrap_or(AgentProfile::General);
         let computer_positioning = if lead_profile == AgentProfile::Computer {
-            Some(crate::agents::computer::tools::tool_prompts::positioning_mode_for_tier(
+            crate::agents::computer::tools::tool_prompts::positioning_mode_for_tier(
                 state.computer_state.tier_for_conversation(conversation_id),
-            ))
+            )
         } else {
             None
         };
@@ -148,6 +148,7 @@ pub(super) async fn run_single_agent_loop(
             state.computer_state.on_assistant_round_complete(
                 conversation_id,
                 assistant_msg.thoughts.as_deref(),
+                assistant_msg.tool_calls.as_deref(),
             );
         }
 

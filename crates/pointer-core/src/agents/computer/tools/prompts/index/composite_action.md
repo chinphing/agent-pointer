@@ -2,7 +2,7 @@
 
 Use for **one-call combos**: click+type, or focus-then-type.
 
-**This session uses overlay index methods only.** **Forbidden:** `type_text_at` and any bare `x`/`y` in `tool_args`.
+Use overlay indices as the default route in this guide.
 
 **Call priority:** Use **composite_action** when this turn must **type literal `text` into a field**. For click-only steps, use **`mouse:click_index`**.
 

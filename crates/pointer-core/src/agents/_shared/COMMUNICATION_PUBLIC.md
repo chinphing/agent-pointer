@@ -33,10 +33,10 @@ emit **one** raw JSON object with **no** surrounding code fence and **no** prose
 ```json
 {
   "thoughts": "User asked for a short acknowledgement; no other tools this turn.",
-  "headline": "确认收到",
+  "headline": "Acknowledged",
   "tool_name": "response",
   "tool_args": {
-    "text": "好的，已了解。如需改代码或跑测试，我会接着用允许的工具处理。"
+    "text": "Understood. If you want code changes or test runs next, I can continue with the allowed tools."
   }
 }
 ```
@@ -51,7 +51,7 @@ Omitting those on an object inherits the root **`tool_args`** defaults when pres
 ```json
 {
   "thoughts": "Read the implementation and its test in one turn with a shared line window.",
-  "headline": "批量读取两个文件",
+  "headline": "Read two files",
   "tool_name": "file:read",
   "tool_args": {
     "lineStart": 1,
@@ -72,7 +72,7 @@ The host runs **every** sidecar **in order**, then the **root** tool.
 ```json
 {
   "thoughts": "Mark the board step in progress, then open the spec file.",
-  "headline": "更新任务板并读取规格",
+  "headline": "Update board and read spec",
   "sidecar_tools": [
     {
       "tool_name": "task_board:patch",
@@ -95,8 +95,10 @@ Each assistant turn that uses tools—or ends with a structured final reply—is
 - Put **no** Markdown code fences around the whole object and **no** prose outside it.
 - Top-level keys (unless your worker prompt adds a rare exception): **`thoughts`**, **`headline`**, optional **`sidecar_tools`**, then **`tool_name`** (string) and **`tool_args`** (object).
 - **`tool_args`** holds **one JSON property per tool parameter**; names and types follow each tool’s description in your tool list.
+- For desktop tools with an `action` field, describe the target element with observable traits (shape, color, size, text, absolute/relative position), not a vague action phrase.
 - All **string** values must be valid JSON strings: escape **`"`**, **`\`**, and newlines as **`\"`**, **`\\`**, **`\n`**. 
 - The host requests **`json_object`** style output from the model API; keep the object **syntactically valid** so the runtime can parse it.
+- For desktop tools with an `action` field, describe the target element with observable traits (shape, color, size, text, absolute/relative position), not a vague action phrase.
 
 ### JSON string escapes (examples)
 

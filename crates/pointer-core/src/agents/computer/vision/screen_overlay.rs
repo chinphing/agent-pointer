@@ -75,7 +75,8 @@ impl VisionOverlayWork {
     pub fn for_tier(tier: ComputerTier) -> Self {
         match tier {
             ComputerTier::Primary => Self {
-                raw_marked_jpeg: false,
+                // Primary 3.1 needs `[Screen after action]` (raw marked) + annotated.
+                raw_marked_jpeg: true,
                 zoom_crops: false,
             },
             ComputerTier::Intermediate => Self {
@@ -420,7 +421,7 @@ pub fn build_vision_overlay_pack(
     let empty = Vec::new();
     let (mx, my) = local_on_monitor(global_pointer.0, global_pointer.1, monitor);
 
-    // Primary: annotated + pointer/caret only — skip raw JPEG decode and zoom crops.
+    // Lightweight path for tiers that only need annotated with no raw/zoom assets.
     if !work.raw_marked_jpeg && !work.zoom_crops {
         let mut ann_rgba = decode_png_to_rgba(annotated_png_unmarked)?;
         let (gw, gh) = (ann_rgba.width(), ann_rgba.height());
@@ -635,12 +636,13 @@ mod tests {
     }
 
     #[test]
-    fn primary_work_skips_raw_marked_and_zoom() {
+    fn primary_work_keeps_raw_marked_and_skips_zoom() {
         let work = VisionOverlayWork::for_tier(ComputerTier::Primary);
-        assert!(!work.raw_marked_jpeg);
+        assert!(work.raw_marked_jpeg);
         assert!(!work.zoom_crops);
     }
 
+    #[test]
     fn before_action_zoom_is_4x_crop_side() {
         let monitor = MonitorInfo::new(0, 0, 200, 200);
         let prior = RgbaImage::from_pixel(200, 200, Rgba([40, 80, 120, 255]));

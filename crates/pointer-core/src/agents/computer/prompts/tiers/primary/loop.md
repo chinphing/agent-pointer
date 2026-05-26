@@ -4,8 +4,15 @@
 
 Each turn:
 
-1. Open **`[CUR_SCREEN]`** — read **Nearby** bullets, then **`[Annotated after action]`**, then history and runtime.
-2. Run **Verify** (**Expected** vs **Actual** → **`Step result:`**) → **Repetition** → **Next** (**MA-0…MA-9**, branch **HOVER** or **PRECISION**).
-3. Reply with **one JSON object** (`thoughts`, `headline`, `tool_name`, `tool_args` with **`goal`** and **`index`**).
+1. Open **`[CUR_SCREEN]`** — read labeled images in order, then history, then nearby references.
+2. Run **Verify** first:
+   - expected change => `Step result: pass`, then go directly to **Next**.
+   - unexpected/no-obvious change => `Step result: fail`, then run **Repetition** and then **Next**.
+3. In **Next**, choose route:
+   - center-owned target => index methods.
+   - weak center ownership / retries failed => coordinate methods.
+4. Reply with **one JSON object** (`thoughts`, `headline`, `tool_name`, `tool_args` with required `goal`/`action` and route args, then `sidecar_tools`).
+   Add sidecar call `verify:report` using Verify `Step result` and Repetition `Count`; include `failure_cause` only when `Step result=fail`.
+   In `thoughts`, keep only a concise overview (one sentence is acceptable).
 
-Keep **`headline`** short. No advanced **Location** / coordinate stages at this tier.
+Keep **`headline`** short. No advanced seven-stage Location/Recheck blocks at this tier.

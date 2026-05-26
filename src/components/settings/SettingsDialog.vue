@@ -362,7 +362,13 @@ async function selectAgentModelWithProvider(agentId: string, value: string) {
 async function toggleDebugMenus() {
   const next = !debugMenusEnabled.value
   debugMenusEnabled.value = next
-  await s.save({ debugMenusEnabled: next })
+  rawContentViewEnabled.value = next
+  computerAnnotatedScreenViewEnabled.value = next
+  await s.save({
+    debugMenusEnabled: next,
+    rawContentViewEnabled: next,
+    computerAnnotatedScreenViewEnabled: next
+  })
 }
 
 function onDialogBackdropClick() {

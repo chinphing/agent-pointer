@@ -61,9 +61,9 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 
 | 档位 | 图像 | thoughts | 模型 / 思考 |
 |------|------|----------|-------------|
-| Primary | 仅 **`[Annotated after action]`** 一张；**不生成** marked/zoom/before；本地只落盘 `annotated` | 简版 Verify → Repetition → Next；**Nearby bboxes×10**；思考预算 **2048** | qwen3.5-plus |
-| Intermediate | 原图 + marked + Annotated；**无** zoom/before；本地落盘 unmarked + after + annotated | **Verify→Pointer（条件）** + **Repetition** + **Next**；**Nearby bboxes×10**；思考预算 **2048** | qwen3.5-plus |
-| Advanced | 7 槽（与现网一致） | 三段：**Part 1 Verify** / **Part 2 Repetition** / **Part 3 Next+Location+Recheck+Tool route** | qwen3.6-plus，思考 8K |
+| Primary | 2-3 图：可选 **`[Screen before action]`** + **`[Screen after action]`** + **`[Annotated after action]`**；无 zoom | Verify 先判定预期/非预期变化；失败才走 Repetition；成功直接 Next；**Nearby bboxes×10**；每轮 sidecar 上报 `action_result/repetition_count` | qwen3.5-plus |
+| Intermediate | 原图 + marked + Annotated；**无** zoom/before；本地落盘 unmarked + after + annotated | **Verify→Pointer（条件）** + **Repetition** + **Next**；**Nearby bboxes×10**；每轮 sidecar 上报 `action_result/repetition_count`；思考预算 **2048** | qwen3.5-plus |
+| Advanced | 7 槽（与现网一致） | 三段：**Part 1 Verify** / **Part 2 Repetition** / **Part 3 Next+Location+Recheck+Tool route**；每轮 sidecar 上报 `action_result/repetition_count` | qwen3.6-plus，思考 8K |
 
 ## 操作历史
 
@@ -71,18 +71,17 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 - 每行必填 **`goal="…"`**，坐标为 session 0–1000 **(x,y)**（不写 index）。
 - verify：Primary 历史行仅 `pass/fail/pending/n/a`（无 cause）；Intermediate/Advanced 可带 `(cause)`。
 
-## Repetition 计数与升档（运行时注入）
+## Repetition 计数与升档
 
-每轮 `[CUR_SCREEN]` 文本末尾附带 **`[Computer tier runtime]`**（`tier/mod.rs` 计算，非截图）：
+升档由宿主运行时根据 sidecar 信号执行，不向模型注入独立 tier runtime 块。
 
 | 字段 | 含义 |
 |------|------|
-| **Repetition count: N** | 与最新历史行 **同一 goal** 的 **`verify: fail`** + **`verify: pending`** 条数（最多统计 10 条历史内）；**N > 3** 时 **`STUCK: yes`** |
-| **Verify-fail streak: N** | 连续 **`Step result: fail`** 次数；**N > 3** 且 `computerAutoUpgrade=true` 时升档（Primary→Intermediate→Advanced） |
-| **Goal-fail streak** | 同一 goal 连续 fail **>3** 会注入 **`[LOCKED GOAL]`**（`before_main_llm_call`） |
-| **pass** | 当前 goal verify 通过后 tier 重置为 **primary**，各 streak 清零 |
+| **action_result** | sidecar `verify:report` 上报，写入历史行 `action_result: ...` |
+| **repetition_count** | sidecar `verify:report` 上报，宿主按阈值内部判定是否升级 |
 
-模型在 **Repetition:** 中应回显 runtime 的 **N** 与 **verdict**；升档由宿主在回合结束后执行，下一回合自动使用更高档模型/图像/提示词。
+模型在 **Repetition:** 中应输出 **Count**；升档信号由 sidecar `verify:report` 的 `repetition_count` 提供，不从 `thoughts` 文本提取；升档由宿主在回合结束后执行，下一回合自动使用更高档模型/图像/提示词。
+上一轮 verify 结果通过历史行内的 `verify: ...` 字段注入（不再追加单独汇总行）。
 
 ## 配置（`AGENT.md` config）
 
@@ -94,14 +93,15 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 
 | 档位 | 定位 | communication + `## Tools` 附录 |
 |------|------|----------------------------------|
-| Primary / Intermediate | **index**（`click_index`、`type_text_at_index` 等） | `tools/prompts/index/*.md` |
+| Primary | **hybrid**（index + coordinate 同时可用，按中心归属切换） | `tools/prompts/hybrid/*.md` |
+| Intermediate | **index**（`click_index`、`type_text_at_index` 等） | `tools/prompts/index/*.md` |
 | Advanced | **coordinate**（`click_at`、`type_text_at` + Location + Overlay bboxes） | `tools/prompts/coordinate/*.md` |
 
 组装：`generate_tools_system_appendix_with_positioning`（见 `tools/tool_prompts.rs`）。运行时 Advanced 仍会拒绝 `*_index` 调用。
 
 ## Advanced 七阶段
 
-`prompts/tiers/advanced/communication.md`：证明式七阶段、坐标 `*_at`、reference index R 仅作锚点。Primary/Intermediate 的 communication 与工具附录仅允许 **index** 族方法。
+`prompts/tiers/advanced/communication.md`：证明式七阶段、坐标 `*_at`、reference index R 仅作锚点。Primary 为 hybrid（index + coordinate），Intermediate 维持 index-only。
 
 ## 外部 Agent 目录覆盖
 

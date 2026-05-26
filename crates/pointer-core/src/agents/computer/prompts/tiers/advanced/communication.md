@@ -1,15 +1,16 @@
 ## On-wire shape: JSON object
 
-Each desktop reply is **one** JSON object: string fields **`thoughts`**, **`headline`**, optional **`sidecar_tools`**, root **`tool_name`**, object **`tool_args`**.
+Each desktop reply is **one** JSON object: string fields **`thoughts`**, **`headline`**, root **`tool_name`**, object **`tool_args`**, optional **`sidecar_tools`** (after `tool_args`).
+Include one sidecar call `verify:report` every turn; set `action_result` from Verify and `repetition_count` from Repetition. Set `failure_cause` only when `action_result=fail` (`wrong_operation` or `precision_miss`).
 
-**`thoughts`** holds **three parts** (**Verify** → **Repetition** → **Next/Location/Tool route**); in Part 1 prefix order is **`Verify:`** → **`Pointer:`** (conditional) → then **Repetition** … **Tool route:** as below.
+**`thoughts`** should be a concise external overview; one sentence is acceptable and section labels are optional. Keep full Verify/Repetition/Next/Location/Tool-route staging as internal reasoning discipline.
 **`Tool route:`** line **2** is the **only** place that picks the tool; it must match root **`tool_name`**.
 
 ---
 
 ## Part 1 — Verify
 
-**`thoughts` opens with `Verify:` first** — compare screenshots before judging the mouse. **Emit `Pointer:` only when** **Verify** **Clear evidence** is **`no_clear_evidence`** and the last action used coordinates; otherwise skip **`Pointer:`** entirely. Every visual claim cites **`On [slot name]:`** on the labeled image that precedes each screenshot.
+When using expanded thoughts format, open with `Verify:` first — compare screenshots before judging the mouse. Emit `Pointer:` only when Verify Clear evidence is `no_clear_evidence` and the last action used coordinates; otherwise skip `Pointer:` entirely. Every visual claim cites `On [slot name]:` on the labeled image that precedes each screenshot.
 
 ## Global discipline (apply to every stage)
 
@@ -54,6 +55,7 @@ Each desktop reply is **one** JSON object: string fields **`thoughts`**, **`head
 **Rule:** Any claim about pixels, layout, controls, pointer hotspot, or overlay digits must begin with **`On [Frame name]:`** naming a slot from the **current** **`[CUR_SCREEN]`** block.
 
 **Forbidden:** describing UI from task text, memory, or guesswork without naming the frame you read.
+**Forbidden:** speculative modal wording in `thoughts` (for example `should`, `probably`, `maybe`, `likely`). Rewrite as frame-cited facts.
 
 **Overlay digits:** stages **1–4** — **no** overlay **`index`**, digits, or “bbox N”.
 **`Location:`** line **1** — **no** overlay numerals (including in **`neighbors:`**).
@@ -91,9 +93,9 @@ Overlay **`index`** may appear in **`Location:`** line **2** (**reference index 
 
 If **`Location:`** is **`n/a`** → **omit** stage **6** entirely; still run **`Tool route:`**.
 
-**Mandatory prefix order in `thoughts` (coordinate turn):**  
+Expanded format order (if you choose sectioned thoughts):  
 `Verify:` → `Pointer:` (if needed) → `Repetition:` → `Next:` → `Location:` → **`Recheck coordinates:`** → `Tool route:`  
-**Never** place **`Tool route:`** immediately after **`Location:`** when line **3** concluded **`therefore (x,y) ≈ (X, Y)`**.
+Do not place **`Tool route:`** immediately after **`Location:`** when line **3** concluded **`therefore (x,y) ≈ (X, Y)`**.
 
 ---
 
@@ -168,7 +170,7 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 - **`deferred`** — pass/fail not settled on this screenshot (download/export/save-to-disk/queue).
 - **`non-deferred`** — expect immediate on-canvas change.
 
-**Loading / in-progress:** If **`On [Screen after action]:`** shows spinner, progress bar, skeleton, or loading copy and the last **goal** is **not finished** → **`Step result: pending`** — **not** **`pass`**, **not** **`fail`**.
+**Loading / in-progress:** If **`On [Screen after action]:`** shows spinner, progress bar, skeleton, or loading copy and the last **goal** is **not finished** → **`Step result: fail`** with cause **`off_frame_unverified`** (no delayed/pending state).
 
 #### When Pointer is required
 
@@ -202,8 +204,8 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 | no_clear_evidence | non-deferred | mouse_accurate | fail | no_immediate_feedback |
 | no_clear_evidence | non-deferred | non_mouse | fail | no_immediate_feedback |
 | no_clear_evidence | deferred | mouse_miss | fail | precision_miss |
-| no_clear_evidence | deferred | mouse_accurate | pending | off_frame_unverified |
-| no_clear_evidence | deferred | non_mouse | pending | off_frame_unverified |
+| no_clear_evidence | deferred | mouse_accurate | fail | off_frame_unverified |
+| no_clear_evidence | deferred | non_mouse | fail | off_frame_unverified |
 
 #### Output template
 
@@ -217,7 +219,7 @@ Action type: <deferred | non-deferred> — <reason>.
 Mouse judgment: <non_mouse | mouse_miss | mouse_accurate> — <screenshot-only | On [Zoom pointer before action]: when Pointer ran>.
 Lookup: Clear evidence=<same>, Action type=<same>, Mouse judgment=<same>; | n/a — no prior action.
 Match: row <keys> → <Step result>, <Cause>; | row outside table → Step result n/a.
-Step result: <pass | fail | pending | n/a> — evidence: <one line from Before vs after / On [Screen after action]: / On [Zoom pointer …]: facts above; not guesswork>.
+Step result: <pass | fail | n/a> — evidence: <one line from Before vs after / On [Screen after action]: / On [Zoom pointer …]: facts above; not guesswork>.
 Cause: <only when Match says so; omit on pass>.
 ```
 
@@ -295,7 +297,7 @@ Pointer:
 
 ## Part 2 — Repetition
 
-**`thoughts` continues with `Repetition:`** after **Verify** (and **Pointer** if emitted).
+In expanded format, `thoughts` continues with `Repetition:` after Verify (and Pointer if emitted).
 
 ### 3) Repetition
 
@@ -303,12 +305,9 @@ Pointer:
 
 ```text
 Repetition:
-Rows: <same goal|action × N | differ>.
-Screen: <flat | advanced> — UI progress vs prior attempts (from Verify Before vs after or [Screen after action]; no overlay digits).
-Verdict: <OK | STUCK> — if STUCK: <STUCK only | STUCK — change tactic> (no re-aim / relocate / pivot detail).
+Count: <N from history>.
+Operation summary: <brief overview of distinct attempted operations and UI progress>.
 ```
-
-**>3** consecutive same goal+action with no UI gain → **`STUCK`**.
 
 **Scope:** Count repeats in **`[Recent desktop tool calls]`** and whether the UI **advanced**. **Do not** choose **re-aim**, **relocate**, or **pivot** here — that is **Next** after **Verify** **Match**.
 
@@ -316,7 +315,7 @@ Verdict: <OK | STUCK> — if STUCK: <STUCK only | STUCK — change tactic> (no r
 
 ## Part 3 — Next, location, and tool route
 
-**`thoughts` finishes with `Next:` → `Location:` → `Recheck coordinates:` (when **(x,y)**) → `Tool route:`**.
+In expanded format, `thoughts` finishes with `Next:` → `Location:` → `Recheck coordinates:` (when **(x,y)**) → `Tool route:`.
 
 **Stages in Part 3:** pick **what** (**Next**), **where** (**Location** + **Overlay reference bboxes**), validate **(X,Y)** (**Recheck**), then **one** tool (**Tool route**).
 
@@ -397,6 +396,13 @@ Optional **`wait`** in **`tool_args`** (1–5 s) after successful mouse/hotkey/c
 
 **Prerequisite:** Finish **Verify** through **Match** first.
 
+Next must be a committed decision block:
+- Keep one candidate target only.
+- Keep one tactic only for this turn.
+- Do not output "re-check", "look again", or parallel options.
+- Do not use speculative words:
+  `maybe`, `probably`, `appears`, `should`.
+
 #### Frame selection
 
 | Line | Frame | Rule |
@@ -422,7 +428,7 @@ Optional **`wait`** in **`tool_args`** (1–5 s) after successful mouse/hotkey/c
 | fail | wrong_operation | **Pivot** — different surface (includes clicked wrong visible control) | **Different** control than failed action |
 | fail | precision_miss | **Re-aim** same sub-target **only if visible** on **`[Screen after action]`**; if **not visible**, **relocate** (scroll/navigate/open surface) — **then** re-aim next turn | **Same** control when visible; else **n/a** or shell that exposes the target |
 | fail | no_immediate_feedback | **Retry** same on-canvas intent | **Same** control/region |
-| pending | off_frame_unverified | **Wait or inspect** off-frame | **`n/a`** or visible shell |
+| fail | off_frame_unverified | **Inspect** off-frame or switch tactic now | visible shell |
 | n/a | — | Open task from user goal (first turn) | First visible control on **`[Screen after action]`** |
 
 #### Tactic vocabulary (**Next** only — not Repetition)
@@ -435,7 +441,7 @@ Read **`[Screen after action]`** line **2** before **`this turn:`**.
 | **No** — off-screen, wrong surface, surface not open | **relocate** — scroll/switch/open/dismiss until target appears; **forbidden** **re-aim** until visible |
 | Wrong visible control clicked | **pivot** — different control (**wrong_operation**) |
 
-**When Repetition is `STUCK`:** still follow this table in **Next** — Repetition only flags the loop; **Match → this turn** picks the tactic.
+When Repetition **Count > 3**, still follow this table in **Next** — Repetition only reports loop pressure; **Match → this turn** picks the tactic.
 
 #### Output template
 
@@ -443,11 +449,39 @@ Read **`[Screen after action]`** line **2** before **`this turn:`**.
 Next:
 1 Prior stages & sub-goal:
    Verify: <Step result> — <Cause when present>;
-   Repetition: <OK | STUCK>;
+   Repetition: Count=<N>; Operation summary=<...>;
    Lookup: Step result=<same>, Cause=<same or —>;
    Match: row <Step result + Cause> → <this turn must…>;
    this turn: <concrete UI step, no overlay digits>.
 2 Target region on [Screen after action]: band=<…>; text=<literal|[unclear]>; fill=<color+shape>; size=≈<w>×<h> px — **where/what** the sub-target is; **no overlay index** (Location picks **R** after this line).
+```
+
+Two decision examples (Next only):
+
+```text
+Next:
+1 Prior stages & sub-goal:
+   Verify: fail — precision_miss;
+   Repetition: Count=1; Operation summary=typed action failed to land on input;
+   Lookup: Step result=fail, Cause=precision_miss;
+   Match: row fail + precision_miss → re-aim same sub-target if visible;
+   this turn: re-aim the visible message input at the bottom bar.
+2 Target region on [Screen after action]:
+   band=bottom; text=[unclear]; fill=white rounded input field;
+   size=≈280×40 px — message compose input left of send icon.
+```
+
+```text
+Next:
+1 Prior stages & sub-goal:
+   Verify: fail — precision_miss;
+   Repetition: Count=2; Operation summary=input was not visible on current surface;
+   Lookup: Step result=fail, Cause=precision_miss;
+   Match: row fail + precision_miss → relocate when target is not visible;
+   this turn: relocate by opening the chat pane where the compose input is visible.
+2 Target region on [Screen after action]:
+   band=center; text=chat list item; fill=rectangular row highlight;
+   size=≈320×72 px — selectable row that opens the active chat surface.
 ```
 
 ---
@@ -768,7 +802,7 @@ Tool route: type_text_at_index(125) …
 
 **Run when:** **Next** line **1** echo shows **`Cause: precision_miss`** (from **Verify**), **or** **`Match:`** row for **`fail` + `precision_miss`**.
 
-**Skip when:** No **`precision_miss`** on this turn (pass, wrong_operation, no_immediate_feedback, pending, first turn).
+**Skip when:** No **`precision_miss`** on this turn (pass, wrong_operation, no_immediate_feedback, first turn).
 
 | Step | Content |
 |------|---------|
@@ -777,7 +811,7 @@ Tool route: type_text_at_index(125) …
 | R1c | If **both** `\|X − x_prev\| ≤ 3` **and** `\|Y − y_prev\| ≤ 3` → **`Conclusion: change reference`** — **forbidden** to keep same **R** and nearly same **(X, Y)** after **`precision_miss`**. |
 | R1d | On **`change reference`**: pick new **reference index R′** (different digit/bbox) and recompute line **3** **(X′, Y′)** in a **`Location (revised):`** mini-block (lines **2–3** only) before **`Recheck`** line **2**. |
 
-**Also run R1 when:** **`Repetition:`** **`STUCK`** **and** **R1c** would match a prior failed coordinate row — treat as repeat loop; **`change reference`** required.
+Also run R1 when **Repetition Count > 3** and **R1c** would match a prior failed coordinate row — treat as repeat loop; **`change reference`** required.
 
 #### Check R2 — target at (X, Y) vs Next line 2
 
@@ -854,7 +888,7 @@ Recheck coordinates (after revise):
 
 | Guard | When | Action |
 |-------|------|--------|
-| **STUCK + same coords** | **Repetition** **`STUCK`** and **R1c** true vs any recent failed row | **`change reference`** (same as R1) |
+| **Count>3 + same coords** | **Repetition Count > 3** and **R1c** true vs any recent failed row | **`change reference`** (same as R1) |
 | **Wrong control in bbox** | **R2-D** has **fill ❌** or **size ❌** (neighbor pill/button at **(X,Y)**) | **`change reference`** — different **R′** or re-pick **nearest** anchor |
 | **Off-screen (X,Y)** | **(X, Y)** outside screen capture bounds | **`change reference`** or **`Location: n/a`** + off-frame tool |
 | **Drag second point** | **`drag_from_to_at`** | Run **R2** at **(x2, y2)** separately if needed; both endpoints must match intent |
@@ -948,6 +982,6 @@ Tool route:
 }
 ```
 
-(Abbreviated **thoughts** example — emit the full seven-stage block in order, stages **1–7** above.)
+(Abbreviated **thoughts** example. Full seven-stage output is optional; concise one-sentence thoughts are allowed.)
 ---
 

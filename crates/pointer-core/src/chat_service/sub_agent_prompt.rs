@@ -94,9 +94,9 @@ pub(super) fn init_sub_agent_session(
     }
 
     let computer_positioning = if def.profile == AgentProfile::Computer {
-        Some(crate::agents::computer::tools::tool_prompts::positioning_mode_for_tier(
+        crate::agents::computer::tools::tool_prompts::positioning_mode_for_tier(
             state.computer_state.tier_for_conversation(conversation_id),
-        ))
+        )
     } else {
         None
     };

@@ -51,7 +51,15 @@ pub(crate) fn strip_images_from_prior_messages(messages: &mut [ChatMessage]) {
 /// Labels in wire order — must match `assemble_cur_screen_base64` image sequence.
 fn slot_labels_for_tier(tier: ComputerTier, has_previous_raw: bool) -> Vec<&'static str> {
     match tier {
-        ComputerTier::Primary => vec![SLOT_SCREEN_ANNOTATED],
+        ComputerTier::Primary => {
+            let mut labels = Vec::with_capacity(3);
+            if has_previous_raw {
+                labels.push(SLOT_SCREEN_BEFORE_ACTION);
+            }
+            labels.push(SLOT_SCREEN_AFTER_ACTION);
+            labels.push(SLOT_SCREEN_ANNOTATED);
+            labels
+        }
         ComputerTier::Intermediate => vec![
             SLOT_SCREEN_AFTER_ACTION,
             SLOT_SCREEN_MARKED_AFTER_ACTION,
@@ -77,10 +85,10 @@ fn build_cur_screen_preamble(tier: ComputerTier, has_previous_raw: bool) -> Stri
     let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth — cite **On [slot name]:** in thoughts; do not invent UI from task text or prior turns.";
     match tier {
         ComputerTier::Primary => format!(
-            "{CUR_SCREEN_TAG} One labeled image: {SLOT_SCREEN_ANNOTATED}. {cite} \
-             Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 indices nearest the pointer; session 0–1000 rects for **W/H** and **dx/dy**). \
-             **Verify / Repetition:** no overlay digits — cite layout only. \
-             **Next:** pick **index** from this frame. Thoughts: Verify → Repetition → Next.\n"
+            "{CUR_SCREEN_TAG} Primary uses two or three labeled images this turn: optional {SLOT_SCREEN_BEFORE_ACTION}, then {SLOT_SCREEN_AFTER_ACTION}, then {SLOT_SCREEN_ANNOTATED}. {cite} \
+             Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 nearest the pointer; session 0–1000 rects). \
+             **Verify:** compare before/after first; if first capture, before is n/a. \
+             **Next:** choose index or coordinate route from the same turn evidence.\n"
         ),
         ComputerTier::Intermediate => format!(
             "{CUR_SCREEN_TAG} Three labeled images follow (unmarked full screen, marked full screen, annotated overlay). {cite} \
@@ -108,9 +116,15 @@ fn build_cur_screen_preamble(tier: ComputerTier, has_previous_raw: bool) -> Stri
 
 fn assemble_cur_screen_base64(tier: ComputerTier, cap: &ScreenCaptureResult) -> Vec<String> {
     match tier {
-        ComputerTier::Primary => vec![screen::encode_image_to_base64(
-            &cap.annotated_marked_jpeg,
-        )],
+        ComputerTier::Primary => {
+            let mut out = Vec::with_capacity(3);
+            if let Some(before) = &cap.inject_before_action {
+                out.push(screen::encode_image_to_base64(&before.screen_jpeg));
+            }
+            out.push(screen::encode_image_to_base64(&cap.raw_marked_jpeg));
+            out.push(screen::encode_image_to_base64(&cap.annotated_marked_jpeg));
+            out
+        }
         ComputerTier::Intermediate => {
             vec![
                 screen::encode_image_to_base64(&cap.raw_unmarked_jpeg),
@@ -248,12 +262,6 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     text.push_str(&block);
                     text.push('\n');
                 }
-                text.push_str("\n\n");
-                text.push_str(
-                    &ctx.computer_state
-                        .tier_runtime_prompt_block(ctx.conversation_id),
-                );
-                text.push('\n');
                 if let Some(ref anchor) = cap.mouse_neighbor_reference_text {
                     text.push_str("\n\n");
                     text.push_str(anchor);
@@ -404,14 +412,23 @@ mod tests {
     }
 
     #[test]
-    fn slot_labels_match_image_count_primary_one_annotated() {
-        for has_before in [false, true] {
-            let cap = dummy_cap(has_before);
-            let (labels, images) = assemble_cur_screen_payload(ComputerTier::Primary, &cap);
-            assert_eq!(labels.len(), 1, "has_before={has_before}");
-            assert_eq!(labels.len(), images.len());
-            assert_eq!(labels[0], SLOT_SCREEN_ANNOTATED);
-        }
+    fn slot_labels_match_image_count_primary_with_optional_before() {
+        let cap_no_before = dummy_cap(false);
+        let (labels_no_before, images_no_before) =
+            assemble_cur_screen_payload(ComputerTier::Primary, &cap_no_before);
+        assert_eq!(labels_no_before.len(), 2);
+        assert_eq!(labels_no_before, vec![SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED]);
+        assert_eq!(labels_no_before.len(), images_no_before.len());
+
+        let cap_with_before = dummy_cap(true);
+        let (labels_with_before, images_with_before) =
+            assemble_cur_screen_payload(ComputerTier::Primary, &cap_with_before);
+        assert_eq!(labels_with_before.len(), 3);
+        assert_eq!(
+            labels_with_before,
+            vec![SLOT_SCREEN_BEFORE_ACTION, SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED]
+        );
+        assert_eq!(labels_with_before.len(), images_with_before.len());
     }
 
     #[test]

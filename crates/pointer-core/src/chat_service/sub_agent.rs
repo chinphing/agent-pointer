@@ -149,11 +149,11 @@ pub(crate) async fn run_sub_agent(
         push_sub_assistant_turn(&mut local_history, assistant_msg);
 
         if def.profile == AgentProfile::Computer {
+            let last_msg = local_history.last();
             state.computer_state.on_assistant_round_complete(
                 conversation_id,
-                local_history
-                    .last()
-                    .and_then(|m| m.thoughts.as_deref()),
+                last_msg.and_then(|m| m.thoughts.as_deref()),
+                last_msg.and_then(|m| m.tool_calls.as_deref()),
             );
         }
 

@@ -37,6 +37,8 @@ Work with a **strict, evidence-first** mindset:
 - **Always include one `Route:` line** in `thoughts`. Format:
   **`Route: index|coordinate — On [slot name]: <N–target relation evidence> → <conclusion>`**
   Analysis first, route label last on that line.
+- Treat candidate index `N` as a suggestion only; re-check bbox evidence on
+  `[Annotated after action]` before final route selection.
 - **`Route:` locks the positioning method** for this turn and must match the root `tool_name` suffix (`*_index` vs `*_at`).
 - Do **not** dump full internal step-by-step templates in `thoughts`.
 - Any templates in this file are internal reasoning guidance, not strict external formatting.
@@ -153,11 +155,31 @@ Operation summary: <brief overview of distinct attempted operations>
 
   | N–target relation | When | Route |
   |-------------------|------|-------|
-  | **inner-center-wrap** | Target is **inside** bbox **N** and sits at **N's center** | **index** — use **N** directly |
+  | **inner-center-wrap** | One atomic target element is **inside** bbox **N**, and the target-element center coincides with bbox **N** center | **index** — use **N** directly |
   | **inner-edge-wrap** | Target is **inside** bbox **N** but at an **edge/corner**, not center | **coordinate** |
   | **unwrapped** | Target is **outside** bbox **N** (above/below/left/right/adjacent) | **coordinate** |
 
+  Quick relation examples:
+  - **inner-center-wrap**: bbox `N` tightly covers one standalone button; the
+    button center aligns with bbox `N` center -> use `index`.
+  - **inner-edge-wrap**: bbox `N` covers a full row; target is a small trailing
+    icon near the right edge inside that row -> use `coordinate`.
+  - **unwrapped**: bbox `N` covers a header row, while target is a button below
+    that row and outside bbox `N` -> use `coordinate`.
+
   **Do**
+  - Describe the target's visual features on `[Screen after action]` first.
+  - Output target region size estimate on `[Screen after action]` as `(w_t, h_t)`.
+  - On `[Annotated after action]`, describe bbox `N` with index background color,
+    border color, and wrapped element features.
+  - Output bbox size on `[Annotated after action]` as
+    `(w_b, h_b) = (right-left, bottom-top)`.
+  - Output bbox layout position relative to nearby landmarks in the same panel
+    (for example below toolbar, right of title, above footer).
+  - Compare features across `[Screen after action]` and
+    `[Annotated after action]`, including size, relative position, and
+    center ownership for one atomic target element:
+    full match + center ownership -> use `index`; otherwise -> use `coordinate`.
   - Name the relation explicitly before choosing route.
   - Write exactly one route decision and lock it for this turn.
   - Keep only one candidate target in **Next**.
@@ -185,13 +207,15 @@ Operation summary: <brief overview of distinct attempted operations>
     `maybe`, `probably`, `appears`, `should`.
 
 - Next completeness gate (must pass before tool emission):
-  - Missing **Target description** -> stop and re-read the current images.
+  - Missing **Target** section -> stop and re-read the current images.
+  - Missing **BBox** section (candidate + profile + size + relative position)
+    -> stop and complete Step 2.
   - Missing **N–target relation** analysis before **Route** -> stop and complete Step 2.
   - Missing branch result (`index=<N>` or `(sub_x, sub_y)=...`) -> stop and complete Step 3.
   - If any item is missing, do not emit `tool_name` / `tool_args` yet.
 
 **Shared internal reasoning prefix (every turn):**
-1) **Describe target** (intent + target description + target center),
+1) **Describe target** (intent + target description + target center + target size),
 2) **Route decision** (name **N–target relation**, then **index** vs **coordinate**),
 3) execute one branch result: `index` for `*_index` or `(sub_x, sub_y)` for `*_at`.
 
@@ -199,9 +223,16 @@ Operation summary: <brief overview of distinct attempted operations>
 Next:
 Recovery: Count=<N> — <routine | change tactic because …>
 Intent: <what this action tries to achieve>
-Target description: <shape/color/text/relative position on [Screen after action]>
-Target center: <cx, cy estimate from visual evidence>
-N–target relation: <inner-center-wrap | inner-edge-wrap | unwrapped> — <evidence on [Annotated after action]>
+- Target: <one atomic target element on [Screen after action]:
+  shape/color/text/relative position; center=(cx, cy) estimate; size=(w_t, h_t)>
+- BBox: <candidate N suggestion only, not final; on [Annotated after action]:
+  index bg color + border color + contained element features;
+  size=(w_b, h_b)=(right-left, bottom-top); relative position to nearby
+  landmarks (not target-vs-bbox judgment)>
+Cross-check: <features + size + relative position across
+[Screen after action] and [Annotated after action]:
+full-match | mismatch>
+N–target relation: <inner-center-wrap | inner-edge-wrap | unwrapped> — <evidence on [Annotated after action], including target-element center ownership>
 Route decision: <index | coordinate> — <same relation recap>
 Candidate reference: <bbox row N or pointer-nearest row>
 Derive: <for coordinate only: quote row R box, estimate ratio (rx, ry),
@@ -231,10 +262,17 @@ Two decision examples (Next only):
 ```text
 Next:
 Recovery: Count=0 — routine
-Intent: Type a message in the chat input.
-Target description: White rounded text input at the bottom of the right chat panel.
-Target center: around lower-middle of the input field from visible layout.
-N–target relation: inner-center-wrap — On [Annotated after action]: input field center aligns with bbox 104 center.
+Intent: Focus the global search input.
+- Target: on [Screen after action], white rounded search box; relative position =
+  below the top tab strip and above the main content area; center around the
+  middle; size (w_t, h_t) ≈ (320, 72).
+- BBox: candidate N=104 is suggestion only; on [Annotated after action], bbox 104
+  has blue index chip, blue border, and a long white rounded rectangle;
+  size (w_b, h_b) = (540-220, 720-648) = (320, 72); relative position = below the
+  top tab strip and above the main content area.
+Cross-check: On [Screen after action] and [Annotated after action], features,
+size, and centered relation fully match bbox 104.
+N–target relation: inner-center-wrap — On [Annotated after action]: search box center aligns with bbox 104 center.
 Route decision: index — inner-center-wrap → use N=104 directly.
 Candidate reference: bbox row 104.
 Branch result: index=104
@@ -244,10 +282,17 @@ Verdict: choose click_index at index 104.
 ```text
 Next:
 Recovery: Count=1 — change tactic because prior pick missed edge control.
-Intent: Click the trailing icon inside the chat row.
-Target description: Small square icon at the right edge of the white chat row.
-Target center: right edge of row, not row center.
-N–target relation: inner-edge-wrap — On [Annotated after action]: icon inside bbox 113 but at right edge, not center.
+Intent: Click the close icon in the panel header.
+- Target: on [Screen after action], small square close icon at the right edge of
+  the panel header; center near right edge, not header center;
+  size (w_t, h_t) ≈ (20, 20).
+- BBox: candidate N=113 is suggestion only; on [Annotated after action], bbox 113
+  has blue index chip, blue border, and a horizontal header band with text left
+  and icon right; size (w_b, h_b) = (540-220, 720-648) = (320, 72);
+  relative position = directly under the panel title bar and above the panel body.
+Cross-check: On [Screen after action], icon is small and at the far-right edge;
+on [Annotated after action], bbox 113 is much wider and does not own icon center.
+N–target relation: inner-edge-wrap — On [Annotated after action]: close icon is inside bbox 113 but at the right edge, not center.
 Route decision: coordinate — inner-edge-wrap → derive point from reference row 113.
 Candidate reference: pointer-nearest row 113.
 Derive: row 113 box=(220, 648, 540, 720), anchor=top-left(220,648),
@@ -261,10 +306,16 @@ Verdict: choose click_at at the derived point.
 ```text
 Next:
 Recovery: Count=0 — routine
-Intent: Type a message in the chat input.
-Target description: White rounded text input below the chat list.
-Target center: lower-middle of the input field.
-N–target relation: unwrapped — On [Annotated after action]: input sits below bbox 113, outside its rect.
+Intent: Click the Apply button in the settings section.
+- Target: on [Screen after action], blue rectangular button below the options list;
+  center around button middle; size (w_t, h_t) ≈ (320, 72).
+- BBox: candidate N=113 is suggestion only; on [Annotated after action], bbox 113
+  has blue index chip, blue border, and a horizontal options row with label and
+  right-side control; size (w_b, h_b) = (540-220, 720-648) = (320, 72);
+  relative position = above the action-button band and below the section heading.
+Cross-check: On [Screen after action], button is below the options row;
+on [Annotated after action], bbox 113 does not wrap the button region.
+N–target relation: unwrapped — On [Annotated after action]: button sits below bbox 113, outside its rect.
 Route decision: coordinate — unwrapped → derive point from nearest reference row 113.
 Candidate reference: pointer-nearest row 113.
 Derive: row 113 box=(220, 648, 540, 720), anchor=top-left(220,648),
@@ -343,7 +394,7 @@ Hard rules:
 
 ### Method B — Index-style route (inner-center-wrap)
 
-Use when **N–target relation** is **inner-center-wrap** — target at bbox **N** center; use **N** directly.
+Use when **N–target relation** is **inner-center-wrap** — one atomic target element center coincides with bbox **N** center; use **N** directly.
 
 Use this concise pattern:
 
@@ -358,7 +409,7 @@ Verdict: <use index-style route with index args>
 ```
 
 Hard rules:
-- Use only when target center coincides with bbox **N** center (**inner-center-wrap**).
+- Use only when the atomic target-element center coincides with bbox **N** center (**inner-center-wrap**), not a group/container center.
 - Quote one concrete reference row before writing final `index` decision.
 - Do not output `dx/dy`.
 - Keep one action goal per call; for multi-point actions (for example drag), provide all required positions explicitly.
@@ -430,7 +481,7 @@ Minimal correct example:
 
 ```json
 {
-  "thoughts": "Verify fail (precision_miss). Route: coordinate — On [Annotated after action]: Cancel button inner-edge-wrap inside bbox 88, not center → click_at footer.",
+  "thoughts": "Verify fail (precision_miss). Candidate N=88 is a suggestion only. Route: coordinate — On [Screen after action] and [Annotated after action]: Cancel button features mismatch bbox-88 center ownership (inner-edge-wrap) → click_at footer.",
   "headline": "...",
   "tool_name": "mouse:click_at",
   "tool_args": { "goal": "Dismiss the dialog without saving", "action": "click the \"Cancel\" button -- gray rectangular button at the bottom-right of the dialog, to the right of \"OK\"", "x": 520, "y": 840 },
@@ -447,10 +498,10 @@ Minimal correct index-route example:
 
 ```json
 {
-  "thoughts": "Verify pass. Route: index — On [Annotated after action]: Alice row inner-center-wrap at bbox 49 center → click_index 49.",
+  "thoughts": "Verify pass. Candidate N=49 is a suggestion first. Route: index — On [Screen after action] and [Annotated after action]: Settings tab features fully match bbox-49 center ownership (inner-center-wrap) → click_index 49.",
   "headline": "...",
   "tool_name": "mouse:click_index",
-  "tool_args": { "goal": "Open the chat with Alice", "action": "click the \"Alice\" chat row -- white rectangular list row with avatar on the left and name text, in the upper-left chat list panel", "index": 49 },
+  "tool_args": { "goal": "Open the Settings tab", "action": "click the \"Settings\" tab -- light gray rounded tab with gear icon, in the top navigation bar", "index": 49 },
   "sidecar_tools": [
     {
       "tool_name": "verify:report",

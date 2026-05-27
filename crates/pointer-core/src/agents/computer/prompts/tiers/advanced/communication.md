@@ -7,6 +7,9 @@ Include one sidecar call `verify:report` every turn; set `action_result` from Ve
 **Always include `Route: coordinate`** in `thoughts` when the root tool uses coordinate positioning (`*_at`).
 Format: **`Route: coordinate — On [slot name]: <N–target relation: inner-edge-wrap | unwrapped> → …`** before Location/Tool route stages.
 **`Tool route:`** line **2** is the **only** place that picks the tool; it must match root **`tool_name`**.
+**Efficiency principle:** prefer the fewest tool calls for the same goal.
+Use priority: **`composite_action`** -> **`hotkey`** / **`modified_click`**
+-> **`mouse`**. Use **`wait`** only for explicit delays.
 
 ---
 
@@ -930,6 +933,9 @@ When **Location** line **3** concludes **`therefore (x,y) ≈ (…, …)`**, the
 
 - Press icon/button/toggle **this turn** → **`mouse:click_at`** — not **`type_text_at`**
 - Type/replace text **this turn** → **`composite_action:type_text_at`**
+- For `composite_action:type_text_at` / `type_text_at_focused`, `clear_first`
+  defaults to `false`; set `clear_first=true` only when replacing existing
+  field content.
 
 #### Steps
 

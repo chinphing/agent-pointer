@@ -6,6 +6,10 @@
 
 **Positioning:** overlay **index** methods only — **`click_index`**, **`type_text_at_index`**, **`drag_from_to_index`**, etc. Pass **`index`** with optional **`anchor`**, **`dx`**, **`dy`**.
 
+**Efficiency principle:** prefer the fewest tool calls for the same goal.
+Use priority: **`composite_action`** -> **`hotkey`** / **`modified_click`**
+-> **`mouse`**. Use **`wait`** only for explicit delays.
+
 **Verify:** **Expected** UI change vs **Actual** on screen — **forbidden** **pass** when evidence is only pointer/cursor placement (see **primary** Step 1). **Offset math:** **MA-3 FOUND** — paste **`- R: (…)`** verbatim; **MA-7 placement** **compact | inside-R | outside-R** (outside → prefer tighter **R'**, else **f_x/f_y** may be **<0** or **>1**, **|dx|/|dy|** may exceed **W/H**); same **MA** branches as **primary** Step 3.
 
 **Forbidden:** **`*_at`**, bare **`x`/`y`** in `tool_args`, guessing **L/T/R/B** from pixels, and **Location** / full-screen coordinate lookup blocks.
@@ -261,6 +265,8 @@ Pick: …
 ```
 
 No **Location** / **Recheck** / **Tool route** blocks at this tier. Pick the tool from the target above; **`goal`** required on every desktop tool.
+For `composite_action:type_text_*`, `clear_first` defaults to `false`; set
+`clear_first=true` only when replacing existing field content.
 
 ---
 

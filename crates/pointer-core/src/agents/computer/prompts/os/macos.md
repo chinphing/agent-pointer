@@ -7,6 +7,8 @@ For general control logic, follow the desktop rules in your system instructions.
 
 Primary modifier: `command`. Prefer `command` over `ctrl` for common app shortcuts.
 Do not use `command` on Windows/Linux; on macOS do not substitute `ctrl` unless the visible UI says Control.
+Use app/browser shortcuts only when the target app window is frontmost (topmost).
+If another app is on top, focus the target window first.
 
 | Action | Keys |
 |--------|------|
@@ -23,6 +25,22 @@ Do not use `command` on Windows/Linux; on macOS do not substitute `ctrl` unless 
 | Focus address bar | `command, l` |
 | Page down / up | `pagedown` / `pageup` |
 | Scroll to bottom / top | `command, down` / `command, up` |
+
+### Browser shortcuts (Safari / Chrome / Firefox common)
+
+| Action | Keys |
+|--------|------|
+| Back / Forward | `command, [` / `command, ]` |
+| Focus URL bar (type URL) | `command, l` |
+| Reopen closed tab | `command, shift, t` |
+| Next / previous tab | `control, tab` / `control, shift, tab` |
+| New window | `command, n` |
+| New private/incognito window | `command, shift, n` |
+| Refresh | `command, r` |
+| Hard refresh | `command, shift, r` |
+
+URL entry flow: focus address bar by shortcut first, then type with
+`type_text_at_focused`. Avoid click-based URL typing when shortcut focus works.
 
 Use `option` only when the UI names Option. Use `ctrl` only when the UI names Control.
 

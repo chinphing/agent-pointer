@@ -7,6 +7,8 @@ For general control logic, follow the desktop rules in your system instructions.
 ### Keyboard shortcuts (hotkey tool)
 
 Primary modifier: `ctrl`. Do not use `command` unless the visible UI explicitly names it.
+Use app/browser shortcuts only when the target app window is frontmost (topmost).
+If another app is on top, focus the target window first.
 
 | Action | Keys |
 |--------|------|
@@ -23,6 +25,21 @@ Primary modifier: `ctrl`. Do not use `command` unless the visible UI explicitly 
 | Focus address bar / location | `ctrl, l` |
 | Page down / up | `pagedown` / `pageup` |
 | Scroll to bottom / top | `ctrl, end` / `ctrl, home` |
+
+### Browser shortcuts (Chrome / Chromium / Firefox common)
+
+| Action | Keys |
+|--------|------|
+| Back / Forward | `alt, left` / `alt, right` |
+| Focus URL bar (type URL) | `ctrl, l` or `alt, d` |
+| Reopen closed tab | `ctrl, shift, t` |
+| Next / previous tab | `ctrl, tab` / `ctrl, shift, tab` |
+| New window | `ctrl, n` |
+| New private/incognito window | `ctrl, shift, n` |
+| Refresh / hard refresh | `ctrl, r` or `f5` / `ctrl, shift, r` or `ctrl, f5` |
+
+URL entry flow: focus address bar by shortcut first, then type with
+`type_text_at_focused`. Avoid click-based URL typing when shortcut focus works.
 
 Global shortcuts vary by desktop environment.
 For app-local shortcuts, follow the visible in-app hint when present.

@@ -182,6 +182,13 @@ per the rules here and in your worker prompt.
   Do **not** call **`response`** if you still plan to invoke **any other tool** in the **same** turn;
   run those first, then **`response`**.
 
+- **Efficiency principle:** Prefer the fewest tool calls for the same goal.
+  Use this priority when multiple options are valid:
+  **`composite_action`** -> **`hotkey`** / **`modified_click`** -> **`mouse`**.
+  Use **`wait`** only when an explicit delay is needed.
+- **Hotkey precondition:** Use app/browser shortcuts only when the target window
+  is the foreground (topmost) window. If not, focus the target window first.
+
 - **User-visible language:** Write **`headline`** and **`tool_args.text`** (and any other user-facing strings in tool results you summarize back to the user) in **Chinese (简体中文)** by default. Use another language only when the user writes in that language or explicitly asks for it. **`thoughts`** may keep English section labels when your worker prompt requires structured prefixes (e.g. Computer **`Verify:`** / **`Next:`**); **`headline`** is always shown in the chat UI and must be Chinese unless an exception applies.
 
 ## Task board

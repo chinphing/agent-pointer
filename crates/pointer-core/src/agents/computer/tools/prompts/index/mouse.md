@@ -38,7 +38,7 @@ Parameter constraints:
 
 ```json
 {
-  "thoughts": "…\nNext:\nTarget region: On [Annotated after action]: dialog footer primary button.\nSub-target: button fills bbox 12.\nPick: index 12 (center)\n",
+  "thoughts": "… Route: index — On [Annotated after action]: bbox 12 inner-center-wrap at center → click_index 12.",
   "headline": "Confirm",
   "tool_name": "mouse:click_index",
   "tool_args": {
@@ -54,7 +54,7 @@ Parameter constraints:
 
 ```json
 {
-  "thoughts": "…\nNext:\n…\nMA-3 Inject lookup: FOUND\nMA-5 Nearby: - <R>: (<from inject>)\nSub-target: trailing control has its own bbox.\nPick: index 27 (center)\n",
+  "thoughts": "… Route: index — On [Annotated after action]: bbox 27 inner-center-wrap; trailing control at center → click_index 27.",
   "headline": "Activate control",
   "tool_name": "mouse:click_index",
   "tool_args": {

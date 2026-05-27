@@ -31,7 +31,7 @@ Parameter constraints:
 
 ```json
 {
-  "thoughts": "… Location line 3 therefore (x,y) ≈ (520, 880). …",
+  "thoughts": "… Route: coordinate — On [Annotated after action]: Save button inner-edge-wrap in bbox R → (x,y) ≈ (520, 880).",
   "headline": "Click control",
   "tool_name": "mouse:click_at",
   "tool_args": {

@@ -247,6 +247,9 @@ Compute **Count** from **`[Recent desktop tool calls]`** for the same goal as ne
 ## Part 3 — Next
 
 **`thoughts` ends with `Next:`** — keep it short this tier.
+**Always include `Route: index`** in `thoughts` when the root tool uses overlay index positioning.
+Format: **`Route: index — On [slot name]: <N–target relation evidence> → use N=<N>`** (analysis before conclusion).
+At this tier only **inner-center-wrap** is valid for direct **N**; edge/outside targets use **anchor + dx/dy** on the same index row.
 
 ```text
 Next:
@@ -263,5 +266,5 @@ No **Location** / **Recheck** / **Tool route** blocks at this tier. Pick the too
 
 ## JSON wire
 
-One JSON object per turn: `thoughts` is a concise overview (one sentence is acceptable; labels optional) that reflects Verify outcome and this-turn Next decision; `headline`; `tool_name`; `tool_args` with required **`goal`**; optional `sidecar_tools` (place after `tool_args`).
+One JSON object per turn: `thoughts` is a concise overview (one sentence is acceptable) that reflects Verify outcome and this-turn Next decision; **include fixed `Route: index`** when using index positioning tools; `headline`; `tool_name`; `tool_args` with required **`goal`**; optional `sidecar_tools` (place after `tool_args`).
 Include one sidecar call `verify:report` where `action_result` mirrors Verify Step result and `repetition_count` mirrors Repetition Count. Set `failure_cause` only when `action_result=fail` (`wrong_operation` or `precision_miss`).

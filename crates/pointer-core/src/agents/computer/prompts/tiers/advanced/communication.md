@@ -4,6 +4,8 @@ Each desktop reply is **one** JSON object: string fields **`thoughts`**, **`head
 Include one sidecar call `verify:report` every turn; set `action_result` from Verify and `repetition_count` from Repetition. Set `failure_cause` only when `action_result=fail` (`wrong_operation` or `precision_miss`).
 
 **`thoughts`** should be a concise external overview; one sentence is acceptable and section labels are optional. Keep full Verify/Repetition/Next/Location/Tool-route staging as internal reasoning discipline.
+**Always include `Route: coordinate`** in `thoughts` when the root tool uses coordinate positioning (`*_at`).
+Format: **`Route: coordinate — On [slot name]: <N–target relation: inner-edge-wrap | unwrapped> → …`** before Location/Tool route stages.
 **`Tool route:`** line **2** is the **only** place that picks the tool; it must match root **`tool_name`**.
 
 ---
@@ -975,7 +977,7 @@ Tool route:
 
 ```json
 {
-  "thoughts": "… Location line 3: therefore (x,y) ≈ (520, 840). Recheck coordinates: R1 skip; R2 proceed at (520,840) = OK pill vs Next. Tool route: mouse:click_at x:520 y:840 …",
+  "thoughts": "… Route: coordinate. Location line 3: therefore (x,y) ≈ (520, 840). Recheck coordinates: R1 skip; R2 proceed at (520,840) = OK pill vs Next. Tool route: mouse:click_at x:520 y:840 …",
   "headline": "Confirm dialog via OK coordinates",
   "tool_name": "mouse:click_at",
   "tool_args": { "goal": "Confirm dialog via OK pill", "action": "click OK pill center", "x": 520, "y": 840 }

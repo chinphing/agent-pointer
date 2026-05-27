@@ -88,7 +88,7 @@ fn build_cur_screen_preamble(tier: ComputerTier, has_previous_raw: bool) -> Stri
             "{CUR_SCREEN_TAG} Primary uses two or three labeled images this turn: optional {SLOT_SCREEN_BEFORE_ACTION}, then {SLOT_SCREEN_AFTER_ACTION}, then {SLOT_SCREEN_ANNOTATED}. {cite} \
              Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 nearest the pointer; session 0–1000 rects). \
              **Verify:** compare before/after first; if first capture, before is n/a. \
-             **Next:** choose index or coordinate route from the same turn evidence.\n"
+             **Next:** judge **N–target relation** (inner-center-wrap / inner-edge-wrap / unwrapped), then choose index or coordinate route.\n"
         ),
         ComputerTier::Intermediate => format!(
             "{CUR_SCREEN_TAG} Three labeled images follow (unmarked full screen, marked full screen, annotated overlay). {cite} \
@@ -108,7 +108,7 @@ fn build_cur_screen_preamble(tier: ComputerTier, has_previous_raw: bool) -> Stri
             };
             let count = if has_previous_raw { 7 } else { 5 };
             format!(
-                "{CUR_SCREEN_TAG} {count} labeled images follow in slot order.{zoom_before} {cite} Thoughts: Verify (screenshots) first; Pointer only if unclear; then Repetition, Next, Location, Recheck, Tool route.\n"
+                "{CUR_SCREEN_TAG} {count} labeled images follow in slot order.{zoom_before} {cite} Thoughts: Verify (screenshots) first; Pointer only if unclear; then Repetition, Next, Route, Location, Recheck, Tool route.\n"
             )
         }
     }

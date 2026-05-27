@@ -61,9 +61,9 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 
 | 档位 | 图像 | thoughts | 模型 / 思考 |
 |------|------|----------|-------------|
-| Primary | 2-3 图：可选 **`[Screen before action]`** + **`[Screen after action]`** + **`[Annotated after action]`**；无 zoom | Verify 先判定预期/非预期变化；失败才走 Repetition；成功直接 Next；**Nearby bboxes×10**；每轮 sidecar 上报 `action_result/repetition_count` | qwen3.5-plus |
-| Intermediate | 原图 + marked + Annotated；**无** zoom/before；本地落盘 unmarked + after + annotated | **Verify→Pointer（条件）** + **Repetition** + **Next**；**Nearby bboxes×10**；每轮 sidecar 上报 `action_result/repetition_count`；思考预算 **2048** | qwen3.5-plus |
-| Advanced | 7 槽（与现网一致） | 三段：**Part 1 Verify** / **Part 2 Repetition** / **Part 3 Next+Location+Recheck+Tool route**；每轮 sidecar 上报 `action_result/repetition_count` | qwen3.6-plus，思考 8K |
+| Primary | 2-3 图：可选 **`[Screen before action]`** + **`[Screen after action]`** + **`[Annotated after action]`**；无 zoom | Verify 先判定预期/非预期变化；**N–目标关系**（inner-center-wrap → index / inner-edge-wrap·unwrapped → coordinate）；`thoughts` 内 **`Route:` 先分析后结论**；每轮 sidecar 上报 | qwen3.5-plus |
+| Intermediate | 原图 + marked + Annotated；**无** zoom/before；本地落盘 unmarked + after + annotated | **Verify→Pointer（条件）** + **Repetition** + **Next**；**Nearby bboxes×10**；`thoughts` 固定 **`Route: index`**；每轮 sidecar 上报 `action_result/repetition_count`；思考预算 **2048** | qwen3.5-plus |
+| Advanced | 7 槽（与现网一致） | 三段：**Part 1 Verify** / **Part 2 Repetition** / **Part 3 Next+Location+Recheck+Tool route**；`thoughts` 固定 **`Route: coordinate`**；每轮 sidecar 上报 `action_result/repetition_count` | qwen3.6-plus，思考 8K |
 
 ## 操作历史
 

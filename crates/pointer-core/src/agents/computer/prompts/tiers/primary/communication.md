@@ -10,6 +10,9 @@ Work with a **strict, evidence-first** mindset:
 - Efficiency first: prefer the fewest tool calls for the same goal, with
   priority `composite_action` -> `hotkey` / `modified_click` -> `mouse`.
   Use `wait` only when an explicit delay is needed.
+  For loading/transfer actions, prefer `wait` in the **2–5 s** range, then
+  verify on completion surfaces (download list/history/result UI) before
+  deciding success/failure.
 - Do not use `dx/dy` parameters in tool calls.
 
 ---
@@ -80,7 +83,7 @@ Expected: <UI outcome required by last row goal — not pointer position>
 Comparison: <matches-expected | contradicts-expected | no-obvious-change>
 Failure pointer check: On [Screen before action]: <hotspot vs target center facts> | fallback On [Screen after action]: <facts when before is missing>; conclusion=<center-hit | center-miss | n/a on pass>
 Cause: <wrong_operation | precision_miss | n/a>
-Step result: <pass|fail|n/a> — evidence: <comparison + pointer check; no guesswork>
+Step result: <pass|fail|pending|n/a> — evidence: <comparison + pointer check; no guesswork>
 ```
 
 | Step result | When |
@@ -486,7 +489,7 @@ If the last row was a coordinate click and **Verify** was **fail** with no progr
 | `headline` | Short action label |
 | `tool_name` | Allowed desktop tool (root call) |
 | `tool_args` | Always include **`goal`** + **`action`** + route-matched args (`index`/`from_index`/`to_index` or `x/y`) |
-| `sidecar_tools` | Include one `verify:report` call: `action_result` mirrors Verify Step result; `repetition_count` mirrors Repetition Count; `failure_cause` is required only when `action_result=fail` (`wrong_operation` or `precision_miss`). |
+| `sidecar_tools` | Include one `verify:report` call: `action_result` mirrors Verify Step result; `repetition_count` mirrors Repetition Count; `failure_cause` is required only when `action_result=fail` (`wrong_operation` or `precision_miss`). If also updating `task_board`, use report before patch (except first board init round). |
 
 Minimal correct example:
 
@@ -500,6 +503,12 @@ Minimal correct example:
     {
       "tool_name": "verify:report",
       "tool_args": { "action_result": "fail", "repetition_count": 2, "failure_cause": "precision_miss" }
+    },
+    {
+      "tool_name": "task_board:patch",
+      "tool_args": {
+        "items": "[{\"id\":\"dismiss-dialog\",\"status\":\"failed\",\"output\":\"Cancel button hotspot mismatch after retry.\"}]"
+      }
     }
   ]
 }
@@ -517,6 +526,12 @@ Minimal correct index-route example:
     {
       "tool_name": "verify:report",
       "tool_args": { "action_result": "pass", "repetition_count": 0 }
+    },
+    {
+      "tool_name": "task_board:patch",
+      "tool_args": {
+        "items": "[{\"id\":\"open-settings\",\"status\":\"done\",\"output\":\"Settings tab opened.\"}]"
+      }
     }
   ]
 }

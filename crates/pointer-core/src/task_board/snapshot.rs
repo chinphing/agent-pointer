@@ -5,6 +5,7 @@ use super::state_machine::dependencies_satisfied;
 
 const DONE_OUTPUT_MAX: usize = 120;
 const READY_HINT_COUNT: usize = 2;
+const DETAILED_PLAN_MAX: usize = 280;
 
 pub fn snapshot_for_prompt(store_key: &str, doc: &BoardDocument, compact: bool) -> Option<String> {
     if doc.board_is_empty() && doc.meta.goal.is_empty() {
@@ -91,7 +92,35 @@ fn compact_json(doc: &BoardDocument) -> String {
 }
 
 fn item_full(item: &BoardItem) -> serde_json::Value {
-    serde_json::to_value(item).unwrap_or_else(|_| serde_json::json!({}))
+    let mut out = serde_json::Map::new();
+    out.insert("id".into(), item.id.clone().into());
+    out.insert("title".into(), item.title.clone().into());
+    out.insert("status".into(), item.status.as_str().into());
+    if !item.depends_on.is_empty() {
+        out.insert("depends_on".into(), serde_json::json!(item.depends_on));
+    }
+    if item.retry_count > 0 {
+        out.insert("retry_count".into(), item.retry_count.into());
+    }
+    if let Some(v) = item.verification.as_ref().filter(|s| !s.trim().is_empty()) {
+        out.insert("verification".into(), v.clone().into());
+    }
+    if let Some(v) = item.output.as_ref().filter(|s| !s.trim().is_empty()) {
+        let compact = v.chars().take(DONE_OUTPUT_MAX).collect::<String>();
+        out.insert("output".into(), compact.into());
+    }
+    if let Some(v) = item
+        .detailed_plan
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        let compact = v.chars().take(DETAILED_PLAN_MAX).collect::<String>();
+        out.insert("detailed_plan".into(), compact.into());
+    }
+    if let Some(v) = item.blocked_by.as_ref().filter(|s| !s.trim().is_empty()) {
+        out.insert("blockedBy".into(), v.clone().into());
+    }
+    serde_json::Value::Object(out)
 }
 
 fn item_compact(item: &BoardItem) -> serde_json::Value {

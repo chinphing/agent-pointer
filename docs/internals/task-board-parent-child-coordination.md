@@ -27,15 +27,16 @@ Details stay on the **child** board (`local_*`). Results are **reported** to the
 
 - Child rounds: `[TASK_BOARD]` (local) + `[TASK_BOARD_PARENT]` (read-only), see `sub_agent_prompt.rs`.
 - Sub-agent session start: `[TASK_BOARD_HINT]` when `task_board` is allowed and the child board is empty (`task_board/sub_agent_hint.rs`).
+- Main computer session start: `[TASK_BOARD_HINT]` can also be injected when board is empty (proactive init nudge).
 - Compact snapshots: `task_board/snapshot.rs`.
 
 ## Observability
 
-Structured logs use prefix **`task_board_obs:`** (`task_board/observability.rs`): `supervisor_plan_sync`, `dispatch_child`, `store_apply`, `snapshot_injected` / `snapshot_skipped_empty`, `sub_agent_init_hint`, `done_soft_validation`. Lines use the global log format from `pointer_core::logging` (local timestamp prefix on every `log` line).
+Structured logs use prefix **`task_board_obs:`** (`task_board/observability.rs`): `supervisor_plan_sync`, `dispatch_child`, `store_apply`, `snapshot_injected` / `snapshot_skipped_empty`, `sub_agent_init_hint`, `main_agent_init_hint`, `done_soft_validation`. Lines use the global log format from `pointer_core::logging` (local timestamp prefix on every `log` line).
 
 ## Soft `done` validation
 
-On `patch` → `done`, the host injects `_recent_action_tools` from recent non–`task_board` assistant tool calls. If the row has no `output`, no `verification`, and no recent action tools, the tool result sets `reflection_required` and a `warnings` entry (does not block the patch).
+On `patch` → `done`, the host injects `_recent_action_tools` plus verify signals (`_recent_verify_report`, `_recent_verify_pass`) from recent assistant tool calls. If the row has no `output`/`verification`/action evidence, or if a recent verify report exists but is not pass, the tool result sets `reflection_required` and structured `warnings` entries (soft gate; patch is still accepted).
 
 ## Not in v1 scope
 

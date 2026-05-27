@@ -22,12 +22,24 @@ Runtime prompts: `crates/pointer-core/src/task_board/prompts/task_board.md` (Eng
 | `depends_on` | no | Prerequisite row ids |
 | `retry_count` | no | `>= 2` may set `reflection_required` in tool result |
 | `output` | no | Evidence summary when `done` |
+| `detailed_plan` | no | Optional long plan text for in-flight rows; host clears on first `done` transition |
 | `verification` | no | One-line proof contract |
 | `blockedBy` | no | |
 
 ## Methods
 
 `init`, `replace`, `patch`, `prune`, `finalize`, `sync_finding` (child → parent findings), `check_deps` (read-only).
+
+## Host-injected helper args (not model-authored)
+
+- `_conversation_id`: trusted store-key binding.
+- `_recent_action_tools`: recent non-`task_board` action evidence.
+- `_recent_verify_report`: whether recent `verify:report` exists.
+- `_recent_verify_pass`: whether recent `verify:report` has `action_result=pass`.
+
+`patch` warnings are structured objects (for machine handling), e.g.
+`done_without_evidence`, `done_without_verify_pass`,
+`interim_drafts_budget_exceeded`.
 
 ## Storage
 

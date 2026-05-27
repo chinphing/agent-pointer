@@ -26,7 +26,12 @@ Parameter constraints:
 - **`goal`** and **`action`** are required.
 - **`index`** must match a visible overlay digit on the current annotated screenshot.
 
-**Optional `wait` in `tool_args`:** After successful calls (1–5 s). Heuristic: **~1–2** s for simple clicks; **~3–5** s for dialogs.
+**Optional `wait` in `tool_args`:** After successful calls (1–5 s). Heuristic:
+**~1–2 s** for simple clicks; **~3–5 s** for dialogs, downloads, uploads, and
+navigation-triggered reloads.
+If progress is visible but completion is not yet verifiable, keep Verify in a
+non-terminal state (for example `action_result=pending`), then verify again after
+waiting (for example in download or transfer history UI).
 
 **Reposition:** **MA-3 NOT FOUND** → **`mouse:hover_index`** on **R** center — no click/type that turn.
 

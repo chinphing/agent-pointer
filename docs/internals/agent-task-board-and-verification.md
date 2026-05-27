@@ -29,6 +29,7 @@
   子 Agent 的 **`[TASK_BOARD]`** 快照同样经 **`before_main_llm_call`** 注入（每轮在 **`generate_tools_system_appendix`** 产出追加之后）；**`task_board`** 读写只针对该子任务键，**不会**看到或修改主会话任务板。
 - **可信会话键**：宿主在 `invoke` 前写入 **`_conversation_id`**，覆盖模型可能传入的同名字段，防止伪造；子 Agent 路径下写入的是上述 **子任务键**，不是裸 `conversation_id`。
 - 侧车标记：注册为 **`ToolEntry::new_sidecar`**（宿主侧 **`validate_envelope_tool_batch`** 等约束）；用法与 **`response` / `<sidecar_tools>`** 约定见 **`COMMUNICATION_PUBLIC`** 及各工具 **`doc_markdown`**（经 **`generate_tools_system_appendix`** 进入系统提示中的 **`## Tools`**）。未授权该工具时不会出现在上述附录中。
+- 当主会话 board 为空时，`TaskBoardSnapshotHook` 会注入一次 **`[TASK_BOARD_HINT]`**（当前仅 `computer` lead），推动多步任务尽早 `task_board:init`。
 
 ## XML：`<sidecar_tools>` + 根级主工具
 
@@ -52,11 +53,26 @@
 
 - 板上一行应对应 **可独立验收** 的里程碑；**`verification`** 用一句话写清「拿什么证据算过」（一次命令、一次关键读文件、或明确桌面结果）。
 - **`done`** 仅在有证据或已写 **`risk note`** 后更新；禁止「改完即 done」式敷衍。
+- 对 computer 路径建议统一时序：首轮 `init` 可无 `verify:report`；其后采用 **`verify:report` → `task_board:patch`**，先收敛上一里程碑，再推进下一里程碑状态。
 
 ## 与压缩上下文的关系
 
 - 每轮注入 **`[TASK_BOARD]`** 可降低任务板只存在于旧 tool 消息里被压掉的风险。
+- Prompt 注入坚持最小必要：快照优先保留当前执行行、可就绪后续行与已完成摘要，长 `detailed_plan` 在快照中会被截断。
 - 若后续在 **`context_compression`** 中增加高保留信号，可将 **`TASK_BOARD` / `task_board`** 输出纳入优先级（可选增强）。
+
+## 内存预算与自动瘦身
+
+- 行状态首次进入 `done` 时，宿主会清空该行 `detailed_plan`（保留 `output` 摘要）以减少后续 token 压力。
+- 若 `global_context.artifacts.interim_drafts` 超过预算阈值，宿主会对超长草稿做截断并在 `warnings` 中返回 `interim_drafts_budget_exceeded`，同时设置 `reflection_required=true`，提示下一轮做摘要化整理。
+
+## 灰度与观测建议
+
+- 阶段 A（提示词）：关注前 3 轮内 `task_board:init` 命中率、`verify:report -> task_board:patch` 时序合规率。
+- 阶段 B（主会话 hint）：观察 `main_agent_init_hint` 触发后初始化成功率、误触发率（单步任务）。
+- 阶段 C（软门禁增强）：跟踪 `done_without_evidence` / `done_without_verify_pass` 占比和 `reflection_required` 收敛速度。
+- Token 成本指标：单轮 prompt tokens、单任务累计 tokens、history trim 后回落幅度。
+- 双入口一致性：桌面端与 Web 端都应收到 `task_board_updated` 且面板状态一致。
 
 ## task_board 触发的历史截断
 

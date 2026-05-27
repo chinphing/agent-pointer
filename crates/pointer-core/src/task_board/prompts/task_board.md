@@ -2,7 +2,8 @@
 
 Session-scoped **working memory** for multi-step work (v2 document).
 
-Use when there are **two or more** verifiable milestones, or the user asks for tracking.
+For multi-step work, initialize early and keep milestones concise.
+Single-step work may skip the board.
 
 **Qualified `tool_name`**
 
@@ -27,10 +28,16 @@ Bare **`task_board`** with **`method`** in **`tool_args`** works when not using 
 **Rules**
 
 - Treat **`[TASK_BOARD]`** in the system prompt as the authoritative **compact** snapshot.
+- If **`[TASK_BOARD]`** is empty and the task is multi-step, call **`task_board:init`** in the first round.
 - Do not mark **`done`** without verification evidence in-thread, or an explicit risk note.
 - Keep milestones small (roughly **3–12** rows). Use **`local_*`** ids only on **child** boards (sub-agents).
+- Keep row text compact; avoid long prose in `title` / `output` / `verification` to reduce prompt tokens.
 - **Do not** patch the parent milestone board from a child agent (use **`sync_finding`** or let the host report completion).
-- After **`retry_count` >= 2`** on a stuck row, diagnose in **`thoughts`** before the next **`patch`**.
+- After **`retry_count >= 2`** on a stuck row, diagnose in **`thoughts`** before the next **`patch`**.
+- For workers that emit **`verify:report`**, use it as the status source:
+  - First initialization round may omit `verify:report`.
+  - After init, run `verify:report` first, then `task_board:patch`.
+  - Transition into the next milestone only after the report closes the previous one.
 
 **`items` in `tool_args`**
 

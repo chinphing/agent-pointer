@@ -2,7 +2,9 @@
 
 use crate::models::ChatMessage;
 use crate::task_board::checkpoint::is_task_board_tool_name;
-use crate::task_board::evidence::history_has_recent_action_tools;
+use crate::task_board::evidence::{
+    history_has_recent_action_tools, history_has_recent_verify_pass, history_has_recent_verify_report,
+};
 use serde_json::Value;
 
 pub use crate::task_board::coordination::parent_child::sub_agent_task_board_store_key;
@@ -34,6 +36,14 @@ pub fn inject_host_task_board_conversation_id(
         map.insert(
             "_recent_action_tools".to_string(),
             Value::Bool(history_has_recent_action_tools(history)),
+        );
+        map.insert(
+            "_recent_verify_pass".to_string(),
+            Value::Bool(history_has_recent_verify_pass(history)),
+        );
+        map.insert(
+            "_recent_verify_report".to_string(),
+            Value::Bool(history_has_recent_verify_report(history)),
         );
     }
     Value::Object(map)

@@ -2,6 +2,7 @@
 
 Each desktop reply is **one** JSON object: string fields **`thoughts`**, **`headline`**, root **`tool_name`**, object **`tool_args`**, optional **`sidecar_tools`** (after `tool_args`).
 Include one sidecar call `verify:report` every turn; set `action_result` from Verify and `repetition_count` from Repetition. Set `failure_cause` only when `action_result=fail` (`wrong_operation` or `precision_miss`).
+If this turn also updates `task_board`, run `verify:report` first and `task_board:patch` second (first board-init round may omit report).
 
 **`thoughts`** should be a concise external overview; one sentence is acceptable and section labels are optional. Keep full Verify/Repetition/Next/Location/Tool-route staging as internal reasoning discipline.
 **Always include `Route: coordinate`** in `thoughts` when the root tool uses coordinate positioning (`*_at`).
@@ -10,6 +11,8 @@ Format: **`Route: coordinate — On [slot name]: <N–target relation: inner-edg
 **Efficiency principle:** prefer the fewest tool calls for the same goal.
 Use priority: **`composite_action`** -> **`hotkey`** / **`modified_click`**
 -> **`mouse`**. Use **`wait`** only for explicit delays.
+For loading/transfer actions, choose wait windows in the **2–5 s** range and
+verify completion from history/result surfaces before concluding.
 
 ---
 
@@ -224,7 +227,7 @@ Action type: <deferred | non-deferred> — <reason>.
 Mouse judgment: <non_mouse | mouse_miss | mouse_accurate> — <screenshot-only | On [Zoom pointer before action]: when Pointer ran>.
 Lookup: Clear evidence=<same>, Action type=<same>, Mouse judgment=<same>; | n/a — no prior action.
 Match: row <keys> → <Step result>, <Cause>; | row outside table → Step result n/a.
-Step result: <pass | fail | n/a> — evidence: <one line from Before vs after / On [Screen after action]: / On [Zoom pointer …]: facts above; not guesswork>.
+Step result: <pass | fail | pending | n/a> — evidence: <one line from Before vs after / On [Screen after action]: / On [Zoom pointer …]: facts above; not guesswork>.
 Cause: <only when Match says so; omit on pass>.
 ```
 

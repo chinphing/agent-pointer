@@ -12,9 +12,9 @@ pub fn execute_tier_signal(args: &Value) -> Result<String> {
         .filter(|s| !s.is_empty())
         .ok_or_else(|| anyhow!("missing required parameter: action_result"))?
         .to_ascii_lowercase();
-    if !matches!(action_result.as_str(), "pass" | "fail" | "n/a") {
+    if !matches!(action_result.as_str(), "pass" | "fail" | "pending" | "n/a") {
         return Err(anyhow!(
-            "invalid action_result: expected one of pass|fail|n/a"
+            "invalid action_result: expected one of pass|fail|pending|n/a"
         ));
     }
     let repetition_count = args
@@ -97,5 +97,15 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(err.contains("only allowed"));
+    }
+
+    #[test]
+    fn accepts_pending_without_failure_cause() {
+        let out = execute_tier_signal(&serde_json::json!({
+            "action_result": "pending",
+            "repetition_count": 1
+        }))
+        .unwrap();
+        assert!(out.contains("action_result=pending"));
     }
 }

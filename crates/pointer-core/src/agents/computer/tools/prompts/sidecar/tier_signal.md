@@ -7,11 +7,11 @@ Method:
 - `report`
 
 Required args:
-- `action_result`: `pass` | `fail` | `n/a`
+- `action_result`: `pass` | `fail` | `pending` (`n/a` kept for backward compatibility)
 - `repetition_count`: non-negative integer
 - `failure_cause`: required only when `action_result=fail`; one of `wrong_operation` | `precision_miss`
 
 Rules:
 - Mirror the same action_result and repetition_count used in `thoughts`.
-- Set `failure_cause` only on fail; omit it on `pass` and `n/a`.
+- Set `failure_cause` only on fail; omit it on `pass`, `pending`, and `n/a`.
 - Keep values concise and deterministic.

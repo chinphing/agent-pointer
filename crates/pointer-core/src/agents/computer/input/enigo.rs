@@ -204,19 +204,21 @@ impl ActionBackend for EnigoBackend {
 /// Parse a key name string into an enigo Key.
 ///
 /// Supports common key names:
-/// - Modifiers: "command"/"cmd", "control"/"ctrl", "alt"/"option", "shift"
+/// - Modifiers: "command"/"cmd" (macOS Command), "win"/"meta"/"super" (OS meta key),
+///   "control"/"ctrl", "alt"/"option", "shift"
 /// - Special keys: "return", "enter", "tab", "space", "escape", "backspace", "delete"
 /// - Arrow keys: "up", "down", "left", "right"
 /// - Letters and numbers are passed through directly.
 fn parse_key_name(name: &str) -> Result<Key> {
     let lower = name.to_lowercase();
     match lower.as_str() {
-        "command" | "cmd" | "meta" => {
+        "command" | "cmd" => {
             #[cfg(target_os = "macos")]
             return Ok(Key::Meta);
             #[cfg(not(target_os = "macos"))]
             return Ok(Key::Control);
         }
+        "meta" | "win" | "windows" | "super" | "lwin" | "rwin" => Ok(Key::Meta),
         "control" | "ctrl" => Ok(Key::Control),
         "alt" | "option" | "opt" => Ok(Key::Alt),
         "shift" => Ok(Key::Shift),
@@ -255,6 +257,9 @@ mod tests {
         assert_eq!(parse_key_name("ctrl").unwrap(), Key::Control);
         assert_eq!(parse_key_name("alt").unwrap(), Key::Alt);
         assert_eq!(parse_key_name("shift").unwrap(), Key::Shift);
+        assert_eq!(parse_key_name("win").unwrap(), Key::Meta);
+        assert_eq!(parse_key_name("meta").unwrap(), Key::Meta);
+        assert_eq!(parse_key_name("super").unwrap(), Key::Meta);
     }
 
     #[test]

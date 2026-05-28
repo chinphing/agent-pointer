@@ -632,19 +632,19 @@ pub struct ModelSettings {
     #[serde(default = "default_computer_annotated_screen_view_enabled", rename = "computerAnnotatedScreenViewEnabled")]
     pub computer_annotated_screen_view_enabled: bool,
     /// DaTi CAPTCHA API endpoint.
-    #[serde(default, rename = "datiApiUrl")]
+    #[serde(default = "default_dati_api_url", rename = "datiApiUrl")]
     pub dati_api_url: String,
     /// DaTi CAPTCHA API authcode.
-    #[serde(default, rename = "datiAuthcode")]
+    #[serde(default = "default_dati_authcode", rename = "datiAuthcode")]
     pub dati_authcode: String,
     /// DaTi CAPTCHA question type number.
-    #[serde(default, rename = "datiTypeno")]
+    #[serde(default = "default_dati_typeno", rename = "datiTypeno")]
     pub dati_typeno: String,
     /// DaTi CAPTCHA developer author.
-    #[serde(default, rename = "datiAuthor")]
+    #[serde(default = "default_dati_author", rename = "datiAuthor")]
     pub dati_author: String,
     /// Pixel adjustment applied to the final point of slider CAPTCHA drags.
-    #[serde(default, rename = "captchaSliderOffsetPx")]
+    #[serde(default = "default_captcha_slider_offset_px", rename = "captchaSliderOffsetPx")]
     pub captcha_slider_offset_px: i32,
     /// When true, Composer shows the monitor picker for the computer agent.
     #[serde(default = "default_computer_show_monitor_picker", rename = "computerShowMonitorPicker")]
@@ -656,7 +656,7 @@ pub struct ModelSettings {
     #[serde(default, rename = "agentUiOverrides")]
     pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
     /// Model id for DashScope web search tool calls (defaults to `qwen3-max` when empty).
-    #[serde(default, rename = "webSearchModel")]
+    #[serde(default = "default_web_search_model_setting", rename = "webSearchModel")]
     pub web_search_model: String,
     /// Per-request override (e.g. computer tier); not persisted.
     #[serde(skip)]
@@ -665,12 +665,87 @@ pub struct ModelSettings {
     pub round_thinking_budget: Option<u32>,
 }
 
+macro_rules! build_cfg_str {
+    ($name:literal, $default:expr) => {{
+        option_env!(concat!("POINTER_BUILD_", $name))
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| $default.to_string())
+    }};
+}
+
+macro_rules! build_cfg_bool {
+    ($name:literal, $default:expr) => {{
+        match option_env!(concat!("POINTER_BUILD_", $name))
+            .map(str::trim)
+            .map(|v| v.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("1" | "true" | "yes" | "on") => true,
+            Some("0" | "false" | "no" | "off") => false,
+            _ => $default,
+        }
+    }};
+}
+
+macro_rules! build_cfg_u32 {
+    ($name:literal, $default:expr) => {{
+        option_env!(concat!("POINTER_BUILD_", $name))
+            .map(str::trim)
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or($default)
+    }};
+}
+
+macro_rules! build_cfg_i32 {
+    ($name:literal, $default:expr) => {{
+        option_env!(concat!("POINTER_BUILD_", $name))
+            .map(str::trim)
+            .and_then(|v| v.parse::<i32>().ok())
+            .unwrap_or($default)
+    }};
+}
+
+macro_rules! build_cfg_f32 {
+    ($name:literal, $default:expr) => {{
+        option_env!(concat!("POINTER_BUILD_", $name))
+            .map(str::trim)
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or($default)
+    }};
+}
+
 fn default_theme() -> String {
-    "system".into()
+    build_cfg_str!("THEME", "system")
+}
+
+fn default_active_provider_id() -> String {
+    build_cfg_str!("ACTIVE_PROVIDER_ID", "qwen")
+}
+
+fn default_model_name() -> String {
+    build_cfg_str!("MODEL", "qwen3.5-plus")
+}
+
+fn default_model_temperature() -> f32 {
+    build_cfg_f32!("TEMPERATURE", 0.7)
+}
+
+fn default_model_max_tokens() -> u32 {
+    build_cfg_u32!("MAX_TOKENS", 2048)
+}
+
+fn default_workspace_root() -> String {
+    build_cfg_str!("WORKSPACE_ROOT", "")
+}
+
+fn default_lead_agent_id() -> String {
+    build_cfg_str!("LEAD_AGENT_ID", "computer")
 }
 
 fn default_computer_initial_tier() -> String {
-    "primary".into()
+    build_cfg_str!("COMPUTER_INITIAL_TIER", "primary")
 }
 
 pub fn ensure_agent_model_refs_have_provider(settings: &mut ModelSettings) {
@@ -681,55 +756,79 @@ pub fn ensure_agent_model_refs_have_provider(settings: &mut ModelSettings) {
 }
 
 fn default_tool_approval_mode() -> String {
-    "auto".into()
+    build_cfg_str!("TOOL_APPROVAL_MODE", "auto")
 }
 
 fn default_agent_mode() -> String {
-    "single".into()
+    build_cfg_str!("AGENT_MODE", "single")
 }
 
 fn default_context_compression_enabled() -> bool {
-    true
+    build_cfg_bool!("CONTEXT_COMPRESSION_ENABLED", true)
 }
 
 fn default_context_budget_chars() -> u32 {
-    120_000
+    build_cfg_u32!("CONTEXT_BUDGET_CHARS", 120_000)
 }
 
 fn default_context_keep_recent_user_turns() -> u32 {
-    6
+    build_cfg_u32!("CONTEXT_KEEP_RECENT_USER_TURNS", 6)
 }
 
 fn default_context_summary_max_tokens() -> u32 {
-    2048
+    build_cfg_u32!("CONTEXT_SUMMARY_MAX_TOKENS", 2048)
 }
 
 fn default_max_tool_rounds() -> u32 {
-    100
+    build_cfg_u32!("MAX_TOOL_ROUNDS", 100)
 }
 
 fn default_raw_content_view_enabled() -> bool {
-    false
+    build_cfg_bool!("RAW_CONTENT_VIEW_ENABLED", false)
 }
 
 fn default_debug_dump_llm_prompts() -> bool {
-    false
+    build_cfg_bool!("DEBUG_DUMP_LLM_PROMPTS", false)
 }
 
 fn default_debug_menus_enabled() -> bool {
-    false
+    build_cfg_bool!("DEBUG_MENUS_ENABLED", false)
 }
 
 fn default_user_dynamic_inject_enabled() -> bool {
-    true
+    build_cfg_bool!("USER_DYNAMIC_INJECT_ENABLED", true)
 }
 
 fn default_computer_annotated_screen_view_enabled() -> bool {
-    false
+    build_cfg_bool!("COMPUTER_ANNOTATED_SCREEN_VIEW_ENABLED", false)
 }
 
 fn default_computer_show_monitor_picker() -> bool {
-    true
+    build_cfg_bool!("COMPUTER_SHOW_MONITOR_PICKER", true)
+}
+
+fn default_dati_api_url() -> String {
+    build_cfg_str!("DATI_API_URL", "")
+}
+
+fn default_dati_authcode() -> String {
+    build_cfg_str!("DATI_AUTHCODE", "")
+}
+
+fn default_dati_typeno() -> String {
+    build_cfg_str!("DATI_TYPENO", "")
+}
+
+fn default_dati_author() -> String {
+    build_cfg_str!("DATI_AUTHOR", "")
+}
+
+fn default_captcha_slider_offset_px() -> i32 {
+    build_cfg_i32!("CAPTCHA_SLIDER_OFFSET_PX", 0)
+}
+
+fn default_web_search_model_setting() -> String {
+    build_cfg_str!("WEB_SEARCH_MODEL", "")
 }
 
 impl Default for ModelSettings {
@@ -773,16 +872,16 @@ impl Default for ModelSettings {
                     reasoning_effort: None,
                 },
             ],
-            active_provider_id: "qwen".into(),
-            model: "qwen3.5-plus".into(),
+            active_provider_id: default_active_provider_id(),
+            model: default_model_name(),
             api_key: String::new(),
-            temperature: 0.7,
-            max_tokens: 2048,
+            temperature: default_model_temperature(),
+            max_tokens: default_model_max_tokens(),
             has_key: false,
             tool_approval_mode: default_tool_approval_mode(),
             agent_mode: default_agent_mode(),
-            workspace_root: String::new(),
-            lead_agent_id: "computer".into(),
+            workspace_root: default_workspace_root(),
+            lead_agent_id: default_lead_agent_id(),
             context_compression_enabled: default_context_compression_enabled(),
             context_budget_chars: default_context_budget_chars(),
             context_keep_recent_user_turns: default_context_keep_recent_user_turns(),
@@ -798,15 +897,15 @@ impl Default for ModelSettings {
             computer_human_like: false,
             computer_initial_tier: default_computer_initial_tier(),
             computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(),
-            dati_api_url: String::new(),
-            dati_authcode: String::new(),
-            dati_typeno: String::new(),
-            dati_author: String::new(),
-            captcha_slider_offset_px: 0,
+            dati_api_url: default_dati_api_url(),
+            dati_authcode: default_dati_authcode(),
+            dati_typeno: default_dati_typeno(),
+            dati_author: default_dati_author(),
+            captcha_slider_offset_px: default_captcha_slider_offset_px(),
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             theme: default_theme(),
             agent_ui_overrides: HashMap::new(),
-            web_search_model: String::new(),
+            web_search_model: default_web_search_model_setting(),
             round_enable_thinking: None,
             round_thinking_budget: None,
         }
@@ -919,22 +1018,22 @@ pub struct PlatformSettings {
     pub computer_initial_tier: String,
     #[serde(default = "default_computer_annotated_screen_view_enabled", rename = "computerAnnotatedScreenViewEnabled")]
     pub computer_annotated_screen_view_enabled: bool,
-    #[serde(default, rename = "datiApiUrl")]
+    #[serde(default = "default_dati_api_url", rename = "datiApiUrl")]
     pub dati_api_url: String,
-    #[serde(default, rename = "datiAuthcode")]
+    #[serde(default = "default_dati_authcode", rename = "datiAuthcode")]
     pub dati_authcode: String,
-    #[serde(default, rename = "datiTypeno")]
+    #[serde(default = "default_dati_typeno", rename = "datiTypeno")]
     pub dati_typeno: String,
-    #[serde(default, rename = "datiAuthor")]
+    #[serde(default = "default_dati_author", rename = "datiAuthor")]
     pub dati_author: String,
-    #[serde(default, rename = "captchaSliderOffsetPx")]
+    #[serde(default = "default_captcha_slider_offset_px", rename = "captchaSliderOffsetPx")]
     pub captcha_slider_offset_px: i32,
     #[serde(default = "default_computer_show_monitor_picker", rename = "computerShowMonitorPicker")]
     pub computer_show_monitor_picker: bool,
     #[serde(default, rename = "agentUiOverrides")]
     pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
     /// Model id for DashScope web search tool calls (empty = default `qwen3-max`).
-    #[serde(default, rename = "webSearchModel")]
+    #[serde(default = "default_web_search_model_setting", rename = "webSearchModel")]
     pub web_search_model: String,
     #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
     pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
@@ -999,15 +1098,15 @@ pub struct PersistedLocalPlatformSettings {
     pub lead_agent_id: String,
     #[serde(default, rename = "workspaceRoot")]
     pub workspace_root: String,
-    #[serde(default, rename = "datiApiUrl")]
+    #[serde(default = "default_dati_api_url", rename = "datiApiUrl")]
     pub dati_api_url: String,
-    #[serde(default, rename = "datiAuthcode")]
+    #[serde(default = "default_dati_authcode", rename = "datiAuthcode")]
     pub dati_authcode: String,
-    #[serde(default, rename = "datiTypeno")]
+    #[serde(default = "default_dati_typeno", rename = "datiTypeno")]
     pub dati_typeno: String,
-    #[serde(default, rename = "datiAuthor")]
+    #[serde(default = "default_dati_author", rename = "datiAuthor")]
     pub dati_author: String,
-    #[serde(default, rename = "captchaSliderOffsetPx")]
+    #[serde(default = "default_captcha_slider_offset_px", rename = "captchaSliderOffsetPx")]
     pub captcha_slider_offset_px: i32,
 }
 
@@ -1222,14 +1321,14 @@ impl Default for PlatformSettings {
                     reasoning_effort: None,
                 },
             ],
-            active_provider_id: "qwen".into(),
-            model: "qwen3.5-plus".into(),
-            temperature: platform_default_temperature(),
-            max_tokens: platform_default_max_tokens(),
+            active_provider_id: default_active_provider_id(),
+            model: default_model_name(),
+            temperature: build_cfg_f32!("TEMPERATURE", platform_default_temperature()),
+            max_tokens: build_cfg_u32!("MAX_TOKENS", platform_default_max_tokens()),
             tool_approval_mode: default_tool_approval_mode(),
             agent_mode: default_agent_mode(),
-            workspace_root: String::new(),
-            lead_agent_id: "computer".into(),
+            workspace_root: default_workspace_root(),
+            lead_agent_id: default_lead_agent_id(),
             context_compression_enabled: platform_default_context_compression_enabled(),
             context_budget_chars: platform_default_context_budget_chars(),
             context_keep_recent_user_turns: platform_default_context_keep_recent_user_turns(),
@@ -1245,14 +1344,14 @@ impl Default for PlatformSettings {
             computer_human_like: false,
             computer_initial_tier: default_computer_initial_tier(),
             computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(),
-            dati_api_url: String::new(),
-            dati_authcode: String::new(),
-            dati_typeno: String::new(),
-            dati_author: String::new(),
-            captcha_slider_offset_px: 0,
+            dati_api_url: default_dati_api_url(),
+            dati_authcode: default_dati_authcode(),
+            dati_typeno: default_dati_typeno(),
+            dati_author: default_dati_author(),
+            captcha_slider_offset_px: default_captcha_slider_offset_px(),
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             agent_ui_overrides: HashMap::new(),
-            web_search_model: String::new(),
+            web_search_model: default_web_search_model_setting(),
             computer_tier_llm: default_computer_tier_llm(),
         }
     }

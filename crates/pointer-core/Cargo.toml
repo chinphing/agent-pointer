@@ -51,6 +51,10 @@ tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 wiremock = "0.6"
 
+[build-dependencies]
+anyhow = "1"
+toml = "0.8"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # Same Quartz coordinate space as xcap (`CGDisplayBounds` / `CGGetDisplaysWithPoint`). Enigo's macOS
 # `location()` mixes NSEvent points with the main display's physical pixel height and can miss every display.

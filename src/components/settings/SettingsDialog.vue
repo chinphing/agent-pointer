@@ -93,10 +93,6 @@ const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
 const computerHumanLike = ref(false)
 const computerInitialTier = ref<ComputerInitialTier>('primary')
 const computerAnnotatedScreenViewEnabled = ref(false)
-const datiApiUrl = ref('')
-const datiAuthcode = ref('')
-const datiTypeno = ref('')
-const datiAuthor = ref('')
 const captchaSliderOffsetPx = ref(0)
 const theme = ref<ThemePreference>('system')
 const debugMenusEnabled = ref(false)
@@ -298,11 +294,7 @@ onMounted(() => {
   computerHumanLike.value = s.settings.computerHumanLike === true
   computerInitialTier.value = s.settings.computerInitialTier ?? 'primary'
   computerAnnotatedScreenViewEnabled.value = s.settings.computerAnnotatedScreenViewEnabled === true
-  datiApiUrl.value = s.settings.datiApiUrl ?? ''
-  datiAuthcode.value = s.settings.datiAuthcode ?? ''
-  datiTypeno.value = s.settings.datiTypeno ?? ''
-  datiAuthor.value = s.settings.datiAuthor ?? ''
-  captchaSliderOffsetPx.value = s.settings.captchaSliderOffsetPx ?? 0
+  captchaSliderOffsetPx.value = Number(s.settings.captchaSliderOffsetPx ?? 0) || 0
   theme.value = (s.settings.theme as ThemePreference) || 'system'
   debugMenusEnabled.value = s.canEditPlatform && s.settings.debugMenusEnabled === true
   agentUiLocal.value = { ...(s.settings.agentUiOverrides?.[activeUiAgentId.value] ?? {}) }
@@ -408,10 +400,6 @@ async function saveFromFooter() {
         toolApprovalMode: toolApprovalMode.value,
         computerHumanLike: computerHumanLike.value,
         computerInitialTier: computerInitialTier.value,
-        datiApiUrl: datiApiUrl.value.trim(),
-        datiAuthcode: datiAuthcode.value.trim(),
-        datiTypeno: datiTypeno.value.trim(),
-        datiAuthor: datiAuthor.value.trim(),
         captchaSliderOffsetPx: Number(captchaSliderOffsetPx.value) || 0,
         contextCompressionEnabled: contextCompressionEnabled.value,
         contextBudgetChars: Number(contextBudgetChars.value),
@@ -544,8 +532,8 @@ async function saveFromFooter() {
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
               <h4 class="text-sm font-medium text-foreground">电脑操控</h4>
-              <div class="grid grid-cols-2 gap-3">
-                <div class="px-1 py-1 inline-flex items-center gap-2">
+              <div class="grid grid-cols-3 gap-6 lg:gap-8 items-center w-full">
+                <div class="px-1 py-1 inline-flex items-center gap-2 whitespace-nowrap min-w-0 w-full justify-start">
                   <label class="inline-flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
@@ -566,15 +554,15 @@ async function saveFromFooter() {
                   </button>
                 </div>
                 <div
-                  class="px-1 py-1"
+                  class="px-1 py-1 inline-flex items-center gap-3 min-w-0 w-full justify-start -ml-8"
                   title="新会话开始时电脑操控智能体使用的视觉级别；会话中仍可能因验证失败自动升档"
                 >
-                  <div class="flex items-center gap-3">
-                    <span class="text-[12px] text-foreground whitespace-nowrap">初始级别</span>
+                  <span class="text-[12px] text-foreground whitespace-nowrap shrink-0">初始级别</span>
+                  <div class="inline-flex items-center gap-3 min-w-0 shrink-0">
                     <label
                       v-for="opt in COMPUTER_INITIAL_TIER_OPTIONS"
                       :key="opt.value"
-                      class="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-muted"
+                      class="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-muted whitespace-nowrap"
                     >
                       <input
                         type="checkbox"
@@ -582,61 +570,19 @@ async function saveFromFooter() {
                         :checked="computerInitialTier === opt.value"
                         @change="onComputerInitialTierChecked(opt.value, ($event.target as HTMLInputElement).checked)"
                       />
-                      <span class="text-foreground">{{ opt.label }}</span>
+                      <span class="text-foreground whitespace-nowrap">{{ opt.label }}</span>
                     </label>
                   </div>
                 </div>
-              </div>
-              <div class="border-t border-border pt-4 space-y-3">
-                <div class="flex items-center justify-between">
-                  <h5 class="text-[12px] font-medium text-foreground">CAPTCHA / DaTi</h5>
-                  <span class="text-[11px] text-muted">留空时读取 DATI_* 环境变量</span>
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                  <label class="space-y-1">
-                    <span class="text-[11px] text-muted">API URL</span>
-                    <input
-                      v-model="datiApiUrl"
-                      type="text"
-                      placeholder="https://api.laladama.com"
-                      class="w-full rounded-lg border border-border bg-card px-3 py-2 text-xs outline-none focus:border-accent/50"
-                    />
-                  </label>
-                  <label class="space-y-1">
-                    <span class="text-[11px] text-muted">Authcode</span>
-                    <input
-                      v-model="datiAuthcode"
-                      type="password"
-                      autocomplete="off"
-                      class="w-full rounded-lg border border-border bg-card px-3 py-2 text-xs outline-none focus:border-accent/50"
-                    />
-                  </label>
-                  <label class="space-y-1">
-                    <span class="text-[11px] text-muted">Typeno</span>
-                    <input
-                      v-model="datiTypeno"
-                      type="text"
-                      class="w-full rounded-lg border border-border bg-card px-3 py-2 text-xs outline-none focus:border-accent/50"
-                    />
-                  </label>
-                  <label class="space-y-1">
-                    <span class="text-[11px] text-muted">Author</span>
-                    <input
-                      v-model="datiAuthor"
-                      type="text"
-                      class="w-full rounded-lg border border-border bg-card px-3 py-2 text-xs outline-none focus:border-accent/50"
-                    />
-                  </label>
-                  <label class="space-y-1">
-                    <span class="text-[11px] text-muted">滑块终点偏移 px</span>
-                    <input
-                      v-model.number="captchaSliderOffsetPx"
-                      type="number"
-                      step="1"
-                      class="w-full rounded-lg border border-border bg-card px-3 py-2 text-xs outline-none focus:border-accent/50"
-                    />
-                  </label>
-                </div>
+                <label class="px-1 py-1 inline-flex items-center gap-2 whitespace-nowrap min-w-0 w-full justify-end">
+                  <span class="text-[12px] text-foreground whitespace-nowrap">滑块终点偏移（px）</span>
+                  <input
+                    v-model.number="captchaSliderOffsetPx"
+                    type="number"
+                    step="1"
+                    class="w-16 rounded-lg border border-border bg-card px-2 py-2 text-xs outline-none focus:border-accent/50"
+                  />
+                </label>
               </div>
             </div>
 

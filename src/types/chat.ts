@@ -266,6 +266,16 @@ export interface PlatformSettings {
   computerInitialTier?: ComputerInitialTier
   /** Show annotated screenshot preview on Computer Use assistant messages */
   computerAnnotatedScreenViewEnabled?: boolean
+  /** DaTi CAPTCHA API endpoint */
+  datiApiUrl?: string
+  /** DaTi authcode */
+  datiAuthcode?: string
+  /** DaTi question type number */
+  datiTypeno?: string
+  /** DaTi developer author */
+  datiAuthor?: string
+  /** Pixel offset added to final slider CAPTCHA drag point */
+  captchaSliderOffsetPx?: number
   /** Show monitor picker in Composer when computer agent is selected */
   computerShowMonitorPicker?: boolean
   agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
@@ -321,6 +331,11 @@ export interface ModelSettings {
   computerInitialTier?: ComputerInitialTier
   /** Show annotated screenshot preview on Computer Use assistant messages */
   computerAnnotatedScreenViewEnabled?: boolean
+  datiApiUrl?: string
+  datiAuthcode?: string
+  datiTypeno?: string
+  datiAuthor?: string
+  captchaSliderOffsetPx?: number
   /** Show monitor picker in Composer when computer agent is selected */
   computerShowMonitorPicker?: boolean
   /** UI color scheme */

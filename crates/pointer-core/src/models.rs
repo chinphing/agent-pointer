@@ -628,6 +628,21 @@ pub struct ModelSettings {
     /// When true, Computer Use assistant messages show the annotated screenshot preview action.
     #[serde(default = "default_computer_annotated_screen_view_enabled", rename = "computerAnnotatedScreenViewEnabled")]
     pub computer_annotated_screen_view_enabled: bool,
+    /// DaTi CAPTCHA API endpoint.
+    #[serde(default, rename = "datiApiUrl")]
+    pub dati_api_url: String,
+    /// DaTi CAPTCHA API authcode.
+    #[serde(default, rename = "datiAuthcode")]
+    pub dati_authcode: String,
+    /// DaTi CAPTCHA question type number.
+    #[serde(default, rename = "datiTypeno")]
+    pub dati_typeno: String,
+    /// DaTi CAPTCHA developer author.
+    #[serde(default, rename = "datiAuthor")]
+    pub dati_author: String,
+    /// Pixel adjustment applied to the final point of slider CAPTCHA drags.
+    #[serde(default, rename = "captchaSliderOffsetPx")]
+    pub captcha_slider_offset_px: i32,
     /// When true, Composer shows the monitor picker for the computer agent.
     #[serde(default = "default_computer_show_monitor_picker", rename = "computerShowMonitorPicker")]
     pub computer_show_monitor_picker: bool,
@@ -775,6 +790,11 @@ impl Default for ModelSettings {
             computer_human_like: false,
             computer_initial_tier: default_computer_initial_tier(),
             computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(),
+            dati_api_url: String::new(),
+            dati_authcode: String::new(),
+            dati_typeno: String::new(),
+            dati_author: String::new(),
+            captcha_slider_offset_px: 0,
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             theme: default_theme(),
             agent_ui_overrides: HashMap::new(),
@@ -889,6 +909,16 @@ pub struct PlatformSettings {
     pub computer_initial_tier: String,
     #[serde(default = "default_computer_annotated_screen_view_enabled", rename = "computerAnnotatedScreenViewEnabled")]
     pub computer_annotated_screen_view_enabled: bool,
+    #[serde(default, rename = "datiApiUrl")]
+    pub dati_api_url: String,
+    #[serde(default, rename = "datiAuthcode")]
+    pub dati_authcode: String,
+    #[serde(default, rename = "datiTypeno")]
+    pub dati_typeno: String,
+    #[serde(default, rename = "datiAuthor")]
+    pub dati_author: String,
+    #[serde(default, rename = "captchaSliderOffsetPx")]
+    pub captcha_slider_offset_px: i32,
     #[serde(default = "default_computer_show_monitor_picker", rename = "computerShowMonitorPicker")]
     pub computer_show_monitor_picker: bool,
     #[serde(default, rename = "agentUiOverrides")]
@@ -954,6 +984,16 @@ pub struct PersistedLocalPlatformSettings {
     pub lead_agent_id: String,
     #[serde(default, rename = "workspaceRoot")]
     pub workspace_root: String,
+    #[serde(default, rename = "datiApiUrl")]
+    pub dati_api_url: String,
+    #[serde(default, rename = "datiAuthcode")]
+    pub dati_authcode: String,
+    #[serde(default, rename = "datiTypeno")]
+    pub dati_typeno: String,
+    #[serde(default, rename = "datiAuthor")]
+    pub dati_author: String,
+    #[serde(default, rename = "captchaSliderOffsetPx")]
+    pub captcha_slider_offset_px: i32,
 }
 
 impl PersistedLocalPlatformSettings {
@@ -970,6 +1010,11 @@ impl PersistedLocalPlatformSettings {
             agent_mode: platform.agent_mode.clone(),
             lead_agent_id: platform.lead_agent_id.clone(),
             workspace_root: platform.workspace_root.clone(),
+            dati_api_url: platform.dati_api_url.clone(),
+            dati_authcode: platform.dati_authcode.clone(),
+            dati_typeno: platform.dati_typeno.clone(),
+            dati_author: platform.dati_author.clone(),
+            captcha_slider_offset_px: platform.captcha_slider_offset_px,
         }
     }
 
@@ -1000,6 +1045,11 @@ impl PersistedLocalPlatformSettings {
             self.lead_agent_id.clone()
         };
         platform.workspace_root = self.workspace_root.clone();
+        platform.dati_api_url = self.dati_api_url.clone();
+        platform.dati_authcode = self.dati_authcode.clone();
+        platform.dati_typeno = self.dati_typeno.clone();
+        platform.dati_author = self.dati_author.clone();
+        platform.captcha_slider_offset_px = self.captcha_slider_offset_px;
     }
 }
 
@@ -1177,6 +1227,11 @@ impl Default for PlatformSettings {
             computer_human_like: false,
             computer_initial_tier: default_computer_initial_tier(),
             computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(),
+            dati_api_url: String::new(),
+            dati_authcode: String::new(),
+            dati_typeno: String::new(),
+            dati_author: String::new(),
+            captcha_slider_offset_px: 0,
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             agent_ui_overrides: HashMap::new(),
             web_search_model: String::new(),
@@ -1225,6 +1280,11 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         computer_human_like: platform.computer_human_like,
         computer_initial_tier: platform.computer_initial_tier.clone(),
         computer_annotated_screen_view_enabled: platform.computer_annotated_screen_view_enabled,
+        dati_api_url: platform.dati_api_url.clone(),
+        dati_authcode: platform.dati_authcode.clone(),
+        dati_typeno: platform.dati_typeno.clone(),
+        dati_author: platform.dati_author.clone(),
+        captcha_slider_offset_px: platform.captcha_slider_offset_px,
         computer_show_monitor_picker: platform.computer_show_monitor_picker,
         theme: user.theme.clone(),
         agent_ui_overrides: platform.agent_ui_overrides.clone(),

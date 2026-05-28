@@ -4,6 +4,8 @@
 
 pub mod args_util;
 pub mod tool_prompts;
+mod dati_client;
+mod tool_captcha_verify;
 mod tool_clipboard;
 mod tool_composite;
 mod tool_hotkey;
@@ -216,6 +218,34 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     modified_state.executor.clone(),
                     vision,
                     hl_default,
+                );
+                tool.execute(&method, &args)
+            })
+        }),
+    ));
+
+    let captcha_state = state.clone();
+    let captcha_doc = include_str!("prompts/captcha_verify.md").trim();
+    reg.register(ToolEntry::new(
+        "captcha_verify",
+        "high",
+        false,
+        captcha_doc,
+        Arc::new(move |args| {
+            let captcha_state = captcha_state.clone();
+            let cid = conversation_id_from_args(&args)
+                .unwrap_or_default()
+                .to_string();
+            let tier = captcha_state.tier_for_conversation(&cid);
+            let method = args["method"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
+                .to_string();
+            run_synthetic_computer_tool(tier, move || {
+                let vision = captcha_state.vision_state_for_conversation(&cid);
+                let tool = tool_captcha_verify::CaptchaVerifyTool::new(
+                    captcha_state.executor.clone(),
+                    vision,
                 );
                 tool.execute(&method, &args)
             })

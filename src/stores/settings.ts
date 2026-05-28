@@ -52,6 +52,11 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   computerHumanLike: false,
   computerInitialTier: 'primary',
   computerAnnotatedScreenViewEnabled: false,
+  datiApiUrl: '',
+  datiAuthcode: '',
+  datiTypeno: '',
+  datiAuthor: '',
+  captchaSliderOffsetPx: 0,
   computerShowMonitorPicker: true,
   agentUiOverrides: {},
   computerTierLlm: {
@@ -82,6 +87,11 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     computerHumanLike: s.computerHumanLike === true,
     computerInitialTier: normalizeComputerInitialTier(s.computerInitialTier),
     computerAnnotatedScreenViewEnabled: s.computerAnnotatedScreenViewEnabled === true,
+    datiApiUrl: s.datiApiUrl ?? '',
+    datiAuthcode: s.datiAuthcode ?? '',
+    datiTypeno: s.datiTypeno ?? '',
+    datiAuthor: s.datiAuthor ?? '',
+    captchaSliderOffsetPx: Number.isFinite(Number(s.captchaSliderOffsetPx)) ? Number(s.captchaSliderOffsetPx) : 0,
     computerShowMonitorPicker: s.computerShowMonitorPicker !== false,
     theme: (s.theme as ThemePreference) ?? 'system',
     agentUiOverrides: { ...(s.agentUiOverrides ?? {}) }

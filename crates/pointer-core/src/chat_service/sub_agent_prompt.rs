@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use super::agent_tool_allowlist::resolve_agent_tools;
 use super::app_state::AppState;
-use super::prompts::push_env_and_json_wire_tail_to_cacheable;
+use super::prompts::push_env_to_cacheable;
 use crate::task_board::sub_agent_hint::sub_agent_task_board_init_hint;
 use crate::task_board::sub_agent_task_board_store_key;
 use super::util::{new_id, now_ms};
@@ -152,6 +152,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
     tools_system_appendix: &str,
     sub_task_board_key: &str,
     def: &AgentDef,
+    user_dynamic_inject_enabled: bool,
 ) -> Result<SubAgentRoundPrompts> {
     let round_prep = Instant::now();
     let t = Instant::now();
@@ -165,6 +166,9 @@ pub(super) async fn prepare_sub_agent_round_prompts(
         stream: Some(stream),
         round_assistant_message_id: Some(message_id.to_string()),
         round_screen_dump_prefix: Some(round_message_id.to_string()),
+        task_board_store: state.task_board_store.clone(),
+        task_board_store_key: sub_task_board_key,
+        user_dynamic_inject_enabled,
     };
     let t = Instant::now();
     state
@@ -191,9 +195,9 @@ pub(super) async fn prepare_sub_agent_round_prompts(
     if !tools_system_appendix.is_empty() {
         cacheable.push(tools_system_appendix.to_string());
     }
-    push_env_and_json_wire_tail_to_cacheable(
+    push_env_to_cacheable(
         &mut cacheable,
-        !tools_system_appendix.is_empty(),
+        !user_dynamic_inject_enabled && !tools_system_appendix.is_empty(),
     );
     let assemble_system_prompts_ms = t.elapsed().as_millis();
 
@@ -211,6 +215,15 @@ pub(super) async fn prepare_sub_agent_round_prompts(
         .extensions
         .run_before_main_llm_call(&mut before_llm_ctx)
         .await?;
+    if !user_dynamic_inject_enabled {
+        crate::extensions::task_board_hook::append_task_board_dynamic_block(
+            &mut dynamic,
+            state.task_board_store.as_ref(),
+            sub_task_board_key,
+            conversation_id,
+            &def.profile,
+        );
+    }
     if let Some(parent_block) = state
         .task_board_store
         .parent_tunnel_for_child(sub_task_board_key, task_id)

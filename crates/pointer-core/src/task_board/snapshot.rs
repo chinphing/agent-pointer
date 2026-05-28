@@ -6,6 +6,7 @@ use super::state_machine::dependencies_satisfied;
 const DONE_OUTPUT_MAX: usize = 120;
 const READY_HINT_COUNT: usize = 2;
 const DETAILED_PLAN_MAX: usize = 280;
+const DETAILED_PLAN_INJECT_MAX: usize = 2000;
 
 pub fn snapshot_for_prompt(store_key: &str, doc: &BoardDocument, compact: bool) -> Option<String> {
     if doc.board_is_empty() && doc.meta.goal.is_empty() {
@@ -36,6 +37,91 @@ pub fn format_parent_tunnel_block(parent: &BoardDocument, sub_task_id: &str) -> 
         ));
     }
     lines.join("\n")
+}
+
+pub fn markdown_runtime_block_for_inject(doc: &BoardDocument) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    lines.push("[TASK_BOARD]".to_string());
+    lines.push(String::new());
+    lines.push("## Global goals".to_string());
+    let goal = doc.meta.goal.trim();
+    if goal.is_empty() {
+        lines.push("- n/a".to_string());
+    } else {
+        lines.push(format!("- {goal}"));
+    }
+
+    lines.push(String::new());
+    lines.push("## All tasks (with status)".to_string());
+    if doc.board.is_empty() {
+        lines.push("- none".to_string());
+    } else {
+        for item in &doc.board {
+            let title = item.title.trim();
+            let title = if title.is_empty() { "(untitled)" } else { title };
+            lines.push(format!(
+                "- {}: {} | {}",
+                item.id,
+                title,
+                item.status.as_str()
+            ));
+        }
+    }
+
+    lines.push(String::new());
+    lines.push("## Current task".to_string());
+    if let Some(item) = current_task_item(doc) {
+        lines.push(format!("- id: {}", item.id));
+        lines.push(format!("- title: {}", item.title.trim()));
+        lines.push(format!("- status: {}", item.status.as_str()));
+        let key_verification = item
+            .verification
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .or_else(|| {
+                item.output
+                    .as_ref()
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+            })
+            .unwrap_or("n/a");
+        lines.push(format!("- key_verification: {key_verification}"));
+    } else {
+        lines.push("- id: n/a".to_string());
+        lines.push("- title: n/a".to_string());
+        lines.push("- status: n/a".to_string());
+        lines.push("- key_verification: n/a".to_string());
+    }
+
+    lines.push(String::new());
+    lines.push("## Current task detailed plan".to_string());
+    let detail = current_task_item(doc)
+        .and_then(|item| item.detailed_plan.as_ref())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            if s.chars().count() > DETAILED_PLAN_INJECT_MAX {
+                let compact: String = s.chars().take(DETAILED_PLAN_INJECT_MAX).collect();
+                format!("{compact}…")
+            } else {
+                s.to_string()
+            }
+        })
+        .unwrap_or_else(|| "n/a".to_string());
+    lines.push(detail);
+    lines.join("\n")
+}
+
+fn current_task_item(doc: &BoardDocument) -> Option<&BoardItem> {
+    doc.board
+        .iter()
+        .find(|i| i.status == ItemStatus::InProgress)
+        .or_else(|| doc.board.iter().find(|i| i.status == ItemStatus::Ready))
+        .or_else(|| doc.board.iter().find(|i| i.status == ItemStatus::Pending))
+        .or_else(|| doc.board.iter().find(|i| i.status == ItemStatus::Failed))
+        .or_else(|| doc.board.iter().find(|i| i.status == ItemStatus::Done))
+        .or_else(|| doc.board.first())
 }
 
 fn compact_json(doc: &BoardDocument) -> String {

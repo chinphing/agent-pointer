@@ -20,16 +20,27 @@ export function isResponseAssistantMessage(
 /** `response` tool is not shown as a card (matches backend). */
 export function visibleToolCalls(
   toolCalls: ToolCall[] | undefined,
-  hideToolNames?: string[]
+  hideToolNames?: string[],
+  showSidecarCalls: boolean = false
 ): ToolCall[] {
   const hidden = new Set(hideToolNames ?? [])
   return (
     toolCalls?.filter(tc => {
       const base = toolCallBaseName(tc.name)
       if (base === 'response') return false
+      if (!showSidecarCalls && isDefaultHiddenSidecarCall(tc.name, base)) return false
       if (hidden.has(tc.name) || hidden.has(base)) return false
       return true
     }) ?? []
+  )
+}
+
+function isDefaultHiddenSidecarCall(fullName: string, baseName: string): boolean {
+  return (
+    fullName.startsWith('verify:') ||
+    fullName.startsWith('task_board:') ||
+    baseName === 'verify' ||
+    baseName === 'task_board'
   )
 }
 

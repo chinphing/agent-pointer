@@ -13,7 +13,7 @@
 | 步骤 | 行为 | 参考代码 |
 |------|------|----------|
 | 克隆 | `history.clone()`（主会话）或 `local_history.clone()`（子 Agent） | `session_inner.rs` / `single_agent.rs` / `single_agent_stream.rs` / `sub_agent.rs` — `run_chat_inner` / `run_single_agent_loop` / `run_sub_agent` 内 `let mut history_for_api = …`（子 Agent 在 `sub_agent_prompt.rs`） |
-| 同轮扩展 | `run_message_loop_prompts_after`：在克隆的 `messages` 上追加（如 Computer **`user` + `[CUR_SCREEN]`**） | `single_agent_prompt.rs` / `sub_agent_prompt.rs` 中 `prepare_*_round_prompts`；Computer 见 `crates/pointer-core/src/agents/computer/extension_hooks/screen_inject.rs` |
+| 同轮扩展 | `run_message_loop_prompts_after`：在克隆的 `messages` 上追加（如 Computer **`user` + `[CUR_SCREEN]`**、公共 **user dynamic inject**） | `single_agent_prompt.rs` / `sub_agent_prompt.rs` 中 `prepare_*_round_prompts`；Computer 见 `crates/pointer-core/src/agents/computer/extension_hooks/screen_inject.rs`，公共注入见 `extensions/common_user_dynamic_inject_hook.rs` |
 
 **说明**：`messages` **不含** `[Environment]` user；环境日期等在 **§1.2** cacheable 的 `[Environment]` 块中。
 
@@ -26,17 +26,17 @@
 | **cacheable** | 1 | **公共 COMMUNICATION** | `rendered_communication_public_inject()` | 固定 |
 | | 2 | **Agent 系统提示**（`AGENT.md` + profile `COMMUNICATION.md` 等，经 `expand_agent_prompt_placeholders`）；子 Agent 含 **sub_agent_header** + **skills** | `agent_plan.system_prompts` 等 | 会话内固定（`{{workspace_root}}` 随工作区变） |
 | | 3 | **工具系统附录** | `generate_tools_system_appendix` | 工具集不变则固定 |
-| | 4 | **`[Environment]`**（OS、locale、**日历日期**） | `push_env_and_json_wire_tail_to_cacheable` | 按自然日变，**非每轮** |
-| | 5 | **JSON wire tail**（有工具时） | 同上 | 固定 |
-| **dynamic** | 6 | **`[TASK_BOARD]`**、**`[LOCKED GOAL]`**（Computer 有锁时） | `before_main_llm_call` 钩子 → `system_prompts_dynamic` | **每轮可能变** |
+| | 4 | **`[Environment]`**（OS、locale、**日历日期**） | `push_env_to_cacheable` | 按自然日变，**非每轮** |
+| **dynamic** | 5 | **`[LOCKED GOAL]`**（Computer 有锁时） | `before_main_llm_call` 钩子 → `system_prompts_dynamic` | **每轮可能变** |
 
 **组装时机**
 
-- **cacheable**：在 `run_before_main_llm_call` **之前** 填完（含 Environment / JSON tail）。
-- **dynamic**：仅钩子写入（**`TaskBoardSnapshotHook`**、**`ComputerTierDynamicHook`**）。
+- **cacheable**：在 `run_before_main_llm_call` **之前** 填完（含 Environment）。
+- **dynamic**：仅钩子写入（**`ComputerTierDynamicHook`**）。
+- **user dynamic inject**：在 `run_message_loop_prompts_after` 末尾追加一条 `user`，承载 task board Markdown 与 JSON wire tail。
 - **Computer lead**：`prepare_single_agent_round_prompts` 每轮按 **tier** 重建 cacheable 中的档位 communication（升档时缓存失效一次）。
 
-合并为单条 system 字符串时，顺序为 **cacheable 全文 → dynamic 全文**（故 `[TASK_BOARD]` 在 Environment / JSON tail **之后**，更靠近后续 `messages`）。
+合并为单条 system 字符串时，顺序为 **cacheable 全文 → dynamic 全文**；task board 与 JSON wire tail 已迁移到 `messages` 末尾的公共 user 注入块。
 
 ### 1.3 HTTP `messages` 最终顺序（`make_openai_messages`）
 
@@ -65,13 +65,13 @@
     },
     {
       "type": "text",
-      "text": "<dynamic：通常仅 [TASK_BOARD]>"
+      "text": "<dynamic：通常仅 [LOCKED GOAL]>"
     }
   ]
 }
 ```
 
-- **`[TASK_BOARD]`** 更新不会使 cacheable 缓存块失效。
+- task board / JSON wire tail 在 `messages` 末尾追加，不会污染 system cacheable 前缀。
 - **`[Environment]`** 仅在跨日时改变 cacheable（ acceptable）；同一天内多轮工具循环可复用 cacheable。
 - 非千问或未启用时：两分区仍按 §1.2 顺序合并为单条 `content` 字符串。
 
@@ -96,6 +96,15 @@
 | **AGENT.md** / **COMMUNICATION.md** | `agents/<id>/` | cacheable |
 | **Tools** | `tools/prompts/*.md` 等 | cacheable |
 | **Env** | `env_prompt::build_environment_system_prompt_slice` | cacheable（日历日期）；Computer **`[CUR_SCREEN]`** 含完整墙钟时间 |
-| **JSON wire tail** | `_shared/JSON_WIRE_TAIL.md` | cacheable |
-| **Task board** | `TaskBoardSnapshotHook` | **dynamic** |
+| **JSON wire tail** | `_shared/JSON_WIRE_TAIL.md` | `message_loop_prompts_after` 的 user 注入 |
+| **Task board** | `CommonUserDynamicInjectHook` | `message_loop_prompts_after` 的 user 注入 |
 | **屏幕等多模态** | `screen_inject.rs` | **§1.1** `user` + 图 |
+
+---
+
+## 4. 迁移开关与回滚
+
+- 开关：`userDynamicInjectEnabled`（`ModelSettings` / `PlatformSettings`，默认 `true`）。
+- `true`：启用 `_99_common_user_dynamic_inject`，在每轮 `messages` 末尾注入 task board Markdown + JSON wire tail。
+- `false`：回滚到旧路径（system cacheable 重新附加 JSON wire tail，system dynamic 重新附加 `[TASK_BOARD]` 快照 / hint）。
+- 诊断日志：`common_user_dynamic_inject` 会输出 `legacy_snapshot_len` 与新 user 注入块长度，便于灰度对比。

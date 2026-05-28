@@ -13,10 +13,12 @@
 use crate::agents::computer::ComputerState;
 use crate::agents::AgentProfile;
 use crate::models::{ChatMessage, ChatStreamSender};
+use crate::task_board::TaskBoardStore;
 use anyhow::Result;
 use async_trait::async_trait;
 use std::sync::Arc;
 
+pub mod common_user_dynamic_inject_hook;
 pub mod task_board_hook;
 
 /// Per-turn context for [`ExtensionPoint::MessageLoopPromptsAfter`] (after history is cloned for the API).
@@ -34,13 +36,19 @@ pub struct MessageLoopPromptsAfterContext<'a> {
     /// File-name prefix for capture dumps; defaults to `round_assistant_message_id` when unset.
     /// Supervisor sub-agents set this to a per-iteration id while UI events stay on the parent message.
     pub round_screen_dump_prefix: Option<String>,
+    /// Shared task board store for dynamic user inject hooks.
+    pub task_board_store: Arc<TaskBoardStore>,
+    /// Store key for current round (main conversation id or sub-agent derived key).
+    pub task_board_store_key: &'a str,
+    /// Feature flag for common user dynamic inject migration.
+    pub user_dynamic_inject_enabled: bool,
 }
 
 /// Context for [`ExtensionPoint::BeforeMainLlmCall`] immediately before [`crate::provider::OpenAIProvider::stream_chat`].
 ///
 /// `system_prompts_cacheable` already includes communication inject, agent/skills, tool appendix,
-/// **`[Environment]`**, and JSON wire tail when enabled. Hooks here **append only to
-/// `system_prompts_dynamic`** (e.g. `[TASK_BOARD]`). **Full date+time** for Computer is in `[CUR_SCREEN]`, not here.
+/// and **`[Environment]`**. Hooks here **append only to `system_prompts_dynamic`**
+/// (e.g. `[LOCKED GOAL]`). **Full date+time** for Computer is in `[CUR_SCREEN]`, not here.
 pub struct BeforeMainLlmCallContext<'a> {
     pub computer_state: &'a ComputerState,
     pub lead_agent_profile: AgentProfile,
@@ -125,6 +133,9 @@ impl ExtensionRegistry {
 pub fn register_builtin_extensions(registry: &mut ExtensionRegistry) {
     crate::agents::computer::extension_hooks::register(registry);
     crate::agents::research::extension_hooks::register(registry);
+    registry.register_message_loop_prompts_after(Arc::new(
+        common_user_dynamic_inject_hook::CommonUserDynamicInjectHook,
+    ));
 }
 
 pub(crate) fn new_extension_message_id(prefix: &str) -> String {
@@ -193,6 +204,9 @@ mod tests {
             stream: None,
             round_assistant_message_id: None,
             round_screen_dump_prefix: None,
+            task_board_store: Arc::new(crate::task_board::TaskBoardStore::new()),
+            task_board_store_key: "test",
+            user_dynamic_inject_enabled: true,
         };
         reg.run_message_loop_prompts_after(&mut ctx).await.unwrap();
         assert_eq!(c1.load(Ordering::SeqCst), 0);
@@ -247,6 +261,9 @@ mod tests {
             stream: None,
             round_assistant_message_id: None,
             round_screen_dump_prefix: None,
+            task_board_store: Arc::new(crate::task_board::TaskBoardStore::new()),
+            task_board_store_key: "test",
+            user_dynamic_inject_enabled: true,
         };
         reg.run_message_loop_prompts_after(&mut ctx).await.unwrap();
         assert_eq!(*run.lock().unwrap(), "ab");

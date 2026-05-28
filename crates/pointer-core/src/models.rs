@@ -613,6 +613,9 @@ pub struct ModelSettings {
     /// When true, settings UI exposes debug sections (independent of raw wire / prompt dump toggles).
     #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
     pub debug_menus_enabled: bool,
+    /// Migration flag: append common runtime block (task board + JSON wire tail) as the last user message.
+    #[serde(default = "default_user_dynamic_inject_enabled", rename = "userDynamicInjectEnabled")]
+    pub user_dynamic_inject_enabled: bool,
     /// Per-agent default LLM: worker id or `"supervisor"` → explicit provider + model.
     #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
     pub agent_default_models: HashMap<String, AgentModelRef>,
@@ -702,6 +705,10 @@ fn default_debug_menus_enabled() -> bool {
     false
 }
 
+fn default_user_dynamic_inject_enabled() -> bool {
+    true
+}
+
 fn default_computer_annotated_screen_view_enabled() -> bool {
     false
 }
@@ -770,6 +777,7 @@ impl Default for ModelSettings {
             raw_content_view_enabled: default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             debug_menus_enabled: default_debug_menus_enabled(),
+            user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: HashMap::new(),
             agent_task_board_history_trim: HashMap::new(),
             computer_human_like: false,
@@ -879,6 +887,8 @@ pub struct PlatformSettings {
     pub debug_dump_llm_prompts: bool,
     #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
     pub debug_menus_enabled: bool,
+    #[serde(default = "default_user_dynamic_inject_enabled", rename = "userDynamicInjectEnabled")]
+    pub user_dynamic_inject_enabled: bool,
     #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
     pub agent_default_models: HashMap<String, AgentModelRef>,
     #[serde(default, rename = "agentTaskBoardHistoryTrim")]
@@ -925,6 +935,11 @@ pub fn filter_openrouter_providers(providers: Vec<ProviderConfig>) -> Vec<Provid
 pub struct PersistedLocalPlatformSettings {
     #[serde(default = "default_tool_approval_mode", rename = "toolApprovalMode")]
     pub tool_approval_mode: String,
+    #[serde(
+        default = "default_user_dynamic_inject_enabled",
+        rename = "userDynamicInjectEnabled"
+    )]
+    pub user_dynamic_inject_enabled: bool,
     #[serde(default, rename = "computerHumanLike")]
     pub computer_human_like: bool,
     #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
@@ -960,6 +975,7 @@ impl PersistedLocalPlatformSettings {
     pub fn from_platform(platform: &PlatformSettings) -> Self {
         Self {
             tool_approval_mode: platform.tool_approval_mode.clone(),
+            user_dynamic_inject_enabled: platform.user_dynamic_inject_enabled,
             computer_human_like: platform.computer_human_like,
             computer_initial_tier: platform.computer_initial_tier.clone(),
             context_compression_enabled: platform.context_compression_enabled,
@@ -982,6 +998,7 @@ impl PersistedLocalPlatformSettings {
     /// Merge persisted agent fields onto runtime platform.
     pub fn apply_onto(&self, platform: &mut PlatformSettings) {
         platform.tool_approval_mode = self.tool_approval_mode.clone();
+        platform.user_dynamic_inject_enabled = self.user_dynamic_inject_enabled;
         platform.computer_human_like = self.computer_human_like;
         platform.computer_initial_tier = self.computer_initial_tier.clone();
         platform.context_compression_enabled = self.context_compression_enabled;
@@ -1172,6 +1189,7 @@ impl Default for PlatformSettings {
             raw_content_view_enabled: platform_default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             debug_menus_enabled: default_debug_menus_enabled(),
+            user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: default_platform_agent_models(),
             agent_task_board_history_trim: HashMap::new(),
             computer_human_like: false,
@@ -1220,6 +1238,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         raw_content_view_enabled: platform.raw_content_view_enabled,
         debug_dump_llm_prompts: platform.debug_dump_llm_prompts,
         debug_menus_enabled: platform.debug_menus_enabled,
+        user_dynamic_inject_enabled: platform.user_dynamic_inject_enabled,
         agent_default_models: platform.agent_default_models.clone(),
         agent_task_board_history_trim: platform.agent_task_board_history_trim.clone(),
         computer_human_like: platform.computer_human_like,

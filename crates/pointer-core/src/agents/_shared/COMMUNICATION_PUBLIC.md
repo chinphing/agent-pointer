@@ -64,7 +64,7 @@ Omitting those on an object inherits the root **`tool_args`** defaults when pres
 }
 ```
 
-### Example — `sidecar_tools` first, then the root tool
+### Example — root fields first, sidecars after `tool_args`
 
 Each sidecar entry uses the same **`tool_name`** / **`tool_args`** shape as a root call.
 The host runs **every** sidecar **in order**, then the **root** tool.
@@ -73,6 +73,12 @@ The host runs **every** sidecar **in order**, then the **root** tool.
 {
   "thoughts": "Mark the board step in progress, then open the spec file.",
   "headline": "Update board and read spec",
+  "tool_name": "file:read",
+  "tool_args": {
+    "paths": [
+      { "path": "docs/design.md", "lineStart": 1, "lineEnd": 80 }
+    ]
+  },
   "sidecar_tools": [
     {
       "tool_name": "task_board:patch",
@@ -80,20 +86,14 @@ The host runs **every** sidecar **in order**, then the **root** tool.
         "items": "[{\"id\":\"read-spec\",\"title\":\"Read spec\",\"status\":\"in_progress\",\"verification\":\"quoted in reply\"}]"
       }
     }
-  ],
-  "tool_name": "file:read",
-  "tool_args": {
-    "paths": [
-      { "path": "docs/design.md", "lineStart": 1, "lineEnd": 80 }
-    ]
-  }
+  ]
 }
 ```
 
 Each assistant turn that uses tools—or ends with a structured final reply—is **one JSON object** only.
 
 - Put **no** Markdown code fences around the whole object and **no** prose outside it.
-- Top-level keys (unless your worker prompt adds a rare exception): **`thoughts`**, **`headline`**, optional **`sidecar_tools`**, then **`tool_name`** (string) and **`tool_args`** (object).
+- Top-level keys (unless your worker prompt adds a rare exception): **`thoughts`**, **`headline`**, **`tool_name`** (string), **`tool_args`** (object), optional **`sidecar_tools`**.
 - **`tool_args`** holds **one JSON property per tool parameter**; names and types follow each tool’s description in your tool list.
 - For desktop tools with an `action` field, describe the target element with observable traits (shape, color, size, text, absolute/relative position), not a vague action phrase.
 - All **string** values must be valid JSON strings: escape **`"`**, **`\`**, and newlines as **`\"`**, **`\\`**, **`\n`**. 
@@ -199,11 +199,14 @@ Use the board for milestones—not a long plan in **`thoughts`** only.
 - **`task_board:init`** — goal + milestone rows (3–8). **`patch`** / **`replace`** / **`prune`** / **`finalize`** per the tool doc.
 - If the task is multi-step and **`[TASK_BOARD]`** is empty, initialize in the first round (single-step tasks may skip).
 - Row **`status`**: `pending`, `ready`, `in_progress`, `done`, `cancelled`, `failed`. Respect **`depends_on`** (host may block until prerequisites are **`done`**).
-- **`[TASK_BOARD]`** in the system prompt is the **compact authoritative** snapshot; resume from it after history trim or restart.
+- **`[TASK_BOARD]`** in the injected runtime context is the **compact authoritative** snapshot; resume from it after history trim or restart.
+- **`task_board:patch`** should update only the current task id from **`[TASK_BOARD]`**.
+- Mark **`done`** only when the current task goal is already achieved in observable evidence. Do not mark **`done`** from intention.
+- If this turn's root tool is a new action to achieve that goal, patch as **`in_progress`** (or skip `done`) in this turn.
 - Sidecar: put **`task_board:…`** only in **`sidecar_tools`** when that section exists; root tool is the main action this turn.
 - Where **`verify:report`** exists, use report-before-patch ordering after init:
   - first board initialization round may omit report;
-  - subsequent rounds: `verify:report` first, then `task_board:patch`.
+  - subsequent rounds: `verify:report` first, then `task_board:patch` (ordering only; `done` still aligns to goal completion).
 - Advance **at most one** meaningful milestone per turn unless the user widens scope. **Cancel** obsolete rows instead of ignoring them.
 - Keep task board text compact (short `title`/`output`/`verification`) to reduce prompt token overhead.
 - **Sub-agent (child) scope:** **`[TASK_BOARD]`** is your **local** `local_*` steps only. **`[TASK_BOARD_PARENT]`** is **read-only** (goal + findings + current milestone). Use **`task_board:sync_finding`** for breakthroughs to the parent. **Do not** patch parent milestone rows— the host reports completion.

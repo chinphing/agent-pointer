@@ -23,7 +23,11 @@ Parameter constraints:
 - **`goal`** and **`action`** are required.
 - **`x`**, **`y`** must match **Location** line **3** from **`Overlay reference bboxes`** this turn.
 
-**Optional `wait` in `tool_args`:** **~1–2** s for simple clicks; **~3–5** s for dialogs.
+**Optional `wait` in `tool_args`:** **~1–2 s** for simple clicks; **~3–5 s**
+for dialogs, downloads, uploads, and navigation-triggered reloads.
+If progress is visible but completion is not yet verifiable, keep Verify in a
+non-terminal state (for example `action_result=pending`), then verify again after
+waiting (for example in download or transfer history UI).
 
 **Scroll workflow:** **`mouse:hover_at`** or **`mouse:click_at`** in the scroll region, then **`mouse:scroll_at_current`** if needed.
 

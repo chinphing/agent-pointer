@@ -1,6 +1,7 @@
 //! Structured `task_board_obs` logs for adoption and coordination debugging.
 
 use super::gateway::plan_sync::SupervisorPlanSyncStats;
+use crate::agents::AgentProfile;
 
 pub fn log_supervisor_plan_sync(conversation_id: &str, stats: &SupervisorPlanSyncStats, task_count: usize) {
     let orphans = if stats.orphan_milestone_ids.is_empty() {
@@ -48,6 +49,13 @@ pub fn log_snapshot_skipped_empty(store_key: &str) {
 pub fn log_sub_agent_init_hint(conversation_id: &str, task_id: &str, agent_id: &str) {
     log::info!(
         "task_board_obs: sub_agent_init_hint conversation_id={conversation_id} task_id={task_id} agent_id={agent_id}",
+    );
+}
+
+pub fn log_main_agent_init_hint(conversation_id: &str, store_key: &str, profile: &AgentProfile) {
+    log::info!(
+        "task_board_obs: main_agent_init_hint conversation_id={conversation_id} store_key={store_key} profile={:?}",
+        profile
     );
 }
 

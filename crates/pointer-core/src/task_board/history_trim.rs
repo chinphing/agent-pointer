@@ -92,7 +92,7 @@ fn new_trim_placeholder_message() -> ChatMessage {
         role: Role::User,
         content: format!(
             "{TRIM_PLACEHOLDER_PREFIX}\n\nEarlier turns were removed after a task board update. \
-             Use the latest [TASK_BOARD] in the system prompt and recent messages for context."
+             Use the latest injected [TASK_BOARD] block and recent messages for context."
         ),
         status: "done".into(),
         created_at: now_ms(),

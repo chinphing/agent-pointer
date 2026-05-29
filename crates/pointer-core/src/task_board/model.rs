@@ -138,6 +138,8 @@ pub struct BoardItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detailed_plan: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verification: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_by: Option<String>,
@@ -215,6 +217,11 @@ impl BoardItem {
             .get("output")
             .and_then(|x| x.as_str())
             .map(str::to_string);
+        let detailed_plan = v
+            .get("detailed_plan")
+            .or_else(|| v.get("detailedPlan"))
+            .and_then(|x| x.as_str())
+            .map(str::to_string);
         let verification = v
             .get("verification")
             .and_then(|x| x.as_str())
@@ -231,6 +238,7 @@ impl BoardItem {
             depends_on,
             retry_count,
             output,
+            detailed_plan,
             verification,
             blocked_by,
         })

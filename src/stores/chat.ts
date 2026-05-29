@@ -512,6 +512,8 @@ export const useChatStore = defineStore('chat', () => {
         if (!r || r.conv.id !== e.conversationId) break
         r.msg.status = 'streaming'
         r.msg.supervisorPlanTasks = e.tasks
+        // Fallback pull: if `task_board_updated` is delayed/missed, still refresh panel right after plan appears.
+        void refreshTaskBoard(e.conversationId)
         break
       }
       case 'task_board_updated': {

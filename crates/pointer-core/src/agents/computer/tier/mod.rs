@@ -530,7 +530,7 @@ pub const COMPUTER_TIER_SIGNAL_TOOL_NAME: &str = "verify";
 /// Extract repetition signal from sidecar tool calls in one assistant round.
 ///
 /// Expected sidecar payload:
-/// `{ "action_result": "pass|fail|n/a", "repetition_count": <u32>, "failure_cause"?: "wrong_operation|precision_miss" }`.
+/// `{ "action_result": "pass|fail|pending|n/a", "repetition_count": <u32>, "failure_cause"?: "wrong_operation|precision_miss" }`.
 pub fn parse_tier_signal_from_sidecar_tool_calls(tool_calls: &[ToolCall]) -> Option<ParsedTierSignal> {
     let mut parsed: Option<ParsedTierSignal> = None;
     for tc in tool_calls {
@@ -552,7 +552,7 @@ pub fn parse_tier_signal_from_sidecar_tool_calls(tool_calls: &[ToolCall]) -> Opt
         else {
             continue;
         };
-        if !matches!(action_result.as_str(), "pass" | "fail" | "n/a") {
+        if !matches!(action_result.as_str(), "pass" | "fail" | "pending" | "n/a") {
             continue;
         }
         let Some(repetition_count) = obj

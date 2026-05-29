@@ -111,7 +111,11 @@ useMarkdownExternalLinks(bodyRef, () => markdownSource.value)
 
 const tools = computed(() =>
   props.messageUi.showToolCalls
-    ? visibleToolCalls(props.body.toolCalls, props.messageUi.hideToolNames)
+    ? visibleToolCalls(
+      props.body.toolCalls,
+      props.messageUi.hideToolNames,
+      props.messageUi.showToolCallResults === true
+    )
     : []
 )
 

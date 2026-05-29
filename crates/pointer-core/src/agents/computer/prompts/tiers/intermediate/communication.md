@@ -9,6 +9,9 @@
 **Efficiency principle:** prefer the fewest tool calls for the same goal.
 Use priority: **`composite_action`** -> **`hotkey`** / **`modified_click`**
 -> **`mouse`**. Use **`wait`** only for explicit delays.
+For loading/transfer actions, use a longer settle wait (typically **2–5 s**),
+then verify on completion surfaces (download list/history/result UI) before
+declaring success/failure.
 
 **Verify:** **Expected** UI change vs **Actual** on screen — **forbidden** **pass** when evidence is only pointer/cursor placement (see **primary** Step 1). **Offset math:** **MA-3 FOUND** — paste **`- R: (…)`** verbatim; **MA-7 placement** **compact | inside-R | outside-R** (outside → prefer tighter **R'**, else **f_x/f_y** may be **<0** or **>1**, **|dx|/|dy|** may exceed **W/H**); same **MA** branches as **primary** Step 3.
 
@@ -151,7 +154,7 @@ Action type: <deferred | non-deferred> — <reason>.
 Mouse judgment: <non_mouse | mouse_miss | mouse_accurate> — <screenshot-only | On [Zoom pointer before action]: when Pointer ran>.
 Lookup: Clear evidence=<same>, Action type=<same>, Mouse judgment=<same>; | n/a — no prior action.
 Match: row <keys> → <Step result>, <Cause>; | row outside table → Step result n/a.
-Step result: <pass | fail | n/a> — evidence: <one line from Before vs after / On [Screen after action]: / On [Zoom pointer …]: facts above; not guesswork>.
+Step result: <pass | fail | pending | n/a> — evidence: <one line from Before vs after / On [Screen after action]: / On [Zoom pointer …]: facts above; not guesswork>.
 Cause: <only when Match says so; omit on pass>.
 ```
 
@@ -274,3 +277,4 @@ For `composite_action:type_text_*`, `clear_first` defaults to `false`; set
 
 One JSON object per turn: `thoughts` is a concise overview (one sentence is acceptable) that reflects Verify outcome and this-turn Next decision; **include fixed `Route: index`** when using index positioning tools; `headline`; `tool_name`; `tool_args` with required **`goal`**; optional `sidecar_tools` (place after `tool_args`).
 Include one sidecar call `verify:report` where `action_result` mirrors Verify Step result and `repetition_count` mirrors Repetition Count. Set `failure_cause` only when `action_result=fail` (`wrong_operation` or `precision_miss`).
+If this turn also updates `task_board`, run `verify:report` first and `task_board:patch` second (first board-init round is the only exception).

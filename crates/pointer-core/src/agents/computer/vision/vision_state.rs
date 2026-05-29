@@ -206,6 +206,10 @@ impl VisionState {
         self.index_map.get(&index).map(|e| (e.center_x, e.center_y))
     }
 
+    pub fn element(&self, index: u32) -> Option<&ElementInfo> {
+        self.index_map.get(&index)
+    }
+
     /// Index + corner anchor + session-coordinate delta → screen pixels.
     pub fn resolve_index_anchor(
         &self,

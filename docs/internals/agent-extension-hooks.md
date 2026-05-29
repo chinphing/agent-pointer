@@ -75,7 +75,7 @@
 |------|------|
 | `computer_state` | 同上。 |
 | `lead_agent_profile` | 同上，与本轮 `stream_chat` 的「说话者」一致。 |
-| `system_prompts_dynamic` | **可变**：本轮 **dynamic** 分区（当前仅 **`[TASK_BOARD]`** 等钩子内容）。**cacheable** 已在钩子前含公共通信、Agent/Skills、工具附录、**`[Environment]`**、JSON wire tail。详见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。 |
+| `system_prompts_dynamic` | **可变**：本轮 **dynamic** 分区（常见为 `[LOCKED GOAL]` 等）。**cacheable** 已在钩子前含公共通信、Agent/Skills、工具附录、**`[Environment]`**。详见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。 |
 | `conversation_id` | 主会话 id（流式/UI）；子 Agent 下仍为**父会话** id。 |
 | `task_board_store` | `Arc<TaskBoardStore>`，供内置或自定义钩子读取任务板。 |
 | `task_board_store_key` | 传入 `TaskBoardStore::snapshot_for_prompt` 的键：主会话为 `conversation_id`；Supervisor 子 Agent 为 `sub_agent_task_board_store_key(...)` 的复合键。 |
@@ -95,11 +95,11 @@
 3. **准备 Provider** — 新建 `OpenAIProvider`、channel；尚未发 HTTP。
 4. **构造 API 消息列表** — `messages = <基础历史>.clone()`（单智能体：`history`；子 Agent：`local_history`），并填入 `round_assistant_message_id`。
 5. **`message_loop_prompts_after`** — `run_message_loop_prompts_after`：可修改 `messages`（例如追加屏幕注入）。
-6. **组装 system（cacheable）** — 公共通信、Agent/Skills、工具附录，再 **`push_env_and_json_wire_tail_to_cacheable`**（**`[Environment]`** + JSON tail）。
-7. **`before_main_llm_call`** — 钩子向 **`system_prompts_dynamic`** 追加（内置 **`[TASK_BOARD]`**）。
+6. **组装 system（cacheable）** — 公共通信、Agent/Skills、工具附录，再 `push_env_to_cacheable`（`[Environment]`）。
+7. **`before_main_llm_call`** — 钩子向 **`system_prompts_dynamic`** 追加（例如 `[LOCKED GOAL]`）。
 8. **`stream_chat`** — `SystemPromptSections` → `make_openai_messages`（千问见 **[`qwen-context-cache.md`](../llm/qwen-context-cache.md)**）。Computer **完整墙钟时间**在 **`[CUR_SCREEN]`** `user` 消息中（`screen_inject.rs`）。
 
-要点：**仅 `[TASK_BOARD]` 为每轮 dynamic**；Environment / JSON tail 在 cacheable，同一天内不因子任务板更新而失效缓存前缀。
+要点：task board 与 JSON wire tail 已迁移为 `message_loop_prompts_after` 的末尾 user 注入块，不再占用 system cacheable/dynamic。
 
 ### 4.2 单智能体：`messages` 在注入时刻包含什么
 
@@ -112,7 +112,7 @@
 用户发一条消息后，可能经历多轮「模型 → 工具 → 再模型」。**每一轮**新的模型请求都会重复上述 4～9 步：
 
 - 每一轮都会重新 `history.clone()`（此时 `history` 已包含上一轮 assistant 与 tool 结果）。
-- 每一轮都会再次执行 `message_loop_prompts_after` / `before_main_llm_call`（**dynamic** 通常仅 **`[TASK_BOARD]`** 变化）。  
+- 每一轮都会再次执行 `message_loop_prompts_after` / `before_main_llm_call`（task board 摘要与 JSON wire tail 在 user 末尾块刷新）。  
 因此 Computer **每一轮都会重新截图+标注**（与 Python 每轮 inject 一致）。
 
 ### 4.4 序列图（与 4.1 一致）
@@ -131,9 +131,9 @@ sequenceDiagram
     Loop->>Msg: messages = history.clone() 或 local_history.clone()
     Loop->>Ext1: run_message_loop_prompts_after(ctx)
     Note over Ext1,Msg: 含 [CUR_SCREEN] 与 Local wall-clock（完整日期时间）
-    Loop->>Sys: cacheable = 公共 / Agent / 工具 / Environment / JSON tail
+    Loop->>Sys: cacheable = 公共 / Agent / 工具 / Environment
     Loop->>Ext2: run_before_main_llm_call(ctx)
-    Note over Ext2,Sys: dynamic += [TASK_BOARD] 等
+    Note over Ext2,Sys: dynamic += [LOCKED GOAL] 等
     Loop->>LLM: stream_chat(messages, SystemPromptSections)
 ```
 
@@ -150,7 +150,7 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 - 若任务带 `dependsOn`，实现上会把依赖任务的输出摘要**前缀**拼进 `instruction`（`[Prior task outputs]` / `[Current task]`），仍是一条 user 消息，**不是**完整主聊天 transcript。
 - 子 Agent 自己的多轮工具循环里，只在 `local_history` 上累加本轮 assistant、tool 等，与主 `history` **隔离**。
 
-系统 prompt 侧子 Agent 与主轮同构：**cacheable** 含公共通信、**sub_agent_header**、skills、工具附录、Environment、JSON tail；**dynamic** 仅钩子（**`[TASK_BOARD]`**）。
+系统 prompt 侧子 Agent 与主轮同构：**cacheable** 含公共通信、**sub_agent_header**、skills、工具附录、Environment；task board / JSON wire tail 由末尾 user 注入提供。
 
 **结论（对话语义）**：子 Agent 在**消息列表意义上是独立的**；它只「看见」任务描述 +（可选）前置任务摘要 + 自己多轮工具产生的历史。
 
@@ -160,8 +160,8 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 - 每一轮子 Agent 的每次模型请求前，同样执行：
   - `messages = local_history.clone()`
   - `run_message_loop_prompts_after`（`lead_agent_profile = def.profile`，例如子 Agent 为 `computer` 时仍会注入屏幕）
-  - **cacheable** = 静态 `prompts` + **`tools_system_appendix`** + Environment + JSON tail
-  - `run_before_main_llm_call`（**dynamic** += **`[TASK_BOARD]`**；`task_board_store_key` 为子任务隔离键）
+  - **cacheable** = 静态 `prompts` + **`tools_system_appendix`** + Environment
+  - `run_before_main_llm_call`（dynamic 追加其他系统动态块；`task_board_store_key` 仍用于任务板读写/注入）
 - 使用的 **`ExtensionRegistry` 与单智能体相同**（`AppState.extensions`），**不是**每子 Agent 一份。
 
 #### 5.2.1 Lead 与子 Agent 共用模块的差异（行为不变）
@@ -205,9 +205,9 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 | override_key / sort_key | 扩展点 | 文件 | 行为摘要 |
 |-------------------------|--------|------|----------|
 | `_10_computer_screen_inject` | `message_loop_prompts_after` | `agents/computer/extension_hooks/screen_inject.rs` | 当 `lead_agent_profile == Computer` 时：`capture_and_annotate`，向 `messages` 追加带 PNG base64 的临时 user 消息；失败则追加纯文本说明。 |
-| `task_board_snapshot` / `_90_task_board_snapshot` | `before_main_llm_call` | `extensions/task_board_hook.rs` | 若 `TaskBoardStore` 中 `task_board_store_key` 对应板子非空：向 **`system_prompts_dynamic`** 追加 **`[TASK_BOARD]`** 快照（主会话或子任务键）。 |
+| `_99_common_user_dynamic_inject` | `message_loop_prompts_after` | `extensions/common_user_dynamic_inject_hook.rs` | 在本轮 `messages` 末尾追加公共 user 注入块：`task_board` Markdown（主会话或子任务键）+ `JSON_WIRE_TAIL`。 |
 
-自定义钩子可 **替换** 同 `override_key` 的 `task_board_snapshot` 以改变快照格式或关闭注入。
+自定义钩子可 **替换** 同 `override_key` 的 `_99_common_user_dynamic_inject` 以改变格式或关闭注入。
 
 ---
 
@@ -218,9 +218,8 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 `AppState::new` 中大致顺序为：
 
 1. `ExtensionRegistry::new()`
-2. `extensions::register_builtin_extensions(&mut registry)`
-3. `registry.register_before_main_llm_call(Arc::new(extensions::task_board_hook::TaskBoardSnapshotHook))`（`AppState::new` 内）
-4. `Arc::new(registry)` 存入 `AppState.extensions`
+2. `extensions::register_builtin_extensions(&mut registry)`（包含 `_10_computer_screen_inject`、`_99_common_user_dynamic_inject` 等）
+3. `Arc::new(registry)` 存入 `AppState.extensions`
 
 ### 8.2 增加或覆盖钩子
 

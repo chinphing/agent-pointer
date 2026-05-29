@@ -10,7 +10,7 @@
 
 ## 目标
 
-- 在较长对话中减少「做到哪了、凭什么算过」丢失：由宿主维护 **`task_board`** 状态，并在每轮系统上下文中注入 **`[TASK_BOARD]`** 快照（有内容时）。
+- 在较长对话中减少「做到哪了、凭什么算过」丢失：由宿主维护 **`task_board`** 状态，并在每轮末尾以公共 user 动态块注入任务板摘要（有内容时）。
 - 允许同一轮在跑 **`terminal` / `file` / 桌面工具`** 前，先批量执行白名单 **侧车** 管理调用（首版为 **`task_board`**），而不把根级协议改成「多组并列根 `tool_name`」。
 
 ## 工具：`terminal`（取消与强制结束）
@@ -23,12 +23,13 @@
 
 - 注册名：`task_board`；行为通过 **`task_board:replace`** / **`task_board:patch`**（与 qualified `tool_name` 解析一致）。
 - 存储：`AppState` 上的 **`TaskBoardStore`**（`crates/pointer-core/src/task_board/`，内存 + SQLite `{app_data}/task_boards.db`，按 **存储键** 分区）。v2 文档见 [`task-board-v2-schema.md`](task-board-v2-schema.md)；父子协调见 [`task-board-parent-child-coordination.md`](task-board-parent-child-coordination.md)。
-- **主会话（单智能体 / Supervisor 主消息）**：存储键为聊天 **`conversation_id`**；`task_board` 的 **`_conversation_id`** 使用该键。每轮 **`[TASK_BOARD]`** 快照由 **`TaskBoardSnapshotHook`** 写入 system **dynamic** 分区（合并顺序在 cacheable 的 Environment / JSON tail **之后**）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
+- **主会话（单智能体 / Supervisor 主消息）**：存储键为聊天 **`conversation_id`**；`task_board` 的 **`_conversation_id`** 使用该键。每轮由 **`CommonUserDynamicInjectHook`** 在 `message_loop_prompts_after` 末尾追加 user 注入块（包含 `Global goals`、`All tasks`、`Current task`、`Current task detailed plan` + JSON wire tail）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
 - **Supervisor 子 Agent**：与主会话 **隔离**。存储键为  
   **`{conversation_id}\x1fptr_sub_agent\x1f{supervisor_task_id}`**（实现见 `task_board::sub_agent_task_board_store_key`）。  
-  子 Agent 的 **`[TASK_BOARD]`** 快照同样经 **`before_main_llm_call`** 注入（每轮在 **`generate_tools_system_appendix`** 产出追加之后）；**`task_board`** 读写只针对该子任务键，**不会**看到或修改主会话任务板。
+  子 Agent 的任务板摘要同样经公共 user 注入路径注入（store key 为 `sub_task_board_key`）；**`task_board`** 读写只针对该子任务键，**不会**看到或修改主会话任务板。
 - **可信会话键**：宿主在 `invoke` 前写入 **`_conversation_id`**，覆盖模型可能传入的同名字段，防止伪造；子 Agent 路径下写入的是上述 **子任务键**，不是裸 `conversation_id`。
 - 侧车标记：注册为 **`ToolEntry::new_sidecar`**（宿主侧 **`validate_envelope_tool_batch`** 等约束）；用法与 **`response` / `<sidecar_tools>`** 约定见 **`COMMUNICATION_PUBLIC`** 及各工具 **`doc_markdown`**（经 **`generate_tools_system_appendix`** 进入系统提示中的 **`## Tools`**）。未授权该工具时不会出现在上述附录中。
+- 当主会话 board 为空时，公共注入路径会复用 **`[TASK_BOARD_HINT]`**（当前仅 `computer` lead），推动多步任务尽早 `task_board:init`。
 
 ## XML：`<sidecar_tools>` + 根级主工具
 
@@ -52,11 +53,26 @@
 
 - 板上一行应对应 **可独立验收** 的里程碑；**`verification`** 用一句话写清「拿什么证据算过」（一次命令、一次关键读文件、或明确桌面结果）。
 - **`done`** 仅在有证据或已写 **`risk note`** 后更新；禁止「改完即 done」式敷衍。
+- 对 computer 路径建议统一时序：首轮 `init` 可无 `verify:report`；其后采用 **`verify:report` → `task_board:patch`**，先收敛上一里程碑，再推进下一里程碑状态。
 
 ## 与压缩上下文的关系
 
-- 每轮注入 **`[TASK_BOARD]`** 可降低任务板只存在于旧 tool 消息里被压掉的风险。
+- 每轮末尾注入任务板摘要可降低任务板只存在于旧 tool 消息里被压掉的风险。
+- Prompt 注入坚持最小必要：快照优先保留当前执行行、可就绪后续行与已完成摘要，长 `detailed_plan` 在快照中会被截断。
 - 若后续在 **`context_compression`** 中增加高保留信号，可将 **`TASK_BOARD` / `task_board`** 输出纳入优先级（可选增强）。
+
+## 内存预算与自动瘦身
+
+- 行状态首次进入 `done` 时，宿主会清空该行 `detailed_plan`（保留 `output` 摘要）以减少后续 token 压力。
+- 若 `global_context.artifacts.interim_drafts` 超过预算阈值，宿主会对超长草稿做截断并在 `warnings` 中返回 `interim_drafts_budget_exceeded`，同时设置 `reflection_required=true`，提示下一轮做摘要化整理。
+
+## 灰度与观测建议
+
+- 阶段 A（提示词）：关注前 3 轮内 `task_board:init` 命中率、`verify:report -> task_board:patch` 时序合规率。
+- 阶段 B（主会话 hint）：观察 `main_agent_init_hint` 触发后初始化成功率、误触发率（单步任务）。
+- 阶段 C（软门禁增强）：跟踪 `done_without_evidence` / `done_without_verify_pass` 占比和 `reflection_required` 收敛速度。
+- Token 成本指标：单轮 prompt tokens、单任务累计 tokens、history trim 后回落幅度。
+- 双入口一致性：桌面端与 Web 端都应收到 `task_board_updated` 且面板状态一致。
 
 ## task_board 触发的历史截断
 
@@ -77,7 +93,7 @@
 - 会话**第一条**真实用户任务（`Role::User`，非 tool 展平、非 `[CUR_SCREEN]` 注入）。
 - 从「自末尾数第 K 个 user」起的 suffix（含该 user 及之后全部 assistant / tool / 注入消息）。
 - 一条占位 user 消息（前缀如 `[History trimmed after task_board update]`），便于 UI 与调试识别。
-- 计划状态仍由每轮 system dynamic 的 **`[TASK_BOARD]`** 承担，不依赖被删掉的旧 tool 正文。
+- 计划状态仍由每轮公共 user 动态块承担，不依赖被删掉的旧 tool 正文。
 
 **仅 1 条 user 时不截断：** `find_split_at_user_boundary` 在 user 条数 &lt; K 时返回 `0`，宿主跳过截断（与压缩路径一致）。
 

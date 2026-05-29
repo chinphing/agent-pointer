@@ -25,4 +25,8 @@ Parameter constraints:
   value or overwrite prior input). Keep **false** when appending is intended.
 - `auto_enter` defaults to **false**. On **Windows PowerShell / terminal**, set `auto_enter=true` when Enter should run the command.
 
-**Optional `wait` in `tool_args`:** **~2–4** s after type-and-submit; **~1–2** s for focus+type.
+**Optional `wait` in `tool_args`:** **~2–4 s** after type-and-submit;
+**~1–2 s** for focus+type.
+Use the upper range when submit starts export/upload/download or page reload.
+If the page is still transitioning after this settle wait, use standalone
+`wait` and verify completion from history/result surfaces before concluding.

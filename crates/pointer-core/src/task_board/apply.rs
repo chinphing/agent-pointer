@@ -14,6 +14,9 @@ use serde_json::Value;
 
 const MAX_FINDING_LEN: usize = 500;
 const MAX_FINDINGS: usize = 32;
+const DONE_OUTPUT_SUMMARY_MAX_CHARS: usize = 800;
+const INTERIM_DRAFTS_CHAR_BUDGET: usize = 80_000;
+const INTERIM_DRAFT_ITEM_MAX_CHARS: usize = 2_000;
 
 pub struct ApplyOutcome {
     pub summary: Value,
@@ -113,14 +116,22 @@ fn apply_replace(doc: &mut BoardDocument, args: &Value) -> Result<Value> {
     Ok(json_summary("replace", doc.board.len()))
 }
 
-fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<String>)> {
+fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value>)> {
     let recent_action = args
         .get("_recent_action_tools")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let recent_verify_pass = args
+        .get("_recent_verify_pass")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let recent_verify_report = args
+        .get("_recent_verify_report")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let rows = board_rows_from_args(args);
     let mut reflection = false;
-    let mut warnings = Vec::new();
+    let mut warnings: Vec<Value> = Vec::new();
     if let Some(gc) = args.get("global_context") {
         merge_global_context(&mut doc.global_context, gc);
     }
@@ -159,9 +170,18 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Strin
                 &mut reflection,
                 &mut warnings,
             );
+            maybe_warn_done_without_verify_pass(
+                prev,
+                &incoming,
+                recent_verify_report,
+                recent_verify_pass,
+                &mut reflection,
+                &mut warnings,
+            );
             if incoming.title.is_empty() {
                 incoming.title = prev.title.clone();
             }
+            compact_item_after_success(prev, &mut incoming);
             doc.board[idx] = incoming;
         } else {
             if matches!(incoming.status, ItemStatus::InProgress | ItemStatus::Done) {
@@ -185,9 +205,32 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Strin
                 &mut reflection,
                 &mut warnings,
             );
+            maybe_warn_done_without_verify_pass(
+                &BoardItem {
+                    id: incoming.id.clone(),
+                    title: incoming.title.clone(),
+                    status: ItemStatus::Pending,
+                    ..BoardItem::default()
+                },
+                &incoming,
+                recent_verify_report,
+                recent_verify_pass,
+                &mut reflection,
+                &mut warnings,
+            );
+            compact_item_after_success(
+                &BoardItem {
+                    id: incoming.id.clone(),
+                    title: incoming.title.clone(),
+                    status: ItemStatus::Pending,
+                    ..BoardItem::default()
+                },
+                &mut incoming,
+            );
             doc.board.push(incoming);
         }
     }
+    enforce_interim_drafts_budget(doc, &mut reflection, &mut warnings);
     Ok((reflection, warnings))
 }
 
@@ -196,7 +239,7 @@ fn maybe_warn_done_without_evidence(
     incoming: &BoardItem,
     recent_action: bool,
     reflection: &mut bool,
-    warnings: &mut Vec<String>,
+    warnings: &mut Vec<Value>,
 ) {
     if incoming.status != ItemStatus::Done || prev.status == ItemStatus::Done {
         return;
@@ -223,11 +266,107 @@ fn maybe_warn_done_without_evidence(
     }
     *reflection = true;
     let reason = "done_without_evidence: add output, set verification, or run action tools before marking done";
-    warnings.push(reason.to_string());
+    warnings.push(serde_json::json!({
+        "code": "done_without_evidence",
+        "requires_evidence": true,
+        "message": reason
+    }));
     log::warn!(
         "task_board_obs: done_soft_validation item_id={} reason={reason}",
         incoming.id
     );
+}
+
+fn maybe_warn_done_without_verify_pass(
+    prev: &BoardItem,
+    incoming: &BoardItem,
+    recent_verify_report: bool,
+    recent_verify_pass: bool,
+    reflection: &mut bool,
+    warnings: &mut Vec<Value>,
+) {
+    if incoming.status != ItemStatus::Done || prev.status == ItemStatus::Done {
+        return;
+    }
+    if !recent_verify_report || recent_verify_pass {
+        return;
+    }
+    *reflection = true;
+    let reason = "done_without_verify_pass: verify:report should be pass before marking done";
+    warnings.push(serde_json::json!({
+        "code": "done_without_verify_pass",
+        "requires_verify_pass": true,
+        "message": reason
+    }));
+    log::warn!(
+        "task_board_obs: done_soft_validation item_id={} reason={reason}",
+        incoming.id
+    );
+}
+
+fn compact_item_after_success(prev: &BoardItem, incoming: &mut BoardItem) {
+    if incoming.status != ItemStatus::Done || prev.status == ItemStatus::Done {
+        return;
+    }
+    incoming.detailed_plan = None;
+    if let Some(out) = incoming.output.as_ref() {
+        let trimmed = out.trim();
+        if trimmed.chars().count() > DONE_OUTPUT_SUMMARY_MAX_CHARS {
+            let compact: String = trimmed.chars().take(DONE_OUTPUT_SUMMARY_MAX_CHARS).collect();
+            incoming.output = Some(format!("{compact}…"));
+        }
+    }
+}
+
+fn enforce_interim_drafts_budget(
+    doc: &mut BoardDocument,
+    reflection: &mut bool,
+    warnings: &mut Vec<Value>,
+) {
+    let Some(artifacts) = doc.global_context.artifacts.as_object_mut() else {
+        return;
+    };
+    let Some(interim) = artifacts.get_mut("interim_drafts") else {
+        return;
+    };
+    let Some(drafts) = interim.as_object_mut() else {
+        return;
+    };
+    let mut total_chars = 0usize;
+    for v in drafts.values() {
+        if let Some(s) = v.as_str() {
+            total_chars = total_chars.saturating_add(s.chars().count());
+        }
+    }
+    if total_chars <= INTERIM_DRAFTS_CHAR_BUDGET {
+        return;
+    }
+    let mut shortened = 0usize;
+    for v in drafts.values_mut() {
+        let Some(s) = v.as_str() else {
+            continue;
+        };
+        let chars = s.chars().count();
+        if chars <= INTERIM_DRAFT_ITEM_MAX_CHARS {
+            continue;
+        }
+        let compact: String = s.chars().take(INTERIM_DRAFT_ITEM_MAX_CHARS).collect();
+        *v = Value::String(format!("{compact}\n\n[trimmed_by_engine_for_context_budget]"));
+        shortened += 1;
+    }
+    if shortened == 0 {
+        return;
+    }
+    *reflection = true;
+    warnings.push(serde_json::json!({
+        "code": "interim_drafts_budget_exceeded",
+        "requires_memory_summarization": true,
+        "message": format!(
+            "interim_drafts exceeded char budget {}; engine compacted {} draft(s)",
+            INTERIM_DRAFTS_CHAR_BUDGET,
+            shortened
+        ),
+    }));
 }
 
 fn apply_prune(doc: &mut BoardDocument, args: &Value) -> Result<()> {

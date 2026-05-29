@@ -24,6 +24,51 @@ pub fn history_has_recent_action_tools(history: &[ChatMessage]) -> bool {
     false
 }
 
+/// Whether recent chat history includes a `verify:report` sidecar with `action_result=pass`.
+pub fn history_has_recent_verify_pass(history: &[ChatMessage]) -> bool {
+    for msg in history.iter().rev().take(RECENT_MESSAGE_SCAN) {
+        if !matches!(msg.role, Role::Assistant) {
+            continue;
+        }
+        let Some(calls) = msg.tool_calls.as_ref() else {
+            continue;
+        };
+        for tc in calls {
+            if tc.name.trim() != "verify:report" {
+                continue;
+            }
+            let parsed = serde_json::from_str::<serde_json::Value>(&tc.arguments);
+            let Ok(v) = parsed else {
+                continue;
+            };
+            if v.get("action_result")
+                .and_then(|x| x.as_str())
+                .map(|s| s.eq_ignore_ascii_case("pass"))
+                .unwrap_or(false)
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Whether recent history includes any `verify:report` sidecar call.
+pub fn history_has_recent_verify_report(history: &[ChatMessage]) -> bool {
+    for msg in history.iter().rev().take(RECENT_MESSAGE_SCAN) {
+        if !matches!(msg.role, Role::Assistant) {
+            continue;
+        }
+        let Some(calls) = msg.tool_calls.as_ref() else {
+            continue;
+        };
+        if calls.iter().any(|tc| tc.name.trim() == "verify:report") {
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,5 +125,30 @@ mod tests {
     fn false_when_only_task_board() {
         let hist = vec![assistant_with_tools(&["task_board:patch"])];
         assert!(!history_has_recent_action_tools(&hist));
+    }
+
+    #[test]
+    fn detects_recent_verify_pass() {
+        let mut msg = assistant_with_tools(&["verify:report"]);
+        if let Some(calls) = msg.tool_calls.as_mut() {
+            calls[0].arguments = r#"{"action_result":"pass","repetition_count":0}"#.into();
+        }
+        assert!(history_has_recent_verify_pass(&[msg]));
+    }
+
+    #[test]
+    fn verify_fail_does_not_count_as_pass() {
+        let mut msg = assistant_with_tools(&["verify:report"]);
+        if let Some(calls) = msg.tool_calls.as_mut() {
+            calls[0].arguments =
+                r#"{"action_result":"fail","repetition_count":2,"failure_cause":"precision_miss"}"#.into();
+        }
+        assert!(!history_has_recent_verify_pass(&[msg]));
+    }
+
+    #[test]
+    fn detects_recent_verify_report() {
+        let msg = assistant_with_tools(&["verify:report"]);
+        assert!(history_has_recent_verify_report(&[msg]));
     }
 }

@@ -86,6 +86,7 @@ pub(crate) async fn run_sub_agent(
             &tools_system_appendix,
             &sub_task_board_key,
             &def,
+            sub_provider.settings.user_dynamic_inject_enabled,
         )
         .await?;
 

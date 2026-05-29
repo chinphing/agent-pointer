@@ -83,9 +83,6 @@ impl AppState {
         crate::tools::builtin::register_computer_tools(&tools, computer_state.clone());
         let mut extension_registry = ExtensionRegistry::new();
         crate::extensions::register_builtin_extensions(&mut extension_registry);
-        extension_registry.register_before_main_llm_call(Arc::new(
-            crate::extensions::task_board_hook::TaskBoardSnapshotHook,
-        ));
         crate::platform_config::register_global_platform_config(platform_config.clone());
         Self {
             tools,

@@ -245,6 +245,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 let vision = captcha_state.vision_state_for_conversation(&cid);
                 let tool = tool_captcha_verify::CaptchaVerifyTool::new(
                     captcha_state.executor.clone(),
+                    captcha_state.clone(),
+                    cid.clone(),
                     vision,
                 );
                 tool.execute(&method, &args)

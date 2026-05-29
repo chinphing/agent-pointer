@@ -48,3 +48,29 @@ pub fn inject_host_task_board_conversation_id(
     }
     Value::Object(map)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn captcha_verify_gets_conversation_binding() {
+        let out = inject_host_task_board_conversation_id(
+            "captcha_verify",
+            serde_json::json!({"method": "drag", "goal": "x"}),
+            "conv-abc",
+            &[],
+        );
+        assert_eq!(
+            out.get("_conversation_id").and_then(|v| v.as_str()),
+            Some("conv-abc")
+        );
+    }
+
+    #[test]
+    fn unrelated_tool_skips_injection() {
+        let args = serde_json::json!({"query": "hello"});
+        let out = inject_host_task_board_conversation_id("web_search", args.clone(), "conv-abc", &[]);
+        assert_eq!(out, args);
+    }
+}

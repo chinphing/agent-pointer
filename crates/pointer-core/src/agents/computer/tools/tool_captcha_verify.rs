@@ -1,7 +1,8 @@
 use super::args_util::{json_bool_loose, require_non_empty_str, resolve_index_pixels};
 use super::dati_client::{query_until_ready, upload, DatiConfig};
 use crate::agents::computer::actions::ActionExecutor;
-use crate::agents::computer::screen::screenshot_current_monitor;
+use crate::agents::computer::state::ComputerState;
+use crate::agents::computer::vision::screen::MonitorInfo;
 use crate::agents::computer::vision_state::{ElementInfo, VisionState};
 use anyhow::{anyhow, Result};
 use base64::engine::general_purpose::STANDARD;
@@ -19,16 +20,22 @@ const POLL_INTERVAL_SECS: u64 = 1;
 
 pub struct CaptchaVerifyTool {
     executor: Arc<Mutex<ActionExecutor>>,
+    computer_state: Arc<ComputerState>,
+    conversation_id: String,
     vision_state: Arc<Mutex<VisionState>>,
 }
 
 impl CaptchaVerifyTool {
     pub fn new(
         executor: Arc<Mutex<ActionExecutor>>,
+        computer_state: Arc<ComputerState>,
+        conversation_id: String,
         vision_state: Arc<Mutex<VisionState>>,
     ) -> Self {
         Self {
             executor,
+            computer_state,
+            conversation_id,
             vision_state,
         }
     }
@@ -146,29 +153,14 @@ impl CaptchaVerifyTool {
     }
 
     fn crop_captcha_as_data_png(&self, index_captcha_area: u32) -> Result<String> {
-        let packet = screenshot_current_monitor()?;
+        let (jpeg, monitor, capture_px) = self
+            .computer_state
+            .current_turn_raw_capture_for_conversation(&self.conversation_id)?;
         let elem = {
             let vision = self.vision_state.lock().unwrap();
             element_from_vision(&vision, index_captcha_area)?
         };
-        let img = image::load_from_memory(&packet.jpeg)?;
-        let left = ((elem.center_x as f32 - elem.width / 2.0).round() as i32
-            - packet.monitor.left)
-            .clamp(0, packet.capture_px.0.saturating_sub(1) as i32) as u32;
-        let top = ((elem.center_y as f32 - elem.height / 2.0).round() as i32
-            - packet.monitor.top)
-            .clamp(0, packet.capture_px.1.saturating_sub(1) as i32) as u32;
-        let right = ((elem.center_x as f32 + elem.width / 2.0).round() as i32
-            - packet.monitor.left)
-            .clamp(left as i32 + 1, packet.capture_px.0 as i32) as u32;
-        let bottom = ((elem.center_y as f32 + elem.height / 2.0).round() as i32
-            - packet.monitor.top)
-            .clamp(top as i32 + 1, packet.capture_px.1 as i32) as u32;
-
-        let crop = img.crop_imm(left, top, right - left, bottom - top);
-        let mut buf = Vec::new();
-        crop.write_to(&mut Cursor::new(&mut buf), ImageFormat::Png)?;
-        Ok(format!("data:image/png;base64,{}", STANDARD.encode(buf)))
+        crop_element_from_jpeg(&jpeg, &monitor, capture_px, &elem)
     }
 
     fn answer_to_screen_points(
@@ -185,6 +177,28 @@ impl CaptchaVerifyTool {
         let top = (elem.center_y as f32 - elem.height / 2.0).round() as i32;
         Ok(rel.into_iter().map(|(x, y)| (left + x, top + y)).collect())
     }
+}
+
+fn crop_element_from_jpeg(
+    jpeg: &[u8],
+    monitor: &MonitorInfo,
+    capture_px: (u32, u32),
+    elem: &ElementInfo,
+) -> Result<String> {
+    let img = image::load_from_memory(jpeg)?;
+    let left = ((elem.center_x as f32 - elem.width / 2.0).round() as i32 - monitor.left)
+        .clamp(0, capture_px.0.saturating_sub(1) as i32) as u32;
+    let top = ((elem.center_y as f32 - elem.height / 2.0).round() as i32 - monitor.top)
+        .clamp(0, capture_px.1.saturating_sub(1) as i32) as u32;
+    let right = ((elem.center_x as f32 + elem.width / 2.0).round() as i32 - monitor.left)
+        .clamp(left as i32 + 1, capture_px.0 as i32) as u32;
+    let bottom = ((elem.center_y as f32 + elem.height / 2.0).round() as i32 - monitor.top)
+        .clamp(top as i32 + 1, capture_px.1 as i32) as u32;
+
+    let crop = img.crop_imm(left, top, right - left, bottom - top);
+    let mut buf = Vec::new();
+    crop.write_to(&mut Cursor::new(&mut buf), ImageFormat::Png)?;
+    Ok(format!("data:image/png;base64,{}", STANDARD.encode(buf)))
 }
 
 fn element_from_vision(vision: &VisionState, index: u32) -> Result<ElementInfo> {
@@ -241,7 +255,6 @@ fn arg_text(args: &Value, key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn parse_coords_extracts_vendor_answer_points() {
         let points = parse_coords_result("2,143|64,82|160,44|228,52").unwrap();
@@ -253,5 +266,34 @@ mod tests {
         let mut points = vec![(10, 20), (30, 40)];
         translate_points(&mut points, (100, 200));
         assert_eq!(points, vec![(100, 200), (120, 220)]);
+    }
+
+    #[test]
+    fn crop_element_from_jpeg_uses_monitor_relative_coords() {
+        let mut rgba = image::RgbaImage::new(100, 80);
+        for x in 20..40 {
+            for y in 10..30 {
+                rgba.put_pixel(x, y, image::Rgba([255, 0, 0, 255]));
+            }
+        }
+        let mut jpeg = Vec::new();
+        image::DynamicImage::ImageRgba8(rgba)
+            .write_to(&mut Cursor::new(&mut jpeg), ImageFormat::Jpeg)
+            .unwrap();
+
+        let monitor = MonitorInfo::new(0, 0, 100, 80);
+        let elem = ElementInfo {
+            index: 1,
+            center_x: 30,
+            center_y: 20,
+            width: 20.0,
+            height: 20.0,
+            norm_left: 0,
+            norm_top: 0,
+            norm_right: 0,
+            norm_bottom: 0,
+        };
+        let out = crop_element_from_jpeg(&jpeg, &monitor, (100, 80), &elem).unwrap();
+        assert!(out.starts_with("data:image/png;base64,"));
     }
 }

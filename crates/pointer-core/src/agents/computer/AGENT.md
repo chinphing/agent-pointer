@@ -14,6 +14,7 @@ toolNames:
   - clipboard
   - verify
   - task_board
+  - captcha_verify
 accessPolicy:
   allowTools:
     - mouse
@@ -24,6 +25,7 @@ accessPolicy:
     - clipboard
     - verify
     - task_board
+    - captcha_verify
   denyTools: []
   allowSkills: []
   denySkills: []

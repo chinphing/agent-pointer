@@ -71,7 +71,7 @@ const flatMessages = computed<FlatEntry[]>(() => {
         />
         <div
           v-else
-          class="sticky top-0 z-20 pt-1 pb-1 -mx-1"
+          class="flex justify-end pr-11 -mt-2 mb-1"
         >
           <TaskBoardPanel
             v-if="chat.currentId"

@@ -37,6 +37,7 @@ import {
 import { buildCompressionNoticeContent, isCompressionSummaryMessage } from '../lib/compressionMessage'
 import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
+import { usePlatformAuthStore } from './platformAuth'
 
 function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36) }
 
@@ -802,7 +803,6 @@ export const useChatStore = defineStore('chat', () => {
     if (!current.value) newConversation()
     const conv = current.value!
     if (!content.trim() || isConversationGenerating(conv.id)) return
-    const { usePlatformAuthStore } = await import('./platformAuth')
     const platformAuth = usePlatformAuthStore()
     if (platformAuth.tokenQuotaExhausted) {
       conv.messages.push({

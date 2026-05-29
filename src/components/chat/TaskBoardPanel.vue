@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { LayoutList, CheckCircle2, Circle, Loader2, XCircle, Ban } from 'lucide-vue-next'
-import type { TaskBoardDocument, TaskBoardItem } from '../../types/chat'
+import type { TaskBoardDocument } from '../../types/chat'
 import { hasTaskBoardContent } from '../../lib/taskBoard'
 
 const props = defineProps<{
@@ -46,18 +46,6 @@ function statusClass(status: string): string {
   }
 }
 
-function statusLabel(status: string): string {
-  const m: Record<string, string> = {
-    pending: '待开始',
-    ready: '就绪',
-    in_progress: '进行中',
-    done: '完成',
-    failed: '失败',
-    cancelled: '已取消'
-  }
-  return m[status] ?? status
-}
-
 watch(
   () => props.document,
   doc => {
@@ -82,18 +70,14 @@ watch(
       <span class="text-[11px] text-muted shrink-0">{{ doneCount }}/{{ items.length }}</span>
       <span class="text-[10px] px-1.5 py-0.5 rounded bg-accent-muted text-accent shrink-0">{{ metaStatus }}</span>
     </summary>
-    <div class="border-t border-border px-3 py-2 space-y-1.5 max-h-48 overflow-y-auto">
+    <div class="border-t border-border px-3 py-2 space-y-0.5 max-h-48 overflow-y-auto">
       <div
         v-for="item in items"
         :key="item.id"
-        class="flex items-start gap-2 text-[12px] py-1"
+        class="flex items-center gap-2 text-[12px] py-1 min-h-[1.5rem]"
       >
-        <component :is="statusIcon(item.status)" class="w-3.5 h-3.5 mt-0.5 shrink-0" :class="statusClass(item.status)" />
-        <div class="min-w-0 flex-1">
-          <div class="text-foreground truncate">{{ item.title }}</div>
-          <div class="text-[10px] text-muted">{{ statusLabel(item.status) }}</div>
-          <div v-if="item.depends_on?.length" class="text-[10px] text-muted">依赖: {{ item.depends_on.join(', ') }}</div>
-        </div>
+        <component :is="statusIcon(item.status)" class="w-3.5 h-3.5 shrink-0" :class="statusClass(item.status)" />
+        <span class="text-foreground truncate flex-1">{{ item.title }}</span>
       </div>
       <div v-if="!items.length" class="text-[11px] text-muted py-2">暂无里程碑</div>
     </div>
@@ -106,10 +90,10 @@ watch(
       <div
         v-for="row in child.board"
         :key="row.id"
-        class="flex items-center gap-2 text-[11px] py-0.5"
+        class="flex items-center gap-2 text-[11px] py-0.5 min-h-[1.25rem]"
       >
         <component :is="statusIcon(row.status)" class="w-3 h-3 shrink-0" :class="statusClass(row.status)" />
-        <span class="truncate text-foreground">{{ row.title }}</span>
+        <span class="truncate text-foreground flex-1">{{ row.title }}</span>
       </div>
     </div>
   </details>

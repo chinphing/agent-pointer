@@ -177,6 +177,7 @@ async function openScreenPreview() {
       :generating="generating"
       :is-active-generation-message="isActiveGenerationMessage"
       :show-message-actions="showMessageActions"
+      :child-task-board-document="chatStore.currentId ? chatStore.taskBoardForConversation(chatStore.currentId)?.children?.[trace.id] ?? null : null"
     />
 
     <div v-if="showActionBar" class="flex items-center gap-1 w-full min-w-0">

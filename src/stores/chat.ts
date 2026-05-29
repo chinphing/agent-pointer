@@ -98,6 +98,7 @@ export const useChatStore = defineStore('chat', () => {
   /** Ephemeral banner (e.g. computer screenshot done); not persisted. */
   const uiToast = ref<{ message: string; level: 'success' | 'warning' | 'error' } | null>(null)
   const taskBoards = ref<Record<string, ConversationTaskBoardState>>({})
+  const taskBoardAnchorMessageIds = ref<Map<string, string>>(new Map())
   let uiToastTimer: ReturnType<typeof setTimeout> | null = null
   let unlisten: (() => void) | null = null
   let saveTimer: number | null = null
@@ -520,6 +521,16 @@ export const useChatStore = defineStore('chat', () => {
             e.storeKey,
             e.document as TaskBoardDocument
           )
+          const conv = conversations.value.find(c => c.id === e.conversationId)
+          if (!conv) break
+          const lastUser = conv.messages.reduceRight<ChatMessage | null>(
+            (found, m) =>
+              found ? found : m.role === 'user' && !isEphemeralDesktopNoticeMessage(m) ? m : null,
+            null
+          )
+          if (lastUser) {
+            taskBoardAnchorMessageIds.value.set(e.conversationId, lastUser.id)
+          }
         }
         break
       }
@@ -922,7 +933,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards,
+    conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards, taskBoardAnchorMessageIds,
     init, newConversation, selectConversation, deleteConversation,
     sendUserMessage, stop, abortTerminalOnly, retry, approve, undo,
     refreshTaskBoard, taskBoardForConversation, setConversationWorkspace, applyPersistedComposerDefaults, showUiToast

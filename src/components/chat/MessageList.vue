@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ArrowDown } from 'lucide-vue-next'
 import MessageRow from './message/MessageRow.vue'
+import TaskBoardPanel from './TaskBoardPanel.vue'
 import { useChatStore } from '../../stores/chat'
+import type { ChatMessage } from '../../types/chat'
 
 const chat = useChatStore()
 const scroller = ref<HTMLDivElement | null>(null)
@@ -40,16 +42,44 @@ watch(
     }
   }
 )
+
+type FlatEntry = { type: 'message'; message: ChatMessage } | { type: 'task_board' }
+
+const flatMessages = computed<FlatEntry[]>(() => {
+  const msgs = chat.current?.messages ?? []
+  if (!chat.currentId) return msgs.map(m => ({ type: 'message' as const, message: m }))
+  const anchorId = chat.taskBoardAnchorMessageIds.get(chat.currentId)
+  const anchorIdx = anchorId ? msgs.findIndex(m => m.id === anchorId) : -1
+  const entries: FlatEntry[] = []
+  for (let i = 0; i < msgs.length; i++) {
+    entries.push({ type: 'message', message: msgs[i] })
+    if (i === anchorIdx) {
+      entries.push({ type: 'task_board' })
+    }
+  }
+  return entries
+})
 </script>
 
 <template>
   <div ref="scroller" class="h-full overflow-y-auto px-6 md:px-10 pb-6" @scroll="onScroll">
     <div class="max-w-3xl mx-auto pt-6 space-y-5">
-      <MessageRow
-        v-for="m in chat.current?.messages || []"
-        :key="m.id"
-        :message="m"
-      />
+      <template v-for="entry in flatMessages" :key="entry.type === 'message' ? entry.message.id : 'task-board'">
+        <MessageRow
+          v-if="entry.type === 'message'"
+          :message="entry.message"
+        />
+        <div
+          v-else
+          class="sticky top-0 z-20 pt-1 pb-1 -mx-1"
+        >
+          <TaskBoardPanel
+            v-if="chat.currentId"
+            :document="(chat.taskBoardForConversation(chat.currentId)?.parent ?? null)"
+            :child-boards="(chat.taskBoardForConversation(chat.currentId)?.children ?? undefined)"
+          />
+        </div>
+      </template>
     </div>
 
     <button

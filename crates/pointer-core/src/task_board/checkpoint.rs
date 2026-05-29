@@ -26,7 +26,7 @@ pub fn task_board_call_is_checkpoint(tool_id: &str, args: &Value) -> bool {
         return false;
     }
     match resolve_method(tool_id, args).as_str() {
-        "replace" | "finalize" => true,
+        "init" | "replace" | "finalize" => true,
         "patch" | "" => patch_marks_done(args),
         _ => false,
     }

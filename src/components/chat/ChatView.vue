@@ -2,12 +2,11 @@
 import { computed, defineAsyncComponent, defineComponent, h } from 'vue'
 import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
-import TaskBoardPanel from './TaskBoardPanel.vue'
 import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { useLeadAgentUi } from '../../composables/useAgentUi'
-import { hasTaskBoardContent } from '../../lib/taskBoard'
+
 import { isTauriRuntime } from '../../lib/runtime'
 import { Sparkles } from 'lucide-vue-next'
 
@@ -58,19 +57,6 @@ function onPlatformLoginCancel() {
   void platformAuth.cancelLogin()
 }
 
-const taskBoardState = computed(() =>
-  chat.currentId ? chat.taskBoardForConversation(chat.currentId) : null
-)
-
-const showTaskBoardPanel = computed(() => {
-  if (!leadUi.value.showTaskBoardPanel) return false
-  if (!chat.currentId) return false
-  const state = taskBoardState.value
-  if (!state) return false
-  if (hasTaskBoardContent(state.parent)) return true
-  return Object.values(state.children ?? {}).some(hasTaskBoardContent)
-})
-
 const toastClass = computed(() => {
   const t = uiToast.value
   if (!t) return ''
@@ -118,15 +104,6 @@ const toastClass = computed(() => {
       </div>
 
       <div v-else class="h-full flex flex-col min-h-0">
-        <div class="shrink-0 px-6 md:px-10 pt-4">
-          <div class="max-w-3xl mx-auto">
-            <TaskBoardPanel
-              v-if="showTaskBoardPanel"
-              :document="taskBoardState?.parent ?? null"
-              :child-boards="taskBoardState?.children"
-            />
-          </div>
-        </div>
         <div class="flex-1 min-h-0 overflow-hidden">
           <MessageList />
         </div>

@@ -69,7 +69,7 @@ watch(
 <template>
   <details
     v-if="document && hasTaskBoardContent(document)"
-    class="rounded-lg border border-border bg-card mb-3 overflow-hidden"
+    class="rounded-lg border border-border bg-card mb-3 overflow-hidden max-w-[50%]"
     :open="open"
   >
     <summary

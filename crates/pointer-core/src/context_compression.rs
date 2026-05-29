@@ -161,8 +161,9 @@ fn build_compression_info(
 }
 
 pub fn estimate_message_payload_chars(msgs: &[ChatMessage]) -> usize {
+    let included = crate::message_context::filter_context_messages(msgs);
     let mut n = 0usize;
-    for m in msgs {
+    for m in &included {
         n += m.content.chars().count();
         n += m.reasoning.as_deref().map(str::len).unwrap_or(0);
         n += m.error_message.as_deref().map(str::len).unwrap_or(0);
@@ -180,21 +181,9 @@ pub fn estimate_message_payload_chars(msgs: &[ChatMessage]) -> usize {
     n
 }
 
-/// Start index of the Nth user message from the end (`N >= 1`). Returns 0 if fewer than N users exist.
+/// Deprecated: use [`crate::message_context::find_split_at_user_boundary`].
 pub(crate) fn find_split_at_user_boundary(msgs: &[ChatMessage], keep_last_n_users: usize) -> usize {
-    if keep_last_n_users == 0 || msgs.is_empty() {
-        return 0;
-    }
-    let mut seen = 0usize;
-    for i in (0..msgs.len()).rev() {
-        if matches!(msgs[i].role, Role::User) {
-            seen += 1;
-            if seen == keep_last_n_users {
-                return i;
-            }
-        }
-    }
-    0
+    crate::message_context::find_split_at_user_boundary(msgs, keep_last_n_users)
 }
 
 fn truncate_chars(s: &str, max_chars: usize) -> String {
@@ -379,7 +368,9 @@ fn new_summary_user_message(body: String) -> ChatMessage {
         image_slot_labels: None,
         images_base64: None,
         computer_round_screen_rel_path: None,
-    }
+        ui_bindings: None,
+            context_state: None,
+            }
 }
 
 async fn compress_history_inner(
@@ -450,8 +441,13 @@ async fn compress_history_inner(
         "warning",
     );
 
-    let suffix = history[split..].to_vec();
-    let dropped_count = split as u32;
+    let dropped_count = history[..split]
+        .iter()
+        .filter(|m| {
+            crate::message_context::is_context_included(m)
+                && !crate::message_context::is_synthetic_user_content(&m.content)
+        })
+        .count() as u32;
     let t_fmt = Instant::now();
     let formatted = format_prefix_for_summary(prefix);
     let format_prefix_ms = t_fmt.elapsed().as_millis();
@@ -476,7 +472,9 @@ async fn compress_history_inner(
         image_slot_labels: None,
         images_base64: None,
         computer_round_screen_rel_path: None,
-    };
+        ui_bindings: None,
+            context_state: None,
+            };
 
     let max_tok = settings.context_summary_max_tokens.max(128);
     let summary_prefix = if force_ignore_char_budget {
@@ -550,11 +548,19 @@ async fn compress_history_inner(
     };
 
     let summary_msg = new_summary_user_message(summary_body);
-    let mut new_hist = Vec::with_capacity(1 + suffix.len());
-    new_hist.push(summary_msg);
-    new_hist.extend(suffix);
-    let messages_after = new_hist.len();
-    *history = new_hist;
+    for m in history.iter_mut().take(split) {
+        if crate::message_context::is_synthetic_user_content(&m.content) {
+            continue;
+        }
+        if crate::message_context::is_context_included(m) {
+            crate::message_context::mark_excluded(
+                m,
+                crate::models::ExcludedReason::ContextCompression,
+            );
+        }
+    }
+    history.insert(split, summary_msg);
+    let messages_after = history.len();
 
     let compression = build_compression_info(
         ui,
@@ -685,7 +691,9 @@ mod tests {
             image_slot_labels: None,
         images_base64: None,
             computer_round_screen_rel_path: None,
-        }
+        ui_bindings: None,
+            context_state: None,
+            }
     }
 
     #[test]

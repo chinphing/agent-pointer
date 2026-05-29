@@ -135,6 +135,17 @@ export interface AgentDef {
   ui?: AgentUiConfig
 }
 
+export interface MessageUiBindings {
+  taskBoardAnchor?: boolean
+}
+
+export type ExcludedReason = 'context_compression' | 'task_board_trim'
+
+export interface MessageContextState {
+  included: boolean
+  excludedReason?: ExcludedReason
+}
+
 export interface ChatMessage {
   id: string
   role: Role
@@ -166,6 +177,10 @@ export interface ChatMessage {
   supervisorPlanTasks?: SupervisorPlanTask[]
   /** Annotated PNG path under app `computer-captures/` (lazy load on preview); persisted when the stream emits it. */
   computerRoundScreenRelPath?: string
+  /** UI mount hints (e.g. TaskBoard anchor). */
+  uiBindings?: MessageUiBindings
+  /** Whether this message participates in LLM context. */
+  contextState?: MessageContextState
 }
 
 export interface Conversation {

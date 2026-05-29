@@ -1,14 +1,14 @@
-//! Hard-trim conversation history after successful `task_board` updates (no LLM summarization).
+//! Soft-exclude conversation prefix after successful `task_board` updates (no LLM summarization).
 
 use crate::context_compression::{
-    find_split_at_user_boundary, SUMMARY_PREFIX_BUDGET, SUMMARY_PREFIX_TOOL_LIMIT,
+    SUMMARY_PREFIX_BUDGET, SUMMARY_PREFIX_TOOL_LIMIT,
 };
-use crate::models::{ChatMessage, ModelSettings, Role, StreamEvent};
+use crate::message_context::{find_split_at_user_boundary, is_context_included, mark_excluded};
+use crate::models::{ChatMessage, ExcludedReason, ModelSettings, Role, StreamEvent};
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::UnboundedSender;
 
-/// Prefix on placeholder user rows after task_board-driven trim (UI detects this for styling).
+/// Prefix on legacy placeholder user rows after task_board-driven trim (UI detects this for styling).
 pub const TRIM_PLACEHOLDER_PREFIX: &str = "[History trimmed after task_board update]";
 
 const DEFAULT_KEEP_LAST_N_USERS: usize = 2;
@@ -31,15 +31,8 @@ pub struct TaskBoardTrimHook<'a> {
     pub agent_id: &'a str,
     pub conversation_id: &'a str,
     pub stream: &'a StreamTx,
-    /// When true, emit `HistoryReplaced` so the chat UI persists the trimmed thread.
+    /// When true, emit `HistoryReplaced` so the chat UI persists updated flags.
     pub emit_history_replaced: bool,
-}
-
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
 }
 
 fn normalize_agent_id(agent_id: &str) -> String {
@@ -86,34 +79,15 @@ fn find_first_real_user_index(msgs: &[ChatMessage]) -> Option<usize> {
         .position(|m| is_real_user_task_message(m))
 }
 
-fn new_trim_placeholder_message() -> ChatMessage {
-    ChatMessage {
-        id: format!("tb_trim_{}", uuid::Uuid::new_v4().simple()),
-        role: Role::User,
-        content: format!(
-            "{TRIM_PLACEHOLDER_PREFIX}\n\nEarlier turns were removed after a task board update. \
-             Use the latest injected [TASK_BOARD] block and recent messages for context."
-        ),
-        status: "done".into(),
-        created_at: now_ms(),
-        tool_calls: None,
-        tool_call_id: None,
-        error_message: None,
-        reasoning: None,
-        thoughts: None,
-        headline: None,
-        raw_content: None,
-        agent_id: None,
-        agent_instance_id: None,
-        agent_name: None,
-        agent_trace: None,
-        image_slot_labels: None,
-        images_base64: None,
-        computer_round_screen_rel_path: None,
+fn mark_range_excluded(history: &mut [ChatMessage], start: usize, end: usize) {
+    for m in history.iter_mut().take(end).skip(start) {
+        if is_context_included(m) {
+            mark_excluded(m, ExcludedReason::TaskBoardTrim);
+        }
     }
 }
 
-/// Hard-trim `history` per task_board checkpoint policy. Returns `None` when no trim applied.
+/// Soft-exclude prefix in `history` per task_board checkpoint policy. Returns `None` when no trim applied.
 pub fn trim_history_after_task_board(
     history: &mut Vec<ChatMessage>,
     keep_last_n_users: usize,
@@ -127,37 +101,40 @@ pub fn trim_history_after_task_board(
     let messages_before = history.len();
     let first_in_suffix = split <= first_idx;
 
-    let (dropped_count, new_hist) = if !first_in_suffix {
+    let dropped_count = if !first_in_suffix {
         if split <= first_idx + 1 {
             return None;
         }
-        let dropped_count = (split - first_idx - 1) as u32;
-        let mut new_hist = Vec::with_capacity(2 + (messages_before - split));
-        new_hist.push(history[first_idx].clone());
-        new_hist.push(new_trim_placeholder_message());
-        new_hist.extend_from_slice(&history[split..]);
-        (dropped_count, new_hist)
-    } else {
-        let dropped_count = split.saturating_sub(1) as u32;
+        let dropped_count = history[first_idx + 1..split]
+            .iter()
+            .filter(|m| is_context_included(m))
+            .count() as u32;
         if dropped_count == 0 {
             return None;
         }
-        let mut new_hist = Vec::with_capacity(1 + (messages_before - split));
-        new_hist.push(new_trim_placeholder_message());
-        new_hist.extend_from_slice(&history[split..]);
-        (dropped_count, new_hist)
+        mark_range_excluded(history, 0, first_idx);
+        mark_range_excluded(history, first_idx + 1, split);
+        dropped_count
+    } else {
+        let dropped_count = history[..split]
+            .iter()
+            .filter(|m| is_context_included(m))
+            .count() as u32;
+        if dropped_count == 0 {
+            return None;
+        }
+        mark_range_excluded(history, 0, split);
+        dropped_count
     };
 
-    let messages_after = new_hist.len();
+    let messages_after = history.len();
 
-    let stats = TaskBoardTrimStats {
+    Some(TaskBoardTrimStats {
         messages_before,
         messages_after,
         split_at: split,
         dropped_count,
-    };
-    *history = new_hist;
-    Some(stats)
+    })
 }
 
 pub fn maybe_trim_after_tool_pass(
@@ -188,7 +165,7 @@ pub fn maybe_trim_after_tool_pass(
     };
 
     log::info!(
-        "task_board_trim: applied conversation_id={} agent_id={} messages_before={} messages_after={} split_at={} dropped={}",
+        "task_board_trim: applied conversation_id={} agent_id={} messages_before={} messages_after={} split_at={} excluded={}",
         hook.conversation_id,
         hook.agent_id,
         stats.messages_before,
@@ -198,7 +175,7 @@ pub fn maybe_trim_after_tool_pass(
     );
 
     let toast = format!(
-        "任务板更新后已精简较早 {} 条对话记录",
+        "任务板更新后已将较早 {} 条对话从上下文排除",
         stats.dropped_count
     );
     let _ = hook.stream.send(StreamEvent::UiToast {
@@ -249,8 +226,10 @@ mod tests {
             agent_name: None,
             agent_trace: None,
             image_slot_labels: None,
-        images_base64: None,
+            images_base64: None,
             computer_round_screen_rel_path: None,
+            ui_bindings: None,
+            context_state: None,
         }
     }
 
@@ -273,13 +252,22 @@ mod tests {
             agent_name: None,
             agent_trace: None,
             image_slot_labels: None,
-        images_base64: None,
+            images_base64: None,
             computer_round_screen_rel_path: None,
+            ui_bindings: None,
+            context_state: None,
         }
     }
 
+    fn is_excluded(m: &ChatMessage) -> bool {
+        m.context_state
+            .as_ref()
+            .map(|s| !s.included)
+            .unwrap_or(false)
+    }
+
     #[test]
-    fn trim_keeps_first_task_and_recent_suffix() {
+    fn trim_marks_prefix_excluded_keeps_first_task_and_suffix() {
         let mut hist = vec![
             u("build the app"),
             a(),
@@ -288,11 +276,13 @@ mod tests {
             u("follow up"),
             a(),
         ];
+        let before_len = hist.len();
         let stats = trim_history_after_task_board(&mut hist, 2).expect("trim");
         assert!(stats.dropped_count > 0);
-        assert!(hist[0].content.contains("build the app"));
-        assert!(hist[1].content.starts_with(TRIM_PLACEHOLDER_PREFIX));
+        assert_eq!(hist.len(), before_len);
+        assert!(!is_excluded(&hist[0]));
         assert!(hist.iter().any(|m| m.content.contains("follow up")));
+        assert!(hist.iter().any(is_excluded));
     }
 
     #[test]

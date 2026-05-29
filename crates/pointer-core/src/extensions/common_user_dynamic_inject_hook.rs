@@ -92,7 +92,9 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
             image_slot_labels: None,
             images_base64: None,
             computer_round_screen_rel_path: None,
-        });
+        ui_bindings: None,
+            context_state: None,
+            });
         if ctx.lead_agent_profile == AgentProfile::Computer {
             log::info!(
                 "common_user_dynamic_inject: appended user inject conversation_id={} store_key={} legacy_snapshot_len={} user_block_len={}",

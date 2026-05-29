@@ -43,18 +43,17 @@ watch(
   }
 )
 
-type FlatEntry = { type: 'message'; message: ChatMessage } | { type: 'task_board' }
+type FlatEntry =
+  | { type: 'message'; message: ChatMessage }
+  | { type: 'task_board'; anchorMessageId: string }
 
 const flatMessages = computed<FlatEntry[]>(() => {
   const msgs = chat.current?.messages ?? []
-  if (!chat.currentId) return msgs.map(m => ({ type: 'message' as const, message: m }))
-  const anchorId = chat.taskBoardAnchorMessageIds.get(chat.currentId)
-  const anchorIdx = anchorId ? msgs.findIndex(m => m.id === anchorId) : -1
   const entries: FlatEntry[] = []
-  for (let i = 0; i < msgs.length; i++) {
-    entries.push({ type: 'message', message: msgs[i] })
-    if (i === anchorIdx) {
-      entries.push({ type: 'task_board' })
+  for (const message of msgs) {
+    entries.push({ type: 'message', message })
+    if (message.uiBindings?.taskBoardAnchor) {
+      entries.push({ type: 'task_board', anchorMessageId: message.id })
     }
   }
   return entries
@@ -64,7 +63,7 @@ const flatMessages = computed<FlatEntry[]>(() => {
 <template>
   <div ref="scroller" class="h-full overflow-y-auto px-6 md:px-10 pb-6" @scroll="onScroll">
     <div class="max-w-3xl mx-auto pt-6 space-y-5">
-      <template v-for="entry in flatMessages" :key="entry.type === 'message' ? entry.message.id : 'task-board'">
+      <template v-for="entry in flatMessages" :key="entry.type === 'message' ? entry.message.id : `task-board-${entry.anchorMessageId}`">
         <MessageRow
           v-if="entry.type === 'message'"
           :message="entry.message"

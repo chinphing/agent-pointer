@@ -118,6 +118,8 @@ fn push_format_retry_user_line(
                 image_slot_labels: None,
                 images_base64: None,
                 computer_round_screen_rel_path: None,
+        ui_bindings: None,
+            context_state: None,
             });
         }
     }
@@ -202,7 +204,9 @@ pub(super) fn build_lead_assistant_message_after_stream(
         image_slot_labels: None,
         images_base64: None,
         computer_round_screen_rel_path: None,
-    }
+        ui_bindings: None,
+            context_state: None,
+            }
 }
 
 pub(super) fn build_sub_assistant_message_after_stream(
@@ -245,7 +249,9 @@ pub(super) fn build_sub_assistant_message_after_stream(
         image_slot_labels: None,
         images_base64: None,
         computer_round_screen_rel_path: None,
-    }
+        ui_bindings: None,
+            context_state: None,
+            }
 }
 
 pub(super) fn commit_lead_assistant_turn(

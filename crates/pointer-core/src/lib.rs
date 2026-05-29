@@ -9,6 +9,7 @@ pub mod platform_endpoints;
 pub mod token_usage_store;
 pub mod extensions;
 pub mod context_compression;
+pub mod message_context;
 pub mod task_board;
 
 /// Deprecated re-export — use [`task_board::history_trim`] instead.

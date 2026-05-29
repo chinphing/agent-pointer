@@ -16,7 +16,8 @@ import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody
 import SubAgentFrame from './SubAgentFrame.vue'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
 import RawWirePanel from './RawWirePanel.vue'
-import ScreenPreviewModal from './ScreenPreviewModal.vue'
+import ContextExcludedFooter from '../ContextExcludedFooter.vue'
+import { isContextExcluded } from '../../../../lib/messageContext'
 
 const props = defineProps<{ message: ChatMessage }>()
 
@@ -151,7 +152,7 @@ async function openScreenPreview() {
 </script>
 
 <template>
-  <div class="w-full max-w-full space-y-2">
+  <div class="w-full max-w-full space-y-2" :class="isContextExcluded(message) ? 'opacity-80' : ''">
     <ModelThoughtPanels
       v-if="showSupervisorPlan"
       :plan-tasks="message.supervisorPlanTasks"
@@ -215,5 +216,7 @@ async function openScreenPreview() {
       :preview="screenPreview"
       :error="screenError"
     />
+
+    <ContextExcludedFooter :message="message" />
   </div>
 </template>

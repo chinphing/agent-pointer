@@ -1124,7 +1124,9 @@ mod tests {
             images_base64: None,
             image_slot_labels: None,
             computer_round_screen_rel_path: None,
-        };
+        ui_bindings: None,
+            context_state: None,
+            };
         let history = vec![
             mk("u1", Role::User, "Compare Rust editions"),
             mk("a1", Role::Assistant, "I'll search the web."),
@@ -1268,6 +1270,8 @@ mod tests {
                 images_base64: None,
                 image_slot_labels: None,
                 computer_round_screen_rel_path: None,
+        ui_bindings: None,
+            context_state: None,
             },
             ChatMessage {
                 id: "a1".into(),
@@ -1289,6 +1293,8 @@ mod tests {
                 images_base64: None,
                 image_slot_labels: None,
                 computer_round_screen_rel_path: None,
+        ui_bindings: None,
+            context_state: None,
             },
             ChatMessage {
                 id: "t1".into(),
@@ -1310,6 +1316,8 @@ mod tests {
                 images_base64: None,
                 image_slot_labels: None,
                 computer_round_screen_rel_path: None,
+        ui_bindings: None,
+            context_state: None,
             },
         ];
         assert_eq!(compute_citation_base_index(&history, "a1"), 7);

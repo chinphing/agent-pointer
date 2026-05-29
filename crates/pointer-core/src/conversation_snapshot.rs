@@ -183,6 +183,8 @@ mod tests {
                 image_slot_labels: None,
                 images_base64: None,
                 computer_round_screen_rel_path: None,
+        ui_bindings: None,
+            context_state: None,
             },
             ChatMessage {
                 id: "u1".into(),
@@ -204,6 +206,8 @@ mod tests {
                 image_slot_labels: None,
                 images_base64: Some(vec!["base64data".into()]),
                 computer_round_screen_rel_path: None,
+        ui_bindings: None,
+            context_state: None,
             },
             ChatMessage {
                 id: "a1".into(),
@@ -225,6 +229,8 @@ mod tests {
                 image_slot_labels: None,
                 images_base64: None,
                 computer_round_screen_rel_path: None,
+        ui_bindings: None,
+            context_state: None,
             },
             ChatMessage {
                 id: "a2".into(),
@@ -246,6 +252,8 @@ mod tests {
                 image_slot_labels: None,
                 images_base64: None,
                 computer_round_screen_rel_path: None,
+        ui_bindings: None,
+            context_state: None,
             },
         ];
         let snap = build_snapshot_json("conv-1", inst, "coder", &history);

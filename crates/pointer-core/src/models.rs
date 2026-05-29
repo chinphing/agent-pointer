@@ -49,6 +49,37 @@ pub struct AgentTrace {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageUiBindings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_board_anchor: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExcludedReason {
+    ContextCompression,
+    TaskBoardTrim,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageContextState {
+    pub included: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub excluded_reason: Option<ExcludedReason>,
+}
+
+impl Default for MessageContextState {
+    fn default() -> Self {
+        Self {
+            included: true,
+            excluded_reason: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub id: String,
     pub role: Role,
@@ -100,6 +131,12 @@ pub struct ChatMessage {
         skip_serializing_if = "Option::is_none"
     )]
     pub computer_round_screen_rel_path: Option<String>,
+    /// UI mount hints (e.g. TaskBoard anchor); persisted with conversation.
+    #[serde(default, rename = "uiBindings", skip_serializing_if = "Option::is_none")]
+    pub ui_bindings: Option<MessageUiBindings>,
+    /// Whether this message is included in LLM context.
+    #[serde(default, rename = "contextState", skip_serializing_if = "Option::is_none")]
+    pub context_state: Option<MessageContextState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1828,7 +1865,9 @@ fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMess
                             image_slot_labels: None,
                             images_base64: None,
                             computer_round_screen_rel_path: None,
-                        });
+        ui_bindings: None,
+            context_state: None,
+            });
                     }
                     i = j;
                     continue;
@@ -1932,7 +1971,9 @@ fn flatten_tool_rounds_computer_style_for_api(msgs: &[ChatMessage]) -> Vec<ChatM
                             image_slot_labels: None,
                             images_base64: None,
                             computer_round_screen_rel_path: None,
-                        });
+        ui_bindings: None,
+            context_state: None,
+            });
                     }
                     i = j;
                     continue;
@@ -2075,7 +2116,8 @@ pub fn make_openai_messages(
     include_reasoning_in_api: bool,
     explicit_system_cache: bool,
 ) -> Vec<serde_json::Value> {
-    let expanded = expand_tool_messages_for_openai_request(msgs);
+    let included = crate::message_context::filter_context_messages(msgs);
+    let expanded = expand_tool_messages_for_openai_request(&included);
     let flattened = flatten_tool_rounds_computer_style_for_api(&expanded);
     let mut out: Vec<serde_json::Value> = Vec::new();
     push_openai_system_messages(&mut out, system, explicit_system_cache);
@@ -2192,7 +2234,9 @@ mod make_openai_messages_tests {
             image_slot_labels: None,
             images_base64: None,
             computer_round_screen_rel_path: None,
-        }
+        ui_bindings: None,
+            context_state: None,
+            }
     }
 
     #[test]
@@ -2327,6 +2371,26 @@ mod make_openai_messages_tests {
             serde_json::from_str(out[1]["content"].as_str().unwrap()).unwrap();
         assert_eq!(u["tool_name"], "read");
         assert_eq!(u["tool_result"], "file body");
+    }
+
+    #[test]
+    fn excluded_messages_omitted_from_openai_request() {
+        let mut excluded = msg(Role::User);
+        excluded.content = "old turn".into();
+        excluded.context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: Some(ExcludedReason::ContextCompression),
+        });
+        let mut included = msg(Role::User);
+        included.content = "recent turn".into();
+        let out = make_openai_messages(
+            &[excluded, included],
+            &SystemPromptSections::default(),
+            false,
+            false,
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["content"], "recent turn");
     }
 
     #[test]

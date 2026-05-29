@@ -286,7 +286,9 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     image_slot_labels: Some(image_slot_labels),
                     images_base64: Some(images),
                     computer_round_screen_rel_path: None,
-                });
+        ui_bindings: None,
+            context_state: None,
+            });
             }
             Err(e) => {
                 log::warn!("computer screen capture/annotate failed: {:#}", e);
@@ -319,7 +321,9 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     image_slot_labels: None,
                     images_base64: None,
                     computer_round_screen_rel_path: None,
-                });
+        ui_bindings: None,
+            context_state: None,
+            });
             }
         }
         Ok(())
@@ -353,7 +357,9 @@ mod tests {
             image_slot_labels: None,
             images_base64: images.map(|v| v.into_iter().map(String::from).collect()),
             computer_round_screen_rel_path: None,
-        }
+        ui_bindings: None,
+            context_state: None,
+            }
     }
 
     fn dummy_cap(has_before: bool) -> ScreenCaptureResult {

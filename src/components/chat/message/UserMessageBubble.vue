@@ -3,6 +3,8 @@ import { computed, ref } from 'vue'
 import { marked } from 'marked'
 import { User, Copy, Check } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
+import { isContextExcluded } from '../../../lib/messageContext'
+import ContextExcludedFooter from './ContextExcludedFooter.vue'
 import { useMarkdownCodeCopy } from '../../../composables/useMarkdownCodeCopy'
 import { useMarkdownExternalLinks } from '../../../composables/useMarkdownExternalLinks'
 
@@ -41,6 +43,7 @@ function copy() {
     <div class="flex-1 min-w-0 flex flex-col items-end">
       <div
         class="relative block overflow-hidden px-4 py-3 rounded-2xl border break-words w-fit max-w-[80%] bg-primary/15 border-primary/25 text-slate-100"
+        :class="isContextExcluded(message) ? 'opacity-80' : ''"
       >
         <div
           v-if="message.content"
@@ -59,6 +62,7 @@ function copy() {
           <Check v-if="copied" class="w-3 h-3" />
           <Copy v-else class="w-3 h-3" />
         </button>
+        <ContextExcludedFooter :message="message" />
       </div>
     </div>
   </div>

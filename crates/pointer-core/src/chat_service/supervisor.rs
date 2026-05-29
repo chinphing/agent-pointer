@@ -391,7 +391,9 @@ pub(crate) async fn run_supervisor_chat(
         image_slot_labels: None,
         images_base64: None,
         computer_round_screen_rel_path: None,
-    });
+        ui_bindings: None,
+            context_state: None,
+            });
     emit(
         &stream,
         StreamEvent::MessageEnd {

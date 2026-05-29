@@ -74,7 +74,9 @@ pub(crate) fn tool_result_msg(tool_call_id: &str, content: &str) -> ChatMessage 
         image_slot_labels: None,
         images_base64: None,
         computer_round_screen_rel_path: None,
-    }
+        ui_bindings: None,
+            context_state: None,
+            }
 }
 
 /// When the tool run did not succeed, short text for `[Recent desktop tool calls]` (`FAILED: …`).

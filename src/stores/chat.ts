@@ -9,7 +9,6 @@ import type {
   Conversation,
   StreamEvent,
   ToolCall,
-  ContextCompressionInfo,
   TaskBoardDocument
 } from '../types/chat'
 import { getTaskBoardSnapshot } from '../lib/api'
@@ -34,7 +33,12 @@ import {
   finalizeSubSession,
   recordSubToolSuccess
 } from '../lib/subAgentSession'
-import { buildCompressionNoticeContent, isCompressionSummaryMessage } from '../lib/compressionMessage'
+import { buildCompressionNoticeContent } from '../lib/compressionMessage'
+import {
+  ensureTaskBoardAnchor,
+  findLastRealUserMessage,
+  setTaskBoardAnchor
+} from '../lib/messageContext'
 import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
 import { usePlatformAuthStore } from './platformAuth'
@@ -99,7 +103,6 @@ export const useChatStore = defineStore('chat', () => {
   /** Ephemeral banner (e.g. computer screenshot done); not persisted. */
   const uiToast = ref<{ message: string; level: 'success' | 'warning' | 'error' } | null>(null)
   const taskBoards = ref<Record<string, ConversationTaskBoardState>>({})
-  const taskBoardAnchorMessageIds = ref<Map<string, string>>(new Map())
   let uiToastTimer: ReturnType<typeof setTimeout> | null = null
   let unlisten: (() => void) | null = null
   let saveTimer: number | null = null
@@ -302,6 +305,15 @@ export const useChatStore = defineStore('chat', () => {
         ? `${conversationId}${TASK_BOARD_SUB_SEP}${taskId.trim()}`
         : conversationId
       applyTaskBoardDocument(conversationId, storeKey, doc as TaskBoardDocument)
+      if (!taskId?.trim()) {
+        const conv = conversations.value.find(c => c.id === conversationId)
+        const entry = taskBoards.value[conversationId]
+        if (conv && entry?.parent && hasTaskBoardContent(entry.parent)) {
+          if (ensureTaskBoardAnchor(conv.messages)) {
+            persist()
+          }
+        }
+      }
     } catch (e) {
       console.warn('[task board] snapshot failed', e)
     }
@@ -321,20 +333,6 @@ export const useChatStore = defineStore('chat', () => {
     }, 4500)
   }
 
-  function insertCompressionNotice(conv: Conversation, info: ContextCompressionInfo) {
-    const notice: ChatMessage = {
-      id: uid(),
-      role: 'assistant',
-      content: buildCompressionNoticeContent(info),
-      status: 'done',
-      createdAt: Date.now(),
-      toolCalls: []
-    }
-    const summaryIdx = conv.messages.findIndex(m => isCompressionSummaryMessage(m))
-    const insertAt = summaryIdx >= 0 ? summaryIdx + 1 : conv.messages.length
-    conv.messages.splice(insertAt, 0, notice)
-  }
-
   function handleEventInner(e: StreamEvent) {
     switch (e.kind) {
       case 'history_replaced': {
@@ -347,7 +345,7 @@ export const useChatStore = defineStore('chat', () => {
           }))
           .filter(m => !isEphemeralDesktopNoticeMessage(m))
         if (e.compression) {
-          insertCompressionNotice(conv, e.compression)
+          showUiToast(buildCompressionNoticeContent(e.compression), 'success')
         }
         conv.updatedAt = Date.now()
         persist()
@@ -530,9 +528,10 @@ export const useChatStore = defineStore('chat', () => {
             (found, m) =>
               found ? found : m.role === 'user' && !isEphemeralDesktopNoticeMessage(m) ? m : null,
             null
-          )
+          ) ?? findLastRealUserMessage(conv.messages)
           if (lastUser) {
-            taskBoardAnchorMessageIds.value.set(e.conversationId, lastUser.id)
+            setTaskBoardAnchor(conv.messages, lastUser.id)
+            persist()
           }
         }
         break
@@ -935,7 +934,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards, taskBoardAnchorMessageIds,
+    conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards,
     init, newConversation, selectConversation, deleteConversation,
     sendUserMessage, stop, abortTerminalOnly, retry, approve, undo,
     refreshTaskBoard, taskBoardForConversation, setConversationWorkspace, applyPersistedComposerDefaults, showUiToast

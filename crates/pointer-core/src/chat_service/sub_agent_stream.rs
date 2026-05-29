@@ -131,7 +131,9 @@ pub(super) async fn run_sub_agent_stream_round(
                     image_slot_labels: None,
                     images_base64: None,
                     computer_round_screen_rel_path: None,
-                });
+        ui_bindings: None,
+            context_state: None,
+            });
                 if sub_tool_budget.is_exhausted() {
                     let hint = format!(
                         "子 Agent 内工具调用累计已达上限（{} 轮）。建议新开对话。",

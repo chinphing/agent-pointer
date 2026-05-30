@@ -542,6 +542,7 @@ fn builtin_openai_parameters(name: &str) -> serde_json::Value {
         "captcha_verify" => json!({
             "type": "object",
             "properties": {
+                "action": { "type": "string", "enum": ["type", "click", "drag"] },
                 "method": { "type": "string", "enum": ["type", "click", "drag"] },
                 "goal": { "type": "string" },
                 "remark": { "type": "string" },
@@ -551,7 +552,7 @@ fn builtin_openai_parameters(name: &str) -> serde_json::Value {
                 "index_slider_arrow": { "type": "integer" },
                 "index_slider_handle": { "type": "integer" }
             },
-            "required": ["method", "goal", "index_captcha_area"],
+            "required": ["action", "goal", "index_captcha_area"],
             "additionalProperties": true
         }),
         "hotkey" => json!({

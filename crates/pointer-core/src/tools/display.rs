@@ -78,12 +78,31 @@ fn mouse_method_label(method: &str) -> String {
     }
 }
 
+fn captcha_action_label(action: &str) -> &'static str {
+    match action {
+        "click" => "点选",
+        "drag" => "拖拽",
+        "input" => "输入",
+        "solve" => "识别",
+        _ => "识别",
+    }
+}
+
 fn computer_action_summary(args: &Value) -> String {
+    fn has_workspace_noise(s: &str) -> bool {
+        let lower = s.to_lowercase();
+        lower.contains("工作目录") || lower.contains("workspace")
+    }
+
     if let Some(a) = str_field(args, &["action"]) {
-        return truncate(&a, SUMMARY_MAX);
+        if !has_workspace_noise(&a) {
+            return truncate(&a, SUMMARY_MAX);
+        }
     }
     if let Some(g) = str_field(args, &["goal"]) {
-        return truncate(&g, SUMMARY_MAX);
+        if !has_workspace_noise(&g) {
+            return truncate(&g, SUMMARY_MAX);
+        }
     }
     if let (Some(x), Some(y)) = (args.get("x"), args.get("y")) {
         return format!("({}, {})", x, y);
@@ -289,8 +308,25 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             file_summary(args, "read"),
         ),
         "task_board" => {
-            let ml = if method.is_empty() { "patch" } else { method.as_str() };
+            let ml = match if method.is_empty() { "patch" } else { method.as_str() } {
+                "patch" => "更新",
+                "replace" => "替换",
+                "get" => "读取",
+                other => other,
+            };
             (format!("任务板 · {ml}"), String::new())
+        }
+        "captcha_verify" => {
+            let action = if method.is_empty() {
+                str_field(args, &["action", "method"]).unwrap_or_default()
+            } else {
+                method.clone()
+            };
+            let al = captcha_action_label(action.as_str());
+            (
+                format!("验证码 · {al}"),
+                computer_action_summary(args),
+            )
         }
         "response" => ("回复用户".to_string(), String::new()),
         _ => {

@@ -11,6 +11,7 @@ import type {
   ToolCall,
   TaskBoardDocument
 } from '../types/chat'
+import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { getTaskBoardSnapshot } from '../lib/api'
 import { hasTaskBoardContent } from '../lib/taskBoard'
 
@@ -163,9 +164,18 @@ export const useChatStore = defineStore('chat', () => {
     }, 400)
   }
 
+  function shouldSeedWorkspaceForNewConversation(): boolean {
+    const settings = useSettingsStore().settings
+    if (settings.agentMode !== 'single') return false
+    const lead = settings.leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
+    return lead === 'coder'
+  }
+
   function newConversation(): Conversation {
     const settingsStore = useSettingsStore()
-    const defaultWorkspace = settingsStore.settings.workspaceRoot?.trim() || ''
+    const defaultWorkspace = shouldSeedWorkspaceForNewConversation()
+      ? (settingsStore.settings.workspaceRoot?.trim() || '')
+      : ''
     const c: Conversation = {
       id: uid(),
       title: '新会话',
@@ -543,15 +553,24 @@ export const useChatStore = defineStore('chat', () => {
           const trace = ensureSubTrace(r.msg, e.traceId.trim())
           const session = trace.session!
           session.toolCalls = session.toolCalls || []
-          if (!session.toolCalls.find(t => t.id === e.toolCall.id)) {
+          const existing = session.toolCalls.find(t => t.id === e.toolCall.id)
+          if (!existing) {
             session.toolCalls.push({ ...e.toolCall })
+          } else {
+            // Provider may emit a lightweight start first, then a richer start
+            // (resolved method/risk/display fields) with the same tool_call_id.
+            Object.assign(existing, e.toolCall)
           }
           session.contentStreaming = true
         } else {
           r.msg.status = 'streaming'
           r.msg.toolCalls = r.msg.toolCalls || []
-          if (!r.msg.toolCalls.find(t => t.id === e.toolCall.id)) {
+          const existing = r.msg.toolCalls.find(t => t.id === e.toolCall.id)
+          if (!existing) {
             r.msg.toolCalls.push({ ...e.toolCall })
+          } else {
+            // Keep a single card per tool_call_id, but refresh with latest metadata.
+            Object.assign(existing, e.toolCall)
           }
         }
         break
@@ -917,6 +936,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function applyPersistedComposerDefaults() {
+    if (!shouldSeedWorkspaceForNewConversation()) return
     const defaultWorkspace = useSettingsStore().settings.workspaceRoot?.trim() || ''
     if (!defaultWorkspace) return
     const conv = current.value

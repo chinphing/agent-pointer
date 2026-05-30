@@ -237,20 +237,21 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 .unwrap_or_default()
                 .to_string();
             let tier = captcha_state.tier_for_conversation(&cid);
-            let method = args["method"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
+            let method = args
+                .get("action")
+                .and_then(|v| v.as_str())
+                .or_else(|| args.get("method").and_then(|v| v.as_str()))
+                .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?
                 .to_string();
-            run_synthetic_computer_tool(tier, move || {
-                let vision = captcha_state.vision_state_for_conversation(&cid);
-                let tool = tool_captcha_verify::CaptchaVerifyTool::new(
-                    captcha_state.executor.clone(),
-                    captcha_state.clone(),
-                    cid.clone(),
-                    vision,
-                );
-                tool.execute(&method, &args)
-            })
+            let vision = captcha_state.vision_state_for_conversation(&cid);
+            let tool = tool_captcha_verify::CaptchaVerifyTool::new(
+                captcha_state.executor.clone(),
+                tier,
+                captcha_state.clone(),
+                cid.clone(),
+                vision,
+            );
+            tool.execute(&method, &args)
         }),
     ));
 

@@ -19,6 +19,7 @@ defineProps<{ message: ChatMessage }>()
     v-else-if="message.role === 'assistant' && !isDiscardableEmptyAssistant(message)"
     :message="message"
   />
+  <template v-else-if="message.role === 'tool'" />
   <!-- Cancelled before first token: message may linger briefly; do not show debug fallback. -->
   <template v-else-if="message.role === 'assistant' && isDiscardableEmptyAssistant(message)" />
   <div

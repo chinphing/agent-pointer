@@ -165,7 +165,14 @@ pub fn query_until_ready(
     timeout: Duration,
     poll_interval: Duration,
 ) -> Result<String> {
+    log::info!(
+        "captcha_verify: 开始识别，轮询中... subjectno={} timeout={}s interval={}s",
+        subjectno,
+        timeout.as_secs(),
+        poll_interval.as_secs()
+    );
     let deadline = Instant::now() + timeout;
+    let started = Instant::now();
     let mut last: Option<DatiResponse> = None;
     while Instant::now() < deadline {
         let out = query(client, cfg, subjectno)?;
@@ -174,11 +181,22 @@ pub fn query_until_ready(
             if text.trim().is_empty() {
                 anyhow::bail!("Query returned empty answer.");
             }
+            log::info!(
+                "captcha_verify: 识别完成 subjectno={} elapsed={}s result={}",
+                subjectno,
+                started.elapsed().as_secs(),
+                compact_log_text(&text, 600)
+            );
             return Ok(text);
         }
         if out.status != -100 {
             anyhow::bail!("{}", format_dati_error(out.status, &out.msg_text()));
         }
+        log::info!(
+            "captcha_verify: 识别中... subjectno={} elapsed={}s",
+            subjectno,
+            started.elapsed().as_secs()
+        );
         last = Some(out);
         std::thread::sleep(poll_interval);
     }
@@ -191,6 +209,19 @@ pub fn query_until_ready(
         );
     }
     anyhow::bail!("Answer query timed out after {}s.", timeout.as_secs());
+}
+
+fn compact_log_text(s: &str, max_chars: usize) -> String {
+    let text = s.trim();
+    if text.is_empty() {
+        return "(empty)".to_string();
+    }
+    let count = text.chars().count();
+    if count <= max_chars {
+        return text.to_string();
+    }
+    let head: String = text.chars().take(max_chars).collect();
+    format!("{head}…(+{} chars)", count - max_chars)
 }
 
 pub fn format_dati_error(status: i64, msg: &str) -> String {

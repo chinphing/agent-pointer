@@ -32,7 +32,11 @@ export function visibleToolCalls(
       const isSidecar = isDefaultHiddenSidecarCall(tc.name, base)
       if (!showSidecarCalls && isSidecar) return false
       if (!showNonSidecarCalls && !isSidecar) return false
-      if (hidden.has(tc.name) || hidden.has(base)) return false
+      // Debug override: when sidecar cards are explicitly enabled, do not let
+      // manifest/default hideToolNames suppress sidecar tool calls.
+      if (!(isSidecar && showSidecarCalls) && (hidden.has(tc.name) || hidden.has(base))) {
+        return false
+      }
       return true
     }) ?? []
   )

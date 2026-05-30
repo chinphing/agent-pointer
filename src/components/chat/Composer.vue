@@ -65,6 +65,8 @@ const selectedWorker = computed(() => {
   return workers.value.find(w => w.id === id)
 })
 
+const selectedWorkerId = computed(() => selectedWorker.value?.id?.trim() || DEFAULT_LEAD_AGENT_ID)
+
 function isLeadAgentSelected(agentId: string): boolean {
   const st = settings.settings
   if (st.agentMode !== 'single') return false
@@ -77,7 +79,10 @@ const showComputerMonitorPicker = computed(
 )
 
 const needsWorkspace = computed(
-  () => settings.settings.agentMode === 'single' && leadUi.value.showWorkspacePicker
+  () =>
+    settings.settings.agentMode === 'single'
+    && selectedWorkerId.value === 'coder'
+    && leadUi.value.showWorkspacePicker
 )
 
 const supervisorRoundsLabel = computed(() => {

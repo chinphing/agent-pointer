@@ -1,5 +1,6 @@
 use super::args_util::{json_bool_loose, require_non_empty_str, resolve_index_pixels};
 use super::dati_client::{query_until_ready, upload, DatiConfig};
+use crate::agents::computer::tier::{ComputerTier, ComputerTierGuard};
 use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::state::ComputerState;
 use crate::agents::computer::vision::screen::MonitorInfo;
@@ -20,6 +21,7 @@ const POLL_INTERVAL_SECS: u64 = 1;
 
 pub struct CaptchaVerifyTool {
     executor: Arc<Mutex<ActionExecutor>>,
+    tier: ComputerTier,
     computer_state: Arc<ComputerState>,
     conversation_id: String,
     vision_state: Arc<Mutex<VisionState>>,
@@ -28,12 +30,14 @@ pub struct CaptchaVerifyTool {
 impl CaptchaVerifyTool {
     pub fn new(
         executor: Arc<Mutex<ActionExecutor>>,
+        tier: ComputerTier,
         computer_state: Arc<ComputerState>,
         conversation_id: String,
         vision_state: Arc<Mutex<VisionState>>,
     ) -> Self {
         Self {
             executor,
+            tier,
             computer_state,
             conversation_id,
             vision_state,
@@ -42,7 +46,7 @@ impl CaptchaVerifyTool {
 
     pub fn execute(&self, method: &str, args: &Value) -> Result<String> {
         require_non_empty_str(args, "goal")?;
-        match method {
+        match normalize_captcha_action(method) {
             "type" => self.do_type(args),
             "click" => self.do_click(args),
             "drag" => self.do_drag(args),
@@ -60,8 +64,9 @@ impl CaptchaVerifyTool {
             let vision = self.vision_state.lock().unwrap();
             resolve_index_pixels(&vision, args, index_input_area)?
         };
-        let executor = self.executor.lock().unwrap();
-        executor.type_text_at_with_options(input_pos.0, input_pos.1, &answer, true, false, true)?;
+        self.run_desktop_action(move |executor| {
+            executor.type_text_at_with_options(input_pos.0, input_pos.1, &answer, true, false, true)
+        })?;
         Ok(format!(
             "Goal: {goal}. Type action attempted (cleared first). This is not a success signal. Verify CAPTCHA pass/fail on next screenshot."
         ))
@@ -76,13 +81,17 @@ impl CaptchaVerifyTool {
         if points.is_empty() {
             anyhow::bail!("No coordinates in answer.");
         }
-        let executor = self.executor.lock().unwrap();
-        for &(x, y) in &points {
-            executor.click_at(x, y, true)?;
-        }
+        let point_count = points.len();
+        let points_for_action = points.clone();
+        self.run_desktop_action(move |executor| {
+            for &(x, y) in &points_for_action {
+                executor.click_at(x, y, true)?;
+            }
+            Ok(())
+        })?;
         Ok(format!(
             "Goal: {goal}. Click action attempted on {} point(s). This is not a success signal. Verify CAPTCHA pass/fail on next screenshot.",
-            points.len()
+            point_count
         ))
     }
 
@@ -124,32 +133,42 @@ impl CaptchaVerifyTool {
             }
         }
 
-        let executor = self.executor.lock().unwrap();
-        executor.drag_left_through_points(&points, true)?;
+        let point_count = points.len();
+        let points_for_action = points.clone();
+        self.run_desktop_action(move |executor| {
+            executor.drag_left_through_points(&points_for_action, true)
+        })?;
         let handle_note = used_handle
             .map(|i| format!(" using slider arrow index {i}"))
             .unwrap_or_default();
         Ok(format!(
             "Goal: {goal}. Drag action attempted along {} point(s){handle_note}. This is not a success signal. Verify CAPTCHA pass/fail on next screenshot.",
-            points.len()
+            point_count
         ))
     }
 
     fn extract_and_solve(&self, index_captcha_area: u32, remark: &str) -> Result<String> {
         let image = self.crop_captcha_as_data_png(index_captcha_area)?;
         let cfg = DatiConfig::from_settings_and_env();
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .danger_accept_invalid_certs(true)
-            .build()?;
-        let subjectno = upload(&client, &cfg, &image, remark)?;
-        query_until_ready(
-            &client,
-            &cfg,
-            &subjectno,
-            Duration::from_secs(QUERY_TIMEOUT_SECS),
-            Duration::from_secs(POLL_INTERVAL_SECS),
-        )
+        let remark = remark.to_string();
+        let worker = std::thread::spawn(move || -> Result<String> {
+            let client = Client::builder()
+                .timeout(Duration::from_secs(30))
+                .danger_accept_invalid_certs(true)
+                .build()?;
+            let subjectno = upload(&client, &cfg, &image, &remark)?;
+            query_until_ready(
+                &client,
+                &cfg,
+                &subjectno,
+                Duration::from_secs(QUERY_TIMEOUT_SECS),
+                Duration::from_secs(POLL_INTERVAL_SECS),
+            )
+        });
+        match worker.join() {
+            Ok(out) => out,
+            Err(_) => Err(anyhow!("CAPTCHA worker thread panicked.")),
+        }
     }
 
     fn crop_captcha_as_data_png(&self, index_captcha_area: u32) -> Result<String> {
@@ -176,6 +195,29 @@ impl CaptchaVerifyTool {
         let left = (elem.center_x as f32 - elem.width / 2.0).round() as i32;
         let top = (elem.center_y as f32 - elem.height / 2.0).round() as i32;
         Ok(rel.into_iter().map(|(x, y)| (left + x, top + y)).collect())
+    }
+
+    fn run_desktop_action<R, F>(&self, f: F) -> Result<R>
+    where
+        R: Send,
+        F: FnOnce(&ActionExecutor) -> Result<R> + Send,
+    {
+        let executor = self.executor.clone();
+        let tier = self.tier;
+        crate::platform::run_synthetic_input(move || {
+            let _guard = ComputerTierGuard::enter(tier);
+            let executor = executor.lock().unwrap();
+            f(&executor)
+        })
+    }
+}
+
+fn normalize_captcha_action(action: &str) -> &str {
+    match action.trim() {
+        "type" => "type",
+        "click" => "click",
+        "drag" => "drag",
+        other => other,
     }
 }
 

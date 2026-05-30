@@ -9,6 +9,7 @@ use std::collections::HashSet;
 
 use super::app_state::AppState;
 use super::emit::{emit, trace_id_opt};
+use super::util::tool_display_stream_fields;
 use super::StreamTx;
 
 const TOOL_ARGS_LOG_MAX_CHARS: usize = 400;
@@ -147,6 +148,10 @@ pub(super) async fn drain_provider_events(
                 );
             }
             ProviderEvent::ToolCallStart { id, name, .. } => {
+                let display = state
+                    .tools
+                    .format_display(&name, &parse_tool_call_arguments(""));
+                let (display_label, display_summary) = tool_display_stream_fields(&display);
                 log_tool_call_parsed_block(
                     "start",
                     message_id,
@@ -174,8 +179,8 @@ pub(super) async fn drain_provider_events(
                                     &parse_tool_call_arguments(""),
                                 )
                                 .or(Some("low".into())),
-                            display_label: None,
-                            display_summary: None,
+                            display_label,
+                            display_summary,
                         },
                         trace_id: trace_id_opt(sub_trace_id),
                     },
@@ -269,6 +274,10 @@ fn emit_deduped_tool_starts(
                 &t.name,
                 Some(&t.arguments),
             );
+            let display = state.tools.format_display(&t.name, &args_v);
+            let (display_label, display_summary) = tool_display_stream_fields(&display);
+            t.display_label = display_label;
+            t.display_summary = display_summary;
             t.risk_level = state
                 .tools
                 .tool_risk_level_for_invocation(&t.name, &args_v)

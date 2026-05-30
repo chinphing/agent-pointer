@@ -237,6 +237,22 @@ pub(super) async fn run_agent_tool_pass(
                 trace_id: trace_id_opt(sub_trace_id),
             },
         );
+        if tool_id == "captcha_verify" {
+            emit(
+                &stream,
+                StreamEvent::ToolCallStatus {
+                    message_id: message_id.clone(),
+                    tool_call_id: tc.id.clone(),
+                    status: "running".into(),
+                    result: Some("识别中...".into()),
+                    error: None,
+                    duration_ms: None,
+                    display_label: None,
+                    display_summary: Some("识别中...".into()),
+                    trace_id: trace_id_opt(sub_trace_id),
+                },
+            );
+        }
         stats.record_tool_invocation();
         let started = Instant::now();
 

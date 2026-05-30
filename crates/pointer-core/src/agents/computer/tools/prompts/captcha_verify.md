@@ -12,14 +12,15 @@ analyze the prompt in reasoning and include:
 - Key Verb Identified
 - Selected Method & Justification
 
-Verb-to-method mapping:
+Verb-to-action mapping:
 - `drag` — wording like drag, slide, puzzle, move; UI shows a slider, puzzle piece, or single drag control.
 - `click` — wording like click, select, choose, check, click in order; targets are inside the CAPTCHA image, including tiles, icons, objects, visible characters, or Chinese text.
 - `type` — wording like input, type, answer, fill; UI shows characters or a simple question plus a text input.
 
 Parameters:
 - `goal` required.
-- `method` required: `type`, `click`, or `drag`.
+- `action` required: `type`, `click`, or `drag`.
+- `method` optional backward-compatible alias of `action`.
 - `index_captcha_area` required: index of the entire CAPTCHA region, including instructions.
 - `index_input_area` required for `type`: index of the answer input.
 - `remark` required: short instruction text, e.g. `Select all images with traffic lights`.

@@ -1,3 +1,28 @@
+---
+schema:
+  type: object
+  properties:
+    method:
+      type: string
+      enum:
+        - read
+        - write
+        - edit
+        - glob
+        - grep
+        - list
+    path:
+      type: string
+    paths:
+      type: array
+    content: {}
+    edits:
+      type: array
+    pattern:
+      type: string
+  additionalProperties: true
+---
+
 ### `file`
 
 Unified workspace file tools. Prefer **qualified names** in JSON **`tool_name`**: **`file:read`**, **`file:write`**, **`file:edit`**, **`file:glob`**, **`file:grep`**, **`file:list`** — the runtime merges them into `tool_name` **`file`** plus **`method`**. You may also call **`file`** with a top-level **`method`** string (e.g. **`read`**), equivalent to **`file:read`**, **`file:write`**, etc.
@@ -78,89 +103,3 @@ Response includes **`singleFile`: true`** when **`path`** resolves to a **file**
 - **`recursive`** — Optional boolean; default **false** (immediate children only). When **true**, walk subdirectories.
 - **`maxDepth`** — Optional; when **`recursive`** is true, max WalkDir depth from the listed directory (default **8**, capped by runtime). Ignored for non-recursive listing.
 - **`entryType`** — Optional; alias **`entry_type`**. One of **`all`** (default), **`file`** / **`files`**, **`dir`** / **`directory`** / **`directories`** — return only files, only directories, or both.
-
-#### JSON example — `file:read` batch
-
-**`paths`** is a JSON array; **every element is an object** with **`path`**. Optional **`lineStart`** / **`lineEnd`** / **`maxBytes`** may sit on each object or on the root of **`tool_args`** as defaults.
-
-```json
-{
-  "thoughts": "Read implementation and tests together.",
-  "headline": "Batch read",
-  "tool_name": "file:read",
-  "tool_args": {
-    "lineStart": 1,
-    "paths": [
-      { "path": "crates/foo/src/lib.rs" },
-      { "path": "crates/foo/src/main.rs" }
-    ]
-  }
-}
-```
-
-#### JSON example — `file:read` batch with **per-file** line ranges
-
-Root **`lineStart`** / **`lineEnd`** apply to objects that omit those keys. Per-object values override the root for that file only.
-
-```json
-{
-  "thoughts": "Read the header of lib.rs and a middle slice of main.rs.",
-  "headline": "Batch read with ranges",
-  "tool_name": "file:read",
-  "tool_args": {
-    "lineStart": 1,
-    "lineEnd": 40,
-    "paths": [
-      { "path": "crates/foo/src/lib.rs" },
-      {
-        "path": "crates/foo/src/main.rs",
-        "lineStart": 80,
-        "lineEnd": 120
-      }
-    ]
-  }
-}
-```
-
-#### JSON example — `file:edit` single file (`edits` with one object)
-
-```json
-{
-  "thoughts": "Patch Vue snippet.",
-  "headline": "Edit component",
-  "tool_name": "file:edit",
-  "tool_args": {
-    "edits": [
-      {
-        "path": "src/App.vue",
-        "oldString": "  <div v-if=\"x\">before</div>  ",
-        "newString": "  <div v-if=\"x\">after</div>  "
-      }
-    ]
-  }
-}
-```
-
-#### JSON example — `file:edit` multiple files (`edits`)
-
-```json
-{
-  "thoughts": "Rename symbol in two modules.",
-  "headline": "Batch edit",
-  "tool_name": "file:edit",
-  "tool_args": {
-    "edits": [
-      {
-        "path": "src/a.ts",
-        "oldString": "export const OLD = 1",
-        "newString": "export const NEW = 1"
-      },
-      {
-        "path": "src/b.ts",
-        "oldString": "import { OLD } from './a'",
-        "newString": "import { NEW } from './a'"
-      }
-    ]
-  }
-}
-```

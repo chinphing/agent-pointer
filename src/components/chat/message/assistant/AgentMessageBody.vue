@@ -114,7 +114,8 @@ const tools = computed(() =>
     ? visibleToolCalls(
       props.body.toolCalls,
       props.messageUi.hideToolNames,
-      props.messageUi.showToolCallResults === true
+      props.messageUi.showSidecarToolCalls === true,
+      props.messageUi.showNonSidecarToolCalls !== false
     )
     : []
 )

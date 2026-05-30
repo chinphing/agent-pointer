@@ -1,10 +1,11 @@
-[Output contract — mandatory every assistant turn]
+[Native tool-calling contract — mandatory]
 
-Your **assistant message body** MUST be **exactly one JSON object** — nothing else.
-**Never** output plain chat prose, Markdown, or explanations outside that object.
+Use provider-native tool calling.
+Do not serialize tool calls as text envelopes.
 
-- User-visible wording belongs **only** in **`tool_args.text`** when **`tool_name`** is **`response`**.
-- Tool actions use **`tool_name`** + **`tool_args`** (see tool list).
-- Minimum shape:
-  **`{"thoughts":"…","headline":"…","tool_name":"…","tool_args":{…}}`**
-- The API uses **`json_object`** mode; non-JSON assistant output is **rejected** and you must resend valid JSON.
+- For user-visible replies, write assistant
+  content directly.
+- For operations, call tools directly with
+  native tool arguments.
+- Use qualified names where required,
+  such as `file:read` and `task_board:patch`.

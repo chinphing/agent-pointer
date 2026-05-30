@@ -63,7 +63,7 @@ impl CaptchaVerifyTool {
         let executor = self.executor.lock().unwrap();
         executor.type_text_at_with_options(input_pos.0, input_pos.1, &answer, true, false, true)?;
         Ok(format!(
-            "Goal: {goal}. Type action executed, cleared first. Please verify result on next screenshot."
+            "Goal: {goal}. Type action attempted (cleared first). This is not a success signal. Verify CAPTCHA pass/fail on next screenshot."
         ))
     }
 
@@ -81,7 +81,7 @@ impl CaptchaVerifyTool {
             executor.click_at(x, y, true)?;
         }
         Ok(format!(
-            "Goal: {goal}. Clicked {} point(s). Verify on next screenshot.",
+            "Goal: {goal}. Click action attempted on {} point(s). This is not a success signal. Verify CAPTCHA pass/fail on next screenshot.",
             points.len()
         ))
     }
@@ -130,7 +130,7 @@ impl CaptchaVerifyTool {
             .map(|i| format!(" using slider arrow index {i}"))
             .unwrap_or_default();
         Ok(format!(
-            "Goal: {goal}. Drag along {} point(s){handle_note}. Verify on next screenshot.",
+            "Goal: {goal}. Drag action attempted along {} point(s){handle_note}. This is not a success signal. Verify CAPTCHA pass/fail on next screenshot.",
             points.len()
         ))
     }
@@ -239,11 +239,18 @@ fn required_u32(args: &Value, key: &str) -> Result<u32> {
 }
 
 fn value_to_u32(value: &Value, key: &str) -> Result<u32> {
-    value
-        .as_u64()
-        .or_else(|| value.as_i64().and_then(|i| u64::try_from(i).ok()))
-        .map(|n| n as u32)
-        .ok_or_else(|| anyhow!("{key} must be integer."))
+    match value {
+        Value::Number(n) => n
+            .as_u64()
+            .or_else(|| n.as_i64().and_then(|i| u64::try_from(i).ok()))
+            .map(|u| u as u32)
+            .ok_or_else(|| anyhow!("{key} must be integer.")),
+        Value::String(s) => s
+            .trim()
+            .parse::<u32>()
+            .map_err(|_| anyhow!("{key} must be integer.")),
+        _ => Err(anyhow!("{key} must be integer.")),
+    }
 }
 
 fn arg_text(args: &Value, key: &str) -> Option<String> {
@@ -255,6 +262,7 @@ fn arg_text(args: &Value, key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     #[test]
     fn parse_coords_extracts_vendor_answer_points() {
         let points = parse_coords_result("2,143|64,82|160,44|228,52").unwrap();
@@ -295,5 +303,18 @@ mod tests {
         };
         let out = crop_element_from_jpeg(&jpeg, &monitor, (100, 80), &elem).unwrap();
         assert!(out.starts_with("data:image/png;base64,"));
+    }
+
+    #[test]
+    fn required_u32_accepts_numeric_string() {
+        assert_eq!(
+            required_u32(&json!({"index_captcha_area":"146"}), "index_captcha_area").unwrap(),
+            146
+        );
+        assert_eq!(
+            value_to_u32(&json!("152"), "index_slider_arrow").unwrap(),
+            152
+        );
+        assert!(value_to_u32(&json!("abc"), "index_captcha_area").is_err());
     }
 }

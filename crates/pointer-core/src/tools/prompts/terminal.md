@@ -1,3 +1,25 @@
+---
+schema:
+  type: object
+  properties:
+    command:
+      type: string
+    cwd:
+      type: string
+    timeoutMs:
+      type: integer
+      minimum: 1000
+    maxWallMs:
+      type: integer
+      minimum: 1000
+    maxOutputBytes:
+      type: integer
+      minimum: 1
+  required:
+    - command
+  additionalProperties: true
+---
+
 ### `terminal`
 
 Run a shell command and return console output.
@@ -28,18 +50,3 @@ The result includes `stdout`, `stderr`, exit code, timing, truncation flags, and
 When the user **stops generation** or the host **cancels the turn**, the subprocess is **force-terminated** (Windows: `taskkill /T /F` on the shell PID, then `Child::kill`; macOS/Linux: `Child::kill` on the shell). The tool result sets **`cancelled`: true** and a short notice is appended to streamed output.
 
 The host may instead **abort only the current terminal subprocess** while the assistant turn keeps going; then **`runAborted`** is set (not **`cancelled`**).
-
-#### JSON example
-
-```json
-{
-  "thoughts": "Run tests in the workspace.",
-  "headline": "Cargo test",
-  "tool_name": "terminal",
-  "tool_args": {
-    "command": "cargo test",
-    "cwd": ".",
-    "timeoutMs": 120000
-  }
-}
-```

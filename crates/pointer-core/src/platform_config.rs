@@ -316,6 +316,10 @@ mod tests {
         assert!(!json.contains("debugDumpLlmPrompts"));
         assert!(!json.contains("computerAnnotatedScreenViewEnabled"));
         assert!(!json.contains("agentUiOverrides"));
+        assert!(!json.contains("datiApiUrl"));
+        assert!(!json.contains("datiAuthcode"));
+        assert!(!json.contains("datiTypeno"));
+        assert!(!json.contains("datiAuthor"));
         assert!(json.contains("toolApprovalMode"));
         assert!(json.contains("manual"));
         assert!(json.contains("computerHumanLike"));

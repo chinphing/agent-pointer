@@ -94,6 +94,56 @@ mod apply_tests {
         assert!(reflection);
         assert!(body["summary"]["warnings"].as_array().is_some());
     }
+
+    #[test]
+    fn init_rejects_incomplete_rows_for_explicit_total_goal() {
+        let store = TaskBoardStore::new();
+        let key = "conv-explicit-total";
+        let err = store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "测试7种验证码类型×3种交互形式共21种组合",
+                    "expected_total": 21,
+                    "items": [
+                        {"id": "c1", "title": "组合1", "status": "pending"},
+                        {"id": "c2", "title": "组合2", "status": "pending"},
+                        {"id": "c3", "title": "组合3", "status": "pending"},
+                        {"id": "c4", "title": "组合4", "status": "pending"},
+                        {"id": "c5", "title": "组合5", "status": "pending"},
+                        {"id": "c6", "title": "组合6", "status": "pending"},
+                        {"id": "c7", "title": "组合7", "status": "pending"},
+                        {"id": "c8", "title": "组合8", "status": "pending"}
+                    ]
+                }),
+            )
+            .expect_err("should reject incomplete explicit total");
+        assert!(err.to_string().contains("expected exactly 21 item(s), got 8"));
+    }
+
+    #[test]
+    fn init_accepts_full_rows_for_explicit_total_goal() {
+        let store = TaskBoardStore::new();
+        let key = "conv-explicit-total-ok";
+        let items: Vec<_> = (1..=21)
+            .map(|i| json!({"id": format!("c{i}"), "title": format!("组合{i}"), "status": "pending"}))
+            .collect();
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "测试7种验证码类型×3种交互形式共21种组合",
+                    "expected_total": 21,
+                    "items": items
+                }),
+            )
+            .expect("init");
+        let doc = store.document(key);
+        assert_eq!(doc.board.len(), 21);
+        assert_eq!(doc.meta.expected_total, Some(21));
+    }
 }
 
 #[cfg(test)]

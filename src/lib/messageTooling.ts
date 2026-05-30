@@ -21,14 +21,17 @@ export function isResponseAssistantMessage(
 export function visibleToolCalls(
   toolCalls: ToolCall[] | undefined,
   hideToolNames?: string[],
-  showSidecarCalls: boolean = false
+  showSidecarCalls: boolean = false,
+  showNonSidecarCalls: boolean = true
 ): ToolCall[] {
   const hidden = new Set(hideToolNames ?? [])
   return (
     toolCalls?.filter(tc => {
       const base = toolCallBaseName(tc.name)
       if (base === 'response') return false
-      if (!showSidecarCalls && isDefaultHiddenSidecarCall(tc.name, base)) return false
+      const isSidecar = isDefaultHiddenSidecarCall(tc.name, base)
+      if (!showSidecarCalls && isSidecar) return false
+      if (!showNonSidecarCalls && !isSidecar) return false
       if (hidden.has(tc.name) || hidden.has(base)) return false
       return true
     }) ?? []

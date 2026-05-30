@@ -72,6 +72,8 @@ pub struct BoardMeta {
     #[serde(default)]
     pub max_depth: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_total: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<BoardScope>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root_target: Option<String>,
@@ -93,6 +95,7 @@ impl Default for BoardMeta {
             step_count: 0,
             max_steps: DEFAULT_MAX_STEPS,
             max_depth: 0,
+            expected_total: None,
             scope: None,
             root_target: None,
             parent_sub_task_id: None,

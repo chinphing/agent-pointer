@@ -8,7 +8,7 @@ Runtime prompts: `crates/pointer-core/src/task_board/prompts/task_board.md` (Eng
 |-------|------|-------|
 | `version` | number | `2` |
 | `task_id` | string | `tb_{store_key}` |
-| `meta` | object | `goal`, `status`, `step_count`, `max_steps`, optional `scope`, `root_target`, `parent_sub_task_id` |
+| `meta` | object | `goal`, `status`, `step_count`, `max_steps`, optional `expected_total`, `scope`, `root_target`, `parent_sub_task_id` |
 | `global_context` | object | `key_findings[]`, `artifacts` |
 | `board` | array | Milestone / local rows |
 
@@ -29,6 +29,13 @@ Runtime prompts: `crates/pointer-core/src/task_board/prompts/task_board.md` (Eng
 ## Methods
 
 `init`, `replace`, `patch`, `prune`, `finalize`, `sync_finding` (child → parent findings), `check_deps` (read-only).
+
+### Coverage contract (`expected_total`)
+
+- Use `expected_total` for exhaustive matrix/combinational tasks.
+- Set it in `task_board:init` (or `meta.expected_total`).
+- When set, `init`/`replace` requires row count to match it exactly.
+- `patch` is still incremental row updates.
 
 ## Host-injected helper args (not model-authored)
 

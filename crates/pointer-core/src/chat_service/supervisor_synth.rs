@@ -39,6 +39,7 @@ pub(crate) async fn synthesize_final_answer(
         .chat_once(
             history,
             &crate::models::SystemPromptSections::all_cacheable(vec![prompt]),
+            Vec::new(),
             cancel,
             None,
             Some(dump_lbl.as_str()),

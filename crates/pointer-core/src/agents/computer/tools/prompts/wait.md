@@ -1,3 +1,21 @@
+---
+schema:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    seconds:
+      type: number
+      minimum: 0
+      maximum: 60
+  required:
+    - goal
+    - seconds
+  additionalProperties: true
+---
+
 ### wait
 
 Use when a **delay** is needed (e.g. page loading, upload/download settling,
@@ -29,18 +47,3 @@ Loading / transfer guidance:
 - Only mark done when completion evidence appears; otherwise keep the step in
   non-terminal verify state (for example `action_result=pending`) and continue
   polling.
-
-#### JSON example
-
-```json
-{
-  "thoughts": "Allow the dialog animation to finish.",
-  "headline": "Wait",
-  "tool_name": "wait",
-  "tool_args": {
-    "goal": "Dialog fully visible",
-    "action": "pause before clicking OK",
-    "seconds": "1.5"
-  }
-}
-```

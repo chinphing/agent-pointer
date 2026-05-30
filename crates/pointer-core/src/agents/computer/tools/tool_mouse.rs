@@ -4,7 +4,8 @@ use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::vision_state::VisionState;
 use super::args_util::{
     clamp_scroll_lines, human_like_from_args, method_uses_overlay_index, require_non_empty_str,
-    resolve_index_pixels as resolve_index_from_vision, MOVE_OFFSET_MAX,
+    required_f32_arg, required_u32_arg, resolve_index_pixels as resolve_index_from_vision,
+    MOVE_OFFSET_MAX,
 };
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -87,9 +88,7 @@ impl MouseTool {
     }
 
     fn click_index(&self, args: &Value) -> Result<String> {
-        let index = args["index"]
-            .as_u64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'index' parameter"))? as u32;
+        let index = required_u32_arg(args, "index")?;
         let (x, y) = self.resolve_index_pixels(args, index)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
@@ -98,9 +97,7 @@ impl MouseTool {
     }
 
     fn double_click_index(&self, args: &Value) -> Result<String> {
-        let index = args["index"]
-            .as_u64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'index' parameter"))? as u32;
+        let index = required_u32_arg(args, "index")?;
         let (x, y) = self.resolve_index_pixels(args, index)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
@@ -109,9 +106,7 @@ impl MouseTool {
     }
 
     fn right_click_index(&self, args: &Value) -> Result<String> {
-        let index = args["index"]
-            .as_u64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'index' parameter"))? as u32;
+        let index = required_u32_arg(args, "index")?;
         let (x, y) = self.resolve_index_pixels(args, index)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
@@ -120,9 +115,7 @@ impl MouseTool {
     }
 
     fn hover_index(&self, args: &Value) -> Result<String> {
-        let index = args["index"]
-            .as_u64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'index' parameter"))? as u32;
+        let index = required_u32_arg(args, "index")?;
         let (x, y) = self.resolve_index_pixels(args, index)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
@@ -131,12 +124,8 @@ impl MouseTool {
     }
 
     fn click_at(&self, args: &Value) -> Result<String> {
-        let x = args["x"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'x' parameter"))? as f32;
-        let y = args["y"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'y' parameter"))? as f32;
+        let x = required_f32_arg(args, "x")?;
+        let y = required_f32_arg(args, "y")?;
         let vision = self.vision_state.lock().unwrap();
         let (px, py) = vision
             .resolve_coordinate(x, y)
@@ -149,12 +138,8 @@ impl MouseTool {
     }
 
     fn double_click_at(&self, args: &Value) -> Result<String> {
-        let x = args["x"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'x' parameter"))? as f32;
-        let y = args["y"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'y' parameter"))? as f32;
+        let x = required_f32_arg(args, "x")?;
+        let y = required_f32_arg(args, "y")?;
         let vision = self.vision_state.lock().unwrap();
         let (px, py) = vision
             .resolve_coordinate(x, y)
@@ -167,12 +152,8 @@ impl MouseTool {
     }
 
     fn right_click_at(&self, args: &Value) -> Result<String> {
-        let x = args["x"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'x' parameter"))? as f32;
-        let y = args["y"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'y' parameter"))? as f32;
+        let x = required_f32_arg(args, "x")?;
+        let y = required_f32_arg(args, "y")?;
         let vision = self.vision_state.lock().unwrap();
         let (px, py) = vision
             .resolve_coordinate(x, y)
@@ -185,12 +166,8 @@ impl MouseTool {
     }
 
     fn hover_at(&self, args: &Value) -> Result<String> {
-        let x = args["x"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'x' parameter"))? as f32;
-        let y = args["y"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'y' parameter"))? as f32;
+        let x = required_f32_arg(args, "x")?;
+        let y = required_f32_arg(args, "y")?;
         let vision = self.vision_state.lock().unwrap();
         let (px, py) = vision
             .resolve_coordinate(x, y)
@@ -254,18 +231,11 @@ impl MouseTool {
     }
 
     fn drag_from_to_at(&self, args: &Value) -> Result<String> {
-        let x1 = args["x1"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("drag_from_to_at requires x1, y1, x2, y2"))? as f32;
-        let y1 = args["y1"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("drag_from_to_at requires y1"))? as f32;
-        let x2 = args["x2"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("drag_from_to_at requires x2"))? as f32;
-        let y2 = args["y2"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("drag_from_to_at requires y2"))? as f32;
+        let x1 = required_f32_arg(args, "x1")
+            .map_err(|_| anyhow!("drag_from_to_at requires x1, y1, x2, y2"))?;
+        let y1 = required_f32_arg(args, "y1").map_err(|_| anyhow!("drag_from_to_at requires y1"))?;
+        let x2 = required_f32_arg(args, "x2").map_err(|_| anyhow!("drag_from_to_at requires x2"))?;
+        let y2 = required_f32_arg(args, "y2").map_err(|_| anyhow!("drag_from_to_at requires y2"))?;
         let vision = self.vision_state.lock().unwrap();
         let (px1, py1) = vision
             .resolve_coordinate(x1, y1)
@@ -284,13 +254,10 @@ impl MouseTool {
     }
 
     fn drag_from_to_index(&self, args: &Value) -> Result<String> {
-        let from = args["from_index"]
-            .as_u64()
-            .ok_or_else(|| anyhow!("drag_from_to_index requires from_index and to_index"))?
-            as u32;
-        let to = args["to_index"]
-            .as_u64()
-            .ok_or_else(|| anyhow!("drag_from_to_index requires to_index"))? as u32;
+        let from = required_u32_arg(args, "from_index")
+            .map_err(|_| anyhow!("drag_from_to_index requires from_index and to_index"))?;
+        let to =
+            required_u32_arg(args, "to_index").map_err(|_| anyhow!("drag_from_to_index requires to_index"))?;
         let vision = self.vision_state.lock().unwrap();
         let (x1, y1) = vision
             .resolve_index(from)

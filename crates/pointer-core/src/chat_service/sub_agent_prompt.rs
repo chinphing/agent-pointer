@@ -64,7 +64,7 @@ pub(super) fn init_sub_agent_session(
     };
     let expanded_role = expand_agent_prompt_placeholders(&agent.system_prompt(), &session_vars);
     let sub_agent_header = format!(
-        "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\nComplete only the subtask delivered in the next user message from the Supervisor. That message is task instructions (it may include a digest of prior task outputs) and does **not** include the main chat history. Finish with the **`response`** tool: put your full handoff in **`tool_args.text`** as **Markdown** (conclusions, evidence, traces, open questions). The lead reads that Markdown from the **`run_subagent`** tool result field **`content`**.\nAllowed tools: {}",
+        "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\nComplete only the subtask delivered in the next user message from the Supervisor. That message is task instructions (it may include a digest of prior task outputs) and does **not** include the main chat history. Finish by writing your full handoff directly in assistant Markdown content (conclusions, evidence, traces, open questions). When no further tool calls are required, the run ends and the lead reads the final assistant content from **`run_subagent`** result field **`content`**.\nAllowed tools: {}",
         def.name,
         def.id,
         def.profile,
@@ -120,6 +120,7 @@ pub(super) fn init_sub_agent_session(
         thoughts: None,
         headline: None,
         raw_content: None,
+        tool_raw_output: None,
         agent_id: None,
         agent_instance_id: None,
         agent_name: None,

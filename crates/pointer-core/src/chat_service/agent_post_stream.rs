@@ -2,7 +2,6 @@
 //! Shared by lead single-agent and sub-agent loops.
 
 use crate::agents::{AgentDef, AgentPlan, AgentRunResult};
-use crate::json_tool_caller::JsonToolFinishDiagnostics;
 use crate::models::{AgentTrace, ChatMessage, ModelSettings, Role, StreamEvent, ToolCall};
 use crate::provider::OpenAIProvider;
 use crate::tools::parse_tool_call_arguments;
@@ -13,34 +12,19 @@ use tokio_util::sync::CancellationToken;
 use super::app_state::AppState;
 use super::content_extract::extract_user_visible_content;
 use super::emit::emit;
-use super::json_tool_retries::{
-    json_tool_empty_calls_retry_message, json_tool_envelope_batch_retry_message,
-    push_injected_format_retry_turn, rollback_failed_json_assistant_turn,
-};
 use super::session_budget::SessionToolBudget;
-use super::util::{new_id, now_ms};
+use super::util::now_ms;
 use super::StreamTx;
+
+const CONSOLE_SEGMENT_MAX_CHARS: usize = 2000;
 
 /// What the outer agent loop should do after persisting the assistant turn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PostAssistantTurnAction {
     /// No tools and no format retry — end the run successfully.
     FinishRun,
-    /// Format-only retry injected — continue the outer loop without consuming a tool round.
-    RetryLoop,
     /// Valid tool batch — run tool pass.
     ExecuteTools,
-}
-
-/// How to deliver a format-retry user line into history / UI.
-pub(super) enum FormatRetryDelivery<'a> {
-    /// Lead session: emit `InjectedUserMessage` and append to main history.
-    InjectedUser {
-        stream: &'a StreamTx,
-        conversation_id: &'a str,
-    },
-    /// Sub-agent: append to `local_history` only (no injected-user event).
-    LocalHistoryOnly,
 }
 
 /// Tool-round budget exhaustion copy and compression behavior.
@@ -87,44 +71,6 @@ impl ToolBudgetExhaustionScope {
     }
 }
 
-fn push_format_retry_user_line(
-    delivery: FormatRetryDelivery<'_>,
-    history: &mut Vec<ChatMessage>,
-    hint: String,
-) {
-    match delivery {
-        FormatRetryDelivery::InjectedUser {
-            stream,
-            conversation_id,
-        } => push_injected_format_retry_turn(stream, conversation_id, history, hint),
-        FormatRetryDelivery::LocalHistoryOnly => {
-            history.push(ChatMessage {
-                id: new_id("fmt_retry"),
-                role: Role::User,
-                content: hint,
-                status: "done".into(),
-                created_at: now_ms(),
-                tool_calls: None,
-                tool_call_id: None,
-                error_message: None,
-                reasoning: None,
-                thoughts: None,
-                headline: None,
-                raw_content: None,
-                agent_id: None,
-                agent_instance_id: None,
-                agent_name: None,
-                agent_trace: None,
-                image_slot_labels: None,
-                images_base64: None,
-                computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-            });
-        }
-    }
-}
-
 fn assistant_tool_calls_with_risk(
     final_tool_calls: &[ToolCall],
     state: &AppState,
@@ -155,6 +101,58 @@ fn assistant_tool_calls_with_risk(
     )
 }
 
+fn fallback_headline_from_reasoning(reasoning: &str) -> Option<String> {
+    reasoning
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.chars().take(120).collect::<String>())
+}
+
+fn compact_console_segment(s: &str) -> String {
+    let t = s.trim();
+    if t.is_empty() {
+        return "(empty)".to_string();
+    }
+    let chars = t.chars().count();
+    if chars <= CONSOLE_SEGMENT_MAX_CHARS {
+        return t.to_string();
+    }
+    let head: String = t.chars().take(CONSOLE_SEGMENT_MAX_CHARS).collect();
+    format!("{head}…(+{} chars)", chars.saturating_sub(CONSOLE_SEGMENT_MAX_CHARS))
+}
+
+pub(super) fn log_reasoning_and_output_segments(
+    scope: &str,
+    message_id: &str,
+    reasoning: Option<&str>,
+    thoughts: Option<&str>,
+    output: Option<&str>,
+    tool_raw_output: Option<&str>,
+) {
+    let reasoning_text = reasoning
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| thoughts.map(str::trim).filter(|s| !s.is_empty()))
+        .unwrap_or("");
+    let output_text = output.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("");
+    let tool_text = tool_raw_output
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("");
+    if reasoning_text.is_empty() && output_text.is_empty() && tool_text.is_empty() {
+        return;
+    }
+    log::info!(
+        "assistant_segments scope={} message_id={}\n[推理|reasoning]\n{}\n[输出|output]\n{}\n[工具原始输出|tool_raw_output]\n{}",
+        scope,
+        message_id,
+        compact_console_segment(reasoning_text),
+        compact_console_segment(output_text),
+        compact_console_segment(tool_text)
+    );
+}
+
 pub(super) fn build_lead_assistant_message_after_stream(
     assistant_id: &str,
     raw_content_buf: &str,
@@ -168,6 +166,11 @@ pub(super) fn build_lead_assistant_message_after_stream(
     agent_trace: &[AgentTrace],
     state: &AppState,
 ) -> ChatMessage {
+    let fallback_headline = if final_tool_calls.is_empty() {
+        None
+    } else {
+        fallback_headline_from_reasoning(&reasoning_buf)
+    };
     ChatMessage {
         id: assistant_id.to_string(),
         role: Role::Assistant,
@@ -187,12 +190,13 @@ pub(super) fn build_lead_assistant_message_after_stream(
             None
         },
         thoughts: xml_thoughts,
-        headline: xml_headline,
+        headline: xml_headline.or(fallback_headline),
         raw_content: if raw_content_buf.is_empty() {
             None
         } else {
             Some(raw_content_buf.to_string())
         },
+        tool_raw_output: None,
         agent_id: Some(agent_plan.lead_agent_id.clone()),
         agent_instance_id,
         agent_name: Some(agent_plan.lead_agent_name.clone()),
@@ -221,6 +225,11 @@ pub(super) fn build_sub_assistant_message_after_stream(
     agent_instance_id: Option<String>,
     state: &AppState,
 ) -> ChatMessage {
+    let fallback_headline = if final_tool_calls.is_empty() {
+        None
+    } else {
+        fallback_headline_from_reasoning(&round_reasoning)
+    };
     ChatMessage {
         id: round_message_id.to_string(),
         role: Role::Assistant,
@@ -240,8 +249,9 @@ pub(super) fn build_sub_assistant_message_after_stream(
             None
         },
         thoughts: round_thoughts,
-        headline: round_headline,
+        headline: round_headline.or(fallback_headline),
         raw_content: None,
+        tool_raw_output: None,
         agent_id: Some(def.id.clone()),
         agent_instance_id,
         agent_name: Some(def.name.clone()),
@@ -260,6 +270,14 @@ pub(super) fn commit_lead_assistant_turn(
     assistant_id: &str,
     assistant_msg: &ChatMessage,
 ) {
+    log_reasoning_and_output_segments(
+        "lead",
+        assistant_id,
+        assistant_msg.reasoning.as_deref(),
+        assistant_msg.thoughts.as_deref(),
+        Some(assistant_msg.content.as_str()),
+        assistant_msg.tool_raw_output.as_deref(),
+    );
     history.push(assistant_msg.clone());
     emit(
         stream,
@@ -267,6 +285,7 @@ pub(super) fn commit_lead_assistant_turn(
             message_id: assistant_id.to_string(),
             content: Some(assistant_msg.content.clone()),
             raw_content: assistant_msg.raw_content.clone(),
+            tool_raw_output: assistant_msg.tool_raw_output.clone(),
             thoughts: assistant_msg.thoughts.clone(),
             headline: assistant_msg.headline.clone(),
             trace_id: None,
@@ -275,44 +294,19 @@ pub(super) fn commit_lead_assistant_turn(
 }
 
 pub(super) fn push_sub_assistant_turn(history: &mut Vec<ChatMessage>, assistant_msg: ChatMessage) {
+    log_reasoning_and_output_segments(
+        "sub",
+        &assistant_msg.id,
+        assistant_msg.reasoning.as_deref(),
+        assistant_msg.thoughts.as_deref(),
+        Some(assistant_msg.content.as_str()),
+        assistant_msg.tool_raw_output.as_deref(),
+    );
     history.push(assistant_msg);
-}
-
-async fn sync_out_and_bail_if_exhausted(
-    stream: &StreamTx,
-    state: &AppState,
-    history: &mut Vec<ChatMessage>,
-    settings: &ModelSettings,
-    provider: &OpenAIProvider,
-    conversation_id: &str,
-    cancel: &CancellationToken,
-    tool_budget: &mut SessionToolBudget,
-    mut consumed_single: Option<&mut u32>,
-    max_cap: u32,
-    scope: &ToolBudgetExhaustionScope,
-) -> Result<()> {
-    if let Some(consumed) = consumed_single.as_mut() {
-        tool_budget.sync_out(consumed);
-    }
-    bail_on_tool_budget_exhausted(
-        stream,
-        state,
-        history,
-        settings,
-        provider,
-        conversation_id,
-        cancel,
-        tool_budget,
-        consumed_single,
-        max_cap,
-        scope,
-    )
-    .await
 }
 
 /// Empty tool batch: optional JSON format retry, or successful stop.
 pub(super) async fn decide_when_no_tool_calls(
-    delivery: FormatRetryDelivery<'_>,
     stream: &StreamTx,
     state: &AppState,
     history: &mut Vec<ChatMessage>,
@@ -324,37 +318,16 @@ pub(super) async fn decide_when_no_tool_calls(
     mut consumed_single: Option<&mut u32>,
     max_cap: u32,
     scope: &ToolBudgetExhaustionScope,
-    assistant_turn_id: &str,
-    json_finish_diag: &JsonToolFinishDiagnostics,
-    tools_appendix_enabled: bool,
-    finish_reason: &str,
-    max_tokens: u32,
 ) -> Result<PostAssistantTurnAction> {
-    if let Some(hint) = json_tool_empty_calls_retry_message(
-        json_finish_diag,
-        tools_appendix_enabled,
-        finish_reason,
-        max_tokens,
-    ) {
-        rollback_failed_json_assistant_turn(history, assistant_turn_id);
-        push_format_retry_user_line(delivery, history, hint);
-        sync_out_and_bail_if_exhausted(
-            stream,
-            state,
-            history,
-            settings,
-            provider,
-            conversation_id,
-            cancel,
-            tool_budget,
-            consumed_single,
-            max_cap,
-            scope,
-        )
-        .await?;
-        return Ok(PostAssistantTurnAction::RetryLoop);
-    }
-    let _ = finish_reason;
+    let _ = scope;
+    let _ = max_cap;
+    let _ = stream;
+    let _ = state;
+    let _ = history;
+    let _ = settings;
+    let _ = provider;
+    let _ = conversation_id;
+    let _ = cancel;
     if let Some(consumed) = consumed_single.as_mut() {
         tool_budget.sync_out(consumed);
     }
@@ -363,42 +336,10 @@ pub(super) async fn decide_when_no_tool_calls(
 
 /// Non-empty tool batch: envelope validation or proceed to execution.
 pub(super) async fn decide_when_tool_calls_present(
-    delivery: FormatRetryDelivery<'_>,
-    stream: &StreamTx,
-    state: &AppState,
-    tools: &ToolRegistry,
-    history: &mut Vec<ChatMessage>,
-    settings: &ModelSettings,
-    provider: &OpenAIProvider,
-    conversation_id: &str,
-    cancel: &CancellationToken,
-    tool_budget: &mut SessionToolBudget,
-    consumed_single: Option<&mut u32>,
-    max_cap: u32,
-    scope: &ToolBudgetExhaustionScope,
-    final_tool_calls: &[ToolCall],
-    log_prefix: &str,
+    _tools: &ToolRegistry,
+    _final_tool_calls: &[ToolCall],
+    _log_prefix: &str,
 ) -> Result<PostAssistantTurnAction> {
-    if let Err(err) = crate::tools::validate_envelope_tool_batch(tools, final_tool_calls) {
-        log::warn!("{log_prefix} tool envelope batch rejected: {err}");
-        let hint = json_tool_envelope_batch_retry_message(&err);
-        push_format_retry_user_line(delivery, history, hint);
-        sync_out_and_bail_if_exhausted(
-            stream,
-            state,
-            history,
-            settings,
-            provider,
-            conversation_id,
-            cancel,
-            tool_budget,
-            consumed_single,
-            max_cap,
-            scope,
-        )
-        .await?;
-        return Ok(PostAssistantTurnAction::RetryLoop);
-    }
     Ok(PostAssistantTurnAction::ExecuteTools)
 }
 
@@ -550,5 +491,33 @@ mod tests {
         let tcs = msg.tool_calls.expect("tool_calls");
         assert_eq!(tcs[0].display_label.as_deref(), Some("终端命令"));
         assert_eq!(tcs[0].display_summary.as_deref(), Some("npm test"));
+    }
+
+    #[test]
+    fn tool_call_round_uses_reasoning_first_line_as_fallback_headline() {
+        let state = AppState::new();
+        let tool_calls = vec![sample_tool_call("terminal", r#"{"command":"echo ok"}"#)];
+        let plan = AgentPlan {
+            mode: "single".into(),
+            lead_agent_id: "coder".into(),
+            lead_agent_name: "Coder".into(),
+            system_prompts: vec![],
+            allowed_tool_names: vec![],
+            allow_agents: vec![],
+        };
+        let msg = build_lead_assistant_message_after_stream(
+            "asst_hl",
+            "",
+            "Working headline\nmore details".into(),
+            true,
+            &tool_calls,
+            None,
+            None,
+            &plan,
+            None,
+            &[],
+            &state,
+        );
+        assert_eq!(msg.headline.as_deref(), Some("Working headline"));
     }
 }

@@ -1,6 +1,5 @@
 //! One `stream_chat` round: spawn provider task, drain `ProviderEvent`s, await join outcome.
 
-use crate::json_tool_caller::JsonToolFinishDiagnostics;
 use crate::llm_token_stats::ChatLlmTokenSession;
 use crate::models::{effective_max_tokens, ChatMessage, ModelSettings, StreamEvent, SystemPromptSections, ToolCall};
 use crate::provider::OpenAIProvider;
@@ -25,8 +24,6 @@ pub(super) struct SingleAgentRoundStream {
     pub raw_content_buf: String,
     pub reasoning_buf: String,
     pub final_tool_calls: Vec<ToolCall>,
-    pub finish_reason: String,
-    pub json_finish_diag: JsonToolFinishDiagnostics,
     pub xml_thoughts: Option<String>,
     pub xml_headline: Option<String>,
 }
@@ -56,6 +53,7 @@ pub(super) async fn run_provider_stream_round(
     reasoning_in_messages: bool,
     history_for_api: Vec<ChatMessage>,
     system_prompts: SystemPromptSections,
+    native_tools: Vec<serde_json::Value>,
 ) -> Result<ProviderRoundOutcome> {
     let (tx, mut rx) = mpsc::channel(64);
     let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
@@ -66,6 +64,7 @@ pub(super) async fn run_provider_stream_round(
         prov.stream_chat(
             &history_for_api,
             &system_clone,
+            native_tools,
             tx,
             cancel_clone,
             Some(dump_lbl.as_str()),
@@ -113,6 +112,7 @@ pub(super) async fn run_provider_stream_round(
                         message_id: assistant_id.clone(),
                         content: None,
                         raw_content: None,
+                        tool_raw_output: None,
                         thoughts: None,
                         headline: None,
                         trace_id: None,
@@ -170,6 +170,7 @@ pub(super) async fn run_provider_stream_round(
                     message_id: assistant_id.clone(),
                     content: None,
                     raw_content: None,
+                    tool_raw_output: None,
                     thoughts: None,
                     headline: None,
                     trace_id: None,
@@ -190,8 +191,6 @@ pub(super) async fn run_provider_stream_round(
         raw_content_buf: buffers.raw_content_buf,
         reasoning_buf: buffers.reasoning_buf,
         final_tool_calls: buffers.final_tool_calls,
-        finish_reason: buffers.finish_reason,
-        json_finish_diag: buffers.json_finish_diag,
         xml_thoughts: buffers.xml_thoughts,
         xml_headline: buffers.xml_headline,
     }))

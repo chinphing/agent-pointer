@@ -31,19 +31,3 @@ waiting (for example in download or transfer history UI).
 
 **Scroll workflow:** **`mouse:hover_at`** or **`mouse:click_at`** in the scroll region, then **`mouse:scroll_at_current`** if needed.
 
-#### JSON example — `mouse:click_at`
-
-```json
-{
-  "thoughts": "… Route: coordinate — On [Annotated after action]: Save button inner-edge-wrap in bbox R → (x,y) ≈ (520, 880).",
-  "headline": "Click control",
-  "tool_name": "mouse:click_at",
-  "tool_args": {
-    "goal": "Activate the highlighted button",
-    "action": "click the blue primary button labeled Save in the dialog footer",
-    "x": 520,
-    "y": 880,
-    "wait": "2"
-  }
-}
-```

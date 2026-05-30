@@ -12,6 +12,7 @@ import { useSettingsStore } from '../../../../stores/settings'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import RawWirePanel from './RawWirePanel.vue'
 import { hasTaskBoardContent } from '../../../../lib/taskBoard'
+import { toolCallBaseName } from '../../../../lib/messageTooling'
 
 const props = defineProps<{
   trace: AgentTrace
@@ -83,12 +84,37 @@ const subFrameActive = computed(
   () => props.generating && props.isActiveGenerationMessage && isRunning.value
 )
 
+function formatToolArgs(raw: string | undefined): string {
+  const text = (raw ?? '').trim()
+  if (!text) return '(empty)'
+  try {
+    const parsed = JSON.parse(text)
+    return JSON.stringify(parsed, null, 2)
+  } catch {
+    return text
+  }
+}
+
+function buildSessionToolRawArgs() {
+  const calls = session.value?.toolCalls
+  if (!calls?.length) return ''
+  return calls
+    .filter(tc => toolCallBaseName(tc.name) !== 'response')
+    .map(tc => {
+      const args = formatToolArgs(tc.arguments)
+      return `[tool:${tc.name} id:${tc.id}]\n${args}`
+    })
+    .join('\n\n')
+}
+
+const toolRawArgs = computed(() => buildSessionToolRawArgs())
+
 const hasRawWire = computed(() => {
   if (!rawContentViewEnabled.value) return false
   const s = session.value
   const reasoning = s?.reasoning?.trim() ?? ''
   const raw = s?.rawContent?.trim() ?? ''
-  return reasoning.length > 0 || raw.length > 0
+  return reasoning.length > 0 || raw.length > 0 || toolRawArgs.value.trim().length > 0
 })
 
 const showRawWire = ref(false)
@@ -186,6 +212,7 @@ function toggleExpanded() {
         v-if="showRawWire && hasRawWire"
         :reasoning="session?.reasoning"
         :raw-content="session?.rawContent"
+        :tool-raw-args="toolRawArgs"
         @close="showRawWire = false"
       />
     </div>

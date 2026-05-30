@@ -7,6 +7,8 @@ const props = defineProps<{
   reasoning?: string
   /** 模型正文通道的未裁剪原始输出（`content` delta）。 */
   rawContent?: string
+  /** 工具调用参数（按调用顺序拼接，不含结果）。 */
+  toolRawArgs?: string
 }>()
 
 const emit = defineEmits<{
@@ -17,6 +19,7 @@ const copied = ref(false)
 
 const reasoningText = computed(() => props.reasoning?.trim() ?? '')
 const outputText = computed(() => props.rawContent ?? '')
+const toolRawArgsText = computed(() => props.toolRawArgs?.trim() ?? '')
 
 /** 代码图标打开的「原始输出」：推理与正文通道原始字符合并为一处，便于复制与对照。 */
 const combinedRawText = computed(() => {
@@ -25,6 +28,9 @@ const combinedRawText = computed(() => {
   const parts: string[] = []
   if (r.length > 0) parts.push(`【推理】\n${r}`)
   if (o.length > 0) parts.push(`【正文通道原始】\n${o}`)
+  if (toolRawArgsText.value.length > 0) {
+    parts.push(`【工具调用参数】\n${toolRawArgsText.value}`)
+  }
   return parts.join('\n\n')
 })
 
@@ -71,6 +77,11 @@ function copyAll() {
       <section v-if="outputText">
         <div class="raw-wire-section-label">正文通道原始</div>
         <pre class="raw-wire-block">{{ outputText }}</pre>
+      </section>
+
+      <section v-if="toolRawArgsText">
+        <div class="raw-wire-section-label">工具调用参数</div>
+        <pre class="raw-wire-block">{{ toolRawArgsText }}</pre>
       </section>
 
       <div v-if="!hasAnything" class="text-[11px] text-muted py-1">

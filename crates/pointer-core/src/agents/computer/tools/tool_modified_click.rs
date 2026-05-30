@@ -2,11 +2,34 @@ use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::vision_state::VisionState;
 use super::args_util::{
     ensure_index_method_allowed, human_like_from_args, json_bool_loose, parse_indices,
-    require_non_empty_str,
+    require_non_empty_str, value_to_f32_loose,
 };
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
+
+fn parse_click_position(item: &Value) -> Result<(f32, f32)> {
+    if let Some(o) = item.as_object() {
+        let x = o
+            .get("x")
+            .and_then(value_to_f32_loose)
+            .ok_or_else(|| anyhow!("position object needs x"))?;
+        let y = o
+            .get("y")
+            .and_then(value_to_f32_loose)
+            .ok_or_else(|| anyhow!("position object needs y"))?;
+        return Ok((x, y));
+    }
+    if let Some(pair) = item.as_array() {
+        if pair.len() < 2 {
+            return Err(anyhow!("position [x,y] needs two numbers"));
+        }
+        let x = value_to_f32_loose(&pair[0]).ok_or_else(|| anyhow!("bad x"))?;
+        let y = value_to_f32_loose(&pair[1]).ok_or_else(|| anyhow!("bad y"))?;
+        return Ok((x, y));
+    }
+    Err(anyhow!("each position must be object or [x,y] array"))
+}
 
 /// Modifier multi-select clicks (PyProjects/pointer `modified_click.py`).
 pub struct ModifiedClickTool {
@@ -89,30 +112,10 @@ impl ModifiedClickTool {
         let vision = self.vision_state.lock().unwrap();
         let mut positions: Vec<(i32, i32)> = Vec::with_capacity(arr.len());
         for item in arr {
-            let (nx, ny) = if let Some(o) = item.as_object() {
-                let x = o
-                    .get("x")
-                    .and_then(|v| v.as_f64())
-                    .ok_or_else(|| anyhow!("position object needs x"))? as f32;
-                let y = o
-                    .get("y")
-                    .and_then(|v| v.as_f64())
-                    .ok_or_else(|| anyhow!("position object needs y"))? as f32;
-                vision
-                    .resolve_coordinate(x, y)
-                    .ok_or_else(|| anyhow!("Screen bounds not set"))?
-            } else if let Some(pair) = item.as_array() {
-                if pair.len() < 2 {
-                    return Err(anyhow!("position [x,y] needs two numbers"));
-                }
-                let x = pair[0].as_f64().ok_or_else(|| anyhow!("bad x"))? as f32;
-                let y = pair[1].as_f64().ok_or_else(|| anyhow!("bad y"))? as f32;
-                vision
-                    .resolve_coordinate(x, y)
-                    .ok_or_else(|| anyhow!("Screen bounds not set"))?
-            } else {
-                return Err(anyhow!("each position must be object or [x,y] array"));
-            };
+            let (x, y) = parse_click_position(item)?;
+            let (nx, ny) = vision
+                .resolve_coordinate(x, y)
+                .ok_or_else(|| anyhow!("Screen bounds not set"))?;
             positions.push((nx, ny));
         }
         drop(vision);
@@ -137,5 +140,31 @@ impl ModifiedClickTool {
             "Cmd/Ctrl+click {} position(s). Verify on next screenshot.",
             positions.len()
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_click_position_accepts_object_numeric_strings() {
+        let (x, y) = parse_click_position(&json!({"x": "450", "y": "315"})).unwrap();
+        assert_eq!(x, 450.0);
+        assert_eq!(y, 315.0);
+    }
+
+    #[test]
+    fn parse_click_position_accepts_array_numeric_strings() {
+        let (x, y) = parse_click_position(&json!(["450", "315"])).unwrap();
+        assert_eq!(x, 450.0);
+        assert_eq!(y, 315.0);
+    }
+
+    #[test]
+    fn parse_click_position_rejects_invalid_values() {
+        assert!(parse_click_position(&json!({"x": "bad", "y": 315})).is_err());
+        assert!(parse_click_position(&json!(["450"])).is_err());
     }
 }

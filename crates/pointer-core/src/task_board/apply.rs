@@ -1,6 +1,6 @@
 //! Apply task_board methods to a [`BoardDocument`].
 
-use super::args::{board_rows_from_args, goal_from_args, prune_ids_from_args};
+use super::args::{board_rows_from_args, expected_total_from_args, goal_from_args, prune_ids_from_args};
 use super::coordination::parent_child::{assert_child_may_mutate, parent_store_key_from_child};
 use super::model::{
     BoardDocument, BoardItem, BoardScope, GlobalContext, ItemStatus, MetaStatus,
@@ -68,6 +68,9 @@ fn apply_init(store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<
     if let Some(goal) = goal_from_args(args) {
         doc.meta.goal = goal;
     }
+    if let Some(expected_total) = expected_total_from_args(args) {
+        doc.meta.expected_total = Some(expected_total);
+    }
     if let Some(scope) = args.get("scope").and_then(|v| v.as_str()) {
         doc.meta.scope = match scope.trim().to_ascii_lowercase().as_str() {
             "parent" => Some(BoardScope::Parent),
@@ -101,6 +104,7 @@ fn apply_init(store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<
                 doc.board.push(item);
             }
         }
+        validate_expected_total_row_count(doc.meta.expected_total, doc.board.len(), "init")?;
     }
     Ok(json_summary("init", doc.board.len()))
 }
@@ -113,7 +117,27 @@ fn apply_replace(doc: &mut BoardDocument, args: &Value) -> Result<Value> {
             doc.board.push(item);
         }
     }
+    if !doc.board.is_empty() {
+        validate_expected_total_row_count(doc.meta.expected_total, doc.board.len(), "replace")?;
+    }
     Ok(json_summary("replace", doc.board.len()))
+}
+
+fn validate_expected_total_row_count(
+    expected_total: Option<u32>,
+    actual_rows: usize,
+    method: &str,
+) -> Result<()> {
+    let Some(expected_total) = expected_total else {
+        return Ok(());
+    };
+    let expected_total = expected_total as usize;
+    if actual_rows == expected_total {
+        return Ok(());
+    }
+    Err(anyhow!(
+        "task_board:{method} expected exactly {expected_total} item(s), got {actual_rows}"
+    ))
 }
 
 fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value>)> {
@@ -394,10 +418,18 @@ fn apply_finalize(doc: &mut BoardDocument) -> Result<Value> {
     Ok(json_summary("finalize", doc.board.len()))
 }
 
-fn apply_sync_finding(_store_key: &str, _doc: &mut BoardDocument, _args: &Value) -> Result<Value> {
-    Err(anyhow!(
-        "task_board: sync_finding is handled by TaskBoardStore (routes to parent global_context)"
-    ))
+fn apply_sync_finding(_store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<Value> {
+    // Fast-path route should be handled in TaskBoardStore::apply.
+    // Keep this as a non-failing fallback so UI cards do not show failed when a caller
+    // reaches apply_method directly.
+    if let Some(finding) = super::args::finding_from_args(args) {
+        return apply_sync_finding_to_doc(doc, &finding);
+    }
+    Ok(serde_json::json!({
+        "ok": true,
+        "method": "sync_finding",
+        "message": "sync_finding handled by store route; no finding appended"
+    }))
 }
 
 fn apply_check_deps(doc: &mut BoardDocument, args: &Value) -> Result<Value> {

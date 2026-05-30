@@ -48,7 +48,10 @@ export const COMPUTER_INITIAL_TIER_OPTIONS: { value: ComputerInitialTier; label:
 export interface AgentUiConfig {
   showInComposer?: boolean
   showAgentLabel?: boolean
-  showThoughts?: boolean
+  /** Debug: show sidecar tool calls (`verify:*`, `task_board:*`). */
+  showSidecarToolCalls?: boolean
+  /** Debug: show non-sidecar tool calls (real action tools). */
+  showNonSidecarToolCalls?: boolean
   showHeadline?: boolean
   showSubAgentTrace?: boolean
   showToolCalls?: boolean
@@ -168,6 +171,8 @@ export interface ChatMessage {
   /** True while the current LLM round is actively streaming (false between tool rounds). */
   contentStreaming?: boolean
   rawContent?: string
+  /** Concatenated raw outputs from tool invocations in this assistant turn. */
+  toolRawOutput?: string
   agentId?: string
   /** Runtime agent launch UUID (one per lead / sub-agent invocation). */
   agentInstanceId?: string
@@ -426,7 +431,7 @@ export type StreamEvent =
   | { kind: 'terminal_output_delta'; messageId: string; toolCallId: string; output: string; traceId?: string }
   | { kind: 'web_search_output_delta'; messageId: string; toolCallId: string; text: string; traceId?: string }
   | { kind: 'web_search_sources_ready'; messageId: string; toolCallId: string; sources: WebSearchSourceEntry[]; searchCount: number; traceId?: string }
-  | { kind: 'message_end'; messageId: string; content?: string; rawContent?: string; thoughts?: string; headline?: string; traceId?: string }
+  | { kind: 'message_end'; messageId: string; content?: string; rawContent?: string; toolRawOutput?: string; thoughts?: string; headline?: string; traceId?: string }
   | { kind: 'injected_user_message'; conversationId: string; messageId: string; content: string }
   /** App-injected assistant line (e.g. desktop capture status); shown in thread, not from model. */
   | { kind: 'injected_assistant_message'; conversationId: string; messageId: string; content: string }
@@ -463,8 +468,16 @@ export interface TaskBoardItem {
   title: string
   status: TaskBoardItemStatus
   depends_on?: string[]
+  retry_count?: number
   output?: string
+  detailed_plan?: string
+  verification?: string
   blocked_by?: string
+}
+
+export interface TaskBoardGlobalContext {
+  key_findings?: string[]
+  artifacts?: Record<string, unknown>
 }
 
 export interface TaskBoardDocument {
@@ -475,6 +488,13 @@ export interface TaskBoardDocument {
     status: string
     step_count?: number
     max_steps?: number
+    max_depth?: number
+    expected_total?: number
+    scope?: 'parent' | 'child'
+    root_target?: string
+    parent_sub_task_id?: string
+    parent_store_key?: string
   }
+  global_context?: TaskBoardGlobalContext
   board: TaskBoardItem[]
 }

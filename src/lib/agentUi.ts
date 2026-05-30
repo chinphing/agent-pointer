@@ -4,7 +4,8 @@ import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 export interface ResolvedAgentUi {
   showInComposer: boolean
   showAgentLabel: boolean
-  showThoughts: boolean
+  showSidecarToolCalls: boolean
+  showNonSidecarToolCalls: boolean
   showHeadline: boolean
   showSubAgentTrace: boolean
   showToolCalls: boolean
@@ -59,7 +60,8 @@ function profileDefaults(profile: AgentProfile, id: string, role: string): Resol
   return {
     showInComposer: !isSupervisor,
     showAgentLabel: true,
-    showThoughts: false,
+    showSidecarToolCalls: false,
+    showNonSidecarToolCalls: true,
     showHeadline: true,
     showSubAgentTrace: isSupervisor || key === 'research',
     showToolCalls: !isSupervisor,
@@ -92,7 +94,8 @@ function mergeUi(
   return {
     showInComposer: pick('showInComposer') as boolean,
     showAgentLabel: pick('showAgentLabel') as boolean,
-    showThoughts: pick('showThoughts') as boolean,
+    showSidecarToolCalls: pick('showSidecarToolCalls') as boolean,
+    showNonSidecarToolCalls: pick('showNonSidecarToolCalls') as boolean,
     showHeadline: pick('showHeadline') as boolean,
     showSubAgentTrace: pick('showSubAgentTrace') as boolean,
     showToolCalls: pick('showToolCalls') as boolean,

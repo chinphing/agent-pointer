@@ -9,8 +9,18 @@ pub struct AgentUiConfig {
     pub show_in_composer: Option<bool>,
     #[serde(default, rename = "showAgentLabel", skip_serializing_if = "Option::is_none")]
     pub show_agent_label: Option<bool>,
-    #[serde(default, rename = "showThoughts", skip_serializing_if = "Option::is_none")]
-    pub show_thoughts: Option<bool>,
+    #[serde(
+        default,
+        rename = "showSidecarToolCalls",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub show_sidecar_tool_calls: Option<bool>,
+    #[serde(
+        default,
+        rename = "showNonSidecarToolCalls",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub show_non_sidecar_tool_calls: Option<bool>,
     #[serde(default, rename = "showHeadline", skip_serializing_if = "Option::is_none")]
     pub show_headline: Option<bool>,
     #[serde(default, rename = "showSubAgentTrace", skip_serializing_if = "Option::is_none")]
@@ -41,7 +51,8 @@ pub struct AgentUiConfig {
 pub struct ResolvedAgentUi {
     pub show_in_composer: bool,
     pub show_agent_label: bool,
-    pub show_thoughts: bool,
+    pub show_sidecar_tool_calls: bool,
+    pub show_non_sidecar_tool_calls: bool,
     pub show_headline: bool,
     pub show_sub_agent_trace: bool,
     pub show_tool_calls: bool,
@@ -64,7 +75,8 @@ fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAge
     ResolvedAgentUi {
         show_in_composer: !is_supervisor,
         show_agent_label: true,
-        show_thoughts: false,
+        show_sidecar_tool_calls: false,
+        show_non_sidecar_tool_calls: true,
         show_headline: true,
         show_sub_agent_trace: is_supervisor || is_research,
         show_tool_calls: !is_supervisor,
@@ -120,7 +132,14 @@ pub fn resolve_agent_ui(def: &AgentDef) -> ResolvedAgentUi {
     ResolvedAgentUi {
         show_in_composer: merge_bool(ui.show_in_composer, base.show_in_composer),
         show_agent_label: merge_bool(ui.show_agent_label, base.show_agent_label),
-        show_thoughts: merge_bool(ui.show_thoughts, base.show_thoughts),
+        show_sidecar_tool_calls: merge_bool(
+            ui.show_sidecar_tool_calls,
+            base.show_sidecar_tool_calls,
+        ),
+        show_non_sidecar_tool_calls: merge_bool(
+            ui.show_non_sidecar_tool_calls,
+            base.show_non_sidecar_tool_calls,
+        ),
         show_headline: merge_bool(ui.show_headline, base.show_headline),
         show_sub_agent_trace: merge_bool(ui.show_sub_agent_trace, base.show_sub_agent_trace),
         show_tool_calls: merge_bool(ui.show_tool_calls, base.show_tool_calls),

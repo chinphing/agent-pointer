@@ -655,6 +655,7 @@ export const useChatStore = defineStore('chat', () => {
             delete r.msg.toolNamePreview
             if (e.content != null) r.msg.content = e.content
             if (e.rawContent != null) r.msg.rawContent = e.rawContent
+            if (e.toolRawOutput != null) r.msg.toolRawOutput = e.toolRawOutput
             delete r.msg.responseTextDraft
             if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
             if (e.headline != null && e.headline.trim() !== '') r.msg.headline = e.headline

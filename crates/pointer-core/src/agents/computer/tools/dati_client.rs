@@ -21,20 +21,37 @@ impl DatiConfig {
         let env_authcode = std::env::var("DATI_AUTHCODE").unwrap_or_default();
         let env_typeno = std::env::var("DATI_TYPENO").unwrap_or_default();
         let env_author = std::env::var("DATI_AUTHOR").unwrap_or_default();
+        let build_api_url = option_env!("POINTER_BUILD_DATI_API_URL").unwrap_or_default();
+        let build_authcode = option_env!("POINTER_BUILD_DATI_AUTHCODE").unwrap_or_default();
+        let build_typeno = option_env!("POINTER_BUILD_DATI_TYPENO").unwrap_or_default();
+        let build_author = option_env!("POINTER_BUILD_DATI_AUTHOR").unwrap_or_default();
         Self {
             api_url: first_non_empty(&[
                 settings.dati_api_url.as_str(),
                 env_api_url.as_str(),
+                build_api_url,
                 DEFAULT_API_URL,
             ])
             .trim_end_matches('/')
             .to_string(),
-            authcode: first_non_empty(&[settings.dati_authcode.as_str(), env_authcode.as_str()])
-                .to_string(),
-            typeno: first_non_empty(&[settings.dati_typeno.as_str(), env_typeno.as_str()])
-                .to_string(),
-            author: first_non_empty(&[settings.dati_author.as_str(), env_author.as_str()])
-                .to_string(),
+            authcode: first_non_empty(&[
+                settings.dati_authcode.as_str(),
+                env_authcode.as_str(),
+                build_authcode,
+            ])
+            .to_string(),
+            typeno: first_non_empty(&[
+                settings.dati_typeno.as_str(),
+                env_typeno.as_str(),
+                build_typeno,
+            ])
+            .to_string(),
+            author: first_non_empty(&[
+                settings.dati_author.as_str(),
+                env_author.as_str(),
+                build_author,
+            ])
+            .to_string(),
         }
     }
 

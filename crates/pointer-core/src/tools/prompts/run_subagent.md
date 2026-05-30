@@ -1,3 +1,21 @@
+---
+schema:
+  type: object
+  properties:
+    agentId:
+      type: string
+    instruction:
+      type: string
+    title:
+      type: string
+    taskId:
+      type: string
+  required:
+    - agentId
+    - instruction
+  additionalProperties: true
+---
+
 ### `run_subagent`
 
 Hand off a **self-contained sub-task** to another **worker** agent. The worker’s **deliverable** (for **`explore`**, etc.)
@@ -56,43 +74,9 @@ or another handoff).
 
 **Two different things (do not confuse them)**
 
-1. **Examples below** — These show **your** (lead) on-wire turn: **one JSON object** with **`tool_name":"run_subagent"`**
-   and **`tool_args`** carrying **`agentId`**, **`instruction`**, etc. Same envelope as any other tool you call. This is
-   **not** the worker’s Markdown report.
+1. **Tool call arguments** — provide `agentId`, `instruction`, and optional `title` / `taskId`.
 2. **After the worker run completes** — The host returns a **tool result JSON object** (metadata + **`content`**). The
    worker finishes by calling the **`response`** tool; the host copies **`tool_args.text`** into **`content`** (legacy
    key **`message`** in **`tool_args`** is also accepted for the same string). For **`explore`**, that string is
    **Markdown**. So the sub-agent **does** use **`response`**; the parent reads the handoff from **`content`**, not from
    a second nested JSON report inside **`content`**.
-
-#### JSON example (delegate implementation)
-
-```json
-{
-  "thoughts": "Coder should implement; isolate the patch request.",
-  "headline": "Delegate implementation",
-  "tool_name": "run_subagent",
-  "tool_args": {
-    "agentId": "coder",
-    "title": "Add retry helper",
-    "instruction": "In the workspace, add exponential backoff around the HTTP client. Keep public API unchanged. Done means: (1) tests for the crate pass; (2) no duplicate retry helpers; (3) at most three new public items. Follow this order: implement, run tests, then summarize risks.",
-    "taskId": "retry_http_client"
-  }
-}
-```
-
-#### JSON example (`explore` — read-only reconnaissance)
-
-```json
-{
-  "thoughts": "Map call chain before edit; isolate noisy search.",
-  "headline": "Explore subagent",
-  "tool_name": "run_subagent",
-  "tool_args": {
-    "agentId": "explore",
-    "title": "Trace request handler",
-    "instruction": "Goal: document how incoming HTTP requests reach the handler that parses JSON tool calls.\n\nScope: server crate only; do not enter UI or bundled assets.\n\nCompletion: (1) Forward trace from public entry to the parser function with path+line each hop; (2) Backward trace from parser to top-level caller; (3) List open questions if any hop is unclear.\n\n---\nLead context (trusted)\n- READ_AT src/server.rs:L40-L120 — saw router registration but not downstream.\n- GREPPED pattern=parse_tool_call hits=3 under server/.\n\nAlready checked\n- grep for `legacy_handler` under server/: 0 hits.\n\nStill unknown\n- Which module registers the stream endpoint.\n",
-    "taskId": "explore_http_tool_parse"
-  }
-}
-```

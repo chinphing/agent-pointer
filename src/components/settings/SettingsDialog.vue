@@ -101,7 +101,8 @@ const agents = ref<AgentDef[]>([])
 
 const DISPLAY_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
   { key: 'showAgentLabel', label: '消息旁显示智能体名称' },
-  { key: 'showThoughts', label: '显示 thoughts 摘要（调试，完成后保留）' },
+  { key: 'showSidecarToolCalls', label: '显示 sidecar 工具调用（调试）' },
+  { key: 'showNonSidecarToolCalls', label: '显示非 sidecar 工具调用（调试）' },
   { key: 'showHeadline', label: '显示 headline 标题条' },
   { key: 'showSubAgentTrace', label: '显示子 Agent 边框面板' },
   { key: 'showToolCalls', label: '显示工具调用卡片' },
@@ -223,7 +224,8 @@ function isLeadWorkerSelected(agentId: string): boolean {
 function displayUiChecked(key: keyof AgentUiConfig): boolean {
   const map: Record<string, boolean> = {
     showAgentLabel: effectiveDisplayUi.value.showAgentLabel,
-    showThoughts: effectiveDisplayUi.value.showThoughts,
+    showSidecarToolCalls: effectiveDisplayUi.value.showSidecarToolCalls,
+    showNonSidecarToolCalls: effectiveDisplayUi.value.showNonSidecarToolCalls,
     showHeadline: effectiveDisplayUi.value.showHeadline,
     showSubAgentTrace: effectiveDisplayUi.value.showSubAgentTrace,
     showToolCalls: effectiveDisplayUi.value.showToolCalls,

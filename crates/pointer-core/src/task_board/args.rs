@@ -57,6 +57,27 @@ pub fn goal_from_args(args: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
+pub fn expected_total_from_args(args: &Value) -> Option<u32> {
+    args.get("expected_total")
+        .or_else(|| args.get("expectedTotal"))
+        .or_else(|| {
+            args.get("meta")
+                .and_then(|m| m.get("expected_total").or_else(|| m.get("expectedTotal")))
+        })
+        .and_then(value_to_u32_loose)
+}
+
+fn value_to_u32_loose(v: &Value) -> Option<u32> {
+    match v {
+        Value::Number(n) => n
+            .as_u64()
+            .or_else(|| n.as_i64().and_then(|i| u64::try_from(i).ok()))
+            .map(|u| u as u32),
+        Value::String(s) => s.trim().parse::<u32>().ok(),
+        _ => None,
+    }
+}
+
 pub fn prune_ids_from_args(args: &Value) -> Vec<String> {
     args.get("ids")
         .and_then(|v| v.as_array())
@@ -98,5 +119,15 @@ mod tests {
         });
         let items = items_array_from_args(&args).expect("items");
         assert_eq!(items.len(), 1);
+    }
+
+    #[test]
+    fn parses_expected_total_from_number_or_string() {
+        let a = serde_json::json!({"expected_total": 21});
+        let b = serde_json::json!({"expected_total": "21"});
+        let c = serde_json::json!({"meta": {"expectedTotal": "21"}});
+        assert_eq!(expected_total_from_args(&a), Some(21));
+        assert_eq!(expected_total_from_args(&b), Some(21));
+        assert_eq!(expected_total_from_args(&c), Some(21));
     }
 }

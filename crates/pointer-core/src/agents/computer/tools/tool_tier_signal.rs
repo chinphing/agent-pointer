@@ -17,10 +17,7 @@ pub fn execute_tier_signal(args: &Value) -> Result<String> {
             "invalid action_result: expected one of pass|fail|pending|n/a"
         ));
     }
-    let repetition_count = args
-        .get("repetition_count")
-        .and_then(|v| v.as_u64())
-        .ok_or_else(|| anyhow!("missing required parameter: repetition_count"))?;
+    let repetition_count = parse_repetition_count(args.get("repetition_count"))?;
     let failure_cause = args
         .get("failure_cause")
         .and_then(|v| v.as_str())
@@ -49,6 +46,25 @@ pub fn execute_tier_signal(args: &Value) -> Result<String> {
     ))
 }
 
+fn parse_repetition_count(v: Option<&Value>) -> Result<u64> {
+    let Some(v) = v else {
+        // Be tolerant for missing field so sidecar does not fail the whole turn.
+        return Ok(0);
+    };
+    match v {
+        Value::Number(n) => n
+            .as_u64()
+            .ok_or_else(|| anyhow!("invalid repetition_count: expected non-negative integer")),
+        Value::String(s) => s
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| anyhow!("invalid repetition_count: expected non-negative integer")),
+        _ => Err(anyhow!(
+            "invalid repetition_count: expected non-negative integer"
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,13 +83,22 @@ mod tests {
     }
 
     #[test]
-    fn rejects_missing_repetition_count() {
-        let err = execute_tier_signal(&serde_json::json!({
-            "action_result": "fail"
+    fn missing_repetition_count_defaults_to_zero() {
+        let out = execute_tier_signal(&serde_json::json!({
+            "action_result": "pending"
         }))
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("repetition_count"));
+        .unwrap();
+        assert!(out.contains("repetition_count=0"));
+    }
+
+    #[test]
+    fn accepts_string_repetition_count() {
+        let out = execute_tier_signal(&serde_json::json!({
+            "action_result": "pass",
+            "repetition_count": "2"
+        }))
+        .unwrap();
+        assert!(out.contains("repetition_count=2"));
     }
 
     #[test]

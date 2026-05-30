@@ -6,13 +6,13 @@ use tokio_util::sync::CancellationToken;
 use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::{AgentProfile, AgentRunResult, AgentTask};
 use crate::llm_token_stats::ConversationLlmStats;
-use crate::models::{effective_max_tokens, effective_reasoning_in_messages, AgentTrace, StreamEvent};
+use crate::models::{effective_reasoning_in_messages, AgentTrace, StreamEvent};
 use crate::provider::OpenAIProvider;
 
 use super::agent_post_stream::{
     bail_on_tool_budget_exhausted, build_sub_assistant_message_after_stream,
     decide_when_no_tool_calls, decide_when_tool_calls_present, push_sub_assistant_turn,
-    sub_agent_run_result, FormatRetryDelivery, PostAssistantTurnAction, ToolBudgetExhaustionScope,
+    sub_agent_run_result, PostAssistantTurnAction, ToolBudgetExhaustionScope,
 };
 use super::agent_tool_pass::{
     run_agent_tool_pass, SubToolPassConfig, ToolInvocationStats, ToolPassResult,
@@ -55,6 +55,7 @@ pub(crate) async fn run_sub_agent(
     let mut local_history = session.local_history;
     let max_cap = sub_tool_budget.cap();
     let tools_appendix_enabled = !tools_system_appendix.is_empty();
+    let native_tools = state.tools.openai_tools(&allowed_tools);
     let budget_scope = ToolBudgetExhaustionScope::sub_agent(max_cap, instance_scope.clone());
     let mut content = String::new();
     let mut reasoning = String::new();
@@ -107,6 +108,7 @@ pub(crate) async fn run_sub_agent(
             sub_tool_budget,
             max_cap,
             tools_appendix_enabled,
+            native_tools.clone(),
             cancel.clone(),
             round_prompts.history_for_api,
             round_prompts.system_prompts,
@@ -125,6 +127,7 @@ pub(crate) async fn run_sub_agent(
                 message_id: message_id.to_string(),
                 content: None,
                 raw_content: None,
+                tool_raw_output: None,
                 thoughts: None,
                 headline: None,
                 trace_id: trace_id_opt(Some(&agent_trace_step_id(&task.id, &def.id))),
@@ -160,7 +163,6 @@ pub(crate) async fn run_sub_agent(
 
         let post_action = if buf.final_tool_calls.is_empty() {
             decide_when_no_tool_calls(
-                FormatRetryDelivery::LocalHistoryOnly,
                 stream,
                 state,
                 &mut local_history,
@@ -172,28 +174,11 @@ pub(crate) async fn run_sub_agent(
                 None,
                 max_cap,
                 &budget_scope,
-                &round_message_id,
-                &buf.json_finish_diag,
-                tools_appendix_enabled,
-                &buf.finish_reason,
-                effective_max_tokens(&sub_provider.settings),
             )
             .await?
         } else {
             decide_when_tool_calls_present(
-                FormatRetryDelivery::LocalHistoryOnly,
-                stream,
-                state,
                 state.tools.as_ref(),
-                &mut local_history,
-                &sub_provider.settings,
-                &sub_provider,
-                conversation_id,
-                &cancel,
-                sub_tool_budget,
-                None,
-                max_cap,
-                &budget_scope,
                 &buf.final_tool_calls,
                 "sub-agent",
             )
@@ -210,7 +195,6 @@ pub(crate) async fn run_sub_agent(
                     reasoning,
                 ));
             }
-            PostAssistantTurnAction::RetryLoop => continue,
             PostAssistantTurnAction::ExecuteTools => {}
         }
 

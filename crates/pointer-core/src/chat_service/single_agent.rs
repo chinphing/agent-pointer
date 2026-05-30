@@ -2,7 +2,7 @@
 
 use crate::agents::{AgentPlan, AgentProfile};
 use crate::llm_token_stats::ChatLlmTokenSession;
-use crate::models::{effective_max_tokens, ChatMessage, ModelSettings, StreamEvent};
+use crate::models::{ChatMessage, ModelSettings, StreamEvent};
 use crate::provider::OpenAIProvider;
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
@@ -13,6 +13,25 @@ use super::emit::emit;
 use super::session_budget::SessionToolBudget;
 use super::util::new_id;
 use super::StreamTx;
+
+fn latest_round_tool_raw_output(history: &[ChatMessage]) -> Option<String> {
+    history
+        .iter()
+        .rev()
+        .find(|m| matches!(m.role, crate::models::Role::Assistant))
+        .and_then(|m| {
+            if m.status == "streaming" {
+                m.tool_raw_output
+                    .as_ref()
+                    .map(String::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+}
 
 pub(super) async fn run_single_agent_loop(
     stream: StreamTx,
@@ -66,6 +85,7 @@ pub(super) async fn run_single_agent_loop(
                 computer_positioning,
             );
         let tools_appendix_enabled = !tools_system_appendix.is_empty();
+        let native_tools = state.tools.openai_tools(&agent_plan.allowed_tool_names);
         let file_tool_lead_for_invoke = lead_profile.clone();
 
         emit(
@@ -115,6 +135,7 @@ pub(super) async fn run_single_agent_loop(
             reasoning_in_messages,
             round_prompts.history_for_api,
             round_prompts.system_prompts,
+            native_tools,
         )
         .await?;
         let buf = match stream_outcome {
@@ -124,7 +145,7 @@ pub(super) async fn run_single_agent_loop(
 
         let lead_scope = llm_token_session.lead_scope.clone();
         let lead_instance_id = Some(lead_scope.agent_instance_id.clone());
-        let assistant_msg = super::single_agent_post_stream::build_assistant_message_after_stream(
+        let mut assistant_msg = super::single_agent_post_stream::build_assistant_message_after_stream(
             &assistant_id,
             buf.raw_content_buf.as_str(),
             buf.reasoning_buf,
@@ -137,6 +158,9 @@ pub(super) async fn run_single_agent_loop(
             &agent_trace,
             state.as_ref(),
         );
+        if assistant_msg.tool_raw_output.is_none() {
+            assistant_msg.tool_raw_output = latest_round_tool_raw_output(history);
+        }
         super::single_agent_post_stream::commit_assistant_turn(
             &stream,
             history,
@@ -165,27 +189,11 @@ pub(super) async fn run_single_agent_loop(
                 consumed_single,
                 max_cap,
                 lead_scope.clone(),
-                &assistant_id,
-                &buf.json_finish_diag,
-                tools_appendix_enabled,
-                &buf.finish_reason,
-                effective_max_tokens(settings),
             )
             .await?
         } else {
             super::single_agent_post_stream::decide_when_tool_calls_present(
-                &stream,
-                &state,
                 state.tools.as_ref(),
-                history,
-                settings,
-                provider,
-                conversation_id,
-                &cancel,
-                tool_budget,
-                consumed_single,
-                max_cap,
-                lead_scope.clone(),
                 &buf.final_tool_calls,
             )
             .await?
@@ -195,7 +203,6 @@ pub(super) async fn run_single_agent_loop(
             super::single_agent_post_stream::PostAssistantTurnAction::FinishRun => {
                 return Ok(());
             }
-            super::single_agent_post_stream::PostAssistantTurnAction::RetryLoop => continue,
             super::single_agent_post_stream::PostAssistantTurnAction::ExecuteTools => {}
         }
 

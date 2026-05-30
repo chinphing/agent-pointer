@@ -1,13 +1,21 @@
-## On-wire shape: JSON object
+## Native tool-calling only (hard rule)
 
-Each desktop reply is **one** JSON object: string fields **`thoughts`**, **`headline`**, root **`tool_name`**, object **`tool_args`**, optional **`sidecar_tools`** (after `tool_args`).
-Include one sidecar call `verify:report` every turn; set `action_result` from Verify and `repetition_count` from Repetition. Set `failure_cause` only when `action_result=fail` (`wrong_operation` or `precision_miss`).
-If this turn also updates `task_board`, run `verify:report` first and `task_board:patch` second (first board-init round may omit report).
+Use provider-native tool calls only.
+Do not emit JSON envelopes with fields like
+`thoughts`, `headline`, `tool_name`, `tool_args`,
+or `sidecar_tools`.
+`thoughts` is reasoning text, not a tool name.
+Never call a tool named `thoughts`.
 
-**`thoughts`** should be a concise external overview; one sentence is acceptable and section labels are optional. Keep full Verify/Repetition/Next/Location/Tool-route staging as internal reasoning discipline.
-**Always include `Route: coordinate`** in `thoughts` when the root tool uses coordinate positioning (`*_at`).
-Format: **`Route: coordinate — On [slot name]: <N–target relation: inner-edge-wrap | unwrapped> → …`** before Location/Tool route stages.
-**`Tool route:`** line **2** is the **only** place that picks the tool; it must match root **`tool_name`**.
+When this turn also updates `task_board`,
+call `verify:report` first and `task_board:patch` second
+(first board-init round may omit report).
+
+Reasoning text should be concise.
+Always include `Route: coordinate` in reasoning text
+when the action uses coordinate positioning (`*_at`).
+`Tool route:` line 2 remains the single source of truth
+for which native tool call to issue.
 **Efficiency principle:** prefer the fewest tool calls for the same goal.
 Use priority: **`composite_action`** -> **`hotkey`** / **`modified_click`**
 -> **`mouse`**. Use **`wait`** only for explicit delays.
@@ -382,6 +390,13 @@ Labels follow **fixed enumeration** on the current frame (**1** = first region, 
 
 **Allowed — coordinate methods:**  
 **`mouse`:** `click_at`, `double_click_at`, `right_click_at`, `hover_at`, `drag_from_to_at` · **`composite_action`:** `type_text_at` · **`modified_click`:** `modified_click_at`.
+
+**CAPTCHA routing (hard):**
+- If a CAPTCHA challenge is visible, call `captcha_verify` in this turn.
+- For slider/jigsaw challenges, use `captcha_verify` with `method="drag"`.
+- Do not downgrade visible CAPTCHA work to `mouse:*` / `composite_action:*`.
+- Use `mouse` only to reveal CAPTCHA when the challenge is not visible.
+CAPTCHA tool: **`captcha_verify`**.
 
 **Forbidden — every `*_index` method (all turns, no exceptions):**  
 `click_index`, `double_click_index`, `right_click_index`, `hover_index`, `drag_from_to_index`, `type_text_at_index`, `scroll_at_index`, `modified_click_index`, and any tool arg named **`index`**, **`indices`**, **`from_index`**, or **`to_index`**.
@@ -948,7 +963,7 @@ When **Location** line **3** concludes **`therefore (x,y) ≈ (…, …)`**, the
 | T2 | **1** | **`Location recap:`** — **reference index R** + **same `(X,Y)` literals** as Location line **3**, or **`n/a`** |
 | T3 | **2** | **`Tool call this turn:`** — method + **full args** (`goal`, `action`, `x`, `y`, …); literals **identical** to **`tool_args`** |
 
-Root JSON **`tool_name`** = line **2** method. Root **`tool_args`** = line **2** args (same numbers).
+Native root tool call must use line **2** method and args verbatim (same numbers).
 
 #### Output template
 
@@ -974,24 +989,18 @@ Tool route:
 
 #### Invariants (Tool route)
 
-- **INV-T0:** Line **2** lists every required **`tool_args`** field — no placeholders.
-- **INV-T1:** **`x`/`y`** on line **2** = **`tool_args`** = Location line **3** + recap literals.
+- **INV-T0:** Line **2** lists every required root-call argument field — no placeholders.
+- **INV-T1:** **`x`/`y`** on line **2** = root-call args = Location line **3** + recap literals.
 - **INV-T2:** **Forbidden** re-analyzing images or changing **(X,Y)** vs **Location**.
-- **INV-T3:** **`tool_name`** on line **2** = root **`tool_name`**.
+- **INV-T3:** Line **2** method = native root tool call name.
 - **INV-T4:** **Forbidden** **`*_index`** / **`index:`** / **`indices:`** — line **2** must be an **Allowed** coordinate method (or off-frame tool from **Tool geometry** above).
 
 ---
 
-### Full chain (one JSON example)
+### Full chain (native)
 
-```json
-{
-  "thoughts": "… Route: coordinate. Location line 3: therefore (x,y) ≈ (520, 840). Recheck coordinates: R1 skip; R2 proceed at (520,840) = OK pill vs Next. Tool route: mouse:click_at x:520 y:840 …",
-  "headline": "Confirm dialog via OK coordinates",
-  "tool_name": "mouse:click_at",
-  "tool_args": { "goal": "Confirm dialog via OK pill", "action": "click OK pill center", "x": 520, "y": 840 }
-}
-```
+Write concise reasoning text, then issue one native root tool call matching
+`Tool route` line 2.
 
 (Abbreviated **thoughts** example. Full seven-stage output is optional; concise one-sentence thoughts are allowed.)
 ---

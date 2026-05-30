@@ -44,6 +44,7 @@ pub(super) async fn run_sub_agent_stream_round(
     sub_tool_budget: &mut SessionToolBudget,
     max_cap: u32,
     tools_appendix_enabled: bool,
+    native_tools: Vec<serde_json::Value>,
     cancel: CancellationToken,
     history_for_api: Vec<ChatMessage>,
     system_prompts: SystemPromptSections,
@@ -64,6 +65,7 @@ pub(super) async fn run_sub_agent_stream_round(
         prov.stream_chat(
             &history_for_api,
             &system_clone,
+            native_tools,
             tx,
             cancel_clone,
             Some(dump_lbl.as_str()),
@@ -124,6 +126,7 @@ pub(super) async fn run_sub_agent_stream_round(
                     thoughts: None,
                     headline: None,
                     raw_content: None,
+                    tool_raw_output: None,
                     agent_id: None,
                     agent_instance_id: None,
                     agent_name: None,

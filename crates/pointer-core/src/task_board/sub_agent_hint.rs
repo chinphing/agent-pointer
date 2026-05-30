@@ -5,7 +5,12 @@ use super::store::TaskBoardStore;
 
 const HINT_BLOCK: &str = "\
 [TASK_BOARD_HINT]
-Your local task board is empty. For multi-step subtasks, call **task_board:init** early with 3–6 **local_*** steps (status pending or ready).
+Your local task board is empty.
+For multi-step subtasks, call **task_board:init** early.
+Use 3-6 **local_*** steps for normal work.
+For exhaustive matrix/combinational goals,
+keep grouped milestones by interaction form
+instead of enumerating every case.
 Single-step subtasks may skip the board.
 Read **[TASK_BOARD_PARENT]** for the parent goal and milestone; do not patch parent rows.
 ";
@@ -13,7 +18,11 @@ Read **[TASK_BOARD_PARENT]** for the parent goal and milestone; do not patch par
 const MAIN_SESSION_HINT_BLOCK: &str = "\
 [TASK_BOARD_HINT]
 Your task board is empty.
-If this is multi-step work, initialize early with **task_board:init** and 3–6 concise milestones.
+If this is multi-step work, initialize early with **task_board:init**.
+Use 3-6 concise milestones for normal work.
+For exhaustive matrix/combinational goals,
+keep grouped milestones by interaction form
+instead of enumerating every case.
 Single-step work may skip the board.
 For turns that also emit **verify:report**:
 - first board-init round may omit report;

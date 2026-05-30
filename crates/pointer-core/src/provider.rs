@@ -1,16 +1,11 @@
-use crate::json_tool_caller::{
-    extract_json_streaming_partial, finalize_json_tool_envelope, JsonFeedLane, JsonStreamingPartial,
-    JsonToolFinishDiagnostics, JsonToolParser,
-};
+use crate::json_tool_caller::JsonToolFinishDiagnostics;
 use crate::llm_token_stats::LlmUsageSnapshot;
 use crate::models::{ChatMessage, ModelSettings, SystemPromptSections, ToolCall};
-use crate::tool_envelope::{
-    envelope_arguments_to_json_string, ToolEnvelope, ToolEnvelopeCall,
-};
 use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -57,8 +52,7 @@ pub enum ProviderEvent {
 }
 
 /// chat/completions 请求**不**携带 `tools` / `tool_choice`（部分网关拒绝空 `tools: []`）。
-/// 本应用要求 assistant 正文为 **JSON 对象**（`response_format: json_object`），在应用侧解析工具信封；
-/// 不启用服务商原生 function calling。
+/// 本应用默认使用 provider 原生 `tools` / `tool_calls`；当工具列表为空时不发送 `tools`。
 ///
 /// 扩展参数（千问/DeepSeek 等）在配置侧为结构化字段，序列化后展平到请求体根级。
 fn skip_extra_body(v: &Option<Value>) -> bool {
@@ -80,8 +74,10 @@ struct ChatRequest<'a> {
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "stream_options")]
     stream_options: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "response_format")]
-    response_format: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<&'a str>,
     #[serde(skip_serializing_if = "skip_extra_body", rename = "extra_body")]
     extra_body: Option<Value>,
 }
@@ -176,6 +172,20 @@ pub struct OpenAIProvider {
     pub api_key: String,
 }
 
+#[derive(Debug, Clone, Default)]
+struct NativeToolCallState {
+    id: String,
+    name: String,
+    arguments: String,
+    started: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ConsoleStreamLane {
+    Reasoning,
+    Output,
+}
+
 /// Non-streaming chat/completions result including optional `usage`.
 #[derive(Debug)]
 pub struct ChatOnceOutput {
@@ -233,6 +243,7 @@ impl OpenAIProvider {
         &self,
         messages: &[ChatMessage],
         system: &SystemPromptSections,
+        native_tools: Vec<Value>,
         cancel: CancellationToken,
         max_tokens_override: Option<u32>,
         dump_label: Option<&str>,
@@ -274,7 +285,12 @@ impl OpenAIProvider {
             temperature: crate::models::effective_temperature(&self.settings),
             max_tokens: Some(max_tok),
             stream_options: None,
-            response_format: Some(json!({"type": "json_object"})),
+            tools: if native_tools.is_empty() {
+                None
+            } else {
+                Some(native_tools)
+            },
+            tool_choice: Some("auto"),
             extra_body,
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
@@ -322,6 +338,7 @@ impl OpenAIProvider {
         &self,
         messages: &[ChatMessage],
         system: &SystemPromptSections,
+        native_tools: Vec<Value>,
         tx: mpsc::Sender<ProviderEvent>,
         cancel: CancellationToken,
         dump_label: Option<&str>,
@@ -371,7 +388,12 @@ impl OpenAIProvider {
             temperature: crate::models::effective_temperature(&self.settings),
             max_tokens: Some(crate::models::effective_max_tokens(&self.settings)),
             stream_options,
-            response_format: Some(json!({"type": "json_object"})),
+            tools: if native_tools.is_empty() {
+                None
+            } else {
+                Some(native_tools)
+            },
+            tool_choice: Some("auto"),
             extra_body,
         };
 
@@ -415,14 +437,11 @@ impl OpenAIProvider {
         }
 
         let mut content_buf = String::new();
-        let mut reasoning_buf = String::new();
         let mut finish_reason = String::from("stop");
-        let mut json_parser = JsonToolParser::new();
-        let stream_json_session_id = rand_id();
-        let mut accumulated_tool_calls: Vec<ToolCall> = Vec::new();
-        let mut last_json_stream_meta: (Option<String>, Option<String>) = (None, None);
-        let mut last_json_partial: Option<JsonStreamingPartial> = None;
+        let stream_tool_session_id = rand_id();
+        let mut tool_states: BTreeMap<u32, NativeToolCallState> = BTreeMap::new();
         let stream_raw_to_console = raw_llm_stream_to_console_enabled();
+        let mut last_console_lane: Option<ConsoleStreamLane> = None;
         let mut last_usage: Option<LlmUsageSnapshot> = None;
 
         let mut stream = resp.bytes_stream();
@@ -460,39 +479,76 @@ impl OpenAIProvider {
                     if let Some(ref c) = ch.delta.content {
                         if !c.is_empty() {
                             if stream_raw_to_console {
-                                write_llm_stream_chunk_to_stderr(c);
+                                write_llm_stream_chunk_to_stderr(
+                                    c,
+                                    ConsoleStreamLane::Output,
+                                    &mut last_console_lane,
+                                );
                             }
                             content_buf.push_str(c);
                             let _ = tx.send(ProviderEvent::ContentDelta(c.clone())).await;
-                            json_parser.feed_lane(c, JsonFeedLane::Content);
-                            let partial = extract_json_streaming_partial(&content_buf);
-                            if partial.thoughts.is_some()
-                                || partial.headline.is_some()
-                                || partial.tool_name.is_some()
-                                || partial.response_text.is_some()
-                            {
-                                if last_json_partial.as_ref() != Some(&partial) {
-                                    last_json_partial = Some(partial.clone());
-                                    let _ = tx
-                                        .send(ProviderEvent::AssistantJsonPartial {
-                                            thoughts: partial.thoughts,
-                                            headline: partial.headline,
-                                            tool_name: partial.tool_name,
-                                            response_text: partial.response_text,
-                                        })
-                                        .await;
-                                }
-                            }
                         }
                     }
                     if let Some(ref r) = ch.delta.reasoning_content {
                         if !r.is_empty() {
                             if stream_raw_to_console {
-                                write_llm_stream_chunk_to_stderr(r);
+                                write_llm_stream_chunk_to_stderr(
+                                    r,
+                                    ConsoleStreamLane::Reasoning,
+                                    &mut last_console_lane,
+                                );
                             }
-                            reasoning_buf.push_str(r);
-                            json_parser.feed_lane(r, JsonFeedLane::Reasoning);
                             let _ = tx.send(ProviderEvent::ReasoningDelta(r.clone())).await;
+                        }
+                    }
+                    if let Some(ref calls) = ch.delta.tool_calls {
+                        for call in calls {
+                            let idx = call.index;
+                            let state = tool_states.entry(idx).or_default();
+                            if state.id.is_empty() {
+                                if let Some(id) = call.id.as_ref().filter(|s| !s.trim().is_empty()) {
+                                    state.id = id.clone();
+                                }
+                            }
+                            if let Some(function) = &call.function {
+                                if let Some(name_part) =
+                                    function.name.as_ref().filter(|s| !s.is_empty())
+                                {
+                                    state.name.push_str(name_part);
+                                }
+                                if let Some(args_part) =
+                                    function.arguments.as_ref().filter(|s| !s.is_empty())
+                                {
+                                    state.arguments.push_str(args_part);
+                                }
+                            }
+                            if state.id.is_empty() {
+                                state.id =
+                                    format!("native_{stream_tool_session_id}_{idx}");
+                            }
+                            if !state.started && !state.name.trim().is_empty() {
+                                state.started = true;
+                                let _ = tx
+                                    .send(ProviderEvent::ToolCallStart {
+                                        index: idx,
+                                        id: state.id.clone(),
+                                        name: state.name.trim().to_string(),
+                                    })
+                                    .await;
+                            }
+                            if let Some(function) = &call.function {
+                                if let Some(args_part) =
+                                    function.arguments.as_ref().filter(|s| !s.is_empty())
+                                {
+                                    let _ = tx
+                                        .send(ProviderEvent::ToolCallArgsDelta {
+                                            index: idx,
+                                            tool_call_id: state.id.clone(),
+                                            args: args_part.clone(),
+                                        })
+                                        .await;
+                                }
+                            }
                         }
                     }
                     if let Some(ref reason) = ch.finish_reason {
@@ -513,36 +569,15 @@ impl OpenAIProvider {
             }
         }
 
-        let (envelope, mut json_diag) =
-            finalize_json_tool_envelope(&content_buf, &reasoning_buf);
-        json_diag.feed_lane_tail = json_parser.feed_lane_tail.clone();
-
-        if let Some(env) = envelope {
-            let base_id = format!("json_{}_0", stream_json_session_id);
-            let (tc, thoughts, headline) =
-                tool_calls_from_envelope(&self.settings.model, env, &base_id);
-            if thoughts.is_some() {
-                last_json_stream_meta.0 = thoughts.clone();
-            }
-            if headline.is_some() {
-                last_json_stream_meta.1 = headline.clone();
-            }
-            accumulated_tool_calls.extend(tc.iter().cloned());
-            let _ = tx
-                .send(ProviderEvent::JsonToolStreamingReady {
-                    tool_calls: tc,
-                    thoughts,
-                    headline,
-                })
-                .await;
-        }
-
-        let tool_calls = accumulated_tool_calls.clone();
-        let finish_thoughts = last_json_stream_meta.0.clone();
-        let finish_headline = last_json_stream_meta.1.clone();
-
-        if !tool_calls.is_empty() {
-            json_diag.parse_error = None;
+        let tool_calls = native_tool_calls_from_states(&tool_states);
+        let mut json_diag = JsonToolFinishDiagnostics::default();
+        json_diag.attempted_tool_json = !content_buf.trim().is_empty();
+        json_diag.fragment_complete = true;
+        if tool_calls.is_empty() && content_buf.contains("\"tool_name\"") {
+            json_diag.parse_error = Some(
+                "legacy json envelope detected; native tool calling mode expects provider tool_calls"
+                    .to_string(),
+            );
         }
 
         let _ = tx
@@ -550,8 +585,8 @@ impl OpenAIProvider {
                 reason: finish_reason,
                 tool_calls,
                 json: json_diag,
-                thoughts: finish_thoughts,
-                headline: finish_headline,
+                thoughts: None,
+                headline: None,
                 usage: last_usage,
             })
             .await;
@@ -594,107 +629,54 @@ fn raw_llm_stream_to_console_enabled() -> bool {
     }
 }
 
-fn write_llm_stream_chunk_to_stderr(text: &str) {
+fn write_llm_stream_chunk_to_stderr(
+    text: &str,
+    lane: ConsoleStreamLane,
+    last_lane: &mut Option<ConsoleStreamLane>,
+) {
     if text.is_empty() {
         return;
     }
     let mut err = std::io::stderr().lock();
+    if last_lane.is_none() || *last_lane != Some(lane) {
+        let marker = match lane {
+            ConsoleStreamLane::Reasoning => "\n[推理|reasoning]\n",
+            ConsoleStreamLane::Output => "\n[输出|output]\n",
+        };
+        let _ = std::io::Write::write_all(&mut err, marker.as_bytes());
+        *last_lane = Some(lane);
+    }
     let _ = std::io::Write::write_all(&mut err, text.as_bytes());
     let _ = err.flush();
 }
 
-fn tool_calls_from_envelope(
-    model: &str,
-    envelope: ToolEnvelope,
-    base_id: &str,
-) -> (Vec<ToolCall>, Option<String>, Option<String>) {
-    if envelope.sidecar.is_empty() {
-        return tool_calls_from_envelope_call(
-            model,
-            envelope.primary,
-            Some(format!("{base_id}_p")),
-        );
-    }
-    let mut finish_thoughts = None;
-    let t = envelope.primary.thoughts.trim();
-    if !t.is_empty() {
-        finish_thoughts = Some(t.to_string());
-    }
-    let mut finish_headline = None;
-    let h = envelope.primary.headline.trim();
-    if !h.is_empty() {
-        finish_headline = Some(h.to_string());
-    }
-
-    let mut out: Vec<ToolCall> = Vec::new();
-    let mut idx: u32 = 0;
-    for sc in envelope.sidecar {
-        let id = format!("{base_id}_sc{idx}");
-        idx += 1;
-        let args_json = envelope_arguments_to_json_string(&sc.arguments);
-        let name = sc.name.trim().to_string();
-        out.push(ToolCall {
-            id,
-            name,
-            arguments: args_json,
-            status: "pending".into(),
-            result: None,
-            error: None,
-            duration_ms: None,
-            risk_level: None,
-            display_label: None,
-            display_summary: None,
-        });
-    }
-    let primary_id = format!("{base_id}_p");
-    let args_json = envelope_arguments_to_json_string(&envelope.primary.arguments);
-    let name = envelope.primary.name.trim().to_string();
-    out.push(ToolCall {
-        id: primary_id,
-        name,
-        arguments: args_json,
-        status: "pending".into(),
-        result: None,
-        error: None,
-        duration_ms: None,
-        risk_level: None,
-        display_label: None,
-        display_summary: None,
-    });
-    (out, finish_thoughts, finish_headline)
-}
-
-fn tool_calls_from_envelope_call(
-    _model: &str,
-    call: ToolEnvelopeCall,
-    tool_call_id: Option<String>,
-) -> (Vec<ToolCall>, Option<String>, Option<String>) {
-    let mut finish_thoughts = None;
-    let t = call.thoughts.trim();
-    if !t.is_empty() {
-        finish_thoughts = Some(t.to_string());
-    }
-    let mut finish_headline = None;
-    let h = call.headline.trim();
-    if !h.is_empty() {
-        finish_headline = Some(h.to_string());
-    }
-    let id = tool_call_id.unwrap_or_else(|| format!("env_{}", rand_id()));
-    let args_json = envelope_arguments_to_json_string(&call.arguments);
-    let name = call.name.trim().to_string();
-    let tc = vec![ToolCall {
-        id,
-        name,
-        arguments: args_json,
-        status: "pending".into(),
-        result: None,
-        error: None,
-        duration_ms: None,
-        risk_level: None,
-        display_label: None,
-        display_summary: None,
-    }];
-    (tc, finish_thoughts, finish_headline)
+fn native_tool_calls_from_states(states: &BTreeMap<u32, NativeToolCallState>) -> Vec<ToolCall> {
+    states
+        .iter()
+        .filter_map(|(idx, state)| {
+            let name = state.name.trim();
+            if name.is_empty() {
+                return None;
+            }
+            let id = if state.id.trim().is_empty() {
+                format!("native_tool_{idx}")
+            } else {
+                state.id.clone()
+            };
+            Some(ToolCall {
+                id,
+                name: name.to_string(),
+                arguments: state.arguments.clone(),
+                status: "pending".into(),
+                result: None,
+                error: None,
+                duration_ms: None,
+                risk_level: None,
+                display_label: None,
+                display_summary: None,
+            })
+        })
+        .collect()
 }
 
 fn truncate(s: &str, n: usize) -> String {
@@ -715,4 +697,54 @@ fn rand_id() -> String {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     format!("{:x}", n)
+}
+
+#[cfg(test)]
+mod native_tool_call_tests {
+    use super::*;
+
+    #[test]
+    fn native_tool_calls_from_states_orders_by_index() {
+        let mut states: BTreeMap<u32, NativeToolCallState> = BTreeMap::new();
+        states.insert(
+            2,
+            NativeToolCallState {
+                id: "id_b".into(),
+                name: "terminal".into(),
+                arguments: r#"{"command":"echo b"}"#.into(),
+                started: true,
+            },
+        );
+        states.insert(
+            1,
+            NativeToolCallState {
+                id: "id_a".into(),
+                name: "file:read".into(),
+                arguments: r#"{"path":"a.txt"}"#.into(),
+                started: true,
+            },
+        );
+        let calls = native_tool_calls_from_states(&states);
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].id, "id_a");
+        assert_eq!(calls[0].name, "file:read");
+        assert_eq!(calls[1].id, "id_b");
+        assert_eq!(calls[1].name, "terminal");
+    }
+
+    #[test]
+    fn native_tool_calls_filters_empty_name() {
+        let mut states: BTreeMap<u32, NativeToolCallState> = BTreeMap::new();
+        states.insert(
+            0,
+            NativeToolCallState {
+                id: "id_0".into(),
+                name: String::new(),
+                arguments: "{}".into(),
+                started: false,
+            },
+        );
+        let calls = native_tool_calls_from_states(&states);
+        assert!(calls.is_empty());
+    }
 }

@@ -3,7 +3,8 @@ use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::vision_state::VisionState;
 use super::args_util::{
     clamp_scroll_lines, ensure_index_method_allowed, human_like_from_args, json_bool_loose,
-    require_non_empty_str, resolve_index_pixels, text_from_args,
+    require_non_empty_str, required_f32_arg, required_u32_arg, resolve_index_pixels,
+    text_from_args,
 };
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -51,9 +52,7 @@ impl CompositeActionTool {
     }
 
     fn type_text_at_index(&self, args: &Value) -> Result<String> {
-        let index = args["index"]
-            .as_u64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'index' parameter"))? as u32;
+        let index = required_u32_arg(args, "index")?;
         let text = text_from_args(args.get("text"))?;
         let clear_first = json_bool_loose(args.get("clear_first"));
         let auto_enter = json_bool_loose(args.get("auto_enter"));
@@ -71,12 +70,8 @@ impl CompositeActionTool {
     }
 
     fn type_text_at(&self, args: &Value) -> Result<String> {
-        let x = args["x"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'x' parameter"))? as f32;
-        let y = args["y"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'y' parameter"))? as f32;
+        let x = required_f32_arg(args, "x")?;
+        let y = required_f32_arg(args, "y")?;
         let text = text_from_args(args.get("text"))?;
         let clear_first = json_bool_loose(args.get("clear_first"));
         let auto_enter = json_bool_loose(args.get("auto_enter"));
@@ -101,9 +96,7 @@ impl CompositeActionTool {
     }
 
     fn scroll_at_index(&self, args: &Value) -> Result<String> {
-        let index = args["index"]
-            .as_u64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'index' parameter"))? as u32;
+        let index = required_u32_arg(args, "index")?;
         let lines_raw = args["lines"]
             .as_i64()
             .ok_or_else(|| anyhow!("Missing or invalid 'lines' parameter"))? as i32;

@@ -1,44 +1,50 @@
-//! Load JSON Schema embedded in Markdown (` ```json ... ``` `).
+//! Load tool JSON Schema from markdown YAML front matter (`---`) with top-level `schema`.
 
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
-/// Parse the first fenced ` ```json ` … ` ``` ` block as a JSON Schema [`Value`].
-pub fn json_schema_from_markdown(md: &str) -> Result<Value> {
-    let key = "```json";
-    let start = md.find(key).ok_or_else(|| anyhow!("Markdown has no ```json schema fence"))?;
-    let after = &md[start + key.len()..];
-    let after = after.strip_prefix('\r').unwrap_or(after);
-    let after = after.strip_prefix('\n').unwrap_or(after);
-    let close = after
-        .find("\n```")
-        .or_else(|| after.find("```"))
-        .ok_or_else(|| anyhow!("Unclosed ```json schema fence"))?;
-    let json_src = after[..close].trim();
-    serde_json::from_str(json_src).map_err(|e| anyhow!("Invalid JSON in schema fence: {e}"))
+fn split_yaml_front_matter(md: &str) -> Option<(&str, &str)> {
+    let s = md.trim_start_matches('\u{feff}');
+    if !s.starts_with("---\n") {
+        return None;
+    }
+    let rest = &s[4..];
+    let end = rest.find("\n---\n")?;
+    let yaml = &rest[..end];
+    let body = &rest[end + 5..];
+    Some((yaml, body))
 }
 
-/// Markdown documentation with the first ` ```json ` schema fence removed (for `doc_markdown`).
+fn schema_from_yaml_front_matter(md: &str) -> Result<Option<Value>> {
+    let Some((yaml_src, _body)) = split_yaml_front_matter(md) else {
+        return Ok(None);
+    };
+    let yaml_v: serde_yaml::Value = serde_yaml::from_str(yaml_src)
+        .map_err(|e| anyhow!("Invalid YAML front matter: {e}"))?;
+    let Some(schema_yaml) = yaml_v.get("schema") else {
+        return Ok(None);
+    };
+    let schema = serde_json::to_value(schema_yaml)
+        .map_err(|e| anyhow!("Invalid schema in YAML front matter: {e}"))?;
+    Ok(Some(schema))
+}
+
+/// Parse schema from YAML front matter (`schema`) only.
+pub fn json_schema_from_markdown(md: &str) -> Result<Value> {
+    schema_from_yaml_front_matter(md)?
+        .ok_or_else(|| anyhow!("Markdown has no YAML front matter `schema`"))
+}
+
+/// Markdown documentation with YAML front matter schema removed (for `doc_markdown`).
 pub fn doc_markdown_without_schema_fence(md: &str) -> String {
-    let key = "```json";
-    let Some(start) = md.find(key) else {
-        return md.trim().to_string();
-    };
-    let rest = &md[start + key.len()..];
-    let rest = rest.strip_prefix('\r').unwrap_or(rest);
-    let rest = rest.strip_prefix('\n').unwrap_or(rest);
-    let end = match rest.find("```") {
-        Some(i) => i,
-        None => return md.trim().to_string(),
-    };
-    let tail = rest[end + 3..].trim_start();
-    let head = md[..start].trim_end();
-    match (head.is_empty(), tail.is_empty()) {
-        (true, true) => String::new(),
-        (true, false) => tail.to_string(),
-        (false, true) => head.to_string(),
-        (false, false) => format!("{head}\n\n{tail}").trim().to_string(),
+    if let Some((yaml_src, body)) = split_yaml_front_matter(md) {
+        if let Ok(yaml_v) = serde_yaml::from_str::<serde_yaml::Value>(yaml_src) {
+            if yaml_v.get("schema").is_some() {
+                return body.trim().to_string();
+            }
+        }
     }
+    md.trim().to_string()
 }
 
 /// Combined load for callers that still embed JSON Schema in markdown (not used by current registry `ToolEntry` wiring).
@@ -53,21 +59,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extracts_schema_and_strips_fence() {
-        let md = r#"# T
+    fn extracts_schema_from_yaml_front_matter() {
+        let md = r#"---
+schema:
+  type: object
+  properties:
+    x:
+      type: integer
+  required:
+    - x
+---
+
+# T
 
 Body.
-
-```json
-{"type":"object","properties":{"x":{"type":"integer"}}}
-```
-
-Tail."#;
+"#;
         let v = json_schema_from_markdown(md).unwrap();
         assert_eq!(v["type"], "object");
+        assert_eq!(v["required"][0], "x");
         let d = doc_markdown_without_schema_fence(md);
-        assert!(d.contains("Body"));
-        assert!(d.contains("Tail"));
-        assert!(!d.contains("```json"));
+        assert!(d.starts_with("# T"));
+        assert!(!d.contains("schema:"));
+    }
+
+    #[test]
+    fn rejects_json_fence_schema_legacy_format() {
+        let md = r#"# T
+
+```json
+{"type":"object"}
+```
+"#;
+        let err = json_schema_from_markdown(md).unwrap_err().to_string();
+        assert!(err.contains("YAML front matter"));
     }
 }

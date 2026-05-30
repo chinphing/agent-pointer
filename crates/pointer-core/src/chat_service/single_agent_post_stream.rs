@@ -3,7 +3,6 @@
 pub(super) use super::agent_post_stream::PostAssistantTurnAction;
 
 use crate::agents::AgentPlan;
-use crate::json_tool_caller::JsonToolFinishDiagnostics;
 use crate::models::{AgentTrace, ChatMessage, ModelSettings, ToolCall};
 use crate::provider::OpenAIProvider;
 use crate::tools::ToolRegistry;
@@ -64,17 +63,8 @@ pub(super) async fn decide_when_no_tool_calls(
     consumed_single: &mut u32,
     max_cap: u32,
     compression_scope: crate::agent_instance_scope::AgentInstanceScope,
-    assistant_id: &str,
-    json_finish_diag: &JsonToolFinishDiagnostics,
-    tools_appendix_enabled: bool,
-    finish_reason: &str,
-    max_tokens: u32,
 ) -> Result<PostAssistantTurnAction> {
     super::agent_post_stream::decide_when_no_tool_calls(
-        super::agent_post_stream::FormatRetryDelivery::InjectedUser {
-            stream,
-            conversation_id,
-        },
         stream,
         state.as_ref(),
         history,
@@ -89,50 +79,16 @@ pub(super) async fn decide_when_no_tool_calls(
             max_cap,
             compression_scope,
         ),
-        assistant_id,
-        json_finish_diag,
-        tools_appendix_enabled,
-        finish_reason,
-        max_tokens,
     )
     .await
 }
 
 pub(super) async fn decide_when_tool_calls_present(
-    stream: &StreamTx,
-    state: &Arc<AppState>,
     tools: &ToolRegistry,
-    history: &mut Vec<ChatMessage>,
-    settings: &ModelSettings,
-    provider: &OpenAIProvider,
-    conversation_id: &str,
-    cancel: &CancellationToken,
-    tool_budget: &mut SessionToolBudget,
-    consumed_single: &mut u32,
-    max_cap: u32,
-    compression_scope: crate::agent_instance_scope::AgentInstanceScope,
     final_tool_calls: &[ToolCall],
 ) -> Result<PostAssistantTurnAction> {
     super::agent_post_stream::decide_when_tool_calls_present(
-        super::agent_post_stream::FormatRetryDelivery::InjectedUser {
-            stream,
-            conversation_id,
-        },
-        stream,
-        state.as_ref(),
         tools,
-        history,
-        settings,
-        provider,
-        conversation_id,
-        cancel,
-        tool_budget,
-        Some(consumed_single),
-        max_cap,
-        &super::agent_post_stream::ToolBudgetExhaustionScope::lead_single(
-            max_cap,
-            compression_scope,
-        ),
         final_tool_calls,
         "lead",
     )

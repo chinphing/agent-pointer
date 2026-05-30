@@ -47,6 +47,45 @@ pub fn json_bool_loose(v: Option<&Value>) -> bool {
     }
 }
 
+/// Parse a required unsigned integer tool arg.
+/// Accepts integer JSON numbers and numeric strings.
+pub fn required_u32_arg(args: &Value, key: &str) -> Result<u32> {
+    let Some(v) = args.get(key) else {
+        return Err(anyhow!("Missing or invalid '{}' parameter", key));
+    };
+    value_to_u32_loose(v).ok_or_else(|| anyhow!("Missing or invalid '{}' parameter", key))
+}
+
+/// Parse a required float arg.
+/// Accepts numeric JSON values and numeric strings.
+pub fn required_f32_arg(args: &Value, key: &str) -> Result<f32> {
+    let Some(v) = args.get(key) else {
+        return Err(anyhow!("Missing or invalid '{}' parameter", key));
+    };
+    value_to_f32_loose(v).ok_or_else(|| anyhow!("Missing or invalid '{}' parameter", key))
+}
+
+/// Convert JSON value to u32, accepting integer-like strings.
+pub fn value_to_u32_loose(v: &Value) -> Option<u32> {
+    match v {
+        Value::Number(n) => n
+            .as_u64()
+            .or_else(|| n.as_i64().and_then(|i| u64::try_from(i).ok()))
+            .map(|u| u as u32),
+        Value::String(s) => s.trim().parse::<u32>().ok(),
+        _ => None,
+    }
+}
+
+/// Convert JSON value to f32, accepting numeric strings.
+pub fn value_to_f32_loose(v: &Value) -> Option<f32> {
+    match v {
+        Value::Number(n) => n.as_f64().map(|f| f as f32),
+        Value::String(s) => s.trim().parse::<f32>().ok(),
+        _ => None,
+    }
+}
+
 /// Parse overlay indices from JSON (array of ints, or comma-separated string, or JSON array string).
 pub fn parse_indices(arg: Option<&Value>) -> Result<Vec<u32>> {
     let Some(v) = arg else {
@@ -241,5 +280,21 @@ mod tests {
         assert_eq!(text_from_args(Some(&json!(42))).unwrap(), "42");
         assert!(text_from_args(None).is_err());
         assert!(text_from_args(Some(&json!(true))).is_err());
+    }
+
+    #[test]
+    fn required_u32_arg_accepts_numeric_string() {
+        use serde_json::json;
+        assert_eq!(required_u32_arg(&json!({"index": "150"}), "index").unwrap(), 150);
+        assert_eq!(required_u32_arg(&json!({"index": 150}), "index").unwrap(), 150);
+        assert!(required_u32_arg(&json!({"index": "x"}), "index").is_err());
+    }
+
+    #[test]
+    fn required_f32_arg_accepts_numeric_string() {
+        use serde_json::json;
+        assert_eq!(required_f32_arg(&json!({"x": "450"}), "x").unwrap(), 450.0);
+        assert_eq!(required_f32_arg(&json!({"x": 450}), "x").unwrap(), 450.0);
+        assert!(required_f32_arg(&json!({"x": "x"}), "x").is_err());
     }
 }

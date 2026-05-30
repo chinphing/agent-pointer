@@ -284,7 +284,14 @@ pub fn load_local_platform_settings() -> Result<Option<PlatformSettings>> {
         return Ok(None);
     }
     let raw = fs::read_to_string(&path)?;
+    let contains_sensitive_dati = local_platform_contains_sensitive_dati_keys(&raw);
     if let Ok(persisted) = serde_json::from_str::<PersistedLocalPlatformSettings>(&raw) {
+        if contains_sensitive_dati {
+            log::warn!(
+                "storage: local_platform_settings.json contains sensitive DaTi keys; rewriting sanitized file"
+            );
+            save_local_platform_settings(&persisted)?;
+        }
         return Ok(Some(persisted.into_platform()));
     }
     // Legacy file written as full PlatformSettings (may contain apiKey / debug fields).
@@ -297,6 +304,19 @@ pub fn load_local_platform_settings() -> Result<Option<PlatformSettings>> {
         return Ok(Some(persisted.into_platform()));
     }
     Ok(None)
+}
+
+fn local_platform_contains_sensitive_dati_keys(raw: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return false;
+    };
+    let Some(obj) = v.as_object() else {
+        return false;
+    };
+    obj.contains_key("datiApiUrl")
+        || obj.contains_key("datiAuthcode")
+        || obj.contains_key("datiTypeno")
+        || obj.contains_key("datiAuthor")
 }
 
 pub fn save_local_platform_settings(persisted: &PersistedLocalPlatformSettings) -> Result<()> {

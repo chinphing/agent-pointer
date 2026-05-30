@@ -36,37 +36,3 @@ waiting (for example in download or transfer history UI).
 **Reposition:** **MA-3 NOT FOUND** → **`mouse:hover_index`** on **R** center — no click/type that turn.
 
 **Scroll workflow:** **`mouse:hover_index`** or **`mouse:click_index`** on the scroll region, then **`mouse:scroll_at_current`** if needed.
-
-#### JSON examples — `mouse:click_index`
-
-**A — bbox ≈ control (no offset):**
-
-```json
-{
-  "thoughts": "… Route: index — On [Annotated after action]: bbox 12 inner-center-wrap at center → click_index 12.",
-  "headline": "Confirm",
-  "tool_name": "mouse:click_index",
-  "tool_args": {
-    "goal": "Confirm the dialog",
-    "action": "click primary confirm button",
-    "index": 12,
-    "wait": "2"
-  }
-}
-```
-
-**B — compound area:** choose a tighter dedicated index first; avoid offset fields.
-
-```json
-{
-  "thoughts": "… Route: index — On [Annotated after action]: bbox 27 inner-center-wrap; trailing control at center → click_index 27.",
-  "headline": "Activate control",
-  "tool_name": "mouse:click_index",
-  "tool_args": {
-    "goal": "Activate the option",
-    "action": "click trailing control in bbox",
-    "index": 27,
-    "wait": "2"
-  }
-}
-```

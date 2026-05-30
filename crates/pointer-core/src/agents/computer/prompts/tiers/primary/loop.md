@@ -9,10 +9,11 @@ Each turn:
    - expected change => `Step result: pass`, then go directly to **Next**.
    - unexpected/no-obvious change => `Step result: fail`, then run **Repetition** and then **Next**.
 3. In **Next**, choose route by **N–target relation** (inner-center-wrap → index; inner-edge-wrap / unwrapped → coordinate).
-4. Reply with **one JSON object** (`thoughts` with fixed **`Route:`** line, `headline`, `tool_name`, `tool_args` with required `goal`/`action` and route args, then `sidecar_tools`).
-   Add sidecar call `verify:report` using Verify `Step result` and Repetition `Count`; include `failure_cause` only when `Step result=fail`.
+4. Use native tool calls only (do not emit JSON envelopes with `thoughts` / `tool_name`).
+   Keep reasoning text concise and include fixed **`Route:`** line.
+   Add a `verify:report` call using Verify `Step result` and Repetition `Count`; include `failure_cause` only when `Step result=fail`.
    If `task_board` is used: first board-init round may omit report, otherwise always place `verify:report` before `task_board:patch`.
    Use the report to close the previous milestone first, then move the next milestone to `in_progress`/`ready`.
-   In `thoughts`, keep only a concise overview (one sentence is acceptable).
+   Keep reasoning text to a concise overview (one sentence is acceptable).
 
 Keep **`headline`** short. No advanced seven-stage Location/Recheck blocks at this tier.

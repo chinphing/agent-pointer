@@ -104,6 +104,12 @@ pub struct ChatMessage {
     pub headline: Option<String>,
     #[serde(default, rename = "rawContent")]
     pub raw_content: Option<String>,
+    #[serde(
+        default,
+        rename = "toolRawOutput",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub tool_raw_output: Option<String>,
     #[serde(default, rename = "agentId")]
     pub agent_id: Option<String>,
     /// Runtime agent launch UUID (one per lead / sub-agent invocation).
@@ -1135,14 +1141,6 @@ pub struct PersistedLocalPlatformSettings {
     pub lead_agent_id: String,
     #[serde(default, rename = "workspaceRoot")]
     pub workspace_root: String,
-    #[serde(default = "default_dati_api_url", rename = "datiApiUrl")]
-    pub dati_api_url: String,
-    #[serde(default = "default_dati_authcode", rename = "datiAuthcode")]
-    pub dati_authcode: String,
-    #[serde(default = "default_dati_typeno", rename = "datiTypeno")]
-    pub dati_typeno: String,
-    #[serde(default = "default_dati_author", rename = "datiAuthor")]
-    pub dati_author: String,
     #[serde(default = "default_captcha_slider_offset_px", rename = "captchaSliderOffsetPx")]
     pub captcha_slider_offset_px: i32,
 }
@@ -1162,10 +1160,6 @@ impl PersistedLocalPlatformSettings {
             agent_mode: platform.agent_mode.clone(),
             lead_agent_id: platform.lead_agent_id.clone(),
             workspace_root: platform.workspace_root.clone(),
-            dati_api_url: platform.dati_api_url.clone(),
-            dati_authcode: platform.dati_authcode.clone(),
-            dati_typeno: platform.dati_typeno.clone(),
-            dati_author: platform.dati_author.clone(),
             captcha_slider_offset_px: platform.captcha_slider_offset_px,
         }
     }
@@ -1198,10 +1192,6 @@ impl PersistedLocalPlatformSettings {
             self.lead_agent_id.clone()
         };
         platform.workspace_root = self.workspace_root.clone();
-        platform.dati_api_url = self.dati_api_url.clone();
-        platform.dati_authcode = self.dati_authcode.clone();
-        platform.dati_typeno = self.dati_typeno.clone();
-        platform.dati_author = self.dati_author.clone();
         platform.captcha_slider_offset_px = self.captcha_slider_offset_px;
     }
 }
@@ -1675,6 +1665,8 @@ pub enum StreamEvent {
         content: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none", rename = "rawContent")]
         raw_content: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", rename = "toolRawOutput")]
+        tool_raw_output: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         thoughts: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -1806,13 +1798,9 @@ pub struct OpenAIRequest<'a> {
     pub tool_choice: Option<&'a str>,
 }
 
-/// The UI stores tool output on `assistant.toolCalls[].result` and often omits separate `role: tool`
-/// rows. We first **expand** to canonical assistant + synthetic `role: tool` rows (one per call id),
-/// then **`flatten_tool_rounds_computer_style_for_api`** matches PyProjects/Computer: assistant keeps
-/// full model text (`raw_content` if set, else `content`); each tool becomes a **`user`** message
-/// with JSON `{"tool_name","tool_result"}`. The **`response`** tool is excluded (Python
-/// `ResponseTool.after_execution` does not call `hist_add_tool_result`). No OpenAI-native `tool_calls`
-/// / `role: tool` in HTTP JSON.
+/// The UI stores tool output on `assistant.toolCalls[].result` and may omit `role: tool` rows.
+/// Before OpenAI-wire serialization we expand into canonical assistant + synthetic `role: tool`
+/// rows (one per call id), so native tool-calling providers receive complete context.
 fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMessage> {
     let mut out: Vec<ChatMessage> = Vec::with_capacity(msgs.len());
     let mut i = 0usize;
@@ -1858,6 +1846,7 @@ fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMess
                             thoughts: None,
                             headline: None,
                             raw_content: None,
+                            tool_raw_output: None,
                             agent_id: None,
                             agent_instance_id: None,
                             agent_name: None,
@@ -1896,112 +1885,6 @@ fn synthetic_tool_content_for_replay(tc: &ToolCall) -> String {
     tc.result.clone().unwrap_or_else(|| {
         "{\"warning\":\"tool output missing in stored message history\"}".to_string()
     })
-}
-
-/// Body text sent as assistant `content` on the wire (full XML / model output when available).
-fn assistant_wire_content(m: &ChatMessage) -> String {
-    if let Some(ref r) = m.raw_content {
-        if !r.trim().is_empty() {
-            return r.clone();
-        }
-    }
-    m.content.clone()
-}
-
-/// Align with PyProjects `Agent.hist_add_ai_response` + `hist_add_tool_result`: assistant message
-/// then **user** messages carrying `{"tool_name","tool_result"}` JSON (see `python/helpers/tool.py`).
-fn flatten_tool_rounds_computer_style_for_api(msgs: &[ChatMessage]) -> Vec<ChatMessage> {
-    let mut out: Vec<ChatMessage> = Vec::with_capacity(msgs.len());
-    let mut i = 0usize;
-    while i < msgs.len() {
-        let m = &msgs[i];
-        if matches!(m.role, Role::Assistant) {
-            if let Some(ref tcs) = m.tool_calls {
-                let required: Vec<&ToolCall> = tcs.iter().filter(|t| !t.id.is_empty()).collect();
-                if !required.is_empty() {
-                    let mut j = i + 1;
-                    while j < msgs.len() && matches!(msgs[j].role, Role::Tool) {
-                        j += 1;
-                    }
-                    let following = &msgs[(i + 1)..j];
-                    let mut by_id: HashMap<String, String> = HashMap::new();
-                    for tm in following {
-                        if let Some(id) = &tm.tool_call_id {
-                            if !id.is_empty() {
-                                by_id.insert(id.clone(), tm.content.clone());
-                            }
-                        }
-                    }
-
-                    let mut a = m.clone();
-                    a.content = assistant_wire_content(m);
-                    a.tool_calls = None;
-                    a.raw_content = None;
-                    out.push(a);
-
-                    for tc in required {
-                        if tool_registry_base_name(&tc.name) == "response" {
-                            continue;
-                        }
-                        let body = by_id
-                            .get(tc.id.as_str())
-                            .cloned()
-                            .unwrap_or_else(|| synthetic_tool_content_for_replay(tc));
-                        let payload = serde_json::json!({
-                            "tool_name": tc.name,
-                            "tool_result": body
-                        });
-                        out.push(ChatMessage {
-                            id: format!("tool_result_{}", tc.id),
-                            role: Role::User,
-                            content: payload.to_string(),
-                            status: "done".into(),
-                            created_at: m.created_at,
-                            tool_calls: None,
-                            tool_call_id: None,
-                            error_message: None,
-                            reasoning: None,
-                            thoughts: None,
-                            headline: None,
-                            raw_content: None,
-                            agent_id: m.agent_id.clone(),
-                            agent_instance_id: m.agent_instance_id.clone(),
-                            agent_name: m.agent_name.clone(),
-                            agent_trace: None,
-                            image_slot_labels: None,
-                            images_base64: None,
-                            computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-            });
-                    }
-                    i = j;
-                    continue;
-                }
-            }
-        }
-        if matches!(m.role, Role::Tool) {
-            let mut u = m.clone();
-            u.role = Role::User;
-            u.content = format!(
-                "(orphan tool output, call_id={:?})\n{}",
-                m.tool_call_id, m.content
-            );
-            u.tool_call_id = None;
-            out.push(u);
-            i += 1;
-            continue;
-        }
-        let mut m2 = m.clone();
-        if matches!(m2.role, Role::Assistant) {
-            m2.content = assistant_wire_content(m);
-            m2.tool_calls = None;
-            m2.raw_content = None;
-        }
-        out.push(m2);
-        i += 1;
-    }
-    out
 }
 
 /// DashScope / 百炼 OpenAI 兼容接口：千问显式 Context Cache（`cache_control.type = ephemeral`）。
@@ -2118,10 +2001,9 @@ pub fn make_openai_messages(
 ) -> Vec<serde_json::Value> {
     let included = crate::message_context::filter_context_messages(msgs);
     let expanded = expand_tool_messages_for_openai_request(&included);
-    let flattened = flatten_tool_rounds_computer_style_for_api(&expanded);
     let mut out: Vec<serde_json::Value> = Vec::new();
     push_openai_system_messages(&mut out, system, explicit_system_cache);
-    for m in &flattened {
+    for m in &expanded {
         match m.role {
             Role::System => out.push(serde_json::json!({
                 "role": "system", "content": m.content
@@ -2192,11 +2074,29 @@ pub fn make_openai_messages(
                         }
                     }
                 }
-                // 不在此序列化 `tool_calls`：工具结果已拆成后续 `user` JSON 消息。
-                debug_assert!(
-                    m.tool_calls.as_ref().map(|t| t.is_empty()).unwrap_or(true),
-                    "assistant should not carry tool_calls after flatten"
-                );
+                if let Some(tcs) = &m.tool_calls {
+                    let tool_calls: Vec<serde_json::Value> = tcs
+                        .iter()
+                        .filter(|t| {
+                            !t.id.trim().is_empty()
+                                && !t.name.trim().is_empty()
+                                && tool_registry_base_name(&t.name) != "response"
+                        })
+                        .map(|t| {
+                            serde_json::json!({
+                                "id": t.id,
+                                "type": "function",
+                                "function": {
+                                    "name": t.name,
+                                    "arguments": t.arguments
+                                }
+                            })
+                        })
+                        .collect();
+                    if !tool_calls.is_empty() {
+                        obj.insert("tool_calls".into(), serde_json::Value::Array(tool_calls));
+                    }
+                }
                 out.push(serde_json::Value::Object(obj));
             }
             Role::Tool => out.push(serde_json::json!({
@@ -2227,6 +2127,7 @@ mod make_openai_messages_tests {
             thoughts: None,
             headline: None,
             raw_content: None,
+            tool_raw_output: None,
             agent_id: None,
             agent_instance_id: None,
             agent_name: None,
@@ -2335,19 +2236,17 @@ mod make_openai_messages_tests {
         t.content = "{}".into();
 
         let out = make_openai_messages(&[a, t], &SystemPromptSections::default(), true, false);
-        assert_eq!(out.len(), 2, "assistant + user(tool_result)");
+        assert_eq!(out.len(), 2, "assistant + tool");
         assert_eq!(out[0]["role"], "assistant");
-        assert!(out[0].as_object().unwrap().get("tool_calls").is_none());
+        assert!(out[0].as_object().unwrap().get("tool_calls").is_some());
         assert_eq!(out[0]["content"], "x");
-        assert_eq!(out[1]["role"], "user");
-        let u: serde_json::Value =
-            serde_json::from_str(out[1]["content"].as_str().unwrap()).unwrap();
-        assert_eq!(u["tool_name"], "f");
-        assert_eq!(u["tool_result"], "{}");
+        assert_eq!(out[1]["role"], "tool");
+        assert_eq!(out[1]["tool_call_id"], "call_abc");
+        assert_eq!(out[1]["content"], "{}");
     }
 
     #[test]
-    fn synthesizes_inline_tool_as_user_json_after_expand() {
+    fn synthesizes_inline_tool_as_tool_message_after_expand() {
         let mut a = msg(Role::Assistant);
         a.content = "calling".into();
         a.tool_calls = Some(vec![ToolCall {
@@ -2366,11 +2265,9 @@ mod make_openai_messages_tests {
         assert_eq!(out.len(), 2);
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "calling");
-        assert_eq!(out[1]["role"], "user");
-        let u: serde_json::Value =
-            serde_json::from_str(out[1]["content"].as_str().unwrap()).unwrap();
-        assert_eq!(u["tool_name"], "read");
-        assert_eq!(u["tool_result"], "file body");
+        assert_eq!(out[1]["role"], "tool");
+        assert_eq!(out[1]["tool_call_id"], "call_inline");
+        assert_eq!(out[1]["content"], "file body");
     }
 
     #[test]
@@ -2411,7 +2308,8 @@ mod make_openai_messages_tests {
             display_summary: None,
         }]);
         let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false);
-        assert_eq!(out[0]["content"], "<response><tool_name>x</tool_name></response>");
+        assert_eq!(out[0]["content"], "visible");
+        assert!(out[0].as_object().unwrap().get("tool_calls").is_some());
     }
 
     #[test]
@@ -2433,12 +2331,10 @@ mod make_openai_messages_tests {
         }]);
 
         let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false);
-        assert_eq!(out.len(), 1, "assistant only, like PyProjects response tool");
+        assert_eq!(out.len(), 1, "assistant only");
         assert_eq!(out[0]["role"], "assistant");
-        assert_eq!(
-            out[0]["content"],
-            "<response><tool_name>response</tool_name></response>"
-        );
+        assert_eq!(out[0]["content"], "");
+        assert!(out[0].as_object().unwrap().get("tool_calls").is_none());
     }
 }
 

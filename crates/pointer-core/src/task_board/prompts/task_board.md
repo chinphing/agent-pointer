@@ -1,3 +1,37 @@
+---
+schema:
+  type: object
+  properties:
+    method:
+      type: string
+      enum:
+        - init
+        - replace
+        - patch
+        - prune
+        - finalize
+        - sync_finding
+        - check_deps
+    goal:
+      type: string
+    items: {}
+    global_context: {}
+    ids:
+      type: array
+      items:
+        type: string
+    item_id:
+      type: string
+    finding:
+      type: string
+    expected_total:
+      type: integer
+      minimum: 1
+    _conversation_id:
+      type: string
+  additionalProperties: true
+---
+
 ### `task_board`
 
 Session-scoped **working memory** for multi-step work (v2 document).
@@ -7,7 +41,11 @@ Single-step work may skip the board.
 
 **Qualified `tool_name`**
 
-- **`task_board:init`** — Set **`goal`**, optional **`global_context`**, milestone **`items`** (3–8 rows).
+- **`task_board:init`** — Set **`goal`**, optional **`global_context`**, milestone **`items`**.
+  Use 3–8 rows for normal work.
+  For matrix/combinational goals,
+  keep 3–8 rows by grouping cases
+  into meaningful milestones.
 - **`task_board:replace`** — Replace entire **`board`** (empty **`items`** clears).
 - **`task_board:patch`** — Merge rows by **`id`**; update **`global_context`**.
 - **`task_board:prune`** — Cancel **`pending`** rows (optional **`ids`** list).
@@ -19,7 +57,7 @@ Bare **`task_board`** with **`method`** in **`tool_args`** works when not using 
 
 **Document shape (host returns full `document` in tool result)**
 
-- **`meta`**: **`goal`**, **`status`**, **`step_count`**, **`max_steps`**
+- **`meta`**: **`goal`**, **`status`**, **`step_count`**, **`max_steps`**, optional **`expected_total`**
 - **`global_context`**: **`key_findings`**, **`artifacts`**
 - **`board[]`**: rows with **`id`**, **`title`**, **`status`**, **`depends_on`**, **`retry_count`**, **`output`**, **`verification`**, **`blockedBy`**
 
@@ -33,6 +71,20 @@ Bare **`task_board`** with **`method`** in **`tool_args`** works when not using 
 - Mark **`done`** only when the current task goal is already achieved in observable evidence.
 - If the root tool is a new action to achieve that goal, patch **`in_progress`** this turn (or skip `done`).
 - Keep milestones small (roughly **3–12** rows). Use **`local_*`** ids only on **child** boards (sub-agents).
+- For matrix/combinational goals,
+  prefer milestone grouping over atomic rows.
+  A good default is grouping by interaction form
+  (for example: slider-trigger flow,
+  point-select flow, popup flow).
+- For list-like goals, choose granularity by size:
+  - if list size <= 8 and each item needs separate acceptance,
+    one item can be one milestone;
+  - if list size > 8 or items are repetitive,
+    group by batch/type/phase into 3–8 milestones.
+- Each grouped milestone should state
+  explicit coverage in `verification` / `output`
+  (which cases are included, pass/fail count,
+  and next uncovered slice).
 - Keep row text compact; avoid long prose in `title` / `output` / `verification` to reduce prompt tokens.
 - **Do not** patch the parent milestone board from a child agent (use **`sync_finding`** or let the host report completion).
 - After **`retry_count >= 2`** on a stuck row, diagnose in **`thoughts`** before the next **`patch`**.
@@ -47,29 +99,9 @@ Pass a JSON **array** of row objects, or a JSON **string** containing that array
 
 #### Example (goal already met -> done)
 
-```json
-{
-  "thoughts": "Goal met: success toast is visible and the new item appears in the list.",
-  "headline": "Complete current task",
-  "tool_name": "response",
-  "tool_args": {
-    "text": "Current task completed: success toast shown and new row visible in the target list."
-  },
-  "sidecar_tools": [
-    {
-      "tool_name": "verify:report",
-      "tool_args": {
-        "action_result": "...",
-        "repetition_count": "...",
-        "failure_cause": "..."
-      }
-    },
-    {
-      "tool_name": "task_board:patch",
-      "tool_args": {
-        "items": "[{\"id\":\"current-task\",\"title\":\"Current task title\",\"status\":\"done\",\"verification\":\"goal_met: success toast shown and new row visible in target list\",\"output\":\"completed: created item and confirmed it in UI\"}]"
-      }
-    }
-  ]
-}
-```
+- Native tool call 1: `verify:report`
+- Native tool call 2: `task_board:patch`
+  - set current row status to `done`
+  - include short `verification` and `output`
+- Then write assistant user-facing content directly
+  (do not call a `response` tool).

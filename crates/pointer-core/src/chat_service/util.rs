@@ -67,6 +67,7 @@ pub(crate) fn tool_result_msg(tool_call_id: &str, content: &str) -> ChatMessage 
         thoughts: None,
         headline: None,
         raw_content: None,
+        tool_raw_output: None,
         agent_id: None,
         agent_instance_id: None,
         agent_name: None,
@@ -77,6 +78,49 @@ pub(crate) fn tool_result_msg(tool_call_id: &str, content: &str) -> ChatMessage 
         ui_bindings: None,
             context_state: None,
             }
+}
+
+pub(crate) fn append_assistant_tool_raw_output(
+    history: &mut [ChatMessage],
+    message_id: &str,
+    tool_name: &str,
+    tool_call_id: &str,
+    tool_args: &serde_json::Value,
+    raw_output: &str,
+) {
+    let Some(msg) = history.iter_mut().find(|m| m.id == message_id) else {
+        return;
+    };
+    if !matches!(msg.role, Role::Assistant) {
+        return;
+    }
+    let output = raw_output.trim();
+    if output.is_empty() {
+        return;
+    }
+    let args_text = compact_tool_log_text(tool_args.to_string().trim(), 1200);
+    let output_text = compact_tool_log_text(output, 12000);
+    let block = format!(
+        "[tool:{} id:{}]\n[args]\n{}\n[output]\n{}",
+        tool_name, tool_call_id, args_text, output_text
+    );
+    let buf = msg.tool_raw_output.get_or_insert_with(String::new);
+    if !buf.is_empty() {
+        buf.push_str("\n\n");
+    }
+    buf.push_str(&block);
+}
+
+fn compact_tool_log_text(s: &str, max_chars: usize) -> String {
+    if s.is_empty() {
+        return "(empty)".to_string();
+    }
+    let count = s.chars().count();
+    if count <= max_chars {
+        return s.to_string();
+    }
+    let head: String = s.chars().take(max_chars).collect();
+    format!("{head}…(+{} chars)", count - max_chars)
 }
 
 /// When the tool run did not succeed, short text for `[Recent desktop tool calls]` (`FAILED: …`).

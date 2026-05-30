@@ -11,6 +11,8 @@ use super::app_state::AppState;
 use super::emit::{emit, trace_id_opt};
 use super::StreamTx;
 
+const TOOL_ARGS_LOG_MAX_CHARS: usize = 400;
+
 /// Collected output from one provider stream round (lead or sub-agent).
 #[derive(Debug)]
 pub(super) struct StreamRoundBuffers {
@@ -145,6 +147,14 @@ pub(super) async fn drain_provider_events(
                 );
             }
             ProviderEvent::ToolCallStart { id, name, .. } => {
+                log_tool_call_parsed_block(
+                    "start",
+                    message_id,
+                    sub_trace_id,
+                    &id,
+                    &name,
+                    None,
+                );
                 emit(
                     stream,
                     StreamEvent::ToolCallStart {
@@ -251,6 +261,14 @@ fn emit_deduped_tool_starts(
         if streamed_ids.insert(tc.id.clone()) {
             let mut t = tc.clone();
             let args_v = parse_tool_call_arguments(&t.arguments);
+            log_tool_call_parsed_block(
+                "finalized",
+                message_id,
+                trace_id,
+                &t.id,
+                &t.name,
+                Some(&t.arguments),
+            );
             t.risk_level = state
                 .tools
                 .tool_risk_level_for_invocation(&t.name, &args_v)
@@ -265,4 +283,36 @@ fn emit_deduped_tool_starts(
             );
         }
     }
+}
+
+fn compact_tool_args_for_log(args: &str) -> String {
+    let t = args.trim();
+    if t.is_empty() {
+        return "(empty)".to_string();
+    }
+    if t.chars().count() <= TOOL_ARGS_LOG_MAX_CHARS {
+        return t.to_string();
+    }
+    let head: String = t.chars().take(TOOL_ARGS_LOG_MAX_CHARS).collect();
+    format!("{head}…(+{} chars)", t.chars().count() - TOOL_ARGS_LOG_MAX_CHARS)
+}
+
+fn log_tool_call_parsed_block(
+    stage: &str,
+    message_id: &str,
+    trace_id: Option<&str>,
+    tool_call_id: &str,
+    tool_name: &str,
+    args: Option<&str>,
+) {
+    let args_text = args.map(compact_tool_args_for_log).unwrap_or_else(|| "(empty)".into());
+    log::info!(
+        "tool_call_segments message_id={} trace_id={} tool_call_id={} tool_name={}\n[工具调用解析|tool_call_parsed]\n{}\n[参数|args]\n{}",
+        message_id,
+        trace_id.unwrap_or("-"),
+        tool_call_id,
+        tool_name,
+        stage,
+        args_text
+    );
 }

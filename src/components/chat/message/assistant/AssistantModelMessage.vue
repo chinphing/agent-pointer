@@ -12,10 +12,12 @@ import { useAgentsCatalog, uiForMessageAgent } from '../../../../composables/use
 import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
 import { showAnnotatedScreenAction } from '../../../../lib/computerMessageContext'
 import { subTracesForMessage } from '../../../../lib/subAgentSession'
+import { toolCallBaseName } from '../../../../lib/messageTooling'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import SubAgentFrame from './SubAgentFrame.vue'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
 import RawWirePanel from './RawWirePanel.vue'
+import ScreenPreviewModal from './ScreenPreviewModal.vue'
 import ContextExcludedFooter from '../ContextExcludedFooter.vue'
 import { isContextExcluded } from '../../../../lib/messageContext'
 
@@ -58,17 +60,42 @@ const screenLoading = ref(false)
 const screenPreview = ref<ComputerAnnotatedPreview | null>(null)
 const screenError = ref<string | null>(null)
 
-const thoughtsDebugEnabled = computed(() => messageUi.value.showThoughts)
+const thoughtsDebugEnabled = computed(() => false)
 
 const rawContentViewEnabled = computed(() => settingsStore.settings.rawContentViewEnabled === true)
+
+function formatToolArgs(raw: string | undefined): string {
+  const text = (raw ?? '').trim()
+  if (!text) return '(empty)'
+  try {
+    const parsed = JSON.parse(text)
+    return JSON.stringify(parsed, null, 2)
+  } catch {
+    return text
+  }
+}
+
+function buildToolRawArgs(toolCalls: ChatMessage['toolCalls']): string {
+  if (!toolCalls?.length) return ''
+  return toolCalls
+    .filter(tc => toolCallBaseName(tc.name) !== 'response')
+    .map(tc => {
+      const args = formatToolArgs(tc.arguments)
+      return `[tool:${tc.name} id:${tc.id}]\n${args}`
+    })
+    .join('\n\n')
+}
+
+const toolRawArgs = computed(() => buildToolRawArgs(props.message.toolCalls))
 
 const hasRawWire = computed(() => {
   if (!rawContentViewEnabled.value) return false
   const raw = props.message.rawContent
   const reasoning = props.message.reasoning?.trim() ?? ''
+  const hasToolArgs = toolRawArgs.value.trim().length > 0
   const hasReasoning = reasoning.length > 0
   const rawDiffersFromBody = !!(raw && raw !== props.message.content)
-  return rawDiffersFromBody || hasReasoning
+  return rawDiffersFromBody || hasReasoning || hasToolArgs
 })
 
 const showCamera = computed(() => {
@@ -102,8 +129,6 @@ const showActionBar = computed(
 const leadBody = computed((): AgentMessageBodyModel => ({
   thoughts: props.message.thoughts,
   headline: props.message.headline,
-  toolNamePreview: props.message.toolNamePreview,
-  responseTextDraft: props.message.responseTextDraft,
   reasoning: props.message.reasoning,
   content: props.message.content,
   rawContent: props.message.rawContent,
@@ -204,9 +229,10 @@ async function openScreenPreview() {
     </div>
 
     <RawWirePanel
-      v-if="showRawWire && (message.rawContent || (message.reasoning && message.reasoning.trim()))"
+      v-if="showRawWire && (message.rawContent || (message.reasoning && message.reasoning.trim()) || toolRawArgs)"
       :reasoning="message.reasoning"
       :raw-content="message.rawContent"
+      :tool-raw-args="toolRawArgs"
       @close="showRawWire = false"
     />
 

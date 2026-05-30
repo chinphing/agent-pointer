@@ -3,8 +3,11 @@
 Automate CAPTCHA using the current screenshot. Choose `type`, `click`, or `drag` from what is visible on screen.
 
 Use it directly. When a CAPTCHA is visible, call `captcha_verify` in that turn. Do not call screen-reading tools first only to understand the challenge.
+Use native tool calling for this action.
+Do not encode tool calls as text envelopes.
 
-Before calling `captcha_verify`, analyze the prompt in thoughts and include:
+Before calling `captcha_verify`,
+analyze the prompt in reasoning and include:
 - Captcha Prompt Quote
 - Key Verb Identified
 - Selected Method & Justification
@@ -25,4 +28,4 @@ Parameters:
 
 For slider CAPTCHAs, recognition still uses `index_captcha_area`. If `index_slider_arrow` is provided, drag starts from that arrow / handle and keeps the original relative offset. Before choosing it, judge the handle by relative position, shape, and color/style. A strong default cue is a right-pointing arrow near the lower-left of the sliding image on the same horizontal line as the CAPTCHA prompt text.
 
-Use overlay indices only; do not provide raw x,y inside the challenge. Crop for recognition uses the **current turn’s unmarked `[CUR_SCREEN]` capture** (not a fresh screenshot, not the annotated overlay). If the CAPTCHA is not visible yet, trigger it first and use `captcha_verify` on the next turn. Do not downgrade a visible CAPTCHA challenge to plain mouse actions just because the prompt asks to click text inside the image.
+If the CAPTCHA is not visible yet, trigger it first and use `captcha_verify` on the next turn. Do not downgrade a visible CAPTCHA challenge to plain mouse actions just because the prompt asks to click text inside the image.

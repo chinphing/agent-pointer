@@ -29,8 +29,8 @@ use crate::task_board::{
     task_board_call_is_checkpoint, TaskBoardTrimHook,
 };
 use super::util::{
-    desktop_tool_failure_note, patch_assistant_tool_call_display, tool_display_stream_fields,
-    tool_result_msg, truncate_str,
+    append_assistant_tool_raw_output, desktop_tool_failure_note, patch_assistant_tool_call_display,
+    tool_display_stream_fields, tool_result_msg, truncate_str,
 };
 use super::StreamTx;
 
@@ -356,15 +356,28 @@ fn handle_response_tool(
         let assistant_id = message_id;
         let mut wire_thoughts: Option<String> = None;
         let mut wire_headline: Option<String> = None;
+        let mut wire_reasoning: Option<String> = None;
         if let Some(last) = history.last_mut() {
             if last.id == assistant_id && matches!(last.role, Role::Assistant) {
                 last.content = message.to_string();
                 last.tool_calls = None;
                 last.status = "completed".into();
+                wire_reasoning = last.reasoning.clone();
                 wire_thoughts = last.thoughts.clone();
                 wire_headline = last.headline.clone();
             }
         }
+        super::agent_post_stream::log_reasoning_and_output_segments(
+            "lead_response_tool",
+            assistant_id,
+            wire_reasoning.as_deref(),
+            wire_thoughts.as_deref(),
+            Some(message),
+            history
+                .iter()
+                .find(|m| m.id == assistant_id && matches!(m.role, Role::Assistant))
+                .and_then(|m| m.tool_raw_output.as_deref()),
+        );
         emit(
             stream,
             StreamEvent::MessageEnd {
@@ -375,6 +388,10 @@ fn handle_response_tool(
                 } else {
                     Some(lead_cfg.raw_content_buf.to_string())
                 },
+                tool_raw_output: history
+                    .iter()
+                    .find(|m| m.id == assistant_id && matches!(m.role, Role::Assistant))
+                    .and_then(|m| m.tool_raw_output.clone()),
                 thoughts: wire_thoughts,
                 headline: wire_headline,
                 trace_id: None,
@@ -387,13 +404,28 @@ fn handle_response_tool(
     }
 
     if let Some(sub_cfg) = sub {
+        let mut sub_reasoning: Option<String> = None;
+        let mut sub_thoughts: Option<String> = None;
         if let Some(last) = history.last_mut() {
             if last.id == sub_cfg.round_message_id && matches!(last.role, Role::Assistant) {
                 last.content = message.to_string();
                 last.tool_calls = None;
                 last.status = "completed".into();
+                sub_reasoning = last.reasoning.clone();
+                sub_thoughts = last.thoughts.clone();
             }
         }
+        super::agent_post_stream::log_reasoning_and_output_segments(
+            "sub_response_tool",
+            &sub_cfg.round_message_id,
+            sub_reasoning.as_deref(),
+            sub_thoughts.as_deref(),
+            Some(message),
+            history
+                .iter()
+                .find(|m| m.id == sub_cfg.round_message_id && matches!(m.role, Role::Assistant))
+                .and_then(|m| m.tool_raw_output.as_deref()),
+        );
         return Ok(ToolPassResult::SubFinished(
             super::agent_post_stream::sub_agent_run_result(
                 &sub_cfg.task.id,
@@ -690,6 +722,14 @@ async fn record_tool_exec_outcome(
                     trace_id: trace_id_opt(trace_id),
                 },
             );
+            append_assistant_tool_raw_output(
+                history,
+                message_id,
+                &tc.name,
+                &tc.id,
+                args_for_desktop_log,
+                &out,
+            );
             history.push(tool_result_msg(&tc.id, &out));
         }
         Err(e) => {
@@ -715,7 +755,16 @@ async fn record_tool_exec_outcome(
                     trace_id: trace_id_opt(trace_id),
                 },
             );
-            history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
+            let error_out = format!("ERROR: {err}");
+            append_assistant_tool_raw_output(
+                history,
+                message_id,
+                &tc.name,
+                &tc.id,
+                args_for_desktop_log,
+                &error_out,
+            );
+            history.push(tool_result_msg(&tc.id, &error_out));
         }
     }
 }

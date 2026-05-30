@@ -85,6 +85,7 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
             thoughts: None,
             headline: None,
             raw_content: None,
+            tool_raw_output: None,
             agent_id: None,
             agent_instance_id: None,
             agent_name: None,

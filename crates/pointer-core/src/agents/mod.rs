@@ -1009,13 +1009,6 @@ fn resolve_tools(
     let available: HashSet<_> = tools.list_defs().into_iter().map(|t| t.name).collect();
     let deny: HashSet<_> = policy.deny_tools.iter().cloned().collect();
     names.retain(|name| available.contains(name) && !deny.contains(name));
-    // `response` is always available for every agent unless explicitly denied (final user-visible reply).
-    if !deny.contains("response")
-        && tools.get_def("response").is_some()
-        && !names.contains(&"response".into())
-    {
-        names.push("response".into());
-    }
     names.sort();
     names.dedup();
     names
@@ -1069,6 +1062,22 @@ fn supervisor_prompt(lead: &AgentDef, lead_prompt: Option<String>, agents: &[Age
 #[cfg(test)]
 mod builtin_agent_tests {
     use super::*;
+
+    #[test]
+    fn resolve_tools_does_not_auto_add_response() {
+        let tools = crate::tools::ToolRegistry::new();
+        let store = std::sync::Arc::new(crate::task_board::TaskBoardStore::new());
+        crate::tools::builtin::register_all(&tools, store);
+        let policy = AccessPolicy {
+            allow_tools: vec!["terminal".into()],
+            ..Default::default()
+        };
+        let names = resolve_tools(&policy, &["terminal".into()], &tools);
+        assert!(
+            !names.contains(&"response".to_string()),
+            "response must not be injected implicitly"
+        );
+    }
 
     #[test]
     fn computer_builtin_manifest_parses_and_loads() {

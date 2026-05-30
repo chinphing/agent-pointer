@@ -1,3 +1,19 @@
+---
+schema:
+  type: object
+  properties:
+    stack:
+      type: string
+    paths:
+      type: array
+      items:
+        type: string
+    timeoutMs:
+      type: integer
+      minimum: 10000
+  additionalProperties: true
+---
+
 ### `read_lints`
 
 Run **structured static checks** for the configured workspace and return a unified `diagnostics[]`
@@ -72,18 +88,3 @@ Config entries use the same shell rules as **`terminal`**: Windows `cmd /C`, mac
 #### `.pointer/lint.toml`
 
 See **`docs/guides/pointer-lint-config.md`**. **`parser`** values include `eslint-json`, `ruff-json`, `cargo-json-lines`, **`maven-log`**, `text-on-failure`.
-
-#### JSON example
-
-```json
-{
-  "thoughts": "Run hybrid lint after edits.",
-  "headline": "Read lints",
-  "tool_name": "read_lints",
-  "tool_args": {
-    "stack": "auto",
-    "paths": ["crates/pointer-core/src/chat_service/single_agent_prompt.rs", "crates/pointer-core/src/chat_service/single_agent_post_stream.rs", "crates/pointer-core/src/chat_service/single_agent_stream.rs", "crates/pointer-core/src/chat_service/single_agent_tools.rs", "crates/pointer-core/src/chat_service/single_agent.rs", "crates/pointer-core/src/chat_service/session_inner.rs", "crates/pointer-core/src/chat_service/sub_agent.rs"],
-    "timeoutMs": 300000
-  }
-}
-```

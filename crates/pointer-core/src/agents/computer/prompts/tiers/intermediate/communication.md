@@ -1,5 +1,13 @@
 ## Desktop vision
 
+## Native tool-calling only (hard rule)
+
+Use provider-native tool calls only.
+Do not emit JSON envelopes such as
+`thoughts` / `headline` / `tool_name` / `tool_args`.
+`thoughts` is reasoning text, not a tool name.
+Never call a tool named `thoughts`.
+
 **Images this turn:** each screenshot is preceded by its slot label. Order: **[Screen after action]** (unmarked full screen) → **[Marked screen after action]** → **[Annotated after action]** (overlay digits).
 
 **Overlay digits:** each printed **index** pairs with **exactly one bbox** when the background color behind the digit **matches** that bbox's **border color**, and the digit sits **flush** on the bbox border (not between two regions). Digits reset each turn.
@@ -12,6 +20,13 @@ Use priority: **`composite_action`** -> **`hotkey`** / **`modified_click`**
 For loading/transfer actions, use a longer settle wait (typically **2–5 s**),
 then verify on completion surfaces (download list/history/result UI) before
 declaring success/failure.
+
+**CAPTCHA routing (hard):**
+- If a CAPTCHA is visible, call `captcha_verify` in this turn.
+- For slider/jigsaw CAPTCHA, use `captcha_verify` with `method="drag"`.
+- Do not replace visible CAPTCHA handling with plain `mouse:*` drag/click tools.
+- Use `mouse` only to trigger CAPTCHA when the challenge is not visible yet.
+CAPTCHA tool: **`captcha_verify`**.
 
 **Verify:** **Expected** UI change vs **Actual** on screen — **forbidden** **pass** when evidence is only pointer/cursor placement (see **primary** Step 1). **Offset math:** **MA-3 FOUND** — paste **`- R: (…)`** verbatim; **MA-7 placement** **compact | inside-R | outside-R** (outside → prefer tighter **R'**, else **f_x/f_y** may be **<0** or **>1**, **|dx|/|dy|** may exceed **W/H**); same **MA** branches as **primary** Step 3.
 
@@ -273,8 +288,12 @@ For `composite_action:type_text_*`, `clear_first` defaults to `false`; set
 
 ---
 
-## JSON wire
+## Native call order
 
-One JSON object per turn: `thoughts` is a concise overview (one sentence is acceptable) that reflects Verify outcome and this-turn Next decision; **include fixed `Route: index`** when using index positioning tools; `headline`; `tool_name`; `tool_args` with required **`goal`**; optional `sidecar_tools` (place after `tool_args`).
-Include one sidecar call `verify:report` where `action_result` mirrors Verify Step result and `repetition_count` mirrors Repetition Count. Set `failure_cause` only when `action_result=fail` (`wrong_operation` or `precision_miss`).
-If this turn also updates `task_board`, run `verify:report` first and `task_board:patch` second (first board-init round is the only exception).
+Reasoning text should be concise and reflect Verify + Next.
+Include fixed `Route: index` when using index positioning tools.
+
+Tool execution order:
+- call `verify:report` first (except first board-init round),
+- then call the root desktop tool,
+- then call `task_board:patch` when this turn updates task board.

@@ -341,15 +341,13 @@ impl ToolRegistry {
             .filter(|e| allow.is_empty() || allow.contains(&e.def.name))
             .map(|e| {
                 let description = openai_description_from_doc(&e.doc_markdown);
+                let parameters = openai_parameters_from_doc_or_builtin(&e.def.name, &e.doc_markdown);
                 serde_json::json!({
                     "type": "function",
                     "function": {
                         "name": e.def.name,
                         "description": description,
-                        "parameters": {
-                            "type": "object",
-                            "properties": {}
-                        }
+                        "parameters": parameters
                     }
                 })
             })
@@ -357,28 +355,22 @@ impl ToolRegistry {
     }
 }
 
-/// When the model emits multiple tool calls from one JSON envelope (`sidecar_tools` + root tool),
-/// every call except the **last** must be a registered **sidecar** tool; the last is the root primary.
+/// Validate multi-call batch semantics:
+/// - sidecar tools may appear multiple times and in any order,
+/// - non-sidecar ("primary") tools may appear at most once per batch.
 pub fn validate_envelope_tool_batch(
     tools: &ToolRegistry,
     batch: &[crate::models::ToolCall],
 ) -> Result<(), String> {
-    if batch.len() <= 1 {
-        return Ok(());
-    }
-    for tc in &batch[..batch.len() - 1] {
-        if !tools.is_sidecar_tool(&tc.name) {
-            return Err(format!(
-                "only sidecar tools may precede the root tool; got {}",
-                tc.name
-            ));
-        }
-    }
-    let root = &batch[batch.len() - 1];
-    if tools.is_sidecar_tool(&root.name) {
+    let primary: Vec<&str> = batch
+        .iter()
+        .filter(|tc| !tools.is_sidecar_tool(&tc.name))
+        .map(|tc| tc.name.as_str())
+        .collect();
+    if primary.len() > 1 {
         return Err(format!(
-            "root tool must not be a sidecar-only tool when multiple calls are present; got {}",
-            root.name
+            "at most one non-sidecar tool is allowed per batch; got {}",
+            primary.join(", ")
         ));
     }
     Ok(())
@@ -395,6 +387,228 @@ fn openai_description_from_doc(doc: &str) -> String {
         s.push_str("…");
     }
     s
+}
+
+fn openai_parameters_from_doc_or_builtin(name: &str, doc: &str) -> serde_json::Value {
+    match json_schema_from_markdown(doc) {
+        Ok(schema) if schema.is_object() => schema,
+        _ => builtin_openai_parameters(name),
+    }
+}
+
+fn builtin_openai_parameters(name: &str) -> serde_json::Value {
+    use serde_json::json;
+
+    match name {
+        "terminal" => json!({
+            "type": "object",
+            "properties": {
+                "command": { "type": "string" },
+                "cwd": { "type": "string" },
+                "timeoutMs": { "type": "integer", "minimum": 1000 },
+                "maxWallMs": { "type": "integer", "minimum": 1000 },
+                "maxOutputBytes": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["command"],
+            "additionalProperties": true
+        }),
+        "file" => json!({
+            "type": "object",
+            "properties": {
+                "method": { "type": "string", "enum": ["read", "write", "edit", "glob", "grep", "list"] },
+                "path": { "type": "string" },
+                "paths": { "type": "array" },
+                "content": {},
+                "edits": { "type": "array" },
+                "pattern": { "type": "string" }
+            },
+            "additionalProperties": true
+        }),
+        "run_subagent" => json!({
+            "type": "object",
+            "properties": {
+                "agentId": { "type": "string" },
+                "instruction": { "type": "string" },
+                "title": { "type": "string" },
+                "taskId": { "type": "string" }
+            },
+            "required": ["agentId", "instruction"],
+            "additionalProperties": true
+        }),
+        "skill" => json!({
+            "type": "object",
+            "properties": {
+                "method": { "type": "string", "enum": ["load_instructions", "read_resource"] },
+                "skill_id": { "type": "string" },
+                "path": { "type": "string" }
+            },
+            "required": ["method", "skill_id"],
+            "additionalProperties": true
+        }),
+        "web_search" => json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string" },
+                "searchStrategy": { "type": "string", "enum": ["pro_max", "max", "turbo"] },
+                "enableThinking": { "type": "boolean" },
+                "forcedSearch": { "type": "boolean" },
+                "enableVerticalSearch": { "type": "boolean" }
+            },
+            "required": ["query"],
+            "additionalProperties": true
+        }),
+        "read_lints" => json!({
+            "type": "object",
+            "properties": {
+                "stack": { "type": "string" },
+                "paths": { "type": "array", "items": { "type": "string" } },
+                "timeoutMs": { "type": "integer", "minimum": 10000 }
+            },
+            "additionalProperties": true
+        }),
+        "task_board" => json!({
+            "type": "object",
+            "properties": {
+                "method": {
+                    "type": "string",
+                    "enum": [
+                        "init",
+                        "replace",
+                        "patch",
+                        "prune",
+                        "finalize",
+                        "sync_finding",
+                        "check_deps"
+                    ]
+                },
+                "items": {},
+                "goal": { "type": "string" },
+                "global_context": {},
+                "ids": { "type": "array", "items": { "type": "string" } },
+                "item_id": { "type": "string" },
+                "finding": { "type": "string" },
+                "expected_total": { "type": "integer", "minimum": 1 },
+                "_conversation_id": { "type": "string" }
+            },
+            "additionalProperties": true
+        }),
+        "mouse" => json!({
+            "type": "object",
+            "properties": {
+                "method": { "type": "string" },
+                "goal": { "type": "string" },
+                "action": { "type": "string" },
+                "index": { "type": "integer" },
+                "from_index": { "type": "integer" },
+                "to_index": { "type": "integer" },
+                "x": { "type": "number" },
+                "y": { "type": "number" },
+                "x1": { "type": "number" },
+                "y1": { "type": "number" },
+                "x2": { "type": "number" },
+                "y2": { "type": "number" }
+            },
+            "required": ["method", "goal"],
+            "additionalProperties": true
+        }),
+        "composite_action" => json!({
+            "type": "object",
+            "properties": {
+                "method": { "type": "string" },
+                "goal": { "type": "string" },
+                "action": { "type": "string" },
+                "index": { "type": "integer" },
+                "x": { "type": "number" },
+                "y": { "type": "number" },
+                "text": { "type": "string" },
+                "clear_first": { "type": "boolean" },
+                "auto_enter": { "type": "boolean" }
+            },
+            "required": ["method", "goal"],
+            "additionalProperties": true
+        }),
+        "modified_click" => json!({
+            "type": "object",
+            "properties": {
+                "method": { "type": "string" },
+                "goal": { "type": "string" },
+                "action": { "type": "string" },
+                "indices": { "type": "array", "items": { "type": "integer" } },
+                "positions": { "type": "array" }
+            },
+            "required": ["method", "goal"],
+            "additionalProperties": true
+        }),
+        "captcha_verify" => json!({
+            "type": "object",
+            "properties": {
+                "method": { "type": "string", "enum": ["type", "click", "drag"] },
+                "goal": { "type": "string" },
+                "remark": { "type": "string" },
+                "index_captcha_area": { "type": "integer" },
+                "index_input_area": { "type": "integer" },
+                "is_slider": { "type": "boolean" },
+                "index_slider_arrow": { "type": "integer" },
+                "index_slider_handle": { "type": "integer" }
+            },
+            "required": ["method", "goal", "index_captcha_area"],
+            "additionalProperties": true
+        }),
+        "hotkey" => json!({
+            "type": "object",
+            "properties": {
+                "goal": { "type": "string" },
+                "action": { "type": "string" },
+                "keys": {
+                    "oneOf": [
+                        { "type": "array", "items": { "type": "string" } },
+                        { "type": "string" }
+                    ]
+                }
+            },
+            "required": ["goal", "keys"],
+            "additionalProperties": true
+        }),
+        "wait" => json!({
+            "type": "object",
+            "properties": {
+                "seconds": { "type": "number", "minimum": 0, "maximum": 60 }
+            },
+            "required": ["seconds"],
+            "additionalProperties": true
+        }),
+        "clipboard" => json!({
+            "type": "object",
+            "properties": {
+                "method": { "type": "string", "enum": ["copy_text", "paste_text"] },
+                "text": { "type": "string" }
+            },
+            "required": ["method"],
+            "additionalProperties": true
+        }),
+        "verify" => json!({
+            "type": "object",
+            "properties": {
+                "action_result": { "type": "string", "enum": ["pass", "fail", "pending", "n/a"] },
+                "repetition_count": { "type": "integer", "minimum": 0 },
+                "failure_cause": { "type": "string" }
+            },
+            "required": ["action_result", "repetition_count"],
+            "additionalProperties": true
+        }),
+        "response" => json!({
+            "type": "object",
+            "properties": {
+                "text": { "type": "string" }
+            },
+            "required": ["text"],
+            "additionalProperties": true
+        }),
+        _ => json!({
+            "type": "object",
+            "properties": {}
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -484,6 +698,34 @@ mod parse_args_tests {
 }
 
 #[cfg(test)]
+mod openai_tools_schema_tests {
+    use super::ToolEntry;
+    use super::ToolRegistry;
+    use std::sync::Arc;
+
+    #[test]
+    fn openai_tools_uses_builtin_schema_when_doc_has_no_json_fence() {
+        let reg = ToolRegistry::new();
+        reg.register(ToolEntry::new(
+            "captcha_verify",
+            "high",
+            false,
+            "plain doc without schema fence",
+            Arc::new(|_| Ok(String::new())),
+        ));
+
+        let tools = reg.openai_tools(&[]);
+        assert_eq!(tools.len(), 1);
+        let params = &tools[0]["function"]["parameters"];
+        assert_eq!(params["required"][0], "method");
+        assert_eq!(params["required"][2], "index_captcha_area");
+        assert_eq!(params["properties"]["index_captcha_area"]["type"], "integer");
+        assert_eq!(params["properties"]["is_slider"]["type"], "boolean");
+    }
+
+}
+
+#[cfg(test)]
 mod envelope_validation_tests {
     use super::validate_envelope_tool_batch;
     use super::ToolRegistry;
@@ -534,9 +776,27 @@ mod envelope_validation_tests {
     }
 
     #[test]
-    fn batch_rejects_sidecar_as_root_when_multiple() {
+    fn batch_all_sidecars_ok() {
         let tools = reg();
         let batch = vec![tc("a", "task_board:patch"), tc("b", "task_board:replace")];
+        assert!(validate_envelope_tool_batch(&tools, &batch).is_ok());
+    }
+
+    #[test]
+    fn batch_allows_sidecar_calls_around_single_primary() {
+        let tools = reg();
+        let batch = vec![
+            tc("a", "task_board:patch"),
+            tc("b", "terminal"),
+            tc("c", "task_board:replace"),
+        ];
+        assert!(validate_envelope_tool_batch(&tools, &batch).is_ok());
+    }
+
+    #[test]
+    fn batch_rejects_more_than_one_primary_tool() {
+        let tools = reg();
+        let batch = vec![tc("a", "terminal"), tc("b", "file:read"), tc("c", "task_board:patch")];
         assert!(validate_envelope_tool_batch(&tools, &batch).is_err());
     }
 }

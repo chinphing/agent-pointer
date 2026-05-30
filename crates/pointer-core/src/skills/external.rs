@@ -295,6 +295,12 @@ fn validate_manifest(manifest: &SkillManifest) -> Result<()> {
             return Err(anyhow!("compatibility 长度必须在 1 到 500 个字符之间"));
         }
     }
+    if let Some(license) = &manifest.license {
+        let len = license.trim().chars().count();
+        if len == 0 || len > 200 {
+            return Err(anyhow!("license 长度必须在 1 到 200 个字符之间"));
+        }
+    }
     if manifest
         .allowed_tools
         .iter()

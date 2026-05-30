@@ -61,7 +61,7 @@ This does **not** replace unit tests.
 **Response shape**
 
 - **`lintExecuted`** — `true` only when at least one subprocess actually ran (not skipped).
-- **`outcome`** — `skipped_no_matching_stack` | `skipped_all_runs_failed` | `clean` | `issues_found`.
+- **`outcome`** — `skipped_no_matching_stack` | `skipped_all_runs_failed` | `clean` | `issues_found` | `tool_failed`.
 - **`summary`** — short human-readable status; **use this** when reporting to the user.
 - **`runs`** — per subprocess: `engine`, `exitCode`, `timedOut`, `stderrTailUtf8`, `skipped` / `reason`, optional `cwd` (monorepo package).
 - **`diagnostics`** — merged list (cap **200**; `diagnosticsTruncated` when exceeded).
@@ -72,7 +72,17 @@ This does **not** replace unit tests.
 - **`runs: []`** or **`lintExecuted: false`** → static check **did not run**; do **not** claim “no lint errors”.
 - **`outcome: clean`** → check ran and reported no issues for the requested scope.
 - **`outcome: issues_found`** → check ran; fix or explain listed diagnostics.
+- **`outcome: tool_failed`** → a linter subprocess ran but exited with errors (e.g. missing toolchain, command not found); read **`runs.stderrTailUtf8`** — do **not** treat as clean.
 - Empty **`diagnostics`** with **`lintExecuted: false`** is **not** a clean bill of health.
+- Empty **`diagnostics`** with **`outcome: tool_failed`** is **not** a clean bill of health.
+
+**When `outcome: tool_failed`**
+
+1. Read **`runs.stderrTailUtf8`** and identify whether the failure is a **missing component or command** (stderr often includes an install hint, e.g. `rustup component add clippy`).
+2. If stderr gives a **concrete install/fix command** and the user has **not** forbidden environment changes in this thread, run that command via **`terminal`**, then **call `read_lints` again** with the same **`stack`** / **`paths`**.
+3. Tell the user what you ran and the retry outcome. If install fails or stderr has no safe one-liner, stop and ask the user — do **not** claim lint-clean.
+4. If you only changed one stack (e.g. frontend) and another stack’s tool is missing, you may **first** retry with a narrower **`stack`** (e.g. `eslint`) and **`paths`**; otherwise follow steps 1–3 for the failed engine.
+5. **Do not** treat **`tool_failed`** as clean. Avoid **`brew install`**, **`npm install -g`**, or other broad system changes unless stderr explicitly requires them and the user has not objected.
 
 **Monorepos (JS/TS/Vue)**
 

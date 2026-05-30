@@ -61,8 +61,12 @@ export function sessionToolCalls(session: SubAgentSessionUi): ToolCall[] {
   return session.toolCalls ?? []
 }
 
-export function recordSubToolSuccess(session: SubAgentSessionUi, toolName: string): void {
-  incrementSubAgentToolStats(session.stats, toolName)
+export function recordSubToolSuccess(
+  session: SubAgentSessionUi,
+  toolName: string,
+  argsJson?: string
+): void {
+  incrementSubAgentToolStats(session.stats, toolName, argsJson)
 }
 
 export function isSubResponseToolName(toolName: string | undefined): boolean {

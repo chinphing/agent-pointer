@@ -303,3 +303,176 @@ pub fn detect_builtin_stacks(root: &Path) -> Vec<BuiltinStack> {
     }
     v
 }
+
+/// Map a file extension to the built-in stacks that can lint it.
+///
+/// Covers the top 20+ programming languages.  Extensions that map to an
+/// empty slice represent languages without a built-in stack — when all
+/// paths consist of such extensions the fallback in [`filter_stacks_by_paths`]
+/// returns the full detected stack list.
+fn stacks_for_extension(ext: &str) -> &'static [BuiltinStack] {
+    // ── Languages with built-in lint stacks ──────────────────────────
+    match ext {
+        // Rust
+        "rs" => &[BuiltinStack::RustClippy],
+
+        // JavaScript / TypeScript / JSX / TSX / Vue / Svelte / Astro
+        "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "vue" | "svelte"
+        | "astro" => &[BuiltinStack::NodeEslint, BuiltinStack::NodeOxlint],
+
+        // Python
+        "py" | "pyi" => &[BuiltinStack::PythonRuff],
+
+        // Go
+        "go" => &[BuiltinStack::GoGolangci],
+
+        // Java / Kotlin / Groovy (JVM)
+        "java" => &[BuiltinStack::JavaMaven, BuiltinStack::JavaGradle],
+        "kt" | "kts" | "groovy" => &[BuiltinStack::JavaGradle],
+
+        // C# / .NET
+        "cs" => &[BuiltinStack::Dotnet],
+
+        // PHP
+        "php" => &[BuiltinStack::PhpStan],
+
+        // Ruby
+        "rb" => &[BuiltinStack::Rubocop],
+
+        // Swift
+        "swift" => &[BuiltinStack::SwiftPm],
+
+        // Dart
+        "dart" => &[BuiltinStack::DartAnalyze],
+
+        // ── Languages without a built-in stack ───────────────────────
+        // (empty slice → filtered out; filter_stacks_by_paths fallback
+        //  returns all stacks when everything is filtered)
+
+        // C / C++
+        "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hxx" => &[],
+
+        // Objective-C
+        "m" | "mm" => &[],
+
+        // Scala
+        "scala" | "sc" => &[],
+
+        // R
+        "r" | "R" => &[],
+
+        // Shell
+        "sh" | "bash" | "zsh" => &[],
+
+        // Lua
+        "lua" => &[],
+
+        // Perl
+        "pl" | "pm" => &[],
+
+        // Zig
+        "zig" => &[],
+
+        // Elixir
+        "ex" | "exs" => &[],
+
+        // Haskell
+        "hs" => &[],
+
+        // Clojure
+        "clj" | "cljs" | "cljc" => &[],
+
+        // Erlang
+        "erl" => &[],
+
+        // Julia
+        "jl" => &[],
+
+        // Nim
+        "nim" => &[],
+
+        // Terraform
+        "tf" | "tfvars" => &[],
+
+        // Solidity
+        "sol" => &[],
+
+        // SQL
+        "sql" => &[],
+
+        // Markdown / MDX
+        "md" | "mdx" => &[],
+
+        // YAML
+        "yaml" | "yml" => &[],
+
+        // TOML
+        "toml" => &[],
+
+        // JSON
+        "json" => &[],
+
+        // CSS / SCSS / SASS / Less
+        "css" | "scss" | "sass" | "less" => &[],
+
+        // HTML
+        "html" | "htm" => &[],
+
+        // GraphQL
+        "graphql" | "gql" => &[],
+
+        // Protobuf
+        "proto" => &[],
+
+        // Everything else (unknown extension)
+        _ => &[],
+    }
+}
+
+/// When `paths` is non-empty, keep only built-in stacks whose language
+/// matches at least one path extension.  Falls back to the full list when
+/// any path has no recognisable extension (e.g. a directory) or when
+/// filtering would remove everything.
+pub fn filter_stacks_by_paths(stacks: Vec<BuiltinStack>, paths: &[PathBuf]) -> Vec<BuiltinStack> {
+    if paths.is_empty() {
+        return stacks;
+    }
+
+    // Collect the union of all stacks that any path extension maps to.
+    let mut relevant: Vec<BuiltinStack> = Vec::new();
+    let mut has_non_extension_path = false;
+
+    for p in paths {
+        match p.extension().and_then(|e| e.to_str()) {
+            Some(ext) => {
+                for s in stacks_for_extension(ext) {
+                    if !relevant.contains(s) {
+                        relevant.push(*s);
+                    }
+                }
+            }
+            None => {
+                // Directory or extensionless path — play it safe.
+                has_non_extension_path = true;
+            }
+        }
+    }
+
+    if has_non_extension_path {
+        return stacks;
+    }
+
+    let filtered: Vec<BuiltinStack> = stacks
+        .iter()
+        .filter(|s| relevant.contains(s))
+        .copied()
+        .collect();
+
+    // If the filter removed everything but we started with something,
+    // keep the original list — better to run extra linters than none.
+    if filtered.is_empty() {
+        stacks
+    } else {
+        filtered
+    }
+}

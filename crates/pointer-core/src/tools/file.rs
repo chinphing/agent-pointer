@@ -357,6 +357,175 @@ fn path_display_abs(path: &Path) -> String {
         .unwrap_or_else(|_| path.display().to_string())
 }
 
+const MAX_PATH_HINTS: usize = 8;
+
+fn levenshtein_ascii(a: &str, b: &str) -> u32 {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a.is_empty() {
+        return b.len() as u32;
+    }
+    if b.is_empty() {
+        return a.len() as u32;
+    }
+    let mut prev: Vec<u32> = (0..=b.len()).map(|i| i as u32).collect();
+    let mut curr = vec![0u32; b.len() + 1];
+    for (i, ca) in a.iter().enumerate() {
+        curr[0] = (i + 1) as u32;
+        for (j, cb) in b.iter().enumerate() {
+            let cost = if ca == cb { 0 } else { 1 };
+            curr[j + 1] = (prev[j + 1] + 1)
+                .min(curr[j] + 1)
+                .min(prev[j] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()]
+}
+
+fn path_name_similarity(want: &str, candidate: &str) -> u32 {
+    let a = want.trim().to_ascii_lowercase();
+    let b = candidate.trim().to_ascii_lowercase();
+    if a.is_empty() {
+        return u32::MAX;
+    }
+    if a == b {
+        return 0;
+    }
+    if b.contains(&a) || a.contains(&b) {
+        return 1;
+    }
+    let dist = levenshtein_ascii(&a, &b);
+    if dist <= 3 {
+        2 + dist
+    } else {
+        u32::MAX
+    }
+}
+
+/// Parent directory to list when `user_path` does not exist, plus the missing final name.
+fn listing_base_for_missing_path(workspace_root: &Path, user_path: &str) -> Option<(PathBuf, String)> {
+    let user_path = normalize_user_fspath(user_path);
+    let path = Path::new(user_path);
+    let want = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(user_path)
+        .to_string();
+
+    if path.is_absolute() {
+        let mut probe = path.to_path_buf();
+        loop {
+            if probe.exists() && probe.is_dir() {
+                let base = probe.canonicalize().unwrap_or(probe);
+                return Some((base, want));
+            }
+            if !probe.pop() {
+                break;
+            }
+        }
+        let ws = workspace_root.canonicalize().ok()?;
+        let probe_str = user_path.replace('\\', "/");
+        let ws_str = ws.to_string_lossy().replace('\\', "/");
+        if probe_str.starts_with(&ws_str) {
+            return Some((ws, want));
+        }
+        None
+    } else {
+        let root = workspace_root.canonicalize().ok()?;
+        let base = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .and_then(|parent| resolve_within_workspace_root(&root, parent.to_str()?).ok())
+            .filter(|p| p.exists() && p.is_dir())
+            .map(|p| p.canonicalize().unwrap_or(p))
+            .unwrap_or(root);
+        Some((base, want))
+    }
+}
+
+fn collect_path_hints(workspace_root: &Path, user_path: &str) -> Vec<String> {
+    let Some((list_base, want)) = listing_base_for_missing_path(workspace_root, user_path) else {
+        return Vec::new();
+    };
+    let Ok(entries) = fs::read_dir(&list_base) else {
+        return Vec::new();
+    };
+
+    let mut scored: Vec<(u32, String)> = Vec::new();
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        let score = if p.is_dir() {
+            path_name_similarity(&want, &name)
+        } else if p.is_file() {
+            path_name_similarity(&want, &name).saturating_add(10)
+        } else {
+            continue;
+        };
+        if score < u32::MAX {
+            scored.push((score, path_display_abs(&p)));
+        }
+    }
+    scored.sort_by_key(|(s, p)| (*s, p.clone()));
+    scored.dedup_by(|a, b| a.1 == b.1);
+    if scored.is_empty() {
+        if let Ok(entries) = fs::read_dir(&list_base) {
+            for entry in entries.flatten() {
+                if scored.len() >= MAX_PATH_HINTS {
+                    break;
+                }
+                let p = entry.path();
+                if p.is_dir() {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if !name.starts_with('.') {
+                        scored.push((u32::MAX, path_display_abs(&p)));
+                    }
+                }
+            }
+        }
+    } else {
+        scored.truncate(MAX_PATH_HINTS);
+    }
+    scored.into_iter().map(|(_, p)| p).collect()
+}
+
+fn path_error_with_hints(
+    workspace_root: &Path,
+    user_path: &str,
+    message: impl std::fmt::Display,
+) -> anyhow::Error {
+    let hints = collect_path_hints(workspace_root, user_path);
+    if hints.is_empty() {
+        anyhow!("{message}")
+    } else {
+        anyhow!("{message}\n可能的路径: {}", hints.join(", "))
+    }
+}
+
+/// Resolve a path for read-only tools that require an existing file or directory.
+fn resolve_existing_read_path(workspace_root: &Path, user_path: &str, purpose: &str) -> Result<PathBuf> {
+    let p = resolve_accessible_path(workspace_root, user_path).map_err(|e| {
+        path_error_with_hints(
+            workspace_root,
+            user_path,
+            format!("{purpose} 路径无效: {e}"),
+        )
+    })?;
+    if p.exists() {
+        Ok(p)
+    } else {
+        Err(path_error_with_hints(
+            workspace_root,
+            user_path,
+            format!("{purpose} 路径不存在: {}", user_path.trim()),
+        ))
+    }
+}
+
 /// Best-effort absolute display for a user-supplied path in read errors (batch budget skips, etc.).
 fn path_display_for_read_request(workspace_root: &Path, path_str: &str) -> String {
     resolve_accessible_path(workspace_root, path_str)
@@ -996,7 +1165,7 @@ fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -> Result<St
         .and_then(|v| v.as_str())
         .unwrap_or("all");
 
-    let base = resolve_accessible_path(root, path_str)?;
+    let base = resolve_existing_read_path(root, path_str, "list")?;
     if !base.is_dir() {
         return Err(anyhow!("不是目录: {}", base.display()));
     }
@@ -1121,7 +1290,7 @@ fn execute_file_glob_payload(args: &serde_json::Value, root: &Path) -> Result<St
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        let p = resolve_accessible_path(root, b)?;
+        let p = resolve_existing_read_path(root, b, "glob")?;
         if !p.is_dir() {
             return Err(anyhow!("glob 搜索根必须是目录: {}", p.display()));
         }
@@ -1442,7 +1611,7 @@ fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<St
             max_depth,
         }
     } else {
-        let p = resolve_accessible_path(&root, path_arg)?;
+        let p = resolve_existing_read_path(&root, path_arg, "grep")?;
         if p.is_dir() {
             GrepScope::Walk {
                 start: p,
@@ -1452,9 +1621,10 @@ fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -> Result<St
             info!("file:grep: single file {}", p.display());
             GrepScope::SingleFile { file: p }
         } else {
-            return Err(anyhow!(
-                "grep path 必须是已存在的文件或目录: {}",
-                p.display()
+            return Err(path_error_with_hints(
+                &root,
+                path_arg,
+                format!("grep path 必须是已存在的文件或目录: {}", p.display()),
             ));
         }
     };
@@ -1887,6 +2057,41 @@ mod tests {
         assert!(v.get("singleFile").is_none() || v["singleFile"] == false);
         let results = v["results"].as_array().unwrap();
         assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn file_grep_missing_absolute_path_includes_sibling_hints() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("src-tauri")).unwrap();
+        fs::write(root.join("src").join("main.rs"), "read_lints\n").unwrap();
+
+        let abs_ui = root.join("ui");
+        let args = json!({
+            "pattern": "read_lints",
+            "path": abs_ui.to_str().unwrap(),
+            "maxResults": 20,
+        });
+        let err = execute_file_grep_payload(&args, root).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("可能的路径"),
+            "expected path hints, got: {msg}"
+        );
+        assert!(msg.contains("src"), "expected src hint, got: {msg}");
+    }
+
+    #[test]
+    fn file_grep_relative_missing_path_includes_hints() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::create_dir_all(root.join("src")).unwrap();
+        let args = json!({"pattern": "foo", "path": "ui", "maxResults": 20});
+        let err = execute_file_grep_payload(&args, root).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("可能的路径"), "{msg}");
+        assert!(msg.contains("src"), "{msg}");
     }
 
     #[test]

@@ -277,7 +277,9 @@ fn build_run_plan(root: &Path, mode: StackMode, filters: &[PathBuf]) -> Vec<RunP
             }
         }
         StackMode::Auto => {
-            let mut v: Vec<RunPlan> = detect::detect_builtin_stacks(root)
+            let mut builtins = detect::detect_builtin_stacks(root);
+            builtins = detect::filter_stacks_by_paths(builtins, filters);
+            let mut v: Vec<RunPlan> = builtins
                 .into_iter()
                 .map(RunPlan::Builtin)
                 .collect();
@@ -470,6 +472,27 @@ fn run_oxlint_builtin(
     Ok((diags, cap))
 }
 
+fn run_indicates_tool_failure(run: &Value) -> bool {
+    if run.get("skipped").and_then(|s| s.as_bool()).unwrap_or(false) {
+        return false;
+    }
+    if run.get("timedOut").and_then(|t| t.as_bool()).unwrap_or(false) {
+        return true;
+    }
+    let Some(exit) = run.get("exitCode").and_then(|c| c.as_u64()) else {
+        return false;
+    };
+    if exit == 0 {
+        return false;
+    }
+    let stderr = run
+        .get("stderrTailUtf8")
+        .and_then(|s| s.as_str())
+        .map(str::trim)
+        .unwrap_or("");
+    !stderr.is_empty()
+}
+
 fn summarize_lint_result(
     runs: &[Value],
     diagnostics: &[Value],
@@ -500,6 +523,13 @@ fn summarize_lint_result(
             "Static check ran; issues found."
         };
         return (true, "issues_found", msg);
+    }
+    if executed.iter().any(|r| run_indicates_tool_failure(r)) {
+        return (
+            true,
+            "tool_failed",
+            "Static check failed: linter command exited with errors (see runs.stderrTailUtf8 and exitCode).",
+        );
     }
     (
         true,
@@ -1079,6 +1109,32 @@ mod tests {
         let (exec, outcome, _) = summarize_lint_result(&runs, &diags, false);
         assert!(exec);
         assert_eq!(outcome, "issues_found");
+    }
+
+    #[test]
+    fn summarize_tool_failed_when_nonzero_exit_with_stderr_and_no_diagnostics() {
+        let runs = vec![json!({
+            "engine": "cargo-clippy",
+            "exitCode": 1,
+            "stderrTailUtf8": "error: 'cargo-clippy' is not installed\n",
+            "diagnosticCount": 0,
+        })];
+        let (exec, outcome, summary) = summarize_lint_result(&runs, &[], false);
+        assert!(exec);
+        assert_eq!(outcome, "tool_failed");
+        assert!(summary.contains("failed"));
+    }
+
+    #[test]
+    fn summarize_tool_failed_when_timed_out() {
+        let runs = vec![json!({
+            "engine": "eslint",
+            "exitCode": 1,
+            "timedOut": true,
+        })];
+        let (exec, outcome, _) = summarize_lint_result(&runs, &[], false);
+        assert!(exec);
+        assert_eq!(outcome, "tool_failed");
     }
 
     #[test]

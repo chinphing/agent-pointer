@@ -47,7 +47,7 @@ If the tool result includes **`batchCapped`**, **`batchTruncated`**, **`truncate
 
 ## `read_lints` (timing and scope)
 
-Call **`read_lints`** in a **separate** tool turn **after** you complete a **logically related group** of **`file:edit`** / **`file:write`** changes for the current sub-goal—**not** after every micro-edit. Pass **`paths`** (array of workspace files or directories you touched) to **limit** diagnostics and cost; omit **`paths`** only when you deliberately want a broader workspace run. The host does **not** auto-invoke **`read_lints`** after edits; you decide when it is worth the latency (see **Routine workflow** → **Implement** and **Integration checks** in **AGENT**).
+Call **`read_lints`** in a **separate** tool turn **after** you complete a **logically related group** of **`file:edit`** / **`file:write`** changes for the current sub-goal—**not** after every micro-edit. Pass **`paths`** (array of workspace files or directories you touched) to **limit** diagnostics and cost; omit **`paths`** only when you deliberately want a broader workspace run. The host does **not** auto-invoke **`read_lints`** after edits; you decide when it is worth the latency (see **Routine workflow** → **Implement** and **Integration checks** in **AGENT**). If **`outcome`** is **`tool_failed`** and stderr suggests a missing component, install via **`terminal`** and retry unless the user has forbidden environment changes (see **`read_lints`** tool doc).
 
 ---
 

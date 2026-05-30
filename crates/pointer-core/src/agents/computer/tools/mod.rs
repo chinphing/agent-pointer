@@ -116,7 +116,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     let mouse_doc = PRIMARY_MOUSE_DOC.trim();
     reg.register(ToolEntry::new(
         "mouse",
-        "high",
+        "low",
         false,
         mouse_doc,
         Arc::new(move |args| {
@@ -148,7 +148,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     let hotkey_doc = include_str!("prompts/hotkey.md").trim();
     reg.register(ToolEntry::new(
         "hotkey",
-        "medium",
+        "low",
         false,
         hotkey_doc,
         Arc::new(move |args| {
@@ -164,7 +164,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     let composite_doc = PRIMARY_COMPOSITE_DOC.trim();
     reg.register(ToolEntry::new(
         "composite_action",
-        "high",
+        "low",
         false,
         composite_doc,
         Arc::new(move |args| {
@@ -196,7 +196,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     let modified_doc = PRIMARY_MODIFIED_CLICK_DOC.trim();
     reg.register(ToolEntry::new(
         "modified_click",
-        "high",
+        "low",
         false,
         modified_doc,
         Arc::new(move |args| {
@@ -228,7 +228,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     let captcha_doc = include_str!("prompts/captcha_verify.md").trim();
     reg.register(ToolEntry::new(
         "captcha_verify",
-        "high",
+        "low",
         false,
         captcha_doc,
         Arc::new(move |args| {
@@ -270,7 +270,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     let clipboard_doc = include_str!("prompts/clipboard.md").trim();
     reg.register(ToolEntry::new(
         "clipboard",
-        "medium",
+        "low",
         false,
         clipboard_doc,
         Arc::new(move |args| {

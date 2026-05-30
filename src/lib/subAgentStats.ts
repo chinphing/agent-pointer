@@ -5,11 +5,27 @@ export function emptySubAgentToolStats(): SubAgentToolStats {
   return { searchCount: 0, readCount: 0 }
 }
 
+/** Extract method from a method-style tool call arguments JSON (e.g. {"method":"read",...}). */
+function extractMethod(argsJson?: string): string {
+  if (!argsJson) return ''
+  try {
+    const parsed = JSON.parse(argsJson)
+    return typeof parsed.method === 'string' ? parsed.method.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
 /** Count successful sub-agent tool invocations for collapsed summary line. */
-export function incrementSubAgentToolStats(stats: SubAgentToolStats, toolName: string): void {
+export function incrementSubAgentToolStats(
+  stats: SubAgentToolStats,
+  toolName: string,
+  argsJson?: string
+): void {
   const base = toolCallBaseName(toolName.trim())
   if (base === 'file') {
-    const method = toolName.includes(':') ? toolName.split(':')[1]?.trim() : ''
+    const method =
+      toolName.includes(':') ? toolName.split(':')[1]?.trim() : extractMethod(argsJson)
     if (method === 'read') stats.readCount += 1
     else if (method === 'grep' || method === 'glob' || method === 'list') stats.searchCount += 1
     return

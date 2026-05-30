@@ -602,7 +602,7 @@ export const useChatStore = defineStore('chat', () => {
             if (e.durationMs !== undefined) tc.durationMs = e.durationMs
             if (e.displayLabel !== undefined) tc.displayLabel = e.displayLabel
             if (e.displaySummary !== undefined) tc.displaySummary = e.displaySummary
-            if (e.status === 'success') recordSubToolSuccess(session, tc.name)
+            if (e.status === 'success') recordSubToolSuccess(session, tc.name, tc.arguments)
           }
         } else {
           const tc = r.msg.toolCalls?.find(t => t.id === e.toolCallId)

@@ -1,5 +1,6 @@
 use crate::agents::AgentDef;
-use crate::tools::ToolRegistry;
+use crate::tools::{normalize_allowed_tool_names, ToolRegistry};
+use std::collections::HashSet;
 
 pub(crate) fn resolve_agent_tools(
     agent: &AgentDef,
@@ -11,18 +12,12 @@ pub(crate) fn resolve_agent_tools(
     } else {
         agent.access_policy.allow_tools.clone()
     };
+    let available: HashSet<_> = tools.list_defs().into_iter().map(|t| t.name).collect();
+    let deny: HashSet<_> = agent.access_policy.deny_tools.iter().cloned().collect();
     names.retain(|name| {
-        tools.get_def(name).is_some() && !agent.access_policy.deny_tools.contains(name)
+        let base = crate::tools::registry_tool_base_name(name);
+        available.contains(base) && !deny.contains(name) && !deny.contains(base)
     });
-
-    if !agent.access_policy.deny_tools.iter().any(|d| d == "response")
-        && tools.get_def("response").is_some()
-        && !names.contains(&"response".into())
-    {
-        names.push("response".into());
-    }
-
-    names.sort();
-    names.dedup();
+    normalize_allowed_tool_names(&mut names, &available);
     names
 }

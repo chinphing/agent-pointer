@@ -39,21 +39,19 @@ Session-scoped **working memory** for multi-step work (v2 document).
 For multi-step work, initialize early and keep milestones concise.
 Single-step work may skip the board.
 
-**Qualified `tool_name`**
+**Methods** — call **`task_board`** with **`method`** set to one of:
 
-- **`task_board:init`** — Set **`goal`**, optional **`global_context`**, milestone **`items`**.
+- **`init`** — Set **`goal`**, optional **`global_context`**, milestone **`items`**.
   Use 3–8 rows for normal work.
   For matrix/combinational goals,
   keep 3–8 rows by grouping cases
   into meaningful milestones.
-- **`task_board:replace`** — Replace entire **`board`** (empty **`items`** clears).
-- **`task_board:patch`** — Merge rows by **`id`**; update **`global_context`**.
-- **`task_board:prune`** — Cancel **`pending`** rows (optional **`ids`** list).
-- **`task_board:finalize`** — Mark session complete when no incomplete rows remain.
-- **`task_board:sync_finding`** — **Child agents only:** append one line to parent **`global_context.key_findings`**.
-- **`task_board:check_deps`** — Read-only: **`item_id`** → **`ready`** or **`blocked`** + reason.
-
-Bare **`task_board`** with **`method`** in **`tool_args`** works when not using qualified names.
+- **`replace`** — Replace entire **`board`** (empty **`items`** clears).
+- **`patch`** — Merge rows by **`id`**; update **`global_context`**.
+- **`prune`** — Cancel **`pending`** rows (optional **`ids`** list).
+- **`finalize`** — Mark session complete when **every row** is **`done`** or **`cancelled`**. Sets **`meta.status`** to **`completed`**. Row-level **`patch`** to **`done`** alone does **not** finalize the board.
+- **`sync_finding`** — **Child agents only:** append one line to parent **`global_context.key_findings`**.
+- **`check_deps`** — Read-only: **`item_id`** → **`ready`** or **`blocked`** + reason.
 
 **Tool result shape (compact — authoritative board is in `[TASK_BOARD]` inject)**
 
@@ -73,8 +71,8 @@ Do not expect a full **`document`** in tool results.
 **Rules**
 
 - Treat **`[TASK_BOARD]`** in the injected runtime context as the authoritative **compact** snapshot.
-- If **`[TASK_BOARD]`** is empty and the task is multi-step, call **`task_board:init`** in the first round.
-- `task_board:patch` should update only the current task id from **`[TASK_BOARD]`**.
+- If **`[TASK_BOARD]`** is empty and the task is multi-step, call **`task_board`** with **`method`: `init`** in the first round.
+- **`patch`** should update only the current task id from **`[TASK_BOARD]`**.
 - Mark **`done`** only when the current task goal is already achieved in observable evidence.
 - If the root tool is a new action to achieve that goal, patch **`in_progress`** this turn (or skip `done`).
 - Keep milestones small (roughly **3–12** rows). Use **`local_*`** ids only on **child** boards (sub-agents).
@@ -94,13 +92,16 @@ Do not expect a full **`document`** in tool results.
   and next uncovered slice).
 - Keep row text compact; avoid long prose in `title` / `output` / `verification` to reduce prompt tokens.
 - **Do not** patch the parent milestone board from a child agent (use **`sync_finding`** or let the host report completion).
+- **Finalize:** When **all** rows are **`done`** or **`cancelled`**, call **`task_board`** with **`method`: `finalize`** in the **same turn** as your final user-facing reply (after the last **`patch`**). Do not leave **`meta.status`** at **`running`** when the session goal is complete.
 - After **`retry_count >= 2`** on a stuck row, diagnose internally before the next **`patch`**.
-- For workers that emit **`verify:report`**, use it for sidecar ordering and evidence context:
-  - First initialization round may omit `verify:report`.
-  - After init, run `verify:report` first, then `task_board:patch`.
+- **Computer / desktop profile only** (when **`verify:report`** is allowed):
+  use it for sidecar ordering and UI evidence context:
+  - First board-init round may omit **`verify:report`**.
+  - After init, run **`verify:report`** first, then **`task_board`** with **`method`: `patch`**.
   - Transition into the next milestone only after the current task goal is complete.
+  Engineering profiles (e.g. **Coder**) patch from **test/command/file** evidence instead—no **`verify:report`**.
 
-**`items` in `tool_args`**
+**`items` array**
 
 Pass a JSON **array** of row objects, or a JSON **string** containing that array
 (escaped quotes required).
@@ -109,11 +110,70 @@ For a **single-row** `patch`, you may also pass row fields at the top level with
 **`item_id`** (alias **`id`**) plus **`status`** / **`title`** / **`verification`**
 / etc. — the host normalizes this to one row.
 
+#### Example — initialize board
+
+```json
+{
+  "function": {
+    "name": "task_board",
+    "arguments": {
+      "method": "init",
+      "goal": "Ship feature X",
+      "items": [
+        { "id": "m1", "title": "Locate code", "status": "pending" }
+      ]
+    }
+  }
+}
+```
+
 #### Example (goal already met -> done)
 
-- Native tool call 1: `verify:report`
-- Native tool call 2: `task_board:patch`
+**Computer profile** (with **`verify:report`**):
+
+- Native tool call 1: **`verify:report`**
+- Native tool call 2: **`task_board`** with **`method`: `patch`**
+
+**Coder / engineering profile** (no **`verify:report`**):
+
+- After tests or commands satisfy **`verification`**, call **`task_board`** with **`method`: `patch`** only:
   - set current row status to `done`
   - include short `verification` and `output`
 - Then write assistant user-facing content directly
   (do not call a `response` tool).
+
+Example patch call:
+
+```json
+{
+  "function": {
+    "name": "task_board",
+    "arguments": {
+      "method": "patch",
+      "items": [
+        {
+          "id": "m1",
+          "status": "done",
+          "verification": "Tests pass",
+          "output": "Handler updated"
+        }
+      ]
+    }
+  }
+}
+```
+
+#### Example — finalize when all rows are terminal
+
+Call after the last row is **`done`** or **`cancelled`**:
+
+```json
+{
+  "function": {
+    "name": "task_board",
+    "arguments": {
+      "method": "finalize"
+    }
+  }
+}
+```

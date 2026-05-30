@@ -50,6 +50,17 @@ pub(super) async fn run_single_agent_loop(
     llm_token_session: &mut ChatLlmTokenSession,
     reasoning_in_messages: bool,
 ) -> Result<()> {
+    let lead_profile = state
+        .agents
+        .get(&agent_plan.lead_agent_id)
+        .map(|a| a.def().profile.clone())
+        .unwrap_or(AgentProfile::General);
+    if lead_profile == AgentProfile::Computer {
+        state
+            .computer_state
+            .reset_give_up_for_new_turn(conversation_id);
+    }
+
     loop {
         if cancel.is_cancelled() {
             tool_budget.sync_out(consumed_single);
@@ -66,11 +77,6 @@ pub(super) async fn run_single_agent_loop(
 
         let assistant_id = new_id("msg");
 
-        let lead_profile = state
-            .agents
-            .get(&agent_plan.lead_agent_id)
-            .map(|a| a.def().profile.clone())
-            .unwrap_or(AgentProfile::General);
         let computer_positioning = if lead_profile == AgentProfile::Computer {
             crate::agents::computer::tools::tool_prompts::positioning_mode_for_tier(
                 state.computer_state.tier_for_conversation(conversation_id),
@@ -174,6 +180,18 @@ pub(super) async fn run_single_agent_loop(
                 assistant_msg.thoughts.as_deref(),
                 assistant_msg.tool_calls.as_deref(),
             );
+
+            // Check whether the tier runtime signals that the task is exhausted.
+            if state
+                .computer_state
+                .should_give_up(conversation_id)
+            {
+                tool_budget.sync_out(consumed_single);
+                return Err(anyhow!(
+                    "当前任务已尽力但仍无法完成（重复操作达到 {} 次），请提供进一步指导。",
+                    crate::agents::computer::tier::GIVE_UP_THRESHOLD
+                ));
+            }
         }
 
         let post_action = if buf.final_tool_calls.is_empty() {

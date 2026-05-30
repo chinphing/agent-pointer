@@ -2,13 +2,11 @@
 
 Search the **public web** via DashScope **Generation API** (`enable_search` + `search_strategy: pro_max`). Each call uses **SSE streaming**: sources appear first, then the answer streams incrementally.
 
-Use for **external** facts: API docs, release notes, news, prices, weather, library versions. For **codebase** mapping, use **`file:*`** or delegate **`explore`**. For deep multi-query research, delegate **`research`** (uses Responses API with agent tools).
+Use for **external** facts: API docs, release notes, news, prices, weather, library versions. For **codebase** mapping, use **`file`** (read-only **`method`** values) or delegate **`explore`**. For deep multi-query research, delegate **`research`** (uses Responses API with agent tools).
 
 **Requires** a configured **Qwen provider API key** in settings. Search calls use **`webSearchModel`** (default **`qwen3-max`** on Generation API); the research sub-agent uses Responses API separately.
 
 #### Parameters
-
-All keys are JSON properties on the root **`tool_args`** object.
 
 - **`query`** — Required. A **self-contained search brief** (sent as the user message).
 - **`searchStrategy`** — Optional. Default **`pro_max`**. Also accepts `max`, `turbo`. Alias **`search_strategy`**.

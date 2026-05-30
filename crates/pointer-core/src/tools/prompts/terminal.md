@@ -30,6 +30,8 @@ Use when you need the shell for builds, checks, tests, directory listings, or ot
 
 - Decide whether a terminal is truly needed; prefer answering from context when possible.
 - Prefer running inside the workspace; set **`cwd`** explicitly when required.
+- **Path discipline:** Do **not** put `cd /some/absolute/path` in **`command`** unless that path is the injected **workspace root**, a path returned by **`file`** / prior **`terminal`** output in **this** session, or the user pasted it verbatim. **Never invent** repo paths from memory or project names.
+- For git in the current project: omit `cd` (default cwd is the workspace root) or run **`git -C "<workspace_root>" …`** using the root from session context—not a guessed path.
 - On Windows, commands run via `powershell -ExecutionPolicy Bypass -Command` (user PowerShell profile is loaded so fnm/nvm PATH hooks apply); keep commands portable when you can.
 - Set a reasonable **`timeoutMs`** (idle: no stdout/stderr resets the timer). Use **`maxWallMs`** when you need a shorter hard wall than the default cap.
 - Do not run destructive commands unless the user clearly asked and approval allows it.

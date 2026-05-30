@@ -418,7 +418,7 @@ mod tests {
 
     #[test]
     fn file_read_label_and_basename_only() {
-        let d = default_display("file:read", &json!({"path": "src/App.vue"}));
+        let d = default_display("file:read", &json!({"paths": [{"path": "src/App.vue"}]}));
         assert_eq!(d.label, "读取文件");
         assert_eq!(d.summary, "App.vue");
         assert!(!d.summary.contains('/'));

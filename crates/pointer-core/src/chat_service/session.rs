@@ -106,6 +106,20 @@ pub async fn run_chat(
         supervisor_total,
         max_tr,
     );
+    if result.is_ok()
+        && crate::task_board::maybe_auto_finalize_if_complete(
+            &state.task_board_store,
+            &conversation_id,
+        )
+    {
+        let doc = state.task_board_store.document(&conversation_id);
+        super::emit::emit_task_board_updated(
+            &stream,
+            &conversation_id,
+            &conversation_id,
+            doc.to_value(),
+        );
+    }
     let done_conversation_id = conversation_id.clone();
     if stream
         .send(StreamEvent::Done {

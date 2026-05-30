@@ -265,6 +265,24 @@ impl ComputerState {
         tier
     }
 
+    /// Returns true when the tier runtime has flagged that the task is exhausted
+    /// (repetition_count reached GIVE_UP_THRESHOLD) and the outer loop should exit.
+    pub fn should_give_up(&self, conversation_id: &str) -> bool {
+        let session = self.get_or_create_session(conversation_id);
+        let g = session.lock().unwrap().tier_runtime.should_give_up;
+        g
+    }
+
+    /// Clears give-up from a prior run so new user guidance can proceed.
+    pub fn reset_give_up_for_new_turn(&self, conversation_id: &str) {
+        let session = self.get_or_create_session(conversation_id);
+        session
+            .lock()
+            .unwrap()
+            .tier_runtime
+            .reset_give_up_for_new_turn();
+    }
+
     pub fn round_llm_overrides(&self, conversation_id: &str) -> ComputerRoundLlmOverrides {
         let tier = self.tier_for_conversation(conversation_id);
         ComputerRoundLlmOverrides::for_tier(tier, &self.effective_tier_config())
@@ -655,14 +673,18 @@ impl ComputerState {
             };
             s.tier_runtime.backfill_last_verify(tier, outcome);
         }
-        let config = self.effective_tier_config();
-        s.tier_runtime
-            .on_round_complete(
-                &config,
-                parsed_verify.as_ref(),
-                last_goal.as_deref(),
-                parsed_signal.as_ref().map(|s| s.repetition_count),
+        let host_repetition_count =
+            crate::agents::computer::tier::same_goal_repetition_count_in_history(
+                s.tier_runtime.history_for(tier),
             );
+        let config = self.effective_tier_config();
+        s.tier_runtime.on_round_complete(
+            &config,
+            parsed_verify.as_ref(),
+            last_goal.as_deref(),
+            parsed_signal.as_ref().map(|s| s.repetition_count),
+            host_repetition_count,
+        );
         if parsed_signal.is_none() {
             let has_thoughts_step = thoughts
                 .and_then(crate::agents::computer::tier::parse_verify_from_thoughts)

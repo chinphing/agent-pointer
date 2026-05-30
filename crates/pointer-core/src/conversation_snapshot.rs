@@ -185,6 +185,7 @@ mod tests {
                 computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+            tool_raw_output: None,
             },
             ChatMessage {
                 id: "u1".into(),
@@ -208,6 +209,7 @@ mod tests {
                 computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+            tool_raw_output: None,
             },
             ChatMessage {
                 id: "a1".into(),
@@ -231,6 +233,7 @@ mod tests {
                 computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+            tool_raw_output: None,
             },
             ChatMessage {
                 id: "a2".into(),
@@ -254,6 +257,7 @@ mod tests {
                 computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+            tool_raw_output: None,
             },
         ];
         let snap = build_snapshot_json("conv-1", inst, "coder", &history);

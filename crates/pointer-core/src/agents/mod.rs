@@ -1008,9 +1008,11 @@ fn resolve_tools(
     };
     let available: HashSet<_> = tools.list_defs().into_iter().map(|t| t.name).collect();
     let deny: HashSet<_> = policy.deny_tools.iter().cloned().collect();
-    names.retain(|name| available.contains(name) && !deny.contains(name));
-    names.sort();
-    names.dedup();
+    names.retain(|name| {
+        let base = crate::tools::registry_tool_base_name(name);
+        available.contains(base) && !deny.contains(name) && !deny.contains(base)
+    });
+    crate::tools::normalize_allowed_tool_names(&mut names, &available);
     names
 }
 

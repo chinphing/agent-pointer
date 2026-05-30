@@ -19,13 +19,13 @@ schema:
 ### `run_subagent`
 
 Hand off a **self-contained sub-task** to another **worker** agent. The worker’s **deliverable** (for **`explore`**, etc.)
-is **Markdown** in the tool result’s **`content`** field. You then decide the next step (e.g. **`response`**, more tools,
-or another handoff).
+is **Markdown** in the tool result’s **`content`** field — **final assistant content** from the worker, not a
+**`response`** tool call.
 
 **What the lead receives**
 
-- **`content`** — **Markdown** string: the worker’s full report (from **`response`** → **`tool_args.text`**). Treat this
-  as the canonical handoff document; merge it into your plan or implementation notes.
+- **`content`** — **Markdown** string: the worker’s full report (final assistant message text). Treat this as the
+  canonical handoff document; merge it into your plan or implementation notes.
 - **Sibling fields** (ids, names, optional **`reasoning`**) are metadata alongside **`content`**; read them if useful,
   but the reconnaissance body is **Markdown**, not JSON inside **`content`**.
 - If your UI or parser wraps the tool reply in JSON, read the **`content`** property’s string value — that string **is**
@@ -63,6 +63,7 @@ or another handoff).
 
 - **`instruction`** must stand alone: prior turns, paths or facts not written there, or implicit context only in the main chat will **not** be available to the worker.
 - A worker run **cannot** call **`run_subagent`** again; do not plan nested delegation.
+- Workers **cannot** call **`response`**; they finish by writing Markdown as **assistant content** on the final turn.
 - Optional **`taskId`** should stay stable if you need the same sidecar board across multiple handoffs to the same logical task.
 
 #### Parameters
@@ -72,11 +73,8 @@ or another handoff).
 - **`title`** (optional) — Short label for traces.
 - **`taskId`** (optional) — Stable id for sidecar state; omit to let the host assign one.
 
-**Two different things (do not confuse them)**
+**Handoff flow**
 
 1. **Tool call arguments** — provide `agentId`, `instruction`, and optional `title` / `taskId`.
-2. **After the worker run completes** — The host returns a **tool result JSON object** (metadata + **`content`**). The
-   worker finishes by calling the **`response`** tool; the host copies **`tool_args.text`** into **`content`** (legacy
-   key **`message`** in **`tool_args`** is also accepted for the same string). For **`explore`**, that string is
-   **Markdown**. So the sub-agent **does** use **`response`**; the parent reads the handoff from **`content`**, not from
-   a second nested JSON report inside **`content`**.
+2. **Worker run** — the worker uses native tool calls for exploration, then writes the full Markdown digest as **final assistant content** (no tools on that turn).
+3. **Tool result** — the host returns JSON with **`content`** set to that Markdown string. The parent reads **`content`** only.

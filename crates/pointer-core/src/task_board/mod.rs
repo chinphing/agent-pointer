@@ -5,6 +5,7 @@ pub mod args;
 pub mod checkpoint;
 pub mod coordination;
 pub mod evidence;
+pub mod finalize;
 pub mod gateway;
 pub mod history_trim;
 pub mod inject;
@@ -33,6 +34,7 @@ pub use history_trim::{
     TaskBoardTrimStats, TRIM_PLACEHOLDER_PREFIX,
 };
 pub use evidence::history_has_recent_action_tools;
+pub use finalize::maybe_auto_finalize_if_complete;
 pub use inject::inject_host_task_board_conversation_id;
 pub use model::{BoardDocument, BoardItem, ItemStatus, MetaStatus};
 pub use persistence::TaskBoardSqlite;

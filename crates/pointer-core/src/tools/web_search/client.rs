@@ -1126,6 +1126,7 @@ mod tests {
             computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+            tool_raw_output: None,
             };
         let history = vec![
             mk("u1", Role::User, "Compare Rust editions"),
@@ -1272,6 +1273,7 @@ mod tests {
                 computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+            tool_raw_output: None,
             },
             ChatMessage {
                 id: "a1".into(),
@@ -1295,6 +1297,7 @@ mod tests {
                 computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+            tool_raw_output: None,
             },
             ChatMessage {
                 id: "t1".into(),
@@ -1318,6 +1321,7 @@ mod tests {
                 computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+            tool_raw_output: None,
             },
         ];
         assert_eq!(compute_citation_base_index(&history, "a1"), 7);

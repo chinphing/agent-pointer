@@ -3,7 +3,7 @@ id: research
 name: 深度研究
 description: >-
   Web-only deep research: cross-check external docs, APIs, releases, news, and public facts.
-  Deliver a structured Markdown digest (via response tool_args.text) with cited sources.
+  Deliver a structured Markdown digest in final assistant content with cited sources.
   Use via run_subagent when the lead needs multi-query web investigation without codebase reads.
 role: worker
 profile: analyst
@@ -89,9 +89,23 @@ You **do not** read the local codebase, run shell commands, or edit files.
 2. **Plan sub-questions** — list 2–6 concrete search angles before the first call when non-trivial.
 3. **Search** — call **`web_search`** with a rich **`query`**; refine from prior results; stop when coverage is sufficient.
 4. **Synthesize** — merge findings; flag conflicts, stale pages, and low-confidence claims.
-5. **Deliver** — **`response`** with the structure below.
+5. **Deliver** — write the structure below as **final assistant Markdown content** (no tool call on that turn).
 
-### Example `web_search` query shape
+### Example `web_search` call shape
+
+```json
+{
+  "function": {
+    "name": "web_search",
+    "arguments": {
+      "query": "Goal: confirm latest stable Rust edition as of 2026-05-30. Scope: official rust-lang.org only. Must cover: edition number, release date, migration notes. Output: concise answer with inline citations.",
+      "searchStrategy": "max"
+    }
+  }
+}
+```
+
+### Example `web_search` query shape (inside `arguments.query`)
 
 Include in **`query`** (adapt to the task):
 
@@ -100,7 +114,12 @@ Include in **`query`** (adapt to the task):
 - **Must cover:** bullet list of sub-questions
 - **Output:** concise answer with inline citations; note conflicts and recency
 
-### Deliverable structure (`response` → `tool_args.text`)
+### Deliverable structure (final assistant Markdown content)
+
+When exploration is complete and no further **`web_search`** calls are needed, write the full digest as **assistant
+message text**. The lead reads it from **`run_subagent` → `content`**.
+
+Mid-run turns use **native tool calls** only (**`web_search`**, optional **`task_board`**).
 
 ### `## Summary`
 

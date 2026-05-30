@@ -102,7 +102,30 @@ fn normalize_tool_name_colons(s: &str) -> String {
         .collect()
 }
 
-/// Registry id: strip the optional `:method` suffix (`mouse:click_index` → `mouse`, `wait` → `wait`).
+/// Whether `registry_tool_id` is permitted by an allow list (exact base or `base:method` entry).
+pub fn registry_tool_in_allow_list(allowed: &[String], registry_tool_id: &str) -> bool {
+    if allowed.is_empty() {
+        return true;
+    }
+    allowed
+        .iter()
+        .any(|a| registry_tool_base_name(a) == registry_tool_id)
+}
+
+/// Keep allow-list entries whose registry base exists; inject base names for `tool:method` entries.
+pub fn normalize_allowed_tool_names(names: &mut Vec<String>, available: &std::collections::HashSet<String>) {
+    names.retain(|name| available.contains(registry_tool_base_name(name)));
+    let extras: Vec<String> = names
+        .iter()
+        .map(|n| registry_tool_base_name(n).to_string())
+        .filter(|base| available.contains(base.as_str()) && !names.contains(base))
+        .collect();
+    names.extend(extras);
+    names.sort();
+    names.dedup();
+}
+
+/// Registry id: strip optional `:method` suffix (`mouse:click_index` → `mouse`, `wait` → `wait`).
 pub fn registry_tool_base_name(raw: &str) -> &str {
     match raw.trim().split_once(':') {
         Some((base, rest)) if !base.is_empty() && !rest.trim().is_empty() => base.trim(),
@@ -335,24 +358,48 @@ impl ToolRegistry {
     }
 
     pub fn openai_tools(&self, allow: &[String]) -> Vec<serde_json::Value> {
-        self.inner
-            .read()
-            .values()
-            .filter(|e| allow.is_empty() || allow.contains(&e.def.name))
-            .map(|e| {
-                let description = openai_description_from_doc(&e.doc_markdown);
-                let parameters = openai_parameters_from_doc_or_builtin(&e.def.name, &e.doc_markdown);
-                serde_json::json!({
-                    "type": "function",
-                    "function": {
-                        "name": e.def.name,
-                        "description": description,
-                        "parameters": parameters
-                    }
-                })
-            })
-            .collect()
+        let mut out: Vec<serde_json::Value> = Vec::new();
+        for e in self.inner.read().values() {
+            if !registry_tool_allowed(&e.def.name, allow) {
+                continue;
+            }
+            out.push(openai_tool_entry(
+                &e.def.name,
+                &openai_description_from_doc(&e.doc_markdown),
+                openai_parameters_from_doc_or_builtin(&e.def.name, &e.doc_markdown),
+            ));
+        }
+        out.sort_by(|a, b| {
+            a["function"]["name"]
+                .as_str()
+                .unwrap_or("")
+                .cmp(b["function"]["name"].as_str().unwrap_or(""))
+        });
+        out
     }
+}
+
+/// Whether a registry base tool (or any of its qualified variants) is allowed.
+fn registry_tool_allowed(base: &str, allow: &[String]) -> bool {
+    if allow.is_empty() {
+        return true;
+    }
+    if allow.iter().any(|a| a == base) {
+        return true;
+    }
+    let prefix = format!("{base}:");
+    allow.iter().any(|a| a.starts_with(&prefix))
+}
+
+fn openai_tool_entry(name: &str, description: &str, parameters: Value) -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": parameters
+        }
+    })
 }
 
 /// Validate multi-call batch semantics:
@@ -390,6 +437,10 @@ fn openai_description_from_doc(doc: &str) -> String {
 }
 
 fn openai_parameters_from_doc_or_builtin(name: &str, doc: &str) -> serde_json::Value {
+    match name {
+        "file" | "skill" | "task_board" => return builtin_openai_parameters(name),
+        _ => {}
+    }
     match json_schema_from_markdown(doc) {
         Ok(schema) if schema.is_object() => schema,
         _ => builtin_openai_parameters(name),
@@ -422,6 +473,7 @@ fn builtin_openai_parameters(name: &str) -> serde_json::Value {
                 "edits": { "type": "array" },
                 "pattern": { "type": "string" }
             },
+            "required": ["method"],
             "additionalProperties": true
         }),
         "run_subagent" => json!({
@@ -442,7 +494,7 @@ fn builtin_openai_parameters(name: &str) -> serde_json::Value {
                 "skill_id": { "type": "string" },
                 "path": { "type": "string" }
             },
-            "required": ["method", "skill_id"],
+            "required": ["method"],
             "additionalProperties": true
         }),
         "web_search" => json!({
@@ -490,6 +542,7 @@ fn builtin_openai_parameters(name: &str) -> serde_json::Value {
                 "expected_total": { "type": "integer", "minimum": 1 },
                 "_conversation_id": { "type": "string" }
             },
+            "required": ["method"],
             "additionalProperties": true
         }),
         "mouse" => json!({
@@ -645,6 +698,7 @@ mod parse_args_tests {
     #[test]
     fn registry_tool_base_name_splits_method_suffix() {
         assert_eq!(registry_tool_base_name("mouse:click_index"), "mouse");
+        assert_eq!(registry_tool_base_name("file:read"), "file");
         assert_eq!(registry_tool_base_name("wait"), "wait");
         assert_eq!(registry_tool_base_name("response"), "response");
     }
@@ -705,6 +759,85 @@ mod openai_tools_schema_tests {
     use std::sync::Arc;
 
     #[test]
+    fn openai_tools_file_uses_name_and_method() {
+        use super::ToolEntry;
+        use super::ToolRegistry;
+        use std::sync::Arc;
+
+        let reg = ToolRegistry::new();
+        reg.register(ToolEntry::new(
+            "file",
+            "low",
+            false,
+            "### `file`\nUnified workspace file tools.",
+            Arc::new(|_| Ok(String::new())),
+        ));
+
+        let tools = reg.openai_tools(&["file".into()]);
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["function"]["name"], "file");
+        let params = &tools[0]["function"]["parameters"];
+        assert_eq!(params["required"][0], "method");
+        assert!(params["properties"]["method"]["enum"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|v| v == "read")));
+    }
+
+    #[test]
+    fn openai_tools_task_board_uses_name_and_method() {
+        let reg = ToolRegistry::new();
+        reg.register(ToolEntry::new_sidecar(
+            "task_board",
+            "low",
+            false,
+            "### `task_board`\nSession task board.",
+            Arc::new(|_| Ok(String::new())),
+        ));
+
+        let tools = reg.openai_tools(&["task_board:patch".into()]);
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["function"]["name"], "task_board");
+        assert_eq!(tools[0]["function"]["parameters"]["required"][0], "method");
+    }
+
+    #[test]
+    fn openai_tools_skill_uses_name_and_method() {
+        let reg = ToolRegistry::new();
+        reg.register(ToolEntry::new(
+            "skill",
+            "low",
+            false,
+            "### `skill`\nSkill loader.",
+            Arc::new(|_| Ok(String::new())),
+        ));
+
+        let tools = reg.openai_tools(&["skill".into()]);
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["function"]["name"], "skill");
+        assert_eq!(tools[0]["function"]["parameters"]["required"][0], "method");
+    }
+
+    #[test]
+    fn normalize_allowed_injects_base_for_qualified_entry() {
+        use super::normalize_allowed_tool_names;
+        use std::collections::HashSet;
+
+        let available: HashSet<String> = ["task_board".into(), "file".into()].into_iter().collect();
+        let mut names = vec!["task_board:patch".into(), "file:read".into()];
+        normalize_allowed_tool_names(&mut names, &available);
+        assert!(names.contains(&"task_board".to_string()));
+        assert!(names.contains(&"file".to_string()));
+    }
+
+    #[test]
+    fn registry_tool_in_allow_list_accepts_qualified_entry() {
+        use super::registry_tool_in_allow_list;
+        let allow = vec!["task_board:patch".into()];
+        assert!(registry_tool_in_allow_list(&allow, "task_board"));
+        assert!(!registry_tool_in_allow_list(&allow, "terminal"));
+    }
+
+    #[test]
     fn openai_tools_uses_builtin_schema_when_doc_has_no_json_fence() {
         let reg = ToolRegistry::new();
         reg.register(ToolEntry::new(
@@ -718,7 +851,7 @@ mod openai_tools_schema_tests {
         let tools = reg.openai_tools(&[]);
         assert_eq!(tools.len(), 1);
         let params = &tools[0]["function"]["parameters"];
-        assert_eq!(params["required"][0], "method");
+        assert_eq!(params["required"][0], "action");
         assert_eq!(params["required"][2], "index_captcha_area");
         assert_eq!(params["properties"]["index_captcha_area"]["type"], "integer");
         assert_eq!(params["properties"]["is_slider"]["type"], "boolean");

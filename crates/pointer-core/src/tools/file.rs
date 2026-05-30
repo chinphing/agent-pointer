@@ -39,21 +39,58 @@ const MAX_LIST_ENTRIES: usize = 2000;
 const MAX_WALK_DEPTH: usize = 64;
 const CONTEXT_LINES: usize = 2;
 
-// Predefined file type globs (align with ripgrep)
+// Predefined file type globs (align with ripgrep; small curated set).
 const FILE_TYPE_GLOBS: &[(&str, &[&str])] = &[
-    ("rust", &["*.rs", "*.toml"]),
+    ("rust", &["*.rs"]),
+    ("toml", &["*.toml"]),
     ("py", &["*.py", "*.pyi"]),
-    ("js", &["*.js", "*.cjs", "*.mjs"]),
-    ("ts", &["*.ts", "*.tsx"]),
+    ("js", &["*.js", "*.jsx", "*.cjs", "*.mjs"]),
+    ("ts", &["*.ts", "*.tsx", "*.mts", "*.cts"]),
     ("vue", &["*.vue"]),
-    ("md", &["*.md"]),
-    ("json", &["*.json"]),
+    ("svelte", &["*.svelte"]),
+    ("md", &["*.md", "*.mdx"]),
+    ("json", &["*.json", "*.jsonc"]),
+    ("yaml", &["*.yml", "*.yaml"]),
+    ("html", &["*.html", "*.htm"]),
+    ("css", &["*.css", "*.scss", "*.less"]),
+    ("xml", &["*.xml", "*.xsl", "*.xslt"]),
+    ("go", &["*.go"]),
+    ("java", &["*.java"]),
+    ("kt", &["*.kt", "*.kts"]),
+    ("c", &["*.c", "*.h"]),
+    ("cpp", &["*.cpp", "*.cc", "*.cxx", "*.hpp", "*.hh", "*.hxx"]),
+    ("rb", &["*.rb", "*.rake", "*.gemspec"]),
+    ("php", &["*.php", "*.phtml"]),
+    ("swift", &["*.swift"]),
+    ("scala", &["*.scala", "*.sc"]),
+    ("sql", &["*.sql"]),
+    ("sh", &["*.sh", "*.bash", "*.zsh"]),
 ];
+
+/// Map user-facing type names (aliases, extensions, mixed case) to canonical keys in [`FILE_TYPE_GLOBS`].
+fn normalize_file_type_name(name: &str) -> String {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "rs" => "rust".to_string(),
+        "python" => "py".to_string(),
+        "javascript" => "js".to_string(),
+        "typescript" => "ts".to_string(),
+        "markdown" => "md".to_string(),
+        "yml" => "yaml".to_string(),
+        "kotlin" => "kt".to_string(),
+        "c++" | "cxx" | "hpp" => "cpp".to_string(),
+        "ruby" => "rb".to_string(),
+        "shell" | "bash" | "zsh" => "sh".to_string(),
+        other => other.to_string(),
+    }
+}
 
 fn expand_file_types(types: &[String]) -> Result<Vec<String>> {
     let mut globs = Vec::new();
     for t in types {
-        let found = FILE_TYPE_GLOBS.iter().find(|(name, _)| *name == t.as_str());
+        let canonical = normalize_file_type_name(t);
+        let found = FILE_TYPE_GLOBS
+            .iter()
+            .find(|(name, _)| *name == canonical.as_str());
         match found {
             Some((_, g)) => globs.extend(g.iter().map(|s| s.to_string())),
             None => return Err(anyhow!("未知文件类型: {t}")),
@@ -520,7 +557,7 @@ fn utf8_byte_prefix(s: &str, max_bytes: usize) -> &str {
     &s[..n]
 }
 
-/// Core logic for `file_read` (single `path` or batch `paths`). Used by tests with an explicit root.
+/// Core logic for `file:read` (batch `paths` only). Used by tests with an explicit root.
 fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result<String> {
     let line_start = json_u64_opt(args, "lineStart", "line_start")
         .unwrap_or(1)
@@ -534,153 +571,130 @@ fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result<String> {
         .unwrap_or(MAX_FILE_READ_BYTES as u64)
         .min(MAX_FILE_READ_BYTES as u64) as usize;
 
-    let batch_specs: Option<Vec<BatchReadSpec>> = match args.get("paths") {
-        None => None,
-        Some(v) => {
-            let arr = v
-                .as_array()
-                .ok_or_else(|| anyhow!("paths 须为 JSON 数组"))?;
-            Some(parse_file_read_batch_paths(
-                arr,
-                line_start,
-                line_end_exclusive,
-                max_bytes,
-            )?)
+    let paths_val = args.get("paths").ok_or_else(|| {
+        anyhow!("缺少 paths；单文件读取请传 paths: [{{ \"path\": \"...\" }}]")
+    })?;
+    let arr = paths_val
+        .as_array()
+        .ok_or_else(|| anyhow!("paths 须为 JSON 数组"))?;
+    if arr.is_empty() {
+        return Err(anyhow!(
+            "paths 不能为空；单文件读取请传 paths: [{{ \"path\": \"...\" }}]"
+        ));
+    }
+
+    let specs = parse_file_read_batch_paths(arr, line_start, line_end_exclusive, max_bytes)?;
+    if specs.len() > MAX_FILE_READ_BATCH {
+        return Err(anyhow!(
+            "一次最多读取 {} 个文件（当前 {}）",
+            MAX_FILE_READ_BATCH,
+            specs.len()
+        ));
+    }
+    let max_total_bytes = args
+        .get("maxTotalBytes")
+        .or_else(|| args.get("max_total_bytes"))
+        .and_then(|v| v.as_u64())
+        .map(|n| {
+            (n as usize)
+                .max(1)
+                .min(MAX_FILE_READ_BATCH_TOTAL_BYTES_CLAMP)
+        })
+        .unwrap_or(MAX_FILE_READ_BATCH_TOTAL_BYTES_DEFAULT);
+
+    let mut content_bytes: usize = 0;
+    let mut batch_capped = false;
+    let mut budget_done = false;
+    let mut files: Vec<serde_json::Value> = Vec::with_capacity(specs.len());
+
+    for spec in &specs {
+        if budget_done || content_bytes >= max_total_bytes {
+            files.push(serde_json::json!({
+                "path": path_display_for_read_request(root, &spec.path),
+                "error": "未读取：本批正文已达 maxTotalBytes 上限。请减少 paths、为各 path 设置 lineStart/lineEnd、降低 maxBytes，或拆成多次 file:read。",
+            }));
+            batch_capped = true;
+            continue;
         }
-    };
 
-    let use_batch = batch_specs
-        .as_ref()
-        .map(|p| !p.is_empty())
-        .unwrap_or(false);
+        let mut v = file_read_one_json(
+            root,
+            &spec.path,
+            spec.line_start,
+            spec.line_end_exclusive,
+            spec.max_bytes,
+        );
 
-    if use_batch {
-        let specs = batch_specs.unwrap_or_default();
-        if specs.len() > MAX_FILE_READ_BATCH {
-            return Err(anyhow!(
-                "一次最多读取 {} 个文件（当前 {}）",
-                MAX_FILE_READ_BATCH,
-                specs.len()
-            ));
+        if v.get("error").is_some() {
+            files.push(v);
+            continue;
         }
-        let max_total_bytes = args
-            .get("maxTotalBytes")
-            .or_else(|| args.get("max_total_bytes"))
-            .and_then(|v| v.as_u64())
-            .map(|n| {
-                (n as usize)
-                    .max(1)
-                    .min(MAX_FILE_READ_BATCH_TOTAL_BYTES_CLAMP)
-            })
-            .unwrap_or(MAX_FILE_READ_BATCH_TOTAL_BYTES_DEFAULT);
 
-        let mut content_bytes: usize = 0;
-        let mut batch_capped = false;
-        let mut budget_done = false;
-        let mut files: Vec<serde_json::Value> = Vec::with_capacity(specs.len());
+        let Some(content) = v.get("content").and_then(|c| c.as_str()) else {
+            files.push(v);
+            continue;
+        };
 
-        for spec in &specs {
-            if budget_done || content_bytes >= max_total_bytes {
-                files.push(serde_json::json!({
-                    "path": path_display_for_read_request(root, &spec.path),
-                    "error": "未读取：本批正文已达 maxTotalBytes 上限。请减少 paths、为各 path 设置 lineStart/lineEnd、降低 maxBytes，或拆成多次 file:read。",
-                }));
-                batch_capped = true;
-                continue;
-            }
+        let next_total = content_bytes.saturating_add(content.len());
+        if next_total <= max_total_bytes {
+            content_bytes = next_total;
+            files.push(v);
+            continue;
+        }
 
-            let mut v = file_read_one_json(
-                root,
-                &spec.path,
-                spec.line_start,
-                spec.line_end_exclusive,
-                spec.max_bytes,
-            );
-
-            if v.get("error").is_some() {
-                files.push(v);
-                continue;
-            }
-
-            let Some(content) = v.get("content").and_then(|c| c.as_str()) else {
-                files.push(v);
-                continue;
-            };
-
-            let next_total = content_bytes.saturating_add(content.len());
-            if next_total <= max_total_bytes {
-                content_bytes = next_total;
-                files.push(v);
-                continue;
-            }
-
-            let budget = max_total_bytes.saturating_sub(content_bytes);
-            if budget < MIN_BATCH_TRUNCATE_REMAINING {
-                files.push(serde_json::json!({
-                    "path": path_display_for_read_request(root, &spec.path),
-                    "error": format!(
-                        "本批剩余空间过小（{} 字节），无法容纳此文件正文。请提高 maxTotalBytes、减少 paths，或为各 path 设置 lineStart/lineEnd。",
-                        budget
-                    ),
-                }));
-                batch_capped = true;
-                budget_done = true;
-                continue;
-            }
-
-            let tail = "\n…[已截断：达到本批 maxTotalBytes]";
-            let prefix_budget = budget.saturating_sub(tail.len());
-            let prefix = utf8_byte_prefix(content, prefix_budget);
-            let new_content = format!("{prefix}{tail}");
-
-            if let serde_json::Value::Object(ref mut m) = v {
-                m.insert("content".to_string(), serde_json::json!(new_content));
-                m.insert("truncated".to_string(), serde_json::json!(true));
-                m.insert("batchTruncated".to_string(), serde_json::json!(true));
-            }
-
-            content_bytes += new_content.len();
+        let budget = max_total_bytes.saturating_sub(content_bytes);
+        if budget < MIN_BATCH_TRUNCATE_REMAINING {
+            files.push(serde_json::json!({
+                "path": path_display_for_read_request(root, &spec.path),
+                "error": format!(
+                    "本批剩余空间过小（{} 字节），无法容纳此文件正文。请提高 maxTotalBytes、减少 paths，或为各 path 设置 lineStart/lineEnd。",
+                    budget
+                ),
+            }));
             batch_capped = true;
             budget_done = true;
-            files.push(v);
+            continue;
         }
 
-        if batch_capped {
-            warn!(
-                "file:read batch hit maxTotalBytes={}; returned {} file entries (truncated and/or skipped)",
-                max_total_bytes,
-                files.len()
-            );
+        let tail = "\n…[已截断：达到本批 maxTotalBytes]";
+        let prefix_budget = budget.saturating_sub(tail.len());
+        let prefix = utf8_byte_prefix(content, prefix_budget);
+        let new_content = format!("{prefix}{tail}");
+
+        if let serde_json::Value::Object(ref mut m) = v {
+            m.insert("content".to_string(), serde_json::json!(new_content));
+            m.insert("truncated".to_string(), serde_json::json!(true));
+            m.insert("batchTruncated".to_string(), serde_json::json!(true));
         }
 
-        return Ok(serde_json::json!({
-            "files": files,
-            "maxTotalBytes": max_total_bytes,
-            "contentBytes": content_bytes,
-            "batchCapped": batch_capped,
-        })
-        .to_string());
+        content_bytes += new_content.len();
+        batch_capped = true;
+        budget_done = true;
+        files.push(v);
     }
 
-    let path = args
-        .get("path")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| anyhow!("缺少 path；批量读取请传 paths 数组"))?;
-
-    let v = file_read_one_json(root, path, line_start, line_end_exclusive, max_bytes);
-    if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
-        return Err(anyhow!("{}", err));
+    if batch_capped {
+        warn!(
+            "file:read batch hit maxTotalBytes={}; returned {} file entries (truncated and/or skipped)",
+            max_total_bytes,
+            files.len()
+        );
     }
-    Ok(v.to_string())
+
+    Ok(serde_json::json!({
+        "files": files,
+        "maxTotalBytes": max_total_bytes,
+        "contentBytes": content_bytes,
+        "batchCapped": batch_capped,
+    })
+    .to_string())
 }
 
 fn execute_file_tool(args: &serde_json::Value, root: &Path) -> Result<String> {
     let method = args
         .get("method")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("缺少 method；或使用限定名 file:read / file:write / file:edit / file:glob / file:grep"))?;
+        .ok_or_else(|| anyhow!("缺少 method；或使用限定名 file:read / file:write / file:edit / file:glob / file:grep / file:list"))?;
     let payload = args_without_method(args);
     match method {
         "read" => execute_file_read(&payload, root),
@@ -1666,12 +1680,34 @@ mod tests {
     }
 
     #[test]
-    fn file_read_empty_paths_array_requires_path() {
+    fn file_read_empty_paths_array_requires_paths() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         let args = json!({ "paths": [] });
         let err = execute_file_read(&args, root).unwrap_err();
-        assert!(err.to_string().contains("path"));
+        assert!(err.to_string().contains("paths"));
+    }
+
+    #[test]
+    fn file_read_missing_paths_errors() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        let args = json!({});
+        let err = execute_file_read(&args, root).unwrap_err();
+        assert!(err.to_string().contains("paths"));
+    }
+
+    #[test]
+    fn file_read_single_file_via_paths_object() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("solo.txt"), "only\n").unwrap();
+        let args = json!({ "paths": [{ "path": "solo.txt" }] });
+        let out = execute_file_read(&args, root).expect("read");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let files = v["files"].as_array().expect("files");
+        assert_eq!(files.len(), 1);
+        assert!(files[0]["content"].as_str().unwrap().contains("only"));
     }
 
     #[test]
@@ -1935,6 +1971,41 @@ mod tests {
         assert_eq!(results.len(), 1, "fileTypes should restrict to .rs");
         let path = results[0]["path"].as_str().unwrap();
         assert!(path.ends_with("a.rs"), "expected a.rs, got {}", path);
+    }
+
+    #[test]
+    fn file_grep_file_types_rs_alias() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("a.rs"), "rust\n").unwrap();
+        fs::write(root.join("a.py"), "python\n").unwrap();
+        let args = json!({"pattern": "rust|python", "fileTypes": ["rs"], "maxResults": 20});
+        let out = execute_file_grep_payload(&args, root).expect("grep");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let results = v["results"].as_array().unwrap();
+        assert_eq!(results.len(), 1, "fileTypes rs alias should restrict to .rs");
+        assert!(results[0]["path"].as_str().unwrap().ends_with("a.rs"));
+    }
+
+    #[test]
+    fn file_grep_file_types_yaml_and_cpp_aliases() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("cfg.yml"), "key: val\n").unwrap();
+        fs::write(root.join("main.cpp"), "int main() {}\n").unwrap();
+        fs::write(root.join("readme.md"), "key: val\n").unwrap();
+
+        let args_yaml = json!({"pattern": "key:", "fileTypes": ["yml"], "maxResults": 20});
+        let out_yaml = execute_file_grep_payload(&args_yaml, root).expect("grep yaml");
+        let v_yaml: serde_json::Value = serde_json::from_str(&out_yaml).unwrap();
+        assert_eq!(v_yaml["count"], 1);
+        assert!(v_yaml["results"][0]["path"].as_str().unwrap().ends_with("cfg.yml"));
+
+        let args_cpp = json!({"pattern": "main", "fileTypes": ["c++"], "maxResults": 20});
+        let out_cpp = execute_file_grep_payload(&args_cpp, root).expect("grep cpp");
+        let v_cpp: serde_json::Value = serde_json::from_str(&out_cpp).unwrap();
+        assert_eq!(v_cpp["count"], 1);
+        assert!(v_cpp["results"][0]["path"].as_str().unwrap().ends_with("main.cpp"));
     }
 
     #[test]

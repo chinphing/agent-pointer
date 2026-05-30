@@ -41,44 +41,57 @@ Do **not** retry the same failing patch blindly.
 
 ### When `file:read` hits caps or errors
 
-If the tool result includes **`batchCapped`**, **`batchTruncated`**, **`truncated`**, **`error`** on a path, or **file too large** for **`maxBytes`**: **do not** repeat the **same** wide **`paths`** batch. **Split** reads across turns, use **`lineStart`** / **`lineEnd`** (root defaults, or **per path** when that entry is an **object** with its own range), or a **smaller `maxBytes`**, **`file:grep`** to locate the right region first, and only then widen reads. If your conclusion depends on truncated or skipped content, say so in **`thoughts`** or the user-facing summary.
+If the tool result includes **`batchCapped`**, **`batchTruncated`**, **`truncated`**, **`error`** on a path, or **file too large** for **`maxBytes`**: **do not** repeat the **same** wide **`paths`** batch. **Split** reads across turns, use **`lineStart`** / **`lineEnd`** (root defaults, or **per path** when that entry is an **object** with its own range), or a **smaller `maxBytes`**, **`file:grep`** to locate the right region first, and only then widen reads. If your conclusion depends on truncated or skipped content, say so in the user-facing summary.
 
 ---
 
 ## `read_lints` (timing and scope)
 
-Call **`read_lints`** in a **separate** tool turn **after** you complete a **logically related group** of **`file:edit`** / **`file:write`** changes for the current sub-goal—**not** after every micro-edit. Use **`tool_args.paths`** (array of workspace files or directories you touched) to **limit** diagnostics and cost; omit **`paths`** only when you deliberately want a broader workspace run. The host does **not** auto-invoke **`read_lints`** after edits; you decide when it is worth the latency (see **Routine workflow** → **Implement** and **Integration checks** in **AGENT**).
+Call **`read_lints`** in a **separate** tool turn **after** you complete a **logically related group** of **`file:edit`** / **`file:write`** changes for the current sub-goal—**not** after every micro-edit. Pass **`paths`** (array of workspace files or directories you touched) to **limit** diagnostics and cost; omit **`paths`** only when you deliberately want a broader workspace run. The host does **not** auto-invoke **`read_lints`** after edits; you decide when it is worth the latency (see **Routine workflow** → **Implement** and **Integration checks** in **AGENT**).
 
 ---
 
 ## Git (via `terminal`)
 
-**How:** History needs the correct repo root (**`TOP`**) before **`blame` / `log`**. **Case 1 (file):** **How** — parent folder of the file; **Tool** — **`terminal`**; **Command** — **`git -C "<PARENT>" rev-parse --show-toplevel`** (see **AGENT**). **Case 2 (folder):** **How** — under **`ROOT`**, self + direct children (hidden) + submodules; **Tool** — **`terminal`**; **Command** — one line in **AGENT**. Then **`git -C "$TOP" …`**. Flags: **`git <cmd> -h`**. Default **`file`** + tests + **`read_lints`**; no commit/push/PR unless asked.
+**How:** Start from the **workspace root** in session context. Run **`git -C "<workspace_root>" rev-parse --show-toplevel`** to get **`TOP`**; use only the **printed** path in later **`git -C "$TOP" …`** commands. For a **verified** file path from **`file`** tools, you may **`rev-parse`** from that file's parent instead (see **AGENT** → **Locate git roots**). **Never** `cd` to an absolute path you have not verified. Then **`blame` / `log` / `status` / `diff`** as needed. Flags: **`git <cmd> -h`**. Default **`file`** + tests + **`read_lints`**; no commit/push/PR unless asked.
 
 ---
 
-## JSON tools: `file:write` and `file:edit`
+## Native tool examples (`file:write`, `file:edit`, `file:read`)
 
-When calling **`file:write`** or **`file:edit`**, put payload fields in **`tool_args`** as **valid JSON strings**
-(see **`file`** tool prompt for **`content`** / **`oldString`** / **`newString`**: **`\"`**, **`\\`**, **`\n`**, etc.;
-`<`, `>`, **`&`** in the file body are **literals** inside the JSON string).
-You may use **`tool_name`** **`file`** plus a **`method`** field (**`write`** / **`edit`**) instead of **`file:write`** / **`file:edit`**.
+Each example is one JSON object with **`function.name`** and **`function.arguments`** (include **`method`** for multi-method tools).
+Do not include call **`id`** or **`type`**.
+
+### `file:read` example (single file via `paths`)
+
+```json
+{
+  "function": {
+    "name": "file",
+    "arguments": {
+      "method": "read",
+      "paths": [{ "path": "src/App.vue", "lineStart": 1, "lineEnd": 120 }]
+    }
+  }
+}
+```
 
 ### `file:edit` example (`edits` array; one object = single file)
 
 ```json
 {
-  "thoughts": "Patch Vue snippet.",
-  "headline": "Edit component",
-  "tool_name": "file:edit",
-  "tool_args": {
-    "edits": [
-      {
-        "path": "src/App.vue",
-        "oldString": "  <div v-if=\"x\">before</div>  ",
-        "newString": "  <div v-if=\"x\">after</div>  "
-      }
-    ]
+  "function": {
+    "name": "file",
+    "arguments": {
+      "method": "edit",
+      "edits": [
+        {
+          "path": "src/App.vue",
+          "oldString": "  <div v-if=\"x\">before</div>  ",
+          "newString": "  <div v-if=\"x\">after</div>  "
+        }
+      ]
+    }
   }
 }
 ```
@@ -89,22 +102,23 @@ Use **`edits`** with **two or more** objects when multiple files (or two disjoin
 
 ```json
 {
-  "thoughts": "Sync constant rename across two files.",
-  "headline": "Batch edit",
-  "tool_name": "file:edit",
-  "tool_args": {
-    "edits": [
-      {
-        "path": "src/a.ts",
-        "oldString": "export const OLD = 1",
-        "newString": "export const NEW = 1"
-      },
-      {
-        "path": "src/b.ts",
-        "oldString": "import { OLD } from './a'",
-        "newString": "import { NEW } from './a'"
-      }
-    ]
+  "function": {
+    "name": "file",
+    "arguments": {
+      "method": "edit",
+      "edits": [
+        {
+          "path": "src/a.ts",
+          "oldString": "export const OLD = 1",
+          "newString": "export const NEW = 1"
+        },
+        {
+          "path": "src/b.ts",
+          "oldString": "import { OLD } from './a'",
+          "newString": "import { NEW } from './a'"
+        }
+      ]
+    }
   }
 }
 ```
@@ -113,12 +127,13 @@ Use **`edits`** with **two or more** objects when multiple files (or two disjoin
 
 ```json
 {
-  "thoughts": "New component file.",
-  "headline": "Add Foo.vue",
-  "tool_name": "file:write",
-  "tool_args": {
-    "path": "src/components/Foo.vue",
-    "content": "<template><div>Hello</div></template>\n<script setup lang=\"ts\">\n</script>\n"
+  "function": {
+    "name": "file",
+    "arguments": {
+      "method": "write",
+      "path": "src/components/Foo.vue",
+      "content": "<template><div>Hello</div></template>\n<script setup lang=\"ts\">\n</script>\n"
+    }
   }
 }
 ```
@@ -127,16 +142,66 @@ Use **`edits`** with **two or more** objects when multiple files (or two disjoin
 
 ## Task board (plan and tracking)
 
-Multi-step work is tracked with **`task_board:patch`** / **`task_board:replace`**, not by pasting the full plan only into **`thoughts`**. Step fields and Sidecar placement follow **Communication (public)** → **Task board**.
+Multi-step work is tracked with **`task_board`**, not by pasting the full plan only into assistant message text or internal reasoning.
+
+**Initialize early:** After **Explore + Impact scan**, before heavy edits, call **`task_board`** with **`method`: `init`** for **any behavior change**. Map **3–6** rows (include Impact scan, Implement, Unit tests). Skip **`init`** only for no-behavior edits (see **AGENT** → **Change ownership**).
+
+**Patch every turn that moves progress:** When a milestone **starts** or **finishes**, call **`task_board`** with **`method`: `patch`** in the **same turn**. Treat **`[TASK_BOARD]`** in injected context as the authoritative compact snapshot.
+
+**Definition of done** on each row: repeatable **`verification`** (command output, test result, or targeted **`file`** read)—see sections below. Step fields and Sidecar placement follow **Communication (public)** → **Task board**.
+
+### Example — init after Explore + Impact scan
+
+```json
+{
+  "function": {
+    "name": "task_board",
+    "arguments": {
+      "method": "init",
+      "goal": "Fix null handling in parser",
+      "items": [
+        { "id": "m1", "title": "Explore + impact scan", "status": "done", "verification": "grep symbol + read all caller hits" },
+        { "id": "m2", "title": "Implement fix", "status": "in_progress", "verification": "file edit parser.rs + callers if needed" },
+        { "id": "m3", "title": "Unit tests + audit", "status": "pending", "verification": "cargo test -p my-crate parser::" }
+      ]
+    }
+  }
+}
+```
+
+### Example — patch after tests pass
+
+```json
+{
+  "function": {
+    "name": "task_board",
+    "arguments": {
+      "method": "patch",
+      "items": [
+        {
+          "id": "m2",
+          "status": "done",
+          "verification": "cargo test -p my-crate parser:: — 12 passed",
+          "output": "Added null guard + regression test"
+        }
+      ]
+    }
+  }
+}
+```
 
 ## Definition of done (`task_board` and delivery)
 
 - Mark a step **`done`** only when **repeatable verification** exists for that step
   (e.g. **`terminal`** command output, **`file:read`** on changed files, or other evidence this profile allows).
 - Do **not** mark **`done`** on “I edited it” alone.
+- Do **not** mark **Implement** **`done`** before **Impact scan** evidence exists.
+- Do **not** **`finalize`** or treat the task complete without **Responsibility audit** (see **AGENT** step 7) when executable logic changed.
 - If verification is impossible, add a **short risk note** on the board or in the user reply instead of pretending certainty.
+- When **every** board row is **`done`** or **`cancelled`**, call **`task_board`** with **`method`: `finalize`** in the delivery turn.
 
 ## Cross-surface verification (before final `response`)
 
+- Include **Responsibility audit** answers (references, lifecycle, symmetry, tests, drift, surfaces)—see **AGENT** step 7.
 - Briefly confirm what you **actually ran or read** (tests, builds, key files), and whether **app vs web** or **OS-specific** angles were checked or explicitly deferred with a reason.
 - If something was **not** verified, say so plainly.

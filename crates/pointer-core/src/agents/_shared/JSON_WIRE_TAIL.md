@@ -7,5 +7,7 @@ Do not serialize tool calls as text envelopes.
   content directly.
 - For operations, call tools directly with
   native tool arguments.
-- Use qualified names where required,
-  such as `file:read` and `task_board:patch`.
+- For method-style tools, call the registered name
+  and pass **`method`** in **`arguments`**
+  (e.g. **`file`** + **`method`: `read`**,
+  **`task_board`** + **`method`: `patch`**).

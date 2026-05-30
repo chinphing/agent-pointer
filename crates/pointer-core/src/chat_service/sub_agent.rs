@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::{AgentProfile, AgentRunResult, AgentTask};
 use crate::llm_token_stats::ConversationLlmStats;
-use crate::models::{effective_reasoning_in_messages, AgentTrace, StreamEvent};
+use crate::models::{effective_reasoning_in_messages, AgentTrace, ChatMessage, Role, StreamEvent};
 use crate::provider::OpenAIProvider;
 
 use super::agent_post_stream::{
@@ -26,6 +26,18 @@ use super::sub_agent_prompt::{init_sub_agent_session, prepare_sub_agent_round_pr
 use super::sub_agent_stream::{run_sub_agent_stream_round, SubAgentStreamOutcome};
 use super::util::new_id;
 use super::StreamTx;
+
+/// Final handoff for `run_subagent`: prefer the latest assistant turn (final Markdown digest),
+/// fall back to accumulated stream content when that turn is empty.
+fn sub_agent_handoff_content(local_history: &[ChatMessage], accumulated: &str) -> String {
+    local_history
+        .iter()
+        .rev()
+        .find(|m| matches!(m.role, Role::Assistant))
+        .map(|m| m.content.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| accumulated.trim().to_string())
+}
 
 pub(crate) async fn run_sub_agent(
     provider: &OpenAIProvider,
@@ -59,6 +71,12 @@ pub(crate) async fn run_sub_agent(
     let budget_scope = ToolBudgetExhaustionScope::sub_agent(max_cap, instance_scope.clone());
     let mut content = String::new();
     let mut reasoning = String::new();
+
+    if def.profile == AgentProfile::Computer {
+        state
+            .computer_state
+            .reset_give_up_for_new_turn(conversation_id);
+    }
 
     loop {
         if cancel.is_cancelled() {
@@ -159,6 +177,13 @@ pub(crate) async fn run_sub_agent(
                 last_msg.and_then(|m| m.thoughts.as_deref()),
                 last_msg.and_then(|m| m.tool_calls.as_deref()),
             );
+            if state.computer_state.should_give_up(conversation_id) {
+                state.computer_state.mark_cancelled(conversation_id);
+                return Err(anyhow!(
+                    "当前任务已尽力但仍无法完成（重复操作达到 {} 次），请提供进一步指导。",
+                    crate::agents::computer::tier::GIVE_UP_THRESHOLD
+                ));
+            }
         }
 
         let post_action = if buf.final_tool_calls.is_empty() {
@@ -187,10 +212,22 @@ pub(crate) async fn run_sub_agent(
 
         match post_action {
             PostAssistantTurnAction::FinishRun => {
+                if crate::task_board::maybe_auto_finalize_if_complete(
+                    &state.task_board_store,
+                    &sub_task_board_key,
+                ) {
+                    let doc = state.task_board_store.document(&sub_task_board_key);
+                    super::emit::emit_task_board_updated(
+                        &stream,
+                        conversation_id,
+                        &sub_task_board_key,
+                        doc.to_value(),
+                    );
+                }
                 return Ok(sub_agent_run_result(
                     &task.id,
                     &def,
-                    content,
+                    sub_agent_handoff_content(&local_history, &content),
                     reasoning_in_messages,
                     reasoning,
                 ));
@@ -203,7 +240,6 @@ pub(crate) async fn run_sub_agent(
             task,
             allowed_tools: &allowed_tools,
             instance_scope: &instance_scope,
-            round_message_id: &round_message_id,
             accumulated_content: content.clone(),
             accumulated_reasoning: reasoning.clone(),
             reasoning_in_messages,
@@ -242,7 +278,7 @@ pub(crate) async fn run_sub_agent(
                 return Ok(sub_agent_run_result(
                     &task.id,
                     &def,
-                    content,
+                    sub_agent_handoff_content(&local_history, &content),
                     reasoning_in_messages,
                     reasoning,
                 ));
@@ -265,5 +301,56 @@ pub(crate) async fn run_sub_agent(
             &budget_scope,
         )
         .await?;
+    }
+}
+
+#[cfg(test)]
+mod handoff_tests {
+    use super::*;
+    use crate::models::ChatMessage;
+
+    fn assistant(content: &str) -> ChatMessage {
+        ChatMessage {
+            id: "a".into(),
+            role: Role::Assistant,
+            content: content.into(),
+            status: "done".into(),
+            created_at: 0,
+            tool_calls: None,
+            tool_call_id: None,
+            error_message: None,
+            reasoning: None,
+            thoughts: None,
+            headline: None,
+            raw_content: None,
+            tool_raw_output: None,
+            agent_id: None,
+            agent_instance_id: None,
+            agent_name: None,
+            agent_trace: None,
+            image_slot_labels: None,
+            images_base64: None,
+            computer_round_screen_rel_path: None,
+            ui_bindings: None,
+            context_state: None,
+        }
+    }
+
+    #[test]
+    fn handoff_prefers_latest_assistant_turn() {
+        let history = vec![assistant(""), assistant("## Summary\nDone.")];
+        assert_eq!(
+            sub_agent_handoff_content(&history, "stale accumulated"),
+            "## Summary\nDone."
+        );
+    }
+
+    #[test]
+    fn handoff_falls_back_to_accumulated_when_last_assistant_empty() {
+        let history = vec![assistant("")];
+        assert_eq!(
+            sub_agent_handoff_content(&history, "  fallback  "),
+            "fallback"
+        );
     }
 }

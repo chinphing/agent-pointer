@@ -7,6 +7,7 @@ use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
 use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent, ToolCall};
 use crate::provider::OpenAIProvider;
 use crate::tools::merge_tool_method_from_qualified_name;
+use crate::tools::registry_tool_in_allow_list;
 use crate::tools::parse_tool_call_arguments;
 use crate::tools::response::response_text_from_args;
 use crate::tools::terminal::{run_terminal_command_streaming, terminal_stream_tool_status};
@@ -39,7 +40,7 @@ use super::StreamTx;
 pub(super) enum ToolPassResult {
     /// Lead: `response` tool ended the turn successfully (`tool_budget` already synced).
     LeadFinished,
-    /// Sub-agent: `response` tool ended with handoff payload.
+    /// Sub-agent: tool pass ended without executing tools (legacy exit; prefer `FinishRun` in sub loop).
     SubFinished(AgentRunResult),
     /// No tool ran to completion in a way that consumes a round (synced out for lead).
     NoopExit,
@@ -75,7 +76,6 @@ pub(super) struct SubToolPassConfig<'a> {
     pub task: &'a AgentTask,
     pub allowed_tools: &'a [String],
     pub instance_scope: &'a AgentInstanceScope,
-    pub round_message_id: &'a str,
     pub accumulated_content: String,
     pub accumulated_reasoning: String,
     pub reasoning_in_messages: bool,
@@ -143,6 +143,26 @@ pub(super) async fn run_agent_tool_pass(
         }
 
         if tool_id == "response" {
+            if sub.is_some() {
+                let err = "子 Agent 不可用 response 工具；请直接输出 Markdown 正文。";
+                emit(
+                    &stream,
+                    StreamEvent::ToolCallStatus {
+                        message_id: message_id.clone(),
+                        tool_call_id: tc.id.clone(),
+                        status: "failed".into(),
+                        result: None,
+                        error: Some(err.to_string()),
+                        duration_ms: Some(0),
+                        display_label: None,
+                        display_summary: None,
+                        trace_id: trace_id_opt(sub_trace_id),
+                    },
+                );
+                history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
+                any_executed = true;
+                continue;
+            }
             return handle_response_tool(
                 &stream,
                 history,
@@ -151,9 +171,8 @@ pub(super) async fn run_agent_tool_pass(
                 &message_id,
                 tc,
                 &args_value,
-                lead.as_ref(),
-                sub.as_ref(),
-            ); // response path does not need mutable lead
+                lead.as_ref().expect("response tool requires lead context"),
+            );
         }
 
         if let Some(sub_cfg) = sub.as_ref() {
@@ -177,7 +196,7 @@ pub(super) async fn run_agent_tool_pass(
                 any_executed = true;
                 continue;
             }
-            if !sub_cfg.allowed_tools.contains(&tool_id) {
+            if !registry_tool_in_allow_list(sub_cfg.allowed_tools, &tool_id) {
                 let err = format!(
                     "Agent {} 不允许调用工具: {}",
                     sub_cfg.def.id, tc.name
@@ -337,12 +356,11 @@ fn handle_response_tool(
     message_id: &str,
     tc: &ToolCall,
     args_value: &serde_json::Value,
-    lead: Option<&LeadToolPassConfig<'_>>,
-    sub: Option<&SubToolPassConfig<'_>>,
+    lead_cfg: &LeadToolPassConfig<'_>,
 ) -> Result<ToolPassResult> {
     let message = response_text_from_args(args_value).unwrap_or("");
 
-    if !message.is_empty() && lead.is_some() {
+    if !message.is_empty() {
         emit(
             stream,
             StreamEvent::Delta {
@@ -352,7 +370,6 @@ fn handle_response_tool(
         );
     }
 
-    let sub_trace_id = sub.map(|s| s.trace_id.as_str());
     emit(
         stream,
         StreamEvent::ToolCallStatus {
@@ -364,96 +381,58 @@ fn handle_response_tool(
             duration_ms: Some(0),
             display_label: None,
             display_summary: None,
-            trace_id: trace_id_opt(sub_trace_id),
+            trace_id: None,
         },
     );
 
-    if let Some(lead_cfg) = lead {
-        let assistant_id = message_id;
-        let mut wire_thoughts: Option<String> = None;
-        let mut wire_headline: Option<String> = None;
-        let mut wire_reasoning: Option<String> = None;
-        if let Some(last) = history.last_mut() {
-            if last.id == assistant_id && matches!(last.role, Role::Assistant) {
-                last.content = message.to_string();
-                last.tool_calls = None;
-                last.status = "completed".into();
-                wire_reasoning = last.reasoning.clone();
-                wire_thoughts = last.thoughts.clone();
-                wire_headline = last.headline.clone();
-            }
+    let assistant_id = message_id;
+    let mut wire_thoughts: Option<String> = None;
+    let mut wire_headline: Option<String> = None;
+    let mut wire_reasoning: Option<String> = None;
+    if let Some(last) = history.last_mut() {
+        if last.id == assistant_id && matches!(last.role, Role::Assistant) {
+            last.content = message.to_string();
+            last.tool_calls = None;
+            last.status = "completed".into();
+            wire_reasoning = last.reasoning.clone();
+            wire_thoughts = last.thoughts.clone();
+            wire_headline = last.headline.clone();
         }
-        super::agent_post_stream::log_reasoning_and_output_segments(
-            "lead_response_tool",
-            assistant_id,
-            wire_reasoning.as_deref(),
-            wire_thoughts.as_deref(),
-            Some(message),
-            history
+    }
+    super::agent_post_stream::log_reasoning_and_output_segments(
+        "lead_response_tool",
+        assistant_id,
+        wire_reasoning.as_deref(),
+        wire_thoughts.as_deref(),
+        Some(message),
+        history
+            .iter()
+            .find(|m| m.id == assistant_id && matches!(m.role, Role::Assistant))
+            .and_then(|m| m.tool_raw_output.as_deref()),
+    );
+    emit(
+        stream,
+        StreamEvent::MessageEnd {
+            message_id: assistant_id.to_string(),
+            content: Some(message.to_string()),
+            raw_content: if lead_cfg.raw_content_buf.is_empty() {
+                None
+            } else {
+                Some(lead_cfg.raw_content_buf.to_string())
+            },
+            tool_raw_output: history
                 .iter()
                 .find(|m| m.id == assistant_id && matches!(m.role, Role::Assistant))
-                .and_then(|m| m.tool_raw_output.as_deref()),
-        );
-        emit(
-            stream,
-            StreamEvent::MessageEnd {
-                message_id: assistant_id.to_string(),
-                content: Some(message.to_string()),
-                raw_content: if lead_cfg.raw_content_buf.is_empty() {
-                    None
-                } else {
-                    Some(lead_cfg.raw_content_buf.to_string())
-                },
-                tool_raw_output: history
-                    .iter()
-                    .find(|m| m.id == assistant_id && matches!(m.role, Role::Assistant))
-                    .and_then(|m| m.tool_raw_output.clone()),
-                thoughts: wire_thoughts,
-                headline: wire_headline,
-                trace_id: None,
-            },
-        );
-        if let Some(consumed) = consumed_single {
-            tool_budget.sync_out(consumed);
-        }
-        return Ok(ToolPassResult::LeadFinished);
+                .and_then(|m| m.tool_raw_output.clone()),
+            thoughts: wire_thoughts,
+            headline: wire_headline,
+            trace_id: None,
+        },
+    );
+    if let Some(consumed) = consumed_single {
+        tool_budget.sync_out(consumed);
     }
-
-    if let Some(sub_cfg) = sub {
-        let mut sub_reasoning: Option<String> = None;
-        let mut sub_thoughts: Option<String> = None;
-        if let Some(last) = history.last_mut() {
-            if last.id == sub_cfg.round_message_id && matches!(last.role, Role::Assistant) {
-                last.content = message.to_string();
-                last.tool_calls = None;
-                last.status = "completed".into();
-                sub_reasoning = last.reasoning.clone();
-                sub_thoughts = last.thoughts.clone();
-            }
-        }
-        super::agent_post_stream::log_reasoning_and_output_segments(
-            "sub_response_tool",
-            &sub_cfg.round_message_id,
-            sub_reasoning.as_deref(),
-            sub_thoughts.as_deref(),
-            Some(message),
-            history
-                .iter()
-                .find(|m| m.id == sub_cfg.round_message_id && matches!(m.role, Role::Assistant))
-                .and_then(|m| m.tool_raw_output.as_deref()),
-        );
-        return Ok(ToolPassResult::SubFinished(
-            super::agent_post_stream::sub_agent_run_result(
-                &sub_cfg.task.id,
-                sub_cfg.def,
-                message.to_string(),
-                sub_cfg.reasoning_in_messages,
-                sub_cfg.accumulated_reasoning.clone(),
-            ),
-        ));
-    }
-
-    Err(anyhow!("response tool without lead or sub config"))
+    Ok(ToolPassResult::LeadFinished)
 }
 
 async fn run_approval_gate(

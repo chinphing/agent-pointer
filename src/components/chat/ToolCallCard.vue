@@ -4,7 +4,7 @@ import { marked } from 'marked'
 import { Wrench, ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, ShieldAlert, Check, X } from 'lucide-vue-next'
 import type { ToolCall, WebSearchSourceEntry } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
-import { taskBoardToolSummary } from '../../lib/messageTooling'
+import { taskBoardToolSummary, taskBoardPatchSummaryFromArgs } from '../../lib/messageTooling'
 import { openExternalUrl } from '../../lib/openExternalUrl'
 import { useMarkdownExternalLinks } from '../../composables/useMarkdownExternalLinks'
 
@@ -36,6 +36,8 @@ const displayLabel = computed(() => props.toolCall.displayLabel?.trim() || props
 const displaySummary = computed(() => {
   const s = props.toolCall.displaySummary?.trim()
   if (s) return s
+  const fromArgs = taskBoardPatchSummaryFromArgs(props.toolCall.arguments)
+  if (fromArgs) return fromArgs
   if (showResults.value) return boardSummary.value ?? ''
   return ''
 })

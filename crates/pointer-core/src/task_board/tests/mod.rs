@@ -63,6 +63,59 @@ mod apply_tests {
     }
 
     #[test]
+    fn flat_item_id_patch_applies() {
+        let store = TaskBoardStore::new();
+        let key = "conv-flat";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": [
+                        {"id": "1", "title": "Step 1", "status": "in_progress"},
+                        {"id": "2", "title": "Step 2", "status": "pending"},
+                        {"id": "3", "title": "Step 3", "status": "pending"}
+                    ]
+                }),
+            )
+            .expect("init");
+        store
+            .apply(
+                key,
+                "patch",
+                &json!({
+                    "item_id": "1",
+                    "status": "done",
+                    "verification": "微信应用已打开"
+                }),
+            )
+            .expect("patch 1");
+        store
+            .apply(
+                key,
+                "patch",
+                &json!({
+                    "item_id": "2",
+                    "status": "done",
+                    "verification": "老婆聊天窗口已打开，输入框可见"
+                }),
+            )
+            .expect("patch 2");
+        store
+            .apply(
+                key,
+                "patch",
+                &json!({"item_id": "3", "status": "in_progress"}),
+            )
+            .expect("patch 3");
+        let doc = store.document(key);
+        assert_eq!(doc.board[0].status, ItemStatus::Done);
+        assert_eq!(doc.board[1].status, ItemStatus::Done);
+        assert_eq!(doc.board[2].status, ItemStatus::InProgress);
+    }
+
+    #[test]
     fn items_array_from_string() {
         let args = json!({"items": "[{\"id\":\"x\"}]"});
         assert_eq!(items_array_from_args(&args).map(|a| a.len()), Some(1));
@@ -92,7 +145,42 @@ mod apply_tests {
             )
             .expect("done patch");
         assert!(reflection);
-        assert!(body["summary"]["warnings"].as_array().is_some());
+        assert!(body["warnings"].as_array().is_some());
+    }
+
+    #[test]
+    fn patch_returns_compact_body_without_document() {
+        let store = TaskBoardStore::new();
+        let key = "conv-compact";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": [
+                        {"id": "1", "title": "A", "status": "pending"},
+                        {"id": "2", "title": "B", "status": "pending"}
+                    ]
+                }),
+            )
+            .expect("init");
+        let (body, reflection) = store
+            .apply(
+                key,
+                "patch",
+                &json!({"item_id": "1", "status": "done", "verification": "ok"}),
+            )
+            .expect("patch");
+        assert!(!reflection);
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["method"], "patch");
+        assert_eq!(body["board_len"], 2);
+        assert!(body.get("document").is_none());
+        let patched = body["patched"].as_array().expect("patched array");
+        assert_eq!(patched.len(), 1);
+        assert_eq!(patched[0]["id"], "1");
+        assert_eq!(patched[0]["status"], "done");
     }
 
     #[test]

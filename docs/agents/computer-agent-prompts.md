@@ -59,11 +59,11 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 
 ## 三档差异（摘要）
 
-| 档位 | 图像 | thoughts | 模型 / 思考 |
+| 档位 | 图像 | 内部推理 | 模型 / 思考 |
 |------|------|----------|-------------|
-| Primary | 2-3 图：可选 **`[Screen before action]`** + **`[Screen after action]`** + **`[Annotated after action]`**；无 zoom | Verify 先判定预期/非预期变化；**N–目标关系**（inner-center-wrap → index / inner-edge-wrap·unwrapped → coordinate）；`thoughts` 内 **`Route:` 先分析后结论**；每轮 sidecar 上报 | qwen3.5-plus |
-| Intermediate | 原图 + marked + Annotated；**无** zoom/before；本地落盘 unmarked + after + annotated | **Verify→Pointer（条件）** + **Repetition** + **Next**；**Nearby bboxes×10**；`thoughts` 固定 **`Route: index`**；每轮 sidecar 上报 `action_result/repetition_count`；思考预算 **2048** | qwen3.5-plus |
-| Advanced | 7 槽（与现网一致） | 三段：**Part 1 Verify** / **Part 2 Repetition** / **Part 3 Next+Location+Recheck+Tool route**；`thoughts` 固定 **`Route: coordinate`**；每轮 sidecar 上报 `action_result/repetition_count` | qwen3.6-plus，思考 8K |
+| Primary | 2-3 图：可选 **`[Screen before action]`** + **`[Screen after action]`** + **`[Annotated after action]`**；无 zoom | 内部跑 Verify / Repetition / Next；**N–目标关系** 决定 index vs coordinate；**不写** assistant 正文（除最终回复）；每轮 **`verify:report`** | qwen3.5-plus |
+| Intermediate | 原图 + marked + Annotated；**无** zoom/before | 内部 **Verify→Pointer（条件）→Repetition→Next**；**Parameter** 块 per index arg；**Nearby bboxes×10**；正文默认空；**`verify:report`** | qwen3.5-plus，思考预算 **2048** |
+| Advanced | 7 槽（与现网一致） | 内部七段 **Verify→…→Tool route**；coordinate only；正文默认空；**`verify:report`** | qwen3.6-plus，思考 8K |
 
 ## 操作历史
 
@@ -80,7 +80,7 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 | **action_result** | sidecar `verify:report` 上报，写入历史行 `action_result: ...` |
 | **repetition_count** | sidecar `verify:report` 上报，宿主按阈值内部判定是否升级 |
 
-模型在 **Repetition:** 中应输出 **Count**；升档信号由 sidecar `verify:report` 的 `repetition_count` 提供，不从 `thoughts` 文本提取；升档由宿主在回合结束后执行，下一回合自动使用更高档模型/图像/提示词。
+模型在内部 **Repetition** 阶段计算 **Count**，经 **`verify:report`** 的 `repetition_count` 上报；升档信号不从 assistant 正文提取；升档由宿主在回合结束后执行，下一回合自动使用更高档模型/图像/提示词。
 上一轮 verify 结果通过历史行内的 `verify: ...` 字段注入（不再追加单独汇总行）。
 
 ## 配置（`AGENT.md` config）

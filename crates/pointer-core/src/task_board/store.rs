@@ -9,7 +9,7 @@ use super::persistence::TaskBoardSqlite;
 use super::snapshot::snapshot_for_prompt;
 use anyhow::{anyhow, Result};
 use parking_lot::RwLock;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -78,12 +78,7 @@ impl TaskBoardStore {
             doc.board.len(),
             outcome.reflection_required,
         );
-        let snap = doc.to_value();
-        let body = json!({
-            "summary": outcome.summary,
-            "reflection_required": outcome.reflection_required,
-            "document": snap,
-        });
+        let body = outcome.body;
         Ok((body, outcome.reflection_required))
     }
 
@@ -93,17 +88,10 @@ impl TaskBoardStore {
         let parent_key = parent_store_key_from_child(child_store_key)
             .ok_or_else(|| anyhow!("task_board: sync_finding only from child board"))?;
         let mut parent = self.get_or_default(&parent_key);
-        let summary = apply_sync_finding_to_doc(&mut parent, &finding)?;
+        let body = apply_sync_finding_to_doc(&mut parent, &finding)?;
         self.inner.write().insert(parent_key.clone(), parent.clone());
         self.persist(&parent_key, &parent);
-        Ok((
-            json!({
-                "summary": summary,
-                "reflection_required": false,
-                "document": parent.to_value(),
-            }),
-            false,
-        ))
+        Ok((body, false))
     }
 
     pub fn items_json(&self, store_key: &str) -> Value {

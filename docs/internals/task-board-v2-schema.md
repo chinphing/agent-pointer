@@ -48,6 +48,20 @@ Runtime prompts: `crates/pointer-core/src/task_board/prompts/task_board.md` (Eng
 `done_without_evidence`, `done_without_verify_pass`,
 `interim_drafts_budget_exceeded`.
 
+## Tool result (compact JSON)
+
+Tool handlers return a **compact** body — not the full `document`.
+Authoritative board state for the model is injected as **`[TASK_BOARD]`** each round;
+UI reads **`task_board_updated`** + store.
+
+| Method | Key fields |
+|--------|------------|
+| `patch` | `ok`, `method`, `board_len`, `patched[]` (`id`, `status`), `reflection_required`, optional `warnings[]` |
+| `init` | `ok`, `method`, `board_len`, optional `goal` |
+| `replace` / `prune` / `finalize` | `ok`, `method`, `board_len`; `prune` adds `cancelled[]`; `finalize` adds `meta_status` |
+| `check_deps` | `item_id`, `status`, optional `reason` |
+| `sync_finding` | `findings_count` |
+
 ## Storage
 
 - Memory: `TaskBoardStore`

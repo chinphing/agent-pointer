@@ -1,6 +1,6 @@
 //! Checkpoint detection for history trim.
 
-use super::args::{items_array_from_args, resolve_method};
+use super::args::{board_rows_from_args, resolve_method};
 use serde_json::Value;
 
 pub fn is_task_board_tool_name(tool_id: &str) -> bool {
@@ -9,10 +9,7 @@ pub fn is_task_board_tool_name(tool_id: &str) -> bool {
 }
 
 fn patch_marks_done(args: &Value) -> bool {
-    let Some(items) = items_array_from_args(args) else {
-        return false;
-    };
-    items.iter().any(|item| {
+    board_rows_from_args(args).iter().any(|item| {
         item.get("status")
             .and_then(|v| v.as_str())
             .map(|s| s.trim().eq_ignore_ascii_case("done"))

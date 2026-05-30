@@ -51,13 +51,60 @@ function isDefaultHiddenSidecarCall(fullName: string, baseName: string): boolean
   )
 }
 
+export function taskBoardPatchSummaryFromArgs(argumentsJson: string | undefined): string | null {
+  if (!argumentsJson?.trim()) return null
+  try {
+    const args = JSON.parse(argumentsJson) as Record<string, unknown>
+    const flatId = typeof args.item_id === 'string' ? args.item_id.trim() : typeof args.id === 'string' ? args.id.trim() : ''
+    const flatStatus = typeof args.status === 'string' ? args.status.trim() : ''
+    if (flatId && flatStatus) return `#${flatId} → ${flatStatus}`
+    if (flatId) return `#${flatId}`
+    const rawItems = args.items
+    let items: unknown[] | null = null
+    if (Array.isArray(rawItems)) items = rawItems
+    else if (typeof rawItems === 'string') {
+      try {
+        const parsed = JSON.parse(rawItems)
+        if (Array.isArray(parsed)) items = parsed
+      } catch { /* ignore */ }
+    }
+    if (!items?.length) return null
+    if (items.length === 1) {
+      const row = items[0] as Record<string, unknown>
+      const id = String(row.id ?? row.item_id ?? '?').trim()
+      const status = typeof row.status === 'string' ? row.status.trim() : ''
+      return status ? `#${id} → ${status}` : `#${id}`
+    }
+    return `更新 · ${items.length} 行`
+  } catch {
+    return null
+  }
+}
+
 export function taskBoardToolSummary(result: string | undefined): string | null {
   if (!result?.trim()) return null
   try {
-    const parsed = JSON.parse(result) as { summary?: { method?: string; count?: number }; document?: { board?: unknown[] } }
-    const method = parsed.summary?.method ?? 'update'
-    const count = parsed.document?.board?.length ?? parsed.summary?.count
-    if (typeof count === 'number') return `任务板 · ${method} · ${count} 项`
+    const parsed = JSON.parse(result) as {
+      method?: string
+      board_len?: number
+      patched?: Array<{ id?: string; status?: string }>
+      summary?: { method?: string; count?: number }
+      document?: { board?: unknown[] }
+    }
+    const patched = parsed.patched
+    if (Array.isArray(patched) && patched.length === 1) {
+      const row = patched[0]
+      const id = row?.id ?? '?'
+      const status = row?.status
+      if (status) return `#${id} → ${status}`
+      return `#${id}`
+    }
+    if (Array.isArray(patched) && patched.length > 1) {
+      return `patch · ${patched.length} 行`
+    }
+    const boardLen = parsed.board_len ?? parsed.document?.board?.length ?? parsed.summary?.count
+    if (typeof boardLen === 'number') return `共 ${boardLen} 里程碑`
+    const method = parsed.method ?? parsed.summary?.method ?? 'update'
     return `任务板 · ${method}`
   } catch {
     return '任务板已更新'

@@ -55,11 +55,18 @@ Single-step work may skip the board.
 
 Bare **`task_board`** with **`method`** in **`tool_args`** works when not using qualified names.
 
-**Document shape (host returns full `document` in tool result)**
+**Tool result shape (compact — authoritative board is in `[TASK_BOARD]` inject)**
 
-- **`meta`**: **`goal`**, **`status`**, **`step_count`**, **`max_steps`**, optional **`expected_total`**
-- **`global_context`**: **`key_findings`**, **`artifacts`**
-- **`board[]`**: rows with **`id`**, **`title`**, **`status`**, **`depends_on`**, **`retry_count`**, **`output`**, **`verification`**, **`blockedBy`**
+- **`ok`**, **`method`**, **`board_len`**
+- **`patch`**: **`patched[]`** with `{ id, status }` per row touched this call; optional **`warnings[]`**; **`reflection_required`**
+- **`init`**: optional **`goal`**
+- **`prune`**: optional **`cancelled[]`**
+- **`finalize`**: **`meta_status`**
+- **`check_deps`**: **`item_id`**, **`status`**, optional **`reason`**
+- **`sync_finding`**: **`findings_count`**
+
+Treat **`[TASK_BOARD]`** in the injected runtime context as the authoritative snapshot.
+Do not expect a full **`document`** in tool results.
 
 **Row `status`:** **`pending`**, **`ready`**, **`in_progress`**, **`done`**, **`cancelled`**, **`failed`**
 
@@ -87,7 +94,7 @@ Bare **`task_board`** with **`method`** in **`tool_args`** works when not using 
   and next uncovered slice).
 - Keep row text compact; avoid long prose in `title` / `output` / `verification` to reduce prompt tokens.
 - **Do not** patch the parent milestone board from a child agent (use **`sync_finding`** or let the host report completion).
-- After **`retry_count >= 2`** on a stuck row, diagnose in **`thoughts`** before the next **`patch`**.
+- After **`retry_count >= 2`** on a stuck row, diagnose internally before the next **`patch`**.
 - For workers that emit **`verify:report`**, use it for sidecar ordering and evidence context:
   - First initialization round may omit `verify:report`.
   - After init, run `verify:report` first, then `task_board:patch`.
@@ -95,7 +102,12 @@ Bare **`task_board`** with **`method`** in **`tool_args`** works when not using 
 
 **`items` in `tool_args`**
 
-Pass a JSON **array** of row objects, or a JSON **string** containing that array (escaped quotes required).
+Pass a JSON **array** of row objects, or a JSON **string** containing that array
+(escaped quotes required).
+
+For a **single-row** `patch`, you may also pass row fields at the top level with
+**`item_id`** (alias **`id`**) plus **`status`** / **`title`** / **`verification`**
+/ etc. — the host normalizes this to one row.
 
 #### Example (goal already met -> done)
 

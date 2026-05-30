@@ -27,6 +27,10 @@ Parameters:
 - `is_slider` optional for `drag`: true for slider CAPTCHAs.
 - `index_slider_arrow` optional for `drag` with `is_slider=true`: index of the real draggable slider arrow / handle. Alias: `index_slider_handle`.
 
+For tools with overlay index args, run the **Index parameters**
+per-parameter chain in communication before calling — one
+**Parameter: <arg_name>** block per arg, including when there is only `index`.
+
 For slider CAPTCHAs, recognition still uses `index_captcha_area`. If `index_slider_arrow` is provided, drag starts from that arrow / handle and keeps the original relative offset. Before choosing it, judge the handle by relative position, shape, and color/style. A strong default cue is a right-pointing arrow near the lower-left of the sliding image on the same horizontal line as the CAPTCHA prompt text.
 
 If the CAPTCHA is not visible yet, trigger it first and use `captcha_verify` on the next turn. Do not downgrade a visible CAPTCHA challenge to plain mouse actions just because the prompt asks to click text inside the image.

@@ -10,7 +10,7 @@ use super::state_machine::{
     validate_item_transition,
 };
 use anyhow::{anyhow, Result};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 const MAX_FINDING_LEN: usize = 500;
 const MAX_FINDINGS: usize = 32;
@@ -19,7 +19,7 @@ const INTERIM_DRAFTS_CHAR_BUDGET: usize = 80_000;
 const INTERIM_DRAFT_ITEM_MAX_CHARS: usize = 2_000;
 
 pub struct ApplyOutcome {
-    pub summary: Value,
+    pub body: Value,
     pub reflection_required: bool,
 }
 
@@ -31,40 +31,93 @@ pub fn apply_method(
 ) -> Result<ApplyOutcome> {
     assert_child_may_mutate(store_key, doc, method)?;
     let method = method.trim().to_ascii_lowercase();
-    let mut reflection_required = false;
-    let summary = match method.as_str() {
-        "init" => apply_init(store_key, doc, args)?,
-        "replace" => apply_replace(doc, args)?,
-        "patch" | "" => {
-            let (refl, warnings) = apply_patch(doc, args)?;
-            reflection_required = refl;
-            let mut summary = json_summary("patch", doc.board.len());
-            if !warnings.is_empty() {
-                summary["warnings"] = serde_json::json!(warnings);
+    let (body, reflection_required) = match method.as_str() {
+        "init" => {
+            apply_init(store_key, doc, args)?;
+            let mut body = json!({
+                "ok": true,
+                "method": "init",
+                "board_len": doc.board.len(),
+            });
+            if !doc.meta.goal.is_empty() {
+                body["goal"] = json!(doc.meta.goal);
             }
-            summary
+            (body, false)
+        }
+        "replace" => {
+            apply_replace(doc, args)?;
+            (
+                json!({
+                    "ok": true,
+                    "method": "replace",
+                    "board_len": doc.board.len(),
+                }),
+                false,
+            )
+        }
+        "patch" | "" => {
+            let (refl, warnings, patched) = apply_patch(doc, args)?;
+            let mut body = json!({
+                "ok": true,
+                "method": "patch",
+                "board_len": doc.board.len(),
+                "patched": patched,
+                "reflection_required": refl,
+            });
+            if !warnings.is_empty() {
+                body["warnings"] = json!(warnings);
+            }
+            (body, refl)
         }
         "prune" => {
-            apply_prune(doc, args)?;
-            json_summary("prune", doc.board.len())
+            let cancelled = apply_prune(doc, args)?;
+            let mut body = json!({
+                "ok": true,
+                "method": "prune",
+                "board_len": doc.board.len(),
+            });
+            if !cancelled.is_empty() {
+                body["cancelled"] = json!(cancelled);
+            }
+            (body, false)
         }
-        "finalize" => apply_finalize(doc)?,
-        "sync_finding" => apply_sync_finding(store_key, doc, args)?,
-        "check_deps" => apply_check_deps(doc, args)?,
+        "finalize" => {
+            apply_finalize(doc)?;
+            (
+                json!({
+                    "ok": true,
+                    "method": "finalize",
+                    "board_len": doc.board.len(),
+                    "meta_status": doc.meta.status.as_str(),
+                }),
+                false,
+            )
+        }
+        "sync_finding" => {
+            let body = apply_sync_finding(store_key, doc, args)?;
+            (body, false)
+        }
+        "check_deps" => {
+            let body = apply_check_deps(doc, args)?;
+            (body, false)
+        }
         other => return Err(anyhow!("task_board: unknown method {other}")),
     };
     mark_ready_pending_rows(doc);
     Ok(ApplyOutcome {
-        summary,
+        body,
         reflection_required,
     })
 }
 
-fn json_summary(method: &str, count: usize) -> Value {
-    serde_json::json!({ "ok": true, "method": method, "count": count })
+fn row_status_entry(item: &BoardItem) -> Value {
+    json!({
+        "id": item.id,
+        "status": item.status.as_str(),
+    })
 }
 
-fn apply_init(store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<Value> {
+fn apply_init(store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<()> {
     if let Some(goal) = goal_from_args(args) {
         doc.meta.goal = goal;
     }
@@ -106,10 +159,10 @@ fn apply_init(store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<
         }
         validate_expected_total_row_count(doc.meta.expected_total, doc.board.len(), "init")?;
     }
-    Ok(json_summary("init", doc.board.len()))
+    Ok(())
 }
 
-fn apply_replace(doc: &mut BoardDocument, args: &Value) -> Result<Value> {
+fn apply_replace(doc: &mut BoardDocument, args: &Value) -> Result<()> {
     let rows = board_rows_from_args(args);
     doc.board.clear();
     for v in &rows {
@@ -120,7 +173,7 @@ fn apply_replace(doc: &mut BoardDocument, args: &Value) -> Result<Value> {
     if !doc.board.is_empty() {
         validate_expected_total_row_count(doc.meta.expected_total, doc.board.len(), "replace")?;
     }
-    Ok(json_summary("replace", doc.board.len()))
+    Ok(())
 }
 
 fn validate_expected_total_row_count(
@@ -140,7 +193,7 @@ fn validate_expected_total_row_count(
     ))
 }
 
-fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value>)> {
+fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value>, Vec<Value>)> {
     let recent_action = args
         .get("_recent_action_tools")
         .and_then(|v| v.as_bool())
@@ -156,6 +209,7 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value
     let rows = board_rows_from_args(args);
     let mut reflection = false;
     let mut warnings: Vec<Value> = Vec::new();
+    let mut patched: Vec<Value> = Vec::new();
     if let Some(gc) = args.get("global_context") {
         merge_global_context(&mut doc.global_context, gc);
     }
@@ -207,6 +261,7 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value
             }
             compact_item_after_success(prev, &mut incoming);
             doc.board[idx] = incoming;
+            patched.push(row_status_entry(&doc.board[idx]));
         } else {
             if matches!(incoming.status, ItemStatus::InProgress | ItemStatus::Done) {
                 if !dependencies_satisfied(doc, &incoming) {
@@ -252,10 +307,11 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value
                 &mut incoming,
             );
             doc.board.push(incoming);
+            patched.push(row_status_entry(doc.board.last().expect("just pushed")));
         }
     }
     enforce_interim_drafts_budget(doc, &mut reflection, &mut warnings);
-    Ok((reflection, warnings))
+    Ok((reflection, warnings, patched))
 }
 
 fn maybe_warn_done_without_evidence(
@@ -393,21 +449,28 @@ fn enforce_interim_drafts_budget(
     }));
 }
 
-fn apply_prune(doc: &mut BoardDocument, args: &Value) -> Result<()> {
+fn apply_prune(doc: &mut BoardDocument, args: &Value) -> Result<Vec<Value>> {
     let ids = prune_ids_from_args(args);
+    let mut cancelled = Vec::new();
     if ids.is_empty() {
-        doc.board.retain(|i| i.status != ItemStatus::Pending);
+        for item in doc.board.iter_mut() {
+            if item.status == ItemStatus::Pending {
+                item.status = ItemStatus::Cancelled;
+                cancelled.push(row_status_entry(item));
+            }
+        }
     } else {
         for item in doc.board.iter_mut() {
             if ids.contains(&item.id) && item.status == ItemStatus::Pending {
                 item.status = ItemStatus::Cancelled;
+                cancelled.push(row_status_entry(item));
             }
         }
     }
-    Ok(())
+    Ok(cancelled)
 }
 
-fn apply_finalize(doc: &mut BoardDocument) -> Result<Value> {
+fn apply_finalize(doc: &mut BoardDocument) -> Result<()> {
     let n = count_incomplete(doc);
     if n > 0 {
         return Err(anyhow!(
@@ -415,7 +478,7 @@ fn apply_finalize(doc: &mut BoardDocument) -> Result<Value> {
         ));
     }
     doc.meta.status = MetaStatus::Completed;
-    Ok(json_summary("finalize", doc.board.len()))
+    Ok(())
 }
 
 fn apply_sync_finding(_store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<Value> {

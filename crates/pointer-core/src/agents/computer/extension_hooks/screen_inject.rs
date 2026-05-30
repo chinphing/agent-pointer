@@ -82,7 +82,7 @@ fn slot_labels_for_tier(tier: ComputerTier, has_previous_raw: bool) -> Vec<&'sta
 }
 
 fn build_cur_screen_preamble(tier: ComputerTier, has_previous_raw: bool) -> String {
-    let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth — cite **On [slot name]:** in thoughts; do not invent UI from task text or prior turns.";
+    let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth — when reasoning internally, cite **On [slot name]:**; do not invent UI from task text or prior turns. Do not write reasoning in assistant message text — tool calls only until a final user reply.";
     match tier {
         ComputerTier::Primary => format!(
             "{CUR_SCREEN_TAG} Primary uses two or three labeled images this turn: optional {SLOT_SCREEN_BEFORE_ACTION}, then {SLOT_SCREEN_AFTER_ACTION}, then {SLOT_SCREEN_ANNOTATED}. {cite} \
@@ -93,7 +93,7 @@ fn build_cur_screen_preamble(tier: ComputerTier, has_previous_raw: bool) -> Stri
         ComputerTier::Intermediate => format!(
             "{CUR_SCREEN_TAG} Three labeled images follow (unmarked full screen, marked full screen, annotated overlay). {cite} \
              Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 nearest the pointer). \
-             Thoughts: Verify → Repetition → Next with Cause on fail.\n"
+             Run Verify → Repetition → Next internally; report via `verify:report`.\n"
         ),
         ComputerTier::Advanced => {
             let zoom_before = if has_previous_raw {
@@ -108,7 +108,8 @@ fn build_cur_screen_preamble(tier: ComputerTier, has_previous_raw: bool) -> Stri
             };
             let count = if has_previous_raw { 7 } else { 5 };
             format!(
-                "{CUR_SCREEN_TAG} {count} labeled images follow in slot order.{zoom_before} {cite} Thoughts: Verify (screenshots) first; Pointer only if unclear; then Repetition, Next, Route, Location, Recheck, Tool route.\n"
+                "{CUR_SCREEN_TAG} {count} labeled images follow in slot order.{zoom_before} {cite} \
+                 Run Verify (screenshots) first; Pointer only if unclear; then Repetition, Next, Location, Recheck, Tool route — all internally; report via `verify:report`.\n"
             )
         }
     }

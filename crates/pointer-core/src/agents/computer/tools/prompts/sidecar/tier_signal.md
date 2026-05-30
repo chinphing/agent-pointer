@@ -12,6 +12,6 @@ Required args:
 - `failure_cause`: required only when `action_result=fail`; one of `wrong_operation` | `precision_miss`
 
 Rules:
-- Mirror the same action_result and repetition_count used in `thoughts`.
+- Mirror the same action_result and repetition_count from your internal Verify / Repetition conclusion.
 - Set `failure_cause` only on fail; omit it on `pass`, `pending`, and `n/a`.
 - Keep values concise and deterministic.

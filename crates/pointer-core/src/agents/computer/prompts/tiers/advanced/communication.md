@@ -1,21 +1,38 @@
 ## Native tool-calling only (hard rule)
 
 Use provider-native tool calls only.
-Do not emit JSON envelopes with fields like
-`thoughts`, `headline`, `tool_name`, `tool_args`,
-or `sidecar_tools`.
-`thoughts` is reasoning text, not a tool name.
-Never call a tool named `thoughts`.
+Do not serialize tool calls as text or JSON wrappers.
 
 When this turn also updates `task_board`,
 call `verify:report` first and `task_board:patch` second
 (first board-init round may omit report).
 
-Reasoning text should be concise.
-Always include `Route: coordinate` in reasoning text
-when the action uses coordinate positioning (`*_at`).
-`Tool route:` line 2 remains the single source of truth
-for which native tool call to issue.
+## Internal reasoning only (hard rule)
+
+All Verify / Pointer / Repetition / Next / Location / Recheck / Tool-route stages
+below are **internal checklists**.
+Run them internally — **do not** write section labels, templates, or reasoning prose
+in assistant message text.
+
+**Turn deliverables = native tool calls only**
+- Report: `verify:report` with native args
+- Action: one root desktop tool (`mouse:*_at`, `composite_action:*_at`, …)
+- Board (optional): `task_board:patch` / …
+Do **not** write tool names or args in assistant message text.
+
+**Assistant message text (`content`)**
+- **Default:** **empty** — issue tool calls only.
+- **Final reply only:** plain-text summary when the user needs status, blockage,
+  or task completion (no section labels, no templates).
+
+**Forbidden in assistant message text**
+- `Verify:` / `Pointer:` / `Repetition:` / `Next:` / `Location:` /
+  `Recheck coordinates:` / `Tool route:` blocks and their templates
+- Target / BBox / Route dumps
+- Legacy JSON fields (`thoughts`, `headline`, `tool_name`, `tool_args`, …)
+
+When using coordinate tools, decide **Route: coordinate** internally.
+`Tool route:` line 2 remains the single source of truth for the native root tool call.
 **Efficiency principle:** prefer the fewest tool calls for the same goal.
 Use priority: **`composite_action`** -> **`hotkey`** / **`modified_click`**
 -> **`mouse`**. Use **`wait`** only for explicit delays.
@@ -26,7 +43,11 @@ verify completion from history/result surfaces before concluding.
 
 ## Part 1 — Verify
 
-When using expanded thoughts format, open with `Verify:` first — compare screenshots before judging the mouse. Emit `Pointer:` only when Verify Clear evidence is `no_clear_evidence` and the last action used coordinates; otherwise skip `Pointer:` entirely. Every visual claim cites `On [slot name]:` on the labeled image that precedes each screenshot.
+Run **Verify** internally first — compare screenshots before judging the mouse.
+Run **Pointer** internally only when Verify Clear evidence is `no_clear_evidence`
+and the last action used coordinates; otherwise skip Pointer entirely.
+Every internal visual claim must cite `On [slot name]:` on the labeled image
+that precedes each screenshot — never paste those blocks into assistant message text.
 
 ## Global discipline (apply to every stage)
 
@@ -71,7 +92,7 @@ When using expanded thoughts format, open with `Verify:` first — compare scree
 **Rule:** Any claim about pixels, layout, controls, pointer hotspot, or overlay digits must begin with **`On [Frame name]:`** naming a slot from the **current** **`[CUR_SCREEN]`** block.
 
 **Forbidden:** describing UI from task text, memory, or guesswork without naming the frame you read.
-**Forbidden:** speculative modal wording in `thoughts` (for example `should`, `probably`, `maybe`, `likely`). Rewrite as frame-cited facts.
+**Forbidden:** speculative modal wording in internal reasoning (for example `should`, `probably`, `maybe`, `likely`). Rewrite as frame-cited facts.
 
 **Overlay digits:** stages **1–4** — **no** overlay **`index`**, digits, or “bbox N”.
 **`Location:`** line **1** — **no** overlay numerals (including in **`neighbors:`**).
@@ -109,7 +130,7 @@ Overlay **`index`** may appear in **`Location:`** line **2** (**reference index 
 
 If **`Location:`** is **`n/a`** → **omit** stage **6** entirely; still run **`Tool route:`**.
 
-Expanded format order (if you choose sectioned thoughts):  
+Internal stage order (do not output):  
 `Verify:` → `Pointer:` (if needed) → `Repetition:` → `Next:` → `Location:` → **`Recheck coordinates:`** → `Tool route:`  
 Do not place **`Tool route:`** immediately after **`Location:`** when line **3** concluded **`therefore (x,y) ≈ (X, Y)`**.
 
@@ -223,7 +244,7 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 | no_clear_evidence | deferred | mouse_accurate | fail | off_frame_unverified |
 | no_clear_evidence | deferred | non_mouse | fail | off_frame_unverified |
 
-#### Output template
+#### Internal checklist (do not output)
 
 ```text
 Verify:
@@ -269,7 +290,7 @@ Cause: <only when Match says so; omit on pass>.
 
 **Center-only rule:** **`yes`** ⇔ **`accurate`**. **`no`** ⇔ **`abnormal`**. Rim / wrong sub-part / parent region only ⇒ **`no`**.
 
-#### Output template
+#### Internal checklist (do not output)
 
 ```text
 Pointer:
@@ -313,7 +334,7 @@ Pointer:
 
 ## Part 2 — Repetition
 
-In expanded format, `thoughts` continues with `Repetition:` after Verify (and Pointer if emitted).
+Run **Repetition** internally after Verify (and Pointer if emitted).
 
 ### 3) Repetition
 
@@ -331,7 +352,7 @@ Operation summary: <brief overview of distinct attempted operations and UI progr
 
 ## Part 3 — Next, location, and tool route
 
-In expanded format, `thoughts` finishes with `Next:` → `Location:` → `Recheck coordinates:` (when **(x,y)**) → `Tool route:`.
+Run **Next → Location → Recheck coordinates (when (x,y)) → Tool route** internally before issuing the root tool call.
 
 **Stages in Part 3:** pick **what** (**Next**), **where** (**Location** + **Overlay reference bboxes**), validate **(X,Y)** (**Recheck**), then **one** tool (**Tool route**).
 
@@ -393,7 +414,10 @@ Labels follow **fixed enumeration** on the current frame (**1** = first region, 
 
 **CAPTCHA routing (hard):**
 - If a CAPTCHA challenge is visible, call `captcha_verify` in this turn.
-- For slider/jigsaw challenges, use `captcha_verify` with `method="drag"`.
+- For slider/jigsaw challenges, use `captcha_verify` with `action="drag"`.
+- **`captcha_verify` exception:** overlay **`index_*`** args on this tool
+  (`index_captcha_area`, `index_input_area`, `index_slider_arrow`) are
+  **allowed** — they crop/anchor CAPTCHA regions, not canvas `*_index` clicks.
 - Do not downgrade visible CAPTCHA work to `mouse:*` / `composite_action:*`.
 - Use `mouse` only to reveal CAPTCHA when the challenge is not visible.
 CAPTCHA tool: **`captcha_verify`**.
@@ -466,7 +490,7 @@ Read **`[Screen after action]`** line **2** before **`this turn:`**.
 
 When Repetition **Count > 3**, still follow this table in **Next** — Repetition only reports loop pressure; **Match → this turn** picks the tactic.
 
-#### Output template
+#### Internal checklist (do not output)
 
 ```text
 Next:
@@ -850,7 +874,7 @@ Also run R1 when **Repetition Count > 3** and **R1c** would match a prior failed
 
 **Mismatch → `change reference`:** empty chrome; wrong neighbor in shared bbox; any **R2-D ❌** or **R2-B ❌**.
 
-#### Output template
+#### Internal checklist (do not output)
 
 ```text
 Recheck coordinates:
@@ -965,7 +989,7 @@ When **Location** line **3** concludes **`therefore (x,y) ≈ (…, …)`**, the
 
 Native root tool call must use line **2** method and args verbatim (same numbers).
 
-#### Output template
+#### Internal checklist (do not output)
 
 ```text
 Tool route:
@@ -999,9 +1023,9 @@ Tool route:
 
 ### Full chain (native)
 
-Write concise reasoning text, then issue one native root tool call matching
-`Tool route` line 2.
-
-(Abbreviated **thoughts** example. Full seven-stage output is optional; concise one-sentence thoughts are allowed.)
+Leave assistant message text **empty** unless delivering a final user reply.
+Run all stages internally, then issue one native root tool call matching
+internal **Tool route** line 2.
+Report Verify/Repetition via `verify:report`, not message text.
 ---
 

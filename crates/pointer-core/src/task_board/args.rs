@@ -1,22 +1,79 @@
-//! Parse tool arguments (`items`, `method`).
+//! Parse tool arguments (`items`, `method`, flat single-row patch).
 
-use serde_json::Value;
+use serde_json::{Map, Value};
+
+const PATCH_HOST_KEYS: &[&str] = &[
+    "method",
+    "goal",
+    "global_context",
+    "globalContext",
+    "ids",
+    "finding",
+    "expected_total",
+    "expectedTotal",
+    "_conversation_id",
+    "_recent_action_tools",
+    "_recent_verify_pass",
+    "_recent_verify_report",
+    "items",
+    "meta",
+];
+
+const PATCH_ROW_FIELD_KEYS: &[&str] = &[
+    "status",
+    "title",
+    "output",
+    "verification",
+    "depends_on",
+    "dependsOn",
+    "retry_count",
+    "retryCount",
+    "detailed_plan",
+    "detailedPlan",
+    "blockedBy",
+    "blocked_by",
+];
 
 pub fn items_array_from_args(args: &Value) -> Option<Vec<Value>> {
-    let raw = args.get("items")?;
-    if let Some(arr) = raw.as_array() {
-        return Some(arr.clone());
-    }
-    if let Some(s) = raw.as_str() {
-        if let Ok(v) = serde_json::from_str::<Value>(s) {
-            return v.as_array().cloned();
+    if let Some(raw) = args.get("items") {
+        if let Some(arr) = raw.as_array() {
+            return Some(arr.clone());
         }
+        if let Some(s) = raw.as_str() {
+            if let Ok(v) = serde_json::from_str::<Value>(s) {
+                return v.as_array().cloned();
+            }
+        }
+        return None;
     }
-    None
+    flat_patch_row_from_args(args).map(|row| vec![row])
 }
 
 pub fn board_rows_from_args(args: &Value) -> Vec<Value> {
     items_array_from_args(args).unwrap_or_default()
+}
+
+fn flat_patch_row_from_args(args: &Value) -> Option<Value> {
+    let obj = args.as_object()?;
+    let id = obj
+        .get("item_id")
+        .or_else(|| obj.get("id"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    let has_row_field = obj.keys().any(|k| PATCH_ROW_FIELD_KEYS.contains(&k.as_str()));
+    if !has_row_field {
+        return None;
+    }
+    let mut row = Map::new();
+    row.insert("id".into(), Value::String(id.to_string()));
+    for (k, v) in obj {
+        if PATCH_HOST_KEYS.contains(&k.as_str()) || k == "item_id" || k == "id" {
+            continue;
+        }
+        row.insert(k.clone(), v.clone());
+    }
+    Some(Value::Object(row))
 }
 
 pub fn resolve_method(tool_id: &str, args: &Value) -> String {
@@ -121,6 +178,30 @@ mod tests {
         assert_eq!(items.len(), 1);
     }
 
+    #[test]
+    fn parses_flat_item_id_patch_row() {
+        let args = serde_json::json!({
+            "item_id": "1",
+            "status": "done",
+            "verification": "微信应用已打开"
+        });
+        let items = items_array_from_args(&args).expect("flat row");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["id"], "1");
+        assert_eq!(items[0]["status"], "done");
+    }
+
+    #[test]
+    fn flat_row_not_used_when_items_present() {
+        let args = serde_json::json!({
+            "items": [{"id": "a", "status": "done"}],
+            "item_id": "ignored",
+            "status": "failed"
+        });
+        let items = items_array_from_args(&args).expect("items");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["id"], "a");
+    }
     #[test]
     fn parses_expected_total_from_number_or_string() {
         let a = serde_json::json!({"expected_total": 21});

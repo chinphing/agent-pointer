@@ -208,6 +208,65 @@ fn hotkey_summary(args: &Value) -> String {
     str_field(args, &["keys"]).map(|s| truncate(&s, SUMMARY_MAX)).unwrap_or_default()
 }
 
+fn task_board_method_label(method: &str) -> &'static str {
+    match method {
+        "patch" | "" => "更新",
+        "replace" => "替换",
+        "init" => "初始化",
+        "prune" => "清理",
+        "finalize" => "完成",
+        "sync_finding" => "同步发现",
+        "check_deps" => "检查依赖",
+        "get" => "读取",
+        _ => "操作",
+    }
+}
+
+fn task_board_invoke_summary(method: &str, args: &Value) -> String {
+    let ml = task_board_method_label(method);
+    if method == "check_deps" {
+        if let Some(id) = args
+            .get("item_id")
+            .or_else(|| args.get("id"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return format!("{ml} · #{id}");
+        }
+        return ml.to_string();
+    }
+    if method == "init" {
+        if let Some(goal) = str_field(args, &["goal"]) {
+            return truncate(&goal, SUMMARY_MAX);
+        }
+        return ml.to_string();
+    }
+    let rows = crate::task_board::args::board_rows_from_args(args);
+    if rows.is_empty() {
+        return String::new();
+    }
+    if rows.len() == 1 {
+        let row = &rows[0];
+        let id = row
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("?");
+        let status = row
+            .get("status")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        if let Some(st) = status {
+            return format!("#{id} → {st}");
+        }
+        return format!("#{id}");
+    }
+    format!("{ml} · {} 行", rows.len())
+}
+
 /// Default display formatter for tools without a custom `display_fn`.
 pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
     let base = registry_tool_base_name(raw_name);
@@ -308,13 +367,11 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             file_summary(args, "read"),
         ),
         "task_board" => {
-            let ml = match if method.is_empty() { "patch" } else { method.as_str() } {
-                "patch" => "更新",
-                "replace" => "替换",
-                "get" => "读取",
-                other => other,
-            };
-            (format!("任务板 · {ml}"), String::new())
+            let m = if method.is_empty() { "patch" } else { method.as_str() };
+            (
+                format!("任务板 · {}", task_board_method_label(m)),
+                task_board_invoke_summary(m, args),
+            )
         }
         "captcha_verify" => {
             let action = if method.is_empty() {
@@ -379,6 +436,20 @@ mod tests {
             }),
         );
         assert_eq!(d.summary, "App.vue, main.ts");
+    }
+
+    #[test]
+    fn task_board_flat_patch_shows_item_and_status() {
+        let d = default_display(
+            "task_board:patch",
+            &json!({
+                "item_id": "2",
+                "status": "done",
+                "verification": "窗口已打开"
+            }),
+        );
+        assert_eq!(d.label, "任务板 · 更新");
+        assert_eq!(d.summary, "#2 → done");
     }
 
     #[test]

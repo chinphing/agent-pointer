@@ -30,9 +30,11 @@ When citing external facts in `response`:
 
 ## Reasoning and execution discipline
 
-Keep `thoughts` concise and action-focused.
-Do not paste long plans into `thoughts`.
+Keep internal reasoning concise and action-focused.
+Do not paste long plans into assistant message text.
 Use `task_board` for milestone planning.
+Worker agents (especially **Computer**) run Verify / Next stages internally;
+report outcomes via tools (`verify:report`, native tool args), not message text.
 
 ## Rules
 
@@ -63,12 +65,12 @@ Use `task_board` for milestone planning.
 - **Hotkey precondition:** Use app/browser shortcuts only when the target window
   is the foreground (topmost) window. If not, focus the target window first.
 
-- **User-visible language:** Write **`headline`** and **`tool_args.text`** (and any other user-facing strings in tool results you summarize back to the user) in **Chinese (简体中文)** by default. Use another language only when the user writes in that language or explicitly asks for it. **`thoughts`** may keep English section labels when your worker prompt requires structured prefixes (e.g. Computer **`Verify:`** / **`Next:`**); **`headline`** is always shown in the chat UI and must be Chinese unless an exception applies.
+- **User-visible language:** Write user-facing strings in tool results and final assistant replies in **Chinese (简体中文)** by default. Use another language only when the user writes in that language or explicitly asks for it. Internal reasoning may use English section labels when a worker prompt requires them; those labels must **not** appear in assistant message text unless delivering a final reply.
 
 ## Task board
 
 When **`task_board`** is in your **allowed tools** (typical for **worker** agents), you are the **project manager** for multi-step work.
-Use the board for milestones—not a long plan in **`thoughts`** only.
+Use the board for milestones—not a long plan in assistant message text only.
 
 - **`task_board:init`** — goal + milestone rows.
   Use 3–8 for normal work.

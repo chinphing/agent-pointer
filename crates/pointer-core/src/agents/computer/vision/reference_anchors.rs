@@ -7,7 +7,7 @@ use super::screen::MonitorInfo;
 
 const INJECT_RULES_TAIL_ADVANCED: &str = "Image-grounded analysis: cite **On [slot name]:**. **All tool (x,y) must be looked up in Overlay reference bboxes below** — find row R, copy (left,top,right,bottom), derive anchor, compute (x,y); **forbidden** pixel-guess or digit position as click; **`*_index` forbidden** — use **`*_at`**. Follow **communication** rules.";
 
-const INJECT_RULES_TAIL_INDEX_TIER: &str = "Image-grounded analysis: cite **On [slot name]:**. **Nearby** in thoughts must copy a bullet below character-for-character — if **`- R:`** is missing, **Inject match: NOT FOUND** and **hover_index** only; **forbidden** inventing **(left, top, right, bottom)**. **Verify:** judge **Expected vs Actual UI change** — pointer on target is **not** pass for click/copy goals. Overlay digits label bboxes only — **forbidden** treating digit position as the click point. Follow **communication** rules.";
+const INJECT_RULES_TAIL_INDEX_TIER: &str = "Image-grounded analysis: cite **On [slot name]:** internally. **Nearby** rows must copy a bullet below character-for-character — if **`- R:`** is missing, **Inject match: NOT FOUND** and **hover_index** only; **forbidden** inventing **(left, top, right, bottom)**. **Verify:** judge **Expected vs Actual UI change** — pointer on target is **not** pass for click/copy goals. Overlay digits label bboxes only — **forbidden** treating digit position as the click point. Do not write reasoning in assistant message text. Follow **communication** rules.";
 
 /// Max overlay rows injected near the pointer for Primary / Intermediate tiers.
 pub const MOUSE_NEARBY_REFERENCE_LIMIT: usize = 10;

@@ -247,9 +247,6 @@ fn parse_skill_md(raw: &str) -> Result<SkillManifest> {
     }
 
     let yaml_text = yaml.join("\n");
-    if contains_angle_brackets(&yaml_text) {
-        return Err(anyhow!("SKILL.md frontmatter 不允许包含 < 或 >"));
-    }
 
     let mut manifest: SkillManifest = serde_yaml::from_str(&yaml_text)?;
     manifest.body = body.join("\n").trim().to_string();
@@ -291,19 +288,7 @@ fn validate_manifest(manifest: &SkillManifest) -> Result<()> {
     if manifest.description.chars().count() > 1024 {
         return Err(anyhow!("description 不能超过 1024 个字符"));
     }
-    if contains_angle_brackets(&manifest.name)
-        || contains_angle_brackets(&manifest.description)
-        || manifest
-            .license
-            .as_deref()
-            .is_some_and(contains_angle_brackets)
-        || manifest
-            .compatibility
-            .as_deref()
-            .is_some_and(contains_angle_brackets)
-    {
-        return Err(anyhow!("frontmatter 字段不允许包含 < 或 >"));
-    }
+
     if let Some(compatibility) = &manifest.compatibility {
         let len = compatibility.chars().count();
         if len == 0 || len > 500 {
@@ -330,10 +315,6 @@ fn metadata_tags(metadata: &serde_json::Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-fn contains_angle_brackets(value: &str) -> bool {
-    value.contains('<') || value.contains('>')
 }
 
 fn is_kebab_case_dir(dir: &Path) -> bool {
@@ -412,4 +393,120 @@ fn safe_join(root: &Path, rel: &Path) -> Result<PathBuf> {
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(raw: &str) -> SkillManifest {
+        parse_skill_md(raw).unwrap()
+    }
+
+    // ── `>` folded block scalar ──
+
+    #[test]
+    fn folded_single_paragraph() {
+        let input = "---\nname: test-skill\ndescription: >\n  Analyzes macOS disk storage.\n  Provides cleanup recommendations.\n---\nbody";
+        let m = parse(input);
+        assert_eq!(
+            m.description.trim(),
+            "Analyzes macOS disk storage. Provides cleanup recommendations."
+        );
+    }
+
+    #[test]
+    fn folded_multi_paragraph() {
+        let input = "---\nname: test-skill\ndescription: >\n  First paragraph line one.\n  First paragraph line two.\n\n  Second paragraph.\n---\nbody";
+        let m = parse(input);
+        let desc = m.description.trim();
+        assert!(desc.starts_with("First paragraph line one. First paragraph line two."));
+        assert!(desc.contains("Second paragraph."));
+    }
+
+    #[test]
+    fn folded_preserves_body() {
+        let input = "---\nname: test-skill\ndescription: >\n  Some text.\n---\nline1\nline2";
+        let m = parse(input);
+        assert_eq!(m.body, "line1\nline2");
+    }
+
+    // ── `|` literal block scalar ──
+
+    #[test]
+    fn literal_preserves_newlines() {
+        let input = "---\nname: test-skill\ndescription: |\n  Line one.\n  Line two.\n  Line three.\n---\nbody";
+        let m = parse(input);
+        assert_eq!(
+            m.description.trim(),
+            "Line one.\nLine two.\nLine three."
+        );
+    }
+
+    #[test]
+    fn literal_preserves_body() {
+        let input = "---\nname: test-skill\ndescription: |\n  Multi\n  line.\n---\nbody text";
+        let m = parse(input);
+        assert_eq!(m.body, "body text");
+    }
+
+    // ── `<` and `>` in values ──
+
+    #[test]
+    fn angle_brackets_in_description_value() {
+        let input = "---\nname: test-skill\ndescription: Files larger than >500MB are skipped.\n---\nbody";
+        let m = parse(input);
+        assert_eq!(
+            m.description.trim(),
+            "Files larger than >500MB are skipped."
+        );
+    }
+
+    #[test]
+    fn angle_brackets_in_name() {
+        let input = "---\nname: test-skill<v2>\ndescription: desc.\n---\nbody";
+        let m = parse(input);
+        assert_eq!(m.name, "test-skill<v2>");
+    }
+
+    // ── 端到端: 真实技能 SKILL.md（`>` 折叠描述）──
+
+    #[test]
+    fn real_world_skill_with_folded_description() {
+        let input = "---\nname: disk-storage-analyzer\ndescription: >\n  Analyzes macOS disk storage usage by category (Documents, Desktop, Pictures,\n  Movies, Downloads, Music). Identifies large chat-app caches (WeChat, WeCom),\n  Docker volumes, and cloud-sync folders. Provides cleanup recommendations with\n  estimated reclaimable space.\n---\n# Disk Storage Analyzer\n\nScan the user's home directory and categorize disk usage.\n\n## Workflow\n\n1. Run `du -sh ~/Documents ~/Desktop ~/Pictures ~/Movies ~/Downloads ~/Music`\n2. Identify top space consumers (>1 GiB)\n3. Suggest cleanup actions";
+        let m = parse(input);
+        assert_eq!(m.name, "disk-storage-analyzer");
+        assert!(m.description.contains("Analyzes macOS disk storage usage"));
+        assert!(m.description.contains("Provides cleanup recommendations"));
+        // `>` folds newlines into spaces — not literal \n
+        assert!(!m.description.contains("\n    Analyzes"));
+        // body intact
+        assert!(m.body.contains("# Disk Storage Analyzer"));
+        assert!(m.body.contains("du -sh"));
+    }
+
+    // ── errors still work ──
+
+    #[test]
+    fn missing_frontmatter_is_error() {
+        assert!(parse_skill_md("no frontmatter").is_err());
+    }
+
+    #[test]
+    fn non_kebab_name_is_error() {
+        let m = parse_skill_md(
+            "---\nname: not kebab\ndescription: d.\n---\nbody",
+        )
+        .unwrap();
+        assert!(validate_manifest(&m).is_err());
+    }
+
+    #[test]
+    fn empty_description_is_error() {
+        let m = parse_skill_md(
+            "---\nname: my-skill\ndescription: \n---\nbody",
+        )
+        .unwrap();
+        assert!(validate_manifest(&m).is_err());
+    }
 }

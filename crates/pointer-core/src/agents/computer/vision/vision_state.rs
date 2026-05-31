@@ -50,29 +50,6 @@ pub struct VisionState {
     max_history_size: usize,
 }
 
-/// Corner anchor for index + offset positioning.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CornerAnchor {
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
-    Center,
-}
-
-impl CornerAnchor {
-    pub fn parse(s: &str) -> Option<Self> {
-        match s.trim().to_ascii_lowercase().replace('_', "-").as_str() {
-            "top-left" | "topleft" => Some(Self::TopLeft),
-            "top-right" | "topright" => Some(Self::TopRight),
-            "bottom-left" | "bottomleft" => Some(Self::BottomLeft),
-            "bottom-right" | "bottomright" => Some(Self::BottomRight),
-            "center" | "center-point" => Some(Self::Center),
-            _ => None,
-        }
-    }
-}
-
 /// Information about a UI element extracted from annotation.
 #[derive(Debug, Clone)]
 pub struct ElementInfo {
@@ -208,33 +185,6 @@ impl VisionState {
 
     pub fn element(&self, index: u32) -> Option<&ElementInfo> {
         self.index_map.get(&index)
-    }
-
-    /// Index + corner anchor + session-coordinate delta → screen pixels.
-    pub fn resolve_index_anchor(
-        &self,
-        index: u32,
-        anchor: CornerAnchor,
-        delta_x: i32,
-        delta_y: i32,
-    ) -> Option<(i32, i32)> {
-        let e = self.index_map.get(&index)?;
-        let monitor = self.screen_bbox.as_ref()?;
-        let (nx, ny) = match anchor {
-            CornerAnchor::TopLeft => (e.norm_left, e.norm_top),
-            CornerAnchor::TopRight => (e.norm_right, e.norm_top),
-            CornerAnchor::BottomLeft => (e.norm_left, e.norm_bottom),
-            CornerAnchor::BottomRight => (e.norm_right, e.norm_bottom),
-            CornerAnchor::Center => {
-                ((e.norm_left + e.norm_right) / 2, (e.norm_top + e.norm_bottom) / 2)
-            }
-        };
-        let (sx, sy) = super::coord::normalized_to_screen(
-            ((nx + delta_x) as f32, (ny + delta_y) as f32),
-            monitor,
-            self.coordinate_system,
-        );
-        Some((sx, sy))
     }
 
     /// Resolve normalized coordinates to screen pixel coordinates.

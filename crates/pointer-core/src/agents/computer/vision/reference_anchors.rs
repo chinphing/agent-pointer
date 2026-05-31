@@ -5,7 +5,7 @@ use super::annotate::BoxInfo;
 use super::coord::CoordinateSystem;
 use super::screen::MonitorInfo;
 
-const INJECT_RULES_TAIL_ADVANCED: &str = "Image-grounded analysis: cite **On [slot name]:**. **All tool (x,y) must be looked up in Overlay reference bboxes below** — find row R, copy (left,top,right,bottom), derive anchor, compute (x,y); **forbidden** pixel-guess or digit position as click; **`*_index` forbidden** — use **`*_at`**. Follow **communication** rules.";
+const INJECT_RULES_TAIL_ADVANCED: &str = "Image-grounded analysis: cite **On [slot name]:**. For **`*_at`** methods, **(x,y)** must come from Overlay reference bboxes — find row R, copy (left,top,right,bottom), derive anchor, compute (x,y); **forbidden** pixel-guess or digit position as click. For **`*_index`** methods, pass **`index`** only (bbox center click). Follow **communication** rules.";
 
 const INJECT_RULES_TAIL_INDEX_TIER: &str = "Image-grounded analysis: cite **On [slot name]:** internally. **Nearby** rows must copy a bullet below character-for-character — if **`- R:`** is missing, **Inject match: NOT FOUND** and **hover_index** only; **forbidden** inventing **(left, top, right, bottom)**. **Verify:** judge **Expected vs Actual UI change** — pointer on target is **not** pass for click/copy goals. Overlay digits label bboxes only — **forbidden** treating digit position as the click point. Do not write reasoning in assistant message text. Follow **communication** rules.";
 
@@ -137,7 +137,7 @@ fn format_nearby_overlay_reference_bboxes(
     limit: usize,
 ) -> String {
     let header = format!(
-        "**Nearby overlay reference bboxes** ({} indices nearest the **pointer** on this capture — {}; each row **R: (left, top, right, bottom)**; copy row **R** for **W/H** and **dx/dy** on index tools; sorted nearest-first; digits are **anchors only**, not click targets):",
+        "**Nearby overlay reference bboxes** ({} indices nearest the **pointer** on this capture — {}; each row **R: (left, top, right, bottom)**; use **`index`** for index tools (bbox center); sorted nearest-first; digits are **labels only**, not click targets):",
         boxes.len().min(limit),
         session_label(coord)
     );

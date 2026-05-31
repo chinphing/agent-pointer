@@ -93,12 +93,6 @@ pub(super) fn init_sub_agent_session(
         prompts.push(hint);
     }
 
-    if def.profile == AgentProfile::Computer {
-        let tier = state.computer_state.tier_for_conversation(conversation_id);
-        if !crate::agents::computer::tier::tier_allows_index_tools(tier) {
-            allowed_tools.retain(|t| !t.ends_with("_index"));
-        }
-    }
     let tools_system_appendix =
         crate::tools_system_appendix::generate_tools_system_appendix(
             &state.tools,

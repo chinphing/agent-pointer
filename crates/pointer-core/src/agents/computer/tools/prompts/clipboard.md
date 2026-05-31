@@ -7,10 +7,15 @@ schema:
       enum:
         - read
         - write
+    goal:
+      type: string
+    action:
+      type: string
     text:
       type: string
   required:
     - method
+    - goal
   additionalProperties: true
 ---
 

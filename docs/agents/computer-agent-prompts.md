@@ -63,7 +63,7 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 |------|------|----------|-------------|
 | Primary | 2-3 图：可选 **`[Screen before action]`** + **`[Screen after action]`** + **`[Annotated after action]`**；无 zoom | 内部跑 Verify / Repetition / Next；**N–目标关系** 决定 index vs coordinate；**不写** assistant 正文（除最终回复）；每轮 **`verify:report`** | qwen3.5-plus |
 | Intermediate | 原图 + marked + Annotated；**无** zoom/before | 内部 **Verify→Pointer（条件）→Repetition→Next**；**Parameter** 块 per index arg；**Nearby bboxes×10**；正文默认空；**`verify:report`** | qwen3.5-plus，思考预算 **2048** |
-| Advanced | 7 槽（与现网一致） | 内部七段 **Verify→…→Tool route**；coordinate only；正文默认空；**`verify:report`** | qwen3.6-plus，思考 8K |
+| Advanced | 7 槽（与现网一致） | 内部七段 **Verify→…→Tool route**；coordinate 为主，可选 index；正文默认空；**`verify:report`** | qwen3.6-plus，思考 8K |
 
 ## 操作历史
 
@@ -91,13 +91,13 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 
 ## 定位方式（按档）
 
-| 档位 | 定位 | communication + `## Tools` 附录 |
-|------|------|----------------------------------|
-| Primary | **hybrid**（index + coordinate 同时可用，按中心归属切换） | `tools/prompts/hybrid/*.md` |
-| Intermediate | **index**（`click_index`、`type_text_at_index` 等） | `tools/prompts/index/*.md` |
-| Advanced | **coordinate**（`click_at`、`type_text_at` + Location + Overlay bboxes） | `tools/prompts/coordinate/*.md` |
+| 档位 | 偏好 | 工具注册名 |
+|------|------|------------|
+| Primary | **hybrid**（index + coordinate，按中心归属切换） | `mouse` / `composite_action` / `modified_click` |
+| Intermediate | **index**（`click_index`、`type_text_at_index` 等） | 同上 |
+| Advanced | **coordinate 为主**（`click_at` + Location + Overlay bboxes）；也允许 `*_index` | 同上 |
 
-组装：`generate_tools_system_appendix_with_positioning`（见 `tools/tool_prompts.rs`）。运行时 Advanced 仍会拒绝 `*_index` 调用。
+工具正文：`tools/prompts/mouse.md`、`composite_action.md`、`modified_click.md`（按 **method** 后缀路由，不再拆分 `mouse_index` 等独立工具 id）。组装：`generate_tools_system_appendix`。
 
 ## Advanced 七阶段
 

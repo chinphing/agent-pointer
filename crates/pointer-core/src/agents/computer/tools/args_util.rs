@@ -1,6 +1,6 @@
 //! Shared argument parsing / validation aligned with PyProjects/pointer `vision_common` helpers.
 
-use crate::agents::computer::vision::vision_state::{CornerAnchor, VisionState};
+use crate::agents::computer::vision::vision_state::VisionState;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
@@ -128,24 +128,32 @@ pub fn parse_indices(arg: Option<&Value>) -> Result<Vec<u32>> {
     }
 }
 
-/// Resolve overlay index (+ optional anchor/dx/dy) to screen pixels.
-pub fn resolve_index_pixels(
-    vision: &VisionState,
-    args: &Value,
-    index: u32,
-) -> Result<(i32, i32)> {
-    let out = if let Some(anchor) = args
-        .get("anchor")
-        .and_then(|v| v.as_str())
-        .and_then(CornerAnchor::parse)
-    {
-        let dx = args.get("dx").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-        let dy = args.get("dy").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-        vision.resolve_index_anchor(index, anchor, dx, dy)
-    } else {
-        vision.resolve_index(index)
-    };
-    out.ok_or_else(|| anyhow!("Index {} not found in current annotation", index))
+/// Resolve overlay index to bbox center in screen pixels.
+pub fn resolve_index_pixels(vision: &VisionState, index: u32) -> Result<(i32, i32)> {
+    vision
+        .resolve_index(index)
+        .ok_or_else(|| anyhow!("Index {} not found in current annotation", index))
+}
+
+/// Pixel offset for `move_offset` (`offset_x` / `offset_y` in tool_args).
+pub fn move_offset_pixels(args: &Value) -> Result<(i32, i32)> {
+    let ox = args
+        .get("offset_x")
+        .or_else(|| args.get("dx"))
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| anyhow!("Missing or invalid 'offset_x' parameter"))? as i32;
+    let oy = args
+        .get("offset_y")
+        .or_else(|| args.get("dy"))
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| anyhow!("Missing or invalid 'offset_y' parameter"))? as i32;
+    if ox.abs() > MOVE_OFFSET_MAX || oy.abs() > MOVE_OFFSET_MAX {
+        return Err(anyhow!(
+            "offset_x/offset_y must be within [-{0}, {0}]",
+            MOVE_OFFSET_MAX
+        ));
+    }
+    Ok((ox, oy))
 }
 
 pub fn require_non_empty_str(args: &Value, key: &str) -> Result<String> {

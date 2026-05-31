@@ -4,6 +4,7 @@
 
 pub mod args_util;
 mod dati_client;
+mod method_route;
 mod tool_captcha_verify;
 mod tool_clipboard;
 mod tool_composite;
@@ -19,11 +20,9 @@ use args_util::effective_human_like_default;
 use crate::platform::run_synthetic_input;
 use crate::tools::{ToolEntry, ToolRegistry};
 use std::sync::Arc;
-use tool_composite::{
-    CompositeActionAtTool, CompositeActionFocusedTool, CompositeActionIndexTool,
-};
-use tool_modified_click::{ModifiedClickAtTool, ModifiedClickIndexTool};
-use tool_mouse::{MouseAtTool, MouseCurrentTool, MouseIndexTool};
+use tool_composite::CompositeActionTool;
+use tool_modified_click::ModifiedClickTool;
+use tool_mouse::MouseTool;
 
 /// Run synthetic input on the platform main thread when required, with tier context set there.
 fn run_synthetic_computer_tool<R, F>(tier: crate::agents::computer::tier::ComputerTier, f: F) -> R
@@ -46,12 +45,12 @@ fn conversation_id_from_args(args: &serde_json::Value) -> Option<&str> {
 
 /// Register all computer-use tools.
 pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
-    // ── mouse_index ──────────────────────────────────────────────────────
+    // ── mouse (unified: index / at / current via method name) ────────────
     {
         let mouse_state = state.clone();
-        let doc = include_str!("prompts/mouse_index.md").trim();
+        let doc = include_str!("prompts/mouse.md").trim();
         reg.register(ToolEntry::new(
-            "mouse_index",
+            "mouse",
             "low",
             false,
             doc,
@@ -63,69 +62,12 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 let tier = mouse_state.tier_for_conversation(&cid);
                 let vision = mouse_state.vision_state_for_conversation(&cid);
                 let hl_default = effective_human_like_default();
-                let tool = MouseIndexTool::new(
+                let tool = MouseTool::new(
                     mouse_state.executor.clone(),
                     vision,
                     hl_default,
                 );
-                let method = args["method"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                    .to_string();
-                run_synthetic_computer_tool(tier, move || tool.execute(&method, &args))
-            }),
-        ));
-    }
-
-    // ── mouse_at ─────────────────────────────────────────────────────────
-    {
-        let mouse_state = state.clone();
-        let doc = include_str!("prompts/mouse_at.md").trim();
-        reg.register(ToolEntry::new(
-            "mouse_at",
-            "low",
-            false,
-            doc,
-            Arc::new(move |args| {
-                let mouse_state = mouse_state.clone();
-                let cid = conversation_id_from_args(&args)
-                    .unwrap_or_default()
-                    .to_string();
-                let tier = mouse_state.tier_for_conversation(&cid);
-                let vision = mouse_state.vision_state_for_conversation(&cid);
-                let hl_default = effective_human_like_default();
-                let tool =
-                    MouseAtTool::new(mouse_state.executor.clone(), vision, hl_default);
-                let method = args["method"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                    .to_string();
-                run_synthetic_computer_tool(tier, move || tool.execute(&method, &args))
-            }),
-        ));
-    }
-
-    // ── mouse_current ────────────────────────────────────────────────────
-    {
-        let mouse_state = state.clone();
-        let doc = include_str!("prompts/mouse_current.md").trim();
-        reg.register(ToolEntry::new(
-            "mouse_current",
-            "low",
-            false,
-            doc,
-            Arc::new(move |args| {
-                let mouse_state = mouse_state.clone();
-                let cid = conversation_id_from_args(&args)
-                    .unwrap_or_default()
-                    .to_string();
-                let tier = mouse_state.tier_for_conversation(&cid);
-                let tool = MouseCurrentTool::new(mouse_state.executor.clone());
-                let method = args["method"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                    .to_string();
-                run_synthetic_computer_tool(tier, move || tool.execute(&method, &args))
+                run_synthetic_computer_tool(tier, move || tool.execute(&args))
             }),
         ));
     }
@@ -149,145 +91,48 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         ));
     }
 
-    // ── composite_action_index ───────────────────────────────────────────
+    // ── composite_action (unified) ───────────────────────────────────────
     {
-        let state = state.clone();
-        let doc = include_str!("prompts/composite_action_index.md").trim();
+        let st = state.clone();
+        let doc = include_str!("prompts/composite_action.md").trim();
         reg.register(ToolEntry::new(
-            "composite_action_index",
+            "composite_action",
             "low",
             false,
             doc,
             Arc::new(move |args| {
-                let state = state.clone();
+                let st = st.clone();
                 let cid = conversation_id_from_args(&args)
                     .unwrap_or_default()
                     .to_string();
-                let tier = state.tier_for_conversation(&cid);
-                let vision = state.vision_state_for_conversation(&cid);
+                let tier = st.tier_for_conversation(&cid);
+                let vision = st.vision_state_for_conversation(&cid);
                 let hl_default = effective_human_like_default();
-                let tool = CompositeActionIndexTool::new(
-                    state.executor.clone(),
-                    vision,
-                    hl_default,
-                );
-                let method = args["method"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                    .to_string();
-                run_synthetic_computer_tool(tier, move || tool.execute(&method, &args))
+                let tool = CompositeActionTool::new(st.executor.clone(), vision, hl_default);
+                run_synthetic_computer_tool(tier, move || tool.execute(&args))
             }),
         ));
     }
 
-    // ── composite_action_at ──────────────────────────────────────────────
+    // ── modified_click (unified) ─────────────────────────────────────────
     {
-        let state = state.clone();
-        let doc = include_str!("prompts/composite_action_at.md").trim();
+        let st = state.clone();
+        let doc = include_str!("prompts/modified_click.md").trim();
         reg.register(ToolEntry::new(
-            "composite_action_at",
+            "modified_click",
             "low",
             false,
             doc,
             Arc::new(move |args| {
-                let state = state.clone();
+                let st = st.clone();
                 let cid = conversation_id_from_args(&args)
                     .unwrap_or_default()
                     .to_string();
-                let tier = state.tier_for_conversation(&cid);
-                let vision = state.vision_state_for_conversation(&cid);
+                let tier = st.tier_for_conversation(&cid);
+                let vision = st.vision_state_for_conversation(&cid);
                 let hl_default = effective_human_like_default();
-                let tool =
-                    CompositeActionAtTool::new(state.executor.clone(), vision, hl_default);
-                let method = args["method"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                    .to_string();
-                run_synthetic_computer_tool(tier, move || tool.execute(&method, &args))
-            }),
-        ));
-    }
-
-    // ── composite_action_focused ─────────────────────────────────────────
-    {
-        let state = state.clone();
-        let doc = include_str!("prompts/composite_action_focused.md").trim();
-        reg.register(ToolEntry::new(
-            "composite_action_focused",
-            "low",
-            false,
-            doc,
-            Arc::new(move |args| {
-                let state = state.clone();
-                let cid = conversation_id_from_args(&args)
-                    .unwrap_or_default()
-                    .to_string();
-                let tier = state.tier_for_conversation(&cid);
-                let tool = CompositeActionFocusedTool::new(state.executor.clone());
-                let method = args["method"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                    .to_string();
-                run_synthetic_computer_tool(tier, move || tool.execute(&method, &args))
-            }),
-        ));
-    }
-
-    // ── modified_click_index ─────────────────────────────────────────────
-    {
-        let state = state.clone();
-        let doc = include_str!("prompts/modified_click_index.md").trim();
-        reg.register(ToolEntry::new(
-            "modified_click_index",
-            "low",
-            false,
-            doc,
-            Arc::new(move |args| {
-                let state = state.clone();
-                let cid = conversation_id_from_args(&args)
-                    .unwrap_or_default()
-                    .to_string();
-                let tier = state.tier_for_conversation(&cid);
-                let vision = state.vision_state_for_conversation(&cid);
-                let hl_default = effective_human_like_default();
-                let tool = ModifiedClickIndexTool::new(
-                    state.executor.clone(),
-                    vision,
-                    hl_default,
-                );
-                let method = args["method"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                    .to_string();
-                run_synthetic_computer_tool(tier, move || tool.execute(&method, &args))
-            }),
-        ));
-    }
-
-    // ── modified_click_at ────────────────────────────────────────────────
-    {
-        let state = state.clone();
-        let doc = include_str!("prompts/modified_click_at.md").trim();
-        reg.register(ToolEntry::new(
-            "modified_click_at",
-            "low",
-            false,
-            doc,
-            Arc::new(move |args| {
-                let state = state.clone();
-                let cid = conversation_id_from_args(&args)
-                    .unwrap_or_default()
-                    .to_string();
-                let tier = state.tier_for_conversation(&cid);
-                let vision = state.vision_state_for_conversation(&cid);
-                let hl_default = effective_human_like_default();
-                let tool =
-                    ModifiedClickAtTool::new(state.executor.clone(), vision, hl_default);
-                let method = args["method"]
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Missing 'method' parameter"))?
-                    .to_string();
-                run_synthetic_computer_tool(tier, move || tool.execute(&method, &args))
+                let tool = ModifiedClickTool::new(st.executor.clone(), vision, hl_default);
+                run_synthetic_computer_tool(tier, move || tool.execute(&args))
             }),
         ));
     }

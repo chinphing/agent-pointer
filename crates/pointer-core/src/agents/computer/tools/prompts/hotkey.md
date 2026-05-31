@@ -12,8 +12,13 @@ schema:
           items:
             type: string
         - type: string
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
   required:
     - goal
+    - action
     - keys
   additionalProperties: true
 ---

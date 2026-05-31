@@ -42,7 +42,7 @@ Work with a **strict, evidence-first** mindset:
   For loading/transfer actions, prefer `wait` in the **2–5 s** range, then
   verify on completion surfaces (download list/history/result UI) before
   deciding success/failure.
-- Do not use `dx/dy` parameters in tool calls.
+- Index tools use **`index` only** (bbox center) — no `anchor` or extra offset fields.
 
 ---
 
@@ -370,7 +370,6 @@ Only **MA-0** may reference **Count** as a decision input; do not restate Repeti
 **`tool_args` must mirror the selected route output:**
 - index-style route: use `index` (or `from_index`/`to_index` for drag).
 - coordinate-style route: use `x/y` (or multi-point coordinates such as `x1/y1/x2/y2`).
-- Do not include `dx/dy` in tool calls.
 - For `composite_action:type_text_*`, `clear_first` defaults to `false`; set
   `clear_first=true` only when replacing existing field content.
 
@@ -451,7 +450,6 @@ Verdict: <use index-style route with index args>
 Hard rules:
 - Use only when the atomic target-element center coincides with bbox **N** center (**inner-center-wrap**), not a group/container center.
 - Quote one concrete reference row before writing final `index` decision.
-- Do not output `dx/dy`.
 - Keep one action goal per call; for multi-point actions (for example drag), provide all required positions explicitly.
 
 ### Reference sanity

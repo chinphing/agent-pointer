@@ -3,7 +3,7 @@ use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::vision_state::VisionState;
 use super::args_util::{
     clamp_scroll_lines, human_like_from_args, require_non_empty_str, required_f32_arg,
-    required_u32_arg, resolve_index_pixels as resolve_index_from_vision, MOVE_OFFSET_MAX,
+    move_offset_pixels, required_u32_arg, resolve_index_pixels as resolve_index_from_vision,
 };
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -37,9 +37,9 @@ impl MouseIndexTool {
         human_like_from_args(args, self.human_like_default)
     }
 
-    fn resolve_index(&self, args: &Value, index: u32) -> Result<(i32, i32)> {
+    fn resolve_index(&self, index: u32) -> Result<(i32, i32)> {
         let vision = self.vision_state.lock().unwrap();
-        let out = resolve_index_from_vision(&vision, args, index);
+        let out = resolve_index_from_vision(&vision, index);
         drop(vision);
         out
     }
@@ -60,7 +60,7 @@ impl MouseIndexTool {
 
     fn click(&self, args: &Value) -> Result<String> {
         let index = required_u32_arg(args, "index")?;
-        let (x, y) = self.resolve_index(args, index)?;
+        let (x, y) = self.resolve_index(index)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
         executor.click_index(x, y, hl)?;
@@ -69,7 +69,7 @@ impl MouseIndexTool {
 
     fn double_click(&self, args: &Value) -> Result<String> {
         let index = required_u32_arg(args, "index")?;
-        let (x, y) = self.resolve_index(args, index)?;
+        let (x, y) = self.resolve_index(index)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
         executor.double_click_index(x, y, hl)?;
@@ -78,7 +78,7 @@ impl MouseIndexTool {
 
     fn right_click(&self, args: &Value) -> Result<String> {
         let index = required_u32_arg(args, "index")?;
-        let (x, y) = self.resolve_index(args, index)?;
+        let (x, y) = self.resolve_index(index)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
         executor.right_click_index(x, y, hl)?;
@@ -87,7 +87,7 @@ impl MouseIndexTool {
 
     fn hover(&self, args: &Value) -> Result<String> {
         let index = required_u32_arg(args, "index")?;
-        let (x, y) = self.resolve_index(args, index)?;
+        let (x, y) = self.resolve_index(index)?;
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
         executor.hover_index(x, y, hl)?;
@@ -299,24 +299,59 @@ impl MouseCurrentTool {
     }
 
     fn move_offset(&self, args: &Value) -> Result<String> {
-        let dx = args["dx"]
-            .as_i64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'dx' parameter"))? as i32;
-        let dy = args["dy"]
-            .as_i64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'dy' parameter"))? as i32;
-        if dx.abs() > MOVE_OFFSET_MAX || dy.abs() > MOVE_OFFSET_MAX {
-            return Err(anyhow!(
-                "dx/dy must be within [-{0}, {0}]",
-                MOVE_OFFSET_MAX
-            ));
-        }
+        let (ox, oy) = move_offset_pixels(args)?;
         let executor = self.executor.lock().unwrap();
-        executor.move_offset(dx, dy, false)?;
+        executor.move_offset(ox, oy, false)?;
         let (nx, ny) = executor.get_position()?;
         Ok(format!(
             "Moved cursor by ({}, {}) px; now at [{}, {}]. Verify result on next screenshot.",
-            dx, dy, nx, ny
+            ox, oy, nx, ny
         ))
+    }
+}
+
+// ── MouseTool (unified registry entry) ───────────────────────────────────────
+
+/// Unified `mouse` tool: routes `click_at` / `click_index` / `click_current` etc. by method name.
+pub struct MouseTool {
+    index: MouseIndexTool,
+    at: MouseAtTool,
+    current: MouseCurrentTool,
+}
+
+impl MouseTool {
+    pub fn new(
+        executor: Arc<Mutex<ActionExecutor>>,
+        vision_state: Arc<Mutex<VisionState>>,
+        human_like_default: bool,
+    ) -> Self {
+        Self {
+            index: MouseIndexTool::new(
+                executor.clone(),
+                vision_state.clone(),
+                human_like_default,
+            ),
+            at: MouseAtTool::new(
+                executor.clone(),
+                vision_state,
+                human_like_default,
+            ),
+            current: MouseCurrentTool::new(executor),
+        }
+    }
+
+    pub fn execute(&self, args: &Value) -> Result<String> {
+        use super::method_route::{route_mouse, MouseBackend};
+        let routed = route_mouse(args)?;
+        log::info!(
+            "mouse: method={} backend={:?}",
+            routed.method,
+            routed.backend
+        );
+        match routed.backend {
+            MouseBackend::Index => self.index.execute(&routed.method, args),
+            MouseBackend::At => self.at.execute(&routed.method, args),
+            MouseBackend::Current => self.current.execute(&routed.method, args),
+        }
     }
 }

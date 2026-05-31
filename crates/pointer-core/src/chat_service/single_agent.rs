@@ -77,13 +77,7 @@ pub(super) async fn run_single_agent_loop(
 
         let assistant_id = new_id("msg");
 
-        let mut effective_allowed = agent_plan.allowed_tool_names.clone();
-        if lead_profile == AgentProfile::Computer {
-            let tier = state.computer_state.tier_for_conversation(conversation_id);
-            if !crate::agents::computer::tier::tier_allows_index_tools(tier) {
-                effective_allowed.retain(|t| !t.ends_with("_index"));
-            }
-        }
+        let effective_allowed = agent_plan.allowed_tool_names.clone();
         let tools_system_appendix =
             crate::tools_system_appendix::generate_tools_system_appendix(
                 &state.tools,

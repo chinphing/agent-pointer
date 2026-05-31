@@ -112,8 +112,46 @@ pub fn registry_tool_in_allow_list(allowed: &[String], registry_tool_id: &str) -
         .any(|a| registry_tool_base_name(a) == registry_tool_id)
 }
 
+/// Map retired split computer tool ids to unified family names for allow lists.
+pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
+    const TO_FAMILY: &[(&str, &str)] = &[
+        ("mouse_index", "mouse"),
+        ("mouse_at", "mouse"),
+        ("mouse_current", "mouse"),
+        ("composite_action_index", "composite_action"),
+        ("composite_action_at", "composite_action"),
+        ("composite_action_focused", "composite_action"),
+        ("modified_click_index", "modified_click"),
+        ("modified_click_at", "modified_click"),
+    ];
+    for &(from, to) in TO_FAMILY {
+        if names
+            .iter()
+            .any(|n| registry_tool_base_name(n) == from)
+            && !names.iter().any(|n| registry_tool_base_name(n) == to)
+        {
+            names.push(to.to_string());
+        }
+    }
+    names.retain(|n| {
+        let base = registry_tool_base_name(n);
+        !matches!(
+            base,
+            "mouse_index"
+                | "mouse_at"
+                | "mouse_current"
+                | "composite_action_index"
+                | "composite_action_at"
+                | "composite_action_focused"
+                | "modified_click_index"
+                | "modified_click_at"
+        )
+    });
+}
+
 /// Keep allow-list entries whose registry base exists; inject base names for `tool:method` entries.
 pub fn normalize_allowed_tool_names(names: &mut Vec<String>, available: &std::collections::HashSet<String>) {
+    remap_split_computer_tool_allow_names(names);
     names.retain(|name| available.contains(registry_tool_base_name(name)));
     let extras: Vec<String> = names
         .iter()

@@ -16,7 +16,7 @@ in assistant message text.
 
 **Turn deliverables = native tool calls only**
 - Report: `verify.report` with native args
-- Action: one root desktop tool (`mouse.*_at`, `composite_action.*_at`, …)
+- Action: one root desktop tool (`mouse`, `composite_action`, `modified_click` — method suffix `*_at` or `*_index` per route below)
 - Board (optional): `task_board.patch` / …
 Do **not** write tool names or args in assistant message text.
 
@@ -409,8 +409,14 @@ Labels follow **fixed enumeration** on the current frame (**1** = first region, 
 - Treating overlay **digit** screen position as **`(x,y)`** — digits label bboxes; numbers live only in **`Overlay reference bboxes`**.
 - Estimating **(x,y)** from full-screen / zoom images without copying row **R** from the text list.
 
-**Allowed — coordinate methods:**  
-**`mouse`:** `click_at`, `double_click_at`, `right_click_at`, `hover_at`, `drag_from_to_at` · **`composite_action`:** `type_text_at` · **`modified_click`:** `modified_click_at`.
+**Allowed — coordinate methods (`*_at`):**  
+**`mouse`:** `click_at`, `double_click_at`, `right_click_at`, `hover_at`, `drag_from_to_at` · **`composite_action`:** `type_text_at`, `scroll_at` · **`modified_click`:** `modified_click_at`.
+
+**Allowed — overlay index methods (`*_index`):**  
+**`mouse`:** `click_index`, `double_click_index`, `right_click_index`, `hover_index`, `drag_from_to_index` · **`composite_action`:** `type_text_at_index`, `scroll_at_index` · **`modified_click`:** `modified_click_index`.  
+Use **`index`** / **`indices`** / **`from_index`** / **`to_index`** only — overlay digit = bbox label; click uses bbox **center** (no `anchor` / offset args).
+
+**Route choice:** Prefer **`*_at`** when **Location** line **3** derives **`(x,y)`** from **Overlay reference bboxes**. Prefer **`*_index`** when the sub-target maps cleanly to one overlay digit **R** without coordinate arithmetic. **Forbidden:** mixing routes — e.g. **`click_index`** after **Location** fixed **`(x,y)`** (use **`click_at`** instead), or **`click_at`** with pixel-guess **(x,y)** without bbox lookup.
 
 **CAPTCHA routing (hard):**
 - If a CAPTCHA challenge is visible, call `captcha_verify` in this turn.
@@ -422,10 +428,7 @@ Labels follow **fixed enumeration** on the current frame (**1** = first region, 
 - Use `mouse` only to reveal CAPTCHA when the challenge is not visible.
 CAPTCHA tool: **`captcha_verify`**.
 
-**Forbidden — every `*_index` method (all turns, no exceptions):**  
-`click_index`, `double_click_index`, `right_click_index`, `hover_index`, `drag_from_to_index`, `type_text_at_index`, `scroll_at_index`, `modified_click_index`, and any tool arg named **`index`**, **`indices`**, **`from_index`**, or **`to_index`**.
-
-**Non-canvas / no `(x,y)` pick:** `click_current`, `double_click_current`, `right_click_current`, `scroll_at_current`, `move_offset`, `type_text_at_focused`, **`hotkey`**, **`wait`**, **`clipboard:*`**, **`response`**.
+**Non-canvas / no overlay index or `(x,y)` pick:** `click_current`, `double_click_current`, `right_click_current`, `scroll_at_current`, `move_offset`, `type_text_at_focused`, **`hotkey`**, **`wait`**, **`clipboard:*`**, **`response`**.
 
 **Hard rule:** **`Tool route:`** line **2** + root **`tool_name`** / **`tool_args`** must match **Allowed** only. Reference index **R** appears in **`Location:`** / recap — **not** in the tool call.
 
@@ -543,7 +546,7 @@ Next:
 
 **Coordinate lookup (mandatory):** Open the **`Overlay reference bboxes`** section under **`[CUR_SCREEN]`** and **find row `R:`** before any **`(xa,ya)`** or **`(x,y)`** arithmetic. That text list is the **only** source of numeric bbox coordinates this turn.
 
-**Overlay reference bboxes** lists **every** index as **`R: (left, top, right, bottom)`** (session integers; origin top-left). **Forbidden:** **(x,y)** from images alone; **forbidden** any **`*_index`** tool method.
+**Overlay reference bboxes** lists **every** index as **`R: (left, top, right, bottom)`** (session integers; origin top-left). **Forbidden:** **(x,y)** from images alone for **`*_at`** methods. **`*_index`** methods (`click_index`, …) use overlay **`index`** per communication index rules.
 
 #### Steps (strict order — 3 lines when overlay applies)
 
@@ -593,7 +596,7 @@ Read **`On [overlay frame]:`** then choose **R** from **Overlay reference bboxes
 | **bottom-right corner** | **(R, B)** |
 | **center point** | **((L+R)/2, (T+B)/2)** — round to integers |
 
-If the sub-target **coincides** with that anchor → direction **`on anchor`**, **`offset none`**. Otherwise → **direction** toward the sub-target + **offset** (smallest **Δx/Δy** that reach the sub-target).
+If the sub-target **coincides** with that anchor → direction **`on anchor`**, **`offset none`**. Otherwise → **direction** toward the sub-target + **offset** (smallest signed horizontal/vertical steps that reach the sub-target).
 
 **Forbidden:** **`anchor = center point`** when a **corner** on row **R** is visibly **closer** to the sub-target than center (per line **2** Step **3** placement).
 
@@ -604,7 +607,7 @@ If the sub-target **coincides** with that anchor → direction **`on anchor`**, 
 **Order is fixed:** **anchor (5) → direction (8) → quote row R `(L,T,R,B)` → derive (xa,ya) → offset → arithmetic.**  
 **Forbidden:** **I2/I3** numbers before **anchor + direction** are named from line **2** Step **3**.
 
-**Screen axes (all line 3 math):** origin **top-left**; **+Δx = right**; **+Δy = down**.
+**Screen axes (all line 3 math):** origin **top-left**; **+horizontal = right**; **+vertical = down**.
 
 ##### Class A — Anchor position (exactly **5**, derived from row **R** rect only)
 
@@ -618,7 +621,7 @@ If the sub-target **coincides** with that anchor → direction **`on anchor`**, 
 
 After anchor is fixed, **I1** must name **one** direction — sub-target lies **from the anchor point** toward:
 
-| # | Direction label (use in **I1**) | **Δx** sign | **Δy** sign | Typical magnitude |
+| # | Direction label (use in **I1**) | Horizontal sign | Vertical sign | Typical magnitude |
 |---|------------------------------|-------------|-------------|-------------------|
 | 1 | **right** | **+** | **0** | horizontal only |
 | 2 | **left** | **−** | **0** | horizontal only |
@@ -642,16 +645,16 @@ anchor = <center point | top-left corner | top-right corner | bottom-left corner
 direction from anchor = <one of 8 | on anchor>.
 ```
 
-**I3 must echo direction:** **`offset Δx=…, Δy=… — direction <label> from anchor`**.
+**I3 must echo direction:** **`offset (horizontal …, vertical …) — direction <label> from anchor`**.
 
 **Examples (sign check):**
 
-- **anchor = top-left corner**, sub-target at **bottom-left of bbox R** (same left edge) → direction **`down`**, **Δx=0**, **Δy=+** — **not** **`down-right`**, **not** **+Δx** large.
-- **anchor = top-left corner**, sub-target **down-left** of anchor (outside **R** down and left) → direction **`down-left`**, **Δx=−**, **Δy=+**.
+- **anchor = top-left corner**, sub-target at **bottom-left of bbox R** (same left edge) → direction **`down`**, horizontal **0**, vertical **+** — **not** **`down-right`**, **not** large **+horizontal**.
+- **anchor = top-left corner**, sub-target **down-left** of anchor (outside **R** down and left) → direction **`down-left`**, horizontal **−**, vertical **+**.
 
-**Forbidden:** **I3** signs that disagree with the **direction** row (e.g. direction **`down-left`** with **Δx=+120**).
+**Forbidden:** **I3** signs that disagree with the **direction** row (e.g. direction **`down-left`** with horizontal **+120**).
 
-**Forbidden:** direction label or numeric **Δx/Δy** before anchor + direction are named in **I1**.
+**Forbidden:** direction label or numeric offset before anchor + direction are named in **I1**.
 
 #### Bbox list lookup (mandatory on line 3)
 
@@ -661,17 +664,17 @@ Line **3** must **copy row R after I1** — same order as a proof:
 |------|-------------------|----------|
 | **I1 Anchor + direction** | Echo line **2** Step **3** bearing; pick **anchor** = one of **5**; **direction** = one of **8** or **`on anchor`** (must match Step **3**) | **Mandatory first on line 3** — no coordinates yet |
 | **I2 Rect + anchor** | **`Overlay reference bboxes row R: (L, T, R, B) = (…, …, …, …)`** — copy **four integers** from row **R**; then **`anchor (xa, ya) = (…, …)`** from anchor table | **Mandatory** — **forbidden** to skip |
-| **I3 Offset** | **Δx, Δy** signs from **direction** table; magnitudes from layout (or **`none`** if **`on anchor`**) | **Mandatory** — cite **direction** label |
-| **I4 Arithmetic** | **(X, Y) = (xa ± Δx, ya ± Δy)** — show evaluated result | **Mandatory** before Conclusion |
+| **I3 Offset** | horizontal/vertical signs from **direction** table; magnitudes from layout (or **`none`** if **`on anchor`**) | **Mandatory** — cite **direction** label |
+| **I4 Arithmetic** | **(X, Y) = (xa + horizontal offset, ya + vertical offset)** — show evaluated result | **Mandatory** before Conclusion |
 | **I5 Round** | Round **(X, Y)** to **non-negative integers** (no decimals in Conclusion or **`tool_args`**) | **Mandatory** |
 
 **Forbidden:** naming an anchor (**center point**, **top-right corner**, …) then jumping to **`therefore (x,y) ≈ (X, Y)`** without **I2** literals from row **R** on the same line.
 
 **Forbidden:** **`offset none`** when **I1** only says vague placement (“input above toolbar”, “field in bottom band”) without proving sub-target = anchor point.
 
-**Forbidden:** **I3** signs that contradict **I1** (e.g. sub-target at **bottom-left of R**, **anchor = top-left corner**, **Δx=+120**).
+**Forbidden:** **I3** signs that contradict **I1** (e.g. sub-target at **bottom-left of R**, **anchor = top-left corner**, horizontal **+120**).
 
-**Forbidden:** numeric **Δx/Δy** before **I1** states inside/outside **R** and bearing (left/right/above/below vs anchor).
+**Forbidden:** numeric offset before **I1** states inside/outside **R** and bearing (left/right/above/below vs anchor).
 
 **Forbidden:** inventing **(X, Y)** or **(xa, ya)** without quoting row **R** **`(L, T, R, B)`** first.
 
@@ -700,7 +703,7 @@ Line **3** must **copy row R after I1** — same order as a proof:
    Bearing check: Step 3 <…>; sub-target <quadrant vs R> — consistent;
    anchor = <center point | … corner>; direction from anchor = <8-way | on anchor>;
    Overlay reference bboxes row <R>: (L, T, R, B) = (…, …, …, …); anchor (xa, ya) = (…, …);
-   offset Δx=…, Δy=… — direction <label> | none;
+   offset (horizontal …, vertical …) — direction <label> | none;
    arithmetic → (<X>, <Y>).
    Conclusion: therefore (x,y) ≈ (<X>, <Y>) — integers only.
 ```
@@ -719,7 +722,7 @@ Line **3** must **copy row R after I1** — same order as a proof:
 ```text
 3 Analysis: On [Annotated after action]: sub-target <placement vs bbox R>;
    Overlay reference bboxes row <R>: (L, T, R, B) = (…, …, …, …); anchor (xa, ya) = (<literal x>, <literal y>);
-   offset Δx=<signed>, Δy=<signed>; arithmetic → (<X>, <Y>).
+   offset (horizontal <signed>, vertical <signed>); arithmetic → (<X>, <Y>).
    Conclusion: therefore (x,y) ≈ (<X>, <Y>).
 ```
 
@@ -740,7 +743,7 @@ Location:
    Bearing check: Step 3 below-right outside R; sub-target outside R down-right — consistent;
    anchor = bottom-right corner; direction from anchor = down-right.
    Overlay reference bboxes row 113: (L, T, R, B) = (…, …, 180, 720); anchor (xa, ya) = (180, 720);
-   offset Δx=+200, Δy=+45 — direction down-right; arithmetic → (380, 765).
+   offset (horizontal +200, vertical +45) — direction down-right; arithmetic → (380, 765).
    Conclusion: therefore (x,y) ≈ (380, 765).
 ```
 
@@ -759,7 +762,7 @@ Location:
    Bearing check: Step 3 left portion inside R; sub-target bottom-left quadrant — consistent;
    anchor = bottom-left corner; direction from anchor = right.
    Overlay reference bboxes row 4: (L, T, R, B) = (480, …, …, 860); anchor (xa, ya) = (480, 860);
-   offset Δx=+40, Δy=-20 — direction right; arithmetic → (520, 840).
+   offset (horizontal +40, vertical -20) — direction right; arithmetic → (520, 840).
    Conclusion: therefore (x,y) ≈ (520, 840).
 ```
 
@@ -771,14 +774,14 @@ Location:
 - **INV-L3:** Line **3** must include **I2** — **`Overlay reference bboxes row R: (L, T, R, B) = …`** copied from the list, then derived **(xa, ya)**, before **I4** / **`therefore (x,y)`**.
 - **INV-L4:** **Forbidden** inventing **(X, Y)** or **(L,T,R,B)** without looking up **`Overlay reference bboxes`** on the same line.
 - **INV-L4b:** **Forbidden** final **`(x,y)`** from screenshot pixel estimates — numbers must trace to **`Overlay reference bboxes row R`**.
-- **INV-L5:** **Forbidden** all **`*_index`** tools — **(x,y)** coordinate methods only.
+- **INV-L5:** **`*_at`** path — **Forbidden** **(x,y)** without **Overlay reference bboxes** lookup. **`*_index`** path — **Forbidden** **`index`** not listed in **Overlay reference bboxes** on current **`[CUR_SCREEN]`**.
 - **INV-L6:** Line **3** **anchor** = **nearest** of the **five** row **R** reference points to the sub-target.
 - **INV-L6b:** **`offset none`** only when **I1** proves sub-target **coincides with** that nearest anchor point.
 - **INV-L7:** **(X, Y)** and **`tool_args` `x`/`y`** are **non-negative integers** — no fractional pixels.
 - **INV-L8:** Line **2** Steps **1→2→3** complete before **`reference index R`** and before line **3** numbers.
 - **INV-L8b:** Line **3** **anchor + direction** before **I2** row **R** literals — **forbidden** guessing coordinates before anchor.
 - **INV-L9:** **I1** names exactly **one** anchor (**5**) and **one** direction (**8** or **`on anchor`**) before **I2** literals.
-- **INV-L10:** **I3** **Δx/Δy** signs match the **direction** table — **forbidden** opposite quadrant (e.g. **`down-left`** with **+Δx** large).
+- **INV-L10:** **I3** horizontal/vertical signs match the **direction** table — **forbidden** opposite quadrant (e.g. **`down-left`** with large **+horizontal**).
 - **INV-L11:** **Bearing check** must be **consistent** before **I2** literals; Step **2** uses **band|text|fill|size** (B2).
 
 #### Anti-patterns (forbidden)
@@ -795,9 +798,9 @@ Location:
 
 3 Analysis: On [Annotated after action]: sub-target ≈ center of bbox 19;
    Overlay reference bboxes row 19 top-left: (xa, ya) = (890, 810);
-   offset Δx=+120, Δy=+45; arithmetic → (1010, 855).
+   offset (horizontal +120, vertical +45); arithmetic → (1010, 855).
 (forbidden — missing anchor + direction in I1; anchor = bottom-left corner + on anchor,
- or anchor = top-left corner + direction down with Δx=0 Δy=+ — forbidden down-right / +Δx large)
+ or anchor = top-left corner + direction down with horizontal 0 vertical + — forbidden down-right / large +horizontal)
 
 2 … Step 3: sub-target at bottom-left inside bbox R …
 3 … anchor = center point; Overlay reference bboxes row R center …
@@ -805,13 +808,13 @@ Location:
 
 Tool route: Location recap: therefore (x,y) ≈ (<X>, <Y>);
    Tool call: mouse:click_index … index: <R>.
-(forbidden — Location already has (x,y); must be mouse:click_at with x/y literals; index is anchor only)
+(forbidden — Location already has (x,y); use mouse:click_at with x/y literals, not click_index)
 
 2 Conclusion: reference index 125. Analysis: …
 (forbidden — conclusion before analysis)
 
 Tool route: type_text_at_index(125) …
-(forbidden — index tools; use type_text_at(x,y) from line 3)
+(forbidden — Location fixed (x,y); use type_text_at(x,y) from line 3, not type_text_at_index)
 
 3 Conclusion: therefore (x,y). Analysis: …
 (forbidden — conclusion before analysis)
@@ -966,10 +969,11 @@ When **Location** line **3** concludes **`therefore (x,y) ≈ (…, …)`**, the
 
 | Location | Tool route line 2 |
 |----------|-------------------|
-| **`therefore (x,y)`** on line **3** | **`mouse`** → **`click_at(x,y)`** / **`composite_action`** → **`type_text_at(x,y,…)`** / **`modified_click`** → **`modified_click_at`** — use **(x,y)** from Location |
+| **`therefore (x,y)`** on line **3** | **`mouse`** → **`click_at`** / **`composite_action`** → **`type_text_at`** / **`modified_click`** → **`modified_click_at`** — **(x,y)** literals from Location |
+| **`reference index R`** on line **2** (index route, no line **3** coords) | **`mouse`** → **`click_index`** / … / **`composite_action`** → **`type_text_at_index`** / **`scroll_at_index`** — **`index: R`** |
 | **`Location: n/a`** | **`hotkey`** / **`wait`** / **`scroll_at_current`** / **`type_text_at_focused`** / … |
 
-**Forbidden (all turns):** any **`*_index`** method or **`index:`** / **`indices:`** in **`tool_args`**.
+**Forbidden (all turns):** route mismatch — **`*_index`** after Location **`therefore (x,y)`**, or **`*_at`** with **(x,y)** not traced to **Overlay reference bboxes**.
 
 **Action kind from Next `this turn:`:**
 
@@ -1017,7 +1021,7 @@ Tool route:
 - **INV-T1:** **`x`/`y`** on line **2** = root-call args = Location line **3** + recap literals.
 - **INV-T2:** **Forbidden** re-analyzing images or changing **(X,Y)** vs **Location**.
 - **INV-T3:** Line **2** method = native root tool call name.
-- **INV-T4:** **Forbidden** **`*_index`** / **`index:`** / **`indices:`** — line **2** must be an **Allowed** coordinate method (or off-frame tool from **Tool geometry** above).
+- **INV-T4:** Line **2** method must match Location route — **`*_at`** with **`x`/`y`** literals, or **`*_index`** with **`index`** (and drag **`from_index`/`to_index`**), or off-frame tool from **Tool geometry** above.
 
 ---
 

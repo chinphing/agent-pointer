@@ -54,7 +54,7 @@ impl CompositeActionIndexTool {
         let clear_first = json_bool_loose(args.get("clear_first"));
         let auto_enter = json_bool_loose(args.get("auto_enter"));
         let vision = self.vision_state.lock().unwrap();
-        let (x, y) = resolve_index_pixels(&vision, args, index)?;
+        let (x, y) = resolve_index_pixels(&vision, index)?;
         drop(vision);
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
@@ -73,7 +73,7 @@ impl CompositeActionIndexTool {
             .ok_or_else(|| anyhow!("Missing or invalid 'lines' parameter"))? as i32;
         let lines = clamp_scroll_lines(lines_raw)?;
         let vision = self.vision_state.lock().unwrap();
-        let (x, y) = resolve_index_pixels(&vision, args, index)?;
+        let (x, y) = resolve_index_pixels(&vision, index)?;
         drop(vision);
         let hl = self.human_like(args);
         let executor = self.executor.lock().unwrap();
@@ -171,5 +171,46 @@ impl CompositeActionFocusedTool {
         let executor = self.executor.lock().unwrap();
         executor.type_text_focused_with_options(&text, clear_first, auto_enter)?;
         Ok(self.verify.type_hint(&text))
+    }
+}
+
+// ── CompositeActionTool (unified registry entry) ─────────────────────────────
+
+pub struct CompositeActionTool {
+    index: CompositeActionIndexTool,
+    at: CompositeActionAtTool,
+    focused: CompositeActionFocusedTool,
+}
+
+impl CompositeActionTool {
+    pub fn new(
+        executor: Arc<Mutex<ActionExecutor>>,
+        vision_state: Arc<Mutex<VisionState>>,
+        human_like_default: bool,
+    ) -> Self {
+        Self {
+            index: CompositeActionIndexTool::new(
+                executor.clone(),
+                vision_state.clone(),
+                human_like_default,
+            ),
+            at: CompositeActionAtTool::new(executor.clone(), vision_state, human_like_default),
+            focused: CompositeActionFocusedTool::new(executor),
+        }
+    }
+
+    pub fn execute(&self, args: &Value) -> Result<String> {
+        use super::method_route::{route_composite, CompositeBackend};
+        let routed = route_composite(args)?;
+        log::info!(
+            "composite_action: method={} backend={:?}",
+            routed.method,
+            routed.backend
+        );
+        match routed.backend {
+            CompositeBackend::Index => self.index.execute(&routed.method, args),
+            CompositeBackend::At => self.at.execute(&routed.method, args),
+            CompositeBackend::Focused => self.focused.execute(&routed.method, args),
+        }
     }
 }

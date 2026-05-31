@@ -1,7 +1,7 @@
 //! Computer agent tier runtime: Primary / Intermediate / Advanced profiles.
 
 use crate::agents::computer::vision::coord::{screen_to_normalized, CoordinateSystem};
-use crate::agents::computer::vision::vision_state::{CornerAnchor, VisionState};
+use crate::agents::computer::vision::vision_state::VisionState;
 use crate::models::ComputerTierLlmConfig;
 use crate::models::ToolCall;
 use crate::agents::AgentRegistry;
@@ -714,17 +714,7 @@ fn extract_normalized_coords(args: &Value, vision: &VisionState) -> Option<(i32,
         return normalized_pair(vision, x as f32, y as f32);
     }
     let index = args.get("index").and_then(|v| v.as_u64()).map(|n| n as u32)?;
-    let anchor = args
-        .get("anchor")
-        .and_then(|v| v.as_str())
-        .and_then(CornerAnchor::parse);
-    let dx = args.get("dx").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-    let dy = args.get("dy").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-    let (px, py) = if let Some(a) = anchor {
-        vision.resolve_index_anchor(index, a, dx, dy)?
-    } else {
-        vision.resolve_index(index)?
-    };
+    let (px, py) = vision.resolve_index(index)?;
     let monitor = vision.screen_bbox()?;
     let (nx, ny) = screen_to_normalized((px, py), &monitor, CoordinateSystem::Qwen);
     Some((nx.round() as i32, ny.round() as i32))
@@ -835,8 +825,9 @@ pub fn current_computer_tier() -> Option<ComputerTier> {
     ACTIVE_COMPUTER_TIER.with(|c| *c.borrow())
 }
 
-pub fn tier_allows_index_tools(tier: ComputerTier) -> bool {
-    tier != ComputerTier::Advanced
+/// Index-targeting mouse/composite/modified_click methods are allowed on every tier (including Advanced).
+pub fn tier_allows_index_tools(_tier: ComputerTier) -> bool {
+    true
 }
 
 #[cfg(test)]
@@ -1107,7 +1098,7 @@ mod tests {
     fn advanced_tier_disallows_index_tools() {
         assert!(tier_allows_index_tools(ComputerTier::Primary));
         assert!(tier_allows_index_tools(ComputerTier::Intermediate));
-        assert!(!tier_allows_index_tools(ComputerTier::Advanced));
+        assert!(tier_allows_index_tools(ComputerTier::Advanced));
     }
 
     #[test]

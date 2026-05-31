@@ -62,7 +62,7 @@ impl CaptchaVerifyTool {
         let answer = self.extract_and_solve(index_captcha_area, &remark)?;
         let input_pos = {
             let vision = self.vision_state.lock().unwrap();
-            resolve_index_pixels(&vision, args, index_input_area)?
+            resolve_index_pixels(&vision, index_input_area)?
         };
         self.run_desktop_action(move |executor| {
             executor.type_text_at_with_options(input_pos.0, input_pos.1, &answer, true, false, true)
@@ -119,7 +119,7 @@ impl CaptchaVerifyTool {
             let handle_index = value_to_u32(v, "index_slider_arrow")?;
             let handle_pos = {
                 let vision = self.vision_state.lock().unwrap();
-                resolve_index_pixels(&vision, args, handle_index)?
+                resolve_index_pixels(&vision, handle_index)?
             };
             translate_points(&mut points, handle_pos);
             used_handle = Some(handle_index);

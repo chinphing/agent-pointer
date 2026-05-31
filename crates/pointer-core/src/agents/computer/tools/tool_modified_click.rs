@@ -205,6 +205,44 @@ impl ModifiedClickAtTool {
     }
 }
 
+// ── ModifiedClickTool (unified registry entry) ─────────────────────────────
+
+pub struct ModifiedClickTool {
+    index: ModifiedClickIndexTool,
+    at: ModifiedClickAtTool,
+}
+
+impl ModifiedClickTool {
+    pub fn new(
+        executor: Arc<Mutex<ActionExecutor>>,
+        vision_state: Arc<Mutex<VisionState>>,
+        human_like_default: bool,
+    ) -> Self {
+        Self {
+            index: ModifiedClickIndexTool::new(
+                executor.clone(),
+                vision_state.clone(),
+                human_like_default,
+            ),
+            at: ModifiedClickAtTool::new(executor, vision_state, human_like_default),
+        }
+    }
+
+    pub fn execute(&self, args: &Value) -> Result<String> {
+        use super::method_route::{route_modified_click, ModifiedClickBackend};
+        let routed = route_modified_click(args)?;
+        log::info!(
+            "modified_click: method={} backend={:?}",
+            routed.method,
+            routed.backend
+        );
+        match routed.backend {
+            ModifiedClickBackend::Index => self.index.execute(&routed.method, args),
+            ModifiedClickBackend::At => self.at.execute(&routed.method, args),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -77,21 +77,20 @@ pub(super) async fn run_single_agent_loop(
 
         let assistant_id = new_id("msg");
 
-        let computer_positioning = if lead_profile == AgentProfile::Computer {
-            crate::agents::computer::tools::tool_prompts::positioning_mode_for_tier(
-                state.computer_state.tier_for_conversation(conversation_id),
-            )
-        } else {
-            None
-        };
+        let mut effective_allowed = agent_plan.allowed_tool_names.clone();
+        if lead_profile == AgentProfile::Computer {
+            let tier = state.computer_state.tier_for_conversation(conversation_id);
+            if !crate::agents::computer::tier::tier_allows_index_tools(tier) {
+                effective_allowed.retain(|t| !t.ends_with("_index"));
+            }
+        }
         let tools_system_appendix =
-            crate::tools_system_appendix::generate_tools_system_appendix_with_positioning(
+            crate::tools_system_appendix::generate_tools_system_appendix(
                 &state.tools,
-                &agent_plan.allowed_tool_names,
-                computer_positioning,
+                &effective_allowed,
             );
         let tools_appendix_enabled = !tools_system_appendix.is_empty();
-        let native_tools = state.tools.openai_tools(&agent_plan.allowed_tool_names);
+        let native_tools = state.tools.openai_tools(&effective_allowed);
         let file_tool_lead_for_invoke = lead_profile.clone();
 
         emit(

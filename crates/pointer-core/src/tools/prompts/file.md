@@ -28,28 +28,28 @@ schema:
 Unified workspace file tools. Call the **`file`** tool with **`method`** set to one of:
 **`read`**, **`write`**, **`edit`**, **`glob`**, **`grep`**, **`list`**.
 
-**Relative paths** resolve under the workspace root (`workspaceRoot` in settings, or the process working directory). Do not use `..` to escape the workspace on relative paths. **`file:write`** and **`file:edit`** accept **workspace-relative** paths **or** **absolute** paths that resolve **under the same workspace root** (prefix check after canonicalization); paths outside the workspace are rejected. These writes may require user approval. For **read-only** methods (**`file:read`**, **`file:glob`**, **`file:grep`**, **`file:list`**), you may also use **absolute** paths **outside** the workspace when the user asks.
+**Relative paths** resolve under the workspace root (`workspaceRoot` in settings, or the process working directory). Do not use `..` to escape the workspace on relative paths. **`write`** and **`edit`** accept **workspace-relative** paths **or** **absolute** paths that resolve **under the same workspace root** (prefix check after canonicalization); paths outside the workspace are rejected. These writes may require user approval. For **read-only** methods (**`read`**, **`glob`**, **`grep`**, **`list`**), you may also use **absolute** paths **outside** the workspace when the user asks.
 
 **Responses:** Whenever this tool returns a filesystem location (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**), the value is an **absolute** path. The OS may use a canonical form (e.g. resolved symlinks; on Windows, a `\\?\` prefix is normal).
 
-**Reading:** Always use **`file:read`** with **`paths`** — a JSON array of objects, **even for a single file**. Do **not** pass a top-level **`path`** on **`file:read`**. **Each array element must be an object** with required **`path`** (alias **`file`**) and optional **`lineStart`** / **`lineEnd`** / **`maxBytes`** (aliases **`line_start`**, **`line_end`**, **`max_bytes`**). Omitting a field on the object uses the root-level default for that field. Do **not** use bare string paths as **`paths`** elements — the runtime rejects them.
+**Reading:** Always use **`read`** with **`paths`** — a JSON array of objects, **even for a single file**. Do **not** pass a top-level **`path`** on **`read`**. **Each array element must be an object** with required **`path`** (alias **`file`**) and optional **`lineStart`** / **`lineEnd`** / **`maxBytes`** (aliases **`line_start`**, **`line_end`**, **`max_bytes`**). Omitting a field on the object uses the root-level default for that field. Do **not** use bare string paths as **`paths`** elements — the runtime rejects them.
 
-**Context discipline:** Each read returns **full file bodies** (after per-path or root **`lineStart`** / **`lineEnd`** / **`maxBytes`**). Filling **`paths`** with many large files can **overflow the model context** even when under the hard file count. Prefer **narrow batches** (only files you must see together), use **`file:grep`** first, use **`lineStart`** / **`lineEnd`** on huge files, lower **`maxBytes`** when a snippet is enough, or **split across multiple** **`file:read`** turns. The runtime also enforces a **combined `content` budget** per batch (see **`maxTotalBytes`**).
+**Context discipline:** Each read returns **full file bodies** (after per-path or root **`lineStart`** / **`lineEnd`** / **`maxBytes`**). Filling **`paths`** with many large files can **overflow the model context** even when under the hard file count. Prefer **narrow batches** (only files you must see together), use **`grep`** first, use **`lineStart`** / **`lineEnd`** on huge files, lower **`maxBytes`** when a snippet is enough, or **split across multiple** **`read`** turns. The runtime also enforces a **combined `content` budget** per batch (see **`maxTotalBytes`**).
 
 #### Methods
 
 | Method | Purpose |
 |--------|---------|
-| **`file:read`** | Read UTF-8 text via **`paths`** array. Response includes a **`files`** array. |
-| **`file:write`** | Create or overwrite a file; `path` is workspace-relative **or** absolute under the workspace. |
-| **`file:edit`** | Replace one unique substring per file via **`edits`** only: a non-empty array (max **32**) of objects, each with **`path`** (alias **`file`**), **`oldString`** / **`old_string`**, **`newString`** / **`new_string`**. Single-file edits use **`edits`** with **one** object. Response includes **`files`**, **`successCount`**, **`failureCount`**, **`batchPartialFailure`**. |
-| **`file:glob`** | List paths matching a glob under the search root (workspace root or optional `base`). Default: **files only**; optional **directories** or **both**. |
-| **`file:grep`** | Search file contents with a regex (ripgrep-class stack: respects `.gitignore`, skips hidden paths by default, line-oriented matching). |
-| **`file:list`** | List directory entries; optional recursion, max depth, and file/directory filter. |
+| **`read`** | Read UTF-8 text via **`paths`** array. Response includes a **`files`** array. |
+| **`write`** | Create or overwrite a file; `path` is workspace-relative **or** absolute under the workspace. |
+| **`edit`** | Replace one unique substring per file via **`edits`** only: a non-empty array (max **32**) of objects, each with **`path`** (alias **`file`**), **`oldString`** / **`old_string`**, **`newString`** / **`new_string`**. Single-file edits use **`edits`** with **one** object. Response includes **`files`**, **`successCount`**, **`failureCount`**, **`batchPartialFailure`**. |
+| **`glob`** | List paths matching a glob under the search root (workspace root or optional `base`). Default: **files only**; optional **directories** or **both**. |
+| **`grep`** | Search file contents with a regex (ripgrep-class stack: respects `.gitignore`, skips hidden paths by default, line-oriented matching). |
+| **`list`** | List directory entries; optional recursion, max depth, and file/directory filter. |
 
 #### Parameters
 
-**`file:read`**
+**`read`**
 
 - **`paths`** — **Required.** Array (max **32** entries per call). **Each entry is an object** with **`path`** (alias **`file`**) and optional **`lineStart`** / **`lineEnd`** / **`maxBytes`**. Single file: **`paths: [{ "path": "src/foo.rs" }]`**. Response groups results under **`files`**, and includes **`maxTotalBytes`**, **`contentBytes`**, and **`batchCapped`**.
 - **`lineStart`** — Optional root default for batch entries; 1-based first line to include. Default: start of file. Alias **`line_start`**.
@@ -89,7 +89,7 @@ Example — batch with line ranges:
 }
 ```
 
-**`file:write`**
+**`write`**
 
 - **`path`** — Workspace-relative **or** absolute path under the workspace.
 - **`content`** — Entire file body. Prefer a JSON **string** (use `\"`, `\\`, `\n` as needed). You may also pass a JSON **object** or **array**; the runtime pretty-prints it as UTF-8 text.
@@ -109,7 +109,7 @@ Example:
 }
 ```
 
-**`file:edit`**
+**`edit`**
 
 - **`edits`** — **Required.** Non-empty array (max **32**) of objects. Each object requires **`path`**, **`oldString`** / **`old_string`**, **`newString`** / **`new_string`**. For a **single-file** edit, pass **one** element. Do **not** pass top-level **`path`** / **`oldString`** / **`newString`** alongside **`edits`**.
 
@@ -133,7 +133,7 @@ Example:
 }
 ```
 
-**`file:glob`**
+**`glob`**
 
 - **`pattern`** — Glob pattern (e.g. `**/*.rs`). Matched against paths relative to the search root.
 - **`base`** — Optional; alias **`rootPath`** / **`baseDir`**. Directory to search under. Default: workspace root.
@@ -142,7 +142,7 @@ Example:
 - **`entryType`** — Optional; alias **`entry_type`**. **`file`** (default), **`dir`**, or **`all`**.
 - **`includeHidden`** — Optional boolean (default **`false`**).
 
-**`file:grep`**
+**`grep`**
 
 - **`pattern`** — Rust regex syntax (via the same matcher stack ripgrep uses for line search). Keep patterns reasonably short (≤ **512** characters). Matching is **line-oriented** (not multi-line across `\n` within one match). When **`fixedString`** is `true`, `pattern` is treated as a literal string, not a regex.
 - **`path`** — Optional; same idea as **`grep -R pattern PATH`**: **`PATH`** must be an **existing** file or directory. Omit or use an empty string to search from the **workspace root**. Prefer **workspace-relative** paths (e.g. `src/`). If the path does not exist, the error includes **可能的路径** — sibling directories under the nearest existing parent (or workspace root) to help correct typos like `ui` → `src`.
@@ -187,7 +187,7 @@ Binary files are skipped heuristically (NUL byte). Very large files (> **2 MiB**
 
 Response includes **`singleFile`: true** when **`path`** resolves to a **file**.
 
-**`file:list`**
+**`list`**
 
 - **`path`** — Required; directory to list (alias **`directory`**).
 - **`recursive`** — Optional boolean; default **false**.

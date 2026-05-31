@@ -114,7 +114,7 @@ fn build_cur_screen_preamble(tier: ComputerTier, has_previous_raw: bool) -> Stri
             let count = if has_previous_raw { 7 } else { 5 };
             format!(
                 "{CUR_SCREEN_TAG} {count} labeled images follow in slot order.{zoom_before} {cite} \
-                 Run Verify (screenshots) first; Pointer only if unclear; then Repetition, Next, Location, Recheck, Tool route — all internally; report via `verify:report`.\n"
+                 Run Verify (screenshots) first; Pointer only if unclear; then Repetition, Next, Location, Recheck, Tool route — all internally; report via `verify.report`.\n"
             )
         }
     }

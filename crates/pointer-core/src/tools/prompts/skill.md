@@ -21,7 +21,7 @@ Progressive-disclosure tools for enabled Skills. Call the **`skill`** tool with 
 
 #### Usage
 
-**`skill:load_instructions`**
+**`load_instructions`**
 
 - Call when an enabled skill's `name` / `description` clearly matches the task.
 - Pass only enabled `skill_id` values.
@@ -42,7 +42,7 @@ Example:
 }
 ```
 
-**`skill:read_resource`**
+**`read_resource`**
 
 - Call only when the skill body points at `references/`, `assets/`, or `scripts/` and the task truly needs that file.
 - `path` must be a resource-relative path, e.g. `references/api-guide.md`.

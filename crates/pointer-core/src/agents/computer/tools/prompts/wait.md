@@ -30,7 +30,7 @@ This is the **blocking `wait` tool** — not the optional **`wait`** field insid
 - This `wait` tool is for explicit blocking pauses (**0–60 s**) when the
   workflow is still in a loading or transfer state.
 
-**`wait:wait`** (`goal`, `seconds`) — Pause for the given number of seconds. `seconds`: 0–60.
+**`wait`** (`goal`, `seconds`) — Pause for the given number of seconds. `seconds`: 0–60.
 
 Parameter constraints:
 - **`goal`** is required. Describe what is being waited for and the expected result (e.g. "Wait for page load", "Wait for dialog to appear"). If waiting for a specific element, describe it: **text** — exact visible text; **other** — brief description of features.

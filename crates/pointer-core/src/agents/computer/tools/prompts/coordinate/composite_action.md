@@ -9,14 +9,14 @@ when one call can finish the step (for example click+type or focus+type), then
 **hotkey** / **modified_click**, then **mouse**. Use **wait** only when delay is needed.
 
 **Coordinate methods:**
-- **`composite_action:type_text_at`** (`goal`, `action`, `x`, `y`, `text`, optional `clear_first`, optional `auto_enter`) — Clicks at **(x,y)** then types. If the field already has focus, use **`type_text_at_focused`**.
-- **`composite_action:type_text_at_focused`** (`goal`, `action`, `text`, optional `clear_first`, optional `auto_enter`)
+- **`type_text_at`** (`goal`, `action`, `x`, `y`, `text`, optional `clear_first`, optional `auto_enter`) — Clicks at **(x,y)** then types. If the field already has focus, use **`type_text_at_focused`**.
+- **`type_text_at_focused`** (`goal`, `action`, `text`, optional `clear_first`, optional `auto_enter`)
 
 **Browser URL workflow:** Prefer `hotkey` to focus the address bar first
-(`cmd/ctrl+l` or `alt+d`), then call **`composite_action:type_text_at_focused`**.
+(`cmd/ctrl+l` or `alt+d`), then call **`type_text_at_focused`**.
 Avoid click-based typing for URL entry when shortcut focus is available.
 
-**Scroll:** **`mouse:hover_at`** or **`mouse:click_at`** in the scroll region, then **`mouse:scroll_at_current`**.
+**Scroll:** use **`hover_at`** or **`click_at`** in the scroll region, then **`scroll_at_current`**.
 
 Parameter constraints:
 - **`goal`**, **`action`**, **`text`** required where applicable.

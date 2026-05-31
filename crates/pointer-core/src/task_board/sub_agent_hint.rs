@@ -26,7 +26,7 @@ instead of enumerating every case.
 Single-step work may skip the board.
 For turns that also emit **verify:report**:
 - first board-init round may omit report;
-- after init, run `verify:report` first, then `task_board` with **`method`: `patch`**.
+- after init, run `verify.report` first, then `task_board` with **`method`: `patch`**.
 Keep task board text compact to reduce prompt token cost.
 ";
 

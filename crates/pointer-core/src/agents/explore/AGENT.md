@@ -43,7 +43,7 @@ gaps, and test/prompt drift so the parent can edit safely. Do not guess fixes; r
 
 ## Tools
 
-- Use **`file:grep`**, **`file:glob`**, **`file:list`** to narrow **before** wide **`file:read`**.
+- Use **`grep`**, **`glob`**, **`list`** (file tool) to narrow **before** wide **`read`**.
 - On large files, use **`lineStart`**, **`lineEnd`**, and **`maxBytes`**; batch reads with **`paths`** when you have
   multiple concrete paths.
 - **Never** call mutating **`file`** methods; the host rejects them for this profile.
@@ -147,7 +147,7 @@ because a cross-layer grep returned **0 hits** without recording that negative s
 The parent agent receives your report **only** from assistant message **`content`** — the **`run_subagent`** tool
 result field **`content`**. Provider **reasoning / thinking** is internal; it **does not** count as the handoff.
 
-**Mid-run tool turns:** **`content` may be empty** — issue native **`tool_calls`** only (`file:grep`, `file:read`, …).
+**Mid-run tool turns:** **`content` may be empty** — issue native **`tool_calls`** only (e.g. `grep`, `read` via `file`).
 
 **Final handoff:** When exploration is complete, write the full Markdown digest in **`content`** (see **Markdown
 deliverable** below)—**not only in reasoning**.
@@ -196,15 +196,15 @@ The lead reads it from the **`run_subagent`** tool result field **`content`**.
 
 ### Host transport (how Markdown reaches the lead)
 
-- Mid-run turns: **native tool calls** only (`file:grep`, `file:read`, …); **`content` may be empty**.
+- Mid-run turns: **native tool calls** only (e.g. `grep`, `read` via `file`); **`content` may be empty**.
 - Final turn: **assistant Markdown `content` only** (no tools on that turn); **`content` must be non-empty**.
 - The lead receives the same bytes in **`run_subagent` → `content`** — not from provider reasoning.
 
 ### Native tool-call examples (copy the shape; values are illustrative)
 
-Below: an earlier **`file:grep`** turn, then the **final** Markdown handoff as assistant content.
+Below: an earlier **`grep`** (file tool) turn, then the **final** Markdown handoff as assistant content.
 
-#### Example — mid-run turn (`file:grep`)
+#### Example — mid-run turn (e.g. `grep` via `file`)
 
 ```json
 {
@@ -219,7 +219,7 @@ Below: an earlier **`file:grep`** turn, then the **final** Markdown handoff as a
 }
 ```
 
-#### Example — read one file (`file:read`)
+#### Example — read one file (e.g. `read` via `file`)
 
 ```json
 {
@@ -333,10 +333,10 @@ You may skip broad inventory when anchors are already specific; say so in **Cove
 2. **Bound the workspace (when applicable)** — If the repo root exposes **package or crate boundary files**, use them to
    decide **which subtrees belong to which component** before roaming. If none exist, infer boundaries from top-level
    dirs and stop when uncertain (note in **`## Open questions`**).
-3. **Inventory** — **`file:list`** / **`file:glob`** for tree shape and naming patterns. Record **prune** decisions
+3. **Inventory** — **`file.list`** / **`file.glob`** for tree shape and naming patterns. Record **prune** decisions
    (why a subtree was skipped) so coverage stays auditable.
 4. **Identity fan-out + anchor** — List searchable identities for the anchor (symbol, wire string, aliases). Then
-   **`file:grep`** each globally (or scoped with reason); **`file:read`** minimal neighborhoods around hits.
+   **`file.grep`** each globally (or scoped with reason); **`file.read`** minimal neighborhoods around hits.
 5. **Trace backward** — From definitions, find **callers** until the instruction’s stop boundary, **hop budget**, or a
    **cycle**.
 6. **Trace forward** — From an entry point named in the task (or a justified default), follow **callees** to the

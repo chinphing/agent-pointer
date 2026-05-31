@@ -63,7 +63,7 @@ Prefer the fastest visible path; use **hotkey** for launcher shortcuts when reli
 
 4. **Desktop shortcut**
    - **Double-click** the desktop icon.
-   - Single click only selects; use **`mouse:double_click_at`** at **Location** **(x,y)**.
+   - Single click only selects; use **`double_click_at`** (mouse) at **Location** **(x,y)**.
 
 5. **Taskbar**
    - Single-click a pinned icon on the bottom taskbar strip.

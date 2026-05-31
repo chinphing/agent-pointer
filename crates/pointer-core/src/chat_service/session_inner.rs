@@ -41,6 +41,8 @@ pub(super) async fn run_chat_inner(
             };
             return Err(anyhow!(msg));
         }
+    } else {
+        return Err(anyhow!("请先登录 Pointer 账户"));
     }
     let mut settings = state.effective_settings();
     if !workspace_root.trim().is_empty() {

@@ -8,7 +8,7 @@ use serde_json::Value;
 
 const CLIPBOARD_MAX_RETURN_CHARS: usize = 100_000;
 
-/// Clipboard tool: `read` / `write` (XML: **`clipboard:read`**, **`clipboard:write`**).
+/// Clipboard tool: `read` / `write` (XML: **`clipboard.read`**, **`clipboard.write`**).
 pub struct ClipboardTool;
 
 impl ClipboardTool {

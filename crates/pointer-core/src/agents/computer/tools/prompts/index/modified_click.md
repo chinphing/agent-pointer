@@ -7,7 +7,7 @@ Use overlay indices as the default route in this guide.
 **Call priority:** Prefer **modified_click** when selecting multiple items in one call.
 
 **Index method:**
-- **`modified_click:modified_click_index`** (`goal`, `action`, `indices`, optional `range_select`) — **`indices`**: overlay numbers on the current annotated frame. **`range_select`**: true with exactly two indices for Shift+range; false for Cmd/Ctrl+add.
+- **`modified_click_index`** (`goal`, `action`, `indices`, optional `range_select`) — **`indices`**: overlay numbers on the current annotated frame. **`range_select`**: true with exactly two indices for Shift+range; false for Cmd/Ctrl+add.
 
 Parameter constraints:
 - **`goal`** and **`action`** are required.

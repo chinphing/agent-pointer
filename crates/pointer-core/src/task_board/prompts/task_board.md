@@ -94,12 +94,12 @@ Do not expect a full **`document`** in tool results.
 - **Do not** patch the parent milestone board from a child agent (use **`sync_finding`** or let the host report completion).
 - **Finalize:** When **all** rows are **`done`** or **`cancelled`**, call **`task_board`** with **`method`: `finalize`** in the **same turn** as your final user-facing reply (after the last **`patch`**). Do not leave **`meta.status`** at **`running`** when the session goal is complete.
 - After **`retry_count >= 2`** on a stuck row, diagnose internally before the next **`patch`**.
-- **Computer / desktop profile only** (when **`verify:report`** is allowed):
+- **Computer / desktop profile only** (when **`verify.report`** is allowed):
   use it for sidecar ordering and UI evidence context:
-  - First board-init round may omit **`verify:report`**.
-  - After init, run **`verify:report`** first, then **`task_board`** with **`method`: `patch`**.
+  - First board-init round may omit **`verify.report`**.
+  - After init, run **`verify.report`** first, then **`task_board`** with **`method`: `patch`**.
   - Transition into the next milestone only after the current task goal is complete.
-  Engineering profiles (e.g. **Coder**) patch from **test/command/file** evidence instead—no **`verify:report`**.
+  Engineering profiles (e.g. **Coder**) patch from **test/command/file** evidence instead—no **`verify.report`**.
 
 **`items` array**
 
@@ -129,12 +129,12 @@ For a **single-row** `patch`, you may also pass row fields at the top level with
 
 #### Example (goal already met -> done)
 
-**Computer profile** (with **`verify:report`**):
+**Computer profile** (with **`verify.report`**):
 
-- Native tool call 1: **`verify:report`**
+- Native tool call 1: **`verify.report`**
 - Native tool call 2: **`task_board`** with **`method`: `patch`**
 
-**Coder / engineering profile** (no **`verify:report`**):
+**Coder / engineering profile** (no **`verify.report`**):
 
 - After tests or commands satisfy **`verification`**, call **`task_board`** with **`method`: `patch`** only:
   - set current row status to `done`

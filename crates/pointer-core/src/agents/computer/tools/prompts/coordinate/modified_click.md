@@ -7,7 +7,7 @@ Use coordinate methods as the default route in this guide.
 **Call priority:** Prefer **modified_click** for multi-select in one call.
 
 **Coordinate method:**
-- **`modified_click:modified_click_at`** (`goal`, `action`, `positions`, optional `range_select`) — **`positions`**: **`[[x,y], …]`** from **Location** / **`Overlay reference bboxes`**. **`range_select`**: true with exactly two positions for Shift+range.
+- **`modified_click_at`** (`goal`, `action`, `positions`, optional `range_select`) — **`positions`**: **`[[x,y], …]`** from **Location** / **`Overlay reference bboxes`**. **`range_select`**: true with exactly two positions for Shift+range.
 
 Parameter constraints:
 - **`goal`** and **`action`** are required.

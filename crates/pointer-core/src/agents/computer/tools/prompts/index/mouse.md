@@ -7,8 +7,8 @@ Use overlay indices as the default route in this guide. Target the numbered regi
 **Call priority:** Prefer **composite_action**, **hotkey**, or **modified_click** when one call achieves the same goal with fewer steps.
 
 **Index methods** (require `goal`, `action`, `index`):
-- **`mouse:click_index`**, **`mouse:double_click_index`**, **`mouse:right_click_index`**, **`mouse:hover_index`**
-- **`mouse:drag_from_to_index`** — `from_index`, `to_index` on the current annotated frame
+- **`click_index`**, **`double_click_index`**, **`right_click_index`**, **`hover_index`**
+- **`drag_from_to_index`** — `from_index`, `to_index` on the current annotated frame
 
 Use the chosen overlay region center directly. Paste **`- R: (left, top, right, bottom)`** verbatim when needed (**MA-3 FOUND**). **Verify:** UI outcome vs **goal** — pointer on target alone is **not** **pass** for click/copy goals.
 
@@ -16,11 +16,11 @@ When the control is **inside** a large bbox, prefer a tighter dedicated index. W
 
 Optional **`human_like`** (bool) on index clicks and drags.
 
-**Current cursor (no index move):** **`mouse:click_current`**, **`mouse:double_click_current`**, **`mouse:right_click_current`** — only **`goal`**, **`action`**. Use when the cursor is already on the target.
+**Current cursor (no index move):** **`click_current`**, **`double_click_current`**, **`right_click_current`** — only **`goal`**, **`action`**. Use when the cursor is already on the target.
 
-**Other:** **`mouse:scroll_at_current`** (`goal`, `action`, `lines`) — cursor must already be inside the scrollable area.
+**Other:** **`scroll_at_current`** (`goal`, `action`, `lines`) — cursor must already be inside the scrollable area.
 
-**Offset move:** **`mouse:move_offset`** (`goal`, `action`, `dx`, `dy`) — nudge from current position.
+**Offset move:** **`move_offset`** (`goal`, `action`, `dx`, `dy`) — nudge from current position.
 
 Parameter constraints:
 - **`goal`** and **`action`** are required.
@@ -33,6 +33,6 @@ If progress is visible but completion is not yet verifiable, keep Verify in a
 non-terminal state (for example `action_result=pending`), then verify again after
 waiting (for example in download or transfer history UI).
 
-**Reposition:** **MA-3 NOT FOUND** → **`mouse:hover_index`** on **R** center — no click/type that turn.
+**Reposition:** **MA-3 NOT FOUND** → **`hover_index`** on **R** center — no click/type that turn.
 
-**Scroll workflow:** **`mouse:hover_index`** or **`mouse:click_index`** on the scroll region, then **`mouse:scroll_at_current`** if needed.
+**Scroll workflow:** **`hover_index`** or **`click_index`** on the scroll region, then **`scroll_at_current`** if needed.

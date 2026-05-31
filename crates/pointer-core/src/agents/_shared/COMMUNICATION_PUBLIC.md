@@ -14,6 +14,12 @@ Do not wrap tool calls in custom JSON wrappers.
   and pass **`method`** in **`arguments`**
   (e.g. **`file`** + **`method`: `read`**,
   **`task_board`** + **`method`: `patch`**).
+- **`tool.method` notation:** when instructions reference a
+  specific tool method in text, use dot-notation—the part
+  before `.` is the tool name, after `.` is the `method`
+  parameter (e.g. **`file.grep`**, **`file.read`**,
+  **`task_board.patch`**, **`mouse.click_index`**,
+  **`skill.load_instructions`**).
 - In prompt examples, use one JSON object with
   `function.name` and `function.arguments`.
   Do not include call `id` or `type` (provider assigns those).
@@ -38,8 +44,8 @@ When citing external facts in user-facing replies:
 Keep internal reasoning concise and action-focused.
 Do not paste long plans into assistant message text.
 Use `task_board` for milestone planning.
-**Computer** workers run Verify / Next stages internally and report via **`verify:report`**.
-Other profiles (e.g. **Coder**) use **tests, commands, and file reads** as milestone evidence—not **`verify:report`**.
+**Computer** workers run Verify / Next stages internally and report via **`verify.report`**.
+Other profiles (e.g. **Coder**) use **tests, commands, and file reads** as milestone evidence—not **`verify.report`**.
 
 ## Rules
 
@@ -86,10 +92,10 @@ Use the board for milestones—not a long plan in assistant message text only.
   in this turn.
 - In native tool-calling mode, call **`task_board`**
   with the appropriate **`method`** when needed.
-- **Computer profile only** (when **`verify:report`** is allowed): after board **`init`**, use report-before-patch ordering:
-  - first board-init round may omit **`verify:report`**;
-  - subsequent rounds: **`verify:report`** first, then **`task_board`** with **`method`: `patch`**.
-  Other profiles do **not** use **`verify:report`** for board updates.
+- **Computer profile only** (when **`verify.report`** is allowed): after board **`init`**, use report-before-patch ordering:
+  - first board-init round may omit **`verify.report`**;
+  - subsequent rounds: **`verify.report`** first, then **`task_board`** with **`method`: `patch`**.
+  Other profiles do **not** use **`verify.report`** for board updates.
 - Advance **at most one** meaningful milestone per turn unless the user widens scope. **Cancel** obsolete rows instead of ignoring them.
 - When **all** rows are **`done`** or **`cancelled`**, call **`task_board`** with **`method`: `finalize`** before the final user-facing reply. Patching rows to **`done`** does not replace **`finalize`**.
 - Keep task board text compact (short `title`/`output`/`verification`) to reduce prompt token overhead.
@@ -137,7 +143,7 @@ This directory is **managed by the application internally** and is **completely 
 | **Source** | User setting `workspaceRoot` (configurable) | OS standard data directory + `/skills/` subdirectory |
 | **Purpose** | User code, project files, `file` tool relative path base | **Skill installation and uninstallation only** |
 | **Prompt injection** | `{{workspace_root}}` placeholder | Not injected into prompts |
-| **Write access** | `file:write` / `file:edit` confined here | Managed automatically by the app |
+| **Write access** | `write` / `edit` (file tool) confined here | Managed automatically by the app |
 
 **`skills/` top-level layout:**
 
@@ -146,4 +152,4 @@ This directory is **managed by the application internally** and is **completely 
 └── {skill-id}/           # One folder per installed skill
 ```
 
-> **Use `skill:load_instructions` / `skill:read_resource` tools to load and interact with skills**, never read/write `skills/` directory files directly. The `skills/` directory is managed automatically when the application installs or uninstalls skill zip packages.
+> **Use `skill`** → **`load_instructions`** / **`read_resource`** to load and interact with skills**, never read/write `skills/` directory files directly. The `skills/` directory is managed automatically when the application installs or uninstalls skill zip packages.

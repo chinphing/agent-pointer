@@ -7,7 +7,7 @@ use super::StreamTx;
 pub(crate) fn output_length_retry_supplement(max_tokens: u32, finish_reason: &str) -> String {
     format!(
         "\n\n【输出长度】本回合因 **输出 token 上限** 被截断（finish_reason={finish_reason}，配置 max_tokens≈{max_tokens}）。\
-         请**缩小**本回合 payload：拆分 `file:edit` / `file:write`、缩短单次参数体积，分多轮完成。"
+         请**缩小**本回合 payload：拆分 `file.edit` / `file.write`、缩短单次参数体积，分多轮完成。"
     )
 }
 

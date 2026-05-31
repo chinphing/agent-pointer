@@ -10,14 +10,14 @@ when one call can finish the step (for example click+type, focus+type, or
 Use **wait** only when delay is needed.
 
 **Index methods:**
-- **`composite_action:type_text_at_index`** (`goal`, `action`, `index`, `text`, optional `clear_first`, optional `auto_enter`, optional `anchor`, `dx`, `dy`) — Clicks the indexed region then types. If the field already has focus, use **`type_text_at_focused`** instead.
-- **`composite_action:scroll_at_index`** (`goal`, `action`, `index`, `lines`) — Move to the indexed scroll region, then scroll.
+- **`type_text_at_index`** (`goal`, `action`, `index`, `text`, optional `clear_first`, optional `auto_enter`, optional `anchor`, `dx`, `dy`) — Clicks the indexed region then types. If the field already has focus, use **`type_text_at_focused`** instead.
+- **`scroll_at_index`** (`goal`, `action`, `index`, `lines`) — Move to the indexed scroll region, then scroll.
 
 **Focused field (no new click):**
-- **`composite_action:type_text_at_focused`** (`goal`, `action`, `text`, optional `clear_first`, optional `auto_enter`) — Types into the focused input.
+- **`type_text_at_focused`** (`goal`, `action`, `text`, optional `clear_first`, optional `auto_enter`) — Types into the focused input.
 
 **Browser URL workflow:** Prefer `hotkey` to focus the address bar first
-(`cmd/ctrl+l` or `alt+d`), then call **`composite_action:type_text_at_focused`**.
+(`cmd/ctrl+l` or `alt+d`), then call **`type_text_at_focused`**.
 Avoid click-based typing for URL entry when shortcut focus is available.
 
 Parameter constraints:

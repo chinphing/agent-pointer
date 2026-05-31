@@ -12,15 +12,17 @@ Run them internally — **do not** write section labels, templates, or reasoning
 in assistant message text.
 
 **Turn deliverables = native tool calls only**
-- Report: `verify:report` with native args
+- Report: `verify.report` with native args
 - Action: one root desktop tool with route-matched args
-- Board (optional): `task_board:patch` / …
+- Board (optional): `task_board.patch` / …
 Do **not** write tool names or args in assistant message text.
 
 **Assistant message text (`content`)**
-- **Default:** **empty** — issue tool calls only.
-- **Final reply only:** plain-text summary when the user needs status, blockage,
-  or task completion (no section labels, no templates).
+- **Tool turns:** **`content` may be empty** — issue tool calls only.
+- **When the user must see a reply:** write brief plain text in **`content`**
+  (status, blockage, or task completion) — not only in provider reasoning.
+- **Never in `content`:** Verify / Repetition / Next templates, section labels,
+  or other internal checklists.
 
 **Forbidden in assistant message text**
 - `Verify:` / `Repetition:` / `Next:` blocks and their templates
@@ -467,9 +469,9 @@ Treat a reference row as valid only when both hold:
 - Do not downgrade visible CAPTCHA work to `mouse:*` or `composite_action:*`.
 - Use `mouse` only to reveal CAPTCHA when it is not yet visible.
 
-Index tools: **`mouse:hover_index`**, **`mouse:click_index`**, **`mouse:double_click_index`**, **`composite_action:type_text_at_index`**, **`mouse:drag_from_to_index`**, **`modified_click:modified_click_index`**.
+Index tools: **`hover_index`**, **`click_index`**, **`double_click_index`**, **`type_text_at_index`** (composite_action), **`drag_from_to_index`** (mouse), **`modified_click_index`** (modified_click).
 
-Coordinate tools: **`mouse:hover_at`**, **`mouse:click_at`**, **`mouse:double_click_at`**, **`composite_action:type_text_at`**, **`mouse:drag_from_to_at`**, **`modified_click:modified_click_at`**.
+Coordinate tools: **`hover_at`** (mouse), **`click_at`** (mouse), **`double_click_at`** (mouse), **`type_text_at`** (composite_action), **`drag_from_to_at`** (mouse), **`modified_click_at`** (modified_click).
 
 CAPTCHA tool: **`captcha_verify`**.
 
@@ -500,23 +502,25 @@ If the last row was a coordinate click and **Verify** was **fail** with no progr
 ## Constraints
 
 1. **Internal only:** Section labels and templates in this file are checklists — never copy them to assistant message text.
-2. **Step result placement:** **`Step result:`** belongs in internal **Verify** — report it via `verify:report`, not message text.
+2. **Step result placement:** **`Step result:`** belongs in internal **Verify** — report it via `verify.report`, not message text.
 3. **Digits:** No overlay **index numbers** inside internal **Verify** or **Repetition** prose.
 4. **Scope:** **Verify** = **Expected vs Actual** UI outcome; **Next** = target + route decision + tool args.
-5. **Tier:** Host upgrades after **>3** consecutive verify **fail** (primary → intermediate → advanced). **pass** on the active goal resets tier to **primary**. Emit verify outcome in `verify:report`; do not narrate tier changes in message text.
+5. **Tier:** Host upgrades after **>3** consecutive verify **fail** (primary → intermediate → advanced). **pass** on the active goal resets tier to **primary**. Emit verify outcome in `verify.report`; do not narrate tier changes in message text.
 
 ---
 
 ## Turn output
 
-Leave assistant message text **empty** unless delivering a final user reply.
-Report Verify/Repetition via `verify:report`, not message text.
+**Assistant `content`:** may be empty on tool turns; when the user must see a reply,
+write brief plain text in **`content`** — not only in provider reasoning.
+Never put Verify / Repetition / Next templates or internal checklists in message text.
+Report Verify/Repetition via `verify.report`, not message text.
 
 **Native tool-calling order:**
-- call `verify:report` first (except first board-init round),
+- call `verify.report` first (except first board-init round),
 - call one root desktop tool with route-matched args
   (`index`/`from_index`/`to_index` or `x/y`),
-- then call `task_board:patch` when board status changes.
+- then call `task_board.patch` when board status changes.
 
 **Forbidden:**
 - writing Verify / Next / Route / Target / BBox blocks in assistant message text;

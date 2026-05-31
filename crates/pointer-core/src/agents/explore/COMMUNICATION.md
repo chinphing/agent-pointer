@@ -2,8 +2,8 @@
 
 **Workspace root** (absolute path from app settings): `{{workspace_root}}`
 
-**This profile is read-only:** use **`file:list`**, **`file:glob`**, **`file:grep`**, and **`file:read`** only.
-The host rejects **`file:write`** and **`file:edit`** for this worker.
+**This profile is read-only:** use **`list`**, **`glob`**, **`grep`**, and **`read`** (file tool) only.
+The host rejects **`write`** and **`edit`** (file tool) for this worker.
 
 **Deliverable:** your final report is **Markdown** in **assistant message `content`**.
 The lead agent reads that text from the **`run_subagent`** tool result field **`content`** — not from provider

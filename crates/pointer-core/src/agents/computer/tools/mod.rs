@@ -29,9 +29,9 @@ Use for a single mouse action: click, double-click, right-click, hover, drag, sc
 
 Primary may use both index and coordinate methods. Pick one route per call from tier communication.
 
-Index methods: `mouse:click_index`, `mouse:double_click_index`, `mouse:right_click_index`, `mouse:hover_index`, `mouse:drag_from_to_index`.
-Coordinate methods: `mouse:click_at`, `mouse:double_click_at`, `mouse:right_click_at`, `mouse:hover_at`, `mouse:drag_from_to_at`.
-Current cursor methods: `mouse:click_current`, `mouse:double_click_current`, `mouse:right_click_current`, `mouse:scroll_at_current`, `mouse:move_offset`.
+Index methods: `mouse.click_index`, `mouse.double_click_index`, `mouse.right_click_index`, `mouse.hover_index`, `mouse.drag_from_to_index`.
+Coordinate methods: `mouse.click_at`, `mouse.double_click_at`, `mouse.right_click_at`, `mouse.hover_at`, `mouse.drag_from_to_at`.
+Current cursor methods: `mouse.click_current`, `mouse.double_click_current`, `mouse.right_click_current`, `mouse.scroll_at_current`, `mouse.move_offset`.
 
 Parameter constraints:
 - `goal` and `action` are required.
@@ -48,10 +48,10 @@ Use for typing and indexed scroll actions.
 Primary may use both index and coordinate methods. Pick one route per call from tier communication.
 
 Methods:
-- `composite_action:type_text_at_index`
-- `composite_action:type_text_at`
-- `composite_action:type_text_at_focused`
-- `composite_action:scroll_at_index`
+- `composite_action.type_text_at_index`
+- `composite_action.type_text_at`
+- `composite_action.type_text_at_focused`
+- `composite_action.scroll_at_index`
 
 Parameter constraints:
 - `goal` and `action` are required.
@@ -69,8 +69,8 @@ Use for multi-select or range-select click operations.
 Primary may use both index and coordinate methods. Pick one route per call from tier communication.
 
 Methods:
-- `modified_click:modified_click_index`
-- `modified_click:modified_click_at`
+- `modified_click.modified_click_index`
+- `modified_click.modified_click_at`
 
 Parameter constraints:
 - `goal` and `action` are required.

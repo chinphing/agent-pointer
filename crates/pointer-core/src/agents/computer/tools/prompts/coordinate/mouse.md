@@ -6,18 +6,18 @@ Use coordinate methods as the default route in this guide. Pick **reference inde
 
 **Call priority:** Prefer **composite_action**, **hotkey**, or **modified_click** when one call achieves the same goal with fewer steps — unless this turn is **mouse** click-only.
 
-**Coordinate methods** (require `goal`, `action`, `x`, `y` unless noted): **`mouse:click_at`**, **`mouse:double_click_at`**, **`mouse:right_click_at`**, **`mouse:hover_at`**.
+**Coordinate methods** (require `goal`, `action`, `x`, `y` unless noted): **`click_at`**, **`double_click_at`**, **`right_click_at`**, **`hover_at`**.
 
 **Drag:**
-- **`mouse:drag_from_to_at`** — `goal`, `action`, **`x1`**, **`y1`**, **`x2`**, **`y2`** from bbox lookup.
+- **`drag_from_to_at`** — `goal`, `action`, **`x1`**, **`y1`**, **`x2`**, **`y2`** from bbox lookup.
 
 Optional **`human_like`** (bool) on drag.
 
-**Current cursor:** **`mouse:click_current`**, **`mouse:double_click_current`**, **`mouse:right_click_current`** — only **`goal`**, **`action`**.
+**Current cursor:** **`click_current`**, **`double_click_current`**, **`right_click_current`** — only **`goal`**, **`action`**.
 
-**Other:** **`mouse:scroll_at_current`** (`goal`, `action`, `lines`).
+**Other:** **`scroll_at_current`** (`goal`, `action`, `lines`).
 
-**Offset move:** **`mouse:move_offset`** (`goal`, `action`, `dx`, `dy`).
+**Offset move:** **`move_offset`** (`goal`, `action`, `dx`, `dy`).
 
 Parameter constraints:
 - **`goal`** and **`action`** are required.
@@ -29,5 +29,5 @@ If progress is visible but completion is not yet verifiable, keep Verify in a
 non-terminal state (for example `action_result=pending`), then verify again after
 waiting (for example in download or transfer history UI).
 
-**Scroll workflow:** **`mouse:hover_at`** or **`mouse:click_at`** in the scroll region, then **`mouse:scroll_at_current`** if needed.
+**Scroll workflow:** use **`hover_at`** or **`click_at`** in the scroll region, then **`scroll_at_current`** if needed.
 

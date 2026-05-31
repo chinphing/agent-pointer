@@ -4,7 +4,7 @@ Use provider-native tool calls only.
 Do not serialize tool calls as text or JSON wrappers.
 
 When this turn also updates `task_board`,
-call `verify:report` first and `task_board:patch` second
+call `verify.report` first and `task_board.patch` second
 (first board-init round may omit report).
 
 ## Internal reasoning only (hard rule)
@@ -15,9 +15,9 @@ Run them internally — **do not** write section labels, templates, or reasoning
 in assistant message text.
 
 **Turn deliverables = native tool calls only**
-- Report: `verify:report` with native args
-- Action: one root desktop tool (`mouse:*_at`, `composite_action:*_at`, …)
-- Board (optional): `task_board:patch` / …
+- Report: `verify.report` with native args
+- Action: one root desktop tool (`mouse.*_at`, `composite_action.*_at`, …)
+- Board (optional): `task_board.patch` / …
 Do **not** write tool names or args in assistant message text.
 
 **Assistant message text (`content`)**
@@ -178,7 +178,7 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 
 #### V1 pointer position (when last action used screen pixels)
 
-**Required when:** Newest **`[Recent desktop tool calls]`** row is a coordinate tool (**`mouse:click_at`**, **`mouse:double_click_at`**, **`mouse:drag_from_to_at`**, **`mouse:move_to`**, **`mouse:composite_action:*_at`**, etc.) and **`tool_args`** includes **`x`** and **`y`**.
+**Required when:** Newest **`[Recent desktop tool calls]`** row is a coordinate tool (**`mouse`** → **`click_at`**, **`double_click_at`**, **`drag_from_to_at`**, **`move_to`**; **`composite_action`** → **`*_at`**, etc.) and **`tool_args`** includes **`x`** and **`y`**.
 
 **Meaning:** **`pointer at (x,y)`** = where the automation placed the **synthetic pointer** for that call — **not** “action succeeded”, **not** proof that UI changed.
 
@@ -190,7 +190,7 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 | Pointer position | **`; pointer at (x,y)=(<x>, <y>)`** — integers only; **forbidden** floats; **forbidden** **`executed`**. |
 | Drag | If **`x2`** / **`y2`** present, also **`; pointer end (x2,y2)=(<x2>, <y2>)`**. |
 
-**Omit pointer suffix when:** **`hotkey`**, **`wait`**, **`clipboard`**, **`mouse:…_current`**, **`move_offset`**, or no **`x`/`y`** in **`tool_args`**.
+**Omit pointer suffix when:** **`hotkey`**, **`wait`**, **`clipboard`**, **`mouse`** → **`*_current`**, **`move_offset`**, or no **`x`/`y`** in **`tool_args`**.
 
 **Recheck R1** may reuse **V1** **`pointer at (x,y)=…`** as **`(x_prev, y_prev)`** — must match; do not invent a second pair.
 
@@ -276,9 +276,9 @@ Cause: <only when Match says so; omit on pass>.
 |-----------|----------------|------------------------|
 | **`[Screen before action]`** present + last row is a **coordinate** tool (`click_at`, `type_text_at`, `drag_from_to_at`, `modified_click_at`, …) | **`[Screen before action]`** | **`[Zoom pointer before action]`** — **required** |
 | First capture (no before-action slots) + coordinate last row | **`[Screen after action]`** | **`[Screen after action]`** and/or **`[Zoom pointer after action]`** |
-| **`hotkey`**, **`wait`**, **`clipboard:*`**, **`type_text_at_focused`**, **`scroll_at_current`**, **`move_offset`**, **`*_current`**, etc. | name frame or **`n/a`** | **`n/a`** — non-pointer action |
+| **`hotkey`**, **`wait`**, **`clipboard`** → **`*`**, **`type_text_at_focused`**, **`scroll_at_current`**, **`move_offset`**, **`*_current`**, etc. | name frame or **`n/a`** | **`n/a`** — non-pointer action |
 
-**Coordinate tools are pointer-precision actions.** **`composite_action:type_text_at`** clicks at **(x,y)** before typing — **not** non-pointer. Judge hotspot vs **that click aim** (input/field **center**), same as **`mouse:click_at`**. **Forbidden:** **`n/a — composite_action … is non-pointer`** when the last row has **`x`/`y`** in **`tool_args`**.
+**Coordinate tools are pointer-precision actions.** **`composite_action`** → **`type_text_at`** clicks at **(x,y)** before typing — **not** non-pointer. Judge hotspot vs **that click aim** (input/field **center**), same as **`mouse`** → **`click_at`**. **Forbidden:** **`n/a — composite_action … is non-pointer`** when the last row has **`x`/`y`** in **`tool_args`**.
 
 #### Steps (strict order — do not skip)
 
@@ -966,16 +966,16 @@ When **Location** line **3** concludes **`therefore (x,y) ≈ (…, …)`**, the
 
 | Location | Tool route line 2 |
 |----------|-------------------|
-| **`therefore (x,y)`** on line **3** | **`mouse:click_at(x,y)`** / **`composite_action:type_text_at(x,y,…)`** / **`modified_click:modified_click_at`** — use **(x,y)** from Location |
+| **`therefore (x,y)`** on line **3** | **`mouse`** → **`click_at(x,y)`** / **`composite_action`** → **`type_text_at(x,y,…)`** / **`modified_click`** → **`modified_click_at`** — use **(x,y)** from Location |
 | **`Location: n/a`** | **`hotkey`** / **`wait`** / **`scroll_at_current`** / **`type_text_at_focused`** / … |
 
 **Forbidden (all turns):** any **`*_index`** method or **`index:`** / **`indices:`** in **`tool_args`**.
 
 **Action kind from Next `this turn:`:**
 
-- Press icon/button/toggle **this turn** → **`mouse:click_at`** — not **`type_text_at`**
-- Type/replace text **this turn** → **`composite_action:type_text_at`**
-- For `composite_action:type_text_at` / `type_text_at_focused`, `clear_first`
+- Press icon/button/toggle **this turn** → **`mouse`** → **`click_at`** — not **`type_text_at`**
+- Type/replace text **this turn** → **`composite_action`** → **`type_text_at`**
+- For `composite_action.type_text_at` / `type_text_at_focused`, `clear_first`
   defaults to `false`; set `clear_first=true` only when replacing existing
   field content.
 
@@ -1026,6 +1026,6 @@ Tool route:
 Leave assistant message text **empty** unless delivering a final user reply.
 Run all stages internally, then issue one native root tool call matching
 internal **Tool route** line 2.
-Report Verify/Repetition via `verify:report`, not message text.
+Report Verify/Repetition via `verify.report`, not message text.
 ---
 

@@ -221,6 +221,7 @@ pub(crate) async fn run_sub_agent(
                         &stream,
                         conversation_id,
                         &sub_task_board_key,
+                        None,
                         doc.to_value(),
                     );
                 }

@@ -46,13 +46,13 @@ pub fn sync_parent_board_from_supervisor_plan(
         } else {
             task.title.trim().to_string()
         };
-        let verification = verification_hint_from_instruction(&task.instruction);
+        let validate = validate_hint_from_instruction(&task.instruction);
         if let Some(idx) = doc.board.iter().position(|i| i.id == id) {
             let row = &mut doc.board[idx];
             row.title = title;
             row.depends_on = task.depends_on.clone();
-            if row.verification.is_none() && verification.is_some() {
-                row.verification = verification;
+            if row.validate.is_none() && validate.is_some() {
+                row.validate = validate;
             }
             stats.milestones_updated += 1;
         } else {
@@ -61,7 +61,7 @@ pub fn sync_parent_board_from_supervisor_plan(
                 title,
                 status: ItemStatus::Pending,
                 depends_on: task.depends_on.clone(),
-                verification,
+                validate,
                 ..BoardItem::default()
             });
             stats.milestones_created += 1;
@@ -78,7 +78,7 @@ pub fn sync_parent_board_from_supervisor_plan(
     stats
 }
 
-fn verification_hint_from_instruction(instruction: &str) -> Option<String> {
+fn validate_hint_from_instruction(instruction: &str) -> Option<String> {
     let line = instruction
         .lines()
         .map(str::trim)

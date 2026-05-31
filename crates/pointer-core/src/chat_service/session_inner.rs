@@ -17,6 +17,62 @@ use super::session_budget::SessionToolBudget;
 use super::session_model::prepare_session_llm_settings;
 use super::StreamTx;
 
+fn latest_real_user_turn(history: &[ChatMessage]) -> Option<(&str, &str)> {
+    history.iter().rev().find_map(|m| {
+        if !matches!(m.role, crate::models::Role::User) {
+            return None;
+        }
+        if crate::message_context::is_synthetic_user_content(&m.content) {
+            return None;
+        }
+        Some((m.id.as_str(), m.content.as_str()))
+    })
+}
+
+fn is_parent_board_unfinished(store: &crate::task_board::TaskBoardStore, store_key: &str) -> bool {
+    let doc = store.document(store_key);
+    !matches!(
+        doc.meta.status,
+        crate::task_board::MetaStatus::Completed | crate::task_board::MetaStatus::Failed
+    )
+}
+
+fn choose_main_task_board_store_key(
+    state: &AppState,
+    conversation_id: &str,
+    history: &[ChatMessage],
+) -> String {
+    let Some((last_user_id, last_user_content)) = latest_real_user_turn(history) else {
+        return conversation_id.to_string();
+    };
+    let resume_intent = crate::task_board::looks_like_resume_intent(last_user_content);
+    if resume_intent {
+        if let Some(active_key) = state.get_active_main_task_board_key(conversation_id) {
+            if is_parent_board_unfinished(state.task_board_store.as_ref(), &active_key) {
+                state.set_active_main_task_board_key(conversation_id, &active_key);
+                log::info!(
+                    "task_board_main_key: resume_intent=true reuse_active conversation_id={} store_key={}",
+                    conversation_id,
+                    active_key
+                );
+                return active_key;
+            }
+        }
+    }
+
+    let key = crate::task_board::main_turn_task_board_store_key(conversation_id, last_user_id);
+    state.set_main_task_board_binding(conversation_id, &key, last_user_id);
+    state.set_active_main_task_board_key(conversation_id, &key);
+    log::info!(
+        "task_board_main_key: selected conversation_id={} resume_intent={} store_key={} anchor_message_id={}",
+        conversation_id,
+        resume_intent,
+        key,
+        last_user_id
+    );
+    key
+}
+
 pub(super) async fn run_chat_inner(
     stream: StreamTx,
     state: Arc<AppState>,
@@ -163,6 +219,11 @@ pub(super) async fn run_chat_inner(
     }
     let mut tool_budget = SessionToolBudget::new(max_cap, tool_rounds_used_single_start);
     let reasoning_in_messages = effective_reasoning_in_messages(&provider.settings);
+    let main_task_board_store_key = choose_main_task_board_store_key(
+        state.as_ref(),
+        conversation_id,
+        history,
+    );
 
     super::single_agent::run_single_agent_loop(
         stream,
@@ -173,6 +234,7 @@ pub(super) async fn run_chat_inner(
         &agent_plan,
         &provider,
         &settings,
+        &main_task_board_store_key,
         tool_approval_mode.as_str(),
         &mut tool_budget,
         consumed_single,

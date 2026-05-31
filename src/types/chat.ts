@@ -447,7 +447,7 @@ export type StreamEvent =
   /** Annotated screen for one assistant message (path under computer-captures/). */
   | { kind: 'assistant_round_screen'; conversationId: string; messageId: string; annotatedRelPath: string }
   | { kind: 'supervisor_plan'; conversationId: string; messageId: string; tasks: SupervisorPlanTask[] }
-  | { kind: 'task_board_updated'; conversationId: string; storeKey: string; document: TaskBoardDocument }
+  | { kind: 'task_board_updated'; conversationId: string; storeKey: string; anchorMessageId?: string; document: TaskBoardDocument }
 
 export interface SupervisorPlanTask {
   id: string
@@ -470,8 +470,9 @@ export interface TaskBoardItem {
   depends_on?: string[]
   retry_count?: number
   output?: string
-  detailed_plan?: string
-  verification?: string
+  details?: string
+  progress?: string
+  validate?: string
   blocked_by?: string
 }
 

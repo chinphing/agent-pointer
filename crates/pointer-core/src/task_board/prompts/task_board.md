@@ -36,81 +36,94 @@ schema:
 
 ### `task_board`
 
-Session-scoped **working memory** for multi-step work (v2 document).
+Session-scoped working memory for multi-step execution.
 
-For multi-step work, initialize early and keep milestones concise.
+If work is multi-step, initialize early.
 Single-step work may skip the board.
 
-**Methods** — call **`task_board`** with **`method`** set to one of:
+Methods:
 
-- **`init`** — Set **`goal`**, optional **`global_context`**, milestone **`items`**.
-  Use 3–8 rows for normal work.
-  For matrix/combinational goals,
-  keep 3–8 rows by grouping cases
-  into meaningful milestones.
-- **`replace`** — Replace entire **`board`** (empty **`items`** clears).
-- **`patch`** — Merge rows by **`id`**; update **`global_context`**.
-- **`prune`** — Cancel **`pending`** rows (optional **`ids`** list).
-- **`finalize`** — Mark session complete when **every row** is **`done`** or **`cancelled`**. Sets **`meta.status`** to **`completed`**. Row-level **`patch`** to **`done`** alone does **not** finalize the board.
-- **`sync_finding`** — **Child agents only:** append one line to parent **`global_context.key_findings`**.
-- **`check_deps`** — Read-only: **`item_id`** → **`ready`** or **`blocked`** + reason.
+- `init`: set `goal`, optional `global_context`, and `items`.
+- `replace`: replace full board.
+- `patch`: merge rows by `id`.
+- `prune`: cancel pending rows.
+- `finalize`: set board complete after all rows are terminal.
+- `sync_finding`: child board sync to parent findings.
+- `check_deps`: inspect dependency readiness for one row.
 
-**Tool result shape (compact — authoritative board is in `[TASK_BOARD]` inject)**
+Tool result is compact.
+Treat injected `[TASK_BOARD]` as source of truth.
 
-- **`ok`**, **`method`**, **`board_len`**
-- **`patch`**: **`patched[]`** with `{ id, status }` per row touched this call; optional **`warnings[]`**; **`reflection_required`**
-- **`init`**: optional **`goal`**
-- **`prune`**: optional **`cancelled[]`**
-- **`finalize`**: **`meta_status`**
-- **`check_deps`**: **`item_id`**, **`status`**, optional **`reason`**
-- **`sync_finding`**: **`findings_count`**
+Row status:
+`pending`, `ready`, `in_progress`, `done`, `cancelled`, `failed`.
 
-Treat **`[TASK_BOARD]`** in the injected runtime context as the authoritative snapshot.
-Do not expect a full **`document`** in tool results.
+## Row fields policy
 
-**Row `status`:** **`pending`**, **`ready`**, **`in_progress`**, **`done`**, **`cancelled`**, **`failed`**
+Each row may include:
 
-**Rules**
+- `details`: execution plan + implementation details + key points.
+- `progress`: partial progress for in-flight work.
+- `validate`: final acceptance check only.
+- `output`: concise result summary.
 
-- Treat **`[TASK_BOARD]`** in the injected runtime context as the authoritative **compact** snapshot.
-- If **`[TASK_BOARD]`** is empty and the task is multi-step, call **`task_board`** with **`method`: `init`** in the first round.
-- **`patch`** should update only the current task id from **`[TASK_BOARD]`**.
-- Mark **`done`** only when the current task goal is already achieved in observable evidence.
-- If the root tool is a new action to achieve that goal, patch **`in_progress`** this turn (or skip `done`).
-- Keep milestones small (roughly **3–12** rows). Use **`local_*`** ids only on **child** boards (sub-agents).
-- For matrix/combinational goals,
-  prefer milestone grouping over atomic rows.
-  A good default is grouping by interaction form
-  (for example: slider-trigger flow,
-  point-select flow, popup flow).
-- For list-like goals, choose granularity by size:
-  - if list size <= 8 and each item needs separate acceptance,
-    one item can be one milestone;
-  - if list size > 8 or items are repetitive,
-    group by batch/type/phase into 3–8 milestones.
-- Each grouped milestone should state
-  explicit coverage in `verification` / `output`
-  (which cases are included, pass/fail count,
-  and next uncovered slice).
-- Keep row text compact; avoid long prose in `title` / `output` / `verification` to reduce prompt tokens.
-- **Do not** patch the parent milestone board from a child agent (use **`sync_finding`** or let the host report completion).
-- **Finalize:** When **all** rows are **`done`** or **`cancelled`**, call **`task_board`** with **`method`: `finalize`** in the **same turn** as your final user-facing reply (after the last **`patch`**). Do not leave **`meta.status`** at **`running`** when the session goal is complete.
-- After **`retry_count >= 2`** on a stuck row, diagnose internally before the next **`patch`**.
-- **Computer / desktop profile only** (when **`verify.report`** is allowed):
-  use it for sidecar ordering and UI evidence context:
-  - First board-init round may omit **`verify.report`**.
-  - After init, run **`verify.report`** first, then **`task_board`** with **`method`: `patch`**.
-  - Transition into the next milestone only after the current task goal is complete.
-  Engineering profiles (e.g. **Coder**) patch from **test/command/file** evidence instead—no **`verify.report`**.
+Do not overload `validate` with process details.
+Put process details in `details`.
 
-**`items` array**
+## Details format (recommended)
 
-Pass a JSON **array** of row objects, or a JSON **string** containing that array
-(escaped quotes required).
+Use a short markdown table in `details`:
 
-For a **single-row** `patch`, you may also pass row fields at the top level with
-**`item_id`** (alias **`id`**) plus **`status`** / **`title`** / **`verification`**
-/ etc. — the host normalizes this to one row.
+| step | action | key_points | risk | done_when |
+| --- | --- | --- | --- | --- |
+| 1 | ... | ... | ... | ... |
+
+Keep lines short and actionable.
+Avoid long prose.
+
+## Progress format (recommended)
+
+Keep `progress` concise and incremental.
+Prefer checkpoint style, for example:
+
+- `2/5 checkpoints done`
+- `current: data migration`
+- `next: run integration tests`
+
+For matrix/combinational tasks,
+record covered and remaining slices.
+
+## Core rules
+
+- If `[TASK_BOARD]` is empty and task is multi-step, call `init`.
+- `patch` should update current task row first.
+- Mark `done` only after observable evidence.
+- Keep 3-12 milestones for most tasks.
+- For repetitive/matrix work, group by meaningful slices.
+- Child agents must not patch parent rows directly.
+- Finalize in the same turn as final user delivery.
+- If `retry_count >= 2`, do internal diagnosis before next patch.
+
+## Profile guidance
+
+Computer profile (with `verify.report`):
+
+- First board-init round may skip `verify.report`.
+- After init, run `verify.report` before `task_board patch`.
+
+Engineering profiles:
+
+- Use test/command/file evidence.
+- Update `validate` with final acceptance evidence.
+
+## Items input
+
+`items` can be:
+
+- a JSON array
+- a JSON string that encodes that array
+
+Single-row patch can use top-level fields:
+`item_id` (or `id`) + row fields.
 
 #### Example — initialize board
 
@@ -129,20 +142,7 @@ For a **single-row** `patch`, you may also pass row fields at the top level with
 }
 ```
 
-#### Example (goal already met -> done)
-
-**Computer profile** (with **`verify.report`**):
-
-- Native tool call 1: **`verify.report`**
-- Native tool call 2: **`task_board`** with **`method`: `patch`**
-
-**Coder / engineering profile** (no **`verify.report`**):
-
-- After tests or commands satisfy **`verification`**, call **`task_board`** with **`method`: `patch`** only:
-  - set current row status to `done`
-  - include short `verification` and `output`
-- Then write assistant user-facing content directly
-  (do not call a `response` tool).
+#### Example — patch with details/progress/validate
 
 Example patch call:
 
@@ -156,7 +156,9 @@ Example patch call:
         {
           "id": "m1",
           "status": "done",
-          "verification": "Tests pass",
+          "details": "| step | action | key_points | risk | done_when |\n| --- | --- | --- | --- | --- |\n| 1 | update handler | keep API stable | medium | tests pass |",
+          "progress": "all checkpoints complete",
+          "validate": "Tests pass",
           "output": "Handler updated"
         }
       ]

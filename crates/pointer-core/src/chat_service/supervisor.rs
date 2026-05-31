@@ -134,6 +134,7 @@ pub(crate) async fn run_supervisor_chat(
         &stream,
         conversation_id,
         conversation_id,
+        None,
         parent_doc.to_value(),
     );
 
@@ -193,7 +194,7 @@ pub(crate) async fn run_supervisor_chat(
             },
             status: ItemStatus::Pending,
             depends_on: task.depends_on.clone(),
-            verification: Some(truncate_str(&task.instruction, 160)),
+            validate: Some(truncate_str(&task.instruction, 160)),
             ..BoardItem::default()
         };
         let child_was_empty = state
@@ -222,6 +223,7 @@ pub(crate) async fn run_supervisor_chat(
                 &stream,
                 conversation_id,
                 &child_board_key,
+                None,
                 child_doc.to_value(),
             );
         }
@@ -276,6 +278,7 @@ pub(crate) async fn run_supervisor_chat(
                             &stream,
                             conversation_id,
                             parent_board_key,
+                            None,
                             parent.to_value(),
                         );
                     }
@@ -314,6 +317,7 @@ pub(crate) async fn run_supervisor_chat(
                             &stream,
                             conversation_id,
                             parent_board_key,
+                            None,
                             parent.to_value(),
                         );
                     }

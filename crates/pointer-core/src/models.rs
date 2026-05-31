@@ -1773,6 +1773,8 @@ pub enum StreamEvent {
         conversation_id: String,
         #[serde(rename = "storeKey")]
         store_key: String,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "anchorMessageId")]
+        anchor_message_id: Option<String>,
         document: serde_json::Value,
     },
 }

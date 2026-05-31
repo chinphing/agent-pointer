@@ -180,7 +180,9 @@ pub fn get_task_board_snapshot(
     use pointer_core::task_board::sub_agent_task_board_store_key;
     let store_key = match task_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(tid) => sub_agent_task_board_store_key(&conversation_id, tid),
-        None => conversation_id.clone(),
+        None => state
+            .get_active_main_task_board_key(&conversation_id)
+            .unwrap_or_else(|| conversation_id.clone()),
     };
     Ok(state.task_board_store.document(&store_key).to_value())
 }

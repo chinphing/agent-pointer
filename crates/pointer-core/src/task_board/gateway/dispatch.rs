@@ -8,7 +8,7 @@ pub struct DispatchContext {
     pub parent_goal: String,
     pub global_findings: Vec<String>,
     pub milestone_title: String,
-    pub milestone_verification: Option<String>,
+    pub milestone_validate: Option<String>,
 }
 
 pub fn dispatch_to_child(
@@ -38,7 +38,7 @@ pub fn dispatch_to_child(
                 id: "local_01".into(),
                 title: ms.title.clone(),
                 status: ItemStatus::Pending,
-                verification: ms.verification.clone(),
+                validate: ms.validate.clone(),
                 ..BoardItem::default()
             });
             true
@@ -47,7 +47,7 @@ pub fn dispatch_to_child(
                 id: "local_01".into(),
                 title: row.title.clone(),
                 status: ItemStatus::Pending,
-                verification: row.verification.clone(),
+                validate: row.validate.clone(),
                 ..BoardItem::default()
             });
             true
@@ -69,6 +69,6 @@ pub fn dispatch_to_child(
         milestone_title: row
             .map(|r| r.title.clone())
             .unwrap_or_else(|| sub_task_id.to_string()),
-        milestone_verification: row.and_then(|r| r.verification.clone()),
+        milestone_validate: row.and_then(|r| r.validate.clone()),
     })
 }

@@ -6,6 +6,7 @@ import { hasTaskBoardContent } from '../../lib/taskBoard'
 
 const props = defineProps<{
   document: TaskBoardDocument | null
+  isActive?: boolean
   childBoards?: Record<string, TaskBoardDocument>
 }>()
 
@@ -20,6 +21,7 @@ const metaStatus = computed(() => props.document?.meta?.status ?? 'running')
 const items = computed(() => props.document?.board ?? [])
 
 const childBoardsWithContent = computed(() => {
+  if (!props.isActive) return {}
   const src = props.childBoards ?? {}
   return Object.fromEntries(
     Object.entries(src).filter(([, doc]) => hasTaskBoardContent(doc))
@@ -67,6 +69,12 @@ function statusClass(status: string): string {
         {{ goal || '任务板' }}
       </span>
       <span class="text-[11px] text-muted shrink-0">{{ doneCount }}/{{ items.length }}</span>
+      <span
+        v-if="isActive"
+        class="text-[10px] px-1.5 py-0.5 rounded bg-success/10 text-success shrink-0"
+      >
+        active
+      </span>
       <span class="text-[10px] px-1.5 py-0.5 rounded bg-accent-muted text-accent shrink-0">{{ metaStatus }}</span>
     </summary>
     <div class="border-t border-border px-3 py-2 space-y-0.5 max-h-48 overflow-y-auto">

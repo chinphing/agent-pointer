@@ -4,7 +4,7 @@ import { ArrowDown } from 'lucide-vue-next'
 import MessageRow from './message/MessageRow.vue'
 import TaskBoardPanel from './TaskBoardPanel.vue'
 import { useChatStore } from '../../stores/chat'
-import type { ChatMessage } from '../../types/chat'
+import type { ChatMessage, TaskBoardDocument } from '../../types/chat'
 
 const chat = useChatStore()
 const scroller = ref<HTMLDivElement | null>(null)
@@ -45,15 +45,28 @@ watch(
 
 type FlatEntry =
   | { type: 'message'; message: ChatMessage }
-  | { type: 'task_board'; anchorMessageId: string }
+  | { type: 'task_board'; anchorMessageId: string; storeKey: string; document: TaskBoardDocument; isActive: boolean }
+
+function isTaskBoardTerminal(status: string | undefined): boolean {
+  const s = (status ?? '').trim()
+  return s === 'completed' || s === 'failed'
+}
 
 const flatMessages = computed<FlatEntry[]>(() => {
   const msgs = chat.current?.messages ?? []
   const entries: FlatEntry[] = []
+  const convId = chat.currentId
   for (const message of msgs) {
     entries.push({ type: 'message', message })
-    if (message.uiBindings?.taskBoardAnchor) {
-      entries.push({ type: 'task_board', anchorMessageId: message.id })
+    const boards = chat.parentBoardsBoundToMessage(convId, message.id)
+    for (const board of boards) {
+      entries.push({
+        type: 'task_board',
+        anchorMessageId: message.id,
+        storeKey: board.storeKey,
+        document: board.document,
+        isActive: board.isActive
+      })
     }
   }
   return entries
@@ -63,18 +76,19 @@ const flatMessages = computed<FlatEntry[]>(() => {
 <template>
   <div ref="scroller" class="h-full overflow-y-auto px-6 md:px-10 pb-6" @scroll="onScroll">
     <div class="max-w-3xl mx-auto pt-6 space-y-5">
-      <template v-for="entry in flatMessages" :key="entry.type === 'message' ? entry.message.id : `task-board-${entry.anchorMessageId}`">
+      <template v-for="entry in flatMessages" :key="entry.type === 'message' ? entry.message.id : `task-board-${entry.storeKey}`">
         <MessageRow
           v-if="entry.type === 'message'"
           :message="entry.message"
         />
         <div
           v-else
-          class="task-board-sticky sticky top-0 z-20 -mt-2 mb-1 flex justify-end pr-11 py-1 bg-background/95 backdrop-blur-sm"
+          class="task-board-sticky -mt-2 mb-1 flex justify-end pr-11 py-1"
+          :class="isTaskBoardTerminal(entry.document.meta?.status) ? '' : 'sticky top-0 z-20 bg-background/95 backdrop-blur-sm'"
         >
           <TaskBoardPanel
-            v-if="chat.currentId"
-            :document="(chat.taskBoardForConversation(chat.currentId)?.parent ?? null)"
+            :document="entry.document"
+            :is-active="entry.isActive"
             :child-boards="(chat.taskBoardForConversation(chat.currentId)?.children ?? undefined)"
           />
         </div>

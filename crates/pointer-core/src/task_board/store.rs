@@ -107,6 +107,31 @@ impl TaskBoardStore {
         self.persist(store_key, &doc);
     }
 
+    pub fn list_store_keys_by_prefix(&self, prefix: &str) -> Vec<String> {
+        let mut out: Vec<String> = self
+            .inner
+            .read()
+            .keys()
+            .filter(|k| k.starts_with(prefix))
+            .cloned()
+            .collect();
+        if let Some(db) = self.persistence.read().clone() {
+            match db.list_store_keys_by_prefix(prefix) {
+                Ok(keys) => {
+                    for k in keys {
+                        if !out.iter().any(|x| x == &k) {
+                            out.push(k);
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("task_board: list_store_keys_by_prefix failed prefix={prefix}: {e}");
+                }
+            }
+        }
+        out
+    }
+
     pub fn snapshot_for_prompt(&self, store_key: &str) -> Option<String> {
         let doc = self.get_or_default(store_key);
         let block = snapshot_for_prompt(store_key, &doc, true);

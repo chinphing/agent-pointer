@@ -259,6 +259,16 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value
             if incoming.title.is_empty() {
                 incoming.title = prev.title.clone();
             }
+            if incoming.details.is_none() {
+                incoming.details = prev.details.clone();
+            }
+            if incoming.progress.is_none() {
+                incoming.progress = prev.progress.clone();
+            }
+            if incoming.validate.is_none() {
+                incoming.validate = prev.validate.clone();
+            }
+            maybe_warn_in_progress_without_details(doc, prev, &incoming, &mut warnings);
             compact_item_after_success(prev, &mut incoming);
             doc.board[idx] = incoming;
             patched.push(row_status_entry(&doc.board[idx]));
@@ -295,6 +305,17 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value
                 recent_verify_report,
                 recent_verify_pass,
                 &mut reflection,
+                &mut warnings,
+            );
+            maybe_warn_in_progress_without_details(
+                doc,
+                &BoardItem {
+                    id: incoming.id.clone(),
+                    title: incoming.title.clone(),
+                    status: ItemStatus::Pending,
+                    ..BoardItem::default()
+                },
+                &incoming,
                 &mut warnings,
             );
             compact_item_after_success(
@@ -335,17 +356,17 @@ fn maybe_warn_done_without_evidence(
         return;
     }
     let has_verification = incoming
-        .verification
+        .validate
         .as_ref()
         .filter(|s| !s.trim().is_empty())
-        .or(prev.verification.as_ref())
+        .or(prev.validate.as_ref())
         .filter(|s| !s.trim().is_empty())
         .is_some();
     if has_verification {
         return;
     }
     *reflection = true;
-    let reason = "done_without_evidence: add output, set verification, or run action tools before marking done";
+    let reason = "done_without_evidence: add output, set validate, or run action tools before marking done";
     warnings.push(serde_json::json!({
         "code": "done_without_evidence",
         "requires_evidence": true,
@@ -388,7 +409,6 @@ fn compact_item_after_success(prev: &BoardItem, incoming: &mut BoardItem) {
     if incoming.status != ItemStatus::Done || prev.status == ItemStatus::Done {
         return;
     }
-    incoming.detailed_plan = None;
     if let Some(out) = incoming.output.as_ref() {
         let trimmed = out.trim();
         if trimmed.chars().count() > DONE_OUTPUT_SUMMARY_MAX_CHARS {
@@ -396,6 +416,39 @@ fn compact_item_after_success(prev: &BoardItem, incoming: &mut BoardItem) {
             incoming.output = Some(format!("{compact}…"));
         }
     }
+}
+
+fn maybe_warn_in_progress_without_details(
+    doc: &BoardDocument,
+    prev: &BoardItem,
+    incoming: &BoardItem,
+    warnings: &mut Vec<Value>,
+) {
+    if incoming.status != ItemStatus::InProgress || prev.status == ItemStatus::InProgress {
+        return;
+    }
+    if doc.board.len() <= 1 {
+        return;
+    }
+    let has_details = incoming
+        .details
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+        .or(prev.details.as_ref())
+        .filter(|s| !s.trim().is_empty())
+        .is_some();
+    if has_details {
+        return;
+    }
+    let reason = "in_progress_without_details: add task details before or when marking in_progress";
+    warnings.push(serde_json::json!({
+        "code": "in_progress_without_details",
+        "message": reason
+    }));
+    log::warn!(
+        "task_board_obs: in_progress_soft_validation item_id={} reason={reason}",
+        incoming.id
+    );
 }
 
 fn enforce_interim_drafts_budget(

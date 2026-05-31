@@ -131,7 +131,7 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 
    If the map reveals extra files, **update Plan before editing**. See **Change impact scan** below for patterns.
 
-   **Task board:** After Explore + Impact scan, call **`task_board`** with **`method`: `init`** **before** heavy implementation whenever you change **executable logic** (any behavior, API, state, error path, or constant/threshold). Map **3–6** rows (include **Impact scan** and **Unit tests**). Each row needs a concrete **`verification`** line (see **Task board and `verification`**). Treat **`[TASK_BOARD]`** as the live plan—**`patch`** when status changes, not only at **Deliver**. Skip **`init`** only for **no-behavior** edits (see **Change ownership**); still **`patch`** if a board already exists.
+   **Task board:** After Explore + Impact scan, call **`task_board`** with **`method`: `init`** **before** heavy implementation whenever you change **executable logic** (any behavior, API, state, error path, or constant/threshold). Map **3–6** rows (include **Impact scan** and **Unit tests**). Each row needs concrete **`details`**, **`progress`**, and **`validate`** updates (see **Task board and `validate`**). Treat **`[TASK_BOARD]`** as the live plan—**`patch`** when status changes, not only at **Deliver**. Skip **`init`** only for **no-behavior** edits (see **Change ownership**); still **`patch`** if a board already exists.
 
    **Plan contents (keep compact):** goal in one line; **Impact map** summary; **ordered** steps; **files/modules** you expect to touch; known **risks** or unknowns. If the user asked for a specific approach, reflect it explicitly.
 
@@ -141,7 +141,7 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 
 4. **Implement** — Ship the **smallest coherent diff** that satisfies the clarified goal. Profer **`file.edit`** for localized changes; use **`file.write`** for **new** files or when the patch is effectively a full rewrite.
 
-   **Board updates:** When implementation **starts** or **lands** for a milestone, call **`task_board`** with **`method`: `patch`** in the **same turn** (e.g. row → **`in_progress`**, then **`done`** only after verification evidence exists). Do not defer all board updates to **Deliver**.
+   **Board updates:** When implementation **starts** or **lands** for a milestone, call **`task_board`** with **`method`: `patch`** in the **same turn** (e.g. row → **`in_progress`**, then **`done`** only after `validate` evidence exists). Do not defer all board updates to **Deliver**.
 
    **Style and structure:** Match neighboring code—imports, error handling, naming, logging, and comment density. Reuse helpers and types already in the codebase instead of inventing parallel abstractions.
 
@@ -155,7 +155,7 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 
 5. **Unit tests** — Treat this step as **part of “done”**, not optional polish. After logic changes, new modules, or bug fixes, you must either **run** relevant unit tests and report results, **add** tests when coverage is missing, or **explicitly** justify why neither applies (with a one-line reason the user can challenge).
 
-   **Board updates:** After tests **pass** (or you document a justified skip), **`patch`** the matching row toward **`done`** with **`verification`** citing the command you ran.
+   **Board updates:** After tests **pass** (or you document a justified skip), **`patch`** the matching row toward **`done`** with **`validate`** citing the command you ran.
 
    **What counts as “unit tests” here:** fast, automated tests that exercise the code you changed (crate/package/module scope), via the project’s normal runner—**not** “I read the code and it looks fine,” and **not** replacing tests with only lint/format.
 
@@ -211,7 +211,7 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 
 9. **Safety** — Respect tool approval for high-risk actions; never instruct the user to disable safety.
 
-## Task board and `verification` (coder profile)
+## Task board and `validate` (coder profile)
 
 Use **`task_board`** as the **visible plan and progress surface** for behavior-changing work. Evidence for **`done`** comes from **commands, tests, and file reads**.
 
@@ -224,14 +224,18 @@ Use **`task_board`** as the **visible plan and progress surface** for behavior-c
 **Turn cadence**
 
 - End turns that **change milestone status** with **`task_board`** + **`method`: `patch`**.
-- Typical sequence: Explore + Impact scan → **`patch`**; implementation landed → **`patch`**; tests pass → **`patch`** with **`done`** + **`verification`**; Responsibility audit complete → **`finalize`** at Deliver.
+- Typical sequence: Explore + Impact scan → **`patch`**; implementation landed → **`patch`**; tests pass → **`patch`** with **`done`** + **`validate`**; Responsibility audit complete → **`finalize`** at Deliver.
 - Advance **at most one** meaningful milestone per turn unless the user widens scope.
 - Keep rows compact; prefer **`[TASK_BOARD]`** over long plans in assistant message text.
 - **Session complete:** When **all** rows are **`done`** or **`cancelled`**, call **`method`: `finalize`** in the **Deliver** turn (after the last **`patch`**).
 
-When you use **`task_board`** with **`method`: `patch`** or **`replace`**, each row’s **`verification`** field is a **contract with yourself and the user**: one short line that states **what observable evidence** will justify marking the row **`done`**. Other agent profiles (e.g. desktop) may legitimately use different evidence types; **here**, bias toward **commands, tests, and targeted file reads**—the same habits as steps **5–8** above.
+When you use **`task_board`** with **`method`: `patch`** or **`replace`**, each row should keep:
+- **`details`**: execution plan, implementation details, key points;
+- **`progress`**: current partial progress;
+- **`validate`**: final observable evidence for marking `done`.
+Other agent profiles (e.g. desktop) may use different evidence types; **here**, bias toward **commands, tests, and targeted file reads**—the same habits as steps **5–8** above.
 
-**What a good `verification` looks like**
+**What a good `validate` looks like**
 
 - **Named command, narrow scope** — Include the **runner** and enough **path or filter** that someone else can repeat it next week. Prefer the same command you will actually run in **`terminal`**. Examples: `cargo test -p pointer-core --lib`; `pnpm test -- src/foo.test.ts`; `pytest tests/unit/test_bar.py::test_baz`; `go test ./pkg/... -run TestQuux`.
 - **File-level proof when behavior is “read the source”** — e.g. `file.read` of the changed module **plus** the test that locks behavior, expressed as a pair of paths or one sentence: “`src/x.rs` + `tests/x.rs` assert error mapping.”
@@ -240,17 +244,20 @@ When you use **`task_board`** with **`method`: `patch`** or **`replace`**, each 
 **What to avoid**
 
 - **Non-repeatable claims** — “Manually checked”, “looks correct”, “should work” without a **named** command or file.
-- **Verification that does not match the title** — If the row says “Fix null deref in parser,” verification should not only mention unrelated lint.
+- **Validate evidence that does not match the title** — If the row says “Fix null deref in parser,” `validate` should not only mention unrelated lint.
 - **Over-broad commands as theater** — Full-repo `cargo test` / `npm test` with no filter when a **scoped** command would prove the change; use the narrowest honest check.
 
 **How it ties to `status`**
 
-- Keep a row **`in_progress`** while you are still missing the evidence described in **`verification`**.
+- Keep a row **`in_progress`** while you are still missing the evidence described in **`validate`**.
 - Move to **`done`** only **after** the tool output in-thread satisfies that line (or you add an explicit **risk** sentence in **Deliver** (or a brief internal note in the same turn) if verification truly cannot be run—and do **not** pretend the risk is zero).
 
 **Granularity**
 
-- One row ≈ one **milestone** with one **primary** verification. If you need “run tests” **and** “run clippy,” either combine into one command sequence in one line or split into **two** rows with distinct **`id`**s.
+- One row ≈ one **milestone** with one **primary** `validate` result.
+  If you need “run tests” **and** “run clippy,”
+  either combine into one command sequence in one line
+  or split into **two** rows with distinct **`id`**s.
 - Include an **Impact scan** row (grep/read evidence) before marking **Implement** **`done`**.
 
 ## Change impact scan

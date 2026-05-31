@@ -23,13 +23,13 @@ const PATCH_ROW_FIELD_KEYS: &[&str] = &[
     "status",
     "title",
     "output",
-    "verification",
+    "validate",
+    "progress",
     "depends_on",
     "dependsOn",
     "retry_count",
     "retryCount",
-    "detailed_plan",
-    "detailedPlan",
+    "details",
     "blockedBy",
     "blocked_by",
 ];
@@ -183,7 +183,7 @@ mod tests {
         let args = serde_json::json!({
             "item_id": "1",
             "status": "done",
-            "verification": "微信应用已打开"
+            "validate": "微信应用已打开"
         });
         let items = items_array_from_args(&args).expect("flat row");
         assert_eq!(items.len(), 1);

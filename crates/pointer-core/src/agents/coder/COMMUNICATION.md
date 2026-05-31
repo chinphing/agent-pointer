@@ -153,7 +153,11 @@ when the run ends or when you are not issuing tools.
 
 **Patch every turn that moves progress:** When a milestone **starts** or **finishes**, call **`task_board`** with **`method`: `patch`** in the **same turn**. Treat **`[TASK_BOARD]`** in injected context as the authoritative compact snapshot.
 
-**Definition of done** on each row: repeatable **`verification`** (command output, test result, or targeted **`file`** read)—see sections below. Step fields and Sidecar placement follow **Communication (public)** → **Task board**.
+**Definition of done** on each row: keep `details` and `progress` current,
+and provide repeatable final evidence in `validate`
+(command output, test result, or targeted **`file`** read).
+Step fields and Sidecar placement follow
+**Communication (public)** → **Task board**.
 
 ### Example — init after Explore + Impact scan
 
@@ -165,9 +169,9 @@ when the run ends or when you are not issuing tools.
       "method": "init",
       "goal": "Fix null handling in parser",
       "items": [
-        { "id": "m1", "title": "Explore + impact scan", "status": "done", "verification": "grep symbol + read all caller hits" },
-        { "id": "m2", "title": "Implement fix", "status": "in_progress", "verification": "file edit parser.rs + callers if needed" },
-        { "id": "m3", "title": "Unit tests + audit", "status": "pending", "verification": "cargo test -p my-crate parser::" }
+        { "id": "m1", "title": "Explore + impact scan", "status": "done", "details": "impact map complete", "progress": "done", "validate": "grep symbol + read all caller hits" },
+        { "id": "m2", "title": "Implement fix", "status": "in_progress", "details": "patch parser null path", "progress": "code change started", "validate": "file edit parser.rs + callers if needed" },
+        { "id": "m3", "title": "Unit tests + audit", "status": "pending", "details": "run unit tests then audit", "progress": "pending", "validate": "cargo test -p my-crate parser::" }
       ]
     }
   }
@@ -186,7 +190,7 @@ when the run ends or when you are not issuing tools.
         {
           "id": "m2",
           "status": "done",
-          "verification": "cargo test -p my-crate parser:: — 12 passed",
+          "validate": "cargo test -p my-crate parser:: — 12 passed",
           "output": "Added null guard + regression test"
         }
       ]
@@ -197,15 +201,15 @@ when the run ends or when you are not issuing tools.
 
 ## Definition of done (`task_board` and delivery)
 
-- Mark a step **`done`** only when **repeatable verification** exists for that step
+- Mark a step **`done`** only when **repeatable `validate` evidence** exists for that step
   (e.g. **`terminal`** command output, **`file.read`** on changed files, or other evidence this profile allows).
 - Do **not** mark **`done`** on “I edited it” alone.
 - Do **not** mark **Implement** **`done`** before **Impact scan** evidence exists.
 - Do **not** **`finalize`** or treat the task complete without **Responsibility audit** (see **AGENT** step 7) when executable logic changed.
-- If verification is impossible, add a **short risk note** on the board or in the user reply instead of pretending certainty.
+- If `validate` evidence is impossible, add a **short risk note** on the board or in the user reply instead of pretending certainty.
 - When **every** board row is **`done`** or **`cancelled`**, call **`task_board`** with **`method`: `finalize`** in the delivery turn.
 
-## Cross-surface verification (before final delivery)
+## Cross-surface validation (before final delivery)
 
 - Include **Responsibility audit** answers (references, lifecycle, symmetry, tests, drift, surfaces)—see **AGENT** step 7.
 - Write the delivery summary in assistant **`content`** — not reasoning-only (see **AGENT** → **User-visible output**).

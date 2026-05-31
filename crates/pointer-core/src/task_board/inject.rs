@@ -14,6 +14,7 @@ pub fn inject_host_task_board_conversation_id(
     tool_id: &str,
     args: Value,
     conversation_id: &str,
+    task_board_store_key: &str,
     history: &[ChatMessage],
 ) -> Value {
     let is_task_board = is_task_board_tool_name(tool_id);
@@ -23,6 +24,11 @@ pub fn inject_host_task_board_conversation_id(
     if !requires_injection {
         return args;
     }
+    let host_binding = if is_task_board {
+        task_board_store_key
+    } else {
+        conversation_id
+    };
     let mut map = if let Value::Object(m) = args {
         m
     } else {
@@ -30,7 +36,7 @@ pub fn inject_host_task_board_conversation_id(
     };
     map.insert(
         "_conversation_id".to_string(),
-        Value::String(conversation_id.to_string()),
+        Value::String(host_binding.to_string()),
     );
     if is_task_board {
         map.insert(
@@ -59,6 +65,7 @@ mod tests {
             "captcha_verify",
             serde_json::json!({"method": "drag", "goal": "x"}),
             "conv-abc",
+            "conv-abc::tb",
             &[],
         );
         assert_eq!(
@@ -70,7 +77,13 @@ mod tests {
     #[test]
     fn unrelated_tool_skips_injection() {
         let args = serde_json::json!({"query": "hello"});
-        let out = inject_host_task_board_conversation_id("web_search", args.clone(), "conv-abc", &[]);
+        let out = inject_host_task_board_conversation_id(
+            "web_search",
+            args.clone(),
+            "conv-abc",
+            "conv-abc::tb",
+            &[],
+        );
         assert_eq!(out, args);
     }
 }

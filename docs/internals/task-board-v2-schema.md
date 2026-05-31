@@ -22,8 +22,9 @@ Runtime prompts: `crates/pointer-core/src/task_board/prompts/task_board.md` (Eng
 | `depends_on` | no | Prerequisite row ids |
 | `retry_count` | no | `>= 2` may set `reflection_required` in tool result |
 | `output` | no | Evidence summary when `done` |
-| `detailed_plan` | no | Optional long plan text for in-flight rows; host clears on first `done` transition |
-| `verification` | no | One-line proof contract |
+| `details` | no | Execution plan + implementation details + key points |
+| `progress` | no | Partial progress for in-flight work |
+| `validate` | no | Final acceptance check summary |
 | `blockedBy` | no | |
 
 ## Methods

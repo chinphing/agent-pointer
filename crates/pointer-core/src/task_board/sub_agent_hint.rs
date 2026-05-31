@@ -8,6 +8,10 @@ const HINT_BLOCK: &str = "\
 Your local task board is empty.
 For multi-step subtasks, call **`task_board`** with **`method`: `init`** early.
 Use 3-6 **local_*** steps for normal work.
+For each active step, keep:
+- `details`: plan + key implementation notes;
+- `progress`: current partial progress;
+- `validate`: final acceptance check only.
 For exhaustive matrix/combinational goals,
 keep grouped milestones by interaction form
 instead of enumerating every case.
@@ -27,6 +31,8 @@ Single-step work may skip the board.
 For turns that also emit **verify:report**:
 - first board-init round may omit report;
 - after init, run `verify.report` first, then `task_board` with **`method`: `patch`**.
+Use `details` for execution details and key points.
+Use `validate` only for final acceptance check.
 Keep task board text compact to reduce prompt token cost.
 ";
 
@@ -37,7 +43,10 @@ For **any behavior change** (logic, API, state, errors, constants),
 call **`task_board`** with **`method`: `init`** in **Plan**
 (after Explore + Impact scan, before heavy edits).
 Use **3–6** rows — include **Impact scan**, **Implement**, and **Unit tests**.
-Each row needs a short **`verification`** line (grep/read proof, test command, or file pair).
+Each row needs:
+- `details`: plan + implementation details + key points
+- `progress`: partial progress while executing
+- `validate`: final check evidence only
 **Cadence:** when a milestone starts or finishes, call **`task_board`**
 with **`method`: `patch`** in the **same turn** — do not wait until Deliver only.
 Skip **`init`** only for comment/format/rename-only edits with no behavior change.

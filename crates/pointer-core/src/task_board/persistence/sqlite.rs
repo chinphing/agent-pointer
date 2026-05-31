@@ -60,4 +60,24 @@ impl TaskBoardSqlite {
         )?;
         Ok(())
     }
+
+    pub fn list_store_keys_by_prefix(&self, prefix: &str) -> Result<Vec<String>> {
+        let like = format!("{prefix}%");
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT store_key
+             FROM task_boards
+             WHERE store_key LIKE ?1
+             ORDER BY updated_at_ms DESC",
+        )?;
+        let mut rows = stmt.query(params![like])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            let key: String = row.get(0)?;
+            if !key.trim().is_empty() {
+                out.push(key);
+            }
+        }
+        Ok(out)
+    }
 }

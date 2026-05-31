@@ -5,6 +5,7 @@ use crate::extensions::{
     new_extension_message_id, now_ms, MessageLoopPromptsAfterContext, MessageLoopPromptsAfterHook,
 };
 use crate::models::{ChatMessage, Role};
+use crate::task_board::MetaStatus;
 use crate::task_board::snapshot::markdown_runtime_block_for_inject;
 use crate::task_board::sub_agent_hint::main_agent_task_board_init_hint;
 use anyhow::Result;
@@ -28,7 +29,9 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
         }
 
         let doc = ctx.task_board_store.document(ctx.task_board_store_key);
-        let has_board_content = !doc.meta.goal.trim().is_empty() || !doc.board.is_empty();
+        let terminal_board = matches!(doc.meta.status, MetaStatus::Completed | MetaStatus::Failed);
+        let has_board_content =
+            !terminal_board && (!doc.meta.goal.trim().is_empty() || !doc.board.is_empty());
         let board_block = if has_board_content {
             Some(markdown_runtime_block_for_inject(&doc))
         } else if ctx.task_board_store_key == ctx.conversation_id {

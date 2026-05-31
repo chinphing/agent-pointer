@@ -49,6 +49,7 @@ pub(crate) fn emit_task_board_updated(
     stream: &StreamTx,
     conversation_id: &str,
     store_key: &str,
+    anchor_message_id: Option<String>,
     document: Value,
 ) {
     emit(
@@ -56,6 +57,7 @@ pub(crate) fn emit_task_board_updated(
         StreamEvent::TaskBoardUpdated {
             conversation_id: conversation_id.to_string(),
             store_key: store_key.to_string(),
+            anchor_message_id,
             document,
         },
     );

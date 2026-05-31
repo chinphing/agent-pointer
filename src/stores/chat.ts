@@ -16,11 +16,14 @@ import { getTaskBoardSnapshot } from '../lib/api'
 import { hasTaskBoardContent } from '../lib/taskBoard'
 
 const TASK_BOARD_SUB_SEP = '\u{1f}ptr_sub_agent\u{1f}'
+const TASK_BOARD_MAIN_TURN_SEP = '\u{1f}ptr_main_turn\u{1f}'
 const TASK_BOARD_DEBOUNCE_MS = 300
 const taskBoardDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 export interface ConversationTaskBoardState {
-  parent: TaskBoardDocument | null
+  parentByStoreKey: Record<string, TaskBoardDocument>
+  parentBindings: Record<string, string>
+  activeParentStoreKey: string | null
   children: Record<string, TaskBoardDocument>
 }
 import {
@@ -35,16 +38,25 @@ import {
   recordSubToolSuccess
 } from '../lib/subAgentSession'
 import { buildCompressionNoticeContent } from '../lib/compressionMessage'
-import {
-  ensureTaskBoardAnchor,
-  findLastRealUserMessage,
-  setTaskBoardAnchor
-} from '../lib/messageContext'
+import { findLastRealUserMessage } from '../lib/messageContext'
 import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
 import { usePlatformAuthStore } from './platformAuth'
+import { isTauriRuntime } from '../lib/runtime'
 
 function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36) }
+
+function isTaskBoardTerminal(status: string | undefined): boolean {
+  const s = (status ?? '').trim()
+  return s === 'completed' || s === 'failed'
+}
+
+function anchorFromMainTaskBoardStoreKey(storeKey: string): string | null {
+  const idx = storeKey.indexOf(TASK_BOARD_MAIN_TURN_SEP)
+  if (idx < 0) return null
+  const msgId = storeKey.slice(idx + TASK_BOARD_MAIN_TURN_SEP.length).trim()
+  return msgId || null
+}
 
 function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Conversation[] {
   return conversations.map(c => ({
@@ -269,15 +281,43 @@ export const useChatStore = defineStore('chat', () => {
 
   function ensureTaskBoardEntry(convId: string): ConversationTaskBoardState {
     if (!taskBoards.value[convId]) {
-      taskBoards.value[convId] = { parent: null, children: {} }
+      taskBoards.value[convId] = {
+        parentByStoreKey: {},
+        parentBindings: {},
+        activeParentStoreKey: null,
+        children: {}
+      }
     }
     return taskBoards.value[convId]
   }
 
-  function applyTaskBoardDocument(convId: string, storeKey: string, doc: TaskBoardDocument) {
+  function applyTaskBoardDocument(
+    convId: string,
+    storeKey: string,
+    doc: TaskBoardDocument,
+    anchorMessageId?: string
+  ) {
     const entry = ensureTaskBoardEntry(convId)
     if (storeKey === convId || !storeKey.includes(TASK_BOARD_SUB_SEP)) {
-      entry.parent = hasTaskBoardContent(doc) ? doc : null
+      if (hasTaskBoardContent(doc)) {
+        entry.parentByStoreKey[storeKey] = doc
+      } else {
+        delete entry.parentByStoreKey[storeKey]
+      }
+      let resolvedAnchor = anchorMessageId?.trim() || entry.parentBindings[storeKey] || anchorFromMainTaskBoardStoreKey(storeKey) || ''
+      if (!resolvedAnchor) {
+        const conv = conversations.value.find(c => c.id === convId)
+        const fallback = conv ? findLastRealUserMessage(conv.messages)?.id : null
+        resolvedAnchor = fallback || ''
+      }
+      if (resolvedAnchor) {
+        entry.parentBindings[storeKey] = resolvedAnchor
+      }
+      if (hasTaskBoardContent(doc) && !isTaskBoardTerminal(doc.meta?.status)) {
+        entry.activeParentStoreKey = storeKey
+      } else if (entry.activeParentStoreKey === storeKey && isTaskBoardTerminal(doc.meta?.status)) {
+        entry.activeParentStoreKey = null
+      }
     } else {
       const parts = storeKey.split(TASK_BOARD_SUB_SEP)
       const taskId = parts[parts.length - 1]?.trim()
@@ -294,7 +334,8 @@ export const useChatStore = defineStore('chat', () => {
   function applyTaskBoardDocumentDebounced(
     convId: string,
     storeKey: string,
-    doc: TaskBoardDocument
+    doc: TaskBoardDocument,
+    anchorMessageId?: string
   ) {
     const timerKey = `${convId}\u{0}|${storeKey}`
     const prev = taskBoardDebounceTimers.get(timerKey)
@@ -303,7 +344,7 @@ export const useChatStore = defineStore('chat', () => {
       timerKey,
       window.setTimeout(() => {
         taskBoardDebounceTimers.delete(timerKey)
-        applyTaskBoardDocument(convId, storeKey, doc)
+        applyTaskBoardDocument(convId, storeKey, doc, anchorMessageId)
       }, TASK_BOARD_DEBOUNCE_MS)
     )
   }
@@ -311,22 +352,36 @@ export const useChatStore = defineStore('chat', () => {
   async function refreshTaskBoard(conversationId: string, taskId?: string) {
     try {
       const doc = await getTaskBoardSnapshot(conversationId, taskId)
+      const inferredStoreKey =
+        typeof (doc as TaskBoardDocument).task_id === 'string' &&
+        (doc as TaskBoardDocument).task_id.startsWith('tb_')
+          ? (doc as TaskBoardDocument).task_id.slice(3)
+          : ''
       const storeKey = taskId?.trim()
         ? `${conversationId}${TASK_BOARD_SUB_SEP}${taskId.trim()}`
-        : conversationId
+        : inferredStoreKey || taskBoards.value[conversationId]?.activeParentStoreKey || conversationId
       applyTaskBoardDocument(conversationId, storeKey, doc as TaskBoardDocument)
-      if (!taskId?.trim()) {
-        const conv = conversations.value.find(c => c.id === conversationId)
-        const entry = taskBoards.value[conversationId]
-        if (conv && entry?.parent && hasTaskBoardContent(entry.parent)) {
-          if (ensureTaskBoardAnchor(conv.messages)) {
-            persist()
-          }
-        }
-      }
     } catch (e) {
       console.warn('[task board] snapshot failed', e)
     }
+  }
+
+  function parentBoardsBoundToMessage(convId: string | null, messageId: string): Array<{ storeKey: string; document: TaskBoardDocument; isActive: boolean }> {
+    if (!convId) return []
+    const entry = taskBoards.value[convId]
+    if (!entry) return []
+    const list: Array<{ storeKey: string; document: TaskBoardDocument; isActive: boolean }> = []
+    for (const [storeKey, anchor] of Object.entries(entry.parentBindings)) {
+      if (anchor !== messageId) continue
+      const document = entry.parentByStoreKey[storeKey]
+      if (!document || !hasTaskBoardContent(document)) continue
+      list.push({
+        storeKey,
+        document,
+        isActive: entry.activeParentStoreKey === storeKey
+      })
+    }
+    return list
   }
 
   function taskBoardForConversation(convId: string | null): ConversationTaskBoardState | null {
@@ -530,19 +585,9 @@ export const useChatStore = defineStore('chat', () => {
           applyTaskBoardDocumentDebounced(
             e.conversationId,
             e.storeKey,
-            e.document as TaskBoardDocument
+            e.document as TaskBoardDocument,
+            e.anchorMessageId
           )
-          const conv = conversations.value.find(c => c.id === e.conversationId)
-          if (!conv) break
-          const lastUser = conv.messages.reduceRight<ChatMessage | null>(
-            (found, m) =>
-              found ? found : m.role === 'user' && !isEphemeralDesktopNoticeMessage(m) ? m : null,
-            null
-          ) ?? findLastRealUserMessage(conv.messages)
-          if (lastUser) {
-            setTaskBoardAnchor(conv.messages, lastUser.id)
-            persist()
-          }
         }
         break
       }
@@ -823,6 +868,25 @@ export const useChatStore = defineStore('chat', () => {
     const conv = current.value!
     if (!content.trim() || isConversationGenerating(conv.id)) return
     const platformAuth = usePlatformAuthStore()
+    if (isTauriRuntime()) {
+      try {
+        await platformAuth.ensureFreshSession()
+      } catch (e) {
+        console.error('[chat] platform session refresh failed', e)
+      }
+      if (!platformAuth.session.logged_in) {
+        conv.messages.push({
+          id: uid(),
+          role: 'assistant',
+          content: '',
+          status: 'error',
+          createdAt: Date.now(),
+          errorMessage: '请先登录 Pointer 账户'
+        })
+        persist()
+        return
+      }
+    }
     if (platformAuth.tokenQuotaExhausted) {
       conv.messages.push({
         id: uid(),
@@ -958,6 +1022,7 @@ export const useChatStore = defineStore('chat', () => {
     conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards,
     init, newConversation, selectConversation, deleteConversation,
     sendUserMessage, stop, abortTerminalOnly, retry, approve, undo,
-    refreshTaskBoard, taskBoardForConversation, setConversationWorkspace, applyPersistedComposerDefaults, showUiToast
+    refreshTaskBoard, taskBoardForConversation, parentBoardsBoundToMessage,
+    setConversationWorkspace, applyPersistedComposerDefaults, showUiToast
   }
 })

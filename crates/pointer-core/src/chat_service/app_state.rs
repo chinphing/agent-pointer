@@ -35,6 +35,10 @@ pub struct AppState {
     /// When set, the in-flight `terminal` tool for that conversation kills its subprocess (host-only; does not cancel the LLM turn).
     pub terminal_run_abort: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
+    /// Active main-agent task board key per conversation.
+    pub active_main_task_boards: Mutex<HashMap<String, String>>,
+    /// Main task board anchor bindings: conversation -> (store_key -> user_message_id).
+    pub task_board_anchor_by_store_key: Mutex<HashMap<String, HashMap<String, String>>>,
 }
 
 impl AppState {
@@ -96,6 +100,8 @@ impl AppState {
             cancels: Mutex::new(HashMap::new()),
             terminal_run_abort: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
+            active_main_task_boards: Mutex::new(HashMap::new()),
+            task_board_anchor_by_store_key: Mutex::new(HashMap::new()),
         }
     }
 
@@ -201,6 +207,90 @@ impl AppState {
         } else {
             false
         }
+    }
+
+    pub fn set_main_task_board_binding(
+        &self,
+        conversation_id: &str,
+        store_key: &str,
+        anchor_message_id: &str,
+    ) {
+        if conversation_id.trim().is_empty()
+            || store_key.trim().is_empty()
+            || anchor_message_id.trim().is_empty()
+        {
+            log::warn!(
+                "task_board_binding: invalid args conversation_id={} store_key={} anchor_message_id={}",
+                conversation_id,
+                store_key,
+                anchor_message_id
+            );
+            return;
+        }
+        let mut map = self.task_board_anchor_by_store_key.lock();
+        map.entry(conversation_id.to_string())
+            .or_default()
+            .insert(store_key.to_string(), anchor_message_id.to_string());
+    }
+
+    pub fn get_main_task_board_anchor(
+        &self,
+        conversation_id: &str,
+        store_key: &str,
+    ) -> Option<String> {
+        self.task_board_anchor_by_store_key
+            .lock()
+            .get(conversation_id)
+            .and_then(|m| m.get(store_key).cloned())
+            .or_else(|| crate::task_board::anchor_message_id_from_main_turn_key(store_key))
+    }
+
+    pub fn set_active_main_task_board_key(&self, conversation_id: &str, store_key: &str) {
+        if conversation_id.trim().is_empty() || store_key.trim().is_empty() {
+            return;
+        }
+        self.active_main_task_boards
+            .lock()
+            .insert(conversation_id.to_string(), store_key.to_string());
+    }
+
+    pub fn get_active_main_task_board_key(&self, conversation_id: &str) -> Option<String> {
+        if let Some(k) = self
+            .active_main_task_boards
+            .lock()
+            .get(conversation_id)
+            .cloned()
+        {
+            return Some(k);
+        }
+        let prefix = format!(
+            "{}{}",
+            conversation_id.trim(),
+            crate::task_board::coordination::main_turn::MAIN_TURN_KEY_SEP
+        );
+        let mut keys = self.task_board_store.list_store_keys_by_prefix(&prefix);
+        if !keys.is_empty() {
+            let pick = keys
+                .iter()
+                .find(|k| {
+                    let doc = self.task_board_store.document(k);
+                    !matches!(
+                        doc.meta.status,
+                        crate::task_board::MetaStatus::Completed | crate::task_board::MetaStatus::Failed
+                    )
+                })
+                .cloned()
+                .unwrap_or_else(|| keys.remove(0));
+            self.active_main_task_boards
+                .lock()
+                .insert(conversation_id.to_string(), pick.clone());
+            return Some(pick);
+        }
+        let legacy = self.task_board_store.document(conversation_id);
+        if !legacy.board_is_empty() || !legacy.meta.goal.trim().is_empty() {
+            return Some(conversation_id.to_string());
+        }
+        None
     }
 }
 

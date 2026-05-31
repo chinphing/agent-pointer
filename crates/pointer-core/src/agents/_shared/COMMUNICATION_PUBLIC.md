@@ -98,7 +98,7 @@ Use the board for milestones—not a long plan in assistant message text only.
   Other profiles do **not** use **`verify.report`** for board updates.
 - Advance **at most one** meaningful milestone per turn unless the user widens scope. **Cancel** obsolete rows instead of ignoring them.
 - When **all** rows are **`done`** or **`cancelled`**, call **`task_board`** with **`method`: `finalize`** before the final user-facing reply. Patching rows to **`done`** does not replace **`finalize`**.
-- Keep task board text compact (short `title`/`output`/`verification`) to reduce prompt token overhead.
+- Keep task board text compact (short `title`/`output`/`validate`) to reduce prompt token overhead.
 - For matrix/combinational goals,
   group rows by meaningful dimensions first.
   Preferred default: interaction form
@@ -109,8 +109,8 @@ Use the board for milestones—not a long plan in assistant message text only.
   - list size > 8 or repetitive items:
     group by batch/type/phase and keep 3–8 rows.
 - In each grouped row, keep
-  `verification` / `output` explicit about
-  covered cases and uncovered remainder.
+  `details` / `progress` / `validate` / `output`
+  explicit about covered and remaining slices.
 - **Sub-agent (child) scope:** **`[TASK_BOARD]`** is your **local** `local_*` steps only. **`[TASK_BOARD_PARENT]`** is **read-only** (goal + findings + current milestone). Use **`task_board`** with **`method`: `sync_finding`** for breakthroughs to the parent. **Do not** patch parent milestone rows— the host reports completion.
 - **Lead / parent scope:** milestones only—no `local_*` micromanagement of child workers.
 

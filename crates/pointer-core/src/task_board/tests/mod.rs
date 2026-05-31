@@ -12,7 +12,7 @@ mod apply_tests {
         let store = TaskBoardStore::new();
         let key = "conv-test";
         let args = json!({
-            "items": "[{\"id\":\"a\",\"title\":\"Step A\",\"status\":\"pending\",\"verification\":\"ok\"}]"
+            "items": "[{\"id\":\"a\",\"title\":\"Step A\",\"status\":\"pending\",\"validate\":\"ok\"}]"
         });
         store.apply(key, "patch", &args).expect("patch");
         let doc = store.document(key);
@@ -87,7 +87,7 @@ mod apply_tests {
                 &json!({
                     "item_id": "1",
                     "status": "done",
-                    "verification": "微信应用已打开"
+                    "validate": "微信应用已打开"
                 }),
             )
             .expect("patch 1");
@@ -98,7 +98,7 @@ mod apply_tests {
                 &json!({
                     "item_id": "2",
                     "status": "done",
-                    "verification": "老婆聊天窗口已打开，输入框可见"
+                    "validate": "老婆聊天窗口已打开，输入框可见"
                 }),
             )
             .expect("patch 2");
@@ -169,7 +169,7 @@ mod apply_tests {
             .apply(
                 key,
                 "patch",
-                &json!({"item_id": "1", "status": "done", "verification": "ok"}),
+                &json!({"item_id": "1", "status": "done", "validate": "ok"}),
             )
             .expect("patch");
         assert!(!reflection);
@@ -181,6 +181,38 @@ mod apply_tests {
         assert_eq!(patched.len(), 1);
         assert_eq!(patched[0]["id"], "1");
         assert_eq!(patched[0]["status"], "done");
+    }
+
+    #[test]
+    fn patch_preserves_details_progress_validate_when_omitted() {
+        let store = TaskBoardStore::new();
+        let key = "conv-preserve";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": [
+                        {
+                            "id": "1",
+                            "title": "A",
+                            "status": "in_progress",
+                            "details": "detail text",
+                            "progress": "1/3",
+                            "validate": "run unit tests"
+                        }
+                    ]
+                }),
+            )
+            .expect("init");
+        store
+            .apply(key, "patch", &json!({"item_id": "1", "status": "done"}))
+            .expect("patch");
+        let doc = store.document(key);
+        assert_eq!(doc.board[0].details.as_deref(), Some("detail text"));
+        assert_eq!(doc.board[0].progress.as_deref(), Some("1/3"));
+        assert_eq!(doc.board[0].validate.as_deref(), Some("run unit tests"));
     }
 
     #[test]

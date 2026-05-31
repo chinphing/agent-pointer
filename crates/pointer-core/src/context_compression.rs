@@ -299,7 +299,7 @@ Retention rules (highest first):
 3) Shell/test/lint commands with pass/fail — never fabricate results
 4) Errors and tool failures — quote or tightly paraphrase
 5) run_subagent / explore conclusions and open questions
-6) task_board status and verification contracts
+6) task_board status and validate contracts
 
 Drop: repeated tool dumps, large file bodies, small talk, duplicate facts.
 Never summarize tool output as "files were read" without naming paths and conclusions.

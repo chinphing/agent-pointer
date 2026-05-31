@@ -27,6 +27,7 @@ pub(super) async fn run_single_agent_tool_pass(
     stream: StreamTx,
     state: &AppState,
     conversation_id: &str,
+    main_task_board_store_key: &str,
     history: &mut Vec<ChatMessage>,
     allow_agents: &[String],
     enabled_skill_ids: &[String],
@@ -66,7 +67,7 @@ pub(super) async fn run_single_agent_tool_pass(
         Some(consumed_single),
         cancel,
         provider,
-        conversation_id,
+        main_task_board_store_key,
         &mut stats,
         final_tool_calls,
         Some(LeadToolPassConfig {

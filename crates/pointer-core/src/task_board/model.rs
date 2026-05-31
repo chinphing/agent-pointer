@@ -141,9 +141,11 @@ pub struct BoardItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub detailed_plan: Option<String>,
+    pub details: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub verification: Option<String>,
+    pub progress: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validate: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_by: Option<String>,
 }
@@ -220,13 +222,16 @@ impl BoardItem {
             .get("output")
             .and_then(|x| x.as_str())
             .map(str::to_string);
-        let detailed_plan = v
-            .get("detailed_plan")
-            .or_else(|| v.get("detailedPlan"))
+        let details = v
+            .get("details")
             .and_then(|x| x.as_str())
             .map(str::to_string);
-        let verification = v
-            .get("verification")
+        let progress = v
+            .get("progress")
+            .and_then(|x| x.as_str())
+            .map(str::to_string);
+        let validate = v
+            .get("validate")
             .and_then(|x| x.as_str())
             .map(str::to_string);
         let blocked_by = v
@@ -241,8 +246,9 @@ impl BoardItem {
             depends_on,
             retry_count,
             output,
-            detailed_plan,
-            verification,
+            details,
+            progress,
+            validate,
             blocked_by,
         })
     }

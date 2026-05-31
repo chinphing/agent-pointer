@@ -5,8 +5,8 @@ use super::state_machine::dependencies_satisfied;
 
 const DONE_OUTPUT_MAX: usize = 120;
 const READY_HINT_COUNT: usize = 2;
-const DETAILED_PLAN_MAX: usize = 280;
-const DETAILED_PLAN_INJECT_MAX: usize = 2000;
+const DETAILS_MAX: usize = 280;
+const DETAILS_INJECT_MAX: usize = 2000;
 
 pub fn snapshot_for_prompt(store_key: &str, doc: &BoardDocument, compact: bool) -> Option<String> {
     if doc.board_is_empty() && doc.meta.goal.is_empty() {
@@ -74,8 +74,8 @@ pub fn markdown_runtime_block_for_inject(doc: &BoardDocument) -> String {
         lines.push(format!("- id: {}", item.id));
         lines.push(format!("- title: {}", item.title.trim()));
         lines.push(format!("- status: {}", item.status.as_str()));
-        let key_verification = item
-            .verification
+        let key_validate = item
+            .validate
             .as_ref()
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
@@ -86,30 +86,48 @@ pub fn markdown_runtime_block_for_inject(doc: &BoardDocument) -> String {
                     .filter(|s| !s.is_empty())
             })
             .unwrap_or("n/a");
-        lines.push(format!("- key_verification: {key_verification}"));
+        lines.push(format!("- key_validate: {key_validate}"));
     } else {
         lines.push("- id: n/a".to_string());
         lines.push("- title: n/a".to_string());
         lines.push("- status: n/a".to_string());
-        lines.push("- key_verification: n/a".to_string());
+        lines.push("- key_validate: n/a".to_string());
     }
 
     lines.push(String::new());
-    lines.push("## Current task detailed plan".to_string());
-    let detail = current_task_item(doc)
-        .and_then(|item| item.detailed_plan.as_ref())
+    lines.push("## Current task details".to_string());
+    let details = current_task_item(doc)
+        .and_then(|item| item.details.as_ref())
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(|s| {
-            if s.chars().count() > DETAILED_PLAN_INJECT_MAX {
-                let compact: String = s.chars().take(DETAILED_PLAN_INJECT_MAX).collect();
+            if s.chars().count() > DETAILS_INJECT_MAX {
+                let compact: String = s.chars().take(DETAILS_INJECT_MAX).collect();
                 format!("{compact}…")
             } else {
                 s.to_string()
             }
         })
         .unwrap_or_else(|| "n/a".to_string());
-    lines.push(detail);
+    lines.push(details);
+
+    lines.push(String::new());
+    lines.push("## Current task progress".to_string());
+    let progress = current_task_item(doc)
+        .and_then(|item| item.progress.as_ref())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("n/a");
+    lines.push(progress.to_string());
+
+    lines.push(String::new());
+    lines.push("## Current task validate".to_string());
+    let validate = current_task_item(doc)
+        .and_then(|item| item.validate.as_ref())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("n/a");
+    lines.push(validate.to_string());
     lines.join("\n")
 }
 
@@ -188,20 +206,19 @@ fn item_full(item: &BoardItem) -> serde_json::Value {
     if item.retry_count > 0 {
         out.insert("retry_count".into(), item.retry_count.into());
     }
-    if let Some(v) = item.verification.as_ref().filter(|s| !s.trim().is_empty()) {
-        out.insert("verification".into(), v.clone().into());
+    if let Some(v) = item.validate.as_ref().filter(|s| !s.trim().is_empty()) {
+        out.insert("validate".into(), v.clone().into());
+    }
+    if let Some(v) = item.progress.as_ref().filter(|s| !s.trim().is_empty()) {
+        out.insert("progress".into(), v.clone().into());
     }
     if let Some(v) = item.output.as_ref().filter(|s| !s.trim().is_empty()) {
         let compact = v.chars().take(DONE_OUTPUT_MAX).collect::<String>();
         out.insert("output".into(), compact.into());
     }
-    if let Some(v) = item
-        .detailed_plan
-        .as_ref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        let compact = v.chars().take(DETAILED_PLAN_MAX).collect::<String>();
-        out.insert("detailed_plan".into(), compact.into());
+    if let Some(v) = item.details.as_ref().filter(|s| !s.trim().is_empty()) {
+        let compact = v.chars().take(DETAILS_MAX).collect::<String>();
+        out.insert("details".into(), compact.into());
     }
     if let Some(v) = item.blocked_by.as_ref().filter(|s| !s.trim().is_empty()) {
         out.insert("blockedBy".into(), v.clone().into());

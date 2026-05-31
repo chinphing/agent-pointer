@@ -26,6 +26,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
     history: &[ChatMessage],
     agent_plan: &AgentPlan,
     settings: &ModelSettings,
+    main_task_board_store_key: &str,
     assistant_id: &str,
     lead_profile: AgentProfile,
     tools_system_appendix: String,
@@ -44,7 +45,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
         round_assistant_message_id: Some(assistant_id.to_string()),
         round_screen_dump_prefix: None,
         task_board_store: state.task_board_store.clone(),
-        task_board_store_key: conversation_id,
+        task_board_store_key: main_task_board_store_key,
         user_dynamic_inject_enabled: settings.user_dynamic_inject_enabled,
     };
     let t = Instant::now();
@@ -101,7 +102,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
         system_prompts_dynamic: &mut dynamic,
         conversation_id,
         task_board_store: state.task_board_store.clone(),
-        task_board_store_key: conversation_id,
+        task_board_store_key: main_task_board_store_key,
     };
     state
         .extensions
@@ -111,7 +112,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
         crate::extensions::task_board_hook::append_task_board_dynamic_block(
             &mut dynamic,
             state.task_board_store.as_ref(),
-            conversation_id,
+            main_task_board_store_key,
             conversation_id,
             &lead_profile,
         );

@@ -118,6 +118,7 @@ pub(super) async fn run_agent_tool_pass(
         let args_value = inject_host_task_board_conversation_id(
             &tool_id,
             args_value,
+            conversation_id,
             task_board_store_key,
             history,
         );
@@ -316,11 +317,15 @@ pub(super) async fn run_agent_tool_pass(
                 task_board_succeeded = true;
             }
             let doc = state.task_board_store.document(task_board_store_key);
-            let host_cid = args_value
-                .get("_conversation_id")
-                .and_then(|v| v.as_str())
-                .unwrap_or(conversation_id);
-            emit_task_board_updated(&stream, host_cid, task_board_store_key, doc.to_value());
+            let anchor_message_id =
+                state.get_main_task_board_anchor(conversation_id, task_board_store_key);
+            emit_task_board_updated(
+                &stream,
+                conversation_id,
+                task_board_store_key,
+                anchor_message_id,
+                doc.to_value(),
+            );
         }
         any_executed = true;
     }

@@ -106,17 +106,19 @@ pub async fn run_chat(
         supervisor_total,
         max_tr,
     );
+    let main_store_key = state
+        .get_active_main_task_board_key(&conversation_id)
+        .unwrap_or_else(|| conversation_id.clone());
     if result.is_ok()
-        && crate::task_board::maybe_auto_finalize_if_complete(
-            &state.task_board_store,
-            &conversation_id,
-        )
+        && crate::task_board::maybe_auto_finalize_if_complete(&state.task_board_store, &main_store_key)
     {
-        let doc = state.task_board_store.document(&conversation_id);
+        let doc = state.task_board_store.document(&main_store_key);
+        let anchor_message_id = state.get_main_task_board_anchor(&conversation_id, &main_store_key);
         super::emit::emit_task_board_updated(
             &stream,
             &conversation_id,
-            &conversation_id,
+            &main_store_key,
+            anchor_message_id,
             doc.to_value(),
         );
     }

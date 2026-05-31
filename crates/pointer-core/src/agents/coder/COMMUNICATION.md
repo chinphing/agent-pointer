@@ -149,7 +149,7 @@ provider reasoning, or other internal channels the user cannot see.
 **User-visible output (assistant `content`)**. **`task_board`** holds milestones; **`content`** holds what the user reads
 when the run ends or when you are not issuing tools.
 
-**Initialize early:** After **Explore + Impact scan**, before heavy edits, call **`task_board`** with **`method`: `init`** for **any behavior change**. Map **3–6** rows (include Impact scan, Implement, Unit tests). Skip **`init`** only for no-behavior edits (see **AGENT** → **Change ownership**).
+**Initialize by complexity gate:** After **Explore + Impact scan**, initialize when expected scope is **>=2 files** or **cross-module**. For narrow single-file work, skip init by default and escalate only if scope expands. When initialized, map **3–6** rows (Impact scan, Implement, Unit tests).
 
 **Patch every turn that moves progress:** When a milestone **starts** or **finishes**, call **`task_board`** with **`method`: `patch`** in the **same turn**. Treat **`[TASK_BOARD]`** in injected context as the authoritative compact snapshot.
 

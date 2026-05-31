@@ -83,6 +83,9 @@ Use the board for milestones—not a long plan in assistant message text only.
   (do not expand to every atomic case).
   **`patch`** / **`replace`** / **`prune`** / **`finalize`** per the tool doc.
 - If the task is multi-step and **`[TASK_BOARD]`** is empty, initialize in the first round (single-step tasks may skip).
+- **Profile complexity gates override broad defaults** when they exist. For example:
+  coder initializes when expected scope is >=2 files or cross-module;
+  computer initializes when expected operation steps >3.
 - Row **`status`**: `pending`, `ready`, `in_progress`, `done`, `cancelled`, `failed`. Respect **`depends_on`** (host may block until prerequisites are **`done`**).
 - **`[TASK_BOARD]`** in the injected runtime context is the **compact authoritative** snapshot; resume from it after history trim or restart.
 - **`task_board`** with **`method`: `patch`** should update only the current task id from **`[TASK_BOARD]`**.

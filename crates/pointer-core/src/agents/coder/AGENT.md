@@ -131,7 +131,7 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 
    If the map reveals extra files, **update Plan before editing**. See **Change impact scan** below for patterns.
 
-   **Task board:** After Explore + Impact scan, call **`task_board`** with **`method`: `init`** **before** heavy implementation whenever you change **executable logic** (any behavior, API, state, error path, or constant/threshold). Map **3–6** rows (include **Impact scan** and **Unit tests**). Each row needs concrete **`details`**, **`progress`**, and **`validate`** updates (see **Task board and `validate`**). Treat **`[TASK_BOARD]`** as the live plan—**`patch`** when status changes, not only at **Deliver**. Skip **`init`** only for **no-behavior** edits (see **Change ownership**); still **`patch`** if a board already exists.
+   **Task board (complexity gate):** After Explore + Impact scan, initialize only when expected scope is **>=2 files** or **cross-module**. For narrow single-file work, skip init by default and proceed directly. If exploration reveals wider scope than expected, initialize immediately before heavy implementation. When initialized, map **3–6** rows (include **Impact scan** and **Unit tests**) and keep **`details`**, **`progress`**, **`validate`** current (see **Task board and `validate`**). Treat **`[TASK_BOARD]`** as the live plan—**`patch`** when status changes, not only at **Deliver**.
 
    **Plan contents (keep compact):** goal in one line; **Impact map** summary; **ordered** steps; **files/modules** you expect to touch; known **risks** or unknowns. If the user asked for a specific approach, reflect it explicitly.
 
@@ -215,10 +215,10 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 
 Use **`task_board`** as the **visible plan and progress surface** for behavior-changing work. Evidence for **`done`** comes from **commands, tests, and file reads**.
 
-**When to initialize**
+**When to initialize (complexity gate)**
 
-- **Any executable logic change:** **`init`** in **Plan**, after Explore + Impact scan, before heavy edits.
-- **Skip `init` only** for no-behavior edits (comment/format/rename-only per **Change ownership**).
+- Initialize in **Plan** after Explore + Impact scan when expected scope is **>=2 files** or **cross-module**.
+- For narrow single-file work, skip `init` by default; escalate to `init` once scope expands.
 - If **`[TASK_BOARD]`** already has rows, keep **`patch`**ing—do not skip updates.
 
 **Turn cadence**

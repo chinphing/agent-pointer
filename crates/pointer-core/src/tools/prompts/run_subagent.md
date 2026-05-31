@@ -56,7 +56,7 @@ is **Markdown** in the tool result’s **`content`** field — **final assistant
 - **Cross-directory or cross-module scans:** if reconnaissance may span multiple packages/layers or require repeated grep→read narrowing, choose **`explore`** first.
 - **When unsure**, choose **`explore`**; merge its **`content`** Markdown report, then edit here.
 
-**Target workers**
+**Target workers**  
 
 - Use **`agentId`** only for ids that appear in the **delegatable sub-agents** metadata block in your system context. Any other id will fail.
 

@@ -107,6 +107,7 @@ record covered and remaining slices.
 
 Computer profile (with `verify.report`):
 
+- Complexity gate: initialize when expected operation steps >3.
 - First board-init round may skip `verify.report`.
 - After init, run `verify.report` before `task_board patch`.
 
@@ -114,6 +115,7 @@ Engineering profiles:
 
 - Use test/command/file evidence.
 - Update `validate` with final acceptance evidence.
+- Coder complexity gate: initialize when expected scope is >=2 files or cross-module.
 
 ## Items input
 

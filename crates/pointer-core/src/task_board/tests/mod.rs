@@ -11,6 +11,16 @@ mod apply_tests {
     fn string_items_patch_applies() {
         let store = TaskBoardStore::new();
         let key = "conv-test";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": []
+                }),
+            )
+            .expect("init");
         let args = json!({
             "items": "[{\"id\":\"a\",\"title\":\"Step A\",\"status\":\"pending\",\"validate\":\"ok\"}]"
         });
@@ -128,12 +138,13 @@ mod apply_tests {
         store
             .apply(
                 key,
-                "patch",
+                "init",
                 &json!({
+                    "goal": "g",
                     "items": [{"id": "s1", "title": "Step", "status": "in_progress"}]
                 }),
             )
-            .expect("patch");
+            .expect("init");
         let (body, reflection) = store
             .apply(
                 key,
@@ -146,6 +157,30 @@ mod apply_tests {
             .expect("done patch");
         assert!(reflection);
         assert!(body["warnings"].as_array().is_some());
+    }
+
+    #[test]
+    fn patch_without_init_is_noop() {
+        let store = TaskBoardStore::new();
+        let key = "conv-no-init";
+        let (body, reflection) = store
+            .apply(
+                key,
+                "patch",
+                &json!({
+                    "items": [{"id": "s1", "title": "Step", "status": "in_progress"}]
+                }),
+            )
+            .expect("patch noop");
+        assert!(!reflection);
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["method"], "patch");
+        assert_eq!(body["skipped"], true);
+        assert_eq!(body["reason"], "board_not_initialized");
+        assert_eq!(body["patched"].as_array().map(|a| a.len()), Some(0));
+        let doc = store.document(key);
+        assert!(doc.board.is_empty());
+        assert!(doc.meta.goal.is_empty());
     }
 
     #[test]
@@ -277,6 +312,16 @@ mod sqlite_tests {
         let path = dir.path().join("task_boards.db");
         let db = TaskBoardSqlite::open(path).expect("open");
         let store = TaskBoardStore::with_persistence(db.clone());
+        store
+            .apply(
+                "conv-persist",
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": []
+                }),
+            )
+            .expect("init");
         store
             .apply(
                 "conv-persist",

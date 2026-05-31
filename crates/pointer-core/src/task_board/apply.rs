@@ -56,6 +56,20 @@ pub fn apply_method(
             )
         }
         "patch" | "" => {
+            if doc.board_is_empty() {
+                let body = json!({
+                    "ok": true,
+                    "method": "patch",
+                    "board_len": 0,
+                    "patched": [],
+                    "skipped": true,
+                    "reason": "board_not_initialized",
+                });
+                return Ok(ApplyOutcome {
+                    body,
+                    reflection_required: false,
+                });
+            }
             let (refl, warnings, patched) = apply_patch(doc, args)?;
             let mut body = json!({
                 "ok": true,

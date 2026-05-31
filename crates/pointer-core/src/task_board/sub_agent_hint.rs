@@ -19,41 +19,53 @@ Single-step subtasks may skip the board.
 Read **[TASK_BOARD_PARENT]** for the parent goal and milestone; do not patch parent rows.
 ";
 
-const MAIN_SESSION_HINT_BLOCK: &str = "\
-[TASK_BOARD_HINT]
-Your task board is empty.
-If this is multi-step work, initialize early with **`task_board`** and **`method`: `init`**.
-Use 3-6 concise milestones for normal work.
-For exhaustive matrix/combinational goals,
-keep grouped milestones by interaction form
-instead of enumerating every case.
-Single-step work may skip the board.
-For turns that also emit **verify:report**:
+fn main_agent_complexity_gate(profile: &AgentProfile) -> Option<&'static str> {
+    match profile {
+        AgentProfile::Coder => Some(
+            "Complexity gate (coder): initialize task_board only when expected scope is >=2 files or cross-module.
+For single-file / narrow changes, skip init by default.
+Escalate to init if scope expands during exploration.",
+        ),
+        AgentProfile::Computer => Some(
+            "Complexity gate (computer): initialize task_board only when expected operation steps > 3.
+For <=3 deterministic steps, skip init by default.
+Escalate to init if retries or branching make the flow multi-step.",
+        ),
+        _ => None,
+    }
+}
+
+fn main_agent_task_board_hint(profile: &AgentProfile) -> Option<String> {
+    let gate = main_agent_complexity_gate(profile)?;
+    let verify_order = if matches!(profile, AgentProfile::Computer) {
+        "For turns that also emit **verify:report**:
 - first board-init round may omit report;
 - after init, run `verify.report` first, then `task_board` with **`method`: `patch`**.
-Use `details` for execution details and key points.
-Use `validate` only for final acceptance check.
-Keep task board text compact to reduce prompt token cost.
-";
-
-const CODER_MAIN_SESSION_HINT_BLOCK: &str = "\
-[TASK_BOARD_HINT]
+"
+    } else {
+        ""
+    };
+    let coder_rows = if matches!(profile, AgentProfile::Coder) {
+        "Use **3-6** rows when initialized, including **Impact scan**, **Implement**, and **Unit tests**.
+Each row keeps `details`, `progress`, and final `validate`.
+"
+    } else {
+        "Use **3-6** concise milestones for normal multi-step work.
+"
+    };
+    Some(format!(
+        "[TASK_BOARD_HINT]
 Your task board is empty.
-For **any behavior change** (logic, API, state, errors, constants),
-call **`task_board`** with **`method`: `init`** in **Plan**
-(after Explore + Impact scan, before heavy edits).
-Use **3–6** rows — include **Impact scan**, **Implement**, and **Unit tests**.
-Each row needs:
-- `details`: plan + implementation details + key points
-- `progress`: partial progress while executing
-- `validate`: final check evidence only
-**Cadence:** when a milestone starts or finishes, call **`task_board`**
-with **`method`: `patch`** in the **same turn** — do not wait until Deliver only.
-Skip **`init`** only for comment/format/rename-only edits with no behavior change.
-When **all** rows are **`done`** or **`cancelled`**, call **`method`: `finalize`** before delivery.
-Complete **Responsibility audit** (AGENT step 7) before finalize when logic changed.
-Keep row text compact to reduce prompt token cost.
-";
+{gate}
+If gate is met, initialize with **`task_board`** and **`method`: `init`**.
+{coder_rows}For exhaustive matrix/combinational goals, keep grouped milestones by interaction form.
+When milestone status changes, patch in the same turn; do not defer updates to final delivery.
+When all rows are `done` or `cancelled`, call `finalize` before final delivery.
+{verify_order}Use `details` for execution details and key points.
+Use `validate` only for final acceptance evidence.
+Keep task board text compact to reduce prompt token cost."
+    ))
+}
 
 /// System slice appended at sub-agent session start when `task_board` is allowed and the child board is empty.
 pub fn sub_agent_task_board_init_hint(
@@ -87,11 +99,7 @@ pub fn main_agent_task_board_init_hint(
     if !doc.board_is_empty() || !doc.meta.goal.is_empty() {
         return None;
     }
-    let hint = match profile {
-        AgentProfile::Coder => CODER_MAIN_SESSION_HINT_BLOCK,
-        _ => MAIN_SESSION_HINT_BLOCK,
-    };
-    Some(hint.to_string())
+    main_agent_task_board_hint(profile)
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
 import ToolMessageSegment from './ToolMessageSegment.vue'
 import AssistantMessageDebugChrome from './AssistantMessageDebugChrome.vue'
+import ThinkingIndicator from './ThinkingIndicator.vue'
 
 export interface AgentMessageBodyModel {
   thoughts?: string
@@ -187,41 +188,21 @@ function trailingToolsForGroup(group: { toolCalls: ToolCall[]; message: ChatMess
 
 const showThoughtPanels = computed(() => showThoughtsPanel.value)
 
-const CHARS_PER_DOT = 100
-const MAX_THINKING_DOTS = 48
-
 const isRunInProgress = computed(
   () => isStreaming.value || (props.generating && props.isActiveGenerationMessage)
 )
 
-const streamedCharCount = computed(() => {
-  const c = props.body.content?.length ?? 0
-  const raw = props.body.rawContent?.length ?? 0
-  const thoughtsLen = props.body.thoughts?.length ?? 0
-  const toolPreview = props.body.toolNamePreview?.length ?? 0
-  const draftLen = props.body.responseTextDraft?.length ?? 0
-  const reasoningLen = props.body.reasoning?.length ?? 0
-  return Math.max(c, raw, thoughtsLen, toolPreview, draftLen, reasoningLen)
-})
-
-const thinkingDots = computed(() => {
-  const n = streamedCharCount.value
-  const segments = n <= 0 ? 1 : Math.ceil(n / CHARS_PER_DOT)
-  return Math.min(MAX_THINKING_DOTS, segments)
-})
-
-const thinkingLabel = computed(() => `思考中${'.'.repeat(thinkingDots.value)}`)
-
 const showReasoningBlock = computed(() =>
   props.messageUi.showReasoning && !!(props.body.reasoning?.trim())
 )
+
+const reasoningDisplayText = computed(() => props.body.reasoning ?? '')
 
 const showThinkingIndicator = computed(
   () =>
     isRunInProgress.value &&
     !showMdBody.value &&
     !showThoughtPanels.value &&
-    !showStreamingPlaceholderUnderThoughts.value &&
     !showReasoningBlock.value
 )
 
@@ -278,9 +259,9 @@ watch(
 )
 
 watch(
-  () => props.body.reasoning?.trim() ?? '',
-  (h, prev) => {
-    if (h && !prev) reasoningOpen.value = true
+  () => props.body.reasoning?.length ?? 0,
+  (len, prevLen) => {
+    if (len > 0 && (prevLen ?? 0) === 0) reasoningOpen.value = true
   }
 )
 
@@ -317,7 +298,7 @@ onUnmounted(() => clearReasoningCollapseTimer())
           <div
             v-if="reasoningOpen"
             class="mt-2 text-[13px] leading-relaxed text-muted whitespace-pre-wrap break-words border-t border-border/30 pt-2"
-          >{{ body.reasoning?.trim() }}</div>
+          >{{ reasoningDisplayText }}</div>
         </div>
 
         <div v-if="hasMainBody" class="relative w-full break-words overflow-x-auto">
@@ -328,14 +309,7 @@ onUnmounted(() => clearReasoningCollapseTimer())
             :is-streaming="isContentStreaming"
           />
 
-          <div
-            v-if="showThinkingIndicator"
-            class="text-[11px] text-muted px-3 py-1 select-none"
-            role="status"
-            aria-live="polite"
-          >
-            {{ thinkingLabel }}
-          </div>
+          <ThinkingIndicator :active="showThinkingIndicator" />
 
           <div
             v-if="showMdBody"
@@ -344,7 +318,7 @@ onUnmounted(() => clearReasoningCollapseTimer())
             v-html="html"
           />
           <div
-            v-else-if="showStreamingPlaceholderUnderThoughts"
+            v-else-if="showStreamingPlaceholderUnderThoughts && !showThinkingIndicator"
             class="flex items-center text-muted text-sm px-3"
           >
             <span class="typing-dot" />

@@ -39,6 +39,12 @@ import {
 } from '../lib/subAgentSession'
 import { buildCompressionNoticeContent } from '../lib/compressionMessage'
 import { findLastRealUserMessage } from '../lib/messageContext'
+import {
+  clearReasoningDeltaBuffer,
+  enqueueReasoningDelta,
+  flushReasoningDeltaBuffer,
+  setReasoningDeltaApplyHandler
+} from '../lib/reasoningDeltaBatch'
 import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
 import { usePlatformAuthStore } from './platformAuth'
@@ -238,6 +244,27 @@ export const useChatStore = defineStore('chat', () => {
     return null
   }
 
+  function applyReasoningDeltaBatch(
+    messageId: string,
+    traceId: string | undefined,
+    text: string
+  ) {
+    const r = findMessage(messageId)
+    if (!r) return
+    if (traceId?.trim()) {
+      const trace = ensureSubTrace(r.msg, traceId.trim())
+      const session = trace.session!
+      session.reasoning = (session.reasoning || '') + text
+      session.contentStreaming = true
+    } else {
+      r.msg.reasoning = (r.msg.reasoning || '') + text
+      r.msg.status = 'streaming'
+      r.msg.contentStreaming = true
+    }
+  }
+
+  setReasoningDeltaApplyHandler(applyReasoningDeltaBatch)
+
   function clearDesktopNoticeSchedule(messageId: string) {
     const t = desktopNoticeHideTimers.get(messageId)
     if (t != null) {
@@ -421,6 +448,7 @@ export const useChatStore = defineStore('chat', () => {
   function handleEventInner(e: StreamEvent) {
     switch (e.kind) {
       case 'history_replaced': {
+        clearReasoningDeltaBuffer()
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (!conv) return
         conv.messages = e.messages
@@ -513,18 +541,7 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'reasoning_delta': {
-        const r = findMessage(e.messageId)
-        if (!r) break
-        if (e.traceId?.trim()) {
-          const trace = ensureSubTrace(r.msg, e.traceId.trim())
-          const session = trace.session!
-          session.reasoning = (session.reasoning || '') + e.text
-          session.contentStreaming = true
-        } else {
-          r.msg.reasoning = (r.msg.reasoning || '') + e.text
-          r.msg.status = 'streaming'
-          r.msg.contentStreaming = true
-        }
+        enqueueReasoningDelta(e.messageId, e.text, e.traceId)
         break
       }
       case 'assistant_json_partial': {
@@ -720,6 +737,7 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'message_end': {
+        flushReasoningDeltaBuffer(e.messageId)
         const r = findMessage(e.messageId)
         if (r) {
           if (e.traceId?.trim()) {
@@ -825,6 +843,7 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'error': {
+        flushReasoningDeltaBuffer(e.messageId ?? undefined)
         const cancelled = isGenerationCancelledMessage(e.message)
         if (e.messageId) {
           const r = findMessage(e.messageId)
@@ -864,6 +883,7 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'done': {
+        flushReasoningDeltaBuffer()
         clearRunState(e.conversationId)
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (conv) {
@@ -961,6 +981,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!current.value) return
     const conv = current.value
     const msgId = runStateFor(conv.id).activeMessageId
+    flushReasoningDeltaBuffer(msgId ?? undefined)
     await cancelChat(conv.id).catch(e => console.error(e))
     clearRunState(conv.id)
     if (msgId) {

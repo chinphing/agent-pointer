@@ -75,10 +75,6 @@ const bodyModel = computed((): AgentMessageBodyModel => {
   }
 })
 
-const showStartupPlaceholder = computed(
-  () => isRunning.value && !subTraceHasVisibleActivity(props.trace)
-)
-
 const subFrameActive = computed(
   () => props.generating && props.isActiveGenerationMessage && isRunning.value
 )
@@ -171,25 +167,14 @@ function toggleExpanded() {
         </button>
       </div>
 
-      <div
-        v-if="showStartupPlaceholder"
-        class="flex items-center gap-2 text-sm text-muted px-1 py-2"
-      >
-        <span class="typing-dot" />
-        <span class="typing-dot" style="animation-delay: 0.2s" />
-        <span class="typing-dot" style="animation-delay: 0.4s" />
-        <span class="text-[13px]">子 Agent 启动中…</span>
-      </div>
-
       <AgentMessageBody
-        v-else
         :body="bodyModel"
         :message-ui="messageUi"
         hide-response
         hide-copy
         :thoughts-debug-enabled="thoughtsDebugEnabled"
         :generating="generating"
-        :is-active-generation-message="subFrameActive || isActiveGenerationMessage"
+        :is-active-generation-message="subFrameActive"
       />
 
       <div

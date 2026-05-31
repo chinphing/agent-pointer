@@ -1,16 +1,15 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { marked } from 'marked'
-import { Copy, Check } from 'lucide-vue-next'
-import type { MessageStatus, ToolCall } from '../../../../types/chat'
-import ToolCallCard from '../../ToolCallCard.vue'
+import type { MessageStatus, ToolCall, ChatMessage } from '../../../../types/chat'
 import { useMarkdownCodeCopy } from '../../../../composables/useMarkdownCodeCopy'
 import { useMarkdownExternalLinks } from '../../../../composables/useMarkdownExternalLinks'
 import { visibleToolCalls, isResponseAssistantMessage, toolCallBaseName } from '../../../../lib/messageTooling'
 import type { ResolvedAgentUi } from '../../../../lib/agentUi'
 import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
-import MessageTimeChip from '../MessageTimeChip.vue'
+import MessageFooterActions from '../MessageFooterActions.vue'
+import ToolMessageSegment from './ToolMessageSegment.vue'
 
 export interface AgentMessageBodyModel {
   thoughts?: string
@@ -28,16 +27,18 @@ export interface AgentMessageBodyModel {
 
 const props = defineProps<{
   body: AgentMessageBodyModel
+  leadMessage?: ChatMessage
   messageUi: ResolvedAgentUi
   hideResponse?: boolean
   hideCopy?: boolean
   thoughtsDebugEnabled?: boolean
   generating: boolean
   isActiveGenerationMessage: boolean
+  toolOnly?: boolean
+  trailingToolGroups?: { id: string; toolCalls: ToolCall[]; message: ChatMessage }[]
 }>()
 
 const bodyRef = ref<HTMLElement | null>(null)
-const copied = ref(false)
 
 marked.setOptions({ breaks: true, gfm: true })
 
@@ -119,13 +120,70 @@ const tools = computed(() =>
     : []
 )
 
+const leadSegmentMessage = computed((): ChatMessage => {
+  if (props.leadMessage) return props.leadMessage
+  return {
+    id: `body-${props.body.createdAt}`,
+    role: 'assistant',
+    content: props.body.content ?? '',
+    toolCalls: props.body.toolCalls,
+    createdAt: props.body.createdAt,
+    status: props.body.status,
+    reasoning: props.body.reasoning,
+    rawContent: props.body.rawContent,
+    toolNamePreview: props.body.toolNamePreview,
+    responseTextDraft: props.body.responseTextDraft
+  } as ChatMessage
+})
+
+const toolSegments = computed(() => {
+  const segments: {
+    message: ChatMessage
+    toolCalls: ToolCall[]
+    compactTop: boolean
+    copyText?: string
+  }[] = []
+
+  if (tools.value.length > 0) {
+    segments.push({
+      message: leadSegmentMessage.value,
+      toolCalls: tools.value,
+      compactTop: !hasMainBody.value,
+      copyText: hasMainBody.value ? copyText.value : undefined
+    })
+  }
+
+  for (const group of props.trailingToolGroups ?? []) {
+    segments.push({
+      message: group.message,
+      toolCalls: trailingToolsForGroup(group),
+      compactTop: segments.length > 0 || hasMainBody.value
+    })
+  }
+
+  return segments
+})
+
+const hasTools = computed(() => toolSegments.value.length > 0)
+
+function trailingToolsForGroup(group: { toolCalls: ToolCall[]; message: ChatMessage }): ToolCall[] {
+  return props.messageUi.showToolCalls
+    ? visibleToolCalls(
+      group.toolCalls,
+      props.messageUi.hideToolNames,
+      props.messageUi.showSidecarToolCalls === true,
+      props.messageUi.showNonSidecarToolCalls !== false
+    )
+    : []
+}
+
 const showThoughtPanels = computed(() => showThoughtsPanel.value)
 
 const showReasoningBlock = computed(() =>
   props.messageUi.showReasoning && !!(props.body.reasoning?.trim())
 )
 
-const hasBubbleBody = computed(
+const hasMainBody = computed(
   () =>
     showMdBody.value ||
     showStreamingPlaceholderUnderThoughts.value ||
@@ -143,7 +201,14 @@ const showCopyButton = computed(() => {
   })
 })
 
-const showCopyInBubble = computed(() => showCopyButton.value && showMdBody.value)
+const showTextFooter = computed(
+  () => !isStreaming.value && hasMainBody.value && tools.value.length === 0
+)
+
+const copyText = computed(() => {
+  const fromMd = markdownSource.value.trim()
+  return fromMd || props.body.content?.trim() || ''
+})
 
 // reasoning collapsible state
 const reasoningOpen = ref(true)
@@ -187,56 +252,35 @@ function toggleReasoning() {
   reasoningOpen.value = !reasoningOpen.value
 }
 
-function copyBody() {
-  const fromMd = markdownSource.value.trim()
-  const text = fromMd || props.body.content?.trim() || ''
-  void navigator.clipboard.writeText(text).then(() => {
-    copied.value = true
-    setTimeout(() => {
-      copied.value = false
-    }, 2000)
-  })
-}
-
 onUnmounted(() => clearReasoningCollapseTimer())
 </script>
 
 <template>
-  <div class="w-full max-w-full space-y-2">
+  <div class="w-full max-w-full" :class="toolOnly ? 'space-y-0' : 'space-y-2'">
     <!-- 推理过程 -->
     <div
       v-if="showReasoningBlock"
-      class="w-full rounded-2xl border border-border/60 border-l-2 border-l-accent/40 px-4 py-2.5 bg-muted/10 overflow-hidden"
+      class="w-full rounded-2xl border border-border/50 border-l-2 border-l-accent/40 px-3 py-2.5 bg-muted/10 overflow-hidden"
     >
-      <div class="flex items-center gap-2 min-w-0">
-        <button
-          type="button"
-          class="min-w-0 flex-1 text-left flex items-center gap-1.5 cursor-pointer select-none hover:bg-hover transition rounded-md -mx-0.5 px-0.5 sm:-mx-1 sm:px-1"
-          :aria-expanded="reasoningOpen"
-          @click="toggleReasoning"
-        >
-          <span class="shrink-0 text-[11px] text-muted font-medium">推理过程</span>
-          <span
-            class="inline-block w-3 shrink-0 text-muted text-center text-[10px] transition-transform pt-0.5"
-            :class="reasoningOpen ? 'rotate-90' : ''"
-          >▸</span>
-        </button>
-        <MessageTimeChip :created-at="body.createdAt" class="shrink-0 self-center" />
-      </div>
+      <button
+        type="button"
+        class="w-full min-w-0 text-left flex items-center gap-1.5 cursor-pointer select-none hover:bg-hover transition rounded-md -mx-0.5 px-0.5"
+        :aria-expanded="reasoningOpen"
+        @click="toggleReasoning"
+      >
+        <span class="shrink-0 text-[11px] text-muted font-medium">推理过程</span>
+        <span
+          class="inline-block w-3 shrink-0 text-muted text-center text-[10px] transition-transform pt-0.5"
+          :class="reasoningOpen ? 'rotate-90' : ''"
+        >▸</span>
+      </button>
       <div
         v-if="reasoningOpen"
         class="mt-2 text-[13px] leading-relaxed text-muted whitespace-pre-wrap break-words border-t border-border/30 pt-2"
       >{{ body.reasoning?.trim() }}</div>
     </div>
 
-    <div v-if="hasBubbleBody" class="relative block px-4 py-3 rounded-2xl border break-words panel overflow-x-auto">
-      <div
-        v-if="!showReasoningBlock"
-        class="flex justify-end mb-2 -mt-0.5"
-      >
-        <MessageTimeChip :created-at="body.createdAt" />
-      </div>
-
+    <div v-if="hasMainBody" class="chat-hover-root relative w-full break-words overflow-x-auto">
       <ModelThoughtPanels
         v-if="showThoughtPanels"
         :xml-thoughts="body.thoughts"
@@ -247,42 +291,40 @@ onUnmounted(() => clearReasoningCollapseTimer())
       <div
         v-if="showMdBody"
         ref="bodyRef"
-        class="md-body"
-        :class="showCopyInBubble ? 'pb-6' : ''"
+        class="md-body md-body-flow px-3"
         v-html="html"
       />
       <div
         v-else-if="showStreamingPlaceholderUnderThoughts"
-        class="flex items-center text-slate-400 text-sm"
+        class="flex items-center text-muted text-sm px-3"
       >
         <span class="typing-dot" />
         <span class="typing-dot" style="animation-delay: 0.2s" />
         <span class="typing-dot" style="animation-delay: 0.4s" />
       </div>
 
-      <div v-if="body.status === 'error'" class="mt-2 flex items-center gap-2 text-xs text-danger">
+      <div v-if="body.status === 'error'" class="mt-2 flex items-center gap-2 text-xs text-danger px-3">
         {{ body.errorMessage || '生成失败' }}
       </div>
 
-      <button
-        v-if="showCopyInBubble"
-        type="button"
-        class="message-bubble-copy-btn absolute bottom-1.5 left-1.5 z-10"
-        :class="copied ? 'text-success' : 'text-muted hover:text-foreground'"
-        :title="copied ? '已复制' : '复制'"
-        @click="copyBody"
-      >
-        <Check v-if="copied" class="w-3 h-3" />
-        <Copy v-else class="w-3 h-3" />
-      </button>
+      <MessageFooterActions
+        v-if="showTextFooter"
+        class="px-3 !mt-0"
+        :created-at="body.createdAt"
+        :copy-text="copyText"
+        :show-copy="showCopyButton"
+      />
     </div>
 
-    <div v-if="tools.length" class="space-y-2 w-full">
-      <ToolCallCard
-        v-for="tc in tools"
-        :key="tc.id"
-        :tool-call="tc"
-        :show-tool-call-results="messageUi.showToolCallResults"
+    <div v-if="hasTools" class="tool-segments">
+      <ToolMessageSegment
+        v-for="segment in toolSegments"
+        :key="segment.message.id"
+        :message="segment.message"
+        :tool-calls="segment.toolCalls"
+        :message-ui="messageUi"
+        :compact-top="segment.compactTop"
+        :copy-text="segment.copyText"
       />
     </div>
   </div>

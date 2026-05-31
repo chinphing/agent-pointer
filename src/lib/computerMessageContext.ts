@@ -18,6 +18,23 @@ export function messageFromComputerAgent(message: ChatMessage): boolean {
   return message.agentTrace?.some(t => t.id === 'computer') ?? false
 }
 
+const COMPUTER_TOOL_BASES = new Set([
+  'mouse',
+  'keyboard',
+  'hotkey',
+  'clipboard',
+  'screenshot',
+  'scroll',
+  'type'
+])
+
+export function messageHasComputerTools(message: ChatMessage): boolean {
+  return (message.toolCalls ?? []).some(tc => {
+    const base = tc.name.includes(':') ? tc.name.slice(0, tc.name.indexOf(':')) : tc.name
+    return COMPUTER_TOOL_BASES.has(base)
+  })
+}
+
 export function showAnnotatedScreenAction(
   message: ChatMessage,
   settings: ComputerUiSettings

@@ -2,11 +2,18 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ArrowDown } from 'lucide-vue-next'
 import MessageRow from './message/MessageRow.vue'
+import ToolMessageSegment from './message/assistant/ToolMessageSegment.vue'
 import TaskBoardPanel from './TaskBoardPanel.vue'
 import { useChatStore } from '../../stores/chat'
-import type { ChatMessage, TaskBoardDocument } from '../../types/chat'
+import { useSettingsStore } from '../../stores/settings'
+import { uiForMessageAgent, useAgentsCatalog } from '../../composables/useAgentUi'
+import { visibleToolCalls } from '../../lib/messageTooling'
+import type { ChatMessage, TaskBoardDocument, ToolCall } from '../../types/chat'
+import { assistantDisplayKind, isToolOnlyAssistantMessage } from '../../lib/assistantMessageKind'
 
 const chat = useChatStore()
+const settings = useSettingsStore()
+const agentsCatalog = useAgentsCatalog()
 const scroller = ref<HTMLDivElement | null>(null)
 const showScrollButton = ref(false)
 
@@ -28,38 +35,84 @@ function onScroll() {
 
 onMounted(toBottom)
 
-// 只有当用户已经在底部附近时，新消息才自动滚动到底部
 watch(() => chat.current?.messages.length, () => {
-  if (isNearBottom()) {
-    toBottom()
-  }
+  if (isNearBottom()) toBottom()
 })
 watch(
   () => chat.current?.messages.map(m => m.content + (m.toolCalls?.length || 0)).join('|'),
   () => {
-    if (isNearBottom()) {
-      toBottom()
-    }
+    if (isNearBottom()) toBottom()
   }
 )
 
+type ToolRunGroup = { id: string; toolCalls: ToolCall[]; message: ChatMessage }
+
 type FlatEntry =
-  | { type: 'message'; message: ChatMessage }
+  | { type: 'message'; message: ChatMessage; trailingToolGroups?: ToolRunGroup[] }
+  | { type: 'tool_run'; groups: ToolRunGroup[] }
   | { type: 'task_board'; anchorMessageId: string; storeKey: string; document: TaskBoardDocument; isActive: boolean }
+
+function canAttachTrailingTools(message: ChatMessage): boolean {
+  return (
+    message.role === 'assistant'
+    && !isToolOnlyAssistantMessage(message)
+    && assistantDisplayKind(message) === 'model'
+  )
+}
+
+function assistantMessageHadTools(entry: FlatEntry): boolean {
+  if (entry.type !== 'message' || entry.message.role !== 'assistant') return false
+  return (entry.message.toolCalls?.length ?? 0) > 0 || (entry.trailingToolGroups?.length ?? 0) > 0
+}
 
 function isTaskBoardTerminal(status: string | undefined): boolean {
   const s = (status ?? '').trim()
   return s === 'completed' || s === 'failed'
 }
 
+function visibleToolsForMessage(message: ChatMessage, toolCalls: ToolCall[]): ToolCall[] {
+  const ui = uiForMessageAgent(message.agentId, message.agentName, settings.settings, agentsCatalog.value)
+  if (!ui.showToolCalls) return []
+  return visibleToolCalls(
+    toolCalls,
+    ui.hideToolNames,
+    ui.showSidecarToolCalls === true,
+    ui.showNonSidecarToolCalls !== false
+  )
+}
+
 const flatMessages = computed<FlatEntry[]>(() => {
   const msgs = chat.current?.messages ?? []
   const entries: FlatEntry[] = []
   const convId = chat.currentId
+  let toolGroups: ToolRunGroup[] = []
+
+  function flushToolRun() {
+    if (toolGroups.length === 0) return
+    const last = entries[entries.length - 1]
+    if (last?.type === 'message' && canAttachTrailingTools(last.message)) {
+      last.trailingToolGroups = [...(last.trailingToolGroups ?? []), ...toolGroups]
+    } else {
+      entries.push({ type: 'tool_run', groups: [...toolGroups] })
+    }
+    toolGroups = []
+  }
+
   for (const message of msgs) {
-    entries.push({ type: 'message', message })
+    if (isToolOnlyAssistantMessage(message)) {
+      toolGroups.push({
+        id: message.id,
+        toolCalls: message.toolCalls ?? [],
+        message
+      })
+    } else {
+      flushToolRun()
+      entries.push({ type: 'message', message })
+    }
+
     const boards = chat.parentBoardsBoundToMessage(convId, message.id)
     for (const board of boards) {
+      flushToolRun()
       entries.push({
         type: 'task_board',
         anchorMessageId: message.id,
@@ -69,22 +122,79 @@ const flatMessages = computed<FlatEntry[]>(() => {
       })
     }
   }
+  flushToolRun()
   return entries
 })
+
+function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): string {
+  if (index === 0) return ''
+
+  const prev = entries[index - 1]
+  const prevIsUser = prev.type === 'message' && prev.message.role === 'user'
+  const prevIsAssistantText =
+    prev.type === 'message'
+    && prev.message.role === 'assistant'
+    && !isToolOnlyAssistantMessage(prev.message)
+  const prevIsToolRun = prev.type === 'tool_run'
+
+  if (entry.type === 'tool_run') {
+    if (prevIsAssistantText || prevIsUser) return 'mt-1.5'
+    if (prevIsToolRun) return 'mt-0'
+    return 'mt-1.5'
+  }
+
+  if (entry.type === 'message') {
+    if (entry.message.role === 'user') return 'mt-7'
+    if (prevIsToolRun) return 'mt-4'
+    if (prevIsUser) return 'mt-7'
+    if (prev.type === 'message' && prev.message.role === 'assistant') {
+      return assistantMessageHadTools(prev) ? 'mt-4' : 'mt-7'
+    }
+    return 'mt-7'
+  }
+
+  return 'mt-4'
+}
 </script>
 
 <template>
-  <div ref="scroller" class="h-full overflow-y-auto px-6 md:px-10 pb-6" @scroll="onScroll">
-    <div class="max-w-3xl mx-auto pt-6 space-y-5">
-      <template v-for="entry in flatMessages" :key="entry.type === 'message' ? entry.message.id : `task-board-${entry.storeKey}`">
-        <MessageRow
+  <div ref="scroller" class="chat-scroll-area h-full overflow-y-auto chat-shell pb-6" @scroll="onScroll">
+    <div class="chat-column pt-6 pb-10">
+      <template
+        v-for="(entry, index) in flatMessages"
+        :key="entry.type === 'message'
+          ? entry.message.id
+          : entry.type === 'tool_run'
+            ? `tool-run-${entry.groups.map(g => g.id).join('-')}`
+            : `task-board-${entry.storeKey}`"
+      >
+        <div
           v-if="entry.type === 'message'"
-          :message="entry.message"
-        />
+          :class="entrySpacing(entry, index, flatMessages)"
+        >
+          <MessageRow
+            :message="entry.message"
+            :trailing-tool-groups="entry.trailingToolGroups"
+          />
+        </div>
+        <div
+          v-else-if="entry.type === 'tool_run'"
+          class="tool-segments chat-column"
+          :class="entrySpacing(entry, index, flatMessages)"
+        >
+          <ToolMessageSegment
+            v-for="(group, gi) in entry.groups"
+            :key="group.id"
+            :message="group.message"
+            :tool-calls="visibleToolsForMessage(group.message, group.toolCalls)"
+            :message-ui="uiForMessageAgent(group.message.agentId, group.message.agentName, settings.settings, agentsCatalog)"
+            :compact-top="gi > 0"
+          />
+        </div>
         <div
           v-else
-          class="task-board-sticky -mt-2 mb-1 flex justify-end pr-11 py-1"
-          :class="isTaskBoardTerminal(entry.document.meta?.status) ? '' : 'sticky top-0 z-20 bg-background/95 backdrop-blur-sm'"
+          class="task-board-sticky mb-1 flex justify-end py-1"
+          :class="[entrySpacing(entry, index, flatMessages), isTaskBoardTerminal(entry.document.meta?.status) ? '' : 'sticky top-0 z-20 bg-background/95 backdrop-blur-sm']"
         >
           <TaskBoardPanel
             :document="entry.document"
@@ -105,3 +215,4 @@ const flatMessages = computed<FlatEntry[]>(() => {
     </button>
   </div>
 </template>
+

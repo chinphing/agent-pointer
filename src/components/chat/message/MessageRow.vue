@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ChatMessage } from '../../../types/chat'
+import type { ChatMessage, ToolCall } from '../../../types/chat'
 import { isCompressionSummaryMessage } from '../../../lib/compressionMessage'
 import { isTaskBoardTrimMessage } from '../../../lib/taskBoardTrimMessage'
 import UserMessageBubble from './UserMessageBubble.vue'
@@ -8,7 +8,11 @@ import TaskBoardTrimBubble from './TaskBoardTrimBubble.vue'
 import AssistantMessage from './AssistantMessage.vue'
 import { isDiscardableEmptyAssistant } from '../../../lib/assistantMessageKind'
 
-defineProps<{ message: ChatMessage }>()
+defineProps<{
+  message: ChatMessage
+  compact?: boolean
+  trailingToolGroups?: { id: string; toolCalls: ToolCall[]; message: ChatMessage }[]
+}>()
 </script>
 
 <template>
@@ -18,6 +22,8 @@ defineProps<{ message: ChatMessage }>()
   <AssistantMessage
     v-else-if="message.role === 'assistant' && !isDiscardableEmptyAssistant(message)"
     :message="message"
+    :compact="compact"
+    :trailing-tool-groups="trailingToolGroups"
   />
   <template v-else-if="message.role === 'tool'" />
   <!-- Cancelled before first token: message may linger briefly; do not show debug fallback. -->

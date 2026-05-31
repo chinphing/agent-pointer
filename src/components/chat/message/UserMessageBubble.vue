@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { marked } from 'marked'
-import { User, Copy, Check } from 'lucide-vue-next'
+import { User } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
 import { isContextExcluded } from '../../../lib/messageContext'
 import ContextExcludedFooter from './ContextExcludedFooter.vue'
+import MessageFooterActions from './MessageFooterActions.vue'
 import { useMarkdownCodeCopy } from '../../../composables/useMarkdownCodeCopy'
 import { useMarkdownExternalLinks } from '../../../composables/useMarkdownExternalLinks'
 
 const props = defineProps<{ message: ChatMessage }>()
 
 const bodyRef = ref<HTMLElement | null>(null)
-const copied = ref(false)
 
 marked.setOptions({ breaks: true, gfm: true })
 
@@ -21,48 +21,35 @@ const html = computed(() =>
 
 useMarkdownCodeCopy(bodyRef, () => props.message.content)
 useMarkdownExternalLinks(bodyRef, () => props.message.content)
-
-function copy() {
-  void navigator.clipboard.writeText(props.message.content).then(() => {
-    copied.value = true
-    setTimeout(() => {
-      copied.value = false
-    }, 2000)
-  })
-}
 </script>
 
 <template>
-  <div class="flex gap-3 flex-row-reverse">
+  <div class="chat-hover-root relative chat-column flex justify-end">
     <div
-      class="w-8 h-8 rounded-lg shrink-0 flex items-center justify-center bg-gradient-to-br from-slate-600 to-slate-700"
+      class="message-avatar-slot absolute left-full ml-2 top-0 w-8 h-8 rounded-lg shrink-0 flex items-center justify-center bg-gradient-to-br from-slate-600 to-slate-700"
     >
       <User class="w-4 h-4 text-white" />
     </div>
 
-    <div class="flex-1 min-w-0 flex flex-col items-end">
+    <div class="max-w-[85%] min-w-0 flex flex-col items-end">
       <div
-        class="relative block overflow-hidden px-4 py-3 rounded-2xl border break-words w-fit max-w-[80%] bg-primary/15 border-primary/25 text-slate-100"
+        class="relative w-full rounded-2xl px-3 py-2.5 panel-elevated break-words text-foreground"
         :class="isContextExcluded(message) ? 'opacity-80' : ''"
       >
         <div
           v-if="message.content"
           ref="bodyRef"
-          class="md-body pb-6"
+          class="md-body md-body-flow"
           v-html="html"
         />
-        <button
-          v-if="message.content"
-          type="button"
-          class="message-bubble-copy-btn absolute bottom-1.5 right-1.5 z-10"
-          :class="copied ? 'text-green-400' : 'text-slate-400 hover:text-slate-200'"
-          :title="copied ? '已复制' : '复制'"
-          @click="copy"
-        >
-          <Check v-if="copied" class="w-3 h-3" />
-          <Copy v-else class="w-3 h-3" />
-        </button>
         <ContextExcludedFooter :message="message" />
+        <MessageFooterActions
+          v-if="message.content"
+          class="message-footer-actions--inset"
+          :created-at="message.createdAt"
+          :copy-text="message.content"
+          :show-copy="true"
+        />
       </div>
     </div>
   </div>

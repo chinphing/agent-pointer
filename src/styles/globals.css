@@ -226,6 +226,90 @@
   .message-bubble-copy-btn {
     @apply p-1 rounded-md hover:bg-hover cursor-pointer transition-colors;
   }
+  .chat-shell {
+    @apply px-6 md:px-10;
+  }
+  .chat-column {
+    @apply max-w-3xl mx-auto w-full;
+  }
+  .chat-scroll-area {
+    scroll-padding-bottom: 2.5rem;
+  }
+  .message-footer-actions {
+    @apply flex items-center gap-2 overflow-hidden transition-all duration-150;
+    opacity: 0;
+    max-height: 0;
+    margin-top: 0;
+  }
+  .message-footer-actions--inset {
+    @apply absolute bottom-1.5 right-2 z-10 max-h-none overflow-visible;
+  }
+  .chat-hover-root:hover .message-footer-actions,
+  .message-footer-actions:focus-within {
+    opacity: 1;
+  }
+  .chat-hover-root:hover .message-footer-actions:not(.message-footer-actions--inset),
+  .message-footer-actions:focus-within:not(.message-footer-actions--inset) {
+    max-height: 2rem;
+    @apply mt-1;
+  }
+  .tool-message-segment:hover .message-footer-actions,
+  .tool-message-segment .message-footer-actions:focus-within {
+    opacity: 1;
+    max-height: 2rem;
+    @apply mt-0.5;
+  }
+  .chat-hover-root:hover .tool-message-segment:not(:hover) .message-footer-actions {
+    opacity: 0;
+    max-height: 0;
+    margin-top: 0;
+  }
+  .chat-hover-root:hover .chat-hover-root:not(:hover) .message-footer-actions {
+    opacity: 0;
+    max-height: 0;
+    margin-top: 0;
+  }
+  .tool-call-trigger:hover .tool-call-chevron {
+    display: inline-flex;
+  }
+  .tool-block-shell {
+    @apply pt-2 mt-4 mb-0 pb-0;
+  }
+  .tool-block-shell-compact {
+    @apply pt-0 mt-0 mb-0 pb-0;
+  }
+  .tool-segments {
+    @apply space-y-0;
+  }
+  .tool-message-segment + .tool-message-segment {
+    @apply mt-0.5;
+  }
+  @media (hover: none) {
+    .message-footer-actions {
+      opacity: 1;
+    }
+    .message-footer-actions:not(.message-footer-actions--inset) {
+      max-height: 2rem;
+      @apply mt-1;
+    }
+    .tool-message-segment .message-footer-actions:not(.message-footer-actions--inset) {
+      @apply mt-0.5;
+    }
+    .tool-call-chevron {
+      display: inline-flex;
+    }
+  }
+  .message-avatar-slot {
+    @apply opacity-0 transition-opacity duration-150 pointer-events-none;
+  }
+  .chat-hover-root:hover .message-avatar-slot {
+    @apply opacity-100 pointer-events-auto;
+  }
+  @media (hover: none) {
+    .message-avatar-slot {
+      @apply opacity-100 pointer-events-auto;
+    }
+  }
 }
 
 /* Markdown */
@@ -233,7 +317,7 @@
   @apply text-[15px] leading-7 break-words;
   color: hsl(var(--foreground));
 }
-.md-body p { @apply my-2; }
+.md-body p { @apply my-3; }
 .md-body h1, .md-body h2, .md-body h3 { @apply font-semibold mt-4 mb-2; }
 .md-body code:not(pre code) {
   @apply px-1.5 py-0.5 rounded text-[13px];
@@ -250,8 +334,12 @@
   color: hsl(var(--muted));
 }
 .md-body pre:hover .code-copy-btn { @apply opacity-100; }
-.md-body ul { @apply list-disc pl-6 my-2; }
-.md-body ol { @apply list-decimal pl-6 my-2; }
+.md-body ul { @apply list-disc pl-6 my-3; }
+.md-body ol { @apply list-decimal pl-6 my-3; }
+.md-body li + li { @apply mt-1; }
+.md-body-flow > :last-child {
+  margin-bottom: 0 !important;
+}
 .md-body a { color: hsl(var(--accent)); @apply underline underline-offset-2 cursor-pointer; }
 .md-body table { @apply my-3 border-collapse overflow-x-auto block max-w-full; }
 .md-body th, .md-body td { @apply border border-border px-3 py-1.5; }

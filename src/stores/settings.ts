@@ -330,8 +330,6 @@ export const useSettingsStore = defineStore('settings', () => {
     if (patch.theme !== undefined) {
       applyTheme(patch.theme)
       settings.value.theme = patch.theme
-      patch = { ...patch }
-      delete patch.theme
     }
     if (Object.keys(patch).length === 0) return
     const merged: ModelSettings = { ...settings.value, ...patch }

@@ -335,8 +335,8 @@ onUnmounted(() => {
     @pick="onWorkspaceRequiredPick"
   />
 
-  <div class="px-6 md:px-10 pb-5">
-    <div class="max-w-3xl mx-auto">
+  <div class="chat-shell shrink-0 bg-background pt-2 pb-5">
+    <div class="chat-column">
       <div v-if="showLoginBanner" class="mb-2 flex w-fit max-w-full flex-col gap-1.5">
         <div
           class="inline-flex max-w-full flex-wrap items-center gap-3 rounded-xl border border-accent/20 bg-accent-muted/40 px-3.5 py-2.5"

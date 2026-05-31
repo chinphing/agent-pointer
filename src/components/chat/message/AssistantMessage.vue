@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Bot } from 'lucide-vue-next'
-import type { ChatMessage } from '../../../types/chat'
-import { assistantDisplayKind } from '../../../lib/assistantMessageKind'
+import type { ChatMessage, ToolCall } from '../../../types/chat'
+import { assistantDisplayKind, isToolOnlyAssistantMessage } from '../../../lib/assistantMessageKind'
 import { iconForAgentAvatar } from '../../../lib/agentIcons'
 import { uiForMessageAgent, useAgentsCatalog } from '../../../composables/useAgentUi'
 import { useSettingsStore } from '../../../stores/settings'
@@ -10,7 +10,11 @@ import AssistantModelMessage from './assistant/AssistantModelMessage.vue'
 import AssistantNoticeMessage from './assistant/AssistantNoticeMessage.vue'
 import AssistantErrorMessage from './assistant/AssistantErrorMessage.vue'
 
-const props = defineProps<{ message: ChatMessage }>()
+const props = defineProps<{
+  message: ChatMessage
+  compact?: boolean
+  trailingToolGroups?: { id: string; toolCalls: ToolCall[]; message: ChatMessage }[]
+}>()
 
 const settings = useSettingsStore()
 const agents = useAgentsCatalog()
@@ -20,21 +24,24 @@ const messageUi = computed(() =>
 )
 
 const avatarIcon = computed(() => iconForAgentAvatar(messageUi.value.avatar))
-
-const hasVisibleBodyText = computed(() => !!(props.message.content?.trim() || props.message.reasoning?.trim()))
-const hasToolCards = computed(() => (props.message.toolCalls?.length ?? 0) > 0)
-const isToolOnlyAssistantRow = computed(() => hasToolCards.value && !hasVisibleBodyText.value)
+const toolOnly = computed(() => isToolOnlyAssistantMessage(props.message))
+const hideAvatar = computed(() => toolOnly.value || props.compact === true)
 </script>
 
 <template>
-  <div class="flex gap-3 flex-row" :class="kind === 'injected_notice' ? 'gap-2' : ''">
+  <div
+    class="chat-hover-root relative chat-column"
+    :class="toolOnly ? 'tool-only-message' : ''"
+  >
     <div
-      class="rounded-lg shrink-0 flex items-center justify-center border border-border"
+      v-if="!hideAvatar"
+      class="message-avatar-slot absolute right-full mr-2 top-0 rounded-lg shrink-0 flex items-center justify-center border border-border"
       :class="
         kind === 'injected_notice'
           ? 'w-6 h-6 bg-hover'
           : 'w-8 h-8 bg-accent/15'
       "
+      :title="messageUi.composerLabel"
     >
       <component
         :is="kind === 'injected_notice' ? Bot : avatarIcon"
@@ -42,15 +49,15 @@ const isToolOnlyAssistantRow = computed(() => hasToolCards.value && !hasVisibleB
       />
     </div>
 
-    <div
-      class="min-w-0 flex flex-col w-full"
-      :class="kind === 'injected_notice' ? '' : 'flex-1'"
-    >
+    <div class="w-full min-w-0">
       <AssistantNoticeMessage v-if="kind === 'injected_notice'" :message="message" />
-      <div v-else-if="kind === 'error'" class="w-full min-w-0">
-        <AssistantErrorMessage :message="message" />
-      </div>
-      <AssistantModelMessage v-else class="w-full min-w-0" :message="message" />
+      <AssistantErrorMessage v-else-if="kind === 'error'" :message="message" />
+      <AssistantModelMessage
+        v-else
+        :message="message"
+        :tool-only="toolOnly"
+        :trailing-tool-groups="trailingToolGroups"
+      />
     </div>
   </div>
 </template>

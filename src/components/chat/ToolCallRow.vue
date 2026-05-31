@@ -1,10 +1,20 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { marked } from 'marked'
-import { Wrench, ChevronDown, ChevronRight, CheckCircle2, XCircle, Loader2, ShieldAlert, Check, X } from 'lucide-vue-next'
+import {
+  Wrench,
+  ChevronDown,
+  ChevronRight,
+  XCircle,
+  Loader2,
+  ShieldAlert,
+  Check,
+  X
+} from 'lucide-vue-next'
 import type { ToolCall, WebSearchSourceEntry } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
 import { taskBoardToolSummary, taskBoardPatchSummaryFromArgs } from '../../lib/messageTooling'
+import { truncateToolSummary } from '../../lib/toolCallDisplay'
 import { openExternalUrl } from '../../lib/openExternalUrl'
 import { useMarkdownExternalLinks } from '../../composables/useMarkdownExternalLinks'
 
@@ -19,11 +29,22 @@ const open = ref(false)
 let autoCollapseTimer: ReturnType<typeof setTimeout> | null = null
 
 watch(
-  () => props.toolCall,
-  () => {
-    if (autoCollapseTimer) clearTimeout(autoCollapseTimer)
-    open.value = true
-    autoCollapseTimer = setTimeout(() => { open.value = false }, 2000)
+  () => props.toolCall.status,
+  (status, prev) => {
+    if (status === 'running' || status === 'pending' || status === 'pending_approval') {
+      if (autoCollapseTimer) clearTimeout(autoCollapseTimer)
+      open.value = true
+      return
+    }
+    const wasActive = prev === 'running' || prev === 'pending' || prev === 'pending_approval'
+    if (wasActive || status === 'success' || status === 'failed' || status === 'rejected') {
+      if (autoCollapseTimer) clearTimeout(autoCollapseTimer)
+      open.value = true
+      autoCollapseTimer = setTimeout(() => {
+        open.value = false
+        autoCollapseTimer = null
+      }, 2000)
+    }
   },
   { immediate: true }
 )
@@ -35,12 +56,25 @@ const boardSummary = computed(() => taskBoardToolSummary(props.toolCall.result))
 const displayLabel = computed(() => props.toolCall.displayLabel?.trim() || props.toolCall.name)
 const displaySummary = computed(() => {
   const s = props.toolCall.displaySummary?.trim()
-  if (s) return s
+  if (s) return truncateToolSummary(s)
   const fromArgs = taskBoardPatchSummaryFromArgs(props.toolCall.arguments)
-  if (fromArgs) return fromArgs
-  if (showResults.value) return boardSummary.value ?? ''
+  if (fromArgs) return truncateToolSummary(fromArgs)
+  if (showResults.value) {
+    const board = boardSummary.value ?? ''
+    return board ? truncateToolSummary(board) : ''
+  }
   return ''
 })
+
+const showStatusLabel = computed(
+  () =>
+    effectiveStatus.value === 'running'
+    || effectiveStatus.value === 'pending_approval'
+    || effectiveStatus.value === 'failed'
+    || effectiveStatus.value === 'rejected'
+)
+
+const showSuccessQuiet = computed(() => effectiveStatus.value === 'success')
 const showResults = computed(() => props.showToolCallResults === true)
 
 const terminalCommand = computed(() => {
@@ -173,7 +207,6 @@ const terminalMeta = computed(() => {
   return items.join(' · ')
 })
 
-/** Legacy rows: status success but result JSON indicates timeout or non-zero exit. */
 const effectiveStatus = computed(() => {
   if (!isTerminal.value || props.toolCall.status !== 'success') return props.toolCall.status
   const r = terminalResult.value
@@ -206,31 +239,46 @@ function abortTerminalOnly() {
 function openSourceUrl(url: string) {
   void openExternalUrl(url)
 }
+
+onUnmounted(() => {
+  if (autoCollapseTimer) clearTimeout(autoCollapseTimer)
+})
 </script>
 
 <template>
-  <div class="rounded-xl border border-border panel overflow-hidden">
+  <div class="tool-call-row">
     <button
-      class="w-full px-3 py-2 flex items-center gap-2 text-xs hover:bg-hover transition cursor-pointer"
+      type="button"
+      class="tool-call-trigger w-full py-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 text-[11px] text-muted hover:text-foreground/75 transition-colors cursor-pointer text-left"
       @click="open = !open"
     >
-      <component :is="open ? ChevronDown : ChevronRight" class="w-3.5 h-3.5 text-slate-400" />
-      <Wrench class="w-3.5 h-3.5 text-accent" />
-      <span class="font-medium text-foreground truncate">{{ displayLabel }}</span>
-      <span v-if="displaySummary" class="text-[10px] text-muted truncate">· {{ displaySummary }}</span>
-      <span v-if="toolCall.riskLevel === 'high'" class="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-danger/20 text-danger flex items-center gap-1">
-        <ShieldAlert class="w-3 h-3" />高风险
+      <Wrench class="w-3 h-3 text-muted/70 shrink-0" />
+      <span>{{ displayLabel }}</span>
+      <span v-if="displaySummary">· {{ displaySummary }}</span>
+      <span
+        v-if="toolCall.riskLevel === 'high'"
+        class="shrink-0 text-[10px] text-danger inline-flex items-center gap-0.5"
+      >
+        <ShieldAlert class="w-2.5 h-2.5" />高风险
       </span>
-      <span class="ml-auto flex items-center gap-1.5" :class="statusInfo.color">
-        <Loader2 v-if="effectiveStatus === 'running'" class="w-3 h-3 animate-spin" />
-        <CheckCircle2 v-else-if="effectiveStatus === 'success'" class="w-3 h-3" />
-        <XCircle v-else-if="effectiveStatus === 'failed' || effectiveStatus === 'rejected'" class="w-3 h-3" />
-        <span class="text-[11px]">{{ statusInfo.label }}</span>
-        <span v-if="toolCall.durationMs" class="text-slate-500 text-[10px]">{{ toolCall.durationMs }}ms</span>
+      <span
+        v-if="showStatusLabel"
+        class="shrink-0 inline-flex items-center gap-0.5"
+        :class="statusInfo.color"
+      >
+        <Loader2 v-if="effectiveStatus === 'running'" class="w-2.5 h-2.5 animate-spin" />
+        <XCircle v-else-if="effectiveStatus === 'failed' || effectiveStatus === 'rejected'" class="w-2.5 h-2.5" />
+        <span>{{ statusInfo.label }}</span>
       </span>
+      <span v-else-if="showSuccessQuiet" class="shrink-0 text-muted/45">{{ statusInfo.label }}</span>
+      <span v-if="toolCall.durationMs" class="shrink-0 text-[10px] text-muted/45 tabular-nums">{{ toolCall.durationMs }}ms</span>
+      <component
+        :is="open ? ChevronDown : ChevronRight"
+        class="tool-call-chevron w-3 h-3 shrink-0 ml-[2ch] text-muted hidden"
+      />
     </button>
 
-    <div v-if="open" class="px-3 pb-3 space-y-2">
+    <div v-if="open" class="pb-2 space-y-2">
       <template v-if="isTerminal">
         <div>
           <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500 mb-1">
@@ -300,7 +348,6 @@ function openSourceUrl(url: string) {
           <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">参数</div>
           <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200">{{ prettyArgs || '—' }}</pre>
         </div>
-
         <div v-if="showResults && toolCall.result">
           <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">结果</div>
           <pre class="text-[12px] bg-black/40 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-slate-200 max-h-48">{{ toolCall.result }}</pre>

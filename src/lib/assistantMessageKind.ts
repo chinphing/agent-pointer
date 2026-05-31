@@ -61,3 +61,22 @@ export function isDiscardableEmptyAssistant(message: ChatMessage): boolean {
 
   return !hasText && !hasStructured
 }
+
+/** Assistant row that only shows tool calls (no user-visible reply body). */
+export function isToolOnlyAssistantMessage(message: ChatMessage): boolean {
+  if (message.role !== 'assistant') return false
+  if (isDiscardableEmptyAssistant(message)) return false
+  if (assistantDisplayKind(message) !== 'model') return false
+  if ((message.toolCalls?.length ?? 0) === 0) return false
+
+  const hasVisibleText =
+    !!(message.content?.trim()) ||
+    !!(message.thoughts?.trim()) ||
+    !!(message.responseTextDraft?.trim())
+
+  const hasOtherStructure =
+    (message.agentTrace?.length ?? 0) > 0 ||
+    (message.supervisorPlanTasks?.length ?? 0) > 0
+
+  return !hasVisibleText && !hasOtherStructure
+}

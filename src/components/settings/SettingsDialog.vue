@@ -388,6 +388,7 @@ function onDialogBackdropClick() {
 async function saveFromFooter() {
   saving.value = true
   try {
+    await s.saveUser({ theme: s.settings.theme })
     if (activeSection.value === 'provider') {
       if (providerPanelRef.value?.hasUnsavedEdits() && !providerPanelRef.value.flushEditingProviderToStore()) {
         return
@@ -409,7 +410,8 @@ async function saveFromFooter() {
         contextBudgetChars: Number(contextBudgetChars.value),
         contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
         contextSummaryMaxTokens: Number(contextSummaryMaxTokens.value),
-        maxToolRounds: Number(maxToolRounds.value)
+        maxToolRounds: Number(maxToolRounds.value),
+        theme: s.settings.theme
       })
     } else {
       if (providerPanelRef.value?.hasUnsavedEdits() && !providerPanelRef.value.flushEditingProviderToStore()) {
@@ -430,7 +432,8 @@ async function saveFromFooter() {
           ...(s.settings.agentUiOverrides ?? {}),
           [activeUiAgentId.value]: { ...agentUiLocal.value }
         },
-        computerTierLlm: { ...s.platformSettings.computerTierLlm }
+        computerTierLlm: { ...s.platformSettings.computerTierLlm },
+        theme: s.settings.theme
       })
     }
     emit('close')

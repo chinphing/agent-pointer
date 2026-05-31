@@ -11,9 +11,11 @@ use std::collections::HashMap;
 pub const CONFIG_KEY_AUTO_UPGRADE: &str = "computerAutoUpgrade";
 pub const CONFIG_KEY_INITIAL_TIER: &str = "computerInitialTier";
 pub const CONFIG_KEY_MODEL_PRIMARY: &str = "computerModelPrimary";
+pub const CONFIG_KEY_MODEL_INTERMEDIATE: &str = "computerModelIntermediate";
 pub const CONFIG_KEY_MODEL_ADVANCED: &str = "computerModelAdvanced";
 
-pub const DEFAULT_MODEL_PRIMARY: &str = "qwen3.5-plus";
+pub const DEFAULT_MODEL_PRIMARY: &str = "qwen3.5-flash";
+pub const DEFAULT_MODEL_INTERMEDIATE: &str = "qwen3.5-plus";
 pub const DEFAULT_MODEL_ADVANCED: &str = "qwen3.6-plus";
 /// Qwen `thinking_budget` for Primary / Intermediate (`qwen3.5-plus`).
 pub const PRIMARY_INTERMEDIATE_THINKING_BUDGET: u32 = 2048;
@@ -87,6 +89,7 @@ pub struct ComputerTierConfig {
     pub auto_upgrade: bool,
     pub initial_tier: ComputerTier,
     pub model_primary: String,
+    pub model_intermediate: String,
     pub model_advanced: String,
     pub tier_llm: HashMap<String, ComputerTierLlmConfig>,
 }
@@ -95,8 +98,9 @@ impl Default for ComputerTierConfig {
     fn default() -> Self {
         Self {
             auto_upgrade: true,
-            initial_tier: ComputerTier::Primary,
+            initial_tier: ComputerTier::Intermediate,
             model_primary: DEFAULT_MODEL_PRIMARY.into(),
+            model_intermediate: DEFAULT_MODEL_INTERMEDIATE.into(),
             model_advanced: DEFAULT_MODEL_ADVANCED.into(),
             tier_llm: HashMap::new(),
         }
@@ -119,6 +123,9 @@ impl ComputerTierConfig {
                 }
                 CONFIG_KEY_MODEL_PRIMARY if !v.trim().is_empty() => {
                     cfg.model_primary = v.trim().to_string();
+                }
+                CONFIG_KEY_MODEL_INTERMEDIATE if !v.trim().is_empty() => {
+                    cfg.model_intermediate = v.trim().to_string();
                 }
                 CONFIG_KEY_MODEL_ADVANCED if !v.trim().is_empty() => {
                     cfg.model_advanced = v.trim().to_string();
@@ -149,6 +156,11 @@ impl ComputerTierConfig {
         if let Some(p) = m.get("primary") {
             if !p.model.trim().is_empty() {
                 self.model_primary = p.model.clone();
+            }
+        }
+        if let Some(i) = m.get("intermediate") {
+            if !i.model.trim().is_empty() {
+                self.model_intermediate = i.model.clone();
             }
         }
         if let Some(a) = m.get("advanced") {
@@ -318,7 +330,7 @@ impl ComputerTierRuntime {
                 self.task_error_streak = 0;
                 self.goal_fail_fingerprint = None;
                 self.goal_fail_streak = 0;
-                self.current_tier = ComputerTier::Primary;
+                self.current_tier = config.initial_tier;
                 log::info!(
                     "computer tier: goal verify pass — reset to {:?}",
                     self.current_tier
@@ -772,8 +784,13 @@ impl ComputerRoundLlmOverrides {
             };
         }
         match tier {
-            ComputerTier::Primary | ComputerTier::Intermediate => Self {
+            ComputerTier::Primary => Self {
                 model: config.model_primary.clone(),
+                enable_thinking: true,
+                thinking_budget: Some(PRIMARY_INTERMEDIATE_THINKING_BUDGET),
+            },
+            ComputerTier::Intermediate => Self {
+                model: config.model_intermediate.clone(),
                 enable_thinking: true,
                 thinking_budget: Some(PRIMARY_INTERMEDIATE_THINKING_BUDGET),
             },
@@ -864,7 +881,7 @@ mod tests {
     fn tier_bumps_after_four_fails_when_auto_upgrade() {
         let config = ComputerTierConfig {
             auto_upgrade: true,
-            initial_tier: ComputerTier::Primary,
+            initial_tier: ComputerTier::Intermediate,
             ..ComputerTierConfig::default()
         };
         let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
@@ -1064,7 +1081,7 @@ mod tests {
     #[test]
     fn apply_app_settings_overrides_initial_tier() {
         let mut cfg = ComputerTierConfig::default();
-        assert_eq!(cfg.initial_tier, ComputerTier::Primary);
+        assert_eq!(cfg.initial_tier, ComputerTier::Intermediate);
         let settings = crate::models::ModelSettings {
             computer_initial_tier: "advanced".into(),
             ..crate::models::ModelSettings::default()

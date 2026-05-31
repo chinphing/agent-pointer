@@ -144,7 +144,7 @@ struct StoredSettings {
     agent_default_models: HashMap<String, serde_json::Value>,
     #[serde(default, rename = "agentTaskBoardHistoryTrim")]
     agent_task_board_history_trim: HashMap<String, bool>,
-    #[serde(default, rename = "computerHumanLike")]
+    #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     computer_human_like: bool,
     #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
     computer_initial_tier: String,
@@ -196,7 +196,11 @@ fn default_theme() -> String {
 }
 
 fn default_computer_initial_tier() -> String {
-    "primary".into()
+    "intermediate".into()
+}
+
+fn default_computer_human_like() -> bool {
+    true
 }
 
 fn default_debug_dump_llm_prompts() -> bool {

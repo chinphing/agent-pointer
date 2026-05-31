@@ -666,7 +666,7 @@ pub struct ModelSettings {
     #[serde(default, rename = "agentTaskBoardHistoryTrim")]
     pub agent_task_board_history_trim: HashMap<String, bool>,
     /// When true, computer agent uses Bézier / jitter mouse paths by default (`human_like` preset).
-    #[serde(default, rename = "computerHumanLike")]
+    #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     pub computer_human_like: bool,
     /// Starting vision tier for new computer conversations (`primary` | `intermediate` | `advanced`).
     #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
@@ -788,7 +788,11 @@ fn default_lead_agent_id() -> String {
 }
 
 fn default_computer_initial_tier() -> String {
-    build_cfg_str!("COMPUTER_INITIAL_TIER", "primary")
+    build_cfg_str!("COMPUTER_INITIAL_TIER", "intermediate")
+}
+
+fn default_computer_human_like() -> bool {
+    true
 }
 
 pub fn ensure_agent_model_refs_have_provider(settings: &mut ModelSettings) {
@@ -937,7 +941,7 @@ impl Default for ModelSettings {
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: HashMap::new(),
             agent_task_board_history_trim: HashMap::new(),
-            computer_human_like: false,
+            computer_human_like: true,
             computer_initial_tier: default_computer_initial_tier(),
             computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(),
             dati_api_url: default_dati_api_url(),
@@ -1055,7 +1059,7 @@ pub struct PlatformSettings {
     pub agent_default_models: HashMap<String, AgentModelRef>,
     #[serde(default, rename = "agentTaskBoardHistoryTrim")]
     pub agent_task_board_history_trim: HashMap<String, bool>,
-    #[serde(default, rename = "computerHumanLike")]
+    #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     pub computer_human_like: bool,
     #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
     pub computer_initial_tier: String,
@@ -1112,7 +1116,7 @@ pub struct PersistedLocalPlatformSettings {
         rename = "userDynamicInjectEnabled"
     )]
     pub user_dynamic_inject_enabled: bool,
-    #[serde(default, rename = "computerHumanLike")]
+    #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     pub computer_human_like: bool,
     #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
     pub computer_initial_tier: String,
@@ -1368,7 +1372,7 @@ impl Default for PlatformSettings {
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: default_platform_agent_models(),
             agent_task_board_history_trim: HashMap::new(),
-            computer_human_like: false,
+            computer_human_like: true,
             computer_initial_tier: default_computer_initial_tier(),
             computer_annotated_screen_view_enabled: default_computer_annotated_screen_view_enabled(),
             dati_api_url: default_dati_api_url(),

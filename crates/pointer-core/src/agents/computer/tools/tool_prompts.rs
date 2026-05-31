@@ -11,7 +11,7 @@ pub enum ComputerPositioningMode {
 pub fn positioning_mode_for_tier(tier: ComputerTier) -> Option<ComputerPositioningMode> {
     match tier {
         ComputerTier::Primary => None,
-        ComputerTier::Intermediate => Some(ComputerPositioningMode::Index),
+        ComputerTier::Intermediate => None,
         ComputerTier::Advanced => Some(ComputerPositioningMode::Coordinate),
     }
 }

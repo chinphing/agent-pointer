@@ -44,11 +44,7 @@ const COMPUTER_COMMUNICATION_ADVANCED: &str =
     include_str!("computer/prompts/tiers/advanced/communication.md");
 const COMPUTER_COMMUNICATION_PRIMARY: &str =
     include_str!("computer/prompts/tiers/primary/communication.md");
-const COMPUTER_COMMUNICATION_INTERMEDIATE: &str =
-    include_str!("computer/prompts/tiers/intermediate/communication.md");
 const COMPUTER_AGENT_PRIMARY: &str = include_str!("computer/prompts/tiers/primary/loop.md");
-const COMPUTER_AGENT_INTERMEDIATE: &str =
-    include_str!("computer/prompts/tiers/intermediate/loop.md");
 const COMPUTER_AGENT_ADVANCED: &str = include_str!("computer/prompts/tiers/advanced/loop.md");
 const COMPUTER_OS_PROMPT_MACOS: &str = include_str!("computer/prompts/os/macos.md");
 const COMPUTER_OS_PROMPT_WINDOWS: &str = include_str!("computer/prompts/os/windows.md");
@@ -120,7 +116,7 @@ pub fn computer_communication_for_tier(tier: computer::tier::ComputerTier) -> St
             push_trimmed(&mut parts, COMPUTER_COMMUNICATION_PRIMARY);
         }
         computer::tier::ComputerTier::Intermediate => {
-            push_trimmed(&mut parts, COMPUTER_COMMUNICATION_INTERMEDIATE);
+            push_trimmed(&mut parts, COMPUTER_COMMUNICATION_PRIMARY);
         }
         computer::tier::ComputerTier::Advanced => {
             push_trimmed(&mut parts, COMPUTER_VISION_SLOTS);
@@ -135,7 +131,7 @@ pub fn computer_communication_for_tier(tier: computer::tier::ComputerTier) -> St
 pub fn computer_agent_body_for_tier(tier: computer::tier::ComputerTier) -> String {
     match tier {
         computer::tier::ComputerTier::Primary => COMPUTER_AGENT_PRIMARY.trim().to_string(),
-        computer::tier::ComputerTier::Intermediate => COMPUTER_AGENT_INTERMEDIATE.trim().to_string(),
+        computer::tier::ComputerTier::Intermediate => COMPUTER_AGENT_PRIMARY.trim().to_string(),
         computer::tier::ComputerTier::Advanced => COMPUTER_AGENT_ADVANCED.trim().to_string(),
     }
 }

@@ -407,7 +407,7 @@ impl ComputerState {
         let tier = session.lock().unwrap().tier_runtime.current_tier;
         let work = VisionOverlayWork::for_tier(tier);
 
-        let inject_before_action = if matches!(tier, ComputerTier::Primary | ComputerTier::Advanced) {
+        let inject_before_action = if matches!(tier, ComputerTier::Primary | ComputerTier::Intermediate | ComputerTier::Advanced) {
             let s = session.lock().unwrap();
             match (
                 s.last_turn_raw_jpeg_unmarked.as_deref(),
@@ -484,7 +484,7 @@ impl ComputerState {
             let mut session = session.lock().unwrap();
             session.current_turn_raw_jpeg_unmarked = Some(screen_capture.to_vec());
             session.current_turn_capture_px = Some(capture_px);
-            if matches!(tier, ComputerTier::Primary | ComputerTier::Advanced) {
+            if matches!(tier, ComputerTier::Primary | ComputerTier::Intermediate | ComputerTier::Advanced) {
                 session.last_turn_raw_jpeg_unmarked = Some(screen_capture.to_vec());
                 session.last_turn_monitor = Some(monitor);
             } else {

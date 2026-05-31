@@ -10,7 +10,7 @@ use crate::agents::computer::screen;
 use crate::agents::computer::screen_overlay::{
     BEFORE_POINTER_ZOOM_CROP_SIDE, BEFORE_POINTER_ZOOM_FACTOR, BEFORE_POINTER_ZOOM_RADIUS_PX,
     SLOT_SCREEN_AFTER_ACTION, SLOT_SCREEN_ANNOTATED, SLOT_SCREEN_BEFORE_ACTION,
-    SLOT_SCREEN_MARKED_AFTER_ACTION, SLOT_SCREEN_ZOOMED_BOTTOM, SLOT_SCREEN_ZOOMED_POINTER,
+    SLOT_SCREEN_ZOOMED_BOTTOM, SLOT_SCREEN_ZOOMED_POINTER,
     SLOT_SCREEN_ZOOMED_POINTER_BEFORE, SLOT_SCREEN_ZOOMED_TOP,
 };
 use crate::agents::computer::tier::ComputerTier;
@@ -60,11 +60,15 @@ fn slot_labels_for_tier(tier: ComputerTier, has_previous_raw: bool) -> Vec<&'sta
             labels.push(SLOT_SCREEN_ANNOTATED);
             labels
         }
-        ComputerTier::Intermediate => vec![
-            SLOT_SCREEN_AFTER_ACTION,
-            SLOT_SCREEN_MARKED_AFTER_ACTION,
-            SLOT_SCREEN_ANNOTATED,
-        ],
+        ComputerTier::Intermediate => {
+            let mut labels = Vec::with_capacity(3);
+            if has_previous_raw {
+                labels.push(SLOT_SCREEN_BEFORE_ACTION);
+            }
+            labels.push(SLOT_SCREEN_AFTER_ACTION);
+            labels.push(SLOT_SCREEN_ANNOTATED);
+            labels
+        }
         ComputerTier::Advanced => {
             let mut labels = Vec::with_capacity(7);
             if has_previous_raw {
@@ -91,9 +95,10 @@ fn build_cur_screen_preamble(tier: ComputerTier, has_previous_raw: bool) -> Stri
              **Next:** judge **N–target relation** (inner-center-wrap / inner-edge-wrap / unwrapped), then choose index or coordinate route.\n"
         ),
         ComputerTier::Intermediate => format!(
-            "{CUR_SCREEN_TAG} Three labeled images follow (unmarked full screen, marked full screen, annotated overlay). {cite} \
-             Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 nearest the pointer). \
-             Run Verify → Repetition → Next internally; report via `verify:report`.\n"
+            "{CUR_SCREEN_TAG} Primary uses two or three labeled images this turn: optional {SLOT_SCREEN_BEFORE_ACTION}, then {SLOT_SCREEN_AFTER_ACTION}, then {SLOT_SCREEN_ANNOTATED}. {cite} \
+             Text below includes **Pointer position** and **Nearby overlay reference bboxes** (10 nearest the pointer; session 0–1000 rects). \
+             **Verify:** compare before/after first; if first capture, before is n/a. \
+             **Next:** judge **N–target relation** (inner-center-wrap / inner-edge-wrap / unwrapped), then choose index or coordinate route.\n"
         ),
         ComputerTier::Advanced => {
             let zoom_before = if has_previous_raw {
@@ -127,11 +132,13 @@ fn assemble_cur_screen_base64(tier: ComputerTier, cap: &ScreenCaptureResult) -> 
             out
         }
         ComputerTier::Intermediate => {
-            vec![
-                screen::encode_image_to_base64(&cap.raw_unmarked_jpeg),
-                screen::encode_image_to_base64(&cap.raw_marked_jpeg),
-                screen::encode_image_to_base64(&cap.annotated_marked_jpeg),
-            ]
+            let mut out = Vec::with_capacity(3);
+            if let Some(before) = &cap.inject_before_action {
+                out.push(screen::encode_image_to_base64(&before.screen_jpeg));
+            }
+            out.push(screen::encode_image_to_base64(&cap.raw_marked_jpeg));
+            out.push(screen::encode_image_to_base64(&cap.annotated_marked_jpeg));
+            out
         }
         ComputerTier::Advanced => assemble_cur_screen_base64_advanced(cap),
     }

@@ -72,23 +72,45 @@ name alone.
 **Negative searches** matter for reachability: grep the **symbol** (not only the module path) for call sites; record
 **0 hits** outside expected scopes as Evidence rows.
 
+## Exploration closure
+
+Before claiming exploration or impact scan is complete, close three loops for every anchor:
+
+1. **Identity fan-out** — List every searchable name for the same concept: implementation **symbol**, **wire string**
+   (quoted key, route path, env name), naming **aliases** (camelCase ↔ snake_case, serde rename, IPC field), and any
+   registration name that differs from the consumer name. **Grep each identity repo-wide** (whole workdir unless the
+   task narrows scope). Record hits or explicit **0 hits** per identity in **Evidence**.
+2. **Registration chain** — For each artifact: **define** → **register/wire** → **default/init** → **read/use** →
+   **display/persist/serialize**. Do not stop at the defining crate or language.
+3. **Boundary pass (Surfaces)** — For each layer the repo may use (server/runtime, RPC/IPC, client/UI, declarative
+   config, docs/prompts): verify affected, list readers, or **skip with reason**. Apply on **every** impact-scan row—not
+   only config keys.
+
+The **Change impact scan** table below gives row-specific fan-out hints; these three loops apply to **all** rows.
+
 ## Change impact scan (read-only)
 
 When the parent prepares an **implementation**, **refactor**, or **behavior change** (or asks for an **Impact map**),
 extend exploration beyond “where is the code” to **what else moves if they edit here**. Apply **every row** that fits;
-skip a row only with a one-line reason in **`## Coverage`**.
+skip a row only with a one-line reason in **`## Coverage`**. Each row also requires **Exploration closure** above
+(identity fan-out, registration chain, boundary pass).
 
 | If the anchor is… | You must… |
 |-------------------|-----------|
-| Function, method, type, field, constant | Grep symbol **and** string literals; list **all** non-test hits (read key sites) |
-| Config, env key, feature flag, route, API | Grep key/path; find registration, defaults, and readers |
-| Persistent or session state | Trace create → update → clear; note session/turn/cancel boundaries you can read |
-| Error message, exit, early return | Trace who handles or displays it; can flow continue on next turn? |
-| Threshold, enum, policy text | Grep same value/string in **tests** and **prompts/docs** nearby |
-| Public or cross-package export | Grep importers outside the immediate file |
+| Function, method, type, field, constant | **Identity fan-out** — grep **symbol and wire literals/aliases** globally; read **all** non-test hits; **Surfaces** pass |
+| Config, env key, feature flag, route, API shape | **Grep the wire string globally** (whole repo, not only the defining package). Use the **literal key or path as registered/consumed** (quoted string, URL, env name)—not only the **implementation symbol**. Trace **registration chain**; read **defaults** at definition **and** at each consumer layer; list **all readers in every language**. **Surfaces:** confirm cross-layer defaults match or document intentional drift |
+| Persistent or session state | Trace create → update → clear; note session/turn/cancel boundaries you can read; **Surfaces** pass |
+| Error message, exit, early return | Trace who handles or displays it; can flow continue on next turn?; **Surfaces** pass |
+| Threshold, enum, policy text | Grep same value/string in **tests** and **prompts/docs** nearby; **Surfaces** pass |
+| Public or cross-package export | Grep importers outside the immediate file; **Surfaces** pass |
 
 Record findings in **`## Impact map`** (structured bullets). Flag **symmetry gaps** (set/lock/enable without matching
 clear/reset site you found). Do **not** edit code to fix gaps—list them under **`## Gaps for parent`**.
+
+**Anti-patterns:** stopping at the first matching file; grepping only the **symbol** and not the **wire string**;
+grepping only one naming convention (camelCase vs snake_case); stopping at definition-layer readers when the same key
+has consumer-layer readers; treating **Surfaces** as optional for non-config changes; assuming single-layer scope
+because a cross-layer grep returned **0 hits** without recording that negative search as Evidence.
 
 ## Trace limits and graph hygiene
 
@@ -120,11 +142,27 @@ clear/reset site you found). Do **not** edit code to fix gaps—list them under 
 - Do **not** paste **secrets** (tokens, private keys, passwords, long session cookies) in full. If you must cite them,
   use **`REDACTED`** plus **path + line range** only.
 
+## Handoff output (assistant `content`)
+
+The parent agent receives your report **only** from assistant message **`content`** — the **`run_subagent`** tool
+result field **`content`**. Provider **reasoning / thinking** is internal; it **does not** count as the handoff.
+
+**Mid-run tool turns:** **`content` may be empty** — issue native **`tool_calls`** only (`file:grep`, `file:read`, …).
+
+**Final handoff:** When exploration is complete, write the full Markdown digest in **`content`** (see **Markdown
+deliverable** below)—**not only in reasoning**.
+
+**Do not** finish with reasoning-only output. Scratch notes and optional **`task_board`** milestones during work are
+fine—they are **not** a substitute for the final Markdown digest in **`content`**.
+
+**Ending the sub-task:** If this turn has **no** **`tool_calls`**, **`content` must be non-empty** (the complete digest).
+
 ## Markdown deliverable
 
 **Format contract:** your handoff to the parent is **Markdown only** — headings, lists, and short code spans as in the
-sections below. When exploration is complete and no further tools are needed, write the full Markdown digest as **final
-assistant content** (not a tool call).
+sections below. When exploration is complete and no further tools are needed, write the full Markdown digest as final
+**assistant `content`** (not a tool call). See **Handoff output (assistant `content`)** — reasoning never substitutes
+for this turn.
 
 Include at least:
 
@@ -132,12 +170,15 @@ Include at least:
 - **`## Key files`** — bullet list of paths that matter most.
 - **`## Impact map`** — required when the task is prep for a **behavior change** or the parent asked for impact
   reconnaissance. Subsections (omit empty; say “none found” only after grep):
-  - **References** — definitions and grep hits for symbols/literals in scope.
-  - **Readers** — callers, importers, handlers, UI/config bindings, tests.
+  - **References** — definitions and grep hits for symbols/literals in scope (include **identity fan-out** list).
+  - **Registration chain** — define → register/wire → default/init → read/use → display/persist (per anchor).
+  - **Readers** — callers, importers, handlers, UI/config bindings, tests (all languages/layers).
   - **Lifecycle** — create/update/clear boundaries; next session or user turn if readable from code.
   - **Symmetry** — set/lock/enable vs clear/unlock/disable; mark **gap** when only one side found.
   - **Test & drift** — test files/modules; same strings in prompts or docs near the change area.
-  - **Surfaces** — other layers, packages, app vs web, main vs sub-agent paths; or **deferred** with reason.
+  - **Surfaces** — other layers, packages, client vs server, orchestrator vs worker paths; or **deferred** with reason.
+    For wire-string keys: cite all-layer readers (or prove single-layer with global grep + negative evidence); confirm
+    defaults align across layers.
 - **`## Gaps for parent`** — items you **cannot** verify read-only (missing reset site, test command to run, sibling
   file likely to edit). Empty section allowed when none.
 - **`## Evidence`** — each non-trivial claim uses the **micro-format** below. Include **negative searches** here as
@@ -155,9 +196,9 @@ The lead reads it from the **`run_subagent`** tool result field **`content`**.
 
 ### Host transport (how Markdown reaches the lead)
 
-- Mid-run turns: **native tool calls** only (`file:grep`, `file:read`, …).
-- Final turn: **assistant Markdown content** only (no tools on that turn).
-- The lead receives the same bytes in **`run_subagent` → `content`**.
+- Mid-run turns: **native tool calls** only (`file:grep`, `file:read`, …); **`content` may be empty**.
+- Final turn: **assistant Markdown `content` only** (no tools on that turn); **`content` must be non-empty**.
+- The lead receives the same bytes in **`run_subagent` → `content`** — not from provider reasoning.
 
 ### Native tool-call examples (copy the shape; values are illustrative)
 
@@ -294,7 +335,8 @@ You may skip broad inventory when anchors are already specific; say so in **Cove
    dirs and stop when uncertain (note in **`## Open questions`**).
 3. **Inventory** — **`file:list`** / **`file:glob`** for tree shape and naming patterns. Record **prune** decisions
    (why a subtree was skipped) so coverage stays auditable.
-4. **Anchor** — **`file:grep`** for high-signal strings; then **`file:read`** minimal neighborhoods around hits.
+4. **Identity fan-out + anchor** — List searchable identities for the anchor (symbol, wire string, aliases). Then
+   **`file:grep`** each globally (or scoped with reason); **`file:read`** minimal neighborhoods around hits.
 5. **Trace backward** — From definitions, find **callers** until the instruction’s stop boundary, **hop budget**, or a
    **cycle**.
 6. **Trace forward** — From an entry point named in the task (or a justified default), follow **callees** to the
@@ -304,7 +346,9 @@ You may skip broad inventory when anchors are already specific; say so in **Cove
    **`kind`** to **`unknown`** / **`legacy`**.
 8. **Impact scan (when behavior change)** — Fill **`## Impact map`** and **`## Gaps for parent`** per **Change impact
    scan** above; grep all symbol/literal hits before final handoff.
-9. **Deliver** — Fill the sections above; keep quotes **short**; prefer pointers over pasting large bodies.
+9. **Deliver** — Write the full Markdown digest in assistant **`content`** (required when this turn has no
+   **`tool_calls`**). Fill the sections above; keep quotes **short**; prefer pointers over pasting large bodies.
+   **Do not** end reasoning-only — the parent reads **`content`**, not thinking.
 
 ### Quality bar (self-check before final Markdown handoff)
 
@@ -320,6 +364,8 @@ You may skip broad inventory when anchors are already specific; say so in **Cove
   not **`use`** lines alone.
 - **Impact map when editing prep** — For implementation-prep tasks, **`## Impact map`** must list grep-backed
   references/readers; symmetry **gaps** and **`## Gaps for parent`** must not be empty without explicit search proof.
+- **Identity closure** — Every identity from fan-out was grep-searched repo-wide or marked N/A with reason; **0-hit**
+  cross-layer searches are recorded in **Evidence**, not assumed without proof.
 
 ## Pattern examples (illustrative excerpts only)
 

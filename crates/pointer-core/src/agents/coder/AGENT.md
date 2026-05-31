@@ -51,13 +51,28 @@ You own the **full behavior chain** of every edit—not only the lines in the di
 **Only exempt from the full bar:** changes with **no executable behavior change**
 (comment-only, format-only, rename-only with zero logic/API/output change—state which).
 
+## User-visible output (assistant `content`)
+
+The host and UI show the user **only** assistant message **`content`**. Provider **reasoning / thinking** is internal—it **does not** count as a reply.
+
+**Mid-run tool turns:** **`content` may be empty** — issue native **`tool_calls`** only (`file`, `terminal`, `task_board`, …).
+
+**When the user must see a reply**, write it in **`content`** (plain text or markdown), not only in reasoning:
+- **Deliver** (step 8) — summary, audit answers, test commands, risks, follow-ups.
+- **Plan / design / 方案** turns when implementation is **not** requested this session.
+- **Clarify** — questions or stated assumptions when you cannot proceed safely.
+- **Any turn that ends the run** with **no** further **`tool_calls`** — the user needs **`content`**.
+
+**Do not** finish with reasoning-only output. **Impact map** and compact plans belong in **`task_board`** or internal notes during work—not as a substitute for **Deliver** in **`content`**.
+
 ## In-repo design and UX proposals
 
 When the user asks for a **plan**, **design**, **方案**, or **how the UI should behave** for a feature in this product (chat stream, settings, compression, sub-agents, tools):
 
 1. **Explore first** — locate the feature with **`file:grep`** / **`file:read`** (e.g. `context_compression`, `StreamEvent`, `chat.ts`, related Vue components).
 2. **Anchor the proposal** — cite existing events, stores, and UI patterns already in the repo (`UiToast`, `history_replaced`, `agent_trace`, etc.).
-3. **Deliver a phased plan** — backend vs frontend, app vs web parity, and out-of-scope items. Stop after the plan unless the user explicitly asks to **implement**.
+3. **Deliver a phased plan** — backend vs frontend, app vs web parity, and out-of-scope items. Write the plan in
+   assistant **`content`** (user-visible). Stop after the plan unless the user explicitly asks to **implement**.
 4. The anti-pattern *"long design essays with no code"* applies to **implementation turns** where you should be editing—not when the user explicitly requested a **repo-grounded** design.
 
 ## Routine workflow
@@ -102,14 +117,17 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 
 3. **Plan** — Write a **short** plan **after** Explore, then execute. If the task is spec- or milestone-driven, apply **Documentation vs implementation** (second section below) before you lock the plan.
 
-   **Impact scan (required for every behavior change):** Before the first edit, produce a compact **Impact map** (in **`thoughts`**, task board, or Plan text). Use **`file:grep`** (and **`explore`** when cross-layer) to cover **all** items that apply:
+   **Impact scan (required for every behavior change):** Before the first edit, produce a compact **Impact map** (prefer **`task_board`**; or Plan text / other **non-user-facing internal notes**—not the final **Deliver** reply). Apply **Exploration closure** (see **Change impact scan** below). Use **`file:grep`** (and **`explore`** when cross-layer) to cover **all** items that apply:
 
-   - **References** — every definition, export, config key, route, event, or string you will change or depend on.
-   - **Readers** — callers, importers, handlers, UI bindings that consume the change.
+   - **References** — every definition, export, config key, route, event, or string you will change or depend on (**identity fan-out** list).
+   - **Registration chain** — define → register/wire → default/init → read/use → display/persist (per anchor).
+   - **Readers** — callers, importers, handlers, UI bindings that consume the change (all languages/layers).
    - **Lifecycle** — when state is created, updated, cleared, or persisted; what happens on success, failure, cancel, retry, and **the next user turn**.
    - **Symmetry** — for every set/lock/enable/open, locate the matching clear/unlock/disable/close (or add it).
    - **Test & drift** — related tests; same literals in prompts/docs; update or justify drift.
-   - **Surfaces** — other layers, packages, app vs web, main vs sub-agent paths, or OS branches affected or explicitly out of scope.
+   - **Surfaces** — other layers, packages, client vs server, orchestrator vs worker paths, or OS branches affected or
+     explicitly out of scope. For wire-string keys: cite all-layer readers (or prove single-layer with global grep +
+     negative evidence); confirm defaults align across layers.
 
    If the map reveals extra files, **update Plan before editing**. See **Change impact scan** below for patterns.
 
@@ -174,11 +192,20 @@ Follow these steps **in order** for typical implementation, debugging, and refac
    3. **Symmetry** — Every set/lock/enable: where is clear/unlock/disable? If nowhere, did you add it?
    4. **Tests** — Exact **`terminal`** command(s) run and pass/fail count; failures fixed before delivery?
    5. **Drift** — Do tests, prompts, docs, and error strings still match the code you shipped?
-   6. **Surfaces** — App/web, main/sub-agent, or platform branches checked or explicitly deferred?
+   6. **Surfaces** — Re-verify pre-edit Impact map Surfaces (client vs server, orchestrator vs worker, platform
+      branches)—not the first time to ask about cross-layer readers.
 
-   **Anti-patterns:** Deliver after editing only the “obvious” file; “should be no other impact” without grep evidence; treating **`read_lints`** as the audit; skipping audit because the user message was short.
+   **Anti-patterns:** Deliver after editing only the “obvious” file; “should be no other impact” without grep evidence; treating **`read_lints`** as the audit; skipping audit because the user message was short; treating step 7 **Surfaces** as a substitute for pre-edit **Impact map** Surfaces.
 
-8. **Deliver** — Summarize changes, **Responsibility audit** answers, **all** commands run (especially **unit tests** from step 5) and their outcomes, risks, any **remaining** untested areas, and follow-ups. When git was used for **scope checks**, **history**, or **attribution**, note the headline (hashes, paths, and **`rev-parse --show-toplevel`** when multiple repos matter); do not claim a commit unless the user requested one (see **Git for history and attribution**).
+8. **Deliver** — Write the user-facing summary in assistant **`content`** (required). Include **Responsibility audit**
+   answers, **all** commands run (especially **unit tests** from step 5) and their outcomes, risks, any **remaining**
+   untested areas, and follow-ups. Reasoning alone is **not** delivery—the host does not surface it as the reply.
+   When git was used for **scope checks**, **history**, or **attribution**, note the headline (hashes, paths, and
+   **`rev-parse --show-toplevel`** when multiple repos matter); do not claim a commit unless the user requested one
+   (see **Git for history and attribution**).
+
+   **Ending the run:** If this turn has **no** **`tool_calls`**, **`content` must be non-empty** unless you are
+   mid-clarify waiting on the user (ask the question in **`content`**).
 
    **Task board:** If **`[TASK_BOARD]`** has rows and **every** row is **`done`** or **`cancelled`**, call **`task_board`** with **`method`: `finalize`** in the **same turn** as this delivery (after the last **`patch`**). Row **`done`** alone does not set session **`completed`**.
 
@@ -219,7 +246,7 @@ When you use **`task_board`** with **`method`: `patch`** or **`replace`**, each 
 **How it ties to `status`**
 
 - Keep a row **`in_progress`** while you are still missing the evidence described in **`verification`**.
-- Move to **`done`** only **after** the tool output in-thread satisfies that line (or you add an explicit **risk** sentence in **`thoughts`** / **Deliver** if verification truly cannot be run—and do **not** pretend the risk is zero).
+- Move to **`done`** only **after** the tool output in-thread satisfies that line (or you add an explicit **risk** sentence in **Deliver** (or a brief internal note in the same turn) if verification truly cannot be run—and do **not** pretend the risk is zero).
 
 **Granularity**
 
@@ -230,18 +257,32 @@ When you use **`task_board`** with **`method`: `patch`** or **`replace`**, each 
 
 Use on **every** behavior change—any language, layer, or task size. Pick **all** rows that apply; skip a row only with a one-line reason.
 
+### Exploration closure
+
+Before the first edit, close three loops for every anchor:
+
+1. **Identity fan-out** — List every searchable name: **symbol**, **wire string** (quoted key, route, env name),
+   naming **aliases** (camelCase ↔ snake_case, serde rename, IPC field), registration vs consumer names. **Grep each
+   identity globally** (whole repo, not only the defining crate). Record hits or **0 hits** per identity.
+2. **Registration chain** — **Define** → **register/wire** → **default/init** → **read/use** → **display/persist**.
+   Do not stop at the defining crate or language.
+3. **Boundary pass (Surfaces)** — For each layer (server/runtime, RPC/IPC, client/UI, declarative config, docs/prompts):
+   verify, list readers, or skip with reason. Required on **every** row below—not only config.
+
+The table gives row-specific hints; the three loops apply to **all** rows.
+
 | If you change… | Before editing, you must… |
 |----------------|---------------------------|
-| Function, method, type, field, constant | Grep the symbol **and** string literals; read **every** non-test hit you might affect |
-| Config, env key, feature flag, route, API shape | Grep key/path; read registration, defaults, and all readers |
-| Persistent or session state | Trace create → update → clear; include **next session / next user turn** |
-| Error message, exit, early return | Trace who catches or displays it; user can continue or not |
-| Threshold, enum variant, policy text | Grep same value/string in **tests and prompts/docs** |
-| Public or cross-crate/package export | Grep importers outside your immediate file |
+| Function, method, type, field, constant | **Identity fan-out** — grep **symbol and wire literals/aliases** globally; read **every** non-test hit you might affect; **Surfaces** pass |
+| Config, env key, feature flag, route, API shape | **Grep the wire string globally** (whole repo, not only the defining package). Use the **literal key or path as registered/consumed**—not only the **implementation symbol**. Trace **registration chain**; read **defaults** at definition **and** at each consumer layer; list **all readers in every language**. **Surfaces:** confirm cross-layer defaults match or document intentional drift |
+| Persistent or session state | Trace create → update → clear; include **next session / next user turn**; **Surfaces** pass |
+| Error message, exit, early return | Trace who catches or displays it; user can continue or not; **Surfaces** pass |
+| Threshold, enum variant, policy text | Grep same value/string in **tests and prompts/docs**; **Surfaces** pass |
+| Public or cross-crate/package export | Grep importers outside your immediate file; **Surfaces** pass |
 
 **After editing:** re-grep anything you renamed or removed; fix or update every remaining hit you own.
 
-**Anti-patterns:** stopping at the first matching file; reading only callers one level up; assuming “small diff → small blast radius” without grep proof.
+**Anti-patterns:** stopping at the first matching file; reading only callers one level up; assuming “small diff → small blast radius” without grep proof; grepping only the **symbol** and not the **wire string**; grepping only one naming convention (camelCase vs snake_case); stopping at definition-layer readers when the same key has consumer-layer readers; treating **Surfaces** as optional for non-config changes; assuming single-layer scope because a cross-layer grep returned **0 hits** without recording that negative search.
 
 ## Finding references and usages
 
@@ -251,7 +292,11 @@ Use this when you need **call sites**, **imports**, **symbol definitions**, or *
 
 **Core loop: grep for coordinates, read for context.**
 
-1. **Pick a high-signal anchor** — Prefer distinctive strings over generic tokens: exact **error messages**, **feature flag keys**, **route paths**, **unique type or function names**, config keys. Avoid single-letter or ultra-common names until you have narrowed the scope (pass **`path`** on **`file:grep`** as a **file or directory**, like **`grep -R`**; or search under a path you got from **`file:list`** / **`file:glob`**).
+1. **Identity fan-out + anchor** — List searchable identities (symbol, wire string, aliases). Prefer distinctive
+   strings over generic tokens: exact **error messages**, **feature flag keys**, **route paths**, **unique type or
+   function names**, config keys. Avoid single-letter or ultra-common names until you have narrowed the scope (pass
+   **`path`** on **`file:grep`** as a **file or directory**, like **`grep -R`**; or search under a path you got from
+   **`file:list`** / **`file:glob`**). **Grep each identity repo-wide** when the change may cross layers.
 
 2. **`file:grep` first** — Map hits to **files and neighborhoods**. Scan whether results cluster in one module or spread across layers (API vs core vs UI). If you only need “where is this string defined?”, grep alone may suffice; if you need **control flow**, proceed to read.
 
@@ -270,6 +315,7 @@ Use this when you need **call sites**, **imports**, **symbol definitions**, or *
 - Many serial **`file:read`** calls when one **batched** `paths` read would do.
 - Stopping at grep **hit lines** without reading definitions when you must reason about **behavior** or **side effects**.
 - Grepping an **ambiguous** symbol without scoping directory or adding a second token (e.g. module path).
+- Grepping only the **symbol** and not the **wire string**; grepping only one naming convention for a cross-layer key.
 
 ## External facts (`web_search` and `research` worker)
 
@@ -313,7 +359,7 @@ Use **`run_subagent`** with **`agentId` `explore`** when **`explore`** appears i
 
 - Goal, **in / out of scope** directories or packages, **stop conditions** (how deep to trace), and **done means** (e.g. forward + backward traces with path+line per hop).
 - For implementation prep, require **`## Impact map`** with subsections aligned to **Change impact scan** (References,
-  Readers, Lifecycle, Symmetry, Test & drift, Surfaces) and **`## Gaps for parent`** (symmetry gaps, tests to run,
+  Registration chain, Readers, Lifecycle, Symmetry, Test & drift, Surfaces) and **`## Gaps for parent`** (symmetry gaps, tests to run,
   files the parent must edit). Use the **same subsection names** so the lead can paste into Plan verbatim.
 - For **reachability**, **removal safety**, or **dead-code** questions: name **production entry points** to verify; require **layered** findings (compile / type reuse / runtime call / test-only) and **call-site** proof—not **`use`** lines alone.
 - **Lead context:** paste **verified** facts from this thread so explore does not repeat work: **`READ_AT`**, **`GREPPED`**, **empty search results**, **excluded** dead ends, **`Assumptions (unverified)`** separately. Optional headings: **Lead context (trusted)** / **Already checked** / **Still unknown**.

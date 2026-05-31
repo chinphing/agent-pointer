@@ -132,12 +132,7 @@ pub fn save_computer_capture_debug(
     let pfx = sanitize_path_segment(file_prefix);
 
     match tier {
-        ComputerTier::Primary => {
-            write_bytes(&dir, &pfx, "annotated", "jpg", ts, &cap.annotated_marked_jpeg);
-        }
-        ComputerTier::Intermediate => {
-            write_bytes(&dir, &pfx, "screen_raw_unmarked", "jpg", ts, &cap.raw_unmarked_jpeg);
-            write_bytes(&dir, &pfx, "screen_after_action", "jpg", ts, &cap.raw_marked_jpeg);
+        ComputerTier::Primary | ComputerTier::Intermediate => {
             write_bytes(&dir, &pfx, "annotated", "jpg", ts, &cap.annotated_marked_jpeg);
         }
         ComputerTier::Advanced => {

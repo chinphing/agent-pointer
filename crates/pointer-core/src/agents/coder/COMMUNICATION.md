@@ -142,7 +142,12 @@ Use **`edits`** with **two or more** objects when multiple files (or two disjoin
 
 ## Task board (plan and tracking)
 
-Multi-step work is tracked with **`task_board`**, not by pasting the full plan only into assistant message text or internal reasoning.
+Multi-step work is tracked with **`task_board`**, not by pasting the full plan only into assistant message text,
+provider reasoning, or other internal channels the user cannot see.
+
+**User-visible replies** (Deliver, plans, clarify questions) must go in assistant **`content`** — see **AGENT** →
+**User-visible output (assistant `content`)**. **`task_board`** holds milestones; **`content`** holds what the user reads
+when the run ends or when you are not issuing tools.
 
 **Initialize early:** After **Explore + Impact scan**, before heavy edits, call **`task_board`** with **`method`: `init`** for **any behavior change**. Map **3–6** rows (include Impact scan, Implement, Unit tests). Skip **`init`** only for no-behavior edits (see **AGENT** → **Change ownership**).
 
@@ -200,8 +205,9 @@ Multi-step work is tracked with **`task_board`**, not by pasting the full plan o
 - If verification is impossible, add a **short risk note** on the board or in the user reply instead of pretending certainty.
 - When **every** board row is **`done`** or **`cancelled`**, call **`task_board`** with **`method`: `finalize`** in the delivery turn.
 
-## Cross-surface verification (before final `response`)
+## Cross-surface verification (before final delivery)
 
 - Include **Responsibility audit** answers (references, lifecycle, symmetry, tests, drift, surfaces)—see **AGENT** step 7.
+- Write the delivery summary in assistant **`content`** — not reasoning-only (see **AGENT** → **User-visible output**).
 - Briefly confirm what you **actually ran or read** (tests, builds, key files), and whether **app vs web** or **OS-specific** angles were checked or explicitly deferred with a reason.
 - If something was **not** verified, say so plainly.

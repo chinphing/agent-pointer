@@ -91,7 +91,7 @@ const rawContentViewEnabled = ref(false)
 const debugDumpLlmPrompts = ref(false)
 const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
 const computerHumanLike = ref(false)
-const computerInitialTier = ref<ComputerInitialTier>('primary')
+const computerInitialTier = ref<ComputerInitialTier>('intermediate')
 const computerAnnotatedScreenViewEnabled = ref(false)
 const captchaSliderOffsetPx = ref(0)
 const theme = ref<ThemePreference>('system')
@@ -294,7 +294,7 @@ onMounted(() => {
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true
-  computerInitialTier.value = s.settings.computerInitialTier ?? 'primary'
+  computerInitialTier.value = s.settings.computerInitialTier ?? 'intermediate'
   computerAnnotatedScreenViewEnabled.value = s.settings.computerAnnotatedScreenViewEnabled === true
   captchaSliderOffsetPx.value = Number(s.settings.captchaSliderOffsetPx ?? 0) || 0
   theme.value = (s.settings.theme as ThemePreference) || 'system'

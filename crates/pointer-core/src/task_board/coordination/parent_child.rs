@@ -5,10 +5,10 @@ use anyhow::{anyhow, Result};
 
 pub const SUB_AGENT_KEY_SEP: &str = "\u{1f}ptr_sub_agent\u{1f}";
 
-pub fn sub_agent_task_board_store_key(main_conversation_id: &str, supervisor_task_id: &str) -> String {
+pub fn sub_agent_task_board_store_key(parent_store_key: &str, supervisor_task_id: &str) -> String {
     format!(
-        "{main}{SUB_AGENT_KEY_SEP}{task}",
-        main = main_conversation_id.trim(),
+        "{parent}{SUB_AGENT_KEY_SEP}{task}",
+        parent = parent_store_key.trim(),
         task = supervisor_task_id.trim()
     )
 }
@@ -48,10 +48,10 @@ mod tests {
 
     #[test]
     fn parent_key_from_child() {
-        let k = sub_agent_task_board_store_key("conv-1", "task_a");
+        let k = sub_agent_task_board_store_key("conv-1\u{1f}ptr_main_turn\u{1f}msg-1", "task_a");
         assert_eq!(
             parent_store_key_from_child(&k).as_deref(),
-            Some("conv-1")
+            Some("conv-1\u{1f}ptr_main_turn\u{1f}msg-1")
         );
     }
 }

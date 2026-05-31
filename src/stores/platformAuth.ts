@@ -18,6 +18,7 @@ function formatPlatformAuthError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e)
   if (msg.includes('oauth callback timeout')) return '登录超时，请重试'
   if (msg.includes('platform_login_cancelled')) return '已取消登录'
+  if (msg.includes('invalid_refresh_token')) return '登录已失效，请重新登录 Pointer 账户'
   return msg
 }
 
@@ -55,16 +56,24 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
   }
 
   async function ensureFreshSession(): Promise<PlatformSessionView> {
-    if (isTauriRuntime()) {
-      session.value = await api.refreshPlatformSession()
-      if (session.value.logged_in) {
-        const settings = useSettingsStore()
-        await settings.load()
+    try {
+      if (isTauriRuntime()) {
+        session.value = await api.refreshPlatformSession()
+        if (session.value.logged_in) {
+          const settings = useSettingsStore()
+          await settings.load()
+        }
+      } else {
+        session.value = await api.getPlatformSession()
       }
-    } else {
-      session.value = await api.getPlatformSession()
+      return session.value
+    } catch (e) {
+      error.value = formatPlatformAuthError(e)
+      if ((e instanceof Error ? e.message : String(e)).includes('invalid_refresh_token')) {
+        session.value = { logged_in: false }
+      }
+      throw new Error(error.value || '平台登录态刷新失败')
     }
-    return session.value
   }
 
   async function login() {

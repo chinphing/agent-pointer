@@ -179,7 +179,25 @@ pub fn get_task_board_snapshot(
 ) -> Result<serde_json::Value, String> {
     use pointer_core::task_board::sub_agent_task_board_store_key;
     let store_key = match task_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(tid) => sub_agent_task_board_store_key(&conversation_id, tid),
+        Some(tid) => {
+            let parent_key = state
+                .get_active_main_task_board_key(&conversation_id)
+                .unwrap_or_else(|| conversation_id.clone());
+            let preferred = sub_agent_task_board_store_key(&parent_key, tid);
+            let preferred_doc = state.task_board_store.document(&preferred);
+            if !preferred_doc.board_is_empty() || !preferred_doc.meta.goal.trim().is_empty() {
+                preferred
+            } else {
+                let suffix = format!("\u{1f}ptr_sub_agent\u{1f}{tid}");
+                let matches: Vec<String> = state
+                    .task_board_store
+                    .list_store_keys_by_prefix(&conversation_id)
+                    .into_iter()
+                    .filter(|k| k.ends_with(&suffix))
+                    .collect();
+                matches.into_iter().next().unwrap_or(preferred)
+            }
+        }
         None => state
             .get_active_main_task_board_key(&conversation_id)
             .unwrap_or_else(|| conversation_id.clone()),

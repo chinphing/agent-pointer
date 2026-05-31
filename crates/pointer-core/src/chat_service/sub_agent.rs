@@ -44,6 +44,7 @@ pub(crate) async fn run_sub_agent(
     state: &AppState,
     stream: &StreamTx,
     conversation_id: &str,
+    parent_task_board_store_key: &str,
     message_id: &str,
     agent_trace: &mut Vec<AgentTrace>,
     enabled_skill_ids: &[String],
@@ -57,7 +58,14 @@ pub(crate) async fn run_sub_agent(
     let sub_provider = sub_agent_provider(provider, &task.agent_id);
     let reasoning_in_messages = effective_reasoning_in_messages(&sub_provider.settings);
     let session =
-        init_sub_agent_session(state, &sub_provider, conversation_id, task, enabled_skill_ids)?;
+        init_sub_agent_session(
+            state,
+            &sub_provider,
+            conversation_id,
+            parent_task_board_store_key,
+            task,
+            enabled_skill_ids,
+        )?;
     let def = session.def;
     let prompts = session.prompts;
     let tools_system_appendix = session.tools_system_appendix;

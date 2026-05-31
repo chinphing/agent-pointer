@@ -250,6 +250,7 @@ pub(crate) async fn run_supervisor_chat(
             &state,
             &stream,
             conversation_id,
+            parent_board_key,
             &assistant_id,
             &mut agent_trace,
             enabled_skill_ids,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { LayoutList, CheckCircle2, Circle, Loader2, XCircle, Ban } from 'lucide-vue-next'
 import type { TaskBoardDocument } from '../../types/chat'
 import { hasTaskBoardContent } from '../../lib/taskBoard'
@@ -9,12 +9,6 @@ const props = defineProps<{
   isActive?: boolean
   childBoards?: Record<string, TaskBoardDocument>
 }>()
-
-const open = ref(false)
-
-function onToggle(e: Event) {
-  open.value = (e.target as HTMLDetailsElement).open
-}
 
 const goal = computed(() => props.document?.meta?.goal?.trim() ?? '')
 const metaStatus = computed(() => props.document?.meta?.status ?? 'running')
@@ -58,8 +52,6 @@ function statusClass(status: string): string {
   <details
     v-if="document && hasTaskBoardContent(document)"
     class="task-board-curtain rounded-b-2xl rounded-t-lg border border-border bg-card overflow-hidden w-fit max-w-[80%] min-w-[240px] shadow-sm"
-    :open="open"
-    @toggle="onToggle"
   >
     <summary
       class="cursor-pointer select-none px-3 py-2 flex items-center gap-2 list-none hover:bg-hover transition"

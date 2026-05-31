@@ -47,7 +47,6 @@ export const COMPUTER_INITIAL_TIER_OPTIONS: { value: ComputerInitialTier; label:
 /** Per-agent chat UI visibility (from AGENT.md `ui` block). */
 export interface AgentUiConfig {
   showInComposer?: boolean
-  showAgentLabel?: boolean
   /** Debug: show sidecar tool calls (`verify:*`, `task_board:*`). */
   showSidecarToolCalls?: boolean
   /** Debug: show non-sidecar tool calls (real action tools). */
@@ -61,6 +60,8 @@ export interface AgentUiConfig {
   showWorkspacePicker?: boolean
   showComputerMonitorPicker?: boolean
   showTaskBoardPanel?: boolean
+  /** Debug: show child task boards under parent board panel. */
+  showTaskBoardChildren?: boolean
   /** When true, user may pick this agent in the chat composer (not settings smart mode). */
   userSelectable?: boolean
   /** Label shown in the chat composer agent picker (UI only). */
@@ -280,24 +281,16 @@ export interface PlatformSettings {
   debugDumpLlmPrompts?: boolean
   /** Settings dialog debug sections toggle (independent of rawContentView / dump prompts) */
   debugMenusEnabled?: boolean
+  /** Debug: show child task boards under parent board panel. */
+  taskBoardShowChildBoards?: boolean
   agentDefaultModels: Record<string, AgentModelRef>
   agentTaskBoardHistoryTrim?: Record<string, boolean>
   computerHumanLike?: boolean
   computerInitialTier?: ComputerInitialTier
   /** Show annotated screenshot preview on Computer Use assistant messages */
   computerAnnotatedScreenViewEnabled?: boolean
-  /** DaTi CAPTCHA API endpoint */
-  datiApiUrl?: string
-  /** DaTi authcode */
-  datiAuthcode?: string
-  /** DaTi question type number */
-  datiTypeno?: string
-  /** DaTi developer author */
-  datiAuthor?: string
   /** Pixel offset added to final slider CAPTCHA drag point */
   captchaSliderOffsetPx?: number
-  /** Show monitor picker in Composer when computer agent is selected */
-  computerShowMonitorPicker?: boolean
   agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
   computerTierLlm?: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
 }
@@ -341,6 +334,8 @@ export interface ModelSettings {
   debugDumpLlmPrompts?: boolean
   /** Settings dialog debug sections toggle (independent of rawContentView / dump prompts) */
   debugMenusEnabled?: boolean
+  /** Debug: show child task boards under parent board panel. */
+  taskBoardShowChildBoards?: boolean
   /** agentId → 该 agent 的默认「服务商 + 模型」（显式存储，不从模型名反推服务商） */
   agentDefaultModels: Record<string, AgentModelRef>
   /** agentId → task_board 更新后是否硬截断较早对话（无 LLM 摘要） */
@@ -351,13 +346,7 @@ export interface ModelSettings {
   computerInitialTier?: ComputerInitialTier
   /** Show annotated screenshot preview on Computer Use assistant messages */
   computerAnnotatedScreenViewEnabled?: boolean
-  datiApiUrl?: string
-  datiAuthcode?: string
-  datiTypeno?: string
-  datiAuthor?: string
   captchaSliderOffsetPx?: number
-  /** Show monitor picker in Composer when computer agent is selected */
-  computerShowMonitorPicker?: boolean
   /** UI color scheme */
   theme?: ThemePreference
   /** Per-agent UI overrides (merged over manifest `ui`) */

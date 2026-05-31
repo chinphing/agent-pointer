@@ -8,6 +8,10 @@ use rusqlite::{params, Connection};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+const TASK_BOARD_MAX_ROWS: i64 = 1000;
+const TASK_BOARD_FORCE_DELETE_BATCH: i64 = 500;
+const TASK_BOARD_COMPLETED_RETENTION_MS: i64 = 10 * 24 * 60 * 60 * 1000;
+
 pub struct TaskBoardSqlite {
     conn: Mutex<Connection>,
 }
@@ -58,6 +62,9 @@ impl TaskBoardSqlite {
              ON CONFLICT(store_key) DO UPDATE SET document = excluded.document, updated_at_ms = excluded.updated_at_ms",
             params![store_key, text, now],
         )?;
+        if let Err(e) = self.cleanup_after_save_with_conn(&conn, now) {
+            log::warn!("task_board: sqlite cleanup failed after save store_key={store_key}: {e}");
+        }
         Ok(())
     }
 
@@ -79,5 +86,58 @@ impl TaskBoardSqlite {
             }
         }
         Ok(out)
+    }
+
+    fn cleanup_after_save_with_conn(&self, conn: &Connection, now_ms: i64) -> Result<()> {
+        let cutoff = now_ms.saturating_sub(TASK_BOARD_COMPLETED_RETENTION_MS);
+        let aged_deleted = self.delete_completed_older_than_with_conn(conn, cutoff)?;
+        if aged_deleted > 0 {
+            log::info!(
+                "task_board: sqlite cleanup removed aged completed rows count={aged_deleted} cutoff_ms={cutoff}"
+            );
+        }
+        let total = self.count_rows_with_conn(conn)?;
+        if total <= TASK_BOARD_MAX_ROWS {
+            return Ok(());
+        }
+        let force_deleted =
+            self.delete_oldest_completed_with_conn(conn, TASK_BOARD_FORCE_DELETE_BATCH)?;
+        log::warn!(
+            "task_board: sqlite over capacity total={} max={} force_deleted_old_completed={}",
+            total,
+            TASK_BOARD_MAX_ROWS,
+            force_deleted
+        );
+        Ok(())
+    }
+
+    fn count_rows_with_conn(&self, conn: &Connection) -> Result<i64> {
+        let total = conn.query_row("SELECT COUNT(*) FROM task_boards", [], |r| r.get(0))?;
+        Ok(total)
+    }
+
+    fn delete_completed_older_than_with_conn(&self, conn: &Connection, cutoff_ms: i64) -> Result<usize> {
+        let n = conn.execute(
+            "DELETE FROM task_boards
+             WHERE updated_at_ms < ?1
+               AND json_extract(document, '$.meta.status') = 'completed'",
+            params![cutoff_ms],
+        )?;
+        Ok(n)
+    }
+
+    fn delete_oldest_completed_with_conn(&self, conn: &Connection, limit: i64) -> Result<usize> {
+        let n = conn.execute(
+            "DELETE FROM task_boards
+             WHERE store_key IN (
+               SELECT store_key
+               FROM task_boards
+               WHERE json_extract(document, '$.meta.status') = 'completed'
+               ORDER BY updated_at_ms ASC
+               LIMIT ?1
+             )",
+            params![limit],
+        )?;
+        Ok(n)
     }
 }

@@ -379,6 +379,10 @@ Use **`run_subagent`** with **`agentId` `explore`** when **`explore`** appears i
   assistant content from the sub-agent). Merge **`## Impact map`** and **`## Gaps for parent`** into your Plan **Impact
   map**; merge traces and evidence into Explore; if explore emitted **Corrections to lead context**, update your map
   before editing.
+- Treat the returned report as an **evidence draft**, not an auto-approved source. Before editing, review whether the
+  coverage is complete for impact scope: **Surfaces**, **cross-layer readers**, **app/web parity**, and
+  **cross-platform impact** (macOS / Windows / Linux when relevant). If any scope is missing or weakly supported,
+  run targeted local **`file.grep`** / **`file.read`** checks or delegate one more **`explore`** pass.
 
 ## Git for history and attribution
 

@@ -89,6 +89,7 @@ const maxToolRounds = ref(100)
 const maxSubAgentToolRounds = ref(100)
 const rawContentViewEnabled = ref(false)
 const debugDumpLlmPrompts = ref(false)
+const taskBoardShowChildBoards = ref(false)
 const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
 const computerHumanLike = ref(false)
 const computerInitialTier = ref<ComputerInitialTier>('intermediate')
@@ -99,17 +100,17 @@ const debugMenusEnabled = ref(false)
 const agentUiLocal = ref<Partial<AgentUiConfig>>({})
 const agents = ref<AgentDef[]>([])
 
-const DISPLAY_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
-  { key: 'showAgentLabel', label: '消息旁显示智能体名称' },
-  { key: 'showSidecarToolCalls', label: '显示 sidecar 工具调用（调试）' },
-  { key: 'showNonSidecarToolCalls', label: '显示非 sidecar 工具调用（调试）' },
-  { key: 'showHeadline', label: '显示 headline 标题条' },
-  { key: 'showSubAgentTrace', label: '显示子 Agent 边框面板' },
+const TOOL_CALL_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
+  { key: 'showSidecarToolCalls', label: '显示 sidecar 工具调用' },
+  { key: 'showNonSidecarToolCalls', label: '显示非 sidecar 工具调用' },
   { key: 'showToolCalls', label: '显示工具调用卡片' },
-  { key: 'showToolCallResults', label: '显示工具调用结果（调试）' },
+  { key: 'showToolCallResults', label: '显示工具调用结果' },
+]
+
+const AGENT_OUTPUT_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
+  { key: 'showHeadline', label: '显示推理过程' },
   { key: 'showTaskBoardPanel', label: '显示任务板面板' },
-  { key: 'showWorkspacePicker', label: 'Composer 显示工作区选择' },
-  { key: 'showComputerMonitorPicker', label: 'Composer 显示显示器选择' }
+  { key: 'showSubAgentTrace', label: '显示子 Agent 边框面板' },
 ]
 
 const alwaysSections = [
@@ -118,7 +119,7 @@ const alwaysSections = [
 
 const debugSections = [
   { id: 'provider', label: '模型服务', desc: '管理 AI 服务', icon: Cpu },
-  { id: 'generation', label: '界面配置', desc: '界面与调试', icon: Gauge },
+  { id: 'generation', label: '界面配置', desc: '界面', icon: Gauge },
   { id: 'agent', label: '智能模式', desc: '工作方式', icon: Gauge },
   { id: 'runtime', label: '运行时', desc: '存储与网络', icon: Database }
 ] as const
@@ -189,11 +190,6 @@ const activeUiAgentId = computed(() =>
   agentMode.value === 'supervisor' ? 'supervisor' : (leadAgentId.value?.trim() || DEFAULT_LEAD_AGENT_ID)
 )
 
-const displayUiFieldsForAgent = computed(() => {
-  if (activeUiAgentId.value === 'computer') return DISPLAY_UI_FIELDS
-  return DISPLAY_UI_FIELDS.filter(f => f.key !== 'showComputerMonitorPicker')
-})
-
 const activeUiAgentLabel = computed(() => {
   const id = activeUiAgentId.value
   if (id === 'supervisor') return composerAgentLabel(supervisorAgent.value, s.settings)
@@ -223,7 +219,6 @@ function isLeadWorkerSelected(agentId: string): boolean {
 
 function displayUiChecked(key: keyof AgentUiConfig): boolean {
   const map: Record<string, boolean> = {
-    showAgentLabel: effectiveDisplayUi.value.showAgentLabel,
     showSidecarToolCalls: effectiveDisplayUi.value.showSidecarToolCalls,
     showNonSidecarToolCalls: effectiveDisplayUi.value.showNonSidecarToolCalls,
     showHeadline: effectiveDisplayUi.value.showHeadline,
@@ -231,8 +226,6 @@ function displayUiChecked(key: keyof AgentUiConfig): boolean {
     showToolCalls: effectiveDisplayUi.value.showToolCalls,
     showToolCallResults: effectiveDisplayUi.value.showToolCallResults,
     showTaskBoardPanel: effectiveDisplayUi.value.showTaskBoardPanel,
-    showWorkspacePicker: effectiveDisplayUi.value.showWorkspacePicker,
-    showComputerMonitorPicker: effectiveDisplayUi.value.showComputerMonitorPicker
   }
   return map[key as string] ?? true
 }
@@ -292,6 +285,7 @@ onMounted(() => {
   maxSubAgentToolRounds.value = s.settings.maxSubAgentToolRounds ?? s.settings.maxToolRounds ?? 100
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled === true
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
+  taskBoardShowChildBoards.value = s.settings.taskBoardShowChildBoards === true
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true
   computerInitialTier.value = s.settings.computerInitialTier ?? 'intermediate'
@@ -421,6 +415,7 @@ async function saveFromFooter() {
         rawContentViewEnabled: rawContentViewEnabled.value,
         debugDumpLlmPrompts: debugDumpLlmPrompts.value,
         debugMenusEnabled: debugMenusEnabled.value,
+        taskBoardShowChildBoards: taskBoardShowChildBoards.value,
         computerAnnotatedScreenViewEnabled: computerAnnotatedScreenViewEnabled.value,
         agentTaskBoardHistoryTrim: { ...agentTaskBoardHistoryTrim.value },
         agentUiOverrides: {
@@ -644,74 +639,81 @@ async function saveFromFooter() {
                 <Gauge class="w-4 h-4 text-accent" />界面配置
               </h3>
               <p class="mt-0.5 text-xs text-muted">
-                {{ showDebugMenus ? '界面显示与调试选项；模型创造性、最大输出等在模型服务中配置' : '界面显示与调试选项' }}
+                界面显示选项
               </p>
             </div>
 
-            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4 text-[12px] text-muted leading-relaxed">
-              <template v-if="showDebugMenus">
-                请在 <span class="text-foreground">模型服务</span> 中编辑服务商，配置
-                <span class="text-foreground">创造性</span>、
-                <span class="text-foreground">最大输出</span> 等默认项；在「各模型」选择
-                <span class="text-foreground">定制</span> 后点
-                <span class="text-foreground">设置</span> 可单独覆盖。
-                当前会话模型：
-                <span class="font-mono text-accent">{{ s.settings.model }}</span>
-                （创造性 {{ s.effectiveTemperature }}，最大输出 {{ s.effectiveMaxTokens }} tokens）。
-              </template>
-              <template v-else>
-                模型与 API 凭据由平台账户登录后自动注入；内置千问/深度求索参数使用应用默认。
-                当前会话模型：
-                <span class="font-mono text-accent">{{ s.settings.model }}</span>
-                （创造性 {{ s.effectiveTemperature }}，最大输出 {{ s.effectiveMaxTokens }} tokens）。
-              </template>
-            </div>
-
-            <div
-              v-if="showDebugMenus"
-              class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4"
-            >
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <h4 class="text-sm font-medium text-foreground">原始内容查看</h4>
-                  <p class="mt-1 text-[11px] text-muted">在助手消息上显示「原始输出」入口（代码图标），展开后为一段可复制文本：含推理（若有）与正文通道原始输出，不在主气泡内展示。</p>
+            <!-- 工具调用 -->
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
+              <h4 class="text-sm font-medium text-foreground">工具调用</h4>
+              <div class="grid grid-cols-2 gap-y-3 gap-x-32">
+                <div
+                  v-for="f in TOOL_CALL_UI_FIELDS"
+                  :key="f.key"
+                  class="flex items-center justify-between gap-3"
+                >
+                  <h4 class="text-[12px] font-medium text-foreground">{{ f.label }}</h4>
+                  <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input type="checkbox" class="sr-only peer" :checked="displayUiChecked(f.key)" @change="setDisplayUi(f.key, ($event.target as HTMLInputElement).checked)" />
+                    <div class="settings-toggle-track" />
+                  </label>
                 </div>
-                <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input v-model="rawContentViewEnabled" type="checkbox" class="sr-only peer" />
-                  <div class="settings-toggle-track" />
-                </label>
               </div>
             </div>
 
-            <div
-              v-if="showDebugMenus"
-              class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4"
-            >
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <h4 class="text-sm font-medium text-foreground">保存每轮对话请求</h4>
-                  <p class="mt-1 text-[11px] text-muted">开启后，每次向 AI 发送的完整上下文会分别保存为本地文件（应用数据目录下的日志文件夹），便于排查问题；内嵌的大块图片内容会缩短显示。</p>
+            <!-- 智能体输出 -->
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
+              <h4 class="text-sm font-medium text-foreground">智能体输出</h4>
+              <div class="grid grid-cols-2 gap-y-3 gap-x-32">
+                <div class="flex items-center justify-between gap-3">
+                  <h4 class="text-[12px] font-medium text-foreground">原始内容查看</h4>
+                  <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input v-model="rawContentViewEnabled" type="checkbox" class="sr-only peer" />
+                    <div class="settings-toggle-track" />
+                  </label>
                 </div>
-                <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input v-model="debugDumpLlmPrompts" type="checkbox" class="sr-only peer" />
-                  <div class="settings-toggle-track" />
-                </label>
-              </div>
-            </div>
-
-            <div
-              v-if="showDebugMenus"
-              class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4"
-            >
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <h4 class="text-sm font-medium text-foreground">标记截图查看</h4>
-                  <p class="mt-1 text-[11px] text-muted">开启后，Computer Use 助手消息上显示相机按钮，可查看带标注的桌面截图。</p>
+                <div class="flex items-center justify-between gap-3">
+                  <h4 class="text-[12px] font-medium text-foreground">标记截图查看</h4>
+                  <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input v-model="computerAnnotatedScreenViewEnabled" type="checkbox" class="sr-only peer" />
+                    <div class="settings-toggle-track" />
+                  </label>
                 </div>
-                <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input v-model="computerAnnotatedScreenViewEnabled" type="checkbox" class="sr-only peer" />
-                  <div class="settings-toggle-track" />
-                </label>
+                <div class="flex items-center justify-between gap-3">
+                  <h4 class="text-[12px] font-medium text-foreground">显示推理过程</h4>
+                  <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input type="checkbox" class="sr-only peer" :checked="displayUiChecked('showHeadline')" @change="setDisplayUi('showHeadline', ($event.target as HTMLInputElement).checked)" />
+                    <div class="settings-toggle-track" />
+                  </label>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <h4 class="text-[12px] font-medium text-foreground">显示任务板面板</h4>
+                  <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input type="checkbox" class="sr-only peer" :checked="displayUiChecked('showTaskBoardPanel')" @change="setDisplayUi('showTaskBoardPanel', ($event.target as HTMLInputElement).checked)" />
+                    <div class="settings-toggle-track" />
+                  </label>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <h4 class="text-[12px] font-medium text-foreground">显示子 Agent 边框面板</h4>
+                  <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input type="checkbox" class="sr-only peer" :checked="displayUiChecked('showSubAgentTrace')" @change="setDisplayUi('showSubAgentTrace', ($event.target as HTMLInputElement).checked)" />
+                    <div class="settings-toggle-track" />
+                  </label>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <h4 class="text-[12px] font-medium text-foreground">显示子任务板</h4>
+                  <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input v-model="taskBoardShowChildBoards" type="checkbox" class="sr-only peer" />
+                    <div class="settings-toggle-track" />
+                  </label>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <h4 class="text-[12px] font-medium text-foreground">保存每轮对话请求</h4>
+                  <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input v-model="debugDumpLlmPrompts" type="checkbox" class="sr-only peer" />
+                    <div class="settings-toggle-track" />
+                  </label>
+                </div>
               </div>
             </div>
           </section>
@@ -861,28 +863,6 @@ async function saveFromFooter() {
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
-
-            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
-              <h4 class="text-sm font-medium text-foreground">聊天界面显示</h4>
-              <p class="text-[11px] text-muted">
-                覆盖当前选中智能体（{{ activeUiAgentLabel }}）的默认展示；未勾选项使用 AGENT.md 内置默认。
-              </p>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <label
-                  v-for="f in displayUiFieldsForAgent"
-                  :key="f.key"
-                  class="inline-flex items-center gap-2 cursor-pointer text-[12px] text-foreground"
-                >
-                  <input
-                    type="checkbox"
-                    class="rounded border-border text-accent focus:ring-accent/40"
-                    :checked="displayUiChecked(f.key)"
-                    @change="setDisplayUi(f.key, ($event.target as HTMLInputElement).checked)"
-                  />
-                  {{ f.label }}
-                </label>
               </div>
             </div>
 

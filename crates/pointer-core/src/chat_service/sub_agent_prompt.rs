@@ -38,6 +38,7 @@ pub(super) fn init_sub_agent_session(
     state: &AppState,
     provider: &OpenAIProvider,
     conversation_id: &str,
+    parent_task_board_store_key: &str,
     task: &AgentTask,
     enabled_skill_ids: &[String],
 ) -> Result<SubAgentSession> {
@@ -58,7 +59,8 @@ pub(super) fn init_sub_agent_session(
     let (skill_prompts, session_tools) = state.skills.progressive_context(&skill_ids);
     let mut allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
     allowed_tools.retain(|t| t != "run_subagent");
-    let sub_task_board_key = sub_agent_task_board_store_key(conversation_id, task.id.trim());
+    let sub_task_board_key =
+        sub_agent_task_board_store_key(parent_task_board_store_key, task.id.trim());
     let session_vars = SessionInjectVars {
         workspace_root: provider.settings.workspace_root.trim(),
     };

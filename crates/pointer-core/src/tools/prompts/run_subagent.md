@@ -53,6 +53,7 @@ is **Markdown** in the tool result’s **`content`** field — **final assistant
 
 - **Default:** use **`agentId` `explore`** for mapping, tracing, and “where / how” questions—**before** a long local **`file`** loop.
 - **Local only** when the map is **already tight**: one neighborhood, one symbol, or user-supplied path+line and a single confirm read is enough—see **Routine workflow** step **Explore** and **Delegating to the `explore` worker** in your primary instructions.
+- **Cross-directory or cross-module scans:** if reconnaissance may span multiple packages/layers or require repeated grep→read narrowing, choose **`explore`** first.
 - **When unsure**, choose **`explore`**; merge its **`content`** Markdown report, then edit here.
 
 **Target workers**

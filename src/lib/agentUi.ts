@@ -3,7 +3,6 @@ import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 
 export interface ResolvedAgentUi {
   showInComposer: boolean
-  showAgentLabel: boolean
   showSidecarToolCalls: boolean
   showNonSidecarToolCalls: boolean
   showHeadline: boolean
@@ -59,7 +58,6 @@ function profileDefaults(profile: AgentProfile, id: string, role: string): Resol
   const hasTaskBoard = !isSupervisor
   return {
     showInComposer: !isSupervisor,
-    showAgentLabel: true,
     showSidecarToolCalls: false,
     showNonSidecarToolCalls: true,
     showHeadline: true,
@@ -93,7 +91,6 @@ function mergeUi(
   }
   return {
     showInComposer: pick('showInComposer') as boolean,
-    showAgentLabel: pick('showAgentLabel') as boolean,
     showSidecarToolCalls: pick('showSidecarToolCalls') as boolean,
     showNonSidecarToolCalls: pick('showNonSidecarToolCalls') as boolean,
     showHeadline: pick('showHeadline') as boolean,
@@ -121,23 +118,14 @@ export function composerAgentLabel(
 
 export function resolveAgentUi(
   agent: AgentDef | undefined,
-  settings?: Pick<ModelSettings, 'agentUiOverrides' | 'computerShowMonitorPicker'>
+  settings?: Pick<ModelSettings, 'agentUiOverrides'>
 ): ResolvedAgentUi {
   if (!agent) {
     return profileDefaults('general', 'default', 'worker')
   }
   const base = profileDefaults(agent.profile, agent.id, agent.role)
   const overrides = settings?.agentUiOverrides?.[agent.id]
-  const merged = mergeUi(base, agent.ui, overrides, agent.name)
-  const monitorOverride = settings?.agentUiOverrides?.[agent.id]?.showComputerMonitorPicker
-  if (
-    agent.id === 'computer'
-    && monitorOverride === undefined
-    && settings?.computerShowMonitorPicker !== undefined
-  ) {
-    return { ...merged, showComputerMonitorPicker: settings.computerShowMonitorPicker }
-  }
-  return merged
+  return mergeUi(base, agent.ui, overrides, agent.name)
 }
 
 function leadAgentProfile(id: string): AgentProfile {
@@ -183,7 +171,7 @@ export function shouldShowSubAgentTrace(
 /** UI flags for content inside a sub-agent frame (always show tools/headline). */
 export function uiForSubAgentFrame(
   trace: { id: string; name: string; role?: string },
-  settings: Pick<ModelSettings, 'agentUiOverrides' | 'computerShowMonitorPicker' | 'agentMode' | 'leadAgentId'>,
+  settings: Pick<ModelSettings, 'agentUiOverrides' | 'agentMode' | 'leadAgentId'>,
   agents: import('../types/chat').AgentDef[],
   fallbackUi: ResolvedAgentUi
 ): ResolvedAgentUi {

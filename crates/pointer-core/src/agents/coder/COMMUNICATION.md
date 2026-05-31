@@ -159,6 +159,43 @@ and provide repeatable final evidence in `validate`
 Step fields and Sidecar placement follow
 **Communication (public)** → **Task board**.
 
+## Explore delegation default (`run_subagent`)
+
+For repository mapping and impact reconnaissance,
+prefer early delegation to **`explore`**
+instead of a long local `file` loop.
+Use local-only exploration when the change site
+is already obvious and narrow.
+
+### Example — first round delegates to `explore`
+
+```json
+{
+  "function": {
+    "name": "run_subagent",
+    "arguments": {
+      "agentId": "explore",
+      "title": "Map call chain and impact",
+      "instruction": "Goal: map where feature flag X is defined, wired, and consumed. Scope: workspace root only. Completion criteria: include Summary, Key files, Impact map, Evidence, Forward trace, Backward trace, Coverage; record negative searches explicitly."
+    }
+  }
+}
+```
+
+### Review gate — before merging explore report
+
+Treat explore output as an **evidence draft**.
+Before you merge it into plan or task board,
+check all of the following:
+
+- `Impact map` has **Surfaces** and cross-layer readers.
+- impact scope covers **app + web** paths when feature parity applies.
+- impact scope covers **macOS + Windows + Linux** when behavior is platform-sensitive.
+- trace and evidence are specific enough to justify edit boundaries.
+
+If any item is missing, do a targeted local `file.grep`/`file.read`
+or run one more `run_subagent` pass with explicit scope gaps.
+
 ### Example — init after Explore + Impact scan
 
 ```json

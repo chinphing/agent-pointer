@@ -110,6 +110,19 @@ const showCamera = computed(() => {
 const chatStore = useChatStore()
 const { generating, activeGeneratingMessageId } = storeToRefs(chatStore)
 
+function childTaskBoardForTrace(traceId: string) {
+  const convId = chatStore.currentId
+  if (!convId) return null
+  const taskId = (() => {
+    const i = traceId.indexOf(':')
+    return i > 0 ? traceId.slice(0, i).trim() : traceId.trim()
+  })()
+  if (!taskId) return null
+  const parentStoreKey =
+    chatStore.taskBoardForConversation(convId)?.activeParentStoreKey ?? convId
+  return chatStore.childBoardsForParent(convId, parentStoreKey)?.[taskId] ?? null
+}
+
 const isActiveGenerationMessage = computed(
   () => props.message.id === activeGeneratingMessageId.value
 )
@@ -203,7 +216,7 @@ async function openScreenPreview() {
       :generating="generating"
       :is-active-generation-message="isActiveGenerationMessage"
       :show-message-actions="showMessageActions"
-      :child-task-board-document="chatStore.currentId ? chatStore.taskBoardForConversation(chatStore.currentId)?.children?.[trace.id] ?? null : null"
+      :child-task-board-document="childTaskBoardForTrace(trace.id)"
     />
 
     <div v-if="showActionBar" class="flex items-center gap-1 w-full min-w-0">

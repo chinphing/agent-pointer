@@ -15,6 +15,13 @@ pub fn append_task_board_dynamic_block(
     conversation_id: &str,
     lead_agent_profile: &AgentProfile,
 ) {
+    let doc = task_board_store.document(task_board_store_key);
+    if matches!(
+        doc.meta.status,
+        crate::task_board::MetaStatus::Completed | crate::task_board::MetaStatus::Failed
+    ) {
+        return;
+    }
     if let Some(block) = task_board_store.snapshot_for_prompt(task_board_store_key) {
         system_prompts_dynamic.push(block);
         return;

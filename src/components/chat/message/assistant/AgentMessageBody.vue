@@ -237,7 +237,7 @@ onUnmounted(() => clearHeadlineCollapseTimer())
   <div class="w-full max-w-full space-y-2">
     <div
       v-if="showHeadlineBlock"
-      class="w-full rounded-lg border border-border bg-accent-muted/40 overflow-hidden"
+      class="w-full rounded-2xl border border-border px-4 py-3 bg-muted/20 overflow-hidden"
     >
       <div class="flex items-center gap-2 px-1.5 py-1.5 sm:px-2 min-w-0">
         <button

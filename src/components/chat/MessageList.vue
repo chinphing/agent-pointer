@@ -89,7 +89,7 @@ const flatMessages = computed<FlatEntry[]>(() => {
           <TaskBoardPanel
             :document="entry.document"
             :is-active="entry.isActive"
-            :child-boards="(chat.taskBoardForConversation(chat.currentId)?.children ?? undefined)"
+            :child-boards="chat.childBoardsForParent(chat.currentId, entry.storeKey)"
           />
         </div>
       </template>

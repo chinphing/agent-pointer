@@ -656,6 +656,12 @@ pub struct ModelSettings {
     /// When true, settings UI exposes debug sections (independent of raw wire / prompt dump toggles).
     #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
     pub debug_menus_enabled: bool,
+    /// Debug UI switch: show child task boards under parent board panel.
+    #[serde(
+        default = "default_task_board_show_child_boards",
+        rename = "taskBoardShowChildBoards"
+    )]
+    pub task_board_show_child_boards: bool,
     /// Migration flag: append common runtime block (task board + JSON wire tail) as the last user message.
     #[serde(default = "default_user_dynamic_inject_enabled", rename = "userDynamicInjectEnabled")]
     pub user_dynamic_inject_enabled: bool,
@@ -842,6 +848,10 @@ fn default_debug_menus_enabled() -> bool {
     build_cfg_bool!("DEBUG_MENUS_ENABLED", false)
 }
 
+fn default_task_board_show_child_boards() -> bool {
+    false
+}
+
 fn default_user_dynamic_inject_enabled() -> bool {
     build_cfg_bool!("USER_DYNAMIC_INJECT_ENABLED", true)
 }
@@ -938,6 +948,7 @@ impl Default for ModelSettings {
             raw_content_view_enabled: default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             debug_menus_enabled: default_debug_menus_enabled(),
+            task_board_show_child_boards: default_task_board_show_child_boards(),
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: HashMap::new(),
             agent_task_board_history_trim: HashMap::new(),
@@ -1053,6 +1064,11 @@ pub struct PlatformSettings {
     pub debug_dump_llm_prompts: bool,
     #[serde(default = "default_debug_menus_enabled", rename = "debugMenusEnabled")]
     pub debug_menus_enabled: bool,
+    #[serde(
+        default = "default_task_board_show_child_boards",
+        rename = "taskBoardShowChildBoards"
+    )]
+    pub task_board_show_child_boards: bool,
     #[serde(default = "default_user_dynamic_inject_enabled", rename = "userDynamicInjectEnabled")]
     pub user_dynamic_inject_enabled: bool,
     #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
@@ -1369,6 +1385,7 @@ impl Default for PlatformSettings {
             raw_content_view_enabled: platform_default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             debug_menus_enabled: default_debug_menus_enabled(),
+            task_board_show_child_boards: default_task_board_show_child_boards(),
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: default_platform_agent_models(),
             agent_task_board_history_trim: HashMap::new(),
@@ -1423,6 +1440,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         raw_content_view_enabled: platform.raw_content_view_enabled,
         debug_dump_llm_prompts: platform.debug_dump_llm_prompts,
         debug_menus_enabled: platform.debug_menus_enabled,
+        task_board_show_child_boards: platform.task_board_show_child_boards,
         user_dynamic_inject_enabled: platform.user_dynamic_inject_enabled,
         agent_default_models: platform.agent_default_models.clone(),
         agent_task_board_history_trim: platform.agent_task_board_history_trim.clone(),

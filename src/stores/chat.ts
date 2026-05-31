@@ -24,7 +24,7 @@ export interface ConversationTaskBoardState {
   parentByStoreKey: Record<string, TaskBoardDocument>
   parentBindings: Record<string, string>
   activeParentStoreKey: string | null
-  children: Record<string, TaskBoardDocument>
+  childrenByParentStoreKey: Record<string, Record<string, TaskBoardDocument>>
 }
 import {
   isDiscardableEmptyAssistant,
@@ -285,7 +285,7 @@ export const useChatStore = defineStore('chat', () => {
         parentByStoreKey: {},
         parentBindings: {},
         activeParentStoreKey: null,
-        children: {}
+        childrenByParentStoreKey: {}
       }
     }
     return taskBoards.value[convId]
@@ -319,13 +319,21 @@ export const useChatStore = defineStore('chat', () => {
         entry.activeParentStoreKey = null
       }
     } else {
-      const parts = storeKey.split(TASK_BOARD_SUB_SEP)
-      const taskId = parts[parts.length - 1]?.trim()
-      if (taskId) {
+      const splitIdx = storeKey.lastIndexOf(TASK_BOARD_SUB_SEP)
+      if (splitIdx > 0) {
+        const parentStoreKey = storeKey.slice(0, splitIdx).trim()
+        const taskId = storeKey.slice(splitIdx + TASK_BOARD_SUB_SEP.length).trim()
+        if (!parentStoreKey || !taskId) return
+        const group = entry.childrenByParentStoreKey[parentStoreKey] ?? {}
         if (hasTaskBoardContent(doc)) {
-          entry.children[taskId] = doc
+          group[taskId] = doc
         } else {
-          delete entry.children[taskId]
+          delete group[taskId]
+        }
+        if (Object.keys(group).length > 0) {
+          entry.childrenByParentStoreKey[parentStoreKey] = group
+        } else {
+          delete entry.childrenByParentStoreKey[parentStoreKey]
         }
       }
     }
@@ -358,7 +366,7 @@ export const useChatStore = defineStore('chat', () => {
           ? (doc as TaskBoardDocument).task_id.slice(3)
           : ''
       const storeKey = taskId?.trim()
-        ? `${conversationId}${TASK_BOARD_SUB_SEP}${taskId.trim()}`
+        ? `${taskBoards.value[conversationId]?.activeParentStoreKey || conversationId}${TASK_BOARD_SUB_SEP}${taskId.trim()}`
         : inferredStoreKey || taskBoards.value[conversationId]?.activeParentStoreKey || conversationId
       applyTaskBoardDocument(conversationId, storeKey, doc as TaskBoardDocument)
     } catch (e) {
@@ -387,6 +395,18 @@ export const useChatStore = defineStore('chat', () => {
   function taskBoardForConversation(convId: string | null): ConversationTaskBoardState | null {
     if (!convId) return null
     return taskBoards.value[convId] ?? null
+  }
+
+  function childBoardsForParent(
+    convId: string | null,
+    parentStoreKey: string
+  ): Record<string, TaskBoardDocument> {
+    if (!convId) return {}
+    const showChildren = useSettingsStore().settings.taskBoardShowChildBoards === true
+    if (!showChildren) return {}
+    const entry = taskBoards.value[convId]
+    if (!entry) return {}
+    return entry.childrenByParentStoreKey[parentStoreKey] ?? {}
   }
 
   function showUiToast(message: string, level: 'success' | 'warning' | 'error') {
@@ -868,11 +888,13 @@ export const useChatStore = defineStore('chat', () => {
     const conv = current.value!
     if (!content.trim() || isConversationGenerating(conv.id)) return
     const platformAuth = usePlatformAuthStore()
+    let refreshErrorMessage: string | null = null
     if (isTauriRuntime()) {
       try {
         await platformAuth.ensureFreshSession()
       } catch (e) {
         console.error('[chat] platform session refresh failed', e)
+        refreshErrorMessage = e instanceof Error ? e.message : String(e)
       }
       if (!platformAuth.session.logged_in) {
         conv.messages.push({
@@ -881,7 +903,10 @@ export const useChatStore = defineStore('chat', () => {
           content: '',
           status: 'error',
           createdAt: Date.now(),
-          errorMessage: '请先登录 Pointer 账户'
+          errorMessage:
+            refreshErrorMessage ||
+            platformAuth.error ||
+            '请先登录 Pointer 账户'
         })
         persist()
         return
@@ -1023,6 +1048,7 @@ export const useChatStore = defineStore('chat', () => {
     init, newConversation, selectConversation, deleteConversation,
     sendUserMessage, stop, abortTerminalOnly, retry, approve, undo,
     refreshTaskBoard, taskBoardForConversation, parentBoardsBoundToMessage,
+    childBoardsForParent,
     setConversationWorkspace, applyPersistedComposerDefaults, showUiToast
   }
 })

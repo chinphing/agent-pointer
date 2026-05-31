@@ -24,13 +24,6 @@ const avatarIcon = computed(() => iconForAgentAvatar(messageUi.value.avatar))
 const hasVisibleBodyText = computed(() => !!(props.message.content?.trim() || props.message.headline?.trim()))
 const hasToolCards = computed(() => (props.message.toolCalls?.length ?? 0) > 0)
 const isToolOnlyAssistantRow = computed(() => hasToolCards.value && !hasVisibleBodyText.value)
-
-const showAgentLabel = computed(
-  () =>
-    messageUi.value.showAgentLabel
-    && !!(props.message.agentName?.trim())
-    && !isToolOnlyAssistantRow.value
-)
 </script>
 
 <template>
@@ -53,10 +46,6 @@ const showAgentLabel = computed(
       class="min-w-0 flex flex-col w-full"
       :class="kind === 'injected_notice' ? '' : 'flex-1'"
     >
-      <div
-        v-if="showAgentLabel && kind !== 'injected_notice'"
-        class="text-[11px] text-muted mb-1"
-      >{{ message.agentName }}</div>
       <AssistantNoticeMessage v-if="kind === 'injected_notice'" :message="message" />
       <div v-else-if="kind === 'error'" class="w-full min-w-0">
         <AssistantErrorMessage :message="message" />

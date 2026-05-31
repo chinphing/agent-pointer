@@ -9,7 +9,11 @@ import { useSettingsStore } from '../../stores/settings'
 import { uiForMessageAgent, useAgentsCatalog } from '../../composables/useAgentUi'
 import { visibleToolCalls } from '../../lib/messageTooling'
 import type { ChatMessage, TaskBoardDocument, ToolCall } from '../../types/chat'
-import { assistantDisplayKind, isToolOnlyAssistantMessage } from '../../lib/assistantMessageKind'
+import {
+  assistantDisplayKind,
+  isEphemeralDesktopNoticeMessage,
+  isToolOnlyAssistantMessage
+} from '../../lib/assistantMessageKind'
 
 const chat = useChatStore()
 const settings = useSettingsStore()
@@ -135,17 +139,30 @@ function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): st
     prev.type === 'message'
     && prev.message.role === 'assistant'
     && !isToolOnlyAssistantMessage(prev.message)
+    && !isEphemeralDesktopNoticeMessage(prev.message)
   const prevIsToolRun = prev.type === 'tool_run'
+  const prevIsDesktopNotice =
+    prev.type === 'message'
+    && prev.message.role === 'assistant'
+    && isEphemeralDesktopNoticeMessage(prev.message)
 
   if (entry.type === 'tool_run') {
+    if (prevIsDesktopNotice) return 'mt-0.5'
     if (prevIsAssistantText || prevIsUser) return 'mt-1.5'
     if (prevIsToolRun) return 'mt-0'
     return 'mt-1.5'
   }
 
   if (entry.type === 'message') {
+    const isDesktopNotice =
+      entry.message.role === 'assistant' && isEphemeralDesktopNoticeMessage(entry.message)
+    if (isDesktopNotice) {
+      if (prevIsToolRun || prevIsDesktopNotice) return 'mt-0.5'
+      return 'mt-1.5'
+    }
     if (entry.message.role === 'user') return 'mt-7'
     if (prevIsToolRun) return 'mt-4'
+    if (prevIsDesktopNotice) return 'mt-1.5'
     if (prevIsUser) return 'mt-7'
     if (prev.type === 'message' && prev.message.role === 'assistant') {
       return assistantMessageHadTools(prev) ? 'mt-4' : 'mt-7'
@@ -183,12 +200,12 @@ function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): st
           :class="entrySpacing(entry, index, flatMessages)"
         >
           <ToolMessageSegment
-            v-for="(group, gi) in entry.groups"
+            v-for="group in entry.groups"
             :key="group.id"
             :message="group.message"
             :tool-calls="visibleToolsForMessage(group.message, group.toolCalls)"
             :message-ui="uiForMessageAgent(group.message.agentId, group.message.agentName, settings.settings, agentsCatalog)"
-            :compact-top="gi > 0"
+            compact-top
           />
         </div>
         <div

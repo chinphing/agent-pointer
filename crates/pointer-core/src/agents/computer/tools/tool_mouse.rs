@@ -53,7 +53,7 @@ impl MouseIndexTool {
             "hover" => self.hover(args),
             "drag_from_to" => self.drag_from_to(args),
             _ => Err(anyhow!(
-                "Unknown mouse_index method: {method}. Use click, double_click, right_click, hover, drag_from_to."
+                "Unknown mouse method: {method}. Use click, double_click, right_click, hover, drag_from_to."
             )),
         }
     }

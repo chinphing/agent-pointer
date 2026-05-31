@@ -44,12 +44,18 @@ fn resolve_method(raw_name: &str, args: &Value) -> String {
             return m.to_string();
         }
     }
-    args.get("method")
+    let from_method = args
+        .get("method")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .unwrap_or_default()
-        .to_string()
+        .to_string();
+    if !from_method.is_empty() {
+        return from_method;
+    }
+    let base = registry_tool_base_name(raw_name);
+    crate::agents::computer::tools::method_route::operation_name_for_display(base, raw_name, args)
 }
 
 fn file_method_label(method: &str) -> &'static str {
@@ -284,7 +290,7 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             (file_method_label(m).to_string(), file_summary(args, m))
         }
         "mouse" => {
-            let ml = mouse_method_label(if method.is_empty() { "action" } else { &method });
+            let ml = mouse_method_label(if method.is_empty() { "click_index" } else { &method });
             (
                 format!("鼠标 · {ml}"),
                 computer_action_summary(args),

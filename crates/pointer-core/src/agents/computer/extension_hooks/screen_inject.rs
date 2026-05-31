@@ -86,7 +86,7 @@ fn slot_labels_for_tier(tier: ComputerTier, has_previous_raw: bool) -> Vec<&'sta
 }
 
 fn build_cur_screen_preamble(tier: ComputerTier, has_previous_raw: bool) -> String {
-    let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth — when reasoning internally, cite **On [slot name]:**; do not invent UI from task text or prior turns. Do not write reasoning in assistant message text — tool calls only until a final user reply.";
+    let cite = "Each screenshot below is preceded by its slot label on its own line. Treat only what you see in that labeled image as ground truth — when reasoning internally, cite **On [slot name]:**; do not invent UI from task text or prior turns. Do not write internal checklists in assistant message text. When the user must see a reply (question, blockage, completion), write plain text in **content** in the same turn — reasoning alone is invisible to the user.";
     match tier {
         ComputerTier::Primary => format!(
             "{CUR_SCREEN_TAG} Primary uses two or three labeled images this turn: optional {SLOT_SCREEN_BEFORE_ACTION}, then {SLOT_SCREEN_AFTER_ACTION}, then {SLOT_SCREEN_ANNOTATED}. {cite} \

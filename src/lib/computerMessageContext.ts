@@ -41,7 +41,8 @@ export function showAnnotatedScreenAction(
 ): boolean {
   if (!settings.annotatedScreenViewEnabled) return false
   if (message.role !== 'assistant') return false
-  if (computerSingleLead(settings)) return true
+  if (message.agentId === 'computer') return true
+  if (message.computerRoundScreenRelPath?.trim()) return true
   if (settings.agentMode === 'supervisor' && messageFromComputerAgent(message)) return true
   return false
 }

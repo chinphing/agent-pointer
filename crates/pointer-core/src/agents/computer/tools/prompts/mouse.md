@@ -45,9 +45,12 @@ schema:
 
 ### mouse
 
-Single **mouse** tool. Set **`method`** (or legacy **`action`**) to the operation name — routing is by method suffix, not by separate tools.
+Single **mouse** tool. Set **`method`** to the operation name (`click_index`, `click_at`, …).
 
-Every call requires **`goal`** and **`action`**. Optional: `human_like`, `wait` (1–5 s).
+Every call requires **`goal`** (outcome) and **`action`** (human-readable target description for the UI).
+**`action` is not the operation name** — do not put `click_index` in `action`.
+
+Optional: `human_like`, `wait` (1–5 s).
 
 **Index (overlay digit):**
 - **`click_index`**, **`double_click_index`**, **`right_click_index`**, **`hover_index`** — require **`index`** (clicks bbox **center**)

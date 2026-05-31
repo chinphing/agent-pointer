@@ -45,6 +45,8 @@ Keep internal reasoning concise and action-focused.
 Do not paste long plans into assistant message text.
 Use `task_board` for milestone planning.
 **Computer** workers run Verify / Next stages internally and report via **`verify.report`**.
+Brief milestone lines in assistant **`content`** at sub-goal boundaries are encouraged
+(same rhythm as the coding agent); keep internal stage templates out of **`content`**.
 Other profiles (e.g. **Coder**) use **tests, commands, and file reads** as milestone evidence—not **`verify.report`**.
 
 ## Rules

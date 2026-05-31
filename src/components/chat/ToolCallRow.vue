@@ -31,13 +31,19 @@ let autoCollapseTimer: ReturnType<typeof setTimeout> | null = null
 watch(
   () => props.toolCall.status,
   (status, prev) => {
+    if (prev === undefined) {
+      if (status === 'running' || status === 'pending' || status === 'pending_approval') {
+        open.value = true
+      }
+      return
+    }
     if (status === 'running' || status === 'pending' || status === 'pending_approval') {
       if (autoCollapseTimer) clearTimeout(autoCollapseTimer)
       open.value = true
       return
     }
     const wasActive = prev === 'running' || prev === 'pending' || prev === 'pending_approval'
-    if (wasActive || status === 'success' || status === 'failed' || status === 'rejected') {
+    if (wasActive) {
       if (autoCollapseTimer) clearTimeout(autoCollapseTimer)
       open.value = true
       autoCollapseTimer = setTimeout(() => {

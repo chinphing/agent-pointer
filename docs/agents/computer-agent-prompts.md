@@ -103,6 +103,18 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 
 `prompts/tiers/advanced/communication.md`：证明式七阶段、坐标 `*_at`、reference index R 仅作锚点。Primary 为 hybrid（index + coordinate），Intermediate 维持 index-only。
 
+## Sidecar-only 回合（宿主）
+
+Computer 每轮可含 sidecar（`verify.report`、`task_board.*`）与至多一个 root 桌面工具。
+
+| 工具批次 | `content` | 宿主行为 |
+|----------|-----------|----------|
+| 仅 sidecar | 非空 | 执行 sidecar 后 **结束本轮 run**（用户可见回复） |
+| 仅 sidecar | 空 | 执行 sidecar 后注入 **【提示】** recovery，继续 loop |
+| 含 root 桌面工具 | 任意 | 正常进入下一轮截图 |
+
+实现：`agents/computer/sidecar_turn.rs`，挂接于 `chat_service/single_agent.rs`。
+
 ## 外部 Agent 目录覆盖
 
 自定义 `computer` 目录时，Advanced communication 优先读：

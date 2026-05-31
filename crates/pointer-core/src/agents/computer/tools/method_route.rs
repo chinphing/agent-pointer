@@ -1,4 +1,8 @@
-//! Route unified computer tool `method` / `action` labels to internal backends.
+//! Route unified computer tool `method` labels to internal backends.
+//!
+//! `action` in tool args is the **human target description** (shown in UI).
+//! `method` is the **operation name** (`click_index`, `click_at`, …).
+//! Do not treat natural-language `action` as the operation.
 
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -38,17 +42,6 @@ pub struct RoutedModifiedClick {
     pub method: String,
 }
 
-pub fn legacy_method_label(args: &Value) -> Result<String> {
-    let m = args
-        .get("method")
-        .and_then(|v| v.as_str())
-        .or_else(|| args.get("action").and_then(|v| v.as_str()))
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| anyhow!("Missing 'method' or 'action' in tool_args."))?;
-    Ok(m.to_string())
-}
-
 fn has_xy(args: &Value) -> bool {
     args.get("x").is_some() && args.get("y").is_some()
 }
@@ -64,8 +57,186 @@ fn strip_suffix(name: &str, suffix: &str) -> String {
     name.strip_suffix(suffix).unwrap_or(name).to_string()
 }
 
+/// True when `s` looks like an ASCII operation name, not a human target description.
+fn looks_like_operation_name(s: &str) -> bool {
+    let s = s.trim();
+    if s.is_empty() || !s.is_ascii() {
+        return false;
+    }
+    if !s
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        return false;
+    }
+    let lower = s.to_ascii_lowercase();
+    lower.ends_with("_index")
+        || lower.ends_with("_at")
+        || lower.ends_with("_current")
+        || lower.ends_with("_focused")
+        || matches!(
+            lower.as_str(),
+            "click"
+                | "double_click"
+                | "right_click"
+                | "hover"
+                | "drag_from_to"
+                | "scroll"
+                | "move_offset"
+                | "type_text"
+                | "select"
+                | "range_select"
+                | "click_at"
+                | "click_index"
+                | "click_current"
+                | "double_click_at"
+                | "double_click_index"
+                | "double_click_current"
+                | "right_click_at"
+                | "right_click_index"
+                | "right_click_current"
+                | "hover_at"
+                | "hover_index"
+                | "drag_from_to_at"
+                | "drag_from_to_index"
+                | "scroll_at_current"
+                | "type_text_at"
+                | "type_text_at_index"
+                | "type_text_at_focused"
+                | "scroll_at_index"
+                | "select_index"
+                | "select_at"
+                | "range_select_index"
+                | "range_select_at"
+        )
+}
+
+fn explicit_operation_label(args: &Value) -> Option<String> {
+    if let Some(m) = args
+        .get("method")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(m.to_string());
+    }
+    if let Some(a) = args
+        .get("action")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        if looks_like_operation_name(a) {
+            return Some(a.to_string());
+        }
+    }
+    None
+}
+
+fn infer_mouse_operation(args: &Value) -> Result<String> {
+    if args.get("from_index").is_some() && args.get("to_index").is_some() {
+        return Ok("drag_from_to_index".to_string());
+    }
+    if has_index_targeting(args) {
+        return Ok("click_index".to_string());
+    }
+    if has_xy(args) {
+        if args.get("x2").is_some() && args.get("y2").is_some() {
+            return Ok("drag_from_to_at".to_string());
+        }
+        return Ok("click_at".to_string());
+    }
+    if args.get("lines").is_some() {
+        return Ok("scroll_at_current".to_string());
+    }
+    if args.get("offset_x").is_some() || args.get("offset_y").is_some() {
+        return Ok("move_offset".to_string());
+    }
+    Err(anyhow!(
+        "Missing 'method' in tool_args (e.g. click_index, click_at). \
+         'action' is the human target description, not the operation name."
+    ))
+}
+
+fn infer_composite_operation(args: &Value) -> Result<String> {
+    if args.get("index").is_some() {
+        if args.get("text").is_some() {
+            return Ok("type_text_at_index".to_string());
+        }
+        return Ok("scroll_at_index".to_string());
+    }
+    if args.get("text").is_some() && has_xy(args) {
+        return Ok("type_text_at".to_string());
+    }
+    if args.get("text").is_some() {
+        return Ok("type_text_at_focused".to_string());
+    }
+    Err(anyhow!(
+        "Missing 'method' in tool_args (e.g. type_text_at_index). \
+         'action' is the human target description, not the operation name."
+    ))
+}
+
+fn infer_modified_click_operation(args: &Value) -> Result<String> {
+    if args.get("indices").is_some() || has_index_targeting(args) {
+        let range = args
+            .get("range_select")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        return Ok(if range {
+            "range_select_index".to_string()
+        } else {
+            "select_index".to_string()
+        });
+    }
+    if args.get("positions").is_some() || has_xy(args) {
+        return Ok("select_at".to_string());
+    }
+    Err(anyhow!(
+        "Missing 'method' in tool_args. \
+         'action' is the human target description, not the operation name."
+    ))
+}
+
+fn resolve_mouse_operation_label(args: &Value) -> Result<String> {
+    explicit_operation_label(args)
+        .ok_or_else(|| ())
+        .or_else(|_| infer_mouse_operation(args))
+}
+
+fn resolve_composite_operation_label(args: &Value) -> Result<String> {
+    explicit_operation_label(args)
+        .ok_or_else(|| ())
+        .or_else(|_| infer_composite_operation(args))
+}
+
+fn resolve_modified_click_operation_label(args: &Value) -> Result<String> {
+    explicit_operation_label(args)
+        .ok_or_else(|| ())
+        .or_else(|_| infer_modified_click_operation(args))
+}
+
+/// Best-effort operation name for UI labels (qualified tool name + args).
+pub fn operation_name_for_display(base: &str, raw_name: &str, args: &Value) -> String {
+    if let Some((_, m)) = raw_name.split_once(':') {
+        let m = m.trim();
+        if !m.is_empty() {
+            return m.to_string();
+        }
+    }
+    if let Some(m) = explicit_operation_label(args) {
+        return m;
+    }
+    match base {
+        "mouse" => resolve_mouse_operation_label(args).unwrap_or_default(),
+        "composite_action" => resolve_composite_operation_label(args).unwrap_or_default(),
+        "modified_click" => resolve_modified_click_operation_label(args).unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
 pub fn route_mouse(args: &Value) -> Result<RoutedMouse> {
-    let legacy = legacy_method_label(args)?;
+    let legacy = resolve_mouse_operation_label(args)?;
     let lower = legacy.to_ascii_lowercase();
 
     if lower.ends_with("_current")
@@ -117,7 +288,7 @@ pub fn route_mouse(args: &Value) -> Result<RoutedMouse> {
 }
 
 pub fn route_composite(args: &Value) -> Result<RoutedComposite> {
-    let legacy = legacy_method_label(args)?;
+    let legacy = resolve_composite_operation_label(args)?;
     let lower = legacy.to_ascii_lowercase();
 
     if lower.ends_with("_index") || args.get("index").is_some() {
@@ -164,7 +335,7 @@ pub fn route_composite(args: &Value) -> Result<RoutedComposite> {
 }
 
 pub fn route_modified_click(args: &Value) -> Result<RoutedModifiedClick> {
-    let legacy = legacy_method_label(args)?;
+    let legacy = resolve_modified_click_operation_label(args)?;
     let lower = legacy.to_ascii_lowercase();
 
     if has_index_targeting(args) || lower.ends_with("_index") {
@@ -202,7 +373,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn routes_mouse_click_at_with_action_field() {
+    fn routes_mouse_click_at_with_legacy_action_operation() {
         let args = json!({
             "action": "click_at",
             "goal": "open wechat",
@@ -220,5 +391,30 @@ mod tests {
         let r = route_mouse(&args).unwrap();
         assert_eq!(r.backend, MouseBackend::Index);
         assert_eq!(r.method, "click");
+    }
+
+    #[test]
+    fn routes_mouse_click_index_when_action_is_human_description() {
+        let args = json!({
+            "goal": "打开微信应用",
+            "action": "点击 Dock 栏中的微信图标",
+            "index": 133
+        });
+        let r = route_mouse(&args).unwrap();
+        assert_eq!(r.backend, MouseBackend::Index);
+        assert_eq!(r.method, "click");
+    }
+
+    #[test]
+    fn display_infers_click_index_from_index_only() {
+        let args = json!({
+            "goal": "g",
+            "action": "点击 Dock 栏中的微信图标",
+            "index": 133
+        });
+        assert_eq!(
+            operation_name_for_display("mouse", "mouse", &args),
+            "click_index"
+        );
     }
 }

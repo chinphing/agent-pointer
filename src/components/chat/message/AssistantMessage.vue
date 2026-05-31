@@ -2,7 +2,11 @@
 import { computed } from 'vue'
 import { Bot } from 'lucide-vue-next'
 import type { ChatMessage, ToolCall } from '../../../types/chat'
-import { assistantDisplayKind, isToolOnlyAssistantMessage } from '../../../lib/assistantMessageKind'
+import {
+  assistantDisplayKind,
+  isEphemeralDesktopNoticeMessage,
+  isToolOnlyAssistantMessage
+} from '../../../lib/assistantMessageKind'
 import { iconForAgentAvatar } from '../../../lib/agentIcons'
 import { uiForMessageAgent, useAgentsCatalog } from '../../../composables/useAgentUi'
 import { useSettingsStore } from '../../../stores/settings'
@@ -25,13 +29,15 @@ const messageUi = computed(() =>
 
 const avatarIcon = computed(() => iconForAgentAvatar(messageUi.value.avatar))
 const toolOnly = computed(() => isToolOnlyAssistantMessage(props.message))
-const hideAvatar = computed(() => toolOnly.value || props.compact === true)
+const desktopNotice = computed(() => isEphemeralDesktopNoticeMessage(props.message))
+const hideAvatar = computed(() => toolOnly.value || desktopNotice.value || props.compact === true)
+const compactShell = computed(() => toolOnly.value || desktopNotice.value)
 </script>
 
 <template>
   <div
     class="chat-hover-root relative chat-column"
-    :class="toolOnly ? 'tool-only-message' : ''"
+    :class="compactShell ? 'tool-only-message' : ''"
   >
     <div
       v-if="!hideAvatar"

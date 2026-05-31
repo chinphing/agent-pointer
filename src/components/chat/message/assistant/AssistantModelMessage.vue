@@ -83,6 +83,8 @@ const showMessageActions = computed(() => {
 
 const leadBody = computed((): AgentMessageBodyModel => ({
   thoughts: props.message.thoughts,
+  toolNamePreview: props.message.toolNamePreview,
+  responseTextDraft: props.message.responseTextDraft,
   reasoning: props.message.reasoning,
   content: props.message.content,
   rawContent: props.message.rawContent,

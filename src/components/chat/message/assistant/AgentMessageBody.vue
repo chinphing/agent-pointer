@@ -4,12 +4,12 @@ import { marked } from 'marked'
 import type { MessageStatus, ToolCall, ChatMessage } from '../../../../types/chat'
 import { useMarkdownCodeCopy } from '../../../../composables/useMarkdownCodeCopy'
 import { useMarkdownExternalLinks } from '../../../../composables/useMarkdownExternalLinks'
-import { visibleToolCalls, isResponseAssistantMessage, toolCallBaseName } from '../../../../lib/messageTooling'
+import { visibleToolCalls, toolCallBaseName } from '../../../../lib/messageTooling'
 import type { ResolvedAgentUi } from '../../../../lib/agentUi'
 import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
-import MessageFooterActions from '../MessageFooterActions.vue'
 import ToolMessageSegment from './ToolMessageSegment.vue'
+import AssistantMessageDebugChrome from './AssistantMessageDebugChrome.vue'
 
 export interface AgentMessageBodyModel {
   thoughts?: string
@@ -120,7 +120,7 @@ const tools = computed(() =>
     : []
 )
 
-const leadSegmentMessage = computed((): ChatMessage => {
+const footerMessage = computed((): ChatMessage | undefined => {
   if (props.leadMessage) return props.leadMessage
   return {
     id: `body-${props.body.createdAt}`,
@@ -136,35 +136,43 @@ const leadSegmentMessage = computed((): ChatMessage => {
   } as ChatMessage
 })
 
-const toolSegments = computed(() => {
+const leadToolCalls = computed(() => tools.value)
+
+const trailingToolSegments = computed(() => {
   const segments: {
     message: ChatMessage
     toolCalls: ToolCall[]
-    compactTop: boolean
-    copyText?: string
   }[] = []
 
-  if (tools.value.length > 0) {
-    segments.push({
-      message: leadSegmentMessage.value,
-      toolCalls: tools.value,
-      compactTop: !hasMainBody.value,
-      copyText: hasMainBody.value ? copyText.value : undefined
-    })
-  }
-
   for (const group of props.trailingToolGroups ?? []) {
+    const visible = trailingToolsForGroup(group)
+    if (visible.length === 0) continue
     segments.push({
       message: group.message,
-      toolCalls: trailingToolsForGroup(group),
-      compactTop: segments.length > 0 || hasMainBody.value
+      toolCalls: visible
     })
   }
 
   return segments
 })
 
-const hasTools = computed(() => toolSegments.value.length > 0)
+const hasTrailingTools = computed(() => trailingToolSegments.value.length > 0)
+
+const showLeadUnit = computed(
+  () =>
+    showReasoningBlock.value
+    || hasMainBody.value
+    || leadToolCalls.value.length > 0
+)
+
+const leadToolsCompactTop = computed(() => {
+  if (hasTrailingTools.value) return true
+  return !hasMainBody.value && !showReasoningBlock.value
+})
+
+const showToolSegments = computed(
+  () => showLeadUnit.value || hasTrailingTools.value
+)
 
 function trailingToolsForGroup(group: { toolCalls: ToolCall[]; message: ChatMessage }): ToolCall[] {
   return props.messageUi.showToolCalls
@@ -179,8 +187,42 @@ function trailingToolsForGroup(group: { toolCalls: ToolCall[]; message: ChatMess
 
 const showThoughtPanels = computed(() => showThoughtsPanel.value)
 
+const CHARS_PER_DOT = 100
+const MAX_THINKING_DOTS = 48
+
+const isRunInProgress = computed(
+  () => isStreaming.value || (props.generating && props.isActiveGenerationMessage)
+)
+
+const streamedCharCount = computed(() => {
+  const c = props.body.content?.length ?? 0
+  const raw = props.body.rawContent?.length ?? 0
+  const thoughtsLen = props.body.thoughts?.length ?? 0
+  const toolPreview = props.body.toolNamePreview?.length ?? 0
+  const draftLen = props.body.responseTextDraft?.length ?? 0
+  const reasoningLen = props.body.reasoning?.length ?? 0
+  return Math.max(c, raw, thoughtsLen, toolPreview, draftLen, reasoningLen)
+})
+
+const thinkingDots = computed(() => {
+  const n = streamedCharCount.value
+  const segments = n <= 0 ? 1 : Math.ceil(n / CHARS_PER_DOT)
+  return Math.min(MAX_THINKING_DOTS, segments)
+})
+
+const thinkingLabel = computed(() => `思考中${'.'.repeat(thinkingDots.value)}`)
+
 const showReasoningBlock = computed(() =>
   props.messageUi.showReasoning && !!(props.body.reasoning?.trim())
+)
+
+const showThinkingIndicator = computed(
+  () =>
+    isRunInProgress.value &&
+    !showMdBody.value &&
+    !showThoughtPanels.value &&
+    !showStreamingPlaceholderUnderThoughts.value &&
+    !showReasoningBlock.value
 )
 
 const hasMainBody = computed(
@@ -188,22 +230,16 @@ const hasMainBody = computed(
     showMdBody.value ||
     showStreamingPlaceholderUnderThoughts.value ||
     showThoughtPanels.value ||
+    showThinkingIndicator.value ||
     props.body.status === 'error'
 )
 
 const showCopyButton = computed(() => {
   if (props.hideCopy) return false
-  return isResponseAssistantMessage({
-    toolCalls: props.body.toolCalls,
-    toolNamePreview: props.body.toolNamePreview,
-    responseTextDraft: props.body.responseTextDraft,
-    content: props.body.content ?? ''
-  })
+  if (props.toolOnly) return false
+  if (!copyText.value.trim()) return false
+  return showMdBody.value || props.body.status === 'error'
 })
-
-const showTextFooter = computed(
-  () => !isStreaming.value && hasMainBody.value && tools.value.length === 0
-)
 
 const copyText = computed(() => {
   const fromMd = markdownSource.value.trim()
@@ -256,75 +292,97 @@ onUnmounted(() => clearReasoningCollapseTimer())
 </script>
 
 <template>
-  <div class="w-full max-w-full" :class="toolOnly ? 'space-y-0' : 'space-y-2'">
-    <!-- 推理过程 -->
-    <div
-      v-if="showReasoningBlock"
-      class="w-full rounded-2xl border border-border/50 border-l-2 border-l-accent/40 px-3 py-2.5 bg-muted/10 overflow-hidden"
-    >
-      <button
-        type="button"
-        class="w-full min-w-0 text-left flex items-center gap-1.5 cursor-pointer select-none hover:bg-hover transition rounded-md -mx-0.5 px-0.5"
-        :aria-expanded="reasoningOpen"
-        @click="toggleReasoning"
+  <div class="w-full max-w-full space-y-0">
+    <div v-if="showToolSegments" class="tool-segments">
+      <div
+        v-if="showLeadUnit"
+        class="assistant-message-unit chat-hover-root w-full"
       >
-        <span class="shrink-0 text-[11px] text-muted font-medium">推理过程</span>
-        <span
-          class="inline-block w-3 shrink-0 text-muted text-center text-[10px] transition-transform pt-0.5"
-          :class="reasoningOpen ? 'rotate-90' : ''"
-        >▸</span>
-      </button>
-      <div
-        v-if="reasoningOpen"
-        class="mt-2 text-[13px] leading-relaxed text-muted whitespace-pre-wrap break-words border-t border-border/30 pt-2"
-      >{{ body.reasoning?.trim() }}</div>
-    </div>
+        <div
+          v-if="showReasoningBlock"
+          class="w-full rounded-2xl border border-border/50 border-l-2 border-l-accent/40 px-3 py-2.5 bg-muted/10 overflow-hidden"
+        >
+          <button
+            type="button"
+            class="w-full min-w-0 text-left flex items-center gap-1.5 cursor-pointer select-none hover:bg-hover transition rounded-md -mx-0.5 px-0.5"
+            :aria-expanded="reasoningOpen"
+            @click="toggleReasoning"
+          >
+            <span class="shrink-0 text-[11px] text-muted font-medium">推理过程</span>
+            <span
+              class="inline-block w-3 shrink-0 text-muted text-center text-[10px] transition-transform pt-0.5"
+              :class="reasoningOpen ? 'rotate-90' : ''"
+            >▸</span>
+          </button>
+          <div
+            v-if="reasoningOpen"
+            class="mt-2 text-[13px] leading-relaxed text-muted whitespace-pre-wrap break-words border-t border-border/30 pt-2"
+          >{{ body.reasoning?.trim() }}</div>
+        </div>
 
-    <div v-if="hasMainBody" class="chat-hover-root relative w-full break-words overflow-x-auto">
-      <ModelThoughtPanels
-        v-if="showThoughtPanels"
-        :xml-thoughts="body.thoughts"
-        :thoughts-debug-enabled="thoughtsDebugEnabled"
-        :is-streaming="isContentStreaming"
-      />
+        <div v-if="hasMainBody" class="relative w-full break-words overflow-x-auto">
+          <ModelThoughtPanels
+            v-if="showThoughtPanels"
+            :xml-thoughts="body.thoughts"
+            :thoughts-debug-enabled="thoughtsDebugEnabled"
+            :is-streaming="isContentStreaming"
+          />
 
-      <div
-        v-if="showMdBody"
-        ref="bodyRef"
-        class="md-body md-body-flow px-3"
-        v-html="html"
-      />
-      <div
-        v-else-if="showStreamingPlaceholderUnderThoughts"
-        class="flex items-center text-muted text-sm px-3"
-      >
-        <span class="typing-dot" />
-        <span class="typing-dot" style="animation-delay: 0.2s" />
-        <span class="typing-dot" style="animation-delay: 0.4s" />
+          <div
+            v-if="showThinkingIndicator"
+            class="text-[11px] text-muted px-3 py-1 select-none"
+            role="status"
+            aria-live="polite"
+          >
+            {{ thinkingLabel }}
+          </div>
+
+          <div
+            v-if="showMdBody"
+            ref="bodyRef"
+            class="md-body md-body-flow px-3"
+            v-html="html"
+          />
+          <div
+            v-else-if="showStreamingPlaceholderUnderThoughts"
+            class="flex items-center text-muted text-sm px-3"
+          >
+            <span class="typing-dot" />
+            <span class="typing-dot" style="animation-delay: 0.2s" />
+            <span class="typing-dot" style="animation-delay: 0.4s" />
+          </div>
+
+          <div v-if="body.status === 'error'" class="mt-2 flex items-center gap-2 text-xs text-danger px-3">
+            {{ body.errorMessage || '生成失败' }}
+          </div>
+        </div>
+
+        <ToolMessageSegment
+          v-if="leadToolCalls.length && footerMessage"
+          :message="footerMessage"
+          :tool-calls="leadToolCalls"
+          :message-ui="messageUi"
+          :compact-top="leadToolsCompactTop"
+          hide-footer
+        />
+
+        <AssistantMessageDebugChrome
+          v-if="footerMessage"
+          :message="footerMessage"
+          :copy-text="copyText"
+          :show-copy="showCopyButton || undefined"
+          :generating="generating"
+          :is-active-generation-message="isActiveGenerationMessage"
+        />
       </div>
 
-      <div v-if="body.status === 'error'" class="mt-2 flex items-center gap-2 text-xs text-danger px-3">
-        {{ body.errorMessage || '生成失败' }}
-      </div>
-
-      <MessageFooterActions
-        v-if="showTextFooter"
-        class="px-3 !mt-0"
-        :created-at="body.createdAt"
-        :copy-text="copyText"
-        :show-copy="showCopyButton"
-      />
-    </div>
-
-    <div v-if="hasTools" class="tool-segments">
       <ToolMessageSegment
-        v-for="segment in toolSegments"
+        v-for="segment in trailingToolSegments"
         :key="segment.message.id"
         :message="segment.message"
         :tool-calls="segment.toolCalls"
         :message-ui="messageUi"
-        :compact-top="segment.compactTop"
-        :copy-text="segment.copyText"
+        compact-top
       />
     </div>
   </div>

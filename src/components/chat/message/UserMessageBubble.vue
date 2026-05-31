@@ -33,7 +33,7 @@ useMarkdownExternalLinks(bodyRef, () => props.message.content)
 
     <div class="max-w-[85%] min-w-0 flex flex-col items-end">
       <div
-        class="relative w-full rounded-2xl px-3 py-2.5 panel-elevated break-words text-foreground"
+        class="relative w-full rounded-2xl px-3 pt-2 pb-2 panel-elevated break-words text-foreground"
         :class="isContextExcluded(message) ? 'opacity-80' : ''"
       >
         <div
@@ -45,7 +45,7 @@ useMarkdownExternalLinks(bodyRef, () => props.message.content)
         <ContextExcludedFooter :message="message" />
         <MessageFooterActions
           v-if="message.content"
-          class="message-footer-actions--inset"
+          class="justify-end"
           :created-at="message.createdAt"
           :copy-text="message.content"
           :show-copy="true"

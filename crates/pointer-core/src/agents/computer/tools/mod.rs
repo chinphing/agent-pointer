@@ -4,7 +4,7 @@
 
 pub mod args_util;
 mod dati_client;
-mod method_route;
+pub mod method_route;
 mod tool_captcha_verify;
 mod tool_clipboard;
 mod tool_composite;

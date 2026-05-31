@@ -23,63 +23,6 @@ use anyhow::Result;
 use std::sync::Arc;
 use tool_modified_click::ModifiedClickTool;
 
-const PRIMARY_MOUSE_DOC: &str = r#"### mouse
-
-Use for a single mouse action: click, double-click, right-click, hover, drag, scroll at current cursor, or a small offset move.
-
-Primary may use both index and coordinate methods. Pick one route per call from tier communication.
-
-Index methods: `mouse.click_index`, `mouse.double_click_index`, `mouse.right_click_index`, `mouse.hover_index`, `mouse.drag_from_to_index`.
-Coordinate methods: `mouse.click_at`, `mouse.double_click_at`, `mouse.right_click_at`, `mouse.hover_at`, `mouse.drag_from_to_at`.
-Current cursor methods: `mouse.click_current`, `mouse.double_click_current`, `mouse.right_click_current`, `mouse.scroll_at_current`, `mouse.move_offset`.
-
-Parameter constraints:
-- `goal` and `action` are required.
-- Use either index args (`index`/`from_index`/`to_index`) or coordinate args (`x/y` or `x1/y1/x2/y2`) in one call.
-- Do not mix index and coordinate args in one call.
-
-Optional `wait` in `tool_args`: 1-5 seconds.
-"#;
-
-const PRIMARY_COMPOSITE_DOC: &str = r#"### composite_action
-
-Use for typing and indexed scroll actions.
-
-Primary may use both index and coordinate methods. Pick one route per call from tier communication.
-
-Methods:
-- `composite_action.type_text_at_index`
-- `composite_action.type_text_at`
-- `composite_action.type_text_at_focused`
-- `composite_action.scroll_at_index`
-
-Parameter constraints:
-- `goal` and `action` are required.
-- `text` is required for type methods.
-- `auto_enter` defaults to false.
-- Use either index args or coordinate args in one call; do not mix.
-
-Optional `wait` in `tool_args`: 1-5 seconds.
-"#;
-
-const PRIMARY_MODIFIED_CLICK_DOC: &str = r#"### modified_click
-
-Use for multi-select or range-select click operations.
-
-Primary may use both index and coordinate methods. Pick one route per call from tier communication.
-
-Methods:
-- `modified_click.modified_click_index`
-- `modified_click.modified_click_at`
-
-Parameter constraints:
-- `goal` and `action` are required.
-- `range_select=true` requires exactly two targets.
-- Index route uses `indices`; coordinate route uses `positions`.
-
-Optional `wait` in `tool_args`: 1-5 seconds.
-"#;
-
 /// Reject index methods when the conversation tier is coordinate-only (Advanced).
 fn ensure_method_allowed_for_tier(tier: ComputerTier, method: &str) -> Result<()> {
     if method_uses_overlay_index(method) && !tier_allows_index_tools(tier) {
@@ -113,7 +56,7 @@ fn conversation_id_from_args(args: &serde_json::Value) -> Option<&str> {
 /// Register all computer-use tools (mouse, hotkey, composite_action, modified_click, wait, clipboard).
 pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     let mouse_state = state.clone();
-    let mouse_doc = PRIMARY_MOUSE_DOC.trim();
+    let mouse_doc = include_str!("prompts/mouse.md").trim();
     reg.register(ToolEntry::new(
         "mouse",
         "low",
@@ -161,7 +104,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     ));
 
     let composite_state = state.clone();
-    let composite_doc = PRIMARY_COMPOSITE_DOC.trim();
+    let composite_doc = include_str!("prompts/composite_action.md").trim();
     reg.register(ToolEntry::new(
         "composite_action",
         "low",
@@ -193,7 +136,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     ));
 
     let modified_state = state.clone();
-    let modified_doc = PRIMARY_MODIFIED_CLICK_DOC.trim();
+    let modified_doc = include_str!("prompts/modified_click.md").trim();
     reg.register(ToolEntry::new(
         "modified_click",
         "low",

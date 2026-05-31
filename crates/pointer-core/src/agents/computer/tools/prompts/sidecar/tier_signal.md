@@ -1,3 +1,25 @@
+---
+schema:
+  type: object
+  properties:
+    action_result:
+      type: string
+      enum:
+        - pass
+        - fail
+        - pending
+        - n/a
+    repetition_count:
+      type: integer
+      minimum: 0
+    failure_cause:
+      type: string
+  required:
+    - action_result
+    - repetition_count
+  additionalProperties: true
+---
+
 Report verify and repetition conclusion for host tier runtime.
 
 This is a sidecar-only tool.

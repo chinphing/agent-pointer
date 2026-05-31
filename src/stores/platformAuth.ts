@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import * as api from '../lib/api'
+import { isTauriRuntime } from '../lib/runtime'
 import { useSettingsStore } from './settings'
 
 export interface PlatformSessionView {
@@ -20,18 +21,12 @@ function formatPlatformAuthError(e: unknown): string {
   return msg
 }
 
-/** Rust 启动时会 restore session 并注入 KEY；前端只轮询 session，避免重复 refresh/inject。 */
-async function resolvePlatformSession(timeoutMs = 3000): Promise<PlatformSessionView> {
-  const first = await api.getPlatformSession()
-  if (first.logged_in) return first
-
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    const next = await api.getPlatformSession()
-    if (next.logged_in) return next
+/** Desktop: actively refresh/restore from auth.dat. Web: stub session. */
+async function resolvePlatformSession(): Promise<PlatformSessionView> {
+  if (isTauriRuntime()) {
+    return api.refreshPlatformSession()
   }
-  return first
+  return api.getPlatformSession()
 }
 
 export const usePlatformAuthStore = defineStore('platformAuth', () => {
@@ -59,12 +54,25 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     }
   }
 
+  async function ensureFreshSession(): Promise<PlatformSessionView> {
+    if (isTauriRuntime()) {
+      session.value = await api.refreshPlatformSession()
+      if (session.value.logged_in) {
+        const settings = useSettingsStore()
+        await settings.load()
+      }
+    } else {
+      session.value = await api.getPlatformSession()
+    }
+    return session.value
+  }
+
   async function login() {
     loading.value = true
     error.value = null
     try {
       await api.openPlatformLogin()
-      session.value = await api.getPlatformSession()
+      session.value = await api.refreshPlatformSession()
       const settings = useSettingsStore()
       await settings.load()
     } catch (e) {
@@ -91,6 +99,7 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     isPlatformAdmin,
     tokenQuotaExhausted,
     load,
+    ensureFreshSession,
     login,
     cancelLogin,
     logout

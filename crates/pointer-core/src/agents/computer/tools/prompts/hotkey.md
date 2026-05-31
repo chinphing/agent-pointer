@@ -1,3 +1,23 @@
+---
+schema:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    keys:
+      oneOf:
+        - type: array
+          items:
+            type: string
+        - type: string
+  required:
+    - goal
+    - keys
+  additionalProperties: true
+---
+
 ### hotkey
 
 Use for keyboard shortcuts (e.g. Copy, Paste, Save, Undo).

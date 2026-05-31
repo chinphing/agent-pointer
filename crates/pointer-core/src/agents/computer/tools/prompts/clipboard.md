@@ -1,3 +1,19 @@
+---
+schema:
+  type: object
+  properties:
+    method:
+      type: string
+      enum:
+        - read
+        - write
+    text:
+      type: string
+  required:
+    - method
+  additionalProperties: true
+---
+
 ### clipboard
 
 Read or set the **system clipboard** as **plain text**. Does **not** paste into a field by itself.

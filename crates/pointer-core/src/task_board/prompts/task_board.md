@@ -29,6 +29,8 @@ schema:
       minimum: 1
     _conversation_id:
       type: string
+  required:
+    - method
   additionalProperties: true
 ---
 

@@ -32,6 +32,18 @@ pub(super) async fn run_chat_inner(
     cancel: CancellationToken,
 ) -> Result<()> {
     let _workspace_guard = ConversationWorkspaceGuard::enter(workspace_root.clone());
+    // Restore from auth.dat / refresh near-expiry tokens before gating chat.
+    match state.platform_auth.refresh_if_needed().await {
+        Ok(Some((_session, creds))) => {
+            if creds.api_key.is_some() || !creds.provider_api_keys.is_empty() {
+                state.apply_login_credentials(&creds);
+            }
+        }
+        Ok(None) => {}
+        Err(e) => {
+            log::warn!("platform_auth: refresh before chat failed: {e:#}");
+        }
+    }
     if state.platform_auth.session_view().logged_in {
         if let Err(e) = state.platform_auth.ensure_llm_allowed().await {
             let msg = if e.to_string().contains("token_quota_exhausted") {

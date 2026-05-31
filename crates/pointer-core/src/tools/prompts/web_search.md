@@ -1,3 +1,26 @@
+---
+schema:
+  type: object
+  properties:
+    query:
+      type: string
+    searchStrategy:
+      type: string
+      enum:
+        - pro_max
+        - max
+        - turbo
+    enableThinking:
+      type: boolean
+    forcedSearch:
+      type: boolean
+    enableVerticalSearch:
+      type: boolean
+  required:
+    - query
+  additionalProperties: true
+---
+
 ### `web_search`
 
 Search the **public web** via DashScope **Generation API** (`enable_search` + `search_strategy: pro_max`). Each call uses **SSE streaming**: sources appear first, then the answer streams incrementally.

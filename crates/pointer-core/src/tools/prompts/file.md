@@ -20,6 +20,8 @@ schema:
       type: array
     pattern:
       type: string
+  required:
+    - method
   additionalProperties: true
 ---
 

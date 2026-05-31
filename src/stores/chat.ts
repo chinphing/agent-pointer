@@ -43,6 +43,7 @@ import {
 import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
 import { usePlatformAuthStore } from './platformAuth'
+import { isTauriRuntime } from '../lib/runtime'
 
 function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36) }
 
@@ -823,6 +824,25 @@ export const useChatStore = defineStore('chat', () => {
     const conv = current.value!
     if (!content.trim() || isConversationGenerating(conv.id)) return
     const platformAuth = usePlatformAuthStore()
+    if (isTauriRuntime()) {
+      try {
+        await platformAuth.ensureFreshSession()
+      } catch (e) {
+        console.error('[chat] platform session refresh failed', e)
+      }
+      if (!platformAuth.session.logged_in) {
+        conv.messages.push({
+          id: uid(),
+          role: 'assistant',
+          content: '',
+          status: 'error',
+          createdAt: Date.now(),
+          errorMessage: '请先登录 Pointer 账户'
+        })
+        persist()
+        return
+      }
+    }
     if (platformAuth.tokenQuotaExhausted) {
       conv.messages.push({
         id: uid(),

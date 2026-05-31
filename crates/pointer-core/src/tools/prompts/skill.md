@@ -11,6 +11,8 @@ schema:
       type: string
     path:
       type: string
+  required:
+    - method
   additionalProperties: true
 ---
 

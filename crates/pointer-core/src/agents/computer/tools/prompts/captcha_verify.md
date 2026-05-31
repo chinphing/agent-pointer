@@ -1,3 +1,40 @@
+---
+schema:
+  type: object
+  properties:
+    action:
+      type: string
+      enum:
+        - type
+        - click
+        - drag
+    method:
+      type: string
+      enum:
+        - type
+        - click
+        - drag
+    goal:
+      type: string
+    remark:
+      type: string
+    index_captcha_area:
+      type: integer
+    index_input_area:
+      type: integer
+    is_slider:
+      type: boolean
+    index_slider_arrow:
+      type: integer
+    index_slider_handle:
+      type: integer
+  required:
+    - action
+    - goal
+    - index_captcha_area
+  additionalProperties: true
+---
+
 ### captcha_verify
 
 Automate CAPTCHA using the current screenshot. Choose `type`, `click`, or `drag` from what is visible on screen.

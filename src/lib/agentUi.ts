@@ -5,7 +5,7 @@ export interface ResolvedAgentUi {
   showInComposer: boolean
   showSidecarToolCalls: boolean
   showNonSidecarToolCalls: boolean
-  showHeadline: boolean
+  showReasoning: boolean
   showSubAgentTrace: boolean
   showToolCalls: boolean
   showToolCallResults: boolean
@@ -60,7 +60,7 @@ function profileDefaults(profile: AgentProfile, id: string, role: string): Resol
     showInComposer: !isSupervisor,
     showSidecarToolCalls: false,
     showNonSidecarToolCalls: true,
-    showHeadline: true,
+    showReasoning: false,
     showSubAgentTrace: isSupervisor || key === 'research',
     showToolCalls: !isSupervisor,
     showToolCallResults: false,
@@ -93,7 +93,7 @@ function mergeUi(
     showInComposer: pick('showInComposer') as boolean,
     showSidecarToolCalls: pick('showSidecarToolCalls') as boolean,
     showNonSidecarToolCalls: pick('showNonSidecarToolCalls') as boolean,
-    showHeadline: pick('showHeadline') as boolean,
+    showReasoning: pick('showReasoning') as boolean,
     showSubAgentTrace: pick('showSubAgentTrace') as boolean,
     showToolCalls: pick('showToolCalls') as boolean,
     showToolCallResults: pick('showToolCallResults') as boolean,
@@ -168,7 +168,7 @@ export function shouldShowSubAgentTrace(
   return hasDelegated
 }
 
-/** UI flags for content inside a sub-agent frame (always show tools/headline). */
+/** UI flags for content inside a sub-agent frame (always show tools/reasoning). */
 export function uiForSubAgentFrame(
   trace: { id: string; name: string; role?: string },
   settings: Pick<ModelSettings, 'agentUiOverrides' | 'agentMode' | 'leadAgentId'>,
@@ -182,7 +182,7 @@ export function uiForSubAgentFrame(
   return {
     ...base,
     showToolCalls: true,
-    showHeadline: true,
+    showReasoning: true,
     showSubAgentTrace: true
   }
 }

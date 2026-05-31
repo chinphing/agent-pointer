@@ -108,7 +108,7 @@ const TOOL_CALL_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
 ]
 
 const AGENT_OUTPUT_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
-  { key: 'showHeadline', label: '显示推理过程' },
+  { key: 'showReasoning', label: '显示推理过程' },
   { key: 'showTaskBoardPanel', label: '显示任务板面板' },
   { key: 'showSubAgentTrace', label: '显示子 Agent 边框面板' },
 ]
@@ -221,7 +221,7 @@ function displayUiChecked(key: keyof AgentUiConfig): boolean {
   const map: Record<string, boolean> = {
     showSidecarToolCalls: effectiveDisplayUi.value.showSidecarToolCalls,
     showNonSidecarToolCalls: effectiveDisplayUi.value.showNonSidecarToolCalls,
-    showHeadline: effectiveDisplayUi.value.showHeadline,
+    showReasoning: effectiveDisplayUi.value.showReasoning,
     showSubAgentTrace: effectiveDisplayUi.value.showSubAgentTrace,
     showToolCalls: effectiveDisplayUi.value.showToolCalls,
     showToolCallResults: effectiveDisplayUi.value.showToolCallResults,
@@ -362,10 +362,18 @@ async function toggleDebugMenus() {
   debugMenusEnabled.value = next
   rawContentViewEnabled.value = next
   computerAnnotatedScreenViewEnabled.value = next
+  agentUiLocal.value.showReasoning = next
   await s.save({
     debugMenusEnabled: next,
     rawContentViewEnabled: next,
-    computerAnnotatedScreenViewEnabled: next
+    computerAnnotatedScreenViewEnabled: next,
+    agentUiOverrides: {
+      ...(s.settings.agentUiOverrides ?? {}),
+      [activeUiAgentId.value]: {
+        ...(s.settings.agentUiOverrides?.[activeUiAgentId.value] ?? {}),
+        showReasoning: next
+      }
+    }
   })
 }
 
@@ -682,7 +690,7 @@ async function saveFromFooter() {
                 <div class="flex items-center justify-between gap-3">
                   <h4 class="text-[12px] font-medium text-foreground">显示推理过程</h4>
                   <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                    <input type="checkbox" class="sr-only peer" :checked="displayUiChecked('showHeadline')" @change="setDisplayUi('showHeadline', ($event.target as HTMLInputElement).checked)" />
+                    <input type="checkbox" class="sr-only peer" :checked="displayUiChecked('showReasoning')" @change="setDisplayUi('showReasoning', ($event.target as HTMLInputElement).checked)" />
                     <div class="settings-toggle-track" />
                   </label>
                 </div>

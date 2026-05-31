@@ -62,7 +62,6 @@ const bodyModel = computed((): AgentMessageBodyModel => {
   const s = session.value
   return {
     thoughts: s?.thoughts,
-    headline: s?.headline,
     toolNamePreview: s?.toolNamePreview,
     responseTextDraft: s?.responseTextDraft,
     reasoning: s?.reasoning,

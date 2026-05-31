@@ -23,7 +23,6 @@ pub(super) struct StreamRoundBuffers {
     pub finish_reason: String,
     pub json_finish_diag: JsonToolFinishDiagnostics,
     pub xml_thoughts: Option<String>,
-    pub xml_headline: Option<String>,
 }
 
 impl Default for StreamRoundBuffers {
@@ -35,7 +34,6 @@ impl Default for StreamRoundBuffers {
             finish_reason: String::from("stop"),
             json_finish_diag: JsonToolFinishDiagnostics::default(),
             xml_thoughts: None,
-            xml_headline: None,
         }
     }
 }
@@ -232,13 +230,12 @@ pub(super) async fn drain_provider_events(
                 tool_calls,
                 json,
                 thoughts,
-                headline,
+                headline: _,
                 usage,
             } => {
                 buffers.finish_reason = reason;
                 buffers.json_finish_diag = json;
                 buffers.xml_thoughts = thoughts;
-                buffers.xml_headline = headline;
                 llm_recorder.record(usage.as_ref());
                 emit_deduped_tool_starts(
                     stream,

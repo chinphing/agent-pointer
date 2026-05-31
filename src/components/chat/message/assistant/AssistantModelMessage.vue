@@ -141,7 +141,6 @@ const showActionBar = computed(
 
 const leadBody = computed((): AgentMessageBodyModel => ({
   thoughts: props.message.thoughts,
-  headline: props.message.headline,
   reasoning: props.message.reasoning,
   content: props.message.content,
   rawContent: props.message.rawContent,

@@ -14,7 +14,6 @@ import MessageTimeChip from '../MessageTimeChip.vue'
 
 export interface AgentMessageBodyModel {
   thoughts?: string
-  headline?: string
   toolNamePreview?: string
   responseTextDraft?: string
   reasoning?: string
@@ -120,50 +119,18 @@ const tools = computed(() =>
     : []
 )
 
-const CHARS_PER_PIPE = 100
-const MAX_HEADLINE_PIPES = 48
-const hasHeadline = computed(() => !!(props.body.headline && props.body.headline.trim()))
-
-const streamedCharCount = computed(() => {
-  const c = props.body.content?.length ?? 0
-  const raw = props.body.rawContent?.length ?? 0
-  const thoughtsLen = props.body.thoughts?.length ?? 0
-  const toolPreview = props.body.toolNamePreview?.length ?? 0
-  const draftLen = props.body.responseTextDraft?.length ?? 0
-  const reasoningLen = props.body.reasoning?.length ?? 0
-  return Math.max(c, raw, thoughtsLen, toolPreview, draftLen, reasoningLen)
-})
-
-const showHeadlineBlock = computed(() => !!(props.body.headline?.trim()))
-
-const isRunInProgress = computed(
-  () => isStreaming.value || (props.generating && props.isActiveGenerationMessage)
-)
-
-const showHeadlineProgressBar = computed(
-  () => !hasHeadline.value && isRunInProgress.value
-)
-
 const showThoughtPanels = computed(() => showThoughtsPanel.value)
+
+const showReasoningBlock = computed(() =>
+  props.messageUi.showReasoning && !!(props.body.reasoning?.trim())
+)
 
 const hasBubbleBody = computed(
   () =>
     showMdBody.value ||
     showStreamingPlaceholderUnderThoughts.value ||
     showThoughtPanels.value ||
-    showHeadlineProgressBar.value ||
     props.body.status === 'error'
-)
-
-const headlinePipeBar = computed(() => {
-  const n = streamedCharCount.value
-  const segments = n <= 0 ? 1 : Math.ceil(n / CHARS_PER_PIPE)
-  const pipes = Math.min(MAX_HEADLINE_PIPES, segments)
-  return '|'.repeat(pipes)
-})
-
-const headlinePipesAtCap = computed(
-  () => showHeadlineProgressBar.value && streamedCharCount.value >= CHARS_PER_PIPE * MAX_HEADLINE_PIPES
 )
 
 const showCopyButton = computed(() => {
@@ -178,13 +145,14 @@ const showCopyButton = computed(() => {
 
 const showCopyInBubble = computed(() => showCopyButton.value && showMdBody.value)
 
-const headlineOpen = ref(true)
-let headlineCollapseTimer: ReturnType<typeof setTimeout> | null = null
+// reasoning collapsible state
+const reasoningOpen = ref(true)
+let reasoningCollapseTimer: ReturnType<typeof setTimeout> | null = null
 
-function clearHeadlineCollapseTimer() {
-  if (headlineCollapseTimer) {
-    clearTimeout(headlineCollapseTimer)
-    headlineCollapseTimer = null
+function clearReasoningCollapseTimer() {
+  if (reasoningCollapseTimer) {
+    clearTimeout(reasoningCollapseTimer)
+    reasoningCollapseTimer = null
   }
 }
 
@@ -192,16 +160,16 @@ watch(
   () => props.body.status,
   (status, prevStatus) => {
     if (isMessageStreaming(status)) {
-      headlineOpen.value = true
-      clearHeadlineCollapseTimer()
+      reasoningOpen.value = true
+      clearReasoningCollapseTimer()
       return
     }
     const wasStreaming = prevStatus !== undefined && isMessageStreaming(prevStatus)
     if (wasStreaming) {
-      clearHeadlineCollapseTimer()
-      headlineCollapseTimer = setTimeout(() => {
-        headlineOpen.value = false
-        headlineCollapseTimer = null
+      clearReasoningCollapseTimer()
+      reasoningCollapseTimer = setTimeout(() => {
+        reasoningOpen.value = false
+        reasoningCollapseTimer = null
       }, 3000)
     }
   },
@@ -209,14 +177,14 @@ watch(
 )
 
 watch(
-  () => props.body.headline?.trim() ?? '',
+  () => props.body.reasoning?.trim() ?? '',
   (h, prev) => {
-    if (h && !prev) headlineOpen.value = true
+    if (h && !prev) reasoningOpen.value = true
   }
 )
 
-function toggleHeadline() {
-  headlineOpen.value = !headlineOpen.value
+function toggleReasoning() {
+  reasoningOpen.value = !reasoningOpen.value
 }
 
 function copyBody() {
@@ -230,56 +198,43 @@ function copyBody() {
   })
 }
 
-onUnmounted(() => clearHeadlineCollapseTimer())
+onUnmounted(() => clearReasoningCollapseTimer())
 </script>
 
 <template>
   <div class="w-full max-w-full space-y-2">
+    <!-- 推理过程 -->
     <div
-      v-if="showHeadlineBlock"
-      class="w-full rounded-2xl border border-border px-4 py-3 bg-muted/20 overflow-hidden"
+      v-if="showReasoningBlock"
+      class="w-full rounded-2xl border border-border/60 border-l-2 border-l-accent/40 px-4 py-2.5 bg-muted/10 overflow-hidden"
     >
-      <div class="flex items-center gap-2 px-1.5 py-1.5 sm:px-2 min-w-0">
+      <div class="flex items-center gap-2 min-w-0">
         <button
           type="button"
           class="min-w-0 flex-1 text-left flex items-center gap-1.5 cursor-pointer select-none hover:bg-hover transition rounded-md -mx-0.5 px-0.5 sm:-mx-1 sm:px-1"
-          :aria-expanded="headlineOpen"
-          @click="toggleHeadline"
+          :aria-expanded="reasoningOpen"
+          @click="toggleReasoning"
         >
+          <span class="shrink-0 text-[11px] text-muted font-medium">推理过程</span>
           <span
-            class="inline-block w-3.5 shrink-0 text-accent text-center text-[10px] transition-transform pt-0.5"
-            :class="headlineOpen ? 'rotate-90' : ''"
+            class="inline-block w-3 shrink-0 text-muted text-center text-[10px] transition-transform pt-0.5"
+            :class="reasoningOpen ? 'rotate-90' : ''"
           >▸</span>
-          <span
-            class="min-w-0 flex-1 text-[12px] sm:text-[13px] font-medium text-foreground leading-tight tracking-tight"
-            :class="headlineOpen ? 'whitespace-pre-wrap' : 'line-clamp-2 overflow-hidden'"
-          >{{ body.headline?.trim() }}</span>
         </button>
         <MessageTimeChip :created-at="body.createdAt" class="shrink-0 self-center" />
       </div>
+      <div
+        v-if="reasoningOpen"
+        class="mt-2 text-[13px] leading-relaxed text-muted whitespace-pre-wrap break-words border-t border-border/30 pt-2"
+      >{{ body.reasoning?.trim() }}</div>
     </div>
 
     <div v-if="hasBubbleBody" class="relative block px-4 py-3 rounded-2xl border break-words panel overflow-x-auto">
       <div
-        v-if="!hasHeadline && !showHeadlineProgressBar"
+        v-if="!showReasoningBlock"
         class="flex justify-end mb-2 -mt-0.5"
       >
         <MessageTimeChip :created-at="body.createdAt" />
-      </div>
-
-      <div
-        v-if="showHeadlineProgressBar"
-        class="mb-3 flex items-start gap-2 min-w-0"
-      >
-        <div
-          class="flex-1 min-w-0 font-mono text-[13px] leading-tight tracking-[0.06em] text-accent/80 min-h-[1.125rem] select-none break-all whitespace-pre-wrap"
-          role="status"
-          aria-live="polite"
-          :class="headlinePipesAtCap ? 'animate-pulse' : ''"
-        >
-          {{ headlinePipeBar }}
-        </div>
-        <MessageTimeChip :created-at="body.createdAt" class="shrink-0 pt-0.5" />
       </div>
 
       <ModelThoughtPanels

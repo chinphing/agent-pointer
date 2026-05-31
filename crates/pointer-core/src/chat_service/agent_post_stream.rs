@@ -101,14 +101,6 @@ fn assistant_tool_calls_with_risk(
     )
 }
 
-fn fallback_headline_from_reasoning(reasoning: &str) -> Option<String> {
-    reasoning
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(|line| line.chars().take(120).collect::<String>())
-}
-
 fn compact_console_segment(s: &str) -> String {
     let t = s.trim();
     if t.is_empty() {
@@ -160,17 +152,11 @@ pub(super) fn build_lead_assistant_message_after_stream(
     reasoning_in_messages: bool,
     final_tool_calls: &[ToolCall],
     xml_thoughts: Option<String>,
-    xml_headline: Option<String>,
     agent_plan: &AgentPlan,
     agent_instance_id: Option<String>,
     agent_trace: &[AgentTrace],
     state: &AppState,
 ) -> ChatMessage {
-    let fallback_headline = if final_tool_calls.is_empty() {
-        None
-    } else {
-        fallback_headline_from_reasoning(&reasoning_buf)
-    };
     ChatMessage {
         id: assistant_id.to_string(),
         role: Role::Assistant,
@@ -190,7 +176,7 @@ pub(super) fn build_lead_assistant_message_after_stream(
             None
         },
         thoughts: xml_thoughts,
-        headline: xml_headline.or(fallback_headline),
+        headline: None,
         raw_content: if raw_content_buf.is_empty() {
             None
         } else {
@@ -220,16 +206,10 @@ pub(super) fn build_sub_assistant_message_after_stream(
     reasoning_in_messages: bool,
     final_tool_calls: &[ToolCall],
     round_thoughts: Option<String>,
-    round_headline: Option<String>,
     def: &AgentDef,
     agent_instance_id: Option<String>,
     state: &AppState,
 ) -> ChatMessage {
-    let fallback_headline = if final_tool_calls.is_empty() {
-        None
-    } else {
-        fallback_headline_from_reasoning(&round_reasoning)
-    };
     ChatMessage {
         id: round_message_id.to_string(),
         role: Role::Assistant,
@@ -249,7 +229,7 @@ pub(super) fn build_sub_assistant_message_after_stream(
             None
         },
         thoughts: round_thoughts,
-        headline: round_headline.or(fallback_headline),
+        headline: None,
         raw_content: None,
         tool_raw_output: None,
         agent_id: Some(def.id.clone()),
@@ -491,33 +471,5 @@ mod tests {
         let tcs = msg.tool_calls.expect("tool_calls");
         assert_eq!(tcs[0].display_label.as_deref(), Some("终端命令"));
         assert_eq!(tcs[0].display_summary.as_deref(), Some("npm test"));
-    }
-
-    #[test]
-    fn tool_call_round_uses_reasoning_first_line_as_fallback_headline() {
-        let state = AppState::new();
-        let tool_calls = vec![sample_tool_call("terminal", r#"{"command":"echo ok"}"#)];
-        let plan = AgentPlan {
-            mode: "single".into(),
-            lead_agent_id: "coder".into(),
-            lead_agent_name: "Coder".into(),
-            system_prompts: vec![],
-            allowed_tool_names: vec![],
-            allow_agents: vec![],
-        };
-        let msg = build_lead_assistant_message_after_stream(
-            "asst_hl",
-            "",
-            "Working headline\nmore details".into(),
-            true,
-            &tool_calls,
-            None,
-            None,
-            &plan,
-            None,
-            &[],
-            &state,
-        );
-        assert_eq!(msg.headline.as_deref(), Some("Working headline"));
     }
 }

@@ -21,7 +21,7 @@ const messageUi = computed(() =>
 
 const avatarIcon = computed(() => iconForAgentAvatar(messageUi.value.avatar))
 
-const hasVisibleBodyText = computed(() => !!(props.message.content?.trim() || props.message.headline?.trim()))
+const hasVisibleBodyText = computed(() => !!(props.message.content?.trim() || props.message.reasoning?.trim()))
 const hasToolCards = computed(() => (props.message.toolCalls?.length ?? 0) > 0)
 const isToolOnlyAssistantRow = computed(() => hasToolCards.value && !hasVisibleBodyText.value)
 </script>

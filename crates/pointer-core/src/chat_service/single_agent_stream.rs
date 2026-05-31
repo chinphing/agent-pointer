@@ -25,7 +25,6 @@ pub(super) struct SingleAgentRoundStream {
     pub reasoning_buf: String,
     pub final_tool_calls: Vec<ToolCall>,
     pub xml_thoughts: Option<String>,
-    pub xml_headline: Option<String>,
 }
 
 /// Outcome of spawning and draining one `stream_chat` round.
@@ -192,6 +191,5 @@ pub(super) async fn run_provider_stream_round(
         reasoning_buf: buffers.reasoning_buf,
         final_tool_calls: buffers.final_tool_calls,
         xml_thoughts: buffers.xml_thoughts,
-        xml_headline: buffers.xml_headline,
     }))
 }

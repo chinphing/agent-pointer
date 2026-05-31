@@ -78,7 +78,7 @@ export function subTraceHasVisibleActivity(trace: AgentTrace): boolean {
   const s = trace.session
   if (!s) return false
   if (s.thoughts?.trim()) return true
-  if (s.headline?.trim()) return true
+  if (s.reasoning?.trim()) return true
   if (s.toolNamePreview?.trim()) return true
   if ((s.toolCalls?.length ?? 0) > 0) return true
   return false

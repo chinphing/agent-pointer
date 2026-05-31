@@ -171,7 +171,6 @@ pub(crate) async fn run_sub_agent(
             reasoning_in_messages,
             &buf.final_tool_calls,
             buf.xml_thoughts,
-            buf.xml_headline,
             &def,
             Some(instance_scope.agent_instance_id.clone()),
             state,

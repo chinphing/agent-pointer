@@ -51,7 +51,7 @@ export interface AgentUiConfig {
   showSidecarToolCalls?: boolean
   /** Debug: show non-sidecar tool calls (real action tools). */
   showNonSidecarToolCalls?: boolean
-  showHeadline?: boolean
+  showReasoning?: boolean
   showSubAgentTrace?: boolean
   showToolCalls?: boolean
   /** Debug: show full tool result JSON in expanded tool cards. */

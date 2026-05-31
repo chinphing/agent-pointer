@@ -46,7 +46,6 @@ export function isDiscardableEmptyAssistant(message: ChatMessage): boolean {
   const hasText =
     !!(message.content?.trim()) ||
     !!(message.thoughts?.trim()) ||
-    !!(message.headline?.trim()) ||
     !!(message.reasoning?.trim()) ||
     !!(message.responseTextDraft?.trim()) ||
     !!(

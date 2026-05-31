@@ -153,7 +153,6 @@ pub(super) async fn run_single_agent_loop(
             reasoning_in_messages,
             &buf.final_tool_calls,
             buf.xml_thoughts,
-            buf.xml_headline,
             agent_plan,
             lead_instance_id,
             &agent_trace,

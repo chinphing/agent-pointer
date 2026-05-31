@@ -21,8 +21,8 @@ pub struct AgentUiConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub show_non_sidecar_tool_calls: Option<bool>,
-    #[serde(default, rename = "showHeadline", skip_serializing_if = "Option::is_none")]
-    pub show_headline: Option<bool>,
+    #[serde(default, rename = "showReasoning", skip_serializing_if = "Option::is_none")]
+    pub show_reasoning: Option<bool>,
     #[serde(default, rename = "showSubAgentTrace", skip_serializing_if = "Option::is_none")]
     pub show_sub_agent_trace: Option<bool>,
     #[serde(default, rename = "showToolCalls", skip_serializing_if = "Option::is_none")]
@@ -53,7 +53,7 @@ pub struct ResolvedAgentUi {
     pub show_agent_label: bool,
     pub show_sidecar_tool_calls: bool,
     pub show_non_sidecar_tool_calls: bool,
-    pub show_headline: bool,
+    pub show_reasoning: bool,
     pub show_sub_agent_trace: bool,
     pub show_tool_calls: bool,
     pub show_tool_call_results: bool,
@@ -77,7 +77,7 @@ fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAge
         show_agent_label: true,
         show_sidecar_tool_calls: false,
         show_non_sidecar_tool_calls: true,
-        show_headline: true,
+        show_reasoning: false,
         show_sub_agent_trace: is_supervisor || is_research,
         show_tool_calls: !is_supervisor,
         show_tool_call_results: false,
@@ -140,7 +140,7 @@ pub fn resolve_agent_ui(def: &AgentDef) -> ResolvedAgentUi {
             ui.show_non_sidecar_tool_calls,
             base.show_non_sidecar_tool_calls,
         ),
-        show_headline: merge_bool(ui.show_headline, base.show_headline),
+        show_reasoning: merge_bool(ui.show_reasoning, base.show_reasoning),
         show_sub_agent_trace: merge_bool(ui.show_sub_agent_trace, base.show_sub_agent_trace),
         show_tool_calls: merge_bool(ui.show_tool_calls, base.show_tool_calls),
         show_tool_call_results: merge_bool(ui.show_tool_call_results, base.show_tool_call_results),

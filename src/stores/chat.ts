@@ -535,7 +535,6 @@ export const useChatStore = defineStore('chat', () => {
           const session = trace.session!
           session.contentStreaming = true
           if (e.thoughts != null && e.thoughts.trim() !== '') session.thoughts = e.thoughts
-          if (e.headline != null && e.headline.trim() !== '') session.headline = e.headline
           if (e.toolName != null && e.toolName.trim() !== '') {
             session.toolNamePreview = e.toolName
             if (e.toolName.trim() !== 'response') delete session.responseTextDraft
@@ -549,7 +548,6 @@ export const useChatStore = defineStore('chat', () => {
           r.msg.status = 'streaming'
           r.msg.contentStreaming = true
           if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
-          if (e.headline != null && e.headline.trim() !== '') r.msg.headline = e.headline
           if (e.toolName != null && e.toolName.trim() !== '') {
             r.msg.toolNamePreview = e.toolName
             if (e.toolName.trim() !== 'response') delete r.msg.responseTextDraft
@@ -742,7 +740,6 @@ export const useChatStore = defineStore('chat', () => {
             if (e.toolRawOutput != null) r.msg.toolRawOutput = e.toolRawOutput
             delete r.msg.responseTextDraft
             if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
-            if (e.headline != null && e.headline.trim() !== '') r.msg.headline = e.headline
             r.conv.updatedAt = Date.now()
             if (r.conv.title === '新会话') {
               const firstUser = r.conv.messages.find(m => m.role === 'user')

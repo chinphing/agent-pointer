@@ -121,6 +121,7 @@ const canSend = computed(
 async function onPlatformLogin() {
   try {
     await platformAuth.login()
+    chat.clearPlatformLoginErrorMessages()
   } catch {
     /* error in store */
   }

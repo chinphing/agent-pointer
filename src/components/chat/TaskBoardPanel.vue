@@ -46,6 +46,16 @@ function statusClass(status: string): string {
   }
 }
 
+function rowLabel(item: { id: string; title?: string; output?: string | null }): string {
+  const title = item.title?.trim()
+  if (title) return title
+  const output = item.output?.trim()
+  if (output) {
+    return output.length > 48 ? `${output.slice(0, 48)}…` : output
+  }
+  return `#${item.id}`
+}
+
 </script>
 
 <template>
@@ -76,7 +86,7 @@ function statusClass(status: string): string {
         class="flex items-center gap-2 text-[12px] py-1 min-h-[1.5rem]"
       >
         <component :is="statusIcon(item.status)" class="w-3.5 h-3.5 shrink-0" :class="statusClass(item.status)" />
-        <span class="text-foreground truncate flex-1">{{ item.title }}</span>
+        <span class="text-foreground truncate flex-1">{{ rowLabel(item) }}</span>
       </div>
       <div v-if="!items.length" class="text-[11px] text-muted py-2">暂无里程碑</div>
     </div>
@@ -92,7 +102,7 @@ function statusClass(status: string): string {
         class="flex items-center gap-2 text-[11px] py-0.5 min-h-[1.25rem]"
       >
         <component :is="statusIcon(row.status)" class="w-3 h-3 shrink-0" :class="statusClass(row.status)" />
-        <span class="truncate text-foreground flex-1">{{ row.title }}</span>
+        <span class="truncate text-foreground flex-1">{{ rowLabel(row) }}</span>
       </div>
     </div>
   </details>

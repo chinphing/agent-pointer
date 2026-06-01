@@ -119,6 +119,11 @@ Engineering profiles:
 
 ## Items input
 
+Use **`items`** for milestone rows (`init` / `replace` / `patch`).
+Do not use `rows` — host accepts it as an alias, but **`items`** is canonical.
+
+Each row must include non-empty **`id`** and **`title`**.
+
 `items` can be:
 
 - a JSON array

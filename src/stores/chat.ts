@@ -86,6 +86,16 @@ function removeDiscardableAssistant(conv: Conversation, messageId: string | null
   return removeAssistantMessage(conv, messageId)
 }
 
+function isPlatformLoginErrorMessage(msg: ChatMessage): boolean {
+  if (msg.role !== 'assistant' || msg.status !== 'error') return false
+  const text = msg.errorMessage ?? ''
+  return (
+    text.includes('登录已失效') ||
+    text.includes('请先登录 Pointer 账户') ||
+    text.includes('平台登录态刷新失败')
+  )
+}
+
 function removeTrailingDiscardableEmptyAssistant(conv: Conversation): boolean {
   const last = conv.messages[conv.messages.length - 1]
   if (!last || !isDiscardableEmptyAssistant(last)) return false
@@ -1053,6 +1063,17 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function clearPlatformLoginErrorMessages() {
+    const conv = current.value
+    if (!conv) return
+    const before = conv.messages.length
+    conv.messages = conv.messages.filter(m => !isPlatformLoginErrorMessage(m))
+    if (conv.messages.length !== before) {
+      conv.updatedAt = Date.now()
+      persist()
+    }
+  }
+
   function setConversationWorkspace(root: string) {
     if (!current.value) newConversation()
     if (!current.value) return
@@ -1067,6 +1088,7 @@ export const useChatStore = defineStore('chat', () => {
     sendUserMessage, stop, abortTerminalOnly, retry, approve, undo,
     refreshTaskBoard, taskBoardForConversation, parentBoardsBoundToMessage,
     childBoardsForParent,
-    setConversationWorkspace, applyPersistedComposerDefaults, showUiToast
+    setConversationWorkspace, applyPersistedComposerDefaults, showUiToast,
+    clearPlatformLoginErrorMessages
   }
 })

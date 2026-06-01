@@ -7,7 +7,11 @@ task_board_init:
     goal:
       type: string
     global_context: {}
-    items: {}
+    items:
+      description: >
+        Milestone array (or JSON string of that array).
+        Required field name is items — not rows or board.
+        Each element needs non-empty id, title, and status.
     expected_total:
       type: integer
       minimum: 1

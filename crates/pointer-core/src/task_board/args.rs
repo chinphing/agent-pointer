@@ -34,8 +34,14 @@ const PATCH_ROW_FIELD_KEYS: &[&str] = &[
     "blocked_by",
 ];
 
+fn items_or_rows_from_args(args: &Value) -> Option<&Value> {
+    args.get("items")
+        .or_else(|| args.get("rows"))
+        .or_else(|| args.get("board"))
+}
+
 pub fn items_array_from_args(args: &Value) -> Option<Vec<Value>> {
-    if let Some(raw) = args.get("items") {
+    if let Some(raw) = items_or_rows_from_args(args) {
         if let Some(arr) = raw.as_array() {
             return Some(arr.clone());
         }
@@ -176,6 +182,28 @@ mod tests {
         });
         let items = items_array_from_args(&args).expect("items");
         assert_eq!(items.len(), 1);
+    }
+
+    #[test]
+    fn parses_rows_alias_as_items() {
+        let args = serde_json::json!({
+            "goal": "g",
+            "rows": "[{\"id\":\"1\",\"title\":\"Open app\",\"status\":\"pending\"}]"
+        });
+        let items = items_array_from_args(&args).expect("rows alias");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["title"], "Open app");
+    }
+
+    #[test]
+    fn items_take_precedence_over_rows_alias() {
+        let args = serde_json::json!({
+            "items": [{"id": "a", "title": "from items"}],
+            "rows": [{"id": "b", "title": "from rows"}]
+        });
+        let items = items_array_from_args(&args).expect("items");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["id"], "a");
     }
 
     #[test]

@@ -46,11 +46,11 @@ fn main_agent_task_board_hint(profile: &AgentProfile) -> Option<String> {
         ""
     };
     let coder_rows = if matches!(profile, AgentProfile::Coder) {
-        "Use **3-6** rows when initialized, including **Impact scan**, **Implement**, and **Unit tests**.
-Each row keeps `details`, `progress`, and final `validate`.
+        "Use **3-6** milestones in **`items`** when initialized, including **Impact scan**, **Implement**, and **Unit tests**.
+Each milestone keeps `details`, `progress`, and final `validate`.
 "
     } else {
-        "Use **3-6** concise milestones for normal multi-step work.
+        "Use **3-6** concise milestones in **`items`** for normal multi-step work.
 "
     };
     Some(format!(
@@ -60,7 +60,7 @@ Your task board is empty.
 If gate is met, initialize with **`task_board_init`**.
 {coder_rows}For exhaustive matrix/combinational goals, keep grouped milestones by interaction form.
 When milestone status changes, patch in the same turn; do not defer updates to final delivery.
-When all rows are `done` or `cancelled`, call `finalize` before final delivery.
+When all milestones are `done` or `cancelled`, call `finalize` before final delivery.
 {verify_order}Use `details` for execution details and key points.
 Use `validate` only for final acceptance evidence.
 Keep task board text compact to reduce prompt token cost."

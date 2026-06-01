@@ -34,6 +34,7 @@ import { TEAM_MODE_UI_ENABLED } from '../../lib/agentIcons'
 import { listAgents } from '../../lib/api'
 import { isTauriRuntime } from '../../lib/runtime'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
+import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 import ProviderSettingsPanel from './ProviderSettingsPanel.vue'
 
@@ -43,6 +44,7 @@ const emit = defineEmits<{
 }>()
 const s = useSettingsStore()
 const platformAuth = usePlatformAuthStore()
+const chat = useChatStore()
 
 const platformReadOnly = computed(() => !s.canEditPlatform)
 
@@ -173,6 +175,7 @@ async function logoutPlatformAccount() {
 async function loginPlatformAccount() {
   try {
     await platformAuth.login()
+    chat.clearPlatformLoginErrorMessages()
   } catch (e) {
     console.error('[settings] platform login failed', e)
   }
@@ -954,7 +957,7 @@ async function saveFromFooter() {
                 </button>
               </div>
               <p
-                v-if="platformAuth.error"
+                v-if="platformAuth.error && !platformAuth.session.logged_in"
                 class="rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs leading-snug text-danger"
                 role="alert"
               >

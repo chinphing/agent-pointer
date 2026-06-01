@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import * as api from '../lib/api'
 import { isTauriRuntime } from '../lib/runtime'
 import { useSettingsStore } from './settings'
@@ -40,6 +40,13 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     () => session.value.logged_in && session.value.tokenQuotaExhausted === true
   )
 
+  watch(
+    () => session.value.logged_in,
+    loggedIn => {
+      if (loggedIn) error.value = null
+    }
+  )
+
   async function load() {
     loading.value = true
     error.value = null
@@ -60,14 +67,17 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
       if (isTauriRuntime()) {
         session.value = await api.refreshPlatformSession()
         if (session.value.logged_in) {
+          error.value = null
           const settings = useSettingsStore()
           await settings.load()
         }
       } else {
         session.value = await api.getPlatformSession()
+        if (session.value.logged_in) error.value = null
       }
       return session.value
     } catch (e) {
+      if (loading.value) throw e
       error.value = formatPlatformAuthError(e)
       if ((e instanceof Error ? e.message : String(e)).includes('invalid_refresh_token')) {
         session.value = { logged_in: false }
@@ -82,6 +92,7 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     try {
       await api.openPlatformLogin()
       session.value = await api.refreshPlatformSession()
+      error.value = null
       const settings = useSettingsStore()
       await settings.load()
     } catch (e) {

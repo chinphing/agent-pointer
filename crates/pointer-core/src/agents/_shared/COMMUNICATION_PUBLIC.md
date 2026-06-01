@@ -84,7 +84,16 @@ Other profiles (e.g. **Coder**) use **tests, commands, and file reads** as miles
 When **`task_board`** is in your **allowed tools** (typical for **worker** agents), you are the **project manager** for multi-step work.
 Use the board for milestones—not a long plan in assistant message text only.
 
-- **`task_board_init`** — goal + milestone rows.
+### Tool JSON field names (required)
+
+- Milestone list: **`items`** (JSON array, or a JSON string encoding that array).
+  Do **not** use `rows`, `board`, or other property names for tool arguments.
+- Injected **`[TASK_BOARD]`** snapshots may show a `board` array — that is host output only.
+- Each milestone in **`items`** must have non-empty **`id`**, **`title`**, and **`status`**.
+- On **`init`** / **`replace`**, every milestone needs a clear **`title`** (not only `output`).
+- On **`patch`**, include **`title`** when adding a row or when updating status without an existing title.
+
+- **`task_board_init`** — goal + milestone **`items`**.
   Use 3–8 for normal work.
   For matrix/combinational goals,
   keep 3–8 grouped milestones
@@ -107,19 +116,19 @@ Use the board for milestones—not a long plan in assistant message text only.
   - first board-init round may omit **`verify_report`**;
   - subsequent rounds: **`verify_report`** first, then **`task_board_patch`**.
   Other profiles do **not** use **`verify_report`** for board updates.
-- Advance **at most one** meaningful milestone per turn unless the user widens scope. **Cancel** obsolete rows instead of ignoring them.
-- When **all** rows are **`done`** or **`cancelled`**, call **`task_board_finalize`** before the final user-facing reply. Patching rows to **`done`** does not replace **`finalize`**.
-- Keep task board text compact (short `title`/`output`/`validate`) to reduce prompt token overhead.
+- Advance **at most one** meaningful milestone per turn unless the user widens scope. **Cancel** obsolete milestones instead of ignoring them.
+- When **all** milestones are **`done`** or **`cancelled`**, call **`task_board_finalize`** before the final user-facing reply. Patching milestones to **`done`** does not replace **`finalize`**.
+- Keep task board text compact (short **`title`** / **`output`** / **`validate`**) to reduce prompt token overhead.
 - For matrix/combinational goals,
-  group rows by meaningful dimensions first.
+  group milestones by meaningful dimensions first.
   Preferred default: interaction form
   (for example slider-trigger, point-select, popup).
 - For list-like goals, pick granularity by size:
   - list size <= 8 with independent acceptance:
     one item per row is acceptable;
   - list size > 8 or repetitive items:
-    group by batch/type/phase and keep 3–8 rows.
-- In each grouped row, keep
+    group by batch/type/phase and keep 3–8 milestones.
+- In each grouped milestone, keep
   `details` / `progress` / `validate` / `output`
   explicit about covered and remaining slices.
 - **Sub-agent (child) scope:** **`[TASK_BOARD]`** is your **local** `local_*` steps only. **`[TASK_BOARD_PARENT]`** is **read-only** (goal + findings + current milestone). Use **`task_board_sync_finding`** for breakthroughs to the parent. **Do not** patch parent milestone rows— the host reports completion.

@@ -130,9 +130,14 @@ pub fn parse_indices(arg: Option<&Value>) -> Result<Vec<u32>> {
 
 /// Resolve overlay index to bbox center in screen pixels.
 pub fn resolve_index_pixels(vision: &VisionState, index: u32) -> Result<(i32, i32)> {
-    vision
-        .resolve_index(index)
-        .ok_or_else(|| anyhow!("Index {} not found in current annotation", index))
+    vision.resolve_index(index).ok_or_else(|| {
+        let total = vision.index_map().len();
+        let max_idx = vision.index_map().keys().max().copied().unwrap_or(0);
+        anyhow!(
+            "Index {index} not found in current annotation ({} elements, max index {max_idx})",
+            total
+        )
+    })
 }
 
 /// Pixel offset for `move_offset` (`offset_x` / `offset_y` in tool_args).

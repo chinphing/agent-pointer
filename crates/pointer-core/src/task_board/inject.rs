@@ -75,6 +75,21 @@ mod tests {
     }
 
     #[test]
+    fn flat_mouse_click_index_gets_conversation_binding() {
+        let out = inject_host_task_board_conversation_id(
+            "mouse_click_index",
+            serde_json::json!({"goal": "打开微信应用", "index": 141}),
+            "conv-abc",
+            "conv-abc::tb",
+            &[],
+        );
+        assert_eq!(
+            out.get("_conversation_id").and_then(|v| v.as_str()),
+            Some("conv-abc")
+        );
+    }
+
+    #[test]
     fn unrelated_tool_skips_injection() {
         let args = serde_json::json!({"query": "hello"});
         let out = inject_host_task_board_conversation_id(

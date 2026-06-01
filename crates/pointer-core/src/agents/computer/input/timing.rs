@@ -99,14 +99,41 @@ pub const DESKTOP_POST_DELAY_TOOL_IDS: &[&str] = &[
     "captcha_verify",
 ];
 
+/// Map flat registry ids (e.g. `mouse_click_index`) to session-bound desktop tool families.
+pub fn desktop_tool_family_id(tool_id: &str) -> Option<&'static str> {
+    let id = tool_id.trim();
+    for &fam in DESKTOP_VISION_LOG_TOOL_IDS {
+        if id == fam {
+            return Some(fam);
+        }
+    }
+    if id.starts_with("mouse_") {
+        return Some("mouse");
+    }
+    if id.starts_with("composite_") {
+        return Some("composite_action");
+    }
+    if id.starts_with("modified_click_") {
+        return Some("modified_click");
+    }
+    if id.starts_with("captcha_verify_") {
+        return Some("captcha_verify");
+    }
+    if id.starts_with("clipboard_") {
+        return Some("clipboard");
+    }
+    None
+}
+
 #[inline]
 pub fn is_desktop_vision_log_tool(tool_id: &str) -> bool {
-    DESKTOP_VISION_LOG_TOOL_IDS.contains(&tool_id)
+    desktop_tool_family_id(tool_id).is_some()
 }
 
 #[inline]
 pub fn is_desktop_post_delay_tool(tool_id: &str) -> bool {
-    DESKTOP_POST_DELAY_TOOL_IDS.contains(&tool_id)
+    desktop_tool_family_id(tool_id)
+        .is_some_and(|fam| DESKTOP_POST_DELAY_TOOL_IDS.contains(&fam))
 }
 
 #[cfg(test)]
@@ -126,6 +153,30 @@ mod tests {
     fn captcha_verify_is_session_bound_desktop_tool() {
         assert!(is_desktop_vision_log_tool("captcha_verify"));
         assert!(is_desktop_post_delay_tool("captcha_verify"));
+    }
+
+    #[test]
+    fn flat_computer_tool_ids_map_to_families() {
+        assert_eq!(desktop_tool_family_id("mouse_click_index"), Some("mouse"));
+        assert_eq!(
+            desktop_tool_family_id("composite_type_text_index"),
+            Some("composite_action")
+        );
+        assert_eq!(
+            desktop_tool_family_id("modified_click_select_index"),
+            Some("modified_click")
+        );
+        assert_eq!(
+            desktop_tool_family_id("captcha_verify_click"),
+            Some("captcha_verify")
+        );
+        assert_eq!(desktop_tool_family_id("clipboard_read"), Some("clipboard"));
+        assert!(is_desktop_vision_log_tool("mouse_click_index"));
+        assert!(is_desktop_post_delay_tool("mouse_click_index"));
+        assert!(is_desktop_vision_log_tool("clipboard_read"));
+        assert!(!is_desktop_post_delay_tool("clipboard_read"));
+        assert!(is_desktop_vision_log_tool("wait"));
+        assert!(!is_desktop_post_delay_tool("wait"));
     }
 
     #[test]

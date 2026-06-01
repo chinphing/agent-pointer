@@ -244,10 +244,14 @@ fn crop_element_from_jpeg(
 }
 
 fn element_from_vision(vision: &VisionState, index: u32) -> Result<ElementInfo> {
-    vision
-        .element(index)
-        .cloned()
-        .ok_or_else(|| anyhow!("Index {index} not found in current annotation"))
+    vision.element(index).cloned().ok_or_else(|| {
+        let total = vision.index_map().len();
+        let max_idx = vision.index_map().keys().max().copied().unwrap_or(0);
+        anyhow!(
+            "Index {index} not found in current annotation ({} elements, max index {max_idx})",
+            total
+        )
+    })
 }
 
 fn parse_coords_result(answer: &str) -> Result<Vec<(i32, i32)>> {

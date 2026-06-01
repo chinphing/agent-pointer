@@ -360,23 +360,68 @@ async function selectAgentModelWithProvider(agentId: string, value: string) {
   })
 }
 
+/** Cleared from every agent when debug mode is turned off (restore profile defaults). */
+const DEBUG_AGENT_UI_KEYS: (keyof AgentUiConfig)[] = [
+  'showSidecarToolCalls',
+  'showToolCallResults',
+  'showReasoning'
+]
+
+function stripDebugAgentUiOverrides(
+  overrides: Record<string, Partial<AgentUiConfig>> | undefined
+): Record<string, Partial<AgentUiConfig>> {
+  if (!overrides) return {}
+  const out: Record<string, Partial<AgentUiConfig>> = {}
+  for (const [id, cfg] of Object.entries(overrides)) {
+    const next = { ...cfg }
+    for (const key of DEBUG_AGENT_UI_KEYS) {
+      delete next[key]
+    }
+    if (Object.keys(next).length > 0) {
+      out[id] = next
+    }
+  }
+  return out
+}
+
 async function toggleDebugMenus() {
   const next = !debugMenusEnabled.value
   debugMenusEnabled.value = next
   rawContentViewEnabled.value = next
   computerAnnotatedScreenViewEnabled.value = next
-  agentUiLocal.value.showReasoning = next
+
+  if (next) {
+    agentUiLocal.value = { ...agentUiLocal.value, showReasoning: true }
+  } else {
+    debugDumpLlmPrompts.value = false
+    taskBoardShowChildBoards.value = false
+    agentUiLocal.value = {
+      ...agentUiLocal.value,
+      showSidecarToolCalls: false,
+      showToolCallResults: false,
+      showReasoning: false
+    }
+  }
+
+  const baseOverrides = s.settings.agentUiOverrides ?? {}
+  const agentUiOverrides = next
+    ? {
+        ...baseOverrides,
+        [activeUiAgentId.value]: {
+          ...(baseOverrides[activeUiAgentId.value] ?? {}),
+          ...agentUiLocal.value,
+          showReasoning: true
+        }
+      }
+    : stripDebugAgentUiOverrides(baseOverrides)
+
   await s.save({
     debugMenusEnabled: next,
     rawContentViewEnabled: next,
     computerAnnotatedScreenViewEnabled: next,
-    agentUiOverrides: {
-      ...(s.settings.agentUiOverrides ?? {}),
-      [activeUiAgentId.value]: {
-        ...(s.settings.agentUiOverrides?.[activeUiAgentId.value] ?? {}),
-        showReasoning: next
-      }
-    }
+    debugDumpLlmPrompts: next ? debugDumpLlmPrompts.value : false,
+    taskBoardShowChildBoards: next ? taskBoardShowChildBoards.value : false,
+    agentUiOverrides
   })
 }
 

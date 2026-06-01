@@ -1,0 +1,128 @@
+# file.schema.yaml — 独立工具 schema（不含 method 枚举）
+# 从 file.md 的 YAML front matter 拆分出来，每个平铺工具一个 key。
+# 提示词正文仍留在 file.md 中共享。
+
+file_read:
+  type: object
+  properties:
+    paths:
+      type: array
+      items:
+        type: object
+        properties:
+          path:
+            type: string
+          lineStart:
+            type: integer
+          lineEnd:
+            type: integer
+          maxBytes:
+            type: integer
+        required: [path]
+    lineStart:
+      type: integer
+    lineEnd:
+      type: integer
+    maxBytes:
+      type: integer
+    maxTotalBytes:
+      type: integer
+  required: [paths]
+  additionalProperties: true
+
+file_write:
+  type: object
+  properties:
+    path:
+      type: string
+    content: {}
+  required: [path, content]
+  additionalProperties: true
+
+file_edit:
+  type: object
+  properties:
+    edits:
+      type: array
+      items:
+        type: object
+        properties:
+          path:
+            type: string
+          oldString:
+            type: string
+          newString:
+            type: string
+        required: [path, oldString, newString]
+  required: [edits]
+  additionalProperties: false
+
+file_glob:
+  type: object
+  properties:
+    pattern:
+      type: string
+    base:
+      type: string
+    maxResults:
+      type: integer
+    maxDepth:
+      type: integer
+    entryType:
+      type: string
+      enum: [file, dir, all]
+    includeHidden:
+      type: boolean
+  required: [pattern]
+  additionalProperties: false
+
+file_grep:
+  type: object
+  properties:
+    pattern:
+      type: string
+    path:
+      type: string
+    maxResults:
+      type: integer
+    maxDepth:
+      type: integer
+    contextLines:
+      type: integer
+    includeGlobs:
+      type: array
+      items:
+        type: string
+    excludeGlobs:
+      type: array
+      items:
+        type: string
+    fileTypes:
+      type: array
+      items:
+        type: string
+    fixedString:
+      type: boolean
+    ignoreCase:
+      type: boolean
+    includeHidden:
+      type: boolean
+  required: [pattern]
+  additionalProperties: true
+
+file_list:
+  type: object
+  properties:
+    path:
+      type: string
+    recursive:
+      type: boolean
+    maxDepth:
+      type: integer
+    maxResults:
+      type: integer
+    entryType:
+      type: string
+      enum: [all, file, dir]
+  required: [path]
+  additionalProperties: false

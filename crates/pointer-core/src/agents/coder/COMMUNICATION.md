@@ -59,17 +59,15 @@ Call **`read_lints`** in a **separate** tool turn **after** you complete a **log
 
 ## Native tool examples (`file.write`, `file.edit`, `file.read`)
 
-Each example is one JSON object with **`function.name`** and **`function.arguments`** (include **`method`** for multi-method tools).
-Do not include call **`id`** or **`type`**.
+Each example is one JSON object with **`function.name`** and **`function.arguments`**. Do not include call **`id`** or **`type`**.
 
 ### `file.read` example (single file via `paths`)
 
 ```json
 {
   "function": {
-    "name": "file",
+    "name": "file_read",
     "arguments": {
-      "method": "read",
       "paths": [{ "path": "src/App.vue", "lineStart": 1, "lineEnd": 120 }]
     }
   }
@@ -81,7 +79,7 @@ Do not include call **`id`** or **`type`**.
 ```json
 {
   "function": {
-    "name": "file",
+    "name": "file_edit",
     "arguments": {
       "method": "edit",
       "edits": [
@@ -248,7 +246,7 @@ or run one more `run_subagent` pass with explicit scope gaps.
 
 ## Cross-surface validation (before final delivery)
 
-- Include **Responsibility audit** answers (references, lifecycle, symmetry, tests, drift, surfaces)—see **AGENT** step 7.
+- Run the Responsibility audit (see **AGENT** step 7) internally; do **not** paste the audit table into user output.
 - Write the delivery summary in assistant **`content`** — not reasoning-only (see **AGENT** → **User-visible output**).
 - Briefly confirm what you **actually ran or read** (tests, builds, key files), and whether **app vs web** or **OS-specific** angles were checked or explicitly deferred with a reason.
 - If something was **not** verified, say so plainly.

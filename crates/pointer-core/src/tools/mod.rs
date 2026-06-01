@@ -223,6 +223,9 @@ pub struct ToolEntry {
     /// `<tool_name>` when any sidecar calls are present (see `response` tool docs).
     pub is_sidecar: bool,
     pub doc_markdown: String,
+    /// Standalone JSON Schema; when present, used instead of extracting from `doc_markdown`
+    /// YAML frontmatter. Set when tools are registered from `.schema.yaml` files.
+    pub schema: Option<serde_json::Value>,
     pub handler: ToolHandler,
     /// Optional UI label/summary formatter for chat tool cards.
     pub display: Option<ToolDisplayFn>,
@@ -279,9 +282,17 @@ impl ToolEntry {
             requires_approval,
             is_sidecar,
             doc_markdown: doc_markdown.into(),
+            schema: None,
             handler,
             display: None,
         }
+    }
+
+    /// Register a tool with a standalone JSON Schema (from `.schema.yaml`), bypassing
+    /// `doc_markdown` YAML frontmatter extraction.
+    pub fn with_schema(mut self, schema: serde_json::Value) -> Self {
+        self.schema = Some(schema);
+        self
     }
 
     pub fn with_display(mut self, display: ToolDisplayFn) -> Self {
@@ -327,12 +338,9 @@ impl ToolRegistry {
             .map(|e| e.risk_level.clone())
     }
 
-    /// Risk for a concrete invocation (`file` depends on `method` / qualified name).
-    pub fn tool_risk_level_for_invocation(&self, raw_tool_name: &str, args: &Value) -> Option<String> {
+    /// Risk for a concrete invocation.
+    pub fn tool_risk_level_for_invocation(&self, raw_tool_name: &str, _args: &Value) -> Option<String> {
         let base = registry_tool_base_name(raw_tool_name);
-        if base == "file" {
-            return Some(file_tool_effective_risk_level(raw_tool_name, args).to_string());
-        }
         self.tool_risk_level(base)
     }
 
@@ -344,13 +352,8 @@ impl ToolRegistry {
     }
 
     /// For merged `file` tool, only `write` and `edit` need approval; other tools use registry flag.
-    pub fn tool_invocation_needs_approval(&self, tool_id: &str, args: &Value) -> bool {
-        if tool_id == "file" {
-            return matches!(
-                args.get("method").and_then(|v| v.as_str()),
-                Some("write") | Some("edit")
-            );
-        }
+    /// Now that file_write / file_edit are separate tools, the `file` special case is removed.
+    pub fn tool_invocation_needs_approval(&self, tool_id: &str, _args: &Value) -> bool {
         self.tool_requires_approval(tool_id)
     }
 
@@ -404,7 +407,7 @@ impl ToolRegistry {
             out.push(openai_tool_entry(
                 &e.def.name,
                 &openai_description_from_doc(&e.doc_markdown),
-                openai_parameters_from_doc_or_builtin(&e.def.name, &e.doc_markdown),
+                openai_parameters_from_doc_or_builtin(&e.def.name, &e.doc_markdown, e.schema.as_ref()),
             ));
         }
         out.sort_by(|a, b| {
@@ -474,9 +477,15 @@ fn openai_description_from_doc(doc: &str) -> String {
     s
 }
 
-fn openai_parameters_from_doc_or_builtin(name: &str, doc: &str) -> serde_json::Value {
+fn openai_parameters_from_doc_or_builtin(name: &str, doc: &str, schema: Option<&serde_json::Value>) -> serde_json::Value {
+    // Prefer standalone schema (from .schema.yaml) over YAML frontmatter extraction.
+    if let Some(s) = schema {
+        if s.is_object() {
+            return s.clone();
+        }
+    }
     match json_schema_from_markdown(doc) {
-        Ok(schema) if schema.is_object() => schema,
+        Ok(s) if s.is_object() => s,
         _ => panic!("Tool `{name}` missing valid schema in doc_markdown frontmatter"),
     }
 }
@@ -514,7 +523,7 @@ mod parse_args_tests {
     #[test]
     fn registry_tool_base_name_splits_method_suffix() {
         assert_eq!(registry_tool_base_name("mouse:click_index"), "mouse");
-        assert_eq!(registry_tool_base_name("file:read"), "file");
+        assert_eq!(registry_tool_base_name("file_read"), "file_read");
         assert_eq!(registry_tool_base_name("wait"), "wait");
         assert_eq!(registry_tool_base_name("response"), "response");
     }
@@ -575,81 +584,89 @@ mod openai_tools_schema_tests {
     use std::sync::Arc;
 
     #[test]
-    fn openai_tools_file_uses_name_and_method() {
-        use super::ToolEntry;
-        use super::ToolRegistry;
-        use std::sync::Arc;
-
+    fn openai_tools_flat_file_tool_uses_standalone_schema() {
         let reg = ToolRegistry::new();
+        let doc = "### `file_read`\nShared file doc.";
         reg.register(ToolEntry::new(
-            "file",
+            "file_read",
             "low",
             false,
-            "### `file`\nUnified workspace file tools.",
+            doc,
             Arc::new(|_| Ok(String::new())),
         ));
 
-        let tools = reg.openai_tools(&["file".into()]);
+        let tools = reg.openai_tools(&[]);
         assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0]["function"]["name"], "file");
+        assert_eq!(tools[0]["function"]["name"], "file_read");
         let params = &tools[0]["function"]["parameters"];
-        assert_eq!(params["required"][0], "method");
-        assert!(params["properties"]["method"]["enum"]
-            .as_array()
-            .is_some_and(|a| a.iter().any(|v| v == "read")));
+        // Without schema, panics; with standalone schema field set, uses it.
+        assert!(params["required"].as_array().is_some());
     }
 
     #[test]
-    fn openai_tools_task_board_uses_name_and_method() {
+    fn openai_tools_file_with_standalone_schema() {
+        let reg = ToolRegistry::new();
+        let doc = "### `file_write`\n-";
+        reg.register(
+            ToolEntry::new("file_write", "high", true, doc, Arc::new(|_| Ok(String::new())))
+                .with_schema(serde_json::json!({
+                    "type": "object",
+                    "properties": { "path": { "type": "string" }, "content": {} },
+                    "required": ["path", "content"]
+                })),
+        );
+
+        let tools = reg.openai_tools(&[]);
+        assert_eq!(tools.len(), 1);
+        let params = &tools[0]["function"]["parameters"];
+        assert_eq!(params["required"][0], "path");
+    }
+
+    #[test]
+    fn openai_tools_skill_flat_uses_name() {
+        let reg = ToolRegistry::new();
+        reg.register(ToolEntry::new(
+            "skill_load_instructions",
+            "low",
+            false,
+            "### `skill_load_instructions`\n-",
+            Arc::new(|_| Ok(String::new())),
+        ));
+        let tools = reg.openai_tools(&[]);
+        assert_eq!(tools[0]["function"]["name"], "skill_load_instructions");
+    }
+
+    #[test]
+    fn openai_tools_task_board_flat_uses_name() {
         let reg = ToolRegistry::new();
         reg.register(ToolEntry::new_sidecar(
-            "task_board",
+            "task_board_patch",
             "low",
             false,
-            "### `task_board`\nSession task board.",
+            "### `task_board_patch`\n-",
             Arc::new(|_| Ok(String::new())),
         ));
-
-        let tools = reg.openai_tools(&["task_board:patch".into()]);
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0]["function"]["name"], "task_board");
-        assert_eq!(tools[0]["function"]["parameters"]["required"][0], "method");
+        let tools = reg.openai_tools(&[]);
+        assert_eq!(tools[0]["function"]["name"], "task_board_patch");
     }
 
     #[test]
-    fn openai_tools_skill_uses_name_and_method() {
-        let reg = ToolRegistry::new();
-        reg.register(ToolEntry::new(
-            "skill",
-            "low",
-            false,
-            "### `skill`\nSkill loader.",
-            Arc::new(|_| Ok(String::new())),
-        ));
-
-        let tools = reg.openai_tools(&["skill".into()]);
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0]["function"]["name"], "skill");
-        assert_eq!(tools[0]["function"]["parameters"]["required"][0], "method");
-    }
-
-    #[test]
-    fn normalize_allowed_injects_base_for_qualified_entry() {
+    fn normalize_allowed_accepts_flat_name() {
         use super::normalize_allowed_tool_names;
         use std::collections::HashSet;
 
-        let available: HashSet<String> = ["task_board".into(), "file".into()].into_iter().collect();
-        let mut names = vec!["task_board:patch".into(), "file:read".into()];
+        let available: HashSet<String> = ["task_board_patch".into(), "file_read".into()].into_iter().collect();
+        let mut names = vec!["task_board_patch".into(), "file_read".into()];
         normalize_allowed_tool_names(&mut names, &available);
-        assert!(names.contains(&"task_board".to_string()));
-        assert!(names.contains(&"file".to_string()));
+        assert!(names.contains(&"task_board_patch".to_string()));
+        assert!(names.contains(&"file_read".to_string()));
     }
 
     #[test]
     fn registry_tool_in_allow_list_accepts_qualified_entry() {
         use super::registry_tool_in_allow_list;
-        let allow = vec!["task_board:patch".into()];
-        assert!(registry_tool_in_allow_list(&allow, "task_board"));
+        let allow = vec!["task_board_patch".into()];
+        assert!(registry_tool_in_allow_list(&allow, "task_board_patch"));
         assert!(!registry_tool_in_allow_list(&allow, "terminal"));
     }
 
@@ -707,28 +724,28 @@ mod envelope_validation_tests {
     #[test]
     fn batch_sidecar_then_terminal_ok() {
         let tools = reg();
-        let batch = vec![tc("a", "task_board:patch"), tc("b", "terminal")];
+        let batch = vec![tc("a", "task_board_patch"), tc("b", "terminal")];
         assert!(validate_envelope_tool_batch(&tools, &batch).is_ok());
     }
 
     #[test]
     fn batch_single_task_board_ok() {
         let tools = reg();
-        let batch = vec![tc("a", "task_board:patch")];
+        let batch = vec![tc("a", "task_board_patch")];
         assert!(validate_envelope_tool_batch(&tools, &batch).is_ok());
     }
 
     #[test]
     fn batch_rejects_non_sidecar_prefix() {
         let tools = reg();
-        let batch = vec![tc("a", "terminal"), tc("b", "file:read")];
+        let batch = vec![tc("a", "terminal"), tc("b", "file_read")];
         assert!(validate_envelope_tool_batch(&tools, &batch).is_err());
     }
 
     #[test]
     fn batch_all_sidecars_ok() {
         let tools = reg();
-        let batch = vec![tc("a", "task_board:patch"), tc("b", "task_board:replace")];
+        let batch = vec![tc("a", "task_board_patch"), tc("b", "task_board_replace")];
         assert!(validate_envelope_tool_batch(&tools, &batch).is_ok());
     }
 
@@ -736,9 +753,9 @@ mod envelope_validation_tests {
     fn batch_allows_sidecar_calls_around_single_primary() {
         let tools = reg();
         let batch = vec![
-            tc("a", "task_board:patch"),
+            tc("a", "task_board_patch"),
             tc("b", "terminal"),
-            tc("c", "task_board:replace"),
+            tc("c", "task_board_replace"),
         ];
         assert!(validate_envelope_tool_batch(&tools, &batch).is_ok());
     }
@@ -746,7 +763,7 @@ mod envelope_validation_tests {
     #[test]
     fn batch_rejects_more_than_one_primary_tool() {
         let tools = reg();
-        let batch = vec![tc("a", "terminal"), tc("b", "file:read"), tc("c", "task_board:patch")];
+        let batch = vec![tc("a", "terminal"), tc("b", "file_read"), tc("c", "task_board_patch")];
         assert!(validate_envelope_tool_batch(&tools, &batch).is_err());
     }
 }

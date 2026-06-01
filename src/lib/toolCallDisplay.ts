@@ -9,6 +9,13 @@ function resolveMethod(name: string, argumentsJson?: string): string {
     const m = name.slice(i + 1).trim()
     if (m) return m
   }
+  // Flat tools: derive method from the tool name suffix.
+  for (const prefix of ['file_', 'skill_', 'task_board_']) {
+    if (name.startsWith(prefix)) {
+      const m = name.slice(prefix.length).trim()
+      if (m) return m
+    }
+  }
   if (!argumentsJson?.trim()) return ''
   try {
     const args = JSON.parse(argumentsJson) as Record<string, unknown>
@@ -18,6 +25,20 @@ function resolveMethod(name: string, argumentsJson?: string): string {
     /* ignore */
   }
   return ''
+}
+
+/** Whether the raw tool name (or base) is a file-family tool. */
+function isFileTool(base: string): boolean {
+  return base.startsWith('file_')
+}
+
+/** Flatten tool name to its display category for grouping. */
+function groupCategory(name: string): string {
+  const base = toolCallBaseName(name)
+  if (isFileTool(base)) return 'file'
+  if (base === 'terminal') return 'terminal'
+  if (base === 'web_search') return 'web_search'
+  return base
 }
 
 function isInProgress(status: ToolCall['status']): boolean {
@@ -128,7 +149,7 @@ export function buildToolGroupStats(tools: ToolCall[]): ToolGroupStats {
       stats.webSearch += 1
       continue
     }
-    if (base === 'file') {
+    if (isFileTool(base)) {
       if (isInProgress(tc.status) && method === 'edit') {
         collectEditFileBasenames(tc.arguments, editingFileSet)
         continue
@@ -211,7 +232,7 @@ export function toolGroupSummaryIcon(stats: ToolGroupStats): ToolSummaryIcon {
 export function toolRowMuted(tc: ToolCall): boolean {
   const base = toolCallBaseName(tc.name)
   const method = resolveMethod(tc.name, tc.arguments)
-  return base === 'file' && method === 'read' && !isInProgress(tc.status)
+  return isFileTool(base) && method === 'read' && !isInProgress(tc.status)
 }
 
 const SHORT_LABELS: Record<string, string> = {
@@ -244,7 +265,8 @@ export function toolCallDetailText(tc: ToolCall): string {
 const GROUPABLE_BASES = new Set(['file', 'terminal', 'web_search'])
 
 export function isGroupableToolCall(tc: ToolCall): boolean {
-  return GROUPABLE_BASES.has(toolCallBaseName(tc.name))
+  const base = toolCallBaseName(tc.name)
+  return GROUPABLE_BASES.has(groupCategory(base))
 }
 
 export function canGroupToolCalls(tools: ToolCall[]): boolean {

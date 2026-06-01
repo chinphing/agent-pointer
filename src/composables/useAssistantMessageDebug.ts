@@ -67,6 +67,10 @@ export function useAssistantMessageDebug(
     return !!(rawWireContent.value?.trim() || rawWireReasoning.value?.trim() || toolRawArgs.value.trim())
   })
 
+  /** Raw content button/panel visibility independent of streaming/generation state.
+   *  Users must be able to inspect raw LLM output during active execution. */
+  const showRawWireFooter = computed(() => hasRawWire.value)
+
   const showCamera = computed(() => {
     const msg = message.value
     if (!msg) return false
@@ -92,7 +96,7 @@ export function useAssistantMessageDebug(
   })
 
   const showDebugActions = computed(
-    () => showMessageActions.value && (showCamera.value || hasRawWire.value)
+    () => showMessageActions.value && showCamera.value
   )
 
   watch(rawContentViewEnabled, on => {
@@ -136,6 +140,7 @@ export function useAssistantMessageDebug(
     showCamera,
     showMessageActions,
     showDebugActions,
+    showRawWireFooter,
     openScreenPreview
   }
 }

@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn checkpoint_replace_always() {
         let args = serde_json::json!({ "items": [{ "id": "1", "status": "pending" }] });
-        assert!(task_board_call_is_checkpoint("task_board:replace", &args));
+        assert!(task_board_call_is_checkpoint("task_board_replace", &args));
     }
 
     #[test]
@@ -312,11 +312,11 @@ mod tests {
         let pending = serde_json::json!({
             "items": [{ "id": "1", "status": "in_progress" }]
         });
-        assert!(!task_board_call_is_checkpoint("task_board:patch", &pending));
+        assert!(!task_board_call_is_checkpoint("task_board_patch", &pending));
         let done = serde_json::json!({
             "items": [{ "id": "1", "status": "done" }]
         });
-        assert!(task_board_call_is_checkpoint("task_board:patch", &done));
+        assert!(task_board_call_is_checkpoint("task_board_patch", &done));
     }
 
     #[test]

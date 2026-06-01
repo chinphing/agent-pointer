@@ -1106,7 +1106,7 @@ mod tests {
         let calls = vec![
             ToolCall {
                 id: "a".into(),
-                name: "task_board:patch".into(),
+                name: "task_board_patch".into(),
                 arguments: "{}".into(),
                 status: "pending".into(),
                 result: None,

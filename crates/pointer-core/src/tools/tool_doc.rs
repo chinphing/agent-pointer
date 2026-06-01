@@ -54,6 +54,44 @@ pub fn load_tool_doc_and_schema(md: &str) -> Result<(Value, String)> {
     Ok((schema, doc))
 }
 
+/// Parse a `.schema.yaml` file whose top-level keys are flat tool names and each value is
+/// the tool's JSON Schema (no `method` enum). Returns `Vec<(tool_name, json_schema)>`.
+///
+/// Example YAML:
+/// ```yaml
+/// file_read:
+///   type: object
+///   properties:
+///     paths:
+///       type: array
+///   required: [paths]
+/// file_write:
+///   type: object
+///   properties:
+///     path:
+///       type: string
+///     content: {}
+///   required: [path, content]
+/// ```
+pub fn load_tools_from_schema_yaml(yaml_str: &str) -> Result<Vec<(String, Value)>> {
+    let yaml_v: serde_yaml::Value =
+        serde_yaml::from_str(yaml_str).map_err(|e| anyhow!("Invalid schema YAML: {e}"))?;
+    let mapping = yaml_v
+        .as_mapping()
+        .ok_or_else(|| anyhow!("Schema YAML top-level must be a mapping"))?;
+    let mut tools = Vec::with_capacity(mapping.len());
+    for (key, value) in mapping {
+        let name = key
+            .as_str()
+            .ok_or_else(|| anyhow!("Schema YAML keys must be strings"))?
+            .to_string();
+        let schema = serde_json::to_value(value)
+            .map_err(|e| anyhow!("Invalid JSON schema for tool '{name}': {e}"))?;
+        tools.push((name, schema));
+    }
+    Ok(tools)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,5 +130,72 @@ Body.
 "#;
         let err = json_schema_from_markdown(md).unwrap_err().to_string();
         assert!(err.contains("YAML front matter"));
+    }
+
+    #[test]
+    fn loads_flat_tools_from_schema_yaml() {
+        let yaml = r#"
+file_read:
+  type: object
+  properties:
+    paths:
+      type: array
+  required: [paths]
+file_write:
+  type: object
+  properties:
+    path:
+      type: string
+    content: {}
+  required: [path, content]
+"#;
+        let tools = load_tools_from_schema_yaml(yaml).unwrap();
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0].0, "file_read");
+        assert_eq!(tools[1].0, "file_write");
+        assert_eq!(tools[0].1["type"], "object");
+        assert_eq!(tools[0].1["required"][0], "paths");
+        assert_eq!(tools[1].1["required"][0], "path");
+    }
+
+    #[test]
+    fn schema_yaml_rejects_non_mapping_top_level() {
+        let yaml = "- item1\n- item2\n";
+        let err = load_tools_from_schema_yaml(yaml).unwrap_err().to_string();
+        assert!(err.contains("mapping"));
+    }
+
+    /// Verify our actual .schema.yaml files parse correctly.
+    #[test]
+    fn real_file_schema_yaml_parses() {
+        let yaml_str = include_str!("prompts/file.schema.yaml");
+        let tools = load_tools_from_schema_yaml(yaml_str).unwrap();
+        let names: Vec<&str> = tools.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "file_read",
+                "file_write",
+                "file_edit",
+                "file_glob",
+                "file_grep",
+                "file_list"
+            ]
+        );
+        for (name, schema) in &tools {
+            assert_eq!(
+                schema["type"],
+                "object",
+                "tool {name} missing type: object"
+            );
+        }
+    }
+
+    #[test]
+    fn real_skill_schema_yaml_parses() {
+        let yaml_str = include_str!("prompts/skill.schema.yaml");
+        let tools = load_tools_from_schema_yaml(yaml_str).unwrap();
+        let names: Vec<&str> = tools.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["skill_load_instructions", "skill_read_resource"]);
     }
 }

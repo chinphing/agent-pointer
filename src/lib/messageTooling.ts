@@ -45,9 +45,8 @@ export function visibleToolCalls(
 function isDefaultHiddenSidecarCall(fullName: string, baseName: string): boolean {
   return (
     fullName.startsWith('verify:') ||
-    fullName.startsWith('task_board:') ||
-    baseName === 'verify' ||
-    baseName === 'task_board'
+    baseName.startsWith('task_board') ||
+    baseName === 'verify'
   )
 }
 

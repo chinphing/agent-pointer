@@ -347,6 +347,7 @@ onUnmounted(() => {
           <PlatformLoginActions
             variant="compact"
             :loading="platformAuth.loading"
+            :error="null"
             @login="onPlatformLogin"
             @cancel="onPlatformLoginCancel"
           />

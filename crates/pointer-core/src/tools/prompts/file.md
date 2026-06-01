@@ -49,7 +49,7 @@ Unified workspace file tools. Call the **`file`** tool with **`method`** set to 
 | **`edit`** | Replace one unique substring per file via **`edits`** only: a non-empty array (max **32**) of objects, each with **`path`** (alias **`file`**), **`oldString`** / **`old_string`**, **`newString`** / **`new_string`**. Single-file edits use **`edits`** with **one** object. Response includes **`files`**, **`successCount`**, **`failureCount`**, **`batchPartialFailure`**. |
 | **`glob`** | List paths matching a glob under the search root (workspace root or optional `base`). Default: **files only**; optional **directories** or **both**. |
 | **`grep`** | Search file contents with a regex (ripgrep-class stack: respects `.gitignore`, skips hidden paths by default, line-oriented matching). |
-| **`list`** | List directory entries; optional recursion, max depth, and file/directory filter. |
+| **`list`** | List directory entries; **recursive by default** (depth 2); optional maxResults cap and file/directory filter. |
 
 #### Parameters
 
@@ -67,9 +67,8 @@ Example — single file:
 ```json
 {
   "function": {
-    "name": "file",
+    "name": "file_read",
     "arguments": {
-      "method": "read",
       "paths": [{ "path": "src/foo.rs" }]
     }
   }
@@ -81,9 +80,8 @@ Example — batch with line ranges (Windows):
 ```json
 {
   "function": {
-    "name": "file",
+    "name": "file_read",
     "arguments": {
-      "method": "read",
       "paths": [
         { "path": "D:\\workspace\\src\\a.rs", "lineStart": 10, "lineEnd": 80 },
         { "path": "D:\\workspace\\src\\b.rs" }
@@ -104,9 +102,8 @@ Example:
 ```json
 {
   "function": {
-    "name": "file",
+    "name": "file_write",
     "arguments": {
-      "method": "write",
       "path": "src/components/Foo.vue",
       "content": "<template><div>Hello</div></template>\n"
     }
@@ -123,9 +120,8 @@ Example:
 ```json
 {
   "function": {
-    "name": "file",
+    "name": "file_edit",
     "arguments": {
-      "method": "edit",
       "edits": [
         {
           "path": "src/App.vue",
@@ -196,6 +192,7 @@ Response includes **`singleFile`: true** when **`path`** resolves to a **file**.
 **`list`**
 
 - **`path`** — Required; directory to list (alias **`directory`**).
-- **`recursive`** — Optional boolean; default **false**.
-- **`maxDepth`** — Optional when **`recursive`** is true (default **8**).
+- **`recursive`** — Optional boolean; default **true**.
+- **`maxDepth`** — Optional when **`recursive`** is true (default **2**).
+- **`maxResults`** — Optional cap on returned entries (default **100**, max **2000**).
 - **`entryType`** — Optional; **`all`** (default), **`file`**, or **`dir`**.

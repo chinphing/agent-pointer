@@ -156,7 +156,7 @@ function toggleExpanded() {
           <span class="text-xs text-muted shrink-0">{{ trace.status }}</span>
         </button>
         <button
-          v-if="hasRawWire && showMessageActions !== false"
+          v-if="hasRawWire"
           type="button"
           class="message-action-btn shrink-0"
           :class="showRawWire ? 'text-accent' : 'text-muted hover:text-foreground'"

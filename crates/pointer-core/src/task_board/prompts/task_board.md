@@ -132,9 +132,8 @@ Single-row patch can use top-level fields:
 ```json
 {
   "function": {
-    "name": "task_board",
+    "name": "task_board_init",
     "arguments": {
-      "method": "init",
       "goal": "Ship feature X",
       "items": [
         { "id": "m1", "title": "Locate code", "status": "pending" }
@@ -151,9 +150,8 @@ Example patch call:
 ```json
 {
   "function": {
-    "name": "task_board",
+    "name": "task_board_patch",
     "arguments": {
-      "method": "patch",
       "items": [
         {
           "id": "m1",
@@ -176,10 +174,8 @@ Call after the last row is **`done`** or **`cancelled`**:
 ```json
 {
   "function": {
-    "name": "task_board",
-    "arguments": {
-      "method": "finalize"
-    }
+    "name": "task_board_finalize",
+    "arguments": {}
   }
 }
 ```

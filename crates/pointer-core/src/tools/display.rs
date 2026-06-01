@@ -38,12 +38,19 @@ fn str_field(args: &Value, keys: &[&str]) -> Option<String> {
 }
 
 fn resolve_method(raw_name: &str, args: &Value) -> String {
+    let base = registry_tool_base_name(raw_name);
+    // For flat tools (file_read, task_board_init, etc.), derive method from suffix.
+    if let Some(m) = flat_method_from_tool_name(base) {
+        return m;
+    }
+    // Legacy qualified-name format (e.g. `file:read`).
     if let Some((_, m)) = raw_name.split_once(':') {
         let m = m.trim();
         if !m.is_empty() {
             return m.to_string();
         }
     }
+    // Legacy `method` field in args (pre-split tools).
     let from_method = args
         .get("method")
         .and_then(|v| v.as_str())
@@ -54,8 +61,28 @@ fn resolve_method(raw_name: &str, args: &Value) -> String {
     if !from_method.is_empty() {
         return from_method;
     }
-    let base = registry_tool_base_name(raw_name);
     crate::agents::computer::tools::method_route::operation_name_for_display(base, raw_name, args)
+}
+
+/// For flat renamed tools, extract method from the suffix.
+/// `file_read` → Some("read"), `task_board_patch` → Some("patch").
+fn flat_method_from_tool_name(name: &str) -> Option<String> {
+    if let Some(suffix @ ("read" | "write" | "edit" | "glob" | "grep" | "list")) =
+        name.strip_prefix("file_")
+    {
+        return Some(suffix.to_string());
+    }
+    if let Some(suffix) = name.strip_prefix("skill_") {
+        if !suffix.is_empty() {
+            return Some(suffix.to_string());
+        }
+    }
+    if let Some(suffix) = name.strip_prefix("task_board_") {
+        if !suffix.is_empty() {
+            return Some(suffix.to_string());
+        }
+    }
+    None
 }
 
 fn file_method_label(method: &str) -> &'static str {
@@ -285,30 +312,21 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                 .map(|c| truncate(c.lines().next().unwrap_or(&c), SUMMARY_MAX))
                 .unwrap_or_default(),
         ),
-        "file" => {
+        n if n.starts_with("file_") => {
             let m = if method.is_empty() { "read" } else { method.as_str() };
             (file_method_label(m).to_string(), file_summary(args, m))
         }
         "mouse" => {
             let ml = mouse_method_label(if method.is_empty() { "click_index" } else { &method });
-            (
-                format!("鼠标 · {ml}"),
-                computer_action_summary(args),
-            )
+            (format!("鼠标 · {ml}"), computer_action_summary(args))
         }
         "composite_action" => {
             let ml = mouse_method_label(if method.is_empty() { "action" } else { &method });
-            (
-                format!("组合操作 · {ml}"),
-                computer_action_summary(args),
-            )
+            (format!("组合操作 · {ml}"), computer_action_summary(args))
         }
         "modified_click" => {
             let ml = mouse_method_label(if method.is_empty() { "click" } else { &method });
-            (
-                format!("修饰点击 · {ml}"),
-                computer_action_summary(args),
-            )
+            (format!("修饰点击 · {ml}"), computer_action_summary(args))
         }
         "hotkey" => ("快捷键".to_string(), hotkey_summary(args)),
         "wait" => {
@@ -342,7 +360,7 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                     .unwrap_or_default(),
             )
         }
-        "skill" => {
+        n if n.starts_with("skill_") => {
             let label = match method.as_str() {
                 "load_instructions" => "加载技能",
                 "read_resource" => "读取技能资源",
@@ -355,50 +373,19 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                     .unwrap_or_default(),
             )
         }
-        "web_search" => {
-            let q = str_field(args, &["query"]).unwrap_or_default();
-            (
-                "联网搜索".to_string(),
-                truncate(&q, SUMMARY_MAX),
-            )
-        }
-        "run_subagent" => (
-            "委派子任务".to_string(),
-            str_field(args, &["title", "agentId"])
-                .map(|s| truncate(&s, SUMMARY_MAX))
-                .unwrap_or_default(),
-        ),
-        "read_lints" => (
-            "代码检查".to_string(),
-            file_summary(args, "read"),
-        ),
-        "task_board" => {
+        "web_search" => { let q = str_field(args, &["query"]).unwrap_or_default(); ("联网搜索".to_string(), truncate(&q, SUMMARY_MAX)) }
+        "run_subagent" => ("委派子任务".to_string(), str_field(args, &["title", "agentId"]).map(|s| truncate(&s, SUMMARY_MAX)).unwrap_or_default()),
+        "read_lints" => ("代码检查".to_string(), file_summary(args, "read")),
+        n if n.starts_with("task_board") => {
             let m = if method.is_empty() { "patch" } else { method.as_str() };
-            (
-                format!("任务板 · {}", task_board_method_label(m)),
-                task_board_invoke_summary(m, args),
-            )
+            (format!("任务板 · {}", task_board_method_label(m)), task_board_invoke_summary(m, args))
         }
         "captcha_verify" => {
-            let action = if method.is_empty() {
-                str_field(args, &["action", "method"]).unwrap_or_default()
-            } else {
-                method.clone()
-            };
-            let al = captcha_action_label(action.as_str());
-            (
-                format!("验证码 · {al}"),
-                computer_action_summary(args),
-            )
+            let action = if method.is_empty() { str_field(args, &["action", "method"]).unwrap_or_default() } else { method.clone() };
+            (format!("验证码 · {}", captcha_action_label(action.as_str())), computer_action_summary(args))
         }
         "response" => ("回复用户".to_string(), String::new()),
-        _ => {
-            if !method.is_empty() {
-                (format!("{base} · {method}"), String::new())
-            } else {
-                (raw_name.to_string(), String::new())
-            }
-        }
+        _ => if !method.is_empty() { (format!("{base} · {method}"), String::new()) } else { (raw_name.to_string(), String::new()) }
     };
 
     ToolDisplay { label, summary }
@@ -424,7 +411,7 @@ mod tests {
 
     #[test]
     fn file_read_label_and_basename_only() {
-        let d = default_display("file:read", &json!({"paths": [{"path": "src/App.vue"}]}));
+        let d = default_display("file_read", &json!({"paths": [{"path": "src/App.vue"}]}));
         assert_eq!(d.label, "读取文件");
         assert_eq!(d.summary, "App.vue");
         assert!(!d.summary.contains('/'));
@@ -433,7 +420,7 @@ mod tests {
     #[test]
     fn file_batch_read_basenames_comma_separated() {
         let d = default_display(
-            "file:read",
+            "file_read",
             &json!({
                 "paths": [
                     {"path": "/workspace/src/App.vue"},
@@ -447,7 +434,7 @@ mod tests {
     #[test]
     fn task_board_flat_patch_shows_item_and_status() {
         let d = default_display(
-            "task_board:patch",
+            "task_board_patch",
             &json!({
                 "item_id": "2",
                 "status": "done",
@@ -461,7 +448,7 @@ mod tests {
     #[test]
     fn file_grep_shows_pattern_not_search_path() {
         let d = default_display(
-            "file:grep",
+            "file_grep",
             &json!({"pattern": "fn main", "path": "src/components/App.vue"}),
         );
         assert_eq!(d.label, "搜索内容");
@@ -470,7 +457,7 @@ mod tests {
 
     #[test]
     fn file_glob_shows_pattern() {
-        let d = default_display("file:glob", &json!({"pattern": "**/*.rs", "base": "src"}));
+        let d = default_display("file_glob", &json!({"pattern": "**/*.rs", "base": "src"}));
         assert_eq!(d.label, "搜索文件");
         assert_eq!(d.summary, "**/*.rs");
     }
@@ -478,7 +465,7 @@ mod tests {
     #[test]
     fn file_glob_shows_pattern_not_search_root() {
         let d = default_display(
-            "file:glob",
+            "file_glob",
             &json!({"pattern": "**/*.vue", "path": "src/components", "base": "src"}),
         );
         assert_eq!(d.label, "搜索文件");
@@ -487,7 +474,7 @@ mod tests {
 
     #[test]
     fn file_grep_keeps_pattern_not_path() {
-        let d = default_display("file:grep", &json!({"pattern": "fn main"}));
+        let d = default_display("file_grep", &json!({"pattern": "fn main"}));
         assert_eq!(d.label, "搜索内容");
         assert_eq!(d.summary, "fn main");
     }

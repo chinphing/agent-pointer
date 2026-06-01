@@ -1,11 +1,12 @@
 //! Checkpoint detection for history trim.
 
-use super::args::{board_rows_from_args, resolve_method};
+use super::args::board_rows_from_args;
+use super::tool::resolve_method_for_call;
 use serde_json::Value;
 
 pub fn is_task_board_tool_name(tool_id: &str) -> bool {
     let n = tool_id.trim().to_ascii_lowercase();
-    n == "task_board" || n.starts_with("task_board:")
+    n.starts_with("task_board")
 }
 
 fn patch_marks_done(args: &Value) -> bool {
@@ -22,7 +23,7 @@ pub fn task_board_call_is_checkpoint(tool_id: &str, args: &Value) -> bool {
     if !is_task_board_tool_name(tool_id) {
         return false;
     }
-    match resolve_method(tool_id, args).as_str() {
+    match resolve_method_for_call(tool_id, args).as_str() {
         "init" | "replace" | "finalize" => true,
         "patch" | "" => patch_marks_done(args),
         _ => false,

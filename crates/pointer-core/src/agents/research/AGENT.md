@@ -12,7 +12,13 @@ defaultSkillIds: []
 accessPolicy:
   allowTools:
     - web_search
-    - task_board
+    - task_board_init
+    - task_board_patch
+    - task_board_replace
+    - task_board_prune
+    - task_board_finalize
+    - task_board_sync_finding
+    - task_board_check_deps
   denyTools: []
   allowSkills: []
   denySkills: []
@@ -23,8 +29,13 @@ ui:
   composerLabel: 深度研究
   showTaskBoardPanel: true
   hideToolNames:
-    - task_board
-    - task_board:patch
+    - task_board_init
+    - task_board_patch
+    - task_board_replace
+    - task_board_prune
+    - task_board_finalize
+    - task_board_sync_finding
+    - task_board_check_deps
   avatar: research
 ---
 

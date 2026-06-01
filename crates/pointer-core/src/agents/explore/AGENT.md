@@ -12,8 +12,17 @@ enabled: true
 defaultSkillIds: []
 accessPolicy:
   allowTools:
-    - file
-    - task_board
+    - file_read
+    - file_write
+    - file_edit
+    - file_glob
+    - file_grep
+    - file_list
+    - task_board_init
+    - task_board_patch
+    - task_board_replace
+    - task_board_finalize
+    - task_board_sync_finding
   denyTools: []
   allowSkills: []
   denySkills: []
@@ -22,8 +31,13 @@ ui:
   showInComposer: false
   showTaskBoardPanel: true
   hideToolNames:
-    - task_board
-    - task_board:patch
+    - task_board_init
+    - task_board_patch
+    - task_board_replace
+    - task_board_finalize
+    - task_board_sync_finding
+    - task_board_check_deps
+    - task_board_prune
   avatar: explore
 ---
 
@@ -209,9 +223,8 @@ Below: an earlier **`grep`** (file tool) turn, then the **final** Markdown hando
 ```json
 {
   "function": {
-    "name": "file",
+    "name": "file_grep",
     "arguments": {
-      "method": "grep",
       "pattern": "register_handler",
       "path": "crates/<api>/src"
     }
@@ -224,9 +237,8 @@ Below: an earlier **`grep`** (file tool) turn, then the **final** Markdown hando
 ```json
 {
   "function": {
-    "name": "file",
+    "name": "file_read",
     "arguments": {
-      "method": "read",
       "paths": [{ "path": "crates/<api>/src/handler.rs", "lineStart": 40, "lineEnd": 88 }]
     }
   }

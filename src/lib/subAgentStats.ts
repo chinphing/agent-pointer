@@ -23,14 +23,12 @@ export function incrementSubAgentToolStats(
   argsJson?: string
 ): void {
   const base = toolCallBaseName(toolName.trim())
-  if (base === 'file') {
-    const method =
-      toolName.includes(':') ? toolName.split(':')[1]?.trim() : extractMethod(argsJson)
-    if (method === 'read') stats.readCount += 1
-    else if (method === 'grep' || method === 'glob' || method === 'list') stats.searchCount += 1
+  // Flat file tools: file_read, file_write, file_edit, file_glob, file_grep, file_list
+  if (base.startsWith('file_')) {
+    if (base === 'file_read') stats.readCount += 1
+    else if (base === 'file_grep' || base === 'file_glob' || base === 'file_list') stats.searchCount += 1
     return
   }
-  if (base === 'grep' || base === 'glob' || base === 'list') stats.searchCount += 1
   if (base === 'web_search') stats.searchCount += 1
 }
 

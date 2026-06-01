@@ -30,6 +30,7 @@ const {
   showCamera,
   showMessageActions,
   showDebugActions,
+  showRawWireFooter,
   openScreenPreview
 } = useAssistantMessageDebug(messageRef, {
   generating: toRef(props, 'generating'),
@@ -65,18 +66,21 @@ const showFooter = computed(() => showMessageActions.value)
       >
         <Camera class="w-3.5 h-3.5" />
       </button>
-      <button
-        v-if="hasRawWire"
-        type="button"
-        class="message-action-btn"
-        :class="showRawWire ? 'text-accent' : 'text-muted hover:text-foreground'"
-        :title="showRawWire ? '隐藏原始内容' : '查看原始内容'"
-        @click="showRawWire = !showRawWire"
-      >
-        <Code class="w-3.5 h-3.5" />
-      </button>
     </template>
   </MessageFooterActions>
+
+  <!-- Raw content toggle: visible even during active generation/streaming, independent of showFooter -->
+  <div v-if="showRawWireFooter" class="flex items-center gap-1 px-3 pt-1">
+    <button
+      type="button"
+      class="message-action-btn"
+      :class="showRawWire ? 'text-accent' : 'text-muted hover:text-foreground'"
+      :title="showRawWire ? '隐藏原始内容' : '查看原始内容'"
+      @click="showRawWire = !showRawWire"
+    >
+      <Code class="w-3.5 h-3.5" />
+    </button>
+  </div>
 
   <RawWirePanel
     v-if="showRawWire && (rawWireContent || rawWireReasoning || toolRawArgs)"

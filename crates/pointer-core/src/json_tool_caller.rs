@@ -480,11 +480,11 @@ mod tests {
 
     #[test]
     fn finalize_sidecar_and_primary() {
-        let j = r#"{"thoughts":"","headline":"","sidecar_tools":[{"tool_name":"task_board:patch","tool_args":{"items":"[]"}}],"tool_name":"terminal","tool_args":{"command":"echo ok"}}"#;
+        let j = r#"{"thoughts":"","headline":"","sidecar_tools":[{"tool_name":"task_board_patch","tool_args":{"items":"[]"}}],"tool_name":"terminal","tool_args":{"command":"echo ok"}}"#;
         let (env, _) = finalize_json_tool_envelope(j, "");
         let env = env.unwrap();
         assert_eq!(env.sidecar.len(), 1);
-        assert_eq!(env.sidecar[0].name, "task_board:patch");
+        assert_eq!(env.sidecar[0].name, "task_board_patch");
         assert_eq!(env.primary.name, "terminal");
     }
 }

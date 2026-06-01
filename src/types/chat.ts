@@ -47,7 +47,7 @@ export const COMPUTER_INITIAL_TIER_OPTIONS: { value: ComputerInitialTier; label:
 /** Per-agent chat UI visibility (from AGENT.md `ui` block). */
 export interface AgentUiConfig {
   showInComposer?: boolean
-  /** Debug: show sidecar tool calls (`verify:*`, `task_board:*`). */
+  /** Debug: show sidecar tool calls (`verify:*`, `task_board_patch`, etc.). */
   showSidecarToolCalls?: boolean
   /** Debug: show non-sidecar tool calls (real action tools). */
   showNonSidecarToolCalls?: boolean

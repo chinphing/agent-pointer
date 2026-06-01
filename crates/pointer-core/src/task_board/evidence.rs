@@ -120,13 +120,13 @@ mod tests {
 
     #[test]
     fn detects_terminal_not_task_board() {
-        let hist = vec![assistant_with_tools(&["task_board:patch", "terminal"])];
+        let hist = vec![assistant_with_tools(&["task_board_patch", "terminal"])];
         assert!(history_has_recent_action_tools(&hist));
     }
 
     #[test]
     fn false_when_only_task_board() {
-        let hist = vec![assistant_with_tools(&["task_board:patch"])];
+        let hist = vec![assistant_with_tools(&["task_board_patch"])];
         assert!(!history_has_recent_action_tools(&hist));
     }
 

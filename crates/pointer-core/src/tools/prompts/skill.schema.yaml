@@ -1,0 +1,20 @@
+# skill.schema.yaml — 独立工具 schema（不含 method 枚举）
+# 提示词正文仍留在 skill.md 中共享。
+
+skill_load_instructions:
+  type: object
+  properties:
+    skill_id:
+      type: string
+  required: [skill_id]
+  additionalProperties: false
+
+skill_read_resource:
+  type: object
+  properties:
+    skill_id:
+      type: string
+    path:
+      type: string
+  required: [skill_id, path]
+  additionalProperties: false

@@ -57,14 +57,7 @@ pub fn markdown_runtime_block_for_inject(doc: &BoardDocument) -> String {
         lines.push("- none".to_string());
     } else {
         for item in &doc.board {
-            let title = item.title.trim();
-            let title = if title.is_empty() { "(untitled)" } else { title };
-            lines.push(format!(
-                "- {}: {} | {}",
-                item.id,
-                title,
-                item.status.as_str()
-            ));
+            lines.push(format_all_tasks_line(item));
         }
     }
 
@@ -73,25 +66,13 @@ pub fn markdown_runtime_block_for_inject(doc: &BoardDocument) -> String {
     if let Some(item) = current_task_item(doc) {
         lines.push(format!("- id: {}", item.id));
         lines.push(format!("- title: {}", item.title.trim()));
+        lines.push(format!("- validate: {}", validate_display(item)));
         lines.push(format!("- status: {}", item.status.as_str()));
-        let key_validate = item
-            .validate
-            .as_ref()
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .or_else(|| {
-                item.output
-                    .as_ref()
-                    .map(|s| s.trim())
-                    .filter(|s| !s.is_empty())
-            })
-            .unwrap_or("n/a");
-        lines.push(format!("- key_validate: {key_validate}"));
     } else {
         lines.push("- id: n/a".to_string());
         lines.push("- title: n/a".to_string());
+        lines.push("- validate: n/a".to_string());
         lines.push("- status: n/a".to_string());
-        lines.push("- key_validate: n/a".to_string());
     }
 
     lines.push(String::new());
@@ -119,16 +100,39 @@ pub fn markdown_runtime_block_for_inject(doc: &BoardDocument) -> String {
         .filter(|s| !s.is_empty())
         .unwrap_or("n/a");
     lines.push(progress.to_string());
+    lines.join("\n")
+}
 
-    lines.push(String::new());
-    lines.push("## Current task validate".to_string());
-    let validate = current_task_item(doc)
-        .and_then(|item| item.validate.as_ref())
+fn validate_display(item: &BoardItem) -> &str {
+    item.validate
+        .as_ref()
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
-        .unwrap_or("n/a");
-    lines.push(validate.to_string());
-    lines.join("\n")
+        .unwrap_or("n/a")
+}
+
+fn format_all_tasks_line(item: &BoardItem) -> String {
+    let title = item.title.trim();
+    let title = if title.is_empty() { "(untitled)" } else { title };
+    if matches!(
+        item.status,
+        ItemStatus::InProgress | ItemStatus::Pending
+    ) {
+        format!(
+            "- {}: {} | validate: {} | {}",
+            item.id,
+            title,
+            validate_display(item),
+            item.status.as_str()
+        )
+    } else {
+        format!(
+            "- {}: {} | {}",
+            item.id,
+            title,
+            item.status.as_str()
+        )
+    }
 }
 
 fn current_task_item(doc: &BoardDocument) -> Option<&BoardItem> {
@@ -239,4 +243,73 @@ fn item_compact(item: &BoardItem) -> serde_json::Value {
         "status": item.status.as_str(),
         "summary": out,
     })
+}
+
+#[cfg(test)]
+mod inject_format_tests {
+    use super::*;
+    use crate::task_board::model::BoardItem;
+
+    fn sample_doc() -> BoardDocument {
+        let mut doc = BoardDocument::empty_for_store_key("conv-test");
+        doc.meta.goal = "Ship feature".into();
+        doc.board = vec![
+                BoardItem {
+                    id: "m1".into(),
+                    title: "Explore".into(),
+                    status: ItemStatus::Done,
+                    validate: Some("grep done".into()),
+                    ..BoardItem::default()
+                },
+                BoardItem {
+                    id: "m2".into(),
+                    title: "Implement".into(),
+                    status: ItemStatus::InProgress,
+                    validate: Some("cargo test -p foo".into()),
+                    details: Some("patch handler".into()),
+                    progress: Some("started".into()),
+                    ..BoardItem::default()
+                },
+                BoardItem {
+                    id: "m3".into(),
+                    title: "Audit".into(),
+                    status: ItemStatus::Pending,
+                    validate: Some("cargo clippy".into()),
+                    ..BoardItem::default()
+                },
+            ];
+        doc
+    }
+
+    #[test]
+    fn inject_omits_key_validate_and_validate_section() {
+        let block = markdown_runtime_block_for_inject(&sample_doc());
+        assert!(!block.contains("key_validate"));
+        assert!(!block.contains("## Current task validate"));
+    }
+
+    #[test]
+    fn inject_current_task_puts_validate_before_status() {
+        let block = markdown_runtime_block_for_inject(&sample_doc());
+        let section = block
+            .split("## Current task details")
+            .next()
+            .expect("current task section");
+        assert!(section.contains("- title: Implement"));
+        assert!(section.contains("- validate: cargo test -p foo"));
+        assert!(section.contains("- status: in_progress"));
+        let title_pos = section.find("- title:").expect("title");
+        let validate_pos = section.find("- validate:").expect("validate");
+        let status_pos = section.find("- status:").expect("status");
+        assert!(title_pos < validate_pos);
+        assert!(validate_pos < status_pos);
+    }
+
+    #[test]
+    fn inject_all_tasks_includes_validate_for_pending_and_in_progress() {
+        let block = markdown_runtime_block_for_inject(&sample_doc());
+        assert!(block.contains("- m1: Explore | done"));
+        assert!(block.contains("- m2: Implement | validate: cargo test -p foo | in_progress"));
+        assert!(block.contains("- m3: Audit | validate: cargo clippy | pending"));
+    }
 }

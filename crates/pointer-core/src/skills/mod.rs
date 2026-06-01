@@ -72,7 +72,7 @@ impl SkillRegistry {
             prompts.push(index);
         }
 
-        let mut tools = vec!["skill".to_string()];
+        let mut tools = vec!["skill_load_instructions".to_string(), "skill_read_resource".to_string()];
         for s in selected {
             for t in &s.tool_names {
                 if !tools.contains(t) {

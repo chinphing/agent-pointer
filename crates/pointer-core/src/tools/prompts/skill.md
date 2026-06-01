@@ -35,9 +35,8 @@ Example:
 ```json
 {
   "function": {
-    "name": "skill",
+    "name": "skill_load_instructions",
     "arguments": {
-      "method": "load_instructions",
       "skill_id": "my-skill-id"
     }
   }
@@ -55,9 +54,8 @@ Example:
 ```json
 {
   "function": {
-    "name": "skill",
+    "name": "skill_read_resource",
     "arguments": {
-      "method": "read_resource",
       "skill_id": "my-skill-id",
       "path": "references/api-guide.md"
     }

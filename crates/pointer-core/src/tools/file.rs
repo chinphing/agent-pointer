@@ -19,6 +19,8 @@ use walkdir::WalkDir;
 
 /// Doc for registry tool `file`; keep in sync with `prompts/file.md`.
 const FILE_MD: &str = include_str!("prompts/file.md");
+/// Standalone schemas for flat file tools (no `method` enum).
+const FILE_SCHEMA_YAML: &str = include_str!("prompts/file.schema.yaml");
 
 const MAX_FILE_READ_BYTES: usize = 256 * 1024;
 /// Max files per `file` read batch (`paths`). **Keep in sync** with `prompts/file.md` Parameters section.
@@ -154,17 +156,6 @@ fn normalize_user_fspath(user_path: &str) -> &str {
     }
 }
 
-fn args_without_method(args: &serde_json::Value) -> serde_json::Value {
-    match args {
-        serde_json::Value::Object(m) => {
-            let mut m = m.clone();
-            m.remove("method");
-            serde_json::Value::Object(m)
-        }
-        _ => args.clone(),
-    }
-}
-
 /// Binary-ish extensions to skip in grep
 const SKIP_EXT: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "webp", "ico", "pdf", "zip", "gz", "7z", "rar", "exe", "dll",
@@ -172,35 +163,66 @@ const SKIP_EXT: &[&str] = &[
 ];
 
 pub fn register_all(reg: &ToolRegistry) {
-    let doc = FILE_MD.trim();
-    let h: ToolHandler = Arc::new(|args| {
-        let root = resolve_tool_workspace_root()?;
+    let doc = super::tool_doc::doc_markdown_without_schema_fence(FILE_MD);
+    let schemas = super::tool_doc::load_tools_from_schema_yaml(FILE_SCHEMA_YAML)
+        .expect("file.schema.yaml must be valid");
+    let prompt = doc.trim().to_string();
+
+    let explore_guard = |_args: &serde_json::Value, tool_name: &str| -> Result<()> {
         if matches!(
             current_file_tool_lead_profile(),
             Some(AgentProfile::Explore)
         ) {
-            let method = args
-                .get("method")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if method == "write" || method == "edit" {
-                warn!(
-                    "file tool: rejecting mutating method `{method}` for explore lead profile"
-                );
-                return Err(anyhow!(
-                    "Explore worker is read-only: file:{method} is not allowed."
-                ));
-            }
+            warn!("file tool: rejecting mutating tool `{tool_name}` for explore lead profile");
+            return Err(anyhow!(
+                "Explore worker is read-only: {tool_name} is not allowed."
+            ));
         }
-        execute_file_tool(&args, &root)
-    });
-    reg.register(ToolEntry::new(
-        "file",
-        "low",
-        false,
-        doc.trim(),
-        h,
-    ));
+        Ok(())
+    };
+
+    for (name, schema) in schemas {
+        let is_write = name == "file_write" || name == "file_edit";
+        let risk = if is_write { "high" } else { "low" };
+        let prompt = prompt.clone();
+
+        let handler: ToolHandler = match name.as_str() {
+            "file_read" => Arc::new(move |args| {
+                let root = resolve_tool_workspace_root()?;
+                execute_file_read(&args, &root)
+            }),
+            "file_write" => {
+                Arc::new(move |args| {
+                    let root = resolve_tool_workspace_root()?;
+                    explore_guard(&args, "file_write")?;
+                    execute_file_write_payload(&args, &root)
+                })
+            }
+            "file_edit" => Arc::new(move |args| {
+                let root = resolve_tool_workspace_root()?;
+                explore_guard(&args, "file_edit")?;
+                execute_file_edit_payload(&args, &root)
+            }),
+            "file_glob" => Arc::new(move |args| {
+                let root = resolve_tool_workspace_root()?;
+                execute_file_glob_payload(&args, &root)
+            }),
+            "file_grep" => Arc::new(move |args| {
+                let root = resolve_tool_workspace_root()?;
+                execute_file_grep_payload(&args, &root)
+            }),
+            "file_list" => Arc::new(move |args| {
+                let root = resolve_tool_workspace_root()?;
+                execute_file_list_payload(&args, &root)
+            }),
+            _ => panic!("Unknown file tool: {name}"),
+        };
+
+        reg.register(
+            ToolEntry::new(name.clone(), risk, is_write, prompt.clone(), handler)
+                .with_schema(schema),
+        );
+    }
 }
 
 thread_local! {
@@ -860,24 +882,6 @@ fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result<String> {
     .to_string())
 }
 
-fn execute_file_tool(args: &serde_json::Value, root: &Path) -> Result<String> {
-    let method = args
-        .get("method")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("缺少 method；或使用限定名 file:read / file:write / file:edit / file:glob / file:grep / file:list"))?;
-    let payload = args_without_method(args);
-    match method {
-        "read" => execute_file_read(&payload, root),
-        "write" => execute_file_write_payload(&payload, root),
-        "edit" => execute_file_edit_payload(&payload, root),
-        "glob" => execute_file_glob_payload(&payload, root),
-        "grep" => execute_file_grep_payload(&payload, root),
-        "list" => execute_file_list_payload(&payload, root),
-        _ => Err(anyhow!(
-            "未知 file.method: {method}（允许 read | write | edit | glob | grep | list）"
-        )),
-    }
-}
 
 /// `file:write` body: a JSON string, or an object/array pretty-printed as UTF-8 (common for `.json` files).
 fn resolve_file_write_content(value: Option<&serde_json::Value>) -> Result<String> {
@@ -1152,12 +1156,18 @@ fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -> Result<St
         .filter(|s| !s.is_empty())
         .ok_or_else(|| anyhow!("缺少 path 或 directory（要列出的目录）"))?;
 
-    let recursive = args.get("recursive").and_then(|v| v.as_bool()).unwrap_or(false);
+    let recursive = args.get("recursive").and_then(|v| v.as_bool()).unwrap_or(true);
+    let max_results = args
+        .get("maxResults")
+        .or_else(|| args.get("max_results"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(100_u64)
+        .min(MAX_LIST_ENTRIES as u64) as usize;
     let max_depth = args
         .get("maxDepth")
         .or_else(|| args.get("max_depth"))
         .and_then(|v| v.as_u64())
-        .unwrap_or(if recursive { 8 } else { 1 })
+        .unwrap_or(if recursive { 2 } else { 1 })
         .min(MAX_WALK_DEPTH as u64) as usize;
 
     let type_filter = args
@@ -1179,7 +1189,7 @@ fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -> Result<St
 
     if !recursive {
         for entry in fs::read_dir(&base_canon).map_err(|e| anyhow!("读取目录失败: {e}"))? {
-            if entries.len() >= MAX_LIST_ENTRIES {
+            if entries.len() >= max_results {
                 truncated = true;
                 break;
             }
@@ -1203,7 +1213,7 @@ fn execute_file_list_payload(args: &serde_json::Value, root: &Path) -> Result<St
             .into_iter()
             .filter_map(|e| e.ok())
         {
-            if entries.len() >= MAX_LIST_ENTRIES {
+            if entries.len() >= max_results {
                 truncated = true;
                 break;
             }
@@ -2297,8 +2307,8 @@ mod tests {
         fs::create_dir_all(root.join("sub")).unwrap();
         fs::write(root.join("sub").join("a.txt"), "1").unwrap();
         fs::write(root.join("b.txt"), "2").unwrap();
-        let args = json!({"method": "list", "path": ".", "recursive": false, "entryType": "all"});
-        let out = execute_file_tool(&args, root).expect("list");
+        let args = json!({"path": ".", "recursive": false, "entryType": "all"});
+        let out = execute_file_list_payload(&args, root).expect("list");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         let paths: Vec<&str> = v["entries"]
             .as_array()
@@ -2359,11 +2369,10 @@ mod tests {
         fs::write(root.join("only.txt"), "x").unwrap();
         fs::create_dir_all(root.join("empty_dir")).unwrap();
         let args = json!({
-            "method": "glob",
             "pattern": "**/*",
             "maxResults": 50
         });
-        let out = execute_file_tool(&args, root).expect("glob");
+        let out = execute_file_glob_payload(&args, root).expect("glob");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["entryType"], "file");
         let matches: Vec<&str> = v["matches"]
@@ -2384,13 +2393,12 @@ mod tests {
         fs::create_dir_all(&git_dir).unwrap();
         fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").unwrap();
         let args = json!({
-            "method": "glob",
             "pattern": "**/.git",
             "entryType": "dir",
             "includeHidden": true,
             "maxResults": 20
         });
-        let out = execute_file_tool(&args, root).expect("glob");
+        let out = execute_file_glob_payload(&args, root).expect("glob");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["entryType"], "dir");
         assert_eq!(v["includeHidden"], true);
@@ -2414,21 +2422,19 @@ mod tests {
         fs::create_dir_all(&nested).unwrap();
         fs::write(nested.join("leaf.txt"), "y").unwrap();
         let args = json!({
-            "method": "glob",
             "pattern": "**/leaf.txt",
             "maxResults": 20
         });
-        let out = execute_file_tool(&args, root).expect("glob");
+        let out = execute_file_glob_payload(&args, root).expect("glob");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["count"], 0);
 
         let args_inc = json!({
-            "method": "glob",
             "pattern": "**/leaf.txt",
             "includeHidden": true,
             "maxResults": 20
         });
-        let out2 = execute_file_tool(&args_inc, root).expect("glob");
+        let out2 = execute_file_glob_payload(&args_inc, root).expect("glob");
         let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
         assert_eq!(v2["count"], 1);
     }
@@ -2439,12 +2445,11 @@ mod tests {
         let root = tmp.path();
         fs::write(root.join("z.txt"), "z").unwrap();
         let args = json!({
-            "method": "glob",
             "pattern": "*.txt",
             "entryType": "bogus",
             "maxResults": 10
         });
-        let err = execute_file_tool(&args, root).unwrap_err();
+        let err = execute_file_glob_payload(&args, root).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("entryType") || msg.contains("无效"),
@@ -2457,40 +2462,11 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         let args = json!({
-            "method": "write",
             "path": "out.txt",
             "content": "hello\n"
         });
-        execute_file_tool(&args, root).expect("write");
+        execute_file_write_payload(&args, root).expect("write");
         assert_eq!(fs::read_to_string(root.join("out.txt")).unwrap(), "hello\n");
-    }
-
-    #[test]
-    fn file_write_survives_envelope_round_trip_for_json_file_body() {
-        use crate::json_tool_caller::finalize_json_tool_envelope;
-        use crate::tool_envelope::envelope_arguments_to_json_string;
-        use crate::tools::{merge_tool_method_from_qualified_name, parse_tool_call_arguments};
-
-        let tmp = tempfile::tempdir().expect("tmp");
-        let root = tmp.path();
-        let wire = r#"{
-  "thoughts": "create package.json",
-  "headline": "创建 package.json",
-  "tool_name": "file",
-  "tool_args": {
-    "method": "write",
-    "path": "package.json",
-    "content": "{\n  \"name\": \"llm-chat\",\n  \"private\": true,\n  \"version\": \"0.1.0\"\n}\n"
-  }
-}"#;
-        let (env, _diag) = finalize_json_tool_envelope(wire, "");
-        let env = env.expect("envelope");
-        let args_json = envelope_arguments_to_json_string(&env.primary.arguments);
-        let args = parse_tool_call_arguments(&args_json);
-        let (_tool_id, args) = merge_tool_method_from_qualified_name(&env.primary.name, args);
-        execute_file_tool(&args, root).expect("write after round trip");
-        let written = fs::read_to_string(root.join("package.json")).unwrap();
-        assert!(written.contains("\"name\": \"llm-chat\""));
     }
 
     #[test]
@@ -2498,7 +2474,6 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
         let args = json!({
-            "method": "write",
             "path": "package.json",
             "content": {
                 "name": "llm-chat",
@@ -2506,7 +2481,7 @@ mod tests {
                 "version": "0.1.0"
             }
         });
-        execute_file_tool(&args, root).expect("write");
+        execute_file_write_payload(&args, root).expect("write");
         let written: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(root.join("package.json")).unwrap()).unwrap();
         assert_eq!(written["name"], "llm-chat");

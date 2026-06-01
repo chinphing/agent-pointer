@@ -11,11 +11,23 @@ allowAgents:
   - research
 accessPolicy:
   allowTools:
-    - file
+    - file_read
+    - file_write
+    - file_edit
+    - file_glob
+    - file_grep
+    - file_list
     - read_lints
-    - skill
+    - skill_load_instructions
+    - skill_read_resource
     - terminal
-    - task_board
+    - task_board_init
+    - task_board_patch
+    - task_board_replace
+    - task_board_prune
+    - task_board_finalize
+    - task_board_sync_finding
+    - task_board_check_deps
     - run_subagent
     - web_search
   denyTools: []
@@ -28,8 +40,13 @@ ui:
   showWorkspacePicker: true
   showTaskBoardPanel: true
   hideToolNames:
-    - task_board
-    - task_board:patch
+    - task_board_init
+    - task_board_patch
+    - task_board_replace
+    - task_board_prune
+    - task_board_finalize
+    - task_board_sync_finding
+    - task_board_check_deps
   avatar: coder
 ---
 
@@ -185,7 +202,7 @@ Follow these steps **in order** for typical implementation, debugging, and refac
    - **Ruby / PHP / Swift:** Minimal set aligned with CI from lint or build scripts; skip `swift test` if it duplicates step 5.
    - **E2E / Playwright / Cypress:** **Off by default**; only when critical user paths change and user or CI accepts the cost.
 
-7. **Responsibility audit** — **Mandatory** before **Deliver** whenever you changed executable logic. Re-read your diff against the **Impact map** from step 3. Answer briefly in the user-facing summary (one line each; “N/A” only with reason):
+7. **Responsibility audit** — **Mandatory** before **Deliver** whenever you changed executable logic. Re-read your diff against the **Impact map** from step 3. Answer these questions **internally** (do not include the raw audit table in user-facing output):
 
    1. **References** — Did you grep and read **all** hits for changed symbols, literals, and config keys?
    2. **Lifecycle** — For every new or changed state, what happens on success, failure, cancel, and **the next user message**?
@@ -197,9 +214,9 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 
    **Anti-patterns:** Deliver after editing only the “obvious” file; “should be no other impact” without grep evidence; treating **`read_lints`** as the audit; skipping audit because the user message was short; treating step 7 **Surfaces** as a substitute for pre-edit **Impact map** Surfaces.
 
-8. **Deliver** — Write the user-facing summary in assistant **`content`** (required). Include **Responsibility audit**
-   answers, **all** commands run (especially **unit tests** from step 5) and their outcomes, risks, any **remaining**
-   untested areas, and follow-ups. Reasoning alone is **not** delivery—the host does not surface it as the reply.
+8. **Deliver** — Write the user-facing summary in assistant **`content`** (required). Cover: **all** commands run
+   (especially **unit tests** from step 5) and their outcomes, what was changed and why, risks, any **remaining**
+   untested areas, and follow-ups. The Responsibility audit (step 7) is internal—do **not** paste it as a section. Reasoning alone is **not** delivery—the host does not surface it as the reply.
    When git was used for **scope checks**, **history**, or **attribution**, note the headline (hashes, paths, and
    **`rev-parse --show-toplevel`** when multiple repos matter); do not claim a commit unless the user requested one
    (see **Git for history and attribution**).

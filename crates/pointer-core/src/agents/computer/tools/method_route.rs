@@ -14,7 +14,7 @@ pub enum MouseBackend {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CompositeBackend {
+pub enum InputBackend {
     Index,
     At,
     Focused,
@@ -31,8 +31,8 @@ pub struct RoutedMouse {
     pub method: String,
 }
 
-pub struct RoutedComposite {
-    pub backend: CompositeBackend,
+pub struct RoutedInput {
+    pub backend: InputBackend,
     pub method: String,
 }
 
@@ -145,21 +145,21 @@ fn infer_mouse_operation(args: &Value) -> Result<String> {
     ))
 }
 
-fn infer_composite_operation(args: &Value) -> Result<String> {
+fn infer_input_operation(args: &Value) -> Result<String> {
     if args.get("index").is_some() {
         if args.get("text").is_some() {
-            return Ok("type_text_at_index".to_string());
+            return Ok("input_index".to_string());
         }
-        return Ok("scroll_at_index".to_string());
+        return Ok("mouse_scroll_index".to_string());
     }
     if args.get("text").is_some() && has_xy(args) {
-        return Ok("type_text_at".to_string());
+        return Ok("input_at".to_string());
     }
     if args.get("text").is_some() {
-        return Ok("type_text_at_focused".to_string());
+        return Ok("input_focused".to_string());
     }
     Err(anyhow!(
-        "Missing 'method' in tool_args (e.g. type_text_at_index). \
+        "Missing targeting in tool_args (index, x+y, or focused text). \
          'action' is the human target description, not the operation name."
     ))
 }
@@ -191,10 +191,10 @@ fn resolve_mouse_operation_label(args: &Value) -> Result<String> {
         .or_else(|_| infer_mouse_operation(args))
 }
 
-fn resolve_composite_operation_label(args: &Value) -> Result<String> {
+fn resolve_input_operation_label(args: &Value) -> Result<String> {
     explicit_operation_label(args)
         .ok_or_else(|| ())
-        .or_else(|_| infer_composite_operation(args))
+        .or_else(|_| infer_input_operation(args))
 }
 
 fn resolve_modified_click_operation_label(args: &Value) -> Result<String> {
@@ -216,7 +216,7 @@ pub fn operation_name_for_display(base: &str, raw_name: &str, args: &Value) -> S
     }
     match base {
         "mouse" => resolve_mouse_operation_label(args).unwrap_or_default(),
-        "input" => resolve_composite_operation_label(args).unwrap_or_default(),
+        "input" => resolve_input_operation_label(args).unwrap_or_default(),
         "modified_click" => resolve_modified_click_operation_label(args).unwrap_or_default(),
         _ => String::new(),
     }
@@ -256,50 +256,36 @@ pub fn route_mouse(args: &Value) -> Result<RoutedMouse> {
     ))
 }
 
-pub fn route_composite(args: &Value) -> Result<RoutedComposite> {
-    let legacy = resolve_composite_operation_label(args)?;
-    let lower = legacy.to_ascii_lowercase();
+pub fn route_input(args: &Value) -> Result<RoutedInput> {
+    let label = resolve_input_operation_label(args)?;
+    let lower = label.to_ascii_lowercase();
 
-    if lower.ends_with("_index") || args.get("index").is_some() {
-        let method = match lower.as_str() {
-            "type_text_at_index" => "type_text".to_string(),
-            "scroll_at_index" => "scroll".to_string(),
-            s if s.ends_with("_index") => strip_suffix(s, "_index"),
-            other => other.to_string(),
-        };
-        return Ok(RoutedComposite {
-            backend: CompositeBackend::Index,
-            method,
+    if lower == "input_index" || lower.ends_with("_index") || args.get("index").is_some() {
+        return Ok(RoutedInput {
+            backend: InputBackend::Index,
+            method: "input_index".to_string(),
         });
     }
 
-    if lower.contains("focused")
+    if lower == "input_focused"
+        || lower.contains("focused")
         || (args.get("text").is_some() && !has_xy(args) && args.get("index").is_none())
     {
-        let method = match lower.as_str() {
-            "type_text_at_focused" | "type_text_focused" => "type_text".to_string(),
-            other => other.to_string(),
-        };
-        return Ok(RoutedComposite {
-            backend: CompositeBackend::Focused,
-            method,
+        return Ok(RoutedInput {
+            backend: InputBackend::Focused,
+            method: "input_focused".to_string(),
         });
     }
 
-    if lower.ends_with("_at") || has_xy(args) {
-        let method = match lower.as_str() {
-            "type_text_at" => "type_text".to_string(),
-            s if s.ends_with("_at") => strip_suffix(s, "_at"),
-            other => other.to_string(),
-        };
-        return Ok(RoutedComposite {
-            backend: CompositeBackend::At,
-            method,
+    if lower == "input_at" || lower.ends_with("_at") || has_xy(args) {
+        return Ok(RoutedInput {
+            backend: InputBackend::At,
+            method: "input_at".to_string(),
         });
     }
 
     Err(anyhow!(
-        "Cannot route input method '{legacy}': need index, or x+y, or focused typing."
+        "Cannot route input tool '{label}': need index, or x+y, or focused typing."
     ))
 }
 
@@ -384,6 +370,33 @@ mod tests {
         assert_eq!(
             operation_name_for_display("mouse", "mouse", &args),
             "click_index"
+        );
+    }
+
+    #[test]
+    fn routes_input_index_from_index_and_text() {
+        let args = json!({
+            "goal": "type username",
+            "action": "focus login field",
+            "index": 5,
+            "text": "alice"
+        });
+        let r = route_input(&args).unwrap();
+        assert_eq!(r.backend, InputBackend::Index);
+        assert_eq!(r.method, "input_index");
+    }
+
+    #[test]
+    fn display_infers_input_index_from_index_only() {
+        let args = json!({
+            "goal": "g",
+            "action": "type in search box",
+            "index": 12,
+            "text": "hello"
+        });
+        assert_eq!(
+            operation_name_for_display("input", "input_index", &args),
+            "input_index"
         );
     }
 }

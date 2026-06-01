@@ -7,7 +7,7 @@ mod dati_client;
 pub mod method_route;
 mod tool_captcha_verify;
 mod tool_clipboard;
-mod tool_composite;
+mod tool_input;
 mod tool_hotkey;
 mod tool_modified_click;
 mod tool_mouse;
@@ -18,10 +18,12 @@ use crate::agents::computer::ComputerState;
 use crate::agents::computer::tier::ComputerTierGuard;
 use args_util::{clamp_scroll_lines, effective_human_like_default};
 use crate::platform::run_synthetic_input;
+use crate::tools::tool_doc::load_tools_from_schema_yaml;
 use crate::tools::{ToolEntry, ToolHandler, ToolRegistry};
-use method_route::{CompositeBackend, ModifiedClickBackend, MouseBackend};
+use method_route::{InputBackend, ModifiedClickBackend, MouseBackend};
+use std::collections::HashMap;
 use std::sync::Arc;
-use tool_composite::CompositeActionTool;
+use tool_input::InputTool;
 use tool_modified_click::ModifiedClickTool;
 use tool_mouse::MouseTool;
 
@@ -134,19 +136,29 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
 
     // ── input (flat tools) ─────────────────────────────────────────────
     {
+        const INPUT_SCHEMA_YAML: &str = include_str!("prompts/input.schema.yaml");
+        let input_schemas: HashMap<String, serde_json::Value> =
+            load_tools_from_schema_yaml(INPUT_SCHEMA_YAML)
+                .expect("input.schema.yaml must be valid")
+                .into_iter()
+                .collect();
+
         let doc = include_str!("prompts/input.md").trim().to_string();
-        let input_handlers: &[(&str, CompositeBackend, &str)] = &[
-            ("input_index", CompositeBackend::Index, "type_text"),
-            ("input_at", CompositeBackend::At, "type_text"),
-            ("input_focused", CompositeBackend::Focused, "type_text"),
+        let input_handlers: &[(&str, InputBackend)] = &[
+            ("input_index", InputBackend::Index),
+            ("input_at", InputBackend::At),
+            ("input_focused", InputBackend::Focused),
         ];
 
-        for (name, backend, method) in input_handlers {
+        for (name, backend) in input_handlers {
             let st = state.clone();
             let prompt = doc.clone();
             let tool_name = name.to_string();
             let backend = *backend;
-            let method = method.to_string();
+            let schema = input_schemas
+                .get(*name)
+                .cloned()
+                .unwrap_or_else(|| panic!("input.schema.yaml missing entry for {name}"));
 
             let handler: ToolHandler = Arc::new(move |args| {
                 let cid = conversation_id_from_args(&args)
@@ -155,22 +167,13 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 let tier = st.tier_for_conversation(&cid);
                 let vision = st.vision_state_for_conversation(&cid);
                 let hl_default = effective_human_like_default();
-                let tool = CompositeActionTool::new(st.executor.clone(), vision, hl_default);
-                run_synthetic_computer_tool(tier, {
-                    let method = method.clone();
-                    move || {
-                        tool.execute_with(backend, &method, &args)
-                    }
-                })
+                let tool = InputTool::new(st.executor.clone(), vision, hl_default);
+                run_synthetic_computer_tool(tier, move || tool.execute_with(backend, &args))
             });
 
-            reg.register(ToolEntry::new(
-                tool_name,
-                "low",
-                false,
-                prompt,
-                handler,
-            ));
+            reg.register(
+                ToolEntry::new(tool_name, "low", false, prompt, handler).with_schema(schema),
+            );
         }
     }
 

@@ -198,4 +198,13 @@ file_write:
         let names: Vec<&str> = tools.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, vec!["skill_load_instructions", "skill_read_resource"]);
     }
+
+    #[test]
+    fn real_input_schema_yaml_parses() {
+        let yaml_str =
+            include_str!("../agents/computer/tools/prompts/input.schema.yaml");
+        let tools = load_tools_from_schema_yaml(yaml_str).unwrap();
+        let names: Vec<&str> = tools.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["input_index", "input_at", "input_focused"]);
+    }
 }

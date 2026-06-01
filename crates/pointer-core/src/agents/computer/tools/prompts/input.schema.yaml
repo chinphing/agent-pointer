@@ -1,4 +1,6 @@
-composite_type_text_index:
+# input.schema.yaml — flat input tool schemas (no method enum)
+
+input_index:
   type: object
   properties:
     goal:
@@ -25,30 +27,7 @@ composite_type_text_index:
     - goal
   additionalProperties: true
 
-composite_scroll_index:
-  type: object
-  properties:
-    goal:
-      type: string
-    action:
-      type: string
-    index:
-      type: integer
-    lines:
-      type: integer
-    human_like:
-      type: boolean
-    wait:
-      type: number
-      minimum: 1
-      maximum: 5
-  required:
-    - index
-    - lines
-    - goal
-  additionalProperties: true
-
-composite_type_text_at:
+input_at:
   type: object
   properties:
     goal:
@@ -78,7 +57,7 @@ composite_type_text_at:
     - goal
   additionalProperties: true
 
-composite_type_text_focused:
+input_focused:
   type: object
   properties:
     goal:

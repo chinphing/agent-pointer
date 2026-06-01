@@ -2,28 +2,23 @@
 schema:
   type: object
   properties:
-    method:
-      type: string
-      enum:
-        - load_instructions
-        - read_resource
     skill_id:
       type: string
     path:
       type: string
-  required:
-    - method
   additionalProperties: true
 ---
 
 ### `skill`
 
-Progressive-disclosure tools for enabled Skills. Call the **`skill`** tool with **`method`**:
-**`load_instructions`**, **`read_resource`**.
+Progressive-disclosure tools for enabled Skills:
+
+- **`skill_load_instructions`** — load the full **`SKILL.md`** body for an enabled Skill (layer 2).
+- **`skill_read_resource`** — read one indexed resource file under that Skill (layer 3).
 
 #### Usage
 
-**`load_instructions`**
+**`skill_load_instructions`**
 
 - Call when an enabled skill's `name` / `description` clearly matches the task.
 - Pass only enabled `skill_id` values.

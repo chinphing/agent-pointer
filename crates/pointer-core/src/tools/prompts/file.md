@@ -2,15 +2,6 @@
 schema:
   type: object
   properties:
-    method:
-      type: string
-      enum:
-        - read
-        - write
-        - edit
-        - glob
-        - grep
-        - list
     paths:
       type: array
     path:
@@ -20,19 +11,21 @@ schema:
       type: array
     pattern:
       type: string
-  required:
-    - method
   additionalProperties: true
 ---
 
 ### `file`
 
-Unified workspace file tools. Call the **`file`** tool with **`method`** set to one of:
-**`read`**, **`write`**, **`edit`**, **`glob`**, **`grep`**, **`list`**.
+Independent file tools. Call them directly by their flat names:
 
-**⚠️ `method` is required in every call.** Calls without `method` fail immediately.
+- **`file_read`** — read UTF-8 text files.
+- **`file_write`** — create or overwrite a file.
+- **`file_edit`** — replace unique substrings in files.
+- **`file_glob`** — list paths matching a glob pattern.
+- **`file_grep`** — search file contents with a regex.
+- **`file_list`** — list directory entries.
 
-**Relative paths** resolve under the workspace root (`workspaceRoot` in settings, or the process working directory). Do not use `..` to escape the workspace on relative paths. **`write`** and **`edit`** accept **workspace-relative** paths **or** **absolute** paths that resolve **under the same workspace root** (prefix check after canonicalization); paths outside the workspace are rejected. These writes may require user approval. For **read-only** methods (**`read`**, **`glob`**, **`grep`**, **`list`**), you may also use **absolute** paths **outside** the workspace when the user asks.
+**Relative paths** resolve under the workspace root (`workspaceRoot` in settings, or the process working directory). Do not use `..` to escape the workspace on relative paths. **`file_write`** and **`file_edit`** accept **workspace-relative** paths **or** **absolute** paths that resolve **under the same workspace root** (prefix check after canonicalization); paths outside the workspace are rejected. These writes may require user approval. For **read-only** methods (**`file_read`**, **`file_glob`**, **`file_grep`**, **`file_list`**), you may also use **absolute** paths **outside** the workspace when the user asks.
 
 **Responses:** Whenever this tool returns a filesystem location (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**), the value is an **absolute** path. The OS may use a canonical form (e.g. resolved symlinks; on Windows, a `\\?\` prefix is normal).
 

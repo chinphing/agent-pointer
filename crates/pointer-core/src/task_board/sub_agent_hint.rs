@@ -6,7 +6,7 @@ use super::store::TaskBoardStore;
 const HINT_BLOCK: &str = "\
 [TASK_BOARD_HINT]
 Your local task board is empty.
-For multi-step subtasks, call **`task_board`** with **`method`: `init`** early.
+For multi-step subtasks, call **`task_board_init`** early.
 Use 3-6 **local_*** steps for normal work.
 For each active step, keep:
 - `details`: plan + key implementation notes;
@@ -40,7 +40,7 @@ fn main_agent_task_board_hint(profile: &AgentProfile) -> Option<String> {
     let verify_order = if matches!(profile, AgentProfile::Computer) {
         "For turns that also emit **verify:report**:
 - first board-init round may omit report;
-- after init, run `verify.report` first, then `task_board` with **`method`: `patch`**.
+- after init, run `verify.report` first, then `task_board_patch`.
 "
     } else {
         ""
@@ -57,7 +57,7 @@ Each row keeps `details`, `progress`, and final `validate`.
         "[TASK_BOARD_HINT]
 Your task board is empty.
 {gate}
-If gate is met, initialize with **`task_board`** and **`method`: `init`**.
+If gate is met, initialize with **`task_board_init`**.
 {coder_rows}For exhaustive matrix/combinational goals, keep grouped milestones by interaction form.
 When milestone status changes, patch in the same turn; do not defer updates to final delivery.
 When all rows are `done` or `cancelled`, call `finalize` before final delivery.
@@ -113,7 +113,7 @@ mod tests {
         let hint = main_agent_task_board_init_hint(&store, "conv-1", &AgentProfile::Coder);
         let text = hint.expect("coder hint");
         assert!(text.contains("TASK_BOARD_HINT"));
-        assert!(text.contains("method"));
+        assert!(text.contains("task_board_init"));
     }
 
     #[test]

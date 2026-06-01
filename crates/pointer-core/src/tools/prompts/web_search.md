@@ -25,7 +25,7 @@ schema:
 
 Search the **public web** via DashScope **Generation API** (`enable_search` + `search_strategy: pro_max`). Each call uses **SSE streaming**: sources appear first, then the answer streams incrementally.
 
-Use for **external** facts: API docs, release notes, news, prices, weather, library versions. For **codebase** mapping, use **`file`** (read-only **`method`** values) or delegate **`explore`**. For deep multi-query research, delegate **`research`** (uses Responses API with agent tools).
+Use for **external** facts: API docs, release notes, news, prices, weather, library versions. For **codebase** mapping, use **`file`** tools (`file_grep`, `file_glob`, `file_list`, `file_read`) or delegate **`explore`**. For deep multi-query research, delegate **`research`** (uses Responses API with agent tools).
 
 **Requires** a configured **Qwen provider API key** in settings. Search calls use **`webSearchModel`** (default **`qwen3-max`** on Generation API); the research sub-agent uses Responses API separately.
 

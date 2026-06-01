@@ -19,7 +19,7 @@ Each turn:
    Never put Verify / Repetition / Next templates or internal checklists in message text.
    Use native tool calls only (no legacy JSON envelope fields).
    Add a `verify.report` call using Verify `Step result` and Repetition `Count`; include `failure_cause` only when `Step result=fail`.
-   If `task_board` is used: first board-init round may omit report, otherwise always place `verify.report` before `task_board.patch`.
+   If `task_board` is used: first board-init round may omit report, otherwise always place `verify.report` before `task_board_patch`.
    Use the report to close the previous milestone first, then move the next milestone to `in_progress`/`ready`.
 
 No advanced seven-stage Location/Recheck blocks at this tier.

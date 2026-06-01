@@ -345,10 +345,10 @@ You may skip broad inventory when anchors are already specific; say so in **Cove
 2. **Bound the workspace (when applicable)** — If the repo root exposes **package or crate boundary files**, use them to
    decide **which subtrees belong to which component** before roaming. If none exist, infer boundaries from top-level
    dirs and stop when uncertain (note in **`## Open questions`**).
-3. **Inventory** — **`file.list`** / **`file.glob`** for tree shape and naming patterns. Record **prune** decisions
+3. **Inventory** — **`file_list`** / **`file_glob`** for tree shape and naming patterns. Record **prune** decisions
    (why a subtree was skipped) so coverage stays auditable.
 4. **Identity fan-out + anchor** — List searchable identities for the anchor (symbol, wire string, aliases). Then
-   **`file.grep`** each globally (or scoped with reason); **`file.read`** minimal neighborhoods around hits.
+   **`file_grep`** each globally (or scoped with reason); **`file_read`** minimal neighborhoods around hits.
 5. **Trace backward** — From definitions, find **callers** until the instruction’s stop boundary, **hop budget**, or a
    **cycle**.
 6. **Trace forward** — From an entry point named in the task (or a justified default), follow **callees** to the

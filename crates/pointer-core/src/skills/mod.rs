@@ -55,7 +55,7 @@ impl SkillRegistry {
         let mut prompts = Vec::new();
         if !selected.is_empty() {
             let mut index = String::from(
-                "可用 Skills（第一层：frontmatter 索引）。根据用户任务判断是否需要使用某个 Skill；需要时通过 **skill** 工具 **`skill.load_instructions`**（或 `method`: `load_instructions`）读取该 Skill 的完整 SKILL.md 正文说明。不要在未读取正文前假设详细步骤。\n",
+                "可用 Skills（第一层：frontmatter 索引）。根据用户任务判断是否需要使用某个 Skill；需要时调用 **`skill_load_instructions`** 读取该 Skill 的完整 SKILL.md 正文说明。不要在未读取正文前假设详细步骤。\n",
             );
             for s in &selected {
                 index.push_str(&format!(

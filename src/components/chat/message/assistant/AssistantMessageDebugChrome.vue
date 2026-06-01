@@ -55,7 +55,7 @@ const showFooter = computed(() => showMessageActions.value)
     :copy-text="footerCopyText"
     :show-copy="showCopyButton"
   >
-    <template v-if="showDebugActions" #extra>
+    <template v-if="showDebugActions || showRawWireFooter" #extra>
       <button
         v-if="showCamera"
         type="button"
@@ -66,11 +66,21 @@ const showFooter = computed(() => showMessageActions.value)
       >
         <Camera class="w-3.5 h-3.5" />
       </button>
+      <button
+        v-if="showRawWireFooter"
+        type="button"
+        class="message-action-btn"
+        :class="showRawWire ? 'text-accent' : 'text-muted hover:text-foreground'"
+        :title="showRawWire ? '隐藏原始内容' : '查看原始内容'"
+        @click="showRawWire = !showRawWire"
+      >
+        <Code class="w-3.5 h-3.5" />
+      </button>
     </template>
   </MessageFooterActions>
 
-  <!-- Raw content toggle: visible even during active generation/streaming, independent of showFooter -->
-  <div v-if="showRawWireFooter" class="flex items-center gap-1 px-3 pt-1">
+  <!-- Raw content toggle: fallback when footer hidden (e.g. streaming), still hover-dependent -->
+  <div v-if="!showFooter && showRawWireFooter" class="message-footer-actions flex items-center gap-1.5 px-3">
     <button
       type="button"
       class="message-action-btn"

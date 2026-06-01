@@ -4,7 +4,7 @@ Use provider-native tool calls only.
 Do not serialize tool calls as text or JSON wrappers.
 
 When this turn also updates `task_board`,
-call `verify.report` first and `task_board.patch` second
+call `verify.report` first and `task_board_patch` second
 (first board-init round may omit report).
 
 ## Internal reasoning only (hard rule)
@@ -17,7 +17,7 @@ in assistant message text.
 **Turn deliverables**
 - Report: `verify.report` with native args (when reporting a prior step)
 - Action: one root desktop tool (`mouse`, `composite_action`, `modified_click` — method suffix `*_at` or `*_index` per route below) — **unless** clarification turn (below)
-- Board (optional): `task_board.patch` / …
+- Board (optional): `task_board_patch` / …
 - Status: brief milestone or user-facing line in assistant **`content`** (see below)
 Do **not** write tool names or args in assistant message text.
 

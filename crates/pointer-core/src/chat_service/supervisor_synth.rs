@@ -3,7 +3,7 @@
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 
-use crate::agents::AgentRunResult;
+use crate::agents::{rendered_communication_public_inject, AgentRunResult};
 use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::ChatMessage;
 use crate::provider::OpenAIProvider;
@@ -25,15 +25,24 @@ pub(crate) async fn synthesize_final_answer(
         ));
     }
     let env_context = crate::env_prompt::build_environment_context_full();
-    let prompt = format!(
-        "{}\n\nYou are the Supervisor. From the sub-agent results below, write the final user-facing answer.\nRequirements: merge duplicates and resolve conflicts; do not state facts that sub-agents did not support; briefly note which agents contributed when helpful.\n\nSub-agent results:\n{}",
-        env_context,
-        if report.is_empty() {
-            "No sub-agent results; answer cautiously from the conversation only.".into()
-        } else {
-            report
-        }
+    let sub_agent_results = if report.is_empty() {
+        "No sub-agent results; answer cautiously from the conversation only.".to_string()
+    } else {
+        report
+    };
+    let mut prompt_parts: Vec<String> = Vec::new();
+    if let Some(block) = rendered_communication_public_inject() {
+        prompt_parts.push(block);
+    }
+    prompt_parts.push(env_context);
+    prompt_parts.push(
+        "You are the Supervisor. From the sub-agent results below, write the final user-facing answer.\n\
+Requirements: merge duplicates and resolve conflicts; do not state facts that sub-agents did not support; \
+briefly note which agents contributed when helpful."
+            .to_string(),
     );
+    prompt_parts.push(format!("Sub-agent results:\n{sub_agent_results}"));
+    let prompt = prompt_parts.join("\n\n");
     let dump_lbl = format!("{conversation_id}_{assistant_message_id}_supervisor_synthesize");
     let out = provider
         .chat_once(

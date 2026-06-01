@@ -14,7 +14,7 @@ in assistant message text.
 **Turn deliverables**
 - Report: `verify.report` with native args (when reporting a prior step)
 - Action: one root desktop tool with route-matched args — **unless** clarification turn (below)
-- Board (optional): `task_board.patch` / …
+- Board (optional): `task_board_patch` / …
 - Status: brief milestone or user-facing line in assistant **`content`** (see below)
 Do **not** write tool names or args in assistant message text.
 
@@ -549,7 +549,7 @@ Three turn shapes — pick **one** per round:
 **1. Action turn (default)**
 - `verify.report` first (except first board-init round).
 - One root desktop tool with route-matched args.
-- Optional `task_board.patch` after report.
+- Optional `task_board_patch` after report.
 - **`content`:** milestone line encouraged; empty OK only for micro-steps.
 
 **2. Clarification turn (user must reply)**

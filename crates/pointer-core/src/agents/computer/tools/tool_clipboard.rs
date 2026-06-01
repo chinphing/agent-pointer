@@ -72,7 +72,7 @@ impl ClipboardTool {
             text.len()
         );
         Ok(format!(
-            "Goal: {}. Copied {} characters to clipboard. Nothing was pasted — use hotkey (paste) or composite_action if needed.",
+            "Goal: {}. Copied {} characters to clipboard. Nothing was pasted — use hotkey (paste) or input if needed.",
             goal,
             text.len()
         ))

@@ -4,7 +4,7 @@ use log::debug;
 use serde_json::Value;
 
 /// Milliseconds to wait after a **successful** desktop input tool call (`mouse`, `hotkey`,
-/// `composite_action`, `modified_click`) before the chat loop continues — i.e. before the next
+/// `input`, `modified_click`) before the chat loop continues — i.e. before the next
 /// model round where **screenshot / verify (`[CUR_SCREEN]`)** runs. Gives the OS and target UI time
 /// to repaint. Used when **`wait`** is **omitted** from `tool_args` (see
 /// [`post_desktop_action_delay_ms_from_tool_args`]).
@@ -14,7 +14,7 @@ pub const POST_DESKTOP_ACTION_DELAY_MS: u64 = 1000;
 pub const POST_DESKTOP_ACTION_WAIT_SEC_MIN: f64 = 1.0;
 pub const POST_DESKTOP_ACTION_WAIT_SEC_MAX: f64 = 5.0;
 
-/// Milliseconds after a successful **`mouse`** / **`hotkey`** / **`composite_action`** / **`modified_click`**
+/// Milliseconds after a successful **`mouse`** / **`hotkey`** / **`input`** / **`modified_click`**
 /// before the next **`[CUR_SCREEN]`** capture. Reads optional **`wait`** from `tool_args` (seconds,
 /// **1.0–5.0** clamped); if missing, invalid, non-positive, or not an object, returns
 /// [`POST_DESKTOP_ACTION_DELAY_MS`].
@@ -82,7 +82,7 @@ pub const MOUSE_MOVE_TOTAL_DURATION_SECS: f64 = MOUSE_MOVE_TOTAL_DURATION_MIN_SE
 pub const DESKTOP_VISION_LOG_TOOL_IDS: &[&str] = &[
     "mouse",
     "hotkey",
-    "composite_action",
+    "input",
     "modified_click",
     "wait",
     "clipboard",
@@ -94,7 +94,7 @@ pub const DESKTOP_VISION_LOG_TOOL_IDS: &[&str] = &[
 pub const DESKTOP_POST_DELAY_TOOL_IDS: &[&str] = &[
     "mouse",
     "hotkey",
-    "composite_action",
+    "input",
     "modified_click",
     "captcha_verify",
 ];
@@ -110,8 +110,8 @@ pub fn desktop_tool_family_id(tool_id: &str) -> Option<&'static str> {
     if id.starts_with("mouse_") {
         return Some("mouse");
     }
-    if id.starts_with("composite_") {
-        return Some("composite_action");
+    if id.starts_with("input_") {
+        return Some("input");
     }
     if id.starts_with("modified_click_") {
         return Some("modified_click");
@@ -159,8 +159,8 @@ mod tests {
     fn flat_computer_tool_ids_map_to_families() {
         assert_eq!(desktop_tool_family_id("mouse_click_index"), Some("mouse"));
         assert_eq!(
-            desktop_tool_family_id("composite_type_text_index"),
-            Some("composite_action")
+            desktop_tool_family_id("input_index"),
+            Some("input")
         );
         assert_eq!(
             desktop_tool_family_id("modified_click_select_index"),

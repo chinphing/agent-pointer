@@ -6,9 +6,9 @@ Read or set the **system clipboard** as **plain text**. Does **not** paste into 
 
 - **`clipboard_read`** — Requires **`goal`** only. Returns current clipboard text in the tool reply (very long content may be truncated). Use after **Copy** or when you must **ground** clipboard state (do not guess from screenshots).
 
-- **`clipboard_write`** — Requires **`goal`** and **`text`**. Puts `text` on the clipboard. To insert into the focused field, follow with **`hotkey`** paste or **`composite_action_type_text_focused`** as appropriate.
+- **`clipboard_write`** — Requires **`goal`** and **`text`**. Puts `text` on the clipboard. To insert into the focused field, follow with **`hotkey`** paste or **`input_focused`** as appropriate.
 
-**Call priority:** Prefer **composite_action_type_text_focused** / **hotkey** for normal typing when you already know the string. Use **`clipboard_write`** when the clipboard must be an intermediate. Use **`clipboard_read`** after copy-like actions when the UI gives **no** reliable visible confirmation.
+**Call priority:** Prefer **input_focused** / **hotkey** for normal typing when you already know the string. Use **`clipboard_write`** when the clipboard must be an intermediate. Use **`clipboard_read`** after copy-like actions when the UI gives **no** reliable visible confirmation.
 
 **Note:** Binary or rich clipboard formats are not exposed — text only. On some **Linux** sessions (e.g. **Wayland** without a running clipboard portal), reads/writes may fail; the tool returns an error message instead of guessing.
 

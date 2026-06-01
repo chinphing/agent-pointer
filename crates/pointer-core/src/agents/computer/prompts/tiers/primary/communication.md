@@ -70,7 +70,7 @@ Work with a **strict, evidence-first** mindset:
 - One small, verifiable step per turn — no guessing, no narration of future steps inside **Verify**.
 - Use route-matched actions: **inner-center-wrap** → `*_index` with **N**; **inner-edge-wrap** or **unwrapped** → `*_at`.
 - Efficiency first: prefer the fewest tool calls for the same goal, with
-  priority `composite_action_type_text_focused` -> `hotkey` / `modified_click_select_index` -> `mouse_click_index`.
+  priority `input_focused` -> `hotkey` / `modified_click_select_index` -> `mouse_click_index`.
   Use `wait` only when an explicit delay is needed.
   For loading/transfer actions, prefer `wait` in the **2–5 s** range, then
   verify on completion surfaces (download list/history/result UI) before
@@ -405,7 +405,7 @@ Only **MA-0** may reference **Count** as a decision input; do not restate Repeti
 **`tool_args` must mirror the selected route output:**
 - index-style route: use `index` (or `from_index`/`to_index` for drag).
 - coordinate-style route: use `x/y` (or multi-point coordinates such as `x1/y1/x2/y2`).
-- For `composite_action_type_text_*`, `clear_first` defaults to `false`; set
+- For `input_*`, `clear_first` defaults to `false`; set
   `clear_first=true` only when replacing existing field content.
 
 Internal strategy rule for this turn:
@@ -499,12 +499,12 @@ Treat a reference row as valid only when both hold:
 
 - If a CAPTCHA challenge is visible, call `captcha_verify` in this turn.
 - This includes slider/jigsaw challenges with drag language.
-- Do not downgrade visible CAPTCHA work to `mouse_*` or `composite_action_*`.
+- Do not downgrade visible CAPTCHA work to `mouse_*` or `input_*`.
 - Use a mouse tool only to reveal CAPTCHA when it is not yet visible.
 
-Index tools: **`mouse_hover_index`**, **`mouse_click_index`**, **`mouse_double_click_index`**, **`composite_action_type_text_index`**, **`mouse_drag_from_to_index`**, **`modified_click_select_index`**.
+Index tools: **`mouse_hover_index`**, **`mouse_click_index`**, **`mouse_double_click_index`**, **`input_index`**, **`mouse_drag_from_to_index`**, **`modified_click_select_index`**.
 
-Coordinate tools: **`mouse_hover_at`**, **`mouse_click_at`**, **`mouse_double_click_at`**, **`composite_action_type_text_at`**, **`mouse_drag_from_to_at`**, **`modified_click_select_at`**.
+Coordinate tools: **`mouse_hover_at`**, **`mouse_click_at`**, **`mouse_double_click_at`**, **`input_at`**, **`mouse_drag_from_to_at`**, **`modified_click_select_at`**.
 
 CAPTCHA tool: **`captcha_verify`**.
 
@@ -517,7 +517,7 @@ Every call needs **`goal`** + **`action`** + route-matched args:
 - Keep `action` as one executable command tied to one target element.
 - Format: `<verb> <target text if visible> -- <shape>, <color>, <size>, <absolute position>, <relative position to nearby landmark>`.
 
-Prefer **one** composite/hotkey call when it achieves the same **goal** with fewer steps (after **R** is listed or the control is a listed compact bbox).
+Prefer **one** input/hotkey call when it achieves the same **goal** with fewer steps (after **R** is listed or the control is a listed compact bbox).
 
 Optional **`human_like`** on coordinate hovers/clicks when a natural pointer path helps.
 

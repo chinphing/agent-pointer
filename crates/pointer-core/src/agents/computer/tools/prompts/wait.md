@@ -22,7 +22,7 @@ Use when a **delay** is needed (e.g. page loading, upload/download settling,
 animation, dialog appearing).
 
 This is the **blocking `wait` tool** — not the optional **`wait`** field inside
-**`mouse_*`** / **`hotkey`** / **`composite_action_*`** / **`modified_click_*`**
+**`mouse_*`** / **`hotkey`** / **`input_*`** / **`modified_click_*`**
 **`tool_args`**.
 
 - Optional `tool_args.wait` on those tools is a short post-action settle window

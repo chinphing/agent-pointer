@@ -1,4 +1,4 @@
-### mouse_click_index / mouse_click_at / mouse_double_click_index / mouse_double_click_at / mouse_right_click_index / mouse_right_click_at / mouse_hover_index / mouse_hover_at / mouse_scroll / mouse_drag_from_to_index / mouse_drag_from_to_at
+### mouse_click_index / mouse_click_at / mouse_double_click_index / mouse_double_click_at / mouse_right_click_index / mouse_right_click_at / mouse_hover_index / mouse_hover_at / mouse_scroll_current / mouse_scroll_index / mouse_drag_from_to_index / mouse_drag_from_to_at
 
 Flat mouse tools — each tool name is the complete operation. No `method` parameter.
 
@@ -21,4 +21,5 @@ Optional: `human_like`, `wait` (1–5 s).
 - **`mouse_drag_from_to_at`** — Requires **`x1`**, **`y1`**, **`x2`**, **`y2`**.
 
 **Current cursor:**
-- **`mouse_scroll`** — Requires **`lines`** (1–300 or negative). Scrolls at current cursor position.
+- **`mouse_scroll_current`** — Requires **`lines`** (1–300 or negative). Scrolls at current cursor position.
+- **`mouse_scroll_index`** — Requires **`index`**, **`lines`**. Clicks index then scrolls.

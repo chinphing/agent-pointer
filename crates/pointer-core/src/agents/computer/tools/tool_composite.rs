@@ -44,7 +44,7 @@ impl CompositeActionIndexTool {
             "type_text" => self.type_text(args),
             "scroll" => self.scroll(args),
             _ => Err(anyhow!(
-                "Unknown composite_action_index method: {method}. Use type_text, scroll."
+                "Unknown input_index method: {method}. Use type_text."
             )),
         }
     }
@@ -116,7 +116,7 @@ impl CompositeActionAtTool {
         match method {
             "type_text" => self.type_text(args),
             _ => Err(anyhow!(
-                "Unknown composite_action_at method: {method}. Use type_text."
+                "Unknown input_at method: {method}. Use type_text."
             )),
         }
     }
@@ -160,7 +160,7 @@ impl CompositeActionFocusedTool {
         match method {
             "type_text" => self.type_text(args),
             _ => Err(anyhow!(
-                "Unknown composite_action_focused method: {method}. Use type_text."
+                "Unknown input_focused method: {method}. Use type_text."
             )),
         }
     }
@@ -205,7 +205,7 @@ impl CompositeActionTool {
         use super::method_route::{route_composite, CompositeBackend};
         let routed = route_composite(args)?;
         log::info!(
-            "composite_action: method={} backend={:?}",
+            "input: method={} backend={:?}",
             routed.method,
             routed.backend
         );

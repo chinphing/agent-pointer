@@ -2,7 +2,7 @@ use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::vision_state::VisionState;
 use super::args_util::{
-    human_like_from_args, require_non_empty_str, required_f32_arg,
+    clamp_scroll_lines, human_like_from_args, require_non_empty_str, required_f32_arg,
     required_u32_arg, resolve_index_pixels as resolve_index_from_vision,
 };
 use anyhow::{anyhow, Result};
@@ -52,9 +52,10 @@ impl MouseIndexTool {
             "double_click" => self.double_click(args),
             "right_click" => self.right_click(args),
             "hover" => self.hover(args),
+            "scroll" => self.scroll(args),
             "drag_from_to" => self.drag_from_to(args),
             _ => Err(anyhow!(
-                "Unknown mouse method: {method}. Use click, double_click, right_click, hover, drag_from_to."
+                "Unknown mouse method: {method}. Use click, double_click, right_click, hover, scroll, drag_from_to."
             )),
         }
     }
@@ -93,6 +94,19 @@ impl MouseIndexTool {
         let executor = self.executor.lock().unwrap();
         executor.hover_index(x, y, hl)?;
         Ok(format!("Hovered over element index {}", index))
+    }
+
+    fn scroll(&self, args: &Value) -> Result<String> {
+        let index = required_u32_arg(args, "index")?;
+        let lines_raw = args["lines"]
+            .as_i64()
+            .ok_or_else(|| anyhow!("Missing or invalid 'lines' parameter"))? as i32;
+        let lines = clamp_scroll_lines(lines_raw)?;
+        let (x, y) = self.resolve_index(index)?;
+        let hl = self.human_like(args);
+        let executor = self.executor.lock().unwrap();
+        executor.scroll_at(x, y, lines, hl)?;
+        Ok(self.verify.scroll_hint(lines))
     }
 
     fn drag_from_to(&self, args: &Value) -> Result<String> {

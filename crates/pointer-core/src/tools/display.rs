@@ -75,7 +75,7 @@ fn flat_method_from_tool_name(name: &str) -> Option<String> {
     if let Some(suffix) = name.strip_prefix("mouse_") {
         return Some(suffix.to_string());
     }
-    if let Some(suffix) = name.strip_prefix("composite_") {
+    if let Some(suffix) = name.strip_prefix("input_") {
         return Some(suffix.to_string());
     }
     if let Some(suffix) = name.strip_prefix("modified_click_") {
@@ -334,9 +334,9 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             let ml = mouse_method_label(if method.is_empty() { "click_index" } else { &method });
             (format!("鼠标 · {ml}"), computer_action_summary(args))
         }
-        n if n.starts_with("composite_") => {
+        n if n.starts_with("input_") => {
             let ml = mouse_method_label(if method.is_empty() { "action" } else { &method });
-            (format!("组合操作 · {ml}"), computer_action_summary(args))
+            (format!("文本输入 · {ml}"), computer_action_summary(args))
         }
         n if n.starts_with("modified_click_") => {
             let ml = mouse_method_label(if method.is_empty() { "click" } else { &method });

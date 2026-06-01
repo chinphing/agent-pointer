@@ -30,6 +30,6 @@ AGENT.md           manifest + config (repo root of `computer/`)
 | Advanced image order only | `tiers/advanced/vision_slots.md` |
 | Advanced loop | `tiers/advanced/loop.md` |
 | OS shortcuts | `prompts/os/*.md` |
-| Tool JSON / handlers | `tools/` (Rust); unified bodies `tools/prompts/mouse.md`, `composite_action.md`, `modified_click.md` (flat tool names with `*_index` / `*_at` / `*_focused` suffixes) |
+| Tool JSON / handlers | `tools/` (Rust); unified bodies `tools/prompts/mouse.md`, `composite.md`, `modified_click.md` (flat tool names with `*_index` / `*_at` / `*_focused` suffixes) |
 
 Full product doc: `docs/agents/computer-agent-prompts.md`.

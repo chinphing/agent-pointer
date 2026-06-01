@@ -216,7 +216,7 @@ pub fn operation_name_for_display(base: &str, raw_name: &str, args: &Value) -> S
     }
     match base {
         "mouse" => resolve_mouse_operation_label(args).unwrap_or_default(),
-        "composite_action" => resolve_composite_operation_label(args).unwrap_or_default(),
+        "input" => resolve_composite_operation_label(args).unwrap_or_default(),
         "modified_click" => resolve_modified_click_operation_label(args).unwrap_or_default(),
         _ => String::new(),
     }
@@ -299,7 +299,7 @@ pub fn route_composite(args: &Value) -> Result<RoutedComposite> {
     }
 
     Err(anyhow!(
-        "Cannot route composite_action method '{legacy}': need index, or x+y, or focused typing."
+        "Cannot route input method '{legacy}': need index, or x+y, or focused typing."
     ))
 }
 

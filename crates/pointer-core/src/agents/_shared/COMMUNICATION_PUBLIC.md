@@ -63,7 +63,7 @@ Other profiles (e.g. **Coder**) use **tests, commands, and file reads** as miles
 
 - **Efficiency principle:** Prefer the fewest tool calls for the same goal.
   Use this priority when multiple options are valid:
-  **`composite_action_type_text_focused`** -> **`hotkey`** / **`modified_click_select_index`** -> **`mouse_click_index`**.
+  **`input_focused`** -> **`hotkey`** / **`modified_click_select_index`** -> **`mouse_click_index`**.
   Use **`wait`** only when an explicit delay is needed.
 - **Hotkey precondition:** Use app/browser shortcuts only when the target window
   is the foreground (topmost) window. If not, focus the target window first.

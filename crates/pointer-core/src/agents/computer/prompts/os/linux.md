@@ -39,7 +39,7 @@ If another app is on top, focus the target window first.
 | Refresh / hard refresh | `ctrl, r` or `f5` / `ctrl, shift, r` or `ctrl, f5` |
 
 URL entry flow: focus address bar by shortcut first, then type with
-`composite_action_type_text_focused`. Avoid click-based URL typing when shortcut focus works.
+`input_focused`. Avoid click-based URL typing when shortcut focus works.
 
 Global shortcuts vary by desktop environment.
 For app-local shortcuts, follow the visible in-app hint when present.

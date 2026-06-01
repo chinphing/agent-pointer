@@ -118,9 +118,9 @@ pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
         ("mouse_index", "mouse"),
         ("mouse_at", "mouse"),
         ("mouse_current", "mouse"),
-        ("composite_action_index", "composite_action"),
-        ("composite_action_at", "composite_action"),
-        ("composite_action_focused", "composite_action"),
+        ("input_index", "input"),
+        ("input_at", "input"),
+        ("input_focused", "input"),
         ("modified_click_index", "modified_click"),
         ("modified_click_at", "modified_click"),
     ];
@@ -140,9 +140,9 @@ pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
             "mouse_index"
                 | "mouse_at"
                 | "mouse_current"
-                | "composite_action_index"
-                | "composite_action_at"
-                | "composite_action_focused"
+                | "input_index"
+                | "input_at"
+                | "input_focused"
                 | "modified_click_index"
                 | "modified_click_at"
         )
@@ -210,7 +210,7 @@ pub fn merge_tool_method_from_qualified_name(raw_name: &str, mut args: Value) ->
     }
 
     // Convert flat-style tool families to flat names.
-    if matches!(base, "mouse" | "file" | "task_board" | "skill" | "composite_action" | "modified_click" | "clipboard" | "captcha_verify") {
+    if matches!(base, "mouse" | "file" | "task_board" | "skill" | "input" | "modified_click" | "clipboard" | "captcha_verify") {
         return (format!("{base}_{method}"), args);
     }
 

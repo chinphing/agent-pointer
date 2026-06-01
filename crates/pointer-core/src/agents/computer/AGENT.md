@@ -8,7 +8,7 @@ enabled: true
 toolNames:
   - mouse
   - hotkey
-  - composite_action
+  - input
   - modified_click
   - wait
   - clipboard
@@ -19,7 +19,7 @@ accessPolicy:
   allowTools:
     - mouse
     - hotkey
-    - composite_action
+    - input
     - modified_click
     - wait
     - clipboard

@@ -69,7 +69,7 @@ when another sentence would add noise — **not** when the user must answer or r
 When using coordinate tools, decide **Route: coordinate** internally.
 `Tool route:` line 2 remains the single source of truth for the native root tool call.
 **Efficiency principle:** prefer the fewest tool calls for the same goal.
-Use priority: **`composite_action_type_text_focused`** -> **`hotkey`** / **`modified_click_select_index`**
+Use priority: **`input_focused`** -> **`hotkey`** / **`modified_click_select_index`**
 -> **`mouse_click_index`**. Use **`wait`** only for explicit delays.
 For loading/transfer actions, choose wait windows in the **2–5 s** range and
 verify completion from history/result surfaces before concluding.
@@ -213,7 +213,7 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 
 #### V1 pointer position (when last action used screen pixels)
 
-**Required when:** Newest **`[Recent desktop tool calls]`** row is a coordinate tool (**`mouse_click_at`**, **`mouse_double_click_at`**, **`mouse_drag_from_to_at`**, **`mouse_move_to`**; **`composite_action_*_at`**, etc.) and **`tool_args`** includes **`x`** and **`y`**.
+**Required when:** Newest **`[Recent desktop tool calls]`** row is a coordinate tool (**`mouse_click_at`**, **`mouse_double_click_at`**, **`mouse_drag_from_to_at`**, **`mouse_move_to`**; **`composite_*_at`**, etc.) and **`tool_args`** includes **`x`** and **`y`**.
 
 **Meaning:** **`pointer at (x,y)`** = where the automation placed the **synthetic pointer** for that call — **not** “action succeeded”, **not** proof that UI changed.
 
@@ -225,7 +225,7 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 | Pointer position | **`; pointer at (x,y)=(<x>, <y>)`** — integers only; **forbidden** floats; **forbidden** **`executed`**. |
 | Drag | If **`x2`** / **`y2`** present, also **`; pointer end (x2,y2)=(<x2>, <y2>)`**. |
 
-**Omit pointer suffix when:** **`hotkey`**, **`wait`**, **`clipboard_read`** / **`clipboard_write`**, **`mouse_scroll`**, or no **`x`/`y`** in **`tool_args`**.
+**Omit pointer suffix when:** **`hotkey`**, **`wait`**, **`clipboard_read`** / **`clipboard_write`**, **`mouse_scroll_current`**, or no **`x`/`y`** in **`tool_args`**.
 
 **Recheck R1** may reuse **V1** **`pointer at (x,y)=…`** as **`(x_prev, y_prev)`** — must match; do not invent a second pair.
 
@@ -256,7 +256,7 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 
 | Value | When |
 |-------|------|
-| **`non_mouse`** | **`Pointer:`** line **3** **`n/a — non-pointer`** (hotkey, wait, clipboard_read / clipboard_write, focused-only type, …) — **not** for **`composite_action_type_text_at`** / other **(x,y)** tools |
+| **`non_mouse`** | **`Pointer:`** line **3** **`n/a — non-pointer`** (hotkey, wait, clipboard_read / clipboard_write, focused-only type, …) — **not** for **`input_at`** / other **(x,y)** tools |
 | **`mouse_miss`** | Precision click + **`Pointer:`** **`abnormal`** |
 | **`mouse_accurate`** | Precision click + **`Pointer:`** **`accurate`** |
 
@@ -309,11 +309,11 @@ Cause: <only when Match says so; omit on pass>.
 
 | Condition | Line 1 frame | Line 2 geometry frame |
 |-----------|----------------|------------------------|
-| **`[Screen before action]`** present + last row is a **coordinate** tool (`mouse_click_at`, `composite_action_type_text_at`, `mouse_drag_from_to_at`, `modified_click_select_at`, …) | **`[Screen before action]`** | **`[Zoom pointer before action]`** — **required** |
+| **`[Screen before action]`** present + last row is a **coordinate** tool (`mouse_click_at`, `input_at`, `mouse_drag_from_to_at`, `modified_click_select_at`, …) | **`[Screen before action]`** | **`[Zoom pointer before action]`** — **required** |
 | First capture (no before-action slots) + coordinate last row | **`[Screen after action]`** | **`[Screen after action]`** and/or **`[Zoom pointer after action]`** |
-| **`hotkey`**, **`wait`**, **`clipboard_read`** / **`clipboard_write`** → **`*`**, **`composite_action_type_text_focused`**, **`mouse_scroll`**, etc. | name frame or **`n/a`** | **`n/a`** — non-pointer action |
+| **`hotkey`**, **`wait`**, **`clipboard_read`** / **`clipboard_write`** → **`*`**, **`input_focused`**, **`mouse_scroll_current`**, etc. | name frame or **`n/a`** | **`n/a`** — non-pointer action |
 
-**Coordinate tools are pointer-precision actions.** **`composite_action_type_text_at`** clicks at **(x,y)** before typing — **not** non-pointer. Judge hotspot vs **that click aim** (input/field **center**), same as **`mouse_click_at`**. **Forbidden:** **`n/a — composite_action … is non-pointer`** when the last row has **`x`/`y`** in **`tool_args`**.
+**Coordinate tools are pointer-precision actions.** **`input_at`** clicks at **(x,y)** before typing — **not** non-pointer. Judge hotspot vs **that click aim** (input/field **center**), same as **`mouse_click_at`**. **Forbidden:** **`n/a — input … is non-pointer`** when the last row has **`x`/`y`** in **`tool_args`**.
 
 #### Steps (strict order — do not skip)
 
@@ -360,7 +360,7 @@ Pointer:
 #### Anti-pattern (forbidden)
 
 ```text
-2 Evidence (hotspot vs aim): n/a — composite_action_type_text_at is non-pointer action.
+2 Evidence (hotspot vs aim): n/a — input_at is non-pointer action.
 3 Conclusion: n/a — non-pointer action.
 (forbidden — type_text_at uses (x,y); run lines 2–3 on [Zoom pointer before action] vs line 1 aim)
 ```
@@ -445,10 +445,10 @@ Labels follow **fixed enumeration** on the current frame (**1** = first region, 
 - Estimating **(x,y)** from full-screen / zoom images without copying row **R** from the text list.
 
 **Allowed — coordinate methods (`*_at`):**  
-**`mouse_click_at`**, **`mouse_double_click_at`**, **`mouse_right_click_at`**, **`mouse_hover_at`**, **`mouse_drag_from_to_at`** · **`composite_action_type_text_at`**, **`composite_action_scroll_at`** · **`modified_click_select_at`**, **`modified_click_range_select_at`**.
+**`mouse_click_at`**, **`mouse_double_click_at`**, **`mouse_right_click_at`**, **`mouse_hover_at`**, **`mouse_drag_from_to_at`** · **`input_at`** · **`modified_click_select_at`**, **`modified_click_range_select_at`**.
 
 **Allowed — overlay index methods (`*_index`):**  
-**`mouse_click_index`**, **`mouse_double_click_index`**, **`mouse_right_click_index`**, **`mouse_hover_index`**, **`mouse_drag_from_to_index`** · **`composite_action_type_text_index`**, **`composite_action_scroll_index`** · **`modified_click_select_index`**, **`modified_click_range_select_index`**.  
+**`mouse_click_index`**, **`mouse_double_click_index`**, **`mouse_right_click_index`**, **`mouse_hover_index`**, **`mouse_drag_from_to_index`** · **`input_index`**, **`mouse_scroll_index`** · **`modified_click_select_index`**, **`modified_click_range_select_index`**.  
 Use **`index`** / **`indices`** / **`from_index`** / **`to_index`** only — overlay digit = bbox label; click uses bbox **center** (no `anchor` / offset args).
 
 **Route choice:** Prefer **`*_at`** when **Location** line **3** derives **`(x,y)`** from **Overlay reference bboxes**. Prefer **`*_index`** when the sub-target maps cleanly to one overlay digit **R** without coordinate arithmetic. **Forbidden:** mixing routes — e.g. **`click_index`** after **Location** fixed **`(x,y)`** (use **`click_at`** instead), or **`click_at`** with pixel-guess **(x,y)** without bbox lookup.
@@ -459,15 +459,15 @@ Use **`index`** / **`indices`** / **`from_index`** / **`to_index`** only — ove
 - **`captcha_verify` exception:** overlay **`index_*`** args on this tool
   (`index_captcha_area`, `index_input_area`, `index_slider_arrow`) are
   **allowed** — they crop/anchor CAPTCHA regions, not canvas `*_index` clicks.
-- Do not downgrade visible CAPTCHA work to `mouse_*` / `composite_action_*`.
+- Do not downgrade visible CAPTCHA work to `mouse_*` / `input_*`.
 - Use a mouse tool only to reveal CAPTCHA when the challenge is not visible.
 CAPTCHA tool: **`captcha_verify`**.
 
-**Non-canvas / no overlay index or `(x,y)` pick:** `mouse_scroll`, **`composite_action_type_text_focused`**, **`hotkey`**, **`wait`**, **`clipboard_read`** / **`clipboard_write`**.
+**Non-canvas / no overlay index or `(x,y)` pick:** `mouse_scroll_current`, **`input_focused`**, **`hotkey`**, **`wait`**, **`clipboard_read`** / **`clipboard_write`**.
 
 **Hard rule:** **`Tool route:`** line **2** + root **`tool_name`** / **`tool_args`** must match **Allowed** only. Reference index **R** appears in **`Location:`** / recap — **not** in the tool call.
 
-Optional **`wait`** in **`tool_args`** (1–5 s) after successful mouse/hotkey/composite_action/modified_click — distinct from standalone **`wait`** tool.
+Optional **`wait`** in **`tool_args`** (1–5 s) after successful mouse/hotkey/input/modified_click — distinct from standalone **`wait`** tool.
 
 ### Off-frame tools (rare)
 
@@ -1005,17 +1005,17 @@ When **Location** line **3** concludes **`therefore (x,y) ≈ (…, …)`**, the
 
 | Location | Tool route line 2 |
 |----------|-------------------|
-| **`therefore (x,y)`** on line **3** | **`mouse_click_at`** / **`composite_action_type_text_at`** / **`modified_click_select_at`** — **(x,y)** literals from Location |
-| **`reference index R`** on line **2** (index route, no line **3** coords) | **`mouse_click_index`** / … / **`composite_action_type_text_index`** / **`composite_action_scroll_index`** — **`index: R`** |
-| **`Location: n/a`** | **`hotkey`** / **`wait`** / **`mouse_scroll`** / **`composite_action_type_text_focused`** / … |
+| **`therefore (x,y)`** on line **3** | **`mouse_click_at`** / **`input_at`** / **`modified_click_select_at`** — **(x,y)** literals from Location |
+| **`reference index R`** on line **2** (index route, no line **3** coords) | **`mouse_click_index`** / … / **`input_index`** / **`mouse_scroll_index`** — **`index: R`** |
+| **`Location: n/a`** | **`hotkey`** / **`wait`** / **`mouse_scroll_current`** / **`input_focused`** / … |
 
 **Forbidden (all turns):** route mismatch — **`*_index`** after Location **`therefore (x,y)`**, or **`*_at`** with **(x,y)** not traced to **Overlay reference bboxes**.
 
 **Action kind from Next `this turn:`:**
 
-- Press icon/button/toggle **this turn** → **`mouse_click_at`** / **`mouse_click_index`** — not **`composite_action_type_text_at`**
-- Type/replace text **this turn** → **`composite_action_type_text_at`** / **`composite_action_type_text_index`** / **`composite_action_type_text_focused`**
-- For `composite_action_type_text_at` / `composite_action_type_text_focused`, `clear_first`
+- Press icon/button/toggle **this turn** → **`mouse_click_at`** / **`mouse_click_index`** — not **`input_at`**
+- Type/replace text **this turn** → **`input_at`** / **`input_index`** / **`input_focused`**
+- For `input_at` / `input_focused`, `clear_first`
   defaults to `false`; set `clear_first=true` only when replacing existing
   field content.
 

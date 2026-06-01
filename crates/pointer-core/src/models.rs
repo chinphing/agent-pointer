@@ -2,6 +2,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
+use crate::agents::computer::tier::{
+    ADVANCED_THINKING_BUDGET, DEFAULT_MODEL_ADVANCED, DEFAULT_MODEL_INTERMEDIATE,
+    DEFAULT_MODEL_PRIMARY, PRIMARY_INTERMEDIATE_THINKING_BUDGET,
+};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
@@ -1222,27 +1227,27 @@ fn default_computer_tier_llm() -> HashMap<String, ComputerTierLlmConfig> {
         "primary".into(),
         ComputerTierLlmConfig {
             provider_id: "qwen".into(),
-            model: "qwen3.5-plus".into(),
+            model: DEFAULT_MODEL_PRIMARY.into(),
             enable_thinking: true,
-            thinking_budget: Some(2048),
+            thinking_budget: Some(PRIMARY_INTERMEDIATE_THINKING_BUDGET),
         },
     );
     m.insert(
         "intermediate".into(),
         ComputerTierLlmConfig {
             provider_id: "qwen".into(),
-            model: "qwen3.5-plus".into(),
+            model: DEFAULT_MODEL_INTERMEDIATE.into(),
             enable_thinking: true,
-            thinking_budget: Some(2048),
+            thinking_budget: Some(PRIMARY_INTERMEDIATE_THINKING_BUDGET),
         },
     );
     m.insert(
         "advanced".into(),
         ComputerTierLlmConfig {
             provider_id: "qwen".into(),
-            model: "qwen3.6-plus".into(),
+            model: DEFAULT_MODEL_ADVANCED.into(),
             enable_thinking: true,
-            thinking_budget: Some(8192),
+            thinking_budget: Some(ADVANCED_THINKING_BUDGET),
         },
     );
     m

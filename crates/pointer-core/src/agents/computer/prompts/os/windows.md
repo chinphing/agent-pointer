@@ -40,7 +40,7 @@ If another app is on top, focus the target window first.
 | Hard refresh | `ctrl, shift, r` or `ctrl, f5` |
 
 URL entry flow: focus address bar by shortcut first, then type with
-`composite_action_type_text_focused`. Avoid click-based URL typing when shortcut focus works.
+`input_focused`. Avoid click-based URL typing when shortcut focus works.
 
 Use `alt` for menu accelerators or explicit Alt shortcuts only.
 Use `win` / `meta` when the step clearly needs the Windows key (Start, search, snap).

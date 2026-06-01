@@ -58,7 +58,8 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             ("mouse_right_click_at", Some((MouseBackend::At, "right_click"))),
             ("mouse_hover_index", Some((MouseBackend::Index, "hover"))),
             ("mouse_hover_at", Some((MouseBackend::At, "hover"))),
-            ("mouse_scroll", None),
+            ("mouse_scroll_current", None),
+            ("mouse_scroll_index", Some((MouseBackend::Index, "scroll"))),
             ("mouse_drag_from_to_index", Some((MouseBackend::Index, "drag_from_to"))),
             ("mouse_drag_from_to_at", Some((MouseBackend::At, "drag_from_to"))),
         ];
@@ -131,17 +132,16 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         ));
     }
 
-    // ── composite_action (flat tools) ───────────────────────────────────────
+    // ── input (flat tools) ─────────────────────────────────────────────
     {
-        let doc = include_str!("prompts/composite_action.md").trim().to_string();
-        let composite_handlers: &[(&str, CompositeBackend, &str)] = &[
-            ("composite_type_text_index", CompositeBackend::Index, "type_text"),
-            ("composite_scroll_index", CompositeBackend::Index, "scroll"),
-            ("composite_type_text_at", CompositeBackend::At, "type_text"),
-            ("composite_type_text_focused", CompositeBackend::Focused, "type_text"),
+        let doc = include_str!("prompts/input.md").trim().to_string();
+        let input_handlers: &[(&str, CompositeBackend, &str)] = &[
+            ("input_index", CompositeBackend::Index, "type_text"),
+            ("input_at", CompositeBackend::At, "type_text"),
+            ("input_focused", CompositeBackend::Focused, "type_text"),
         ];
 
-        for (name, backend, method) in composite_handlers {
+        for (name, backend, method) in input_handlers {
             let st = state.clone();
             let prompt = doc.clone();
             let tool_name = name.to_string();

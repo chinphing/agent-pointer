@@ -345,18 +345,11 @@ onUnmounted(() => {
           <PlatformLoginActions
             variant="compact"
             :loading="platformAuth.loading"
-            :error="null"
+            :error="platformAuth.error"
             @login="onPlatformLogin"
             @cancel="onPlatformLoginCancel"
           />
         </div>
-        <p
-          v-if="platformAuth.error"
-          class="max-w-full rounded-lg border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs leading-snug text-danger"
-          role="alert"
-        >
-          {{ platformAuth.error }}
-        </p>
       </div>
 
       <div class="panel-elevated rounded-2xl border border-border overflow-visible px-2 pb-2 pt-[18px]">

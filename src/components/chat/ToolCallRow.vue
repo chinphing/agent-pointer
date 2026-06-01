@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onUnmounted } from 'vue'
+import { computed, ref } from 'vue'
 import { marked } from 'marked'
 import {
   Wrench,
@@ -26,34 +26,6 @@ const props = defineProps<{
 }>()
 const chat = useChatStore()
 const open = ref(false)
-let autoCollapseTimer: ReturnType<typeof setTimeout> | null = null
-
-watch(
-  () => props.toolCall.status,
-  (status, prev) => {
-    if (prev === undefined) {
-      if (status === 'running' || status === 'pending' || status === 'pending_approval') {
-        open.value = true
-      }
-      return
-    }
-    if (status === 'running' || status === 'pending' || status === 'pending_approval') {
-      if (autoCollapseTimer) clearTimeout(autoCollapseTimer)
-      open.value = true
-      return
-    }
-    const wasActive = prev === 'running' || prev === 'pending' || prev === 'pending_approval'
-    if (wasActive) {
-      if (autoCollapseTimer) clearTimeout(autoCollapseTimer)
-      open.value = true
-      autoCollapseTimer = setTimeout(() => {
-        open.value = false
-        autoCollapseTimer = null
-      }, 2000)
-    }
-  },
-  { immediate: true }
-)
 
 const isTerminal = computed(() => props.toolCall.name === 'terminal')
 const isWebSearch = computed(() => props.toolCall.name === 'web_search')
@@ -246,9 +218,6 @@ function openSourceUrl(url: string) {
   void openExternalUrl(url)
 }
 
-onUnmounted(() => {
-  if (autoCollapseTimer) clearTimeout(autoCollapseTimer)
-})
 </script>
 
 <template>

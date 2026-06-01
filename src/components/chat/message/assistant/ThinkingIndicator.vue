@@ -1,41 +1,19 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed } from 'vue'
+import { thinkingDotCount, MAX_THINKING_DOTS } from '../../../../lib/thinkingIndicator'
 
 const props = defineProps<{
   active: boolean
+  charCount?: number
 }>()
 
-const dotPhase = ref(1)
+const dotCount = computed(() => {
+  if (!props.active) return 0
+  const n = props.charCount ?? 0
+  return thinkingDotCount(n)
+})
 
-let timer: ReturnType<typeof setInterval> | null = null
-
-const label = computed(() => `思考中${'.'.repeat(dotPhase.value)}`)
-
-function startAnimation() {
-  if (timer != null) return
-  dotPhase.value = 1
-  timer = setInterval(() => {
-    dotPhase.value = dotPhase.value >= 3 ? 1 : dotPhase.value + 1
-  }, 500)
-}
-
-function stopAnimation() {
-  if (timer != null) {
-    clearInterval(timer)
-    timer = null
-  }
-}
-
-watch(
-  () => props.active,
-  active => {
-    if (active) startAnimation()
-    else stopAnimation()
-  },
-  { immediate: true }
-)
-
-onUnmounted(stopAnimation)
+const label = computed(() => `思考中${'.'.repeat(dotCount.value)}`)
 </script>
 
 <template>

@@ -126,7 +126,7 @@ export function providerDraftForTemplate(
     baseUrl: meta.defaultBaseUrl,
     apiKey: '',
     models: [...meta.defaultModels],
-    reasoningInMessages: true,
+    reasoningInMessages: false,
     temperature: global.temperature,
     maxTokens: global.maxTokens,
     modelConfigs: {}

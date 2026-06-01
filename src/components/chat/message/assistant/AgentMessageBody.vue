@@ -198,6 +198,17 @@ const showReasoningBlock = computed(() =>
 
 const reasoningDisplayText = computed(() => props.body.reasoning ?? '')
 
+const streamedCharCount = computed(() => {
+  const body = props.body
+  return Math.max(
+    body.content?.length ?? 0,
+    body.thoughts?.length ?? 0,
+    body.reasoning?.length ?? 0,
+    body.toolNamePreview?.length ?? 0,
+    body.responseTextDraft?.length ?? 0
+  )
+})
+
 const showThinkingIndicator = computed(
   () =>
     isRunInProgress.value &&
@@ -309,7 +320,7 @@ onUnmounted(() => clearReasoningCollapseTimer())
             :is-streaming="isContentStreaming"
           />
 
-          <ThinkingIndicator :active="showThinkingIndicator" />
+          <ThinkingIndicator :active="showThinkingIndicator" :char-count="streamedCharCount" />
 
           <div
             v-if="showMdBody"

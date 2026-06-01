@@ -47,6 +47,7 @@ const FILE_TYPE_GLOBS: &[(&str, &[&str])] = &[
     ("js", &["*.js", "*.jsx", "*.cjs", "*.mjs"]),
     ("ts", &["*.ts", "*.tsx", "*.mts", "*.cts"]),
     ("vue", &["*.vue"]),
+    ("tsx", &["*.tsx"]),
     ("svelte", &["*.svelte"]),
     ("md", &["*.md", "*.mdx"]),
     ("json", &["*.json", "*.jsonc"]),

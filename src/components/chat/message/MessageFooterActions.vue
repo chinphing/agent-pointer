@@ -36,8 +36,8 @@ const showCopyButton = () => props.showCopy === true && !!(props.copyText?.trim(
       :title="copied ? '已复制' : '复制'"
       @click="copy"
     >
-      <Check v-if="copied" class="w-3.5 h-3.5" />
-      <Copy v-else class="w-3.5 h-3.5" />
+      <Check v-if="copied" class="w-3 h-3" />
+      <Copy v-else class="w-3 h-3" />
     </button>
     <slot name="extra" />
   </div>

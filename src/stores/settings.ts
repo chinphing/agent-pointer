@@ -244,13 +244,13 @@ export const useSettingsStore = defineStore('settings', () => {
   const effectiveReasoningInMessages = computed((): boolean => {
     const st = settings.value
     const provs = st.providers
-    if (!provs.length) return true
+    if (!provs.length) return false
     const p = provs.find(x => x.id === st.activeProviderId) ?? provs[0]
     const model = st.model.trim()
     const over = p.modelConfigs?.[model]
     if (over?.reasoningInMessages !== undefined) return over.reasoningInMessages
     if (p.reasoningInMessages !== undefined) return p.reasoningInMessages
-    return true
+    return false
   })
 
   const DEFAULT_MODEL_TEMPERATURE = 0.7

@@ -31,6 +31,17 @@ const isRunInProgress = computed(
   () => isStreaming.value || (generating.value && isActiveGenerationMessage.value)
 )
 
+const streamedCharCount = computed(() => {
+  const m = props.message
+  return Math.max(
+    m.content?.length ?? 0,
+    m.thoughts?.length ?? 0,
+    m.reasoning?.length ?? 0,
+    m.toolNamePreview?.length ?? 0,
+    m.responseTextDraft?.length ?? 0
+  )
+})
+
 const showThinkingIndicator = computed(
   () => isRunInProgress.value && !messageHasVisibleStreamingActivity(props.message)
 )
@@ -41,7 +52,7 @@ const showThinkingIndicator = computed(
     class="tool-message-segment"
     :class="{ 'chat-hover-root': !hideFooter }"
   >
-    <ThinkingIndicator :active="showThinkingIndicator" />
+    <ThinkingIndicator :active="showThinkingIndicator" :char-count="streamedCharCount" />
 
     <div
       v-if="toolCalls.length"

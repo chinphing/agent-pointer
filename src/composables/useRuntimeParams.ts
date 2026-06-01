@@ -60,7 +60,7 @@ export function useRuntimeParams(
     const prev: ModelRuntimeOverrides = {
       temperature: p.temperature ?? fallbackTemperature(),
       maxTokens: p.maxTokens ?? fallbackMaxTokens(),
-      reasoningInMessages: p.reasoningInMessages !== false,
+      reasoningInMessages: p.reasoningInMessages === true,
       ...configs[id]
     }
     // 替换 modelConfigs 顶层引用，勿就地改 configs[id]，否则 Pinia/Vue 可能不刷新 UI。
@@ -132,7 +132,7 @@ export function useRuntimeParams(
       const o = p.modelConfigs?.[mid]?.reasoningInMessages
       if (o !== undefined) return o
     }
-    return p.reasoningInMessages !== false
+    return p.reasoningInMessages === true
   }
 
   function setReasoningOn(on: boolean) {
@@ -330,7 +330,7 @@ export function buildCustomModelEntryFromProvider(
   const entry: ModelRuntimeOverrides = {
     temperature: p.temperature ?? (Number.isFinite(temp) && temp >= 0 ? temp : DEFAULT_MODEL_TEMPERATURE),
     maxTokens: p.maxTokens ?? (max && max >= 64 ? max : DEFAULT_MODEL_MAX_TOKENS),
-    reasoningInMessages: p.reasoningInMessages !== false
+    reasoningInMessages: p.reasoningInMessages === true
   }
   if (isQwenProvider(p)) {
     entry.enableThinking = p.enableThinking === true

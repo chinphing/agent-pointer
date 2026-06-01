@@ -182,7 +182,6 @@ export function uiForSubAgentFrame(
   return {
     ...base,
     showToolCalls: true,
-    showReasoning: true,
     showSubAgentTrace: true
   }
 }

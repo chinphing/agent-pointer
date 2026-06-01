@@ -256,7 +256,7 @@ pub fn effective_reasoning_in_messages(settings: &ModelSettings) -> bool {
             return v;
         }
     }
-    p.reasoning_in_messages.unwrap_or(true)
+    p.reasoning_in_messages.unwrap_or(false)
 }
 
 pub const DEFAULT_MODEL_TEMPERATURE: f32 = 0.7;

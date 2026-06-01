@@ -30,6 +30,8 @@ schema:
 Unified workspace file tools. Call the **`file`** tool with **`method`** set to one of:
 **`read`**, **`write`**, **`edit`**, **`glob`**, **`grep`**, **`list`**.
 
+**⚠️ `method` is required in every call.** Calls without `method` fail immediately.
+
 **Relative paths** resolve under the workspace root (`workspaceRoot` in settings, or the process working directory). Do not use `..` to escape the workspace on relative paths. **`write`** and **`edit`** accept **workspace-relative** paths **or** **absolute** paths that resolve **under the same workspace root** (prefix check after canonicalization); paths outside the workspace are rejected. These writes may require user approval. For **read-only** methods (**`read`**, **`glob`**, **`grep`**, **`list`**), you may also use **absolute** paths **outside** the workspace when the user asks.
 
 **Responses:** Whenever this tool returns a filesystem location (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**), the value is an **absolute** path. The OS may use a canonical form (e.g. resolved symlinks; on Windows, a `\\?\` prefix is normal).
@@ -54,6 +56,7 @@ Unified workspace file tools. Call the **`file`** tool with **`method`** set to 
 **`read`**
 
 - **`paths`** — **Required.** Array (max **32** entries per call). **Each entry is an object** with **`path`** (alias **`file`**) and optional **`lineStart`** / **`lineEnd`** / **`maxBytes`**. Single file: **`paths: [{ "path": "src/foo.rs" }]`**. Response groups results under **`files`**, and includes **`maxTotalBytes`**, **`contentBytes`**, and **`batchCapped`**.
+  **Windows paths:** escape backslashes in JSON — `\\` for each `\`. Example: `"D:\\workspace\\src\\foo.rs"`, not `"D:\workspace\src\foo.rs"`.
 - **`lineStart`** — Optional root default for batch entries; 1-based first line to include. Default: start of file. Alias **`line_start`**.
 - **`lineEnd`** — Optional root default; 1-based **exclusive** end line. Alias **`line_end`**.
 - **`maxBytes`** — Optional root default; max bytes read per file (default **262144**, 256 KiB). Alias **`max_bytes`**.
@@ -73,7 +76,7 @@ Example — single file:
 }
 ```
 
-Example — batch with line ranges:
+Example — batch with line ranges (Windows):
 
 ```json
 {
@@ -82,8 +85,8 @@ Example — batch with line ranges:
     "arguments": {
       "method": "read",
       "paths": [
-        { "path": "src/a.rs", "lineStart": 10, "lineEnd": 80 },
-        { "path": "src/b.rs" }
+        { "path": "D:\\workspace\\src\\a.rs", "lineStart": 10, "lineEnd": 80 },
+        { "path": "D:\\workspace\\src\\b.rs" }
       ],
       "maxTotalBytes": 524288
     }
@@ -93,7 +96,7 @@ Example — batch with line ranges:
 
 **`write`**
 
-- **`path`** — Workspace-relative **or** absolute path under the workspace.
+- **`path`** — Workspace-relative **or** absolute path under the workspace. Windows: escape `\\` in JSON (same rule as `paths` above).
 - **`content`** — Entire file body. Prefer a JSON **string** (use `\"`, `\\`, `\n` as needed). You may also pass a JSON **object** or **array**; the runtime pretty-prints it as UTF-8 text.
 
 Example:
@@ -164,6 +167,7 @@ Example:
 | `ts` | `typescript` | `*.ts`, `*.tsx`, `*.mts`, `*.cts` |
 | `vue` | — | `*.vue` |
 | `svelte` | — | `*.svelte` |
+| `tsx` | — | `*.tsx` |
 | `md` | `markdown` | `*.md`, `*.mdx` |
 | `json` | — | `*.json`, `*.jsonc` |
 | `yaml` | `yml` | `*.yml`, `*.yaml` |

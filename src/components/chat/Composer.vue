@@ -341,11 +341,12 @@ onUnmounted(() => {
         <div
           class="inline-flex max-w-full flex-wrap items-center gap-3 rounded-xl border border-accent/20 bg-accent-muted/40 px-3.5 py-2.5"
         >
-          <p class="shrink-0 text-xs leading-snug text-foreground">未登录，登录后可继续对话</p>
+          <p class="shrink-0 text-xs leading-snug text-foreground">
+            {{ platformAuth.error || '未登录，登录后可继续对话' }}
+          </p>
           <PlatformLoginActions
             variant="compact"
             :loading="platformAuth.loading"
-            :error="platformAuth.error"
             @login="onPlatformLogin"
             @cancel="onPlatformLoginCancel"
           />

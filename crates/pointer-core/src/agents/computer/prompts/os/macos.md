@@ -40,7 +40,7 @@ If another app is on top, focus the target window first.
 | Hard refresh | `command, shift, r` |
 
 URL entry flow: focus address bar by shortcut first, then type with
-`type_text_at_focused`. Avoid click-based URL typing when shortcut focus works.
+`composite_action_type_text_focused`. Avoid click-based URL typing when shortcut focus works.
 
 Use `option` only when the UI names Option. Use `ctrl` only when the UI names Control.
 

@@ -1,0 +1,50 @@
+captcha_verify_type:
+  type: object
+  properties:
+    goal:
+      type: string
+    remark:
+      type: string
+    index_captcha_area:
+      type: integer
+    index_input_area:
+      type: integer
+  required:
+    - goal
+    - index_captcha_area
+    - index_input_area
+  additionalProperties: true
+
+captcha_verify_click:
+  type: object
+  properties:
+    goal:
+      type: string
+    remark:
+      type: string
+    index_captcha_area:
+      type: integer
+  required:
+    - goal
+    - index_captcha_area
+  additionalProperties: true
+
+captcha_verify_drag:
+  type: object
+  properties:
+    goal:
+      type: string
+    remark:
+      type: string
+    index_captcha_area:
+      type: integer
+    is_slider:
+      type: boolean
+    index_slider_arrow:
+      type: integer
+    index_slider_handle:
+      type: integer
+  required:
+    - goal
+    - index_captcha_area
+  additionalProperties: true

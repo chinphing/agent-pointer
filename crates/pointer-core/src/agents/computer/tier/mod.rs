@@ -852,7 +852,7 @@ mod tests {
     #[test]
     fn format_history_includes_goal_and_coords() {
         let r = TierActionRecord {
-            tool_name: "mouse:click_at".into(),
+            tool_name: "mouse_click_at".into(),
             goal: "Open Settings".into(),
             action: Some("click".into()),
             coords: Some((412, 680)),
@@ -894,7 +894,7 @@ mod tests {
     #[test]
     fn primary_history_omits_cause() {
         let r = TierActionRecord {
-            tool_name: "mouse:click_at".into(),
+            tool_name: "mouse_click_at".into(),
             goal: "g".into(),
             action: None,
             coords: None,
@@ -912,7 +912,7 @@ mod tests {
     #[test]
     fn same_goal_repetition_count_sums_only_fail_rows() {
         let mk = |goal: &str, step: &str| TierActionRecord {
-            tool_name: "mouse:click_index".into(),
+            tool_name: "mouse_click_index".into(),
             goal: goal.into(),
             action: Some("click".into()),
             coords: None,
@@ -959,7 +959,7 @@ mod tests {
     #[test]
     fn history_block_keeps_verify_only_in_history_rows() {
         let records = vec![TierActionRecord {
-            tool_name: "mouse:click_index".into(),
+            tool_name: "mouse_click_index".into(),
             goal: "Open Settings".into(),
             action: Some("click settings icon".into()),
             coords: Some((400, 300)),

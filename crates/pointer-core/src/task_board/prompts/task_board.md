@@ -105,11 +105,11 @@ record covered and remaining slices.
 
 ## Profile guidance
 
-Computer profile (with `verify.report`):
+Computer profile (with `verify_report`):
 
 - Complexity gate: initialize when expected operation steps >3.
-- First board-init round may skip `verify.report`.
-- After init, run `verify.report` before `task_board patch`.
+- First board-init round may skip `verify_report`.
+- After init, run `verify_report` before `task_board_patch`.
 
 Engineering profiles:
 

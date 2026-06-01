@@ -1,35 +1,14 @@
----
-schema:
-  type: object
-  properties:
-    method:
-      type: string
-    action:
-      type: string
-    goal:
-      type: string
-    indices:
-      type: array
-      items:
-        type: integer
-    positions:
-      type: array
-    human_like:
-      type: boolean
-    wait:
-      type: number
-      minimum: 1
-      maximum: 5
-  required:
-    - goal
-  additionalProperties: true
----
+### modified_click_select_index / modified_click_range_select_index / modified_click_select_at / modified_click_range_select_at
 
-### modified_click
+Flat modified-click tools — each tool name is the complete operation. No `method` parameter.
 
-Single **modified_click** tool (multi-select / range-select). Set **`method`** or **`action`**.
+Every call requires **`goal`** (outcome) and **`action`** (human-readable description for UI).
+Optional: `human_like`, `wait` (1–5 s).
 
-Every call requires **`goal`** and **`action`**. Optional: `human_like`, `wait` (1–5 s).
+**Index-based** (overlay digit):
+- **`modified_click_select_index`** — Cmd/Ctrl+click each index. Requires **`indices`** (one or more).
+- **`modified_click_range_select_index`** — Shift+click range between two indices. Requires **`indices`** `[first, last]`.
 
-- **`select`** with **`indices`** (one or more overlay indexes) or **`positions`** (`{x,y}` / `[x,y]`, one or more) — Cmd/Ctrl+click each (discrete multi-select)
-- **`range_select`** with exactly two **`indices`** `[first, last]` or two **`positions`** — Shift+click range between endpoints (not a long index list)
+**Coordinate-based** (session 0–1000):
+- **`modified_click_select_at`** — Cmd/Ctrl+click each position. Requires **`positions`** (`{x,y}` / `[x,y]`, one or more).
+- **`modified_click_range_select_at`** — Shift+click range between two positions. Requires **`positions`** `[first, last]`.

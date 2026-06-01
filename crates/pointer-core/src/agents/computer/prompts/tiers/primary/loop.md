@@ -14,12 +14,12 @@ Each turn:
    user can follow progress — like the coding agent.
    **`content` may be empty** for micro-steps within the same sub-goal only.
    **Clarification turn:** when the user must answer or read a message next,
-   write the question in **`content`** in the same turn as `verify.report`;
+   write the question in **`content`** in the same turn as `verify_report`;
    skip the root desktop tool.
    Never put Verify / Repetition / Next templates or internal checklists in message text.
    Use native tool calls only (no legacy JSON envelope fields).
-   Add a `verify.report` call using Verify `Step result` and Repetition `Count`; include `failure_cause` only when `Step result=fail`.
-   If `task_board` is used: first board-init round may omit report, otherwise always place `verify.report` before `task_board_patch`.
+   Add a `verify_report` call using Verify `Step result` and Repetition `Count`; include `failure_cause` only when `Step result=fail`.
+   If `task_board` is used: first board-init round may omit report, otherwise always place `verify_report` before `task_board_patch`.
    Use the report to close the previous milestone first, then move the next milestone to `in_progress`/`ready`.
 
 No advanced seven-stage Location/Recheck blocks at this tier.

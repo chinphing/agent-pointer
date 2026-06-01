@@ -4,7 +4,7 @@ Use provider-native tool calls only.
 Do not serialize tool calls as text or JSON wrappers.
 
 When this turn also updates `task_board`,
-call `verify.report` first and `task_board_patch` second
+call `verify_report` first and `task_board_patch` second
 (first board-init round may omit report).
 
 ## Internal reasoning only (hard rule)
@@ -15,8 +15,8 @@ Run them internally — **do not** write section labels, templates, or reasoning
 in assistant message text.
 
 **Turn deliverables**
-- Report: `verify.report` with native args (when reporting a prior step)
-- Action: one root desktop tool (`mouse`, `composite_action`, `modified_click` — method suffix `*_at` or `*_index` per route below) — **unless** clarification turn (below)
+- Report: `verify_report` with native args (when reporting a prior step)
+- Action: one root desktop tool — **unless** clarification turn (below)
 - Board (optional): `task_board_patch` / …
 - Status: brief milestone or user-facing line in assistant **`content`** (see below)
 Do **not** write tool names or args in assistant message text.
@@ -40,7 +40,7 @@ rhythm as the coding agent:
 **Clarification turn (hard rule):** When the next step needs **user input**
 (ambiguous goal, vague "continue", prior sub-goal done with no defined next step,
 permission, or anything you would "ask the user"):
-- In the **same turn**, call `verify.report` if you are closing the prior step.
+- In the **same turn**, call `verify_report` if you are closing the prior step.
 - Write the **question or explanation in `content`** — plain text the user can read.
 - **Do not** call a root desktop tool this turn.
 - **Forbidden:** planning to ask in reasoning but leaving **`content` empty**.
@@ -69,8 +69,8 @@ when another sentence would add noise — **not** when the user must answer or r
 When using coordinate tools, decide **Route: coordinate** internally.
 `Tool route:` line 2 remains the single source of truth for the native root tool call.
 **Efficiency principle:** prefer the fewest tool calls for the same goal.
-Use priority: **`composite_action`** -> **`hotkey`** / **`modified_click`**
--> **`mouse`**. Use **`wait`** only for explicit delays.
+Use priority: **`composite_action_type_text_focused`** -> **`hotkey`** / **`modified_click_select_index`**
+-> **`mouse_click_index`**. Use **`wait`** only for explicit delays.
 For loading/transfer actions, choose wait windows in the **2–5 s** range and
 verify completion from history/result surfaces before concluding.
 
@@ -213,7 +213,7 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 
 #### V1 pointer position (when last action used screen pixels)
 
-**Required when:** Newest **`[Recent desktop tool calls]`** row is a coordinate tool (**`mouse`** → **`click_at`**, **`double_click_at`**, **`drag_from_to_at`**, **`move_to`**; **`composite_action`** → **`*_at`**, etc.) and **`tool_args`** includes **`x`** and **`y`**.
+**Required when:** Newest **`[Recent desktop tool calls]`** row is a coordinate tool (**`mouse_click_at`**, **`mouse_double_click_at`**, **`mouse_drag_from_to_at`**, **`mouse_move_to`**; **`composite_action_*_at`**, etc.) and **`tool_args`** includes **`x`** and **`y`**.
 
 **Meaning:** **`pointer at (x,y)`** = where the automation placed the **synthetic pointer** for that call — **not** “action succeeded”, **not** proof that UI changed.
 
@@ -225,7 +225,7 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 | Pointer position | **`; pointer at (x,y)=(<x>, <y>)`** — integers only; **forbidden** floats; **forbidden** **`executed`**. |
 | Drag | If **`x2`** / **`y2`** present, also **`; pointer end (x2,y2)=(<x2>, <y2>)`**. |
 
-**Omit pointer suffix when:** **`hotkey`**, **`wait`**, **`clipboard`**, **`mouse`** → **`*_current`**, **`move_offset`**, or no **`x`/`y`** in **`tool_args`**.
+**Omit pointer suffix when:** **`hotkey`**, **`wait`**, **`clipboard_read`** / **`clipboard_write`**, **`mouse_scroll`**, or no **`x`/`y`** in **`tool_args`**.
 
 **Recheck R1** may reuse **V1** **`pointer at (x,y)=…`** as **`(x_prev, y_prev)`** — must match; do not invent a second pair.
 
@@ -256,7 +256,7 @@ First capture: **`Before vs after: n/a — no [Screen before action]`**.
 
 | Value | When |
 |-------|------|
-| **`non_mouse`** | **`Pointer:`** line **3** **`n/a — non-pointer`** (hotkey, wait, clipboard, focused-only type, …) — **not** for **`type_text_at`** / other **(x,y)** tools |
+| **`non_mouse`** | **`Pointer:`** line **3** **`n/a — non-pointer`** (hotkey, wait, clipboard_read / clipboard_write, focused-only type, …) — **not** for **`composite_action_type_text_at`** / other **(x,y)** tools |
 | **`mouse_miss`** | Precision click + **`Pointer:`** **`abnormal`** |
 | **`mouse_accurate`** | Precision click + **`Pointer:`** **`accurate`** |
 
@@ -299,7 +299,7 @@ Cause: <only when Match says so; omit on pass>.
 
 ### 2) Pointer (conditional)
 
-**When to emit this block:** only if **Verify** **Clear evidence** is **`no_clear_evidence`** and the last action is a **coordinate** tool (`*_at`, `move_to`, `drag_from_to_at`, …). If **Clear evidence** is **`supporting_evidence`** or **`contradicting_evidence`**, **omit the entire `Pointer:` block** — screenshots already decided the outcome.
+**When to emit this block:** only if **Verify** **Clear evidence** is **`no_clear_evidence`** and the last action is a **coordinate** tool (`*_at`, `mouse_move_to`, `mouse_drag_from_to_at`, …). If **Clear evidence** is **`supporting_evidence`** or **`contradicting_evidence`**, **omit the entire `Pointer:` block** — screenshots already decided the outcome.
 
 **Goal:** Judge **geometry only** — synthetic pointer hotspot vs **intended control center**. **Not** before/after UI delta (**`Verify:`**). **Not** caret.
 
@@ -309,11 +309,11 @@ Cause: <only when Match says so; omit on pass>.
 
 | Condition | Line 1 frame | Line 2 geometry frame |
 |-----------|----------------|------------------------|
-| **`[Screen before action]`** present + last row is a **coordinate** tool (`click_at`, `type_text_at`, `drag_from_to_at`, `modified_click_at`, …) | **`[Screen before action]`** | **`[Zoom pointer before action]`** — **required** |
+| **`[Screen before action]`** present + last row is a **coordinate** tool (`mouse_click_at`, `composite_action_type_text_at`, `mouse_drag_from_to_at`, `modified_click_select_at`, …) | **`[Screen before action]`** | **`[Zoom pointer before action]`** — **required** |
 | First capture (no before-action slots) + coordinate last row | **`[Screen after action]`** | **`[Screen after action]`** and/or **`[Zoom pointer after action]`** |
-| **`hotkey`**, **`wait`**, **`clipboard`** → **`*`**, **`type_text_at_focused`**, **`scroll_at_current`**, **`move_offset`**, **`*_current`**, etc. | name frame or **`n/a`** | **`n/a`** — non-pointer action |
+| **`hotkey`**, **`wait`**, **`clipboard_read`** / **`clipboard_write`** → **`*`**, **`composite_action_type_text_focused`**, **`mouse_scroll`**, etc. | name frame or **`n/a`** | **`n/a`** — non-pointer action |
 
-**Coordinate tools are pointer-precision actions.** **`composite_action`** → **`type_text_at`** clicks at **(x,y)** before typing — **not** non-pointer. Judge hotspot vs **that click aim** (input/field **center**), same as **`mouse`** → **`click_at`**. **Forbidden:** **`n/a — composite_action … is non-pointer`** when the last row has **`x`/`y`** in **`tool_args`**.
+**Coordinate tools are pointer-precision actions.** **`composite_action_type_text_at`** clicks at **(x,y)** before typing — **not** non-pointer. Judge hotspot vs **that click aim** (input/field **center**), same as **`mouse_click_at`**. **Forbidden:** **`n/a — composite_action … is non-pointer`** when the last row has **`x`/`y`** in **`tool_args`**.
 
 #### Steps (strict order — do not skip)
 
@@ -360,7 +360,7 @@ Pointer:
 #### Anti-pattern (forbidden)
 
 ```text
-2 Evidence (hotspot vs aim): n/a — composite_action type_text_at is non-pointer action.
+2 Evidence (hotspot vs aim): n/a — composite_action_type_text_at is non-pointer action.
 3 Conclusion: n/a — non-pointer action.
 (forbidden — type_text_at uses (x,y); run lines 2–3 on [Zoom pointer before action] vs line 1 aim)
 ```
@@ -445,10 +445,10 @@ Labels follow **fixed enumeration** on the current frame (**1** = first region, 
 - Estimating **(x,y)** from full-screen / zoom images without copying row **R** from the text list.
 
 **Allowed — coordinate methods (`*_at`):**  
-**`mouse`:** `click_at`, `double_click_at`, `right_click_at`, `hover_at`, `drag_from_to_at` · **`composite_action`:** `type_text_at`, `scroll_at` · **`modified_click`:** `modified_click_at`.
+**`mouse_click_at`**, **`mouse_double_click_at`**, **`mouse_right_click_at`**, **`mouse_hover_at`**, **`mouse_drag_from_to_at`** · **`composite_action_type_text_at`**, **`composite_action_scroll_at`** · **`modified_click_select_at`**, **`modified_click_range_select_at`**.
 
 **Allowed — overlay index methods (`*_index`):**  
-**`mouse`:** `click_index`, `double_click_index`, `right_click_index`, `hover_index`, `drag_from_to_index` · **`composite_action`:** `type_text_at_index`, `scroll_at_index` · **`modified_click`:** `modified_click_index`.  
+**`mouse_click_index`**, **`mouse_double_click_index`**, **`mouse_right_click_index`**, **`mouse_hover_index`**, **`mouse_drag_from_to_index`** · **`composite_action_type_text_index`**, **`composite_action_scroll_index`** · **`modified_click_select_index`**, **`modified_click_range_select_index`**.  
 Use **`index`** / **`indices`** / **`from_index`** / **`to_index`** only — overlay digit = bbox label; click uses bbox **center** (no `anchor` / offset args).
 
 **Route choice:** Prefer **`*_at`** when **Location** line **3** derives **`(x,y)`** from **Overlay reference bboxes**. Prefer **`*_index`** when the sub-target maps cleanly to one overlay digit **R** without coordinate arithmetic. **Forbidden:** mixing routes — e.g. **`click_index`** after **Location** fixed **`(x,y)`** (use **`click_at`** instead), or **`click_at`** with pixel-guess **(x,y)** without bbox lookup.
@@ -459,19 +459,19 @@ Use **`index`** / **`indices`** / **`from_index`** / **`to_index`** only — ove
 - **`captcha_verify` exception:** overlay **`index_*`** args on this tool
   (`index_captcha_area`, `index_input_area`, `index_slider_arrow`) are
   **allowed** — they crop/anchor CAPTCHA regions, not canvas `*_index` clicks.
-- Do not downgrade visible CAPTCHA work to `mouse:*` / `composite_action:*`.
-- Use `mouse` only to reveal CAPTCHA when the challenge is not visible.
+- Do not downgrade visible CAPTCHA work to `mouse_*` / `composite_action_*`.
+- Use a mouse tool only to reveal CAPTCHA when the challenge is not visible.
 CAPTCHA tool: **`captcha_verify`**.
 
-**Non-canvas / no overlay index or `(x,y)` pick:** `click_current`, `double_click_current`, `right_click_current`, `scroll_at_current`, `move_offset`, `type_text_at_focused`, **`hotkey`**, **`wait`**, **`clipboard:*`**.
+**Non-canvas / no overlay index or `(x,y)` pick:** `mouse_scroll`, **`composite_action_type_text_focused`**, **`hotkey`**, **`wait`**, **`clipboard_read`** / **`clipboard_write`**.
 
 **Hard rule:** **`Tool route:`** line **2** + root **`tool_name`** / **`tool_args`** must match **Allowed** only. Reference index **R** appears in **`Location:`** / recap — **not** in the tool call.
 
-Optional **`wait`** in **`tool_args`** (1–5 s) after successful mouse/hotkey/composite/modified_click — distinct from standalone **`wait`** tool.
+Optional **`wait`** in **`tool_args`** (1–5 s) after successful mouse/hotkey/composite_action/modified_click — distinct from standalone **`wait`** tool.
 
 ### Off-frame tools (rare)
 
-**`wait`**, **`clipboard:*`** — only when the stage chain already earned them. See tool prompts.
+**`wait`**, **`clipboard_read`** / **`clipboard_write`** — only when the stage chain already earned them. See tool prompts.
 User-facing questions and final summaries go in assistant **`content`**, not a separate reply tool.
 
 ---
@@ -843,8 +843,8 @@ Location:
 (forbidden — sub-target at corner/edge; anchor must be nearest reference point, e.g. bottom-left corner + offset)
 
 Tool route: Location recap: therefore (x,y) ≈ (<X>, <Y>);
-   Tool call: mouse:click_index … index: <R>.
-(forbidden — Location already has (x,y); use mouse:click_at with x/y literals, not click_index)
+   Tool call: mouse_click_index … index: <R>.
+(forbidden — Location already has (x,y); use mouse_click_at with x/y literals, not click_index)
 
 2 Conclusion: reference index 125. Analysis: …
 (forbidden — conclusion before analysis)
@@ -878,7 +878,7 @@ Tool route: type_text_at_index(125) …
 
 **When required:** **Location** line **3** has **`therefore (x,y) ≈ (X, Y)`** (canvas coordinate turn).
 
-**When omitted:** **`Location: n/a`** — **do not** emit **`Recheck coordinates:`** at all (hotkey, wait, clipboard, pointer-only tools, etc.).
+**When omitted:** **`Location: n/a`** — **do not** emit **`Recheck coordinates:`** at all (hotkey, wait, clipboard_read / clipboard_write, pointer-only tools, etc.).
 
 **Prerequisite:** **Location** lines **1–3** complete with integer **(X, Y)**.
 
@@ -1005,17 +1005,17 @@ When **Location** line **3** concludes **`therefore (x,y) ≈ (…, …)`**, the
 
 | Location | Tool route line 2 |
 |----------|-------------------|
-| **`therefore (x,y)`** on line **3** | **`mouse`** → **`click_at`** / **`composite_action`** → **`type_text_at`** / **`modified_click`** → **`modified_click_at`** — **(x,y)** literals from Location |
-| **`reference index R`** on line **2** (index route, no line **3** coords) | **`mouse`** → **`click_index`** / … / **`composite_action`** → **`type_text_at_index`** / **`scroll_at_index`** — **`index: R`** |
-| **`Location: n/a`** | **`hotkey`** / **`wait`** / **`scroll_at_current`** / **`type_text_at_focused`** / … |
+| **`therefore (x,y)`** on line **3** | **`mouse_click_at`** / **`composite_action_type_text_at`** / **`modified_click_select_at`** — **(x,y)** literals from Location |
+| **`reference index R`** on line **2** (index route, no line **3** coords) | **`mouse_click_index`** / … / **`composite_action_type_text_index`** / **`composite_action_scroll_index`** — **`index: R`** |
+| **`Location: n/a`** | **`hotkey`** / **`wait`** / **`mouse_scroll`** / **`composite_action_type_text_focused`** / … |
 
 **Forbidden (all turns):** route mismatch — **`*_index`** after Location **`therefore (x,y)`**, or **`*_at`** with **(x,y)** not traced to **Overlay reference bboxes**.
 
 **Action kind from Next `this turn:`:**
 
-- Press icon/button/toggle **this turn** → **`mouse`** → **`click_at`** — not **`type_text_at`**
-- Type/replace text **this turn** → **`composite_action`** → **`type_text_at`**
-- For `composite_action.type_text_at` / `type_text_at_focused`, `clear_first`
+- Press icon/button/toggle **this turn** → **`mouse_click_at`** / **`mouse_click_index`** — not **`composite_action_type_text_at`**
+- Type/replace text **this turn** → **`composite_action_type_text_at`** / **`composite_action_type_text_index`** / **`composite_action_type_text_focused`**
+- For `composite_action_type_text_at` / `composite_action_type_text_focused`, `clear_first`
   defaults to `false`; set `clear_first=true` only when replacing existing
   field content.
 
@@ -1036,18 +1036,18 @@ Tool route:
 1 Next recap & Location:
    Next recap: this turn: <same as Next line 1 this turn: clause>;
    Location recap: reference index <R>; therefore (x,y) ≈ (<X>, <Y>) | n/a.
-2 Tool call this turn: mouse:click_at — goal: <outcome>; action: <visible click target>; x: <X>; y: <Y>.
+2 Tool call this turn: mouse_click_at — goal: <outcome>; action: <visible click target>; x: <X>; y: <Y>.
 ```
 
 #### Anti-patterns (forbidden)
 
 ```text
 1 Location recap: … therefore (x,y) ≈ (X, Y).
-2 Tool call this turn: mouse:click_index — … index: R.
-(forbidden — Location fixed (x,y); use mouse:click_at — x: X; y: Y)
+2 Tool call this turn: mouse_click_index — … index: R.
+(forbidden — Location fixed (x,y); use mouse_click_at — x: X; y: Y)
 
 1 Location recap: … therefore (x,y) ≈ (435, 300).
-2 Tool call this turn: mouse:click_at at computed (x,y).
+2 Tool call this turn: mouse_click_at at computed (x,y).
 (forbidden — line 2 must repeat x: 435; y: 300; goal; action)
 ```
 
@@ -1065,16 +1065,16 @@ Tool route:
 
 Three turn shapes — pick **one** per round:
 
-**Action turn:** run all stages internally, then `verify.report` + one native root tool
+**Action turn:** run all stages internally, then `verify_report` + one native root tool
 matching internal **Tool route** line 2. Milestone **`content`** encouraged; empty OK
 only for micro-steps.
 
-**Clarification turn:** `verify.report` when closing the prior step + **non-empty
+**Clarification turn:** `verify_report` when closing the prior step + **non-empty
 `content`** (question or explanation). **No** root desktop tool.
 
 **Completion turn:** **non-empty `content`** final summary; **no** further root desktop tools.
 
-Report Verify/Repetition via `verify.report`, not message text.
-**Forbidden:** `verify.report` only with empty **`content`** when the user must read a reply.
+Report Verify/Repetition via `verify_report`, not message text.
+**Forbidden:** `verify_report` only with empty **`content`** when the user must read a reply.
 ---
 

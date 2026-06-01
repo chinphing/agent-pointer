@@ -72,6 +72,21 @@ fn flat_method_from_tool_name(name: &str) -> Option<String> {
     {
         return Some(suffix.to_string());
     }
+    if let Some(suffix) = name.strip_prefix("mouse_") {
+        return Some(suffix.to_string());
+    }
+    if let Some(suffix) = name.strip_prefix("composite_") {
+        return Some(suffix.to_string());
+    }
+    if let Some(suffix) = name.strip_prefix("modified_click_") {
+        return Some(suffix.to_string());
+    }
+    if let Some(suffix) = name.strip_prefix("clipboard_") {
+        return Some(suffix.to_string());
+    }
+    if let Some(suffix) = name.strip_prefix("captcha_verify_") {
+        return Some(suffix.to_string());
+    }
     if let Some(suffix) = name.strip_prefix("skill_") {
         if !suffix.is_empty() {
             return Some(suffix.to_string());
@@ -99,13 +114,12 @@ fn file_method_label(method: &str) -> &'static str {
 
 fn mouse_method_label(method: &str) -> String {
     match method {
-        "click_at" | "click_index" | "click_current" => "点击".to_string(),
-        "double_click_at" | "double_click_index" | "double_click_current" => "双击".to_string(),
-        "right_click_at" | "right_click_index" | "right_click_current" => "右键".to_string(),
+        "click_at" | "click_index" => "点击".to_string(),
+        "double_click_at" | "double_click_index" => "双击".to_string(),
+        "right_click_at" | "right_click_index" => "右键".to_string(),
         "hover_at" | "hover_index" => "悬停".to_string(),
-        "move_offset" => "移动".to_string(),
         "drag_from_to_at" | "drag_from_to_index" => "拖拽".to_string(),
-        "scroll_at_current" => "滚动".to_string(),
+        "scroll" => "滚动".to_string(),
         m if m.contains("type_text") => "输入文字".to_string(),
         m => m.to_string(),
     }
@@ -316,15 +330,15 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             let m = if method.is_empty() { "read" } else { method.as_str() };
             (file_method_label(m).to_string(), file_summary(args, m))
         }
-        "mouse" => {
+        n if n.starts_with("mouse_") => {
             let ml = mouse_method_label(if method.is_empty() { "click_index" } else { &method });
             (format!("鼠标 · {ml}"), computer_action_summary(args))
         }
-        "composite_action" => {
+        n if n.starts_with("composite_") => {
             let ml = mouse_method_label(if method.is_empty() { "action" } else { &method });
             (format!("组合操作 · {ml}"), computer_action_summary(args))
         }
-        "modified_click" => {
+        n if n.starts_with("modified_click_") => {
             let ml = mouse_method_label(if method.is_empty() { "click" } else { &method });
             (format!("修饰点击 · {ml}"), computer_action_summary(args))
         }
@@ -504,7 +518,7 @@ mod tests {
     #[test]
     fn mouse_prefers_action() {
         let d = default_display(
-            "mouse:click_at",
+            "mouse_click_at",
             &json!({"action": "Click Save", "x": 1, "y": 2}),
         );
         assert!(d.label.contains("鼠标"));

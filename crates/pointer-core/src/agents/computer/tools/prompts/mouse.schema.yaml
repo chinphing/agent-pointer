@@ -1,0 +1,243 @@
+mouse_click_index:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    index:
+      type: integer
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - index
+    - goal
+  additionalProperties: true
+
+mouse_click_at:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    x:
+      type: number
+    y:
+      type: number
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - x
+    - y
+    - goal
+  additionalProperties: true
+
+mouse_double_click_index:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    index:
+      type: integer
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - index
+    - goal
+  additionalProperties: true
+
+mouse_double_click_at:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    x:
+      type: number
+    y:
+      type: number
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - x
+    - y
+    - goal
+  additionalProperties: true
+
+mouse_right_click_index:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    index:
+      type: integer
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - index
+    - goal
+  additionalProperties: true
+
+mouse_right_click_at:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    x:
+      type: number
+    y:
+      type: number
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - x
+    - y
+    - goal
+  additionalProperties: true
+
+mouse_hover_index:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    index:
+      type: integer
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - index
+    - goal
+  additionalProperties: true
+
+mouse_hover_at:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    x:
+      type: number
+    y:
+      type: number
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - x
+    - y
+    - goal
+  additionalProperties: true
+
+mouse_scroll:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    lines:
+      type: integer
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - lines
+    - goal
+  additionalProperties: true
+
+mouse_drag_from_to_index:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    from_index:
+      type: integer
+    to_index:
+      type: integer
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - from_index
+    - to_index
+    - goal
+  additionalProperties: true
+
+mouse_drag_from_to_at:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    x1:
+      type: number
+    y1:
+      type: number
+    x2:
+      type: number
+    y2:
+      type: number
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - x1
+    - y1
+    - x2
+    - y2
+    - goal
+  additionalProperties: true

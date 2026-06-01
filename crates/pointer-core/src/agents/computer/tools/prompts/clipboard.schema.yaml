@@ -1,0 +1,24 @@
+clipboard_read:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+  required:
+    - goal
+  additionalProperties: true
+
+clipboard_write:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    text:
+      type: string
+  required:
+    - text
+    - goal
+  additionalProperties: true

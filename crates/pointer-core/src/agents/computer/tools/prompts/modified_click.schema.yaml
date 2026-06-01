@@ -1,0 +1,83 @@
+modified_click_select_index:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    indices:
+      type: array
+      items:
+        type: integer
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - indices
+    - goal
+  additionalProperties: true
+
+modified_click_range_select_index:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    indices:
+      type: array
+      items:
+        type: integer
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - indices
+    - goal
+  additionalProperties: true
+
+modified_click_select_at:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    positions:
+      type: array
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - positions
+    - goal
+  additionalProperties: true
+
+modified_click_range_select_at:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    positions:
+      type: array
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - positions
+    - goal
+  additionalProperties: true

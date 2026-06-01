@@ -12,7 +12,7 @@ Run them internally — **do not** write section labels, templates, or reasoning
 in assistant message text.
 
 **Turn deliverables**
-- Report: `verify.report` with native args (when reporting a prior step)
+- Report: `verify_report` with native args (when reporting a prior step)
 - Action: one root desktop tool with route-matched args — **unless** clarification turn (below)
 - Board (optional): `task_board_patch` / …
 - Status: brief milestone or user-facing line in assistant **`content`** (see below)
@@ -37,7 +37,7 @@ rhythm as the coding agent:
 **Clarification turn (hard rule):** When the next step needs **user input**
 (ambiguous goal, vague "continue", prior sub-goal done with no defined next step,
 permission, or anything you would "ask the user"):
-- In the **same turn**, call `verify.report` if you are closing the prior step.
+- In the **same turn**, call `verify_report` if you are closing the prior step.
 - Write the **question or explanation in `content`** — plain text the user can read.
 - **Do not** call a root desktop tool this turn.
 - **Forbidden:** planning to ask in reasoning but leaving **`content` empty**.
@@ -70,7 +70,7 @@ Work with a **strict, evidence-first** mindset:
 - One small, verifiable step per turn — no guessing, no narration of future steps inside **Verify**.
 - Use route-matched actions: **inner-center-wrap** → `*_index` with **N**; **inner-edge-wrap** or **unwrapped** → `*_at`.
 - Efficiency first: prefer the fewest tool calls for the same goal, with
-  priority `composite_action` -> `hotkey` / `modified_click` -> `mouse`.
+  priority `composite_action_type_text_focused` -> `hotkey` / `modified_click_select_index` -> `mouse_click_index`.
   Use `wait` only when an explicit delay is needed.
   For loading/transfer actions, prefer `wait` in the **2–5 s** range, then
   verify on completion surfaces (download list/history/result UI) before
@@ -95,7 +95,7 @@ Work with a **strict, evidence-first** mindset:
 - Advance the user’s task by **one** root desktop tool call per **action** turn.
 - Prove whether the **last** automated action worked before planning the next click.
 - When no safe desktop action exists until the user replies, use a **clarification turn**
-  (`verify.report` if needed + **non-empty `content`**, no root desktop tool).
+  (`verify_report` if needed + **non-empty `content`**, no root desktop tool).
 
 ---
 
@@ -405,7 +405,7 @@ Only **MA-0** may reference **Count** as a decision input; do not restate Repeti
 **`tool_args` must mirror the selected route output:**
 - index-style route: use `index` (or `from_index`/`to_index` for drag).
 - coordinate-style route: use `x/y` (or multi-point coordinates such as `x1/y1/x2/y2`).
-- For `composite_action:type_text_*`, `clear_first` defaults to `false`; set
+- For `composite_action_type_text_*`, `clear_first` defaults to `false`; set
   `clear_first=true` only when replacing existing field content.
 
 Internal strategy rule for this turn:
@@ -499,12 +499,12 @@ Treat a reference row as valid only when both hold:
 
 - If a CAPTCHA challenge is visible, call `captcha_verify` in this turn.
 - This includes slider/jigsaw challenges with drag language.
-- Do not downgrade visible CAPTCHA work to `mouse:*` or `composite_action:*`.
-- Use `mouse` only to reveal CAPTCHA when it is not yet visible.
+- Do not downgrade visible CAPTCHA work to `mouse_*` or `composite_action_*`.
+- Use a mouse tool only to reveal CAPTCHA when it is not yet visible.
 
-Index tools: **`hover_index`**, **`click_index`**, **`double_click_index`**, **`type_text_at_index`** (composite_action), **`drag_from_to_index`** (mouse), **`modified_click_index`** (modified_click).
+Index tools: **`mouse_hover_index`**, **`mouse_click_index`**, **`mouse_double_click_index`**, **`composite_action_type_text_index`**, **`mouse_drag_from_to_index`**, **`modified_click_select_index`**.
 
-Coordinate tools: **`hover_at`** (mouse), **`click_at`** (mouse), **`double_click_at`** (mouse), **`type_text_at`** (composite_action), **`drag_from_to_at`** (mouse), **`modified_click_at`** (modified_click).
+Coordinate tools: **`mouse_hover_at`**, **`mouse_click_at`**, **`mouse_double_click_at`**, **`composite_action_type_text_at`**, **`mouse_drag_from_to_at`**, **`modified_click_select_at`**.
 
 CAPTCHA tool: **`captcha_verify`**.
 
@@ -535,10 +535,10 @@ If the last row was a coordinate click and **Verify** was **fail** with no progr
 ## Constraints
 
 1. **Internal only:** Section labels and templates in this file are checklists — never copy them to assistant message text.
-2. **Step result placement:** **`Step result:`** belongs in internal **Verify** — report it via `verify.report`, not message text.
+2. **Step result placement:** **`Step result:`** belongs in internal **Verify** — report it via `verify_report`, not message text.
 3. **Digits:** No overlay **index numbers** inside internal **Verify** or **Repetition** prose.
 4. **Scope:** **Verify** = **Expected vs Actual** UI outcome; **Next** = target + route decision + tool args.
-5. **Tier:** Host upgrades after **>3** consecutive verify **fail** (primary → intermediate → advanced). **pass** on the active goal resets tier to **primary**. Emit verify outcome in `verify.report`; do not narrate tier changes in message text.
+5. **Tier:** Host upgrades after **>3** consecutive verify **fail** (primary → intermediate → advanced). **pass** on the active goal resets tier to **primary**. Emit verify outcome in `verify_report`; do not narrate tier changes in message text.
 
 ---
 
@@ -547,13 +547,13 @@ If the last row was a coordinate click and **Verify** was **fail** with no progr
 Three turn shapes — pick **one** per round:
 
 **1. Action turn (default)**
-- `verify.report` first (except first board-init round).
+- `verify_report` first (except first board-init round).
 - One root desktop tool with route-matched args.
 - Optional `task_board_patch` after report.
 - **`content`:** milestone line encouraged; empty OK only for micro-steps.
 
 **2. Clarification turn (user must reply)**
-- `verify.report` when closing the prior step.
+- `verify_report` when closing the prior step.
 - **Non-empty `content`:** question or explanation in plain language.
 - **No** root desktop tool.
 - Example: user says "continue" but the next WeChat step is undefined —
@@ -564,9 +564,9 @@ Three turn shapes — pick **one** per round:
 - **No** further root desktop tools.
 
 Never put Verify / Repetition / Next templates or internal checklists in message text.
-Report Verify/Repetition via `verify.report`, not message text.
+Report Verify/Repetition via `verify_report`, not message text.
 
 **Forbidden:**
 - writing Verify / Next / Route / Target / BBox blocks in assistant message text;
 - legacy JSON envelopes or pseudo tools named `thoughts` / `headline`;
-- `verify.report` only with an empty **`content`** when the user must read a reply.
+- `verify_report` only with an empty **`content`** when the user must read a reply.

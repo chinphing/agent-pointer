@@ -411,8 +411,8 @@ mod tests {
     fn assistant_tool_calls_fill_display_fields_for_file_read() {
         let state = AppState::new();
         let tool_calls = vec![sample_tool_call(
-            "file:read",
-            r#"{"path":"src/components/App.vue"}"#,
+            "file_read",
+            r#"{"paths":[{"path":"src/components/App.vue"}]}"#,
         )];
         let plan = AgentPlan {
             mode: "single".into(),
@@ -428,7 +428,6 @@ mod tests {
             String::new(),
             false,
             &tool_calls,
-            None,
             None,
             &plan,
             None,
@@ -461,7 +460,6 @@ mod tests {
             String::new(),
             false,
             &tool_calls,
-            None,
             None,
             &plan,
             None,

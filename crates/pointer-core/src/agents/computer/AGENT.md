@@ -36,10 +36,8 @@ ui:
   showWorkspacePicker: false
   showTaskBoardPanel: true
   hideToolNames:
-    - task_board
-    - task_board:patch
-    - verify
-    - verify:report
+    - task_board_patch
+    - verify_report
   avatar: computer
 defaultSkillIds: []
 config:

@@ -11,7 +11,6 @@ use serde_json::Value;
 pub enum MouseBackend {
     Index,
     At,
-    Current,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,7 +71,6 @@ fn looks_like_operation_name(s: &str) -> bool {
     let lower = s.to_ascii_lowercase();
     lower.ends_with("_index")
         || lower.ends_with("_at")
-        || lower.ends_with("_current")
         || lower.ends_with("_focused")
         || matches!(
             lower.as_str(),
@@ -82,24 +80,19 @@ fn looks_like_operation_name(s: &str) -> bool {
                 | "hover"
                 | "drag_from_to"
                 | "scroll"
-                | "move_offset"
                 | "type_text"
                 | "select"
                 | "range_select"
                 | "click_at"
                 | "click_index"
-                | "click_current"
                 | "double_click_at"
                 | "double_click_index"
-                | "double_click_current"
                 | "right_click_at"
                 | "right_click_index"
-                | "right_click_current"
                 | "hover_at"
                 | "hover_index"
                 | "drag_from_to_at"
                 | "drag_from_to_index"
-                | "scroll_at_current"
                 | "type_text_at"
                 | "type_text_at_index"
                 | "type_text_at_focused"
@@ -145,12 +138,6 @@ fn infer_mouse_operation(args: &Value) -> Result<String> {
             return Ok("drag_from_to_at".to_string());
         }
         return Ok("click_at".to_string());
-    }
-    if args.get("lines").is_some() {
-        return Ok("scroll_at_current".to_string());
-    }
-    if args.get("offset_x").is_some() || args.get("offset_y").is_some() {
-        return Ok("move_offset".to_string());
     }
     Err(anyhow!(
         "Missing 'method' in tool_args (e.g. click_index, click_at). \
@@ -239,24 +226,6 @@ pub fn route_mouse(args: &Value) -> Result<RoutedMouse> {
     let legacy = resolve_mouse_operation_label(args)?;
     let lower = legacy.to_ascii_lowercase();
 
-    if lower.ends_with("_current")
-        || matches!(
-            lower.as_str(),
-            "click_current" | "double_click_current" | "right_click_current" | "scroll_at_current"
-                | "move_offset"
-        )
-    {
-        let method = match lower.as_str() {
-            "scroll_at_current" => "scroll".to_string(),
-            s if s.ends_with("_current") => strip_suffix(s, "_current"),
-            other => other.to_string(),
-        };
-        return Ok(RoutedMouse {
-            backend: MouseBackend::Current,
-            method,
-        });
-    }
-
     if lower.ends_with("_index") || has_index_targeting(args) {
         let method = match lower.as_str() {
             "drag_from_to_index" => "drag_from_to".to_string(),
@@ -283,7 +252,7 @@ pub fn route_mouse(args: &Value) -> Result<RoutedMouse> {
     }
 
     Err(anyhow!(
-        "Cannot route mouse method '{legacy}': need index/from_index, or x+y, or a *_current method."
+        "Cannot route mouse method '{legacy}': need index/from_index, or x+y."
     ))
 }
 

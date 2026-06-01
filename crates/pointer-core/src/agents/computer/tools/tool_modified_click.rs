@@ -4,6 +4,7 @@ use super::args_util::{
     human_like_from_args, parse_indices, require_non_empty_str,
     value_to_f32_loose,
 };
+use super::method_route::ModifiedClickBackend;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -228,6 +229,7 @@ impl ModifiedClickTool {
         }
     }
 
+    #[allow(dead_code)]
     pub fn execute(&self, args: &Value) -> Result<String> {
         use super::method_route::{route_modified_click, ModifiedClickBackend};
         let routed = route_modified_click(args)?;
@@ -239,6 +241,19 @@ impl ModifiedClickTool {
         match routed.backend {
             ModifiedClickBackend::Index => self.index.execute(&routed.method, args),
             ModifiedClickBackend::At => self.at.execute(&routed.method, args),
+        }
+    }
+
+    /// Direct dispatch for flat tool names — bypasses `method`-based routing.
+    pub fn execute_with(
+        &self,
+        backend: ModifiedClickBackend,
+        method: &str,
+        args: &Value,
+    ) -> Result<String> {
+        match backend {
+            ModifiedClickBackend::Index => self.index.execute(method, args),
+            ModifiedClickBackend::At => self.at.execute(method, args),
         }
     }
 }

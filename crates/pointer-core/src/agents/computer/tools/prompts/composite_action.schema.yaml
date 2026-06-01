@@ -1,0 +1,103 @@
+composite_type_text_index:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    index:
+      type: integer
+    text:
+      type: string
+    clear_first:
+      type: boolean
+    auto_enter:
+      type: boolean
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - index
+    - text
+    - goal
+  additionalProperties: true
+
+composite_scroll_index:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    index:
+      type: integer
+    lines:
+      type: integer
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - index
+    - lines
+    - goal
+  additionalProperties: true
+
+composite_type_text_at:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    x:
+      type: number
+    y:
+      type: number
+    text:
+      type: string
+    clear_first:
+      type: boolean
+    auto_enter:
+      type: boolean
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - x
+    - y
+    - text
+    - goal
+  additionalProperties: true
+
+composite_type_text_focused:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    text:
+      type: string
+    clear_first:
+      type: boolean
+    auto_enter:
+      type: boolean
+    human_like:
+      type: boolean
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - text
+    - goal
+  additionalProperties: true

@@ -1,46 +1,16 @@
----
-schema:
-  type: object
-  properties:
-    method:
-      type: string
-    action:
-      type: string
-    goal:
-      type: string
-    index:
-      type: integer
-    x:
-      type: number
-    y:
-      type: number
-    text:
-      type: string
-    lines:
-      type: integer
-    clear_first:
-      type: boolean
-    auto_enter:
-      type: boolean
-    human_like:
-      type: boolean
-    wait:
-      type: number
-      minimum: 1
-      maximum: 5
-  required:
-    - goal
-  additionalProperties: true
----
+### composite_action_type_text_index / composite_action_scroll_index / composite_action_type_text_at / composite_action_type_text_focused
 
-### composite_action
+Flat composite tools — each tool name is the complete operation. No `method` parameter.
 
-Single **composite_action** tool (type / scroll / focused typing). Set **`method`** or **`action`**.
+Every call requires **`goal`** (outcome) and **`action`** (human-readable description for UI).
+Optional: `clear_first`, `auto_enter`, `human_like`, `wait` (1–5 s).
 
-Every call requires **`goal`** and **`action`**. Optional: `clear_first`, `auto_enter`, `human_like`, `wait` (1–5 s).
+**Index-based** (overlay digit — clicks bbox **center**):
+- **`composite_action_type_text_index`** — Type text at index. Requires **`index`**, **`text`**.
+- **`composite_action_scroll_index`** — Scroll at index. Requires **`index`**, **`lines`**.
 
-- **`type_text_at_index`**, **`scroll_at_index`** — require **`index`** (bbox **center**); type also needs **`text`**; scroll needs **`lines`**
-- **`type_text_at`** — require **`x`**, **`y`**, **`text`** (session 0–1000)
-- **`type_text_at_focused`** / focused typing with **`text`** only (no index/x/y)
+**Coordinate-based** (session 0–1000):
+- **`composite_action_type_text_at`** — Type text at coordinates. Requires **`x`**, **`y`**, **`text`**.
 
-Do not mix index and coordinate fields in one call.
+**Focused field:**
+- **`composite_action_type_text_focused`** — Type into focused input. Requires **`text`** only.

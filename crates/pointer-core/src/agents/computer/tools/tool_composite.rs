@@ -5,6 +5,7 @@ use super::args_util::{
     clamp_scroll_lines, human_like_from_args, json_bool_loose, require_non_empty_str,
     required_f32_arg, required_u32_arg, resolve_index_pixels, text_from_args,
 };
+use super::method_route::CompositeBackend;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -199,6 +200,7 @@ impl CompositeActionTool {
         }
     }
 
+    #[allow(dead_code)]
     pub fn execute(&self, args: &Value) -> Result<String> {
         use super::method_route::{route_composite, CompositeBackend};
         let routed = route_composite(args)?;
@@ -211,6 +213,20 @@ impl CompositeActionTool {
             CompositeBackend::Index => self.index.execute(&routed.method, args),
             CompositeBackend::At => self.at.execute(&routed.method, args),
             CompositeBackend::Focused => self.focused.execute(&routed.method, args),
+        }
+    }
+
+    /// Direct dispatch for flat tool names — bypasses `method`-based routing.
+    pub fn execute_with(
+        &self,
+        backend: CompositeBackend,
+        method: &str,
+        args: &Value,
+    ) -> Result<String> {
+        match backend {
+            CompositeBackend::Index => self.index.execute(method, args),
+            CompositeBackend::At => self.at.execute(method, args),
+            CompositeBackend::Focused => self.focused.execute(method, args),
         }
     }
 }

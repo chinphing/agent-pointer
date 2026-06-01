@@ -39,10 +39,10 @@ When citing external facts in user-facing replies:
 Keep internal reasoning concise and action-focused.
 Do not paste long plans into assistant message text.
 Use `task_board` for milestone planning.
-**Computer** workers run Verify / Next stages internally and report via **`verify.report`**.
+**Computer** workers run Verify / Next stages internally and report via **`verify_report`**.
 Brief milestone lines in assistant **`content`** at sub-goal boundaries are encouraged
 (same rhythm as the coding agent); keep internal stage templates out of **`content`**.
-Other profiles (e.g. **Coder**) use **tests, commands, and file reads** as milestone evidence—not **`verify.report`**.
+Other profiles (e.g. **Coder**) use **tests, commands, and file reads** as milestone evidence—not **`verify_report`**.
 
 ## Rules
 
@@ -63,7 +63,7 @@ Other profiles (e.g. **Coder**) use **tests, commands, and file reads** as miles
 
 - **Efficiency principle:** Prefer the fewest tool calls for the same goal.
   Use this priority when multiple options are valid:
-  **`composite_action`** -> **`hotkey`** / **`modified_click`** -> **`mouse`**.
+  **`composite_action_type_text_focused`** -> **`hotkey`** / **`modified_click_select_index`** -> **`mouse_click_index`**.
   Use **`wait`** only when an explicit delay is needed.
 - **Hotkey precondition:** Use app/browser shortcuts only when the target window
   is the foreground (topmost) window. If not, focus the target window first.
@@ -103,10 +103,10 @@ Use the board for milestones—not a long plan in assistant message text only.
   in this turn.
 - In native tool-calling mode, call **`task_board`**
   with the appropriate **`method`** when needed.
-- **Computer profile only** (when **`verify.report`** is allowed): after board **`init`**, use report-before-patch ordering:
-  - first board-init round may omit **`verify.report`**;
-  - subsequent rounds: **`verify.report`** first, then **`task_board_patch`**.
-  Other profiles do **not** use **`verify.report`** for board updates.
+- **Computer profile only** (when **`verify_report`** is allowed): after board **`init`**, use report-before-patch ordering:
+  - first board-init round may omit **`verify_report`**;
+  - subsequent rounds: **`verify_report`** first, then **`task_board_patch`**.
+  Other profiles do **not** use **`verify_report`** for board updates.
 - Advance **at most one** meaningful milestone per turn unless the user widens scope. **Cancel** obsolete rows instead of ignoring them.
 - When **all** rows are **`done`** or **`cancelled`**, call **`task_board_finalize`** before the final user-facing reply. Patching rows to **`done`** does not replace **`finalize`**.
 - Keep task board text compact (short `title`/`output`/`validate`) to reduce prompt token overhead.

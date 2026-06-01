@@ -193,6 +193,8 @@ pub fn file_tool_effective_risk_level(raw_tool_name: &str, args: &Value) -> &'st
 }
 
 /// If `raw_name` is `tool:method`, return `(tool, args)` and ensure `args["method"]` is set when missing.
+/// For flat-style tools (mouse, file, task_board, skill), the qualified name is converted to the flat
+/// tool name directly (e.g. `mouse:click_index` → `mouse_click_index`).
 pub fn merge_tool_method_from_qualified_name(raw_name: &str, mut args: Value) -> (String, Value) {
     let raw_name = normalize_tool_name_colons(raw_name.trim());
     if raw_name.is_empty() {
@@ -206,6 +208,13 @@ pub fn merge_tool_method_from_qualified_name(raw_name: &str, mut args: Value) ->
     if base.is_empty() || method.is_empty() {
         return (raw_name, args);
     }
+
+    // Convert flat-style tool families to flat names.
+    if matches!(base, "mouse" | "file" | "task_board" | "skill" | "composite_action" | "modified_click" | "clipboard" | "captcha_verify") {
+        return (format!("{base}_{method}"), args);
+    }
+
+    // Legacy: inject `method` into args for tools that still use a unified handler.
     if let Value::Object(ref mut map) = args {
         map.entry("method".to_string())
             .or_insert_with(|| Value::String(method.to_string()));
@@ -532,15 +541,17 @@ mod parse_args_tests {
     fn merge_tool_method_inserts_method_when_missing() {
         let args = serde_json::json!({"goal": "g", "action": "a", "index": 3});
         let (id, out) = merge_tool_method_from_qualified_name("mouse:click_index", args);
-        assert_eq!(id, "mouse");
-        assert_eq!(out["method"], "click_index");
+        // Flat-style tools convert to flat names directly, no method injection.
+        assert_eq!(id, "mouse_click_index");
+        assert!(out.get("method").is_none());
     }
 
     #[test]
     fn merge_tool_method_keeps_existing_method() {
         let args = serde_json::json!({"method": "click_at", "x": 1});
         let (id, out) = merge_tool_method_from_qualified_name("mouse:click_index", args);
-        assert_eq!(id, "mouse");
+        // Flat-style tools convert to flat names directly; existing "method" in args is ignored.
+        assert_eq!(id, "mouse_click_index");
         assert_eq!(out["method"], "click_at");
     }
 
@@ -548,8 +559,9 @@ mod parse_args_tests {
     fn merge_tool_method_fullwidth_colon() {
         let args = serde_json::json!({"goal": "g", "index": 1});
         let (id, out) = merge_tool_method_from_qualified_name("mouse：click_index", args);
-        assert_eq!(id, "mouse");
-        assert_eq!(out["method"], "click_index");
+        // Fullwidth colon is normalized, then flat-style conversion applies.
+        assert_eq!(id, "mouse_click_index");
+        assert!(out.get("method").is_none());
     }
 
     #[test]
@@ -587,13 +599,21 @@ mod openai_tools_schema_tests {
     fn openai_tools_flat_file_tool_uses_standalone_schema() {
         let reg = ToolRegistry::new();
         let doc = "### `file_read`\nShared file doc.";
-        reg.register(ToolEntry::new(
-            "file_read",
-            "low",
-            false,
-            doc,
-            Arc::new(|_| Ok(String::new())),
-        ));
+        // Without schema, test will panic (no YAML frontmatter). Provide one.
+        reg.register(
+            ToolEntry::new(
+                "file_read",
+                "low",
+                false,
+                doc,
+                Arc::new(|_| Ok(String::new())),
+            )
+            .with_schema(serde_json::json!({
+                "type": "object",
+                "properties": { "paths": { "type": "array" } },
+                "required": ["paths"]
+            })),
+        );
 
         let tools = reg.openai_tools(&[]);
         assert_eq!(tools.len(), 1);
@@ -625,13 +645,20 @@ mod openai_tools_schema_tests {
     #[test]
     fn openai_tools_skill_flat_uses_name() {
         let reg = ToolRegistry::new();
-        reg.register(ToolEntry::new(
-            "skill_load_instructions",
-            "low",
-            false,
-            "### `skill_load_instructions`\n-",
-            Arc::new(|_| Ok(String::new())),
-        ));
+        reg.register(
+            ToolEntry::new(
+                "skill_load_instructions",
+                "low",
+                false,
+                "### `skill_load_instructions`\n-",
+                Arc::new(|_| Ok(String::new())),
+            )
+            .with_schema(serde_json::json!({
+                "type": "object",
+                "properties": { "skill_id": { "type": "string" } },
+                "required": ["skill_id"]
+            })),
+        );
         let tools = reg.openai_tools(&[]);
         assert_eq!(tools[0]["function"]["name"], "skill_load_instructions");
     }
@@ -639,13 +666,20 @@ mod openai_tools_schema_tests {
     #[test]
     fn openai_tools_task_board_flat_uses_name() {
         let reg = ToolRegistry::new();
-        reg.register(ToolEntry::new_sidecar(
-            "task_board_patch",
-            "low",
-            false,
-            "### `task_board_patch`\n-",
-            Arc::new(|_| Ok(String::new())),
-        ));
+        reg.register(
+            ToolEntry::new(
+                "task_board_patch",
+                "low",
+                false,
+                "### `task_board_patch`\n-",
+                Arc::new(|_| Ok(String::new())),
+            )
+            .with_schema(serde_json::json!({
+                "type": "object",
+                "properties": { "items": {} },
+                "required": []
+            })),
+        );
         let tools = reg.openai_tools(&[]);
         assert_eq!(tools[0]["function"]["name"], "task_board_patch");
     }
@@ -673,13 +707,26 @@ mod openai_tools_schema_tests {
     #[test]
     fn openai_tools_uses_builtin_schema_when_doc_has_no_json_fence() {
         let reg = ToolRegistry::new();
-        reg.register(ToolEntry::new(
-            "captcha_verify",
-            "high",
-            false,
-            "plain doc without schema fence",
-            Arc::new(|_| Ok(String::new())),
-        ));
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "action": { "type": "string" },
+                "index_captcha_area": { "type": "integer" },
+                "is_slider": { "type": "boolean" },
+                "is_click_block": { "type": "boolean" }
+            },
+            "required": ["action", "is_slider", "index_captcha_area", "is_click_block"]
+        });
+        reg.register(
+            ToolEntry::new(
+                "captcha_verify",
+                "high",
+                false,
+                "plain doc without schema fence",
+                Arc::new(|_| Ok(String::new())),
+            )
+            .with_schema(schema),
+        );
 
         let tools = reg.openai_tools(&[]);
         assert_eq!(tools.len(), 1);

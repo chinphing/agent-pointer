@@ -2,12 +2,13 @@ use crate::agents::computer::actions::ActionExecutor;
 use crate::agents::computer::verify::VerifyHintGenerator;
 use crate::agents::computer::vision_state::VisionState;
 use super::args_util::{
-    clamp_scroll_lines, human_like_from_args, require_non_empty_str, required_f32_arg,
-    move_offset_pixels, required_u32_arg, resolve_index_pixels as resolve_index_from_vision,
+    human_like_from_args, require_non_empty_str, required_f32_arg,
+    required_u32_arg, resolve_index_pixels as resolve_index_from_vision,
 };
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
+use super::method_route::MouseBackend;
 
 // ── MouseIndexTool ───────────────────────────────────────────────────────────
 
@@ -240,83 +241,12 @@ impl MouseAtTool {
     }
 }
 
-// ── MouseCurrentTool ─────────────────────────────────────────────────────────
-
-/// Mouse actions at current cursor position — no targeting needed.
-pub struct MouseCurrentTool {
-    executor: Arc<Mutex<ActionExecutor>>,
-    verify: VerifyHintGenerator,
-}
-
-impl MouseCurrentTool {
-    pub fn new(executor: Arc<Mutex<ActionExecutor>>) -> Self {
-        Self {
-            executor,
-            verify: VerifyHintGenerator::new(),
-        }
-    }
-
-    pub fn execute(&self, method: &str, args: &Value) -> Result<String> {
-        require_non_empty_str(args, "goal")?;
-        match method {
-            "click" => self.click(),
-            "double_click" => self.double_click(),
-            "right_click" => self.right_click(),
-            "scroll" => self.scroll(args),
-            "move_offset" => self.move_offset(args),
-            _ => Err(anyhow!(
-                "Unknown mouse_current method: {method}. Use click, double_click, right_click, scroll, move_offset."
-            )),
-        }
-    }
-
-    fn click(&self) -> Result<String> {
-        let executor = self.executor.lock().unwrap();
-        executor.click_here()?;
-        Ok(self.verify.click_hint(None, None))
-    }
-
-    fn double_click(&self) -> Result<String> {
-        let executor = self.executor.lock().unwrap();
-        executor.double_click_here()?;
-        Ok(self.verify.click_hint(None, None))
-    }
-
-    fn right_click(&self) -> Result<String> {
-        let executor = self.executor.lock().unwrap();
-        executor.right_click_here()?;
-        Ok(self.verify.click_hint(None, None))
-    }
-
-    fn scroll(&self, args: &Value) -> Result<String> {
-        let lines_raw = args["lines"]
-            .as_i64()
-            .ok_or_else(|| anyhow!("Missing or invalid 'lines' parameter"))? as i32;
-        let lines = clamp_scroll_lines(lines_raw)?;
-        let executor = self.executor.lock().unwrap();
-        executor.scroll_at_current(lines)?;
-        Ok(self.verify.scroll_hint(lines))
-    }
-
-    fn move_offset(&self, args: &Value) -> Result<String> {
-        let (ox, oy) = move_offset_pixels(args)?;
-        let executor = self.executor.lock().unwrap();
-        executor.move_offset(ox, oy, false)?;
-        let (nx, ny) = executor.get_position()?;
-        Ok(format!(
-            "Moved cursor by ({}, {}) px; now at [{}, {}]. Verify result on next screenshot.",
-            ox, oy, nx, ny
-        ))
-    }
-}
-
 // ── MouseTool (unified registry entry) ───────────────────────────────────────
 
-/// Unified `mouse` tool: routes `click_at` / `click_index` / `click_current` etc. by method name.
+/// Unified mouse tool: routes `click_at` / `click_index` etc. by method name.
 pub struct MouseTool {
     index: MouseIndexTool,
     at: MouseAtTool,
-    current: MouseCurrentTool,
 }
 
 impl MouseTool {
@@ -336,10 +266,10 @@ impl MouseTool {
                 vision_state,
                 human_like_default,
             ),
-            current: MouseCurrentTool::new(executor),
         }
     }
 
+    #[allow(dead_code)]
     pub fn execute(&self, args: &Value) -> Result<String> {
         use super::method_route::{route_mouse, MouseBackend};
         let routed = route_mouse(args)?;
@@ -351,7 +281,19 @@ impl MouseTool {
         match routed.backend {
             MouseBackend::Index => self.index.execute(&routed.method, args),
             MouseBackend::At => self.at.execute(&routed.method, args),
-            MouseBackend::Current => self.current.execute(&routed.method, args),
+        }
+    }
+
+    /// Direct dispatch for flat tool names — bypasses `method`-based routing.
+    pub fn execute_with(
+        &self,
+        backend: MouseBackend,
+        method: &str,
+        args: &Value,
+    ) -> Result<String> {
+        match backend {
+            MouseBackend::Index => self.index.execute(method, args),
+            MouseBackend::At => self.at.execute(method, args),
         }
     }
 }

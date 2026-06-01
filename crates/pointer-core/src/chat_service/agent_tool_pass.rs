@@ -123,7 +123,7 @@ pub(super) async fn run_agent_tool_pass(
             history,
         );
         if tool_id.is_empty() {
-            let err = "工具名为空：请检查 <tool_name>（例如 mouse:click_index、composite_action、response）。";
+            let err = "工具名为空：请检查 <tool_name>（例如 mouse_click_index、composite_action、response）。";
             emit(
                 &stream,
                 StreamEvent::ToolCallStatus {

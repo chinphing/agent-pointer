@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::platform_endpoints;
@@ -77,6 +78,8 @@ pub struct PlatformSessionView {
 #[derive(Debug)]
 pub struct PlatformAuthManager {
     inner: RwLock<Option<PlatformSession>>,
+    /// 串行化 refresh / 换票，避免并发使用同一 refresh token。
+    refresh_lock: Mutex<()>,
     http: reqwest::Client,
     /// 进行中的 `run_platform_login_flow`；`cancel_pending_login` 可中止等待回调。
     login_cancel: RwLock<Option<CancellationToken>>,
@@ -86,6 +89,7 @@ impl PlatformAuthManager {
     pub fn new() -> Self {
         Self {
             inner: RwLock::new(None),
+            refresh_lock: Mutex::new(()),
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(60))
                 .build()
@@ -159,6 +163,11 @@ impl PlatformAuthManager {
     }
 
     pub fn clear_session(&self) {
+        let _guard = self.refresh_lock.blocking_lock();
+        self.clear_session_inner();
+    }
+
+    fn clear_session_inner(&self) {
         let refresh = self.inner.read().as_ref().map(|s| s.refresh_token.clone());
         *self.inner.write() = None;
         if let Err(e) = storage::clear_platform_refresh_token() {
@@ -167,6 +176,41 @@ impl PlatformAuthManager {
         if let Some(rt) = refresh {
             let _ = tauri_fire_and_forget_revoke(rt);
         }
+    }
+
+    fn valid_session_if_fresh(&self) -> Option<(PlatformSession, PlatformLoginCredentials)> {
+        let g = self.inner.read();
+        g.as_ref().and_then(|s| {
+            if Self::is_expired(s.expires_at) {
+                None
+            } else {
+                Some((s.clone(), PlatformLoginCredentials::default()))
+            }
+        })
+    }
+
+    fn resolve_refresh_token(&self) -> String {
+        match self
+            .inner
+            .read()
+            .as_ref()
+            .map(|s| s.refresh_token.clone())
+        {
+            Some(rt) if !rt.is_empty() => rt,
+            _ => match storage::load_platform_refresh_token() {
+                Ok(Some(r)) => r,
+                Ok(None) => String::new(),
+                Err(e) => {
+                    log::warn!("platform_auth: auth.dat load failed: {e}");
+                    String::new()
+                }
+            },
+        }
+    }
+
+    fn is_refresh_auth_failure(err: &anyhow::Error) -> bool {
+        let msg = err.to_string();
+        msg.contains("401") || msg.contains("invalid_refresh_token")
     }
 
     fn is_expired(expires_at: i64) -> bool {
@@ -230,6 +274,7 @@ impl PlatformAuthManager {
             "code_verifier": code_verifier,
             "redirect_uri": redirect_uri,
         });
+        let _guard = self.refresh_lock.lock().await;
         let (session, creds) = self.post_token(body).await?;
         if state != "pointer-app" {
             log::debug!("platform_auth: oauth state={state}");
@@ -241,18 +286,17 @@ impl PlatformAuthManager {
     pub async fn refresh_if_needed(
         &self,
     ) -> Result<Option<(PlatformSession, PlatformLoginCredentials)>> {
-        {
-            let g = self.inner.read();
-            if let Some(s) = g.as_ref() {
-                if !Self::is_expired(s.expires_at) {
-                    return Ok(Some((s.clone(), PlatformLoginCredentials::default())));
-                }
-            }
+        if let Some(fresh) = self.valid_session_if_fresh() {
+            return Ok(Some(fresh));
         }
-        let refresh = match self.inner.read().as_ref().map(|s| s.refresh_token.clone()) {
-            Some(rt) if !rt.is_empty() => rt,
-            _ => storage::load_platform_refresh_token().unwrap_or_default().unwrap_or_default(),
-        };
+
+        let _guard = self.refresh_lock.lock().await;
+
+        if let Some(fresh) = self.valid_session_if_fresh() {
+            return Ok(Some(fresh));
+        }
+
+        let refresh = self.resolve_refresh_token();
         if refresh.is_empty() {
             return Ok(None);
         }
@@ -268,7 +312,9 @@ impl PlatformAuthManager {
             }
             Err(e) => {
                 log::warn!("platform_auth: refresh failed: {e}");
-                self.clear_session();
+                if Self::is_refresh_auth_failure(&e) && self.valid_session_if_fresh().is_none() {
+                    self.clear_session_inner();
+                }
                 Err(e)
             }
         }
@@ -285,24 +331,9 @@ impl PlatformAuthManager {
     }
 
     pub async fn load_persisted_session(&self) -> Result<Option<PlatformLoginCredentials>> {
-        let refresh = match storage::load_platform_refresh_token() {
-            Ok(Some(r)) => r,
-            Ok(None) => return Ok(None),
-            Err(e) => {
-                log::warn!("platform_auth: auth.dat load failed: {e}");
-                return Ok(None);
-            }
-        };
-        let body = serde_json::json!({
-            "grant_type": "refresh_token",
-            "client_id": Self::client_id(),
-            "refresh_token": refresh,
-        });
-        match self.post_token(body).await {
-            Ok((session, creds)) => {
-                self.set_session(session);
-                Ok(Some(creds))
-            }
+        match self.refresh_if_needed().await {
+            Ok(Some((_session, creds))) => Ok(Some(creds)),
+            Ok(None) => Ok(None),
             Err(e) => {
                 log::warn!("platform_auth: startup refresh failed: {e}");
                 Ok(None)

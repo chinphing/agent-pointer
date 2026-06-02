@@ -34,6 +34,9 @@ Required args:
 - `failure_cause`: required only when `action_result=fail`; one of `wrong_operation` | `precision_miss`
 
 Rules:
+- Call only when the **newest** `[Recent desktop tool calls]` row shows **`verify: verifying`**.
+- Do **not** call when that row shows **`verify: verified - *`** or **`verify: skipped`**.
+- Host closes the **newest open** history row on pass/fail/n/a; **`pending`** keeps the row open.
 - Mirror the same action_result and repetition_count from your internal Verify / Repetition conclusion.
 - Set `failure_cause` only on fail; omit it on `pass`, `pending`, and `n/a`.
 - Keep values concise and deterministic.

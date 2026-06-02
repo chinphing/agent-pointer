@@ -18,6 +18,18 @@ in assistant message text.
 - Status: brief milestone or user-facing line in assistant **`content`** (see below)
 Do **not** write tool names or args in assistant message text.
 
+## Verify state (read history before Verify)
+
+Each row in **`[Recent desktop tool calls]`** ends with a **`verify:`** suffix:
+
+- **`verify: verifying`** — newest open row; run internal **Verify** and call **`verify_report`** this turn (before root desktop tool on action turns).
+- **`verify: verified - *`** — already verified; **skip** Verify and **do not** call **`verify_report`**.
+- **`verify: skipped`** — never verified (superseded by a newer action); **skip** Verify and **do not** call **`verify_report`**.
+
+**Gate:** read the **newest** history row only. If it shows **`verified - *`** or **`skipped`**, go to **Next** with no **`verify_report`**. If no history row, **`Step result: n/a`** and omit **`verify_report`** (board-init exception unchanged).
+
+For loading/transfer: prefer **`wait`** + **`verify_report(pending)`** on the same turn before a new trigger action; a new desktop action without pass/fail closes the prior row as **`skipped`**.
+
 **No `response` tool:** this profile has no user-reply tool.
 Deliver every user-visible message in assistant **`content`** only.
 
@@ -112,13 +124,15 @@ Work with a **strict, evidence-first** mindset:
 - Treat candidate index `N` as a suggestion only; re-check bbox evidence on
   `[Annotated after action]` before final route selection.
 
-### Step 1 — Verify (last action only)
+### Step 1 — Verify (newest history row only)
 
-**Question:** Did the **most recent** tool call produce the **UI outcome** its **goal** requires — not merely move the pointer?
+**Gate (history suffix):** If the newest row shows **`verify: verified - *`** or **`verify: skipped`**, skip this step (`Step result: n/a` for reporting). If **`verify: verifying`**, verify **that row only**. If no history row, **`Step result: n/a`**.
+
+**Question:** Did the **newest** desktop tool row produce the **UI outcome** its **`goal`** requires — not merely move the pointer?
 
 **Do**
 
-1. Read the newest row in **`[Recent desktop tool calls]`** (or **none** on first turn) — note **`goal`**, **`action`**, tool kind.
+1. Read the newest row in **`[Recent desktop tool calls]`** — note **`verify:`** suffix, **`goal`**, **`action`**, tool kind (or **none** on first turn).
 2. Compare **before vs after** first (objective observation):
    - If **`[Screen before action]` exists**, you must cite both **before** and **after** in Verify evidence.
    - Use `n/a` for before only when **`[Screen before action]` is absent**.
@@ -547,13 +561,13 @@ If the last row was a coordinate click and **Verify** was **fail** with no progr
 Three turn shapes — pick **one** per round:
 
 **1. Action turn (default)**
-- `verify_report` first (except first board-init round).
+- **`verify_report` first** only when the newest history row shows **`verify: verifying`** (except first board-init round).
 - One root desktop tool with route-matched args.
 - Optional `task_board_patch` after report.
 - **`content`:** milestone line encouraged; empty OK only for micro-steps.
 
 **2. Clarification turn (user must reply)**
-- `verify_report` when closing the prior step.
+- **`verify_report`** only when the newest row is **`verify: verifying`**.
 - **Non-empty `content`:** question or explanation in plain language.
 - **No** root desktop tool.
 - Example: user says "continue" but the next WeChat step is undefined —
@@ -569,4 +583,5 @@ Report Verify/Repetition via `verify_report`, not message text.
 **Forbidden:**
 - writing Verify / Next / Route / Target / BBox blocks in assistant message text;
 - legacy JSON envelopes or pseudo tools named `thoughts` / `headline`;
-- `verify_report` only with an empty **`content`** when the user must read a reply.
+- **`verify_report`** when the newest row is **`verified - *`** or **`skipped`**;
+- **`verify_report`** only with an empty **`content`** when the user must read a reply.

@@ -632,8 +632,9 @@ impl ComputerState {
     /// Build tier-isolated [Recent desktop tool calls] for `[CUR_SCREEN]`.
     pub fn recent_actions_prompt_block(&self, conversation_id: &str) -> Option<String> {
         let session = self.get_or_create_session(conversation_id);
-        let s = session.lock().unwrap();
+        let mut s = session.lock().unwrap();
         let tier = s.tier_runtime.current_tier;
+        s.tier_runtime.auto_close_stale_open_rows(tier);
         format_tier_history_block(tier, s.tier_runtime.history_for(tier))
     }
 
@@ -666,25 +667,38 @@ impl ComputerState {
         let mut s = session.lock().unwrap();
         let last_goal = s.tier_runtime.last_executed_goal.clone();
         let tier = s.tier_runtime.current_tier;
+        let mut backfilled = false;
         if let Some(ref pv) = parsed_verify {
             let outcome = crate::agents::computer::tier::VerifyOutcome {
                 step_result: pv.step_result.clone(),
                 cause: pv.cause.clone(),
             };
-            s.tier_runtime.backfill_last_verify(tier, outcome);
+            backfilled = s.tier_runtime.backfill_newest_open_verify(tier, outcome);
         }
         let host_repetition_count =
             crate::agents::computer::tier::same_goal_repetition_count_in_history(
                 s.tier_runtime.history_for(tier),
             );
         let config = self.effective_tier_config();
-        s.tier_runtime.on_round_complete(
-            &config,
-            parsed_verify.as_ref(),
-            last_goal.as_deref(),
-            parsed_signal.as_ref().map(|s| s.repetition_count),
-            host_repetition_count,
-        );
+        if backfilled {
+            s.tier_runtime.on_round_complete(
+                &config,
+                parsed_verify.as_ref(),
+                last_goal.as_deref(),
+                parsed_signal.as_ref().map(|s| s.repetition_count),
+                host_repetition_count,
+            );
+        } else if parsed_verify.is_some() {
+            let step = parsed_verify
+                .as_ref()
+                .map(|p| p.step_result.as_str())
+                .unwrap_or("");
+            if step != "pending" {
+                log::warn!(
+                    "computer tier runtime: verify_report ignored — newest row not open verifying (duplicate or no row)"
+                );
+            }
+        }
         if parsed_signal.is_none() {
             let has_thoughts_step = thoughts
                 .and_then(crate::agents::computer::tier::parse_verify_from_thoughts)

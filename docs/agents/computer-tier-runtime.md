@@ -36,9 +36,9 @@ GIVE_UP_THRESHOLD: u32 = 5;        // 放弃阈值（repetition >= 5）
 Agent 循环完成一轮
   → ComputerState::on_assistant_round_complete()    (state/mod.rs:654)
     → parse_tier_signal_from_sidecar_tool_calls()   解析 verify:report 的 sidecar 信号
-    → backfill_last_verify()                        回填 verify 结果到历史记录
+    → backfill_newest_open_verify()                 回填到最末条 open 行（pending 不回填）
     → same_goal_repetition_count_in_history()       计算 host 端重复计数
-    → ComputerTierRuntime::on_round_complete()      ★ 核心决策 (tier/mod.rs:285-370)
+    → on_round_complete() 仅 backfill 成功时调用    ★ 核心决策 (tier/mod.rs)
   → 检查 should_give_up                            放弃检查 (single_agent.rs:186 / sub_agent.rs:182)
 ```
 
@@ -123,6 +123,26 @@ Tier 系统的输入有两个信号源，取两者最大值：
 ### 4.3 Effective repetition
 
 取两者 max：`max(sidecar_rep, host_rep)`
+
+### 4.4 History 行 verify 后缀（简化状态机）
+
+`[Recent desktop tool calls]` 每行末尾由 Host 维护 `verify:` 后缀：
+
+| 展示 | 含义 |
+|------|------|
+| `verify: verifying` | 最末 open 行，待本回合 Verify + `verify_report` |
+| `verify: verified - pass` / `verified - wrong_operation` / `verified - precision_miss` / `verified - n/a` | 已验过关账 |
+| `verify: skipped` | **从未验过**，被新 desktop action 越过或 inject 清理；不计 fail streak |
+
+**Host 规则（`tier/mod.rs`）：**
+
+- **Verify / backfill 目标**：恒为最末条 `verify_result = None` 的行（`rposition`）。
+- **`push_action` 前**：所有 open 行 → `skipped`，再 push 新行（`verifying`）。
+- **`[CUR_SCREEN]` inject / `recent_actions_prompt_block` 前**：`auto_close_stale_open_rows` — 多行 open 时保留**最末 open**，更旧行 → `skipped`。
+- **`action_result=pending`**：sidecar 接受但不 backfill；`on_round_complete` 不触发。
+- **重复 `verify_report`**（最末行已终态）：忽略 + warn。
+
+提示词要求模型：最末行 `verified - *` 或 `skipped` 时跳过 Verify，不再调用 `verify_report`。
 
 ---
 

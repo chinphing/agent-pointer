@@ -4,7 +4,7 @@ Use provider-native tool calls only.
 Do not serialize tool calls as text or JSON wrappers.
 
 When this turn also updates `task_board`,
-call `verify_report` first and `task_board_patch` second
+call `verify_report` first (only when newest history row is `verify: verifying`) and `task_board_patch` second
 (first board-init round may omit report).
 
 ## Internal reasoning only (hard rule)
@@ -15,11 +15,23 @@ Run them internally — **do not** write section labels, templates, or reasoning
 in assistant message text.
 
 **Turn deliverables**
-- Report: `verify_report` with native args (when reporting a prior step)
+- Report: `verify_report` with native args **only when the newest history row shows `verify: verifying`**
 - Action: one root desktop tool — **unless** clarification turn (below)
 - Board (optional): `task_board_patch` / …
 - Status: brief milestone or user-facing line in assistant **`content`** (see below)
 Do **not** write tool names or args in assistant message text.
+
+## Verify state (read history before Verify)
+
+Each **`[Recent desktop tool calls]`** row ends with **`verify:`**:
+
+- **`verify: verifying`** — run internal **Verify** and call **`verify_report`** this turn (before root desktop tool on action turns).
+- **`verify: verified - *`** — already verified; skip Verify; **no** **`verify_report`**.
+- **`verify: skipped`** — never verified (superseded); skip Verify; **no** **`verify_report`**.
+
+**Gate:** read the **newest** row only. **`verified - *`** or **`skipped`** → skip stage **Verify** reporting. No row → **`Step result: n/a`**, omit **`verify_report`**.
+
+For deferred tasks: prefer **`wait`** + **`verify_report(pending)`** before a new trigger action; otherwise the prior row becomes **`skipped`** when a new desktop tool runs.
 
 **No `response` tool:** this profile has no user-reply tool.
 Deliver every user-visible message in assistant **`content`** only.
@@ -40,7 +52,7 @@ rhythm as the coding agent:
 **Clarification turn (hard rule):** When the next step needs **user input**
 (ambiguous goal, vague "continue", prior sub-goal done with no defined next step,
 permission, or anything you would "ask the user"):
-- In the **same turn**, call `verify_report` if you are closing the prior step.
+- In the **same turn**, call **`verify_report`** only if the newest history row is **`verify: verifying`**.
 - Write the **question or explanation in `content`** — plain text the user can read.
 - **Do not** call a root desktop tool this turn.
 - **Forbidden:** planning to ask in reasoning but leaving **`content` empty**.
@@ -175,7 +187,9 @@ Do not place **`Tool route:`** immediately after **`Location:`** when line **3**
 
 ### 1) Verify
 
-**Goal:** Judge **last automated action** from **screenshots first**, then tool text. **Before vs after** is primary proof.
+**Gate (history suffix):** If the newest row shows **`verify: verified - *`** or **`verify: skipped`**, skip this stage for reporting (`Step result: n/a`). If **`verify: verifying`**, verify **that row only**. If no history row, **`Step result: n/a`**.
+
+**Goal:** Judge the **newest open** desktop row from **screenshots first**, then tool text. **Before vs after** is primary proof.
 
 **Scope:** **Verify** stops at **`Step result`** (+ **`Cause`** when required). **Forbidden in Verify / Before vs after:** next-turn plans, future sub-targets, or **index** for the upcoming click — **Next** / **Location** own those.
 
@@ -1065,16 +1079,17 @@ Tool route:
 
 Three turn shapes — pick **one** per round:
 
-**Action turn:** run all stages internally, then `verify_report` + one native root tool
+**Action turn:** run all stages internally, then **`verify_report`** (only when newest row is **`verify: verifying`**) + one native root tool
 matching internal **Tool route** line 2. Milestone **`content`** encouraged; empty OK
 only for micro-steps.
 
-**Clarification turn:** `verify_report` when closing the prior step + **non-empty
+**Clarification turn:** **`verify_report`** only when newest row is **`verify: verifying`**, plus **non-empty
 `content`** (question or explanation). **No** root desktop tool.
 
 **Completion turn:** **non-empty `content`** final summary; **no** further root desktop tools.
 
 Report Verify/Repetition via `verify_report`, not message text.
+**Forbidden:** **`verify_report`** when newest row is **`verified - *`** or **`skipped`**.
 **Forbidden:** `verify_report` only with empty **`content`** when the user must read a reply.
 ---
 

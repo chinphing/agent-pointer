@@ -40,10 +40,23 @@ pub fn execute_tier_signal(args: &Value) -> Result<String> {
             "failure_cause is only allowed when action_result=fail"
         ));
     }
-    Ok(format!(
-        "Sidecar verify signal accepted: action_result={action_result}, repetition_count={repetition_count}, failure_cause={}",
-        failure_cause.as_deref().unwrap_or("n/a")
-    ))
+    Ok(match action_result.as_str() {
+        "pending" => format!(
+            "Sidecar verify signal accepted: action_result=pending, repetition_count={repetition_count} — newest verifying row stays open until pass/fail/n/a"
+        ),
+        "pass" => format!(
+            "Sidecar verify signal accepted: action_result=pass, repetition_count={repetition_count} — host will close newest verifying row as verified - pass"
+        ),
+        "fail" => format!(
+            "Sidecar verify signal accepted: action_result=fail, repetition_count={repetition_count}, failure_cause={} — host will close newest verifying row as verified - {}",
+            failure_cause.as_deref().unwrap_or("n/a"),
+            failure_cause.as_deref().unwrap_or("fail")
+        ),
+        _ => format!(
+            "Sidecar verify signal accepted: action_result={action_result}, repetition_count={repetition_count}, failure_cause={}",
+            failure_cause.as_deref().unwrap_or("n/a")
+        ),
+    })
 }
 
 fn parse_repetition_count(v: Option<&Value>) -> Result<u64> {

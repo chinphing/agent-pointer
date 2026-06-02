@@ -238,6 +238,7 @@ impl ComputerTierRuntime {
     }
 
     pub fn push_action(&mut self, tier: ComputerTier, record: TierActionRecord) {
+        self.auto_close_all_open_rows_before_push(tier);
         let v = self.histories.entry(tier).or_default();
         v.push(record);
         if v.len() > MAX_TIER_HISTORY {
@@ -245,13 +246,56 @@ impl ComputerTierRuntime {
         }
     }
 
-    pub fn backfill_last_verify(&mut self, tier: ComputerTier, outcome: VerifyOutcome) {
+    /// Close every open row before a new desktop action (never verified — `skipped`).
+    pub fn auto_close_all_open_rows_before_push(&mut self, tier: ComputerTier) {
         let Some(v) = self.histories.get_mut(&tier) else {
             return;
         };
-        if let Some(last) = v.last_mut() {
-            last.verify_result = Some(outcome);
+        let n = auto_close_all_open_rows_slice(v);
+        if n > 0 {
+            log::warn!(
+                "computer tier: auto-closed {n} open history row(s) as verify skipped before new desktop action"
+            );
         }
+    }
+
+    /// Close stale open rows, keeping the newest open row for verify this turn.
+    pub fn auto_close_stale_open_rows(&mut self, tier: ComputerTier) {
+        let Some(v) = self.histories.get_mut(&tier) else {
+            return;
+        };
+        let n = auto_close_stale_open_rows_slice(v);
+        if n > 0 {
+            log::warn!(
+                "computer tier: auto-closed {n} stale open history row(s) as verify skipped (kept newest open)"
+            );
+        }
+    }
+
+    /// Backfill verify outcome into the newest open history row. Returns true when stored.
+    pub fn backfill_newest_open_verify(&mut self, tier: ComputerTier, outcome: VerifyOutcome) -> bool {
+        if outcome.step_result == "pending" {
+            return false;
+        }
+        let Some(v) = self.histories.get_mut(&tier) else {
+            return false;
+        };
+        let Some(idx) = v.iter().rposition(|r| r.verify_result.is_none()) else {
+            log::warn!(
+                "computer tier: verify_report ignored — no open verifying row to close"
+            );
+            return false;
+        };
+        if v[idx].verify_result.is_some() {
+            return false;
+        }
+        v[idx].verify_result = Some(outcome);
+        true
+    }
+
+    /// Back-compat alias — prefer [`backfill_newest_open_verify`].
+    pub fn backfill_last_verify(&mut self, tier: ComputerTier, outcome: VerifyOutcome) {
+        let _ = self.backfill_newest_open_verify(tier, outcome);
     }
 
     /// Normalize `tool_args.goal` for fingerprinting.
@@ -373,6 +417,13 @@ impl ComputerTierRuntime {
     pub fn reset_give_up_for_new_turn(&mut self) {
         self.should_give_up = false;
     }
+
+    /// Test helper: append a history row without auto-closing open rows.
+    #[cfg(test)]
+    pub fn test_push_open_row(&mut self, tier: ComputerTier, record: TierActionRecord) {
+        let v = self.histories.entry(tier).or_default();
+        v.push(record);
+    }
 }
 
 pub fn goal_matches_lock(goal: Option<&str>, lock: Option<&LockedGoal>) -> bool {
@@ -412,6 +463,47 @@ fn stable_hash_hex16(s: &str) -> String {
 
 fn verify_counts_toward_repetition_count(step: &str) -> bool {
     step == "fail"
+}
+
+fn verify_outcome_skipped() -> VerifyOutcome {
+    VerifyOutcome {
+        step_result: "skipped".into(),
+        cause: None,
+    }
+}
+
+/// Mark every open row as skipped (before pushing a new desktop action).
+fn auto_close_all_open_rows_slice(records: &mut [TierActionRecord]) -> u32 {
+    let mut n = 0u32;
+    for r in records.iter_mut() {
+        if r.verify_result.is_none() {
+            r.verify_result = Some(verify_outcome_skipped());
+            n = n.saturating_add(1);
+        }
+    }
+    n
+}
+
+/// Mark older open rows as skipped; keep the newest open row for verify this turn.
+fn auto_close_stale_open_rows_slice(records: &mut [TierActionRecord]) -> u32 {
+    let open_indices: Vec<usize> = records
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.verify_result.is_none())
+        .map(|(i, _)| i)
+        .collect();
+    if open_indices.len() <= 1 {
+        return 0;
+    }
+    let keep = *open_indices.last().unwrap();
+    let mut n = 0u32;
+    for (i, r) in records.iter_mut().enumerate() {
+        if r.verify_result.is_none() && i != keep {
+            r.verify_result = Some(verify_outcome_skipped());
+            n = n.saturating_add(1);
+        }
+    }
+    n
 }
 
 /// Count verify-fail rows for the same goal as the newest history row.
@@ -510,6 +602,7 @@ pub fn format_tier_history_block(tier: ComputerTier, records: &[TierActionRecord
     }
     let mut lines = vec![
         "[Recent desktop tool calls — ordered oldest to newest; repetition uses goal; coordinates are session 0-1000; overlay indices are not comparable across turns.]".to_string(),
+        "Verify suffix: only the newest row may show verify: verifying; verify: skipped = never verified; verify: verified - * = closed — do not re-verify or re-report.".to_string(),
     ];
     for (i, r) in records.iter().enumerate() {
         lines.push(format!("  {}: {}", i + 1, format_history_line(tier, r)));
@@ -540,19 +633,24 @@ fn escape_goal(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-fn format_verify_suffix(tier: ComputerTier, v: Option<&VerifyOutcome>) -> String {
+fn format_verify_suffix(_tier: ComputerTier, v: Option<&VerifyOutcome>) -> String {
     let Some(v) = v else {
-        return "action_result: —".into();
+        return "verify: verifying".into();
     };
-    let step = v.step_result.as_str();
-    if tier.includes_cause_in_history() {
-        if let Some(ref c) = v.cause {
-            if !c.is_empty() && step != "pass" {
-                return format!("action_result: {step} ({c})");
+    match v.step_result.as_str() {
+        "skipped" => "verify: skipped".into(),
+        "pass" => "verify: verified - pass".into(),
+        "n/a" => "verify: verified - n/a".into(),
+        "fail" => {
+            if let Some(ref c) = v.cause {
+                if !c.is_empty() {
+                    return format!("verify: verified - {c}");
+                }
             }
+            "verify: verified - fail".into()
         }
+        other => format!("verify: verified - {other}"),
     }
-    format!("action_result: {step}")
 }
 
 /// Parsed verify block from assistant `thoughts`.
@@ -865,7 +963,7 @@ mod tests {
         let line = format_history_line(ComputerTier::Intermediate, &r);
         assert!(line.contains("goal=\"Open Settings\""));
         assert!(line.contains("at (412, 680)"));
-        assert!(line.contains("action_result: fail (precision_miss)"));
+        assert!(line.contains("verify: verified - precision_miss"));
     }
 
     #[test]
@@ -892,7 +990,7 @@ mod tests {
     }
 
     #[test]
-    fn primary_history_omits_cause() {
+    fn primary_history_shows_fail_cause_in_verify_suffix() {
         let r = TierActionRecord {
             tool_name: "mouse_click_at".into(),
             goal: "g".into(),
@@ -905,8 +1003,7 @@ mod tests {
             extra_args_hint: None,
         };
         let line = format_history_line(ComputerTier::Primary, &r);
-        assert!(line.contains("action_result: fail"));
-        assert!(!line.contains("precision_miss"));
+        assert!(line.contains("verify: verified - precision_miss"));
     }
 
     #[test]
@@ -934,6 +1031,190 @@ mod tests {
             mk("other", "fail"),
         ];
         assert_eq!(same_goal_repetition_count_in_history(&switched), 1);
+    }
+
+    #[test]
+    fn open_row_shows_verifying_suffix() {
+        let r = TierActionRecord {
+            tool_name: "mouse_click_index".into(),
+            goal: "g".into(),
+            action: None,
+            coords: None,
+            verify_result: None,
+            extra_args_hint: None,
+        };
+        let line = format_history_line(ComputerTier::Primary, &r);
+        assert!(line.contains("verify: verifying"));
+    }
+
+    #[test]
+    fn skipped_row_shows_skipped_not_verified() {
+        let r = TierActionRecord {
+            tool_name: "mouse_click_index".into(),
+            goal: "g".into(),
+            action: None,
+            coords: None,
+            verify_result: Some(VerifyOutcome {
+                step_result: "skipped".into(),
+                cause: None,
+            }),
+            extra_args_hint: None,
+        };
+        let line = format_history_line(ComputerTier::Primary, &r);
+        assert!(line.contains("verify: skipped"));
+        assert!(!line.contains("verified"));
+    }
+
+    #[test]
+    fn push_action_closes_open_rows_as_skipped() {
+        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        let tier = ComputerTier::Primary;
+        rt.push_action(
+            tier,
+            TierActionRecord {
+                tool_name: "a".into(),
+                goal: "g1".into(),
+                action: None,
+                coords: None,
+                verify_result: None,
+                extra_args_hint: None,
+            },
+        );
+        rt.push_action(
+            tier,
+            TierActionRecord {
+                tool_name: "b".into(),
+                goal: "g2".into(),
+                action: None,
+                coords: None,
+                verify_result: None,
+                extra_args_hint: None,
+            },
+        );
+        let records = rt.history_for(tier);
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].verify_result.as_ref().unwrap().step_result, "skipped");
+        assert!(records[1].verify_result.is_none());
+    }
+
+    #[test]
+    fn backfill_newest_open_targets_newest_not_oldest() {
+        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        let tier = ComputerTier::Primary;
+        rt.test_push_open_row(
+            tier,
+            TierActionRecord {
+                tool_name: "a".into(),
+                goal: "g".into(),
+                action: None,
+                coords: None,
+                verify_result: None,
+                extra_args_hint: None,
+            },
+        );
+        rt.test_push_open_row(
+            tier,
+            TierActionRecord {
+                tool_name: "b".into(),
+                goal: "g".into(),
+                action: None,
+                coords: None,
+                verify_result: None,
+                extra_args_hint: None,
+            },
+        );
+        let applied = rt.backfill_newest_open_verify(
+            tier,
+            VerifyOutcome {
+                step_result: "pass".into(),
+                cause: None,
+            },
+        );
+        assert!(applied);
+        let records = rt.history_for(tier);
+        assert!(records[0].verify_result.is_none());
+        assert_eq!(records[1].verify_result.as_ref().unwrap().step_result, "pass");
+    }
+
+    #[test]
+    fn backfill_pending_does_not_close_row() {
+        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        let tier = ComputerTier::Primary;
+        rt.push_action(
+            tier,
+            TierActionRecord {
+                tool_name: "a".into(),
+                goal: "g".into(),
+                action: None,
+                coords: None,
+                verify_result: None,
+                extra_args_hint: None,
+            },
+        );
+        let applied = rt.backfill_newest_open_verify(
+            tier,
+            VerifyOutcome {
+                step_result: "pending".into(),
+                cause: None,
+            },
+        );
+        assert!(!applied);
+        assert!(rt.history_for(tier)[0].verify_result.is_none());
+    }
+
+    #[test]
+    fn skipped_does_not_count_toward_repetition() {
+        let records = vec![
+            TierActionRecord {
+                tool_name: "t".into(),
+                goal: "same".into(),
+                action: None,
+                coords: None,
+                verify_result: Some(VerifyOutcome {
+                    step_result: "skipped".into(),
+                    cause: None,
+                }),
+                extra_args_hint: None,
+            },
+            TierActionRecord {
+                tool_name: "t".into(),
+                goal: "same".into(),
+                action: None,
+                coords: None,
+                verify_result: Some(VerifyOutcome {
+                    step_result: "fail".into(),
+                    cause: None,
+                }),
+                extra_args_hint: None,
+            },
+        ];
+        assert_eq!(same_goal_repetition_count_in_history(&records), 1);
+    }
+
+    #[test]
+    fn stale_auto_close_keeps_newest_open() {
+        let mut records = vec![
+            TierActionRecord {
+                tool_name: "a".into(),
+                goal: "g".into(),
+                action: None,
+                coords: None,
+                verify_result: None,
+                extra_args_hint: None,
+            },
+            TierActionRecord {
+                tool_name: "b".into(),
+                goal: "g".into(),
+                action: None,
+                coords: None,
+                verify_result: None,
+                extra_args_hint: None,
+            },
+        ];
+        let n = auto_close_stale_open_rows_slice(&mut records);
+        assert_eq!(n, 1);
+        assert_eq!(records[0].verify_result.as_ref().unwrap().step_result, "skipped");
+        assert!(records[1].verify_result.is_none());
     }
 
     #[test]
@@ -970,7 +1251,7 @@ mod tests {
             extra_args_hint: None,
         }];
         let block = format_tier_history_block(ComputerTier::Intermediate, &records).unwrap();
-        assert!(block.contains("action_result: fail (unexpected_change)"));
+        assert!(block.contains("verify: verified - unexpected_change"));
         assert!(!block.contains("Last verify result (previous round):"));
     }
 

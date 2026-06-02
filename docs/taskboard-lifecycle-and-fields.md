@@ -22,9 +22,15 @@ User delivery: assistant **`content`**, not board fields.
 
 ## Lifecycle binding rules
 
-- A taskboard is bound to a user message.
+- A taskboard is bound to a user message (`anchor_message_id` on the main-turn store key).
+- Computer history trim keeps that bound user row (not merely the first user in the transcript).
 - One conversation can contain multiple parent taskboards.
 - An ended taskboard must not be injected into later user turns.
+
+## History trim (maintainer)
+
+- **Current:** trim on `init` / `replace` / `finalize` or `patch` with a row `done`; Computer keeps anchor user + last 10 messages + latest live `[CUR_SCREEN]` (soft-exclude). Details: [`internals/agent-task-board-and-verification.md`](internals/agent-task-board-and-verification.md#task_board-触发的历史截断当前实现).
+- **Deferred:** trim on board row **`checkpoint` change**, keep only current-round screen inject — documented under **待实现** in the same file; not implemented (risk review pending).
 
 Continuation rule:
 

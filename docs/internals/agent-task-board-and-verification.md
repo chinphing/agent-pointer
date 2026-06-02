@@ -23,7 +23,7 @@
 
 - 注册名：`task_board`；行为通过 **`task_board:replace`** / **`task_board:patch`**（与 qualified `tool_name` 解析一致）。
 - 存储：`AppState` 上的 **`TaskBoardStore`**（`crates/pointer-core/src/task_board/`，内存 + SQLite `{app_data}/task_boards.db`，按 **存储键** 分区）。v2 文档见 [`task-board-v2-schema.md`](task-board-v2-schema.md)；父子协调见 [`task-board-parent-child-coordination.md`](task-board-parent-child-coordination.md)。
-- **主会话（单智能体 / Supervisor 主消息）**：存储键为聊天 **`conversation_id`**；`task_board` 的 **`_conversation_id`** 使用该键。每轮由 **`CommonUserDynamicInjectHook`** 在 `message_loop_prompts_after` 末尾追加 user 注入块（包含 `Global goals`、`All tasks`、`Current task`、`Current task detailed plan` + JSON wire tail）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
+- **主会话（单智能体 / Supervisor 主消息）**：存储键通常为 **`main_turn_task_board_store_key(conversation_id, anchor_user_message_id)`**（见 `session_inner`）；`task_board` 的 **`_conversation_id`** 写入该 **store key**（非裸 `conversation_id`）。每轮由 **`CommonUserDynamicInjectHook`** 在 `message_loop_prompts_after` 末尾追加 user 注入块（Markdown v3：`plan` / `checkpoint` / `validate_*` 等 + 可选 JSON wire tail）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
 - **Supervisor 子 Agent**：与主会话 **隔离**。存储键为  
   **`{conversation_id}\x1fptr_sub_agent\x1f{supervisor_task_id}`**（实现见 `task_board::sub_agent_task_board_store_key`）。  
   子 Agent 的任务板摘要同样经公共 user 注入路径注入（store key 为 `sub_task_board_key`）；**`task_board`** 读写只针对该子任务键，**不会**看到或修改主会话任务板。
@@ -49,15 +49,16 @@
 - Supervisor 主流程本身不跑子 Agent 工具循环；子 Agent 各自按上表授权。
 - 子 Agent 的 **`task_board`** 与主会话 **分区存储**（见上文「Supervisor 子 Agent」）；若需要把主会话进度写进子任务，由 Supervisor 在 **`instruction`** 文本中自行摘要，而不是共享存储键。
 
-## 任务粒度与 `verification` 字段
+## 任务粒度与 v3 验收字段
 
-- 板上一行应对应 **可独立验收** 的里程碑；**`verification`** 用一句话写清「拿什么证据算过」（一次命令、一次关键读文件、或明确桌面结果）。
-- **`done`** 仅在有证据或已写 **`risk note`** 后更新；禁止「改完即 done」式敷衍。
-- 对 computer 路径建议统一时序：首轮 `init` 可无 `verify:report`；其后采用 **`verify:report` → `task_board:patch`**，先收敛上一里程碑，再推进下一里程碑状态。
+- 板上一行应对应 **可独立验收** 的里程碑；**`validate_requirement`** 写清里程碑 outcome 验收标准；证据 append 到 **`validate_results`**（markdown 片段）。
+- **`verify:report`** 仅用于 **单步** UI/操作校验，与板字段 **`validate_*`** 不同名、不同语义。
+- **`done`** 仅在有 **`validate_results`** 或近期 action tools 等证据后更新（宿主可 warn `done_without_evidence`）。
+- 对 computer 路径建议统一时序：首轮 `init` 可无 `verify:report`；其后 **`verify:report`（步）→ `task_board:patch`（里程碑 + append `validate_results`）**。
 - 里程碑粒度建议（跨入口统一）：
-  - **矩阵/组合类任务**：优先做 3–8 个分组里程碑，按交互形态/维度分组（例如滑块触发、点选、弹出）。
-  - **列表类任务**：若列表长度 `<= 8` 且每项需独立验收，可一项一里程碑；若 `> 8` 或高度重复，按批次/类型/阶段分组为 3–8 行。
-  - 分组里程碑的 `verification` / `output` 必须包含覆盖范围与通过统计，避免“标题分组但证据缺失”。
+  - **矩阵/组合类任务**：优先做 3–8 个分组里程碑，按交互形态/维度分组。
+  - **列表类任务**：过长或重复项按批次分组为 3–8 行。
+  - 分组里程碑的 **`validate_requirement` / `validate_results`** 须含覆盖范围与通过统计。
 
 ## 与压缩上下文的关系
 
@@ -67,7 +68,7 @@
 
 ## 内存预算与自动瘦身
 
-- 行状态首次进入 `done` 时，宿主会清空该行 `detailed_plan`（保留 `output` 摘要）以减少后续 token 压力。
+- 行状态首次进入 `done` 时，宿主会清空该行 **`plan`**（v3；里程碑证据在 **`validate_results`**）以减少后续 token 压力。
 - 若 `global_context.artifacts.interim_drafts` 超过预算阈值，宿主会对超长草稿做截断并在 `warnings` 中返回 `interim_drafts_budget_exceeded`，同时设置 `reflection_required=true`，提示下一轮做摘要化整理。
 
 ## 灰度与观测建议
@@ -78,61 +79,76 @@
 - Token 成本指标：单轮 prompt tokens、单任务累计 tokens、history trim 后回落幅度。
 - 双入口一致性：桌面端与 Web 端都应收到 `task_board_updated` 且面板状态一致。
 
-## task_board 触发的历史截断
+## task_board 触发的历史截断（当前实现）
 
-在 **`task_board`** 变更满足 **checkpoint** 条件且工具执行成功后，对已启用该能力的 Agent 可对会话 history 做**硬截断**（不调用 LLM 摘要），与 [`context_compression`](../crates/pointer-core/src/context_compression.rs) 的 LLM 压缩互补。
+在 **`task_board`** 变更满足 **trim checkpoint** 条件且工具执行成功后，对已启用该能力的 Agent 可对会话 history 做 **soft-exclude**（`context_state.included = false`，`ExcludedReason::TaskBoardTrim`；**不**调用 LLM 摘要），与 [`context_compression`](../crates/pointer-core/src/context_compression.rs) 互补。实现：`task_board/history_trim.rs`，挂载：`agent_tool_pass.rs`。
 
-**Checkpoint 条件：**
+**Trim checkpoint 条件（`task_board/checkpoint.rs`）：**
 
-- **`task_board:replace`** 成功 → 总是截断（整板替换视为阶段节点）。
-- **`task_board:patch`** 成功 → 仅当本批 **`items`** 中至少一行 **`status`** 为 **`done`** 时截断（里程碑验收节点）；仅改 `pending` / `in_progress` 等不截断。
+- **`task_board:init` / `replace` / `finalize`** 成功 → 触发。
+- **`task_board:patch`** 成功 → 仅当本批 **`items`** 中至少一行 **`status: done`** 时触发（里程碑验收节点）；仅改 `checkpoint` / `in_progress` / append `validate_results` 等 **不**触发。
 
 | 机制 | 触发 | 处理方式 | 成本 |
 |------|------|----------|------|
-| task_board 阶段截断 | checkpoint 满足 + 工具成功 + 该 Agent 已启用 | 按 user 边界硬删 + 短占位 user 行 | 无 LLM |
+| task_board 阶段截断 | 上表 + 工具成功 + Agent 开关 on | soft-exclude（UI 仍可见） | 无 LLM |
 | context compression | 字符预算 / 工具轮次上限 | 较早前缀 LLM 摘要 | 额外 API |
 
-**保留策略（与压缩共用 `find_split_at_user_boundary` 语义，K 更小，默认 2）：**
+**按 Agent 策略：**
 
-- 会话**第一条**真实用户任务（`Role::User`，非 tool 展平、非 `[CUR_SCREEN]` 注入）。
-- 从「自末尾数第 K 个 user」起的 suffix（含该 user 及之后全部 assistant / tool / 注入消息）。
-- 一条占位 user 消息（前缀如 `[History trimmed after task_board update]`），便于 UI 与调试识别。
-- 计划状态仍由每轮公共 user 动态块承担，不依赖被删掉的旧 tool 正文。
+| Agent | 默认开关 | 保留集合 |
+|-------|----------|----------|
+| `computer` | on | **绑定 anchor user**（`get_main_task_board_anchor`）+ **最近 10 条消息** + **最新 live `[CUR_SCREEN]`**（非 placeholder）；其余 exclude |
+| 其它（`coder` 等） | off | 若启用：按 **user 边界**保留首条真实 user + 末尾 K=2 个 user 的 suffix（`trim_history_after_task_board`） |
 
-**仅 1 条 user 时不截断：** `find_split_at_user_boundary` 在 user 条数 &lt; K 时返回 `0`，宿主跳过截断（与压缩路径一致）。
-
-### Computer Agent 与按 user 边界截断
-
-**结论：** Computer Use 每一轮工具循环后都会追加 **user 型**消息，因此用「按 user 消息找分割点」做阶段截断时，**不会出现「中间很长一段 assistant/tool 噪声却没有任何 user 边界、导致无法截断」** 的情况。
-
-典型一轮在**存储 history** 中为：
-
-```text
-assistant（JSON 规划 + tool_calls）
-tool（工具原始输出，role: tool）
-user（[CUR_SCREEN] 截图，screen_inject 注入）
-```
-
-发给 LLM API 时经 [`flatten_tool_rounds_computer_style_for_api`](../crates/pointer-core/src/models.rs) 展平：工具结果变为 **`role: user`** 的 `{"tool_name","tool_result"}` JSON，assistant 保留 wire 正文；下一轮前旧 `[CUR_SCREEN]` 的去图占位仍为 user。故长会话中 user 边界**密度高**，`find_split_at_user_boundary(history, K)` 能有效切掉更早的探索/操作轮次。
-
-这与 Coder 等不同：Coder 可能连续多轮只有 assistant + tool、user 边界较疏；Computer 因视觉注入，**更适合**依赖 user 边界的 task_board 阶段截断（亦可另行规划 API 层剥离旧 assistant，见下文维护讨论，首版不强制）。
-
-### 按 Agent 启用（前端配置）
-
-**结论：** **task_board 阶段截断**（patch/replace 后硬截断）默认**仅对 `computer` Agent 启用**；其它 Agent（`coder`、`default`、`explore` 等）默认关闭。
-
-- **配置面：** 设置界面中的 **按智能体**开关（与 `leadAgentId`、`agentDefaultModels` 等同属会话/Agent 偏好），**每个 worker id 可单独**启用或禁用；持久化在应用设置（`ModelSettings` / `StoredSettings`，具体字段名实现时定为如 `agentTaskBoardHistoryTrim: Record<agentId, boolean>`）。
-- **运行时：** `agent_tool_pass` 在 task_board 变更成功后查**当前 lead / 子 Agent 的 id** 对应开关，为 false 则跳过截断。
-- **默认表：** `computer` → `true`；其余内置 Agent → `false`。用户可在前端为 Coder 等单独打开。
-
-**不在 `AGENT.md` frontmatter 中写死**该开关：产品策略由用户在前端调整，避免改仓库内 manifest 才能换行为。
+- **配置：** 设置里 **按智能体** `agentTaskBoardHistoryTrim`（`ModelSettings`）。
+- **计划状态：** 每轮 **`CommonUserDynamicInjectHook`** 末尾注入 Markdown **`[TASK_BOARD]`**（见 [`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)）；不依赖被 exclude 的旧 tool 正文。
+- **绑定：** main-turn store key 与 **anchor user message id** 见 `session_inner::choose_main_task_board_store_key`、`app_state::set_main_task_board_binding`。
 
 ### 与 LLM 压缩的执行顺序
 
-1. 本回合 tool batch 结束 → 若 task_board 变更且 Agent 开关为 on → 可能硬截断。
-2. 下一轮 `run_chat_inner` 开始 → 若仍超 `contextBudgetChars` → `maybe_compress_history`（LLM 摘要）。
+1. 本回合 tool batch 结束 → 若 task_board trim checkpoint 满足且开关 on → soft-exclude。
+2. 下一轮若仍超 `contextBudgetChars` → `maybe_compress_history`（LLM 摘要）。
 
-无 task_board 的长任务**不**靠阶段截断，仍只靠字符预算 / 工具轮次触发的 LLM 压缩（见 [`context_compression.rs`](../crates/pointer-core/src/context_compression.rs)）。
+---
+
+## 待实现：checkpoint 触发 + 仅保留当前轮 screen（暂缓，未编码）
+
+**状态：** 仅设计记录；**暂不实现**（同轮 tool loop、看板完整度、步级 verify 等风险未收敛）。
+
+### 提案摘要
+
+1. **触发：** 将 trim 的「阶段节点」从 **`patch` + `status: done`** 改为 **`patch` 导致当前行 `checkpoint` 在 store 中发生变化**（`init` / `replace` / `finalize` 仍可触发）。与 v3「`checkpoint` = 粗粒度 phase/cycle 切换」对齐。
+2. **保留：** 对 Computer（或仅 trim-on 的 agent）在触发时 **exclude 几乎全部 history**，只保留 **当前轮最新 live `[CUR_SCREEN]`** 注入（含图）；不再保留 anchor user、最近 10 条、本轮 assistant/tool。
+
+### 预期收益
+
+- 长周期 `in_progress` 里程碑内即可大幅降 token，不必等 `done`。
+- 强制「看板 + 当前桌面」双锚，缓解历史与 `[CUR_SCREEN]` 正文膨胀。
+
+### 主要风险（实现前需产品/协议确认）
+
+| 风险 | 说明 |
+|------|------|
+| **同轮 tool loop 断裂** | trim 在 `agent_tool_pass` **工具批之后**执行；若只留 screen，会 exclude **本轮**紧随其后的 assistant、`tool` 结果。若同一轮继续 `stream_chat`，模型可能看不到刚执行的 verify/桌面工具输出。 |
+| **anchor 用户原文丢失** | 不保留绑定 user 行；长需求仅在 `meta.goal` 写得全时才安全。 |
+| **步级证据丢失** | 未 append 进 `validate_results` 的 `verify:report` / 工具原文在 trim 后不可恢复。 |
+| **checkpoint 过频** | 模型细粒度改 checkpoint → 频繁失忆；需防抖（仅值变化、可选要求已有 `plan` / `validate_results`）。 |
+| **screen 仍很大** | 只留一条 user 仍可能占满预算（多图 + Advanced 全表 bbox + tier history）。 |
+| **消息序列** | API 过滤后可能仅剩一条 user，需验证与多轮 tool 循环、Computer 展平逻辑的兼容性。 |
+
+### 实现前建议采用的变体（择一）
+
+- **A（提案字面）：** 仅最新 live `[CUR_SCREEN]` — 最简单，风险最高。
+- **B（推荐）：** `checkpoint` 变化触发；保留 **最新 `[CUR_SCREEN]` + 从该条到 history 末尾**（含本轮 assistant/tool）。
+- **C（更稳）：** 在 B 上 **额外保留 anchor user 一行**（可截断）。
+
+### 配套（若将来实现）
+
+- Computer 提示词：phase 结束必须 **更新 `checkpoint` + append `validate_results`**，再 patch。
+- `checkpoint.rs`：apply 后 diff `checkpoint`，而非仅解析 args。
+- 观测：`task_board_trim` 日志区分触发原因（`done` vs `checkpoint_changed`）、exclude 条数、下轮 prompt token。
+
+**相关讨论记录：** 维护者对话 2026-06（checkpoint trim + screen-only 评估，结论为暂缓）。
 
 ## 相关代码入口（维护索引）
 

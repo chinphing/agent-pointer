@@ -264,12 +264,15 @@ pub(crate) async fn run_sub_agent(
             trace_id: agent_trace_step_id(&task.id, &def.id),
         };
         let mut stats = ToolInvocationStats::Conversation(llm_stats);
+        let anchor_message_id =
+            state.get_main_task_board_anchor(conversation_id, &sub_task_board_key);
         let trim_hook = TaskBoardTrimHook {
             settings: &sub_provider.settings,
             agent_id: &def.id,
             conversation_id,
             stream: &stream,
             emit_history_replaced: false,
+            anchor_message_id: anchor_message_id.as_deref(),
         };
         match Box::pin(run_agent_tool_pass(
             stream.clone(),

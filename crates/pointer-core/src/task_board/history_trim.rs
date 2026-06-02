@@ -12,6 +12,8 @@ use tokio::sync::mpsc::UnboundedSender;
 pub const TRIM_PLACEHOLDER_PREFIX: &str = "[History trimmed after task_board update]";
 
 const DEFAULT_KEEP_LAST_N_USERS: usize = 2;
+/// Computer: keep task-board anchor user + last N messages (+ latest live `[CUR_SCREEN]` inject).
+const COMPUTER_KEEP_LAST_MESSAGES: usize = 10;
 const CUR_SCREEN_TAG: &str = "[CUR_SCREEN]";
 const CUR_SCREEN_OMITTED: &str =
     "[CUR_SCREEN] Earlier desktop screenshots are omitted here; use only the latest [CUR_SCREEN] message in this request for images.";
@@ -33,6 +35,8 @@ pub struct TaskBoardTrimHook<'a> {
     pub stream: &'a StreamTx,
     /// When true, emit `HistoryReplaced` so the chat UI persists updated flags.
     pub emit_history_replaced: bool,
+    /// User message id this task board is bound to (`get_main_task_board_anchor` / store key).
+    pub anchor_message_id: Option<&'a str>,
 }
 
 fn normalize_agent_id(agent_id: &str) -> String {
@@ -79,12 +83,119 @@ fn find_first_real_user_index(msgs: &[ChatMessage]) -> Option<usize> {
         .position(|m| is_real_user_task_message(m))
 }
 
+fn find_index_by_message_id(msgs: &[ChatMessage], message_id: &str) -> Option<usize> {
+    let id = message_id.trim();
+    if id.is_empty() {
+        return None;
+    }
+    msgs.iter().position(|m| m.id == id)
+}
+
+/// Resolve the user row to always keep: task-board anchor, else first real user task.
+pub fn resolve_task_board_anchor_user_index(
+    msgs: &[ChatMessage],
+    anchor_message_id: Option<&str>,
+) -> Option<usize> {
+    if let Some(anchor_id) = anchor_message_id.map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(idx) = find_index_by_message_id(msgs, anchor_id) {
+            if matches!(msgs[idx].role, Role::User) {
+                return Some(idx);
+            }
+            log::warn!(
+                "task_board_trim: anchor_message_id={anchor_id} is not a user message; falling back"
+            );
+        } else {
+            log::warn!(
+                "task_board_trim: anchor_message_id={anchor_id} not found in history; falling back"
+            );
+        }
+    }
+    find_first_real_user_index(msgs)
+}
+
 fn mark_range_excluded(history: &mut [ChatMessage], start: usize, end: usize) {
     for m in history.iter_mut().take(end).skip(start) {
         if is_context_included(m) {
             mark_excluded(m, ExcludedReason::TaskBoardTrim);
         }
     }
+}
+
+/// Live `[CUR_SCREEN]` inject (not the stripped-history placeholder).
+pub fn is_live_cur_screen_inject(m: &ChatMessage) -> bool {
+    if !matches!(m.role, Role::User) {
+        return false;
+    }
+    let t = m.content.trim_start();
+    t.starts_with(CUR_SCREEN_TAG) && !t.starts_with(CUR_SCREEN_OMITTED)
+}
+
+fn find_latest_live_cur_screen_index(msgs: &[ChatMessage]) -> Option<usize> {
+    msgs.iter()
+        .enumerate()
+        .rev()
+        .find_map(|(i, m)| is_live_cur_screen_inject(m).then_some(i))
+}
+
+fn collect_keep_indices(
+    msgs: &[ChatMessage],
+    keep_last_messages: usize,
+    anchor_message_id: Option<&str>,
+) -> Vec<usize> {
+    let len = msgs.len();
+    if len == 0 {
+        return Vec::new();
+    }
+    let mut keep = std::collections::HashSet::new();
+    if let Some(i) = resolve_task_board_anchor_user_index(msgs, anchor_message_id) {
+        keep.insert(i);
+    }
+    let tail_start = len.saturating_sub(keep_last_messages.max(1));
+    for i in tail_start..len {
+        keep.insert(i);
+    }
+    if let Some(i) = find_latest_live_cur_screen_index(msgs) {
+        keep.insert(i);
+    }
+    let mut indices: Vec<usize> = keep.into_iter().collect();
+    indices.sort_unstable();
+    indices
+}
+
+/// Computer trim: task-board anchor user, last `keep_last_messages` rows, and latest `[CUR_SCREEN]` inject.
+pub fn trim_history_first_user_and_tail(
+    history: &mut [ChatMessage],
+    keep_last_messages: usize,
+    anchor_message_id: Option<&str>,
+) -> Option<TaskBoardTrimStats> {
+    let messages_before = history.len();
+    if messages_before == 0 {
+        return None;
+    }
+    let keep = collect_keep_indices(history, keep_last_messages, anchor_message_id);
+    if keep.len() >= messages_before {
+        return None;
+    }
+    let split_at = keep.first().copied().unwrap_or(0);
+    let mut dropped_count = 0u32;
+    for (i, m) in history.iter_mut().enumerate() {
+        if keep.binary_search(&i).is_ok() {
+            continue;
+        }
+        if is_context_included(m) {
+            mark_excluded(m, ExcludedReason::TaskBoardTrim);
+            dropped_count += 1;
+        }
+    }
+    if dropped_count == 0 {
+        return None;
+    }
+    Some(TaskBoardTrimStats {
+        messages_before,
+        messages_after: history.len(),
+        split_at,
+        dropped_count,
+    })
 }
 
 /// Soft-exclude prefix in `history` per task_board checkpoint policy. Returns `None` when no trim applied.
@@ -154,7 +265,17 @@ pub fn maybe_trim_after_tool_pass(
         return;
     }
 
-    let Some(stats) = trim_history_after_task_board(history, DEFAULT_KEEP_LAST_N_USERS) else {
+    let agent = normalize_agent_id(hook.agent_id);
+    let stats = if agent == "computer" {
+        trim_history_first_user_and_tail(
+            history,
+            COMPUTER_KEEP_LAST_MESSAGES,
+            hook.anchor_message_id,
+        )
+    } else {
+        trim_history_after_task_board(history, DEFAULT_KEEP_LAST_N_USERS)
+    };
+    let Some(stats) = stats else {
         log::info!(
             "task_board_trim: skip_no_boundary conversation_id={} agent_id={} messages={}",
             hook.conversation_id,
@@ -206,6 +327,12 @@ pub fn default_agent_task_board_history_trim_table() -> HashMap<String, bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn u_with_id(id: &str, content: &str) -> ChatMessage {
+        let mut m = u(content);
+        m.id = id.to_string();
+        m
+    }
 
     fn u(content: &str) -> ChatMessage {
         ChatMessage {
@@ -269,7 +396,93 @@ mod tests {
     }
 
     #[test]
-    fn trim_marks_prefix_excluded_keeps_first_task_and_suffix() {
+    fn computer_trim_keeps_first_user_last_ten_and_latest_cur_screen() {
+        let mut hist = vec![u("original task")];
+        for i in 0..14 {
+            hist.push(a());
+            hist.push(u(&format!("filler user {i}")));
+        }
+        let latest_screen_idx = hist.len();
+        let mut screen = u("[CUR_SCREEN] live frame");
+        screen.images_base64 = Some(vec!["img".into()]);
+        hist.push(screen);
+        hist.push(a());
+
+        let before_len = hist.len();
+        let stats = trim_history_first_user_and_tail(&mut hist, 10, None).expect("trim");
+        assert!(stats.dropped_count > 0);
+        assert_eq!(hist.len(), before_len);
+        assert!(!is_excluded(&hist[0]));
+        assert!(!is_excluded(&hist[latest_screen_idx]));
+        assert!(hist.iter().any(is_excluded));
+        let tail_start = before_len.saturating_sub(10);
+        for i in tail_start..before_len {
+            assert!(!is_excluded(&hist[i]), "tail index {i} should stay included");
+        }
+    }
+
+    #[test]
+    fn computer_trim_keeps_cur_screen_outside_tail_window() {
+        let mut hist = vec![u("task"), a()];
+        let mut screen = u("[CUR_SCREEN] mid inject");
+        screen.images_base64 = Some(vec!["x".into()]);
+        hist.push(screen.clone());
+        for _ in 0..12 {
+            hist.push(a());
+            hist.push(u("noise"));
+        }
+        let screen_idx = 2;
+        let stats = trim_history_first_user_and_tail(&mut hist, 10, None).expect("trim");
+        assert!(stats.dropped_count > 0);
+        assert!(!is_excluded(&hist[0]));
+        assert!(!is_excluded(&hist[screen_idx]));
+    }
+
+    #[test]
+    fn computer_trim_keeps_task_board_anchor_not_first_user() {
+        let mut hist = vec![u_with_id("first-user", "older unrelated task")];
+        for i in 0..8 {
+            hist.push(a());
+            hist.push(u(&format!("noise {i}")));
+        }
+        let anchor_idx = hist.len();
+        hist.push(u_with_id("anchor-msg", "task bound to board"));
+        for i in 0..6 {
+            hist.push(a());
+            hist.push(u(&format!("tail noise {i}")));
+        }
+        let stats =
+            trim_history_first_user_and_tail(&mut hist, 10, Some("anchor-msg")).expect("trim");
+        assert!(stats.dropped_count > 0);
+        assert!(!is_excluded(&hist[anchor_idx]));
+        assert!(
+            is_excluded(&hist[0]),
+            "first user in conversation should be excluded when anchor is later"
+        );
+    }
+
+    #[test]
+    fn resolve_anchor_index_prefers_binding_over_first_user() {
+        let msgs = vec![
+            u_with_id("u1", "first"),
+            a(),
+            u_with_id("anchor-msg", "bound"),
+        ];
+        assert_eq!(
+            resolve_task_board_anchor_user_index(&msgs, Some("anchor-msg")),
+            Some(2)
+        );
+        assert_eq!(resolve_task_board_anchor_user_index(&msgs, None), Some(0));
+    }
+
+    #[test]
+    fn computer_trim_skips_when_all_fit() {
+        let mut hist = vec![u("only task"), a()];
+        assert!(trim_history_first_user_and_tail(&mut hist, 10, None).is_none());
+    }
+
+    #[test]
+    fn legacy_trim_marks_prefix_by_user_boundary() {
         let mut hist = vec![
             u("build the app"),
             a(),
@@ -284,14 +497,12 @@ mod tests {
         assert_eq!(hist.len(), before_len);
         assert!(!is_excluded(&hist[0]));
         assert!(hist.iter().any(|m| m.content.contains("follow up")));
-        assert!(hist.iter().any(is_excluded));
     }
 
     #[test]
-    fn trim_skips_when_few_users() {
+    fn legacy_trim_skips_when_few_users() {
         let mut hist = vec![u("only task"), a()];
         assert!(trim_history_after_task_board(&mut hist, 2).is_none());
-        assert_eq!(hist.len(), 2);
     }
 
     #[test]

@@ -49,12 +49,15 @@ pub(super) async fn run_single_agent_tool_pass(
     let _ = reasoning_in_messages;
     let mut stats = ToolInvocationStats::TokenSession(llm_token_session);
     let stream_for_trim = stream.clone();
+    let anchor_message_id =
+        state.get_main_task_board_anchor(conversation_id, main_task_board_store_key);
     let trim_hook = TaskBoardTrimHook {
         settings,
         agent_id: lead_agent_id,
         conversation_id,
         stream: &stream_for_trim,
         emit_history_replaced: true,
+        anchor_message_id: anchor_message_id.as_deref(),
     };
     match run_agent_tool_pass(
         stream,

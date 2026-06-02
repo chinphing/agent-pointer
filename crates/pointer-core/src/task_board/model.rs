@@ -1,10 +1,12 @@
-//! Task board v2 document model.
+//! Task board v3 document model.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-pub const BOARD_VERSION: u32 = 2;
+pub const BOARD_VERSION: u32 = 3;
 pub const DEFAULT_MAX_STEPS: u32 = 50;
+pub const RESULT_SNIPPET_MAX_CHARS: usize = 800;
+pub const RESULTS_MAX_ENTRIES: usize = 48;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -139,13 +141,17 @@ pub struct BoardItem {
     #[serde(default)]
     pub retry_count: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output: Option<String>,
+    pub plan: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub details: Option<String>,
+    pub checkpoint: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub progress: Option<String>,
+    pub validate_requirement: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub validate_results: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub validate: Option<String>,
+    pub extract_requirement: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extract_results: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_by: Option<String>,
 }
@@ -182,6 +188,24 @@ impl BoardDocument {
 }
 
 impl BoardItem {
+    pub fn has_validate_evidence(&self) -> bool {
+        self.validate_results.iter().any(|s| !s.trim().is_empty())
+    }
+
+    pub fn last_validate_result_snippet(&self) -> Option<&str> {
+        self.validate_results
+            .iter()
+            .rev()
+            .find_map(|s| {
+                let t = s.trim();
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t)
+                }
+            })
+    }
+
     pub fn from_value(v: &Value) -> Option<Self> {
         let id = v.get("id")?.as_str()?.trim().to_string();
         if id.is_empty() {
@@ -199,7 +223,6 @@ impl BoardItem {
             .unwrap_or(ItemStatus::Pending);
         let depends_on = v
             .get("depends_on")
-            .or_else(|| v.get("dependsOn"))
             .and_then(|x| {
                 if let Some(arr) = x.as_array() {
                     Some(
@@ -215,41 +238,94 @@ impl BoardItem {
             .unwrap_or_default();
         let retry_count = v
             .get("retry_count")
-            .or_else(|| v.get("retryCount"))
             .and_then(|x| x.as_u64())
             .unwrap_or(0) as u32;
-        let output = v
-            .get("output")
-            .and_then(|x| x.as_str())
-            .map(str::to_string);
-        let details = v
-            .get("details")
-            .and_then(|x| x.as_str())
-            .map(str::to_string);
-        let progress = v
-            .get("progress")
-            .and_then(|x| x.as_str())
-            .map(str::to_string);
-        let validate = v
-            .get("validate")
-            .and_then(|x| x.as_str())
-            .map(str::to_string);
         let blocked_by = v
-            .get("blockedBy")
-            .or_else(|| v.get("blocked_by"))
+            .get("blocked_by")
             .and_then(|x| x.as_str())
             .map(str::to_string);
+
         Some(Self {
             id,
             title,
             status,
             depends_on,
             retry_count,
-            output,
-            details,
-            progress,
-            validate,
+            plan: str_field(v, "plan"),
+            checkpoint: str_field(v, "checkpoint"),
+            validate_requirement: str_field(v, "validate_requirement"),
+            validate_results: string_array_field(v, "validate_results"),
+            extract_requirement: str_field(v, "extract_requirement"),
+            extract_results: string_array_field(v, "extract_results"),
             blocked_by,
         })
     }
 }
+
+pub fn str_field(v: &Value, key: &str) -> Option<String> {
+    let s = v.get(key)?.as_str()?.trim();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s.to_string())
+    }
+}
+
+pub fn string_array_field(v: &Value, key: &str) -> Vec<String> {
+    v.get(key)
+        .map(parse_string_array)
+        .unwrap_or_default()
+}
+
+pub fn parse_string_array(val: &Value) -> Vec<String> {
+    match val {
+        Value::String(s) => {
+            let t = s.trim();
+            if t.is_empty() {
+                Vec::new()
+            } else {
+                vec![compact_snippet(t)]
+            }
+        }
+        Value::Array(arr) => arr
+            .iter()
+            .filter_map(|e| e.as_str())
+            .map(|s| compact_snippet(s.trim()))
+            .filter(|s| !s.is_empty())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+pub fn push_snippet(list: &mut Vec<String>, text: &str) {
+    let t = compact_snippet(text.trim());
+    if t.is_empty() {
+        return;
+    }
+    list.push(t);
+    trim_results_list(list);
+}
+
+pub fn append_snippets_from_value(list: &mut Vec<String>, v: &Value, key: &str) {
+    let Some(val) = v.get(key) else {
+        return;
+    };
+    for s in parse_string_array(val) {
+        push_snippet(list, &s);
+    }
+}
+
+pub fn compact_snippet(text: &str) -> String {
+    if text.chars().count() <= RESULT_SNIPPET_MAX_CHARS {
+        return text.to_string();
+    }
+    let compact: String = text.chars().take(RESULT_SNIPPET_MAX_CHARS).collect();
+    format!("{compact}…")
+}
+
+pub fn trim_results_list(list: &mut Vec<String>) {
+    while list.len() > RESULTS_MAX_ENTRIES {
+        list.remove(0);
+    }
+}
+

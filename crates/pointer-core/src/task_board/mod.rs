@@ -1,4 +1,4 @@
-//! Session task board (v2): working memory, persistence, multi-agent coordination.
+//! Session task board (v3): working memory, persistence, multi-agent coordination.
 
 pub mod apply;
 pub mod args;
@@ -12,6 +12,7 @@ pub mod inject;
 pub mod observability;
 pub mod migrate;
 pub mod model;
+pub mod row_patch;
 pub mod persistence;
 pub mod snapshot;
 pub mod state_machine;

@@ -458,10 +458,12 @@ export interface TaskBoardItem {
   status: TaskBoardItemStatus
   depends_on?: string[]
   retry_count?: number
-  output?: string
-  details?: string
-  progress?: string
-  validate?: string
+  plan?: string
+  checkpoint?: string
+  validate_requirement?: string
+  validate_results?: string[]
+  extract_requirement?: string
+  extract_results?: string[]
   blocked_by?: string
 }
 

@@ -5,6 +5,7 @@ use super::coordination::parent_child::{assert_child_may_mutate, parent_store_ke
 use super::model::{
     BoardDocument, BoardItem, BoardScope, GlobalContext, ItemStatus, MetaStatus,
 };
+use super::row_patch::{compact_row_after_done, merge_row_patch};
 use super::state_machine::{
     bump_step_count, count_incomplete, dependencies_satisfied, mark_ready_pending_rows,
     validate_item_transition,
@@ -14,7 +15,6 @@ use serde_json::{json, Value};
 
 const MAX_FINDING_LEN: usize = 500;
 const MAX_FINDINGS: usize = 32;
-const DONE_OUTPUT_SUMMARY_MAX_CHARS: usize = 800;
 const INTERIM_DRAFTS_CHAR_BUDGET: usize = 80_000;
 const INTERIM_DRAFT_ITEM_MAX_CHARS: usize = 2_000;
 
@@ -228,11 +228,18 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value
         merge_global_context(&mut doc.global_context, gc);
     }
     for v in &rows {
-        let Some(mut incoming) = BoardItem::from_value(v) else {
+        let id = v
+            .get("id")
+            .and_then(|x| x.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let Some(id) = id else {
             continue;
         };
-        if let Some(idx) = doc.board.iter().position(|e| e.id == incoming.id) {
-            let prev = &doc.board[idx];
+        if let Some(idx) = doc.board.iter().position(|e| e.id == id) {
+            let prev = doc.board[idx].clone();
+            let mut incoming = merge_row_patch(&prev, v);
             validate_item_transition(prev.status, incoming.status)?;
             if matches!(incoming.status, ItemStatus::InProgress | ItemStatus::Done) {
                 if !dependencies_satisfied(doc, &incoming) {
@@ -256,37 +263,28 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value
                 reflection = true;
             }
             maybe_warn_done_without_evidence(
-                prev,
+                &prev,
                 &incoming,
                 recent_action,
                 &mut reflection,
                 &mut warnings,
             );
             maybe_warn_done_without_verify_pass(
-                prev,
+                &prev,
                 &incoming,
                 recent_verify_report,
                 recent_verify_pass,
                 &mut reflection,
                 &mut warnings,
             );
-            if incoming.title.is_empty() {
-                incoming.title = prev.title.clone();
-            }
-            if incoming.details.is_none() {
-                incoming.details = prev.details.clone();
-            }
-            if incoming.progress.is_none() {
-                incoming.progress = prev.progress.clone();
-            }
-            if incoming.validate.is_none() {
-                incoming.validate = prev.validate.clone();
-            }
-            maybe_warn_in_progress_without_details(doc, prev, &incoming, &mut warnings);
-            compact_item_after_success(prev, &mut incoming);
+            maybe_warn_in_progress_without_plan(doc, &prev, &incoming, &mut warnings);
+            compact_row_after_done(&prev, &mut incoming);
             doc.board[idx] = incoming;
             patched.push(row_status_entry(&doc.board[idx]));
         } else {
+            let Some(mut incoming) = BoardItem::from_value(v) else {
+                continue;
+            };
             if matches!(incoming.status, ItemStatus::InProgress | ItemStatus::Done) {
                 if !dependencies_satisfied(doc, &incoming) {
                     return Err(anyhow!(
@@ -296,51 +294,29 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value
                 }
                 bump_step_count(&mut doc.meta)?;
             }
+            let empty_prev = BoardItem {
+                id: incoming.id.clone(),
+                title: incoming.title.clone(),
+                status: ItemStatus::Pending,
+                ..BoardItem::default()
+            };
             maybe_warn_done_without_evidence(
-                &BoardItem {
-                    id: incoming.id.clone(),
-                    title: incoming.title.clone(),
-                    status: ItemStatus::Pending,
-                    ..BoardItem::default()
-                },
+                &empty_prev,
                 &incoming,
                 recent_action,
                 &mut reflection,
                 &mut warnings,
             );
             maybe_warn_done_without_verify_pass(
-                &BoardItem {
-                    id: incoming.id.clone(),
-                    title: incoming.title.clone(),
-                    status: ItemStatus::Pending,
-                    ..BoardItem::default()
-                },
+                &empty_prev,
                 &incoming,
                 recent_verify_report,
                 recent_verify_pass,
                 &mut reflection,
                 &mut warnings,
             );
-            maybe_warn_in_progress_without_details(
-                doc,
-                &BoardItem {
-                    id: incoming.id.clone(),
-                    title: incoming.title.clone(),
-                    status: ItemStatus::Pending,
-                    ..BoardItem::default()
-                },
-                &incoming,
-                &mut warnings,
-            );
-            compact_item_after_success(
-                &BoardItem {
-                    id: incoming.id.clone(),
-                    title: incoming.title.clone(),
-                    status: ItemStatus::Pending,
-                    ..BoardItem::default()
-                },
-                &mut incoming,
-            );
+            maybe_warn_in_progress_without_plan(doc, &empty_prev, &incoming, &mut warnings);
+            compact_row_after_done(&empty_prev, &mut incoming);
             doc.board.push(incoming);
             patched.push(row_status_entry(doc.board.last().expect("just pushed")));
         }
@@ -359,28 +335,11 @@ fn maybe_warn_done_without_evidence(
     if incoming.status != ItemStatus::Done || prev.status == ItemStatus::Done {
         return;
     }
-    let has_output = incoming
-        .output
-        .as_ref()
-        .filter(|s| !s.trim().is_empty())
-        .or(prev.output.as_ref())
-        .filter(|s| !s.trim().is_empty())
-        .is_some();
-    if has_output || recent_action {
-        return;
-    }
-    let has_verification = incoming
-        .validate
-        .as_ref()
-        .filter(|s| !s.trim().is_empty())
-        .or(prev.validate.as_ref())
-        .filter(|s| !s.trim().is_empty())
-        .is_some();
-    if has_verification {
+    if incoming.has_validate_evidence() || prev.has_validate_evidence() || recent_action {
         return;
     }
     *reflection = true;
-    let reason = "done_without_evidence: add output, set validate, or run action tools before marking done";
+    let reason = "done_without_evidence: append validate_results, or run action tools before marking done";
     warnings.push(serde_json::json!({
         "code": "done_without_evidence",
         "requires_evidence": true,
@@ -419,20 +378,7 @@ fn maybe_warn_done_without_verify_pass(
     );
 }
 
-fn compact_item_after_success(prev: &BoardItem, incoming: &mut BoardItem) {
-    if incoming.status != ItemStatus::Done || prev.status == ItemStatus::Done {
-        return;
-    }
-    if let Some(out) = incoming.output.as_ref() {
-        let trimmed = out.trim();
-        if trimmed.chars().count() > DONE_OUTPUT_SUMMARY_MAX_CHARS {
-            let compact: String = trimmed.chars().take(DONE_OUTPUT_SUMMARY_MAX_CHARS).collect();
-            incoming.output = Some(format!("{compact}…"));
-        }
-    }
-}
-
-fn maybe_warn_in_progress_without_details(
+fn maybe_warn_in_progress_without_plan(
     doc: &BoardDocument,
     prev: &BoardItem,
     incoming: &BoardItem,
@@ -444,19 +390,26 @@ fn maybe_warn_in_progress_without_details(
     if doc.board.len() <= 1 {
         return;
     }
-    let has_details = incoming
-        .details
+    let has_plan = incoming
+        .plan
         .as_ref()
         .filter(|s| !s.trim().is_empty())
-        .or(prev.details.as_ref())
+        .or(prev.plan.as_ref())
         .filter(|s| !s.trim().is_empty())
         .is_some();
-    if has_details {
+    let has_requirement = incoming
+        .validate_requirement
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+        .or(prev.validate_requirement.as_ref())
+        .filter(|s| !s.trim().is_empty())
+        .is_some();
+    if has_plan || has_requirement {
         return;
     }
-    let reason = "in_progress_without_details: add task details before or when marking in_progress";
+    let reason = "in_progress_without_plan: add plan or validate_requirement before or when marking in_progress";
     warnings.push(serde_json::json!({
-        "code": "in_progress_without_details",
+        "code": "in_progress_without_plan",
         "message": reason
     }));
     log::warn!(

@@ -148,9 +148,9 @@ when the run ends or when you are not issuing tools.
 
 **Patch every turn that moves progress:** When a milestone **starts** or **finishes**, call **`task_board_patch`** in the **same turn**. Treat **`[TASK_BOARD]`** in injected context as the authoritative compact snapshot.
 
-**Definition of done** on each row: keep `details` and `progress` current,
-and provide repeatable final evidence in `validate`
-(command output, test result, or targeted **`file`** read).
+**Definition of done** on each row: keep `plan` and `checkpoint` current,
+set `validate_requirement` for acceptance criteria,
+and append repeatable evidence to `validate_results` (markdown snippets).
 Step fields and Sidecar placement follow
 **Communication (public)** → **Task board**.
 
@@ -200,9 +200,9 @@ or run one more `run_subagent` pass with explicit scope gaps.
     "arguments": {
       "goal": "Fix null handling in parser",
       "items": [
-        { "id": "m1", "title": "Explore + impact scan", "status": "done", "details": "impact map complete", "progress": "done", "validate": "grep symbol + read all caller hits" },
-        { "id": "m2", "title": "Implement fix", "status": "in_progress", "details": "patch parser null path", "progress": "code change started", "validate": "file edit parser.rs + callers if needed" },
-        { "id": "m3", "title": "Unit tests + audit", "status": "pending", "details": "run unit tests then audit", "progress": "pending", "validate": "cargo test -p my-crate parser::" }
+        { "id": "m1", "title": "Explore + impact scan", "status": "done", "plan": "impact map complete", "validate_results": "- grep symbol + read all caller hits" },
+        { "id": "m2", "title": "Implement fix", "status": "in_progress", "plan": "patch parser null path", "validate_requirement": "file edit parser.rs + callers if needed" },
+        { "id": "m3", "title": "Unit tests + audit", "status": "pending", "plan": "run unit tests then audit", "validate_requirement": "cargo test -p my-crate parser::" }
       ]
     }
   }
@@ -220,8 +220,7 @@ or run one more `run_subagent` pass with explicit scope gaps.
         {
           "id": "m2",
           "status": "done",
-          "validate": "cargo test -p my-crate parser:: — 12 passed",
-          "output": "Added null guard + regression test"
+          "validate_results": "- cargo test -p my-crate parser:: — 12 passed"
         }
       ]
     }
@@ -231,12 +230,12 @@ or run one more `run_subagent` pass with explicit scope gaps.
 
 ## Definition of done (`task_board` and delivery)
 
-- Mark a step **`done`** only when **repeatable `validate` evidence** exists for that step
+- Mark a step **`done`** only when **repeatable `validate_results` evidence** exists for that step
   (e.g. **`terminal`** command output, **`file_read`** on changed files, or other evidence this profile allows).
 - Do **not** mark **`done`** on “I edited it” alone.
 - Do **not** mark **Implement** **`done`** before **Impact scan** evidence exists.
 - Do **not** **`finalize`** or treat the task complete without **Responsibility audit** (see **AGENT** step 7) when executable logic changed.
-- If `validate` evidence is impossible, add a **short risk note** on the board or in the user reply instead of pretending certainty.
+- If `validate_results` evidence is impossible, add a **short risk note** in the user reply instead of pretending certainty.
 - When **every** board row is **`done`** or **`cancelled`**, call **`task_board_finalize`** in the delivery turn.
 
 ## Cross-surface validation (before final delivery)

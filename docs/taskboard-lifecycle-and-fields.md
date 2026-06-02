@@ -1,37 +1,24 @@
-# Taskboard Lifecycle And Fields
-
-This document defines the current taskboard conventions.
+# Taskboard Lifecycle And Fields (v3)
 
 ## Field semantics
 
-- `details`: execution plan, implementation details, and key points.
-- `progress`: partial progress for combinational or in-flight work.
-- `validate`: final goal validation only.
+| Field | Patch | Meaning |
+| --- | --- | --- |
+| `plan` | replace | Execution plan (markdown). |
+| `checkpoint` | replace | Coarse position (`cycle=… \| phase=… \| next=…`). |
+| `validate_requirement` | replace | Milestone outcome acceptance criteria. |
+| `validate_results` | append only | Outcome evidence (markdown snippets). |
+| `extract_requirement` | replace | Extraction spec (markdown). |
+| `extract_results` | append only | Extracted data (markdown table/list). |
 
-Guideline:
+User delivery: assistant **`content`**, not board fields.
 
-- Put process detail in `details`.
-- Put incremental checkpoint state in `progress`.
-- Put acceptance evidence in `validate`.
+## Injection order (current task)
 
-## Details writing format
-
-Use a concise markdown table in `details` when work is multi-step:
-
-| step | action | key_points | risk | done_when |
-| --- | --- | --- | --- | --- |
-| 1 | ... | ... | ... | ... |
-
-Keep lines short.
-Avoid long prose paragraphs.
-
-## Injection order
-
-Runtime injection order for current task content is:
-
-1. `details`
-2. `progress`
-3. `validate`
+1. `plan`
+2. `checkpoint`
+3. `validate_requirement`
+4. `validate_results` (recent tail)
 
 ## Lifecycle binding rules
 

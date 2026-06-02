@@ -1,12 +1,13 @@
-# Task board v2 schema (maintainer)
+# Task board schema (maintainer, v3)
 
 Runtime prompts: `crates/pointer-core/src/task_board/prompts/task_board.md` (English).
+Lifecycle: `docs/taskboard-lifecycle-and-fields.md`.
 
 ## Document
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `version` | number | `2` |
+| `version` | number | `3` only (non-v3 stored JSON is discarded) |
 | `task_id` | string | `tb_{store_key}` |
 | `meta` | object | `goal`, `status`, `step_count`, `max_steps`, optional `expected_total`, `scope`, `root_target`, `parent_sub_task_id` |
 | `global_context` | object | `key_findings[]`, `artifacts` |
@@ -21,11 +22,13 @@ Runtime prompts: `crates/pointer-core/src/task_board/prompts/task_board.md` (Eng
 | `status` | yes | See prompt |
 | `depends_on` | no | Prerequisite row ids |
 | `retry_count` | no | `>= 2` may set `reflection_required` in tool result |
-| `output` | no | Evidence summary when `done` |
-| `details` | no | Execution plan + implementation details + key points |
-| `progress` | no | Partial progress for in-flight work |
-| `validate` | no | Final acceptance check summary |
-| `blockedBy` | no | |
+| `plan` | no | Execution plan (markdown); cleared on `done` |
+| `checkpoint` | no | Coarse position line |
+| `validate_requirement` | no | Milestone outcome acceptance criteria |
+| `validate_results` | no | Append-only evidence snippets (`string[]`) |
+| `extract_requirement` | no | Extraction spec (markdown) |
+| `extract_results` | no | Append-only extract snippets (`string[]`) |
+| `blocked_by` | no | Host-set dependency hint |
 
 ## Methods
 

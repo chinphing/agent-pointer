@@ -87,10 +87,10 @@ Use the board for milestones—not a long plan in assistant message text only.
 ### Tool JSON field names (required)
 
 - Milestone list: **`items`** (JSON array, or a JSON string encoding that array).
-  Do **not** use `rows`, `board`, or other property names for tool arguments.
+- Row fields (v3 only): `plan`, `checkpoint`, `validate_requirement`, `validate_results`, `extract_requirement`, `extract_results`.
 - Injected **`[TASK_BOARD]`** snapshots may show a `board` array — that is host output only.
 - Each milestone in **`items`** must have non-empty **`id`**, **`title`**, and **`status`**.
-- On **`init`** / **`replace`**, every milestone needs a clear **`title`** (not only `output`).
+- On **`init`** / **`replace`**, every milestone needs a clear **`title`**.
 - On **`patch`**, include **`title`** when adding a row or when updating status without an existing title.
 
 - **`task_board_init`** — goal + milestone **`items`**.
@@ -118,7 +118,8 @@ Use the board for milestones—not a long plan in assistant message text only.
   Other profiles do **not** use **`verify_report`** for board updates.
 - Advance **at most one** meaningful milestone per turn unless the user widens scope. **Cancel** obsolete milestones instead of ignoring them.
 - When **all** milestones are **`done`** or **`cancelled`**, call **`task_board_finalize`** before the final user-facing reply. Patching milestones to **`done`** does not replace **`finalize`**.
-- Keep task board text compact (short **`title`** / **`output`** / **`validate`**) to reduce prompt token overhead.
+- Keep task board text compact (short **`title`**, **`validate_requirement`**, append-only **`validate_results`**) to reduce prompt token overhead.
+- User-facing delivery belongs in assistant **`content`**, not board row fields.
 - For matrix/combinational goals,
   group milestones by meaningful dimensions first.
   Preferred default: interaction form
@@ -128,9 +129,11 @@ Use the board for milestones—not a long plan in assistant message text only.
     one item per row is acceptable;
   - list size > 8 or repetitive items:
     group by batch/type/phase and keep 3–8 milestones.
-- In each grouped milestone, keep
-  `details` / `progress` / `validate` / `output`
-  explicit about covered and remaining slices.
+- In each grouped milestone, use v3 fields:
+  `plan`, `checkpoint` (coarse position, update rarely),
+  `validate_requirement` / `validate_results` (append evidence),
+  optional `extract_requirement` / `extract_results`.
+- **`verify_report`** checks a **step**; **`validate_*`** checks the **milestone outcome** (do not confuse them).
 - **Sub-agent (child) scope:** **`[TASK_BOARD]`** is your **local** `local_*` steps only. **`[TASK_BOARD_PARENT]`** is **read-only** (goal + findings + current milestone). Use **`task_board_sync_finding`** for breakthroughs to the parent. **Do not** patch parent milestone rows— the host reports completion.
 - **Lead / parent scope:** milestones only—no `local_*` micromanagement of child workers.
 

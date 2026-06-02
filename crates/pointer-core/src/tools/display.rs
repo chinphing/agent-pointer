@@ -452,7 +452,7 @@ mod tests {
             &json!({
                 "item_id": "2",
                 "status": "done",
-                "validate": "窗口已打开"
+                "validate_results": "窗口已打开"
             }),
         );
         assert_eq!(d.label, "任务板 · 更新");

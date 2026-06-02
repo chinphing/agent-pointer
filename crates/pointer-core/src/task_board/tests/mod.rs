@@ -22,7 +22,7 @@ mod apply_tests {
             )
             .expect("init");
         let args = json!({
-            "items": "[{\"id\":\"a\",\"title\":\"Step A\",\"status\":\"pending\",\"validate\":\"ok\"}]"
+            "items": "[{\"id\":\"a\",\"title\":\"Step A\",\"status\":\"pending\",\"validate_requirement\":\"ok\"}]"
         });
         store.apply(key, "patch", &args).expect("patch");
         let doc = store.document(key);
@@ -31,13 +31,13 @@ mod apply_tests {
     }
 
     #[test]
-    fn v1_array_migrates() {
+    fn non_v3_stored_value_returns_empty_board() {
         let raw = json!([
             {"id": "1", "title": "t", "status": "done"}
         ]);
         let doc = normalize_stored_value("k", raw);
-        assert_eq!(doc.version, 2);
-        assert_eq!(doc.board.len(), 1);
+        assert_eq!(doc.version, 3);
+        assert!(doc.board.is_empty());
     }
 
     #[test]
@@ -97,7 +97,7 @@ mod apply_tests {
                 &json!({
                     "item_id": "1",
                     "status": "done",
-                    "validate": "微信应用已打开"
+                    "validate_results": "微信应用已打开"
                 }),
             )
             .expect("patch 1");
@@ -108,7 +108,7 @@ mod apply_tests {
                 &json!({
                     "item_id": "2",
                     "status": "done",
-                    "validate": "老婆聊天窗口已打开，输入框可见"
+                    "validate_results": "老婆聊天窗口已打开，输入框可见"
                 }),
             )
             .expect("patch 2");
@@ -204,7 +204,7 @@ mod apply_tests {
             .apply(
                 key,
                 "patch",
-                &json!({"item_id": "1", "status": "done", "validate": "ok"}),
+                &json!({"item_id": "1", "status": "done", "validate_results": "ok"}),
             )
             .expect("patch");
         assert!(!reflection);
@@ -219,7 +219,7 @@ mod apply_tests {
     }
 
     #[test]
-    fn patch_preserves_details_progress_validate_when_omitted() {
+    fn patch_preserves_plan_checkpoint_requirement_when_omitted() {
         let store = TaskBoardStore::new();
         let key = "conv-preserve";
         store
@@ -233,21 +233,85 @@ mod apply_tests {
                             "id": "1",
                             "title": "A",
                             "status": "in_progress",
-                            "details": "detail text",
-                            "progress": "1/3",
-                            "validate": "run unit tests"
+                            "plan": "detail text",
+                            "checkpoint": "cycle=1/3",
+                            "validate_requirement": "run unit tests"
                         }
                     ]
                 }),
             )
             .expect("init");
         store
-            .apply(key, "patch", &json!({"item_id": "1", "status": "done"}))
+            .apply(
+                key,
+                "patch",
+                &json!({
+                    "item_id": "1",
+                    "status": "done",
+                    "validate_results": "tests passed"
+                }),
+            )
             .expect("patch");
         let doc = store.document(key);
-        assert_eq!(doc.board[0].details.as_deref(), Some("detail text"));
-        assert_eq!(doc.board[0].progress.as_deref(), Some("1/3"));
-        assert_eq!(doc.board[0].validate.as_deref(), Some("run unit tests"));
+        assert_eq!(doc.board[0].plan, None);
+        assert_eq!(doc.board[0].checkpoint.as_deref(), Some("cycle=1/3"));
+        assert_eq!(
+            doc.board[0].validate_requirement.as_deref(),
+            Some("run unit tests")
+        );
+        assert_eq!(doc.board[0].validate_results.len(), 1);
+    }
+
+    #[test]
+    fn validate_results_append_on_patch() {
+        let store = TaskBoardStore::new();
+        let key = "conv-append";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": [{"id": "1", "title": "A", "status": "in_progress"}]
+                }),
+            )
+            .expect("init");
+        store
+            .apply(
+                key,
+                "patch",
+                &json!({"item_id": "1", "validate_results": "first"}),
+            )
+            .expect("p1");
+        store
+            .apply(
+                key,
+                "patch",
+                &json!({"item_id": "1", "validate_results": "second"}),
+            )
+            .expect("p2");
+        let doc = store.document(key);
+        assert_eq!(doc.board[0].validate_results, vec!["first", "second"]);
+    }
+
+    #[test]
+    fn v3_document_roundtrip() {
+        let raw = json!({
+            "version": 3,
+            "task_id": "tb_k",
+            "meta": {"goal": "g"},
+            "board": [{
+                "id": "1",
+                "title": "T",
+                "status": "done",
+                "plan": "plan here",
+                "validate_results": ["evidence"]
+            }]
+        });
+        let doc = normalize_stored_value("k", raw);
+        assert_eq!(doc.board.len(), 1);
+        assert_eq!(doc.board[0].plan.as_deref(), Some("plan here"));
+        assert_eq!(doc.board[0].validate_results, vec!["evidence"]);
     }
 
     #[test]

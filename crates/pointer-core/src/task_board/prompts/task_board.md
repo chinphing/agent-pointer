@@ -57,130 +57,102 @@ Treat injected `[TASK_BOARD]` as source of truth.
 Row status:
 `pending`, `ready`, `in_progress`, `done`, `cancelled`, `failed`.
 
-## Row fields policy
+## Row fields (v3)
 
 Each row may include:
 
-- `details`: execution plan + implementation details + key points.
-- `progress`: partial progress for in-flight work.
-- `validate`: final acceptance check only.
-- `output`: concise result summary.
+| Field | Patch | Content |
+| --- | --- | --- |
+| `plan` | replace | How to execute (markdown). |
+| `checkpoint` | replace | Coarse position only (`cycle=3/10 \| phase=… \| next=…`). Update rarely. |
+| `validate_requirement` | replace | Milestone **outcome** acceptance criteria (markdown). |
+| `validate_results` | **append only** | Outcome evidence snippets (markdown lines). |
+| `extract_requirement` | replace | What to extract (fields/scope, markdown). Optional. |
+| `extract_results` | **append only** | Extracted facts (markdown table/list). Optional. |
 
-Do not overload `validate` with process details.
-Put process details in `details`.
+User-facing delivery belongs in **assistant `content`**, not board row fields.
 
-## Details format (recommended)
+## `validate_*` vs `verify:report`
 
-Use a short markdown table in `details`:
+- **`verify:report`** (sidecar): validates a **single step** action (UI/click/type).
+- **`validate_requirement` / `validate_results`**: validates the **milestone outcome**.
 
-| step | action | key_points | risk | done_when |
-| --- | --- | --- | --- | --- |
-| 1 | ... | ... | ... | ... |
+Do not paste `verify:report` JSON into `validate_results`.
+Summarize observable outcome in one short markdown line.
 
-Keep lines short and actionable.
-Avoid long prose.
+## Append rules
 
-## Progress format (recommended)
-
-Keep `progress` concise and incremental.
-Prefer checkpoint style, for example:
-
-- `2/5 checkpoints done`
-- `current: data migration`
-- `next: run integration tests`
-
-For matrix/combinational tasks,
-record covered and remaining slices.
+- `validate_results`: pass a **string** (one snippet) or **string array** (several snippets). Host appends; never shortens history on patch.
+- `extract_results`: same append semantics.
+- Fine-grained progress: append `validate_results`; change `checkpoint` only when cycle/phase/next shifts.
 
 ## Core rules
 
 - If `[TASK_BOARD]` is empty and task is multi-step, call `init`.
-- `patch` should update current task row first.
-- Mark `done` only after observable evidence.
+- `patch` should update the current task row first.
+- Mark `done` only after `validate_results` has evidence (or action tools ran).
 - Keep 3-12 milestones for most tasks.
-- For repetitive/matrix work, group by meaningful slices.
 - Child agents must not patch parent rows directly.
 - Finalize in the same turn as final user delivery.
-- If `retry_count >= 2`, do internal diagnosis before next patch.
 
 ## Profile guidance
 
-Computer profile (with `verify_report`):
+Computer (with `verify_report`):
 
-- Complexity gate: initialize when expected operation steps >3.
-- First board-init round may skip `verify_report`.
-- After init, run `verify_report` before `task_board_patch`.
+- Initialize when expected operation steps >3.
+- After init: `verify_report` (step) then `task_board_patch` (milestone).
+- On milestone done: append `validate_results`, then `status: done`.
 
 Engineering profiles:
 
-- Use test/command/file evidence.
-- Update `validate` with final acceptance evidence.
-- Coder complexity gate: initialize when expected scope is >=2 files or cross-module.
+- Put command/test evidence in `validate_results` (append).
+- Put acceptance criteria in `validate_requirement`.
 
 ## Items input
 
 Use **`items`** for milestone rows (`init` / `replace` / `patch`).
-Do not use `rows` — host accepts it as an alias, but **`items`** is canonical.
 
 Each row must include non-empty **`id`** and **`title`**.
 
-`items` can be:
-
-- a JSON array
-- a JSON string that encodes that array
-
-Single-row patch can use top-level fields:
-`item_id` (or `id`) + row fields.
-
-#### Example — initialize board
+#### Example — initialize
 
 ```json
 {
-  "function": {
-    "name": "task_board_init",
-    "arguments": {
-      "goal": "Ship feature X",
-      "items": [
-        { "id": "m1", "title": "Locate code", "status": "pending" }
-      ]
+  "goal": "Ship feature X",
+  "items": [
+    {
+      "id": "m1",
+      "title": "Locate code",
+      "status": "pending",
+      "validate_requirement": "Tests pass after handler change"
     }
-  }
+  ]
 }
 ```
 
-#### Example — patch with details/progress/validate
-
-Example patch call:
+#### Example — patch (append evidence + done)
 
 ```json
 {
-  "function": {
-    "name": "task_board_patch",
-    "arguments": {
-      "items": [
-        {
-          "id": "m1",
-          "status": "done",
-          "details": "| step | action | key_points | risk | done_when |\n| --- | --- | --- | --- | --- |\n| 1 | update handler | keep API stable | medium | tests pass |",
-          "progress": "all checkpoints complete",
-          "validate": "Tests pass",
-          "output": "Handler updated"
-        }
-      ]
+  "items": [
+    {
+      "id": "m1",
+      "status": "done",
+      "validate_results": "- cargo test -p foo: 12 passed"
     }
-  }
+  ]
 }
 ```
 
-#### Example — finalize when all rows are terminal
-
-Call after the last row is **`done`** or **`cancelled`**:
+#### Example — extract batch
 
 ```json
 {
-  "function": {
-    "name": "task_board_finalize",
-    "arguments": {}
-  }
+  "items": [
+    {
+      "id": "m2",
+      "extract_results": "| id | name |\n| --- | --- |\n| 1 | foo |"
+    }
+  ]
 }
 ```

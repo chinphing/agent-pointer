@@ -10,8 +10,9 @@ task_board_init:
     items:
       description: >
         Milestone array (or JSON string of that array).
-        Required field name is items — not rows or board.
-        Each element needs non-empty id, title, and status.
+        Use field name items only. Each element needs id, title, status.
+        Optional v3 fields: plan, checkpoint, validate_requirement,
+        validate_results, extract_requirement, extract_results.
     expected_total:
       type: integer
       minimum: 1

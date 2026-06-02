@@ -1,6 +1,6 @@
 //! Child completion settlement on parent board.
 
-use super::super::model::{BoardDocument, ItemStatus};
+use super::super::model::{push_snippet, BoardDocument, ItemStatus};
 use super::dependency::mark_ready_after_report;
 use anyhow::{anyhow, Result};
 
@@ -18,7 +18,7 @@ pub fn report_child_status(
     let row = &mut parent.board[idx];
     row.status = status;
     if !output.trim().is_empty() {
-        row.output = Some(output.trim().to_string());
+        push_snippet(&mut row.validate_results, output);
     }
     mark_ready_after_report(parent);
     log::info!(

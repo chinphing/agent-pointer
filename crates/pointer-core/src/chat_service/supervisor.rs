@@ -194,7 +194,7 @@ pub(crate) async fn run_supervisor_chat(
             },
             status: ItemStatus::Pending,
             depends_on: task.depends_on.clone(),
-            validate: Some(truncate_str(&task.instruction, 160)),
+            validate_requirement: Some(truncate_str(&task.instruction, 160)),
             ..BoardItem::default()
         };
         let child_was_empty = state

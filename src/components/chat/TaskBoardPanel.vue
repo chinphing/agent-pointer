@@ -46,12 +46,17 @@ function statusClass(status: string): string {
   }
 }
 
-function rowLabel(item: { id: string; title?: string; output?: string | null }): string {
+function rowLabel(item: {
+  id: string
+  title?: string
+  validate_results?: string[] | null
+}): string {
   const title = item.title?.trim()
   if (title) return title
-  const output = item.output?.trim()
-  if (output) {
-    return output.length > 48 ? `${output.slice(0, 48)}…` : output
+  const results = item.validate_results ?? []
+  const last = results[results.length - 1]?.trim()
+  if (last) {
+    return last.length > 48 ? `${last.slice(0, 48)}…` : last
   }
   return `#${item.id}`
 }

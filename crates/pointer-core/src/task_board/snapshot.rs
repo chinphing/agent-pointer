@@ -3,10 +3,11 @@
 use super::model::{BoardDocument, BoardItem, ItemStatus};
 use super::state_machine::dependencies_satisfied;
 
-const DONE_OUTPUT_MAX: usize = 120;
+const RESULT_SNIPPET_INJECT_MAX: usize = 120;
 const READY_HINT_COUNT: usize = 2;
-const DETAILS_MAX: usize = 280;
-const DETAILS_INJECT_MAX: usize = 2000;
+const PLAN_INJECT_MAX: usize = 2000;
+const REQUIREMENT_INJECT_MAX: usize = 600;
+const RESULTS_TAIL_COUNT: usize = 6;
 
 pub fn snapshot_for_prompt(store_key: &str, doc: &BoardDocument, compact: bool) -> Option<String> {
     if doc.board_is_empty() && doc.meta.goal.is_empty() {
@@ -66,45 +67,83 @@ pub fn markdown_runtime_block_for_inject(doc: &BoardDocument) -> String {
     if let Some(item) = current_task_item(doc) {
         lines.push(format!("- id: {}", item.id));
         lines.push(format!("- title: {}", item.title.trim()));
-        lines.push(format!("- validate: {}", validate_display(item)));
+        lines.push(format!(
+            "- validate_requirement: {}",
+            truncate_field(item.validate_requirement.as_deref(), REQUIREMENT_INJECT_MAX)
+        ));
         lines.push(format!("- status: {}", item.status.as_str()));
     } else {
         lines.push("- id: n/a".to_string());
         lines.push("- title: n/a".to_string());
-        lines.push("- validate: n/a".to_string());
+        lines.push("- validate_requirement: n/a".to_string());
         lines.push("- status: n/a".to_string());
     }
 
     lines.push(String::new());
-    lines.push("## Current task details".to_string());
-    let details = current_task_item(doc)
-        .and_then(|item| item.details.as_ref())
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .map(|s| {
-            if s.chars().count() > DETAILS_INJECT_MAX {
-                let compact: String = s.chars().take(DETAILS_INJECT_MAX).collect();
-                format!("{compact}…")
-            } else {
-                s.to_string()
-            }
-        })
-        .unwrap_or_else(|| "n/a".to_string());
-    lines.push(details);
+    lines.push("## Current task plan".to_string());
+    lines.push(truncate_field(
+        current_task_item(doc).and_then(|i| i.plan.as_deref()),
+        PLAN_INJECT_MAX,
+    ));
 
     lines.push(String::new());
-    lines.push("## Current task progress".to_string());
-    let progress = current_task_item(doc)
-        .and_then(|item| item.progress.as_ref())
+    lines.push("## Current task checkpoint".to_string());
+    let checkpoint = current_task_item(doc)
+        .and_then(|i| i.checkpoint.as_ref())
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .unwrap_or("n/a");
-    lines.push(progress.to_string());
+    lines.push(checkpoint.to_string());
+
+    lines.push(String::new());
+    lines.push("## Current task validate_results (recent)".to_string());
+    let validate_tail = current_task_item(doc)
+        .map(|i| i.validate_results.as_slice())
+        .unwrap_or(&[] as &[String]);
+    lines.push(format_results_tail(validate_tail));
+
+    if let Some(item) = current_task_item(doc) {
+        if !item.extract_results.is_empty() || item.extract_requirement.is_some() {
+            lines.push(String::new());
+            lines.push("## Current task extract".to_string());
+            if let Some(req) = item.extract_requirement.as_deref() {
+                lines.push("requirement:".to_string());
+                lines.push(truncate_field(Some(req), REQUIREMENT_INJECT_MAX));
+            }
+            lines.push("results (recent):".to_string());
+            lines.push(format_results_tail(&item.extract_results));
+        }
+    }
+
     lines.join("\n")
 }
 
-fn validate_display(item: &BoardItem) -> &str {
-    item.validate
+fn truncate_field(text: Option<&str>, max: usize) -> String {
+    let t = text.unwrap_or("n/a").trim();
+    if t.is_empty() {
+        return "n/a".to_string();
+    }
+    if t.chars().count() <= max {
+        return t.to_string();
+    }
+    let compact: String = t.chars().take(max).collect();
+    format!("{compact}…")
+}
+
+fn format_results_tail(results: &[String]) -> String {
+    if results.is_empty() {
+        return "n/a".to_string();
+    }
+    let start = results.len().saturating_sub(RESULTS_TAIL_COUNT);
+    results[start..]
+        .iter()
+        .map(|s| format!("- {}", s.trim()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn requirement_one_line(item: &BoardItem) -> &str {
+    item.validate_requirement
         .as_ref()
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
@@ -119,10 +158,10 @@ fn format_all_tasks_line(item: &BoardItem) -> String {
         ItemStatus::InProgress | ItemStatus::Pending
     ) {
         format!(
-            "- {}: {} | validate: {} | {}",
+            "- {}: {} | validate_requirement: {} | {}",
             item.id,
             title,
-            validate_display(item),
+            requirement_one_line(item),
             item.status.as_str()
         )
     } else {
@@ -210,38 +249,66 @@ fn item_full(item: &BoardItem) -> serde_json::Value {
     if item.retry_count > 0 {
         out.insert("retry_count".into(), item.retry_count.into());
     }
-    if let Some(v) = item.validate.as_ref().filter(|s| !s.trim().is_empty()) {
-        out.insert("validate".into(), v.clone().into());
+    if let Some(v) = item
+        .validate_requirement
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        let compact = v.chars().take(REQUIREMENT_INJECT_MAX).collect::<String>();
+        out.insert("validate_requirement".into(), compact.into());
     }
-    if let Some(v) = item.progress.as_ref().filter(|s| !s.trim().is_empty()) {
-        out.insert("progress".into(), v.clone().into());
+    if let Some(v) = item.checkpoint.as_ref().filter(|s| !s.trim().is_empty()) {
+        out.insert("checkpoint".into(), v.clone().into());
     }
-    if let Some(v) = item.output.as_ref().filter(|s| !s.trim().is_empty()) {
-        let compact = v.chars().take(DONE_OUTPUT_MAX).collect::<String>();
-        out.insert("output".into(), compact.into());
+    if !item.validate_results.is_empty() {
+        out.insert(
+            "validate_results".into(),
+            serde_json::json!(tail_compact_strings(&item.validate_results, 3)),
+        );
     }
-    if let Some(v) = item.details.as_ref().filter(|s| !s.trim().is_empty()) {
-        let compact = v.chars().take(DETAILS_MAX).collect::<String>();
-        out.insert("details".into(), compact.into());
+    if !item.extract_results.is_empty() {
+        out.insert(
+            "extract_results".into(),
+            serde_json::json!(tail_compact_strings(&item.extract_results, 2)),
+        );
+    }
+    if let Some(v) = item.plan.as_ref().filter(|s| !s.trim().is_empty()) {
+        let compact = v.chars().take(280).collect::<String>();
+        out.insert("plan".into(), compact.into());
     }
     if let Some(v) = item.blocked_by.as_ref().filter(|s| !s.trim().is_empty()) {
-        out.insert("blockedBy".into(), v.clone().into());
+        out.insert("blocked_by".into(), v.clone().into());
     }
     serde_json::Value::Object(out)
 }
 
+fn tail_compact_strings(list: &[String], n: usize) -> Vec<String> {
+    let start = list.len().saturating_sub(n);
+    list[start..]
+        .iter()
+        .map(|s| {
+            let t = s.trim();
+            if t.chars().count() <= RESULT_SNIPPET_INJECT_MAX {
+                t.to_string()
+            } else {
+                let c: String = t.chars().take(RESULT_SNIPPET_INJECT_MAX).collect();
+                format!("{c}…")
+            }
+        })
+        .collect()
+}
+
 fn item_compact(item: &BoardItem) -> serde_json::Value {
-    let out = item
-        .output
-        .as_deref()
+    let summary = item
+        .last_validate_result_snippet()
         .unwrap_or("")
         .chars()
-        .take(DONE_OUTPUT_MAX)
+        .take(RESULT_SNIPPET_INJECT_MAX)
         .collect::<String>();
     serde_json::json!({
         "id": item.id,
         "status": item.status.as_str(),
-        "summary": out,
+        "summary": summary,
     })
 }
 
@@ -254,62 +321,61 @@ mod inject_format_tests {
         let mut doc = BoardDocument::empty_for_store_key("conv-test");
         doc.meta.goal = "Ship feature".into();
         doc.board = vec![
-                BoardItem {
-                    id: "m1".into(),
-                    title: "Explore".into(),
-                    status: ItemStatus::Done,
-                    validate: Some("grep done".into()),
-                    ..BoardItem::default()
-                },
-                BoardItem {
-                    id: "m2".into(),
-                    title: "Implement".into(),
-                    status: ItemStatus::InProgress,
-                    validate: Some("cargo test -p foo".into()),
-                    details: Some("patch handler".into()),
-                    progress: Some("started".into()),
-                    ..BoardItem::default()
-                },
-                BoardItem {
-                    id: "m3".into(),
-                    title: "Audit".into(),
-                    status: ItemStatus::Pending,
-                    validate: Some("cargo clippy".into()),
-                    ..BoardItem::default()
-                },
-            ];
+            BoardItem {
+                id: "m1".into(),
+                title: "Explore".into(),
+                status: ItemStatus::Done,
+                validate_results: vec!["grep done".into()],
+                ..BoardItem::default()
+            },
+            BoardItem {
+                id: "m2".into(),
+                title: "Implement".into(),
+                status: ItemStatus::InProgress,
+                validate_requirement: Some("cargo test -p foo".into()),
+                plan: Some("patch handler".into()),
+                checkpoint: Some("cycle=1/3".into()),
+                ..BoardItem::default()
+            },
+            BoardItem {
+                id: "m3".into(),
+                title: "Audit".into(),
+                status: ItemStatus::Pending,
+                validate_requirement: Some("cargo clippy".into()),
+                ..BoardItem::default()
+            },
+        ];
         doc
     }
 
     #[test]
-    fn inject_omits_key_validate_and_validate_section() {
+    fn inject_has_plan_and_validate_results_sections() {
         let block = markdown_runtime_block_for_inject(&sample_doc());
-        assert!(!block.contains("key_validate"));
-        assert!(!block.contains("## Current task validate"));
+        assert!(block.contains("## Current task plan"));
+        assert!(block.contains("## Current task validate_results"));
+        assert!(!block.contains("## Current task details"));
     }
 
     #[test]
-    fn inject_current_task_puts_validate_before_status() {
+    fn inject_current_task_shows_requirement() {
         let block = markdown_runtime_block_for_inject(&sample_doc());
         let section = block
-            .split("## Current task details")
+            .split("## Current task plan")
             .next()
             .expect("current task section");
-        assert!(section.contains("- title: Implement"));
-        assert!(section.contains("- validate: cargo test -p foo"));
+        assert!(section.contains("- validate_requirement: cargo test -p foo"));
         assert!(section.contains("- status: in_progress"));
-        let title_pos = section.find("- title:").expect("title");
-        let validate_pos = section.find("- validate:").expect("validate");
-        let status_pos = section.find("- status:").expect("status");
-        assert!(title_pos < validate_pos);
-        assert!(validate_pos < status_pos);
     }
 
     #[test]
-    fn inject_all_tasks_includes_validate_for_pending_and_in_progress() {
+    fn inject_all_tasks_includes_requirement_for_pending_and_in_progress() {
         let block = markdown_runtime_block_for_inject(&sample_doc());
         assert!(block.contains("- m1: Explore | done"));
-        assert!(block.contains("- m2: Implement | validate: cargo test -p foo | in_progress"));
-        assert!(block.contains("- m3: Audit | validate: cargo clippy | pending"));
+        assert!(block.contains(
+            "- m2: Implement | validate_requirement: cargo test -p foo | in_progress"
+        ));
+        assert!(block.contains(
+            "- m3: Audit | validate_requirement: cargo clippy | pending"
+        ));
     }
 }

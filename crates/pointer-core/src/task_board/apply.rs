@@ -5,7 +5,7 @@ use super::coordination::parent_child::{assert_child_may_mutate, parent_store_ke
 use super::model::{
     BoardDocument, BoardItem, BoardScope, GlobalContext, ItemStatus, MetaStatus,
 };
-use super::row_patch::{compact_row_after_done, merge_row_patch};
+use super::row_patch::{compact_row_after_done, merge_row_patch_with_warnings};
 use super::state_machine::{
     bump_step_count, count_incomplete, dependencies_satisfied, mark_ready_pending_rows,
     validate_item_transition,
@@ -239,7 +239,9 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value
         };
         if let Some(idx) = doc.board.iter().position(|e| e.id == id) {
             let prev = doc.board[idx].clone();
-            let mut incoming = merge_row_patch(&prev, v);
+            let merged = merge_row_patch_with_warnings(&prev, v);
+            let mut incoming = merged.row;
+            warnings.extend(merged.warnings);
             validate_item_transition(prev.status, incoming.status)?;
             if matches!(incoming.status, ItemStatus::InProgress | ItemStatus::Done) {
                 if !dependencies_satisfied(doc, &incoming) {
@@ -285,6 +287,16 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value
             let Some(mut incoming) = BoardItem::from_value(v) else {
                 continue;
             };
+            let empty_prev = BoardItem {
+                id: incoming.id.clone(),
+                title: incoming.title.clone(),
+                status: ItemStatus::Pending,
+                ..BoardItem::default()
+            };
+            let merged = merge_row_patch_with_warnings(&empty_prev, v);
+            incoming.validate_results = merged.row.validate_results;
+            incoming.extract_results = merged.row.extract_results;
+            warnings.extend(merged.warnings);
             if matches!(incoming.status, ItemStatus::InProgress | ItemStatus::Done) {
                 if !dependencies_satisfied(doc, &incoming) {
                     return Err(anyhow!(

@@ -581,7 +581,7 @@ Three turn shapes — pick **one** per round:
 **1. Action turn (default)**
 - **`verify_report` first** only when the newest history row shows **`verify: verifying`** (except first board-init round).
 - One root desktop tool with route-matched args.
-- Optional `task_board_patch` after report.
+- `task_board_patch` after report (same turn): **one** `validate_results` line for the step just verified; **one** row `done` max per patch — update during work, not in one final batch at the end.
 - **`content`:** milestone line encouraged; empty OK only for micro-steps.
 
 **2. Clarification turn (user must reply)**

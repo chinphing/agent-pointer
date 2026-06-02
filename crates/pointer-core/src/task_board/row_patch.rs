@@ -1,11 +1,19 @@
 //! Merge a patch JSON row into a stored [`BoardItem`] (v3 append semantics).
 
-use super::model::{
-    append_snippets_from_value, str_field, BoardItem, ItemStatus, RESULT_SNIPPET_MAX_CHARS,
-};
+use super::model::{str_field, BoardItem, ItemStatus, RESULT_SNIPPET_MAX_CHARS};
+use super::results_append::{append_results_incremental, append_warning_to_json};
 use serde_json::Value;
 
+pub struct RowPatchMerge {
+    pub row: BoardItem,
+    pub warnings: Vec<serde_json::Value>,
+}
+
 pub fn merge_row_patch(prev: &BoardItem, patch_v: &Value) -> BoardItem {
+    merge_row_patch_with_warnings(prev, patch_v).row
+}
+
+pub fn merge_row_patch_with_warnings(prev: &BoardItem, patch_v: &Value) -> RowPatchMerge {
     let mut row = prev.clone();
 
     if let Some(s) = patch_v.get("status").and_then(|x| x.as_str()) {
@@ -53,10 +61,28 @@ pub fn merge_row_patch(prev: &BoardItem, patch_v: &Value) -> BoardItem {
         row.blocked_by = Some(s);
     }
 
-    append_snippets_from_value(&mut row.validate_results, patch_v, "validate_results");
-    append_snippets_from_value(&mut row.extract_results, patch_v, "extract_results");
+    let mut warnings = Vec::new();
+    if patch_v.get("validate_results").is_some() {
+        let (list, wrn) =
+            append_results_incremental(&prev.validate_results, patch_v.get("validate_results"));
+        row.validate_results = list;
+        for w in wrn {
+            warnings.push(append_warning_to_json(&w, &row.id));
+        }
+    }
+    if patch_v.get("extract_results").is_some() {
+        let (list, wrn) =
+            append_results_incremental(&prev.extract_results, patch_v.get("extract_results"));
+        row.extract_results = list;
+        for w in wrn {
+            warnings.push(serde_json::json!({
+                "code": w.code.replace("validate_results", "extract_results"),
+                "item_id": row.id,
+            }));
+        }
+    }
 
-    row
+    RowPatchMerge { row, warnings }
 }
 
 pub fn compact_row_after_done(prev: &BoardItem, row: &mut BoardItem) {

@@ -6,6 +6,8 @@ Do not serialize tool calls as text or JSON wrappers.
 When this turn also updates `task_board`,
 call `verify_report` first (only when newest history row is `verify: verifying`) and `task_board_patch` second
 (first board-init round may omit report).
+Same turn: append **one** `validate_results` line on the **current** row per verified step.
+Mark **at most one** row `done` per patch when that row is complete; never batch many `done` rows in one patch at the end.
 
 ## Internal reasoning only (hard rule)
 

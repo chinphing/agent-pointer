@@ -295,6 +295,45 @@ mod apply_tests {
     }
 
     #[test]
+    fn validate_results_multiline_patch_dedupes_lines() {
+        let store = TaskBoardStore::new();
+        let key = "conv-dedup";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": [{"id": "1", "title": "A", "status": "in_progress"}]
+                }),
+            )
+            .expect("init");
+        store
+            .apply(
+                key,
+                "patch",
+                &json!({"item_id": "1", "validate_results": "1/10: a\n2/10: b"}),
+            )
+            .expect("p1");
+        let (body, _) = store
+            .apply(
+                key,
+                "patch",
+                &json!({"item_id": "1", "validate_results": "1/10: a\n2/10: b\n3/10: c"}),
+            )
+            .expect("p2");
+        let doc = store.document(key);
+        assert_eq!(doc.board[0].validate_results.len(), 3);
+        assert!(doc.board[0].validate_results[2].contains("3/10"));
+        let warnings = body["warnings"].as_array().expect("warnings");
+        assert!(warnings.iter().any(|w| {
+            w.get("code")
+                .and_then(|c| c.as_str())
+                == Some("validate_results_partial_dedup")
+        }));
+    }
+
+    #[test]
     fn v3_document_roundtrip() {
         let raw = json!({
             "version": 3,

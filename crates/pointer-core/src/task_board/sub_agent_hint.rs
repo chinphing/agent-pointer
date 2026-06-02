@@ -26,7 +26,8 @@ For single-file / narrow changes, skip init by default.
 Escalate to init if scope expands during exploration.",
         ),
         AgentProfile::Computer => Some(
-            "Complexity gate (computer): initialize task_board only when expected operation steps > 3.
+            "Complexity gate (computer): initialize task_board when expected operation steps > 3,
+or when the user task has more than 5 similar repetitive operations (enumerated targets or cycles).
 For <=3 deterministic steps, skip init by default.
 Escalate to init if retries or branching make the flow multi-step.",
         ),
@@ -44,9 +45,19 @@ fn main_agent_task_board_hint(profile: &AgentProfile) -> Option<String> {
     } else {
         ""
     };
-    let coder_rows = if matches!(profile, AgentProfile::Coder) {
+    let profile_rows = if matches!(profile, AgentProfile::Coder) {
         "Use **3-6** milestones in **`items`** when initialized, including **Impact scan**, **Implement**, and **Unit tests**.
 Each milestone: `plan`, `validate_requirement`, append `validate_results` when evidence exists.
+"
+    } else if matches!(profile, AgentProfile::Computer) {
+        "Use **3-6** milestones for normal GUI work.
+If the task has **more than 5** similar repetitive steps (enumerated targets or cycles):
+- split into **batched milestones** by range or phase, not one row for the full enumeration;
+- put the full enumeration in **`plan`** or **`extract_results`** once;
+- **during work:** after each verified step, `task_board_patch` the **current** row — append **one** `validate_results` line; update **`checkpoint`** as `progress=N/M`;
+- when a batch is complete, a **separate** patch sets **only that row** to **`done`** (one `done` per patch);
+- **never** save all `done` rows for one patch at the end.
+Set **`expected_total`** when the exhaustive count is known.
 "
     } else {
         "Use **3-6** concise milestones in **`items`** for normal multi-step work.
@@ -57,8 +68,8 @@ Each milestone: `plan`, `validate_requirement`, append `validate_results` when e
 Your task board is empty.
 {gate}
 If gate is met, initialize with **`task_board_init`**.
-{coder_rows}For exhaustive matrix/combinational goals, keep grouped milestones by interaction form.
-When milestone status changes, patch in the same turn; do not defer updates to final delivery.
+{profile_rows}For exhaustive matrix/combinational goals, keep grouped milestones by interaction form (never one milestone for all atomic cases).
+Patch progress during execution (each step), not only at final delivery.
 When all milestones are `done` or `cancelled`, call `finalize` before final delivery.
 {verify_order}User delivery goes in assistant **content**, not board prose fields.
 Keep board text compact."

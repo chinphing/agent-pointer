@@ -83,14 +83,19 @@ Summarize observable outcome in one short markdown line.
 ## Append rules
 
 - `validate_results`: pass a **string** (one snippet) or **string array** (several snippets). Host appends; never shortens history on patch.
-- `extract_results`: same append semantics.
-- Fine-grained progress: append `validate_results`; change `checkpoint` only when cycle/phase/next shifts.
+- **One line per step** — e.g. `3/10: <target> - <outcome>`. Do **not** re-paste earlier lines or full cumulative tables.
+- Host dedupes duplicate lines and drops redundant blocks (warnings: `validate_results_duplicate_*`, `validate_results_partial_dedup`).
+- `extract_results`: same append semantics (host dedupes lines the same way).
+- Fine-grained progress: append `validate_results`; change `checkpoint` only when cycle/phase/next shifts (`progress=N/M`).
 
 ## Core rules
 
 - If `[TASK_BOARD]` is empty and task is multi-step, call `init`.
-- `patch` should update the current task row first.
-- Mark `done` only after `validate_results` has evidence (or action tools ran).
+- `patch` should update the **current** task row only (one row per call).
+- **Report progress during execution** — not only when the whole job is finished.
+- Each turn that completes a step on the active row: `patch` in the **same turn** with **one** new `validate_results` line.
+- Do **not** batch many rows to `done` in a single patch at the end.
+- Mark `done` only after `validate_results` has evidence (or action tools ran); **at most one** row `done` per patch.
 - Keep 3-12 milestones for most tasks.
 - Child agents must not patch parent rows directly.
 - Finalize in the same turn as final user delivery.
@@ -99,9 +104,12 @@ Summarize observable outcome in one short markdown line.
 
 Computer (with `verify_report`):
 
-- Initialize when expected operation steps >3.
-- After init: `verify_report` (step) then `task_board_patch` (milestone).
-- On milestone done: append `validate_results`, then `status: done`.
+- Initialize when expected operation steps >3, or **>5** similar repetitive operations (enumerated targets or cycles).
+- For large enumerations: **3–6 batched milestones** (not one row for the full set); full set in `plan` or `extract_results`.
+- **Cadence:** `verify_report` (step) → `task_board_patch` (same turn): append **one** `validate_results` line for the step just verified; update `checkpoint=progress=N/M`.
+- While a batch row is `in_progress`: patch **every turn** that advances progress (do not wait until the batch ends).
+- When a batch row is complete: **one** patch with `status: done` for **that row only** (may include a short final line in `validate_results`).
+- **Never** defer all batch `done` updates to one patch after the full enumeration is finished.
 
 Engineering profiles:
 

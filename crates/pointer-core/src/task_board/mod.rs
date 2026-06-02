@@ -12,6 +12,7 @@ pub mod inject;
 pub mod observability;
 pub mod migrate;
 pub mod model;
+pub mod results_append;
 pub mod row_patch;
 pub mod persistence;
 pub mod snapshot;

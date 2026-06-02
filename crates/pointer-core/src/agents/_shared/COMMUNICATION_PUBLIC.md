@@ -102,21 +102,25 @@ Use the board for milestones—not a long plan in assistant message text only.
 - If the task is multi-step and **`[TASK_BOARD]`** is empty, initialize in the first round (single-step tasks may skip).
 - **Profile complexity gates override broad defaults** when they exist. For example:
   coder initializes when expected scope is >=2 files or cross-module;
-  computer initializes when expected operation steps >3.
+  computer initializes when expected operation steps >3, or when the task has **>5** similar repetitive operations (split into **3–6** batched milestones, not one row for the full enumeration).
 - Row **`status`**: `pending`, `ready`, `in_progress`, `done`, `cancelled`, `failed`. Respect **`depends_on`** (host may block until prerequisites are **`done`**).
 - **`[TASK_BOARD]`** in the injected runtime context is the **compact authoritative** snapshot; resume from it after history trim or restart.
-- **`task_board_patch`** should update only the current task id from **`[TASK_BOARD]`**.
-- Mark **`done`** only when the current task goal is already achieved in observable evidence. Do not mark **`done`** from intention.
-- If this turn starts work for that goal,
-  patch as **`in_progress`** (or skip `done`)
-  in this turn.
+- **`task_board_patch`** should update only the **current** row id from **`[TASK_BOARD]`** (one row focus per call).
+- **Live progress (during work, not at the end):**
+  - Update the board **while executing**, not only after all steps finish.
+  - Each turn that finishes a **measurable step** on the active milestone: call **`task_board_patch`** in the **same turn** — append **one** `validate_results` line for that step only.
+  - When **`progress=N/M`** changes, update **`checkpoint`** on the same or next patch.
+  - When you **start** a milestone, patch that row **`in_progress`** in the turn you begin it.
+  - Mark **`done`** for **at most one** row per **`task_board_patch`** call, only when that row's acceptance criteria are already met.
+  - **Forbidden:** one final patch that sets many rows to **`done`** with batch summaries after all work is complete.
+- Mark **`done`** only with observable evidence. Do not mark **`done`** from intention.
 - In native tool-calling mode, call **`task_board`**
   with the appropriate **`method`** when needed.
 - **Computer profile only** (when **`verify_report`** is allowed): after board **`init`**, use report-before-patch ordering:
   - first board-init round may omit **`verify_report`**;
-  - subsequent rounds: **`verify_report`** first, then **`task_board_patch`**.
+  - subsequent rounds: **`verify_report`** first, then **`task_board_patch`** on the **current** milestone (append step evidence; mark **`done`** only when that milestone is finished).
   Other profiles do **not** use **`verify_report`** for board updates.
-- Advance **at most one** meaningful milestone per turn unless the user widens scope. **Cancel** obsolete milestones instead of ignoring them.
+- **Cancel** obsolete milestones instead of ignoring them.
 - When **all** milestones are **`done`** or **`cancelled`**, call **`task_board_finalize`** before the final user-facing reply. Patching milestones to **`done`** does not replace **`finalize`**.
 - Keep task board text compact (short **`title`**, **`validate_requirement`**, append-only **`validate_results`**) to reduce prompt token overhead.
 - User-facing delivery belongs in assistant **`content`**, not board row fields.
@@ -125,10 +129,11 @@ Use the board for milestones—not a long plan in assistant message text only.
   Preferred default: interaction form
   (for example slider-trigger, point-select, popup).
 - For list-like goals, pick granularity by size:
-  - list size <= 8 with independent acceptance:
+  - list size <= 5 with independent acceptance:
     one item per row is acceptable;
-  - list size > 8 or repetitive items:
+  - list size > 5 or repetitive items:
     group by batch/type/phase and keep 3–8 milestones.
+  - **Computer:** batched milestones when >5; **patch after each verified step** while the batch row is **`in_progress`**; one **`validate_results` line per step**; mark that batch **`done`** in a **later** patch when the batch is complete (one **`done`** per patch).
 - In each grouped milestone, use v3 fields:
   `plan`, `checkpoint` (coarse position, update rarely),
   `validate_requirement` / `validate_results` (append evidence),

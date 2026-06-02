@@ -130,14 +130,36 @@ fn truncate_field(text: Option<&str>, max: usize) -> String {
     format!("{compact}…")
 }
 
+fn normalize_result_line(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Inject view: unique lines in order, then tail (hides cumulative duplicate blocks in storage).
 fn format_results_tail(results: &[String]) -> String {
     if results.is_empty() {
         return "n/a".to_string();
     }
-    let start = results.len().saturating_sub(RESULTS_TAIL_COUNT);
-    results[start..]
+    let mut seen = std::collections::HashSet::new();
+    let mut unique_lines: Vec<String> = Vec::new();
+    for entry in results {
+        for line in entry.lines() {
+            let t = line.trim();
+            if t.is_empty() {
+                continue;
+            }
+            let key = normalize_result_line(t);
+            if seen.insert(key) {
+                unique_lines.push(t.to_string());
+            }
+        }
+    }
+    if unique_lines.is_empty() {
+        return "n/a".to_string();
+    }
+    let start = unique_lines.len().saturating_sub(RESULTS_TAIL_COUNT);
+    unique_lines[start..]
         .iter()
-        .map(|s| format!("- {}", s.trim()))
+        .map(|s| format!("- {s}"))
         .collect::<Vec<_>>()
         .join("\n")
 }

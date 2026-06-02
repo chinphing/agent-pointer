@@ -23,7 +23,9 @@ Each turn:
    Never put Verify / Repetition / Next templates or internal checklists in message text.
    Use native tool calls only (no legacy JSON envelope fields).
    Add a **`verify_report`** call **only when** the newest history row is **`verify: verifying`**, using Verify **`Step result`** and Repetition **`Count`**; include **`failure_cause`** only when **`Step result=fail`**.
-   If `task_board` is used: first board-init round may omit report, otherwise always place `verify_report` before `task_board_patch`.
-   Use the report to close the previous milestone first, then move the next milestone to `in_progress`/`ready`.
+   If `task_board` is used: first board-init round may omit report; otherwise `verify_report` then `task_board_patch` in the **same turn**.
+   After each verified step on the **current** milestone: patch **one** `validate_results` line (do not wait until the batch ends).
+   Mark a row `done` only when that row is finished — **one** `done` per patch; never batch many `done` rows in one final patch.
+   When advancing to the next milestone, patch the previous row `done` first, then the next row `in_progress`.
 
 No advanced seven-stage Location/Recheck blocks at this tier.

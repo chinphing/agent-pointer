@@ -17,12 +17,30 @@ tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 pointer-core = { path = "../crates/pointer-core" }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["sync", "time"] }
 log = "0.4"
 env_logger = "0.11"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSButton"] }
+objc2-app-kit = { version = "0.3", features = [
+  "NSWindow",
+  "NSView",
+  "NSButton",
+  "NSPanel",
+  "NSImage",
+  "NSImageView",
+  "NSTextField",
+  "NSScreen",
+  "NSWorkspace",
+  "NSDragging",
+  "NSDraggingItem",
+  "NSDraggingSession",
+  "NSEvent",
+  "NSPasteboard",
+  "NSColor",
+] }
 objc2-foundation = "0.3"

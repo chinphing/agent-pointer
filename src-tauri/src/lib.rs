@@ -1,5 +1,9 @@
 mod commands;
 #[cfg(target_os = "macos")]
+mod macos_computer_permissions;
+#[cfg(target_os = "macos")]
+mod macos_permission_commands;
+#[cfg(target_os = "macos")]
 mod macos_traffic_lights;
 mod platform_commands;
 
@@ -172,6 +176,14 @@ pub fn run() {
             platform_commands::flush_platform_token_usage,
             platform_commands::load_platform_session_persisted,
             platform_commands::load_platform_session_from_keyring,
+            #[cfg(target_os = "macos")]
+            macos_permission_commands::get_macos_computer_permissions,
+            #[cfg(target_os = "macos")]
+            macos_permission_commands::open_macos_computer_permission_settings,
+            #[cfg(target_os = "macos")]
+            macos_permission_commands::begin_macos_permission_drag_flow,
+            #[cfg(target_os = "macos")]
+            macos_permission_commands::dismiss_macos_permission_drag_guide,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

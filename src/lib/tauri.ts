@@ -130,6 +130,26 @@ export async function setComputerConversationMonitor(conversationId: string, mon
   })
 }
 
+export type { MacosComputerPermissionsStatus } from '../types/macosPermissions'
+
+export async function getMacosComputerPermissions(): Promise<import('../types/macosPermissions').MacosComputerPermissionsStatus> {
+  return await invoke('get_macos_computer_permissions')
+}
+
+export type MacosPermissionDragKind = 'screenRecording' | 'accessibility'
+
+export async function openMacosComputerPermissionSettings(kind: MacosPermissionDragKind): Promise<void> {
+  await invoke('open_macos_computer_permission_settings', { kind })
+}
+
+export async function beginMacosPermissionDragFlow(kind: MacosPermissionDragKind): Promise<void> {
+  await invoke('begin_macos_permission_drag_flow', { kind })
+}
+
+export async function dismissMacosPermissionDragGuide(): Promise<void> {
+  await invoke('dismiss_macos_permission_drag_guide')
+}
+
 export async function loadConversations(): Promise<Conversation[]> {
   return await invoke<Conversation[]>('load_conversations')
 }

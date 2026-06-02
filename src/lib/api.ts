@@ -56,6 +56,10 @@ export interface RuntimeApi {
   previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview>
   listComputerMonitors(): Promise<ComputerMonitor[]>
   setComputerConversationMonitor(conversationId: string, monitorId: string | null): Promise<void>
+  getMacosComputerPermissions?(): Promise<import('../types/macosPermissions').MacosComputerPermissionsStatus>
+  openMacosComputerPermissionSettings?(kind: import('./tauri').MacosPermissionDragKind): Promise<void>
+  beginMacosPermissionDragFlow?(kind: import('./tauri').MacosPermissionDragKind): Promise<void>
+  dismissMacosPermissionDragGuide?(): Promise<void>
 
   loadConversations(): Promise<Conversation[]>
   saveConversations(conversations: Conversation[]): Promise<void>
@@ -85,6 +89,32 @@ export const previewComputerAnnotatedScreen = api.previewComputerAnnotatedScreen
 export const previewComputerRoundScreen = api.previewComputerRoundScreen
 export const listComputerMonitors = api.listComputerMonitors
 export const setComputerConversationMonitor = api.setComputerConversationMonitor
+
+const macosPermsOk = (): import('../types/macosPermissions').MacosComputerPermissionsStatus => ({
+  screenRecording: true,
+  screenRecordingPreflight: true,
+  accessibility: true,
+  appBundlePath: '',
+  executablePath: '',
+  bundleId: '',
+  runningFromAppBundle: false
+})
+
+export const getMacosComputerPermissions = isTauriRuntime()
+  ? tauriApi.getMacosComputerPermissions
+  : async () => macosPermsOk()
+
+export const openMacosComputerPermissionSettings = isTauriRuntime()
+  ? tauriApi.openMacosComputerPermissionSettings
+  : async () => {}
+
+export const beginMacosPermissionDragFlow = isTauriRuntime()
+  ? tauriApi.beginMacosPermissionDragFlow
+  : async () => {}
+
+export const dismissMacosPermissionDragGuide = isTauriRuntime()
+  ? tauriApi.dismissMacosPermissionDragGuide
+  : async () => {}
 
 export const loadConversations = api.loadConversations
 export const saveConversations = api.saveConversations

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Pointer 需要录制屏幕，以便电脑操控智能体查看并操作您的屏幕。</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Pointer 可能需要控制其他应用，以完成电脑操控任务。</string>
+</dict>
+</plist>

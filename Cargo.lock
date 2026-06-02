@@ -4351,12 +4351,14 @@ dependencies = [
 name = "pointer-app"
 version = "0.1.0"
 dependencies = [
+ "core-foundation 0.10.1",
  "env_logger",
  "log",
  "objc2 0.6.4",
  "objc2-app-kit",
  "objc2-foundation",
  "pointer-core",
+ "serde",
  "serde_json",
  "tauri",
  "tauri-build",

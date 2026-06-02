@@ -18,3 +18,5 @@ pub fn run_synthetic_input<R: Send, F: FnOnce() -> R + Send>(f: F) -> R {
 
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+pub mod macos_permissions;

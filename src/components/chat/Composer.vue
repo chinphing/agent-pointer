@@ -10,12 +10,15 @@ import { iconForAgent, sortComposerAgents, TEAM_MODE_UI_ENABLED } from '../../li
 import type { AgentDef, ComputerMonitor } from '../../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../../types/chat'
 import {
+  getMacosComputerPermissions,
   listAgents,
   listComputerMonitors,
   setComputerConversationMonitor
 } from '../../lib/api'
+import { detectDesktopOs } from '../../lib/desktopOs'
 import { isTauriRuntime } from '../../lib/runtime'
 import ComputerScreenPickerModal from './ComputerScreenPickerModal.vue'
+import MacosComputerPermissionsModal from './MacosComputerPermissionsModal.vue'
 import WorkspaceRequiredModal from './WorkspaceRequiredModal.vue'
 
 const chat = useChatStore()
@@ -76,6 +79,10 @@ function isLeadAgentSelected(agentId: string): boolean {
 
 const showComputerMonitorPicker = computed(
   () => settings.settings.agentMode === 'single' && leadUi.value.showComputerMonitorPicker
+)
+
+const isMacDesktop = computed(
+  () => isTauriRuntime() && detectDesktopOs() === 'macos'
 )
 
 const needsWorkspace = computed(
@@ -190,6 +197,7 @@ function send() {
 }
 
 const showScreenPicker = ref(false)
+const showPermissionsModal = ref(false)
 const showWorkspaceRequiredModal = ref(false)
 const screenPickerLoading = ref(false)
 const screenPickerError = ref<string | null>(null)
@@ -200,6 +208,21 @@ async function sendWithOptionalComputerScreenPick() {
   const conv = chat.current || chat.newConversation()
   const v = text.value
   if (!v.trim()) return
+
+  if (showComputerMonitorPicker.value && isMacDesktop.value) {
+    try {
+      const perms = await getMacosComputerPermissions()
+      if (!perms.screenRecording || !perms.accessibility) {
+        pendingSendText.value = v
+        showPermissionsModal.value = true
+        return
+      }
+    } catch (e: unknown) {
+      pendingSendText.value = v
+      showPermissionsModal.value = true
+      return
+    }
+  }
 
   if (showComputerMonitorPicker.value) {
     try {
@@ -235,6 +258,14 @@ async function sendWithOptionalComputerScreenPick() {
   nextTick(() => {
     if (textareaRef.value) textareaRef.value.style.height = 'auto'
   })
+}
+
+async function onPermissionsReady() {
+  const v = pendingSendText.value
+  if (!v) return
+  pendingSendText.value = null
+  text.value = v
+  send()
 }
 
 async function onPickScreen(monitorId: string) {
@@ -322,6 +353,12 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <MacosComputerPermissionsModal
+    v-if="isMacDesktop"
+    v-model:open="showPermissionsModal"
+    @ready="onPermissionsReady"
+  />
+
   <ComputerScreenPickerModal
     v-model:open="showScreenPicker"
     :monitors="screenPickerMonitors"

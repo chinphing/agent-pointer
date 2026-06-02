@@ -8,14 +8,16 @@
 
 | 权限 | 检测 API | 用户操作 |
 |------|----------|----------|
-| 屏幕录制 | `CGPreflightScreenCaptureAccess` | 打开「屏幕录制」设置页 + **原生浮动面板**：拖拽 Pointer 图标到列表 |
-| 辅助功能 | `AXIsProcessTrusted` | 打开「辅助功能」设置页 + **原生浮动面板**：拖拽 Pointer 图标到列表 |
+| 辅助功能（第 1 步，鼠标/键盘） | `AXIsProcessTrusted` | 打开「辅助功能」设置页 + **原生浮动面板**：拖拽 Pointer 图标到列表 |
+| 屏幕录制（第 2 步） | `CGPreflightScreenCaptureAccess` | 打开「屏幕录制」设置页 + **原生浮动面板**：拖拽 Pointer 图标到列表 |
 
 辅助功能无法完全在应用内勾选，拖拽 `.app` 到系统设置列表是 macOS 标准授权方式。
 
-检测逻辑：`CGPreflightScreenCaptureAccess` 在设置里已启用时仍可能返回 false（macOS 已知现象）。因此 **屏幕录制** 在 preflight 为 false 时会再做一次 **真实截图探测**（`xcap`）；探测成功即视为已授权。
+检测逻辑：仅 **`CGPreflightScreenCaptureAccess`**。进入向导**第 2 步（屏幕录制）**时调用一次 **`CGRequestScreenCaptureAccess`**，将当前进程登记进「屏幕录制」列表（不替代 preflight 检测）。设置里已启用时 preflight 仍可能返回 false（macOS 已知现象）。
 
-若设置里已启用但长时间不进入下一步：请从 **应用程序文件夹** 里的 Pointer.app 启动（不要从 DMG 卷内直接打开），或完全退出后重新打开。辅助功能偶发需重启后 `AXIsProcessTrusted` 才变 true。
+**不要用 xcap 截图成功判断授权**：无 TCC 时仍可 `capture_image()` 得到非空图，但通常只有壁纸/空白桌面、不含其他 App 窗口，会造成假阳性。
+
+若设置里已启用但长时间不进入下一步：请从 **应用程序文件夹** 里的 Pointer.app 启动（不要从 DMG 卷内直接打开），或完全退出后重新打开；向导提供「先进入下一步」/「仍要继续」兜底。辅助功能偶发需重启后 `AXIsProcessTrusted` 才变 true。
 
 ## 实现位置
 

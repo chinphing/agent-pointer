@@ -70,7 +70,7 @@ impl PermissionKind {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MacosComputerPermissionsStatus {
-    /// Effective permission (preflight and/or live capture probe).
+    /// Effective permission (`CGPreflightScreenCaptureAccess`; same as preflight today).
     pub screen_recording: bool,
     /// `CGPreflightScreenCaptureAccess` only; may be false while Settings shows enabled.
     pub screen_recording_preflight: bool,

@@ -104,6 +104,10 @@ export const getMacosComputerPermissions = isTauriRuntime()
   ? tauriApi.getMacosComputerPermissions
   : async () => macosPermsOk()
 
+export const registerMacosScreenRecordingAccess = isTauriRuntime()
+  ? tauriApi.registerMacosScreenRecordingAccess
+  : async () => {}
+
 export const openMacosComputerPermissionSettings = isTauriRuntime()
   ? tauriApi.openMacosComputerPermissionSettings
   : async () => {}

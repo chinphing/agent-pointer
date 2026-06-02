@@ -177,6 +177,8 @@ pub fn run() {
             platform_commands::load_platform_session_persisted,
             platform_commands::load_platform_session_from_keyring,
             #[cfg(target_os = "macos")]
+            macos_permission_commands::register_macos_screen_recording_access,
+            #[cfg(target_os = "macos")]
             macos_permission_commands::get_macos_computer_permissions,
             #[cfg(target_os = "macos")]
             macos_permission_commands::open_macos_computer_permission_settings,

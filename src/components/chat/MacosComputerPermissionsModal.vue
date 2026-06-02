@@ -6,8 +6,13 @@ import type { MacosPermissionDragKind } from '../../lib/tauri'
 import {
   beginMacosPermissionDragFlow,
   dismissMacosPermissionDragGuide,
-  getMacosComputerPermissions
-} from '../../lib/tauri'
+  getMacosComputerPermissions,
+  registerMacosScreenRecordingAccess
+} from '../../lib/api'
+import {
+  clearMacosComputerPermissionsUserAck,
+  setMacosComputerPermissionsUserAck
+} from '../../lib/macosPermissionsSession'
 
 const open = defineModel<boolean>('open', { required: true })
 
@@ -17,97 +22,127 @@ const emit = defineEmits<{
 
 const STEPS = [
   {
-    id: 'screenRecording' as MacosPermissionDragKind,
-    title: '屏幕录制',
-    icon: Monitor
-  },
-  {
     id: 'accessibility' as MacosPermissionDragKind,
     title: '辅助功能',
     icon: Keyboard
+  },
+  {
+    id: 'screenRecording' as MacosPermissionDragKind,
+    title: '屏幕录制',
+    icon: Monitor
   }
 ] as const
+
+const MANUAL_FALLBACK_DELAY_MS = 5000
 
 const status = ref<MacosComputerPermissionsStatus | null>(null)
 const busy = ref(false)
 const error = ref<string | null>(null)
 const activeDragKind = ref<MacosPermissionDragKind | null>(null)
-const waitingHint = ref<string | null>(null)
+const dragStarted = ref<Set<MacosPermissionDragKind>>(new Set())
+const showManualFallback = ref<Set<MacosPermissionDragKind>>(new Set())
+/** Wizard progress when user confirms drag but API still false */
+const acknowledged = ref<Set<MacosPermissionDragKind>>(new Set())
 
-const screenDone = computed(() => status.value?.screenRecording === true)
-const accessibilityDone = computed(() => status.value?.accessibility === true)
-const allDone = computed(() => screenDone.value && accessibilityDone.value)
+const screenGranted = computed(() => status.value?.screenRecording === true)
+const accessibilityGranted = computed(() => status.value?.accessibility === true)
+
+function stepSystemGranted(id: MacosPermissionDragKind): boolean {
+  return id === 'screenRecording' ? screenGranted.value : accessibilityGranted.value
+}
+
+function stepWizardDone(id: MacosPermissionDragKind): boolean {
+  return stepSystemGranted(id) || acknowledged.value.has(id)
+}
+
+const allGranted = computed(
+  () => screenGranted.value && accessibilityGranted.value
+)
+const allWizardDone = computed(() => STEPS.every(s => stepWizardDone(s.id)))
 
 const completedCount = computed(
-  () => (screenDone.value ? 1 : 0) + (accessibilityDone.value ? 1 : 0)
+  () => STEPS.filter(s => stepWizardDone(s.id)).length
 )
 
 const progressPct = computed(() => (completedCount.value / 2) * 100)
 
 const currentStepId = computed<MacosPermissionDragKind | 'done'>(() => {
-  if (!screenDone.value) return 'screenRecording'
-  if (!accessibilityDone.value) return 'accessibility'
+  for (const s of STEPS) {
+    if (!stepWizardDone(s.id)) return s.id
+  }
   return 'done'
 })
 
 function stepState(id: MacosPermissionDragKind): 'done' | 'active' | 'pending' {
-  if (id === 'screenRecording') {
-    if (screenDone.value) return 'done'
-    if (currentStepId.value === 'screenRecording') return 'active'
-    return 'pending'
-  }
-  if (accessibilityDone.value) return 'done'
-  if (currentStepId.value === 'accessibility') return 'active'
+  if (stepWizardDone(id)) return 'done'
+  if (currentStepId.value === id) return 'active'
   return 'pending'
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
-let waitingTimer: ReturnType<typeof setTimeout> | null = null
+let manualFallbackTimer: ReturnType<typeof setTimeout> | null = null
 
-function clearWaitingTimer() {
-  if (waitingTimer) {
-    clearTimeout(waitingTimer)
-    waitingTimer = null
+function clearManualFallbackTimer() {
+  if (manualFallbackTimer) {
+    clearTimeout(manualFallbackTimer)
+    manualFallbackTimer = null
   }
 }
 
-function scheduleWaitingHint(kind: MacosPermissionDragKind) {
-  clearWaitingTimer()
-  waitingTimer = setTimeout(() => {
-    if (activeDragKind.value !== kind) return
-    const granted =
-      kind === 'screenRecording' ? screenDone.value : accessibilityDone.value
-    if (granted) return
-    const preflight = status.value?.screenRecordingPreflight
-    const effective = kind === 'screenRecording' ? screenDone.value : accessibilityDone.value
-    if (effective) return
-    if (kind === 'screenRecording' && preflight === false) {
-      waitingHint.value =
-        '系统设置里若已启用仍停在此步：正在用截图检测权限。若超过 10 秒仍无反应，请完全退出 Pointer 后从「应用程序」重新打开（勿从 DMG 内双击）。'
-    } else if (kind === 'accessibility') {
-      waitingHint.value =
-        '辅助功能在设置里已启用后，有时需完全退出并重新打开 Pointer 才会生效。'
-    }
-  }, 6000)
+function hideManualFallbackFor(id: MacosPermissionDragKind) {
+  if (!showManualFallback.value.has(id)) return
+  showManualFallback.value = new Set([...showManualFallback.value].filter(k => k !== id))
+}
+
+function scheduleManualFallback(kind: MacosPermissionDragKind) {
+  clearManualFallbackTimer()
+  hideManualFallbackFor(kind)
+  manualFallbackTimer = setTimeout(() => {
+    manualFallbackTimer = null
+    if (stepSystemGranted(kind)) return
+    if (stepState(kind) !== 'active') return
+    showManualFallback.value = new Set([...showManualFallback.value, kind])
+  }, MANUAL_FALLBACK_DELAY_MS)
+}
+
+function showSkipFallback(id: MacosPermissionDragKind): boolean {
+  return (
+    stepState(id) === 'active' &&
+    dragStarted.value.has(id) &&
+    showManualFallback.value.has(id) &&
+    !stepSystemGranted(id)
+  )
+}
+
+function showDetectingHint(id: MacosPermissionDragKind): boolean {
+  return (
+    stepState(id) === 'active' &&
+    dragStarted.value.has(id) &&
+    !showManualFallback.value.has(id) &&
+    !stepSystemGranted(id)
+  )
 }
 
 async function refresh() {
-  const wasScreen = screenDone.value
-  const wasA11y = accessibilityDone.value
+  const wasScreen = screenGranted.value
+  const wasA11y = accessibilityGranted.value
   try {
     status.value = await getMacosComputerPermissions()
     error.value = null
 
-    const screenJustGranted = !wasScreen && screenDone.value
-    const a11yJustGranted = !wasA11y && accessibilityDone.value
+    if (wasScreen === false && screenGranted.value) hideManualFallbackFor('screenRecording')
+    if (wasA11y === false && accessibilityGranted.value) hideManualFallbackFor('accessibility')
+
+    const screenJustGranted = !wasScreen && screenGranted.value
+    const a11yJustGranted = !wasA11y && accessibilityGranted.value
     if (screenJustGranted || a11yJustGranted) {
-      waitingHint.value = null
-      clearWaitingTimer()
+      clearManualFallbackTimer()
       activeDragKind.value = null
       await dismissMacosPermissionDragGuide().catch(() => {})
     }
 
-    if (allDone.value) {
+    if (allGranted.value) {
+      clearMacosComputerPermissionsUserAck()
       stopPoll()
     }
   } catch (e: unknown) {
@@ -132,22 +167,41 @@ function close() {
 }
 
 async function onLater() {
-  clearWaitingTimer()
-  waitingHint.value = null
+  clearManualFallbackTimer()
   await dismissMacosPermissionDragGuide().catch(() => {})
   activeDragKind.value = null
   close()
 }
 
+async function onManualComplete(kind: MacosPermissionDragKind) {
+  busy.value = true
+  error.value = null
+  try {
+    await refresh()
+    if (!stepSystemGranted(kind)) {
+      acknowledged.value = new Set([...acknowledged.value, kind])
+    }
+    clearManualFallbackTimer()
+    hideManualFallbackFor(kind)
+    activeDragKind.value = null
+    await dismissMacosPermissionDragGuide().catch(() => {})
+  } catch (e: unknown) {
+    error.value = String((e as Error)?.message || e)
+  } finally {
+    busy.value = false
+  }
+}
+
 async function onDragGrant(kind: MacosPermissionDragKind) {
   busy.value = true
   error.value = null
-  waitingHint.value = null
   activeDragKind.value = kind
+  dragStarted.value = new Set([...dragStarted.value, kind])
+  hideManualFallbackFor(kind)
   try {
     await beginMacosPermissionDragFlow(kind)
     startPoll()
-    scheduleWaitingHint(kind)
+    scheduleManualFallback(kind)
   } catch (e: unknown) {
     error.value = String((e as Error)?.message || e)
     activeDragKind.value = null
@@ -157,7 +211,12 @@ async function onDragGrant(kind: MacosPermissionDragKind) {
 }
 
 function onContinue() {
-  if (!allDone.value) return
+  if (!allWizardDone.value) return
+  if (allGranted.value) {
+    clearMacosComputerPermissionsUserAck()
+  } else {
+    setMacosComputerPermissionsUserAck(true)
+  }
   emit('ready')
   close()
 }
@@ -166,18 +225,30 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') void onLater()
 }
 
+watch(currentStepId, id => {
+  if (!open.value || id !== 'screenRecording' || screenGranted.value) return
+  void registerMacosScreenRecordingAccess().catch(() => {})
+})
+
 watch(
   open,
   v => {
     if (v) {
       document.addEventListener('keydown', onKeydown)
-      void refresh().then(() => startPoll())
+      void refresh().then(() => {
+        if (currentStepId.value === 'screenRecording' && !screenGranted.value) {
+          void registerMacosScreenRecordingAccess().catch(() => {})
+        }
+        startPoll()
+      })
     } else {
       document.removeEventListener('keydown', onKeydown)
       stopPoll()
-      clearWaitingTimer()
-      waitingHint.value = null
+      clearManualFallbackTimer()
       activeDragKind.value = null
+      dragStarted.value = new Set()
+      showManualFallback.value = new Set()
+      acknowledged.value = new Set()
       void dismissMacosPermissionDragGuide().catch(() => {})
     }
   },
@@ -186,7 +257,7 @@ watch(
 
 onUnmounted(() => {
   stopPoll()
-  clearWaitingTimer()
+  clearManualFallbackTimer()
   document.removeEventListener('keydown', onKeydown)
 })
 </script>
@@ -237,13 +308,6 @@ onUnmounted(() => {
             {{ error }}
           </div>
 
-          <div
-            v-if="waitingHint && activeDragKind"
-            class="rounded-lg border border-accent/25 bg-accent/5 px-3 py-2 text-[12px] text-foreground leading-relaxed"
-          >
-            {{ waitingHint }}
-          </div>
-
           <ul class="space-y-2" aria-label="授权步骤">
             <li
               v-for="(s, idx) in STEPS"
@@ -275,31 +339,70 @@ onUnmounted(() => {
                 <span class="text-sm font-medium text-foreground flex-1">{{ s.title }}</span>
                 <span
                   v-if="stepState(s.id) === 'done'"
-                  class="text-[11px] text-success"
-                >完成</span>
+                  class="text-[11px] text-success shrink-0"
+                >{{ stepSystemGranted(s.id) ? '完成' : '已确认' }}</span>
               </div>
 
               <template v-if="stepState(s.id) === 'active'">
-                <p class="text-[12px] text-muted mt-2 pl-10">
-                  点击按钮后，将左侧浮动卡片中的图标拖到系统设置列表（保持启用）。
-                </p>
-                <button
-                  type="button"
-                  class="mt-2.5 ml-10 mr-0 w-[calc(100%-2.5rem)] h-9 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50"
-                  :disabled="busy"
-                  @click="onDragGrant(s.id)"
-                >
-                  {{ busy && activeDragKind === s.id ? '正在打开设置…' : '打开设置并拖拽' }}
-                </button>
+                <div class="mt-3 pt-3 border-t border-border/50 space-y-2.5">
+                  <p class="text-[12px] text-muted leading-relaxed">
+                    点击按钮后，将左侧浮动卡片中的图标拖到系统设置列表，并保持启用。
+                  </p>
+                  <button
+                    type="button"
+                    class="w-full h-9 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 disabled:opacity-50"
+                    :disabled="busy"
+                    @click="onDragGrant(s.id)"
+                  >
+                    {{ busy && activeDragKind === s.id ? '正在打开设置…' : '打开设置并拖拽' }}
+                  </button>
+                  <p
+                    v-if="showDetectingHint(s.id)"
+                    class="text-[11px] text-muted text-center"
+                  >
+                    正在检测授权…
+                  </p>
+                  <div
+                    v-if="showSkipFallback(s.id)"
+                    class="rounded-lg border border-dashed border-border bg-muted/5 px-3 py-2.5 space-y-2"
+                  >
+                    <p class="text-[11px] leading-snug">
+                      <span class="font-medium text-accent">我已操作，但系统未检测到已授权</span>
+                    </p>
+                    <p class="text-[11px] text-muted leading-snug">
+                      完全退出 Pointer 后从「应用程序」重新打开，检测通常会通过；也可先进入下一步继续设置。
+                    </p>
+                    <p
+                      v-if="status && !status.runningFromAppBundle"
+                      class="text-[10px] text-muted leading-snug break-all"
+                    >
+                      当前为开发运行路径，请在系统设置中授权此可执行文件，或使用打包后的 Pointer.app。
+                    </p>
+                    <button
+                      type="button"
+                      class="w-full h-8 rounded-md border border-border bg-card text-[13px] text-foreground hover:bg-hover cursor-pointer disabled:opacity-50"
+                      :disabled="busy"
+                      @click="onManualComplete(s.id)"
+                    >
+                      先进入下一步
+                    </button>
+                  </div>
+                </div>
               </template>
             </li>
           </ul>
 
           <p
-            v-if="allDone"
+            v-if="allGranted"
             class="text-[13px] text-success text-center py-1"
           >
             权限已就绪
+          </p>
+          <p
+            v-else-if="allWizardDone && !allGranted"
+            class="text-[13px] text-muted text-center py-1 leading-relaxed"
+          >
+            步骤已确认，系统尚未全部通过。可点「仍要继续」发消息；操控异常请重启应用。
           </p>
         </div>
 
@@ -312,12 +415,12 @@ onUnmounted(() => {
             稍后再说
           </button>
           <button
-            v-if="allDone"
+            v-if="allWizardDone"
             type="button"
             class="h-8 px-4 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95"
             @click="onContinue"
           >
-            继续
+            {{ allGranted ? '继续' : '仍要继续' }}
           </button>
         </footer>
       </div>

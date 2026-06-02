@@ -16,7 +16,12 @@ import {
   setComputerConversationMonitor
 } from '../../lib/api'
 import { detectDesktopOs } from '../../lib/desktopOs'
+import {
+  clearMacosComputerPermissionsUserAck,
+  hasMacosComputerPermissionsUserAck
+} from '../../lib/macosPermissionsSession'
 import { isTauriRuntime } from '../../lib/runtime'
+import type { MacosComputerPermissionsStatus } from '../../types/macosPermissions'
 import ComputerScreenPickerModal from './ComputerScreenPickerModal.vue'
 import MacosComputerPermissionsModal from './MacosComputerPermissionsModal.vue'
 import WorkspaceRequiredModal from './WorkspaceRequiredModal.vue'
@@ -204,6 +209,14 @@ const screenPickerError = ref<string | null>(null)
 const screenPickerMonitors = ref<ComputerMonitor[]>([])
 const pendingSendText = ref<string | null>(null)
 
+function macosComputerPermissionsAllowSend(perms: MacosComputerPermissionsStatus): boolean {
+  if (perms.screenRecording && perms.accessibility) {
+    clearMacosComputerPermissionsUserAck()
+    return true
+  }
+  return hasMacosComputerPermissionsUserAck()
+}
+
 async function sendWithOptionalComputerScreenPick() {
   const conv = chat.current || chat.newConversation()
   const v = text.value
@@ -212,7 +225,7 @@ async function sendWithOptionalComputerScreenPick() {
   if (showComputerMonitorPicker.value && isMacDesktop.value) {
     try {
       const perms = await getMacosComputerPermissions()
-      if (!perms.screenRecording || !perms.accessibility) {
+      if (!macosComputerPermissionsAllowSend(perms)) {
         pendingSendText.value = v
         showPermissionsModal.value = true
         return

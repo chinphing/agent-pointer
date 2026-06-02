@@ -136,6 +136,11 @@ export async function getMacosComputerPermissions(): Promise<import('../types/ma
   return await invoke('get_macos_computer_permissions')
 }
 
+/** Register current process in Screen Recording settings (call when permission wizard opens). */
+export async function registerMacosScreenRecordingAccess(): Promise<void> {
+  await invoke('register_macos_screen_recording_access')
+}
+
 export type MacosPermissionDragKind = 'screenRecording' | 'accessibility'
 
 export async function openMacosComputerPermissionSettings(kind: MacosPermissionDragKind): Promise<void> {

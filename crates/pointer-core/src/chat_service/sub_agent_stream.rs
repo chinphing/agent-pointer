@@ -96,6 +96,7 @@ pub(super) async fn run_sub_agent_stream_round(
         &mut llm_recorder,
         stream,
         &mut buffers,
+        cancel.clone(),
     )
     .await;
     session_content.push_str(&buffers.raw_content_buf);

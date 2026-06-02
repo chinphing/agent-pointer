@@ -6,6 +6,7 @@ use crate::models::{StreamEvent, ToolCall};
 use crate::provider::ProviderEvent;
 use crate::tools::parse_tool_call_arguments;
 use std::collections::HashSet;
+use tokio_util::sync::CancellationToken;
 
 use super::app_state::AppState;
 use super::emit::{emit, trace_id_opt};
@@ -91,6 +92,7 @@ pub(super) async fn drain_provider_events(
     llm_recorder: &mut LlmRoundRecorder<'_>,
     stream: &StreamTx,
     buffers: &mut StreamRoundBuffers,
+    cancel: CancellationToken,
 ) {
     let sub_trace_id = match &content_mode {
         ContentDeltaMode::LeadMessage { .. } => None,
@@ -98,7 +100,14 @@ pub(super) async fn drain_provider_events(
     };
     let mut streamed_tool_call_ids: HashSet<String> = HashSet::new();
 
-    while let Some(ev) = rx.recv().await {
+    loop {
+        let ev = tokio::select! {
+            ev = rx.recv() => ev,
+            _ = cancel.cancelled() => None,
+        };
+        let Some(ev) = ev else {
+            break;
+        };
         match ev {
             ProviderEvent::ContentDelta(delta) => {
                 buffers.raw_content_buf.push_str(&delta);

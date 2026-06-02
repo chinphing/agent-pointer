@@ -93,6 +93,7 @@ pub(super) async fn run_provider_stream_round(
         &mut llm_recorder,
         &stream,
         &mut buffers,
+        cancel.clone(),
     )
     .await;
 

@@ -550,6 +550,16 @@ async fn compress_history_inner(
         }
     };
 
+    // 如果用户已取消，不要继续修改历史
+    if cancel.is_cancelled() {
+        log::info!(
+            "context_compress: cancelled after LLM summary, aborting splice conversation_id={} wall_ms={}",
+            conversation_id,
+            wall.elapsed().as_millis()
+        );
+        return false;
+    }
+
     let summary_msg = new_summary_user_message(summary_body);
     for m in history.iter_mut().take(split) {
         if crate::message_context::is_synthetic_user_content(&m.content) {

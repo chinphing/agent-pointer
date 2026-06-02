@@ -89,6 +89,16 @@ pub(crate) async fn run_sub_agent(
     loop {
         if cancel.is_cancelled() {
             state.computer_state.mark_cancelled(conversation_id);
+            let toast_msg = if def.profile == AgentProfile::Computer {
+                "计算机操作已取消"
+            } else {
+                "子 Agent 已停止"
+            };
+            let _ = stream.send(StreamEvent::UiToast {
+                conversation_id: conversation_id.to_string(),
+                message: toast_msg.to_string(),
+                level: "warning".to_string(),
+            });
             return Err(anyhow!("已停止生成"));
         }
 

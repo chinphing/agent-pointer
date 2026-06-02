@@ -31,7 +31,7 @@ Use for **external** facts: API docs, release notes, news, prices, weather, libr
 
 #### Parameters
 
-- **`query`** — Required. A **self-contained search brief** (sent as the user message).
+- **`query`** — Required. A **self-contained search brief** (sent as the user message). Unless the user explicitly specified a year, always incorporate the current year from `[Environment]` → `Local date` into the query — never use a year from training data or assume a default.
 - **`searchStrategy`** — Optional. Default **`pro_max`**. Also accepts `max`, `turbo`. Alias **`search_strategy`**.
 - **`enableThinking`** — Optional. Default **`false`**. Alias **`enable_thinking`**.
 - **`forcedSearch`** — Optional. Force web search. Alias **`forced_search`**.
@@ -64,3 +64,4 @@ While running, the UI shows **sources** as soon as search completes, then **answ
 - **Multiple searches** in the same user turn: each call shifts indices by **`citationBaseIndex`** — **`[N]`** stays unique across calls; concatenate all **`sourcesForReply`** under one **`## Sources`** (dedupe URLs if needed).
 - **Do not** paste plain titles without **`N.`** or without markdown links.
 - **Do not** rebuild Sources from **`sources[]`** by hand — use **`sourcesForReply`** (or merge per **`multiSearchGuide`**).
+- **Date anchoring:** When the user asks for "latest", "recent", "current", or similar without specifying a year, incorporate the current year from `[Environment]` → `Local date` into the query. For instance, if the user asks for "latest release notes" while the local date carries year 2026, append `2026` as a keyword — do not use an earlier year from training data.

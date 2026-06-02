@@ -59,7 +59,7 @@ pub(super) async fn run_single_agent_loop(
     if lead_profile == AgentProfile::Computer {
         state
             .computer_state
-            .reset_give_up_for_new_turn(conversation_id);
+            .reset_for_new_user_guidance(conversation_id);
     }
 
     loop {

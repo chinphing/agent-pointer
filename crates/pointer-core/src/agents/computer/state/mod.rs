@@ -273,14 +273,15 @@ impl ComputerState {
         g
     }
 
-    /// Clears give-up from a prior run so new user guidance can proceed.
-    pub fn reset_give_up_for_new_turn(&self, conversation_id: &str) {
+    /// Clears give-up and stuck-loop state when the user sends new guidance.
+    pub fn reset_for_new_user_guidance(&self, conversation_id: &str) {
         let session = self.get_or_create_session(conversation_id);
+        let initial_tier = self.initial_tier_for_new_session();
         session
             .lock()
             .unwrap()
             .tier_runtime
-            .reset_give_up_for_new_turn();
+            .reset_for_new_user_guidance(initial_tier);
     }
 
     pub fn round_llm_overrides(&self, conversation_id: &str) -> ComputerRoundLlmOverrides {
@@ -635,7 +636,11 @@ impl ComputerState {
         let mut s = session.lock().unwrap();
         let tier = s.tier_runtime.current_tier;
         s.tier_runtime.auto_close_stale_open_rows(tier);
-        format_tier_history_block(tier, s.tier_runtime.history_for(tier))
+        format_tier_history_block(
+            tier,
+            s.tier_runtime.history_for(tier),
+            s.tier_runtime.give_up_reference(),
+        )
     }
 
     /// Host counters for repetition / auto-upgrade (injected under `[CUR_SCREEN]`).

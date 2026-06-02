@@ -374,6 +374,7 @@ if lead_profile == AgentProfile::Computer {
 
 当 `effective_repetition >= 5`：
 - `should_give_up` 设为 `true`
+- `effective_repetition = max(sidecar, host)`，但当 `sidecar > host` 时以 **host** 为准（sidecar 可能误计 `[Prior attempt — give up reference]` 段）
 - 外层循环检测到该标志后抛出错误：
 
 > "当前任务已尽力但仍无法完成（重复操作达到 5 次），请提供进一步指导。"
@@ -381,6 +382,27 @@ if lead_profile == AgentProfile::Computer {
 检测位置：
 - `single_agent.rs:186` — 单 agent 循环
 - `sub_agent.rs:182` — 子 agent 循环
+
+### 用户新消息时的指导重置
+
+用户发送新消息后、进入 agent 循环前，调用 `reset_for_new_user_guidance(initial_tier)`（`single_agent.rs` / `sub_agent.rs`）：
+
+| 字段 | 重置行为 |
+|------|----------|
+| `should_give_up` | `false` |
+| `tier_error_streak` | `0` |
+| `task_error_streak` | `0` |
+| `goal_fail_streak` / `goal_fail_fingerprint` | 清零 |
+| `locked_goal` | `None` |
+| `last_executed_goal` | `None` |
+| `current_tier` | 恢复为 `initial_tier` |
+| 各 tier `histories` | 清空 |
+
+清空前，将失败操作摘要写入 `give_up_reference`，并在 `[Recent desktop tool calls]` 中以 **`[Prior attempt — give up reference]`** 段展示。该段：
+
+- 供 **Next** 参考，避免重复相同 tool+target 组合
+- **不参与** `same_goal_repetition_count_in_history` 计数
+- **不可** 再次 verify / verify_report
 
 ---
 
@@ -444,7 +466,7 @@ run_single_agent_loop()  [每一轮]
 - Runtime block 展示策略提示
 - `on_round_complete` give_up 设置（sidecar 和 host 两个路径）
 - Verify pass 清除 give_up
-- `reset_give_up_for_new_turn`
+- `reset_for_new_user_guidance`（含 give_up_reference 归档）
 - Thinking budget 配置
 - `apply_app_settings` 覆盖初始 tier
 - Locked goal label 隔离

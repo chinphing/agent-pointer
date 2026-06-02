@@ -224,6 +224,13 @@ Operation summary: <brief overview of distinct attempted operations>
 
 **Question:** What is the **one** target on screen and which **tool** fires this turn?
 
+**After wrong_operation:** When the last verify **Cause** was **`wrong_operation`**, or when
+**`[Prior attempt — give up reference]`** lists failed rows:
+- **Do not** repeat the same tool name + same target from the failed row.
+- **Must** change at least one of: **target element** (different control/surface) **or**
+  **tool route** (e.g. `*_index` ↔ `*_at`, hotkey, wait, scroll).
+- Give-up reference rows are historical — they do **not** count toward Repetition **Count**.
+
 **Order (mandatory):** target description -> route decision -> branch execution.
 
 - Step 1 — Describe target:
@@ -543,6 +550,17 @@ If the last row was a coordinate click and **Verify** was **fail** with no progr
 - Re-check chosen reference method (mouse vs row R) and final point arithmetic.
 - If prior point was centered but hotspot was off, choose a different target point or a different row R.
 - Otherwise keep the same goal but change `(x,y)` derivation, not blind retries.
+
+### After wrong_operation
+
+If the last verify **Cause** was **`wrong_operation`**, or **`[Prior attempt — give up reference]`**
+lists **`wrong_operation`** rows:
+
+- **Do not** repeat the same tool + same target element from the failed row.
+- **Pivot:** pick a **different** visible control or surface, **or** switch tool route
+  (e.g. `*_index` ↔ `*_at`, hotkey, wait, scroll) before re-attempting the goal.
+- Treat give-up reference rows as exhausted attempts — use them to avoid repeating failed
+  combinations; they do not count toward Repetition **Count**.
 
 ---
 

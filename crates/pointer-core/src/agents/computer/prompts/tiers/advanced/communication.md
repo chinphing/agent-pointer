@@ -541,6 +541,13 @@ Read **`[Screen after action]`** line **2** before **`this turn:`**.
 | **No** — off-screen, wrong surface, surface not open | **relocate** — scroll/switch/open/dismiss until target appears; **forbidden** **re-aim** until visible |
 | Wrong visible control clicked | **pivot** — different control (**wrong_operation**) |
 
+**After wrong_operation (mandatory):** When Verify **Cause** is **`wrong_operation`**, or
+**`[Prior attempt — give up reference]`** lists failed rows:
+- **Do not** repeat the same tool name + same target from the failed row.
+- **Must** change at least one of: **target element** (different control/surface) **or**
+  **tool route** (e.g. `*_index` ↔ `*_at`, hotkey, wait, scroll).
+- Give-up reference rows are historical — they do **not** count toward Repetition **Count**.
+
 When Repetition **Count > 3**, still follow this table in **Next** — Repetition only reports loop pressure; **Match → this turn** picks the tactic.
 
 #### Internal checklist (do not output)

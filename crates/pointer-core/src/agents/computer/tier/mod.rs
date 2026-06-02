@@ -216,6 +216,9 @@ pub struct ComputerTierRuntime {
     /// Set to true when repetition_count reaches GIVE_UP_THRESHOLD;
     /// the outer loop reads this to exit with a user-guidance request.
     pub should_give_up: bool,
+    /// Archived failed-attempt summary after user guidance reset; shown in
+    /// `[Recent desktop tool calls]` but excluded from repetition counting.
+    give_up_reference: Option<String>,
 }
 
 impl ComputerTierRuntime {
@@ -230,7 +233,12 @@ impl ComputerTierRuntime {
             goal_fail_fingerprint: None,
             goal_fail_streak: 0,
             should_give_up: false,
+            give_up_reference: None,
         }
+    }
+
+    pub fn give_up_reference(&self) -> Option<&str> {
+        self.give_up_reference.as_deref()
     }
 
     pub fn history_for(&self, tier: ComputerTier) -> &[TierActionRecord] {
@@ -321,6 +329,8 @@ impl ComputerTierRuntime {
         host_repetition_count: u32,
     ) -> u32 {
         match sidecar_repetition_count {
+            // Sidecar reads prompt text and may count archived give-up rows; host history wins when higher.
+            Some(sidecar) if sidecar > host_repetition_count => host_repetition_count,
             Some(sidecar) => sidecar.max(host_repetition_count),
             None => host_repetition_count,
         }
@@ -414,8 +424,81 @@ impl ComputerTierRuntime {
         }
     }
 
-    pub fn reset_give_up_for_new_turn(&mut self) {
+    /// Full runtime reset when the user sends new guidance after give-up or a stuck loop.
+    /// Clears streaks and tier history; archives prior failed ops into `give_up_reference`.
+    pub fn reset_for_new_user_guidance(&mut self, initial_tier: ComputerTier) {
+        let reference = self.build_give_up_reference_block();
+        self.histories.clear();
+        self.current_tier = initial_tier;
+        self.tier_error_streak = 0;
+        self.task_error_streak = 0;
+        self.locked_goal = None;
+        self.goal_fail_fingerprint = None;
+        self.goal_fail_streak = 0;
         self.should_give_up = false;
+        self.last_executed_goal = None;
+        self.give_up_reference = reference;
+        log::info!(
+            "computer tier: reset for new user guidance (tier={}, give_up_reference={})",
+            initial_tier.label(),
+            self.give_up_reference.is_some()
+        );
+    }
+
+    fn build_give_up_reference_block(&self) -> Option<String> {
+        let mut all_rows: Vec<(ComputerTier, &TierActionRecord)> = Vec::new();
+        for tier in [
+            ComputerTier::Primary,
+            ComputerTier::Intermediate,
+            ComputerTier::Advanced,
+        ] {
+            if let Some(records) = self.histories.get(&tier) {
+                for r in records {
+                    all_rows.push((tier, r));
+                }
+            }
+        }
+        if all_rows.is_empty() {
+            return None;
+        }
+
+        let mut lines = Vec::new();
+        if self.should_give_up {
+            lines.push(
+                "Stop reason: repetition exhausted — user guidance requested.".to_string(),
+            );
+        }
+        if let Some(lock) = &self.locked_goal {
+            lines.push(format!(
+                "Locked goal at reset: \"{}\"",
+                escape_goal(&lock.label)
+            ));
+        }
+
+        let fail_rows: Vec<_> = all_rows
+            .iter()
+            .filter(|(_, r)| {
+                r.verify_result
+                    .as_ref()
+                    .is_some_and(|v| verify_counts_toward_repetition_count(v.step_result.as_str()))
+            })
+            .collect();
+
+        if fail_rows.is_empty() {
+            lines.push("Recent operations before reset (reference only):".to_string());
+            for (tier, r) in &all_rows {
+                lines.push(format!("  - {}", format_history_line(*tier, r)));
+            }
+        } else {
+            lines.push(
+                "Failed operations (do not repeat — change tool or target element in Next):"
+                    .to_string(),
+            );
+            for (tier, r) in fail_rows {
+                lines.push(format!("  - {}", format_history_line(*tier, r)));
+            }
+        }
+        Some(lines.join("\n"))
     }
 
     /// Test helper: append a history row without auto-closing open rows.
@@ -596,16 +679,43 @@ pub fn format_tier_runtime_block(
 }
 
 /// Build a tier history block for `[CUR_SCREEN]`.
-pub fn format_tier_history_block(tier: ComputerTier, records: &[TierActionRecord]) -> Option<String> {
-    if records.is_empty() {
+pub fn format_tier_history_block(
+    tier: ComputerTier,
+    records: &[TierActionRecord],
+    give_up_reference: Option<&str>,
+) -> Option<String> {
+    if records.is_empty() && give_up_reference.is_none() {
         return None;
     }
     let mut lines = vec![
         "[Recent desktop tool calls — ordered oldest to newest; repetition uses goal; coordinates are session 0-1000; overlay indices are not comparable across turns.]".to_string(),
         "Verify suffix: only the newest row may show verify: verifying; verify: skipped = never verified; verify: verified - * = closed — do not re-verify or re-report.".to_string(),
     ];
-    for (i, r) in records.iter().enumerate() {
-        lines.push(format!("  {}: {}", i + 1, format_history_line(tier, r)));
+    if let Some(ref_block) = give_up_reference {
+        lines.push(
+            "[Prior attempt — give up reference; host-maintained after user guidance; do NOT re-verify or re-report these rows. Use in Next to avoid repeating failed tool+target combinations.]".to_string(),
+        );
+        for line in ref_block.lines() {
+            if !line.trim().is_empty() {
+                lines.push(format!("  {line}"));
+            }
+        }
+    }
+    if records.is_empty() {
+        if give_up_reference.is_some() {
+            lines.push(
+                "[Current session — no desktop tool calls yet after user guidance.]".to_string(),
+            );
+        }
+    } else {
+        if give_up_reference.is_some() {
+            lines.push(
+                "[Current session — fresh after user guidance; verify only rows below.]".to_string(),
+            );
+        }
+        for (i, r) in records.iter().enumerate() {
+            lines.push(format!("  {}: {}", i + 1, format_history_line(tier, r)));
+        }
     }
     Some(lines.join("\n"))
 }
@@ -1250,7 +1360,7 @@ mod tests {
             }),
             extra_args_hint: None,
         }];
-        let block = format_tier_history_block(ComputerTier::Intermediate, &records).unwrap();
+        let block = format_tier_history_block(ComputerTier::Intermediate, &records, None).unwrap();
         assert!(block.contains("verify: verified - unexpected_change"));
         assert!(!block.contains("Last verify result (previous round):"));
     }
@@ -1289,9 +1399,29 @@ mod tests {
             }),
             Some("same goal"),
             Some(5),
-            0,
+            5,
         );
         assert!(rt.should_give_up);
+    }
+
+    #[test]
+    fn on_round_complete_ignores_inflated_sidecar_repetition_count() {
+        let config = ComputerTierConfig::default();
+        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        rt.on_round_complete(
+            &config,
+            Some(&ParsedVerify {
+                step_result: "fail".into(),
+                cause: None,
+            }),
+            Some("same goal"),
+            Some(5),
+            1,
+        );
+        assert!(
+            !rt.should_give_up,
+            "sidecar must not exceed host history for give-up"
+        );
     }
 
     #[test]
@@ -1330,11 +1460,97 @@ mod tests {
     }
 
     #[test]
-    fn reset_give_up_for_new_turn_clears_flag() {
-        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
+    fn reset_for_new_user_guidance_clears_streaks_and_archives_reference() {
+        let mut rt = ComputerTierRuntime::new(ComputerTier::Advanced);
+        rt.tier_error_streak = 3;
+        rt.task_error_streak = 2;
+        rt.goal_fail_streak = 2;
+        rt.goal_fail_fingerprint = Some("fp".into());
         rt.should_give_up = true;
-        rt.reset_give_up_for_new_turn();
+        rt.locked_goal = Some(LockedGoal {
+            fingerprint: "fp".into(),
+            label: "Open app".into(),
+        });
+        rt.push_action(
+            ComputerTier::Advanced,
+            TierActionRecord {
+                tool_name: "mouse_click_index".into(),
+                goal: "Open app".into(),
+                action: Some("click wrong icon".into()),
+                coords: None,
+                verify_result: Some(VerifyOutcome {
+                    step_result: "fail".into(),
+                    cause: Some("wrong_operation".into()),
+                }),
+                extra_args_hint: None,
+            },
+        );
+        rt.reset_for_new_user_guidance(ComputerTier::Primary);
         assert!(!rt.should_give_up);
+        assert_eq!(rt.tier_error_streak, 0);
+        assert_eq!(rt.task_error_streak, 0);
+        assert_eq!(rt.goal_fail_streak, 0);
+        assert!(rt.locked_goal.is_none());
+        assert_eq!(rt.current_tier, ComputerTier::Primary);
+        assert!(rt.history_for(ComputerTier::Advanced).is_empty());
+        let reference = rt.give_up_reference().expect("reference");
+        assert!(reference.contains("wrong_operation"));
+        assert!(reference.contains("Stop reason"));
+    }
+
+    #[test]
+    fn history_block_includes_give_up_reference_without_live_rows() {
+        let reference = "Failed operations (do not repeat):\n  - mouse_click_index goal=\"g\" | verify: verified - wrong_operation";
+        let block = format_tier_history_block(ComputerTier::Primary, &[], Some(reference)).unwrap();
+        assert!(block.contains("[Prior attempt — give up reference"));
+        assert!(block.contains("wrong_operation"));
+        assert!(block.contains("[Current session — no desktop tool calls yet"));
+    }
+
+    #[test]
+    fn reset_for_new_user_guidance_fresh_repetition_count() {
+        let config = ComputerTierConfig::default();
+        let mut rt = ComputerTierRuntime::new(ComputerTier::Primary);
+        for _ in 0..5 {
+            rt.push_action(
+                ComputerTier::Primary,
+                TierActionRecord {
+                    tool_name: "mouse_click_index".into(),
+                    goal: "same goal".into(),
+                    action: Some("click".into()),
+                    coords: None,
+                    verify_result: Some(VerifyOutcome {
+                        step_result: "fail".into(),
+                        cause: Some("wrong_operation".into()),
+                    }),
+                    extra_args_hint: None,
+                },
+            );
+        }
+        assert_eq!(
+            same_goal_repetition_count_in_history(rt.history_for(ComputerTier::Primary)),
+            5
+        );
+        rt.should_give_up = true;
+        rt.reset_for_new_user_guidance(ComputerTier::Primary);
+        assert_eq!(
+            same_goal_repetition_count_in_history(rt.history_for(ComputerTier::Primary)),
+            0
+        );
+        rt.on_round_complete(
+            &config,
+            Some(&ParsedVerify {
+                step_result: "fail".into(),
+                cause: Some("wrong_operation".into()),
+            }),
+            Some("same goal"),
+            Some(5),
+            0,
+        );
+        assert!(
+            !rt.should_give_up,
+            "sidecar rep=5 must not re-trigger give-up after guidance reset"
+        );
     }
 
     #[test]

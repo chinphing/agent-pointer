@@ -265,8 +265,15 @@
     @apply space-y-0;
   }
   .tool-segments > .assistant-message-unit + .tool-message-segment,
-  .tool-segments > .tool-message-segment + .tool-message-segment {
-    @apply mt-0.5;
+  .tool-segments > .tool-message-segment + .tool-message-segment,
+  .tool-segments > .tool-message-segment + .tool-run-glue-row,
+  .tool-segments > .tool-run-glue-row + .tool-message-segment,
+  .tool-segments > .tool-run-glue-row + .tool-run-glue-row {
+    @apply mt-0;
+  }
+  .tool-only-message + .tool-only-message,
+  .tool-segments + .tool-segments {
+    @apply mt-0;
   }
   .assistant-message-unit .message-footer-actions {
     @apply !mt-0;

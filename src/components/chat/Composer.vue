@@ -5,7 +5,7 @@ import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { useSettingsStore } from '../../stores/settings'
 import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
-import { resolveAgentUi, resolveLeadAgentUi, composerAgentLabel } from '../../lib/agentUi'
+import { resolveAgentUi, resolveLeadAgentUi, composerAgentLabel, RESEARCH_COMPOSER_UI_ENABLED } from '../../lib/agentUi'
 import { iconForAgent, sortComposerAgents, TEAM_MODE_UI_ENABLED } from '../../lib/agentIcons'
 import type { AgentDef, ComputerMonitor } from '../../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../../types/chat'
@@ -354,6 +354,12 @@ onMounted(() => {
     void settings.saveAgentPreferences({
       agentMode: 'single',
       leadAgentId: settings.settings.leadAgentId || DEFAULT_LEAD_AGENT_ID
+    })
+  }
+  if (!RESEARCH_COMPOSER_UI_ENABLED && settings.settings.leadAgentId === 'research') {
+    void settings.saveAgentPreferences({
+      agentMode: 'single',
+      leadAgentId: DEFAULT_LEAD_AGENT_ID
     })
   }
   updatePickerWidths()

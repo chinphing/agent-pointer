@@ -38,8 +38,12 @@ const COMPOSER_LABELS: Record<string, string> = {
   research: '深度研究'
 }
 
+/** Temporarily hide deep research in composer and settings agent list. */
+export const RESEARCH_COMPOSER_UI_ENABLED = false
+
 function composerSelectableByProfile(id: string, key: string, isSupervisor: boolean): boolean {
   if (isSupervisor) return false
+  if ((id === 'research' || key === 'research') && !RESEARCH_COMPOSER_UI_ENABLED) return false
   return (
     id === 'default' ||
     id === 'coder' ||

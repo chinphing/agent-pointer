@@ -44,7 +44,11 @@ rhythm as the coding agent:
 - **Before a new sub-goal:** state intent (what you are about to do on screen).
 - **After verify pass on a meaningful step:** note outcome (what changed; what is next).
 - **When blocked:** plain explanation the user can act on.
-- **When the task is done:** final summary; no further desktop tools.
+- **When the task is done:** final summary in **`content`**; no further desktop tools.
+  Base the summary on injected **`[TASK_BOARD]`** — especially **`validate_results`**
+  on each **`done`** row in **All tasks**.
+  Do not invent outcomes from memory or trimmed chat history.
+  If a row has no **`validate_results`**, say it was not verified — do not guess.
 
 **Clarification turn (hard rule):** When the next step needs **user input**
 (ambiguous goal, vague "continue", prior sub-goal done with no defined next step,
@@ -594,6 +598,11 @@ Three turn shapes — pick **one** per round:
 **3. Completion turn**
 - **Non-empty `content`:** final summary for the user.
 - **No** further root desktop tools.
+- **Summary source:** read **`[TASK_BOARD]`** first.
+  List outcomes from each row's **`validate_results`** (under **All tasks** for **`done`** rows).
+  Match table rows to board **`id`** / **`title`**.
+  Do not copy from memory if it conflicts with the board.
+  Missing **`validate_results`** → report as unverified, not fabricated.
 
 Never put Verify / Repetition / Next templates or internal checklists in message text.
 Report Verify/Repetition via `verify_report`, not message text.

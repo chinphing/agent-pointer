@@ -3,8 +3,6 @@ import { computed, ref } from 'vue'
 import { marked } from 'marked'
 import { User } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
-import { isContextExcluded } from '../../../lib/messageContext'
-import ContextExcludedFooter from './ContextExcludedFooter.vue'
 import MessageFooterActions from './MessageFooterActions.vue'
 import { useMarkdownCodeCopy } from '../../../composables/useMarkdownCodeCopy'
 import { useMarkdownExternalLinks } from '../../../composables/useMarkdownExternalLinks'
@@ -32,17 +30,15 @@ useMarkdownExternalLinks(bodyRef, () => props.message.content)
     </div>
 
     <div class="max-w-[85%] min-w-0 flex flex-col items-end">
-      <div
-        class="relative w-full rounded-2xl px-3 pt-2 pb-2 panel-elevated break-words text-foreground"
-        :class="isContextExcluded(message) ? 'opacity-80' : ''"
-      >
+        <div
+          class="relative w-full rounded-2xl px-3 pt-2 pb-2 panel-elevated break-words text-foreground"
+        >
         <div
           v-if="message.content"
           ref="bodyRef"
           class="md-body md-body-flow"
           v-html="html"
         />
-        <ContextExcludedFooter :message="message" />
         <MessageFooterActions
           v-if="message.content"
           class="justify-end"

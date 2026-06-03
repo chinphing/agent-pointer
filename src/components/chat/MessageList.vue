@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ArrowDown } from 'lucide-vue-next'
 import MessageRow from './message/MessageRow.vue'
 import ToolMessageSegment from './message/assistant/ToolMessageSegment.vue'
+import ToolRunGlueRow from './message/ToolRunGlueRow.vue'
 import TaskBoardPanel from './TaskBoardPanel.vue'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
@@ -14,6 +15,7 @@ import {
   isEphemeralDesktopNoticeMessage,
   isToolOnlyAssistantMessage
 } from '../../lib/assistantMessageKind'
+import { isToolRunContinuityGlue, shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 
 const chat = useChatStore()
 const settings = useSettingsStore()
@@ -51,9 +53,13 @@ watch(
 
 type ToolRunGroup = { id: string; toolCalls: ToolCall[]; message: ChatMessage }
 
+type ToolRunItem =
+  | { kind: 'tools'; group: ToolRunGroup }
+  | { kind: 'glue'; message: ChatMessage }
+
 type FlatEntry =
-  | { type: 'message'; message: ChatMessage; trailingToolGroups?: ToolRunGroup[] }
-  | { type: 'tool_run'; groups: ToolRunGroup[] }
+  | { type: 'message'; message: ChatMessage; trailingToolGroups?: ToolRunGroup[]; compact?: boolean }
+  | { type: 'tool_run'; items: ToolRunItem[] }
   | { type: 'task_board'; anchorMessageId: string; storeKey: string; document: TaskBoardDocument; isActive: boolean }
 
 function canAttachTrailingTools(message: ChatMessage): boolean {
@@ -85,30 +91,68 @@ function visibleToolsForMessage(message: ChatMessage, toolCalls: ToolCall[]): To
   )
 }
 
+function toolRunHasTools(items: ToolRunItem[]): boolean {
+  return items.some(i => i.kind === 'tools')
+}
+
+function shouldShowThreadGlue(message: ChatMessage): boolean {
+  return shouldShowGlueMessage(message, settings.settings)
+}
+
 const flatMessages = computed<FlatEntry[]>(() => {
   const msgs = chat.current?.messages ?? []
   const entries: FlatEntry[] = []
   const convId = chat.currentId
-  let toolGroups: ToolRunGroup[] = []
+  let toolRunItems: ToolRunItem[] = []
 
   function flushToolRun() {
-    if (toolGroups.length === 0) return
-    const last = entries[entries.length - 1]
-    if (last?.type === 'message' && canAttachTrailingTools(last.message)) {
-      last.trailingToolGroups = [...(last.trailingToolGroups ?? []), ...toolGroups]
-    } else {
-      entries.push({ type: 'tool_run', groups: [...toolGroups] })
+    if (toolRunItems.length === 0) return
+    if (!toolRunHasTools(toolRunItems)) {
+      for (const item of toolRunItems) {
+        if (item.kind === 'glue' && shouldShowThreadGlue(item.message)) {
+          entries.push({ type: 'message', message: item.message, compact: true })
+        }
+      }
+      toolRunItems = []
+      return
     }
-    toolGroups = []
+    const last = entries[entries.length - 1]
+    const groups = toolRunItems
+      .filter((i): i is { kind: 'tools'; group: ToolRunGroup } => i.kind === 'tools')
+      .map(i => i.group)
+    const hasGlue = toolRunItems.some(
+      i => i.kind === 'glue' && shouldShowThreadGlue(i.message)
+    )
+    if (last?.type === 'message' && canAttachTrailingTools(last.message) && !hasGlue) {
+      last.trailingToolGroups = [...(last.trailingToolGroups ?? []), ...groups]
+    } else {
+      entries.push({ type: 'tool_run', items: [...toolRunItems] })
+    }
+    toolRunItems = []
   }
 
   for (const message of msgs) {
     if (isToolOnlyAssistantMessage(message)) {
-      toolGroups.push({
-        id: message.id,
-        toolCalls: message.toolCalls ?? [],
-        message
-      })
+      const visible = visibleToolsForMessage(message, message.toolCalls ?? [])
+      if (visible.length > 0) {
+        toolRunItems.push({
+          kind: 'tools',
+          group: {
+            id: message.id,
+            toolCalls: message.toolCalls ?? [],
+            message
+          }
+        })
+      }
+    } else if (isToolRunContinuityGlue(message)) {
+      if (toolRunHasTools(toolRunItems)) {
+        if (shouldShowThreadGlue(message)) {
+          toolRunItems.push({ kind: 'glue', message })
+        }
+      } else if (shouldShowThreadGlue(message)) {
+        flushToolRun()
+        entries.push({ type: 'message', message, compact: true })
+      }
     } else {
       flushToolRun()
       entries.push({ type: 'message', message })
@@ -145,20 +189,32 @@ function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): st
     prev.type === 'message'
     && prev.message.role === 'assistant'
     && isEphemeralDesktopNoticeMessage(prev.message)
+  const prevIsTaskBoard = prev.type === 'task_board'
 
   if (entry.type === 'tool_run') {
+    if (prevIsTaskBoard || prevIsToolRun) return 'mt-0'
     if (prevIsDesktopNotice) return 'mt-0.5'
     if (prevIsAssistantText || prevIsUser) return 'mt-1.5'
-    if (prevIsToolRun) return 'mt-0'
+    return 'mt-1.5'
+  }
+
+  if (entry.type === 'task_board') {
+    if (prevIsToolRun || prevIsTaskBoard) return 'mt-0.5'
+    if (prevIsDesktopNotice) return 'mt-0.5'
     return 'mt-1.5'
   }
 
   if (entry.type === 'message') {
+    const isCompact = entry.compact === true
     const isDesktopNotice =
       entry.message.role === 'assistant' && isEphemeralDesktopNoticeMessage(entry.message)
     if (isDesktopNotice) {
       if (prevIsToolRun || prevIsDesktopNotice) return 'mt-0.5'
       return 'mt-1.5'
+    }
+    if (isCompact) {
+      if (prevIsToolRun) return 'mt-0'
+      return 'mt-1'
     }
     if (entry.message.role === 'user') return 'mt-7'
     if (prevIsToolRun) return 'mt-4'
@@ -182,31 +238,39 @@ function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): st
         :key="entry.type === 'message'
           ? entry.message.id
           : entry.type === 'tool_run'
-            ? `tool-run-${entry.groups.map(g => g.id).join('-')}`
+            ? `tool-run-${entry.items.map(i => i.kind === 'tools' ? i.group.id : i.message.id).join('-')}`
             : `task-board-${entry.storeKey}`"
       >
         <div
           v-if="entry.type === 'message'"
           :class="entrySpacing(entry, index, flatMessages)"
         >
+          <ToolRunGlueRow v-if="entry.compact && shouldShowThreadGlue(entry.message)" :message="entry.message" />
           <MessageRow
+            v-else
             :message="entry.message"
             :trailing-tool-groups="entry.trailingToolGroups"
           />
         </div>
         <div
           v-else-if="entry.type === 'tool_run'"
-          class="tool-segments chat-column"
+          class="tool-segments chat-column tool-only-message"
           :class="entrySpacing(entry, index, flatMessages)"
         >
-          <ToolMessageSegment
-            v-for="group in entry.groups"
-            :key="group.id"
-            :message="group.message"
-            :tool-calls="visibleToolsForMessage(group.message, group.toolCalls)"
-            :message-ui="uiForMessageAgent(group.message.agentId, group.message.agentName, settings.settings, agentsCatalog)"
-            compact-top
-          />
+          <template v-for="item in entry.items" :key="item.kind === 'tools' ? item.group.id : item.message.id">
+            <ToolRunGlueRow
+              v-if="item.kind === 'glue' && shouldShowThreadGlue(item.message)"
+              :message="item.message"
+            />
+            <ToolMessageSegment
+              v-else-if="item.kind === 'tools'"
+              :message="item.group.message"
+              :tool-calls="visibleToolsForMessage(item.group.message, item.group.toolCalls)"
+              :message-ui="uiForMessageAgent(item.group.message.agentId, item.group.message.agentName, settings.settings, agentsCatalog)"
+              compact-top
+              hide-footer
+            />
+          </template>
         </div>
         <div
           v-else

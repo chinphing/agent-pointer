@@ -181,7 +181,12 @@ async function loginPlatformAccount() {
   }
 }
 
-const workers = computed(() => agents.value.filter(a => a.role === 'worker' && a.enabled))
+const workers = computed(() =>
+  agents.value.filter(a => {
+    if (a.role !== 'worker' || !a.enabled) return false
+    return resolveAgentUi(a, s.settings).userSelectable
+  })
+)
 
 const supervisorAgent = computed(
   () =>

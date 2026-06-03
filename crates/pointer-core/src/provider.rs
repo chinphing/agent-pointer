@@ -262,6 +262,12 @@ impl OpenAIProvider {
                     .unwrap_or_default()
             });
 
+        crate::message_context::try_log_context_excluded_messages(
+            &self.settings,
+            messages,
+            "chat_once",
+            dump_label,
+        );
         let openai_msgs = crate::models::make_openai_messages(
             messages,
             system,
@@ -359,6 +365,12 @@ impl OpenAIProvider {
             });
 
         let t_build = Instant::now();
+        crate::message_context::try_log_context_excluded_messages(
+            &self.settings,
+            messages,
+            "stream_chat",
+            dump_label,
+        );
         let openai_msgs = crate::models::make_openai_messages(
             messages,
             system,

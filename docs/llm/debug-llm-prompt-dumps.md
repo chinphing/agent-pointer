@@ -18,6 +18,12 @@
 
 实现见 `crates/pointer-core/src/llm_prompt_dump.rs`（`try_log_openai_chat_request_json`），在 `provider.rs` 的 `chat_once` / `stream_chat` 中调用。
 
+## 未纳入上下文的消息（仅调试）
+
+开启「保存每轮对话请求」或 `POINTER_DEBUG_LLM_PROMPTS=1` 时，每轮 LLM 请求前会额外打 **info** 日志 `context_excluded_messages`：列出本会话中 `contextState.included=false` 的消息（`id`、`role`、`excludedReason`、内容预览）。界面不展示该标记。
+
+实现见 `crates/pointer-core/src/message_context.rs`（`try_log_context_excluded_messages`）。
+
 ## 输出位置与格式
 
 - 目录：`{应用数据目录}/logs/llm_prompts/`

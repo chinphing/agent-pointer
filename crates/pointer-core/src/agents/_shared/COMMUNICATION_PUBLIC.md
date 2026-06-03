@@ -122,7 +122,10 @@ Use the board for milestones—not a long plan in assistant message text only.
   Other profiles do **not** use **`verify_report`** for board updates.
 - **Cancel** obsolete milestones instead of ignoring them.
 - When **all** milestones are **`done`** or **`cancelled`**, call **`task_board_finalize`** before the final user-facing reply. Patching milestones to **`done`** does not replace **`finalize`**.
-- Keep task board text compact (short **`title`**, **`validate_requirement`**, append-only **`validate_results`**) to reduce prompt token overhead.
+- **Final summary (assistant `content`):** treat injected **`[TASK_BOARD]`** as the outcome ledger.
+  Especially **`validate_results`** on **`done`** rows under **All tasks**.
+  Build tables and counts from that data — not from memory or trimmed history.
+  If a row has no **`validate_results`**, report it as unverified; do not invent.
 - User-facing delivery belongs in assistant **`content`**, not board row fields.
 - For matrix/combinational goals,
   group milestones by meaningful dimensions first.

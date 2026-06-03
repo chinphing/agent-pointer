@@ -1,4 +1,4 @@
-import type { ChatMessage, ExcludedReason } from '../types/chat'
+import type { ChatMessage } from '../types/chat'
 
 export function isContextIncluded(message: ChatMessage): boolean {
   return message.contextState?.included !== false
@@ -6,12 +6,6 @@ export function isContextIncluded(message: ChatMessage): boolean {
 
 export function isContextExcluded(message: ChatMessage): boolean {
   return message.contextState?.included === false
-}
-
-export function excludedReasonLabel(reason: ExcludedReason | undefined): string {
-  if (reason === 'context_compression') return '上下文压缩'
-  if (reason === 'task_board_trim') return '任务板精简'
-  return '未纳入上下文'
 }
 
 export function clearTaskBoardAnchors(messages: ChatMessage[]): void {

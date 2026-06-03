@@ -23,8 +23,8 @@ accessPolicy:
   allowSkills: []
   denySkills: []
 ui:
-  userSelectable: true
-  showInComposer: true
+  userSelectable: false
+  showInComposer: false
   showSubAgentTrace: true
   composerLabel: 深度研究
   showTaskBoardPanel: true

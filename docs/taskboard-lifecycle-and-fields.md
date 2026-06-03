@@ -18,7 +18,14 @@ User delivery: assistant **`content`**, not board fields.
 1. `plan`
 2. `checkpoint`
 3. `validate_requirement`
-4. `validate_results` (recent tail)
+4. `validate_results` (full list, deduped)
+
+## Injection — all tasks list
+
+- `pending` / `in_progress`: `validate_requirement` on the same line.
+- `done` / `cancelled` / `failed`: status line, then all deduped `validate_results` snippets on following lines (`  validate_results: …`).
+
+**Final user summary:** agents must derive delivery tables and counts from this injected list — especially **`validate_results`** on **`done`** rows — not from chat memory. Missing evidence → report unverified.
 
 ## Lifecycle binding rules
 
@@ -43,3 +50,4 @@ Continuation rule:
 - Ended taskboards should render as normal inline panels.
 - Ended taskboards should not use sticky scroll behavior.
 - Unfinished taskboards may stay sticky to support active execution.
+- Messages soft-excluded by task-board trim (`contextState.included=false`) render like normal chat rows in the UI (no exclusion badge). When debug prompt dump is enabled, excluded rows are logged as `context_excluded_messages` before each LLM request.

@@ -4,6 +4,7 @@ import type { ChatMessage, ToolCall } from '../../../../types/chat'
 import { useChatStore } from '../../../../stores/chat'
 import { storeToRefs } from 'pinia'
 import type { ResolvedAgentUi } from '../../../../lib/agentUi'
+import { useSettingsStore } from '../../../../stores/settings'
 import ToolCallList from '../../ToolCallList.vue'
 import AssistantMessageDebugChrome from './AssistantMessageDebugChrome.vue'
 import ThinkingIndicator from './ThinkingIndicator.vue'
@@ -15,8 +16,19 @@ const props = defineProps<{
   toolCalls: ToolCall[]
   messageUi: ResolvedAgentUi
   compactTop?: boolean
+  /** Compact tool runs hide footer by default; debug UI settings override. */
   hideFooter?: boolean
 }>()
+
+const settingsStore = useSettingsStore()
+
+const effectiveHideFooter = computed(() => {
+  const st = settingsStore.settings
+  const debugChrome =
+    st.computerAnnotatedScreenViewEnabled === true || st.rawContentViewEnabled === true
+  if (debugChrome) return false
+  return props.hideFooter === true
+})
 
 const chatStore = useChatStore()
 const { generating, activeGeneratingMessageId } = storeToRefs(chatStore)
@@ -50,7 +62,7 @@ const showThinkingIndicator = computed(
 <template>
   <div
     class="tool-message-segment"
-    :class="{ 'chat-hover-root': !hideFooter }"
+    :class="{ 'chat-hover-root': !effectiveHideFooter }"
   >
     <ThinkingIndicator :active="showThinkingIndicator" :char-count="streamedCharCount" />
 
@@ -66,7 +78,7 @@ const showThinkingIndicator = computed(
     </div>
 
     <AssistantMessageDebugChrome
-      v-if="!hideFooter"
+      v-if="!effectiveHideFooter"
       :message="message"
       :show-copy="false"
       :generating="generating"

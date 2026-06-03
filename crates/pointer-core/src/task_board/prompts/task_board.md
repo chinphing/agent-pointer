@@ -100,6 +100,16 @@ Summarize observable outcome in one short markdown line.
 - Child agents must not patch parent rows directly.
 - Finalize in the same turn as final user delivery.
 
+## Final delivery (user summary)
+
+When writing the **final summary** in assistant **`content`**:
+
+- **Source of truth:** injected **`[TASK_BOARD]`** in this turn.
+- Read **`validate_results`** on each **`done`** row under **All tasks** (full list per row).
+- Build outcome tables / counts from board **`id`** and **`title`** — not from memory.
+- Missing **`validate_results`** on a **`done`** row → report as **unverified**; do not guess.
+- Call **`finalize`** in the same turn as the final summary when every row is terminal.
+
 ## Profile guidance
 
 Computer (with `verify_report`):

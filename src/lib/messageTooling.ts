@@ -43,10 +43,16 @@ export function visibleToolCalls(
 }
 
 function isDefaultHiddenSidecarCall(fullName: string, baseName: string): boolean {
+  return isSidecarToolCall(fullName, baseName)
+}
+
+/** Sidecar / host-only tools (verify, task_board) — hidden from default UI cards. */
+export function isSidecarToolCall(fullName: string, baseName?: string): boolean {
+  const base = baseName ?? toolCallBaseName(fullName)
   return (
     fullName.startsWith('verify:') ||
-    baseName.startsWith('task_board') ||
-    baseName === 'verify'
+    base.startsWith('task_board') ||
+    base === 'verify'
   )
 }
 

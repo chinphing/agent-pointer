@@ -96,11 +96,11 @@ pub fn markdown_runtime_block_for_inject(doc: &BoardDocument) -> String {
     lines.push(checkpoint.to_string());
 
     lines.push(String::new());
-    lines.push("## Current task validate_results (recent)".to_string());
-    let validate_tail = current_task_item(doc)
+    lines.push("## Current task validate_results".to_string());
+    let validate_all = current_task_item(doc)
         .map(|i| i.validate_results.as_slice())
         .unwrap_or(&[] as &[String]);
-    lines.push(format_results_tail(validate_tail));
+    lines.push(format_results_all(validate_all));
 
     if let Some(item) = current_task_item(doc) {
         if !item.extract_results.is_empty() || item.extract_requirement.is_some() {
@@ -134,11 +134,7 @@ fn normalize_result_line(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Inject view: unique lines in order, then tail (hides cumulative duplicate blocks in storage).
-fn format_results_tail(results: &[String]) -> String {
-    if results.is_empty() {
-        return "n/a".to_string();
-    }
+fn dedupe_result_lines(results: &[String]) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     let mut unique_lines: Vec<String> = Vec::new();
     for entry in results {
@@ -153,6 +149,25 @@ fn format_results_tail(results: &[String]) -> String {
             }
         }
     }
+    unique_lines
+}
+
+/// Inject view: all unique lines in order (hides cumulative duplicate blocks in storage).
+fn format_results_all(results: &[String]) -> String {
+    let unique_lines = dedupe_result_lines(results);
+    if unique_lines.is_empty() {
+        return "n/a".to_string();
+    }
+    unique_lines
+        .iter()
+        .map(|s| format!("- {s}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Inject view: unique lines in order, then tail (hides cumulative duplicate blocks in storage).
+fn format_results_tail(results: &[String]) -> String {
+    let unique_lines = dedupe_result_lines(results);
     if unique_lines.is_empty() {
         return "n/a".to_string();
     }
@@ -162,6 +177,20 @@ fn format_results_tail(results: &[String]) -> String {
         .map(|s| format!("- {s}"))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn append_done_validate_results(base: &str, item: &BoardItem) -> String {
+    let unique_lines = dedupe_result_lines(&item.validate_results);
+    if unique_lines.is_empty() {
+        return base.to_string();
+    }
+    let mut out = base.to_string();
+    for line in unique_lines {
+        out.push('\n');
+        out.push_str("  validate_results: ");
+        out.push_str(&line);
+    }
+    out
 }
 
 fn requirement_one_line(item: &BoardItem) -> &str {
@@ -179,21 +208,27 @@ fn format_all_tasks_line(item: &BoardItem) -> String {
         item.status,
         ItemStatus::InProgress | ItemStatus::Pending
     ) {
-        format!(
+        return format!(
             "- {}: {} | validate_requirement: {} | {}",
             item.id,
             title,
             requirement_one_line(item),
             item.status.as_str()
-        )
-    } else {
-        format!(
-            "- {}: {} | {}",
-            item.id,
-            title,
-            item.status.as_str()
-        )
+        );
     }
+    let base = format!(
+        "- {}: {} | {}",
+        item.id,
+        title,
+        item.status.as_str()
+    );
+    if !matches!(
+        item.status,
+        ItemStatus::Done | ItemStatus::Cancelled | ItemStatus::Failed
+    ) {
+        return base;
+    }
+    append_done_validate_results(&base, item)
 }
 
 fn current_task_item(doc: &BoardDocument) -> Option<&BoardItem> {
@@ -393,11 +428,50 @@ mod inject_format_tests {
     fn inject_all_tasks_includes_requirement_for_pending_and_in_progress() {
         let block = markdown_runtime_block_for_inject(&sample_doc());
         assert!(block.contains("- m1: Explore | done"));
+        assert!(block.contains("  validate_results: grep done"));
         assert!(block.contains(
             "- m2: Implement | validate_requirement: cargo test -p foo | in_progress"
         ));
         assert!(block.contains(
             "- m3: Audit | validate_requirement: cargo clippy | pending"
         ));
+    }
+
+    #[test]
+    fn inject_current_task_shows_all_validate_results() {
+        let mut doc = BoardDocument::empty_for_store_key("conv-test");
+        doc.board = vec![BoardItem {
+            id: "m1".into(),
+            title: "Batch".into(),
+            status: ItemStatus::InProgress,
+            validate_results: (1..=8)
+                .map(|i| format!("{i}/10: step {i}"))
+                .collect(),
+            ..BoardItem::default()
+        }];
+        let block = markdown_runtime_block_for_inject(&doc);
+        assert!(block.contains("## Current task validate_results"));
+        assert!(!block.contains("validate_results (recent)"));
+        assert!(block.contains("- 1/10: step 1"));
+        assert!(block.contains("- 8/10: step 8"));
+    }
+
+    #[test]
+    fn inject_done_task_shows_all_validate_results_after_status_line() {
+        let mut doc = BoardDocument::empty_for_store_key("conv-test");
+        doc.board = vec![BoardItem {
+            id: "8".into(),
+            title: "13289012347".into(),
+            status: ItemStatus::Done,
+            validate_results: vec![
+                "1/3: pending".into(),
+                "手机号 13289012347 - 账号存在 (小景家)".into(),
+            ],
+            ..BoardItem::default()
+        }];
+        let block = markdown_runtime_block_for_inject(&doc);
+        assert!(block.contains("- 8: 13289012347 | done"));
+        assert!(block.contains("  validate_results: 1/3: pending"));
+        assert!(block.contains("  validate_results: 手机号 13289012347 - 账号存在 (小景家)"));
     }
 }

@@ -107,7 +107,7 @@
 ### `validate_results` 增量（宿主）与 Computer 分批 init（提示）
 
 - **Patch 合并：** `task_board/results_append.rs` — 按行去重；多行块只 append 新行；单行 cumulative 扩展时替换上一条。`warnings[]` 码：`validate_results_duplicate_line`、`validate_results_partial_dedup`、`validate_results_cumulative_replaced` 等（`extract_results` 同理）。
-- **注入展示：** `snapshot.rs` 对 `validate_results` 按行去重后再取 tail，避免旧 cumulative 块撑爆 `[TASK_BOARD]`。
+- **注入展示：** `snapshot.rs` 对 `validate_results` 按行去重后全量注入（Current task 与 All tasks 的 `done` 行）；`extract_results` 仍取 recent tail。
 - **Computer init（提示词，非强制拆板）：** 相似重复项 **>5** 时按 **3–6** 个 batched milestone 初始化（`task_board.md`、`COMMUNICATION_PUBLIC`、`sub_agent_hint.rs`）；完整列表放 `plan` / `extract_results`；每批结束 `status: done` 以触发 history trim。
 
 ### 与 LLM 压缩的执行顺序

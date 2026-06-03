@@ -71,9 +71,9 @@ export function isToolOnlyAssistantMessage(message: ChatMessage): boolean {
   if (assistantDisplayKind(message) !== 'model') return false
   if ((message.toolCalls?.length ?? 0) === 0) return false
 
+  // Internal wire — not user-visible in the thread (see isToolOnlyAssistantMessage).
   const hasVisibleText =
     !!(message.content?.trim()) ||
-    !!(message.thoughts?.trim()) ||
     !!(message.responseTextDraft?.trim())
 
   const hasOtherStructure =

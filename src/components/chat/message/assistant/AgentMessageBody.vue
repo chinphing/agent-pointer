@@ -368,6 +368,7 @@ onUnmounted(() => clearReasoningCollapseTimer())
         :tool-calls="segment.toolCalls"
         :message-ui="messageUi"
         compact-top
+        hide-footer
       />
     </div>
   </div>

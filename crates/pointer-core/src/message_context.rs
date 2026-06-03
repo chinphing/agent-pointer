@@ -1,7 +1,7 @@
 //! Message-level UI bindings vs LLM context participation.
 
 use crate::context_compression::{SUMMARY_PREFIX_BUDGET, SUMMARY_PREFIX_TOOL_LIMIT};
-use crate::models::{ChatMessage, ExcludedReason, MessageContextState, Role};
+use crate::models::{ChatMessage, ExcludedReason, MessageContextState, ModelSettings, Role};
 use crate::task_board::history_trim::TRIM_PLACEHOLDER_PREFIX;
 
 /// Whether this message participates in LLM context (default true when unset).
@@ -24,6 +24,55 @@ pub fn filter_context_messages(msgs: &[ChatMessage]) -> Vec<ChatMessage> {
         .filter(|m| is_context_included(m))
         .cloned()
         .collect()
+}
+
+fn excluded_reason_tag(reason: &ExcludedReason) -> &'static str {
+    match reason {
+        ExcludedReason::ContextCompression => "context_compression",
+        ExcludedReason::TaskBoardTrim => "task_board_trim",
+    }
+}
+
+fn excluded_message_log_line(m: &ChatMessage) -> String {
+    let reason = m
+        .context_state
+        .as_ref()
+        .and_then(|s| s.excluded_reason.as_ref())
+        .map(excluded_reason_tag)
+        .unwrap_or("unknown");
+    let role = format!("{:?}", m.role).to_ascii_lowercase();
+    let preview: String = m.content.chars().take(120).collect();
+    format!(
+        "  id={} role={} excludedReason={} included=false preview={preview:?}",
+        m.id, role, reason
+    )
+}
+
+/// When debug prompt dump is enabled, log messages omitted from LLM context (`included=false`).
+pub fn try_log_context_excluded_messages(
+    settings: &ModelSettings,
+    msgs: &[ChatMessage],
+    phase: &str,
+    label: Option<&str>,
+) {
+    if !crate::llm_prompt_dump::should_dump(settings) {
+        return;
+    }
+    let lines: Vec<String> = msgs
+        .iter()
+        .filter(|m| !is_context_included(m))
+        .map(excluded_message_log_line)
+        .collect();
+    if lines.is_empty() {
+        return;
+    }
+    log::info!(
+        "context_excluded_messages phase={} label={} count={}\n{}",
+        phase,
+        label.unwrap_or("-"),
+        lines.len(),
+        lines.join("\n")
+    );
 }
 
 /// User rows that are synthetic (compression summary, trim placeholder, screen inject).

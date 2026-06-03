@@ -11,8 +11,6 @@ import { subTracesForMessage } from '../../../../lib/subAgentSession'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import SubAgentFrame from './SubAgentFrame.vue'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
-import ContextExcludedFooter from '../ContextExcludedFooter.vue'
-import { isContextExcluded } from '../../../../lib/messageContext'
 
 const props = defineProps<{
   message: ChatMessage
@@ -106,10 +104,7 @@ const showSupervisorPlan = computed(
 <template>
   <div
     class="w-full max-w-full"
-    :class="[
-      toolOnly ? 'space-y-0' : 'space-y-2',
-      isContextExcluded(message) ? 'opacity-80' : ''
-    ]"
+    :class="toolOnly ? 'space-y-0' : 'space-y-2'"
   >
     <ModelThoughtPanels
       v-if="showSupervisorPlan"
@@ -142,6 +137,5 @@ const showSupervisorPlan = computed(
       :child-task-board-document="childTaskBoardForTrace(trace.id)"
     />
 
-    <ContextExcludedFooter :message="message" />
   </div>
 </template>

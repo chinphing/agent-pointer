@@ -1179,8 +1179,8 @@ mod builtin_agent_tests {
         assert_eq!(agent.def.name, "深度研究");
         assert_eq!(agent.def.profile, AgentProfile::Analyst);
         assert_eq!(agent.def.ui.show_sub_agent_trace, Some(true));
-        assert_eq!(agent.def.ui.user_selectable, Some(true));
-        assert_eq!(agent.def.ui.show_in_composer, Some(true));
+        assert_eq!(agent.def.ui.user_selectable, Some(false));
+        assert_eq!(agent.def.ui.show_in_composer, Some(false));
         assert!(
             agent.def.access_policy.allow_tools.contains(&"web_search".to_string()),
             "research should allow web_search"

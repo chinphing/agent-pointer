@@ -16,6 +16,7 @@ After each `run_chat`, `finalize_run` enqueues one pending row per agent instanc
 
 - `POST /auth/partner/token-usage` as `multipart/form-data`
 - `metadata`: JSON (tokens, `model_totals`, ids, `request_id`, `period_*`)
+- Per-round `model_totals` keys match the chat/completions `model` field actually sent (stream `Finish` / `chat_once` output). Top-level `model_name` is the highest-token model in `model_totals` when finalizing the run.
 - `history_archive`: zip (`conversation_snapshot.json` inside)
 
 Snapshots exclude `system` messages, redact images to `[image:n]` / `[computer_screen]`, and include only messages tagged with the reporting `agent_instance_id` plus the preceding user turn.

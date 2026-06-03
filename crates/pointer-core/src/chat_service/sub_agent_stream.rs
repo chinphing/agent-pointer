@@ -76,15 +76,9 @@ pub(super) async fn run_sub_agent_stream_round(
 
     let trace_id = agent_trace_step_id(&task.id, &def.id);
     let mut buffers = StreamRoundBuffers::default();
-    let model_name = if provider.settings.model.trim().is_empty() {
-        None
-    } else {
-        Some(provider.settings.model.as_str())
-    };
     let mut llm_recorder = LlmRoundRecorder::Scoped {
         stats: llm_stats,
         scope: instance_scope,
-        model_name,
     };
     drain_provider_events(
         &mut rx,

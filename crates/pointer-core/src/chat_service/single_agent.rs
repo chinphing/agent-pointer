@@ -116,7 +116,12 @@ pub(super) async fn run_single_agent_loop(
         let round_settings = if lead_profile == AgentProfile::Computer {
             state.computer_state.apply_round_settings(conversation_id, settings)
         } else {
-            settings.clone()
+            let s = settings.clone();
+            log::info!(
+                "llm_round: conversation_id={conversation_id} profile={lead_profile:?} model={}",
+                s.model
+            );
+            s
         };
 
         let stream_outcome = super::single_agent_stream::run_provider_stream_round(

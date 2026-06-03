@@ -1,6 +1,6 @@
 //! Session evidence hints for soft task_board validation (host-injected, not model-authored).
 
-use crate::agents::computer::tool_names::{is_action_verify_tool_name, ACTION_VERIFY};
+use crate::agents::computer::tool_names::is_action_verify_tool_name;
 use crate::models::{ChatMessage, Role};
 use crate::task_board::checkpoint::is_task_board_tool_name;
 
@@ -73,6 +73,7 @@ pub fn history_has_recent_verify_report(history: &[ChatMessage]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::computer::tool_names::ACTION_VERIFY;
     use crate::models::{ChatMessage, Role, ToolCall};
 
     fn assistant_with_tools(names: &[&str]) -> ChatMessage {

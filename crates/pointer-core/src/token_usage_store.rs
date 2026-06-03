@@ -300,6 +300,26 @@ struct PendingRow {
     history_archive_path: Option<String>,
 }
 
+/// Top-level `model_name` for partner upload: prefer the model with the most billed tokens in `model_totals`.
+fn resolve_reporting_model_name(accum: &AccumRow) -> Option<String> {
+    if let Some(json) = accum.model_totals_json.as_deref() {
+        if let Ok(map) = serde_json::from_str::<HashMap<String, u64>>(json) {
+            if let Some((model, _)) = map.iter().max_by_key(|(_, tokens)| *tokens) {
+                let m = model.trim();
+                if !m.is_empty() {
+                    return Some(model.clone());
+                }
+            }
+        }
+    }
+    accum
+        .model_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .map(str::to_string)
+}
+
 fn merge_model_totals_json(existing: Option<&str>, model: Option<&str>, delta: u32) -> String {
     let mut map: HashMap<String, u64> = existing
         .and_then(|s| serde_json::from_str(s).ok())
@@ -423,6 +443,7 @@ fn insert_pending(
 ) -> Result<()> {
     let thinking = accum.thinking_tokens;
     let completion = accum.completion_tokens.saturating_sub(thinking);
+    let reporting_model = resolve_reporting_model_name(accum);
     let agent_role = accum.agent_role_id.clone().unwrap_or_default();
     let request_id = format!(
         "run:{conversation_id}:{}",
@@ -455,7 +476,7 @@ fn insert_pending(
             thinking,
             accum.total_tokens,
             accum.llm_rounds,
-            accum.model_name,
+            reporting_model,
             accum.model_totals_json,
             period_start,
             period_end,
@@ -735,6 +756,29 @@ mod tests {
             )
             .expect("migrated accum row");
         assert_eq!(agent_instance_id, "legacy:conv1");
+    }
+
+    #[test]
+    fn resolve_reporting_model_prefers_dominant_model_totals() {
+        let accum = AccumRow {
+            agent_instance_id: "i1".into(),
+            agent_role_id: None,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            thinking_tokens: 0,
+            total_tokens: 100,
+            llm_rounds: 2,
+            model_name: Some("qwen3.5-flash".into()),
+            model_totals_json: Some(
+                r#"{"qwen3.5-flash":10,"qwen3.6-plus":90}"#.into(),
+            ),
+            period_start: None,
+            period_end: None,
+        };
+        assert_eq!(
+            resolve_reporting_model_name(&accum).as_deref(),
+            Some("qwen3.6-plus")
+        );
     }
 
     #[test]

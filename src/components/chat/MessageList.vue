@@ -132,7 +132,10 @@ const flatMessages = computed<FlatEntry[]>(() => {
   }
 
   for (const message of msgs) {
-    if (isToolOnlyAssistantMessage(message)) {
+    if (isEphemeralDesktopNoticeMessage(message)) {
+      flushToolRun()
+      entries.push({ type: 'message', message })
+    } else if (isToolOnlyAssistantMessage(message)) {
       const visible = visibleToolsForMessage(message, message.toolCalls ?? [])
       if (visible.length > 0) {
         toolRunItems.push({

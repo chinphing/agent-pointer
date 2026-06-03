@@ -48,6 +48,8 @@ pub enum ProviderEvent {
         headline: Option<String>,
         /// From final stream chunk `usage` when `stream_options.include_usage` is supported.
         usage: Option<LlmUsageSnapshot>,
+        /// Model id sent on the chat/completions request (token reporting source of truth).
+        model: String,
     },
 }
 
@@ -191,6 +193,8 @@ enum ConsoleStreamLane {
 pub struct ChatOnceOutput {
     pub text: String,
     pub usage: Option<LlmUsageSnapshot>,
+    /// Model id sent on the chat/completions request (token reporting source of truth).
+    pub model: String,
 }
 
 impl OpenAIProvider {
@@ -337,7 +341,11 @@ impl OpenAIProvider {
             .or_else(|| message.reasoning_content.clone())
             .unwrap_or_default();
         let usage = parsed.usage.as_ref().map(snapshot_from_stream_usage);
-        Ok(ChatOnceOutput { text, usage })
+        Ok(ChatOnceOutput {
+            text,
+            usage,
+            model: self.settings.model.clone(),
+        })
     }
 
     pub async fn stream_chat(
@@ -600,6 +608,7 @@ impl OpenAIProvider {
                 thoughts: None,
                 headline: None,
                 usage: last_usage,
+                model: self.settings.model.clone(),
             })
             .await;
         Ok(())

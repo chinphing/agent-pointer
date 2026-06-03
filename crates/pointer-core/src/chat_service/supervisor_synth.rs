@@ -56,11 +56,7 @@ briefly note which agents contributed when helpful."
         .await?;
     let synth_scope =
         crate::agent_instance_scope::AgentInstanceScope::new(conversation_id, "supervisor");
-    let model_name = if provider.settings.model.trim().is_empty() {
-        None
-    } else {
-        Some(provider.settings.model.as_str())
-    };
+    let model_name = crate::llm_token_stats::model_name_for_usage_report(&out.model);
     llm_stats.record_llm_round(&synth_scope, out.usage.as_ref(), model_name);
     Ok((out.text, synth_scope.agent_instance_id))
 }

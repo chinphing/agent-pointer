@@ -1,7 +1,22 @@
 //! Per-conversation LLM usage from chat/completions `usage` (streaming + non-stream).
 
 use crate::agent_instance_scope::AgentInstanceScope;
+use crate::models::ModelSettings;
 use crate::token_usage_store;
+
+/// Model id for token usage reporting (same string as the chat/completions `model` field).
+pub fn model_name_for_usage_report(model: &str) -> Option<&str> {
+    let m = model.trim();
+    if m.is_empty() {
+        None
+    } else {
+        Some(m)
+    }
+}
+
+pub fn model_name_for_settings_report(settings: &ModelSettings) -> Option<&str> {
+    model_name_for_usage_report(&settings.model)
+}
 
 /// One API `usage` snapshot (normalized to u32; missing fields treated as 0).
 #[derive(Debug, Clone, Default)]

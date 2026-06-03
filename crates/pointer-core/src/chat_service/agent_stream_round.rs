@@ -42,30 +42,24 @@ impl Default for StreamRoundBuffers {
 pub(super) enum LlmRoundRecorder<'a> {
     TokenSession {
         session: &'a mut ChatLlmTokenSession,
-        model_name: Option<&'a str>,
     },
     Scoped {
         stats: &'a mut ConversationLlmStats,
         scope: &'a crate::agent_instance_scope::AgentInstanceScope,
-        model_name: Option<&'a str>,
     },
 }
 
 impl LlmRoundRecorder<'_> {
-    fn record(&mut self, usage: Option<&LlmUsageSnapshot>) {
+    fn record(&mut self, usage: Option<&LlmUsageSnapshot>, model: Option<&str>) {
         match self {
-            LlmRoundRecorder::TokenSession { session, model_name } => {
-                session.stats.record_llm_round(
-                    &session.lead_scope,
-                    usage,
-                    *model_name,
-                );
+            LlmRoundRecorder::TokenSession { session } => {
+                session
+                    .stats
+                    .record_llm_round(&session.lead_scope, usage, model);
             }
-            LlmRoundRecorder::Scoped {
-                stats,
-                scope,
-                model_name,
-            } => stats.record_llm_round(scope, usage, *model_name),
+            LlmRoundRecorder::Scoped { stats, scope } => {
+                stats.record_llm_round(scope, usage, model);
+            }
         }
     }
 }
@@ -241,11 +235,13 @@ pub(super) async fn drain_provider_events(
                 thoughts,
                 headline: _,
                 usage,
+                model,
             } => {
                 buffers.finish_reason = reason;
                 buffers.json_finish_diag = json;
                 buffers.xml_thoughts = thoughts;
-                llm_recorder.record(usage.as_ref());
+                let model_report = crate::llm_token_stats::model_name_for_usage_report(&model);
+                llm_recorder.record(usage.as_ref(), model_report);
                 emit_deduped_tool_starts(
                     stream,
                     message_id,

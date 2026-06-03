@@ -55,7 +55,8 @@ pub(super) async fn run_provider_stream_round(
     native_tools: Vec<serde_json::Value>,
 ) -> Result<ProviderRoundOutcome> {
     let (tx, mut rx) = mpsc::channel(64);
-    let prov = OpenAIProvider::new(provider.settings.clone(), provider.api_key.clone());
+    // `settings` is per-round (e.g. computer tier `computerTierLlm`); do not use session `provider.settings`.
+    let prov = OpenAIProvider::new(settings.clone(), provider.api_key.clone());
     let system_clone = system_prompts;
     let cancel_clone = cancel.clone();
     let dump_lbl = format!("{}_{}", conversation_id, assistant_id);
@@ -72,14 +73,8 @@ pub(super) async fn run_provider_stream_round(
     });
 
     let mut buffers = StreamRoundBuffers::default();
-    let model_name = if settings.model.trim().is_empty() {
-        None
-    } else {
-        Some(settings.model.as_str())
-    };
     let mut llm_recorder = LlmRoundRecorder::TokenSession {
         session: llm_token_session,
-        model_name,
     };
     drain_provider_events(
         &mut rx,

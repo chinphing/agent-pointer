@@ -294,7 +294,15 @@ impl ComputerState {
         conversation_id: &str,
         settings: &crate::models::ModelSettings,
     ) -> crate::models::ModelSettings {
-        let o = self.round_llm_overrides(conversation_id);
+        let tier = self.tier_for_conversation(conversation_id);
+        let o = ComputerRoundLlmOverrides::for_tier(tier, &self.effective_tier_config());
+        log::info!(
+            "computer_llm_round: conversation_id={conversation_id} tier={} model={} enable_thinking={} thinking_budget={:?}",
+            tier.label(),
+            o.model,
+            o.enable_thinking,
+            o.thinking_budget
+        );
         let mut s = settings.clone();
         s.model = o.model;
         s.round_enable_thinking = Some(o.enable_thinking);

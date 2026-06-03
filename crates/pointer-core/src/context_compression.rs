@@ -513,11 +513,7 @@ async fn compress_history_inner(
         .await
     {
         Ok(out) => {
-            let model = if provider.settings.model.trim().is_empty() {
-                None
-            } else {
-                Some(provider.settings.model.as_str())
-            };
+            let model = crate::llm_token_stats::model_name_for_usage_report(&out.model);
             if let Some(scope) = ui.agent_scope.as_ref() {
                 if let Err(e) =
                     crate::token_usage_store::record_round(scope, out.usage.as_ref(), model)

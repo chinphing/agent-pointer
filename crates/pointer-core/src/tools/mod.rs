@@ -15,7 +15,6 @@ pub use tool_doc::{doc_markdown_without_schema_fence, json_schema_from_markdown,
 
 use crate::agents::computer::tool_names::{
     normalize_action_verify_invocation, ACTION_VERIFY, ACTION_VERIFY_LEGACY_BASE,
-    ACTION_VERIFY_LEGACY_METHOD_REPORT, ACTION_VERIFY_LEGACY_TOOL_IDS,
     ACTION_VERIFY_LEGACY_UNDERSCORE,
 };
 use crate::models::ToolDef;

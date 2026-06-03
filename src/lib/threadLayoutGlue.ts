@@ -39,10 +39,12 @@ export function isSidecarOnlyAssistantMessage(message: ChatMessage): boolean {
 /**
  * LLM wire rows that must not render as chat text (tool results, verify hints, sidecar rounds).
  * MessageRow already skips `role: tool`; glue layout must not resurrect them as plain text.
+ *
+ * `【桌面】` capture status lines are **not** wire — they render via `AssistantNoticeMessage`
+ * (`MessageList` normal `message` entries). Do not fold them into `isToolRunContinuityGlue`.
  */
 export function isInternalThreadWireMessage(message: ChatMessage): boolean {
   if (message.role === 'tool') return true
-  if (isEphemeralDesktopNoticeMessage(message)) return true
   if (message.role === 'assistant') {
     if (isSidecarOnlyAssistantMessage(message)) return true
     if (isToolOnlyAssistantMessage(message) && contentIsComputerVerifyHint(message.content ?? '')) {

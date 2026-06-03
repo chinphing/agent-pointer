@@ -1277,7 +1277,7 @@ fn default_platform_agent_models() -> HashMap<String, AgentModelRef> {
         },
     );
     m.insert(
-        "default".into(),
+        "general".into(),
         AgentModelRef {
             provider_id: "deepseek".into(),
             model: "deepseek-v4-flash".into(),

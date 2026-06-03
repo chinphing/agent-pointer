@@ -7,8 +7,6 @@ mouse_click_index:
       type: string
     index:
       type: integer
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -29,8 +27,6 @@ mouse_click_at:
       type: number
     y:
       type: number
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -50,8 +46,6 @@ mouse_double_click_index:
       type: string
     index:
       type: integer
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -72,8 +66,6 @@ mouse_double_click_at:
       type: number
     y:
       type: number
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -93,8 +85,6 @@ mouse_right_click_index:
       type: string
     index:
       type: integer
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -115,8 +105,6 @@ mouse_right_click_at:
       type: number
     y:
       type: number
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -136,8 +124,6 @@ mouse_hover_index:
       type: string
     index:
       type: integer
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -158,8 +144,6 @@ mouse_hover_at:
       type: number
     y:
       type: number
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -179,8 +163,6 @@ mouse_scroll:
       type: string
     lines:
       type: integer
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -201,8 +183,6 @@ mouse_drag_from_to_index:
       type: integer
     to_index:
       type: integer
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -228,8 +208,6 @@ mouse_drag_from_to_at:
       type: number
     y2:
       type: number
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1

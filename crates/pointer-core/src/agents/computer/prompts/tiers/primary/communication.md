@@ -228,12 +228,20 @@ Operation summary: <brief overview of distinct attempted operations>
 
 **Question:** What is the **one** target on screen and which **tool** fires this turn?
 
-**After wrong_operation:** When the last verify **Cause** was **`wrong_operation`**, or when
-**`[Prior attempt — give up reference]`** lists failed rows:
-- **Do not** repeat the same tool name + same target from the failed row.
-- **Must** change at least one of: **target element** (different control/surface) **or**
-  **tool route** (e.g. `*_index` ↔ `*_at`, hotkey, wait, scroll).
-- Give-up reference rows are historical — they do **not** count toward Repetition **Count**.
+**History-informed choice (every Next turn):** Read **`[Recent desktop tool calls]`**
+oldest → newest, and **`[Prior attempt — give up reference]`** when present.
+Use the ledger to pick this turn's tool — not memory alone.
+
+- **Continue what worked:** rows ending **`verify: verified - pass`** — prefer
+  the same **tool name**, route, and tactic when the next step still fits the
+  same surface/sub-goal/workflow. Read **`goal`**, **`action`**, and args from
+  those rows.
+- **Avoid what failed:** rows with **`verify: verified - wrong_operation`**,
+  other verify **fail** suffixes, or give-up failures — **do not** repeat any
+  **tool name + same target** combination already in history. Change target
+  and/or route (e.g. `*_index` ↔ `*_at`, hotkey, wait, scroll).
+- Switch approach only when the screen, task step, or ledger clearly requires it.
+- Give-up reference rows do **not** count toward Repetition **Count**.
 
 **Order (mandatory):** target description -> route decision -> branch execution.
 
@@ -430,8 +438,14 @@ Only **MA-0** may reference **Count** as a decision input; do not restate Repeti
 **`tool_args` must mirror the selected route output:**
 - index-style route: use `index` (or `from_index`/`to_index` for drag).
 - coordinate-style route: use `x/y` (or multi-point coordinates such as `x1/y1/x2/y2`).
-- For `input_*`, `clear_first` defaults to `false`; set
-  `clear_first=true` only when replacing existing field content.
+- For `input_*`:
+  - `clear_first` defaults to `false`; set `true` only when replacing all
+    existing field content. If text is already selected in a focused field,
+    type without `clear_first`.
+  - `auto_enter` defaults to `false`; set `true` when Enter should submit
+    (search, send, dialog OK, terminal/PowerShell command).
+  - After `auto_enter=true`, do not press Enter again — use `wait` if the UI
+    still looks unchanged.
 
 Internal strategy rule for this turn:
 if **Count > 3** or **Step result** is **fail** with no progress, change route/tactic and avoid repeating the same failing pick.
@@ -544,8 +558,6 @@ Every call needs **`goal`** + **`action`** + route-matched args:
 
 Prefer **one** input/hotkey call when it achieves the same **goal** with fewer steps (after **R** is listed or the control is a listed compact bbox).
 
-Optional **`human_like`** on coordinate hovers/clicks when a natural pointer path helps.
-
 ### After a precision miss
 
 If the last row was a coordinate click and **Verify** was **fail** with no progress:
@@ -555,16 +567,19 @@ If the last row was a coordinate click and **Verify** was **fail** with no progr
 - If prior point was centered but hotspot was off, choose a different target point or a different row R.
 - Otherwise keep the same goal but change `(x,y)` derivation, not blind retries.
 
-### After wrong_operation
+### History-informed routing
 
-If the last verify **Cause** was **`wrong_operation`**, or **`[Prior attempt — give up reference]`**
-lists **`wrong_operation`** rows:
+Every action turn: read **`[Recent desktop tool calls]`** oldest → newest, and
+**`[Prior attempt — give up reference]`** when present.
 
-- **Do not** repeat the same tool + same target element from the failed row.
-- **Pivot:** pick a **different** visible control or surface, **or** switch tool route
-  (e.g. `*_index` ↔ `*_at`, hotkey, wait, scroll) before re-attempting the goal.
-- Treat give-up reference rows as exhausted attempts — use them to avoid repeating failed
-  combinations; they do not count toward Repetition **Count**.
+- **Continue what worked** — rows ending **`verify: verified - pass`**: default
+  to the same **tool name**, route family, and workflow on the same
+  surface/sub-goal. Ground in ledger **`goal`**, **`action`**, and args.
+- **Avoid what failed** — rows with **`verify: verified - wrong_operation`**,
+  other verify **fail** suffixes, or give-up failures: **do not** repeat any
+  **tool + same target** combination from history. Pivot target and/or route
+  (e.g. `*_index` ↔ `*_at`, hotkey, wait, scroll).
+- Give-up reference rows do not count toward Repetition **Count**.
 
 ---
 

@@ -15,8 +15,6 @@ input_index:
       type: boolean
     auto_enter:
       type: boolean
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -44,8 +42,6 @@ input_at:
       type: boolean
     auto_enter:
       type: boolean
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -69,8 +65,6 @@ input_focused:
     clear_first:
       type: boolean
     auto_enter:
-      type: boolean
-    human_like:
       type: boolean
     wait:
       type: number

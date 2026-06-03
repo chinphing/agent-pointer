@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ChevronDown, FolderOpen, Send, Square, X } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
@@ -51,7 +51,6 @@ const showAgentPicker = ref(false)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const agentBtnRef = ref<HTMLButtonElement | null>(null)
 const agentPickerRef = ref<HTMLDivElement | null>(null)
-const agentPickerWidth = ref(0)
 const workspaceInputRef = ref<HTMLInputElement | null>(null)
 
 const agents = ref<AgentDef[]>([])
@@ -327,13 +326,6 @@ function autoResize() {
   textareaRef.value.style.height = Math.min(textareaRef.value.scrollHeight, 250) + 'px'
 }
 
-function updatePickerWidths() {
-  if (agentBtnRef.value) {
-    const btnWidth = agentBtnRef.value.offsetWidth
-    agentPickerWidth.value = Math.max(btnWidth, 200)
-  }
-}
-
 function handleClickOutside(e: MouseEvent) {
   const target = e.target as HTMLElement
   if (showAgentPicker.value && agentBtnRef.value && agentPickerRef.value) {
@@ -342,11 +334,6 @@ function handleClickOutside(e: MouseEvent) {
     }
   }
 }
-
-watch(
-  () => showAgentPicker.value,
-  () => nextTick(() => updatePickerWidths())
-)
 
 onMounted(() => {
   loadAgentsList()
@@ -362,7 +349,6 @@ onMounted(() => {
       leadAgentId: DEFAULT_LEAD_AGENT_ID
     })
   }
-  updatePickerWidths()
   document.addEventListener('click', handleClickOutside)
 })
 
@@ -436,31 +422,29 @@ onUnmounted(() => {
                 @click="showAgentPicker = !showAgentPicker"
               >
                 <component :is="currentAgentIcon" class="w-3 h-3 shrink-0 text-accent" />
-                <span class="truncate">{{ currentAgentLabel }}</span>
+                <span class="whitespace-nowrap">{{ currentAgentLabel }}</span>
                 <ChevronDown class="w-3 h-3 shrink-0 text-muted" />
               </button>
 
               <div
                 v-if="showAgentPicker"
                 ref="agentPickerRef"
-                class="composer-dropdown composer-dropdown--up"
-                :style="{ minWidth: agentPickerWidth + 'px' }"
+                class="composer-dropdown composer-dropdown--fit composer-dropdown--up"
               >
-                <div class="px-3 py-2 border-b border-border">
-                  <div class="text-[11px] text-muted font-medium">执行智能体</div>
+                <div class="px-2 py-1.5 border-b border-border">
+                  <div class="text-[11px] text-muted font-medium whitespace-nowrap">执行智能体</div>
                 </div>
-                <div class="p-1.5 space-y-0.5 max-h-60 overflow-y-auto">
+                <div class="p-1 space-y-0.5 max-h-60 overflow-y-auto">
                   <button
                     v-for="w in workers"
                     :key="w.id"
                     type="button"
-                    class="composer-dropdown-item cursor-pointer"
+                    class="composer-dropdown-item composer-dropdown-item--compact cursor-pointer"
                     :class="isLeadAgentSelected(w.id) ? 'composer-dropdown-item-active' : ''"
                     @click="selectWorkerAgent(w)"
                   >
                     <component :is="iconForAgent(w, settings.settings)" class="w-3 h-3 shrink-0" />
-                    <span class="min-w-0 truncate">{{ composerAgentLabel(w, settings.settings) }}</span>
-                    <span class="text-[10px] text-muted shrink-0">{{ w.id }}</span>
+                    <span class="whitespace-nowrap">{{ composerAgentLabel(w, settings.settings) }}</span>
                   </button>
                 </div>
               </div>

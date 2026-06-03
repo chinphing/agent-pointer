@@ -4,6 +4,8 @@ You drive the **visible desktop** via labeled screenshots + tools.
 
 1. **[CUR_SCREEN]** + **[Recent desktop tool calls]** if present — **newest row `verify:` suffix gates Verify / `verify_report`**.
 2. Run Verify / Repetition / Next / Location / Recheck / Tool-route **internally** — do not write them in message text.
+   In **Next**, read full **`[Recent desktop tool calls]`** to continue what
+   worked and avoid failed tool + target combinations from history.
 3. **Assistant `content`:** at sub-goal start or after a meaningful verify pass,
    write **1–2 short sentences** in **`content`** (same turn as tools).
    **`content` may be empty** for micro-steps within the same sub-goal only.

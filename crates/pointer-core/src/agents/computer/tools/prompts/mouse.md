@@ -4,7 +4,7 @@ Flat mouse tools — each tool name is the complete operation. No `method` param
 
 Every call requires **`goal`** (outcome) and **`action`** (human-readable target description for the UI).
 
-Optional: `human_like`, `wait` (1–5 s).
+Optional: `wait` (1–5 s).
 
 **Index-based** (overlay digit — clicks bbox **center**):
 - **`mouse_click_index`** — Requires **`index`**.

@@ -351,7 +351,7 @@ mod tests {
         assert_eq!(
             platform
                 .agent_default_models
-                .get("default")
+                .get("general")
                 .map(|r| r.model.as_str()),
             Some("deepseek-v4-flash")
         );

@@ -21,11 +21,11 @@ pub mod coder;
 pub mod research;
 
 pub mod agent_ui;
-pub use agent_ui::{resolve_agent_ui, AgentUiConfig, ResolvedAgentUi};
+pub use agent_ui::{agent_display_label, resolve_agent_ui, AgentUiConfig, ResolvedAgentUi};
 
 pub const AGENT_MODE_SINGLE: &str = "single";
 pub const AGENT_MODE_SUPERVISOR: &str = "supervisor";
-pub const DEFAULT_AGENT_ID: &str = "default";
+pub const DEFAULT_AGENT_ID: &str = "general";
 /// Default worker selected in single-agent mode when `leadAgentId` is unset.
 pub const DEFAULT_LEAD_AGENT_ID: &str = "computer";
 pub const SUPERVISOR_AGENT_ID: &str = "supervisor";
@@ -63,9 +63,9 @@ struct BuiltinAgentBundle {
 
 const BUILTIN_AGENT_BUNDLES: &[BuiltinAgentBundle] = &[
     BuiltinAgentBundle {
-        id: "default",
-        manifest: include_str!("default/AGENT.md"),
-        communication: include_str!("default/COMMUNICATION.md"),
+        id: "general",
+        manifest: include_str!("general/AGENT.md"),
+        communication: include_str!("general/COMMUNICATION.md"),
     },
     BuiltinAgentBundle {
         id: "supervisor",
@@ -388,7 +388,7 @@ impl AgentRegistry {
     }
 
     pub fn get(&self, id: &str) -> Option<Arc<dyn AgentExecutor>> {
-        self.inner.read().get(id).cloned()
+        self.inner.read().get(id.trim()).cloned()
     }
 
     pub fn list(&self) -> Vec<AgentDef> {
@@ -517,7 +517,7 @@ impl AgentOrchestrator {
             return AgentPlan {
                 mode: normalized_mode.into(),
                 lead_agent_id: agent.id.clone(),
-                lead_agent_name: agent.name.clone(),
+                lead_agent_name: agent_ui::agent_display_label(&agent),
                 system_prompts,
                 allowed_tool_names,
                 allow_agents: normalize_allow_agents(&agent.allow_agents),
@@ -554,7 +554,7 @@ impl AgentOrchestrator {
         AgentPlan {
             mode: normalized_mode.into(),
             lead_agent_id: lead.id.clone(),
-            lead_agent_name: lead.name.clone(),
+            lead_agent_name: agent_ui::agent_display_label(&lead),
             system_prompts,
             allowed_tool_names,
             allow_agents: normalize_allow_agents(&lead.allow_agents),
@@ -597,7 +597,7 @@ fn default_agent_def() -> AgentDef {
         .map(|agent| agent.def)
         .unwrap_or_else(|_| AgentDef {
             id: DEFAULT_AGENT_ID.into(),
-            name: "Default Agent".into(),
+            name: "general-assistant".into(),
             description: "Handles general tasks, simple Q&A, summarization, and default fallback."
                 .into(),
             role: "worker".into(),
@@ -1050,7 +1050,7 @@ fn supervisor_prompt(lead: &AgentDef, lead_prompt: Option<String>, agents: &[Age
         lead.profile,
         lead.description,
         if roster.is_empty() {
-            "- id: default\n  name: Default Agent\n  role: worker\n  profile: general\n  description: General-purpose fallback agent.\n".to_string()
+            "- id: general\n  name: general-assistant\n  role: worker\n  profile: general\n  description: General-purpose fallback agent.\n".to_string()
         } else {
             roster
         }
@@ -1163,10 +1163,6 @@ mod builtin_agent_tests {
         assert!(
             agent.def.allow_agents.binary_search(&"explore".to_string()).is_ok(),
             "coder allowAgents should include explore"
-        );
-        assert!(
-            agent.def.allow_agents.binary_search(&"research".to_string()).is_ok(),
-            "coder allowAgents should include research"
         );
     }
 

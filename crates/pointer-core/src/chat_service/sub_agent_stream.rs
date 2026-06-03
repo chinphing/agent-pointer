@@ -1,5 +1,6 @@
 //! One sub-agent `stream_chat` round: spawn provider task, drain events, await join outcome.
 
+use crate::agents::agent_ui::agent_display_label;
 use crate::agents::{AgentDef, AgentProfile, AgentTask};
 use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::{effective_max_tokens, ChatMessage, StreamEvent, SystemPromptSections};
@@ -164,7 +165,7 @@ pub(super) async fn run_sub_agent_stream_round(
                             instance_scope.clone(),
                             message_id,
                             &def.id,
-                            &def.name,
+                            &agent_display_label(def),
                             &task.id,
                         ),
                     )

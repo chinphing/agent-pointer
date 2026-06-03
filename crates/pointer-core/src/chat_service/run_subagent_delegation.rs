@@ -1,5 +1,6 @@
 //! Lead-agent `run_subagent` tool: validate target, spawn sub loop, emit trace steps.
 
+use crate::agents::agent_ui::agent_display_label;
 use crate::agents::AgentTask;
 use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::AgentTrace;
@@ -72,7 +73,7 @@ pub(super) async fn run_subagent_delegation(
                         agent_trace,
                         AgentTrace {
                             id: agent_trace_step_id(&task.id, &def.id),
-                            name: def.name.clone(),
+                            name: agent_display_label(&def),
                             role: def.role.clone(),
                             status: "running".into(),
                             detail: Some(detail),
@@ -119,7 +120,7 @@ pub(super) async fn run_subagent_delegation(
                                 agent_trace,
                                 AgentTrace {
                                     id: agent_trace_step_id(&task.id, &def.id),
-                                    name: def.name.clone(),
+                                    name: agent_display_label(&def),
                                     role: def.role.clone(),
                                     status: "completed".into(),
                                     detail: Some(truncate_str(&result.content, 160)),
@@ -140,7 +141,7 @@ pub(super) async fn run_subagent_delegation(
                                 agent_trace,
                                 AgentTrace {
                                     id: agent_trace_step_id(&task.id, &def.id),
-                                    name: def.name.clone(),
+                                    name: agent_display_label(&def),
                                     role: def.role.clone(),
                                     status: "failed".into(),
                                     detail: Some(e.to_string()),

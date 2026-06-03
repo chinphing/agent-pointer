@@ -42,7 +42,7 @@ pub struct TaskBoardTrimHook<'a> {
 fn normalize_agent_id(agent_id: &str) -> String {
     let t = agent_id.trim();
     if t.is_empty() {
-        "default".into()
+        crate::agents::DEFAULT_AGENT_ID.to_string()
     } else {
         t.to_string()
     }
@@ -319,7 +319,7 @@ pub fn default_agent_task_board_history_trim_table() -> HashMap<String, bool> {
     let mut m = HashMap::new();
     m.insert("computer".into(), true);
     m.insert("coder".into(), false);
-    m.insert("default".into(), false);
+    m.insert("general".into(), false);
     m.insert("explore".into(), false);
     m
 }

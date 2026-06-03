@@ -4,64 +4,65 @@ schema:
   properties:
     query:
       type: string
-    searchStrategy:
-      type: string
-      enum:
-        - pro_max
-        - max
-        - turbo
-    enableThinking:
-      type: boolean
-    forcedSearch:
-      type: boolean
-    enableVerticalSearch:
-      type: boolean
   required:
     - query
-  additionalProperties: true
+  additionalProperties: false
 ---
 
 ### `web_search`
 
-Search the **public web** via DashScope **Generation API** (`enable_search` + `search_strategy: pro_max`). Each call uses **SSE streaming**: sources appear first, then the answer streams incrementally.
+Fetch **live public web** evidence. **Most turns should not call this tool.**
 
-Use for **external** facts: API docs, release notes, news, prices, weather, library versions. For **codebase** mapping, use **`file`** tools (`file_grep`, `file_glob`, `file_list`, `file_read`) or delegate **`explore`**. For deep multi-query research, delegate **`research`** (uses Responses API with agent tools).
+**Call with `query` only** — do not pass any other arguments.
 
-**Requires** a configured **Qwen provider API key** in settings. Search calls use **`webSearchModel`** (default **`qwen3-max`** on Generation API); the research sub-agent uses Responses API separately.
+#### Default (answer first)
 
-#### Parameters
+For ordinary questions, answer from **this conversation** and **your own
+knowledge** first.
 
-- **`query`** — Required. A **self-contained search brief** (sent as the user message). Unless the user explicitly specified a year, always incorporate the current year from `[Environment]` → `Local date` into the query — never use a year from training data or assume a default.
-- **`searchStrategy`** — Optional. Default **`pro_max`**. Also accepts `max`, `turbo`. Alias **`search_strategy`**.
-- **`enableThinking`** — Optional. Default **`false`**. Alias **`enable_thinking`**.
-- **`forcedSearch`** — Optional. Force web search. Alias **`forced_search`**.
-- **`enableVerticalSearch`** — Optional. Weather, stocks, etc. Alias **`enable_vertical_search`**.
+`web_search` is **not** a substitute for thinking. Stable facts, concepts,
+how-things-work, classic APIs, and general tutoring **do not** need a search.
 
-**Context modes:**
+#### Decision order
 
-- **Default (coder, default, research lead, etc.)** — Generation API, **`query`** only.
-- **Research sub-agent** — Responses API with **`web_search`**, **`web_extractor`**, **`code_interpreter`**; SearchAgent system + history + **`query`**.
+1. Can you answer **confidently** from the **thread** and **general knowledge**
+   without needing **today's** web?
+   → **Do not** search. Reply directly.
+2. Does the user **explicitly** want online lookup, citations, or verification?
+   → Search.
+3. Is the gap **live / time-sensitive** (news, current price, weather, policy
+   today, release **after** your knowledge may be stale)?
+   → Search with one focused **`query`**.
 
-#### Response shape
+#### When to use
 
-JSON string with fields such as:
+- User says search / look up / verify online / need sources
+- Live or post-cutoff facts (today's news, current market price, weather now)
+- External official docs or release notes not stable in your knowledge
+- **One focused question** per call
 
-- **`ok`**, **`query`**, **`answer`** — `answer` has `[N]` linkified to `[title](url)` when `sources` are available
-- **`sources`** — `{ index, title, url, siteName? }`; **`index` matches inline `[N]`**
-- **`sourcesForReply`** — **paste this once** as your Sources section: **`N. [siteName · title](url)`** per line when `siteName` is present, else **`N. [title](url)`** (`N` = `sources[].index`, matches inline `[N]`)
-- **`citationBaseIndex`** — offset applied this call (prior max index in the same user turn); multi-search **`[N]`** values are globally unique
-- **`sourcesCitationMarkdown`** — index map for `[N]` in `answer` (agent reference, not a second Sources block)
-- **`citationGuide`** — how to use the fields above
-- **`searchCount`**, **`usage`**, **`model`**, **`searchStrategy`**
+#### When **not** to use
 
-While running, the UI shows **sources** as soon as search completes, then **answer** text incrementally via SSE.
+- Normal Q&A, explanation, writing, brainstorming, summarization
+- Facts you already know well and freshness does not matter
+- Answer already in the thread or **`[TASK_BOARD]`**
+- **Do not** search to double-check every step or every subtopic
 
-#### Usage discipline
+#### `query`
 
-- Write **`query`** as a self-contained brief.
-- Prefer **one focused search task** per call; split broad topics into multiple calls or delegate **`research`**.
-- **Single search** in your reply: append **`sourcesForReply` verbatim** — **`N. [title](url)`** matches **`[N]`** in that call's **`answer`**.
-- **Multiple searches** in the same user turn: each call shifts indices by **`citationBaseIndex`** — **`[N]`** stays unique across calls; concatenate all **`sourcesForReply`** under one **`## Sources`** (dedupe URLs if needed).
-- **Do not** paste plain titles without **`N.`** or without markdown links.
-- **Do not** rebuild Sources from **`sources[]`** by hand — use **`sourcesForReply`** (or merge per **`multiSearchGuide`**).
-- **Date anchoring:** When the user asks for "latest", "recent", "current", or similar without specifying a year, incorporate the current year from `[Environment]` → `Local date` into the query. For instance, if the user asks for "latest release notes" while the local date carries year 2026, append `2026` as a keyword — do not use an earlier year from training data.
+Required. A **self-contained search brief**.
+
+Add the current year from **`[Environment]`** → **`Local date`** **only** when
+freshness matters and the user did not specify a year.
+**Do not** append a year to every query by default.
+
+#### Citations in user-facing replies
+
+When you **did** search and cite external facts:
+
+- **One call** — paste **`sourcesForReply`** verbatim (linked titles).
+- **Multiple calls** in one user turn — merge all **`sourcesForReply`** under one
+  **`## Sources`** section; indices stay unique via **`citationBaseIndex`**.
+- **Do not** rebuild Sources from raw **`sources[]`** by hand.
+
+Read **`citationGuide`** in the tool result when unsure.

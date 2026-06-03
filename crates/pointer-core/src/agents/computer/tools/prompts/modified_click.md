@@ -3,7 +3,7 @@
 Flat modified-click tools — each tool name is the complete operation. No `method` parameter.
 
 Every call requires **`goal`** (outcome) and **`action`** (human-readable description for UI).
-Optional: `human_like`, `wait` (1–5 s).
+Optional: `wait` (1–5 s).
 
 **Index-based** (overlay digit):
 - **`modified_click_select_index`** — Cmd/Ctrl+click each index. Requires **`indices`** (one or more).

@@ -21,6 +21,7 @@ import type {
   UserSettings
 } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
+import { GENERAL_AGENT_ID } from '../lib/agentUi'
 import { applyTheme } from '../lib/theme'
 import {
   DEFAULT_MODEL_MAX_TOKENS,
@@ -461,14 +462,14 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   function isTaskBoardHistoryTrimEnabled(agentId: string): boolean {
-    const id = agentId.trim() || 'default'
+    const id = agentId.trim() || GENERAL_AGENT_ID
     const v = settings.value.agentTaskBoardHistoryTrim?.[id]
     if (v !== undefined) return v
     return defaultTaskBoardHistoryTrim(id)
   }
 
   async function setTaskBoardHistoryTrim(agentId: string, enabled: boolean) {
-    const id = agentId.trim() || 'default'
+    const id = agentId.trim() || GENERAL_AGENT_ID
     const next = { ...(settings.value.agentTaskBoardHistoryTrim ?? {}) }
     next[id] = enabled
     await save({ agentTaskBoardHistoryTrim: next })

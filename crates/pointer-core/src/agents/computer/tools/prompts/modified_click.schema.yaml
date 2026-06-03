@@ -9,8 +9,6 @@ modified_click_select_index:
       type: array
       items:
         type: integer
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -31,8 +29,6 @@ modified_click_range_select_index:
       type: array
       items:
         type: integer
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -51,8 +47,6 @@ modified_click_select_at:
       type: string
     positions:
       type: array
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1
@@ -71,8 +65,6 @@ modified_click_range_select_at:
       type: string
     positions:
       type: array
-    human_like:
-      type: boolean
     wait:
       type: number
       minimum: 1

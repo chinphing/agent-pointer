@@ -66,6 +66,27 @@ pub struct ResolvedAgentUi {
     pub avatar: String,
 }
 
+fn default_composer_label(profile: &AgentProfile, role: &str, id: &str) -> String {
+    if role == "supervisor" || id == "supervisor" {
+        return "团队模式".into();
+    }
+    match id {
+        "general" => "通用助手".into(),
+        "coder" => "氛围编程".into(),
+        "computer" => "电脑操控".into(),
+        "explore" => "代码探索".into(),
+        "research" => "深度研究".into(),
+        _ => match profile {
+            AgentProfile::Computer => "电脑操控".into(),
+            AgentProfile::Coder => "氛围编程".into(),
+            AgentProfile::Explore => "代码探索".into(),
+            AgentProfile::Analyst => "深度研究".into(),
+            AgentProfile::Supervisor => "团队模式".into(),
+            _ => "通用助手".into(),
+        },
+    }
+}
+
 fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAgentUi {
     let is_supervisor = role == "supervisor" || id == "supervisor";
     let is_computer = matches!(profile, AgentProfile::Computer) || id == "computer";
@@ -89,8 +110,8 @@ fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAge
         show_workspace_picker: is_coder,
         show_computer_monitor_picker: is_computer,
         show_task_board_panel: has_task_board,
-        user_selectable: is_computer || is_coder || is_research || id == "default",
-        composer_label: String::new(),
+        user_selectable: is_computer || is_coder || is_research || id == "general",
+        composer_label: default_composer_label(profile, role, id),
         avatar: if is_supervisor {
             "supervisor".into()
         } else if is_computer {
@@ -102,7 +123,7 @@ fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAge
         } else if matches!(profile, AgentProfile::Analyst) || id == "research" {
             "research".into()
         } else {
-            "default".into()
+            "general".into()
         },
     }
 }
@@ -120,10 +141,20 @@ fn merge_str(manifest: Option<String>, base: String) -> String {
         .unwrap_or(base)
 }
 
-fn merge_composer_label(manifest: Option<String>, agent_name: &str) -> String {
+fn merge_composer_label(
+    manifest: Option<String>,
+    profile: &AgentProfile,
+    role: &str,
+    id: &str,
+) -> String {
     manifest
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| agent_name.to_string())
+        .unwrap_or_else(|| default_composer_label(profile, role, id))
+}
+
+/// User-visible agent label (Chinese composer label). English slug stays in `AgentDef::name` for settings only.
+pub fn agent_display_label(def: &AgentDef) -> String {
+    resolve_agent_ui(def).composer_label
 }
 
 pub fn resolve_agent_ui(def: &AgentDef) -> ResolvedAgentUi {
@@ -152,7 +183,46 @@ pub fn resolve_agent_ui(def: &AgentDef) -> ResolvedAgentUi {
         ),
         show_task_board_panel: merge_bool(ui.show_task_board_panel, base.show_task_board_panel),
         user_selectable: merge_bool(ui.user_selectable, base.user_selectable),
-        composer_label: merge_composer_label(ui.composer_label.clone(), &def.name),
+        composer_label: merge_composer_label(
+            ui.composer_label.clone(),
+            &def.profile,
+            &def.role,
+            &def.id,
+        ),
         avatar: merge_str(ui.avatar.clone(), base.avatar),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::{AccessPolicy, AgentDef, AgentProfile};
+
+    fn sample_def(id: &str, name: &str, profile: AgentProfile) -> AgentDef {
+        AgentDef {
+            id: id.into(),
+            name: name.into(),
+            description: String::new(),
+            role: "worker".into(),
+            profile,
+            default_skill_ids: vec![],
+            access_policy: AccessPolicy::default(),
+            builtin: true,
+            enabled: true,
+            tool_names: vec![],
+            source: None,
+            resource_files: vec![],
+            allow_agents: vec![],
+            config: Default::default(),
+            ui: AgentUiConfig::default(),
+        }
+    }
+
+    #[test]
+    fn display_label_uses_chinese_not_english_slug() {
+        let def = sample_def("general", "general-assistant", AgentProfile::General);
+        assert_eq!(agent_display_label(&def), "通用助手");
+        let coder = sample_def("coder", "vibe-coding", AgentProfile::Coder);
+        assert_eq!(agent_display_label(&coder), "氛围编程");
     }
 }

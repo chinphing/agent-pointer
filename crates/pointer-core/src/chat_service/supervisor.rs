@@ -6,6 +6,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use tokio_util::sync::CancellationToken;
 
+use crate::agents::agent_ui::agent_display_label;
 use crate::agents::{AgentRunLimits, AgentRunResult, DEFAULT_AGENT_ID, SUPERVISOR_AGENT_ID};
 use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent, SupervisorPlanTask};
@@ -54,7 +55,7 @@ pub(crate) async fn run_supervisor_chat(
     let sup_meta = state.agents.get(SUPERVISOR_AGENT_ID);
     let sup_name = sup_meta
         .as_ref()
-        .map(|a| a.def().name.clone())
+        .map(|a| agent_display_label(&a.def()))
         .unwrap_or_else(|| "团队模式".into());
     emit_agent_step(
         &stream,
@@ -163,7 +164,7 @@ pub(crate) async fn run_supervisor_chat(
             &mut agent_trace,
             AgentTrace {
                 id: agent_trace_step_id(&task.id, &def.id),
-                name: def.name.clone(),
+                name: agent_display_label(&def),
                 role: def.role.clone(),
                 status: "running".into(),
                 detail: Some(if task.title.is_empty() {
@@ -291,7 +292,7 @@ pub(crate) async fn run_supervisor_chat(
                     &mut agent_trace,
                     AgentTrace {
                         id: agent_trace_step_id(&task.id, &def.id),
-                        name: def.name.clone(),
+                        name: agent_display_label(&def),
                         role: def.role.clone(),
                         status: "completed".into(),
                         detail: Some(truncate_str(&result.content, 160)),
@@ -329,7 +330,7 @@ pub(crate) async fn run_supervisor_chat(
                     &mut agent_trace,
                     AgentTrace {
                         id: agent_trace_step_id(&task.id, &def.id),
-                        name: def.name.clone(),
+                        name: agent_display_label(&def),
                         role: def.role.clone(),
                         status: "failed".into(),
                         detail: Some(err.to_string()),

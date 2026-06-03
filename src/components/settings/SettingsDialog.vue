@@ -30,7 +30,7 @@ import { COMPUTER_INITIAL_TIER_OPTIONS } from '../../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../../types/chat'
 import { applyTheme } from '../../lib/theme'
 import { resolveAgentUi, composerAgentLabel } from '../../lib/agentUi'
-import { TEAM_MODE_UI_ENABLED } from '../../lib/agentIcons'
+import { sortComposerAgents, TEAM_MODE_UI_ENABLED } from '../../lib/agentIcons'
 import { listAgents } from '../../lib/api'
 import { isTauriRuntime } from '../../lib/runtime'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
@@ -182,10 +182,12 @@ async function loginPlatformAccount() {
 }
 
 const workers = computed(() =>
-  agents.value.filter(a => {
-    if (a.role !== 'worker' || !a.enabled) return false
-    return resolveAgentUi(a, s.settings).userSelectable
-  })
+  sortComposerAgents(
+    agents.value.filter(a => {
+      if (a.role !== 'worker' || !a.enabled) return false
+      return resolveAgentUi(a, s.settings).userSelectable
+    })
+  )
 )
 
 const supervisorAgent = computed(
@@ -812,7 +814,7 @@ async function saveFromFooter() {
                   <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
                       <span class="text-sm font-medium text-foreground">{{ composerAgentLabel(w, s.settings) }}</span>
-                      <span class="px-1.5 py-0.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[10px] text-muted font-mono">{{ w.id }}</span>
+                      <span class="px-1.5 py-0.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[10px] text-muted font-mono">{{ w.name }}</span>
                       <span v-if="isLeadWorkerSelected(w.id)" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">已选择</span>
                     </div>
                     <p class="mt-0.5 text-[11px] text-muted">{{ w.description || '通用智能体' }}</p>

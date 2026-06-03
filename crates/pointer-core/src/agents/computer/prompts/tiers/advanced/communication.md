@@ -530,7 +530,7 @@ Next must be a committed decision block:
 
 | Step result | Cause | this turn must… | Line 2 target |
 |-------------|-------|-----------------|---------------|
-| pass | — | Advance next sub-goal | **New** control on **`[Screen after action]`** |
+| pass | — | Continue workflow — next sub-step on same surface when applicable | Target on **`[Screen after action]`** — may reuse route that just passed |
 | fail | wrong_operation | **Pivot** — different surface (includes clicked wrong visible control) | **Different** control than failed action |
 | fail | precision_miss | **Re-aim** same sub-target **only if visible** on **`[Screen after action]`**; if **not visible**, **relocate** (scroll/navigate/open surface) — **then** re-aim next turn | **Same** control when visible; else **n/a** or shell that exposes the target |
 | fail | no_immediate_feedback | **Retry** same on-canvas intent | **Same** control/region |
@@ -547,12 +547,17 @@ Read **`[Screen after action]`** line **2** before **`this turn:`**.
 | **No** — off-screen, wrong surface, surface not open | **relocate** — scroll/switch/open/dismiss until target appears; **forbidden** **re-aim** until visible |
 | Wrong visible control clicked | **pivot** — different control (**wrong_operation**) |
 
-**After wrong_operation (mandatory):** When Verify **Cause** is **`wrong_operation`**, or
-**`[Prior attempt — give up reference]`** lists failed rows:
-- **Do not** repeat the same tool name + same target from the failed row.
-- **Must** change at least one of: **target element** (different control/surface) **or**
-  **tool route** (e.g. `*_index` ↔ `*_at`, hotkey, wait, scroll).
-- Give-up reference rows are historical — they do **not** count toward Repetition **Count**.
+**History-informed choice (every Next turn):** Read **`[Recent desktop tool calls]`**
+oldest → newest, and **`[Prior attempt — give up reference]`** when present.
+Use the ledger alongside **Match** — not memory alone.
+
+- **Continue what worked:** rows ending **`verify: verified - pass`** — prefer
+  the same **tool name**, route, and tactic when the next step still fits the
+  same surface/sub-goal/workflow.
+- **Avoid what failed:** rows with **`verify: verified - wrong_operation`**,
+  other verify **fail** suffixes, or give-up failures — **do not** repeat any
+  **tool name + same target** already in history. Change target and/or route.
+- Give-up reference rows do **not** count toward Repetition **Count**.
 
 When Repetition **Count > 3**, still follow this table in **Next** — Repetition only reports loop pressure; **Match → this turn** picks the tactic.
 
@@ -1042,9 +1047,14 @@ When **Location** line **3** concludes **`therefore (x,y) ≈ (…, …)`**, the
 
 - Press icon/button/toggle **this turn** → **`mouse_click_at`** / **`mouse_click_index`** — not **`input_at`**
 - Type/replace text **this turn** → **`input_at`** / **`input_index`** / **`input_focused`**
-- For `input_at` / `input_focused`, `clear_first`
-  defaults to `false`; set `clear_first=true` only when replacing existing
-  field content.
+- For `input_*`:
+  - `clear_first` defaults to `false`; set `true` only when replacing all
+    existing field content. If text is already selected in a focused field,
+    type without `clear_first`.
+  - `auto_enter` defaults to `false`; set `true` when Enter should submit
+    (search, send, dialog OK, terminal/PowerShell command).
+  - After `auto_enter=true`, do not press Enter again — use `wait` if the UI
+    still looks unchanged.
 
 #### Steps
 

@@ -76,6 +76,8 @@ Prefer the fastest visible path; use **hotkey** for launcher shortcuts when reli
 7. **Terminal (PowerShell only — not general app launch)**
    - `win` → type `powershell` → Enter, or `win+r` → `powershell` → Enter.
    - Use **Windows PowerShell** for terminal/code tasks; never `cmd.exe` unless the user requires it.
+   - When typing a command, use **`input_focused`** with **`auto_enter=true`**.
+     If output is slow, use **`wait`** — do not press Enter again.
 
 8. **Small window after launch**
    - Maximize the window, use `win+up` on the focused window, or `f11` when the app supports full screen (e.g. browsers).

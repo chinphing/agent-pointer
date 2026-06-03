@@ -1,6 +1,7 @@
 //! After one provider stream round: assistant row, format retries, tool-budget exhaustion.
 //! Shared by lead single-agent and sub-agent loops.
 
+use crate::agents::agent_ui::agent_display_label;
 use crate::agents::{AgentDef, AgentPlan, AgentRunResult};
 use crate::models::{AgentTrace, ChatMessage, ModelSettings, Role, StreamEvent, ToolCall};
 use crate::provider::OpenAIProvider;
@@ -234,7 +235,7 @@ pub(super) fn build_sub_assistant_message_after_stream(
         tool_raw_output: None,
         agent_id: Some(def.id.clone()),
         agent_instance_id,
-        agent_name: Some(def.name.clone()),
+        agent_name: Some(agent_display_label(def)),
         agent_trace: None,
         image_slot_labels: None,
         images_base64: None,
@@ -377,7 +378,7 @@ pub(super) fn sub_agent_run_result(
     AgentRunResult {
         task_id: task_id.to_string(),
         agent_id: def.id.clone(),
-        agent_name: def.name.clone(),
+        agent_name: agent_display_label(def),
         content,
         reasoning: if reasoning_in_messages && !reasoning.is_empty() {
             Some(reasoning)

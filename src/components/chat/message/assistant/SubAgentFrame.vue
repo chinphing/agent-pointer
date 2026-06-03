@@ -4,11 +4,13 @@ import { ChevronDown, ChevronRight, Code } from 'lucide-vue-next'
 import type { AgentTrace, TaskBoardDocument } from '../../../../types/chat'
 import type { ResolvedAgentUi } from '../../../../lib/agentUi'
 import { formatSubAgentSummaryLine } from '../../../../lib/subAgentStats'
+import { traceAgentLabel } from '../../../../lib/agentUi'
 import {
-  runningSubTraceSummaryLine,
   subTraceHasVisibleActivity
 } from '../../../../lib/subAgentSession'
+import { subAgentStatusLabel } from '../../../../lib/subAgentStats'
 import { useSettingsStore } from '../../../../stores/settings'
+import { useAgentsCatalog } from '../../../../composables/useAgentUi'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import RawWirePanel from './RawWirePanel.vue'
 import { hasTaskBoardContent } from '../../../../lib/taskBoard'
@@ -32,6 +34,10 @@ const childBoard = computed(() =>
 )
 
 const settingsStore = useSettingsStore()
+const agentsCatalog = useAgentsCatalog()
+const traceLabel = computed(() =>
+  traceAgentLabel(props.trace, agentsCatalog.value, settingsStore.settings)
+)
 const rawContentViewEnabled = computed(() => settingsStore.settings.rawContentViewEnabled === true)
 
 const session = computed(() => props.trace.session)
@@ -47,12 +53,11 @@ const collapsed = computed(() => {
 
 const summaryLine = computed(() => {
   if (isRunning.value && !subTraceHasVisibleActivity(props.trace)) {
-    return runningSubTraceSummaryLine(props.trace)
+    return `${traceLabel.value} · ${subAgentStatusLabel(props.trace.status)}…`
   }
   const s = session.value
-  if (s?.summaryLine?.trim()) return s.summaryLine.trim()
   return formatSubAgentSummaryLine(
-    props.trace.name,
+    traceLabel.value,
     props.trace.status,
     s?.stats ?? { searchCount: 0, readCount: 0 }
   )
@@ -152,7 +157,7 @@ function toggleExpanded() {
           @click="toggleExpanded"
         >
           <ChevronDown class="w-4 h-4 shrink-0 text-accent" />
-          <span class="truncate">{{ trace.name }}</span>
+          <span class="truncate">{{ traceLabel }}</span>
           <span class="text-xs text-muted shrink-0">{{ trace.status }}</span>
         </button>
         <button

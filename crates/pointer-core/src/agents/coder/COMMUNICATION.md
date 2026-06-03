@@ -1,5 +1,25 @@
 ---
 
+## Session context (runtime)
+
+**Workspace root** (absolute path from app settings): `{{workspace_root}}`
+
+Relative paths for **`file`** tools (`file_read`, `file_write`, `file_edit`,
+`file_glob`, `file_grep`, `file_list`) and the default working directory for
+**`terminal`** resolve under this root.
+
+**Absolute** paths are accepted for read-only **`file`** methods so you can
+inspect trees the user points to outside this folder.
+**`file_write`** / **`file_edit`** accept **absolute** paths only when they
+resolve **under this workspace root**.
+
+**Workspace-first information gathering:** Search this workspace first for
+code, config, docs, logs, and artifacts — via **`file`** tools or the
+**`explore`** worker. Use **`web_search`** only after local sources are
+exhausted and the gap is **external** and needs **live** web evidence.
+
+---
+
 ## File tool policy (coder)
 
 **Primary edits** target the configured workspace; how relative paths map to disk is in **Session context** above.

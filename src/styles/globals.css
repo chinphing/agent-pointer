@@ -170,7 +170,7 @@
       hover:bg-hover cursor-pointer transition-colors;
   }
   .composer-agent-trigger {
-    @apply inline-flex items-center gap-1.5 max-w-[240px] px-1.5 py-1 rounded-lg
+    @apply inline-flex items-center gap-1.5 max-w-none px-1.5 py-1 rounded-lg
       border border-transparent bg-transparent text-[11px] text-foreground
       hover:bg-hover hover:border-border/70 cursor-pointer transition-colors;
   }
@@ -181,6 +181,9 @@
     @apply absolute z-50 overflow-hidden rounded-xl
       border border-border bg-[hsl(var(--card-elevated))] shadow-lg;
   }
+  .composer-dropdown--fit {
+    @apply w-max;
+  }
   .composer-dropdown--up {
     @apply bottom-full left-0 mb-2;
   }
@@ -190,6 +193,9 @@
   .composer-dropdown-item {
     @apply flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm
       text-foreground hover:bg-hover cursor-pointer transition-colors;
+  }
+  .composer-dropdown-item--compact {
+    @apply gap-1.5 px-2 py-1.5 text-[11px];
   }
   .composer-dropdown-item > * {
     pointer-events: none;

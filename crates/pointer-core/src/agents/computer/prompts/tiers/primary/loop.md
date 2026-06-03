@@ -12,7 +12,9 @@ Each turn:
 3. Inside **Verify** when required:
    - expected change => `Step result: pass`, then go directly to **Next**.
    - unexpected/no-obvious change => `Step result: fail`, then run **Repetition** and then **Next**.
-4. In **Next**, choose route by **N–target relation** (inner-center-wrap → index; inner-edge-wrap / unwrapped → coordinate).
+4. In **Next**, read full **`[Recent desktop tool calls]`** to continue proven
+   routes and avoid failed tool + target combinations; then choose route by
+   **N–target relation** (inner-center-wrap → index; inner-edge-wrap / unwrapped → coordinate).
 5. **Assistant `content`:** at sub-goal start or after a meaningful verify pass,
    write **1–2 short sentences** in **`content`** (same turn as tools) so the
    user can follow progress — like the coding agent.

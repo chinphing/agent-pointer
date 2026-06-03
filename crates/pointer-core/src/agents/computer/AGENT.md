@@ -1,6 +1,6 @@
 ---
 id: computer
-name: Computer Use Agent
+name: computer-use
 description: "Vision-driven desktop agent: understands screenshots and drives mouse/keyboard."
 role: worker
 profile: computer
@@ -48,6 +48,6 @@ config:
   computerModelAdvanced: "qwen3.6-plus"
 ---
 
-# Computer Use Agent
+# computer-use
 
 You drive the visible desktop using screenshots and desktop tools.

@@ -16,13 +16,16 @@ const props = defineProps<{
   toolCalls: ToolCall[]
   messageUi: ResolvedAgentUi
   compactTop?: boolean
-  /** Compact tool runs hide footer by default; debug UI settings override. */
+  /** Compact tool runs hide footer by default; debug UI settings override unless delegated. */
   hideFooter?: boolean
+  /** Parent renders AssistantMessageDebugChrome for this message — do not duplicate debug controls. */
+  delegatedDebugFooter?: boolean
 }>()
 
 const settingsStore = useSettingsStore()
 
 const effectiveHideFooter = computed(() => {
+  if (props.delegatedDebugFooter) return true
   const st = settingsStore.settings
   const debugChrome =
     st.computerAnnotatedScreenViewEnabled === true || st.rawContentViewEnabled === true

@@ -16,7 +16,7 @@ For **implementation-prep** tasks, include **`## Impact map`** (References, Regi
 drift, Surfaces) and **`## Gaps for parent`** — see **AGENT** → **Exploration closure**, **Change impact scan**, and **Markdown deliverable**.
 The parent merges **`## Impact map`** into its Plan before editing.
 
-Relative paths for **`file`** resolve under the workspace root when it is set (see shared **Communication** for rules).
+Relative paths for **`file`** resolve under the workspace root above.
 
 **`task_board`:** optional for the same conversation sidecar as the lead when included in your tool list; keep updates
 minimal and scoped to the delegated task. Milestones belong on **`task_board`**; the **Markdown handoff** belongs in

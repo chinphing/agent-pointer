@@ -1,6 +1,6 @@
 ---
 id: coder
-name: Coder Agent
+name: vibe-coding
 description: Code generation, debugging, explanation, refactoring, and engineering implementation.
 role: worker
 profile: coder
@@ -8,7 +8,6 @@ enabled: true
 defaultSkillIds: []
 allowAgents:
   - explore
-  - research
 accessPolicy:
   allowTools:
     - file_read
@@ -35,7 +34,7 @@ accessPolicy:
   denySkills: []
 ui:
   userSelectable: true
-  composerLabel: 小白编程
+  composerLabel: 氛围编程
   showSubAgentTrace: true
   showWorkspacePicker: true
   showTaskBoardPanel: true
@@ -342,11 +341,18 @@ Use this when you need **call sites**, **imports**, **symbol definitions**, or *
 - Grepping an **ambiguous** symbol without scoping directory or adding a second token (e.g. module path).
 - Grepping only the **symbol** and not the **wire string**; grepping only one naming convention for a cross-layer key.
 
-## External facts (`web_search` and `research` worker)
+## External facts (`web_search`)
 
-- **`web_search`** — one-shot **public web** lookup (API docs, release versions, news). Each call uses DashScope hosted search (billable). Prefer a **focused query**; in **`response`**, append **`sourcesForReply`** verbatim (linked titles) — never names-only Sources lines.
-- **`research` worker** — delegate via **`run_subagent`** with **`agentId` `research`** when you need **multi-query** web investigation with a **source-backed digest** (no codebase reads). Use for doc/version reconciliation, competitive research, or “what changed in X since date Y”.
-- **Repo mapping** stays with **`explore`**; **external facts** stay with **`web_search`** / **`research`**. Do not use web tools to guess local file paths.
+See **Communication** → **Session context** for workspace-first rules.
+
+- Default: answer from **thread**, **workspace**, and **general knowledge**.
+  **`web_search`** is for **live or cited external** gaps only.
+- **Workspace first:** repo structure, pinned versions, local docs — **`file_*`**
+  or **`explore`**; not web.
+- Call with **`query` only**; one focused query per need; cite with
+  **`sourcesForReply`** verbatim when you searched.
+- **Do not** search to double-check workspace facts or general knowledge you
+  already have.
 
 ## Delegating to the `explore` worker (`run_subagent`)
 

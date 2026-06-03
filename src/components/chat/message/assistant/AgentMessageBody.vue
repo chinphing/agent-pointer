@@ -349,6 +349,7 @@ onUnmounted(() => clearReasoningCollapseTimer())
           :message-ui="messageUi"
           :compact-top="leadToolsCompactTop"
           hide-footer
+          delegated-debug-footer
         />
 
         <AssistantMessageDebugChrome

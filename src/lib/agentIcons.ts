@@ -5,7 +5,7 @@ import { resolveAgentUi } from './agentUi'
 /** Team mode in composer and settings. */
 export const TEAM_MODE_UI_ENABLED = true
 
-export const COMPOSER_AGENT_ORDER = ['computer', 'default', 'coder'] as const
+export const COMPOSER_AGENT_ORDER = ['general', 'coder', 'computer'] as const
 
 export function sortComposerAgents(agents: AgentDef[]): AgentDef[] {
   const rank = new Map<string, number>(COMPOSER_AGENT_ORDER.map((id, i) => [id, i]))

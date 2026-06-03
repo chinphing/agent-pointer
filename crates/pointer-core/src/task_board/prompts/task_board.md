@@ -38,12 +38,12 @@ User-facing delivery belongs in **assistant `content`**, not board row fields.
 
 ## `validate_*` vs `action_verify`
 
-- **`action_verify`** (sidecar): validates a **single step** action (UI/click/type).
+- **`action_verify`** (sidecar): validates a **single step** action (UI/click/type). On **`action_result=pass`**, set **`step_summary`** (one line toward the **user task** / board goal); omit on fail/pending/n/a. Tool result enters chat history for rollup without a board.
 - **`validate_requirement` / `validate_result_delta`**: validates the **milestone outcome** while working.
 - Injected **`[TASK_BOARD]`** shows recent **`validate_result_delta`** on the current row; completed milestones show full outcome evidence under **All tasks**.
 
 Do not paste `action_verify` JSON into `validate_result_delta`.
-Summarize observable outcome in one short markdown line.
+Summarize milestone outcome in one short **`validate_result_delta`** line (aligned with **`step_summary`** when both are used).
 
 ## Patch cadence (delta fields)
 

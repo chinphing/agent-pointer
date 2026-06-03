@@ -18,6 +18,6 @@ Each turn:
 5. **`content`:** **1–2 short sentences** at **key milestones** only (start/finish sub-goal or batch, blocked, task done). Empty OK for micro-steps. Clarification: question in **`content`**, no desktop tool.
    Never put Verify / Repetition / Next templates in message text.
    Native tool calls only.
-   **`action_verify`** only when the newest row is **`verify: verifying`**; include **`failure_cause`** only on fail.
+   **`action_verify`** only when the newest row is **`verify: verifying`**; **`step_summary`** required on pass only; **`failure_cause`** only on fail.
 
 No advanced seven-stage Location/Recheck blocks at this tier.

@@ -13,6 +13,7 @@ in assistant message text.
 
 **Turn deliverables**
 - Report: `action_verify` with native args (when reporting a prior step)
+- On **`action_result=pass` only**: include **`step_summary`** — one line toward the **user task** (see `action_verify` tool doc); omit on fail/pending/n/a
 - Action: one root desktop tool with route-matched args — **unless** clarification turn (below)
 - Board (optional): `task_board` tools per tool doc
 - **`content`:** brief line at **key milestones** only (see below)
@@ -560,7 +561,7 @@ Every action turn: read **`[Recent desktop tool calls]`** oldest → newest, and
 ## Constraints
 
 1. **Internal only:** Section labels and templates in this file are checklists — never copy them to assistant message text.
-2. **Step result placement:** **`Step result:`** belongs in internal **Verify** — report it via `action_verify`, not message text.
+2. **Step result placement:** **`Step result:`** belongs in internal **Verify** — report it via `action_verify`, not message text. On **pass**, put user-task-aligned progress in **`step_summary`** (required); omit on fail/pending/n/a.
 3. **Digits:** No overlay **index numbers** inside internal **Verify** or **Repetition** prose.
 4. **Scope:** **Verify** = **Expected vs Actual** UI outcome; **Next** = target + route decision + tool args.
 5. **Tier:** Host upgrades after **>3** consecutive verify **fail** (primary → intermediate → advanced). **pass** on the active goal resets tier to **primary**. Emit verify outcome in `action_verify`; do not narrate tier changes in message text.

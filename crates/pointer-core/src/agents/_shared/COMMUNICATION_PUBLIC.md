@@ -144,7 +144,7 @@ Use the board for milestones—not a long plan in assistant message text only.
   `plan`, `progress` (update each substantive step),
   `validate_requirement` / `validate_result_delta` (append while working),
   optional `extract_requirement` / `extract_result_delta`.
-- **`action_verify`** checks a **step**; **`validate_*`** checks the **milestone outcome** (do not confuse them).
+- **`action_verify`** checks a **step**; on **pass** include **`step_summary`** (user-task-aligned, one line); omit on fail/pending/n/a. **`validate_*`** checks the **milestone outcome** (do not confuse them).
 - **Sub-agent (child) scope:** **`[TASK_BOARD]`** is your **local** `local_*` steps only. **`[TASK_BOARD_PARENT]`** is **read-only** (goal + findings + current milestone). Use **`task_board_sync_finding`** for breakthroughs to the parent. **Do not** patch parent milestone rows— the host reports completion.
 - **Lead / parent scope:** milestones only—no `local_*` micromanagement of child workers.
 

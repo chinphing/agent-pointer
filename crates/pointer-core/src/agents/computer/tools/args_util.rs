@@ -162,9 +162,15 @@ pub fn move_offset_pixels(args: &Value) -> Result<(i32, i32)> {
 }
 
 pub fn require_non_empty_str(args: &Value, key: &str) -> Result<String> {
-    let s = text_from_args(args.get(key))?
-        .trim()
-        .to_string();
+    let Some(v) = args.get(key) else {
+        return Err(anyhow!("Missing or invalid '{}' parameter", key));
+    };
+    let s = match v {
+        Value::String(s) => s.trim().to_string(),
+        _ => {
+            return Err(anyhow!("Missing or invalid '{}' parameter", key));
+        }
+    };
     if s.is_empty() {
         return Err(anyhow!("Missing required '{}' in tool_args.", key));
     }
@@ -247,6 +253,16 @@ mod tests {
         assert_eq!(clamp_scroll_lines(500).unwrap(), 300);
         assert_eq!(clamp_scroll_lines(-500).unwrap(), -300);
         assert_eq!(clamp_scroll_lines(3).unwrap(), 3);
+    }
+
+    #[test]
+    fn require_non_empty_str_reports_field_name_not_text() {
+        use serde_json::json;
+        let err = require_non_empty_str(&json!({ "index": 159 }), "goal")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("goal"));
+        assert!(!err.contains("'text'"));
     }
 
     #[test]

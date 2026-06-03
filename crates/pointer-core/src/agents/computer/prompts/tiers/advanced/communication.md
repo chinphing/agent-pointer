@@ -12,6 +12,7 @@ in assistant message text.
 
 **Turn deliverables**
 - Report: `action_verify` with native args **only when the newest history row shows `verify: verifying`**
+- On **`action_result=pass` only**: include **`step_summary`** — one line toward the **user task** (see `action_verify` tool doc); omit on fail/pending/n/a
 - Action: one root desktop tool — **unless** clarification turn (below)
 - Board (optional): `task_board` tools per tool doc
 - **`content`:** brief line at **key milestones** only (see below)

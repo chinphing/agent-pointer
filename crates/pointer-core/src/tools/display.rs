@@ -1,6 +1,6 @@
 //! UI display labels and parameter summaries for tool invocations (not sent to the LLM).
 
-use super::{merge_tool_method_from_qualified_name, registry_tool_base_name};
+use super::registry_tool_base_name;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -43,14 +43,6 @@ fn resolve_method(raw_name: &str, args: &Value) -> String {
     if let Some(m) = flat_method_from_tool_name(base) {
         return m;
     }
-    // Legacy qualified-name format (e.g. `file:read`).
-    if let Some((_, m)) = raw_name.split_once(':') {
-        let m = m.trim();
-        if !m.is_empty() {
-            return m.to_string();
-        }
-    }
-    // Legacy `method` field in args (pre-split tools).
     let from_method = args
         .get("method")
         .and_then(|v| v.as_str())
@@ -405,17 +397,16 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
     ToolDisplay { label, summary }
 }
 
-/// Format display for invocation; merges qualified name into args when needed.
+/// Format display for a tool invocation.
 pub fn format_tool_display(
     raw_name: &str,
     args: &Value,
     custom: Option<&ToolDisplayFn>,
 ) -> ToolDisplay {
-    let (_tool_id, merged_args) = merge_tool_method_from_qualified_name(raw_name, args.clone());
     if let Some(f) = custom {
-        return f(raw_name, &merged_args);
+        return f(raw_name, args);
     }
-    default_display(raw_name, &merged_args)
+    default_display(raw_name, args)
 }
 
 #[cfg(test)]

@@ -62,8 +62,8 @@ mod tests {
     #[test]
     fn captcha_verify_gets_conversation_binding() {
         let out = inject_host_task_board_conversation_id(
-            "captcha_verify",
-            serde_json::json!({"method": "drag", "goal": "x"}),
+            "captcha_verify_drag",
+            serde_json::json!({"goal": "x", "index_captcha_area": 1}),
             "conv-abc",
             "conv-abc::tb",
             &[],

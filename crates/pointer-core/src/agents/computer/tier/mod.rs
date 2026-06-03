@@ -792,9 +792,7 @@ pub fn parse_verify_from_thoughts(thoughts: &str) -> Option<ParsedVerify> {
     })
 }
 
-pub use crate::agents::computer::tool_names::{
-    is_action_verify_tool_name, ACTION_VERIFY, ACTION_VERIFY_LEGACY_BASE,
-};
+pub use crate::agents::computer::tool_names::{is_action_verify_tool_name, ACTION_VERIFY};
 
 /// Back-compat alias — prefer [`ACTION_VERIFY`].
 pub const ACTION_VERIFY_TOOL_NAME: &str = ACTION_VERIFY;

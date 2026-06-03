@@ -13,10 +13,7 @@ pub use display::{default_display, format_tool_display, ToolDisplay, ToolDisplay
 
 pub use tool_doc::{doc_markdown_without_schema_fence, json_schema_from_markdown, load_tool_doc_and_schema};
 
-use crate::agents::computer::tool_names::{
-    normalize_action_verify_invocation, ACTION_VERIFY, ACTION_VERIFY_LEGACY_BASE,
-    ACTION_VERIFY_LEGACY_UNDERSCORE,
-};
+use crate::agents::computer::tool_names::{ACTION_VERIFY, ACTION_VERIFY_LEGACY_UNDERSCORE};
 use crate::models::ToolDef;
 use anyhow::Result;
 use parking_lot::RwLock;
@@ -99,27 +96,68 @@ fn strip_optional_code_fence(s: &str) -> String {
     lines.join("\n").trim().to_string()
 }
 
-/// Normalize `tool：method` (fullwidth colon U+FF1A) to ASCII `:` so qualified names match the registry.
-fn normalize_tool_name_colons(s: &str) -> String {
-    s.chars()
-        .map(|c| if c == '：' { ':' } else { c })
-        .collect()
+fn tool_matches_allow_entry(registry_tool_id: &str, allow_entry: &str) -> bool {
+    let allow = allow_entry.trim();
+    if registry_tool_id == allow {
+        return true;
+    }
+    if let Some(fam) =
+        crate::agents::computer::input::timing::desktop_tool_family_id(registry_tool_id)
+    {
+        if fam == allow {
+            return true;
+        }
+    }
+    if allow == "task_board" && registry_tool_id.starts_with("task_board_") {
+        return true;
+    }
+    if allow == "file" && registry_tool_id.starts_with("file_") {
+        return true;
+    }
+    if allow == "skill" && registry_tool_id.starts_with("skill_") {
+        return true;
+    }
+    false
 }
 
-/// Whether `registry_tool_id` is permitted by an allow list (exact base or `base:method` entry).
+/// Whether `registry_tool_id` is permitted by an allow list (exact id or family name).
 pub fn registry_tool_in_allow_list(allowed: &[String], registry_tool_id: &str) -> bool {
     if allowed.is_empty() {
         return true;
     }
     allowed
         .iter()
-        .any(|a| registry_tool_base_name(a) == registry_tool_id)
+        .any(|a| tool_matches_allow_entry(registry_tool_id, a))
+}
+
+/// Expand family allow entries (e.g. `mouse`, `captcha_verify`) into flat registry tool ids.
+pub fn expand_family_allow_names(
+    names: &[String],
+    available: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    if names.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for allow_entry in names {
+        let allow = allow_entry.trim();
+        if available.contains(allow) {
+            out.push(allow.to_string());
+        }
+        for reg in available {
+            if tool_matches_allow_entry(reg, allow) {
+                out.push(reg.clone());
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// Map retired split computer tool ids to unified family names for allow lists.
 pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
     const TO_FAMILY: &[(&str, &str)] = &[
-        (ACTION_VERIFY_LEGACY_BASE, ACTION_VERIFY),
         (ACTION_VERIFY_LEGACY_UNDERSCORE, ACTION_VERIFY),
         ("mouse_index", "mouse"),
         ("mouse_at", "mouse"),
@@ -143,8 +181,7 @@ pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
         let base = registry_tool_base_name(n);
         !matches!(
             base,
-            ACTION_VERIFY_LEGACY_BASE
-                | ACTION_VERIFY_LEGACY_UNDERSCORE
+            ACTION_VERIFY_LEGACY_UNDERSCORE
                 | "mouse_index"
                 | "mouse_at"
                 | "mouse_current"
@@ -157,7 +194,7 @@ pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
     });
 }
 
-/// Keep allow-list entries whose registry base exists; inject base names for `tool:method` entries.
+/// Keep allow-list entries that exist in the registry; inject exact registry ids when needed.
 pub fn normalize_allowed_tool_names(names: &mut Vec<String>, available: &std::collections::HashSet<String>) {
     remap_split_computer_tool_allow_names(names);
     names.retain(|name| available.contains(registry_tool_base_name(name)));
@@ -171,73 +208,22 @@ pub fn normalize_allowed_tool_names(names: &mut Vec<String>, available: &std::co
     names.dedup();
 }
 
-/// Registry id: strip optional `:method` suffix (`mouse:click_index` → `mouse`, `wait` → `wait`).
+/// Registry tool id (trimmed); must match the flat name registered in [`ToolRegistry`].
 pub fn registry_tool_base_name(raw: &str) -> &str {
-    match raw.trim().split_once(':') {
-        Some((base, rest)) if !base.is_empty() && !rest.trim().is_empty() => base.trim(),
-        _ => raw.trim(),
-    }
+    raw.trim()
 }
 
-/// `file:write` / `file:edit` are high risk for UI; other `file` methods are low.
-pub fn file_tool_effective_risk_level(raw_tool_name: &str, args: &Value) -> &'static str {
-    let raw = normalize_tool_name_colons(raw_tool_name.trim());
-    let method_from_qual = if let Some((base, method)) = raw.split_once(':') {
-        if base.trim().eq_ignore_ascii_case("file") && !method.trim().is_empty() {
-            Some(method.trim().to_ascii_lowercase())
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-    let m = method_from_qual
-        .as_deref()
-        .or_else(|| args.get("method").and_then(|v| v.as_str()).map(str::trim));
-    match m {
-        Some("write") | Some("edit") => "high",
+/// Flat `file_write` / `file_edit` need approval; other file tools are low risk.
+pub fn file_tool_effective_risk_level(tool_name: &str, _args: &Value) -> &'static str {
+    match tool_name.trim() {
+        "file_write" | "file_edit" => "high",
         _ => "low",
     }
 }
 
-fn strip_tool_method_arg(mut args: Value) -> Value {
-    if let Value::Object(ref mut map) = args {
-        map.remove("method");
-    }
-    args
-}
-
-/// If `raw_name` is `tool:method`, return `(tool, args)` and ensure `args["method"]` is set when missing.
-/// For flat-style tools (mouse, file, task_board, skill), the qualified name is converted to the flat
-/// tool name directly (e.g. `mouse:click_index` → `mouse_click_index`).
-pub fn merge_tool_method_from_qualified_name(raw_name: &str, mut args: Value) -> (String, Value) {
-    let raw_name = normalize_tool_name_colons(raw_name.trim());
-    if raw_name.is_empty() {
-        return (String::new(), args);
-    }
-    if let Some(flat) = normalize_action_verify_invocation(raw_name.as_str(), &args) {
-        return (flat.to_string(), strip_tool_method_arg(args));
-    }
-    let Some((base, method)) = raw_name.split_once(':') else {
-        return (raw_name, args);
-    };
-    let base = base.trim();
-    let method = method.trim();
-    if base.is_empty() || method.is_empty() {
-        return (raw_name, args);
-    }
-
-    // Convert flat-style tool families to flat names.
-    if matches!(base, "mouse" | "file" | "task_board" | "skill" | "input" | "modified_click" | "clipboard" | "captcha_verify") {
-        return (format!("{base}_{method}"), args);
-    }
-
-    // Legacy: inject `method` into args for tools that still use a unified handler.
-    if let Value::Object(ref mut map) = args {
-        map.entry("method".to_string())
-            .or_insert_with(|| Value::String(method.to_string()));
-    }
-    (base.to_string(), args)
+/// Normalize tool id from a provider tool call (flat registry name only).
+pub fn normalize_tool_invoke_name(raw_name: &str, args: Value) -> (String, Value) {
+    (raw_name.trim().to_string(), args)
 }
 
 /// One registered tool: identity ([`ToolDef`]), OpenAI/XML documentation, approval policy, handler.
@@ -398,7 +384,7 @@ impl ToolRegistry {
             .inner
             .read()
             .values()
-            .filter(|e| allow.is_empty() || allow.contains(&e.def.name))
+            .filter(|e| registry_tool_allowed(&e.def.name, allow))
             .map(|e| XmlToolDescriptor {
                 name: e.def.name.clone(),
                 doc_markdown: e.doc_markdown.clone(),
@@ -447,16 +433,9 @@ impl ToolRegistry {
     }
 }
 
-/// Whether a registry base tool (or any of its qualified variants) is allowed.
-fn registry_tool_allowed(base: &str, allow: &[String]) -> bool {
-    if allow.is_empty() {
-        return true;
-    }
-    if allow.iter().any(|a| a == base) {
-        return true;
-    }
-    let prefix = format!("{base}:");
-    allow.iter().any(|a| a.starts_with(&prefix))
+/// Whether a registry tool id is allowed (exact id or family entry in `allow`).
+fn registry_tool_allowed(registry_name: &str, allow: &[String]) -> bool {
+    registry_tool_in_allow_list(allow, registry_name)
 }
 
 fn openai_tool_entry(name: &str, description: &str, parameters: Value) -> Value {
@@ -520,13 +499,9 @@ fn openai_parameters_from_doc_or_builtin(name: &str, doc: &str, schema: Option<&
 #[cfg(test)]
 mod parse_args_tests {
     use super::file_tool_effective_risk_level;
-    use super::merge_tool_method_from_qualified_name;
+    use super::normalize_tool_invoke_name;
     use super::parse_tool_call_arguments;
     use super::registry_tool_base_name;
-    use crate::agents::computer::tool_names::{
-        ACTION_VERIFY, ACTION_VERIFY_LEGACY_BASE, ACTION_VERIFY_LEGACY_METHOD_REPORT,
-        ACTION_VERIFY_LEGACY_TOOL_IDS,
-    };
 
     #[test]
     fn unwraps_json_string_payload() {
@@ -552,74 +527,35 @@ mod parse_args_tests {
     }
 
     #[test]
-    fn registry_tool_base_name_splits_method_suffix() {
-        assert_eq!(registry_tool_base_name("mouse:click_index"), "mouse");
-        assert_eq!(registry_tool_base_name("file_read"), "file_read");
-        assert_eq!(registry_tool_base_name("wait"), "wait");
-        assert_eq!(registry_tool_base_name("response"), "response");
+    fn registry_tool_base_name_is_trimmed_flat_id() {
+        assert_eq!(registry_tool_base_name("mouse_click_index"), "mouse_click_index");
+        assert_eq!(registry_tool_base_name("  file_read  "), "file_read");
     }
 
     #[test]
-    fn merge_tool_method_inserts_method_when_missing() {
-        let args = serde_json::json!({"goal": "g", "action": "a", "index": 3});
-        let (id, out) = merge_tool_method_from_qualified_name("mouse:click_index", args);
-        // Flat-style tools convert to flat names directly, no method injection.
+    fn normalize_tool_invoke_name_trims_only() {
+        let args = serde_json::json!({"goal": "g"});
+        let (id, out) = normalize_tool_invoke_name("  mouse_click_index  ", args.clone());
         assert_eq!(id, "mouse_click_index");
-        assert!(out.get("method").is_none());
-    }
-
-    #[test]
-    fn merge_action_verify_legacy_aliases() {
-        let args = serde_json::json!({"action_result": "pass", "repetition_count": 0});
-        for legacy in ACTION_VERIFY_LEGACY_TOOL_IDS {
-            let mut a = args.clone();
-            if *legacy == ACTION_VERIFY_LEGACY_BASE {
-                a["method"] = serde_json::json!(ACTION_VERIFY_LEGACY_METHOD_REPORT);
-            }
-            let (id, out) = merge_tool_method_from_qualified_name(legacy, a);
-            assert_eq!(id, ACTION_VERIFY, "legacy name {legacy}");
-            assert!(out.get("method").is_none());
-        }
-    }
-
-    #[test]
-    fn merge_tool_method_keeps_existing_method() {
-        let args = serde_json::json!({"method": "click_at", "x": 1});
-        let (id, out) = merge_tool_method_from_qualified_name("mouse:click_index", args);
-        // Flat-style tools convert to flat names directly; existing "method" in args is ignored.
-        assert_eq!(id, "mouse_click_index");
-        assert_eq!(out["method"], "click_at");
-    }
-
-    #[test]
-    fn merge_tool_method_fullwidth_colon() {
-        let args = serde_json::json!({"goal": "g", "index": 1});
-        let (id, out) = merge_tool_method_from_qualified_name("mouse：click_index", args);
-        // Fullwidth colon is normalized, then flat-style conversion applies.
-        assert_eq!(id, "mouse_click_index");
-        assert!(out.get("method").is_none());
+        assert_eq!(out, args);
     }
 
     #[test]
     fn file_risk_high_only_write_edit() {
         assert_eq!(
-            file_tool_effective_risk_level("file:write", &serde_json::json!({})),
+            file_tool_effective_risk_level("file_write", &serde_json::json!({})),
             "high"
         );
         assert_eq!(
-            file_tool_effective_risk_level("file:edit", &serde_json::json!({})),
+            file_tool_effective_risk_level("file_edit", &serde_json::json!({})),
             "high"
         );
         assert_eq!(
-            file_tool_effective_risk_level("file", &serde_json::json!({"method": "read"})),
+            file_tool_effective_risk_level("file_read", &serde_json::json!({})),
             "low"
         );
         assert_eq!(
-            file_tool_effective_risk_level("file", &serde_json::json!({"method": "list"})),
-            "low"
-        );
-        assert_eq!(
-            file_tool_effective_risk_level("file:grep", &serde_json::json!({})),
+            file_tool_effective_risk_level("file_grep", &serde_json::json!({})),
             "low"
         );
     }
@@ -738,6 +674,53 @@ mod openai_tools_schema_tests {
         let allow = vec!["task_board_patch".into()];
         assert!(registry_tool_in_allow_list(&allow, "task_board_patch"));
         assert!(!registry_tool_in_allow_list(&allow, "terminal"));
+    }
+
+    #[test]
+    fn registry_tool_in_allow_list_accepts_captcha_family_for_flat_ids() {
+        use super::registry_tool_in_allow_list;
+        let allow = vec!["captcha_verify".into()];
+        assert!(registry_tool_in_allow_list(&allow, "captcha_verify_click"));
+        assert!(!registry_tool_in_allow_list(&allow, "mouse_click_index"));
+    }
+
+    #[test]
+    fn openai_tools_captcha_family_allow_exposes_flat_tools_with_schema() {
+        use super::tool_doc::load_tools_from_schema_yaml;
+        use super::ToolEntry;
+        use super::ToolRegistry;
+        use std::collections::HashSet;
+        use std::sync::Arc;
+
+        let yaml = include_str!("../agents/computer/tools/prompts/captcha_verify.schema.yaml");
+        let schemas: std::collections::HashMap<String, serde_json::Value> =
+            load_tools_from_schema_yaml(yaml).unwrap().into_iter().collect();
+        let doc = include_str!("../agents/computer/tools/prompts/captcha_verify.md");
+        let reg = ToolRegistry::new();
+        for name in ["captcha_verify_type", "captcha_verify_click", "captcha_verify_drag"] {
+            let schema = schemas.get(name).cloned().unwrap();
+            reg.register(
+                ToolEntry::new(name, "low", false, doc, Arc::new(|_| Ok(String::new())))
+                    .with_schema(schema),
+            );
+        }
+        let allow = vec!["captcha_verify".into()];
+        let tools = reg.openai_tools(&allow);
+        assert_eq!(tools.len(), 3);
+        let names: HashSet<_> = tools
+            .iter()
+            .filter_map(|t| t["function"]["name"].as_str())
+            .collect();
+        assert!(names.contains("captcha_verify_click"));
+        let click = tools
+            .iter()
+            .find(|t| t["function"]["name"] == "captcha_verify_click")
+            .unwrap();
+        assert!(click["function"]["parameters"]["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "goal"));
     }
 
     #[test]

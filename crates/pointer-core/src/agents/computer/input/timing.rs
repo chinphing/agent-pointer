@@ -86,7 +86,6 @@ pub const DESKTOP_VISION_LOG_TOOL_IDS: &[&str] = &[
     "modified_click",
     "wait",
     "clipboard",
-    "captcha_verify",
 ];
 
 /// Tools that actually drive or schedule desktop interaction; **`wait` excluded** — it already blocks and
@@ -151,8 +150,8 @@ mod tests {
 
     #[test]
     fn captcha_verify_is_session_bound_desktop_tool() {
-        assert!(is_desktop_vision_log_tool("captcha_verify"));
-        assert!(is_desktop_post_delay_tool("captcha_verify"));
+        assert!(is_desktop_vision_log_tool("captcha_verify_click"));
+        assert!(is_desktop_post_delay_tool("captcha_verify_click"));
     }
 
     #[test]

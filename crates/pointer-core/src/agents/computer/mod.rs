@@ -22,12 +22,7 @@ pub use tier::{
     ComputerTierConfig, ComputerTierGuard, ComputerTierRuntime, CONFIG_KEY_AUTO_UPGRADE,
     CONFIG_KEY_INITIAL_TIER, CONFIG_KEY_MODEL_ADVANCED, CONFIG_KEY_MODEL_PRIMARY,
 };
-pub use tool_names::{
-    is_action_verify_tool_name, normalize_action_verify_invocation, ACTION_VERIFY,
-    ACTION_VERIFY_LEGACY_BASE, ACTION_VERIFY_LEGACY_METHOD_REPORT,
-    ACTION_VERIFY_LEGACY_QUALIFIED, ACTION_VERIFY_LEGACY_TOOL_IDS,
-    ACTION_VERIFY_LEGACY_UNDERSCORE,
-};
+pub use tool_names::{is_action_verify_tool_name, ACTION_VERIFY};
 pub use timing::{
     is_desktop_post_delay_tool, is_desktop_vision_log_tool,
     post_desktop_action_delay_ms_from_tool_args, COMPOSITE_ACTION_STEP_GAP_MS,

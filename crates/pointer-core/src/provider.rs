@@ -740,7 +740,7 @@ mod native_tool_call_tests {
             1,
             NativeToolCallState {
                 id: "id_a".into(),
-                name: "file:read".into(),
+                name: "file_read".into(),
                 arguments: r#"{"path":"a.txt"}"#.into(),
                 started: true,
             },
@@ -748,7 +748,7 @@ mod native_tool_call_tests {
         let calls = native_tool_calls_from_states(&states);
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0].id, "id_a");
-        assert_eq!(calls[0].name, "file:read");
+        assert_eq!(calls[0].name, "file_read");
         assert_eq!(calls[1].id, "id_b");
         assert_eq!(calls[1].name, "terminal");
     }

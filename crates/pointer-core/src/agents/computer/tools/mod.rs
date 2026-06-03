@@ -223,6 +223,13 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
 
     // ── captcha_verify (flat tools) ───────────────────────────────────────
     {
+        const CAPTCHA_SCHEMA_YAML: &str = include_str!("prompts/captcha_verify.schema.yaml");
+        let captcha_schemas: HashMap<String, serde_json::Value> =
+            load_tools_from_schema_yaml(CAPTCHA_SCHEMA_YAML)
+                .expect("captcha_verify.schema.yaml must be valid")
+                .into_iter()
+                .collect();
+
         let cv_state = state.clone();
         let doc = include_str!("prompts/captcha_verify.md").trim().to_string();
         let cv_handlers: &[(&str, &str)] = &[
@@ -236,6 +243,10 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             let prompt = doc.clone();
             let tool_name = name.to_string();
             let method = method.to_string();
+            let schema = captcha_schemas
+                .get(*name)
+                .cloned()
+                .unwrap_or_else(|| panic!("captcha_verify.schema.yaml missing entry for {name}"));
 
             let handler: ToolHandler = Arc::new(move |args| {
                 let cid = conversation_id_from_args(&args)
@@ -253,13 +264,9 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 tool.execute(&method, &args)
             });
 
-            reg.register(ToolEntry::new(
-                tool_name,
-                "low",
-                false,
-                prompt,
-                handler,
-            ));
+            reg.register(
+                ToolEntry::new(tool_name, "low", false, prompt, handler).with_schema(schema),
+            );
         }
     }
 

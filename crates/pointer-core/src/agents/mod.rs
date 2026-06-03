@@ -1005,9 +1005,13 @@ fn resolve_tools(
     let available: HashSet<_> = tools.list_defs().into_iter().map(|t| t.name).collect();
     let deny: HashSet<_> = policy.deny_tools.iter().cloned().collect();
     names.retain(|name| {
-        let base = crate::tools::registry_tool_base_name(name);
-        available.contains(base) && !deny.contains(name) && !deny.contains(base)
+        !deny.contains(name)
+            && (available.contains(name.as_str())
+                || available
+                    .iter()
+                    .any(|reg| crate::tools::registry_tool_in_allow_list(std::slice::from_ref(name), reg)))
     });
+    names = crate::tools::expand_family_allow_names(&names, &available);
     crate::tools::normalize_allowed_tool_names(&mut names, &available);
     names
 }
@@ -1074,6 +1078,49 @@ mod builtin_agent_tests {
         assert!(
             !names.contains(&"response".to_string()),
             "response must not be injected implicitly"
+        );
+    }
+
+    #[test]
+    fn computer_resolve_tools_expands_captcha_family_to_flat_tools() {
+        use crate::agents::computer::ComputerState;
+        use crate::tools::builtin;
+        use std::sync::Arc;
+
+        let tools = crate::tools::ToolRegistry::new();
+        let store = Arc::new(crate::task_board::TaskBoardStore::new());
+        builtin::register_all(&tools, store);
+        let computer_state =
+            Arc::new(ComputerState::with_annotate_url("http://127.0.0.1:9"));
+        builtin::register_computer_tools(&tools, computer_state);
+        let raw = include_str!("computer/AGENT.md");
+        let comm = builtin_computer_communication();
+        let agent = load_builtin_agent("computer", raw, &comm).expect("load computer");
+        let names = resolve_tools(&agent.def.access_policy, &[], &tools);
+        assert!(
+            names.iter().any(|n| n == "captcha_verify_click"),
+            "expected flat captcha tools in allow list, got: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n == "captcha_verify_type"),
+            "expected captcha_verify_type, got: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n == "captcha_verify_drag"),
+            "expected captcha_verify_drag, got: {names:?}"
+        );
+        let captcha_only: Vec<String> = names
+            .iter()
+            .filter(|n| n.starts_with("captcha_verify_"))
+            .cloned()
+            .collect();
+        let openai = tools.openai_tools(&captcha_only);
+        assert_eq!(openai.len(), 3);
+        assert!(
+            openai
+                .iter()
+                .any(|t| t["function"]["name"] == "captcha_verify_click"),
+            "captcha_verify_click should be exposed to the model"
         );
     }
 

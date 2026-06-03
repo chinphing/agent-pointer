@@ -6,7 +6,7 @@ use crate::agents::{AgentDef, AgentProfile, AgentRunResult, AgentTask, FileToolL
 use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
 use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent, ToolCall};
 use crate::provider::OpenAIProvider;
-use crate::tools::merge_tool_method_from_qualified_name;
+use crate::tools::normalize_tool_invoke_name;
 use crate::tools::registry_tool_in_allow_list;
 use crate::tools::parse_tool_call_arguments;
 use crate::tools::response::response_text_from_args;
@@ -113,8 +113,7 @@ pub(super) async fn run_agent_tool_pass(
         }
 
         let args_value = parse_tool_call_arguments(&tc.arguments);
-        let (mut tool_id, args_value) = merge_tool_method_from_qualified_name(&tc.name, args_value);
-        tool_id = tool_id.trim().to_string();
+        let (tool_id, args_value) = normalize_tool_invoke_name(&tc.name, args_value);
         let args_value = inject_host_task_board_conversation_id(
             &tool_id,
             args_value,
@@ -257,7 +256,7 @@ pub(super) async fn run_agent_tool_pass(
                 trace_id: trace_id_opt(sub_trace_id),
             },
         );
-        if tool_id == "captcha_verify" {
+        if tool_id.starts_with("captcha_verify_") {
             emit(
                 &stream,
                 StreamEvent::ToolCallStatus {

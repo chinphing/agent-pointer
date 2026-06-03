@@ -207,9 +207,9 @@ fn content_snippet_limit(role: &Role) -> usize {
 /// Tool results that carry paths, hits, or handoffs deserve a larger excerpt for summarization.
 fn tool_output_snippet_limit(tool_name: &str) -> usize {
     let n = tool_name.trim().to_lowercase();
-    if n.starts_with("file:grep") || n == "run_subagent" {
+    if n.starts_with("file_grep") || n == "run_subagent" {
         3_500
-    } else if n.starts_with("file:read") {
+    } else if n.starts_with("file_read") {
         1_800
     } else if n.starts_with("terminal") || n.starts_with("read_lints") {
         2_500
@@ -741,7 +741,7 @@ mod tests {
 
     #[test]
     fn grep_tool_output_limit_exceeds_file_read() {
-        assert!(tool_output_snippet_limit("file:grep") > tool_output_snippet_limit("file:read"));
+        assert!(tool_output_snippet_limit("file_grep") > tool_output_snippet_limit("file_read"));
     }
 
     #[test]

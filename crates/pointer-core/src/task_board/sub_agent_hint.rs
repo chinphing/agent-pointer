@@ -85,10 +85,9 @@ pub fn sub_agent_task_board_init_hint(
     child_store_key: &str,
     allowed_tools: &[String],
 ) -> Option<String> {
-    if !allowed_tools
-        .iter()
-        .any(|t| crate::tools::registry_tool_base_name(t) == "task_board")
-    {
+    if !allowed_tools.iter().any(|t| {
+        crate::tools::registry_tool_in_allow_list(&["task_board".to_string()], t)
+    }) {
         return None;
     }
     let doc = store.document(child_store_key);

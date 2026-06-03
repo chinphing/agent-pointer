@@ -15,9 +15,13 @@ pub(crate) fn resolve_agent_tools(
     let available: HashSet<_> = tools.list_defs().into_iter().map(|t| t.name).collect();
     let deny: HashSet<_> = agent.access_policy.deny_tools.iter().cloned().collect();
     names.retain(|name| {
-        let base = crate::tools::registry_tool_base_name(name);
-        available.contains(base) && !deny.contains(name) && !deny.contains(base)
+        !deny.contains(name)
+            && (available.contains(name.as_str())
+                || available
+                    .iter()
+                    .any(|reg| crate::tools::registry_tool_in_allow_list(std::slice::from_ref(name), reg)))
     });
+    names = crate::tools::expand_family_allow_names(&names, &available);
     normalize_allowed_tool_names(&mut names, &available);
     names
 }

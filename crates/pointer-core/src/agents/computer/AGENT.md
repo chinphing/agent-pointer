@@ -43,8 +43,9 @@ defaultSkillIds: []
 config:
   annotateApiBase: "http://116.62.86.190"
   computerAutoUpgrade: "true"
-  computerInitialTier: "primary"
-  computerModelPrimary: "qwen3.5-plus"
+  computerInitialTier: "intermediate"
+  computerModelPrimary: "qwen3.5-flash"
+  computerModelIntermediate: "qwen3.5-plus"
   computerModelAdvanced: "qwen3.6-plus"
 ---
 

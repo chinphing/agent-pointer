@@ -42,7 +42,7 @@ debug_menus_enabled = false
 
 # computer
 computer_human_like = false
-computer_initial_tier = "primary"
+computer_initial_tier = "intermediate"
 computer_annotated_screen_view_enabled = false
 computer_show_monitor_picker = true
 

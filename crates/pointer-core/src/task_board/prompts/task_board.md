@@ -36,13 +36,13 @@ Each row may include:
 
 User-facing delivery belongs in **assistant `content`**, not board row fields.
 
-## `validate_*` vs `verify:report`
+## `validate_*` vs `action_verify`
 
-- **`verify:report`** (sidecar): validates a **single step** action (UI/click/type).
+- **`action_verify`** (sidecar): validates a **single step** action (UI/click/type).
 - **`validate_requirement` / `validate_result_delta`**: validates the **milestone outcome** while working.
 - Injected **`[TASK_BOARD]`** shows recent **`validate_result_delta`** on the current row; completed milestones show full outcome evidence under **All tasks**.
 
-Do not paste `verify:report` JSON into `validate_result_delta`.
+Do not paste `action_verify` JSON into `validate_result_delta`.
 Summarize observable outcome in one short markdown line.
 
 ## Patch cadence (delta fields)
@@ -85,11 +85,11 @@ When writing the **final summary** in assistant **`content`**:
 
 ## Profile guidance
 
-Computer (with `verify_report`):
+Computer (with `action_verify`):
 
 - Initialize when expected operation steps >3, or **>5** similar repetitive operations (enumerated targets or cycles).
 - For large enumerations: **3–6 batched milestones** (not one row for the full set); full set in **`plan`** or **`extract_result_delta`** lines accumulated on one row.
-- **Cadence:** `verify_report` (step) → `task_board_patch` (same turn): set **`progress=N/M`** and **one** `validate_result_delta` line for the step just verified.
+- **Cadence:** `action_verify` (step) → `task_board_patch` (same turn): set **`progress=N/M`** and **one** `validate_result_delta` line for the step just verified.
 - While a batch row is `in_progress`: patch **every turn** that advances progress (do not wait until the batch ends).
 - **List / enumeration rows:** the **full numbered target list** (all names/URLs/labels) lives in **`plan`** or in **`extract_result_delta`** once — not in **`title`** (too short for large sets).
   **`title`** / **`validate_requirement`**: short batch scope with **the same item numbers** as that list (e.g. `#3–#7` or `#3 微信, #4 钉钉`); do not use ordinals alone ("items 1–5") without numbers tied to **`plan`**.

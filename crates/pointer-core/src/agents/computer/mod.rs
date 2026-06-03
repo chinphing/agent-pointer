@@ -5,6 +5,7 @@ pub mod extension_hooks;
 pub mod input;
 pub mod state;
 pub mod tier;
+pub mod tool_names;
 pub mod tools;
 pub mod verify;
 pub mod vision;
@@ -20,6 +21,12 @@ pub use tier::{
     current_computer_tier, tier_allows_index_tools, ComputerRoundLlmOverrides, ComputerTier,
     ComputerTierConfig, ComputerTierGuard, ComputerTierRuntime, CONFIG_KEY_AUTO_UPGRADE,
     CONFIG_KEY_INITIAL_TIER, CONFIG_KEY_MODEL_ADVANCED, CONFIG_KEY_MODEL_PRIMARY,
+};
+pub use tool_names::{
+    is_action_verify_tool_name, normalize_action_verify_invocation, ACTION_VERIFY,
+    ACTION_VERIFY_LEGACY_BASE, ACTION_VERIFY_LEGACY_METHOD_REPORT,
+    ACTION_VERIFY_LEGACY_QUALIFIED, ACTION_VERIFY_LEGACY_TOOL_IDS,
+    ACTION_VERIFY_LEGACY_UNDERSCORE,
 };
 pub use timing::{
     is_desktop_post_delay_tool, is_desktop_vision_log_tool,

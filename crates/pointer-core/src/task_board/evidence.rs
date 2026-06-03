@@ -1,5 +1,6 @@
 //! Session evidence hints for soft task_board validation (host-injected, not model-authored).
 
+use crate::agents::computer::tool_names::{is_action_verify_tool_name, ACTION_VERIFY};
 use crate::models::{ChatMessage, Role};
 use crate::task_board::checkpoint::is_task_board_tool_name;
 
@@ -24,7 +25,7 @@ pub fn history_has_recent_action_tools(history: &[ChatMessage]) -> bool {
     false
 }
 
-/// Whether recent chat history includes a `verify:report` sidecar with `action_result=pass`.
+/// Whether recent chat history includes an `action_verify` sidecar with `action_result=pass`.
 pub fn history_has_recent_verify_pass(history: &[ChatMessage]) -> bool {
     for msg in history.iter().rev().take(RECENT_MESSAGE_SCAN) {
         if !matches!(msg.role, Role::Assistant) {
@@ -34,7 +35,7 @@ pub fn history_has_recent_verify_pass(history: &[ChatMessage]) -> bool {
             continue;
         };
         for tc in calls {
-            if tc.name.trim() != "verify:report" {
+            if !is_action_verify_tool_name(tc.name.trim()) {
                 continue;
             }
             let parsed = serde_json::from_str::<serde_json::Value>(&tc.arguments);
@@ -53,7 +54,7 @@ pub fn history_has_recent_verify_pass(history: &[ChatMessage]) -> bool {
     false
 }
 
-/// Whether recent history includes any `verify:report` sidecar call.
+/// Whether recent history includes any `action_verify` sidecar call.
 pub fn history_has_recent_verify_report(history: &[ChatMessage]) -> bool {
     for msg in history.iter().rev().take(RECENT_MESSAGE_SCAN) {
         if !matches!(msg.role, Role::Assistant) {
@@ -62,7 +63,7 @@ pub fn history_has_recent_verify_report(history: &[ChatMessage]) -> bool {
         let Some(calls) = msg.tool_calls.as_ref() else {
             continue;
         };
-        if calls.iter().any(|tc| tc.name.trim() == "verify:report") {
+        if calls.iter().any(|tc| is_action_verify_tool_name(tc.name.trim())) {
             return true;
         }
     }
@@ -132,7 +133,7 @@ mod tests {
 
     #[test]
     fn detects_recent_verify_pass() {
-        let mut msg = assistant_with_tools(&["verify:report"]);
+        let mut msg = assistant_with_tools(&[ACTION_VERIFY]);
         if let Some(calls) = msg.tool_calls.as_mut() {
             calls[0].arguments = r#"{"action_result":"pass","repetition_count":0}"#.into();
         }
@@ -141,7 +142,7 @@ mod tests {
 
     #[test]
     fn verify_fail_does_not_count_as_pass() {
-        let mut msg = assistant_with_tools(&["verify:report"]);
+        let mut msg = assistant_with_tools(&[ACTION_VERIFY]);
         if let Some(calls) = msg.tool_calls.as_mut() {
             calls[0].arguments =
                 r#"{"action_result":"fail","repetition_count":2,"failure_cause":"precision_miss"}"#.into();
@@ -151,7 +152,7 @@ mod tests {
 
     #[test]
     fn detects_recent_verify_report() {
-        let msg = assistant_with_tools(&["verify:report"]);
+        let msg = assistant_with_tools(&[ACTION_VERIFY]);
         assert!(history_has_recent_verify_report(&[msg]));
     }
 }

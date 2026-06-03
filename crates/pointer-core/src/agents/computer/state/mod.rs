@@ -663,7 +663,7 @@ impl ComputerState {
         tool_calls: Option<&[ToolCall]>,
     ) {
         let parsed_signal = tool_calls
-            .and_then(crate::agents::computer::tier::parse_tier_signal_from_sidecar_tool_calls);
+            .and_then(crate::agents::computer::tier::parse_action_verify_from_sidecar_tool_calls);
         let parsed_verify = parsed_signal.as_ref().map(|s| crate::agents::computer::tier::ParsedVerify {
             step_result: s.action_result.clone(),
             cause: s.failure_cause.clone(),
@@ -700,7 +700,8 @@ impl ComputerState {
                 .unwrap_or("");
             if step != "pending" {
                 log::warn!(
-                    "computer tier runtime: verify_report ignored — newest row not open verifying (duplicate or no row)"
+                    "computer tier runtime: {} ignored — newest row not open verifying (duplicate or no row)",
+                    crate::agents::computer::tool_names::ACTION_VERIFY
                 );
             }
         }

@@ -378,7 +378,10 @@ fn maybe_warn_done_without_verify_pass(
         return;
     }
     *reflection = true;
-    let reason = "done_without_verify_pass: verify:report should be pass before marking done";
+    let reason = format!(
+        "done_without_verify_pass: {} should be pass before marking done",
+        crate::agents::computer::tool_names::ACTION_VERIFY
+    );
     warnings.push(serde_json::json!({
         "code": "done_without_verify_pass",
         "requires_verify_pass": true,

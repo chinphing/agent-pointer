@@ -11,9 +11,10 @@ mod tool_input;
 mod tool_hotkey;
 mod tool_modified_click;
 mod tool_mouse;
-mod tool_tier_signal;
+mod tool_action_verify;
 mod tool_wait;
 
+use crate::agents::computer::tool_names::ACTION_VERIFY;
 use crate::agents::computer::ComputerState;
 use crate::agents::computer::tier::ComputerTierGuard;
 use args_util::{clamp_scroll_lines, effective_human_like_default};
@@ -305,15 +306,15 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
         }
     }
 
-    // ── verify (sidecar) ─────────────────────────────────────────────────
+    // ── action_verify (sidecar flat) ─────────────────────────────────────
     {
-        let doc = include_str!("prompts/sidecar/tier_signal.md").trim();
+        let doc = include_str!("prompts/action_verify.md").trim();
         reg.register(ToolEntry::new_sidecar(
-            "verify",
+            ACTION_VERIFY,
             "low",
             false,
             doc,
-            Arc::new(move |args| tool_tier_signal::execute_tier_signal(&args)),
+            Arc::new(move |args| tool_action_verify::execute_action_verify(&args)),
         ));
     }
 }

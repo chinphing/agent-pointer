@@ -290,7 +290,8 @@ impl ComputerTierRuntime {
         };
         let Some(idx) = v.iter().rposition(|r| r.verify_result.is_none()) else {
             log::warn!(
-                "computer tier: verify_report ignored — no open verifying row to close"
+                "computer tier: {} ignored — no open verifying row to close",
+                ACTION_VERIFY
             );
             return false;
         };
@@ -791,17 +792,27 @@ pub fn parse_verify_from_thoughts(thoughts: &str) -> Option<ParsedVerify> {
     })
 }
 
-/// Sidecar tool id used to carry verify/repetition signal for tier runtime.
-pub const COMPUTER_TIER_SIGNAL_TOOL_NAME: &str = "verify";
+pub use crate::agents::computer::tool_names::{
+    is_action_verify_tool_name, ACTION_VERIFY, ACTION_VERIFY_LEGACY_BASE,
+};
+
+/// Back-compat alias — prefer [`ACTION_VERIFY`].
+pub const ACTION_VERIFY_TOOL_NAME: &str = ACTION_VERIFY;
+
+fn is_action_verify_sidecar_tool(name: &str) -> bool {
+    is_action_verify_tool_name(name)
+}
 
 /// Extract repetition signal from sidecar tool calls in one assistant round.
 ///
 /// Expected sidecar payload:
 /// `{ "action_result": "pass|fail|pending|n/a", "repetition_count": <u32>, "failure_cause"?: "wrong_operation|precision_miss" }`.
-pub fn parse_tier_signal_from_sidecar_tool_calls(tool_calls: &[ToolCall]) -> Option<ParsedTierSignal> {
+pub fn parse_action_verify_from_sidecar_tool_calls(
+    tool_calls: &[ToolCall],
+) -> Option<ParsedTierSignal> {
     let mut parsed: Option<ParsedTierSignal> = None;
     for tc in tool_calls {
-        if registry_tool_base_name(tc.name.as_str()) != COMPUTER_TIER_SIGNAL_TOOL_NAME {
+        if !is_action_verify_sidecar_tool(tc.name.as_str()) {
             continue;
         }
         let Ok(v) = serde_json::from_str::<Value>(&tc.arguments) else {
@@ -859,13 +870,6 @@ pub fn parse_tier_signal_from_sidecar_tool_calls(tool_calls: &[ToolCall]) -> Opt
         });
     }
     parsed
-}
-
-fn registry_tool_base_name(raw: &str) -> &str {
-    match raw.trim().split_once(':') {
-        Some((base, rest)) if !base.is_empty() && !rest.trim().is_empty() => base.trim(),
-        _ => raw.trim(),
-    }
 }
 
 fn extract_field_line(text: &str, key: &str) -> Option<String> {
@@ -1599,7 +1603,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_tier_signal_from_sidecar_tool_calls_prefers_latest_signal() {
+    fn parse_action_verify_from_sidecar_tool_calls_prefers_latest_signal() {
         let calls = vec![
             ToolCall {
                 id: "a".into(),
@@ -1615,7 +1619,7 @@ mod tests {
             },
             ToolCall {
                 id: "b".into(),
-                name: "verify:report".into(),
+                name: ACTION_VERIFY.into(),
                 arguments: r#"{"action_result":"fail","repetition_count":2,"failure_cause":"precision_miss"}"#.into(),
                 status: "pending".into(),
                 result: None,
@@ -1627,7 +1631,7 @@ mod tests {
             },
             ToolCall {
                 id: "c".into(),
-                name: "verify:report".into(),
+                name: ACTION_VERIFY.into(),
                 arguments: r#"{"action_result":"pass","repetition_count":4}"#.into(),
                 status: "pending".into(),
                 result: None,
@@ -1638,7 +1642,7 @@ mod tests {
                 display_summary: None,
             },
         ];
-        let p = parse_tier_signal_from_sidecar_tool_calls(&calls).unwrap();
+        let p = parse_action_verify_from_sidecar_tool_calls(&calls).unwrap();
         assert_eq!(p.action_result, "pass");
         assert_eq!(p.repetition_count, 4);
         assert!(p.failure_cause.is_none());

@@ -6,6 +6,7 @@
 //! (`crate::env_prompt::format_local_wall_clock_full`).
 
 use crate::agents::computer::capture_debug;
+use crate::agents::computer::tool_names::ACTION_VERIFY;
 use crate::agents::computer::screen;
 use crate::agents::computer::screen_overlay::{
     BEFORE_POINTER_ZOOM_CROP_SIDE, BEFORE_POINTER_ZOOM_FACTOR, BEFORE_POINTER_ZOOM_RADIUS_PX,
@@ -114,7 +115,7 @@ fn build_cur_screen_preamble(tier: ComputerTier, has_previous_raw: bool) -> Stri
             let count = if has_previous_raw { 7 } else { 5 };
             format!(
                 "{CUR_SCREEN_TAG} {count} labeled images follow in slot order.{zoom_before} {cite} \
-                 Run Verify (screenshots) first; Pointer only if unclear; then Repetition, Next, Location, Recheck, Tool route — all internally; report via `verify.report`.\n"
+                 Run Verify (screenshots) first; Pointer only if unclear; then Repetition, Next, Location, Recheck, Tool route — all internally; report via `{ACTION_VERIFY}`.\n"
             )
         }
     }

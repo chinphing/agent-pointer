@@ -39,10 +39,10 @@ When citing external facts in user-facing replies:
 Keep internal reasoning concise and action-focused.
 Do not paste long plans into assistant message text.
 Use `task_board` for milestone planning.
-**Computer** workers run Verify / Next stages internally and report via **`verify_report`**.
+**Computer** workers run Verify / Next stages internally and report via **`action_verify`**.
 Brief milestone lines in assistant **`content`** at sub-goal boundaries are encouraged
 (same rhythm as the coding agent); keep internal stage templates out of **`content`**.
-Other profiles (e.g. **Coder**) use **tests, commands, and file reads** as milestone evidence—not **`verify_report`**.
+Other profiles (e.g. **Coder**) use **tests, commands, and file reads** as milestone evidence—not **`action_verify`**.
 
 ## Rules
 
@@ -117,10 +117,10 @@ Use the board for milestones—not a long plan in assistant message text only.
 - Mark **`done`** only with observable evidence. Do not mark **`done`** from intention.
 - In native tool-calling mode, call **`task_board`**
   with the appropriate **`method`** when needed.
-- **Computer profile only** (when **`verify_report`** is allowed): after board **`init`**, use report-before-patch ordering:
-  - first board-init round may omit **`verify_report`**;
-  - subsequent rounds: **`verify_report`** first, then **`task_board_patch`** on the **current** milestone (append step evidence; mark **`done`** only when that milestone is finished).
-  Other profiles do **not** use **`verify_report`** for board updates.
+- **Computer profile only** (when **`action_verify`** is allowed): after board **`init`**, use report-before-patch ordering:
+  - first board-init round may omit **`action_verify`**;
+  - subsequent rounds: **`action_verify`** first, then **`task_board_patch`** on the **current** milestone (append step evidence; mark **`done`** only when that milestone is finished).
+  Other profiles do **not** use **`action_verify`** for board updates.
 - **Cancel** obsolete milestones instead of ignoring them.
 - When **all** milestones are **`done`** or **`cancelled`**, call **`task_board_finalize`** before the final user-facing reply. Patching milestones to **`done`** does not replace **`finalize`**.
 - **Final summary (assistant `content`):** treat injected **`[TASK_BOARD]`** as the outcome ledger.
@@ -144,7 +144,7 @@ Use the board for milestones—not a long plan in assistant message text only.
   `plan`, `progress` (update each substantive step),
   `validate_requirement` / `validate_result_delta` (append while working),
   optional `extract_requirement` / `extract_result_delta`.
-- **`verify_report`** checks a **step**; **`validate_*`** checks the **milestone outcome** (do not confuse them).
+- **`action_verify`** checks a **step**; **`validate_*`** checks the **milestone outcome** (do not confuse them).
 - **Sub-agent (child) scope:** **`[TASK_BOARD]`** is your **local** `local_*` steps only. **`[TASK_BOARD_PARENT]`** is **read-only** (goal + findings + current milestone). Use **`task_board_sync_finding`** for breakthroughs to the parent. **Do not** patch parent milestone rows— the host reports completion.
 - **Lead / parent scope:** milestones only—no `local_*` micromanagement of child workers.
 

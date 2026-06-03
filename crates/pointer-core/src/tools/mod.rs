@@ -13,6 +13,11 @@ pub use display::{default_display, format_tool_display, ToolDisplay, ToolDisplay
 
 pub use tool_doc::{doc_markdown_without_schema_fence, json_schema_from_markdown, load_tool_doc_and_schema};
 
+use crate::agents::computer::tool_names::{
+    normalize_action_verify_invocation, ACTION_VERIFY, ACTION_VERIFY_LEGACY_BASE,
+    ACTION_VERIFY_LEGACY_METHOD_REPORT, ACTION_VERIFY_LEGACY_TOOL_IDS,
+    ACTION_VERIFY_LEGACY_UNDERSCORE,
+};
 use crate::models::ToolDef;
 use anyhow::Result;
 use parking_lot::RwLock;
@@ -115,6 +120,8 @@ pub fn registry_tool_in_allow_list(allowed: &[String], registry_tool_id: &str) -
 /// Map retired split computer tool ids to unified family names for allow lists.
 pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
     const TO_FAMILY: &[(&str, &str)] = &[
+        (ACTION_VERIFY_LEGACY_BASE, ACTION_VERIFY),
+        (ACTION_VERIFY_LEGACY_UNDERSCORE, ACTION_VERIFY),
         ("mouse_index", "mouse"),
         ("mouse_at", "mouse"),
         ("mouse_current", "mouse"),
@@ -137,7 +144,9 @@ pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
         let base = registry_tool_base_name(n);
         !matches!(
             base,
-            "mouse_index"
+            ACTION_VERIFY_LEGACY_BASE
+                | ACTION_VERIFY_LEGACY_UNDERSCORE
+                | "mouse_index"
                 | "mouse_at"
                 | "mouse_current"
                 | "input_index"
@@ -192,6 +201,13 @@ pub fn file_tool_effective_risk_level(raw_tool_name: &str, args: &Value) -> &'st
     }
 }
 
+fn strip_tool_method_arg(mut args: Value) -> Value {
+    if let Value::Object(ref mut map) = args {
+        map.remove("method");
+    }
+    args
+}
+
 /// If `raw_name` is `tool:method`, return `(tool, args)` and ensure `args["method"]` is set when missing.
 /// For flat-style tools (mouse, file, task_board, skill), the qualified name is converted to the flat
 /// tool name directly (e.g. `mouse:click_index` → `mouse_click_index`).
@@ -199,6 +215,9 @@ pub fn merge_tool_method_from_qualified_name(raw_name: &str, mut args: Value) ->
     let raw_name = normalize_tool_name_colons(raw_name.trim());
     if raw_name.is_empty() {
         return (String::new(), args);
+    }
+    if let Some(flat) = normalize_action_verify_invocation(raw_name.as_str(), &args) {
+        return (flat.to_string(), strip_tool_method_arg(args));
     }
     let Some((base, method)) = raw_name.split_once(':') else {
         return (raw_name, args);
@@ -505,6 +524,10 @@ mod parse_args_tests {
     use super::merge_tool_method_from_qualified_name;
     use super::parse_tool_call_arguments;
     use super::registry_tool_base_name;
+    use crate::agents::computer::tool_names::{
+        ACTION_VERIFY, ACTION_VERIFY_LEGACY_BASE, ACTION_VERIFY_LEGACY_METHOD_REPORT,
+        ACTION_VERIFY_LEGACY_TOOL_IDS,
+    };
 
     #[test]
     fn unwraps_json_string_payload() {
@@ -544,6 +567,20 @@ mod parse_args_tests {
         // Flat-style tools convert to flat names directly, no method injection.
         assert_eq!(id, "mouse_click_index");
         assert!(out.get("method").is_none());
+    }
+
+    #[test]
+    fn merge_action_verify_legacy_aliases() {
+        let args = serde_json::json!({"action_result": "pass", "repetition_count": 0});
+        for legacy in ACTION_VERIFY_LEGACY_TOOL_IDS {
+            let mut a = args.clone();
+            if *legacy == ACTION_VERIFY_LEGACY_BASE {
+                a["method"] = serde_json::json!(ACTION_VERIFY_LEGACY_METHOD_REPORT);
+            }
+            let (id, out) = merge_tool_method_from_qualified_name(legacy, a);
+            assert_eq!(id, ACTION_VERIFY, "legacy name {legacy}");
+            assert!(out.get("method").is_none());
+        }
     }
 
     #[test]

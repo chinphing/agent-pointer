@@ -12,7 +12,7 @@ toolNames:
   - modified_click
   - wait
   - clipboard
-  - verify
+  - action_verify
   - task_board
   - captcha_verify
 accessPolicy:
@@ -23,7 +23,7 @@ accessPolicy:
     - modified_click
     - wait
     - clipboard
-    - verify
+    - action_verify
     - task_board
     - captcha_verify
   denyTools: []
@@ -37,7 +37,7 @@ ui:
   showTaskBoardPanel: true
   hideToolNames:
     - task_board_patch
-    - verify_report
+    - action_verify
   avatar: computer
 defaultSkillIds: []
 config:

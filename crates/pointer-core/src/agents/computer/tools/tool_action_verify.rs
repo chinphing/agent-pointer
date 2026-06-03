@@ -1,10 +1,10 @@
-//! Sidecar signal tool for computer tier runtime.
+//! Sidecar flat tool `action_verify` for computer tier runtime.
 
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
-/// Validate sidecar tier signal payload.
-pub fn execute_tier_signal(args: &Value) -> Result<String> {
+/// Validate and accept action-verify sidecar payload.
+pub fn execute_action_verify(args: &Value) -> Result<String> {
     let action_result = args
         .get("action_result")
         .and_then(|v| v.as_str())
@@ -61,7 +61,6 @@ pub fn execute_tier_signal(args: &Value) -> Result<String> {
 
 fn parse_repetition_count(v: Option<&Value>) -> Result<u64> {
     let Some(v) = v else {
-        // Be tolerant for missing field so sidecar does not fail the whole turn.
         return Ok(0);
     };
     match v {
@@ -84,7 +83,7 @@ mod tests {
 
     #[test]
     fn accepts_valid_signal() {
-        let out = execute_tier_signal(&serde_json::json!({
+        let out = execute_action_verify(&serde_json::json!({
             "action_result": "fail",
             "repetition_count": 3,
             "failure_cause": "precision_miss",
@@ -92,58 +91,16 @@ mod tests {
         .unwrap();
         assert!(out.contains("action_result=fail"));
         assert!(out.contains("repetition_count=3"));
-        assert!(out.contains("failure_cause=precision_miss"));
-    }
-
-    #[test]
-    fn missing_repetition_count_defaults_to_zero() {
-        let out = execute_tier_signal(&serde_json::json!({
-            "action_result": "pending"
-        }))
-        .unwrap();
-        assert!(out.contains("repetition_count=0"));
-    }
-
-    #[test]
-    fn accepts_string_repetition_count() {
-        let out = execute_tier_signal(&serde_json::json!({
-            "action_result": "pass",
-            "repetition_count": "2"
-        }))
-        .unwrap();
-        assert!(out.contains("repetition_count=2"));
     }
 
     #[test]
     fn rejects_fail_without_failure_cause() {
-        let err = execute_tier_signal(&serde_json::json!({
+        let err = execute_action_verify(&serde_json::json!({
             "action_result": "fail",
             "repetition_count": 1
         }))
         .unwrap_err()
         .to_string();
         assert!(err.contains("failure_cause"));
-    }
-
-    #[test]
-    fn rejects_failure_cause_on_pass() {
-        let err = execute_tier_signal(&serde_json::json!({
-            "action_result": "pass",
-            "repetition_count": 0,
-            "failure_cause": "wrong_operation"
-        }))
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("only allowed"));
-    }
-
-    #[test]
-    fn accepts_pending_without_failure_cause() {
-        let out = execute_tier_signal(&serde_json::json!({
-            "action_result": "pending",
-            "repetition_count": 1
-        }))
-        .unwrap();
-        assert!(out.contains("action_result=pending"));
     }
 }

@@ -38,12 +38,15 @@ Escalate to init if retries or branching make the flow multi-step.",
 fn main_agent_task_board_hint(profile: &AgentProfile) -> Option<String> {
     let gate = main_agent_complexity_gate(profile)?;
     let verify_order = if matches!(profile, AgentProfile::Computer) {
-        "For turns that also emit **verify:report** (step check, not milestone):
+        let av = crate::agents::computer::tool_names::ACTION_VERIFY;
+        format!(
+            "For turns that also emit **{av}** (step check, not milestone):
 - first board-init round may omit report;
-- after init, run `verify.report` first, then `task_board_patch`.
+- after init, run `{av}` first, then `task_board_patch`.
 "
+        )
     } else {
-        ""
+        String::new()
     };
     let profile_rows = if matches!(profile, AgentProfile::Coder) {
         "Use **3-6** milestones in **`items`** when initialized, including **Impact scan**, **Implement**, and **Unit tests**.

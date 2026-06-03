@@ -22,11 +22,9 @@ schema:
 
 Report verify and repetition conclusion for host tier runtime.
 
-This is a sidecar-only tool.
-Do not use it as the root tool when another root tool is present.
+Sidecar-only flat tool: call **`action_verify`** by name (no `method` field).
 
-Method:
-- `report`
+Do not use it as the root tool when another root tool is present.
 
 Required args:
 - `action_result`: `pass` | `fail` | `pending` (`n/a` kept for backward compatibility)

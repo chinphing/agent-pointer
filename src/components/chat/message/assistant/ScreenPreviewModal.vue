@@ -36,7 +36,7 @@ watch(
       class="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="标注截图预览"
+      aria-label="截图处理预览"
       @click.self="close"
     >
       <div
@@ -47,7 +47,7 @@ watch(
             <Image class="w-4 h-4 text-accent" />
           </div>
           <div class="min-w-0 flex-1 pr-8">
-            <h2 class="text-sm font-semibold text-foreground">标注截图预览</h2>
+            <h2 class="text-sm font-semibold text-foreground">截图处理预览</h2>
             <p v-if="preview?.caption" class="text-[11px] text-muted mt-0.5 leading-relaxed line-clamp-2">
               {{ preview.caption }}
             </p>

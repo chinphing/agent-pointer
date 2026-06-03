@@ -61,7 +61,7 @@ const showFooter = computed(() => showMessageActions.value)
         type="button"
         class="message-action-btn text-muted hover:text-info disabled:opacity-40 disabled:cursor-wait"
         :disabled="screenLoading"
-        title="查看本轮已注入模型的标注桌面图（缓存）"
+        title="查看本轮已注入模型的桌面截图（缓存）"
         @click="openScreenPreview()"
       >
         <Camera class="w-3.5 h-3.5" />

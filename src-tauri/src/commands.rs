@@ -219,7 +219,9 @@ pub fn preview_computer_annotated_screen(
             image_mime: pointer_core::agents::computer::screen::image_data_url_mime(&img).to_string(),
             caption: "Annotated screenshot".into(),
         })
-        .ok_or_else(|| "无标注图：请先完成一次桌面注入（发消息），或确认会话ID正确。".into())
+        .ok_or_else(|| {
+            "暂无桌面截图：请先完成一次截图处理（发送 Computer 消息），或确认会话 ID 正确。".into()
+        })
 }
 
 /// Load a saved annotated PNG by path relative to `computer-captures/` (from `AssistantRoundScreen`).

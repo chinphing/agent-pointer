@@ -28,6 +28,22 @@ use std::sync::Arc;
 
 const CUR_SCREEN_TAG: &str = "[CUR_SCREEN]";
 
+/// Thread notice while capture + processing runs (user-visible).
+const DESKTOP_NOTICE_PROCESSING: &str = "【桌面】截图处理中";
+const DESKTOP_NOTICE_READY: &str = "【桌面】已更新当前画面。";
+/// User-facing failure copy — do not echo internal/annotation-service errors.
+const DESKTOP_NOTICE_FAILED: &str =
+    "【桌面】截图处理失败，请检查屏幕录制权限或截图处理服务是否可用后重试。";
+
+fn cur_screen_failure_model_message() -> String {
+    format!(
+        "{tag} Screenshot processing failed this turn.\n\
+         You cannot rely on a fresh desktop image. \
+         The user may need screen capture permission or the screenshot processing service; suggest retrying after that.",
+        tag = CUR_SCREEN_TAG
+    )
+}
+
 fn cur_screen_clock_prefix() -> String {
     format!(
         "Local wall-clock at capture: {}\n\n",
@@ -224,7 +240,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
         emit_screen_thread_notice(
             ctx,
             notice_id.clone(),
-            "【桌面】正在截图并标注…".to_string(),
+            DESKTOP_NOTICE_PROCESSING.to_string(),
         );
 
         match ctx.computer_state.capture_and_annotate(ctx.conversation_id).await {
@@ -253,7 +269,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                 emit_screen_notice_update(
                     ctx,
                     notice_id,
-                    "【桌面】已更新当前画面。".to_string(),
+                    DESKTOP_NOTICE_READY.to_string(),
                 );
                 strip_images_from_prior_messages(ctx.messages.as_mut_slice());
                 let has_previous_raw = cap.inject_before_action.is_some();
@@ -301,19 +317,16 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
             });
             }
             Err(e) => {
-                log::warn!("computer screen capture/annotate failed: {:#}", e);
-                emit_screen_notice_update(
-                    ctx,
-                    notice_id,
-                    format!("【桌面】截图或标注失败：{e}"),
-                );
+                log::warn!("computer screenshot processing failed: {:#}", e);
+                emit_screen_notice_update(ctx, notice_id, DESKTOP_NOTICE_FAILED.to_string());
                 strip_images_from_prior_messages(ctx.messages.as_mut_slice());
                 ctx.messages.push(ChatMessage {
                     id: new_extension_message_id("screen_inject"),
                     role: Role::User,
                     content: format!(
-                        "{}{CUR_SCREEN_TAG} Screen capture or UI annotation failed: {e}\nYou cannot rely on a fresh desktop image this turn. The user may need to grant screen capture access or ensure the desktop annotation service is available; suggest retrying after that.",
-                        cur_screen_clock_prefix()
+                        "{}{}",
+                        cur_screen_clock_prefix(),
+                        cur_screen_failure_model_message()
                     ),
                     status: "done".into(),
                     created_at: crate::extensions::now_ms(),

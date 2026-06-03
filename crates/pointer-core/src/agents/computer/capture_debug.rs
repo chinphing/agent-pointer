@@ -57,7 +57,7 @@ pub fn read_computer_capture_preview(rel: &str) -> anyhow::Result<ComputerAnnota
     Ok(ComputerAnnotatedPreview {
         image_base64: screen::encode_image_to_base64(&bytes),
         image_mime: screen::image_data_url_mime(&bytes).to_string(),
-        caption: "本圈标注画面".into(),
+        caption: "本圈截图画面".into(),
     })
 }
 

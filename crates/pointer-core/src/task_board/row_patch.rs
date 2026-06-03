@@ -1,7 +1,10 @@
-//! Merge a patch JSON row into a stored [`BoardItem`] (v3 append semantics).
+//! Merge a patch JSON row into a stored [`BoardItem`] (v3 semantics).
 
 use super::model::{str_field, BoardItem, ItemStatus, RESULT_SNIPPET_MAX_CHARS};
-use super::results_append::{append_results_incremental, append_warning_to_json};
+use super::results_append::{
+    append_results_incremental, append_warning_to_json, replace_results_from_value,
+    AppendWarning,
+};
 use serde_json::Value;
 
 pub struct RowPatchMerge {
@@ -11,6 +14,70 @@ pub struct RowPatchMerge {
 
 pub fn merge_row_patch(prev: &BoardItem, patch_v: &Value) -> BoardItem {
     merge_row_patch_with_warnings(prev, patch_v).row
+}
+
+fn push_warning(warnings: &mut Vec<serde_json::Value>, w: &AppendWarning, item_id: &str) {
+    warnings.push(append_warning_to_json(w, item_id));
+}
+
+fn push_warning_code(warnings: &mut Vec<serde_json::Value>, code: &'static str, item_id: &str) {
+    push_warning(
+        warnings,
+        &AppendWarning {
+            code,
+            item_id: None,
+        },
+        item_id,
+    );
+}
+
+fn merge_delta_field(
+    prev: &[String],
+    patch_v: &Value,
+    delta_key: &str,
+    deprecated_keys: &[&str],
+    warnings: &mut Vec<serde_json::Value>,
+    item_id: &str,
+    warn_code: &'static str,
+) -> Vec<String> {
+    for key in deprecated_keys {
+        if patch_v.get(key).is_some() {
+            push_warning_code(warnings, warn_code, item_id);
+            log::warn!(
+                "task_board: patch row {item_id} sent internal field {key}; use {delta_key}"
+            );
+        }
+    }
+    let Some(val) = patch_v.get(delta_key) else {
+        return prev.to_vec();
+    };
+    let (list, wrn) = append_results_incremental(prev, Some(val));
+    for w in wrn {
+        push_warning(warnings, &w, item_id);
+    }
+    list
+}
+
+fn merge_full_results_on_done(
+    prev: &[String],
+    patch_v: &Value,
+    full_key: &str,
+    row_status: ItemStatus,
+    warnings: &mut Vec<serde_json::Value>,
+    item_id: &str,
+    not_done_code: &'static str,
+) -> Vec<String> {
+    if patch_v.get(full_key).is_none() {
+        return prev.to_vec();
+    }
+    if row_status != ItemStatus::Done {
+        push_warning_code(warnings, not_done_code, item_id);
+        log::warn!(
+            "task_board: patch row {item_id} ignored {full_key} until status is done"
+        );
+        return prev.to_vec();
+    }
+    replace_results_from_value(patch_v.get(full_key))
 }
 
 pub fn merge_row_patch_with_warnings(prev: &BoardItem, patch_v: &Value) -> RowPatchMerge {
@@ -48,8 +115,8 @@ pub fn merge_row_patch_with_warnings(prev: &BoardItem, patch_v: &Value) -> RowPa
     if let Some(s) = str_field(patch_v, "plan") {
         row.plan = Some(s);
     }
-    if let Some(s) = str_field(patch_v, "checkpoint") {
-        row.checkpoint = Some(s);
+    if let Some(s) = str_field(patch_v, "progress").or_else(|| str_field(patch_v, "checkpoint")) {
+        row.progress = Some(s);
     }
     if let Some(s) = str_field(patch_v, "validate_requirement") {
         row.validate_requirement = Some(s);
@@ -62,25 +129,55 @@ pub fn merge_row_patch_with_warnings(prev: &BoardItem, patch_v: &Value) -> RowPa
     }
 
     let mut warnings = Vec::new();
-    if patch_v.get("validate_results").is_some() {
-        let (list, wrn) =
-            append_results_incremental(&prev.validate_results, patch_v.get("validate_results"));
-        row.validate_results = list;
-        for w in wrn {
-            warnings.push(append_warning_to_json(&w, &row.id));
-        }
+
+    if patch_v
+        .get("status")
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
+        push_warning_code(&mut warnings, "patch_status_required", &row.id);
+        log::warn!("task_board: patch row {} missing required status", row.id);
     }
-    if patch_v.get("extract_results").is_some() {
-        let (list, wrn) =
-            append_results_incremental(&prev.extract_results, patch_v.get("extract_results"));
-        row.extract_results = list;
-        for w in wrn {
-            warnings.push(serde_json::json!({
-                "code": w.code.replace("validate_results", "extract_results"),
-                "item_id": row.id,
-            }));
-        }
-    }
+
+    row.validate_results = merge_delta_field(
+        &prev.validate_results,
+        patch_v,
+        "validate_result_delta",
+        &["validate_results"],
+        &mut warnings,
+        &row.id,
+        "validate_results_use_delta_field",
+    );
+    row.validate_results = merge_full_results_on_done(
+        &row.validate_results,
+        patch_v,
+        "validate_results",
+        row.status,
+        &mut warnings,
+        &row.id,
+        "validate_results_only_when_done",
+    );
+
+    row.extract_results = merge_delta_field(
+        &prev.extract_results,
+        patch_v,
+        "extract_result_delta",
+        &["extract_results"],
+        &mut warnings,
+        &row.id,
+        "extract_results_use_delta_field",
+    );
+    row.extract_results = merge_full_results_on_done(
+        &row.extract_results,
+        patch_v,
+        "extract_results",
+        row.status,
+        &mut warnings,
+        &row.id,
+        "extract_results_only_when_done",
+    );
 
     RowPatchMerge { row, warnings }
 }

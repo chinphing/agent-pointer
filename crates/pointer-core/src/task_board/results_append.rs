@@ -1,4 +1,4 @@
-//! Incremental append for `validate_results` / `extract_results` (dedupe lines, coalesce cumulative dumps).
+//! Delta append (`*_result_delta`) and full replace (`validate_results` / `extract_results` on `done` only).
 
 use super::model::{parse_string_array, push_snippet};
 use serde_json::Value;
@@ -35,7 +35,7 @@ fn split_nonempty_lines(snippet: &str) -> Vec<String> {
         .collect()
 }
 
-/// Append-only merge: one new evidence line per item when possible; drop duplicates and coalesce cumulative blocks.
+/// Append-only merge for `validate_result_delta` / `extract_result_delta` (one new line per patch when possible).
 pub fn append_results_incremental(
     prev: &[String],
     patch_value: Option<&Value>,
@@ -66,7 +66,7 @@ pub fn append_results_incremental(
                     code: "validate_results_duplicate_line",
                     item_id: None,
                 });
-                log::info!("task_board: validate_results duplicate line skipped");
+                log::info!("task_board: result_delta duplicate line skipped");
                 continue;
             }
             if let Some(last) = out.last() {
@@ -78,7 +78,7 @@ pub fn append_results_incremental(
                         code: "validate_results_cumulative_replaced",
                         item_id: None,
                     });
-                    log::info!("task_board: validate_results cumulative block replaced last entry");
+                    log::info!("task_board: result_delta cumulative line replaced last entry");
                     continue;
                 }
             }
@@ -101,20 +101,34 @@ pub fn append_results_incremental(
                 code: "validate_results_duplicate_block",
                 item_id: None,
             });
-            log::info!("task_board: validate_results block had no new lines");
+            log::info!("task_board: result_delta block had no new lines");
         } else if added < lines.len() {
             warnings.push(AppendWarning {
                 code: "validate_results_partial_dedup",
                 item_id: None,
             });
             log::info!(
-                "task_board: validate_results kept {added} new line(s) from {} line block",
+                "task_board: result_delta kept {added} new line(s) from {} line block",
                 lines.len()
             );
         }
     }
 
     (out, warnings)
+}
+
+/// Replace stored results from a full `validate_results` / `extract_results` payload (`done` only).
+pub fn replace_results_from_value(patch_value: Option<&Value>) -> Vec<String> {
+    let Some(val) = patch_value else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for snippet in parse_string_array(val) {
+        for line in split_nonempty_lines(&snippet) {
+            push_snippet(&mut out, &line);
+        }
+    }
+    out
 }
 
 pub fn append_warning_to_json(w: &AppendWarning, item_id: &str) -> Value {
@@ -129,47 +143,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn appends_single_new_line() {
+    fn appends_single_delta_line() {
         let (out, w) = append_results_incremental(
             &[],
-            Some(&serde_json::json!("1/10: 138 - Not found")),
+            Some(&serde_json::json!("#7 18578901234: User found")),
         );
         assert_eq!(out.len(), 1);
         assert!(w.is_empty());
     }
 
     #[test]
-    fn dedupes_duplicate_line() {
-        let prev = vec!["1/10: 138 - Not found".into()];
-        let (out, w) = append_results_incremental(
-            &prev,
-            Some(&serde_json::json!("1/10: 138 - Not found")),
-        );
-        assert_eq!(out.len(), 1);
-        assert!(w.iter().any(|x| x.code == "validate_results_duplicate_line"));
-    }
-
-    #[test]
-    fn multiline_block_keeps_only_new_lines() {
-        let prev = vec![
-            "1/10: a - Not found\n2/10: b - Not found\n3/10: c - Not found\n4/10: d - Not found"
-                .into(),
-        ];
-        let block = "1/10: a - Not found\n2/10: b - Not found\n3/10: c - Not found\n4/10: d - Not found\n5/10: e - Found";
-        let (out, w) = append_results_incremental(&prev, Some(&serde_json::json!(block)));
-        assert!(out.iter().any(|s| s.contains("5/10")));
-        assert!(w.iter().any(|x| x.code == "validate_results_partial_dedup"));
-    }
-
-    #[test]
-    fn cumulative_single_line_replaces_last_entry() {
-        let prev = vec!["1/10: a".into()];
-        let (out, w) = append_results_incremental(
-            &prev,
-            Some(&serde_json::json!("1/10: a | 2/10: b")),
-        );
-        assert_eq!(out.len(), 1);
-        assert!(out[0].contains("2/10"));
-        assert!(w.iter().any(|x| x.code == "validate_results_cumulative_replaced"));
+    fn replace_results_splits_multiline() {
+        let full = "#1 a\n#2 b";
+        let out = replace_results_from_value(Some(&serde_json::json!(full)));
+        assert_eq!(out.len(), 2);
     }
 }

@@ -459,6 +459,8 @@ export interface TaskBoardItem {
   depends_on?: string[]
   retry_count?: number
   plan?: string
+  /** Milestone position, e.g. `3/10` or `batch 2/4`. Legacy boards may still send `checkpoint`. */
+  progress?: string
   checkpoint?: string
   validate_requirement?: string
   validate_results?: string[]

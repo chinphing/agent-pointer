@@ -1,4 +1,20 @@
 import type { AgentDef, AgentProfile, AgentUiConfig, ModelSettings } from '../types/chat'
+
+/** When debug mode is on, apply session overrides (default sidecar visible unless explicitly off). */
+export function mergeDebugDisplayUi(
+  settings: Pick<ModelSettings, 'debugMenusEnabled' | 'agentUiOverrides'> | undefined,
+  agentId: string,
+  ui: ResolvedAgentUi
+): ResolvedAgentUi {
+  if (!settings?.debugMenusEnabled) return ui
+  const ov = settings.agentUiOverrides?.[agentId]
+  return {
+    ...ui,
+    showSidecarToolCalls: ov?.showSidecarToolCalls ?? true,
+    showToolCallResults: ov?.showToolCallResults ?? ui.showToolCallResults,
+    showReasoning: ov?.showReasoning ?? ui.showReasoning
+  }
+}
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 
 /** Built-in general agent id. */
@@ -148,7 +164,7 @@ export function resolveAgentUi(
   }
   const base = profileDefaults(agent.profile, agent.id, agent.role)
   const overrides = settings?.agentUiOverrides?.[agent.id]
-  return mergeUi(base, agent.ui, overrides, agent.id)
+  return mergeDebugDisplayUi(settings, agent.id, mergeUi(base, agent.ui, overrides, agent.id))
 }
 
 function leadAgentProfile(id: string): AgentProfile {
@@ -172,7 +188,11 @@ export function resolveLeadAgentUi(
   const id = settings.leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
   const w = agents.find(a => a.id === id) ?? agents.find(a => a.id === GENERAL_AGENT_ID)
   if (w) return resolveAgentUi(w, settings)
-  return profileDefaults(leadAgentProfile(id), id, 'worker')
+  return mergeDebugDisplayUi(
+    settings,
+    id,
+    profileDefaults(leadAgentProfile(id), id, 'worker')
+  )
 }
 
 /** Show sub-agent frame when configured, or when the stream already has delegated steps. */

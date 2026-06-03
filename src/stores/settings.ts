@@ -12,6 +12,7 @@ import {
 } from '../lib/api'
 import type {
   AgentModelRef,
+  AgentUiConfig,
   ComputerInitialTier,
   EffectiveSettingsView,
   ModelSettings,
@@ -356,6 +357,17 @@ export const useSettingsStore = defineStore('settings', () => {
     await saveSession(patch as Partial<ModelSettings>)
   }
 
+  /** Apply agent UI debug/display overrides in memory (chat reflects immediately; persist via save). */
+  function patchAgentUiOverride(agentId: string, patch: Partial<AgentUiConfig>) {
+    const id = agentId.trim()
+    if (!id) return
+    const prev = settings.value.agentUiOverrides ?? {}
+    settings.value.agentUiOverrides = {
+      ...prev,
+      [id]: { ...(prev[id] ?? {}), ...patch }
+    }
+  }
+
   async function save(patch: Partial<ModelSettings> & Pick<Partial<PlatformSettings>, 'computerTierLlm'>) {
     const { computerTierLlm, ...sessionPatch } = patch
     if (computerTierLlm !== undefined && canEditPlatform.value) {
@@ -543,6 +555,7 @@ export const useSettingsStore = defineStore('settings', () => {
     defaultTaskBoardHistoryTrim,
     isComputerHumanLikeEnabled,
     setComputerHumanLike,
-    setComputerInitialTier
+    setComputerInitialTier,
+    patchAgentUiOverride
   }
 })

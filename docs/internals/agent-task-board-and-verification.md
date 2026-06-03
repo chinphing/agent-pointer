@@ -23,7 +23,7 @@
 
 - 注册名：`task_board`；行为通过 **`task_board:replace`** / **`task_board:patch`**（与 qualified `tool_name` 解析一致）。
 - 存储：`AppState` 上的 **`TaskBoardStore`**（`crates/pointer-core/src/task_board/`，内存 + SQLite `{app_data}/task_boards.db`，按 **存储键** 分区）。v2 文档见 [`task-board-v2-schema.md`](task-board-v2-schema.md)；父子协调见 [`task-board-parent-child-coordination.md`](task-board-parent-child-coordination.md)。
-- **主会话（单智能体 / Supervisor 主消息）**：存储键通常为 **`main_turn_task_board_store_key(conversation_id, anchor_user_message_id)`**（见 `session_inner`）；`task_board` 的 **`_conversation_id`** 写入该 **store key**（非裸 `conversation_id`）。每轮由 **`CommonUserDynamicInjectHook`** 在 `message_loop_prompts_after` 末尾追加 user 注入块（Markdown v3：`plan` / `checkpoint` / `validate_*` 等 + 可选 JSON wire tail）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
+- **主会话（单智能体 / Supervisor 主消息）**：存储键通常为 **`main_turn_task_board_store_key(conversation_id, anchor_user_message_id)`**（见 `session_inner`）；`task_board` 的 **`_conversation_id`** 写入该 **store key**（非裸 `conversation_id`）。每轮由 **`CommonUserDynamicInjectHook`** 在 `message_loop_prompts_after` 末尾追加 user 注入块（Markdown v3：`plan` / `progress` / `validate_*` 等 + 可选 JSON wire tail）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
 - **Supervisor 子 Agent**：与主会话 **隔离**。存储键为  
   **`{conversation_id}\x1fptr_sub_agent\x1f{supervisor_task_id}`**（实现见 `task_board::sub_agent_task_board_store_key`）。  
   子 Agent 的任务板摘要同样经公共 user 注入路径注入（store key 为 `sub_task_board_key`）；**`task_board`** 读写只针对该子任务键，**不会**看到或修改主会话任务板。
@@ -58,7 +58,7 @@
 - 里程碑粒度建议（跨入口统一）：
   - **矩阵/组合类任务**：优先做 3–8 个分组里程碑，按交互形态/维度分组。
   - **列表类任务**：过长或重复项按批次分组为 3–8 行。
-  - 分组里程碑的 **`validate_requirement` / `validate_results`** 须含覆盖范围与通过统计。
+  - 列表类：完整编号目标清单放在 **`plan`** / **`extract_results`**；**`title`** / **`validate_requirement`** 写批次范围并带与清单一致的编号；**`validate_results`** 用「编号 + 标签」与 verify 对齐。
 
 ## 与压缩上下文的关系
 
@@ -81,12 +81,14 @@
 
 ## task_board 触发的历史截断（当前实现）
 
-在 **`task_board`** 变更满足 **trim checkpoint** 条件且工具执行成功后，对已启用该能力的 Agent 可对会话 history 做 **soft-exclude**（`context_state.included = false`，`ExcludedReason::TaskBoardTrim`；**不**调用 LLM 摘要），与 [`context_compression`](../crates/pointer-core/src/context_compression.rs) 互补。实现：`task_board/history_trim.rs`，挂载：`agent_tool_pass.rs`。
+在 **`task_board`** 变更满足 **trim 触发** 条件且工具执行成功后，对已启用该能力的 Agent 可对会话 history 做 **soft-exclude**（`context_state.included = false`，`ExcludedReason::TaskBoardTrim`；**不**调用 LLM 摘要），与 [`context_compression`](../crates/pointer-core/src/context_compression.rs) 互补。实现：`task_board/history_trim.rs`，挂载：`agent_tool_pass.rs`。
 
-**Trim checkpoint 条件（`task_board/checkpoint.rs`）：**
+**Trim 触发条件（`task_board/checkpoint.rs`）：**
 
 - **`task_board:init` / `replace` / `finalize`** 成功 → 触发。
-- **`task_board:patch`** 成功 → 仅当本批 **`items`** 中至少一行 **`status: done`** 时触发（里程碑验收节点）；仅改 `checkpoint` / `in_progress` / append `validate_results` 等 **不**触发。
+- **`task_board:patch`** 成功 → 本批含实质进展：`status: done`、非空 **`validate_results`**、或 **`progress`** 更新（读路径兼容旧字段 `checkpoint`）。
+- 仅 **`in_progress`** 且无证据/进度 → 不触发。
+- 仍参与 LLM 上下文的消息数 **&lt; 10** → 不截断（`MIN_INCLUDED_MESSAGES_FOR_TRIM`）。
 
 | 机制 | 触发 | 处理方式 | 成本 |
 |------|------|----------|------|

@@ -87,31 +87,41 @@ pub fn markdown_runtime_block_for_inject(doc: &BoardDocument) -> String {
     ));
 
     lines.push(String::new());
-    lines.push("## Current task checkpoint".to_string());
-    let checkpoint = current_task_item(doc)
-        .and_then(|i| i.checkpoint.as_ref())
+    lines.push("## Current task progress".to_string());
+    let progress = current_task_item(doc)
+        .and_then(|i| i.progress.as_ref())
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .unwrap_or("n/a");
-    lines.push(checkpoint.to_string());
-
-    lines.push(String::new());
-    lines.push("## Current task validate_results".to_string());
-    let validate_all = current_task_item(doc)
-        .map(|i| i.validate_results.as_slice())
-        .unwrap_or(&[] as &[String]);
-    lines.push(format_results_all(validate_all));
+    lines.push(progress.to_string());
 
     if let Some(item) = current_task_item(doc) {
-        if !item.extract_results.is_empty() || item.extract_requirement.is_some() {
+        if matches!(
+            item.status,
+            ItemStatus::InProgress | ItemStatus::Ready | ItemStatus::Pending
+        ) {
             lines.push(String::new());
-            lines.push("## Current task extract".to_string());
-            if let Some(req) = item.extract_requirement.as_deref() {
-                lines.push("requirement:".to_string());
-                lines.push(truncate_field(Some(req), REQUIREMENT_INJECT_MAX));
+            lines.push("## Current task validate_result_delta".to_string());
+            lines.push(format_results_tail(&item.validate_results));
+            if !item.extract_results.is_empty() || item.extract_requirement.is_some() {
+                lines.push(String::new());
+                lines.push("## Current task extract".to_string());
+                if let Some(req) = item.extract_requirement.as_deref() {
+                    lines.push("requirement:".to_string());
+                    lines.push(truncate_field(Some(req), REQUIREMENT_INJECT_MAX));
+                }
+                lines.push("extract_result_delta (recent):".to_string());
+                lines.push(format_results_tail(&item.extract_results));
             }
-            lines.push("results (recent):".to_string());
-            lines.push(format_results_tail(&item.extract_results));
+        } else if matches!(item.status, ItemStatus::Done) {
+            lines.push(String::new());
+            lines.push("## Current task validate_results".to_string());
+            lines.push(format_results_all(&item.validate_results));
+            if !item.extract_results.is_empty() {
+                lines.push(String::new());
+                lines.push("## Current task extract_results".to_string());
+                lines.push(format_results_all(&item.extract_results));
+            }
         }
     }
 
@@ -314,19 +324,45 @@ fn item_full(item: &BoardItem) -> serde_json::Value {
         let compact = v.chars().take(REQUIREMENT_INJECT_MAX).collect::<String>();
         out.insert("validate_requirement".into(), compact.into());
     }
-    if let Some(v) = item.checkpoint.as_ref().filter(|s| !s.trim().is_empty()) {
-        out.insert("checkpoint".into(), v.clone().into());
+    if let Some(v) = item.progress.as_ref().filter(|s| !s.trim().is_empty()) {
+        out.insert("progress".into(), v.clone().into());
     }
     if !item.validate_results.is_empty() {
+        let key = if matches!(
+            item.status,
+            ItemStatus::Done | ItemStatus::Cancelled | ItemStatus::Failed
+        ) {
+            "validate_results"
+        } else {
+            "validate_result_delta"
+        };
+        let tail_n = if key == "validate_results" {
+            item.validate_results.len().max(3)
+        } else {
+            3
+        };
         out.insert(
-            "validate_results".into(),
-            serde_json::json!(tail_compact_strings(&item.validate_results, 3)),
+            key.into(),
+            serde_json::json!(tail_compact_strings(&item.validate_results, tail_n)),
         );
     }
     if !item.extract_results.is_empty() {
+        let key = if matches!(
+            item.status,
+            ItemStatus::Done | ItemStatus::Cancelled | ItemStatus::Failed
+        ) {
+            "extract_results"
+        } else {
+            "extract_result_delta"
+        };
+        let tail_n = if key == "extract_results" {
+            item.extract_results.len().max(2)
+        } else {
+            2
+        };
         out.insert(
-            "extract_results".into(),
-            serde_json::json!(tail_compact_strings(&item.extract_results, 2)),
+            key.into(),
+            serde_json::json!(tail_compact_strings(&item.extract_results, tail_n)),
         );
     }
     if let Some(v) = item.plan.as_ref().filter(|s| !s.trim().is_empty()) {
@@ -391,7 +427,7 @@ mod inject_format_tests {
                 status: ItemStatus::InProgress,
                 validate_requirement: Some("cargo test -p foo".into()),
                 plan: Some("patch handler".into()),
-                checkpoint: Some("cycle=1/3".into()),
+                progress: Some("3/10".into()),
                 ..BoardItem::default()
             },
             BoardItem {
@@ -406,10 +442,11 @@ mod inject_format_tests {
     }
 
     #[test]
-    fn inject_has_plan_and_validate_results_sections() {
+    fn inject_has_plan_and_validate_delta_sections() {
         let block = markdown_runtime_block_for_inject(&sample_doc());
         assert!(block.contains("## Current task plan"));
-        assert!(block.contains("## Current task validate_results"));
+        assert!(block.contains("## Current task validate_result_delta"));
+        assert!(!block.contains("## Current task validate_results"));
         assert!(!block.contains("## Current task details"));
     }
 
@@ -438,7 +475,7 @@ mod inject_format_tests {
     }
 
     #[test]
-    fn inject_current_task_shows_all_validate_results() {
+    fn inject_current_task_shows_delta_tail_not_full_results() {
         let mut doc = BoardDocument::empty_for_store_key("conv-test");
         doc.board = vec![BoardItem {
             id: "m1".into(),
@@ -450,10 +487,10 @@ mod inject_format_tests {
             ..BoardItem::default()
         }];
         let block = markdown_runtime_block_for_inject(&doc);
-        assert!(block.contains("## Current task validate_results"));
-        assert!(!block.contains("validate_results (recent)"));
-        assert!(block.contains("- 1/10: step 1"));
+        assert!(block.contains("## Current task validate_result_delta"));
+        assert!(!block.contains("## Current task validate_results"));
         assert!(block.contains("- 8/10: step 8"));
+        assert!(!block.contains("1/10: step 1"));
     }
 
     #[test]

@@ -242,6 +242,7 @@ function displayUiChecked(key: keyof AgentUiConfig): boolean {
 
 function setDisplayUi(key: keyof AgentUiConfig, checked: boolean) {
   agentUiLocal.value = { ...agentUiLocal.value, [key]: checked }
+  s.patchAgentUiOverride(activeUiAgentId.value, { [key]: checked })
 }
 
 async function applyThemeChoice(t: ThemePreference) {
@@ -398,7 +399,15 @@ async function toggleDebugMenus() {
   computerAnnotatedScreenViewEnabled.value = next
 
   if (next) {
-    agentUiLocal.value = { ...agentUiLocal.value, showReasoning: true }
+    agentUiLocal.value = {
+      ...agentUiLocal.value,
+      showReasoning: true,
+      showSidecarToolCalls: true
+    }
+    s.patchAgentUiOverride(activeUiAgentId.value, {
+      showReasoning: true,
+      showSidecarToolCalls: true
+    })
   } else {
     debugDumpLlmPrompts.value = false
     taskBoardShowChildBoards.value = false
@@ -408,6 +417,11 @@ async function toggleDebugMenus() {
       showToolCallResults: false,
       showReasoning: false
     }
+    s.patchAgentUiOverride(activeUiAgentId.value, {
+      showSidecarToolCalls: false,
+      showToolCallResults: false,
+      showReasoning: false
+    })
   }
 
   const baseOverrides = s.settings.agentUiOverrides ?? {}

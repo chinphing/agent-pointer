@@ -4,21 +4,25 @@
 
 | Field | Patch | Meaning |
 | --- | --- | --- |
+| `status` | required | Current row state (`in_progress`, `done`, …). Every patch must include it. |
 | `plan` | replace | Execution plan (markdown). |
-| `checkpoint` | replace | Coarse position (`cycle=… \| phase=… \| next=…`). |
+| `progress` | replace | Position within milestone (`N/M`, batch label). Legacy `checkpoint` accepted on read. |
 | `validate_requirement` | replace | Milestone outcome acceptance criteria. |
-| `validate_results` | append only | Outcome evidence (markdown snippets). |
+| `validate_result_delta` | append | One outcome line per patch while `in_progress`. |
+| `validate_results` | replace (`done` only) | Full outcome list when the row completes. |
 | `extract_requirement` | replace | Extraction spec (markdown). |
-| `extract_results` | append only | Extracted data (markdown table/list). |
+| `extract_result_delta` | append | One extract line per patch while working. |
+| `extract_results` | replace (`done` only) | Full extract when the row completes. |
 
 User delivery: assistant **`content`**, not board fields.
 
 ## Injection order (current task)
 
 1. `plan`
-2. `checkpoint`
+2. `progress` (replace on patch)
 3. `validate_requirement`
-4. `validate_results` (full list, deduped)
+4. While `in_progress` / `pending` / `ready`: **`validate_result_delta`** (recent tail only)
+5. When current row is `done`: **`validate_results`** (full list, deduped)
 
 ## Injection — all tasks list
 

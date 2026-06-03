@@ -142,8 +142,12 @@ pub struct BoardItem {
     pub retry_count: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub checkpoint: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "checkpoint"
+    )]
+    pub progress: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validate_requirement: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -252,7 +256,7 @@ impl BoardItem {
             depends_on,
             retry_count,
             plan: str_field(v, "plan"),
-            checkpoint: str_field(v, "checkpoint"),
+            progress: str_field(v, "progress").or_else(|| str_field(v, "checkpoint")),
             validate_requirement: str_field(v, "validate_requirement"),
             validate_results: string_array_field(v, "validate_results"),
             extract_requirement: str_field(v, "extract_requirement"),

@@ -87,7 +87,7 @@ Use the board for milestones—not a long plan in assistant message text only.
 ### Tool JSON field names (required)
 
 - Milestone list: **`items`** (JSON array, or a JSON string encoding that array).
-- Row fields (v3 only): `plan`, `checkpoint`, `validate_requirement`, `validate_results`, `extract_requirement`, `extract_results`.
+- Row fields (v3 only): `plan`, `progress`, `validate_requirement`, `validate_result_delta`, `extract_requirement`, `extract_result_delta`.
 - Injected **`[TASK_BOARD]`** snapshots may show a `board` array — that is host output only.
 - Each milestone in **`items`** must have non-empty **`id`**, **`title`**, and **`status`**.
 - On **`init`** / **`replace`**, every milestone needs a clear **`title`**.
@@ -105,11 +105,12 @@ Use the board for milestones—not a long plan in assistant message text only.
   computer initializes when expected operation steps >3, or when the task has **>5** similar repetitive operations (split into **3–6** batched milestones, not one row for the full enumeration).
 - Row **`status`**: `pending`, `ready`, `in_progress`, `done`, `cancelled`, `failed`. Respect **`depends_on`** (host may block until prerequisites are **`done`**).
 - **`[TASK_BOARD]`** in the injected runtime context is the **compact authoritative** snapshot; resume from it after history trim or restart.
-- **`task_board_patch`** should update only the **current** row id from **`[TASK_BOARD]`** (one row focus per call).
+- **`task_board_patch`**: call **many times** on the same milestone while it is **`in_progress`**. Each call updates **one** row only — the **current** id from **`[TASK_BOARD]`**. Every patch row must include **`id`** and **`status`** (usually **`in_progress`** while working, **`done`** when complete). **`progress`**, **`validate_result_delta`**, **`extract_result_delta`** are optional — omit when unchanged this turn.
 - **Live progress (during work, not at the end):**
   - Update the board **while executing**, not only after all steps finish.
-  - Each turn that finishes a **measurable step** on the active milestone: call **`task_board_patch`** in the **same turn** — append **one** `validate_results` line for that step only.
-  - When **`progress=N/M`** changes, update **`checkpoint`** on the same or next patch.
+  - Each turn that finishes a **measurable step** on the active milestone: call **`task_board_patch`** in the **same turn** — **one** `validate_result_delta` line for that step only.
+  - Set **`progress`** (replace) on the same patch when position changes.
+  - Do **not** send internal full-result fields in patch JSON; use deltas while working. **`[TASK_BOARD]`** shows full outcome evidence on **`done`** rows.
   - When you **start** a milestone, patch that row **`in_progress`** in the turn you begin it.
   - Mark **`done`** for **at most one** row per **`task_board_patch`** call, only when that row's acceptance criteria are already met.
   - **Forbidden:** one final patch that sets many rows to **`done`** with batch summaries after all work is complete.
@@ -136,11 +137,13 @@ Use the board for milestones—not a long plan in assistant message text only.
     one item per row is acceptable;
   - list size > 5 or repetitive items:
     group by batch/type/phase and keep 3–8 milestones.
-  - **Computer:** batched milestones when >5; **patch after each verified step** while the batch row is **`in_progress`**; one **`validate_results` line per step**; mark that batch **`done`** in a **later** patch when the batch is complete (one **`done`** per patch).
+  - **Computer:** batched milestones when >5; **patch after each verified step** while the batch row is **`in_progress`**; one **`validate_result_delta` line per step**; mark that batch **`done`** in a **later** patch when the batch is complete (one **`done`** per patch).
+  - **List / enumeration:** put the **full numbered target list** in **`plan`** / **`extract_results`** (not in **`title`** when the set is large).
+    **`title`** / **`validate_requirement`**: batch scope with **consistent item numbers** aligned to that list; evidence lines use **number + label** as in verify (e.g. `#3 微信: opened`).
 - In each grouped milestone, use v3 fields:
-  `plan`, `checkpoint` (coarse position, update rarely),
-  `validate_requirement` / `validate_results` (append evidence),
-  optional `extract_requirement` / `extract_results`.
+  `plan`, `progress` (update each substantive step),
+  `validate_requirement` / `validate_result_delta` (append while working),
+  optional `extract_requirement` / `extract_result_delta`.
 - **`verify_report`** checks a **step**; **`validate_*`** checks the **milestone outcome** (do not confuse them).
 - **Sub-agent (child) scope:** **`[TASK_BOARD]`** is your **local** `local_*` steps only. **`[TASK_BOARD_PARENT]`** is **read-only** (goal + findings + current milestone). Use **`task_board_sync_finding`** for breakthroughs to the parent. **Do not** patch parent milestone rows— the host reports completion.
 - **Lead / parent scope:** milestones only—no `local_*` micromanagement of child workers.

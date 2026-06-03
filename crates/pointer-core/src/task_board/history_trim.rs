@@ -3,7 +3,10 @@
 use crate::context_compression::{
     SUMMARY_PREFIX_BUDGET, SUMMARY_PREFIX_TOOL_LIMIT,
 };
-use crate::message_context::{find_split_at_user_boundary, is_context_included, mark_excluded};
+use crate::message_context::{
+    count_context_included_messages, find_split_at_user_boundary, is_context_included,
+    mark_excluded,
+};
 use crate::models::{ChatMessage, ExcludedReason, ModelSettings, Role, StreamEvent};
 use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
@@ -12,6 +15,8 @@ use tokio::sync::mpsc::UnboundedSender;
 pub const TRIM_PLACEHOLDER_PREFIX: &str = "[History trimmed after task_board update]";
 
 const DEFAULT_KEEP_LAST_N_USERS: usize = 2;
+/// Do not trim when fewer than this many messages are still included in LLM context.
+const MIN_INCLUDED_MESSAGES_FOR_TRIM: usize = 10;
 /// Computer: keep task-board anchor user + last N messages (+ latest live `[CUR_SCREEN]` inject).
 const COMPUTER_KEEP_LAST_MESSAGES: usize = 10;
 const CUR_SCREEN_TAG: &str = "[CUR_SCREEN]";
@@ -261,6 +266,18 @@ pub fn maybe_trim_after_tool_pass(
             "task_board_trim: skip_disabled conversation_id={} agent_id={}",
             hook.conversation_id,
             hook.agent_id
+        );
+        return;
+    }
+
+    let included_count = count_context_included_messages(history);
+    if included_count < MIN_INCLUDED_MESSAGES_FOR_TRIM {
+        log::info!(
+            "task_board_trim: skip_few_included conversation_id={} agent_id={} included={} min={}",
+            hook.conversation_id,
+            hook.agent_id,
+            included_count,
+            MIN_INCLUDED_MESSAGES_FOR_TRIM
         );
         return;
     }
@@ -519,15 +536,50 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_patch_only_when_done() {
+    fn patch_trim_in_progress_only_does_not_trigger() {
         let pending = serde_json::json!({
             "items": [{ "id": "1", "status": "in_progress" }]
         });
         assert!(!task_board_call_is_checkpoint("task_board_patch", &pending));
+    }
+
+    #[test]
+    fn patch_trim_triggers_on_done_validate_results_or_progress() {
         let done = serde_json::json!({
             "items": [{ "id": "1", "status": "done" }]
         });
         assert!(task_board_call_is_checkpoint("task_board_patch", &done));
+        let evidence = serde_json::json!({
+            "items": [{
+                "id": "1",
+                "status": "in_progress",
+                "validate_results": "微信: opened"
+            }]
+        });
+        assert!(task_board_call_is_checkpoint("task_board_patch", &evidence));
+        let progress = serde_json::json!({
+            "items": [{ "id": "1", "progress": "3/10" }]
+        });
+        assert!(task_board_call_is_checkpoint("task_board_patch", &progress));
+        let legacy_checkpoint = serde_json::json!({
+            "items": [{ "id": "1", "checkpoint": "3/10" }]
+        });
+        assert!(task_board_call_is_checkpoint("task_board_patch", &legacy_checkpoint));
+    }
+
+    #[test]
+    fn trim_skips_when_few_included_messages() {
+        let mut hist = vec![u("task"), a()];
+        let hook = TaskBoardTrimHook {
+            settings: &ModelSettings::default(),
+            agent_id: "computer",
+            conversation_id: "c1",
+            stream: &tokio::sync::mpsc::unbounded_channel().0,
+            emit_history_replaced: false,
+            anchor_message_id: None,
+        };
+        maybe_trim_after_tool_pass(&mut hist, &hook, true);
+        assert!(!hist.iter().any(is_excluded));
     }
 
     #[test]

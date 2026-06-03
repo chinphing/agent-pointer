@@ -147,7 +147,7 @@ Follow these steps **in order** for typical implementation, debugging, and refac
 
    If the map reveals extra files, **update Plan before editing**. See **Change impact scan** below for patterns.
 
-   **Task board (complexity gate):** After Explore + Impact scan, initialize only when expected scope is **>=2 files** or **cross-module**. For narrow single-file work, skip init by default and proceed directly. If exploration reveals wider scope than expected, initialize immediately before heavy implementation. When initialized, map **3–6** rows (include **Impact scan** and **Unit tests**) and keep **`plan`**, **`checkpoint`**, **`validate_requirement`**, and append-only **`validate_results`** current (see **Task board (v3 fields)**). Treat **`[TASK_BOARD]`** as the live plan—**`patch`** when status changes, not only at **Deliver**.
+   **Task board (complexity gate):** After Explore + Impact scan, initialize only when expected scope is **>=2 files** or **cross-module**. For narrow single-file work, skip init by default and proceed directly. If exploration reveals wider scope than expected, initialize immediately before heavy implementation. When initialized, map **3–6** rows (include **Impact scan** and **Unit tests**) and keep **`plan`**, **`progress`**, **`validate_requirement`**, and append-only **`validate_results`** current (see **Task board (v3 fields)**). Treat **`[TASK_BOARD]`** as the live plan—**`patch`** when status changes, not only at **Deliver**.
 
    **Plan contents (keep compact):** goal in one line; **Impact map** summary; **ordered** steps; **files/modules** you expect to touch; known **risks** or unknowns. If the user asked for a specific approach, reflect it explicitly.
 
@@ -247,7 +247,7 @@ Use **`task_board`** as the **visible plan and progress surface** for behavior-c
 
 When you use **`task_board_patch`** or **`task_board_replace`**, each row should keep:
 - **`plan`**: execution plan (markdown);
-- **`checkpoint`**: coarse position only (update rarely);
+- **`progress`**: position within the milestone (update on each substantive step);
 - **`validate_requirement`**: milestone outcome acceptance criteria;
 - **`validate_results`**: append-only outcome evidence snippets (markdown).
 Other agent profiles (e.g. desktop) may use different evidence types; **here**, bias toward **commands, tests, and targeted file reads**—the same habits as steps **5–8** above.

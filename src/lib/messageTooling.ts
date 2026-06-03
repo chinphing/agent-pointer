@@ -48,12 +48,12 @@ function isDefaultHiddenSidecarCall(fullName: string, baseName: string): boolean
 
 /** Sidecar / host-only tools (verify, task_board) — hidden from default UI cards. */
 export function isSidecarToolCall(fullName: string, baseName?: string): boolean {
-  const base = baseName ?? toolCallBaseName(fullName)
-  return (
-    fullName.startsWith('verify:') ||
-    base.startsWith('task_board') ||
-    base === 'verify'
-  )
+  const name = fullName.trim()
+  const base = (baseName ?? toolCallBaseName(name)).trim()
+  if (name.startsWith('verify:') || name === 'verify_report' || base === 'verify' || base.startsWith('verify_')) {
+    return true
+  }
+  return name.startsWith('task_board') || base.startsWith('task_board')
 }
 
 export function taskBoardPatchSummaryFromArgs(argumentsJson: string | undefined): string | null {

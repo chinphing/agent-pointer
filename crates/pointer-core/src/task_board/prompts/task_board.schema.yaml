@@ -11,8 +11,8 @@ task_board_init:
       description: >
         Milestone array (or JSON string of that array).
         Use field name items only. Each element needs id, title, status.
-        Optional v3 fields: plan, checkpoint, validate_requirement,
-        validate_results, extract_requirement, extract_results.
+        Optional v3 fields: plan, progress, validate_requirement,
+        validate_result_delta, extract_requirement, extract_result_delta.
     expected_total:
       type: integer
       minimum: 1
@@ -39,7 +39,11 @@ task_board_replace:
 task_board_patch:
   type: object
   properties:
-    items: {}
+    items:
+      description: >
+        One row object with required id and status. Optional progress,
+        validate_result_delta, extract_result_delta — omit optional fields
+        not changed on this call (do not send empty placeholders).
     item_id:
       type: string
     _conversation_id:

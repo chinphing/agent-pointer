@@ -168,7 +168,7 @@ when the run ends or when you are not issuing tools.
 
 **Patch every turn that moves progress:** When a milestone **starts** or **finishes**, call **`task_board_patch`** in the **same turn**. Treat **`[TASK_BOARD]`** in injected context as the authoritative compact snapshot.
 
-**Definition of done** on each row: keep `plan` and `checkpoint` current,
+**Definition of done** on each row: keep `plan` and `progress` current,
 set `validate_requirement` for acceptance criteria,
 and append repeatable evidence to `validate_results` (markdown snippets).
 Step fields and Sidecar placement follow

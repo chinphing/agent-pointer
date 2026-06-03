@@ -10,10 +10,10 @@ For multi-step subtasks, call **`task_board_init`** early.
 Use 3-6 **local_*** steps for normal work.
 For each active step, keep:
 - `plan`: how to execute;
-- `checkpoint`: coarse position only (update rarely);
+- `progress`: position within the step (`N/M` or batch label; update each substantive step);
 - `validate_requirement`: milestone outcome acceptance criteria;
-- `validate_results`: append-only outcome evidence (markdown snippets).
-For extraction milestones, use `extract_requirement` / `extract_results` (append-only).
+- `validate_result_delta`: append one outcome line per step; full `validate_results` only when `done`.
+For extraction: `extract_result_delta` while working; full `extract_results` on `done`.
 Single-step subtasks may skip the board.
 Read **[TASK_BOARD_PARENT]** for the parent goal and milestone; do not patch parent rows.
 ";
@@ -47,14 +47,14 @@ fn main_agent_task_board_hint(profile: &AgentProfile) -> Option<String> {
     };
     let profile_rows = if matches!(profile, AgentProfile::Coder) {
         "Use **3-6** milestones in **`items`** when initialized, including **Impact scan**, **Implement**, and **Unit tests**.
-Each milestone: `plan`, `validate_requirement`, append `validate_results` when evidence exists.
+Each milestone: `plan`, `validate_requirement`, append `validate_result_delta` when evidence exists.
 "
     } else if matches!(profile, AgentProfile::Computer) {
         "Use **3-6** milestones for normal GUI work.
 If the task has **more than 5** similar repetitive steps (enumerated targets or cycles):
 - split into **batched milestones** by range or phase, not one row for the full enumeration;
 - put the full enumeration in **`plan`** or **`extract_results`** once;
-- **during work:** after each verified step, `task_board_patch` the **current** row — append **one** `validate_results` line; update **`checkpoint`** as `progress=N/M`;
+- **during work:** after each verified step, `task_board_patch` the **current** row — set **`progress=N/M`** (replace) and **one** `validate_result_delta` line (`#N label: outcome`, numbers aligned with **`plan`** / **`extract_results`**);
 - when a batch is complete, a **separate** patch sets **only that row** to **`done`** (one `done` per patch);
 - **never** save all `done` rows for one patch at the end.
 Set **`expected_total`** when the exhaustive count is known.

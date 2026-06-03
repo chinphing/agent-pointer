@@ -219,7 +219,7 @@ mod apply_tests {
     }
 
     #[test]
-    fn patch_preserves_plan_checkpoint_requirement_when_omitted() {
+    fn patch_preserves_plan_progress_requirement_when_omitted() {
         let store = TaskBoardStore::new();
         let key = "conv-preserve";
         store
@@ -234,7 +234,7 @@ mod apply_tests {
                             "title": "A",
                             "status": "in_progress",
                             "plan": "detail text",
-                            "checkpoint": "cycle=1/3",
+                            "progress": "3/10",
                             "validate_requirement": "run unit tests"
                         }
                     ]
@@ -254,7 +254,7 @@ mod apply_tests {
             .expect("patch");
         let doc = store.document(key);
         assert_eq!(doc.board[0].plan, None);
-        assert_eq!(doc.board[0].checkpoint.as_deref(), Some("cycle=1/3"));
+        assert_eq!(doc.board[0].progress.as_deref(), Some("3/10"));
         assert_eq!(
             doc.board[0].validate_requirement.as_deref(),
             Some("run unit tests")
@@ -263,7 +263,7 @@ mod apply_tests {
     }
 
     #[test]
-    fn validate_results_append_on_patch() {
+    fn validate_result_delta_append_on_patch() {
         let store = TaskBoardStore::new();
         let key = "conv-append";
         store
@@ -280,14 +280,14 @@ mod apply_tests {
             .apply(
                 key,
                 "patch",
-                &json!({"item_id": "1", "validate_results": "first"}),
+                &json!({"item_id": "1", "validate_result_delta": "first"}),
             )
             .expect("p1");
         store
             .apply(
                 key,
                 "patch",
-                &json!({"item_id": "1", "validate_results": "second"}),
+                &json!({"item_id": "1", "validate_result_delta": "second"}),
             )
             .expect("p2");
         let doc = store.document(key);
@@ -295,7 +295,138 @@ mod apply_tests {
     }
 
     #[test]
-    fn validate_results_multiline_patch_dedupes_lines() {
+    fn patch_without_status_emits_warning() {
+        let store = TaskBoardStore::new();
+        let key = "conv-status-warn";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": [{"id": "1", "title": "A", "status": "in_progress"}]
+                }),
+            )
+            .expect("init");
+        let (body, _) = store
+            .apply(
+                key,
+                "patch",
+                &json!({"item_id": "1", "validate_result_delta": "step ok"}),
+            )
+            .expect("patch");
+        assert!(body["warnings"].as_array().unwrap().iter().any(|w| {
+            w.get("code").and_then(|c| c.as_str()) == Some("patch_status_required")
+        }));
+    }
+
+    #[test]
+    fn progress_replaces_on_patch() {
+        let store = TaskBoardStore::new();
+        let key = "conv-progress";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": [{
+                        "id": "1",
+                        "title": "A",
+                        "status": "in_progress",
+                        "progress": "1/10"
+                    }]
+                }),
+            )
+            .expect("init");
+        store
+            .apply(
+                key,
+                "patch",
+                &json!({"item_id": "1", "progress": "7/10"}),
+            )
+            .expect("patch");
+        let doc = store.document(key);
+        assert_eq!(doc.board[0].progress.as_deref(), Some("7/10"));
+    }
+
+    #[test]
+    fn validate_results_full_field_ignored_until_done() {
+        let store = TaskBoardStore::new();
+        let key = "conv-full-block";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": [{"id": "1", "title": "A", "status": "in_progress"}]
+                }),
+            )
+            .expect("init");
+        store
+            .apply(
+                key,
+                "patch",
+                &json!({"item_id": "1", "validate_result_delta": "#1 ok"}),
+            )
+            .expect("d1");
+        let (body, _) = store
+            .apply(
+                key,
+                "patch",
+                &json!({
+                    "item_id": "1",
+                    "validate_results": "#1 ok\n#2 new"
+                }),
+            )
+            .expect("full");
+        let doc = store.document(key);
+        assert_eq!(doc.board[0].validate_results.len(), 1);
+        assert!(body["warnings"].as_array().unwrap().iter().any(|w| {
+            w.get("code").and_then(|c| c.as_str()) == Some("validate_results_use_delta_field")
+        }));
+    }
+
+    #[test]
+    fn validate_results_replace_on_done_patch() {
+        let store = TaskBoardStore::new();
+        let key = "conv-done-full";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "g",
+                    "items": [{"id": "1", "title": "A", "status": "in_progress"}]
+                }),
+            )
+            .expect("init");
+        store
+            .apply(
+                key,
+                "patch",
+                &json!({"item_id": "1", "validate_result_delta": "#1 a"}),
+            )
+            .expect("d1");
+        store
+            .apply(
+                key,
+                "patch",
+                &json!({
+                    "item_id": "1",
+                    "status": "done",
+                    "validate_results": "#1 a\n#2 b"
+                }),
+            )
+            .expect("done");
+        let doc = store.document(key);
+        assert_eq!(doc.board[0].validate_results.len(), 2);
+        assert_eq!(doc.board[0].status, ItemStatus::Done);
+    }
+
+    #[test]
+    fn validate_result_delta_multiline_patch_dedupes_lines() {
         let store = TaskBoardStore::new();
         let key = "conv-dedup";
         store
@@ -312,14 +443,14 @@ mod apply_tests {
             .apply(
                 key,
                 "patch",
-                &json!({"item_id": "1", "validate_results": "1/10: a\n2/10: b"}),
+                &json!({"item_id": "1", "validate_result_delta": "1/10: a\n2/10: b"}),
             )
             .expect("p1");
         let (body, _) = store
             .apply(
                 key,
                 "patch",
-                &json!({"item_id": "1", "validate_results": "1/10: a\n2/10: b\n3/10: c"}),
+                &json!({"item_id": "1", "validate_result_delta": "1/10: a\n2/10: b\n3/10: c"}),
             )
             .expect("p2");
         let doc = store.document(key);

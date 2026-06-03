@@ -26,6 +26,11 @@ pub fn filter_context_messages(msgs: &[ChatMessage]) -> Vec<ChatMessage> {
         .collect()
 }
 
+/// Count messages that still participate in LLM context (`included` default true).
+pub fn count_context_included_messages(msgs: &[ChatMessage]) -> usize {
+    msgs.iter().filter(|m| is_context_included(m)).count()
+}
+
 fn excluded_reason_tag(reason: &ExcludedReason) -> &'static str {
     match reason {
         ExcludedReason::ContextCompression => "context_compression",

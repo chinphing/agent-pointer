@@ -8,7 +8,7 @@
 | [**internals/**](internals/README.md) | 运行时内部机制：提示词拼接顺序、扩展钩子、任务板与 verification 约定 |
 | [**agents/**](agents/README.md) | 各 Agent 专题（Computer 提示词、Coder Git 策略等） |
 | [**llm/**](llm/README.md) | LLM 调用观测、调试落盘、thinking API 等 |
-| [**guides/**](guides/README.md) | 使用说明与配置：`run_subagent` / `allowAgents`、混合 `read_lints`、离线评测搭建 |
+| [**guides/**](guides/README.md) | 使用说明与配置：跨平台打包、run_subagent、混合 read_lints、离线评测等 |
 | [**ui/**](ui/README.md) | 前端界面与交互约定 |
 
 从仓库根目录引用示例：`docs/guides/pointer-lint-config.md`。

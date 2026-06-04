@@ -31,15 +31,15 @@ const {
   startDrag
 } = useWindowChrome()
 
-/** Windows: min/max/close on top-right; Linux keeps sidebar placement. */
-const windowControlsInSidebar = computed(
-  () => showCustomControls.value && os.value !== 'windows'
+/** Windows / Linux: min/max/close on main top-right (or collapsed top strip). */
+const useMainAreaWindowControls = computed(
+  () => showCustomControls.value && (os.value === 'windows' || os.value === 'linux')
 )
 const windowControlsOnCollapsedTop = computed(
-  () => showCustomControls.value && os.value === 'windows' && sidebarCollapsed.value
+  () => useMainAreaWindowControls.value && sidebarCollapsed.value
 )
 const windowControlsOnMainTop = computed(
-  () => showCustomControls.value && os.value === 'windows' && !sidebarCollapsed.value
+  () => useMainAreaWindowControls.value && !sidebarCollapsed.value
 )
 
 function onChromeMouseDown(e: MouseEvent) {
@@ -103,8 +103,8 @@ const filteredConversations = computed(() => {
         data-tauri-drag-region
       />
       <WindowControls
-        v-if="windowControlsOnCollapsedTop || windowControlsInSidebar"
-        :class="windowControlsOnCollapsedTop ? 'window-controls-win' : undefined"
+        v-if="windowControlsOnCollapsedTop"
+        class="window-controls-win"
         :maximized="maximized"
         @minimize="minimize"
         @maximize="toggleMaximize"
@@ -150,14 +150,6 @@ const filteredConversations = computed(() => {
           >
             <PanelLeftClose class="w-4 h-4" />
           </button>
-
-          <WindowControls
-            v-if="windowControlsInSidebar"
-            :maximized="maximized"
-            @minimize="minimize"
-            @maximize="toggleMaximize"
-            @close="closeWindow"
-          />
         </div>
 
         <template v-if="!sidebarCollapsed">

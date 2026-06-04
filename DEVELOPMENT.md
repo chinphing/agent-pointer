@@ -40,13 +40,21 @@ sudo apt-get update
 sudo apt-get install -y \
   libwebkit2gtk-4.1-dev \
   build-essential \
+  pkg-config \
   curl \
   wget \
   file \
   libxdo-dev \
   libssl-dev \
   libayatana-appindicator3-dev \
-  librsvg2-dev
+  librsvg2-dev \
+  libpipewire-0.3-dev \
+  libspa-0.2-dev \
+  libclang-dev \
+  libgbm-dev \
+  libegl1-mesa-dev \
+  libdrm-dev \
+  libwayland-dev
 ```
 
 ## 安装依赖
@@ -251,41 +259,18 @@ npm run build
 npm run dev
 ```
 
-## 图标生成
+## 图标与打包
 
-打包前建议生成平台图标：
+跨平台环境、开发、打包与 CI 发版见 **[`docs/guides/cross-platform-build.md`](docs/guides/cross-platform-build.md)**。
+
+打包前快速检查：
 
 ```bash
 npm run icons
-```
-
-源图标：
-
-```bash
-src-tauri/icons/icon.svg
-```
-
-生成后会包含：
-
-- `32x32.png`
-- `128x128.png`
-- `128x128@2x.png`
-- `icon.ico`
-- `icon.icns`
-
-## 本地打包检查
-
-当前系统打包：
-
-```bash
 npm run tauri:build
 ```
 
-产物目录：
-
-```bash
-src-tauri/target/release/bundle/
-```
+产物：`src-tauri/target/release/bundle/`。
 
 ## 常见问题
 
@@ -315,7 +300,7 @@ npm run tauri:dev
 
 ### 4. Linux 编译失败，提示 WebKitGTK 缺失
 
-安装 Linux 额外依赖，见本文档「Linux 额外要求」。
+安装 Linux 系统依赖，见 [`docs/guides/cross-platform-build.md`](docs/guides/cross-platform-build.md) 的 Linux 章节。
 
 ### 5. API 请求失败
 
@@ -350,7 +335,7 @@ cd src-tauri
 cargo check
 ```
 
-准备打包前：
+准备打包前，见 [`docs/guides/cross-platform-build.md`](docs/guides/cross-platform-build.md)：
 
 ```bash
 npm run icons

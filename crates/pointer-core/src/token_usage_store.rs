@@ -352,6 +352,54 @@ pub fn ensure_accum(scope: &AgentInstanceScope) -> Result<()> {
     Ok(())
 }
 
+/// Enqueue one LLM round × one model for platform upload (JSON-only; no zip).
+fn insert_pending_round(
+    conn: &Connection,
+    scope: &AgentInstanceScope,
+    round: u32,
+    usage: &LlmUsageSnapshot,
+    model_name: Option<&str>,
+) -> Result<()> {
+    let model_key = model_name
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .unwrap_or("unknown");
+    let safe_model = model_key.replace(':', "_");
+    let request_id = format!(
+        "run:{}:{}:{}:{}",
+        scope.conversation_id, scope.agent_instance_id, round, safe_model
+    );
+    let now = Utc::now().to_rfc3339();
+    let thinking = usage.reasoning_tokens;
+    let completion = usage.completion_tokens.saturating_sub(thinking);
+    conn.execute(
+        "INSERT OR IGNORE INTO usage_pending (
+           request_id, conversation_id, agent_instance_id, agent_role_id,
+           prompt_tokens, completion_tokens, thinking_tokens, total_tokens, llm_rounds,
+           model_name, model_totals_json, period_start, period_end, history_archive_path, created_at
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,1,?9,'{}',?10,?10,NULL,?10)",
+        params![
+            request_id,
+            scope.conversation_id,
+            scope.agent_instance_id,
+            scope.agent_role_id,
+            usage.prompt_tokens,
+            completion,
+            thinking,
+            usage.total_tokens,
+            model_key,
+            now,
+        ],
+    )?;
+    log::info!(
+        "token_usage_store: enqueued round request_id={} agent_instance_id={} total_tokens={}",
+        request_id,
+        scope.agent_instance_id,
+        usage.total_tokens
+    );
+    Ok(())
+}
+
 /// Persist one LLM round for an agent instance.
 pub fn record_round(
     scope: &AgentInstanceScope,
@@ -397,6 +445,12 @@ pub fn record_round(
                 now,
             ],
         )?;
+        let round: u32 = conn.query_row(
+            "SELECT llm_rounds FROM usage_accum WHERE conversation_id = ?1 AND agent_instance_id = ?2",
+            params![scope.conversation_id, scope.agent_instance_id],
+            |r| r.get(0),
+        )?;
+        insert_pending_round(&conn, scope, round, u, model_name)?;
     } else {
         conn.execute(
             "UPDATE usage_accum SET
@@ -494,19 +548,15 @@ fn insert_pending(
     Ok(())
 }
 
-/// Finalize all agent instances for a conversation into pending queue (with zip snapshots).
-pub fn finalize_run(conversation_id: &str, history: &[ChatMessage]) -> Result<()> {
+/// Reset accumulators after a conversation run (reports are enqueued per round in `record_round`).
+pub fn finalize_run(conversation_id: &str, _history: &[ChatMessage]) -> Result<()> {
     let guard = connection()?;
     let conn = guard.lock();
-    let accums = read_accums_for_conversation(&conn, conversation_id)?;
-    for accum in &accums {
-        insert_pending(&conn, conversation_id, accum, history)?;
-    }
     let now = Utc::now().to_rfc3339();
     conn.execute(
         "UPDATE usage_accum SET
            prompt_tokens=0, completion_tokens=0, thinking_tokens=0, total_tokens=0,
-           llm_rounds=0, period_start=NULL, period_end=NULL, updated_at=?2
+           llm_rounds=0, model_totals_json='{}', period_start=NULL, period_end=NULL, updated_at=?2
          WHERE conversation_id = ?1",
         params![conversation_id, now],
     )?;
@@ -523,22 +573,17 @@ pub fn finalize_all_stale_accum() -> Result<usize> {
         .collect();
     let mut n = 0usize;
     for cid in ids {
-        let accums = read_accums_for_conversation(&conn, &cid)?;
-        for accum in &accums {
-            let empty: &[ChatMessage] = &[];
-            insert_pending(&conn, &cid, accum, empty)?;
-            n += 1;
-        }
         let now = Utc::now().to_rfc3339();
         conn.execute(
             "UPDATE usage_accum SET prompt_tokens=0, completion_tokens=0, thinking_tokens=0,
-             total_tokens=0, llm_rounds=0, period_start=NULL, period_end=NULL, updated_at=?2
+             total_tokens=0, llm_rounds=0, model_totals_json='{}', period_start=NULL, period_end=NULL, updated_at=?2
              WHERE conversation_id = ?1",
             params![cid, now],
         )?;
+        n += 1;
     }
     if n > 0 {
-        log::info!("token_usage_store: finalized {n} stale accum row(s)");
+        log::info!("token_usage_store: cleared {n} stale accum conversation(s)");
     }
     Ok(n)
 }
@@ -592,7 +637,7 @@ fn build_report_metadata(row: &PendingRow, platform_agent_id: Option<String>) ->
         "completion_tokens": row.completion_tokens,
         "thinking_tokens": row.thinking_tokens,
         "total_tokens": row.total_tokens,
-        "assistant_rounds": row.llm_rounds,
+        "assistant_rounds": 1,
     });
     if let Some(id) = platform_agent_id.filter(|id| !id.is_empty()) {
         metadata["platform_agent_id"] = json!(id);
@@ -784,7 +829,7 @@ mod tests {
     #[test]
     fn report_metadata_omits_null_optionals_and_includes_conversation_id() {
         let row = PendingRow {
-            request_id: "run:conv1:inst1".into(),
+            request_id: "run:conv1:inst1:2:qwen3.5-plus".into(),
             conversation_id: "conv1".into(),
             agent_instance_id: "inst1".into(),
             agent_role_id: None,
@@ -802,7 +847,34 @@ mod tests {
         let metadata = build_report_metadata(&row, Some("agent-1".into()));
         assert_eq!(metadata["conversation_id"], "conv1");
         assert_eq!(metadata["platform_agent_id"], "agent-1");
+        assert_eq!(metadata["assistant_rounds"], 1);
         assert!(metadata.get("agent_role_id").is_none());
         assert!(metadata.get("model_name").is_none());
+    }
+
+    #[test]
+    fn pending_request_id_includes_round_and_model() {
+        let conn = Connection::open_in_memory().expect("mem db");
+        migrate_schema(&conn).expect("schema");
+        let scope = AgentInstanceScope {
+            conversation_id: "conv-a".into(),
+            agent_instance_id: "inst-b".into(),
+            agent_role_id: "coder".into(),
+        };
+        let usage = LlmUsageSnapshot {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            reasoning_tokens: 0,
+            total_tokens: 15,
+        };
+        insert_pending_round(&conn, &scope, 3, &usage, Some("Qwen3.5-Plus")).expect("insert");
+        let request_id: String = conn
+            .query_row(
+                "SELECT request_id FROM usage_pending WHERE conversation_id = 'conv-a'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("pending row");
+        assert_eq!(request_id, "run:conv-a:inst-b:3:Qwen3.5-Plus");
     }
 }

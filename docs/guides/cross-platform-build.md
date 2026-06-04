@@ -76,8 +76,7 @@ npm run build:windows  # 等价于 npm run tauri:build
 
 ```text
 src-tauri/target/release/bundle/
-├── nsis/              # *.exe 安装程序
-└── msi/               # 若启用 msi target
+└── msi/               # *.msi 安装程序
 ```
 
 **Release 二进制：**
@@ -110,6 +109,8 @@ xcode-select --install
 ```
 
 需 **Node.js 20+**、**Rust stable**。打包 `.app` / `.dmg` **必须在 macOS 上构建**（无法交叉编译出可分发 macOS 包）。
+
+**最低系统版本：** macOS **10.15（Catalina）**（见 `src-tauri/tauri.conf.json` → `bundle.macOS.minimumSystemVersion`）。
 
 ### 开发
 
@@ -362,7 +363,7 @@ npm run icons
 
 | Runner | 产物 |
 |--------|------|
-| `windows-latest` | Windows 安装包 |
+| `windows-latest` | Windows MSI 安装包 |
 | `macos-latest` | Universal macOS（`--target universal-apple-darwin`） |
 | `ubuntu-22.04` | Linux deb + AppImage |
 

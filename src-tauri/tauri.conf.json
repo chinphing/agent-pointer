@@ -30,7 +30,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["msi", "deb", "appimage", "dmg"],
     "category": "Productivity",
     "shortDescription": "Pointer AI desktop chat client",
     "longDescription": "Pointer is a cross-platform desktop AI chat client built with Tauri 2 and Vue 3.",
@@ -47,9 +47,8 @@
     },
     "windows": {
       "digestAlgorithm": "sha256",
-      "nsis": {
-        "displayLanguageSelector": true,
-        "installerIcon": "icons/icon.ico"
+      "wix": {
+        "language": ["en-US", "zh-CN"]
       }
     },
     "macOS": {

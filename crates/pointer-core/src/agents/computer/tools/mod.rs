@@ -51,6 +51,13 @@ fn conversation_id_from_args(args: &serde_json::Value) -> Option<&str> {
 pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     // ── mouse (flat tools) ────────────────────────────────────────────────
     {
+        const MOUSE_SCHEMA_YAML: &str = include_str!("prompts/mouse.schema.yaml");
+        let mouse_schemas: HashMap<String, serde_json::Value> =
+            load_tools_from_schema_yaml(MOUSE_SCHEMA_YAML)
+                .expect("mouse.schema.yaml must be valid")
+                .into_iter()
+                .collect();
+
         let doc = include_str!("prompts/mouse.md").trim().to_string();
         let mouse_handlers: &[(&str, Option<(MouseBackend, &str)>)] = &[
             ("mouse_click_index", Some((MouseBackend::Index, "click"))),
@@ -106,13 +113,14 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 }
             });
 
-            reg.register(ToolEntry::new(
-                tool_name,
-                "low",
-                false,
-                prompt,
-                handler,
-            ));
+            let schema = mouse_schemas
+                .get(*name)
+                .cloned()
+                .unwrap_or_else(|| panic!("mouse.schema.yaml missing entry for {name}"));
+
+            reg.register(
+                ToolEntry::new(tool_name, "low", false, prompt, handler).with_schema(schema),
+            );
         }
     }
 
@@ -180,6 +188,13 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
 
     // ── modified_click (flat tools) ─────────────────────────────────────────
     {
+        const MODIFIED_CLICK_SCHEMA_YAML: &str = include_str!("prompts/modified_click.schema.yaml");
+        let modified_click_schemas: HashMap<String, serde_json::Value> =
+            load_tools_from_schema_yaml(MODIFIED_CLICK_SCHEMA_YAML)
+                .expect("modified_click.schema.yaml must be valid")
+                .into_iter()
+                .collect();
+
         let doc = include_str!("prompts/modified_click.md").trim().to_string();
         let mc_handlers: &[(&str, ModifiedClickBackend, &str)] = &[
             ("modified_click_select_index", ModifiedClickBackend::Index, "select"),
@@ -211,13 +226,14 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 })
             });
 
-            reg.register(ToolEntry::new(
-                tool_name,
-                "low",
-                false,
-                prompt,
-                handler,
-            ));
+            let schema = modified_click_schemas
+                .get(*name)
+                .cloned()
+                .unwrap_or_else(|| panic!("modified_click.schema.yaml missing entry for {name}"));
+
+            reg.register(
+                ToolEntry::new(tool_name, "low", false, prompt, handler).with_schema(schema),
+            );
         }
     }
 
@@ -287,6 +303,13 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
 
     // ── clipboard (flat tools) ────────────────────────────────────────────
     {
+        const CLIPBOARD_SCHEMA_YAML: &str = include_str!("prompts/clipboard.schema.yaml");
+        let clipboard_schemas: HashMap<String, serde_json::Value> =
+            load_tools_from_schema_yaml(CLIPBOARD_SCHEMA_YAML)
+                .expect("clipboard.schema.yaml must be valid")
+                .into_iter()
+                .collect();
+
         let doc = include_str!("prompts/clipboard.md").trim().to_string();
         let cb_handlers: &[(&str, &str)] = &[
             ("clipboard_read", "read"),
@@ -303,13 +326,14 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 tool.execute(&method, &args)
             });
 
-            reg.register(ToolEntry::new(
-                tool_name,
-                "low",
-                false,
-                prompt,
-                handler,
-            ));
+            let schema = clipboard_schemas
+                .get(*name)
+                .cloned()
+                .unwrap_or_else(|| panic!("clipboard.schema.yaml missing entry for {name}"));
+
+            reg.register(
+                ToolEntry::new(tool_name, "low", false, prompt, handler).with_schema(schema),
+            );
         }
     }
 

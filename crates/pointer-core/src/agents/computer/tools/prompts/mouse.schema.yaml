@@ -154,7 +154,7 @@ mouse_hover_at:
     - goal
   additionalProperties: true
 
-mouse_scroll:
+mouse_scroll_current:
   type: object
   properties:
     goal:
@@ -168,6 +168,27 @@ mouse_scroll:
       minimum: 1
       maximum: 5
   required:
+    - lines
+    - goal
+  additionalProperties: true
+
+mouse_scroll_index:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    index:
+      type: integer
+    lines:
+      type: integer
+    wait:
+      type: number
+      minimum: 1
+      maximum: 5
+  required:
+    - index
     - lines
     - goal
   additionalProperties: true

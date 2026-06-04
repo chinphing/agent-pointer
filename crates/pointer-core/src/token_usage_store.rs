@@ -13,13 +13,11 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use crate::agent_instance_scope::AgentInstanceScope;
-use crate::conversation_snapshot::{build_snapshot_json, write_snapshot_zip};
 use crate::llm_token_stats::LlmUsageSnapshot;
 use crate::models::ChatMessage;
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "token_usage.db";
-const ARCHIVE_SUBDIR: &str = "token_usage_archives";
 const LEGACY_PENDING_FILE: &str = "token_usage_pending.jsonl";
 const LEGACY_INSTANCE_PREFIX: &str = "legacy:";
 
@@ -27,12 +25,6 @@ static DB: OnceLock<Mutex<Connection>> = OnceLock::new();
 
 fn db_path() -> Result<PathBuf> {
     Ok(app_data_dir()?.join(DB_FILE))
-}
-
-fn archive_dir() -> Result<PathBuf> {
-    let d = app_data_dir()?.join(ARCHIVE_SUBDIR);
-    std::fs::create_dir_all(&d)?;
-    Ok(d)
 }
 
 fn connection() -> Result<&'static Mutex<Connection>> {
@@ -269,20 +261,6 @@ fn migrate_legacy_jsonl(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-struct AccumRow {
-    agent_instance_id: String,
-    agent_role_id: Option<String>,
-    prompt_tokens: u32,
-    completion_tokens: u32,
-    thinking_tokens: u32,
-    total_tokens: u32,
-    llm_rounds: u32,
-    model_name: Option<String>,
-    model_totals_json: Option<String>,
-    period_start: Option<String>,
-    period_end: Option<String>,
-}
-
 struct PendingRow {
     request_id: String,
     conversation_id: String,
@@ -298,26 +276,6 @@ struct PendingRow {
     period_start: Option<String>,
     period_end: Option<String>,
     history_archive_path: Option<String>,
-}
-
-/// Top-level `model_name` for partner upload: prefer the model with the most billed tokens in `model_totals`.
-fn resolve_reporting_model_name(accum: &AccumRow) -> Option<String> {
-    if let Some(json) = accum.model_totals_json.as_deref() {
-        if let Ok(map) = serde_json::from_str::<HashMap<String, u64>>(json) {
-            if let Some((model, _)) = map.iter().max_by_key(|(_, tokens)| *tokens) {
-                let m = model.trim();
-                if !m.is_empty() {
-                    return Some(model.clone());
-                }
-            }
-        }
-    }
-    accum
-        .model_name
-        .as_deref()
-        .map(str::trim)
-        .filter(|m| !m.is_empty())
-        .map(str::to_string)
 }
 
 fn merge_model_totals_json(existing: Option<&str>, model: Option<&str>, delta: u32) -> String {
@@ -465,89 +423,6 @@ pub fn record_round(
     Ok(())
 }
 
-fn read_accums_for_conversation(conn: &Connection, conversation_id: &str) -> Result<Vec<AccumRow>> {
-    let mut stmt = conn.prepare(
-        "SELECT agent_instance_id, agent_role_id, prompt_tokens, completion_tokens, thinking_tokens,
-                total_tokens, llm_rounds, model_name, model_totals_json, period_start, period_end
-         FROM usage_accum WHERE conversation_id = ?1 AND llm_rounds > 0",
-    )?;
-    let rows = stmt.query_map(params![conversation_id], |row| {
-        Ok(AccumRow {
-            agent_instance_id: row.get(0)?,
-            agent_role_id: row.get(1)?,
-            prompt_tokens: row.get(2)?,
-            completion_tokens: row.get(3)?,
-            thinking_tokens: row.get(4)?,
-            total_tokens: row.get(5)?,
-            llm_rounds: row.get(6)?,
-            model_name: row.get(7)?,
-            model_totals_json: row.get(8)?,
-            period_start: row.get(9)?,
-            period_end: row.get(10)?,
-        })
-    })?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
-}
-
-fn insert_pending(
-    conn: &Connection,
-    conversation_id: &str,
-    accum: &AccumRow,
-    history: &[ChatMessage],
-) -> Result<()> {
-    let thinking = accum.thinking_tokens;
-    let completion = accum.completion_tokens.saturating_sub(thinking);
-    let reporting_model = resolve_reporting_model_name(accum);
-    let agent_role = accum.agent_role_id.clone().unwrap_or_default();
-    let request_id = format!(
-        "run:{conversation_id}:{}",
-        accum.agent_instance_id
-    );
-    let zip_path = archive_dir()?.join(format!("{}.zip", accum.agent_instance_id));
-    let snapshot = build_snapshot_json(
-        conversation_id,
-        &accum.agent_instance_id,
-        &agent_role,
-        history,
-    );
-    write_snapshot_zip(&zip_path, &snapshot)?;
-    let now = Utc::now().to_rfc3339();
-    let period_start = accum.period_start.clone().unwrap_or_else(|| now.clone());
-    let period_end = accum.period_end.clone().unwrap_or(now);
-    conn.execute(
-        "INSERT INTO usage_pending (
-           request_id, conversation_id, agent_instance_id, agent_role_id,
-           prompt_tokens, completion_tokens, thinking_tokens, total_tokens, llm_rounds,
-           model_name, model_totals_json, period_start, period_end, history_archive_path, created_at
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
-        params![
-            request_id,
-            conversation_id,
-            accum.agent_instance_id,
-            accum.agent_role_id,
-            accum.prompt_tokens,
-            completion,
-            thinking,
-            accum.total_tokens,
-            accum.llm_rounds,
-            reporting_model,
-            accum.model_totals_json,
-            period_start,
-            period_end,
-            zip_path.to_string_lossy().to_string(),
-            Utc::now().to_rfc3339(),
-        ],
-    )?;
-    log::info!(
-        "token_usage_store: enqueued request_id={} agent_instance_id={} agent_role_id={} total_tokens={}",
-        request_id,
-        accum.agent_instance_id,
-        agent_role,
-        accum.total_tokens
-    );
-    Ok(())
-}
-
 /// Reset accumulators after a conversation run (reports are enqueued per round in `record_round`).
 pub fn finalize_run(conversation_id: &str, _history: &[ChatMessage]) -> Result<()> {
     let guard = connection()?;
@@ -637,7 +512,7 @@ fn build_report_metadata(row: &PendingRow, platform_agent_id: Option<String>) ->
         "completion_tokens": row.completion_tokens,
         "thinking_tokens": row.thinking_tokens,
         "total_tokens": row.total_tokens,
-        "assistant_rounds": 1,
+        "assistant_rounds": row.llm_rounds,
     });
     if let Some(id) = platform_agent_id.filter(|id| !id.is_empty()) {
         metadata["platform_agent_id"] = json!(id);
@@ -804,29 +679,6 @@ mod tests {
     }
 
     #[test]
-    fn resolve_reporting_model_prefers_dominant_model_totals() {
-        let accum = AccumRow {
-            agent_instance_id: "i1".into(),
-            agent_role_id: None,
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            thinking_tokens: 0,
-            total_tokens: 100,
-            llm_rounds: 2,
-            model_name: Some("qwen3.5-flash".into()),
-            model_totals_json: Some(
-                r#"{"qwen3.5-flash":10,"qwen3.6-plus":90}"#.into(),
-            ),
-            period_start: None,
-            period_end: None,
-        };
-        assert_eq!(
-            resolve_reporting_model_name(&accum).as_deref(),
-            Some("qwen3.6-plus")
-        );
-    }
-
-    #[test]
     fn report_metadata_omits_null_optionals_and_includes_conversation_id() {
         let row = PendingRow {
             request_id: "run:conv1:inst1:2:qwen3.5-plus".into(),
@@ -847,7 +699,7 @@ mod tests {
         let metadata = build_report_metadata(&row, Some("agent-1".into()));
         assert_eq!(metadata["conversation_id"], "conv1");
         assert_eq!(metadata["platform_agent_id"], "agent-1");
-        assert_eq!(metadata["assistant_rounds"], 1);
+        assert_eq!(metadata["assistant_rounds"], row.llm_rounds);
         assert!(metadata.get("agent_role_id").is_none());
         assert!(metadata.get("model_name").is_none());
     }

@@ -95,12 +95,20 @@ metadata:
 
 Windows / macOS / Linux 的环境准备、开发命令、本地打包与 GitHub Actions 发版，见 **[`docs/guides/cross-platform-build.md`](docs/guides/cross-platform-build.md)**。
 
-简要命令（在 `pointer-app/` 目录）：
+简要命令（在 `pointer-app/` 目录；**须在对应操作系统上打包**，无法在一台机器上产出三端安装包）：
+
+| 平台 | 命令 | 产物（`src-tauri/target/release/bundle/` 下） |
+|------|------|-----------------------------------------------|
+| Windows | `npm run build:windows` | `msi/*.msi` |
+| macOS | `npm run build:macos` | `macos/*.app`、`dmg/*.dmg` |
+| Linux | `npm run build:linux` | `deb/*.deb`、`appimage/*.AppImage` |
 
 ```bash
 npm install
 npm run icons          # 首次或更换图标后
-npm run tauri:build    # 当前平台；或 build:windows / build:macos / build:linux
+npm run tauri:build    # 当前系统默认格式；Linux 经 scripts/tauri-build.mjs 自动 NO_STRIP
 ```
 
-产物目录：`src-tauri/target/release/bundle/`。配置文件：`src-tauri/tauri.conf.json`、`.github/workflows/release.yml`。
+三端脚本均调用 `tauri:build`（仅 Linux 设置 `NO_STRIP=true`，避免 AppImage 的 linuxdeploy 失败）。  
+CI 三端并行见 `.github/workflows/release.yml`。  
+配置文件：`src-tauri/tauri.conf.json`。

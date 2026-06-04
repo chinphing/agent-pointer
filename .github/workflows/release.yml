@@ -49,10 +49,17 @@ jobs:
             curl \
             wget \
             file \
+            libfuse2 \
+            patchelf \
+            zsync \
             libxdo-dev \
             libssl-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-libav \
             libpipewire-0.3-dev \
             libspa-0.2-dev \
             libclang-dev \
@@ -71,6 +78,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NO_STRIP: ${{ matrix.platform == 'ubuntu-22.04' && 'true' || '' }}
         with:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
           releaseName: Pointer ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}

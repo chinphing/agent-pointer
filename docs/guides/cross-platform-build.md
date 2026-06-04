@@ -69,7 +69,7 @@ $env:VITE_WEB_API_BASE="http://127.0.0.1:8787"; npm run dev:web
 
 ```powershell
 npm run icons          # 首次或更换 icon.svg 后
-npm run build:windows  # 等价于 npm run tauri:build
+npm run build:windows  # 与 npm run tauri:build 相同（Windows 不设 NO_STRIP）
 ```
 
 **产物目录：**
@@ -126,7 +126,7 @@ npm run tauri:dev
 
 ```bash
 npm run icons
-npm run build:macos    # 当前架构（Apple Silicon 或 Intel）
+npm run build:macos    # 与 npm run tauri:build 相同（macOS 不设 NO_STRIP）
 ```
 
 **通用二进制（Intel + Apple Silicon，与 CI 一致）：**
@@ -173,12 +173,17 @@ sudo apt-get install -y \
   curl \
   wget \
   file \
+  libfuse2 \
+  patchelf \
+  zsync \
   libxdo-dev \
   libssl-dev \
   libayatana-appindicator3-dev \
   librsvg2-dev \
-
-# ubuntu 24额外依赖
+  gstreamer1.0-plugins-base \
+  gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad \
+  gstreamer1.0-libav \
   libpipewire-0.3-dev \
   libspa-0.2-dev \
   libclang-dev \
@@ -241,7 +246,9 @@ src-tauri/target/release/bundle/
 
 ```bash
 npm run tauri:build -- --bundles deb
-npm run tauri:build -- --bundles appimage
+npm run tauri:build -- --bundles appimage   # Linux 上 `scripts/tauri-build.mjs` 自动 NO_STRIP=true
+# 等价快捷脚本：
+npm run build:linux:appimage
 ```
 
 **安装 deb：**
@@ -268,6 +275,7 @@ src-tauri/target/release/pointer-app
 
 | 现象 | 处理 |
 |------|------|
+| `failed to run linuxdeploy`（AppImage 阶段） | 先装 `libfuse2`、`patchelf`、`file`；Linux 上 `npm run tauri:build` 会自动 `NO_STRIP=true`；若仍失败：`npm run tauri:build -- --bundles appimage --verbose` 查看 strip/gstreamer 具体错误 |
 | WebKitGTK 找不到 | 确认 `libwebkit2gtk-4.1-dev` 已安装 |
 | `libspa-sys` / `libpipewire-0.3` not found | 安装 `libpipewire-0.3-dev` 和 `libspa-0.2-dev`，然后重新 `npm run tauri:build` |
 | `Unable to find libclang`（bindgen） | 安装 `libclang-dev`（或 `clang`），必要时 `export LIBCLANG_PATH=/usr/lib/llvm-*/lib` |
@@ -330,11 +338,22 @@ npm run tauri:build      # 或 build:windows / build:macos / build:linux
 
 构建时会自动执行 `beforeBuildCommand`（`npm run build`：Vue 类型检查 + Vite 打包到 `dist/`）。
 
-**统一产物根目录：**
+**统一产物根目录：**（在**当前构建系统**上只会出现对应平台的子目录）
 
 ```text
 src-tauri/target/release/bundle/
+├── msi/          # Windows
+├── macos/        # macOS（.app）
+├── dmg/          # macOS
+├── deb/          # Linux
+└── appimage/     # Linux（AppImage）
 ```
+
+| 平台 | 推荐命令 |
+|------|----------|
+| Windows | `npm run build:windows` |
+| macOS | `npm run build:macos`（Universal：`npm run tauri:build -- --target universal-apple-darwin`） |
+| Linux | `npm run build:linux` |
 
 **产品名：** Pointer（`src-tauri/tauri.conf.json` → `productName`）
 
@@ -344,6 +363,7 @@ src-tauri/target/release/bundle/
 |------|------|
 | `src-tauri/tauri.conf.json` | 窗口、bundle 目标、Linux deb/AppImage、Windows NSIS |
 | `package.json` | `tauri:dev` / `tauri:build` / `build:*` / `icons` 脚本 |
+| `scripts/tauri-build.mjs` | 跨平台 `tauri build`；**仅 Linux** 自动 `NO_STRIP=true`（AppImage） |
 | `.github/workflows/release.yml` | 三端 CI 自动打包 |
 | `.pointer-build.toml` | 编译期默认配置（非运行时），见 [`docs/internals/pointer-build-toml.md`](../internals/pointer-build-toml.md) |
 

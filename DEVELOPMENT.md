@@ -267,10 +267,11 @@ npm run dev
 
 ```bash
 npm run icons
-npm run tauri:build
+npm run tauri:build          # 当前系统
+# 或：build:windows / build:macos / build:linux（须在对应 OS 上执行）
 ```
 
-产物：`src-tauri/target/release/bundle/`。
+产物：`src-tauri/target/release/bundle/`（Windows `msi/`、macOS `dmg/`+`macos/`、Linux `deb/`+`appimage/`）。
 
 ## 常见问题
 

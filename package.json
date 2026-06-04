@@ -9,13 +9,14 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
+    "tauri:build": "node scripts/tauri-build.mjs",
     "server:dev": "cargo run -p pointer-server",
     "dev:web": "vite --host 0.0.0.0 --port 1420",
     "icons": "tauri icon src-tauri/icons/icon.svg",
-    "build:windows": "tauri build",
-    "build:macos": "tauri build",
-    "build:linux": "tauri build"
+    "build:windows": "npm run tauri:build",
+    "build:macos": "npm run tauri:build",
+    "build:linux": "npm run tauri:build",
+    "build:linux:appimage": "npm run tauri:build -- --bundles appimage"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.1",

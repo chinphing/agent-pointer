@@ -68,7 +68,7 @@ $env:VITE_WEB_API_BASE="http://127.0.0.1:8787"; npm run dev:web
 ### 打包
 
 ```powershell
-npm run icons          # 首次或更换 icon.svg 后
+npm run icons          # 首次或更换 icon.png 后
 npm run build:windows  # 与 npm run tauri:build 相同（Windows 不设 NO_STRIP）
 ```
 
@@ -332,7 +332,7 @@ Web 端不提供完整电脑操控；桌面能力（`invoke`、本地存储等�
 ```bash
 cd pointer-app
 npm install
-npm run icons          # 源图：src-tauri/icons/icon.svg
+npm run icons          # 首次或更换 icon.png 后
 npm run tauri:build      # 或 build:windows / build:macos / build:linux
 ```
 
@@ -373,7 +373,16 @@ src-tauri/target/release/bundle/
 npm run icons
 ```
 
-生成 `32x32.png`、`128x128.png`、`128x128@2x.png`、`icon.ico`、`icon.icns` 等。
+生成 `32x32.png`、`128x128.png`、`128x128@2x.png`、`icon.ico`、`icon.icns` 等，并同步到 `public/`。
+
+**Windows 桌面图标**在 Rust **链接时**写入 exe（来自 `icons/icon.ico`）。更换 `icon.png` 后需先 `npm run icons`，再重新打包。
+
+若安装包或任务栏仍显示旧图标：
+
+1. 执行完整打包：`npm run build:windows`（不要只跑 `cargo build`）
+2. 用**本次**产物安装：`target/release/bundle/msi/Pointer_*_x64_*.msi`（勿用 `bundle/nsis/` 下残留的旧 setup.exe）
+3. 先卸载旧版再装新版；开始菜单快捷方式可能缓存图标，可删快捷方式后重装
+4. 仍不对时清理后重编：`cargo clean -p pointer-app`，再 `npm run build:windows`
 
 ---
 

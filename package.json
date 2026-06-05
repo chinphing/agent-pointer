@@ -12,7 +12,7 @@
     "tauri:build": "node scripts/tauri-build.mjs",
     "server:dev": "cargo run -p pointer-server",
     "dev:web": "vite --host 0.0.0.0 --port 1420",
-    "icons": "tauri icon src-tauri/icons/icon.svg",
+    "icons": "tauri icon src-tauri/icons/icon.png && node scripts/sync-web-icons.mjs",
     "build:windows": "npm run tauri:build",
     "build:macos": "npm run tauri:build",
     "build:linux": "npm run tauri:build",

@@ -310,52 +310,89 @@ pub fn ensure_accum(scope: &AgentInstanceScope) -> Result<()> {
     Ok(())
 }
 
-/// Enqueue one LLM round × one model for platform upload (JSON-only; no zip).
-fn insert_pending_round(
+fn dominant_model_from_totals_json(totals_json: &str) -> Option<String> {
+    let map: HashMap<String, u64> = serde_json::from_str(totals_json).ok()?;
+    map.into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(model, _)| model)
+}
+
+/// Enqueue one aggregated report (conversation × agent instance; model_totals split on server).
+fn insert_pending_aggregated(
     conn: &Connection,
-    scope: &AgentInstanceScope,
-    round: u32,
-    usage: &LlmUsageSnapshot,
+    conversation_id: &str,
+    agent_instance_id: &str,
+    agent_role_id: Option<&str>,
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    thinking_tokens: u32,
+    total_tokens: u32,
+    llm_rounds: u32,
+    model_totals_json: &str,
     model_name: Option<&str>,
+    period_start: Option<&str>,
+    period_end: Option<&str>,
+    history_archive_path: Option<&str>,
 ) -> Result<()> {
-    let model_key = model_name
-        .map(str::trim)
-        .filter(|m| !m.is_empty())
-        .unwrap_or("unknown");
-    let safe_model = model_key.replace(':', "_");
-    let request_id = format!(
-        "run:{}:{}:{}:{}",
-        scope.conversation_id, scope.agent_instance_id, round, safe_model
-    );
+    let request_id = format!("run:{conversation_id}:{agent_instance_id}");
     let now = Utc::now().to_rfc3339();
-    let thinking = usage.reasoning_tokens;
-    let completion = usage.completion_tokens.saturating_sub(thinking);
+    let period_start = period_start.filter(|v| !v.is_empty()).unwrap_or(&now);
+    let period_end = period_end.filter(|v| !v.is_empty()).unwrap_or(&now);
     conn.execute(
         "INSERT OR IGNORE INTO usage_pending (
            request_id, conversation_id, agent_instance_id, agent_role_id,
            prompt_tokens, completion_tokens, thinking_tokens, total_tokens, llm_rounds,
            model_name, model_totals_json, period_start, period_end, history_archive_path, created_at
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,1,?9,'{}',?10,?10,NULL,?10)",
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
         params![
             request_id,
-            scope.conversation_id,
-            scope.agent_instance_id,
-            scope.agent_role_id,
-            usage.prompt_tokens,
-            completion,
-            thinking,
-            usage.total_tokens,
-            model_key,
+            conversation_id,
+            agent_instance_id,
+            agent_role_id,
+            prompt_tokens,
+            completion_tokens,
+            thinking_tokens,
+            total_tokens,
+            llm_rounds,
+            model_name,
+            model_totals_json,
+            period_start,
+            period_end,
+            history_archive_path,
             now,
         ],
     )?;
     log::info!(
-        "token_usage_store: enqueued round request_id={} agent_instance_id={} total_tokens={}",
+        "token_usage_store: enqueued aggregated request_id={} agent_instance_id={} total_tokens={} llm_rounds={}",
         request_id,
-        scope.agent_instance_id,
-        usage.total_tokens
+        agent_instance_id,
+        total_tokens,
+        llm_rounds
     );
     Ok(())
+}
+
+fn maybe_write_history_archive(
+    conversation_id: &str,
+    agent_instance_id: &str,
+    agent_role_id: &str,
+    history: &[ChatMessage],
+) -> Result<Option<String>> {
+    use crate::conversation_snapshot::{build_snapshot_json, write_snapshot_zip};
+
+    let snapshot = build_snapshot_json(conversation_id, agent_instance_id, agent_role_id, history);
+    let empty = snapshot["messages"]
+        .as_array()
+        .map(|messages| messages.is_empty())
+        .unwrap_or(true);
+    if empty {
+        return Ok(None);
+    }
+    let dir = app_data_dir()?.join("token_usage_archives");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("{conversation_id}_{agent_instance_id}.zip"));
+    write_snapshot_zip(&path, &snapshot)?;
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 /// Persist one LLM round for an agent instance.
@@ -403,12 +440,6 @@ pub fn record_round(
                 now,
             ],
         )?;
-        let round: u32 = conn.query_row(
-            "SELECT llm_rounds FROM usage_accum WHERE conversation_id = ?1 AND agent_instance_id = ?2",
-            params![scope.conversation_id, scope.agent_instance_id],
-            |r| r.get(0),
-        )?;
-        insert_pending_round(&conn, scope, round, u, model_name)?;
     } else {
         conn.execute(
             "UPDATE usage_accum SET
@@ -423,10 +454,94 @@ pub fn record_round(
     Ok(())
 }
 
-/// Reset accumulators after a conversation run (reports are enqueued per round in `record_round`).
-pub fn finalize_run(conversation_id: &str, _history: &[ChatMessage]) -> Result<()> {
-    let guard = connection()?;
-    let conn = guard.lock();
+struct AccumRow {
+    agent_instance_id: String,
+    agent_role_id: Option<String>,
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    thinking_tokens: u32,
+    total_tokens: u32,
+    llm_rounds: u32,
+    model_totals_json: String,
+    model_name: Option<String>,
+    period_start: Option<String>,
+    period_end: Option<String>,
+}
+
+fn read_accum_rows(conn: &Connection, conversation_id: &str) -> Result<Vec<AccumRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT agent_instance_id, agent_role_id, prompt_tokens, completion_tokens, thinking_tokens,
+                total_tokens, llm_rounds, model_totals_json, model_name, period_start, period_end
+         FROM usage_accum
+         WHERE conversation_id = ?1 AND llm_rounds > 0 AND total_tokens > 0",
+    )?;
+    let rows = stmt
+        .query_map(params![conversation_id], |row| {
+            Ok(AccumRow {
+                agent_instance_id: row.get(0)?,
+                agent_role_id: row.get(1)?,
+                prompt_tokens: row.get(2)?,
+                completion_tokens: row.get(3)?,
+                thinking_tokens: row.get(4)?,
+                total_tokens: row.get(5)?,
+                llm_rounds: row.get(6)?,
+                model_totals_json: row.get(7)?,
+                model_name: row.get(8)?,
+                period_start: row.get(9)?,
+                period_end: row.get(10)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+fn enqueue_accum_rows(
+    conn: &Connection,
+    conversation_id: &str,
+    history: Option<&[ChatMessage]>,
+) -> Result<usize> {
+    let rows = read_accum_rows(conn, conversation_id)?;
+    let mut enqueued = 0usize;
+    for row in rows {
+        let model_name = row
+            .model_name
+            .as_deref()
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .or_else(|| dominant_model_from_totals_json(&row.model_totals_json));
+        let archive_path = if let Some(history) = history {
+            let role_id = row.agent_role_id.as_deref().unwrap_or("unknown");
+            maybe_write_history_archive(
+                conversation_id,
+                &row.agent_instance_id,
+                role_id,
+                history,
+            )?
+        } else {
+            None
+        };
+        insert_pending_aggregated(
+            conn,
+            conversation_id,
+            &row.agent_instance_id,
+            row.agent_role_id.as_deref(),
+            row.prompt_tokens,
+            row.completion_tokens,
+            row.thinking_tokens,
+            row.total_tokens,
+            row.llm_rounds,
+            &row.model_totals_json,
+            model_name.as_deref(),
+            row.period_start.as_deref(),
+            row.period_end.as_deref(),
+            archive_path.as_deref(),
+        )?;
+        enqueued += 1;
+    }
+    Ok(enqueued)
+}
+
+fn reset_accum_for_conversation(conn: &Connection, conversation_id: &str) -> Result<()> {
     let now = Utc::now().to_rfc3339();
     conn.execute(
         "UPDATE usage_accum SET
@@ -438,29 +553,39 @@ pub fn finalize_run(conversation_id: &str, _history: &[ChatMessage]) -> Result<(
     Ok(())
 }
 
+/// Enqueue aggregated pending reports, then reset accumulators for this conversation run.
+pub fn finalize_run(conversation_id: &str, history: &[ChatMessage]) -> Result<()> {
+    let guard = connection()?;
+    let conn = guard.lock();
+    enqueue_accum_rows(&conn, conversation_id, Some(history))?;
+    reset_accum_for_conversation(&conn, conversation_id)?;
+    Ok(())
+}
+
+/// Recover interrupted runs: enqueue any stale accum into pending, then clear accum.
 pub fn finalize_all_stale_accum() -> Result<usize> {
     let guard = connection()?;
     let conn = guard.lock();
-    let mut stmt = conn.prepare("SELECT DISTINCT conversation_id FROM usage_accum WHERE llm_rounds > 0")?;
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT conversation_id FROM usage_accum WHERE llm_rounds > 0 AND total_tokens > 0",
+    )?;
     let ids: Vec<String> = stmt
         .query_map([], |r| r.get(0))?
         .filter_map(|r| r.ok())
         .collect();
-    let mut n = 0usize;
+    let mut conversations = 0usize;
+    let mut enqueued = 0usize;
     for cid in ids {
-        let now = Utc::now().to_rfc3339();
-        conn.execute(
-            "UPDATE usage_accum SET prompt_tokens=0, completion_tokens=0, thinking_tokens=0,
-             total_tokens=0, llm_rounds=0, model_totals_json='{}', period_start=NULL, period_end=NULL, updated_at=?2
-             WHERE conversation_id = ?1",
-            params![cid, now],
-        )?;
-        n += 1;
+        enqueued += enqueue_accum_rows(&conn, &cid, None)?;
+        reset_accum_for_conversation(&conn, &cid)?;
+        conversations += 1;
     }
-    if n > 0 {
-        log::info!("token_usage_store: cleared {n} stale accum conversation(s)");
+    if conversations > 0 {
+        log::info!(
+            "token_usage_store: recovered {enqueued} stale report(s) from {conversations} conversation(s)"
+        );
     }
-    Ok(n)
+    Ok(conversations)
 }
 
 fn read_all_pending(conn: &Connection) -> Result<Vec<PendingRow>> {
@@ -705,21 +830,64 @@ mod tests {
     }
 
     #[test]
-    fn pending_request_id_includes_round_and_model() {
+    fn stale_accum_enqueues_pending_without_history() {
         let conn = Connection::open_in_memory().expect("mem db");
         migrate_schema(&conn).expect("schema");
-        let scope = AgentInstanceScope {
-            conversation_id: "conv-a".into(),
-            agent_instance_id: "inst-b".into(),
-            agent_role_id: "coder".into(),
-        };
-        let usage = LlmUsageSnapshot {
-            prompt_tokens: 10,
-            completion_tokens: 5,
-            reasoning_tokens: 0,
-            total_tokens: 15,
-        };
-        insert_pending_round(&conn, &scope, 3, &usage, Some("Qwen3.5-Plus")).expect("insert");
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO usage_accum (
+               conversation_id, agent_instance_id, agent_role_id,
+               prompt_tokens, completion_tokens, thinking_tokens, total_tokens,
+               llm_rounds, model_name, model_totals_json, period_start, period_end, updated_at
+             ) VALUES (?1, ?2, ?3, 10, 5, 0, 15, 2, 'qwen3.5-plus', '{\"qwen3.5-plus\":15}', ?4, ?4, ?4)",
+            params!["conv-stale", "inst-1", "coder", now],
+        )
+        .expect("seed stale accum");
+
+        let enqueued = enqueue_accum_rows(&conn, "conv-stale", None).expect("enqueue stale");
+        assert_eq!(enqueued, 1);
+        reset_accum_for_conversation(&conn, "conv-stale").expect("reset accum");
+
+        let pending: i64 = conn
+            .query_row(
+                "SELECT COUNT(1) FROM usage_pending WHERE conversation_id = 'conv-stale'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("pending count");
+        assert_eq!(pending, 1);
+
+        let rounds: u32 = conn
+            .query_row(
+                "SELECT llm_rounds FROM usage_accum WHERE conversation_id = 'conv-stale'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("accum rounds");
+        assert_eq!(rounds, 0);
+    }
+
+    #[test]
+    fn aggregated_pending_request_id_is_per_conversation_instance() {
+        let conn = Connection::open_in_memory().expect("mem db");
+        migrate_schema(&conn).expect("schema");
+        insert_pending_aggregated(
+            &conn,
+            "conv-a",
+            "inst-b",
+            Some("coder"),
+            10,
+            5,
+            0,
+            15,
+            2,
+            r#"{"qwen3.5-plus":15}"#,
+            Some("qwen3.5-plus"),
+            None,
+            None,
+            None,
+        )
+        .expect("insert aggregated");
         let request_id: String = conn
             .query_row(
                 "SELECT request_id FROM usage_pending WHERE conversation_id = 'conv-a'",
@@ -727,6 +895,6 @@ mod tests {
                 |r| r.get(0),
             )
             .expect("pending row");
-        assert_eq!(request_id, "run:conv-a:inst-b:3:Qwen3.5-Plus");
+        assert_eq!(request_id, "run:conv-a:inst-b");
     }
 }

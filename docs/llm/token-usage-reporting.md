@@ -12,7 +12,7 @@ Runtime logs on LLM / sub-agent paths use `agent_instance_id` + `agent_role_id`,
 
 ## Client upload (pointer-app)
 
-After each `run_chat`, `finalize_run` enqueues one pending row per agent instance with usage in `usage_accum`. `flush_pending_reports` sends:
+After each `run_chat`, `finalize_run` enqueues one pending row per agent instance with usage in `usage_accum`. On app startup or exit, `finalize_all_stale_accum` enqueues any interrupted accum (no history archive) before clearing, then `flush_pending_reports` sends pending rows.
 
 - `POST /auth/partner/token-usage` as `multipart/form-data`
 - `metadata`: JSON (tokens, `model_totals`, ids, `request_id`, `period_*`)

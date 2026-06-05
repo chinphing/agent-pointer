@@ -129,12 +129,6 @@ impl ChatLlmTokenSession {
         model_name: Option<String>,
     ) -> Self {
         let lead_scope = AgentInstanceScope::new(run_id.clone(), conversation_id.clone(), agent_role_id);
-        if let Err(e) = token_usage_store::ensure_accum(&lead_scope) {
-            log::warn!(
-                "token_usage_store: ensure_accum failed {}: {e}",
-                lead_scope.log_suffix()
-            );
-        }
         let _model = model_name;
         Self {
             run_id,

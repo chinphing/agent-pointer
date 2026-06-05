@@ -28,8 +28,16 @@ const REPORT_STATUS_SENT: &str = "sent";
 
 static DB: OnceLock<Mutex<Connection>> = OnceLock::new();
 
-pub fn request_id_for_run(run_id: &str, agent_instance_id: &str) -> String {
-    format!("run:{run_id}:{agent_instance_id}")
+pub fn request_id_for_run(run_id: &str, agent_instance_id: &str, model_name: &str) -> String {
+    format!("run:{run_id}:{agent_instance_id}:{model_name}")
+}
+
+fn usage_model_key(model_name: Option<&str>) -> String {
+    model_name
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .unwrap_or("unknown")
+        .to_string()
 }
 
 fn db_path() -> Result<PathBuf> {
@@ -95,6 +103,9 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
     }
     if table_exists(conn, "usage_accum")? && !table_has_column(conn, "usage_accum", "run_id")? {
         migrate_usage_accum_v2(conn)?;
+    }
+    if table_exists(conn, "usage_accum")? && table_has_column(conn, "usage_accum", "model_totals_json")? {
+        migrate_usage_accum_v3(conn)?;
     }
     migrate_legacy_jsonl(conn)?;
     Ok(())
@@ -331,6 +342,191 @@ fn migrate_usage_accum_v2(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+struct UsageAccumV2Row {
+    run_id: String,
+    conversation_id: String,
+    agent_instance_id: String,
+    agent_role_id: Option<String>,
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    thinking_tokens: u32,
+    total_tokens: u32,
+    llm_rounds: u32,
+    model_name: Option<String>,
+    model_totals_json: Option<String>,
+    period_start: Option<String>,
+    period_end: Option<String>,
+    report_status: String,
+    #[allow(dead_code)]
+    request_id: String,
+    history_archive_path: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+fn split_tokens_by_ratio(total: u32, model_total: u64, json_total: u64) -> u32 {
+    if json_total == 0 || total == 0 {
+        return 0;
+    }
+    ((u64::from(total) * model_total + json_total / 2) / json_total).min(u64::from(u32::MAX)) as u32
+}
+
+fn migrate_usage_accum_v3(conn: &Connection) -> Result<()> {
+    log::info!("token_usage_store: migrating usage_accum to per-model rows (drop model_totals_json)");
+    conn.execute_batch(
+        "ALTER TABLE usage_accum RENAME TO usage_accum_v2_old;
+         CREATE TABLE usage_accum (
+           run_id TEXT NOT NULL,
+           conversation_id TEXT NOT NULL,
+           agent_instance_id TEXT NOT NULL,
+           model_name TEXT NOT NULL DEFAULT 'unknown',
+           agent_role_id TEXT,
+           prompt_tokens INTEGER NOT NULL DEFAULT 0,
+           completion_tokens INTEGER NOT NULL DEFAULT 0,
+           thinking_tokens INTEGER NOT NULL DEFAULT 0,
+           total_tokens INTEGER NOT NULL DEFAULT 0,
+           llm_rounds INTEGER NOT NULL DEFAULT 0,
+           period_start TEXT,
+           period_end TEXT,
+           report_status TEXT NOT NULL DEFAULT 'accumulating',
+           request_id TEXT NOT NULL,
+           history_archive_path TEXT,
+           created_at TEXT NOT NULL,
+           updated_at TEXT NOT NULL,
+           PRIMARY KEY (run_id, agent_instance_id, model_name)
+         );
+         CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_accum_request_id ON usage_accum(request_id);",
+    )?;
+
+    let mut stmt = conn.prepare(
+        "SELECT run_id, conversation_id, agent_instance_id, agent_role_id,
+                prompt_tokens, completion_tokens, thinking_tokens, total_tokens, llm_rounds,
+                model_name, model_totals_json, period_start, period_end,
+                report_status, request_id, history_archive_path, created_at, updated_at
+         FROM usage_accum_v2_old",
+    )?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(UsageAccumV2Row {
+                run_id: row.get(0)?,
+                conversation_id: row.get(1)?,
+                agent_instance_id: row.get(2)?,
+                agent_role_id: row.get(3)?,
+                prompt_tokens: row.get(4)?,
+                completion_tokens: row.get(5)?,
+                thinking_tokens: row.get(6)?,
+                total_tokens: row.get(7)?,
+                llm_rounds: row.get(8)?,
+                model_name: row.get(9)?,
+                model_totals_json: row.get(10)?,
+                period_start: row.get(11)?,
+                period_end: row.get(12)?,
+                report_status: row.get(13)?,
+                request_id: row.get(14)?,
+                history_archive_path: row.get(15)?,
+                created_at: row.get(16)?,
+                updated_at: row.get(17)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for row in rows {
+        let model_totals: HashMap<String, u64> = row
+            .model_totals_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
+        let models: Vec<(String, u64)> = if model_totals.is_empty() {
+            vec![(
+                usage_model_key(row.model_name.as_deref()),
+                u64::from(row.total_tokens),
+            )]
+        } else {
+            model_totals.into_iter().collect()
+        };
+        let json_total: u64 = models.iter().map(|(_, t)| t).sum();
+        let multi_model = models.len() > 1;
+        let mut assigned_prompt = 0u32;
+        let mut assigned_completion = 0u32;
+        let mut assigned_thinking = 0u32;
+        let mut assigned_rounds = 0u32;
+        for (idx, (model, model_total)) in models.iter().enumerate() {
+            let is_last = idx + 1 == models.len();
+            let (prompt, completion, thinking, rounds) = if multi_model {
+                if is_last {
+                    (
+                        row.prompt_tokens.saturating_sub(assigned_prompt),
+                        row.completion_tokens.saturating_sub(assigned_completion),
+                        row.thinking_tokens.saturating_sub(assigned_thinking),
+                        row.llm_rounds.saturating_sub(assigned_rounds),
+                    )
+                } else {
+                    let prompt = split_tokens_by_ratio(row.prompt_tokens, *model_total, json_total);
+                    let completion =
+                        split_tokens_by_ratio(row.completion_tokens, *model_total, json_total);
+                    let thinking =
+                        split_tokens_by_ratio(row.thinking_tokens, *model_total, json_total);
+                    let rounds = split_tokens_by_ratio(row.llm_rounds, *model_total, json_total);
+                    assigned_prompt = assigned_prompt.saturating_add(prompt);
+                    assigned_completion = assigned_completion.saturating_add(completion);
+                    assigned_thinking = assigned_thinking.saturating_add(thinking);
+                    assigned_rounds = assigned_rounds.saturating_add(rounds);
+                    (prompt, completion, thinking, rounds)
+                }
+            } else {
+                (
+                    row.prompt_tokens,
+                    row.completion_tokens,
+                    row.thinking_tokens,
+                    row.llm_rounds,
+                )
+            };
+            let total = if multi_model {
+                (*model_total).min(u64::from(u32::MAX)) as u32
+            } else {
+                row.total_tokens
+            };
+            let request_id = request_id_for_run(&row.run_id, &row.agent_instance_id, model);
+            let archive = if is_last {
+                row.history_archive_path.clone()
+            } else {
+                None
+            };
+            conn.execute(
+                "INSERT INTO usage_accum (
+                   run_id, conversation_id, agent_instance_id, model_name, agent_role_id,
+                   prompt_tokens, completion_tokens, thinking_tokens, total_tokens, llm_rounds,
+                   period_start, period_end, report_status, request_id, history_archive_path,
+                   created_at, updated_at
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+                params![
+                    row.run_id,
+                    row.conversation_id,
+                    row.agent_instance_id,
+                    model,
+                    row.agent_role_id,
+                    prompt,
+                    completion,
+                    thinking,
+                    total,
+                    rounds,
+                    row.period_start,
+                    row.period_end,
+                    row.report_status,
+                    request_id,
+                    archive,
+                    row.created_at,
+                    row.updated_at,
+                ],
+            )?;
+        }
+    }
+
+    conn.execute("DROP TABLE usage_accum_v2_old", [])?;
+    log::info!("token_usage_store: usage_accum v3 migration complete");
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct LegacyPendingRow {
     request_id: String,
@@ -374,26 +570,28 @@ fn migrate_legacy_jsonl(conn: &Connection) -> Result<()> {
         let period_start = row.period_start.unwrap_or_else(|| now.clone());
         let period_end = row.period_end.unwrap_or_else(|| now.clone());
         let run_id = synthetic_run_id_from_request_id(&row.request_id);
+        let model = usage_model_key(row.model_name.as_deref());
+        let request_id = request_id_for_run(&run_id, &legacy_instance, &model);
         let n = conn.execute(
             "INSERT OR IGNORE INTO usage_accum (
-               run_id, conversation_id, agent_instance_id, agent_role_id,
+               run_id, conversation_id, agent_instance_id, model_name, agent_role_id,
                prompt_tokens, completion_tokens, thinking_tokens, total_tokens, llm_rounds,
-               model_name, model_totals_json, period_start, period_end,
+               period_start, period_end,
                report_status, request_id, history_archive_path, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, ?9, '{}', ?10, ?11, 'pending', ?12, NULL, ?13, ?13)",
+             ) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'pending', ?12, NULL, ?13, ?13)",
             params![
                 run_id,
                 legacy_conversation_id,
                 legacy_instance,
+                model,
                 row.prompt_tokens,
                 row.completion_tokens,
                 row.thinking_tokens,
                 row.total_tokens,
                 rounds,
-                row.model_name,
                 period_start,
                 period_end,
-                row.request_id,
+                request_id,
                 now,
             ],
         )?;
@@ -416,46 +614,34 @@ struct ReportRow {
     conversation_id: String,
     agent_instance_id: String,
     agent_role_id: Option<String>,
+    model_name: String,
     prompt_tokens: u32,
     completion_tokens: u32,
     thinking_tokens: u32,
     total_tokens: u32,
     llm_rounds: u32,
-    model_name: Option<String>,
-    model_totals_json: Option<String>,
     period_start: Option<String>,
     period_end: Option<String>,
     history_archive_path: Option<String>,
 }
 
-fn merge_model_totals_json(existing: Option<&str>, model: Option<&str>, delta: u32) -> String {
-    let mut map: HashMap<String, u64> = existing
-        .and_then(|s| serde_json::from_str(s).ok())
-        .unwrap_or_default();
-    if delta > 0 {
-        let key = model.unwrap_or("unknown").to_string();
-        *map.entry(key).or_insert(0) += u64::from(delta);
-    }
-    serde_json::to_string(&map).unwrap_or_else(|_| "{}".into())
-}
-
-/// Ensure accum row exists for this agent instance in the current run.
-pub fn ensure_accum(scope: &AgentInstanceScope) -> Result<()> {
+fn ensure_model_accum_row(scope: &AgentInstanceScope, model: &str) -> Result<()> {
     let guard = connection()?;
     let conn = guard.lock();
     let now = Utc::now().to_rfc3339();
-    let request_id = request_id_for_run(&scope.run_id, &scope.agent_instance_id);
+    let request_id = request_id_for_run(&scope.run_id, &scope.agent_instance_id, model);
     conn.execute(
         "INSERT OR IGNORE INTO usage_accum (
-           run_id, conversation_id, agent_instance_id, agent_role_id,
+           run_id, conversation_id, agent_instance_id, model_name, agent_role_id,
            prompt_tokens, completion_tokens, thinking_tokens, total_tokens,
-           llm_rounds, model_name, model_totals_json, period_start, period_end,
+           llm_rounds, period_start, period_end,
            report_status, request_id, history_archive_path, created_at, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, 0, 0, 0, 0, 0, NULL, '{}', NULL, NULL, ?5, ?6, NULL, ?7, ?7)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, 0, 0, 0, NULL, NULL, ?6, ?7, NULL, ?8, ?8)",
         params![
             scope.run_id,
             scope.conversation_id,
             scope.agent_instance_id,
+            model,
             scope.agent_role_id,
             REPORT_STATUS_ACCUMULATING,
             request_id,
@@ -488,49 +674,38 @@ fn maybe_write_history_archive(
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
-/// Persist one LLM round for an agent instance.
+/// Persist one LLM round for an agent instance (one row per model).
 pub fn record_round(
     scope: &AgentInstanceScope,
     usage: Option<&LlmUsageSnapshot>,
     model_name: Option<&str>,
 ) -> Result<()> {
-    ensure_accum(scope)?;
+    let model = usage_model_key(model_name);
+    ensure_model_accum_row(scope, &model)?;
     let guard = connection()?;
     let conn = guard.lock();
     let now = Utc::now().to_rfc3339();
-    let existing_totals: Option<String> = conn
-        .query_row(
-            "SELECT model_totals_json FROM usage_accum
-             WHERE run_id = ?1 AND agent_instance_id = ?2",
-            params![scope.run_id, scope.agent_instance_id],
-            |r| r.get(0),
-        )
-        .ok();
     if let Some(u) = usage {
-        let totals = merge_model_totals_json(existing_totals.as_deref(), model_name, u.total_tokens);
-        let model = model_name.map(str::to_string);
         conn.execute(
             "UPDATE usage_accum SET
-               prompt_tokens = prompt_tokens + ?3,
-               completion_tokens = completion_tokens + ?4,
-               thinking_tokens = thinking_tokens + ?5,
-               total_tokens = total_tokens + ?6,
+               prompt_tokens = prompt_tokens + ?4,
+               completion_tokens = completion_tokens + ?5,
+               thinking_tokens = thinking_tokens + ?6,
+               total_tokens = total_tokens + ?7,
                llm_rounds = llm_rounds + 1,
-               model_name = COALESCE(?7, model_name),
-               model_totals_json = ?8,
-               period_start = COALESCE(period_start, ?9),
-               period_end = ?9,
-               updated_at = ?9
-             WHERE run_id = ?1 AND agent_instance_id = ?2 AND report_status = ?10",
+               period_start = COALESCE(period_start, ?8),
+               period_end = ?8,
+               updated_at = ?8
+             WHERE run_id = ?1 AND agent_instance_id = ?2 AND model_name = ?3
+               AND report_status = ?9",
             params![
                 scope.run_id,
                 scope.agent_instance_id,
+                model,
                 u.prompt_tokens,
                 u.completion_tokens,
                 u.reasoning_tokens,
                 u.total_tokens,
-                model,
-                totals,
                 now,
                 REPORT_STATUS_ACCUMULATING,
             ],
@@ -539,13 +714,15 @@ pub fn record_round(
         conn.execute(
             "UPDATE usage_accum SET
                llm_rounds = llm_rounds + 1,
-               period_start = COALESCE(period_start, ?3),
-               period_end = ?3,
-               updated_at = ?3
-             WHERE run_id = ?1 AND agent_instance_id = ?2 AND report_status = ?4",
+               period_start = COALESCE(period_start, ?4),
+               period_end = ?4,
+               updated_at = ?4
+             WHERE run_id = ?1 AND agent_instance_id = ?2 AND model_name = ?3
+               AND report_status = ?5",
             params![
                 scope.run_id,
                 scope.agent_instance_id,
+                model,
                 now,
                 REPORT_STATUS_ACCUMULATING,
             ],
@@ -566,7 +743,7 @@ pub fn finalize_run(run_id: &str, conversation_id: &str, history: &[ChatMessage]
     }
 
     let mut stmt = conn.prepare(
-        "SELECT agent_instance_id, agent_role_id
+        "SELECT DISTINCT agent_instance_id, agent_role_id
          FROM usage_accum
          WHERE run_id = ?1 AND report_status = ?2 AND total_tokens > 0",
     )?;
@@ -590,17 +767,29 @@ pub fn finalize_run(run_id: &str, conversation_id: &str, history: &[ChatMessage]
         conn.execute(
             "UPDATE usage_accum SET
                report_status = ?3,
-               history_archive_path = COALESCE(?4, history_archive_path),
-               updated_at = ?5
-             WHERE run_id = ?1 AND agent_instance_id = ?2",
+               updated_at = ?4
+             WHERE run_id = ?1 AND agent_instance_id = ?2 AND report_status = ?5",
             params![
                 run_id,
                 row.agent_instance_id,
                 REPORT_STATUS_PENDING,
-                archive_path,
                 now,
+                REPORT_STATUS_ACCUMULATING,
             ],
         )?;
+        if let Some(path) = archive_path {
+            conn.execute(
+                "UPDATE usage_accum SET history_archive_path = ?3
+                 WHERE run_id = ?1 AND agent_instance_id = ?2
+                   AND model_name = (
+                     SELECT model_name FROM usage_accum
+                     WHERE run_id = ?1 AND agent_instance_id = ?2
+                     ORDER BY total_tokens DESC, model_name ASC
+                     LIMIT 1
+                   )",
+                params![run_id, row.agent_instance_id, path],
+            )?;
+        }
     }
     Ok(())
 }
@@ -624,8 +813,8 @@ pub fn finalize_all_stale_accum() -> Result<usize> {
 fn read_unsent_reports(conn: &Connection) -> Result<Vec<ReportRow>> {
     let mut stmt = conn.prepare(
         "SELECT run_id, request_id, conversation_id, agent_instance_id, agent_role_id,
-                prompt_tokens, completion_tokens, thinking_tokens, total_tokens, llm_rounds,
-                model_name, model_totals_json, period_start, period_end, history_archive_path
+                model_name, prompt_tokens, completion_tokens, thinking_tokens, total_tokens,
+                llm_rounds, period_start, period_end, history_archive_path
          FROM usage_accum
          WHERE report_status = ?1
          ORDER BY created_at ASC",
@@ -637,16 +826,15 @@ fn read_unsent_reports(conn: &Connection) -> Result<Vec<ReportRow>> {
             conversation_id: row.get(2)?,
             agent_instance_id: row.get(3)?,
             agent_role_id: row.get(4)?,
-            prompt_tokens: row.get(5)?,
-            completion_tokens: row.get(6)?,
-            thinking_tokens: row.get(7)?,
-            total_tokens: row.get(8)?,
-            llm_rounds: row.get(9)?,
-            model_name: row.get(10)?,
-            model_totals_json: row.get(11)?,
-            period_start: row.get(12)?,
-            period_end: row.get(13)?,
-            history_archive_path: row.get(14)?,
+            model_name: row.get(5)?,
+            prompt_tokens: row.get(6)?,
+            completion_tokens: row.get(7)?,
+            thinking_tokens: row.get(8)?,
+            total_tokens: row.get(9)?,
+            llm_rounds: row.get(10)?,
+            period_start: row.get(11)?,
+            period_end: row.get(12)?,
+            history_archive_path: row.get(13)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -662,14 +850,11 @@ fn mark_report_sent(conn: &Connection, request_id: &str) -> Result<()> {
 }
 
 fn build_report_metadata(row: &ReportRow, platform_agent_id: Option<String>) -> serde_json::Value {
-    let model_totals: Option<serde_json::Value> = row
-        .model_totals_json
-        .as_deref()
-        .and_then(|s| serde_json::from_str(s).ok());
     let mut metadata = json!({
         "request_id": row.request_id,
         "conversation_id": row.conversation_id,
         "agent_instance_id": row.agent_instance_id,
+        "model_name": row.model_name,
         "prompt_tokens": row.prompt_tokens,
         "completion_tokens": row.completion_tokens,
         "thinking_tokens": row.thinking_tokens,
@@ -681,12 +866,6 @@ fn build_report_metadata(row: &ReportRow, platform_agent_id: Option<String>) -> 
     }
     if let Some(role) = row.agent_role_id.as_deref().filter(|role| !role.is_empty()) {
         metadata["agent_role_id"] = json!(role);
-    }
-    if let Some(model) = row.model_name.as_deref().filter(|model| !model.is_empty()) {
-        metadata["model_name"] = json!(model);
-    }
-    if let Some(totals) = model_totals.filter(|v| !v.is_null()) {
-        metadata["model_totals"] = totals;
     }
     if let Some(start) = row.period_start.as_deref().filter(|v| !v.is_empty()) {
         metadata["period_start"] = json!(start);
@@ -847,20 +1026,19 @@ mod tests {
     }
 
     #[test]
-    fn report_metadata_omits_null_optionals_and_includes_conversation_id() {
+    fn report_metadata_includes_model_and_token_fields() {
         let row = ReportRow {
             run_id: "run-1".into(),
-            request_id: "run:run-1:inst1".into(),
+            request_id: "run:run-1:inst1:qwen".into(),
             conversation_id: "conv1".into(),
             agent_instance_id: "inst1".into(),
             agent_role_id: None,
+            model_name: "qwen".into(),
             prompt_tokens: 1,
             completion_tokens: 2,
             thinking_tokens: 0,
             total_tokens: 3,
             llm_rounds: 2,
-            model_name: None,
-            model_totals_json: None,
             period_start: None,
             period_end: None,
             history_archive_path: None,
@@ -868,9 +1046,12 @@ mod tests {
         let metadata = build_report_metadata(&row, Some("agent-1".into()));
         assert_eq!(metadata["conversation_id"], "conv1");
         assert_eq!(metadata["platform_agent_id"], "agent-1");
+        assert_eq!(metadata["model_name"], "qwen");
+        assert_eq!(metadata["prompt_tokens"], 1);
+        assert_eq!(metadata["total_tokens"], 3);
         assert_eq!(metadata["assistant_rounds"], 2);
         assert!(metadata.get("agent_role_id").is_none());
-        assert!(metadata.get("model_name").is_none());
+        assert!(metadata.get("model_totals").is_none());
     }
 
     #[test]
@@ -880,12 +1061,12 @@ mod tests {
         let now = Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO usage_accum (
-               run_id, conversation_id, agent_instance_id, agent_role_id,
+               run_id, conversation_id, agent_instance_id, model_name, agent_role_id,
                prompt_tokens, completion_tokens, thinking_tokens, total_tokens, llm_rounds,
-               model_name, model_totals_json, period_start, period_end,
+               period_start, period_end,
                report_status, request_id, created_at, updated_at
-             ) VALUES (?1, 'conv', 'inst', 'coder', 10, 5, 0, 15, 2, 'qwen', '{\"qwen\":15}',
-                       ?2, ?2, 'accumulating', 'run:run-finalize:inst', ?2, ?2)",
+             ) VALUES (?1, 'conv', 'inst', 'qwen', 'coder', 10, 5, 0, 15, 2,
+                       ?2, ?2, 'accumulating', 'run:run-finalize:inst:qwen', ?2, ?2)",
             params![run_id, now],
         )
         .expect("seed row");
@@ -917,11 +1098,77 @@ mod tests {
     }
 
     #[test]
-    fn request_id_uses_run_id_and_instance() {
+    fn request_id_uses_run_id_instance_and_model() {
         assert_eq!(
-            request_id_for_run("abc-run", "inst-1"),
-            "run:abc-run:inst-1"
+            request_id_for_run("abc-run", "inst-1", "qwen"),
+            "run:abc-run:inst-1:qwen"
         );
+    }
+
+    #[test]
+    fn migrates_v2_model_totals_json_into_per_model_rows() {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        conn.execute_batch(
+            "CREATE TABLE usage_accum (
+               run_id TEXT NOT NULL,
+               conversation_id TEXT NOT NULL,
+               agent_instance_id TEXT NOT NULL,
+               agent_role_id TEXT,
+               prompt_tokens INTEGER NOT NULL DEFAULT 0,
+               completion_tokens INTEGER NOT NULL DEFAULT 0,
+               thinking_tokens INTEGER NOT NULL DEFAULT 0,
+               total_tokens INTEGER NOT NULL DEFAULT 0,
+               llm_rounds INTEGER NOT NULL DEFAULT 0,
+               model_name TEXT,
+               model_totals_json TEXT NOT NULL DEFAULT '{}',
+               period_start TEXT,
+               period_end TEXT,
+               report_status TEXT NOT NULL DEFAULT 'accumulating',
+               request_id TEXT NOT NULL,
+               history_archive_path TEXT,
+               created_at TEXT NOT NULL,
+               updated_at TEXT NOT NULL,
+               PRIMARY KEY (run_id, agent_instance_id)
+             );",
+        )
+        .expect("v2 schema");
+        let now = Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO usage_accum (
+               run_id, conversation_id, agent_instance_id, agent_role_id,
+               prompt_tokens, completion_tokens, thinking_tokens, total_tokens, llm_rounds,
+               model_name, model_totals_json, period_start, period_end,
+               report_status, request_id, created_at, updated_at
+             ) VALUES ('run-v3', 'conv', 'inst', 'coder', 100, 50, 10, 150, 3, 'qwen',
+                       '{\"qwen\":100,\"gpt-4\":50}', ?1, ?1, 'accumulating',
+                       'run:run-v3:inst', ?1, ?1)",
+            params![now],
+        )
+        .expect("seed v2 row");
+
+        migrate_usage_accum_v3(&conn).expect("v3 migrate");
+
+        assert!(
+            !table_has_column(&conn, "usage_accum", "model_totals_json").expect("column check")
+        );
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(1) FROM usage_accum WHERE run_id = 'run-v3'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("count");
+        assert_eq!(count, 2);
+
+        let qwen_total: u32 = conn
+            .query_row(
+                "SELECT total_tokens FROM usage_accum
+                 WHERE run_id = 'run-v3' AND model_name = 'qwen'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("qwen");
+        assert_eq!(qwen_total, 100);
     }
 
     #[test]
@@ -930,11 +1177,11 @@ mod tests {
         let now = Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO usage_accum (
-               run_id, conversation_id, agent_instance_id, agent_role_id,
+               run_id, conversation_id, agent_instance_id, model_name, agent_role_id,
                prompt_tokens, completion_tokens, thinking_tokens, total_tokens, llm_rounds,
-               model_name, model_totals_json, report_status, request_id, created_at, updated_at
-             ) VALUES ('stale-run', 'conv', 'inst', 'coder', 1, 1, 0, 2, 1, NULL, '{}',
-                       'accumulating', 'run:stale-run:inst', ?1, ?1)",
+               report_status, request_id, created_at, updated_at
+             ) VALUES ('stale-run', 'conv', 'inst', 'unknown', 'coder', 1, 1, 0, 2, 1,
+                       'accumulating', 'run:stale-run:inst:unknown', ?1, ?1)",
             params![now],
         )
         .expect("insert");

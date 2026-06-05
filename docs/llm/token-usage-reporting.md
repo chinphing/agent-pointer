@@ -8,13 +8,13 @@
 | `run_id` | UUID per `run_chat`; scopes finalize to one run |
 | `agent_instance_id` | New UUID per lead / sub-agent / supervisor segment; stats + logs + dedup |
 | `agent_role_id` | Template id (`coder`, `explore`, `supervisor`) for admin filters |
-| `request_id` | `run:{run_id}:{agent_instance_id}`; server dedup key |
+| `request_id` | `run:{run_id}:{agent_instance_id}:{model_name}`; server dedup key |
 
 Runtime logs on LLM / sub-agent paths use `run_id`, `agent_instance_id`, and `agent_role_id`, not the platform agent UUID.
 
 ## Client storage (pointer-app)
 
-All usage lives in SQLite table `usage_accum`. Each row is keyed by `(run_id, agent_instance_id)` and tracks one agent instance for one `run_chat`.
+All usage lives in SQLite table `usage_accum`. Each row is keyed by `(run_id, agent_instance_id, model_name)` and tracks one model's token usage for one agent instance in one `run_chat`. When a run uses multiple models, there is one row per model with full token breakdown (`prompt_tokens`, `completion_tokens`, `thinking_tokens`, `total_tokens`, `llm_rounds`).
 
 `report_status` flow:
 
@@ -33,8 +33,8 @@ On app startup or exit, `finalize_all_stale_accum` promotes interrupted `accumul
 ## Client upload
 
 - `POST /auth/partner/token-usage` as `multipart/form-data`
-- `metadata`: JSON (tokens, `model_totals`, ids, `request_id`, `period_*`)
-- Per-round `model_totals` keys match the chat/completions `model` field actually sent (stream `Finish` / `chat_once` output). Top-level `model_name` is the highest-token model in `model_totals` when finalizing the run.
+- `metadata`: JSON (`model_name`, per-model token fields, ids, `request_id`, `period_*`)
+- One upload per `(run_id, agent_instance_id, model_name)` row. `model_name` matches the chat/completions `model` field actually sent (stream `Finish` / `chat_once` output).
 - `history_archive`: zip (`conversation_snapshot.json` inside)
 
 Snapshots exclude `system` messages, redact images to `[image:n]` / `[computer_screen]`, and include only messages tagged with the reporting `agent_instance_id` plus the preceding user turn.

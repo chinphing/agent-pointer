@@ -40,8 +40,11 @@ fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
     let workspace_cfg = manifest_dir.join("../../.pointer-build.toml");
     let local_cfg = manifest_dir.join(".pointer-build.toml");
+    let tauri_conf = manifest_dir.join("../../src-tauri/tauri.conf.json");
     println!("cargo:rerun-if-changed={}", workspace_cfg.display());
     println!("cargo:rerun-if-changed={}", local_cfg.display());
+    println!("cargo:rerun-if-changed={}", tauri_conf.display());
+    emit_app_version_from_tauri_conf(&tauri_conf);
 
     let Some(config_path) = pick_config_path(&workspace_cfg, &local_cfg) else {
         return;
@@ -52,6 +55,21 @@ fn main() {
             "cargo:warning=pointer-core: failed to read {}: {e}",
             config_path.display()
         );
+    }
+}
+
+fn emit_app_version_from_tauri_conf(path: &Path) {
+    let Ok(raw) = fs::read_to_string(path) else {
+        return;
+    };
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return;
+    };
+    if let Some(version) = parsed.get("version").and_then(|v| v.as_str()) {
+        let trimmed = version.trim();
+        if !trimmed.is_empty() {
+            println!("cargo:rustc-env=POINTER_APP_VERSION={trimmed}");
+        }
     }
 }
 

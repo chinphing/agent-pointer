@@ -267,12 +267,14 @@ impl PlatformAuthManager {
         state: &str,
         redirect_uri: &str,
     ) -> Result<(PlatformSession, PlatformLoginCredentials)> {
+        let client_env = crate::client_env::collect_login_client_env();
         let body = serde_json::json!({
             "grant_type": "authorization_code",
             "client_id": Self::client_id(),
             "code": code,
             "code_verifier": code_verifier,
             "redirect_uri": redirect_uri,
+            "client_env": client_env,
         });
         let _guard = self.refresh_lock.lock().await;
         let (session, creds) = self.post_token(body).await?;

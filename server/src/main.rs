@@ -103,6 +103,8 @@ async fn main() -> anyhow::Result<()> {
             "/api/conversations",
             get(load_conversations).put(save_conversations),
         )
+        .route("/api/experiences/pinned", get(list_pinned_experiences))
+        .route("/api/experiences/:slug", get(get_experience_detail))
         .route("/api/chat", post(send_chat))
         .route("/api/chat/:conversation_id/cancel", post(cancel_chat))
         .route(
@@ -429,6 +431,26 @@ async fn chat_stream(
             .interval(Duration::from_secs(15))
             .text("keep-alive"),
     )
+}
+
+#[derive(Deserialize)]
+struct PinnedExperiencesQuery {
+    limit: Option<u32>,
+}
+
+async fn list_pinned_experiences(
+    Query(q): Query<PinnedExperiencesQuery>,
+) -> Result<Json<Vec<pointer_core::experiences::ExperienceListItem>>, ApiError> {
+    let n = q.limit.unwrap_or(3).max(1).min(10) as usize;
+    let rows = pointer_core::experiences::fetch_pinned_experiences(n).await?;
+    Ok(Json(rows))
+}
+
+async fn get_experience_detail(
+    Path(slug): Path<String>,
+) -> Result<Json<pointer_core::experiences::ExperienceDetail>, ApiError> {
+    let detail = pointer_core::experiences::fetch_experience_detail(&slug).await?;
+    Ok(Json(detail))
 }
 
 struct ApiError(anyhow::Error);

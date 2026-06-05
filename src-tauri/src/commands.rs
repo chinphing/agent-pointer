@@ -256,3 +256,18 @@ pub fn load_conversations() -> Result<Vec<Conversation>, String> {
 pub fn save_conversations(conversations: Vec<Conversation>) -> Result<(), String> {
     storage::save_conversations(&conversations).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn list_pinned_experiences(limit: Option<u32>) -> Result<Vec<pointer_core::experiences::ExperienceListItem>, String> {
+    let n = limit.unwrap_or(3).max(1).min(10) as usize;
+    pointer_core::experiences::fetch_pinned_experiences(n)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_experience_detail(slug: String) -> Result<pointer_core::experiences::ExperienceDetail, String> {
+    pointer_core::experiences::fetch_experience_detail(&slug)
+        .await
+        .map_err(|e| e.to_string())
+}

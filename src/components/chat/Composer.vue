@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { ChevronDown, FolderOpen, Send, Square, X } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
@@ -29,6 +30,7 @@ import WorkspaceRequiredModal from './WorkspaceRequiredModal.vue'
 const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 const settings = useSettingsStore()
+const { composerPrefill } = storeToRefs(chat)
 
 const tokenQuotaBlocked = computed(() => platformAuth.tokenQuotaExhausted)
 const needsPlatformLogin = computed(() => isTauriRuntime() && !platformAuth.session.logged_in)
@@ -334,6 +336,16 @@ function handleClickOutside(e: MouseEvent) {
     }
   }
 }
+
+watch(composerPrefill, (draft) => {
+  if (!draft?.trim()) return
+  text.value = draft
+  chat.consumeComposerPrefill()
+  nextTick(() => {
+    autoResize()
+    textareaRef.value?.focus()
+  })
+})
 
 onMounted(() => {
   loadAgentsList()

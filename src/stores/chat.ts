@@ -132,6 +132,8 @@ export const useChatStore = defineStore('chat', () => {
   /** Ephemeral banner (e.g. computer screenshot done); not persisted. */
   const uiToast = ref<{ message: string; level: 'success' | 'warning' | 'error' } | null>(null)
   const taskBoards = ref<Record<string, ConversationTaskBoardState>>({})
+  /** One-shot composer draft from home experience suggestions. */
+  const composerPrefill = ref<string | null>(null)
   let uiToastTimer: ReturnType<typeof setTimeout> | null = null
   let unlisten: (() => void) | null = null
   let saveTimer: number | null = null
@@ -444,6 +446,16 @@ export const useChatStore = defineStore('chat', () => {
     const entry = taskBoards.value[convId]
     if (!entry) return {}
     return entry.childrenByParentStoreKey[parentStoreKey] ?? {}
+  }
+
+  function prefillComposer(text: string) {
+    composerPrefill.value = text
+  }
+
+  function consumeComposerPrefill(): string | null {
+    const v = composerPrefill.value
+    composerPrefill.value = null
+    return v
   }
 
   function showUiToast(message: string, level: 'success' | 'warning' | 'error') {
@@ -1089,6 +1101,7 @@ export const useChatStore = defineStore('chat', () => {
     refreshTaskBoard, taskBoardForConversation, parentBoardsBoundToMessage,
     childBoardsForParent,
     setConversationWorkspace, applyPersistedComposerDefaults, showUiToast,
-    clearPlatformLoginErrorMessages
+    clearPlatformLoginErrorMessages,
+    composerPrefill, prefillComposer, consumeComposerPrefill
   }
 })

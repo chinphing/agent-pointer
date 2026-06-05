@@ -168,6 +168,8 @@ pub fn run() {
             commands::set_computer_conversation_monitor,
             commands::load_conversations,
             commands::save_conversations,
+            commands::list_pinned_experiences,
+            commands::get_experience_detail,
             platform_commands::get_platform_session,
             platform_commands::open_platform_login,
             platform_commands::cancel_platform_login,

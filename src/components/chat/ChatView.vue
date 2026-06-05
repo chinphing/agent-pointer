@@ -2,10 +2,10 @@
 import { computed, defineAsyncComponent, defineComponent, h } from 'vue'
 import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
+import ExperienceSuggestions from './ExperienceSuggestions.vue'
 import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
-import { useLeadAgentUi } from '../../composables/useAgentUi'
 
 import { isTauriRuntime } from '../../lib/runtime'
 import { Sparkles } from 'lucide-vue-next'
@@ -41,7 +41,6 @@ const MessageList = defineAsyncComponent({
 const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 const { uiToast } = storeToRefs(chat)
-const { leadUi } = useLeadAgentUi()
 const empty = computed(() => !chat.current || chat.current.messages.length === 0)
 const needsPlatformLogin = computed(() => isTauriRuntime() && !platformAuth.session.logged_in)
 
@@ -84,23 +83,32 @@ const toastClass = computed(() => {
       </div>
     </Transition>
     <div class="flex-1 overflow-hidden relative">
-      <div v-if="empty" class="h-full flex flex-col items-center justify-center px-8 text-center">
-        <div class="w-14 h-14 rounded-2xl bg-accent/15 border border-border flex items-center justify-center mb-4">
-          <Sparkles class="w-7 h-7 text-accent" />
-        </div>
-        <h1 class="text-2xl font-bold brand-text mb-1.5">你好，欢迎来到 Pointer</h1>
-        <p class="text-muted max-w-md text-sm leading-6">
-          你的 AI 智能助手，可以操控电脑、编写代码。
-        </p>
-        <div v-if="needsPlatformLogin" class="mt-6 flex w-full max-w-sm flex-col items-center">
-          <div class="mb-5 h-px w-full bg-border" />
-          <PlatformLoginActions
-            variant="hero"
-            :loading="platformAuth.loading"
-            :error="platformAuth.error"
-            @login="onPlatformLogin"
-            @cancel="onPlatformLoginCancel"
-          />
+      <div v-if="empty" class="chat-scroll-area h-full overflow-y-auto chat-shell pb-2">
+        <div class="chat-column flex min-h-full items-center justify-center py-6">
+          <div class="flex w-full flex-col items-center text-center">
+            <div class="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-border/80 bg-accent/10">
+              <Sparkles class="h-5 w-5 text-accent" />
+            </div>
+            <h1 class="brand-text text-lg font-semibold tracking-tight md:text-xl">你好，欢迎来到 Pointer</h1>
+            <p class="mt-1.5 text-[13px] leading-relaxed text-muted">
+              你的 AI 智能助手，可以操控电脑、编写代码。
+            </p>
+
+            <div class="mt-8 w-full">
+              <ExperienceSuggestions />
+            </div>
+
+            <div v-if="needsPlatformLogin" class="mt-8 flex w-full max-w-sm flex-col items-center">
+              <div class="mb-4 h-px w-full bg-border" />
+              <PlatformLoginActions
+                variant="hero"
+                :loading="platformAuth.loading"
+                :error="platformAuth.error"
+                @login="onPlatformLogin"
+                @cancel="onPlatformLoginCancel"
+              />
+            </div>
+          </div>
         </div>
       </div>
 

@@ -181,14 +181,24 @@ async function loginPlatformAccount() {
   }
 }
 
-const workers = computed(() =>
-  sortComposerAgents(
-    agents.value.filter(a => {
-      if (a.role !== 'worker' || !a.enabled) return false
-      return resolveAgentUi(a, s.settings).userSelectable
-    })
-  )
+const enabledWorkers = computed(() =>
+  sortComposerAgents(agents.value.filter(a => a.role === 'worker' && a.enabled))
 )
+
+/** Lead agents the user may pick in the chat composer (settings list shows all enabled workers). */
+const selectableWorkers = computed(() =>
+  enabledWorkers.value.filter(a => resolveAgentUi(a, s.settings).userSelectable)
+)
+
+function isLeadAgentSelectable(agent: AgentDef): boolean {
+  return resolveAgentUi(agent, s.settings).userSelectable
+}
+
+function selectLeadWorker(agent: AgentDef) {
+  if (!isLeadAgentSelectable(agent)) return
+  agentMode.value = 'single'
+  leadAgentId.value = agent.id
+}
 
 const supervisorAgent = computed(
   () =>
@@ -203,7 +213,7 @@ const activeUiAgentId = computed(() =>
 const activeUiAgentLabel = computed(() => {
   const id = activeUiAgentId.value
   if (id === 'supervisor') return composerAgentLabel(supervisorAgent.value, s.settings)
-  const agent = workers.value.find(w => w.id === id) ?? workers.value.find(w => w.id === DEFAULT_LEAD_AGENT_ID)
+  const agent = selectableWorkers.value.find(w => w.id === id) ?? selectableWorkers.value.find(w => w.id === DEFAULT_LEAD_AGENT_ID)
   return composerAgentLabel(agent, s.settings)
 })
 
@@ -212,7 +222,7 @@ const effectiveDisplayUi = computed(() => {
   const agent =
     agentMode.value === 'supervisor'
       ? supervisorAgent.value
-      : workers.value.find(w => w.id === id) ?? workers.value.find(w => w.id === DEFAULT_LEAD_AGENT_ID)
+      : selectableWorkers.value.find(w => w.id === id) ?? selectableWorkers.value.find(w => w.id === DEFAULT_LEAD_AGENT_ID)
   return resolveAgentUi(agent, {
     agentUiOverrides: {
       ...(s.settings.agentUiOverrides ?? {}),
@@ -813,11 +823,14 @@ async function saveFromFooter() {
 
               <!-- Worker Agents -->
               <div
-                v-for="w in workers"
+                v-for="w in enabledWorkers"
                 :key="w.id"
-                class="rounded-xl border p-3 cursor-pointer transition-all"
-                :class="isLeadWorkerSelected(w.id) ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))] hover:border-border'"
-                @click="agentMode = 'single'; leadAgentId = w.id"
+                class="rounded-xl border p-3 transition-all"
+                :class="[
+                  isLeadWorkerSelected(w.id) ? 'border-accent/40 bg-accent/5' : 'border-border bg-[hsl(var(--card-elevated))]',
+                  isLeadAgentSelectable(w) ? 'cursor-pointer hover:border-border' : ''
+                ]"
+                @click="selectLeadWorker(w)"
               >
                 <div class="flex items-start gap-3">
                   <!-- Icon -->
@@ -829,7 +842,8 @@ async function saveFromFooter() {
                     <div class="flex items-center gap-2">
                       <span class="text-sm font-medium text-foreground">{{ composerAgentLabel(w, s.settings) }}</span>
                       <span class="px-1.5 py-0.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[10px] text-muted font-mono">{{ w.name }}</span>
-                      <span v-if="isLeadWorkerSelected(w.id)" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">已选择</span>
+                      <span v-if="!isLeadAgentSelectable(w)" class="px-1.5 py-0.5 rounded border border-border bg-[hsl(var(--card-elevated))] text-[10px] text-muted">子智能体</span>
+                      <span v-else-if="isLeadWorkerSelected(w.id)" class="px-1.5 py-0.5 rounded bg-accent/15 text-[10px] font-medium text-accent">已选择</span>
                     </div>
                     <p class="mt-0.5 text-[11px] text-muted">{{ w.description || '通用智能体' }}</p>
 

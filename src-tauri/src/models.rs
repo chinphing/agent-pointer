@@ -94,8 +94,8 @@ pub struct ModelSettings {
     pub lead_agent_id: String,
     #[serde(default, rename = "contextCompressionEnabled")]
     pub context_compression_enabled: bool,
-    #[serde(default, rename = "contextBudgetChars")]
-    pub context_budget_chars: u32,
+    #[serde(default, rename = "contextBudgetTokens", alias = "contextBudgetChars")]
+    pub context_budget_tokens: u32,
     #[serde(default, rename = "contextKeepRecentUserTurns")]
     pub context_keep_recent_user_turns: u32,
     #[serde(default, rename = "contextSummaryMaxTokens")]
@@ -160,7 +160,7 @@ impl Default for ModelSettings {
             workspace_root: String::new(),
             lead_agent_id: "computer".into(),
             context_compression_enabled: true,
-            context_budget_chars: 120_000,
+            context_budget_tokens: 120_000,
             context_keep_recent_user_turns: 6,
             context_summary_max_tokens: 2048,
             max_tool_rounds: 100,

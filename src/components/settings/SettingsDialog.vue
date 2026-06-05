@@ -84,7 +84,7 @@ const toolApprovalMode = ref<'auto' | 'manual'>('auto')
 const agentMode = ref<'single' | 'supervisor'>('single')
 const leadAgentId = ref('')
 const contextCompressionEnabled = ref(true)
-const contextBudgetChars = ref(120_000)
+const contextBudgetTokens = ref(120_000)
 const contextKeepRecentUserTurns = ref(6)
 const contextSummaryMaxTokens = ref(2048)
 const maxToolRounds = ref(100)
@@ -299,7 +299,10 @@ onMounted(() => {
       : (s.settings.agentMode || 'single')
   leadAgentId.value = s.settings.leadAgentId || DEFAULT_LEAD_AGENT_ID
   contextCompressionEnabled.value = s.settings.contextCompressionEnabled !== false
-  contextBudgetChars.value = s.settings.contextBudgetChars ?? 120_000
+  contextBudgetTokens.value =
+    s.settings.contextBudgetTokens ??
+    (s.settings as { contextBudgetChars?: number }).contextBudgetChars ??
+    120_000
   contextKeepRecentUserTurns.value = s.settings.contextKeepRecentUserTurns ?? 6
   contextSummaryMaxTokens.value = s.settings.contextSummaryMaxTokens ?? 2048
   maxToolRounds.value = s.settings.maxToolRounds ?? 100
@@ -486,7 +489,7 @@ async function saveFromFooter() {
         computerInitialTier: computerInitialTier.value,
         captchaSliderOffsetPx: Number(captchaSliderOffsetPx.value) || 0,
         contextCompressionEnabled: contextCompressionEnabled.value,
-        contextBudgetChars: Number(contextBudgetChars.value),
+        contextBudgetTokens: Number(contextBudgetTokens.value),
         contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
         contextSummaryMaxTokens: Number(contextSummaryMaxTokens.value),
         maxToolRounds: Number(maxToolRounds.value),
@@ -703,8 +706,8 @@ async function saveFromFooter() {
 
               <div v-if="contextCompressionEnabled" class="grid grid-cols-2 gap-3 pt-2 border-t border-border">
                 <div>
-                  <label class="block text-[12px] text-muted mb-1.5">触发预算（字符）</label>
-                  <input v-model.number="contextBudgetChars" type="number" min="8000" max="2000000" step="1000" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
+                  <label class="block text-[12px] text-muted mb-1.5">触发预算（tokens）</label>
+                  <input v-model.number="contextBudgetTokens" type="number" min="4096" max="2000000" step="1000" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
                 </div>
                 <div>
                   <label class="block text-[12px] text-muted mb-1.5">保留最近用户轮数</label>

@@ -12,7 +12,7 @@ const SUPPORTED_PLATFORM_KEYS: &[(&str, &str)] = &[
     ("temperature", "TEMPERATURE"),
     ("max_tokens", "MAX_TOKENS"),
     ("context_compression_enabled", "CONTEXT_COMPRESSION_ENABLED"),
-    ("context_budget_chars", "CONTEXT_BUDGET_CHARS"),
+    ("context_budget_tokens", "CONTEXT_BUDGET_TOKENS"),
     ("context_keep_recent_user_turns", "CONTEXT_KEEP_RECENT_USER_TURNS"),
     ("context_summary_max_tokens", "CONTEXT_SUMMARY_MAX_TOKENS"),
     ("max_tool_rounds", "MAX_TOOL_ROUNDS"),

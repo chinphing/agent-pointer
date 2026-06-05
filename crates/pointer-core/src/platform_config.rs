@@ -100,7 +100,7 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         workspace_root: s.workspace_root.clone(),
         lead_agent_id: s.lead_agent_id.clone(),
         context_compression_enabled: s.context_compression_enabled,
-        context_budget_chars: s.context_budget_chars,
+        context_budget_tokens: s.context_budget_tokens,
         context_keep_recent_user_turns: s.context_keep_recent_user_turns,
         context_summary_max_tokens: s.context_summary_max_tokens,
         max_tool_rounds: s.max_tool_rounds,
@@ -290,7 +290,7 @@ mod tests {
         platform.computer_human_like = true;
         platform.computer_initial_tier = "intermediate".into();
         platform.context_compression_enabled = false;
-        platform.context_budget_chars = 99_000;
+        platform.context_budget_tokens = 99_000;
         platform.max_tool_rounds = 42;
         platform.agent_mode = "single".into();
         platform.lead_agent_id = "coder".into();
@@ -335,7 +335,7 @@ mod tests {
         assert!(loaded.computer_human_like);
         assert_eq!(loaded.computer_initial_tier, "intermediate");
         assert!(!loaded.context_compression_enabled);
-        assert_eq!(loaded.context_budget_chars, 99_000);
+        assert_eq!(loaded.context_budget_tokens, 99_000);
         assert_eq!(loaded.max_tool_rounds, 42);
         assert_eq!(loaded.agent_mode, "single");
         assert_eq!(loaded.lead_agent_id, "coder");

@@ -29,7 +29,7 @@ web_search_model = ""
 
 # context/tool limits
 context_compression_enabled = true
-context_budget_chars = 100000
+context_budget_tokens = 100000
 context_keep_recent_user_turns = 3
 context_summary_max_tokens = 1024
 max_tool_rounds = 200

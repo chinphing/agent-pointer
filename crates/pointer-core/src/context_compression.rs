@@ -1,4 +1,4 @@
-//! When conversation history grows past a rough character budget, replace an older prefix
+//! When conversation history grows past an estimated token budget, replace an older prefix
 //! with a single user message containing an LLM-generated summary (see settings).
 
 use crate::agent_instance_scope::AgentInstanceScope;
@@ -160,22 +160,75 @@ fn build_compression_info(
     }
 }
 
-pub fn estimate_message_payload_chars(msgs: &[ChatMessage]) -> usize {
+/// Runes that typically encode closer to ~1.5 chars/token for Qwen (CJK, kana, fullwidth).
+fn is_cjk_dense_rune(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{3000}'..='\u{303F}' // CJK symbols / punctuation
+            | '\u{3400}'..='\u{4DBF}' // CJK Unified Ext A
+            | '\u{4E00}'..='\u{9FFF}' // CJK Unified
+            | '\u{3040}'..='\u{309F}' // Hiragana
+            | '\u{30A0}'..='\u{30FF}' // Katakana
+            | '\u{FF00}'..='\u{FFEF}' // Halfwidth / Fullwidth forms
+    )
+}
+
+/// Heuristic text token estimate (matches `scripts/compare_prompt_sizes.py` / `est_tokens`).
+/// CJK-dense runes ≈ 1.5 chars/token; other runes ≈ 4 chars/token.
+pub fn estimate_text_tokens_heuristic(text: &str) -> usize {
+    if text.is_empty() {
+        return 0;
+    }
+    let mut cjk_dense = 0usize;
+    let mut other = 0usize;
+    for ch in text.chars() {
+        if is_cjk_dense_rune(ch) {
+            cjk_dense += 1;
+        } else {
+            other += 1;
+        }
+    }
+    (cjk_dense * 2 / 3) + (other / 4)
+}
+
+/// Qwen3.x 1080p full-frame vision tokens (see `scripts/count_prompt_tokens.py`).
+const EST_IMAGE_TOKENS_PER_SLOT: usize = 2042;
+
+/// UI `contextBudgetTokens` is stored as tokens; floor avoids accidental zero budget.
+pub fn normalize_context_budget_tokens(budget_tokens: u32) -> usize {
+    budget_tokens.max(4096) as usize
+}
+
+/// Rough payload size for compression gating (text heuristic + attached vision slots).
+pub fn estimate_message_payload_tokens(msgs: &[ChatMessage]) -> usize {
     let included = crate::message_context::filter_context_messages(msgs);
     let mut n = 0usize;
     for m in &included {
-        n += m.content.chars().count();
-        n += m.reasoning.as_deref().map(str::len).unwrap_or(0);
-        n += m.error_message.as_deref().map(str::len).unwrap_or(0);
+        n += estimate_text_tokens_heuristic(&m.content);
+        if let Some(r) = &m.reasoning {
+            n += estimate_text_tokens_heuristic(r);
+        }
+        if let Some(err) = &m.error_message {
+            n += estimate_text_tokens_heuristic(err);
+        }
         if let Some(tcs) = &m.tool_calls {
             for t in tcs {
-                n += t.id.len() + t.name.len() + t.arguments.len();
-                n += t.result.as_deref().map(str::len).unwrap_or(0);
-                n += t.error.as_deref().map(str::len).unwrap_or(0);
+                n += estimate_text_tokens_heuristic(&t.id);
+                n += estimate_text_tokens_heuristic(&t.name);
+                n += estimate_text_tokens_heuristic(&t.arguments);
+                if let Some(res) = &t.result {
+                    n += estimate_text_tokens_heuristic(res);
+                }
+                if let Some(err) = &t.error {
+                    n += estimate_text_tokens_heuristic(err);
+                }
             }
         }
         if let Some(id) = &m.tool_call_id {
-            n += id.len();
+            n += estimate_text_tokens_heuristic(id);
+        }
+        if let Some(imgs) = &m.images_base64 {
+            n += imgs.len() * EST_IMAGE_TOKENS_PER_SLOT;
         }
     }
     n
@@ -397,16 +450,16 @@ async fn compress_history_inner(
         return false;
     }
     let keep_users = settings.context_keep_recent_user_turns.max(1);
-    let budget = settings.context_budget_chars.max(4096);
+    let budget_tokens = normalize_context_budget_tokens(settings.context_budget_tokens);
 
-    let est = estimate_message_payload_chars(history);
-    if !force_ignore_char_budget && est <= budget as usize {
+    let est_tokens = estimate_message_payload_tokens(history);
+    if !force_ignore_char_budget && est_tokens <= budget_tokens {
         log::info!(
-            "context_compress: skip_under_budget conversation_id={} messages={} est_chars={} budget_chars={} wall_ms={}",
+            "context_compress: skip_under_budget conversation_id={} messages={} est_tokens={} budget_tokens={} wall_ms={}",
             conversation_id,
             messages_before,
-            est,
-            budget,
+            est_tokens,
+            budget_tokens,
             wall.elapsed().as_millis()
         );
         return false;
@@ -415,10 +468,10 @@ async fn compress_history_inner(
     let split = find_split_at_user_boundary(history, keep_users as usize);
     if split == 0 {
         log::info!(
-            "context_compress: skip_no_user_boundary conversation_id={} messages={} est_chars={} wall_ms={}",
+            "context_compress: skip_no_user_boundary conversation_id={} messages={} est_tokens={} wall_ms={}",
             conversation_id,
             messages_before,
-            est,
+            est_tokens,
             wall.elapsed().as_millis()
         );
         return false;
@@ -581,15 +634,15 @@ async fn compress_history_inner(
     );
 
     log::info!(
-        "context_compress: applied conversation_id={} scope={:?} reason={} messages_before={} messages_after={} split_at={} est_chars={} budget_chars={} format_prefix_ms={} summary_llm_ms={} wall_ms={}",
+        "context_compress: applied conversation_id={} scope={:?} reason={} messages_before={} messages_after={} split_at={} est_tokens={} budget_tokens={} format_prefix_ms={} summary_llm_ms={} wall_ms={}",
         conversation_id,
         ui.scope,
         reason,
         messages_before,
         messages_after,
         split,
-        est,
-        budget,
+        est_tokens,
+        budget_tokens,
         format_prefix_ms,
         t_llm.elapsed().as_millis(),
         wall.elapsed().as_millis()
@@ -742,6 +795,57 @@ mod tests {
     #[test]
     fn grep_tool_output_limit_exceeds_file_read() {
         assert!(tool_output_snippet_limit("file_grep") > tool_output_snippet_limit("file_read"));
+    }
+
+    #[test]
+    fn text_token_heuristic_matches_python_est_tokens() {
+        assert_eq!(estimate_text_tokens_heuristic(""), 0);
+        // 4000 ASCII → 1000 tokens (other/4)
+        assert_eq!(estimate_text_tokens_heuristic(&"x".repeat(4000)), 1000);
+        // 1500 CJK unified → 1000 tokens (cjk/1.5)
+        assert_eq!(estimate_text_tokens_heuristic(&"中".repeat(1500)), 1000);
+    }
+
+    #[test]
+    fn cjk_dense_includes_fullwidth_and_punctuation() {
+        assert!(is_cjk_dense_rune('中'));
+        assert!(is_cjk_dense_rune('。'));
+        assert!(is_cjk_dense_rune('Ａ'));
+        assert!(!is_cjk_dense_rune('A'));
+    }
+
+    #[test]
+    fn normalize_context_budget_tokens_floors_small_values() {
+        assert_eq!(normalize_context_budget_tokens(120_000), 120_000);
+        assert_eq!(normalize_context_budget_tokens(1000), 4096);
+    }
+
+    #[test]
+    fn payload_tokens_include_vision_slots() {
+        let mut m = u("screen");
+        m.images_base64 = Some(vec!["aaa".into(), "bbb".into()]);
+        let t = estimate_message_payload_tokens(&[m]);
+        assert!(t >= EST_IMAGE_TOKENS_PER_SLOT * 2);
+    }
+
+    #[test]
+    fn token_estimate_triggers_against_token_budget_for_dense_ascii() {
+        let long = "word ".repeat(25_000); // ~31_250 est tokens
+        let msgs = vec![u(&long)];
+        let est = estimate_message_payload_tokens(&msgs);
+        assert!(est > normalize_context_budget_tokens(30_000));
+        assert!(est < 125_000);
+    }
+
+    #[test]
+    fn cjk_history_counts_higher_than_ascii_char_ratio() {
+        let ascii = "a".repeat(6000);
+        let cjk = "中".repeat(6000);
+        let ascii_t = estimate_text_tokens_heuristic(&ascii);
+        let cjk_t = estimate_text_tokens_heuristic(&cjk);
+        assert_eq!(ascii_t, 1500);
+        assert_eq!(cjk_t, 4000);
+        assert!(cjk_t > ascii_t);
     }
 
     #[test]

@@ -271,7 +271,7 @@ export interface PlatformSettings {
   workspaceRoot: string
   leadAgentId: string
   contextCompressionEnabled: boolean
-  contextBudgetChars: number
+  contextBudgetTokens: number
   contextKeepRecentUserTurns: number
   contextSummaryMaxTokens: number
   maxToolRounds: number
@@ -318,8 +318,8 @@ export interface ModelSettings {
   leadAgentId: string
   /** Summarize older turns when estimated context exceeds budget */
   contextCompressionEnabled: boolean
-  /** Rough character budget for messages; over this triggers compression when enabled */
-  contextBudgetChars: number
+  /** Estimated token budget for messages; over this triggers compression when enabled */
+  contextBudgetTokens: number
   /** Keep this many most recent user messages (and tail) verbatim */
   contextKeepRecentUserTurns: number
   /** Max tokens for the summarization API call */

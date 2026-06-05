@@ -41,7 +41,7 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   workspaceRoot: '',
   leadAgentId: 'computer',
   contextCompressionEnabled: true,
-  contextBudgetChars: 100_000,
+  contextBudgetTokens: 100_000,
   contextKeepRecentUserTurns: 3,
   contextSummaryMaxTokens: 1024,
   maxToolRounds: 200,
@@ -72,7 +72,8 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     workspaceRoot: s.workspaceRoot ?? '',
     leadAgentId: (s.leadAgentId ?? '').trim() || DEFAULT_LEAD_AGENT_ID,
     contextCompressionEnabled: s.contextCompressionEnabled ?? true,
-    contextBudgetChars: s.contextBudgetChars ?? 100_000,
+    contextBudgetTokens:
+      s.contextBudgetTokens ?? (s as { contextBudgetChars?: number }).contextBudgetChars ?? 100_000,
     contextKeepRecentUserTurns: s.contextKeepRecentUserTurns ?? 3,
     contextSummaryMaxTokens: s.contextSummaryMaxTokens ?? 1024,
     maxToolRounds: s.maxToolRounds ?? 200,

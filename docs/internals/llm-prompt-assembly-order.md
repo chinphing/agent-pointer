@@ -77,6 +77,18 @@
 
 官方说明：[千问 Context Cache](https://help.aliyun.com/zh/model-studio/context-cache)；应用细节见 [`qwen-context-cache.md`](../llm/qwen-context-cache.md)。
 
+### 1.5 Native OpenAI `tools[]`（与 system 附录分工）
+
+除 **§1.2 cacheable** 中的 **`## Tools`** 附录（按 `doc_source` dedup 一次）外，每轮还在 HTTP body 的 **`tools`** 字段发送 flat tool schema（`ToolRegistry::openai_tools`）。
+
+| 字段 | 策略 |
+|------|------|
+| `function.parameters` | 每个 flat tool 独立 JSON Schema（不变） |
+| `function.description` | 同一 `doc_source` 下多个 flat tool → **短描述**（含 tool 名 + 指向 system Tools appendix）；完整 `doc_markdown` **不再**在每个 flat tool 上重复 1024 字符 |
+| 唯一 doc 且正文 ≤240 字符 | 仍可直接使用完整 `doc_markdown` |
+
+参考：`crates/pointer-core/src/tools/mod.rs`（`openai_description_for_entry`）。Token 基线见 `scripts/count_prompt_tokens.py`。
+
 ---
 
 ## 2. 其他 API 路径（非上述 `stream_chat` 堆栈）

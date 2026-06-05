@@ -637,9 +637,13 @@ pub struct ModelSettings {
     /// When true, summarize older turns via a separate model call when estimated context exceeds budget.
     #[serde(default = "default_context_compression_enabled", rename = "contextCompressionEnabled")]
     pub context_compression_enabled: bool,
-    /// Rough character budget for serialized messages; exceeding triggers compression when enabled.
-    #[serde(default = "default_context_budget_chars", rename = "contextBudgetChars")]
-    pub context_budget_chars: u32,
+    /// Estimated token budget for included messages; compression runs when heuristic exceeds this.
+    #[serde(
+        default = "default_context_budget_tokens",
+        rename = "contextBudgetTokens",
+        alias = "contextBudgetChars"
+    )]
+    pub context_budget_tokens: u32,
     /// Keep this many most recent user messages (and everything after the cutoff) verbatim.
     #[serde(default = "default_context_keep_recent_user_turns", rename = "contextKeepRecentUserTurns")]
     pub context_keep_recent_user_turns: u32,
@@ -825,8 +829,8 @@ fn default_context_compression_enabled() -> bool {
     build_cfg_bool!("CONTEXT_COMPRESSION_ENABLED", true)
 }
 
-fn default_context_budget_chars() -> u32 {
-    build_cfg_u32!("CONTEXT_BUDGET_CHARS", 120_000)
+fn default_context_budget_tokens() -> u32 {
+    build_cfg_u32!("CONTEXT_BUDGET_TOKENS", 120_000)
 }
 
 fn default_context_keep_recent_user_turns() -> u32 {
@@ -945,7 +949,7 @@ impl Default for ModelSettings {
             workspace_root: default_workspace_root(),
             lead_agent_id: default_lead_agent_id(),
             context_compression_enabled: default_context_compression_enabled(),
-            context_budget_chars: default_context_budget_chars(),
+            context_budget_tokens: default_context_budget_tokens(),
             context_keep_recent_user_turns: default_context_keep_recent_user_turns(),
             context_summary_max_tokens: default_context_summary_max_tokens(),
             max_tool_rounds: default_max_tool_rounds(),
@@ -1053,8 +1057,12 @@ pub struct PlatformSettings {
     pub lead_agent_id: String,
     #[serde(default = "platform_default_context_compression_enabled", rename = "contextCompressionEnabled")]
     pub context_compression_enabled: bool,
-    #[serde(default = "platform_default_context_budget_chars", rename = "contextBudgetChars")]
-    pub context_budget_chars: u32,
+    #[serde(
+        default = "platform_default_context_budget_tokens",
+        rename = "contextBudgetTokens",
+        alias = "contextBudgetChars"
+    )]
+    pub context_budget_tokens: u32,
     #[serde(default = "platform_default_context_keep_recent_user_turns", rename = "contextKeepRecentUserTurns")]
     pub context_keep_recent_user_turns: u32,
     #[serde(default = "platform_default_context_summary_max_tokens", rename = "contextSummaryMaxTokens")]
@@ -1146,8 +1154,12 @@ pub struct PersistedLocalPlatformSettings {
         rename = "contextCompressionEnabled"
     )]
     pub context_compression_enabled: bool,
-    #[serde(default = "platform_default_context_budget_chars", rename = "contextBudgetChars")]
-    pub context_budget_chars: u32,
+    #[serde(
+        default = "platform_default_context_budget_tokens",
+        rename = "contextBudgetTokens",
+        alias = "contextBudgetChars"
+    )]
+    pub context_budget_tokens: u32,
     #[serde(
         default = "platform_default_context_keep_recent_user_turns",
         rename = "contextKeepRecentUserTurns"
@@ -1178,7 +1190,7 @@ impl PersistedLocalPlatformSettings {
             computer_human_like: platform.computer_human_like,
             computer_initial_tier: platform.computer_initial_tier.clone(),
             context_compression_enabled: platform.context_compression_enabled,
-            context_budget_chars: platform.context_budget_chars,
+            context_budget_tokens: platform.context_budget_tokens,
             context_keep_recent_user_turns: platform.context_keep_recent_user_turns,
             context_summary_max_tokens: platform.context_summary_max_tokens,
             max_tool_rounds: platform.max_tool_rounds,
@@ -1202,7 +1214,7 @@ impl PersistedLocalPlatformSettings {
         platform.computer_human_like = self.computer_human_like;
         platform.computer_initial_tier = self.computer_initial_tier.clone();
         platform.context_compression_enabled = self.context_compression_enabled;
-        platform.context_budget_chars = self.context_budget_chars;
+        platform.context_budget_tokens = self.context_budget_tokens;
         platform.context_keep_recent_user_turns = self.context_keep_recent_user_turns;
         platform.context_summary_max_tokens = self.context_summary_max_tokens;
         platform.max_tool_rounds = self.max_tool_rounds;
@@ -1304,7 +1316,7 @@ fn platform_default_context_compression_enabled() -> bool {
     true
 }
 
-fn platform_default_context_budget_chars() -> u32 {
+fn platform_default_context_budget_tokens() -> u32 {
     100_000
 }
 
@@ -1382,7 +1394,7 @@ impl Default for PlatformSettings {
             workspace_root: default_workspace_root(),
             lead_agent_id: default_lead_agent_id(),
             context_compression_enabled: platform_default_context_compression_enabled(),
-            context_budget_chars: platform_default_context_budget_chars(),
+            context_budget_tokens: platform_default_context_budget_tokens(),
             context_keep_recent_user_turns: platform_default_context_keep_recent_user_turns(),
             context_summary_max_tokens: platform_default_context_summary_max_tokens(),
             max_tool_rounds: platform_default_max_tool_rounds(),
@@ -1437,7 +1449,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         workspace_root: platform.workspace_root.clone(),
         lead_agent_id: platform.lead_agent_id.clone(),
         context_compression_enabled: platform.context_compression_enabled,
-        context_budget_chars: platform.context_budget_chars,
+        context_budget_tokens: platform.context_budget_tokens,
         context_keep_recent_user_turns: platform.context_keep_recent_user_turns,
         context_summary_max_tokens: platform.context_summary_max_tokens,
         max_tool_rounds: platform.max_tool_rounds,

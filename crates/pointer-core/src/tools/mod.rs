@@ -423,15 +423,29 @@ impl ToolRegistry {
     }
 
     pub fn openai_tools(&self, allow: &[String]) -> Vec<serde_json::Value> {
+        let g = self.inner.read();
+        let allowed: Vec<&ToolEntry> = g
+            .values()
+            .filter(|e| registry_tool_allowed(&e.def.name, allow))
+            .collect();
+
+        let mut source_counts: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::new();
+        for e in &allowed {
+            *source_counts.entry(e.doc_source).or_default() += 1;
+        }
+
         let mut out: Vec<serde_json::Value> = Vec::new();
-        for e in self.inner.read().values() {
-            if !registry_tool_allowed(&e.def.name, allow) {
-                continue;
-            }
+        for e in allowed {
+            let peers = *source_counts.get(e.doc_source).unwrap_or(&1);
             out.push(openai_tool_entry(
                 &e.def.name,
-                &openai_description_from_doc(&e.doc_markdown),
-                openai_parameters_from_doc_or_builtin(&e.def.name, &e.doc_markdown, e.schema.as_ref()),
+                &openai_description_for_entry(&e.def.name, &e.doc_markdown, peers),
+                openai_parameters_from_doc_or_builtin(
+                    &e.def.name,
+                    &e.doc_markdown,
+                    e.schema.as_ref(),
+                ),
             ));
         }
         out.sort_by(|a, b| {
@@ -481,17 +495,26 @@ pub fn validate_envelope_tool_batch(
     Ok(())
 }
 
-fn openai_description_from_doc(doc: &str) -> String {
+fn openai_compact_description(tool_name: &str) -> String {
+    format!(
+        "{tool_name}: parameters in schema; full usage in system Tools appendix."
+    )
+}
+
+/// OpenAI `function.description`: compact when doc is shared or long; appendix holds full docs.
+fn openai_description_for_entry(name: &str, doc: &str, peers_sharing_doc_source: usize) -> String {
+    if peers_sharing_doc_source > 1 {
+        return openai_compact_description(name);
+    }
     let t = doc.trim();
     if t.is_empty() {
-        return String::new();
+        return openai_compact_description(name);
     }
-    const MAX: usize = 1024;
-    let mut s: String = t.chars().take(MAX).collect();
-    if t.chars().count() > MAX {
-        s.push_str("…");
+    const SHORT_DOC_MAX: usize = 240;
+    if t.chars().count() <= SHORT_DOC_MAX {
+        return t.to_string();
     }
-    s
+    openai_compact_description(name)
 }
 
 fn openai_parameters_from_doc_or_builtin(name: &str, doc: &str, schema: Option<&serde_json::Value>) -> serde_json::Value {
@@ -749,6 +772,49 @@ mod openai_tools_schema_tests {
             .unwrap()
             .iter()
             .any(|v| v == "goal"));
+    }
+
+    #[test]
+    fn openai_tools_uses_compact_description_when_doc_source_shared() {
+        use super::ToolEntry;
+        use super::ToolRegistry;
+        use std::sync::Arc;
+
+        const MOUSE_DOC_SOURCE: &str = "agents/computer/tools/prompts/mouse.md";
+        let reg = ToolRegistry::new();
+        let shared = "### mouse family\nShared mouse doc body that would bloat API tools if repeated.";
+        for name in ["mouse_click_index", "mouse_click_at", "mouse_hover_index"] {
+            reg.register(
+                ToolEntry::new(
+                    name,
+                    MOUSE_DOC_SOURCE,
+                    "low",
+                    false,
+                    shared,
+                    Arc::new(|_| Ok(String::new())),
+                )
+                .with_schema(serde_json::json!({
+                    "type": "object",
+                    "properties": { "goal": { "type": "string" } },
+                    "required": ["goal"]
+                })),
+            );
+        }
+
+        let allow = vec!["mouse".into()];
+        let tools = reg.openai_tools(&allow);
+        assert_eq!(tools.len(), 3);
+        for t in &tools {
+            let desc = t["function"]["description"].as_str().unwrap();
+            assert!(!desc.contains("Shared mouse doc"));
+            assert!(desc.contains("system Tools appendix"));
+            assert!(desc.starts_with("mouse_"));
+        }
+        let descs: std::collections::HashSet<_> = tools
+            .iter()
+            .filter_map(|t| t["function"]["description"].as_str())
+            .collect();
+        assert_eq!(descs.len(), 3, "each flat tool keeps a distinct compact description");
     }
 
     #[test]

@@ -53,7 +53,10 @@ fn configure_macos_window_chrome(app: &tauri::App) {
     if let Err(e) = win.set_title_bar_style(TitleBarStyle::Overlay) {
         log::warn!("macOS window chrome: set_title_bar_style(Overlay) failed: {e}");
     }
-    if let Err(e) = win.set_title(" ") {
+    // Keep a non-empty NSWindow title so Force Quit / Activity Monitor show
+    // "Pointer Render" instead of the custom-protocol URL (tauri://localhost).
+    // hiddenTitle still hides this text in the title bar overlay.
+    if let Err(e) = win.set_title("Pointer Render") {
         log::warn!("macOS window chrome: set_title failed: {e}");
     }
 

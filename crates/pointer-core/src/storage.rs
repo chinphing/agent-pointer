@@ -124,8 +124,12 @@ struct StoredSettings {
     lead_agent_id: String,
     #[serde(default = "default_context_compression_enabled", rename = "contextCompressionEnabled")]
     context_compression_enabled: bool,
-    #[serde(default = "default_context_budget_chars", rename = "contextBudgetChars")]
-    context_budget_chars: u32,
+    #[serde(
+        default = "default_context_budget_tokens",
+        rename = "contextBudgetTokens",
+        alias = "contextBudgetChars"
+    )]
+    context_budget_tokens: u32,
     #[serde(default = "default_context_keep_recent_user_turns", rename = "contextKeepRecentUserTurns")]
     context_keep_recent_user_turns: u32,
     #[serde(default = "default_context_summary_max_tokens", rename = "contextSummaryMaxTokens")]
@@ -171,7 +175,7 @@ fn default_context_compression_enabled() -> bool {
     true
 }
 
-fn default_context_budget_chars() -> u32 {
+fn default_context_budget_tokens() -> u32 {
     120_000
 }
 
@@ -426,7 +430,7 @@ fn stored_settings_to_platform(stored: &StoredSettings) -> PlatformSettings {
         workspace_root: stored.workspace_root.clone(),
         lead_agent_id: stored.lead_agent_id.clone(),
         context_compression_enabled: stored.context_compression_enabled,
-        context_budget_chars: stored.context_budget_chars,
+        context_budget_tokens: stored.context_budget_tokens,
         context_keep_recent_user_turns: stored.context_keep_recent_user_turns,
         context_summary_max_tokens: stored.context_summary_max_tokens,
         max_tool_rounds: stored.max_tool_rounds,
@@ -550,7 +554,7 @@ impl Default for StoredSettings {
             workspace_root: s.workspace_root,
             lead_agent_id: s.lead_agent_id,
             context_compression_enabled: s.context_compression_enabled,
-            context_budget_chars: s.context_budget_chars,
+            context_budget_tokens: s.context_budget_tokens,
             context_keep_recent_user_turns: s.context_keep_recent_user_turns,
             context_summary_max_tokens: s.context_summary_max_tokens,
             max_tool_rounds: s.max_tool_rounds,

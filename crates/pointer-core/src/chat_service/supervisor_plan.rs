@@ -180,6 +180,7 @@ pub(crate) async fn plan_agent_tasks(
     conversation_id: &str,
     assistant_message_id: &str,
     llm_stats: &mut ConversationLlmStats,
+    run_id: &str,
 ) -> Result<Vec<AgentTask>> {
     let workers = state.agents.enabled_workers();
     let roster = agent_roster(&workers);
@@ -201,7 +202,7 @@ pub(crate) async fn plan_agent_tasks(
         )
         .await?;
     let plan_scope =
-        crate::agent_instance_scope::AgentInstanceScope::new(conversation_id, "supervisor");
+        crate::agent_instance_scope::AgentInstanceScope::new(run_id, conversation_id, "supervisor");
     let model_name = crate::llm_token_stats::model_name_for_usage_report(&out.model);
     llm_stats.record_llm_round(&plan_scope, out.usage.as_ref(), model_name);
     parse_agent_tasks(&out.text, &workers, limits)

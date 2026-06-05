@@ -116,13 +116,19 @@ impl ConversationLlmStats {
 
 /// Lead-agent token session for one `run_chat`.
 pub(crate) struct ChatLlmTokenSession {
+    pub run_id: String,
     pub stats: ConversationLlmStats,
     pub lead_scope: AgentInstanceScope,
 }
 
 impl ChatLlmTokenSession {
-    pub(crate) fn new(conversation_id: String, agent_role_id: String, model_name: Option<String>) -> Self {
-        let lead_scope = AgentInstanceScope::new(conversation_id.clone(), agent_role_id);
+    pub(crate) fn new(
+        run_id: String,
+        conversation_id: String,
+        agent_role_id: String,
+        model_name: Option<String>,
+    ) -> Self {
+        let lead_scope = AgentInstanceScope::new(run_id.clone(), conversation_id.clone(), agent_role_id);
         if let Err(e) = token_usage_store::ensure_accum(&lead_scope) {
             log::warn!(
                 "token_usage_store: ensure_accum failed {}: {e}",
@@ -131,6 +137,7 @@ impl ChatLlmTokenSession {
         }
         let _model = model_name;
         Self {
+            run_id,
             stats: ConversationLlmStats::default(),
             lead_scope,
         }

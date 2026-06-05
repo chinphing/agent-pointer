@@ -6,6 +6,8 @@ use std::backtrace::Backtrace;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
+use uuid::Uuid;
+
 use super::app_state::AppState;
 use super::emit::emit;
 use super::StreamTx;
@@ -37,6 +39,7 @@ pub async fn run_chat(
         .lock()
         .insert(conversation_id.clone(), cancel.clone());
 
+    let run_id = Uuid::new_v4().to_string();
     let mut consumed_single = 0u32;
     let mut consumed_supervisor = 0u32;
     let result = super::session_inner::run_chat_inner(
@@ -52,16 +55,17 @@ pub async fn run_chat(
         &mut consumed_single,
         &mut consumed_supervisor,
         cancel.clone(),
+        &run_id,
     )
     .await;
 
-    if let Err(e) = crate::token_usage_store::finalize_run(&conversation_id, &history) {
+    if let Err(e) = crate::token_usage_store::finalize_run(&run_id, &conversation_id, &history) {
         log::warn!(
-            "token_usage_store: finalize_run failed conversation_id={conversation_id}: {e}"
+            "token_usage_store: finalize_run failed run_id={run_id} conversation_id={conversation_id}: {e}"
         );
     }
     if let Err(e) =
-        crate::token_usage_store::flush_pending_reports(&state.platform_auth).await
+        crate::token_usage_store::flush_unsent_reports(&state.platform_auth).await
     {
         log::warn!("token_usage_store: flush after chat failed: {e}");
     }

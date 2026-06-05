@@ -22,6 +22,7 @@ pub(super) async fn run_subagent_delegation(
     parent_task_board_store_key: &str,
     message_id: &str,
     args_value: serde_json::Value,
+    run_id: &str,
     allow_agents: &[String],
     enabled_skill_ids: &[String],
     agent_trace: &mut Vec<AgentTrace>,
@@ -100,6 +101,7 @@ pub(super) async fn run_subagent_delegation(
                         cancel.clone(),
                         true,
                         llm_stats,
+                        run_id,
                     ))
                     .await
                     {

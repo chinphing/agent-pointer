@@ -16,6 +16,7 @@ pub(crate) async fn synthesize_final_answer(
     conversation_id: &str,
     assistant_message_id: &str,
     llm_stats: &mut ConversationLlmStats,
+    run_id: &str,
 ) -> Result<(String, String)> {
     let mut report = String::new();
     for result in results {
@@ -55,7 +56,7 @@ briefly note which agents contributed when helpful."
         )
         .await?;
     let synth_scope =
-        crate::agent_instance_scope::AgentInstanceScope::new(conversation_id, "supervisor");
+        crate::agent_instance_scope::AgentInstanceScope::new(run_id, conversation_id, "supervisor");
     let model_name = crate::llm_token_stats::model_name_for_usage_report(&out.model);
     llm_stats.record_llm_round(&synth_scope, out.usage.as_ref(), model_name);
     Ok((out.text, synth_scope.agent_instance_id))

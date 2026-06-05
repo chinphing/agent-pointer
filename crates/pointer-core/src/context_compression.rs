@@ -723,7 +723,7 @@ mod tests {
     #[test]
     fn sub_agent_ui_context_carries_agent_fields() {
         let ui = CompressionUiContext::sub_agent(
-            AgentInstanceScope::new("conv", "explore"),
+            AgentInstanceScope::new("test-run", "conv", "explore"),
             "msg_1",
             "explore",
             "Explore Agent",
@@ -747,7 +747,7 @@ mod tests {
     #[test]
     fn summary_system_prompt_includes_keep_users_and_explore_hint() {
         let ui = CompressionUiContext::sub_agent(
-            AgentInstanceScope::new("conv", "explore"),
+            AgentInstanceScope::new("test-run", "conv", "explore"),
             "m",
             "explore",
             "Explore Agent",

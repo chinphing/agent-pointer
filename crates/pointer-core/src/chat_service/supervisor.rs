@@ -36,6 +36,7 @@ pub(crate) async fn run_supervisor_chat(
     cancel: CancellationToken,
     reasoning_in_messages: bool,
     llm_stats: &mut ConversationLlmStats,
+    run_id: &str,
 ) -> Result<()> {
     if cancel.is_cancelled() {
         return Err(anyhow!("已停止生成"));
@@ -83,6 +84,7 @@ pub(crate) async fn run_supervisor_chat(
         conversation_id,
         &assistant_id,
         llm_stats,
+        run_id,
     )
     .await
     {
@@ -260,6 +262,7 @@ pub(crate) async fn run_supervisor_chat(
             cancel.clone(),
             reasoning_in_messages,
             llm_stats,
+            run_id,
         )
         .await
         {
@@ -365,6 +368,7 @@ pub(crate) async fn run_supervisor_chat(
         conversation_id,
         &assistant_id,
         llm_stats,
+        run_id,
     )
     .await?;
     if !final_answer.is_empty() {

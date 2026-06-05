@@ -47,6 +47,7 @@ pub(super) async fn run_single_agent_tool_pass(
     lead_agent_id: &str,
 ) -> Result<ToolPassResult> {
     let _ = reasoning_in_messages;
+    let run_id = llm_token_session.run_id.clone();
     let mut stats = ToolInvocationStats::TokenSession(llm_token_session);
     let stream_for_trim = stream.clone();
     let anchor_message_id =
@@ -74,6 +75,7 @@ pub(super) async fn run_single_agent_tool_pass(
         &mut stats,
         final_tool_calls,
         Some(LeadToolPassConfig {
+            run_id: &run_id,
             allow_agents,
             enabled_skill_ids,
             agent_trace,

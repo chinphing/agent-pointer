@@ -86,6 +86,7 @@ pub(super) async fn run_chat_inner(
     consumed_single: &mut u32,
     consumed_supervisor: &mut u32,
     cancel: CancellationToken,
+    run_id: &str,
 ) -> Result<()> {
     let _workspace_guard = ConversationWorkspaceGuard::enter(workspace_root.clone());
     // Restore from auth.dat / refresh near-expiry tokens before gating chat.
@@ -162,7 +163,7 @@ pub(super) async fn run_chat_inner(
         lead_worker_id.to_string()
     };
     let mut llm_token_session =
-        ChatLlmTokenSession::new(conversation_id.to_string(), lead_role, model_name);
+        ChatLlmTokenSession::new(run_id.to_string(), conversation_id.to_string(), lead_role, model_name);
     let lead_scope = llm_token_session.lead_scope.clone();
 
     let t_compress = Instant::now();
@@ -205,6 +206,7 @@ pub(super) async fn run_chat_inner(
             cancel,
             effective_reasoning_in_messages(&settings),
             &mut llm_token_session.stats,
+            run_id,
         )
         .await;
         tool_budget.sync_out(consumed_supervisor);

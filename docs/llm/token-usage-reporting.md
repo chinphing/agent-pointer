@@ -5,14 +5,32 @@
 | Field | Purpose |
 |-------|---------|
 | `platform_agent_id` | OAuth desktop binding (JWT `agent_id`); auth only |
+| `run_id` | UUID per `run_chat`; scopes finalize to one run |
 | `agent_instance_id` | New UUID per lead / sub-agent / supervisor segment; stats + logs + dedup |
 | `agent_role_id` | Template id (`coder`, `explore`, `supervisor`) for admin filters |
+| `request_id` | `run:{run_id}:{agent_instance_id}`; server dedup key |
 
-Runtime logs on LLM / sub-agent paths use `agent_instance_id` + `agent_role_id`, not the platform agent UUID.
+Runtime logs on LLM / sub-agent paths use `run_id`, `agent_instance_id`, and `agent_role_id`, not the platform agent UUID.
 
-## Client upload (pointer-app)
+## Client storage (pointer-app)
 
-After each `run_chat`, `finalize_run` enqueues one pending row per agent instance with usage in `usage_accum`. On app startup or exit, `finalize_all_stale_accum` enqueues any interrupted accum (no history archive) before clearing, then `flush_pending_reports` sends pending rows.
+All usage lives in SQLite table `usage_accum`. Each row is keyed by `(run_id, agent_instance_id)` and tracks one agent instance for one `run_chat`.
+
+`report_status` flow:
+
+| Status | Meaning |
+|--------|---------|
+| `accumulating` | Tokens are being added during the run |
+| `pending` | Run finished (or stale recovery); ready to upload |
+| `sent` | Successfully reported to the platform |
+
+During the run, `record_round` inserts or updates rows with `report_status = accumulating`.
+
+After each `run_chat`, `finalize_run(run_id, …)` sets `report_status = pending` for that run's rows with usage (optional conversation archive zip). Token counts are **not** cleared.
+
+On app startup or exit, `finalize_all_stale_accum` promotes interrupted `accumulating` rows with usage to `pending` (no history archive), then `flush_unsent_reports` (alias `flush_pending_reports`) uploads pending rows and marks them `sent` on success. Failed uploads stay `pending` for retry.
+
+## Client upload
 
 - `POST /auth/partner/token-usage` as `multipart/form-data`
 - `metadata`: JSON (tokens, `model_totals`, ids, `request_id`, `period_*`)

@@ -63,6 +63,7 @@ impl ToolInvocationStats<'_> {
 }
 
 pub(super) struct LeadToolPassConfig<'a> {
+    pub run_id: &'a str,
     pub allow_agents: &'a [String],
     pub enabled_skill_ids: &'a [String],
     pub agent_trace: &'a mut Vec<AgentTrace>,
@@ -587,6 +588,7 @@ async fn execute_tool_invocation(
                 parent_task_board_store_key,
                 message_id,
                 args_value,
+                lead_cfg.run_id,
                 lead_cfg.allow_agents,
                 lead_cfg.enabled_skill_ids,
                 lead_cfg.agent_trace,

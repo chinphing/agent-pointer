@@ -53,8 +53,9 @@ pub(crate) async fn run_sub_agent(
     cancel: CancellationToken,
     _reasoning_in_messages: bool,
     llm_stats: &mut ConversationLlmStats,
+    run_id: &str,
 ) -> Result<AgentRunResult> {
-    let instance_scope = AgentInstanceScope::new(conversation_id, task.agent_id.clone());
+    let instance_scope = AgentInstanceScope::new(run_id, conversation_id, task.agent_id.clone());
     let sub_provider = sub_agent_provider(provider, &task.agent_id);
     let reasoning_in_messages = effective_reasoning_in_messages(&sub_provider.settings);
     let session =

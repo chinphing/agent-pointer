@@ -33,10 +33,10 @@
 
 - **cacheable**：在 `run_before_main_llm_call` **之前** 填完（含 Environment）。
 - **dynamic**：仅钩子写入（**`ComputerTierDynamicHook`**）。
-- **user dynamic inject**：在 `run_message_loop_prompts_after` 末尾追加一条 `user`，承载 task board Markdown 与 JSON wire tail。
+- **user dynamic inject**：在 `run_message_loop_prompts_after` 末尾追加一条 `user`，承载 task board Markdown（有内容或 init hint 时）。
 - **Computer lead**：`prepare_single_agent_round_prompts` 每轮按 **tier** 重建 cacheable 中的档位 communication（升档时缓存失效一次）。
 
-合并为单条 system 字符串时，顺序为 **cacheable 全文 → dynamic 全文**；task board 与 JSON wire tail 已迁移到 `messages` 末尾的公共 user 注入块。
+合并为单条 system 字符串时，顺序为 **cacheable 全文 → dynamic 全文**；task board 已迁移到 `messages` 末尾的公共 user 注入块（仅在有 board 内容或 init hint 时追加）。
 
 ### 1.3 HTTP `messages` 最终顺序（`make_openai_messages`）
 
@@ -71,7 +71,7 @@
 }
 ```
 
-- task board / JSON wire tail 在 `messages` 末尾追加，不会污染 system cacheable 前缀。
+- task board 在 `messages` 末尾追加（有内容时），不会污染 system cacheable 前缀。
 - **`[Environment]`** 仅在跨日时改变 cacheable（ acceptable）；同一天内多轮工具循环可复用 cacheable。
 - 非千问或未启用时：两分区仍按 §1.2 顺序合并为单条 `content` 字符串。
 
@@ -108,8 +108,7 @@
 | **AGENT.md** / **COMMUNICATION.md** | `agents/<id>/` | cacheable |
 | **Tools** | `tools/prompts/*.md` 等 | cacheable |
 | **Env** | `env_prompt::build_environment_system_prompt_slice` | cacheable（日历日期）；Computer **`[CUR_SCREEN]`** 含完整墙钟时间 |
-| **JSON wire tail** | `_shared/JSON_WIRE_TAIL.md` | `message_loop_prompts_after` 的 user 注入 |
-| **Task board** | `CommonUserDynamicInjectHook` | `message_loop_prompts_after` 的 user 注入 |
+| **Task board** | `CommonUserDynamicInjectHook` | `message_loop_prompts_after` 的 user 注入（有 board 或 hint 时） |
 | **屏幕等多模态** | `screen_inject.rs` | **§1.1** `user` + 图 |
 
 ---
@@ -117,6 +116,6 @@
 ## 4. 迁移开关与回滚
 
 - 开关：`userDynamicInjectEnabled`（`ModelSettings` / `PlatformSettings`，默认 `true`）。
-- `true`：启用 `_99_common_user_dynamic_inject`，在每轮 `messages` 末尾注入 task board Markdown + JSON wire tail。
-- `false`：回滚到旧路径（system cacheable 重新附加 JSON wire tail，system dynamic 重新附加 `[TASK_BOARD]` 快照 / hint）。
+- `true`：启用 `_99_common_user_dynamic_inject`，在每轮 `messages` 末尾注入 task board Markdown（有内容或 init hint 时）。
+- `false`：回滚到旧路径（system dynamic 重新附加 `[TASK_BOARD]` 快照 / hint）。
 - 诊断日志：`common_user_dynamic_inject` 会输出 `legacy_snapshot_len` 与新 user 注入块长度，便于灰度对比。

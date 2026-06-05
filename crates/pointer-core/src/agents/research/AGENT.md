@@ -12,13 +12,6 @@ defaultSkillIds: []
 accessPolicy:
   allowTools:
     - web_search
-    - task_board_init
-    - task_board_patch
-    - task_board_replace
-    - task_board_prune
-    - task_board_finalize
-    - task_board_sync_finding
-    - task_board_check_deps
   denyTools: []
   allowSkills: []
   denySkills: []
@@ -27,15 +20,8 @@ ui:
   showInComposer: false
   showSubAgentTrace: true
   composerLabel: 深度研究
-  showTaskBoardPanel: true
-  hideToolNames:
-    - task_board_init
-    - task_board_patch
-    - task_board_replace
-    - task_board_prune
-    - task_board_finalize
-    - task_board_sync_finding
-    - task_board_check_deps
+  showTaskBoardPanel: false
+  hideToolNames: []
   avatar: research
 ---
 
@@ -130,7 +116,7 @@ Include in **`query`** (adapt to the task):
 When exploration is complete and no further **`web_search`** calls are needed, write the full digest as **assistant
 message text**. The lead reads it from **`run_subagent` → `content`**.
 
-Mid-run turns use **native tool calls** only (**`web_search`**, optional **`task_board`**).
+Mid-run turns use **native tool calls** only (**`web_search`**).
 
 ### `## Summary`
 

@@ -21,7 +21,7 @@
 | **cacheable** | `COMMUNICATION_PUBLIC`、Agent/Skills、工具 `## Tools`、`[Environment]` | 同一天、同会话配置下多轮不变；**`[Environment]` 仅日期按自然日变**，不算「每轮动态」 |
 | **dynamic** | **`[LOCKED GOAL]`**（Computer 锁定 `tool_args.goal` 时） | 锁定 goal 每轮可能变 |
 
-**设计意图**：仅把真正每轮变的内容放在 `cache_control` 之后，避免拖垮 cacheable 前缀命中。task board 与 JSON wire tail 走 user 注入路径；Computer **操作历史**在 `[CUR_SCREEN]` user 消息中，不占 system 缓存。
+**设计意图**：仅把真正每轮变的内容放在 `cache_control` 之后，避免拖垮 cacheable 前缀命中。task board 走 user 注入路径（有内容时）；Computer **操作历史**在 `[CUR_SCREEN]` user 消息中，不占 system 缓存。
 
 ---
 

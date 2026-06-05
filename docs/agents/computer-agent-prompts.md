@@ -47,7 +47,7 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 
 | 分区 | 内容 |
 |------|------|
-| **cacheable（第 1 段）** | `COMMUNICATION_PUBLIC` + 当前档 communication + loop + tools + `[Environment]` + JSON wire |
+| **cacheable（第 1 段）** | `COMMUNICATION_PUBLIC` + 当前档 communication + loop + tools + `[Environment]` |
 | **dynamic（第 2 段）** | `[TASK_BOARD]`、`[LOCKED GOAL]`（有锁时） |
 | **user `[CUR_SCREEN]`** | 槽位标签 + 图 + 操作历史 + runtime + **Pointer position** + bbox 坐标表（Primary/Intermediate：**Nearby overlay reference bboxes** 指针最近 **10** 条；Advanced：全量 **Overlay reference bboxes**） |
 

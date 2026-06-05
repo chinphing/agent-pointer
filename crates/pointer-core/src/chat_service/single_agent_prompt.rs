@@ -30,7 +30,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
     assistant_id: &str,
     lead_profile: AgentProfile,
     tools_system_appendix: String,
-    tools_appendix_enabled: bool,
+    _tools_appendix_enabled: bool,
 ) -> Result<SingleAgentRoundPrompts> {
     let round_prep = Instant::now();
     let t = Instant::now();
@@ -88,10 +88,7 @@ pub(super) async fn prepare_single_agent_round_prompts(
     if !tools_system_appendix.is_empty() {
         cacheable.push(tools_system_appendix);
     }
-    push_env_to_cacheable(
-        &mut cacheable,
-        !settings.user_dynamic_inject_enabled && tools_appendix_enabled,
-    );
+    push_env_to_cacheable(&mut cacheable);
     let assemble_system_prompts_ms = t.elapsed().as_millis();
 
     let t = Instant::now();

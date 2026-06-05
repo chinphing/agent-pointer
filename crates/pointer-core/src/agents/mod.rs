@@ -352,20 +352,12 @@ pub fn expand_agent_prompt_placeholders(template: &str, vars: &SessionInjectVars
     template.replace("{{workspace_root}}", vars.workspace_root)
 }
 
-/// Per-round **system inject**: shared [`COMMUNICATION_PUBLIC.md`] (`thoughts` on-wire semantics,
-/// **`response`** usage, **`task_board`** + **`<sidecar_tools>`**).
+/// Per-round **system inject**: shared [`COMMUNICATION_PUBLIC.md`] (native tool calling,
+/// web citations, skills, language, and cross-profile rules).
 /// Per-agent `COMMUNICATION.md` is merged after and expanded via [`expand_agent_prompt_placeholders`].
 pub fn rendered_communication_public_inject() -> Option<String> {
     let pub_ = communication_public_md().trim();
     (!pub_.is_empty()).then(|| pub_.to_string())
-}
-
-const JSON_WIRE_TAIL: &str = include_str!("_shared/JSON_WIRE_TAIL.md");
-
-/// Short **tail** system slice (after `[Environment]`) so JSON-only output stays in recent context.
-pub fn rendered_json_wire_format_tail_inject() -> Option<String> {
-    let t = JSON_WIRE_TAIL.trim();
-    (!t.is_empty()).then(|| t.to_string())
 }
 
 #[derive(Default)]

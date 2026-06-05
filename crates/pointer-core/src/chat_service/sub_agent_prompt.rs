@@ -192,10 +192,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
     if !tools_system_appendix.is_empty() {
         cacheable.push(tools_system_appendix.to_string());
     }
-    push_env_to_cacheable(
-        &mut cacheable,
-        !user_dynamic_inject_enabled && !tools_system_appendix.is_empty(),
-    );
+    push_env_to_cacheable(&mut cacheable);
     let assemble_system_prompts_ms = t.elapsed().as_millis();
 
     let t = Instant::now();

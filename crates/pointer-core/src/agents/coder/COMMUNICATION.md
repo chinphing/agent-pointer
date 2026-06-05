@@ -171,8 +171,7 @@ when the run ends or when you are not issuing tools.
 **Definition of done** on each row: keep `plan` and `progress` current,
 set `validate_requirement` for acceptance criteria,
 and append repeatable evidence to `validate_results` (markdown snippets).
-Step fields and Sidecar placement follow
-**Communication (public)** → **Task board**.
+Step fields and sidecar placement follow the **`task_board`** tool doc in **`## Tools`**.
 
 ## Explore delegation default (`run_subagent`)
 

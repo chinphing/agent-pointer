@@ -23,7 +23,7 @@
 
 - 注册名：`task_board`；行为通过 **`task_board:replace`** / **`task_board:patch`**（与 qualified `tool_name` 解析一致）。
 - 存储：`AppState` 上的 **`TaskBoardStore`**（`crates/pointer-core/src/task_board/`，内存 + SQLite `{app_data}/task_boards.db`，按 **存储键** 分区）。v2 文档见 [`task-board-v2-schema.md`](task-board-v2-schema.md)；父子协调见 [`task-board-parent-child-coordination.md`](task-board-parent-child-coordination.md)。
-- **主会话（单智能体 / Supervisor 主消息）**：存储键通常为 **`main_turn_task_board_store_key(conversation_id, anchor_user_message_id)`**（见 `session_inner`）；`task_board` 的 **`_conversation_id`** 写入该 **store key**（非裸 `conversation_id`）。每轮由 **`CommonUserDynamicInjectHook`** 在 `message_loop_prompts_after` 末尾追加 user 注入块（Markdown v3：`plan` / `progress` / `validate_*` 等 + 可选 JSON wire tail）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
+- **主会话（单智能体 / Supervisor 主消息）**：存储键通常为 **`main_turn_task_board_store_key(conversation_id, anchor_user_message_id)`**（见 `session_inner`）；`task_board` 的 **`_conversation_id`** 写入该 **store key**（非裸 `conversation_id`）。每轮由 **`CommonUserDynamicInjectHook`** 在 `message_loop_prompts_after` 末尾追加 user 注入块（Markdown v3：`plan` / `progress` / `validate_*` 等，有 board 或 init hint 时）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
 - **Supervisor 子 Agent**：与主会话 **隔离**。存储键为  
   **`{conversation_id}\x1fptr_sub_agent\x1f{supervisor_task_id}`**（实现见 `task_board::sub_agent_task_board_store_key`）。  
   子 Agent 的任务板摘要同样经公共 user 注入路径注入（store key 为 `sub_task_board_key`）；**`task_board`** 读写只针对该子任务键，**不会**看到或修改主会话任务板。
@@ -41,7 +41,9 @@
 ## 系统提示：工具文档与侧车约定
 
 - 各工具的详细说明来自其 **`doc_markdown`**（通常 `include_str!("prompts/…")`），与授权列表一起在 **`generate_tools_system_appendix`** 中拼入系统提示（**`## Tools`** 等）。
-- **`COMMUNICATION_PUBLIC`**（英文）：**`thoughts`** 摘要语义、**`response`** 用法、**`task_board`** 与 **`<sidecar_tools>`** 的通用约定。多步计划的 **字段与侧车规则** 以 PUBLIC 为准；**桌面** **`tool_args.wait`** 见 **`computer/prompts/tiers/advanced/communication.md`**（**Post-action `wait` in `tool_args`**）；**Coder** 专属的 **Definition of done** 与 **Cross-surface verification** 见 **`coder/COMMUNICATION.md`**。
+- **`task_board/prompts/task_board.md`**（英文，经 **`## Tools`** 附录）：多步计划的 **字段、patch 节奏、示例** 以 tool doc 为准。
+- **`COMMUNICATION_PUBLIC`**（英文）：native tool calling、web 引用、skills、语言等跨 profile 规则；**不含** task board 操作细节。
+- **桌面** **`tool_args.wait`** 见 **`computer/prompts/tiers/advanced/communication.md`**（**Post-action `wait` in `tool_args`**）；**Coder** 专属的 **Definition of done** 与 **Cross-surface verification** 见 **`coder/COMMUNICATION.md`**。
 
 ## Agent 白名单
 
@@ -110,7 +112,7 @@
 
 - **Patch 合并：** `task_board/results_append.rs` — 按行去重；多行块只 append 新行；单行 cumulative 扩展时替换上一条。`warnings[]` 码：`validate_results_duplicate_line`、`validate_results_partial_dedup`、`validate_results_cumulative_replaced` 等（`extract_results` 同理）。
 - **注入展示：** `snapshot.rs` 对 `validate_results` 按行去重后全量注入（Current task 与 All tasks 的 `done` 行）；`extract_results` 仍取 recent tail。
-- **Computer init（提示词，非强制拆板）：** 相似重复项 **>5** 时按 **3–6** 个 batched milestone 初始化（`task_board.md`、`COMMUNICATION_PUBLIC`、`sub_agent_hint.rs`）；完整列表放 `plan` / `extract_results`；每批结束 `status: done` 以触发 history trim。
+- **Computer init（提示词，非强制拆板）：** 相似重复项 **>5** 时按 **3–6** 个 batched milestone 初始化（`task_board.md`、`sub_agent_hint.rs`）；完整列表放 `plan` / `extract_results`；每批结束 `status: done` 以触发 history trim。
 
 ### 与 LLM 压缩的执行顺序
 

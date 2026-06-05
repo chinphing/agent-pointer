@@ -122,19 +122,22 @@ def main() -> None:
     print(
         f"Images x{cur_screen_images} base64               {image_base64_est:7,} chars  ~{image_tokens_est:6,} tok (rough)"
     )
-    print(f"JSON wire tail                   {wire_tail:7,} chars  ~{wire_tokens:6,} tok")
+    if wire_tail:
+        print(f"JSON wire tail (legacy)          {wire_tail:7,} chars  ~{wire_tokens:6,} tok")
     print()
 
     grand_tokens_text = sys_tokens + hist_tokens + cur_tokens + wire_tokens
     grand_tokens_all = grand_tokens_text + image_tokens_est
     print("=== SHARE OF TOTAL EST. TOKENS ===")
-    for label, tk in [
+    share_rows = [
         ("System (cacheable)", sys_tokens),
         ("History", hist_tokens),
         ("CUR_SCREEN text", cur_tokens),
-        ("JSON wire tail", wire_tokens),
-        ("Images (3 slots)", image_tokens_est),
-    ]:
+    ]
+    if wire_tail:
+        share_rows.append(("JSON wire tail (legacy)", wire_tokens))
+    share_rows.append(("Images (3 slots)", image_tokens_est))
+    for label, tk in share_rows:
         print(f"{label:25} ~{tk:6,} tok  {tk / grand_tokens_all * 100:5.1f}%")
     print(f"Grand total               ~{grand_tokens_all:,} tokens")
     print()

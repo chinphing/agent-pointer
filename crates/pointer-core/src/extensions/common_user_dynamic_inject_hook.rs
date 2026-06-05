@@ -1,6 +1,6 @@
-//! Common `message_loop_prompts_after` hook: append runtime markdown + JSON wire tail as the last user message.
+//! Common `message_loop_prompts_after` hook: append runtime task board markdown as the last user message.
 
-use crate::agents::{rendered_json_wire_format_tail_inject, AgentProfile};
+use crate::agents::AgentProfile;
 use crate::extensions::{
     new_extension_message_id, now_ms, MessageLoopPromptsAfterContext, MessageLoopPromptsAfterHook,
 };
@@ -51,28 +51,15 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
             None
         };
 
-        let tail = rendered_json_wire_format_tail_inject();
-        if board_block.is_none() && tail.is_none() {
+        let Some(content) = board_block else {
             return Ok(());
-        }
+        };
 
         let legacy_snapshot_len = ctx
             .task_board_store
             .snapshot_for_prompt(ctx.task_board_store_key)
             .map(|s| s.len())
             .unwrap_or(0);
-
-        let mut parts: Vec<String> = Vec::new();
-        if let Some(block) = board_block {
-            parts.push(block);
-        }
-        if let Some(block) = tail {
-            if !parts.is_empty() {
-                parts.push("---".to_string());
-            }
-            parts.push(block);
-        }
-        let content = parts.join("\n\n");
         let user_block_len = content.len();
 
         ctx.messages.push(ChatMessage {
@@ -96,9 +83,9 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
             image_slot_labels: None,
             images_base64: None,
             computer_round_screen_rel_path: None,
-        ui_bindings: None,
+            ui_bindings: None,
             context_state: None,
-            });
+        });
         if ctx.lead_agent_profile == AgentProfile::Computer
             || ctx.lead_agent_profile == AgentProfile::Coder
         {

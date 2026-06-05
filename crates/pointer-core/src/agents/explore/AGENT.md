@@ -18,26 +18,14 @@ accessPolicy:
     - file_glob
     - file_grep
     - file_list
-    - task_board_init
-    - task_board_patch
-    - task_board_replace
-    - task_board_finalize
-    - task_board_sync_finding
   denyTools: []
   allowSkills: []
   denySkills: []
 ui:
   userSelectable: false
   showInComposer: false
-  showTaskBoardPanel: true
-  hideToolNames:
-    - task_board_init
-    - task_board_patch
-    - task_board_replace
-    - task_board_finalize
-    - task_board_sync_finding
-    - task_board_check_deps
-    - task_board_prune
+  showTaskBoardPanel: false
+  hideToolNames: []
   avatar: explore
 ---
 
@@ -166,8 +154,8 @@ result field **`content`**. Provider **reasoning / thinking** is internal; it **
 **Final handoff:** When exploration is complete, write the full Markdown digest in **`content`** (see **Markdown
 deliverable** below)—**not only in reasoning**.
 
-**Do not** finish with reasoning-only output. Scratch notes and optional **`task_board`** milestones during work are
-fine—they are **not** a substitute for the final Markdown digest in **`content`**.
+**Do not** finish with reasoning-only output. Scratch notes during work are fine—they are **not** a substitute for
+the final Markdown digest in **`content`**.
 
 **Ending the sub-task:** If this turn has **no** **`tool_calls`**, **`content` must be non-empty** (the complete digest).
 

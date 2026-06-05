@@ -671,7 +671,7 @@ pub struct ModelSettings {
         rename = "taskBoardShowChildBoards"
     )]
     pub task_board_show_child_boards: bool,
-    /// Migration flag: append common runtime block (task board + JSON wire tail) as the last user message.
+    /// Migration flag: append task board runtime markdown as the last user message each round.
     #[serde(default = "default_user_dynamic_inject_enabled", rename = "userDynamicInjectEnabled")]
     pub user_dynamic_inject_enabled: bool,
     /// Per-agent default LLM: worker id or `"supervisor"` → explicit provider + model.

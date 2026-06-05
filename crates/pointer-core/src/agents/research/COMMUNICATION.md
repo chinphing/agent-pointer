@@ -5,6 +5,4 @@
 **Deliverable:** your final report is **Markdown** in **assistant message content**. The lead agent reads that text
 from the **`run_subagent`** tool result field **`content`**.
 
-**`task_board`:** optional for the same conversation sidecar as the lead when included in your tool list; keep updates minimal and scoped to the delegated task.
-
 **Billing note:** each **`web_search`** call uses DashScope hosted search (LLM + search). Prefer focused queries; default **`searchStrategy` `max`** on **`qwen3-max`**; use **`agent_max`** only when page-level extraction is required.

@@ -70,8 +70,22 @@ Host dedupes duplicate delta lines (warnings: `validate_results_duplicate_*`, �
 - Do **not** batch many rows to `done` in a single patch at the end.
 - Mark `done` only after outcome evidence exists (deltas and/or action tools); **at most one** row `done` per patch.
 - Keep 3-12 milestones for most tasks.
-- Child agents must not patch parent rows directly.
+- Cancel obsolete rows with **`task_board_prune`** instead of ignoring them.
 - Finalize in the same turn as final user delivery.
+
+## Parent / child scope
+
+- **Sub-agent (child):** **`[TASK_BOARD]`** = local `local_*` steps only.
+  **`[TASK_BOARD_PARENT]`** is read-only (goal + findings + current milestone).
+  Use **`task_board_sync_finding`** for breakthroughs; **do not** patch parent rows.
+- **Lead (parent):** milestone scope only — no micromanaging child `local_*` rows.
+
+## Milestone grouping
+
+- Matrix/combinational goals: **3–8** grouped milestones (interaction form or meaningful dimension);
+  do not expand to every atomic case.
+- Short lists (≤5, independent acceptance): one item per row is OK.
+- Long or repetitive lists (>5): batch by type/phase; keep **3–8** milestones.
 
 ## Final delivery (user summary)
 
@@ -105,9 +119,13 @@ Engineering profiles:
 
 ## Items input
 
-Use **`items`** on **`task_board_init`** / **`task_board_replace`** / **`task_board_patch`**.
+Use **`items`** on **`task_board_init`** / **`task_board_replace`** / **`task_board_patch`**
+(JSON array, or a JSON string encoding that array).
 
-Each row must include non-empty **`id`** and **`title`** on init.
+Injected **`[TASK_BOARD]`** snapshots may show a `board` array — host output only.
+
+Each row must include non-empty **`id`**, **`title`**, and **`status`** on init/replace.
+On **`patch`**, include **`title`** when adding a row or when updating status without an existing title.
 
 Examples use **`function.name`** + **`function.arguments`** only (no `method`, no call `id` / `type`).
 

@@ -99,7 +99,7 @@
 7. **`before_main_llm_call`** — 钩子向 **`system_prompts_dynamic`** 追加（例如 `[LOCKED GOAL]`）。
 8. **`stream_chat`** — `SystemPromptSections` → `make_openai_messages`（千问见 **[`qwen-context-cache.md`](../llm/qwen-context-cache.md)**）。Computer **完整墙钟时间**在 **`[CUR_SCREEN]`** `user` 消息中（`screen_inject.rs`）。
 
-要点：task board 与 JSON wire tail 已迁移为 `message_loop_prompts_after` 的末尾 user 注入块，不再占用 system cacheable/dynamic。
+要点：task board 已迁移为 `message_loop_prompts_after` 的末尾 user 注入块，不再占用 system cacheable/dynamic。
 
 ### 4.2 单智能体：`messages` 在注入时刻包含什么
 
@@ -112,7 +112,7 @@
 用户发一条消息后，可能经历多轮「模型 → 工具 → 再模型」。**每一轮**新的模型请求都会重复上述 4～9 步：
 
 - 每一轮都会重新 `history.clone()`（此时 `history` 已包含上一轮 assistant 与 tool 结果）。
-- 每一轮都会再次执行 `message_loop_prompts_after` / `before_main_llm_call`（task board 摘要与 JSON wire tail 在 user 末尾块刷新）。  
+- 每一轮都会再次执行 `message_loop_prompts_after` / `before_main_llm_call`（task board 摘要在 user 末尾块刷新，有内容时）。  
 因此 Computer **每一轮都会重新截图+标注**（与 Python 每轮 inject 一致）。
 
 ### 4.4 序列图（与 4.1 一致）
@@ -150,7 +150,7 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 - 若任务带 `dependsOn`，实现上会把依赖任务的输出摘要**前缀**拼进 `instruction`（`[Prior task outputs]` / `[Current task]`），仍是一条 user 消息，**不是**完整主聊天 transcript。
 - 子 Agent 自己的多轮工具循环里，只在 `local_history` 上累加本轮 assistant、tool 等，与主 `history` **隔离**。
 
-系统 prompt 侧子 Agent 与主轮同构：**cacheable** 含公共通信、**sub_agent_header**、skills、工具附录、Environment；task board / JSON wire tail 由末尾 user 注入提供。
+系统 prompt 侧子 Agent 与主轮同构：**cacheable** 含公共通信、**sub_agent_header**、skills、工具附录、Environment；task board 由末尾 user 注入提供（有内容时）。
 
 **结论（对话语义）**：子 Agent 在**消息列表意义上是独立的**；它只「看见」任务描述 +（可选）前置任务摘要 + 自己多轮工具产生的历史。
 
@@ -205,7 +205,7 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 | override_key / sort_key | 扩展点 | 文件 | 行为摘要 |
 |-------------------------|--------|------|----------|
 | `_10_computer_screen_inject` | `message_loop_prompts_after` | `agents/computer/extension_hooks/screen_inject.rs` | 当 `lead_agent_profile == Computer` 时：`capture_and_annotate`，向 `messages` 追加带 PNG base64 的临时 user 消息；失败则追加纯文本说明。 |
-| `_99_common_user_dynamic_inject` | `message_loop_prompts_after` | `extensions/common_user_dynamic_inject_hook.rs` | 在本轮 `messages` 末尾追加公共 user 注入块：`task_board` Markdown（主会话或子任务键）+ `JSON_WIRE_TAIL`。 |
+| `_99_common_user_dynamic_inject` | `message_loop_prompts_after` | `extensions/common_user_dynamic_inject_hook.rs` | 在本轮 `messages` 末尾追加 user 注入块：`task_board` Markdown（主会话或子任务键；有内容或 init hint 时）。 |
 
 自定义钩子可 **替换** 同 `override_key` 的 `_99_common_user_dynamic_inject` 以改变格式或关闭注入。
 

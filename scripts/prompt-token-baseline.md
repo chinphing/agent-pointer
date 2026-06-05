@@ -66,17 +66,16 @@ Descriptions are **compact** when flat tools share a `doc_source` (full prose on
 ## Dynamic — Computer Primary per-round
 
 Image assumption: 1920x1080 monitor JPEG full capture → 1920x1088 → **2,042 tokens/image**.
- JSON wire tail: **119 tokens**.
 
-**round_content** = cacheable system + `[CUR_SCREEN]` text + image slot labels + JSON wire + images.
+**round_content** = cacheable system + `[CUR_SCREEN]` text + image slot labels + images.
 
 **api_prompt_estimate** = round_content + native tools JSON + dialog history (user goal + tool results).
 
-| Scenario | CUR_SCREEN | Labels | Images | Wire | Dialog | round_content | **api_estimate** |
-|----------|----------:|-------:|-------:|-----:|-------:|--------------:|-----------------:|
-| first_turn_minimal | 726 | 11 | 4,084 (2×2,042) | 119 | 0 | 23,272 | **26,246** |
-| mid_task_typical | 978 | 17 | 6,126 (3×2,042) | 119 | 280 | 25,572 | **28,826** |
-| heavy_history | 1,154 | 17 | 6,126 (3×2,042) | 119 | 535 | 25,748 | **29,257** |
+| Scenario | CUR_SCREEN | Labels | Images | Dialog | round_content | **api_estimate** |
+|----------|----------:|-------:|-------:|-------:|--------------:|-----------------:|
+| first_turn_minimal | 726 | 11 | 4,084 (2×2,042) | 0 | 23,153 | **26,127** |
+| mid_task_typical | 978 | 17 | 6,126 (3×2,042) | 280 | 25,453 | **28,707** |
+| heavy_history | 1,154 | 17 | 6,126 (3×2,042) | 535 | 25,629 | **29,138** |
 
 ### `first_turn_minimal`
 
@@ -102,7 +101,6 @@ Model: `qwen3.5-plus` · mtime: 2026-06-03T00:49:03.301654+00:00
 |-------|-------:|
 | system (as dumped) | 14099 |
 | `[CUR_SCREEN]` text | 1637 |
-| JSON wire | 119 |
 | `[TASK_BOARD]` | None |
 | image slots | 3 (vision tokens not in dump) |
 

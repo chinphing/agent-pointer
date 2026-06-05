@@ -393,8 +393,6 @@ def build_dialog_history_sample(tokenizer, rounds: int) -> tuple[int, str]:
 def build_dynamic_scenarios(
     ref: str, tokenizer, static_merged_tokens: int, native_tools_tokens: int
 ) -> dict:
-    wire = git_show(ref, "crates/pointer-core/src/agents/_shared/JSON_WIRE_TAIL.md").strip()
-    wire_tokens = count_tokens(tokenizer, wire)
     img_each, img_w, img_h = qwen3_image_tokens(IMAGE_W, IMAGE_H)
     clock = "Local wall-clock at capture: 2026-06-05 12:00:00 +08:00\n\n"
     anchor = build_pointer_anchor_block()
@@ -416,7 +414,7 @@ def build_dynamic_scenarios(
         image_tokens = img_each * images
         dialog_tokens, _ = build_dialog_history_sample(tokenizer, dialog_rounds)
 
-        round_content = static_merged_tokens + text_tokens + label_tokens + wire_tokens + image_tokens
+        round_content = static_merged_tokens + text_tokens + label_tokens + image_tokens
         api_estimate = round_content + native_tools_tokens + dialog_tokens
 
         scenarios.append(
@@ -433,7 +431,6 @@ def build_dynamic_scenarios(
                 "image_count": images,
                 "image_tokens_each": img_each,
                 "image_tokens_total": image_tokens,
-                "json_wire_tokens": wire_tokens,
                 "dialog_history_tokens": dialog_tokens,
                 "round_content_tokens": round_content,
                 "api_prompt_estimate_tokens": api_estimate,
@@ -444,8 +441,6 @@ def build_dynamic_scenarios(
         "image_assumption": f"{IMAGE_W}x{IMAGE_H} monitor JPEG full capture",
         "image_resized_for_formula": f"{img_w}x{img_h}",
         "image_tokens_each": img_each,
-        "json_wire_tail_chars": len(wire),
-        "json_wire_tail_tokens": wire_tokens,
         "scenarios": scenarios,
     }
 
@@ -565,16 +560,6 @@ def latest_llm_dump_metrics(tokenizer) -> dict | None:
             if part.get("type") == "text" and "[CUR_SCREEN]" in part.get("text", ""):
                 cur_screen_text = part["text"]
 
-    wire = next(
-        (
-            m["content"]
-            for m in data["messages"]
-            if m["role"] == "user"
-            and isinstance(m.get("content"), str)
-            and "Native tool-calling" in m.get("content", "")
-        ),
-        "",
-    )
     task_board = next(
         (
             m["content"]
@@ -593,7 +578,6 @@ def latest_llm_dump_metrics(tokenizer) -> dict | None:
         "system_tokens": count_tokens(tokenizer, sys_text),
         "cur_screen_text_tokens": count_tokens(tokenizer, cur_screen_text) if cur_screen_text else None,
         "cur_screen_text_chars": len(cur_screen_text) if cur_screen_text else None,
-        "json_wire_tokens": count_tokens(tokenizer, wire) if wire else None,
         "task_board_tokens": count_tokens(tokenizer, task_board) if task_board else None,
         "image_slots": image_slots,
         "note": "Historical dump; may predate current system size or omit tools[] from file.",
@@ -726,21 +710,20 @@ def render_markdown(metrics: dict) -> str:
             "",
             f"Image assumption: {dynamic['image_assumption']} → "
             f"{dynamic['image_resized_for_formula']} → **{dynamic['image_tokens_each']:,} tokens/image**.",
-            f" JSON wire tail: **{dynamic['json_wire_tail_tokens']:,} tokens**.",
             "",
-            "**round_content** = cacheable system + `[CUR_SCREEN]` text + image slot labels + JSON wire + images.",
+            "**round_content** = cacheable system + `[CUR_SCREEN]` text + image slot labels + images.",
             "",
             "**api_prompt_estimate** = round_content + native tools JSON + dialog history (user goal + tool results).",
             "",
-            "| Scenario | CUR_SCREEN | Labels | Images | Wire | Dialog | round_content | **api_estimate** |",
-            "|----------|----------:|-------:|-------:|-----:|-------:|--------------:|-----------------:|",
+            "| Scenario | CUR_SCREEN | Labels | Images | Dialog | round_content | **api_estimate** |",
+            "|----------|----------:|-------:|-------:|-------:|--------------:|-----------------:|",
         ]
     )
     for s in dynamic["scenarios"]:
         lines.append(
             f"| {s['id']} | {s['cur_screen_text_tokens']:,} | {s['image_slot_label_tokens']:,} | "
             f"{s['image_tokens_total']:,} ({s['image_count']}×{s['image_tokens_each']:,}) | "
-            f"{s['json_wire_tokens']:,} | {s['dialog_history_tokens']:,} | "
+            f"{s['dialog_history_tokens']:,} | "
             f"{s['round_content_tokens']:,} | **{s['api_prompt_estimate_tokens']:,}** |"
         )
     for s in dynamic["scenarios"]:
@@ -758,7 +741,6 @@ def render_markdown(metrics: dict) -> str:
                 "|-------|-------:|",
                 f"| system (as dumped) | {dump.get('system_tokens', 'n/a')} |",
                 f"| `[CUR_SCREEN]` text | {dump.get('cur_screen_text_tokens', 'n/a')} |",
-                f"| JSON wire | {dump.get('json_wire_tokens', 'n/a')} |",
                 f"| `[TASK_BOARD]` | {dump.get('task_board_tokens', 'n/a')} |",
                 f"| image slots | {dump.get('image_slots', 'n/a')} (vision tokens not in dump) |",
                 "",

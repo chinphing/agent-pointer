@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 const TASK_BOARD_MD: &str = include_str!("prompts/task_board.md");
+const TASK_BOARD_DOC_SOURCE: &str = "task_board/prompts/task_board.md";
 /// Standalone schemas for flat task_board tools (no `method` enum).
 const TASK_BOARD_SCHEMA_YAML: &str = include_str!("prompts/task_board.schema.yaml");
 
@@ -40,8 +41,15 @@ pub fn register(reg: &ToolRegistry, store: Arc<TaskBoardStore>) {
         });
 
         reg.register(
-            ToolEntry::new_sidecar(name.clone(), "low", false, prompt.clone(), handler)
-                .with_schema(schema),
+            ToolEntry::new_sidecar(
+                name.clone(),
+                TASK_BOARD_DOC_SOURCE,
+                "low",
+                false,
+                prompt.clone(),
+                handler,
+            )
+            .with_schema(schema),
         );
     }
 }

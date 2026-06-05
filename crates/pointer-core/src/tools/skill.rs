@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 /// Doc for registry tool `skill`; keep in sync with `prompts/skill.md`.
 const SKILL_MD: &str = include_str!("prompts/skill.md");
+const SKILL_DOC_SOURCE: &str = "tools/prompts/skill.md";
 /// Standalone schemas for flat skill tools (no `method` enum).
 const SKILL_SCHEMA_YAML: &str = include_str!("prompts/skill.schema.yaml");
 
@@ -39,7 +40,7 @@ pub fn register_all(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
         };
 
         reg.register(
-            ToolEntry::new(name.clone(), "low", false, prompt.clone(), handler)
+            ToolEntry::new(name.clone(), SKILL_DOC_SOURCE, "low", false, prompt.clone(), handler)
                 .with_schema(schema),
         );
     }

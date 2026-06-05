@@ -51,6 +51,7 @@ fn conversation_id_from_args(args: &serde_json::Value) -> Option<&str> {
 pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
     // ── mouse (flat tools) ────────────────────────────────────────────────
     {
+        const MOUSE_DOC_SOURCE: &str = "agents/computer/tools/prompts/mouse.md";
         const MOUSE_SCHEMA_YAML: &str = include_str!("prompts/mouse.schema.yaml");
         let mouse_schemas: HashMap<String, serde_json::Value> =
             load_tools_from_schema_yaml(MOUSE_SCHEMA_YAML)
@@ -119,17 +120,20 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 .unwrap_or_else(|| panic!("mouse.schema.yaml missing entry for {name}"));
 
             reg.register(
-                ToolEntry::new(tool_name, "low", false, prompt, handler).with_schema(schema),
+                ToolEntry::new(tool_name, MOUSE_DOC_SOURCE, "low", false, prompt, handler)
+                    .with_schema(schema),
             );
         }
     }
 
     // ── hotkey ───────────────────────────────────────────────────────────
     {
+        const HOTKEY_DOC_SOURCE: &str = "agents/computer/tools/prompts/hotkey.md";
         let hotkey_state = state.clone();
         let doc = include_str!("prompts/hotkey.md").trim();
         reg.register(ToolEntry::new(
             "hotkey",
+            HOTKEY_DOC_SOURCE,
             "low",
             false,
             doc,
@@ -145,6 +149,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
 
     // ── input (flat tools) ─────────────────────────────────────────────
     {
+        const INPUT_DOC_SOURCE: &str = "agents/computer/tools/prompts/input.md";
         const INPUT_SCHEMA_YAML: &str = include_str!("prompts/input.schema.yaml");
         let input_schemas: HashMap<String, serde_json::Value> =
             load_tools_from_schema_yaml(INPUT_SCHEMA_YAML)
@@ -181,13 +186,15 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             });
 
             reg.register(
-                ToolEntry::new(tool_name, "low", false, prompt, handler).with_schema(schema),
+                ToolEntry::new(tool_name, INPUT_DOC_SOURCE, "low", false, prompt, handler)
+                    .with_schema(schema),
             );
         }
     }
 
     // ── modified_click (flat tools) ─────────────────────────────────────────
     {
+        const MODIFIED_CLICK_DOC_SOURCE: &str = "agents/computer/tools/prompts/modified_click.md";
         const MODIFIED_CLICK_SCHEMA_YAML: &str = include_str!("prompts/modified_click.schema.yaml");
         let modified_click_schemas: HashMap<String, serde_json::Value> =
             load_tools_from_schema_yaml(MODIFIED_CLICK_SCHEMA_YAML)
@@ -232,13 +239,15 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 .unwrap_or_else(|| panic!("modified_click.schema.yaml missing entry for {name}"));
 
             reg.register(
-                ToolEntry::new(tool_name, "low", false, prompt, handler).with_schema(schema),
+                ToolEntry::new(tool_name, MODIFIED_CLICK_DOC_SOURCE, "low", false, prompt, handler)
+                    .with_schema(schema),
             );
         }
     }
 
     // ── captcha_verify (flat tools) ───────────────────────────────────────
     {
+        const CAPTCHA_DOC_SOURCE: &str = "agents/computer/tools/prompts/captcha_verify.md";
         const CAPTCHA_SCHEMA_YAML: &str = include_str!("prompts/captcha_verify.schema.yaml");
         let captcha_schemas: HashMap<String, serde_json::Value> =
             load_tools_from_schema_yaml(CAPTCHA_SCHEMA_YAML)
@@ -281,16 +290,19 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
             });
 
             reg.register(
-                ToolEntry::new(tool_name, "low", false, prompt, handler).with_schema(schema),
+                ToolEntry::new(tool_name, CAPTCHA_DOC_SOURCE, "low", false, prompt, handler)
+                    .with_schema(schema),
             );
         }
     }
 
     // ── wait ─────────────────────────────────────────────────────────────
     {
+        const WAIT_DOC_SOURCE: &str = "agents/computer/tools/prompts/wait.md";
         let doc = include_str!("prompts/wait.md").trim();
         reg.register(ToolEntry::new(
             "wait",
+            WAIT_DOC_SOURCE,
             "low",
             false,
             doc,
@@ -303,6 +315,7 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
 
     // ── clipboard (flat tools) ────────────────────────────────────────────
     {
+        const CLIPBOARD_DOC_SOURCE: &str = "agents/computer/tools/prompts/clipboard.md";
         const CLIPBOARD_SCHEMA_YAML: &str = include_str!("prompts/clipboard.schema.yaml");
         let clipboard_schemas: HashMap<String, serde_json::Value> =
             load_tools_from_schema_yaml(CLIPBOARD_SCHEMA_YAML)
@@ -332,16 +345,19 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                 .unwrap_or_else(|| panic!("clipboard.schema.yaml missing entry for {name}"));
 
             reg.register(
-                ToolEntry::new(tool_name, "low", false, prompt, handler).with_schema(schema),
+                ToolEntry::new(tool_name, CLIPBOARD_DOC_SOURCE, "low", false, prompt, handler)
+                    .with_schema(schema),
             );
         }
     }
 
     // ── action_verify (sidecar flat) ─────────────────────────────────────
     {
+        const ACTION_VERIFY_DOC_SOURCE: &str = "agents/computer/tools/prompts/action_verify.md";
         let doc = include_str!("prompts/action_verify.md").trim();
         reg.register(ToolEntry::new_sidecar(
             ACTION_VERIFY,
+            ACTION_VERIFY_DOC_SOURCE,
             "low",
             false,
             doc,

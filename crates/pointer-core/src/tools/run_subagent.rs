@@ -6,6 +6,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 const DOC: &str = include_str!("prompts/run_subagent.md");
+const DOC_SOURCE: &str = "tools/prompts/run_subagent.md";
 
 pub fn register_all(reg: &ToolRegistry) {
     let handler: ToolHandler = Arc::new(|_args: Value| -> Result<String> {
@@ -15,6 +16,7 @@ pub fn register_all(reg: &ToolRegistry) {
     });
     reg.register(ToolEntry::new(
         "run_subagent",
+        DOC_SOURCE,
         "medium",
         false,
         DOC.trim(),

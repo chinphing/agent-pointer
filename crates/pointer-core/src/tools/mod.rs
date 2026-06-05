@@ -235,6 +235,9 @@ pub struct ToolEntry {
     /// When true, the tool may only appear inside `<sidecar_tools>` / `<call>`, not as the root
     /// `<tool_name>` when any sidecar calls are present (see `response` tool docs).
     pub is_sidecar: bool,
+    /// Repo-relative path under `crates/pointer-core/src/` to the tool prompt `.md`.
+    /// Dedup key for [`crate::tools_system_appendix::generate_tools_system_appendix`].
+    pub doc_source: &'static str,
     pub doc_markdown: String,
     /// Standalone JSON Schema; when present, used instead of extracting from `doc_markdown`
     /// YAML frontmatter. Set when tools are registered from `.schema.yaml` files.
@@ -247,6 +250,7 @@ pub struct ToolEntry {
 impl ToolEntry {
     pub fn new(
         name: impl Into<String>,
+        doc_source: &'static str,
         risk_level: impl Into<String>,
         requires_approval: bool,
         doc_markdown: impl Into<String>,
@@ -254,6 +258,7 @@ impl ToolEntry {
     ) -> Self {
         Self::new_inner(
             name,
+            doc_source,
             risk_level,
             requires_approval,
             false,
@@ -265,6 +270,7 @@ impl ToolEntry {
     /// Sidecar-only tools (`task_board`, …): enforced by [`ToolRegistry::is_sidecar_tool`] / envelope validation; long-form docs live in `doc_markdown` (`generate_tools_system_appendix`).
     pub fn new_sidecar(
         name: impl Into<String>,
+        doc_source: &'static str,
         risk_level: impl Into<String>,
         requires_approval: bool,
         doc_markdown: impl Into<String>,
@@ -272,6 +278,7 @@ impl ToolEntry {
     ) -> Self {
         Self::new_inner(
             name,
+            doc_source,
             risk_level,
             requires_approval,
             true,
@@ -282,6 +289,7 @@ impl ToolEntry {
 
     fn new_inner(
         name: impl Into<String>,
+        doc_source: &'static str,
         risk_level: impl Into<String>,
         requires_approval: bool,
         is_sidecar: bool,
@@ -294,6 +302,7 @@ impl ToolEntry {
             risk_level: risk_level.into(),
             requires_approval,
             is_sidecar,
+            doc_source,
             doc_markdown: doc_markdown.into(),
             schema: None,
             handler,
@@ -317,6 +326,7 @@ impl ToolEntry {
 #[derive(Debug, Clone)]
 pub struct XmlToolDescriptor {
     pub name: String,
+    pub doc_source: &'static str,
     pub doc_markdown: String,
 }
 
@@ -387,6 +397,7 @@ impl ToolRegistry {
             .filter(|e| registry_tool_allowed(&e.def.name, allow))
             .map(|e| XmlToolDescriptor {
                 name: e.def.name.clone(),
+                doc_source: e.doc_source,
                 doc_markdown: e.doc_markdown.clone(),
             })
             .collect();
@@ -575,6 +586,7 @@ mod openai_tools_schema_tests {
         reg.register(
             ToolEntry::new(
                 "file_read",
+                "test:file_read",
                 "low",
                 false,
                 doc,
@@ -600,7 +612,14 @@ mod openai_tools_schema_tests {
         let reg = ToolRegistry::new();
         let doc = "### `file_write`\n-";
         reg.register(
-            ToolEntry::new("file_write", "high", true, doc, Arc::new(|_| Ok(String::new())))
+            ToolEntry::new(
+                "file_write",
+                "test:file_write",
+                "high",
+                true,
+                doc,
+                Arc::new(|_| Ok(String::new())),
+            )
                 .with_schema(serde_json::json!({
                     "type": "object",
                     "properties": { "path": { "type": "string" }, "content": {} },
@@ -620,6 +639,7 @@ mod openai_tools_schema_tests {
         reg.register(
             ToolEntry::new(
                 "skill_load_instructions",
+                "test:skill_load_instructions",
                 "low",
                 false,
                 "### `skill_load_instructions`\n-",
@@ -641,6 +661,7 @@ mod openai_tools_schema_tests {
         reg.register(
             ToolEntry::new(
                 "task_board_patch",
+                "test:task_board_patch",
                 "low",
                 false,
                 "### `task_board_patch`\n-",
@@ -700,8 +721,15 @@ mod openai_tools_schema_tests {
         for name in ["captcha_verify_type", "captcha_verify_click", "captcha_verify_drag"] {
             let schema = schemas.get(name).cloned().unwrap();
             reg.register(
-                ToolEntry::new(name, "low", false, doc, Arc::new(|_| Ok(String::new())))
-                    .with_schema(schema),
+                ToolEntry::new(
+                    name,
+                    "agents/computer/tools/prompts/captcha_verify.md",
+                    "low",
+                    false,
+                    doc,
+                    Arc::new(|_| Ok(String::new())),
+                )
+                .with_schema(schema),
             );
         }
         let allow = vec!["captcha_verify".into()];
@@ -739,6 +767,7 @@ mod openai_tools_schema_tests {
         reg.register(
             ToolEntry::new(
                 "captcha_verify",
+                "test:captcha_verify",
                 "high",
                 false,
                 "plain doc without schema fence",

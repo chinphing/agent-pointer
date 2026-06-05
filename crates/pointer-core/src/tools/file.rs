@@ -19,6 +19,8 @@ use walkdir::WalkDir;
 
 /// Doc for registry tool `file`; keep in sync with `prompts/file.md`.
 const FILE_MD: &str = include_str!("prompts/file.md");
+/// Stable dedup key for system tool appendix (under `crates/pointer-core/src/`).
+const FILE_DOC_SOURCE: &str = "tools/prompts/file.md";
 /// Standalone schemas for flat file tools (no `method` enum).
 const FILE_SCHEMA_YAML: &str = include_str!("prompts/file.schema.yaml");
 
@@ -219,7 +221,7 @@ pub fn register_all(reg: &ToolRegistry) {
         };
 
         reg.register(
-            ToolEntry::new(name.clone(), risk, is_write, prompt.clone(), handler)
+            ToolEntry::new(name.clone(), FILE_DOC_SOURCE, risk, is_write, prompt.clone(), handler)
                 .with_schema(schema),
         );
     }

@@ -41,10 +41,12 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 pub fn register_all(reg: &ToolRegistry) {
+    const DOC_SOURCE: &str = "tools/prompts/web_search.md";
     let doc = include_str!("../prompts/web_search.md").trim();
     let h: ToolHandler = Arc::new(|args| run_web_search_sync(args));
     reg.register(ToolEntry::new(
         "web_search",
+        DOC_SOURCE,
         "medium",
         true,
         doc,

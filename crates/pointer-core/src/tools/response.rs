@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 const RESPONSE_MD: &str = include_str!("prompts/response.md");
+const RESPONSE_DOC_SOURCE: &str = "tools/prompts/response.md";
 
 /// Matches PyProjects/pointer `prompts/agent.system.tool.response.md`: primary arg is `text`; also accepts legacy `message`.
 pub(crate) fn response_text_from_args(args: &Value) -> Option<&str> {
@@ -24,6 +25,7 @@ pub fn register_all(reg: &ToolRegistry) {
 
     reg.register(ToolEntry::new(
         "response",
+        RESPONSE_DOC_SOURCE,
         "low",
         false,
         doc,

@@ -29,10 +29,12 @@ pub fn register_all(reg: &ToolRegistry) {
 }
 
 fn register_terminal(reg: &ToolRegistry) {
+    const DOC_SOURCE: &str = "tools/prompts/terminal.md";
     let doc = include_str!("prompts/terminal.md").trim();
     let h: ToolHandler = Arc::new(run_terminal_command);
     reg.register(ToolEntry::new(
         "terminal",
+        DOC_SOURCE,
         "high",
         true,
         doc,

@@ -1067,10 +1067,12 @@ fn run_read_lints(args: Value) -> Result<String> {
 }
 
 pub fn register_all(reg: &ToolRegistry) {
+    const DOC_SOURCE: &str = "agents/coder/prompts/read_lints.md";
     let doc = include_str!("../prompts/read_lints.md").trim();
     let h: ToolHandler = Arc::new(run_read_lints);
     reg.register(ToolEntry::new(
         "read_lints",
+        DOC_SOURCE,
         "low",
         false,
         doc,

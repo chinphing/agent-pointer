@@ -275,7 +275,7 @@ src-tauri/target/release/pointer-app
 
 | 现象 | 处理 |
 |------|------|
-| `failed to run linuxdeploy`（AppImage 阶段） | 先装 `libfuse2`、`patchelf`、`file`；Linux 上 `npm run tauri:build` 会自动 `NO_STRIP=true`；若仍失败：`npm run tauri:build -- --bundles appimage --verbose` 查看 strip/gstreamer 具体错误 |
+| `failed to run linuxdeploy`（AppImage 阶段） | 运行 `bash scripts/install-linux-build-deps.sh` 安装依赖；**必须**用 `npm run tauri:build`（自动 `NO_STRIP=true`），勿直接 `npx tauri build`；查看详情：`npm run tauri:build -- --bundles appimage --verbose`；Docker/无 FUSE 环境已自动设 `APPIMAGE_EXTRACT_AND_RUN=1` |
 | WebKitGTK 找不到 | 确认 `libwebkit2gtk-4.1-dev` 已安装 |
 | `libspa-sys` / `libpipewire-0.3` not found | 安装 `libpipewire-0.3-dev` 和 `libspa-0.2-dev`，然后重新 `npm run tauri:build` |
 | `Unable to find libclang`（bindgen） | 安装 `libclang-dev`（或 `clang`），必要时 `export LIBCLANG_PATH=/usr/lib/llvm-*/lib` |

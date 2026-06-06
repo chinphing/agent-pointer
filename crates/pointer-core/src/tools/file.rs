@@ -269,6 +269,18 @@ pub fn workspace_root_from_override_or_settings() -> String {
         })
 }
 
+/// Update the in-flight conversation workspace (e.g. before delegating to **coder**).
+pub fn set_runtime_workspace_root(root: String) {
+    let trimmed = root.trim();
+    CONVERSATION_WORKSPACE_ROOT.with(|c| {
+        *c.borrow_mut() = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+    });
+}
+
 pub fn resolve_tool_workspace_root() -> Result<PathBuf> {
     let raw = workspace_root_from_override_or_settings();
     let raw = raw.trim();

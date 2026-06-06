@@ -396,6 +396,13 @@ export interface ComputerMonitor {
   isPrimary: boolean
 }
 
+export interface ComputerMonitorPickRequest {
+  conversationId: string
+  messageId: string
+  toolCallId: string
+  monitors: ComputerMonitor[]
+}
+
 export interface ContextCompressionInfo {
   reason: 'budget' | 'tool_limit' | string
   messagesBefore: number
@@ -440,6 +447,9 @@ export type StreamEvent =
   | { kind: 'supervisor_plan'; conversationId: string; messageId: string; tasks: SupervisorPlanTask[] }
   | { kind: 'task_board_updated'; conversationId: string; storeKey: string; anchorMessageId?: string; document: TaskBoardDocument }
   | { kind: 'skills_updated'; conversationId: string; importedIds: string[]; enabledIds?: string[] }
+  | { kind: 'workspace_updated'; conversationId: string; workspaceRoot: string; isEphemeralSandbox: boolean }
+  | { kind: 'computer_monitor_pick_required'; conversationId: string; messageId: string; toolCallId: string; monitors: ComputerMonitor[] }
+  | { kind: 'computer_monitor_updated'; conversationId: string; monitorId?: string | null }
 
 export interface SupervisorPlanTask {
   id: string

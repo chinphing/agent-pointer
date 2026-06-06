@@ -35,6 +35,8 @@ pub struct AppState {
     /// When set, the in-flight `terminal` tool for that conversation kills its subprocess (host-only; does not cancel the LLM turn).
     pub terminal_run_abort: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
+    /// Blocks `run_subagent` → computer until the UI confirms monitor selection.
+    pub monitor_picks: Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
     /// Active main-agent task board key per conversation.
     pub active_main_task_boards: Mutex<HashMap<String, String>>,
     /// Main task board anchor bindings: conversation -> (store_key -> user_message_id).
@@ -100,6 +102,7 @@ impl AppState {
             cancels: Mutex::new(HashMap::new()),
             terminal_run_abort: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
+            monitor_picks: Mutex::new(HashMap::new()),
             active_main_task_boards: Mutex::new(HashMap::new()),
             task_board_anchor_by_store_key: Mutex::new(HashMap::new()),
         }
@@ -185,6 +188,10 @@ impl AppState {
         for (_, tx) in approvals {
             let _ = tx.send(false);
         }
+        let monitor_picks: Vec<_> = self.monitor_picks.lock().drain().collect();
+        for (_, tx) in monitor_picks {
+            let _ = tx.send(Err("已停止生成".into()));
+        }
     }
 
     /// Kill only the subprocess for the current **`terminal`** tool in this conversation.
@@ -203,6 +210,24 @@ impl AppState {
     pub fn approve_tool_call(&self, tool_call_id: &str, approved: bool) -> bool {
         if let Some(tx) = self.approvals.lock().remove(tool_call_id) {
             let _ = tx.send(approved);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn confirm_computer_monitor_pick(&self, conversation_id: &str) -> bool {
+        if let Some(tx) = self.monitor_picks.lock().remove(conversation_id) {
+            let _ = tx.send(Ok(()));
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn cancel_computer_monitor_pick(&self, conversation_id: &str) -> bool {
+        if let Some(tx) = self.monitor_picks.lock().remove(conversation_id) {
+            let _ = tx.send(Err("屏幕选择已取消".into()));
             true
         } else {
             false

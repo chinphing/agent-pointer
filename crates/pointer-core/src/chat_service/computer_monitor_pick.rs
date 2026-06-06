@@ -1,0 +1,129 @@
+//! Block **`run_subagent` → computer** until the user picks a monitor (same rules as Computer lead send).
+
+use crate::agents::agent_ui::resolve_agent_ui;
+use crate::agents::computer::screen;
+use crate::models::StreamEvent;
+use anyhow::{anyhow, Result};
+use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
+
+use super::app_state::AppState;
+use super::emit::emit;
+use super::StreamTx;
+
+/// Whether monitor selection UI should run (computer agent UI + platform setting).
+pub fn computer_monitor_picker_enabled(
+    state: &AppState,
+    settings: &crate::models::ModelSettings,
+) -> bool {
+    if !settings.computer_show_monitor_picker {
+        return false;
+    }
+    let Some(exec) = state.agents.get("computer") else {
+        return false;
+    };
+    let def = exec.def();
+    resolve_agent_ui(&def).show_computer_monitor_picker
+}
+
+/// Resolve monitor for a computer sub-agent; may block on UI pick.
+pub async fn ensure_computer_monitor_for_subagent(
+    stream: &StreamTx,
+    state: &AppState,
+    settings: &crate::models::ModelSettings,
+    conversation_id: &str,
+    message_id: &str,
+    tool_call_id: &str,
+    cancel: &CancellationToken,
+) -> Result<()> {
+    if !computer_monitor_picker_enabled(state, settings) {
+        log::info!(
+            "computer_monitor_pick: skipped (picker disabled) conversation_id={conversation_id}"
+        );
+        return Ok(());
+    }
+
+    if state
+        .computer_state
+        .is_monitor_selection_done(conversation_id)
+    {
+        log::info!(
+            "computer_monitor_pick: already configured conversation_id={conversation_id}"
+        );
+        return Ok(());
+    }
+
+    let monitors = screen::list_monitors().map_err(|e| anyhow!("list monitors: {e}"))?;
+    if monitors.is_empty() {
+        return Err(anyhow!("未检测到可用屏幕"));
+    }
+
+    if monitors.len() == 1 {
+        let id = monitors[0].id.clone();
+        state
+            .computer_state
+            .set_conversation_monitor(conversation_id, Some(id.clone()));
+        emit_monitor_updated(stream, conversation_id, Some(id));
+        log::info!(
+            "computer_monitor_pick: auto-selected single monitor conversation_id={conversation_id}"
+        );
+        return Ok(());
+    }
+
+    log::info!(
+        "computer_monitor_pick: waiting for user selection conversation_id={conversation_id} monitors={}",
+        monitors.len()
+    );
+    emit(
+        stream,
+        StreamEvent::ComputerMonitorPickRequired {
+            conversation_id: conversation_id.to_string(),
+            message_id: message_id.to_string(),
+            tool_call_id: tool_call_id.to_string(),
+            monitors,
+        },
+    );
+
+    let (tx, rx) = oneshot::channel::<Result<(), String>>();
+    state
+        .monitor_picks
+        .lock()
+        .insert(conversation_id.to_string(), tx);
+
+    let outcome = tokio::select! {
+        _ = cancel.cancelled() => {
+            state.monitor_picks.lock().remove(conversation_id);
+            Err(anyhow!("已停止生成"))
+        }
+        v = rx => match v {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(msg)) => Err(anyhow!("{msg}")),
+            Err(_) => Err(anyhow!("屏幕选择已取消")),
+        },
+    };
+
+    outcome
+}
+
+fn emit_monitor_updated(stream: &StreamTx, conversation_id: &str, monitor_id: Option<String>) {
+    emit(
+        stream,
+        StreamEvent::ComputerMonitorUpdated {
+            conversation_id: conversation_id.to_string(),
+            monitor_id,
+        },
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn picker_disabled_when_platform_flag_off() {
+        let state = AppState::new();
+        let mut settings = state.effective_settings();
+        settings.computer_show_monitor_picker = false;
+        assert!(!computer_monitor_picker_enabled(&state, &settings));
+    }
+}

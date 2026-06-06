@@ -24,8 +24,17 @@ pub fn register_all(reg: &ToolRegistry) {
     ));
 }
 
-/// Parse tool JSON for `run_subagent`. Returns `(agent_id, instruction, title, task_id)`.
-pub fn parse_run_subagent_args(args: &Value) -> Result<(String, String, String, String), String> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunSubagentArgs {
+    pub agent_id: String,
+    pub instruction: String,
+    pub title: String,
+    pub task_id: String,
+    pub workspace_root: Option<String>,
+}
+
+/// Parse tool JSON for `run_subagent`.
+pub fn parse_run_subagent_args(args: &Value) -> Result<RunSubagentArgs, String> {
     let agent_id = args
         .get("agentId")
         .and_then(|v| v.as_str())
@@ -50,12 +59,19 @@ pub fn parse_run_subagent_args(args: &Value) -> Result<(String, String, String, 
         .unwrap_or("")
         .trim()
         .to_string();
-    Ok((
-        agent_id.to_string(),
-        instruction.to_string(),
+    let workspace_root = args
+        .get("workspaceRoot")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    Ok(RunSubagentArgs {
+        agent_id: agent_id.to_string(),
+        instruction: instruction.to_string(),
         title,
         task_id,
-    ))
+        workspace_root,
+    })
 }
 
 /// `allow_agents` must be sorted and deduped (see [`crate::agents::normalize_allow_agents`]).
@@ -111,11 +127,23 @@ mod tests {
             "instruction": "Do the thing"
         }));
         assert!(ok.is_ok());
-        let (id, ins, title, tid) = ok.unwrap();
-        assert_eq!(id, "coder");
-        assert_eq!(ins, "Do the thing");
-        assert!(title.is_empty());
-        assert!(tid.is_empty());
+        let parsed = ok.unwrap();
+        assert_eq!(parsed.agent_id, "coder");
+        assert_eq!(parsed.instruction, "Do the thing");
+        assert!(parsed.title.is_empty());
+        assert!(parsed.task_id.is_empty());
+        assert!(parsed.workspace_root.is_none());
+    }
+
+    #[test]
+    fn parse_accepts_workspace_root() {
+        let parsed = parse_run_subagent_args(&json!({
+            "agentId": "coder",
+            "instruction": "Fix tests",
+            "workspaceRoot": "/tmp/my-project"
+        }))
+        .unwrap();
+        assert_eq!(parsed.workspace_root.as_deref(), Some("/tmp/my-project"));
     }
 
     #[test]

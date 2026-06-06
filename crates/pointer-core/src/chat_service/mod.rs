@@ -5,6 +5,7 @@
 //! sub-agent `sub_agent` (+ `_prompt` / `_stream`), supervisor `supervisor` (+ `_plan` / `_synth`),
 //! shared `agent_stream_round` / `agent_post_stream` / `agent_tool_pass` / `run_subagent_delegation`.
 
+mod computer_monitor_pick;
 mod agent_post_stream;
 mod agent_stream_round;
 mod agent_tool_pass;

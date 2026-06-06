@@ -3,13 +3,13 @@
 use crate::agents::agent_ui::agent_display_label;
 use crate::agents::AgentTask;
 use crate::llm_token_stats::ConversationLlmStats;
-use crate::models::AgentTrace;
+use crate::models::{AgentTrace, StreamEvent};
 use crate::provider::OpenAIProvider;
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 
 use super::app_state::AppState;
-use super::emit::{agent_trace_step_id, emit_agent_step};
+use super::emit::{agent_trace_step_id, emit, emit_agent_step};
 use super::session_budget::SessionToolBudget;
 use super::util::{new_id, truncate_str};
 use super::StreamTx;
@@ -21,6 +21,7 @@ pub(super) async fn run_subagent_delegation(
     conversation_id: &str,
     parent_task_board_store_key: &str,
     message_id: &str,
+    tool_call_id: &str,
     args_value: serde_json::Value,
     run_id: &str,
     allow_agents: &[String],
@@ -32,7 +33,8 @@ pub(super) async fn run_subagent_delegation(
     let parsed = crate::tools::run_subagent::parse_run_subagent_args(&args_value);
     match parsed {
         Err(msg) => Ok((format!("ERROR: {msg}"), false, Some(msg))),
-        Ok((agent_id, instruction, title, task_id_raw)) => {
+        Ok(parsed) => {
+            let agent_id = parsed.agent_id;
             match crate::tools::run_subagent::validate_run_subagent_target(
                 &state.agents,
                 allow_agents,
@@ -40,20 +42,67 @@ pub(super) async fn run_subagent_delegation(
             ) {
                 Err(msg) => Ok((format!("ERROR: {msg}"), false, Some(msg))),
                 Ok(def) => {
-                    let tid = if task_id_raw.trim().is_empty() {
+                    let tid = if parsed.task_id.trim().is_empty() {
                         new_id("sub_task")
                     } else {
-                        task_id_raw.trim().to_string()
+                        parsed.task_id.trim().to_string()
                     };
+                    if def.id == "computer" {
+                        if let Err(e) = super::computer_monitor_pick::ensure_computer_monitor_for_subagent(
+                            stream,
+                            state,
+                            &provider.settings,
+                            conversation_id,
+                            message_id,
+                            tool_call_id,
+                            cancel,
+                        )
+                        .await
+                        {
+                            let msg = e.to_string();
+                            log::warn!(
+                                "run_subagent computer monitor pick failed conversation_id={conversation_id}: {msg}"
+                            );
+                            return Ok((format!("ERROR: {msg}"), false, Some(msg)));
+                        }
+                    }
+                    let mut sub_settings = provider.settings.clone();
+                    if def.id == "coder" {
+                        match crate::workspace_delegation::ensure_coder_delegation_workspace(
+                            conversation_id,
+                            parsed.workspace_root.as_deref(),
+                        ) {
+                            Ok((root, ephemeral)) => {
+                                sub_settings.workspace_root = root.clone();
+                                emit(
+                                    stream,
+                                    StreamEvent::WorkspaceUpdated {
+                                        conversation_id: conversation_id.to_string(),
+                                        workspace_root: root,
+                                        is_ephemeral_sandbox: ephemeral,
+                                    },
+                                );
+                            }
+                            Err(e) => {
+                                let msg = e.to_string();
+                                log::warn!(
+                                    "run_subagent coder workspace failed conversation_id={conversation_id}: {msg}"
+                                );
+                                return Ok((format!("ERROR: {msg}"), false, Some(msg)));
+                            }
+                        }
+                    }
+                    let sub_provider =
+                        OpenAIProvider::new(sub_settings, provider.api_key.clone());
                     let task = AgentTask {
                         id: tid,
                         agent_id: agent_id.clone(),
-                        title: if title.trim().is_empty() {
+                        title: if parsed.title.trim().is_empty() {
                             format!("Delegated: {agent_id}")
                         } else {
-                            title
+                            parsed.title
                         },
-                        instruction,
+                        instruction: parsed.instruction,
                         depends_on: vec![],
                     };
                     log::info!(
@@ -88,7 +137,7 @@ pub(super) async fn run_subagent_delegation(
                         .clamp(1, 10_000);
                     let mut sub_budget = SessionToolBudget::new(sub_cap, 0);
                     match Box::pin(super::sub_agent::run_sub_agent(
-                        provider,
+                        &sub_provider,
                         state,
                         stream,
                         conversation_id,

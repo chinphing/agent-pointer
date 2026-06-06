@@ -134,6 +134,14 @@ export async function setComputerConversationMonitor(conversationId: string, mon
   })
 }
 
+export async function confirmComputerMonitorPick(conversationId: string): Promise<void> {
+  await invoke('confirm_computer_monitor_pick', { conversationId })
+}
+
+export async function cancelComputerMonitorPick(conversationId: string): Promise<void> {
+  await invoke('cancel_computer_monitor_pick', { conversationId })
+}
+
 export type { MacosComputerPermissionsStatus } from '../types/macosPermissions'
 
 export async function getMacosComputerPermissions(): Promise<import('../types/macosPermissions').MacosComputerPermissionsStatus> {

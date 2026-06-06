@@ -8,13 +8,15 @@ import { useSettingsStore } from '../../stores/settings'
 import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { resolveAgentUi, resolveLeadAgentUi, composerAgentLabel, RESEARCH_COMPOSER_UI_ENABLED } from '../../lib/agentUi'
 import { iconForAgent, sortComposerAgents, TEAM_MODE_UI_ENABLED } from '../../lib/agentIcons'
-import type { AgentDef, ComputerMonitor } from '../../types/chat'
+import type { AgentDef, ComputerMonitor, ComputerMonitorPickRequest } from '../../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../../types/chat'
 import {
   getMacosComputerPermissions,
   listAgents,
   listComputerMonitors,
-  setComputerConversationMonitor
+  setComputerConversationMonitor,
+  confirmComputerMonitorPick,
+  cancelComputerMonitorPick
 } from '../../lib/api'
 import { detectDesktopOs } from '../../lib/desktopOs'
 import {
@@ -209,6 +211,9 @@ const screenPickerLoading = ref(false)
 const screenPickerError = ref<string | null>(null)
 const screenPickerMonitors = ref<ComputerMonitor[]>([])
 const pendingSendText = ref<string | null>(null)
+const subagentPickPending = ref<ComputerMonitorPickRequest | null>(null)
+const subagentPickResolved = ref(false)
+const pendingSubagentMonitorPick = ref<ComputerMonitorPickRequest | null>(null)
 
 function macosComputerPermissionsAllowSend(perms: MacosComputerPermissionsStatus): boolean {
   if (perms.screenRecording && perms.accessibility) {
@@ -275,6 +280,12 @@ async function sendWithOptionalComputerScreenPick() {
 }
 
 async function onPermissionsReady() {
+  const subReq = pendingSubagentMonitorPick.value
+  if (subReq) {
+    pendingSubagentMonitorPick.value = null
+    void beginSubagentMonitorPickFlow(subReq)
+    return
+  }
   const v = pendingSendText.value
   if (!v) return
   pendingSendText.value = null
@@ -282,14 +293,93 @@ async function onPermissionsReady() {
   send()
 }
 
+async function beginSubagentMonitorPickFlow(req: ComputerMonitorPickRequest) {
+  const conv = chat.conversations.find(c => c.id === req.conversationId) ?? chat.current
+  if (!conv) {
+    chat.clearComputerMonitorPickRequest()
+    return
+  }
+
+  if (isMacDesktop.value) {
+    try {
+      const perms = await getMacosComputerPermissions()
+      if (!macosComputerPermissionsAllowSend(perms)) {
+        pendingSubagentMonitorPick.value = req
+        showPermissionsModal.value = true
+        return
+      }
+    } catch {
+      pendingSubagentMonitorPick.value = req
+      showPermissionsModal.value = true
+      return
+    }
+  }
+
+  if (conv.computerMonitorId) {
+    try {
+      await setComputerConversationMonitor(conv.id, conv.computerMonitorId)
+      await confirmComputerMonitorPick(req.conversationId)
+      chat.clearComputerMonitorPickRequest()
+    } catch (e: unknown) {
+      screenPickerError.value = String((e as { message?: string })?.message || e)
+      screenPickerMonitors.value = req.monitors
+      subagentPickPending.value = req
+      showScreenPicker.value = true
+    }
+    return
+  }
+
+  screenPickerError.value = null
+  screenPickerLoading.value = false
+  screenPickerMonitors.value = req.monitors
+  subagentPickPending.value = req
+  showScreenPicker.value = true
+}
+
+watch(
+  () => chat.computerMonitorPickRequest,
+  req => {
+    if (req) void beginSubagentMonitorPickFlow(req)
+  }
+)
+
+watch(showScreenPicker, (open, wasOpen) => {
+  if (open || !wasOpen) return
+  const req = subagentPickPending.value
+  if (!req) return
+  if (subagentPickResolved.value) {
+    subagentPickResolved.value = false
+    subagentPickPending.value = null
+    return
+  }
+  subagentPickPending.value = null
+  chat.clearComputerMonitorPickRequest()
+  void cancelComputerMonitorPick(req.conversationId)
+})
+
 async function onPickScreen(monitorId: string) {
-  const conv = chat.current || chat.newConversation()
+  const subReq = subagentPickPending.value
+  const conv = subReq
+    ? (chat.conversations.find(c => c.id === subReq.conversationId) ?? chat.current)
+    : (chat.current || chat.newConversation())
+  if (!conv) return
   conv.computerMonitorId = monitorId
   try {
     await setComputerConversationMonitor(conv.id, monitorId)
   } catch (e) {
-    // If setting fails, keep the picker open with error so the user can retry.
-    screenPickerError.value = String((e as any)?.message || e)
+    screenPickerError.value = String((e as { message?: string })?.message || e)
+    return
+  }
+  if (subReq) {
+    try {
+      await confirmComputerMonitorPick(subReq.conversationId)
+    } catch (e) {
+      screenPickerError.value = String((e as { message?: string })?.message || e)
+      return
+    }
+    subagentPickResolved.value = true
+    showScreenPicker.value = false
+    chat.clearComputerMonitorPickRequest()
     return
   }
   showScreenPicker.value = false

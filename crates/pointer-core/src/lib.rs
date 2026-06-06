@@ -10,6 +10,7 @@ pub mod platform_auth;
 pub mod platform_endpoints;
 pub mod experiences;
 pub mod token_usage_store;
+pub mod workspace_delegation;
 pub mod extensions;
 pub mod context_compression;
 pub mod message_context;

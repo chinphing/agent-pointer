@@ -253,6 +253,30 @@ pub fn set_computer_conversation_monitor(
 }
 
 #[tauri::command]
+pub fn confirm_computer_monitor_pick(
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+) -> Result<(), String> {
+    if state.confirm_computer_monitor_pick(&conversation_id) {
+        Ok(())
+    } else {
+        Err("no pending monitor pick".into())
+    }
+}
+
+#[tauri::command]
+pub fn cancel_computer_monitor_pick(
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+) -> Result<(), String> {
+    if state.cancel_computer_monitor_pick(&conversation_id) {
+        Ok(())
+    } else {
+        Err("no pending monitor pick".into())
+    }
+}
+
+#[tauri::command]
 pub fn load_conversations() -> Result<Vec<Conversation>, String> {
     storage::load_conversations().map_err(|e| e.to_string())
 }

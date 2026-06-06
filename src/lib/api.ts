@@ -57,6 +57,8 @@ export interface RuntimeApi {
   previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview>
   listComputerMonitors(): Promise<ComputerMonitor[]>
   setComputerConversationMonitor(conversationId: string, monitorId: string | null): Promise<void>
+  confirmComputerMonitorPick(conversationId: string): Promise<void>
+  cancelComputerMonitorPick(conversationId: string): Promise<void>
   getMacosComputerPermissions?(): Promise<import('../types/macosPermissions').MacosComputerPermissionsStatus>
   openMacosComputerPermissionSettings?(kind: import('./tauri').MacosPermissionDragKind): Promise<void>
   beginMacosPermissionDragFlow?(kind: import('./tauri').MacosPermissionDragKind): Promise<void>
@@ -91,6 +93,8 @@ export const previewComputerAnnotatedScreen = api.previewComputerAnnotatedScreen
 export const previewComputerRoundScreen = api.previewComputerRoundScreen
 export const listComputerMonitors = api.listComputerMonitors
 export const setComputerConversationMonitor = api.setComputerConversationMonitor
+export const confirmComputerMonitorPick = api.confirmComputerMonitorPick
+export const cancelComputerMonitorPick = api.cancelComputerMonitorPick
 
 const macosPermsOk = (): import('../types/macosPermissions').MacosComputerPermissionsStatus => ({
   screenRecording: true,

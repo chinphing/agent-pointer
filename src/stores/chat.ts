@@ -6,6 +6,7 @@ import {
 } from '../lib/api'
 import type {
   ChatMessage,
+  ComputerMonitorPickRequest,
   Conversation,
   StreamEvent,
   ToolCall,
@@ -135,6 +136,8 @@ export const useChatStore = defineStore('chat', () => {
   const taskBoards = ref<Record<string, ConversationTaskBoardState>>({})
   /** One-shot composer draft from home experience suggestions. */
   const composerPrefill = ref<string | null>(null)
+  /** Set when a computer sub-agent needs monitor selection before it can start. */
+  const computerMonitorPickRequest = ref<ComputerMonitorPickRequest | null>(null)
   let uiToastTimer: ReturnType<typeof setTimeout> | null = null
   let unlisten: (() => void) | null = null
   let saveTimer: number | null = null
@@ -665,6 +668,36 @@ export const useChatStore = defineStore('chat', () => {
         }
         break
       }
+      case 'workspace_updated': {
+        const conv = conversations.value.find(c => c.id === e.conversationId)
+        if (conv) {
+          conv.workspaceRoot = e.workspaceRoot
+          conv.updatedAt = Date.now()
+          persist()
+        }
+        if (e.isEphemeralSandbox) {
+          showUiToast(`已创建临时工作目录：${e.workspaceRoot}`, 'warning')
+        }
+        break
+      }
+      case 'computer_monitor_pick_required': {
+        computerMonitorPickRequest.value = {
+          conversationId: e.conversationId,
+          messageId: e.messageId,
+          toolCallId: e.toolCallId,
+          monitors: e.monitors
+        }
+        break
+      }
+      case 'computer_monitor_updated': {
+        const conv = conversations.value.find(c => c.id === e.conversationId)
+        if (conv) {
+          conv.computerMonitorId = e.monitorId ?? undefined
+          conv.updatedAt = Date.now()
+          persist()
+        }
+        break
+      }
       case 'tool_call_start': {
         const r = findMessage(e.messageId)
         if (!r) return
@@ -1109,6 +1142,10 @@ export const useChatStore = defineStore('chat', () => {
     void useSettingsStore().saveAgentPreferences({ workspaceRoot: root })
   }
 
+  function clearComputerMonitorPickRequest() {
+    computerMonitorPickRequest.value = null
+  }
+
   return {
     conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards,
     init, newConversation, selectConversation, deleteConversation,
@@ -1117,6 +1154,7 @@ export const useChatStore = defineStore('chat', () => {
     childBoardsForParent,
     setConversationWorkspace, applyPersistedComposerDefaults, showUiToast,
     clearPlatformLoginErrorMessages,
-    composerPrefill, prefillComposer, consumeComposerPrefill
+    composerPrefill, prefillComposer, consumeComposerPrefill,
+    computerMonitorPickRequest, clearComputerMonitorPickRequest
   }
 })

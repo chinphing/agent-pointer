@@ -101,6 +101,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/computer/monitors", get(list_computer_monitors))
         .route("/api/computer/monitor", post(set_computer_conversation_monitor))
         .route(
+            "/api/computer/monitor-pick/:conversation_id/confirm",
+            post(confirm_computer_monitor_pick),
+        )
+        .route(
+            "/api/computer/monitor-pick/:conversation_id/cancel",
+            post(cancel_computer_monitor_pick),
+        )
+        .route(
             "/api/conversations",
             get(load_conversations).put(save_conversations),
         )
@@ -308,6 +316,28 @@ async fn set_computer_conversation_monitor(
         .computer_state
         .set_conversation_monitor(&payload.conversation_id, payload.monitor_id);
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn confirm_computer_monitor_pick(
+    State(state): State<ServerState>,
+    axum::extract::Path(conversation_id): axum::extract::Path<String>,
+) -> Result<StatusCode, ApiError> {
+    if state.core.confirm_computer_monitor_pick(&conversation_id) {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::from(anyhow::anyhow!("no pending monitor pick")))
+    }
+}
+
+async fn cancel_computer_monitor_pick(
+    State(state): State<ServerState>,
+    axum::extract::Path(conversation_id): axum::extract::Path<String>,
+) -> Result<StatusCode, ApiError> {
+    if state.core.cancel_computer_monitor_pick(&conversation_id) {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::from(anyhow::anyhow!("no pending monitor pick")))
+    }
 }
 
 async fn load_conversations() -> Result<Json<Vec<Conversation>>, ApiError> {

@@ -10,6 +10,8 @@ schema:
       type: string
     taskId:
       type: string
+    workspaceRoot:
+      type: string
   required:
     - agentId
     - instruction
@@ -49,6 +51,16 @@ is **Markdown** in the tool result’s **`content`** field — **final assistant
 - You already hold **exact** change paths/lines and the next step is **edit**, **test**, or **terminal**—not more mapping.
 - The sub-task still needs **ongoing** access to the main chat; the worker only sees **`instruction`** (plus its own system and tools), not the full user conversation.
 
+**`coder` / `computer` (general lead only)**
+
+- Fallback delegates — prefer direct answers, **`skill_*`**, **`web_search`** first.
+- **Ask proactively** (user need not ask first): offer **`coder`** for sustained
+  repo work; offer **`computer`** when the visible desktop must be driven
+  (screenshots + mouse/keyboard) and your other tools cannot. Consent required
+  unless they already asked for code or desktop control.
+- **`coder`:** **`workspaceRoot`** when user gives a project path; else omit
+  (host sandbox). See **Delegation** in your **general** instructions.
+
 **`explore` vs local reconnaissance (coder lead)**
 
 - **Default:** use **`agentId` `explore`** for mapping, tracing, and “where / how” questions—**before** a long local **`file`** loop.
@@ -73,6 +85,7 @@ is **Markdown** in the tool result’s **`content`** field — **final assistant
 - **`instruction`** (required) — Full task text: goal, scope, inputs, **completion criteria** (what counts as done), and **ordered steps** when the user supplied them.
 - **`title`** (optional) — Short label for traces.
 - **`taskId`** (optional) — Stable id for sidecar state; omit to let the host assign one.
+- **`workspaceRoot`** (optional, **general → `coder`**) — Absolute directory for the coder worker. Omit when the user did not specify a project path; the host uses a unique ephemeral sandbox for this conversation.
 
 **Handoff flow**
 

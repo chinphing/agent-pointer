@@ -178,6 +178,18 @@ export async function setComputerConversationMonitor(conversationId: string, mon
   })
 }
 
+export async function confirmComputerMonitorPick(conversationId: string): Promise<void> {
+  await request(`/api/computer/monitor-pick/${encodeURIComponent(conversationId)}/confirm`, {
+    method: 'POST'
+  })
+}
+
+export async function cancelComputerMonitorPick(conversationId: string): Promise<void> {
+  await request(`/api/computer/monitor-pick/${encodeURIComponent(conversationId)}/cancel`, {
+    method: 'POST'
+  })
+}
+
 export async function loadConversations(): Promise<Conversation[]> {
   return await request<Conversation[]>('/api/conversations')
 }

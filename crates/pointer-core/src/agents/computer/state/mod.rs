@@ -87,6 +87,8 @@ pub struct ComputerSession {
     pub current_turn_raw_jpeg_unmarked: Option<Vec<u8>>,
     pub current_turn_capture_px: Option<(u32, u32)>,
     pub selected_monitor: Option<String>,
+    /// Set when monitor is configured via API or sub-agent pick gate (incl. single-monitor auto).
+    pub monitor_selection_done: bool,
     pub created_at: u64,
     pub last_active_at: u64,
     pub status: SessionStatus,
@@ -108,6 +110,7 @@ impl ComputerSession {
             current_turn_raw_jpeg_unmarked: None,
             current_turn_capture_px: None,
             selected_monitor: None,
+            monitor_selection_done: false,
             created_at: now,
             last_active_at: now,
             status: SessionStatus::Active,
@@ -390,6 +393,13 @@ impl ComputerState {
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();
         s.selected_monitor = monitor_id;
+        s.monitor_selection_done = true;
+    }
+
+    pub fn is_monitor_selection_done(&self, conversation_id: &str) -> bool {
+        let session = self.get_or_create_session(conversation_id);
+        let done = session.lock().unwrap().monitor_selection_done;
+        done
     }
 
     fn selected_monitor_id_for_conversation(&self, conversation_id: &str) -> Option<String> {

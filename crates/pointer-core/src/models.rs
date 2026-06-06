@@ -1824,6 +1824,32 @@ pub enum StreamEvent {
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "enabledIds")]
         enabled_ids: Option<Vec<String>>,
     },
+    /// Conversation workspace root changed mid-run (e.g. general → coder delegation).
+    WorkspaceUpdated {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "workspaceRoot")]
+        workspace_root: String,
+        #[serde(rename = "isEphemeralSandbox")]
+        is_ephemeral_sandbox: bool,
+    },
+    /// Sub-agent computer delegation blocked until the user picks a monitor.
+    ComputerMonitorPickRequired {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "messageId")]
+        message_id: String,
+        #[serde(rename = "toolCallId")]
+        tool_call_id: String,
+        monitors: Vec<ComputerMonitor>,
+    },
+    /// Monitor selection applied (auto single-monitor or user pick).
+    ComputerMonitorUpdated {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "monitorId")]
+        monitor_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

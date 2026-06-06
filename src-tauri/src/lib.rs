@@ -170,6 +170,8 @@ pub fn run() {
             commands::preview_computer_round_screen,
             commands::list_computer_monitors,
             commands::set_computer_conversation_monitor,
+            commands::confirm_computer_monitor_pick,
+            commands::cancel_computer_monitor_pick,
             commands::load_conversations,
             commands::save_conversations,
             commands::list_pinned_experiences,

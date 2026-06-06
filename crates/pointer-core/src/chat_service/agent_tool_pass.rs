@@ -300,8 +300,11 @@ pub(super) async fn run_agent_tool_pass(
                 task_board_succeeded = true;
             }
             let doc = state.task_board_store.document(task_board_store_key);
-            let anchor_message_id =
-                state.get_main_task_board_anchor(conversation_id, task_board_store_key);
+            let anchor_message_id = if crate::task_board::is_child_store_key(task_board_store_key) {
+                Some(message_id.clone())
+            } else {
+                state.get_main_task_board_anchor(conversation_id, task_board_store_key)
+            };
             emit_task_board_updated(
                 &stream,
                 conversation_id,

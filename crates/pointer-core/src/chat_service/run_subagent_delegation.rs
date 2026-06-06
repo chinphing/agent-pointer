@@ -129,6 +129,7 @@ pub(super) async fn run_subagent_delegation(
                             detail: Some(detail),
                             content: None,
                             depth: Some(1),
+                            session: None,
                         },
                     );
                     let sub_cap = provider
@@ -177,6 +178,7 @@ pub(super) async fn run_subagent_delegation(
                                     detail: Some(truncate_str(&result.content, 160)),
                                     content: None,
                                     depth: Some(1),
+                                    session: None,
                                 },
                             );
                             Ok((json, true, None))
@@ -198,6 +200,7 @@ pub(super) async fn run_subagent_delegation(
                                     detail: Some(e.to_string()),
                                     content: None,
                                     depth: Some(1),
+                                    session: None,
                                 },
                             );
                             Ok((format!("ERROR: {e}"), false, None))

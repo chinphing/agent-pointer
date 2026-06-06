@@ -3,6 +3,7 @@ import {
   emptySubAgentToolStats,
   formatSubAgentSummaryLine,
   incrementSubAgentToolStats,
+  subAgentIdFromTraceId,
   subAgentStatusLabel
 } from './subAgentStats'
 import { toolCallBaseName } from './messageTooling'
@@ -15,6 +16,19 @@ export function createEmptySubSession(): SubAgentSessionUi {
     toolCalls: [],
     contentStreaming: true
   }
+}
+
+/** Whether the sub-agent frame should render collapsed (summary line only). */
+export function isSubTraceUiCollapsed(trace: AgentTrace): boolean {
+  const s = trace.session
+  if (s?.userExpanded) return false
+  if (s?.collapsed) return true
+  return trace.status === 'completed' || trace.status === 'failed'
+}
+
+export function ensureSubTraceSession(trace: AgentTrace): SubAgentSessionUi {
+  if (!trace.session) trace.session = createEmptySubSession()
+  return trace.session
 }
 
 export function ensureSubTrace(
@@ -37,7 +51,9 @@ export function ensureSubTrace(
   } else if (patch) {
     const prevSession = trace.session
     Object.assign(trace, patch)
-    if (prevSession) trace.session = prevSession
+    if (prevSession && (patch.session === null || patch.session === undefined)) {
+      trace.session = prevSession
+    }
   }
   if (!trace.session) trace.session = createEmptySubSession()
   return trace
@@ -49,7 +65,12 @@ export function finalizeSubSession(trace: AgentTrace): void {
   session.contentStreaming = false
   if (trace.status === 'completed' || trace.status === 'failed') {
     if (!session.userExpanded) session.collapsed = true
-    session.summaryLine = formatSubAgentSummaryLine(trace.name, trace.status, session.stats)
+    session.summaryLine = formatSubAgentSummaryLine(
+      trace.name,
+      trace.status,
+      session.stats,
+      subAgentIdFromTraceId(trace.id)
+    )
   }
 }
 

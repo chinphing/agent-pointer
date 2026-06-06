@@ -2,17 +2,23 @@
 import { computed, ref, watch } from 'vue'
 import { ChevronDown, ChevronRight, Code } from 'lucide-vue-next'
 import type { AgentTrace, TaskBoardDocument } from '../../../../types/chat'
-import type { ResolvedAgentUi } from '../../../../lib/agentUi'
-import { formatSubAgentSummaryLine } from '../../../../lib/subAgentStats'
-import { traceAgentLabel } from '../../../../lib/agentUi'
+import { traceAgentLabel, type ResolvedAgentUi } from '../../../../lib/agentUi'
 import {
-  subTraceHasVisibleActivity
+  emptySubAgentToolStats,
+  formatSubAgentSummaryLine,
+  subAgentIdFromTraceId,
+  subAgentStatusLabel
+} from '../../../../lib/subAgentStats'
+import {
+  subTraceHasVisibleActivity,
+  isSubTraceUiCollapsed,
+  ensureSubTraceSession
 } from '../../../../lib/subAgentSession'
-import { subAgentStatusLabel } from '../../../../lib/subAgentStats'
 import { useSettingsStore } from '../../../../stores/settings'
 import { useAgentsCatalog } from '../../../../composables/useAgentUi'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import RawWirePanel from './RawWirePanel.vue'
+import TaskBoardPanel from '../../TaskBoardPanel.vue'
 import { hasTaskBoardContent } from '../../../../lib/taskBoard'
 import { toolCallBaseName } from '../../../../lib/messageTooling'
 
@@ -33,6 +39,11 @@ const childBoard = computed(() =>
     : null
 )
 
+const childBoardActive = computed(() => {
+  const status = (childBoard.value?.meta?.status ?? '').trim()
+  return status !== 'completed' && status !== 'failed'
+})
+
 const settingsStore = useSettingsStore()
 const agentsCatalog = useAgentsCatalog()
 const traceLabel = computed(() =>
@@ -44,22 +55,17 @@ const session = computed(() => props.trace.session)
 
 const isRunning = computed(() => props.trace.status === 'running')
 
-const collapsed = computed(() => {
-  const s = session.value
-  if (!s) return false
-  if (s.userExpanded) return false
-  return s.collapsed
-})
+const collapsed = computed(() => isSubTraceUiCollapsed(props.trace))
 
 const summaryLine = computed(() => {
   if (isRunning.value && !subTraceHasVisibleActivity(props.trace)) {
     return `${traceLabel.value} · ${subAgentStatusLabel(props.trace.status)}…`
   }
-  const s = session.value
   return formatSubAgentSummaryLine(
     traceLabel.value,
     props.trace.status,
-    s?.stats ?? { searchCount: 0, readCount: 0 }
+    session.value?.stats ?? emptySubAgentToolStats(),
+    subAgentIdFromTraceId(props.trace.id)
   )
 })
 
@@ -124,11 +130,14 @@ watch(rawContentViewEnabled, on => {
 })
 
 function toggleExpanded() {
-  const s = session.value
-  if (!s) return
-  s.userExpanded = !s.userExpanded
-  if (s.userExpanded) s.collapsed = false
-  else if (props.trace.status === 'completed' || props.trace.status === 'failed') s.collapsed = true
+  const s = ensureSubTraceSession(props.trace)
+  if (isSubTraceUiCollapsed(props.trace)) {
+    s.userExpanded = true
+    s.collapsed = false
+  } else {
+    s.userExpanded = false
+    s.collapsed = true
+  }
 }
 </script>
 
@@ -182,20 +191,12 @@ function toggleExpanded() {
         :is-active-generation-message="subFrameActive"
       />
 
-      <div
+      <TaskBoardPanel
         v-if="childBoard"
-        class="mt-2 border-t border-border/50 pt-2"
-      >
-        <div
-          v-for="item in childBoard.board"
-          :key="item.id"
-          class="flex items-center gap-1.5 text-[11px] py-0.5"
-        >
-          <span class="w-3 h-3 rounded-full" :class="item.status === 'done' ? 'bg-success/60' : item.status === 'in_progress' ? 'bg-accent/60 animate-pulse' : 'bg-border/60'" />
-          <span class="text-foreground truncate">{{ item.title }}</span>
-          <span class="text-muted shrink-0">{{ { pending:'待开始', ready:'就绪', in_progress:'进行中', done:'完成', failed:'失败', cancelled:'已取消' }[item.status] ?? item.status }}</span>
-        </div>
-      </div>
+        class="mt-2"
+        :document="childBoard"
+        :is-active="childBoardActive"
+      />
 
       <RawWirePanel
         v-if="showRawWire && hasRawWire"

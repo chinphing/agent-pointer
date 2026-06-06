@@ -21,7 +21,25 @@ import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 const TASK_BOARD_SUB_SEP = '\u{1f}ptr_sub_agent\u{1f}'
 const TASK_BOARD_MAIN_TURN_SEP = '\u{1f}ptr_main_turn\u{1f}'
 const TASK_BOARD_DEBOUNCE_MS = 300
+const TERMINAL_LIVE_DELAY_MS = 3000
 const taskBoardDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+export interface TerminalLivePopup {
+  messageId: string
+  toolCallId: string
+  traceId?: string
+  command: string
+  output: string
+}
+
+interface TerminalLiveTrack {
+  messageId: string
+  toolCallId: string
+  traceId?: string
+  command: string
+  delayTimer: ReturnType<typeof setTimeout> | null
+  dismissed: boolean
+}
 
 export interface ConversationTaskBoardState {
   parentByStoreKey: Record<string, TaskBoardDocument>
@@ -37,6 +55,7 @@ import {
   isGenerationCancelledMessage
 } from '../lib/assistantMessageKind'
 import { toolCallBaseName } from '../lib/messageTooling'
+import { parseTerminalCommandFromArgs } from '../lib/terminalCommand'
 import {
   ensureSubTrace,
   finalizeSubSession,
@@ -180,6 +199,8 @@ export const useChatStore = defineStore('chat', () => {
   const composerPrefill = ref<string | null>(null)
   /** Set when a computer sub-agent needs monitor selection before it can start. */
   const computerMonitorPickRequest = ref<ComputerMonitorPickRequest | null>(null)
+  const terminalLivePopup = ref<TerminalLivePopup | null>(null)
+  let terminalLiveTrack: TerminalLiveTrack | null = null
   let uiToastTimer: ReturnType<typeof setTimeout> | null = null
   let unlisten: (() => void) | null = null
   let saveTimer: number | null = null
@@ -352,6 +373,132 @@ export const useChatStore = defineStore('chat', () => {
       if (msg) return { conv, msg }
     }
     return null
+  }
+
+  function resolveToolCall(
+    messageId: string,
+    toolCallId: string,
+    traceId?: string
+  ): ToolCall | null {
+    const r = findMessage(messageId)
+    if (!r) return null
+    if (traceId?.trim()) {
+      const trace = ensureSubTrace(r.msg, traceId.trim())
+      return trace.session?.toolCalls?.find(t => t.id === toolCallId) ?? null
+    }
+    return r.msg.toolCalls?.find(t => t.id === toolCallId) ?? null
+  }
+
+  function terminalLiveKey(messageId: string, toolCallId: string, traceId?: string): string {
+    return `${messageId}\u{1f}${toolCallId}\u{1f}${traceId?.trim() ?? ''}`
+  }
+
+  function clearTerminalLiveTrack() {
+    if (terminalLiveTrack?.delayTimer) clearTimeout(terminalLiveTrack.delayTimer)
+    terminalLiveTrack = null
+    terminalLivePopup.value = null
+  }
+
+  function dismissTerminalLivePopup() {
+    if (!terminalLivePopup.value) return
+    terminalLivePopup.value = null
+    if (terminalLiveTrack) terminalLiveTrack.dismissed = true
+  }
+
+  function syncTerminalLivePopupOutput(messageId: string, toolCallId: string, traceId?: string) {
+    const popup = terminalLivePopup.value
+    if (!popup) return
+    if (terminalLiveKey(messageId, toolCallId, traceId) !== terminalLiveKey(
+      popup.messageId,
+      popup.toolCallId,
+      popup.traceId
+    )) return
+    const tc = resolveToolCall(messageId, toolCallId, traceId)
+    if (!tc) return
+    terminalLivePopup.value = { ...popup, output: tc.terminalOutput ?? '' }
+  }
+
+  function beginTerminalLiveTrack(messageId: string, toolCallId: string, traceId?: string) {
+    const tc = resolveToolCall(messageId, toolCallId, traceId)
+    if (!tc || toolCallBaseName(tc.name) !== 'terminal') return
+
+    const key = terminalLiveKey(messageId, toolCallId, traceId)
+    if (
+      terminalLiveTrack &&
+      terminalLiveKey(
+        terminalLiveTrack.messageId,
+        terminalLiveTrack.toolCallId,
+        terminalLiveTrack.traceId
+      ) === key
+    ) {
+      return
+    }
+
+    clearTerminalLiveTrack()
+
+    const track: TerminalLiveTrack = {
+      messageId,
+      toolCallId,
+      traceId: traceId?.trim() || undefined,
+      command: parseTerminalCommandFromArgs(tc.arguments),
+      delayTimer: null,
+      dismissed: false
+    }
+    terminalLiveTrack = track
+
+    track.delayTimer = setTimeout(() => {
+      if (!terminalLiveTrack) return
+      if (
+        terminalLiveKey(
+          terminalLiveTrack.messageId,
+          terminalLiveTrack.toolCallId,
+          terminalLiveTrack.traceId
+        ) !== key
+      ) {
+        return
+      }
+      const current = resolveToolCall(messageId, toolCallId, traceId)
+      if (!current || current.status !== 'running') return
+      if (terminalLiveTrack.dismissed) return
+      terminalLivePopup.value = {
+        messageId,
+        toolCallId,
+        traceId: traceId?.trim() || undefined,
+        command: track.command,
+        output: current.terminalOutput ?? ''
+      }
+    }, TERMINAL_LIVE_DELAY_MS)
+  }
+
+  function finishTerminalLiveTrack(messageId: string, toolCallId: string, traceId?: string) {
+    if (!terminalLiveTrack) return
+    if (
+      terminalLiveKey(messageId, toolCallId, traceId) !== terminalLiveKey(
+        terminalLiveTrack.messageId,
+        terminalLiveTrack.toolCallId,
+        terminalLiveTrack.traceId
+      )
+    ) {
+      return
+    }
+    clearTerminalLiveTrack()
+  }
+
+  function handleTerminalToolCallStatus(
+    messageId: string,
+    toolCallId: string,
+    status: ToolCall['status'],
+    traceId?: string
+  ) {
+    const tc = resolveToolCall(messageId, toolCallId, traceId)
+    if (!tc || toolCallBaseName(tc.name) !== 'terminal') return
+    if (status === 'running') {
+      beginTerminalLiveTrack(messageId, toolCallId, traceId)
+      return
+    }
+    if (status === 'success' || status === 'failed' || status === 'rejected') {
+      finishTerminalLiveTrack(messageId, toolCallId, traceId)
+    }
   }
 
   function applyReasoningDeltaBatch(
@@ -863,6 +1010,7 @@ export const useChatStore = defineStore('chat', () => {
             if (e.displaySummary !== undefined) tc.displaySummary = e.displaySummary
           }
         }
+        handleTerminalToolCallStatus(e.messageId, e.toolCallId, e.status, e.traceId)
         break
       }
       case 'terminal_output_delta': {
@@ -876,6 +1024,7 @@ export const useChatStore = defineStore('chat', () => {
           const tc = r.msg.toolCalls?.find(t => t.id === e.toolCallId)
           if (tc) tc.terminalOutput = (tc.terminalOutput || '') + e.output
         }
+        syncTerminalLivePopupOutput(e.messageId, e.toolCallId, e.traceId)
         break
       }
       case 'web_search_output_delta': {
@@ -1148,6 +1297,7 @@ export const useChatStore = defineStore('chat', () => {
     const conv = current.value
     const msgId = runStateFor(conv.id).activeMessageId
     flushReasoningDeltaBuffer(msgId ?? undefined)
+    clearTerminalLiveTrack()
     await cancelChat(conv.id).catch(e => console.error(e))
     clearRunState(conv.id)
     if (msgId) {
@@ -1251,6 +1401,7 @@ export const useChatStore = defineStore('chat', () => {
     setConversationWorkspace, applyPersistedComposerDefaults, showUiToast,
     clearPlatformLoginErrorMessages,
     composerPrefill, prefillComposer, consumeComposerPrefill,
-    computerMonitorPickRequest, clearComputerMonitorPickRequest
+    computerMonitorPickRequest, clearComputerMonitorPickRequest,
+    terminalLivePopup, dismissTerminalLivePopup
   }
 })

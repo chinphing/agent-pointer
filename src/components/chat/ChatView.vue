@@ -6,6 +6,7 @@ import ExperienceSuggestions from './ExperienceSuggestions.vue'
 import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
+import TerminalLiveOutputModal from './TerminalLiveOutputModal.vue'
 
 import { isTauriRuntime } from '../../lib/runtime'
 import { Sparkles } from 'lucide-vue-next'
@@ -40,7 +41,7 @@ const MessageList = defineAsyncComponent({
 
 const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
-const { uiToast } = storeToRefs(chat)
+const { uiToast, terminalLivePopup } = storeToRefs(chat)
 const empty = computed(() => !chat.current || chat.current.messages.length === 0)
 const needsPlatformLogin = computed(() => isTauriRuntime() && !platformAuth.session.logged_in)
 
@@ -82,6 +83,12 @@ const toastClass = computed(() => {
         </div>
       </div>
     </Transition>
+    <TerminalLiveOutputModal
+      v-if="terminalLivePopup"
+      :command="terminalLivePopup.command"
+      :output="terminalLivePopup.output"
+      @close="chat.dismissTerminalLivePopup()"
+    />
     <div class="flex-1 overflow-hidden relative">
       <div v-if="empty" class="chat-scroll-area h-full overflow-y-auto chat-shell pb-2">
         <div class="chat-column flex min-h-full items-center justify-center py-6">

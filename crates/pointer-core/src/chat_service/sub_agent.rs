@@ -68,7 +68,7 @@ pub(crate) async fn run_sub_agent(
             enabled_skill_ids,
         )?;
     let def = session.def;
-    let prompts = session.prompts;
+    let session_extras = session.session_extras;
     let tools_system_appendix = session.tools_system_appendix;
     let allowed_tools = session.allowed_tools;
     let allow_agents = session.allow_agents;
@@ -121,10 +121,11 @@ pub(crate) async fn run_sub_agent(
             &task.id,
             &round_message_id,
             &local_history,
-            &prompts,
+            &session_extras,
             &tools_system_appendix,
             &sub_task_board_key,
             &def,
+            sub_provider.settings.workspace_root.as_str(),
             sub_provider.settings.user_dynamic_inject_enabled,
         )
         .await?;

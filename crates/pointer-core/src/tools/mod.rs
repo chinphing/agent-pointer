@@ -778,6 +778,68 @@ mod openai_tools_schema_tests {
     }
 
     #[test]
+    fn normalize_computer_agent_allowlist_permits_all_tool_families() {
+        use super::{
+            expand_family_allow_names, normalize_allowed_tool_names, registry_tool_in_allow_list,
+        };
+        use std::collections::HashSet;
+
+        let available: HashSet<String> = [
+            "mouse_click_index",
+            "mouse_click_at",
+            "mouse_scroll_current",
+            "input_index",
+            "input_at",
+            "input_focused",
+            "modified_click_select_index",
+            "modified_click_select_at",
+            "captcha_verify_click",
+            "clipboard_read",
+            "clipboard_write",
+            "hotkey",
+            "wait",
+            "action_verify",
+            "task_board_patch",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        let mut names = vec![
+            "mouse".into(),
+            "hotkey".into(),
+            "input".into(),
+            "modified_click".into(),
+            "wait".into(),
+            "clipboard".into(),
+            "action_verify".into(),
+            "task_board".into(),
+            "captcha_verify".into(),
+        ];
+        names = expand_family_allow_names(&names, &available);
+        normalize_allowed_tool_names(&mut names, &available);
+
+        for tool in [
+            "mouse_click_index",
+            "input_at",
+            "input_focused",
+            "input_index",
+            "modified_click_select_index",
+            "clipboard_read",
+            "captcha_verify_click",
+            "hotkey",
+            "wait",
+            "action_verify",
+            "task_board_patch",
+        ] {
+            assert!(
+                registry_tool_in_allow_list(&names, tool),
+                "tool {tool} must be allowed; allowlist={names:?}"
+            );
+        }
+    }
+
+    #[test]
     fn openai_tools_captcha_family_allow_exposes_flat_tools_with_schema() {
         use super::tool_doc::load_tools_from_schema_yaml;
         use super::ToolEntry;

@@ -150,7 +150,7 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 - 若任务带 `dependsOn`，实现上会把依赖任务的输出摘要**前缀**拼进 `instruction`（`[Prior task outputs]` / `[Current task]`），仍是一条 user 消息，**不是**完整主聊天 transcript。
 - 子 Agent 自己的多轮工具循环里，只在 `local_history` 上累加本轮 assistant、tool 等，与主 `history` **隔离**。
 
-系统 prompt 侧子 Agent 与主轮同构：**cacheable** 含公共通信、**sub_agent_header**、skills、工具附录、Environment；task board 由末尾 user 注入提供（有内容时）。
+系统 prompt 侧子 Agent 与主轮同构：**cacheable** 由共享函数 `push_agent_role_cacheable_prompts` 组装（`COMMUNICATION_PUBLIC` + Computer **tier** 切片，或非 Computer 的 `system_prompt`），再追加 **sub_agent_header**（Computer 仅短交接说明，不含烘焙 `agent.system_prompt()`）、skills、工具附录、Environment；task board 由末尾 user 注入提供（有内容时）。
 
 **结论（对话语义）**：子 Agent 在**消息列表意义上是独立的**；它只「看见」任务描述 +（可选）前置任务摘要 + 自己多轮工具产生的历史。
 
@@ -160,7 +160,7 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 - 每一轮子 Agent 的每次模型请求前，同样执行：
   - `messages = local_history.clone()`
   - `run_message_loop_prompts_after`（`lead_agent_profile = def.profile`，例如子 Agent 为 `computer` 时仍会注入屏幕）
-  - **cacheable** = 静态 `prompts` + **`tools_system_appendix`** + Environment
+  - **cacheable** = `push_agent_role_cacheable_prompts` + 子 Agent `session_extras` + **`tools_system_appendix`** + Environment
   - `run_before_main_llm_call`（dynamic 追加其他系统动态块；`task_board_store_key` 仍用于任务板读写/注入）
 - 使用的 **`ExtensionRegistry` 与单智能体相同**（`AppState.extensions`），**不是**每子 Agent 一份。
 

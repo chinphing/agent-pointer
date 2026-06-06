@@ -24,7 +24,7 @@
 | 分区 | 顺序 | 内容 | 稳定性 |
 |------|------|------|--------|
 | **cacheable** | 1 | **公共 COMMUNICATION** | `rendered_communication_public_inject()` | 固定 |
-| | 2 | **Agent 系统提示**（`AGENT.md` + profile `COMMUNICATION.md` 等，经 `expand_agent_prompt_placeholders`）；子 Agent 含 **sub_agent_header** + **skills** | `agent_plan.system_prompts` 等 | 会话内固定（`{{workspace_root}}` 随工作区变） |
+| | 2 | **Agent 系统提示**：Computer 为 **tier** communication + loop（`push_agent_role_cacheable_prompts`，主轮与子 Agent 共用）；非 Computer 为 `AGENT.md` + profile 通信；子 Agent 另在步骤 2 后追加短 **sub_agent_header** + **skills** | `agent_plan.system_prompts` / tier 运行时 | 会话内固定（`{{workspace_root}}` 随工作区变） |
 | | 3 | **工具系统附录** | `generate_tools_system_appendix` | 工具集不变则固定；同一 `ToolEntry::doc_source`（提示词 `.md` 路径）只输出一次 |
 | | 4 | **`[Environment]`**（OS、locale、**日历日期**） | `push_env_to_cacheable` | 按自然日变，**非每轮** |
 | **dynamic** | 5 | **`[LOCKED GOAL]`**（Computer 有锁时） | `before_main_llm_call` 钩子 → `system_prompts_dynamic` | **每轮可能变** |

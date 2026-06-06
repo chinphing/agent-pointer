@@ -1,9 +1,6 @@
 //! Per-round prompt assembly for the single-agent loop (extensions + system env).
 
-use crate::agents::{
-    computer_agent_body_for_tier, computer_communication_for_tier, expand_agent_prompt_placeholders,
-    rendered_communication_public_inject, AgentPlan, AgentProfile, SessionInjectVars,
-};
+use crate::agents::{AgentPlan, AgentProfile, SessionInjectVars};
 use crate::extensions::{BeforeMainLlmCallContext, MessageLoopPromptsAfterContext};
 use crate::models::{ChatMessage, ModelSettings, SystemPromptSections};
 use anyhow::Result;
@@ -11,7 +8,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::app_state::AppState;
-use super::prompts::push_env_to_cacheable;
+use super::prompts::{push_agent_role_cacheable_prompts, push_env_to_cacheable};
 use super::StreamTx;
 
 pub(super) struct SingleAgentRoundPrompts {
@@ -60,31 +57,19 @@ pub(super) async fn prepare_single_agent_round_prompts(
     let session_vars = SessionInjectVars {
         workspace_root: settings.workspace_root.trim(),
     };
-    if let Some(block) = rendered_communication_public_inject() {
-        cacheable.push(block);
-    }
-    if lead_profile == AgentProfile::Computer {
-        let tier = state.computer_state.tier_for_conversation(conversation_id);
-        let comm = computer_communication_for_tier(tier);
-        let body = computer_agent_body_for_tier(tier);
-        let merged = if comm.is_empty() {
-            body
-        } else if body.is_empty() {
-            comm
-        } else {
-            format!("{comm}\n\n---\n\n{body}")
-        };
-        if !merged.is_empty() {
-            cacheable.push(expand_agent_prompt_placeholders(&merged, &session_vars));
-        }
+    let non_computer_prompts = if lead_profile == AgentProfile::Computer {
+        &[][..]
     } else {
-        cacheable.extend(
-            agent_plan
-                .system_prompts
-                .iter()
-                .map(|p| expand_agent_prompt_placeholders(p, &session_vars)),
-        );
-    }
+        agent_plan.system_prompts.as_slice()
+    };
+    push_agent_role_cacheable_prompts(
+        &mut cacheable,
+        &lead_profile,
+        state.computer_state.as_ref(),
+        conversation_id,
+        &session_vars,
+        non_computer_prompts,
+    );
     if !tools_system_appendix.is_empty() {
         cacheable.push(tools_system_appendix);
     }

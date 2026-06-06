@@ -203,9 +203,21 @@ Step result: pass — evidence: pointer at icon location
 Repetition:
 Count: <N from history>
 Operation summary: <brief overview of distinct attempted operations>
+Repeated operation: <only when Count > 1 — restate the stuck attempt from history>
+Avoid repeat: <only when Count > 1 — warn not to retry that same operation this turn>
 ```
 
 **Count** is computed for the same **goal** as the newest tool row.
+
+**When Count > 1**
+
+- **`Repeated operation:`** — restate the repeated failed attempt from
+  **`[Recent desktop tool calls]`**: tool name, **`goal`**, target, and route
+  (index / coordinates / hotkey / scroll, etc.).
+- **`Avoid repeat:`** — explicit reminder: **forbidden** to call the same
+  **tool name + same target** again this turn; **Next** must change route,
+  target, or tactic.
+- Omit **`Repeated operation:`** and **`Avoid repeat:`** when **Count ≤ 1**.
 
 **Do not** in **Repetition:** choose re-aim, relocate, or pivot — that belongs in **Next**.
 
@@ -227,10 +239,16 @@ Use the ledger to pick this turn's tool — not memory alone.
   other verify **fail** suffixes, or give-up failures — **do not** repeat any
   **tool name + same target** combination already in history. Change target
   and/or route (e.g. `*_index` ↔ `*_at`, hotkey, wait, scroll).
+  When **Repetition Count > 1**, honor **`Avoid repeat:`** from **Repetition**
+  — that stuck operation is **forbidden** this turn.
 - Switch approach only when the screen, task step, or ledger clearly requires it.
 - Give-up reference rows do **not** count toward Repetition **Count**.
 
 **Order (mandatory):** target description -> route decision -> branch execution.
+
+**Scroll turns:** Before **`mouse_scroll_*`**, run **Scroll anchor check** from the
+**mouse** tool doc — name **Target region**, judge **Pointer on region**, then
+pick **`mouse_scroll_index`** (pointer **no**) or **`mouse_scroll_current`** (pointer **yes**).
 
 - Step 1 — Describe target:
   - Read intent + target description from **`[Screen after action]`**.

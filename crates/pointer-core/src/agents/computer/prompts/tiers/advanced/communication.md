@@ -375,7 +375,19 @@ Run **Repetition** internally after Verify (and Pointer if emitted).
 Repetition:
 Count: <N from history>.
 Operation summary: <brief overview of distinct attempted operations and UI progress>.
+Repeated operation: <only when Count > 1 — restate the stuck attempt from history>.
+Avoid repeat: <only when Count > 1 — warn not to retry that same operation this turn>.
 ```
+
+**When Count > 1**
+
+- **`Repeated operation:`** — restate the repeated failed attempt from
+  **`[Recent desktop tool calls]`**: tool name, **`goal`**, target, and route
+  (index / coordinates / hotkey / scroll, etc.).
+- **`Avoid repeat:`** — explicit reminder: **forbidden** to call the same
+  **tool name + same target** again this turn; **Next** must change route,
+  target, or tactic.
+- Omit **`Repeated operation:`** and **`Avoid repeat:`** when **Count ≤ 1**.
 
 **Scope:** Count repeats in **`[Recent desktop tool calls]`** and whether the UI **advanced**. **Do not** choose **re-aim**, **relocate**, or **pivot** here — that is **Next** after **Verify** **Match**.
 
@@ -459,7 +471,8 @@ Use **`index`** / **`indices`** / **`from_index`** / **`to_index`** only — ove
 - Use a mouse tool only to reveal CAPTCHA when the challenge is not visible.
 CAPTCHA tool: **`captcha_verify`**.
 
-**Non-canvas / no overlay index or `(x,y)` pick:** `mouse_scroll_current`, **`input_focused`**, **`hotkey`**, **`wait`**, **`clipboard_read`** / **`clipboard_write`**.
+**Non-canvas / no overlay index or `(x,y)` pick:** **`input_focused`**, **`hotkey`**, **`wait`**, **`clipboard_read`** / **`clipboard_write`**.  
+**Scroll exception:** run **Scroll anchor check** (mouse tool doc) — **`mouse_scroll_index`** when pointer is **not** on target region; **`mouse_scroll_current`** only when pointer **is** on target region.
 
 **Hard rule:** **`Tool route:`** line **2** + root **`tool_name`** / **`tool_args`** must match **Allowed** only. Reference index **R** appears in **`Location:`** / recap — **not** in the tool call.
 
@@ -497,7 +510,7 @@ Next must be a committed decision block:
 | # | Label | Content |
 |---|-------|---------|
 | 1 | **`Verify:`** | Echo **`Step result`** + **`Cause`** from stage 2 |
-| 2 | **`Repetition:`** | Echo verdict |
+| 2 | **`Repetition:`** | Echo verdict; when **Count > 1**, include **`Repeated operation:`** + **`Avoid repeat:`** |
 | 3 | **`Lookup:`** | **`Step result=`** + **`Cause=`** from Verify echo |
 | 4 | **`Match:`** | One **Verify → Next** row |
 | 5 | **`this turn:`** | Concrete next step from Match row |
@@ -533,6 +546,8 @@ Use the ledger alongside **Match** — not memory alone.
 - **Avoid what failed:** rows with **`verify: verified - wrong_operation`**,
   other verify **fail** suffixes, or give-up failures — **do not** repeat any
   **tool name + same target** already in history. Change target and/or route.
+  When **Repetition Count > 1**, honor **`Avoid repeat:`** from **Repetition**
+  — that stuck operation is **forbidden** this turn.
 - Give-up reference rows do **not** count toward Repetition **Count**.
 
 When Repetition **Count > 3**, still follow this table in **Next** — Repetition only reports loop pressure; **Match → this turn** picks the tactic.
@@ -543,7 +558,7 @@ When Repetition **Count > 3**, still follow this table in **Next** — Repetitio
 Next:
 1 Prior stages & sub-goal:
    Verify: <Step result> — <Cause when present>;
-   Repetition: Count=<N>; Operation summary=<...>;
+   Repetition: Count=<N>; Operation summary=<...>; Repeated operation=<... when Count>1>; Avoid repeat=<... when Count>1>;
    Lookup: Step result=<same>, Cause=<same or —>;
    Match: row <Step result + Cause> → <this turn must…>;
    this turn: <concrete UI step, no overlay digits>.
@@ -569,7 +584,9 @@ Next:
 Next:
 1 Prior stages & sub-goal:
    Verify: fail — precision_miss;
-   Repetition: Count=2; Operation summary=input was not visible on current surface;
+   Repetition: Count=2; Operation summary=compose input still not reachable on current surface;
+   Repeated operation=mouse_click_at on bottom compose bar (same goal, same coords);
+   Avoid repeat=forbidden — do not click compose bar again; relocate first;
    Lookup: Step result=fail, Cause=precision_miss;
    Match: row fail + precision_miss → relocate when target is not visible;
    this turn: relocate by opening the chat pane where the compose input is visible.
@@ -1015,13 +1032,14 @@ When **Location** line **3** concludes **`therefore (x,y) ≈ (…, …)`**, the
 |----------|-------------------|
 | **`therefore (x,y)`** on line **3** | **`mouse_click_at`** / **`input_at`** / **`modified_click_select_at`** — **(x,y)** literals from Location |
 | **`reference index R`** on line **2** (index route, no line **3** coords) | **`mouse_click_index`** / … / **`input_index`** / **`mouse_scroll_index`** — **`index: R`** |
-| **`Location: n/a`** | **`hotkey`** / **`wait`** / **`mouse_scroll_current`** / **`input_focused`** / … |
+| **`Location: n/a`** | **`hotkey`** / **`wait`** / **`input_focused`** / … — **scroll:** use **Scroll anchor check**; **`mouse_scroll_current`** only when pointer **on** target region, else **`mouse_scroll_index`** with **R inside** that region |
 
 **Forbidden (all turns):** route mismatch — **`*_index`** after Location **`therefore (x,y)`**, or **`*_at`** with **(x,y)** not traced to **Overlay reference bboxes**.
 
 **Action kind from Next `this turn:`:**
 
 - Press icon/button/toggle **this turn** → **`mouse_click_at`** / **`mouse_click_index`** — not **`input_at`**
+- Scroll **this turn** → run **Scroll anchor check** first; **`mouse_scroll_index`** when pointer **not** on target region (**Location** picks **R** inside it); **`mouse_scroll_current`** only when pointer **on** target region
 - Type/replace text **this turn** → **`input_at`** / **`input_index`** / **`input_focused`**
   — **one call** with **`text`** (+ **`clear_first`** / **`auto_enter`** as needed).
   **Forbidden:** a click-only turn to focus the field, then a separate type turn.

@@ -16,6 +16,7 @@ import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { GENERAL_AGENT_ID } from '../lib/agentUi'
 import { getTaskBoardSnapshot } from '../lib/api'
 import { hasTaskBoardContent } from '../lib/taskBoard'
+import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 
 const TASK_BOARD_SUB_SEP = '\u{1f}ptr_sub_agent\u{1f}'
 const TASK_BOARD_MAIN_TURN_SEP = '\u{1f}ptr_main_turn\u{1f}'
@@ -25,6 +26,8 @@ const taskBoardDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
 export interface ConversationTaskBoardState {
   parentByStoreKey: Record<string, TaskBoardDocument>
   parentBindings: Record<string, string>
+  /** Child store key → lead assistant message id. */
+  childBindings: Record<string, string>
   activeParentStoreKey: string | null
   childrenByParentStoreKey: Record<string, Record<string, TaskBoardDocument>>
 }
@@ -71,6 +74,31 @@ function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Con
     ...c,
     messages: c.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
   }))
+}
+
+/** Preserve sub-agent streaming UI when host replaces history (compression / trim). */
+function mergeAgentTraceSessions(incoming: ChatMessage[], existing: ChatMessage[]): ChatMessage[] {
+  const sessionByKey = new Map<string, NonNullable<ChatMessage['agentTrace']>[number]['session']>()
+  for (const msg of existing) {
+    for (const trace of msg.agentTrace ?? []) {
+      if (trace.session) sessionByKey.set(`${msg.id}\0${trace.id}`, trace.session)
+    }
+  }
+  return incoming.map(msg => {
+    if (!msg.agentTrace?.length) return msg
+    return {
+      ...msg,
+      agentTrace: msg.agentTrace.map(trace => {
+        const prev = sessionByKey.get(`${msg.id}\0${trace.id}`)
+        if (!prev) return trace
+        return { ...trace, session: trace.session ?? prev }
+      })
+    }
+  })
+}
+
+function childStoreKey(parentStoreKey: string, taskId: string): string {
+  return `${parentStoreKey.trim()}${TASK_BOARD_SUB_SEP}${taskId.trim()}`
 }
 
 function removeAssistantMessage(conv: Conversation, messageId: string): boolean {
@@ -187,6 +215,44 @@ export const useChatStore = defineStore('chat', () => {
     return [...useSkillsStore().enabledIds]
   }
 
+  async function refreshSubAgentTaskBoards(conversationId: string) {
+    const conv = conversations.value.find(c => c.id === conversationId)
+    if (!conv) return
+    const jobs: Promise<void>[] = []
+    for (const msg of conv.messages) {
+      for (const trace of msg.agentTrace ?? []) {
+        if ((trace.depth ?? 0) === 0) continue
+        const taskId = subTaskIdFromTraceId(trace.id)
+        if (!taskId) continue
+        jobs.push(refreshTaskBoard(conversationId, taskId, msg.id))
+      }
+    }
+    await Promise.all(jobs)
+  }
+
+  /** Child task board for a sub-agent trace (not gated by debug settings). */
+  function lookupChildTaskBoard(
+    convId: string | null,
+    taskId: string,
+    messageId?: string
+  ): TaskBoardDocument | null {
+    if (!convId || !taskId.trim()) return null
+    const entry = taskBoards.value[convId]
+    if (!entry) return null
+    const tid = taskId.trim()
+    for (const [parentStoreKey, group] of Object.entries(entry.childrenByParentStoreKey)) {
+      const doc = group[tid]
+      if (!doc || !hasTaskBoardContent(doc)) continue
+      if (messageId?.trim()) {
+        const storeKey = childStoreKey(parentStoreKey, tid)
+        const bound = entry.childBindings?.[storeKey]
+        if (bound && bound !== messageId.trim()) continue
+      }
+      return doc
+    }
+    return null
+  }
+
   async function init() {
     const list = await loadConversations().catch(() => [])
     normalizeInterruptedAssistantStatuses(list)
@@ -194,6 +260,10 @@ export const useChatStore = defineStore('chat', () => {
     if (list.length === 0) newConversation()
     else currentId.value = list[0].id
     if (!unlisten) unlisten = await onStream(handleEvent)
+    if (currentId.value) {
+      void refreshTaskBoard(currentId.value)
+      void refreshSubAgentTaskBoards(currentId.value)
+    }
   }
 
   function persist() {
@@ -238,6 +308,7 @@ export const useChatStore = defineStore('chat', () => {
   function selectConversation(id: string) {
     currentId.value = id
     void refreshTaskBoard(id)
+    void refreshSubAgentTaskBoards(id)
   }
 
   function deleteConversation(id: string) {
@@ -335,6 +406,7 @@ export const useChatStore = defineStore('chat', () => {
       taskBoards.value[convId] = {
         parentByStoreKey: {},
         parentBindings: {},
+        childBindings: {},
         activeParentStoreKey: null,
         childrenByParentStoreKey: {}
       }
@@ -380,11 +452,16 @@ export const useChatStore = defineStore('chat', () => {
           group[taskId] = doc
         } else {
           delete group[taskId]
+          delete entry.childBindings[storeKey]
         }
         if (Object.keys(group).length > 0) {
           entry.childrenByParentStoreKey[parentStoreKey] = group
         } else {
           delete entry.childrenByParentStoreKey[parentStoreKey]
+        }
+        const anchor = anchorMessageId?.trim()
+        if (anchor) {
+          entry.childBindings[storeKey] = anchor
         }
       }
     }
@@ -408,7 +485,7 @@ export const useChatStore = defineStore('chat', () => {
     )
   }
 
-  async function refreshTaskBoard(conversationId: string, taskId?: string) {
+  async function refreshTaskBoard(conversationId: string, taskId?: string, anchorMessageId?: string) {
     try {
       const doc = await getTaskBoardSnapshot(conversationId, taskId)
       const inferredStoreKey =
@@ -419,7 +496,7 @@ export const useChatStore = defineStore('chat', () => {
       const storeKey = taskId?.trim()
         ? `${taskBoards.value[conversationId]?.activeParentStoreKey || conversationId}${TASK_BOARD_SUB_SEP}${taskId.trim()}`
         : inferredStoreKey || taskBoards.value[conversationId]?.activeParentStoreKey || conversationId
-      applyTaskBoardDocument(conversationId, storeKey, doc as TaskBoardDocument)
+      applyTaskBoardDocument(conversationId, storeKey, doc as TaskBoardDocument, anchorMessageId)
     } catch (e) {
       console.warn('[task board] snapshot failed', e)
     }
@@ -485,12 +562,16 @@ export const useChatStore = defineStore('chat', () => {
         clearReasoningDeltaBuffer()
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (!conv) return
-        conv.messages = e.messages
-          .map(m => ({
-            ...m,
-            toolCalls: m.toolCalls ?? (m.role === 'assistant' ? [] : undefined)
-          }))
-          .filter(m => !isEphemeralDesktopNoticeMessage(m))
+        const prevMessages = conv.messages
+        conv.messages = mergeAgentTraceSessions(
+          e.messages
+            .map(m => ({
+              ...m,
+              toolCalls: m.toolCalls ?? (m.role === 'assistant' ? [] : undefined)
+            }))
+            .filter(m => !isEphemeralDesktopNoticeMessage(m)),
+          prevMessages
+        )
         if (e.compression) {
           showUiToast(buildCompressionNoticeContent(e.compression), 'success')
         }
@@ -621,6 +702,7 @@ export const useChatStore = defineStore('chat', () => {
           r.msg.status = 'streaming'
           if (e.agent.status === 'completed' || e.agent.status === 'failed') {
             finalizeSubSession(trace)
+            persist()
           } else if (trace.session) {
             trace.session.contentStreaming = true
             trace.session.collapsed = false
@@ -1150,8 +1232,8 @@ export const useChatStore = defineStore('chat', () => {
     conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards,
     init, newConversation, selectConversation, deleteConversation,
     sendUserMessage, stop, abortTerminalOnly, retry, approve, undo,
-    refreshTaskBoard, taskBoardForConversation, parentBoardsBoundToMessage,
-    childBoardsForParent,
+    refreshTaskBoard, refreshSubAgentTaskBoards, taskBoardForConversation, parentBoardsBoundToMessage,
+    childBoardsForParent, lookupChildTaskBoard,
     setConversationWorkspace, applyPersistedComposerDefaults, showUiToast,
     clearPlatformLoginErrorMessages,
     composerPrefill, prefillComposer, consumeComposerPrefill,

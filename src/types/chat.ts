@@ -72,6 +72,12 @@ export interface AgentUiConfig {
 export interface SubAgentToolStats {
   searchCount: number
   readCount: number
+  /** Computer sub-agent: mouse_* tool family. */
+  mouseCount?: number
+  /** Computer sub-agent: input_* tool family. */
+  inputCount?: number
+  /** Computer sub-agent: hotkey, wait, clipboard, captcha, etc. */
+  otherCount?: number
 }
 
 export interface SubAgentSessionUi {

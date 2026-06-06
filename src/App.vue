@@ -28,7 +28,10 @@ onMounted(() => {
       await skills.load()
       await chat.init()
       chat.applyPersistedComposerDefaults()
-      if (chat.currentId) void chat.refreshTaskBoard(chat.currentId)
+      if (chat.currentId) {
+        void chat.refreshTaskBoard(chat.currentId)
+        void chat.refreshSubAgentTaskBoards(chat.currentId)
+      }
     })
     .catch(e => console.error('[app boot]', e))
 })

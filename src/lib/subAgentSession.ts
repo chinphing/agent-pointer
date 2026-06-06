@@ -49,7 +49,11 @@ export function finalizeSubSession(trace: AgentTrace): void {
   session.contentStreaming = false
   if (trace.status === 'completed' || trace.status === 'failed') {
     if (!session.userExpanded) session.collapsed = true
-    session.summaryLine = formatSubAgentSummaryLine(trace.name, trace.status, session.stats)
+    session.summaryLine = formatSubAgentSummaryLine(
+      trace.name,
+      trace.status,
+      session.stats
+    )
   }
 }
 

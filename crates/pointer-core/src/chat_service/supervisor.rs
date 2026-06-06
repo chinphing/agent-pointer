@@ -70,6 +70,7 @@ pub(crate) async fn run_supervisor_chat(
             detail: Some("正在规划子 Agent 执行任务".into()),
             content: None,
             depth: Some(0),
+            session: None,
         },
     );
 
@@ -176,6 +177,7 @@ pub(crate) async fn run_supervisor_chat(
                 }),
                 content: Some(String::new()),
                 depth: Some(1),
+                session: None,
             },
         );
 
@@ -226,7 +228,7 @@ pub(crate) async fn run_supervisor_chat(
                 &stream,
                 conversation_id,
                 &child_board_key,
-                None,
+                Some(assistant_id.clone()),
                 child_doc.to_value(),
             );
         }
@@ -301,6 +303,7 @@ pub(crate) async fn run_supervisor_chat(
                         detail: Some(truncate_str(&result.content, 160)),
                         content: Some(result.content.clone()),
                         depth: Some(1),
+                        session: None,
                     },
                 );
                 results.push(result);
@@ -339,6 +342,7 @@ pub(crate) async fn run_supervisor_chat(
                         detail: Some(err.to_string()),
                         content: None,
                         depth: Some(1),
+                        session: None,
                     },
                 );
             }
@@ -357,6 +361,7 @@ pub(crate) async fn run_supervisor_chat(
             detail: Some("正在整合子 Agent 结果".into()),
             content: None,
             depth: Some(0),
+            session: None,
         },
     );
 

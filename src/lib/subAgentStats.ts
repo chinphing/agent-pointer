@@ -2,28 +2,50 @@ import { toolCallBaseName } from './messageTooling'
 import type { SubAgentToolStats } from '../types/chat'
 
 export function emptySubAgentToolStats(): SubAgentToolStats {
-  return { searchCount: 0, readCount: 0 }
+  return {
+    searchCount: 0,
+    readCount: 0,
+    mouseCount: 0,
+    inputCount: 0,
+    otherCount: 0
+  }
 }
 
-/** Extract method from a method-style tool call arguments JSON (e.g. {"method":"read",...}). */
-function extractMethod(argsJson?: string): string {
-  if (!argsJson) return ''
-  try {
-    const parsed = JSON.parse(argsJson)
-    return typeof parsed.method === 'string' ? parsed.method.trim() : ''
-  } catch {
-    return ''
-  }
+/** `{taskId}:{agentId}` → agent id suffix. */
+export function subAgentIdFromTraceId(traceId: string): string {
+  const i = traceId.indexOf(':')
+  return i > 0 ? traceId.slice(i + 1).trim() : ''
+}
+
+/** `{taskId}:{agentId}` → task id prefix. */
+export function subTaskIdFromTraceId(traceId: string): string {
+  const i = traceId.indexOf(':')
+  return i > 0 ? traceId.slice(0, i).trim() : traceId.trim()
+}
+
+function isDesktopTool(base: string): boolean {
+  if (base.startsWith('mouse_') || base.startsWith('input_')) return true
+  return (
+    base === 'hotkey' ||
+    base === 'wait' ||
+    base === 'action_verify' ||
+    base.startsWith('clipboard_') ||
+    base.startsWith('modified_click_') ||
+    base.startsWith('captcha_verify_')
+  )
 }
 
 /** Count successful sub-agent tool invocations for collapsed summary line. */
 export function incrementSubAgentToolStats(
   stats: SubAgentToolStats,
   toolName: string,
-  argsJson?: string
+  _argsJson?: string
 ): void {
   const base = toolCallBaseName(toolName.trim())
-  // Flat file tools: file_read, file_write, file_edit, file_glob, file_grep, file_list
+  if (isDesktopTool(base)) {
+    stats.readCount += 1
+    return
+  }
   if (base.startsWith('file_')) {
     if (base === 'file_read') stats.readCount += 1
     else if (base === 'file_grep' || base === 'file_glob' || base === 'file_list') stats.searchCount += 1

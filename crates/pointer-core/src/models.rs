@@ -38,6 +38,52 @@ pub struct ToolCall {
     pub display_summary: Option<String>,
 }
 
+/// Sub-agent collapsed-header counters (frontend-only; persisted with conversations).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubAgentToolStats {
+    #[serde(default)]
+    pub search_count: u32,
+    #[serde(default)]
+    pub read_count: u32,
+    #[serde(default)]
+    pub mouse_count: u32,
+    #[serde(default)]
+    pub input_count: u32,
+    #[serde(default)]
+    pub other_count: u32,
+}
+
+/// Sub-agent streaming UI state (tool calls, thoughts, collapsed summary); not sent to the LLM.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SubAgentSessionUi {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thoughts: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headline: Option<String>,
+    #[serde(default, rename = "toolNamePreview", skip_serializing_if = "Option::is_none")]
+    pub tool_name_preview: Option<String>,
+    #[serde(default, rename = "responseTextDraft", skip_serializing_if = "Option::is_none")]
+    pub response_text_draft: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
+    #[serde(default, rename = "rawContent", skip_serializing_if = "Option::is_none")]
+    pub raw_content: Option<String>,
+    #[serde(default, rename = "contentStreaming")]
+    pub content_streaming: bool,
+    #[serde(default, rename = "toolCalls", skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCall>>,
+    #[serde(default)]
+    pub stats: SubAgentToolStats,
+    #[serde(default, rename = "summaryLine", skip_serializing_if = "Option::is_none")]
+    pub summary_line: Option<String>,
+    #[serde(default)]
+    pub collapsed: bool,
+    #[serde(default, rename = "userExpanded")]
+    pub user_expanded: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentTrace {
     pub id: String,
@@ -51,6 +97,9 @@ pub struct AgentTrace {
     /// UI indentation: 0 = top-level (lead / supervisor), 1 = delegated sub-agent step.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub depth: Option<u32>,
+    /// Delegated sub-agent UI session (tool rows, stats, collapsed state).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<SubAgentSessionUi>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2629,5 +2678,76 @@ mod effective_extra_body_tests {
             o.get("thinking_budget"),
             Some(&Value::Number(100.into()))
         );
+    }
+
+    #[test]
+    fn agent_trace_session_round_trips_in_conversation_json() {
+        let trace = AgentTrace {
+            id: "task-1:computer".into(),
+            name: "电脑操控".into(),
+            role: "worker".into(),
+            status: "completed".into(),
+            detail: None,
+            content: None,
+            depth: Some(1),
+            session: Some(SubAgentSessionUi {
+                thoughts: Some("done".into()),
+                stats: SubAgentToolStats {
+                    mouse_count: 2,
+                    input_count: 1,
+                    other_count: 3,
+                    ..Default::default()
+                },
+                summary_line: Some("电脑操控 · 已完成 · 鼠标 2 次 · 输入 1 次 · 其他 3 次".into()),
+                collapsed: true,
+                ..Default::default()
+            }),
+        };
+        let conv = Conversation {
+            id: "c1".into(),
+            title: "t".into(),
+            created_at: 1,
+            updated_at: 1,
+            messages: vec![ChatMessage {
+                id: "m1".into(),
+                role: Role::Assistant,
+                content: String::new(),
+                status: "done".into(),
+                created_at: 1,
+                tool_calls: None,
+                tool_call_id: None,
+                error_message: None,
+                reasoning: None,
+                thoughts: None,
+                headline: None,
+                raw_content: None,
+                tool_raw_output: None,
+                agent_id: None,
+                agent_instance_id: None,
+                agent_name: None,
+                agent_trace: Some(vec![trace]),
+                images_base64: None,
+                image_slot_labels: None,
+                computer_round_screen_rel_path: None,
+                ui_bindings: None,
+                context_state: None,
+            }],
+            skill_ids: vec![],
+            tool_rounds_used: 0,
+            tool_rounds_used_supervisor: 0,
+            computer_monitor_id: None,
+            workspace_root: String::new(),
+        };
+        let json = serde_json::to_string(&conv).expect("serialize");
+        let back: Conversation = serde_json::from_str(&json).expect("deserialize");
+        let session = back.messages[0]
+            .agent_trace
+            .as_ref()
+            .and_then(|t| t.first())
+            .and_then(|t| t.session.as_ref())
+            .expect("session persisted");
+        assert_eq!(session.stats.mouse_count, 2);
+        assert_eq!(session.stats.input_count, 1);
+        assert_eq!(session.collapsed, true);
     }
 }

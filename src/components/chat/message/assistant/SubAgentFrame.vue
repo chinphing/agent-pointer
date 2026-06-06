@@ -13,6 +13,7 @@ import { useSettingsStore } from '../../../../stores/settings'
 import { useAgentsCatalog } from '../../../../composables/useAgentUi'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import RawWirePanel from './RawWirePanel.vue'
+import TaskBoardPanel from '../../TaskBoardPanel.vue'
 import { hasTaskBoardContent } from '../../../../lib/taskBoard'
 import { toolCallBaseName } from '../../../../lib/messageTooling'
 
@@ -32,6 +33,11 @@ const childBoard = computed(() =>
     ? props.childTaskBoardDocument
     : null
 )
+
+const childBoardActive = computed(() => {
+  const status = (childBoard.value?.meta?.status ?? '').trim()
+  return status !== 'completed' && status !== 'failed'
+})
 
 const settingsStore = useSettingsStore()
 const agentsCatalog = useAgentsCatalog()
@@ -56,10 +62,12 @@ const summaryLine = computed(() => {
     return `${traceLabel.value} · ${subAgentStatusLabel(props.trace.status)}…`
   }
   const s = session.value
+  const persisted = s?.summaryLine?.trim()
+  if (persisted && !isRunning.value) return persisted
   return formatSubAgentSummaryLine(
     traceLabel.value,
     props.trace.status,
-    s?.stats ?? { searchCount: 0, readCount: 0 }
+    s?.stats ?? { searchCount: 0, readCount: 0, mouseCount: 0, inputCount: 0, otherCount: 0 }
   )
 })
 
@@ -182,20 +190,12 @@ function toggleExpanded() {
         :is-active-generation-message="subFrameActive"
       />
 
-      <div
+      <TaskBoardPanel
         v-if="childBoard"
-        class="mt-2 border-t border-border/50 pt-2"
-      >
-        <div
-          v-for="item in childBoard.board"
-          :key="item.id"
-          class="flex items-center gap-1.5 text-[11px] py-0.5"
-        >
-          <span class="w-3 h-3 rounded-full" :class="item.status === 'done' ? 'bg-success/60' : item.status === 'in_progress' ? 'bg-accent/60 animate-pulse' : 'bg-border/60'" />
-          <span class="text-foreground truncate">{{ item.title }}</span>
-          <span class="text-muted shrink-0">{{ { pending:'待开始', ready:'就绪', in_progress:'进行中', done:'完成', failed:'失败', cancelled:'已取消' }[item.status] ?? item.status }}</span>
-        </div>
-      </div>
+        class="mt-2"
+        :document="childBoard"
+        :is-active="childBoardActive"
+      />
 
       <RawWirePanel
         v-if="showRawWire && hasRawWire"

@@ -8,6 +8,7 @@ import { shouldShowSubAgentTrace, uiForSubAgentFrame } from '../../../../lib/age
 import { useAgentsCatalog, uiForMessageAgent } from '../../../../composables/useAgentUi'
 import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
 import { subTracesForMessage } from '../../../../lib/subAgentSession'
+import { subTaskIdFromTraceId } from '../../../../lib/subAgentStats'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import SubAgentFrame from './SubAgentFrame.vue'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
@@ -57,14 +58,9 @@ const { generating, activeGeneratingMessageId } = storeToRefs(chatStore)
 function childTaskBoardForTrace(traceId: string) {
   const convId = chatStore.currentId
   if (!convId) return null
-  const taskId = (() => {
-    const i = traceId.indexOf(':')
-    return i > 0 ? traceId.slice(0, i).trim() : traceId.trim()
-  })()
+  const taskId = subTaskIdFromTraceId(traceId)
   if (!taskId) return null
-  const parentStoreKey =
-    chatStore.taskBoardForConversation(convId)?.activeParentStoreKey ?? convId
-  return chatStore.childBoardsForParent(convId, parentStoreKey)?.[taskId] ?? null
+  return chatStore.lookupChildTaskBoard(convId, taskId, props.message.id)
 }
 
 const isActiveGenerationMessage = computed(

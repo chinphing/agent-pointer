@@ -15,3 +15,19 @@ Implementation: `crates/pointer-core/src/shell_env.rs`.
 The `terminal` tool runs `powershell -ExecutionPolicy Bypass -Command` **with the user PowerShell profile loaded** (no `-NoProfile`), so fnm/nvm-style PATH hooks in `$PROFILE` apply per command.
 
 Tradeoff: slower and profile-dependent; see product notes in agent discussions.
+
+## Supplementary `.env` files
+
+User-managed environment variables live in **`{app_data_dir}/.env`** (`storage::user_env_file_path()`). When the `terminal` tool call omits **`envFiles`**, that file is loaded automatically if it exists.
+
+Optional **`envFiles`** overrides the default and loads only the listed paths (for project-specific `.env` files). Each file is parsed as dotenv (`KEY=VALUE`, optional `export`, `#` comments, quoted values).
+
+Merge rules:
+
+1. The subprocess inherits the Pointer process environment (including the merged login-shell `PATH` on Unix).
+2. Variables from `.env` files are applied **only for keys not already set** in that inherited environment.
+3. When multiple files are listed, later files override earlier ones within the supplemental layer.
+
+Relative paths resolve against the effective **`cwd`** (or workspace root when **`cwd`** is omitted). Absolute paths are allowed when the file exists.
+
+Implementation: `crates/pointer-core/src/dotenv.rs`, wired in `tools/terminal.rs`.

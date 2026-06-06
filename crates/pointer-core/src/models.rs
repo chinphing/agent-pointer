@@ -1023,6 +1023,9 @@ pub struct UserSettings {
     pub theme: String,
     #[serde(default, rename = "userNickname")]
     pub user_nickname: Option<String>,
+    /// Globally enabled skill ids (UI + runtime when lead agent is `general`).
+    #[serde(default, rename = "enabledSkillIds")]
+    pub enabled_skill_ids: Vec<String>,
 }
 
 /// Per-tier LLM overrides for Computer Use Agent.

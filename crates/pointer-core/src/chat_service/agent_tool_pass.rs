@@ -76,7 +76,9 @@ pub(super) struct SubToolPassConfig<'a> {
     pub def: &'a AgentDef,
     pub task: &'a AgentTask,
     pub allowed_tools: &'a [String],
+    pub allow_agents: &'a [String],
     pub instance_scope: &'a AgentInstanceScope,
+    pub agent_trace: &'a mut Vec<AgentTrace>,
     pub accumulated_content: String,
     pub accumulated_reasoning: String,
     pub reasoning_in_messages: bool,
@@ -98,10 +100,10 @@ pub(super) async fn run_agent_tool_pass(
     stats: &mut ToolInvocationStats<'_>,
     final_tool_calls: &[ToolCall],
     mut lead: Option<LeadToolPassConfig<'_>>,
-    sub: Option<SubToolPassConfig<'_>>,
+    mut sub: Option<SubToolPassConfig<'_>>,
     task_board_trim: Option<TaskBoardTrimHook<'_>>,
 ) -> Result<ToolPassResult> {
-    let sub_trace_id = sub.as_ref().map(|s| s.trace_id.as_str());
+    let sub_trace_id = sub.as_ref().map(|s| s.trace_id.clone());
     let mut any_executed = false;
     let mut task_board_succeeded = false;
     for tc in final_tool_calls {
@@ -135,7 +137,7 @@ pub(super) async fn run_agent_tool_pass(
                     duration_ms: Some(0),
                     display_label: None,
                     display_summary: None,
-                    trace_id: trace_id_opt(sub_trace_id),
+                    trace_id: trace_id_opt(sub_trace_id.as_deref()),
                 },
             );
             history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
@@ -157,7 +159,7 @@ pub(super) async fn run_agent_tool_pass(
                         duration_ms: Some(0),
                         display_label: None,
                         display_summary: None,
-                        trace_id: trace_id_opt(sub_trace_id),
+                        trace_id: trace_id_opt(sub_trace_id.as_deref()),
                     },
                 );
                 history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
@@ -177,26 +179,6 @@ pub(super) async fn run_agent_tool_pass(
         }
 
         if let Some(sub_cfg) = sub.as_ref() {
-            if tool_id == "run_subagent" {
-                let err = "子 Agent 内不可再次调用 run_subagent。";
-                emit(
-                    &stream,
-                    StreamEvent::ToolCallStatus {
-                        message_id: message_id.clone(),
-                        tool_call_id: tc.id.clone(),
-                        status: "failed".into(),
-                        result: None,
-                        error: Some(err.to_string()),
-                    duration_ms: None,
-                    display_label: None,
-                    display_summary: None,
-                    trace_id: trace_id_opt(sub_trace_id),
-                    },
-                );
-                history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
-                any_executed = true;
-                continue;
-            }
             if !registry_tool_in_allow_list(sub_cfg.allowed_tools, &tool_id) {
                 let err = format!(
                     "Agent {} 不允许调用工具: {}",
@@ -213,7 +195,7 @@ pub(super) async fn run_agent_tool_pass(
                     duration_ms: None,
                     display_label: None,
                     display_summary: None,
-                    trace_id: trace_id_opt(sub_trace_id),
+                    trace_id: trace_id_opt(sub_trace_id.as_deref()),
                     },
                 );
                 history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
@@ -232,7 +214,7 @@ pub(super) async fn run_agent_tool_pass(
             &tool_id,
             &args_value,
             &cancel,
-            sub_trace_id,
+            sub_trace_id.as_deref(),
         )
         .await?
         {
@@ -254,7 +236,7 @@ pub(super) async fn run_agent_tool_pass(
                 duration_ms: None,
                 display_label,
                 display_summary,
-                trace_id: trace_id_opt(sub_trace_id),
+                trace_id: trace_id_opt(sub_trace_id.as_deref()),
             },
         );
         if tool_id.starts_with("captcha_verify_") {
@@ -269,7 +251,7 @@ pub(super) async fn run_agent_tool_pass(
                     duration_ms: None,
                     display_label: None,
                     display_summary: Some("识别中...".into()),
-                    trace_id: trace_id_opt(sub_trace_id),
+                    trace_id: trace_id_opt(sub_trace_id.as_deref()),
                 },
             );
         }
@@ -288,7 +270,7 @@ pub(super) async fn run_agent_tool_pass(
             &tool_id,
             args_value.clone(),
             lead.as_mut(),
-            sub.as_ref(),
+            sub.as_mut(),
             &cancel,
             stats,
         )
@@ -310,7 +292,7 @@ pub(super) async fn run_agent_tool_pass(
             &args_value,
             exec,
             duration,
-            sub_trace_id,
+            sub_trace_id.as_deref(),
         )
         .await;
         if tool_ok && is_task_board_tool_name(&tool_id) {
@@ -518,7 +500,7 @@ async fn execute_tool_invocation(
     tool_id: &str,
     args_value: serde_json::Value,
     mut lead: Option<&mut LeadToolPassConfig<'_>>,
-    sub: Option<&SubToolPassConfig<'_>>,
+    sub: Option<&mut SubToolPassConfig<'_>>,
     cancel: &CancellationToken,
     stats: &mut ToolInvocationStats<'_>,
 ) -> Result<(String, bool, Option<String>), anyhow::Error> {
@@ -549,14 +531,17 @@ async fn execute_tool_invocation(
             ToolInvocationStats::TokenSession(s) => WebSearchTokenSink::Lead(s),
             ToolInvocationStats::Conversation(s) => WebSearchTokenSink::Sub {
                 stats: s,
-                scope: sub
+                scope: &sub
+                    .as_ref()
                     .ok_or_else(|| anyhow!("web_search sub scope missing"))?
                     .instance_scope,
             },
         };
         let agent_id = sub
+            .as_ref()
             .map(|s| s.def.id.as_str())
-            .or(lead.as_ref().map(|l| l.lead_agent_id));
+            .or_else(|| lead.as_ref().map(|l| l.lead_agent_id));
+        let trace_id = sub.as_ref().map(|s| s.trace_id.clone());
         return dispatch_to_tool_json_async(WebSearchDispatchContext {
             settings: &provider.settings,
             agent_id,
@@ -569,17 +554,17 @@ async fn execute_tool_invocation(
             exclude_message_id: message_id,
             invoke,
             token_sink,
-            trace_id: sub.map(|s| s.trace_id.clone()),
+            trace_id,
         })
         .await;
     }
 
     if tool_id == "run_subagent" {
+        let llm_stats = match stats {
+            ToolInvocationStats::TokenSession(s) => &mut s.stats,
+            ToolInvocationStats::Conversation(s) => s,
+        };
         if let Some(lead_cfg) = lead {
-            let llm_stats = match stats {
-                ToolInvocationStats::TokenSession(s) => &mut s.stats,
-                ToolInvocationStats::Conversation(s) => s,
-            };
             return super::run_subagent_delegation::run_subagent_delegation(
                 stream,
                 state,
@@ -592,6 +577,25 @@ async fn execute_tool_invocation(
                 lead_cfg.allow_agents,
                 lead_cfg.enabled_skill_ids.as_slice(),
                 lead_cfg.agent_trace,
+                cancel,
+                llm_stats,
+            )
+            .await;
+        }
+        if let Some(sub_cfg) = sub {
+            let empty_skills: &[String] = &[];
+            return super::run_subagent_delegation::run_subagent_delegation(
+                stream,
+                state,
+                provider,
+                conversation_id,
+                parent_task_board_store_key,
+                message_id,
+                args_value,
+                &sub_cfg.instance_scope.run_id,
+                sub_cfg.allow_agents,
+                empty_skills,
+                sub_cfg.agent_trace,
                 cancel,
                 llm_stats,
             )
@@ -620,7 +624,13 @@ async fn execute_tool_invocation(
                         lead_cfg.enabled_skill_ids.push(id.clone());
                     }
                 }
-                Some(lead_cfg.enabled_skill_ids.clone())
+                let ids = lead_cfg.enabled_skill_ids.clone();
+                let mut user = state.load_user_settings();
+                user.enabled_skill_ids = ids.clone();
+                if let Err(err) = state.save_user_settings(&user) {
+                    log::warn!("skill_import: persist enabled_skill_ids failed: {err}");
+                }
+                Some(ids)
             } else {
                 None
             }

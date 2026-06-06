@@ -17,8 +17,6 @@ accessPolicy:
     - file_grep
     - file_list
     - read_lints
-    - skill_load_instructions
-    - skill_read_resource
     - terminal
     - task_board_init
     - task_board_patch

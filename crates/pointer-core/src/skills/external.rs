@@ -21,12 +21,17 @@ struct SkillManifest {
     license: Option<String>,
     #[serde(default)]
     compatibility: Option<String>,
+    /// Codex / Claude Code / Agent Zero often use `allowed_tools`; Cursor uses `allowed-tools`.
     #[serde(
         default,
         rename = "allowed-tools",
+        alias = "allowed_tools",
         deserialize_with = "deserialize_allowed_tools"
     )]
     allowed_tools: Vec<String>,
+    /// Top-level `tags` (Agent Zero / Claude); also accepts `metadata.tags`.
+    #[serde(default)]
+    tags: Vec<String>,
     #[serde(default)]
     metadata: serde_json::Value,
     #[serde(skip)]
@@ -50,7 +55,7 @@ pub fn load_external_skills() -> Result<Vec<SkillDef>> {
         for entry in fs::read_dir(&root)? {
             let entry = entry?;
             let path = entry.path();
-            if !path.is_dir() {
+            if !path.is_dir() || is_ignored_skill_dir(path.file_name()) {
                 continue;
             }
             if let Ok(skill) = load_skill_from_dir(&path) {
@@ -247,17 +252,46 @@ fn is_zip_file(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
 }
 
+/// Discovery roots for Codex / Claude Code / Cursor compatible skills (first match wins per id).
 fn skill_roots() -> Result<Vec<PathBuf>> {
     let mut roots = Vec::new();
-    if let Ok(cwd) = env::current_dir() {
-        roots.push(cwd.join("skills"));
-        roots.push(cwd.join(".agents").join("skills"));
-    }
-    if let Some(home) = dirs::home_dir() {
-        roots.push(home.join(".agents").join("skills"));
-    }
+
+    // App imports (Pointer UI / skill_import) — highest priority.
     roots.push(skills_dir()?);
+
+    if let Ok(cwd) = env::current_dir() {
+        roots.push(cwd.join(".cursor").join("skills"));
+        roots.push(cwd.join(".claude").join("skills"));
+        roots.push(cwd.join(".agents").join("skills"));
+        roots.push(cwd.join("skills"));
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        roots.push(home.join(".cursor").join("skills"));
+        roots.push(home.join(".claude").join("skills"));
+        roots.push(home.join(".agents").join("skills"));
+
+        let codex_home = env::var("CODEX_HOME")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".codex"));
+        roots.push(codex_home.join("skills"));
+    }
+
     Ok(roots)
+}
+
+/// Skip vendor/system skill buckets (e.g. Codex `.system`, Cursor `skills-cursor`).
+fn is_ignored_skill_dir(name: Option<&std::ffi::OsStr>) -> bool {
+    let Some(name) = name.and_then(|n| n.to_str()) else {
+        return true;
+    };
+    if name.starts_with('.') {
+        return true;
+    }
+    name.eq_ignore_ascii_case("skills-cursor")
 }
 
 fn load_skill_from_dir(dir: &Path) -> Result<SkillDef> {
@@ -277,7 +311,7 @@ fn manifest_to_skill(manifest: SkillManifest, dir: &Path) -> Result<SkillDef> {
         id,
         name: manifest.name,
         description: manifest.description.clone(),
-        tags: metadata_tags(&manifest.metadata),
+        tags: merge_tags(&manifest.tags, &manifest.metadata),
         system_prompt: manifest.body,
         tool_names: manifest.allowed_tools,
         scenario: manifest.description,
@@ -421,6 +455,20 @@ fn metadata_tags(metadata: &serde_json::Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn merge_tags(top_level: &[String], metadata: &serde_json::Value) -> Vec<String> {
+    let mut out: Vec<String> = top_level
+        .iter()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect();
+    for tag in metadata_tags(metadata) {
+        if !out.iter().any(|existing| existing == &tag) {
+            out.push(tag);
+        }
+    }
+    out
 }
 
 fn validate_skill_id(id: &str) -> Result<()> {
@@ -614,6 +662,34 @@ mod tests {
         )
         .unwrap();
         assert!(validate_manifest(&m).is_err());
+    }
+
+    #[test]
+    fn parses_allowed_tools_underscore_alias() {
+        let m = parse(
+            "---\nname: codex-skill\ndescription: Demo.\nallowed_tools:\n  - Bash\n  - Read\n---\nbody",
+        );
+        assert_eq!(m.allowed_tools, vec!["Bash", "Read"]);
+    }
+
+    #[test]
+    fn merges_top_level_and_metadata_tags() {
+        let m = parse(
+            "---\nname: claude-skill\ndescription: Demo.\ntags:\n  - dev\nmetadata:\n  tags:\n    - api\n---\nbody",
+        );
+        assert_eq!(
+            merge_tags(&m.tags, &m.metadata),
+            vec!["dev", "api"]
+        );
+    }
+
+    #[test]
+    fn ignores_dot_prefixed_skill_dirs() {
+        use std::ffi::OsStr;
+        assert!(is_ignored_skill_dir(Some(OsStr::new(".system"))));
+        assert!(is_ignored_skill_dir(Some(OsStr::new(".hidden"))));
+        assert!(!is_ignored_skill_dir(Some(OsStr::new("brainstorming"))));
+        assert!(is_ignored_skill_dir(Some(OsStr::new("skills-cursor"))));
     }
 
     #[test]

@@ -12,6 +12,7 @@ import type {
   TaskBoardDocument
 } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
+import { GENERAL_AGENT_ID } from '../lib/agentUi'
 import { getTaskBoardSnapshot } from '../lib/api'
 import { hasTaskBoardContent } from '../lib/taskBoard'
 
@@ -174,6 +175,14 @@ export const useChatStore = defineStore('chat', () => {
     const id = currentId.value
     return id ? runStateFor(id).activeMessageId : null
   })
+
+  function enabledSkillIdsForRequest(): string[] {
+    const settings = useSettingsStore().settings
+    if (settings.agentMode === 'supervisor') return []
+    const lead = settings.leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
+    if (lead !== GENERAL_AGENT_ID) return []
+    return [...useSkillsStore().enabledIds]
+  }
 
   async function init() {
     const list = await loadConversations().catch(() => [])
@@ -651,13 +660,8 @@ export const useChatStore = defineStore('chat', () => {
       case 'skills_updated': {
         const skillsStore = useSkillsStore()
         void skillsStore.load({ rescan: true })
-        if (e.enabledIds?.length) {
-          skillsStore.setEnabledIds(e.enabledIds)
-        }
-        const conv = conversations.value.find(c => c.id === e.conversationId)
-        if (conv && e.enabledIds?.length) {
-          conv.skillIds = [...e.enabledIds]
-          persist()
+        if (e.enabledIds !== undefined) {
+          void skillsStore.setEnabledIds(e.enabledIds)
         }
         break
       }
@@ -977,9 +981,7 @@ export const useChatStore = defineStore('chat', () => {
       persist()
       return
     }
-    const skills = useSkillsStore()
     const settings = useSettingsStore()
-    conv.skillIds = [...skills.enabledIds]
 
     const userMsg: ChatMessage = {
       id: uid(), role: 'user', content,
@@ -995,7 +997,7 @@ export const useChatStore = defineStore('chat', () => {
     await sendChat({
       conversationId: conv.id,
       messages: JSON.parse(JSON.stringify(conv.messages)),
-      enabledSkillIds: conv.skillIds,
+      enabledSkillIds: enabledSkillIdsForRequest(),
       agentMode: settings.settings.agentMode,
       toolRoundsUsed: conv.toolRoundsUsed ?? 0,
       toolRoundsUsedSupervisor: conv.toolRoundsUsedSupervisor ?? 0,
@@ -1047,7 +1049,7 @@ export const useChatStore = defineStore('chat', () => {
     await sendChat({
       conversationId: conv.id,
       messages: JSON.parse(JSON.stringify(conv.messages)),
-      enabledSkillIds: conv.skillIds,
+      enabledSkillIds: enabledSkillIdsForRequest(),
       agentMode: settings.settings.agentMode,
       toolRoundsUsed: conv.toolRoundsUsed ?? 0,
       toolRoundsUsedSupervisor: conv.toolRoundsUsedSupervisor ?? 0,

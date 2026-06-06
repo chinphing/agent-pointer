@@ -1,9 +1,9 @@
 //! Sub-agent session bootstrap and per-round system prompt assembly.
 
 use crate::agents::{
-    computer_agent_body_for_tier, computer_communication_for_tier, expand_agent_prompt_placeholders,
-    rendered_communication_public_inject, AgentDef, AgentProfile, AgentTask, SessionInjectVars,
-    DEFAULT_AGENT_ID,
+    computer_agent_body_for_tier, computer_communication_for_tier, delegatable_sub_agents_system_block,
+    expand_agent_prompt_placeholders, normalize_allow_agents, rendered_communication_public_inject,
+    AgentDef, AgentProfile, AgentTask, SessionInjectVars, DEFAULT_AGENT_ID,
 };
 use crate::extensions::{BeforeMainLlmCallContext, MessageLoopPromptsAfterContext};
 use crate::models::{ChatMessage, Role, SystemPromptSections};
@@ -24,6 +24,7 @@ pub(super) struct SubAgentSession {
     pub prompts: Vec<String>,
     pub tools_system_appendix: String,
     pub allowed_tools: Vec<String>,
+    pub allow_agents: Vec<String>,
     pub sub_task_board_key: String,
     pub tool_approval_mode: String,
     pub local_history: Vec<ChatMessage>,
@@ -48,17 +49,10 @@ pub(super) fn init_sub_agent_session(
         .or_else(|| state.agents.get(DEFAULT_AGENT_ID))
         .ok_or_else(|| anyhow!("未找到 Agent: {}", task.agent_id))?;
     let def = agent.def().clone();
-    let mut skill_ids = enabled_skill_ids.to_vec();
-    if !def.access_policy.allow_skills.is_empty() {
-        skill_ids.retain(|id| def.access_policy.allow_skills.contains(id));
-    }
-    skill_ids.retain(|id| !def.access_policy.deny_skills.contains(id));
-    skill_ids.sort();
-    skill_ids.dedup();
-
-    let (skill_prompts, session_tools) = state.skills.progressive_context(&skill_ids);
-    let mut allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
-    allowed_tools.retain(|t| t != "run_subagent");
+    let _ = enabled_skill_ids;
+    let (skill_prompts, session_tools) = state.skills.progressive_context(&[]);
+    let allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
+    let allow_agents = normalize_allow_agents(&def.allow_agents);
     let sub_task_board_key =
         sub_agent_task_board_store_key(parent_task_board_store_key, task.id.trim());
     let session_vars = SessionInjectVars {
@@ -83,6 +77,11 @@ pub(super) fn init_sub_agent_session(
         prompts.push(block);
     }
     prompts.push(sub_agent_header);
+    if allowed_tools.iter().any(|t| t == "run_subagent") {
+        if let Some(block) = delegatable_sub_agents_system_block(&state.agents, &allow_agents) {
+            prompts.push(block);
+        }
+    }
     prompts.extend(skill_prompts);
     if let Some(hint) =
         sub_agent_task_board_init_hint(&state.task_board_store, &sub_task_board_key, &allowed_tools)
@@ -131,6 +130,7 @@ pub(super) fn init_sub_agent_session(
         prompts,
         tools_system_appendix,
         allowed_tools,
+        allow_agents,
         sub_task_board_key,
         tool_approval_mode,
         local_history,

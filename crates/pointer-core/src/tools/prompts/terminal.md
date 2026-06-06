@@ -15,6 +15,12 @@ schema:
     maxOutputBytes:
       type: integer
       minimum: 1
+    envFiles:
+      oneOf:
+        - type: string
+        - type: array
+          items:
+            type: string
   required:
     - command
   additionalProperties: true
@@ -36,8 +42,10 @@ Use when you need the shell for builds, checks, tests, directory listings, or ot
 - Set a reasonable **`timeoutMs`** (idle: no stdout/stderr resets the timer). Use **`maxWallMs`** when you need a shorter hard wall than the default cap.
 - Do not run destructive commands unless the user clearly asked and approval allows it.
 - Do not read or exfiltrate secrets via the terminal.
+- **Default user env:** When **`envFiles`** is omitted, the host loads the app data directory **`.env`** (see **App data directory** in session context) if that file exists. Users store personal / cross-project vars there (e.g. API keys).
+- **Project env:** When a command needs workspace-specific vars, pass **`envFiles`** with paths to project `.env` files. Variables from loaded files are **supplementary** env: they apply only when the host process does not already define the same key. Later entries in **`envFiles`** override earlier ones within that supplemental layer. Paths may be absolute or relative to **`cwd`** (or the workspace root when **`cwd`** is omitted).
 
-The result includes `stdout`, `stderr`, exit code, timing, truncation flags, and **`cancelled`** when the host stopped the turn; it may set **`runAborted`: true** when only this command was stopped and the turn continues—treat that as an interrupted run, not a full turn cancel. When replying, summarize only output relevant to the task.
+The result includes `stdout`, `stderr`, exit code, timing, truncation flags, **`envFiles`** (resolved paths that were loaded), and **`cancelled`** when the host stopped the turn; it may set **`runAborted`: true** when only this command was stopped and the turn continues—treat that as an interrupted run, not a full turn cancel. When replying, summarize only output relevant to the task.
 
 #### Parameters
 
@@ -46,6 +54,7 @@ The result includes `stdout`, `stderr`, exit code, timing, truncation flags, and
 - **`timeoutMs`** (optional) — Idle timeout in milliseconds: if neither stdout nor stderr receives new data for this long, the command is stopped. Any new output resets this idle timer. Default **30000**, per-idle segment max **120000**.
 - **`maxWallMs`** (optional) — Hard wall-clock cap from process start; when elapsed time reaches this value, the process tree is killed. Min **1000**, max **3600000** (1 hour). Omit to use the **1 hour** default cap.
 - **`maxOutputBytes`** (optional) — Max bytes per stream for stdout and stderr; default **20000**, max **200000**; output is truncated per stream when exceeded.
+- **`envFiles`** (optional) — One `.env` path (string) or an array of paths; processed in order. When omitted, the default app-data **`.env`** is loaded if it exists.
 
 #### Stopping the run (host)
 

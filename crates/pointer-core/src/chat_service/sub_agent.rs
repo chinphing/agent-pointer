@@ -71,6 +71,7 @@ pub(crate) async fn run_sub_agent(
     let prompts = session.prompts;
     let tools_system_appendix = session.tools_system_appendix;
     let allowed_tools = session.allowed_tools;
+    let allow_agents = session.allow_agents;
     let sub_task_board_key = session.sub_task_board_key;
     let tool_approval_mode = session.tool_approval_mode;
     let mut local_history = session.local_history;
@@ -258,7 +259,9 @@ pub(crate) async fn run_sub_agent(
             def: &def,
             task,
             allowed_tools: &allowed_tools,
+            allow_agents: &allow_agents,
             instance_scope: &instance_scope,
+            agent_trace,
             accumulated_content: content.clone(),
             accumulated_reasoning: reasoning.clone(),
             reasoning_in_messages,

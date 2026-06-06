@@ -55,9 +55,11 @@ Never put internal stage templates (Verify, Pointer, Repetition, Next, …) in *
 
 When using coordinate tools, decide **Route: coordinate** internally.
 `Tool route:` line 2 remains the single source of truth for the native root tool call.
-**Efficiency principle:** prefer the fewest tool calls for the same goal.
+**Efficiency principle:** Prefer the fewest tool calls for the same goal.
 Use priority: **`input_focused`** -> **`hotkey`** / **`modified_click_select_index`**
--> **`mouse_click_index`**. Use **`wait`** only for explicit delays.
+-> **`mouse_click_index`**. Use **`wait`** only when an explicit delay is needed.
+**Hotkey precondition:** Use app/browser shortcuts only when the target window
+is the foreground (topmost) window. If not, focus the target window first.
 For loading/transfer actions, choose wait windows in the **2–5 s** range and
 verify completion from history/result surfaces before concluding.
 

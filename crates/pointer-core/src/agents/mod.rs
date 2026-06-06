@@ -522,8 +522,7 @@ impl AgentOrchestrator {
             .map(|a| a.def())
             .unwrap_or_else(supervisor_agent_def);
         let worker_agents = agents.enabled_workers();
-        let skill_scope = enabled_skill_ids.to_vec();
-        let (skill_prompts, session_tools) = skills.progressive_context(&skill_scope);
+        let (skill_prompts, session_tools) = skills.progressive_context(&[]);
         let mut allowed_tool_names = Vec::new();
         for agent in &worker_agents {
             for tool in resolve_tools(&agent.access_policy, &session_tools, tools) {
@@ -969,9 +968,18 @@ fn static_agent(def: AgentDef) -> Arc<dyn AgentExecutor> {
     })
 }
 
-/// Session skills come **only** from the caller’s `enabled_skill_ids`. Manifest `defaultSkillIds`
-/// is metadata (e.g. UI hints / roster); it is not auto-merged into the session.
+/// Only the **general** lead agent may load session skills.
+pub fn agent_supports_skills(agent: &AgentDef) -> bool {
+    agent.id == DEFAULT_AGENT_ID
+}
+
+/// Session skills come **only** from the caller’s `enabled_skill_ids` when the lead agent is
+/// **general**. Manifest `defaultSkillIds` is metadata (e.g. UI hints / roster); it is not
+/// auto-merged into the session.
 fn resolve_skill_ids(agent: &AgentDef, enabled_skill_ids: &[String]) -> Vec<String> {
+    if !agent_supports_skills(agent) {
+        return Vec::new();
+    }
     let mut ids = enabled_skill_ids.to_vec();
     if !agent.access_policy.allow_skills.is_empty() {
         let allow: HashSet<_> = agent.access_policy.allow_skills.iter().cloned().collect();
@@ -1056,6 +1064,21 @@ fn supervisor_prompt(lead: &AgentDef, lead_prompt: Option<String>, agents: &[Age
 #[cfg(test)]
 mod builtin_agent_tests {
     use super::*;
+
+    #[test]
+    fn resolve_skill_ids_only_for_general_agent() {
+        let general = default_agent_def();
+        let coder = AgentDef {
+            id: "coder".into(),
+            ..default_agent_def()
+        };
+        let enabled = vec!["my-skill".into()];
+        assert_eq!(
+            resolve_skill_ids(&general, &enabled),
+            vec!["my-skill".to_string()]
+        );
+        assert!(resolve_skill_ids(&coder, &enabled).is_empty());
+    }
 
     #[test]
     fn resolve_tools_does_not_auto_add_response() {
@@ -1192,6 +1215,25 @@ mod builtin_agent_tests {
         assert_eq!(agent.def.ui.user_selectable, Some(true));
         let json = serde_json::to_string(&agent.def).expect("json");
         assert!(json.contains("userSelectable"), "json missing userSelectable: {}", json);
+    }
+
+    #[test]
+    fn general_builtin_allow_agents_includes_coder_and_computer() {
+        let raw = include_str!("general/AGENT.md");
+        let comm = include_str!("general/COMMUNICATION.md");
+        let agent = load_builtin_agent("general", raw, comm).expect("load builtin general");
+        assert!(
+            agent.def.allow_agents.binary_search(&"coder".to_string()).is_ok(),
+            "general allowAgents should include coder"
+        );
+        assert!(
+            agent
+                .def
+                .allow_agents
+                .binary_search(&"computer".to_string())
+                .is_ok(),
+            "general allowAgents should include computer"
+        );
     }
 
     #[test]

@@ -2,6 +2,7 @@ pub mod agent_instance_scope;
 pub mod agents;
 pub mod chat_service;
 pub mod client_env;
+pub mod dotenv;
 pub mod conversation_snapshot;
 pub mod env_prompt;
 pub mod platform;

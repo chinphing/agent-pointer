@@ -1,8 +1,12 @@
 use super::{ToolEntry, ToolHandler, ToolRegistry};
+use crate::dotenv::{
+    apply_supplemental_env_files, default_user_env_file, parse_env_file_args,
+    resolve_env_file_path,
+};
 use anyhow::{anyhow, Result};
 use log::warn;
 use std::io::{BufRead, BufReader, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
@@ -88,12 +92,14 @@ fn run_terminal_command(args: serde_json::Value) -> Result<String> {
         .unwrap_or(TERMINAL_DEFAULT_MAX_OUTPUT_BYTES as u64)
         .min(TERMINAL_MAX_OUTPUT_BYTES as u64) as usize;
     let (shell, _) = terminal_shell_command(&command);
+    let env_files = resolve_terminal_env_files(&args, cwd.as_deref())?;
 
     let r = run_terminal_command_streaming(args, |_| {}, None, None)?;
 
     Ok(serde_json::json!({
         "command": command.as_str(),
         "cwd": cwd.map(|p| p.display().to_string()).unwrap_or_else(|| std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default()),
+        "envFiles": env_files,
         "shell": shell,
         "exitCode": r.exit_code,
         "success": r.success,
@@ -157,9 +163,15 @@ pub fn run_terminal_command_streaming(
         .unwrap_or(TERMINAL_DEFAULT_MAX_OUTPUT_BYTES as u64)
         .min(TERMINAL_MAX_OUTPUT_BYTES as u64) as usize;
 
+    let env_file_paths = resolve_terminal_env_files(&args, cwd.as_deref())?;
+
     let (_shell, mut cmd) = terminal_shell_command(command);
     if let Some(dir) = &cwd {
         cmd.current_dir(dir);
+    }
+    if !env_file_paths.is_empty() {
+        let paths: Vec<PathBuf> = env_file_paths.iter().map(PathBuf::from).collect();
+        apply_supplemental_env_files(&mut cmd, &paths);
     }
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(windows)]
@@ -317,6 +329,42 @@ fn drain_pipe_chunks(
             TerminalPipe::Stderr => stderr_buf.push_str(&chunk.text),
         }
     }
+}
+
+fn workspace_root_dir() -> Option<PathBuf> {
+    let w = crate::tools::file::workspace_root_from_override_or_settings();
+    let w = w.trim();
+    if w.is_empty() {
+        return None;
+    }
+    let p = PathBuf::from(w);
+    if p.is_dir() {
+        Some(p.canonicalize().unwrap_or(p))
+    } else {
+        None
+    }
+}
+
+fn resolve_terminal_env_files(
+    args: &serde_json::Value,
+    cwd: Option<&Path>,
+) -> Result<Vec<String>> {
+    let raw_paths = parse_env_file_args(args);
+    if raw_paths.is_empty() {
+        return Ok(default_user_env_file()
+            .map(|p| vec![p.display().to_string()])
+            .unwrap_or_default());
+    }
+    let workspace = workspace_root_dir();
+    let mut resolved = Vec::new();
+    for raw in raw_paths {
+        let path = resolve_env_file_path(&raw, cwd, workspace.as_deref())?;
+        let display = path.display().to_string();
+        if !resolved.contains(&display) {
+            resolved.push(display);
+        }
+    }
+    Ok(resolved)
 }
 
 fn parse_terminal_cwd(value: Option<&serde_json::Value>) -> Result<Option<PathBuf>> {

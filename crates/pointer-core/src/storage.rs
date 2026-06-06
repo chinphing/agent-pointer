@@ -31,6 +31,11 @@ pub fn app_data_dir() -> Result<PathBuf> {
     data_dir()
 }
 
+/// User-managed environment variables for terminal subprocesses (`{app_data_dir}/.env`).
+pub fn user_env_file_path() -> Result<PathBuf> {
+    Ok(data_dir()?.join(".env"))
+}
+
 fn settings_path() -> Result<PathBuf> {
     Ok(data_dir()?.join("settings.json"))
 }
@@ -245,6 +250,7 @@ fn migrate_legacy_settings_if_needed() -> Result<()> {
     let user = UserSettings {
         theme,
         user_nickname: None,
+        enabled_skill_ids: Vec::new(),
     };
     write_user_settings_file(&user)?;
     let platform = stored_settings_to_platform(&stored);

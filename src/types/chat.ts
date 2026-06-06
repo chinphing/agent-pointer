@@ -248,6 +248,8 @@ export interface AgentModelRef {
 export interface UserSettings {
   theme?: ThemePreference
   userNickname?: string
+  /** Globally enabled skill ids (persisted in user_settings.json). */
+  enabledSkillIds?: string[]
 }
 
 export interface ComputerTierLlmConfig {

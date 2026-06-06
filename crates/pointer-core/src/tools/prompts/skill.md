@@ -11,7 +11,25 @@ schema:
 
 ### `skill`
 
-Progressive-disclosure tools for enabled Skills:
+Progressive-disclosure tools for enabled Skills.
+
+Available only when the active agent is **general** and these tools are granted.
+Other agent profiles must not load or invoke skills.
+Do not invent skill contents from memory — use the tools below.
+
+#### When to use
+
+- An enabled skill's `name` / `description` in your instructions clearly matches
+  the task → call **`skill_load_instructions`** first.
+- The loaded skill body points at `references/`, `assets/`, or `scripts/` and
+  the task needs that file → call **`skill_read_resource`**.
+- The user provides a skill package on disk → call **`skill_import`**.
+
+Never read or write skill files under the app data directory directly
+(see **App data directory** in general rules). Always use
+**`skill_load_instructions`** / **`skill_read_resource`** / **`skill_import`**.
+
+#### Tools
 
 - **`skill_load_instructions`** — load the full **`SKILL.md`** body for an enabled Skill (layer 2).
 - **`skill_read_resource`** — read one indexed resource file under that Skill (layer 3).
@@ -24,7 +42,7 @@ Progressive-disclosure tools for enabled Skills:
 - Use after downloading or cloning a Skill package to disk.
 - `path` may be a `.zip` file, a single Skill directory (contains `SKILL.md`), or a parent directory of multiple Skill folders.
 - Paths may be absolute or relative to the workspace root.
-- Set `auto_enable` to `true` (default) so imported skills are available in the current conversation immediately.
+- Set `auto_enable` to `true` (default) so imported skills are available immediately.
 - May require user approval.
 
 Example:
@@ -61,7 +79,7 @@ Example:
 }
 ```
 
-**`read_resource`**
+**`skill_read_resource`**
 
 - Call only when the skill body points at `references/`, `assets/`, or `scripts/` and the task truly needs that file.
 - `path` must be a resource-relative path, e.g. `references/api-guide.md`.
@@ -80,11 +98,3 @@ Example:
   }
 }
 ```
-
-#### Methods
-
-| Method | Purpose |
-|--------|---------|
-| **`load_instructions`** | Load the full **`SKILL.md`** body for an enabled Skill (layer 2). |
-| **`read_resource`** | Read one indexed resource file under that Skill (layer 3). |
-| **`import`** | Install a Skill from a `.zip` file or directory into the app skill store. |

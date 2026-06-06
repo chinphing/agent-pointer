@@ -6,7 +6,7 @@ Runtime configuration is split into two layers:
 
 | Layer | Contents | Persistence | Editable by |
 |-------|----------|-------------|-------------|
-| **User** | Theme; optional UI cache (`userNickname`) | `user_settings.json` | All users |
+| **User** | Theme; optional UI cache (`userNickname`); globally enabled skill ids (`enabledSkillIds`) | `user_settings.json` | All users |
 | **Platform** | Providers, generation params, agent defaults, Computer tier LLM, workspace, etc. | **In-memory only** (process lifetime) | `is_platform_admin` only |
 
 Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, platform)` and used by chat, tools, and the UI.
@@ -28,7 +28,7 @@ Merged **`ModelSettings`** is built at runtime via `merge_user_platform(user, pl
 ### API
 
 - `GET get_settings` → `EffectiveSettingsView` (`user`, `platform`, `merged`, `canEditPlatform`, `isPlatformAdmin`)
-- `PUT update_user_settings` → theme only, persisted immediately
+- `PUT update_user_settings` → theme and `enabledSkillIds`, persisted immediately
 - `PUT update_platform_settings` → admin only; in-memory only (no disk write)
 - `PUT update_agent_settings` → persists **智能体** subset to disk
 - `PUT update_settings` → session preferences in memory only

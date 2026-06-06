@@ -44,6 +44,8 @@ const COMPUTER_COMMUNICATION_ADVANCED: &str =
     include_str!("computer/prompts/tiers/advanced/communication.md");
 const COMPUTER_COMMUNICATION_PRIMARY: &str =
     include_str!("computer/prompts/tiers/primary/communication.md");
+const COMPUTER_UI_DISABLED_CONTROLS: &str =
+    include_str!("computer/prompts/ui_disabled_controls.md");
 const COMPUTER_AGENT_PRIMARY: &str = include_str!("computer/prompts/tiers/primary/loop.md");
 const COMPUTER_AGENT_ADVANCED: &str = include_str!("computer/prompts/tiers/advanced/loop.md");
 const COMPUTER_OS_PROMPT_MACOS: &str = include_str!("computer/prompts/os/macos.md");
@@ -123,6 +125,7 @@ pub fn computer_communication_for_tier(tier: computer::tier::ComputerTier) -> St
             push_trimmed(&mut parts, COMPUTER_COMMUNICATION_ADVANCED);
         }
     }
+    push_trimmed(&mut parts, COMPUTER_UI_DISABLED_CONTROLS);
     push_trimmed(&mut parts, computer_os_prompt_md_for_platform());
     parts.join("\n\n---\n\n")
 }

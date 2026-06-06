@@ -43,6 +43,8 @@ computer/
 
 OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 
+共享 UI 片段：`prompts/ui_disabled_controls.md`（各类灰色/不可操作控件类型、常见原因与 agent 规则），三档共用。
+
 ## System 组装与 Context Cache
 
 | 分区 | 内容 |

@@ -14,6 +14,7 @@ prompts/
     intermediate/  communication.md + loop.md
     advanced/      vision_slots.md + communication.md + loop.md
   os/              macos.md | windows.md | linux.md
+  ui_disabled_controls.md   shared — gray/disabled controls (all types; all tiers)
 author/            not loaded (authoring reference only)
 AGENT.md           manifest + config (repo root of `computer/`)
 ```
@@ -30,6 +31,7 @@ AGENT.md           manifest + config (repo root of `computer/`)
 | Advanced image order only | `tiers/advanced/vision_slots.md` |
 | Advanced loop | `tiers/advanced/loop.md` |
 | OS shortcuts | `prompts/os/*.md` |
+| Disabled / gray controls | `prompts/ui_disabled_controls.md` (all control types) |
 | Tool JSON / handlers | `tools/` (Rust); unified bodies `tools/prompts/mouse.md`, `composite.md`, `modified_click.md` (flat tool names with `*_index` / `*_at` / `*_focused` suffixes) |
 
 Full product doc: `docs/agents/computer-agent-prompts.md`.

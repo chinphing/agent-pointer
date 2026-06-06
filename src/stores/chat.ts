@@ -101,6 +101,20 @@ function childStoreKey(parentStoreKey: string, taskId: string): string {
   return `${parentStoreKey.trim()}${TASK_BOARD_SUB_SEP}${taskId.trim()}`
 }
 
+function normalizeSubAgentTraces(conversations: Conversation[]) {
+  for (const conv of conversations) {
+    for (const msg of conv.messages) {
+      for (const trace of msg.agentTrace ?? []) {
+        if ((trace.depth ?? 0) === 0) continue
+        const terminal = trace.status === 'completed' || trace.status === 'failed'
+        if (!terminal || !trace.session || trace.session.userExpanded) continue
+        trace.session.collapsed = true
+        if (!trace.session.summaryLine?.trim()) finalizeSubSession(trace)
+      }
+    }
+  }
+}
+
 function removeAssistantMessage(conv: Conversation, messageId: string): boolean {
   const idx = conv.messages.findIndex(m => m.id === messageId)
   if (idx < 0) return false
@@ -256,6 +270,7 @@ export const useChatStore = defineStore('chat', () => {
   async function init() {
     const list = await loadConversations().catch(() => [])
     normalizeInterruptedAssistantStatuses(list)
+    normalizeSubAgentTraces(list)
     conversations.value = stripEphemeralDesktopNoticesForDisk(list)
     if (list.length === 0) newConversation()
     else currentId.value = list[0].id
@@ -705,7 +720,6 @@ export const useChatStore = defineStore('chat', () => {
             persist()
           } else if (trace.session) {
             trace.session.contentStreaming = true
-            trace.session.collapsed = false
           }
           r.conv.updatedAt = Date.now()
         } else {

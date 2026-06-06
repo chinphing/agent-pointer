@@ -6,7 +6,9 @@ import type { ResolvedAgentUi } from '../../../../lib/agentUi'
 import { formatSubAgentSummaryLine } from '../../../../lib/subAgentStats'
 import { traceAgentLabel } from '../../../../lib/agentUi'
 import {
-  subTraceHasVisibleActivity
+  subTraceHasVisibleActivity,
+  isSubTraceUiCollapsed,
+  ensureSubTraceSession
 } from '../../../../lib/subAgentSession'
 import { subAgentStatusLabel } from '../../../../lib/subAgentStats'
 import { useSettingsStore } from '../../../../stores/settings'
@@ -50,12 +52,7 @@ const session = computed(() => props.trace.session)
 
 const isRunning = computed(() => props.trace.status === 'running')
 
-const collapsed = computed(() => {
-  const s = session.value
-  if (!s) return false
-  if (s.userExpanded) return false
-  return s.collapsed
-})
+const collapsed = computed(() => isSubTraceUiCollapsed(props.trace))
 
 const summaryLine = computed(() => {
   if (isRunning.value && !subTraceHasVisibleActivity(props.trace)) {
@@ -132,11 +129,14 @@ watch(rawContentViewEnabled, on => {
 })
 
 function toggleExpanded() {
-  const s = session.value
-  if (!s) return
-  s.userExpanded = !s.userExpanded
-  if (s.userExpanded) s.collapsed = false
-  else if (props.trace.status === 'completed' || props.trace.status === 'failed') s.collapsed = true
+  const s = ensureSubTraceSession(props.trace)
+  if (isSubTraceUiCollapsed(props.trace)) {
+    s.userExpanded = true
+    s.collapsed = false
+  } else {
+    s.userExpanded = false
+    s.collapsed = true
+  }
 }
 </script>
 

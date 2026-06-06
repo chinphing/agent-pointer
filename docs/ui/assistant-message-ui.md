@@ -32,7 +32,7 @@
 
 - 数据：`agent_step`（`depth > 0`）+ 带 `traceId` 的流式事件 → `AgentTrace.session`。
 - 布局：与主 Agent 同构（`AgentMessageBody`：thoughts / headline / 竖线 / 工具卡），包在 **大边框** 内。
-- **完成后自动收缩**为一行概要：`名称 · 状态 · 搜索 N 次 · 读文件 M 次`（成功工具调用计数：`file:grep` / `file:glob` / `file:list` / `web_search` → 搜索；`file:read` 与桌面操作工具 → 读文件）。
+- **完成后自动收缩**为一行概要（含任务板在内的全部内容一并隐藏）；点击可展开。`completed` / `failed` 且无 session 时 UI 仍默认收缩。
 - 子 Agent **任务板**与外层相同组件 `TaskBoardPanel`，绑定在 **lead assistant 消息**（`task_board_updated.anchorMessageId` → `childBindings`），展示在对应 `SubAgentFrame` 内。
 - 设置「显示子 Agent 边框面板」（`showSubAgentTrace`）：Supervisor 默认开；worker lead 默认关。
 - Supervisor 规划列表：`supervisor_plan` → `message.supervisorPlanTasks`，轻量 checklist（无 `<pre>` 时间线）。

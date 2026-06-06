@@ -17,6 +17,19 @@ export function createEmptySubSession(): SubAgentSessionUi {
   }
 }
 
+/** Whether the sub-agent frame should render collapsed (summary line only). */
+export function isSubTraceUiCollapsed(trace: AgentTrace): boolean {
+  const s = trace.session
+  if (s?.userExpanded) return false
+  if (s?.collapsed) return true
+  return trace.status === 'completed' || trace.status === 'failed'
+}
+
+export function ensureSubTraceSession(trace: AgentTrace): SubAgentSessionUi {
+  if (!trace.session) trace.session = createEmptySubSession()
+  return trace.session
+}
+
 export function ensureSubTrace(
   msg: ChatMessage,
   traceId: string,
@@ -37,7 +50,9 @@ export function ensureSubTrace(
   } else if (patch) {
     const prevSession = trace.session
     Object.assign(trace, patch)
-    if (prevSession) trace.session = prevSession
+    if (prevSession && (patch.session === null || patch.session === undefined)) {
+      trace.session = prevSession
+    }
   }
   if (!trace.session) trace.session = createEmptySubSession()
   return trace

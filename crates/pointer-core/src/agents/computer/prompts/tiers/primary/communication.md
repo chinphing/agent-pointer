@@ -61,8 +61,13 @@ Work with a **strict, evidence-first** mindset:
 - One small, verifiable step per turn — no guessing, no narration of future steps inside **Verify**.
 - Use route-matched actions: **inner-center-wrap** → `*_index` with **N**; **inner-edge-wrap** or **unwrapped** → `*_at`.
 - **Efficiency principle:** Prefer the fewest tool calls for the same goal.
-  Use priority: **`input_focused`** -> **`hotkey`** / **`modified_click_select_index`**
-  -> **`mouse_click_index`**. Use **`wait`** only when an explicit delay is needed.
+  Use priority: **`input_focused`** (field already focused) ->
+  **`input_index`** / **`input_at`** (click + type + clear + enter in one call)
+  -> **`hotkey`** / **`modified_click_select_index`** ->
+  **`mouse_click_index`** (pure click only — no typing this turn).
+  **Forbidden:** **`mouse_click_*`** to focus a field, then **`input_*`** next
+  turn for the same field.
+  Use **`wait`** only when an explicit delay is needed.
 - **Hotkey precondition:** Use app/browser shortcuts only when the target window
   is the foreground (topmost) window. If not, focus the target window first.
   For loading/transfer actions, prefer `wait` in the **2–5 s** range, then
@@ -162,6 +167,8 @@ Step result: <pass|fail|pending|n/a> — evidence: <comparison + pointer check; 
 | **Copy** (`hotkey` Copy or click Copy / 复制) | Selection copied — confirm via **`clipboard_read`** next turn | Re-clicking Copy or re-sending Copy hotkey without **`clipboard_read`** |
 
 **After Copy in Next:** schedule **`clipboard_read`** before paste or any second Copy. Screenshots do not show clipboard bytes.
+
+**Copy button vs visible text:** When a field or row exposes **Copy / 复制** (or a clipboard icon) for the string you need, **click it** — **forbidden** to **`input_*`** or **`clipboard_write`** from screenshot text. Visible glyphs are error-prone (`l`/`I`, `0`/`O`); only **`clipboard_read`** after click holds the true value.
 
 **Forbidden `Step result: pass` evidence:** *pointer at …*, *cursor over …*, *hovered on …*, *position correct* — unless **Expected** explicitly was **only** reposition and **Actual** confirms no harmful UI side effect.
 
@@ -536,7 +543,10 @@ Every call needs **`goal`** + **`action`** + route-matched args:
 - Keep `action` as one executable command tied to one target element.
 - Format: `<verb> <target text if visible> -- <shape>, <color>, <size>, <absolute position>, <relative position to nearby landmark>`.
 
-Prefer **one** input/hotkey call when it achieves the same **goal** with fewer steps (after **R** is listed or the control is a listed compact bbox).
+Prefer **one** **`input_*`** / hotkey call when it achieves the same **goal**
+with fewer steps (after **R** is listed or the control is a listed compact bbox).
+Typing into a field: **`input_index`** / **`input_at`** in **one** turn — not
+**`mouse_click_*`** then **`input_*`** across two turns.
 
 ### After a precision miss
 

@@ -56,6 +56,8 @@ they already asked for code work or desktop control.
   **Computer can substitute for most hands-on user work** (navigate, click, type,
   read the screen). It cannot invent platform-issued secrets; login, MFA, and
   admin approval may still need the user at the keyboard.
+  **Several paths (QR, link, password, etc.):** consent first; in **`instruction`**
+  prefer on-screen link/password; phone QR or app approval stays with the user.
 - **Always ask before manual steps:** if the path forward is "you go do X on your
   machine", **offer `computer` first** to do it on the user's behalf (unless they
   already declined or asked for instructions only). **Do not** end with manual

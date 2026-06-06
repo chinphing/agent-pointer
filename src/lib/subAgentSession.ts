@@ -3,6 +3,7 @@ import {
   emptySubAgentToolStats,
   formatSubAgentSummaryLine,
   incrementSubAgentToolStats,
+  subAgentIdFromTraceId,
   subAgentStatusLabel
 } from './subAgentStats'
 import { toolCallBaseName } from './messageTooling'
@@ -67,7 +68,8 @@ export function finalizeSubSession(trace: AgentTrace): void {
     session.summaryLine = formatSubAgentSummaryLine(
       trace.name,
       trace.status,
-      session.stats
+      session.stats,
+      subAgentIdFromTraceId(trace.id)
     )
   }
 }

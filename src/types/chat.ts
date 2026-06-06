@@ -70,13 +70,21 @@ export interface AgentUiConfig {
 }
 
 export interface SubAgentToolStats {
+  /** file_grep / file_glob / file_list */
   searchCount: number
+  /** file_read */
   readCount: number
-  /** Computer sub-agent: mouse_* tool family. */
+  /** file_write / file_edit */
+  writeCount?: number
+  /** terminal */
+  terminalCount?: number
+  /** web_search */
+  webSearchCount?: number
+  /** Computer: mouse_* */
   mouseCount?: number
-  /** Computer sub-agent: input_* tool family. */
+  /** Computer: input_* */
   inputCount?: number
-  /** Computer sub-agent: hotkey, wait, clipboard, captcha, etc. */
+  /** Computer: hotkey, wait, clipboard, captcha, etc. */
   otherCount?: number
 }
 

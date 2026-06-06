@@ -2,15 +2,18 @@
 import { computed, ref, watch } from 'vue'
 import { ChevronDown, ChevronRight, Code } from 'lucide-vue-next'
 import type { AgentTrace, TaskBoardDocument } from '../../../../types/chat'
-import type { ResolvedAgentUi } from '../../../../lib/agentUi'
-import { formatSubAgentSummaryLine } from '../../../../lib/subAgentStats'
-import { traceAgentLabel } from '../../../../lib/agentUi'
+import { traceAgentLabel, type ResolvedAgentUi } from '../../../../lib/agentUi'
+import {
+  emptySubAgentToolStats,
+  formatSubAgentSummaryLine,
+  subAgentIdFromTraceId,
+  subAgentStatusLabel
+} from '../../../../lib/subAgentStats'
 import {
   subTraceHasVisibleActivity,
   isSubTraceUiCollapsed,
   ensureSubTraceSession
 } from '../../../../lib/subAgentSession'
-import { subAgentStatusLabel } from '../../../../lib/subAgentStats'
 import { useSettingsStore } from '../../../../stores/settings'
 import { useAgentsCatalog } from '../../../../composables/useAgentUi'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
@@ -58,13 +61,11 @@ const summaryLine = computed(() => {
   if (isRunning.value && !subTraceHasVisibleActivity(props.trace)) {
     return `${traceLabel.value} · ${subAgentStatusLabel(props.trace.status)}…`
   }
-  const s = session.value
-  const persisted = s?.summaryLine?.trim()
-  if (persisted && !isRunning.value) return persisted
   return formatSubAgentSummaryLine(
     traceLabel.value,
     props.trace.status,
-    s?.stats ?? { searchCount: 0, readCount: 0, mouseCount: 0, inputCount: 0, otherCount: 0 }
+    session.value?.stats ?? emptySubAgentToolStats(),
+    subAgentIdFromTraceId(props.trace.id)
   )
 })
 

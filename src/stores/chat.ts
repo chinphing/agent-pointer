@@ -109,7 +109,7 @@ function normalizeSubAgentTraces(conversations: Conversation[]) {
         const terminal = trace.status === 'completed' || trace.status === 'failed'
         if (!terminal || !trace.session || trace.session.userExpanded) continue
         trace.session.collapsed = true
-        if (!trace.session.summaryLine?.trim()) finalizeSubSession(trace)
+        finalizeSubSession(trace)
       }
     }
   }

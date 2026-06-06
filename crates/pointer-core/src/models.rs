@@ -47,6 +47,12 @@ pub struct SubAgentToolStats {
     #[serde(default)]
     pub read_count: u32,
     #[serde(default)]
+    pub write_count: u32,
+    #[serde(default)]
+    pub terminal_count: u32,
+    #[serde(default)]
+    pub web_search_count: u32,
+    #[serde(default)]
     pub mouse_count: u32,
     #[serde(default)]
     pub input_count: u32,

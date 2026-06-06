@@ -252,7 +252,7 @@ fn is_zip_file(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
 }
 
-/// Discovery roots for Codex / Claude Code / Cursor compatible skills (first match wins per id).
+/// Discovery roots for Codex / Agent-standard compatible skills (first match wins per id).
 fn skill_roots() -> Result<Vec<PathBuf>> {
     let mut roots = Vec::new();
 
@@ -260,15 +260,11 @@ fn skill_roots() -> Result<Vec<PathBuf>> {
     roots.push(skills_dir()?);
 
     if let Ok(cwd) = env::current_dir() {
-        roots.push(cwd.join(".cursor").join("skills"));
-        roots.push(cwd.join(".claude").join("skills"));
         roots.push(cwd.join(".agents").join("skills"));
         roots.push(cwd.join("skills"));
     }
 
     if let Some(home) = dirs::home_dir() {
-        roots.push(home.join(".cursor").join("skills"));
-        roots.push(home.join(".claude").join("skills"));
         roots.push(home.join(".agents").join("skills"));
 
         let codex_home = env::var("CODEX_HOME")

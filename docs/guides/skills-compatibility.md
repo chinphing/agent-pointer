@@ -1,6 +1,6 @@
-# Skills 生态兼容（Codex / Claude / Cursor）
+# Skills 生态兼容（Codex / Agent 标准）
 
-Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdown 正文），与 OpenAI Codex、Claude Code、Cursor 等工具的 skills 目录结构兼容。
+Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdown 正文），与 OpenAI Codex、`.agents/skills` 等 Agent 标准目录结构兼容。不自动扫描 Cursor（`.cursor/skills`）或 Claude Code（`.claude/skills`），避免与本机其它 IDE 的 skills 互相干扰。
 
 ## 自动发现路径
 
@@ -9,16 +9,12 @@ Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdow
 | 优先级 | 路径 | 来源 |
 |--------|------|------|
 | 1 | `{data_dir}/skills/` | Pointer 应用内导入 |
-| 2 | `./.cursor/skills/` | Cursor 项目 skills |
-| 3 | `./.claude/skills/` | Claude Code 项目 skills |
-| 4 | `./.agents/skills/` | Codex / Agent 标准项目 skills |
-| 5 | `./skills/` | 通用项目 skills |
-| 6 | `~/.cursor/skills/` | Cursor 用户 skills |
-| 7 | `~/.claude/skills/` | Claude Code 用户 skills |
-| 8 | `~/.agents/skills/` | Codex 用户 skills |
-| 9 | `$CODEX_HOME/skills/` 或 `~/.codex/skills/` | Codex CLI 用户 skills |
+| 2 | `./.agents/skills/` | Codex / Agent 标准项目 skills |
+| 3 | `./skills/` | 通用项目 skills |
+| 4 | `~/.agents/skills/` | Codex 用户 skills |
+| 5 | `$CODEX_HOME/skills/` 或 `~/.codex/skills/` | Codex CLI 用户 skills |
 
-**不扫描**：以 `.` 开头的目录（如 Codex `.system`）、Cursor 内置目录 `skills-cursor`。
+**不扫描**：以 `.` 开头的目录（如 Codex `.system`）、`skills-cursor` 等 vendor 内置目录；亦不扫描 `.cursor/skills`、`.claude/skills`。
 
 ## Frontmatter 兼容
 

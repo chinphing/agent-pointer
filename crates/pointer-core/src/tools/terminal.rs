@@ -22,7 +22,7 @@ use std::os::windows::process::CommandExt;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 const TERMINAL_DEFAULT_TIMEOUT_MS: u64 = 30_000;
-const TERMINAL_MAX_TIMEOUT_MS: u64 = 120_000;
+const TERMINAL_MAX_TIMEOUT_MS: u64 = 300_000;
 /// 自进程启动起的墙钟上限（与是否有输出无关）。
 const TERMINAL_ABS_MAX_WALL_MS: u64 = 3_600_000;
 const TERMINAL_DEFAULT_MAX_OUTPUT_BYTES: usize = 20_000;

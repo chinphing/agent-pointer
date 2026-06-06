@@ -39,7 +39,6 @@ Use when you need the shell for builds, checks, tests, directory listings, or ot
 - **Path discipline:** Do **not** put `cd /some/absolute/path` in **`command`** unless that path is the injected **workspace root**, a path returned by **`file`** / prior **`terminal`** output in **this** session, or the user pasted it verbatim. **Never invent** repo paths from memory or project names.
 - For git in the current project: omit `cd` (default cwd is the workspace root) or run **`git -C "<workspace_root>" …`** using the root from session context—not a guessed path.
 - On Windows, commands run via `powershell -ExecutionPolicy Bypass -Command` (user PowerShell profile is loaded so fnm/nvm PATH hooks apply); keep commands portable when you can.
-- Set a reasonable **`timeoutMs`** (idle: no stdout/stderr resets the timer). Use **`maxWallMs`** when you need a shorter hard wall than the default cap.
 - Do not run destructive commands unless the user clearly asked and approval allows it.
 - Do not read or exfiltrate secrets via the terminal.
 - **Default user env:** When **`envFiles`** is omitted, the host loads the app data directory **`.env`** (see **App data directory** in session context) if that file exists. Users store personal / cross-project vars there (e.g. API keys).
@@ -47,12 +46,23 @@ Use when you need the shell for builds, checks, tests, directory listings, or ot
 
 The result includes `stdout`, `stderr`, exit code, timing, truncation flags, **`envFiles`** (resolved paths that were loaded), and **`cancelled`** when the host stopped the turn; it may set **`runAborted`: true** when only this command was stopped and the turn continues—treat that as an interrupted run, not a full turn cancel. When replying, summarize only output relevant to the task.
 
+#### Timeouts
+
+Either limit can stop the process (**`timedOut`** in the result). Set both per call when needed.
+
+- **`timeoutMs`** — **Idle** timeout: if stdout/stderr get no **new** data for this long, the run is killed. Any new output **resets** the idle timer. Default **30000**, max **300000** (5 min).
+- **`maxWallMs`** — **Wall clock** from process start, with or without output. Default **3600000** (1 h); max **3600000**. Pass a lower value only when you need a shorter hard cap.
+
+**Choosing values:** Defaults suit quick commands. Steady log output keeps resetting idle time — you usually only need a custom **`maxWallMs`**.
+
+**Human-in-the-loop:** Shell waits for the user (password, MFA, `npm login`, interactive installer) may produce **no output for minutes**. Set **`timeoutMs`** toward **300000** and **`maxWallMs`** for the expected wait; tell the user what to do in assistant **`content`** while the command runs.
+
 #### Parameters
 
 - **`command`** (required) — The shell command to run. Windows: `powershell -ExecutionPolicy Bypass -Command` (profile loaded); macOS/Linux: `sh -lc`.
 - **`cwd`** (optional) — Working directory; must be an existing directory.
-- **`timeoutMs`** (optional) — Idle timeout in milliseconds: if neither stdout nor stderr receives new data for this long, the command is stopped. Any new output resets this idle timer. Default **30000**, per-idle segment max **120000**.
-- **`maxWallMs`** (optional) — Hard wall-clock cap from process start; when elapsed time reaches this value, the process tree is killed. Min **1000**, max **3600000** (1 hour). Omit to use the **1 hour** default cap.
+- **`timeoutMs`** (optional) — See **Timeouts**.
+- **`maxWallMs`** (optional) — See **Timeouts**.
 - **`maxOutputBytes`** (optional) — Max bytes per stream for stdout and stderr; default **20000**, max **200000**; output is truncated per stream when exceeded.
 - **`envFiles`** (optional) — One `.env` path (string) or an array of paths; processed in order. When omitted, the default app-data **`.env`** is loaded if it exists.
 

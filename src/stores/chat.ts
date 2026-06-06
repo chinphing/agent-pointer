@@ -21,7 +21,7 @@ import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 const TASK_BOARD_SUB_SEP = '\u{1f}ptr_sub_agent\u{1f}'
 const TASK_BOARD_MAIN_TURN_SEP = '\u{1f}ptr_main_turn\u{1f}'
 const TASK_BOARD_DEBOUNCE_MS = 300
-const TERMINAL_LIVE_DELAY_MS = 3000
+const TERMINAL_LIVE_DELAY_MS = 5000
 const taskBoardDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 export interface TerminalLivePopup {

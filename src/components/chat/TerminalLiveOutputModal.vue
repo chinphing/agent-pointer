@@ -85,7 +85,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
               <Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-accent" aria-hidden="true" />
             </div>
             <p class="mt-1 text-[12px] text-muted leading-relaxed">
-              命令已运行超过 3 秒，实时显示已捕获的输出；可手动关闭，命令仍在后台执行。
+              命令已运行超过 5 秒，实时显示已捕获的输出；可手动关闭，命令仍在后台执行。
             </p>
           </div>
           <div class="absolute top-4 right-4 flex items-center gap-1">

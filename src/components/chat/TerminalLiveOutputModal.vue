@@ -112,7 +112,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
         <div class="flex min-h-0 flex-1 flex-col gap-3 px-5 py-4">
           <div class="shrink-0">
             <div class="mb-1 text-[10px] uppercase tracking-wider text-muted">执行命令</div>
-            <pre class="text-[12px] font-mono whitespace-pre-wrap break-all rounded-lg border border-border bg-black/50 p-2.5 text-green-400">{{ command || '—' }}</pre>
+            <pre class="max-h-64 overflow-y-auto text-[12px] font-mono whitespace-pre-wrap break-all rounded-lg border border-border bg-black/50 p-2.5 text-green-400">{{ command || '—' }}</pre>
           </div>
           <div class="flex min-h-0 flex-1 flex-col">
             <div class="mb-1 shrink-0 text-[10px] uppercase tracking-wider text-muted">控制台输出</div>

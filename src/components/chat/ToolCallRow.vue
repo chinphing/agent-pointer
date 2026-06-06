@@ -265,7 +265,7 @@ function openSourceUrl(url: string) {
               @click.stop="abortTerminalOnly"
             >结束命令</button>
           </div>
-          <pre class="text-[12px] bg-black/60 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-green-400 font-mono">{{ terminalCommand || '—' }}</pre>
+          <pre class="text-[12px] bg-black/60 rounded-lg p-2.5 border border-white/5 overflow-x-auto text-green-400 font-mono max-h-64">{{ terminalCommand || '—' }}</pre>
         </div>
         <div v-if="showResults && (toolCall.result || toolCall.terminalOutput)">
           <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-slate-500 mb-1">

@@ -15,8 +15,31 @@ Progressive-disclosure tools for enabled Skills:
 
 - **`skill_load_instructions`** — load the full **`SKILL.md`** body for an enabled Skill (layer 2).
 - **`skill_read_resource`** — read one indexed resource file under that Skill (layer 3).
+- **`skill_import`** — install a Skill from a `.zip` file or directory into the app skill store.
 
 #### Usage
+
+**`skill_import`**
+
+- Use after downloading or cloning a Skill package to disk.
+- `path` may be a `.zip` file, a single Skill directory (contains `SKILL.md`), or a parent directory of multiple Skill folders.
+- Paths may be absolute or relative to the workspace root.
+- Set `auto_enable` to `true` (default) so imported skills are available in the current conversation immediately.
+- May require user approval.
+
+Example:
+
+```json
+{
+  "function": {
+    "name": "skill_import",
+    "arguments": {
+      "path": "downloads/my-skill.zip",
+      "auto_enable": true
+    }
+  }
+}
+```
 
 **`skill_load_instructions`**
 
@@ -64,3 +87,4 @@ Example:
 |--------|---------|
 | **`load_instructions`** | Load the full **`SKILL.md`** body for an enabled Skill (layer 2). |
 | **`read_resource`** | Read one indexed resource file under that Skill (layer 3). |
+| **`import`** | Install a Skill from a `.zip` file or directory into the app skill store. |

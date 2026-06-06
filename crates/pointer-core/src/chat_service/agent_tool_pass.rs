@@ -65,7 +65,7 @@ impl ToolInvocationStats<'_> {
 pub(super) struct LeadToolPassConfig<'a> {
     pub run_id: &'a str,
     pub allow_agents: &'a [String],
-    pub enabled_skill_ids: &'a [String],
+    pub enabled_skill_ids: &'a mut Vec<String>,
     pub agent_trace: &'a mut Vec<AgentTrace>,
     pub raw_content_buf: &'a str,
     pub file_tool_lead_for_invoke: AgentProfile,
@@ -517,7 +517,7 @@ async fn execute_tool_invocation(
     tc: &ToolCall,
     tool_id: &str,
     args_value: serde_json::Value,
-    lead: Option<&mut LeadToolPassConfig<'_>>,
+    mut lead: Option<&mut LeadToolPassConfig<'_>>,
     sub: Option<&SubToolPassConfig<'_>>,
     cancel: &CancellationToken,
     stats: &mut ToolInvocationStats<'_>,
@@ -590,13 +590,52 @@ async fn execute_tool_invocation(
                 args_value,
                 lead_cfg.run_id,
                 lead_cfg.allow_agents,
-                lead_cfg.enabled_skill_ids,
+                lead_cfg.enabled_skill_ids.as_slice(),
                 lead_cfg.agent_trace,
                 cancel,
                 llm_stats,
             )
             .await;
         }
+    }
+
+    if tool_id == "skill_import" {
+        let auto_enable = args_value
+            .get("auto_enable")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let out = state.tools.invoke(tool_id, args_value.clone())?;
+        let result: crate::models::SkillImportResult = serde_json::from_str(&out)
+            .map_err(|e| anyhow!("skill_import 结果解析失败: {e}"))?;
+        let imported_ids: Vec<String> = result.imported.iter().map(|s| s.id.clone()).collect();
+        log::info!(
+            "skill_import: conversation_id={conversation_id} imported={} skipped={}",
+            imported_ids.len(),
+            result.skipped.len()
+        );
+        let enabled_ids = if auto_enable {
+            if let Some(lead_cfg) = lead.as_mut() {
+                for id in &imported_ids {
+                    if !lead_cfg.enabled_skill_ids.contains(id) {
+                        lead_cfg.enabled_skill_ids.push(id.clone());
+                    }
+                }
+                Some(lead_cfg.enabled_skill_ids.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        emit(
+            stream,
+            StreamEvent::SkillsUpdated {
+                conversation_id: conversation_id.to_string(),
+                imported_ids: imported_ids.clone(),
+                enabled_ids,
+            },
+        );
+        return Ok((out, true, None));
     }
 
     let file_profile = lead

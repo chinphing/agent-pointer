@@ -129,6 +129,10 @@ export async function listSkills(): Promise<SkillDef[]> {
   return await request<SkillDef[]>('/api/skills')
 }
 
+export async function reloadSkillMeta(): Promise<SkillDef[]> {
+  return await request<SkillDef[]>('/api/skills/reload-meta', { method: 'POST' })
+}
+
 export async function importSkillZip(file: File): Promise<SkillImportResult> {
   return await request<SkillImportResult>('/api/skills', {
     method: 'POST',

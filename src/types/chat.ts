@@ -437,6 +437,7 @@ export type StreamEvent =
   | { kind: 'assistant_round_screen'; conversationId: string; messageId: string; annotatedRelPath: string }
   | { kind: 'supervisor_plan'; conversationId: string; messageId: string; tasks: SupervisorPlanTask[] }
   | { kind: 'task_board_updated'; conversationId: string; storeKey: string; anchorMessageId?: string; document: TaskBoardDocument }
+  | { kind: 'skills_updated'; conversationId: string; importedIds: string[]; enabledIds?: string[] }
 
 export interface SupervisorPlanTask {
   id: string

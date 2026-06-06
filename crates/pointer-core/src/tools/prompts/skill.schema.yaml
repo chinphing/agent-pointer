@@ -18,3 +18,15 @@ skill_read_resource:
       type: string
   required: [skill_id, path]
   additionalProperties: false
+
+skill_import:
+  type: object
+  properties:
+    path:
+      type: string
+      description: Path to a .zip file or skill directory (absolute or workspace-relative).
+    auto_enable:
+      type: boolean
+      description: Enable imported skills for the current conversation. Defaults to true.
+  required: [path]
+  additionalProperties: false

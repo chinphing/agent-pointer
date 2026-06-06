@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { X, Sparkles, Search, Wrench, Upload } from 'lucide-vue-next'
 import { useSkillsStore } from '../../stores/skills'
 
@@ -7,8 +7,22 @@ defineEmits<{ (e: 'close'): void }>()
 const skills = useSkillsStore()
 const q = ref('')
 const importing = ref(false)
+const loading = ref(false)
 const importMessage = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+
+onMounted(() => {
+  void refreshSkills()
+})
+
+async function refreshSkills() {
+  loading.value = true
+  try {
+    await skills.load({ rescan: true })
+  } finally {
+    loading.value = false
+  }
+}
 
 const filtered = computed(() => {
   const k = q.value.trim().toLowerCase()
@@ -97,48 +111,53 @@ async function onImportFile(e: Event) {
       </div>
 
       <div class="flex-1 overflow-y-auto p-5 grid grid-cols-1 md:grid-cols-2 gap-3 min-h-0">
-        <div
-          v-for="s in filtered"
-          :key="s.id"
-          class="rounded-xl p-4 border transition-all cursor-pointer"
-          :class="skills.isEnabled(s.id)
-            ? 'border-accent/30 bg-accent/5 shadow-sm'
-            : 'border-border bg-hover/40 hover:border-border hover:bg-hover/60'"
-          @click="skills.toggle(s.id)"
-        >
-          <div class="flex items-center gap-2 min-w-0">
-            <div class="text-[15px] font-semibold text-foreground truncate">{{ s.name }}</div>
-            <span class="text-[10px] px-1.5 py-0.5 rounded bg-[hsl(var(--code-bg))] text-muted shrink-0">
-              {{ s.builtin ? '内置' : '外部' }}
-            </span>
-            <span
-              v-if="skills.isEnabled(s.id)"
-              class="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-accent/15 text-accent shrink-0"
-            >已启用</span>
-            <span
-              v-else
-              class="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-[hsl(var(--code-bg))] text-muted shrink-0"
-            >未启用</span>
-          </div>
-          <p class="mt-1.5 text-[12px] text-muted leading-5 line-clamp-3">{{ s.description }}</p>
-          <div v-if="s.tags.length" class="mt-2 flex flex-wrap gap-1.5">
-            <span
-              v-for="t in s.tags"
-              :key="t"
-              class="text-[10px] px-1.5 py-0.5 rounded bg-[hsl(var(--code-bg))] text-foreground/80"
-            >{{ t }}</span>
-          </div>
-          <div v-if="s.toolNames.length" class="mt-2 flex items-center gap-1 text-[11px] text-muted min-w-0">
-            <Wrench class="w-3 h-3 text-accent shrink-0" />
-            <span class="truncate">{{ s.toolNames.join(' · ') }}</span>
-          </div>
-          <div v-if="s.resourceFiles.length" class="mt-1 text-[11px] text-muted">
-            资源文件：{{ s.resourceFiles.length }} 个，按需读取
-          </div>
+        <div v-if="loading" class="col-span-full text-center text-muted py-12 text-sm">
+          正在刷新技能列表…
         </div>
-        <div v-if="!filtered.length" class="col-span-full text-center text-muted py-12 text-sm">
-          没有匹配的技能
-        </div>
+        <template v-else>
+          <div
+            v-for="s in filtered"
+            :key="s.id"
+            class="rounded-xl p-4 border transition-all cursor-pointer"
+            :class="skills.isEnabled(s.id)
+              ? 'border-accent/30 bg-accent/5 shadow-sm'
+              : 'border-border bg-hover/40 hover:border-border hover:bg-hover/60'"
+            @click="skills.toggle(s.id)"
+          >
+            <div class="flex items-center gap-2 min-w-0">
+              <div class="text-[15px] font-semibold text-foreground truncate">{{ s.name }}</div>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-[hsl(var(--code-bg))] text-muted shrink-0">
+                {{ s.builtin ? '内置' : '外部' }}
+              </span>
+              <span
+                v-if="skills.isEnabled(s.id)"
+                class="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-accent/15 text-accent shrink-0"
+              >已启用</span>
+              <span
+                v-else
+                class="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-[hsl(var(--code-bg))] text-muted shrink-0"
+              >未启用</span>
+            </div>
+            <p class="mt-1.5 text-[12px] text-muted leading-5 line-clamp-3">{{ s.description }}</p>
+            <div v-if="s.tags.length" class="mt-2 flex flex-wrap gap-1.5">
+              <span
+                v-for="t in s.tags"
+                :key="t"
+                class="text-[10px] px-1.5 py-0.5 rounded bg-[hsl(var(--code-bg))] text-foreground/80"
+              >{{ t }}</span>
+            </div>
+            <div v-if="s.toolNames.length" class="mt-2 flex items-center gap-1 text-[11px] text-muted min-w-0">
+              <Wrench class="w-3 h-3 text-accent shrink-0" />
+              <span class="truncate">{{ s.toolNames.join(' · ') }}</span>
+            </div>
+            <div v-if="s.resourceFiles.length" class="mt-1 text-[11px] text-muted">
+              资源文件：{{ s.resourceFiles.length }} 个，按需读取
+            </div>
+          </div>
+          <div v-if="!filtered.length" class="col-span-full text-center text-muted py-12 text-sm">
+            没有匹配的技能
+          </div>
+        </template>
       </div>
     </div>
   </div>

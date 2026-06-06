@@ -17,6 +17,11 @@ pub fn register_all(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
 
     for (name, schema) in schemas {
         let sk = skills.clone();
+        let (risk, requires_approval) = if name == "skill_import" {
+            ("medium", true)
+        } else {
+            ("low", false)
+        };
         let handler: ToolHandler = match name.as_str() {
             "skill_load_instructions" => Arc::new(move |args| {
                 let id = args
@@ -36,12 +41,40 @@ pub fn register_all(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
                     .ok_or_else(|| anyhow!("缺少 path"))?;
                 sk.read_resource(id, path)
             }),
+            "skill_import" => Arc::new(move |args| {
+                let path = args
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow!("缺少 path"))?;
+                let resolved = SkillRegistry::resolve_import_source(path)?;
+                let result = sk.import_path(&resolved)?;
+                if result.imported.is_empty() {
+                    let detail = if result.skipped.is_empty() {
+                        "未导入任何 Skill".to_string()
+                    } else {
+                        format!(
+                            "未导入任何 Skill；跳过 {} 项：{}",
+                            result.skipped.len(),
+                            result.skipped.join("; ")
+                        )
+                    };
+                    return Err(anyhow!(detail));
+                }
+                Ok(serde_json::to_string(&result)?)
+            }),
             _ => panic!("Unknown skill tool: {name}"),
         };
 
         reg.register(
-            ToolEntry::new(name.clone(), SKILL_DOC_SOURCE, "low", false, prompt.clone(), handler)
-                .with_schema(schema),
+            ToolEntry::new(
+                name.clone(),
+                SKILL_DOC_SOURCE,
+                risk,
+                requires_approval,
+                prompt.clone(),
+                handler,
+            )
+            .with_schema(schema),
         );
     }
 }

@@ -161,6 +161,7 @@ pub fn run() {
             commands::clear_api_key,
             commands::test_connection,
             commands::list_skills,
+            commands::reload_skill_meta,
             commands::import_skill_zip,
             commands::list_tools,
             commands::list_agents,

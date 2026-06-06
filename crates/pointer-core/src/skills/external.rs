@@ -64,6 +64,17 @@ pub fn load_external_skills() -> Result<Vec<SkillDef>> {
     Ok(out)
 }
 
+/// Import from a `.zip` file or a skill directory (single skill dir or parent of many).
+pub fn import_skill_path(source: &Path) -> Result<SkillImportResult> {
+    if !source.exists() {
+        return Err(anyhow!("路径不存在: {}", source.display()));
+    }
+    if source.is_file() {
+        return import_skill_zip_file(source);
+    }
+    import_skill_dir(source)
+}
+
 pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
     if bytes.len() > MAX_ZIP_SIZE {
         return Err(anyhow!("Skills zip 文件过大，最大支持 20MB"));
@@ -89,7 +100,7 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
     }
 
     if manifests.is_empty() {
-        return Err(anyhow!("zip 中未找到官方规范要求的 SKILL.md"));
+        return Err(anyhow!("zip 中未找到 SKILL.md 或 skill.md"));
     }
 
     let mut imported = Vec::new();
@@ -103,12 +114,12 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
 
         if base.file_name().and_then(|name| name.to_str()).is_none() {
             skipped.push(format!(
-                "{}: SKILL.md 必须位于 kebab-case Skill 目录中",
+                "{}: SKILL.md 必须位于 Skill 目录中",
                 manifest.name
             ));
             continue;
         }
-        let target = root.join(&manifest.name);
+        let target = root.join(manifest.name.trim());
         if target.exists() {
             fs::remove_dir_all(&target)?;
         }
@@ -127,6 +138,115 @@ pub fn import_skill_zip(bytes: &[u8]) -> Result<SkillImportResult> {
     Ok(SkillImportResult { imported, skipped })
 }
 
+fn import_skill_zip_file(path: &Path) -> Result<SkillImportResult> {
+    if !is_zip_file(path) {
+        return Err(anyhow!(
+            "不支持的文件类型: {}（请提供 .zip 或技能目录）",
+            path.display()
+        ));
+    }
+    let bytes = fs::read(path).with_context(|| format!("无法读取文件: {}", path.display()))?;
+    import_skill_zip(&bytes)
+}
+
+fn import_skill_dir(source: &Path) -> Result<SkillImportResult> {
+    let mut imported = Vec::new();
+    let mut skipped = Vec::new();
+    let mut seen = HashSet::new();
+
+    for skill_dir in discover_skill_dirs(source) {
+        let key = skill_dir
+            .canonicalize()
+            .unwrap_or_else(|_| skill_dir.clone())
+            .to_string_lossy()
+            .to_string();
+        if !seen.insert(key) {
+            continue;
+        }
+        match install_skill_dir(&skill_dir) {
+            Ok(skill) => imported.push(skill),
+            Err(err) => skipped.push(format!("{}: {err}", skill_dir.display())),
+        }
+    }
+
+    if imported.is_empty() && skipped.is_empty() {
+        return Err(anyhow!("目录中未找到符合规范的 Skill（需含 SKILL.md 或 skill.md）"));
+    }
+    Ok(SkillImportResult { imported, skipped })
+}
+
+fn discover_skill_dirs(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if manifest_path_in_dir(root).is_some() {
+        out.push(root.to_path_buf());
+        return out;
+    }
+    for entry in walkdir::WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .flatten()
+    {
+        let path = entry.path();
+        if !path.is_file() || !is_manifest_file(path) {
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            out.push(parent.to_path_buf());
+        }
+    }
+    out.sort_by_key(|p| p.components().count());
+    out.dedup();
+    out
+}
+
+fn install_skill_dir(source: &Path) -> Result<SkillDef> {
+    let preview = load_skill_from_dir(source)?;
+    let target = skills_dir()?.join(&preview.id);
+    let source_canon = source.canonicalize().unwrap_or_else(|_| source.to_path_buf());
+    if target.exists() {
+        let target_canon = target.canonicalize().unwrap_or_else(|_| target.clone());
+        if source_canon == target_canon {
+            log::info!(
+                "skill_import: path already installed at {}",
+                target.display()
+            );
+            return load_skill_from_dir(&target);
+        }
+        fs::remove_dir_all(&target)?;
+    }
+    fs::create_dir_all(&target.parent().unwrap_or(&target))?;
+    copy_dir_all(source, &target)?;
+    load_skill_from_dir(&target)
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in walkdir::WalkDir::new(src) {
+        let entry = entry?;
+        let path = entry.path();
+        let rel = path.strip_prefix(src)?;
+        if rel.as_os_str().is_empty() {
+            continue;
+        }
+        let target = dst.join(rel);
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(&target)?;
+        } else {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(path, &target)?;
+        }
+    }
+    Ok(())
+}
+
+fn is_zip_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
+}
+
 fn skill_roots() -> Result<Vec<PathBuf>> {
     let mut roots = Vec::new();
     if let Ok(cwd) = env::current_dir() {
@@ -141,23 +261,8 @@ fn skill_roots() -> Result<Vec<PathBuf>> {
 }
 
 fn load_skill_from_dir(dir: &Path) -> Result<SkillDef> {
-    if !is_kebab_case_dir(dir) {
-        return Err(anyhow!(
-            "Skill 目录名必须使用 kebab-case: {}",
-            dir.display()
-        ));
-    }
-
-    let manifest_path = dir.join("SKILL.md");
-    if !manifest_path.exists() {
-        return Err(anyhow!("未找到官方规范要求的 SKILL.md"));
-    }
-
-    if dir.join("README.md").exists() {
-        return Err(anyhow!(
-            "Skill 目录不应包含 README.md，请将说明写入 SKILL.md"
-        ));
-    }
+    let manifest_path = manifest_path_in_dir(dir)
+        .ok_or_else(|| anyhow!("未找到 SKILL.md 或 skill.md"))?;
 
     let raw = fs::read_to_string(&manifest_path)?;
     let manifest = parse_skill_md(&raw)?;
@@ -276,12 +381,7 @@ where
 }
 
 fn validate_manifest(manifest: &SkillManifest) -> Result<()> {
-    if !is_kebab_case(&manifest.name) {
-        return Err(anyhow!("name 必须是 kebab-case"));
-    }
-    if manifest.name.contains("claude") || manifest.name.contains("anthropic") {
-        return Err(anyhow!("name 不允许包含 claude 或 anthropic"));
-    }
+    validate_skill_id(&manifest.name)?;
     if manifest.description.trim().is_empty() {
         return Err(anyhow!("description 不能为空"));
     }
@@ -323,70 +423,70 @@ fn metadata_tags(metadata: &serde_json::Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn is_kebab_case_dir(dir: &Path) -> bool {
-    dir.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(is_kebab_case)
+fn validate_skill_id(id: &str) -> Result<()> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err(anyhow!("name 不能为空"));
+    }
+    if id.chars().count() > 128 {
+        return Err(anyhow!("name 不能超过 128 个字符"));
+    }
+    if id.contains('/') || id.contains('\\') {
+        return Err(anyhow!("name 不能包含路径分隔符"));
+    }
+    Ok(())
 }
 
-fn is_kebab_case(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    if bytes.is_empty() || bytes[0] == b'-' || bytes[bytes.len() - 1] == b'-' {
-        return false;
-    }
-
-    let mut prev_dash = false;
-    for &byte in bytes {
-        let valid = byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-';
-        if !valid {
-            return false;
+fn manifest_path_in_dir(dir: &Path) -> Option<PathBuf> {
+    for name in ["SKILL.md", "skill.md"] {
+        let path = dir.join(name);
+        if path.is_file() {
+            return Some(path);
         }
-        if byte == b'-' {
-            if prev_dash {
-                return false;
+    }
+    fs::read_dir(dir).ok().and_then(|entries| {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && is_manifest_file(&path) {
+                return Some(path);
             }
-            prev_dash = true;
-        } else {
-            prev_dash = false;
         }
-    }
-    true
+        None
+    })
+}
+
+fn is_manifest_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|file_name| file_name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("SKILL.md"))
 }
 
 fn collect_resource_files(dir: &Path) -> Result<Vec<String>> {
     let mut out = Vec::new();
-    for root_name in ["references", "assets", "scripts"] {
-        let root = dir.join(root_name);
-        if root.exists() {
-            collect_resource_files_inner(dir, &root, &mut out)?;
-        }
-    }
-    out.sort();
-    Ok(out)
-}
-
-fn collect_resource_files_inner(base: &Path, dir: &Path, out: &mut Vec<String>) -> Result<()> {
-    for entry in fs::read_dir(dir)? {
+    for entry in walkdir::WalkDir::new(dir).follow_links(false) {
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            collect_resource_files_inner(base, &path, out)?;
-        } else if path.is_file() {
-            let rel = path
-                .strip_prefix(base)?
-                .to_string_lossy()
-                .replace('\\', "/");
-            out.push(rel);
+            continue;
         }
+        let rel = path
+            .strip_prefix(dir)?
+            .to_string_lossy()
+            .replace('\\', "/");
+        if is_manifest_file(path) {
+            continue;
+        }
+        out.push(rel);
     }
-    Ok(())
+    out.sort();
+    Ok(out)
 }
 
 fn is_manifest_path(name: &str) -> bool {
     Path::new(name)
         .file_name()
         .and_then(|file_name| file_name.to_str())
-        == Some("SKILL.md")
+        .is_some_and(|file| file.eq_ignore_ascii_case("SKILL.md"))
 }
 
 fn safe_join(root: &Path, rel: &Path) -> Result<PathBuf> {
@@ -499,9 +599,18 @@ mod tests {
     }
 
     #[test]
-    fn non_kebab_name_is_error() {
+    fn external_skill_id_allows_claude_prefix() {
         let m = parse_skill_md(
-            "---\nname: not kebab\ndescription: d.\n---\nbody",
+            "---\nname: claude-api\ndescription: Claude API integration.\n---\nbody",
+        )
+        .unwrap();
+        assert!(validate_manifest(&m).is_ok());
+    }
+
+    #[test]
+    fn external_skill_id_rejects_path_separator() {
+        let m = parse_skill_md(
+            "---\nname: bad/name\ndescription: d.\n---\nbody",
         )
         .unwrap();
         assert!(validate_manifest(&m).is_err());

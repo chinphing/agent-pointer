@@ -70,7 +70,7 @@ impl AppState {
         let skills = Arc::new(SkillRegistry::new());
         crate::skills::builtin::register_all(&skills);
         crate::tools::builtin::register_skill_tools(&tools, skills.clone());
-        if let Err(err) = skills.reload_external() {
+        if let Err(err) = skills.reload_meta() {
             log::warn!("load external skills failed: {err}");
         }
         let agents = Arc::new(crate::agents::AgentRegistry::new());

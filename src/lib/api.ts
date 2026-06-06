@@ -48,6 +48,7 @@ export interface RuntimeApi {
   clearApiKey(): Promise<void>
   testConnection(): Promise<{ ok: boolean; latencyMs: number; message: string }>
   listSkills(): Promise<SkillDef[]>
+  reloadSkillMeta(): Promise<SkillDef[]>
   importSkillZip(file: File): Promise<SkillImportResult>
   listTools(): Promise<ToolDef[]>
   listAgents(): Promise<AgentDef[]>
@@ -81,6 +82,7 @@ export const setApiKey = api.setApiKey
 export const clearApiKey = api.clearApiKey
 export const testConnection = api.testConnection
 export const listSkills = api.listSkills
+export const reloadSkillMeta = api.reloadSkillMeta
 export const importSkillZip = api.importSkillZip
 export const listTools = api.listTools
 export const listAgents = api.listAgents

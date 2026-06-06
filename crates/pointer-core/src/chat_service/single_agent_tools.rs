@@ -30,7 +30,7 @@ pub(super) async fn run_single_agent_tool_pass(
     main_task_board_store_key: &str,
     history: &mut Vec<ChatMessage>,
     allow_agents: &[String],
-    enabled_skill_ids: &[String],
+    enabled_skill_ids: &mut Vec<String>,
     provider: &OpenAIProvider,
     tool_approval_mode: &str,
     tool_budget: &mut SessionToolBudget,

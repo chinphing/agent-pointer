@@ -6,7 +6,7 @@ use anyhow::{anyhow, Result};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Default)]
 pub struct SkillRegistry {
@@ -22,20 +22,46 @@ impl SkillRegistry {
         self.inner.write().insert(def.id.clone(), def);
     }
 
-    pub fn reload_external(&self) -> anyhow::Result<()> {
+    /// Rescan skill directories and refresh external skill metadata in the registry.
+    pub fn reload_meta(&self) -> anyhow::Result<usize> {
         let external = external::load_external_skills()?;
+        let count = external.len();
         let mut g = self.inner.write();
         g.retain(|_, s| s.builtin);
         for skill in external {
             g.insert(skill.id.clone(), skill);
         }
-        Ok(())
+        log::info!("skill_registry: reload_meta loaded {count} external skill(s)");
+        Ok(count)
+    }
+
+    pub fn reload_external(&self) -> anyhow::Result<()> {
+        self.reload_meta().map(|_| ())
     }
 
     pub fn import_zip(&self, bytes: &[u8]) -> anyhow::Result<SkillImportResult> {
         let result = external::import_skill_zip(bytes)?;
-        self.reload_external()?;
+        self.reload_meta()?;
         Ok(result)
+    }
+
+    pub fn import_path(&self, source: &Path) -> anyhow::Result<SkillImportResult> {
+        let result = external::import_skill_path(source)?;
+        self.reload_meta()?;
+        Ok(result)
+    }
+
+    pub fn resolve_import_source(path: &str) -> anyhow::Result<PathBuf> {
+        let trimmed = path.trim();
+        if trimmed.is_empty() {
+            return Err(anyhow!("path 不能为空"));
+        }
+        let p = Path::new(trimmed);
+        if p.is_absolute() {
+            return Ok(p.to_path_buf());
+        }
+        let root = crate::tools::file::resolve_tool_workspace_root()?;
+        Ok(root.join(p))
     }
 
     pub fn list(&self) -> Vec<SkillDef> {
@@ -72,7 +98,11 @@ impl SkillRegistry {
             prompts.push(index);
         }
 
-        let mut tools = vec!["skill_load_instructions".to_string(), "skill_read_resource".to_string()];
+        let mut tools = vec![
+            "skill_import".to_string(),
+            "skill_load_instructions".to_string(),
+            "skill_read_resource".to_string(),
+        ];
         for s in selected {
             for t in &s.tool_names {
                 if !tools.contains(t) {

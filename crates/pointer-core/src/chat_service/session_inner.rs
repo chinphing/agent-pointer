@@ -78,7 +78,7 @@ pub(super) async fn run_chat_inner(
     state: Arc<AppState>,
     conversation_id: &str,
     history: &mut Vec<ChatMessage>,
-    enabled_skill_ids: &[String],
+    enabled_skill_ids: &mut Vec<String>,
     request_agent_mode: Option<&str>,
     tool_rounds_used_single_start: u32,
     tool_rounds_used_supervisor_start: u32,

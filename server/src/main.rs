@@ -86,6 +86,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/key", post(set_api_key).delete(clear_api_key))
         .route("/api/test-connection", post(test_connection))
         .route("/api/skills", get(list_skills).post(import_skill_zip))
+        .route("/api/skills/reload-meta", post(reload_skill_meta))
         .route("/api/tools", get(list_tools))
         .route("/api/agents", get(list_agents))
         .route("/api/task-board/snapshot", get(get_task_board_snapshot))
@@ -195,7 +196,13 @@ async fn test_connection(State(state): State<ServerState>) -> Result<Json<u128>,
 }
 
 async fn list_skills(State(state): State<ServerState>) -> Result<Json<Vec<SkillDef>>, ApiError> {
-    state.core.skills.reload_external()?;
+    Ok(Json(state.core.skills.list()))
+}
+
+async fn reload_skill_meta(
+    State(state): State<ServerState>,
+) -> Result<Json<Vec<SkillDef>>, ApiError> {
+    state.core.skills.reload_meta()?;
     Ok(Json(state.core.skills.list()))
 }
 

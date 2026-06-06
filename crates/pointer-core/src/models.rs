@@ -1812,6 +1812,15 @@ pub enum StreamEvent {
         anchor_message_id: Option<String>,
         document: serde_json::Value,
     },
+    /// Skill catalog changed (import / reload); UI should refresh the skill list.
+    SkillsUpdated {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "importedIds")]
+        imported_ids: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "enabledIds")]
+        enabled_ids: Option<Vec<String>>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

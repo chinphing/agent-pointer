@@ -648,6 +648,19 @@ export const useChatStore = defineStore('chat', () => {
         }
         break
       }
+      case 'skills_updated': {
+        const skillsStore = useSkillsStore()
+        void skillsStore.load({ rescan: true })
+        if (e.enabledIds?.length) {
+          skillsStore.setEnabledIds(e.enabledIds)
+        }
+        const conv = conversations.value.find(c => c.id === e.conversationId)
+        if (conv && e.enabledIds?.length) {
+          conv.skillIds = [...e.enabledIds]
+          persist()
+        }
+        break
+      }
       case 'tool_call_start': {
         const r = findMessage(e.messageId)
         if (!r) return

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { importSkillZip, listSkills } from '../lib/api'
+import { importSkillZip, listSkills, reloadSkillMeta } from '../lib/api'
 import type { SkillDef, SkillImportResult } from '../types/chat'
 
 
@@ -13,11 +13,11 @@ export const useSkillsStore = defineStore('skills', () => {
     skills.value.filter(s => enabledIds.value.includes(s.id))
   )
 
-  async function load() {
+  async function load(options?: { rescan?: boolean }) {
     try {
-      skills.value = await listSkills()
+      skills.value = options?.rescan ? await reloadSkillMeta() : await listSkills()
     } catch (e) {
-      console.error('listSkills failed', e)
+      console.error('skills.load failed', e)
       skills.value = []
     } finally {
       loaded.value = true
@@ -26,7 +26,7 @@ export const useSkillsStore = defineStore('skills', () => {
 
   async function importZip(file: File): Promise<SkillImportResult> {
     const result = await importSkillZip(file)
-    await load()
+    await load({ rescan: true })
     return result
   }
 
@@ -41,6 +41,10 @@ export const useSkillsStore = defineStore('skills', () => {
     return enabledIds.value.includes(id)
   }
 
-  return { skills, enabledIds, enabledSkills, loaded, load, importZip, toggle, isEnabled }
+  function setEnabledIds(ids: string[]) {
+    enabledIds.value = [...ids]
+  }
+
+  return { skills, enabledIds, enabledSkills, loaded, load, importZip, toggle, isEnabled, setEnabledIds }
 
 })

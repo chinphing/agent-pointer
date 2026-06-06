@@ -146,7 +146,12 @@ pub async fn test_connection(state: State<'_, Arc<AppState>>) -> Result<u128, St
 
 #[tauri::command]
 pub fn list_skills(state: State<'_, Arc<AppState>>) -> Result<Vec<SkillDef>, String> {
-    state.skills.reload_external().map_err(|e| e.to_string())?;
+    Ok(state.skills.list())
+}
+
+#[tauri::command]
+pub fn reload_skill_meta(state: State<'_, Arc<AppState>>) -> Result<Vec<SkillDef>, String> {
+    state.skills.reload_meta().map_err(|e| e.to_string())?;
     Ok(state.skills.list())
 }
 

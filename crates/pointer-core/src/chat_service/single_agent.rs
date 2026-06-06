@@ -38,7 +38,7 @@ pub(super) async fn run_single_agent_loop(
     state: Arc<AppState>,
     conversation_id: &str,
     history: &mut Vec<ChatMessage>,
-    enabled_skill_ids: &[String],
+    enabled_skill_ids: &mut Vec<String>,
     agent_plan: &AgentPlan,
     provider: &OpenAIProvider,
     settings: &ModelSettings,

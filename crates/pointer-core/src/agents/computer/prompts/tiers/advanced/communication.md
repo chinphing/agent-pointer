@@ -56,8 +56,13 @@ Never put internal stage templates (Verify, Pointer, Repetition, Next, …) in *
 When using coordinate tools, decide **Route: coordinate** internally.
 `Tool route:` line 2 remains the single source of truth for the native root tool call.
 **Efficiency principle:** Prefer the fewest tool calls for the same goal.
-Use priority: **`input_focused`** -> **`hotkey`** / **`modified_click_select_index`**
--> **`mouse_click_index`**. Use **`wait`** only when an explicit delay is needed.
+Use priority: **`input_focused`** (field already focused) ->
+**`input_index`** / **`input_at`** (click + type + clear + enter in one call)
+-> **`hotkey`** / **`modified_click_select_index`** ->
+**`mouse_click_index`** (pure click only — no typing this turn).
+**Forbidden:** **`mouse_click_*`** to focus a field, then **`input_*`** next
+turn for the same field.
+Use **`wait`** only when an explicit delay is needed.
 **Hotkey precondition:** Use app/browser shortcuts only when the target window
 is the foreground (topmost) window. If not, focus the target window first.
 For loading/transfer actions, choose wait windows in the **2–5 s** range and
@@ -1018,6 +1023,8 @@ When **Location** line **3** concludes **`therefore (x,y) ≈ (…, …)`**, the
 
 - Press icon/button/toggle **this turn** → **`mouse_click_at`** / **`mouse_click_index`** — not **`input_at`**
 - Type/replace text **this turn** → **`input_at`** / **`input_index`** / **`input_focused`**
+  — **one call** with **`text`** (+ **`clear_first`** / **`auto_enter`** as needed).
+  **Forbidden:** a click-only turn to focus the field, then a separate type turn.
 - For `input_*`:
   - `clear_first` defaults to `false`; set `true` only when replacing all
     existing field content. If text is already selected in a focused field,

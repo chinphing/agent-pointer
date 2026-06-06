@@ -5,16 +5,32 @@ Flat input tools — each tool name is the complete operation. No `method` param
 Every call requires **`goal`** (outcome) and **`action`** (human-readable description for UI).
 Optional: `clear_first`, `auto_enter`, `wait` (1–5 s).
 
+**One-call click + type (default for unfocused fields)**
+
+**`input_index`** and **`input_at`** run in **one** tool call:
+
+1. Click the target to focus
+2. Optionally select-all when **`clear_first=true`**
+3. Type **`text`**
+4. Optionally press Enter when **`auto_enter=true`**
+
+**Forbidden:** **`mouse_click_*`** this turn to focus, then **`input_*`** next
+turn to type the same field. Put **`text`**, **`clear_first`**, and
+**`auto_enter`** on the **same** **`input_index`** / **`input_at`** call.
+
 **Index-based** (overlay digit — clicks bbox **center**):
-- **`input_index`** — Type text at index. Requires **`index`**, **`text`**.
+- **`input_index`** — Click index, then type. Requires **`index`**, **`text`**.
 
 **Coordinate-based** (session 0–1000):
-- **`input_at`** — Type text at coordinates. Requires **`x`**, **`y`**, **`text`**.
+- **`input_at`** — Click at **(x,y)**, then type. Requires **`x`**, **`y`**, **`text`**.
 
 **Focused field:**
-- **`input_focused`** — Type into focused input. Requires **`text`** only.
+- **`input_focused`** — Type into focused input (no click). Requires **`text`** only.
 
 **Tool choice (prefer fewer steps):**
+- Need to type/replace in a field **this turn** and it is **not** focused
+  → **`input_index`** or **`input_at`** with **`text`** — **not**
+  **`mouse_click_*`** alone.
 - Field already focused (cursor visible, text selected, placeholder highlighted)
   → **`input_focused`** with **`text`** only — **never** **`input_at`** /
   **`input_index`** (those click at coordinates or bbox center first and can

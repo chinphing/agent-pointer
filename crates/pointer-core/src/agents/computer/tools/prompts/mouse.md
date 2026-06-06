@@ -6,6 +6,13 @@ Every call requires **`goal`** (outcome) and **`action`** (human-readable target
 
 Optional: `wait` (1–5 s).
 
+**Call priority:** Use **`input_index`** / **`input_at`** / **`input_focused`**
+when the goal is to type or replace text in a field — they focus, clear, type,
+and submit in one call. Use **`mouse_click_*`** only for pure clicks with **no**
+typing on that target this turn (buttons, toggles, icons, links, menus).
+**Forbidden:** **`mouse_click_*`** to focus an input box when you will type on
+the next turn — use **`input_*`** with **`text`** instead.
+
 **Index-based** (overlay digit — clicks bbox **center**):
 - **`mouse_click_index`** — Requires **`index`**.
 - **`mouse_double_click_index`** — Requires **`index`**.

@@ -47,9 +47,14 @@ impl VerifyHintGenerator {
 
     /// Generate a verification hint for a hotkey action.
     pub fn hotkey_hint(&self, keys: &[&str]) -> String {
+        let joined = keys.join("+");
+        if is_copy_hotkey(keys) {
+            return format!(
+                "Attempted hotkey action: {joined}. Copy may have succeeded — on the next turn call clipboard_read to confirm content. Do not repeat Copy without reading the clipboard first."
+            );
+        }
         format!(
-            "Attempted hotkey action: {}. Do not assume success. Verify the UI effect on the next screenshot.",
-            keys.join("+")
+            "Attempted hotkey action: {joined}. Do not assume success. Verify the UI effect on the next screenshot."
         )
     }
 
@@ -73,6 +78,22 @@ impl Default for VerifyHintGenerator {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn is_copy_hotkey(keys: &[&str]) -> bool {
+    let norm: Vec<String> = keys
+        .iter()
+        .map(|k| k.trim().to_ascii_lowercase())
+        .filter(|k| !k.is_empty())
+        .collect();
+    let has_c = norm.iter().any(|k| k == "c");
+    let has_mod = norm.iter().any(|k| {
+        matches!(
+            k.as_str(),
+            "command" | "cmd" | "ctrl" | "control" | "meta" | "super" | "win"
+        )
+    });
+    has_c && has_mod
 }
 
 #[cfg(test)]
@@ -124,7 +145,15 @@ mod tests {
         let gen = VerifyHintGenerator::new();
         let hint = gen.hotkey_hint(&["command", "c"]);
         assert!(hint.contains("command+c"));
-        assert!(hint.contains("Attempted hotkey action"));
+        assert!(hint.contains("clipboard_read"));
+    }
+
+    #[test]
+    fn test_copy_hotkey_detection() {
+        assert!(is_copy_hotkey(&["command", "c"]));
+        assert!(is_copy_hotkey(&["ctrl", "c"]));
+        assert!(!is_copy_hotkey(&["command", "v"]));
+        assert!(!is_copy_hotkey(&["l"]));
     }
 
     #[test]

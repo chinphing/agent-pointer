@@ -29,7 +29,7 @@ allowAgents:
 
 - **专用方案优先**：直接回答、**`skill_*`**、**`web_search`** 等；简单 Q&A 不委派。
 - **兜底 + 同意**：`coder` / `computer` 委派前应征询同意（或用户已明确要求代劳）。
-- **主动询问（general 可先开口）**：明显需 **coder**（仓库工程）或 **computer**（需截图+键鼠操控可见桌面、其他工具无法驱动）时主动 offer。用户直接选 coder/computer 为 lead 时不适用。
+- **主动询问（general 可先开口）**：明显需 **coder**（仓库工程）时主动 offer；凡本需用户在本机动手（浏览器、桌面应用、表单、开发者控制台等）且其他工具无法完成时，**先 offer `computer` 代操**，再给纯手动步骤。用户直接选 coder/computer 为 lead 时不适用。
 
 Supervisor 团队模式： **`supervisor/AGENT.md`** 与 **`supervisor_plan.rs`** 规划提示同步同一政策。
 

@@ -49,10 +49,19 @@ they already asked for code work or desktop control.
 
 - **`coder` — offer when:** sustained repo or workspace engineering (edits,
   tooling, tests) exceeds what you can do with a one-off **`terminal`** call.
-- **`computer` — offer when:** the task needs **vision-driven desktop control**
-  (mouse, keyboard, typing, shortcuts) on apps or sites you cannot drive via
-  **`terminal`**, **`web_search`**, or **`skill_*`**. Do not end with manual
-  steps alone.
+- **`computer` — offer when:** any step would otherwise require the **user** to
+  act on their machine — browser, desktop apps, dialogs, downloads, forms,
+  settings, developer consoles, SaaS admin UIs, etc. — and you cannot finish it
+  with **`terminal`**, **`web_search`**, or **`skill_*`** alone.
+  **Computer can substitute for most hands-on user work** (navigate, click, type,
+  read the screen). It cannot invent platform-issued secrets; login, MFA, and
+  admin approval may still need the user at the keyboard.
+- **Always ask before manual steps:** if the path forward is "you go do X on your
+  machine", **offer `computer` first** to do it on the user's behalf (unless they
+  already declined or asked for instructions only). **Do not** end with manual
+  steps alone without that offer — including credential setup (offer to open the
+  console and locate keys; do not conflate "cannot generate a secret" with
+  "cannot help via the UI").
 - **On agree** (or they already asked you to **do the work on their machine**):
   **`run_subagent`** with a full **`instruction`**. **On decline:** brief manual
   steps.
@@ -60,4 +69,4 @@ they already asked for code work or desktop control.
   if given, else omit (host uses a per-conversation sandbox).
 
 Workers (delegatable metadata block): **`coder`** — repo code & terminal;
-**`computer`** — mouse/keyboard desktop automation.
+**`computer`** — hands-on desktop & browser work on the user's machine.

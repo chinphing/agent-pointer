@@ -55,9 +55,10 @@ is **Markdown** in the tool result’s **`content`** field — **final assistant
 
 - Fallback delegates — prefer direct answers, **`skill_*`**, **`web_search`** first.
 - **Ask proactively** (user need not ask first): offer **`coder`** for sustained
-  repo work; offer **`computer`** when the visible desktop must be driven
-  (screenshots + mouse/keyboard) and your other tools cannot. Consent required
-  unless they already asked for code or desktop control.
+  repo work; offer **`computer`** whenever the user would otherwise have to act
+  on their machine (browser, apps, forms, consoles) and your other tools cannot
+  finish it. Offer before manual steps; consent required unless they already
+  asked for code or desktop control. See **Delegation** in **general** instructions.
 - **`coder`:** **`workspaceRoot`** when user gives a project path; else omit
   (host sandbox). See **Delegation** in your **general** instructions.
 

@@ -197,7 +197,13 @@ pub fn remap_split_computer_tool_allow_names(names: &mut Vec<String>) {
 /// Keep allow-list entries that exist in the registry; inject exact registry ids when needed.
 pub fn normalize_allowed_tool_names(names: &mut Vec<String>, available: &std::collections::HashSet<String>) {
     remap_split_computer_tool_allow_names(names);
-    names.retain(|name| available.contains(registry_tool_base_name(name)));
+    names.retain(|name| {
+        let base = registry_tool_base_name(name);
+        available.contains(base)
+            || available
+                .iter()
+                .any(|reg| tool_matches_allow_entry(reg, base))
+    });
     let extras: Vec<String> = names
         .iter()
         .map(|n| registry_tool_base_name(n).to_string())
@@ -726,6 +732,49 @@ mod openai_tools_schema_tests {
         let allow = vec!["captcha_verify".into()];
         assert!(registry_tool_in_allow_list(&allow, "captcha_verify_click"));
         assert!(!registry_tool_in_allow_list(&allow, "mouse_click_index"));
+    }
+
+    #[test]
+    fn registry_tool_in_allow_list_accepts_input_family_for_flat_ids() {
+        use super::registry_tool_in_allow_list;
+        let allow = vec!["input".into()];
+        assert!(registry_tool_in_allow_list(&allow, "input_at"));
+        assert!(registry_tool_in_allow_list(&allow, "input_focused"));
+        assert!(!registry_tool_in_allow_list(&allow, "mouse_click_index"));
+    }
+
+    #[test]
+    fn normalize_allowed_retains_desktop_tool_families() {
+        use super::{normalize_allowed_tool_names, registry_tool_in_allow_list};
+        use std::collections::HashSet;
+
+        let available: HashSet<String> = [
+            "mouse_click_index".into(),
+            "input_at".into(),
+            "input_focused".into(),
+            "hotkey".into(),
+        ]
+        .into_iter()
+        .collect();
+        let mut names = vec![
+            "mouse".into(),
+            "input".into(),
+            "mouse_click_index".into(),
+            "input_at".into(),
+            "hotkey".into(),
+        ];
+        normalize_allowed_tool_names(&mut names, &available);
+        assert!(
+            names.contains(&"input".to_string()),
+            "family allow entry must survive normalize"
+        );
+        assert!(names.contains(&"mouse".to_string()));
+        assert!(
+            !names.contains(&"input_at".to_string()),
+            "flat input ids collapse to family"
+        );
+        assert!(registry_tool_in_allow_list(&names, "input_at"));
+        assert!(registry_tool_in_allow_list(&names, "input_focused"));
     }
 
     #[test]

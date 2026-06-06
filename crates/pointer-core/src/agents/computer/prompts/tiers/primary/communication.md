@@ -159,6 +159,9 @@ Step result: <pass|fail|pending|n/a> — evidence: <comparison + pointer check; 
 |------------------|----------------|-------------|
 | **`hover_at`** (reposition sub-step) | **Expected** was pointer prep only — pointer nearer target, **no** stray dialog/menu/selection | Goal needed click/type/copy but only cursor moved |
 | **`click_at`**, **type**, **hotkey**, etc. | **Expected** business UI change visible | Cursor over the right icon/box but **no** toast, **no** field update, **no** navigation, etc. |
+| **Copy** (`hotkey` Copy or click Copy / 复制) | Selection copied — confirm via **`clipboard_read`** next turn | Re-clicking Copy or re-sending Copy hotkey without **`clipboard_read`** |
+
+**After Copy in Next:** schedule **`clipboard_read`** before paste or any second Copy. Screenshots do not show clipboard bytes.
 
 **Forbidden `Step result: pass` evidence:** *pointer at …*, *cursor over …*, *hovered on …*, *position correct* — unless **Expected** explicitly was **only** reposition and **Actual** confirms no harmful UI side effect.
 

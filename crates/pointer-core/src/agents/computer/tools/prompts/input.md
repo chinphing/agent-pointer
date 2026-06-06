@@ -15,8 +15,10 @@ Optional: `clear_first`, `auto_enter`, `wait` (1–5 s).
 - **`input_focused`** — Type into focused input. Requires **`text`** only.
 
 **Tool choice (prefer fewer steps):**
-- Field already focused (cursor visible, text selected) → **`input_focused`**
-  — not **`input_at`** / **`input_index`** (those click bbox center first).
+- Field already focused (cursor visible, text selected, placeholder highlighted)
+  → **`input_focused`** with **`text`** only — **never** **`input_at`** /
+  **`input_index`** (those click at coordinates or bbox center first and can
+  miss the caret).
 - Shortcut can focus the field (e.g. address bar) → **`hotkey`** then
   **`input_focused`** on the next turn when focus is confirmed.
 

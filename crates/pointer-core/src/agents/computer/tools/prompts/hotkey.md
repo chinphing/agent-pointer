@@ -34,6 +34,16 @@ Parameters (in `tool_args`):
 - **`keys`** (required): modifier and key names in order—e.g. comma-separated `command, c` (macOS) or `ctrl, c` (Windows/Linux); you may also pass the same sequence as a bracket list string inside one `<keys>` element if you need a single value.
 - **`action`** (required): Visible shortcut step (match **`Tool route:`** line **2** wording).
 
+**Copy / Paste workflow**
+
+- After **Copy** (`command,c` / `ctrl,c`) or clicking a Copy / 复制 control: **next
+  turn must be `clipboard_read`** — confirm clipboard text before paste or reuse.
+  **Do not** send Copy again without reading first.
+- After **`clipboard_read`** confirms content: use **Paste** (`command,v` /
+  `ctrl,v`) or **`input_focused`** as needed.
+- **`goal` for Copy hotkey** must be narrow (e.g. "copy selected text to
+  clipboard") — not the full paste-or-use workflow in one **`hotkey`** call.
+
 **Optional `wait` in `tool_args`:** After successful calls (1–5 s). Heuristic:
 **~1–2 s** for lightweight UI updates; **~3–5 s** when the shortcut triggers
 save/export/import, large paste, modal transitions, or page reload.

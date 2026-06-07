@@ -1237,6 +1237,17 @@ mod builtin_agent_tests {
                 .is_ok(),
             "general allowAgents should include computer"
         );
+        for tool in ["file_read", "file_write"] {
+            assert!(
+                agent
+                    .def
+                    .access_policy
+                    .allow_tools
+                    .binary_search(&tool.to_string())
+                    .is_ok(),
+                "general allowTools should include {tool}"
+            );
+        }
     }
 
     #[test]

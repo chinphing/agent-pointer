@@ -13,6 +13,9 @@ import type {
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 import { Search } from 'lucide-vue-next'
+import ExperienceHomeCard from './ExperienceHomeCard.vue'
+
+const FEATURED_TAB_ID = '__featured__'
 
 const chat = useChatStore()
 const settings = useSettingsStore()
@@ -36,11 +39,24 @@ const isSearching = computed(() => searchQuery.value.length > 0)
 const featuredItems = computed(() => home.value?.featured ?? [])
 const categoryBlocks = computed(() => home.value?.categories ?? [])
 
-const activeCategory = computed((): ExperienceHomeCategoryBlock | null => {
-  const blocks = categoryBlocks.value
-  if (blocks.length === 0) return null
+const homeTabs = computed((): ExperienceHomeCategoryBlock[] => {
+  const tabs: ExperienceHomeCategoryBlock[] = []
+  if (featuredItems.value.length > 0) {
+    tabs.push({
+      id: FEATURED_TAB_ID,
+      name_zh: '热门',
+      items: featuredItems.value,
+    })
+  }
+  tabs.push(...categoryBlocks.value)
+  return tabs
+})
+
+const activeTab = computed((): ExperienceHomeCategoryBlock | null => {
+  const tabs = homeTabs.value
+  if (tabs.length === 0) return null
   const id = activeTabId.value
-  return blocks.find((b) => b.id === id) ?? blocks[0] ?? null
+  return tabs.find((tab) => tab.id === id) ?? tabs[0] ?? null
 })
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined
@@ -72,7 +88,9 @@ onMounted(async () => {
   try {
     const data = await listExperienceHome()
     home.value = data
-    if (data.categories.length > 0) {
+    if (data.featured.length > 0) {
+      activeTabId.value = FEATURED_TAB_ID
+    } else if (data.categories.length > 0) {
       activeTabId.value = data.categories[0].id
     }
   } catch (e) {
@@ -83,10 +101,6 @@ onMounted(async () => {
 
 function cardTone(index: number): string {
   return CARD_TONES[index % CARD_TONES.length]
-}
-
-function displayTitle(title: string): string {
-  return title.replace(/^【[^】]+】\s*/, '').trim() || title
 }
 
 function resolveAgentId(raw: string | undefined | null): string {
@@ -134,31 +148,14 @@ async function onSelect(item: ExperienceListItem) {
         未找到相关经验
       </p>
       <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <button
+        <ExperienceHomeCard
           v-for="(item, index) in searchResults"
           :key="item.id"
-          type="button"
-          class="experience-card group text-left transition-all disabled:cursor-wait disabled:opacity-60"
-          :class="cardTone(index)"
+          :item="item"
+          :tone="cardTone(index)"
           :disabled="loadingSlug === item.slug"
-          @click="onSelect(item)"
-        >
-          <div
-            v-if="item.cover_image_url"
-            class="mb-2.5 aspect-video overflow-hidden rounded-lg bg-black/5"
-          >
-            <img
-              :src="item.cover_image_url"
-              alt=""
-              class="h-full w-full object-cover"
-              loading="lazy"
-            />
-          </div>
-          <div class="experience-card__title">{{ displayTitle(item.title) }}</div>
-          <div class="experience-card__body">
-            <p class="line-clamp-3">{{ item.excerpt || ' ' }}</p>
-          </div>
-        </button>
+          @select="onSelect"
+        />
       </div>
     </template>
 
@@ -167,93 +164,45 @@ async function onSelect(item: ExperienceListItem) {
     </template>
 
     <template v-else>
-      <div v-if="featuredItems.length > 0" class="space-y-2">
-        <h2 class="text-left text-xs font-semibold tracking-wide text-muted">热门</h2>
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <button
-            v-for="(item, index) in featuredItems"
-            :key="item.id"
-            type="button"
-            class="experience-card group text-left transition-all disabled:cursor-wait disabled:opacity-60"
-            :class="cardTone(index)"
-            :disabled="loadingSlug === item.slug"
-            @click="onSelect(item)"
-          >
-            <div
-              v-if="item.cover_image_url"
-              class="mb-2.5 aspect-video overflow-hidden rounded-lg bg-black/5"
-            >
-              <img
-                :src="item.cover_image_url"
-                alt=""
-                class="h-full w-full object-cover"
-                loading="lazy"
-              />
-            </div>
-            <div class="experience-card__title">{{ displayTitle(item.title) }}</div>
-            <div class="experience-card__body">
-              <p class="line-clamp-3">{{ item.excerpt || ' ' }}</p>
-            </div>
-          </button>
-        </div>
-      </div>
-
-      <div v-if="categoryBlocks.length > 0" class="space-y-3">
+      <div v-if="homeTabs.length > 0" class="space-y-3">
         <div
           class="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]"
           role="tablist"
         >
           <button
-            v-for="cat in categoryBlocks"
-            :key="cat.id"
+            v-for="tab in homeTabs"
+            :key="tab.id"
             type="button"
             role="tab"
             class="shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
             :class="
-              activeCategory?.id === cat.id
+              activeTab?.id === tab.id
                 ? 'bg-foreground text-background'
                 : 'bg-accent/10 text-muted hover:text-foreground'
             "
-            :aria-selected="activeCategory?.id === cat.id"
-            @click="activeTabId = cat.id"
+            :aria-selected="activeTab?.id === tab.id"
+            @click="activeTabId = tab.id"
           >
-            {{ cat.name_zh }}
+            {{ tab.name_zh }}
           </button>
         </div>
 
-        <div v-if="activeCategory" role="tabpanel" class="min-h-[8rem]">
+        <div v-if="activeTab" role="tabpanel" class="min-h-[8rem]">
           <div
-            v-if="activeCategory.items.length === 0"
+            v-if="activeTab.items.length === 0"
             class="flex min-h-[8rem] items-center justify-center rounded-2xl border border-dashed border-border/70 px-4 py-8 text-sm text-muted"
           >
             板块建设中，敬请期待...
           </div>
           <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <button
-              v-for="(item, index) in activeCategory.items"
+            <ExperienceHomeCard
+              v-for="(item, index) in activeTab.items"
               :key="item.id"
-              type="button"
-              class="experience-card group text-left transition-all disabled:cursor-wait disabled:opacity-60"
-              :class="cardTone(index)"
+              :item="item"
+              :tone="cardTone(index)"
               :disabled="loadingSlug === item.slug"
-              @click="onSelect(item)"
-            >
-              <div
-                v-if="item.cover_image_url"
-                class="mb-2.5 aspect-video overflow-hidden rounded-lg bg-black/5"
-              >
-                <img
-                  :src="item.cover_image_url"
-                  alt=""
-                  class="h-full w-full object-cover"
-                  loading="lazy"
-                />
-              </div>
-              <div class="experience-card__title">{{ displayTitle(item.title) }}</div>
-              <div class="experience-card__body">
-                <p class="line-clamp-3">{{ item.excerpt || ' ' }}</p>
-              </div>
-            </button>
+              @select="onSelect"
+            />
           </div>
         </div>
       </div>
@@ -262,47 +211,3 @@ async function onSelect(item: ExperienceListItem) {
     </template>
   </section>
 </template>
-
-<style scoped>
-.experience-card {
-  @apply flex h-full flex-col rounded-2xl px-4 py-5;
-}
-
-.experience-card__title {
-  @apply shrink-0 text-sm font-semibold leading-[1.375] text-foreground line-clamp-2;
-  height: 2.75rem;
-}
-
-.experience-card__body {
-  @apply mt-2.5 min-h-[3.75rem] text-xs leading-relaxed text-muted;
-}
-
-.experience-card--sky {
-  background: #eef4ff;
-}
-.experience-card--rose {
-  background: #fff0f3;
-}
-.experience-card--sand {
-  background: #fff8eb;
-}
-
-.experience-card:hover {
-  filter: brightness(0.98);
-  transform: translateY(-1px);
-}
-
-html.dark .experience-card--sky {
-  background: hsl(220 60% 18% / 0.55);
-}
-html.dark .experience-card--rose {
-  background: hsl(350 45% 18% / 0.55);
-}
-html.dark .experience-card--sand {
-  background: hsl(38 45% 16% / 0.55);
-}
-
-html.dark .experience-card:hover {
-  filter: brightness(1.08);
-}
-</style>

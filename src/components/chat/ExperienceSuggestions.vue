@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { listPinnedExperiences, getExperienceDetail } from '../../lib/experiences'
+import {
+  formatExperienceCardExcerpt,
+  listPinnedExperiences,
+  getExperienceDetail,
+} from '../../lib/experiences'
 import type { ExperienceListItem } from '../../types/experience'
 import { useChatStore } from '../../stores/chat'
 
@@ -26,10 +30,6 @@ onMounted(async () => {
 
 function cardTone(index: number): string {
   return CARD_TONES[index % CARD_TONES.length]
-}
-
-function displayTitle(title: string): string {
-  return title.replace(/^【[^】]+】\s*/, '').trim() || title
 }
 
 async function onSelect(item: ExperienceListItem) {
@@ -63,11 +63,11 @@ async function onSelect(item: ExperienceListItem) {
         @click="onSelect(item)"
       >
         <div class="experience-card__title">
-          {{ displayTitle(item.title) }}
+          {{ item.title }}
         </div>
         <div class="experience-card__body">
           <p class="line-clamp-3">
-            {{ item.excerpt || ' ' }}
+            {{ formatExperienceCardExcerpt(item.excerpt) }}
           </p>
         </div>
       </button>

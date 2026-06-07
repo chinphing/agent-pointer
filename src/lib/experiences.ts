@@ -3,11 +3,24 @@ import type {
   ExperienceHomeResponse,
   ExperienceListItem,
 } from '../types/experience'
+import { truncateExperienceCardExcerpt } from './experienceCardLimits'
 import { isTauriRuntime } from './runtime'
 import { invoke } from '@tauri-apps/api/core'
 import { WEB_API_BASE } from './runtime'
 
+export { EXPERIENCE_CARD_NARRATIVE_MAX, EXPERIENCE_CARD_TITLE_MAX } from './experienceCardLimits'
+export { truncateExperienceCardExcerpt, truncateExperienceCardTitle } from './experienceCardLimits'
+
 const REQUEST_TIMEOUT_MS = 12_000
+
+/** Card preview: collapse numbered lists, then apply narrative length cap. */
+export function formatExperienceCardExcerpt(raw: string | null | undefined): string {
+  const text = (raw ?? '').replace(/\s+/g, ' ').trim()
+  if (!text) return ' '
+  const numbered = text.match(/^1[.)．、]\s*(.+?)(?:\s+2[.)．、]\s|$)/)
+  const normalized = numbered ? numbered[1].trim() : text
+  return truncateExperienceCardExcerpt(normalized)
+}
 
 async function webRequest<T>(path: string): Promise<T> {
   const controller = new AbortController()

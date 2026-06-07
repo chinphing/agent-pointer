@@ -1,4 +1,8 @@
-import type { ExperienceDetail, ExperienceListItem } from '../types/experience'
+import type {
+  ExperienceDetail,
+  ExperienceHomeResponse,
+  ExperienceListItem,
+} from '../types/experience'
 import { isTauriRuntime } from './runtime'
 import { invoke } from '@tauri-apps/api/core'
 import { WEB_API_BASE } from './runtime'
@@ -17,11 +21,30 @@ async function webRequest<T>(path: string): Promise<T> {
   }
 }
 
+/** @deprecated use listExperienceHome */
 export async function listPinnedExperiences(limit = 3): Promise<ExperienceListItem[]> {
   if (isTauriRuntime()) {
     return await invoke<ExperienceListItem[]>('list_pinned_experiences', { limit })
   }
   return await webRequest<ExperienceListItem[]>(`/api/experiences/pinned?limit=${limit}`)
+}
+
+export async function listExperienceHome(): Promise<ExperienceHomeResponse> {
+  if (isTauriRuntime()) {
+    return await invoke<ExperienceHomeResponse>('list_experience_home')
+  }
+  return await webRequest<ExperienceHomeResponse>('/api/experiences/home')
+}
+
+export async function searchExperiences(query: string, limit = 20): Promise<ExperienceListItem[]> {
+  const q = query.trim()
+  if (!q) return []
+  if (isTauriRuntime()) {
+    return await invoke<ExperienceListItem[]>('search_experiences', { query: q, limit })
+  }
+  return await webRequest<ExperienceListItem[]>(
+    `/api/experiences/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+  )
 }
 
 export async function getExperienceDetail(slug: string): Promise<ExperienceDetail> {

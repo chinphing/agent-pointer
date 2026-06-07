@@ -113,6 +113,8 @@ async fn main() -> anyhow::Result<()> {
             get(load_conversations).put(save_conversations),
         )
         .route("/api/experiences/pinned", get(list_pinned_experiences))
+        .route("/api/experiences/home", get(get_experience_home))
+        .route("/api/experiences/search", get(search_experiences))
         .route("/api/experiences/:slug", get(get_experience_detail))
         .route("/api/chat", post(send_chat))
         .route("/api/chat/:conversation_id/cancel", post(cancel_chat))
@@ -480,6 +482,26 @@ async fn list_pinned_experiences(
 ) -> Result<Json<Vec<pointer_core::experiences::ExperienceListItem>>, ApiError> {
     let n = q.limit.unwrap_or(3).max(1).min(10) as usize;
     let rows = pointer_core::experiences::fetch_pinned_experiences(n).await?;
+    Ok(Json(rows))
+}
+
+async fn get_experience_home() -> Result<Json<pointer_core::experiences::ExperienceHomeResponse>, ApiError> {
+    let home = pointer_core::experiences::fetch_experience_home().await?;
+    Ok(Json(home))
+}
+
+#[derive(Deserialize)]
+struct SearchExperiencesQuery {
+    q: Option<String>,
+    limit: Option<u32>,
+}
+
+async fn search_experiences(
+    Query(q): Query<SearchExperiencesQuery>,
+) -> Result<Json<Vec<pointer_core::experiences::ExperienceListItem>>, ApiError> {
+    let query = q.q.unwrap_or_default();
+    let n = q.limit.unwrap_or(20).max(1).min(50) as usize;
+    let rows = pointer_core::experiences::fetch_experience_search(&query, n).await?;
     Ok(Json(rows))
 }
 

@@ -2,7 +2,7 @@
 import { computed, defineAsyncComponent, defineComponent, h } from 'vue'
 import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
-import ExperienceSuggestions from './ExperienceSuggestions.vue'
+import ExperienceHomePanel from './ExperienceHomePanel.vue'
 import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
@@ -102,7 +102,7 @@ const toastClass = computed(() => {
             </p>
 
             <div class="mt-8 w-full">
-              <ExperienceSuggestions />
+              <ExperienceHomePanel />
             </div>
 
             <div v-if="needsPlatformLogin" class="mt-8 flex w-full max-w-sm flex-col items-center">

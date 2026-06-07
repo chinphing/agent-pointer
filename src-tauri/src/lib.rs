@@ -173,6 +173,8 @@ pub fn run() {
             commands::load_conversations,
             commands::save_conversations,
             commands::list_pinned_experiences,
+            commands::list_experience_home,
+            commands::search_experiences,
             commands::get_experience_detail,
             platform_commands::get_platform_session,
             platform_commands::open_platform_login,

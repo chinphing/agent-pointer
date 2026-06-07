@@ -1,4 +1,4 @@
-//! Platform experience (SOP) list/detail for new-session home suggestions.
+//! Platform experience (SOP) list/detail/home for new-session welcome panel.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,16 @@ pub struct ExperienceListItem {
     pub excerpt: String,
     #[serde(default)]
     pub pinned: bool,
+    #[serde(default)]
+    pub featured: bool,
+    #[serde(default)]
+    pub category_id: Option<String>,
+    #[serde(default)]
+    pub category_name_zh: Option<String>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub cover_image_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +35,25 @@ pub struct ExperienceDetail {
     pub prompt_text: String,
     #[serde(default)]
     pub narrative_text: Option<String>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub category_id: Option<String>,
+    #[serde(default)]
+    pub cover_image_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExperienceHomeCategoryBlock {
+    pub id: String,
+    pub name_zh: String,
+    pub items: Vec<ExperienceListItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExperienceHomeResponse {
+    pub featured: Vec<ExperienceListItem>,
+    pub categories: Vec<ExperienceHomeCategoryBlock>,
 }
 
 fn experiences_client() -> Result<reqwest::Client> {
@@ -37,7 +66,7 @@ fn experiences_client() -> Result<reqwest::Client> {
 pub async fn fetch_pinned_experiences(limit: usize) -> Result<Vec<ExperienceListItem>> {
     let limit = limit.max(1).min(20);
     let url = format!(
-        "{}/api/experiences?pinned_only=true&limit={limit}",
+        "{}/api/experiences?pinned_only=true&page_size={limit}",
         platform_endpoints::api_base().trim_end_matches('/')
     );
     let client = experiences_client()?;
@@ -52,6 +81,47 @@ pub async fn fetch_pinned_experiences(limit: usize) -> Result<Vec<ExperienceList
         .await
         .context("parse experiences list json")?;
     Ok(rows.into_iter().take(limit).collect())
+}
+
+pub async fn fetch_experience_home() -> Result<ExperienceHomeResponse> {
+    let url = format!(
+        "{}/api/experiences/home",
+        platform_endpoints::api_base().trim_end_matches('/')
+    );
+    let client = experiences_client()?;
+    client
+        .get(&url)
+        .send()
+        .await
+        .with_context(|| format!("GET {url}"))?
+        .error_for_status()
+        .with_context(|| format!("experiences home bad status for {url}"))?
+        .json()
+        .await
+        .context("parse experiences home json")
+}
+
+pub async fn fetch_experience_search(query: &str, limit: usize) -> Result<Vec<ExperienceListItem>> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+    let limit = limit.max(1).min(50);
+    let base = platform_endpoints::api_base();
+    let base = base.trim_end_matches('/');
+    let client = experiences_client()?;
+    let rows: Vec<ExperienceListItem> = client
+        .get(format!("{base}/api/experiences"))
+        .query(&[("q", q), ("page_size", &limit.to_string())])
+        .send()
+        .await
+        .with_context(|| format!("GET {base}/api/experiences?q=..."))?
+        .error_for_status()
+        .with_context(|| "experiences search bad status")?
+        .json()
+        .await
+        .context("parse experiences search json")?;
+    Ok(rows)
 }
 
 pub async fn fetch_experience_detail(slug: &str) -> Result<ExperienceDetail> {

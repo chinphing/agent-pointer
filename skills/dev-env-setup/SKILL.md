@@ -1,7 +1,7 @@
 ---
 id: dev-env-setup
 name: dev-env-setup
-description: 国内环境下安装主流开发语言（Node.js/Python/Java/Go/Rust/.NET/C/C++/Kotlin/Swift）。每个语言有独立安装指南，references/ 下按需读取。
+description: 国内环境下安装主流开发语言（Node.js/Python/Java/Go/Rust/.NET/C/C++/Kotlin/Swift/Git）。每个语言有独立安装指南，references/ 下按需读取。
 resources:
   - references/node-js.md
   - references/python.md
@@ -12,6 +12,7 @@ resources:
   - references/c-cpp.md
   - references/kotlin.md
   - references/swift.md
+  - references/git.md
 ---
 
 # dev-env-setup
@@ -32,14 +33,14 @@ resources:
 
 ### 第一步：确认用户需求
 
-确定用户需要的**语言**、**操作系统**（macOS / Linux / Windows）和**用途**（Web 开发 / 数据分析 / 后端 / 系统编程等）。
+确定用户需要的**语言/工具**、**操作系统**（macOS / Linux / Windows）和**用途**（Web 开发 / 数据分析 / 后端 / 系统编程等）。
 
 ### 第二步：加载对应语言指南
 
 根据用户需求，从 `references/` 加载对应文件：
 
-| 文件 | 语言 | 覆盖内容 |
-|------|------|---------|
+| 文件 | 语言/工具 | 覆盖内容 |
+|------|-----------|---------|
 | references/node-js.md | Node.js (JS/TS) | nvm + npm + 华为镜像 |
 | references/python.md | Python | pyenv + pip + 华为镜像 |
 | references/java.md | Java | JDK 21 LTS + Maven/Gradle **清华镜像** |
@@ -49,3 +50,4 @@ resources:
 | references/c-cpp.md | C/C++ | MinGW/MSVC + vcpkg |
 | references/kotlin.md | Kotlin | SDKMAN / 手动 + 华为镜像 |
 | references/swift.md | Swift | Xcode / Toolchain + 清华镜像 |
+| references/git.md | Git | 华为镜像下载安装 / Linux/macOS 包管理器 + 基础配置 |

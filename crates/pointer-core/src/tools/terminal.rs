@@ -165,6 +165,8 @@ pub fn run_terminal_command_streaming(
 
     let env_file_paths = resolve_terminal_env_files(&args, cwd.as_deref())?;
 
+    crate::shell_env::refresh_process_path_from_registry();
+
     let (_shell, mut cmd) = terminal_shell_command(command);
     if let Some(dir) = &cwd {
         cmd.current_dir(dir);
@@ -384,8 +386,29 @@ fn parse_terminal_cwd(value: Option<&serde_json::Value>) -> Result<Option<PathBu
     Ok(Some(path))
 }
 
+/// True when `command` already invokes cmd or PowerShell at the start — run via `cmd.exe /C` as-is.
+pub(crate) fn windows_command_uses_explicit_shell(command: &str) -> bool {
+    let lower = command.trim().to_ascii_lowercase();
+    const PREFIXES: &[&str] = &[
+        "cmd ",
+        "cmd.exe",
+        "cmd/c",
+        "cmd.exe/c",
+        "powershell ",
+        "powershell.exe",
+        "pwsh ",
+        "pwsh.exe",
+    ];
+    PREFIXES.iter().any(|p| lower.starts_with(p))
+}
+
 #[cfg(windows)]
 fn terminal_shell_command(command: &str) -> (&'static str, Command) {
+    if windows_command_uses_explicit_shell(command) {
+        let mut cmd = Command::new("cmd.exe");
+        cmd.arg("/C").arg(command);
+        return ("cmd.exe /C (explicit shell in command)", cmd);
+    }
     let mut cmd = Command::new("powershell");
     cmd.arg("-ExecutionPolicy")
         .arg("Bypass")
@@ -436,4 +459,32 @@ fn truncate_output(bytes: &[u8], max_bytes: usize) -> (String, bool) {
     let mut text = String::from_utf8_lossy(&bytes[..end]).to_string();
     text.push_str("\n...[output truncated]");
     (text, true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_explicit_shell_detects_cmd_prefix() {
+        assert!(windows_command_uses_explicit_shell(
+            r#"cmd.exe /c "python --version""#
+        ));
+        assert!(windows_command_uses_explicit_shell("cmd /c dir"));
+    }
+
+    #[test]
+    fn windows_explicit_shell_detects_powershell_prefix() {
+        assert!(windows_command_uses_explicit_shell(
+            "powershell -Command Get-Location"
+        ));
+        assert!(windows_command_uses_explicit_shell("pwsh -c $PSVersionTable"));
+    }
+
+    #[test]
+    fn windows_explicit_shell_false_for_plain_commands() {
+        assert!(!windows_command_uses_explicit_shell("python --version"));
+        assert!(!windows_command_uses_explicit_shell("npm run build"));
+        assert!(!windows_command_uses_explicit_shell("git status"));
+    }
 }

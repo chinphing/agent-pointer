@@ -38,11 +38,16 @@ Use when you need the shell for builds, checks, tests, directory listings, or ot
 - Prefer running inside the workspace; set **`cwd`** explicitly when required.
 - **Path discipline:** Do **not** put `cd /some/absolute/path` in **`command`** unless that path is the injected **workspace root**, a path returned by **`file`** / prior **`terminal`** output in **this** session, or the user pasted it verbatim. **Never invent** repo paths from memory or project names.
 - For git in the current project: omit `cd` (default cwd is the workspace root) or run **`git -C "<workspace_root>" …`** using the root from session context—not a guessed path.
-- On Windows, commands run via `powershell -ExecutionPolicy Bypass -Command` (user PowerShell profile is loaded so fnm/nvm PATH hooks apply); keep commands portable when you can.
+- **Windows shell (you choose):** The host picks the wrapper from your **`command`** text:
+  - **Default** — no `cmd` / `powershell` / `pwsh` prefix → host runs **`powershell -ExecutionPolicy Bypass -Command`** (user PowerShell profile loaded).
+  - **Explicit CMD** — start with **`cmd.exe /c "…"`** or **`cmd /c "…"`** → host runs **`cmd.exe /C`** with your string as-is (Command Prompt semantics). Use for batch-style tools, `2>&1`, or when PowerShell aliases/redirects get in the way.
+  - **Explicit PowerShell** — start with **`powershell …`** or **`pwsh …`** → host runs **`cmd.exe /C`** with your string as-is (you own flags/profile).
+  - **Do not double-wrap** — never prefix a command that already starts with `cmd` / `powershell` / `pwsh`.
+  - When unsure on Windows, prefer **`cmd.exe /c "…"`** for simple CLI checks (`python --version`, `npm -v`, `git status`).
 - Do not run destructive commands unless the user clearly asked and approval allows it.
 - Do not read or exfiltrate secrets via the terminal.
 - **Default user env:** When **`envFiles`** is omitted, the host loads the app data directory **`.env`** (see **App data directory** in session context) if that file exists. Users store personal / cross-project vars there (e.g. API keys).
-- **Project env:** When a command needs workspace-specific vars, pass **`envFiles`** with paths to project `.env` files. Variables from loaded files are **supplementary** env: they apply only when the host process does not already define the same key. Later entries in **`envFiles`** override earlier ones within that supplemental layer. Paths may be absolute or relative to **`cwd`** (or the workspace root when **`cwd`** is omitted).
+- **Project env:** When a command needs workspace-specific vars, pass **`envFiles`** with paths to project `.env` files. Loaded vars apply to the **child shell only** (non-`PATH` keys override inherited values; `PATH` is prepended before inherited `PATH`). Later entries in **`envFiles`** override earlier ones. Paths may be absolute or relative to **`cwd`** (or the workspace root when **`cwd`** is omitted).
 
 The result includes `stdout`, `stderr`, exit code, timing, truncation flags, **`envFiles`** (resolved paths that were loaded), and **`cancelled`** when the host stopped the turn; it may set **`runAborted`: true** when only this command was stopped and the turn continues—treat that as an interrupted run, not a full turn cancel. When replying, summarize only output relevant to the task.
 
@@ -59,7 +64,7 @@ Either limit can stop the process (**`timedOut`** in the result). Set both per c
 
 #### Parameters
 
-- **`command`** (required) — The shell command to run. Windows: `powershell -ExecutionPolicy Bypass -Command` (profile loaded); macOS/Linux: `sh -lc`.
+- **`command`** (required) — The shell command to run. Windows: default **PowerShell** wrapper unless the command already starts with `cmd` / `powershell` / `pwsh` (then run as-is via `cmd.exe /C`). macOS/Linux: `sh -lc`.
 - **`cwd`** (optional) — Working directory; must be an existing directory.
 - **`timeoutMs`** (optional) — See **Timeouts**.
 - **`maxWallMs`** (optional) — See **Timeouts**.

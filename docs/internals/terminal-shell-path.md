@@ -12,9 +12,20 @@ Implementation: `crates/pointer-core/src/shell_env.rs`.
 
 ## Windows
 
-The `terminal` tool runs `powershell -ExecutionPolicy Bypass -Command` **with the user PowerShell profile loaded** (no `-NoProfile`), so fnm/nvm-style PATH hooks in `$PROFILE` apply per command.
+On app startup, `AppState::new()` calls `shell_env::bootstrap_process_path_from_login_shell()`. Before each **`terminal`** tool run on Windows, `shell_env::refresh_process_path_from_registry()` runs the same merge again (native registry read via `winreg`, under ~1 ms).
 
-Tradeoff: slower and profile-dependent; see product notes in agent discussions.
+- Reads **Machine + User** `Path` from the registry (`HKLM\...\Environment`, `HKCU\Environment`) and merges into the Pointer process `PATH`.
+- Moves `WindowsApps` app-execution-alias entries (e.g. Store `python.exe` stub) to the **end** so a real install wins.
+- Installing or changing system `Path` while Pointer is open takes effect on the **next** terminal command (no app restart).
+
+The `terminal` tool picks the Windows wrapper from the model-supplied **`command`**:
+
+| Command prefix | Host behavior |
+|----------------|---------------|
+| (none) | `powershell -ExecutionPolicy Bypass -Command` (profile loaded) |
+| `cmd` / `cmd.exe` / `powershell` / `pwsh` | `cmd.exe /C <command>` as-is — no second wrapper |
+
+Prompt: `tools/prompts/terminal.md` tells the model to prefix **`cmd.exe /c "…"`** when CMD semantics are needed. Profile-only PATH hooks still require registry/`Path`, startup merge, or `{app_data_dir}/.env`.
 
 ## Supplementary `.env` files
 
@@ -25,8 +36,9 @@ Optional **`envFiles`** overrides the default and loads only the listed paths (f
 Merge rules:
 
 1. The subprocess inherits the Pointer process environment (including the merged login-shell `PATH` on Unix).
-2. Variables from `.env` files are applied **only for keys not already set** in that inherited environment.
-3. When multiple files are listed, later files override earlier ones within the supplemental layer.
+2. Non-`PATH` variables from `.env` **override** the inherited value for the child only (host process unchanged).
+3. `PATH` from `.env` is **prepended** before the inherited `PATH` (deduplicated). `%PATH%` / `$PATH` in the `.env` value is expanded before merge.
+4. When multiple files are listed, later files override earlier ones within the merged layer.
 
 Relative paths resolve against the effective **`cwd`** (or workspace root when **`cwd`** is omitted). Absolute paths are allowed when the file exists.
 

@@ -1,14 +1,17 @@
-//! Parse `.env` files and apply variables as **supplementary** child-process env
-//! (never override keys already set in the host process).
+//! Parse `.env` files and apply variables to **terminal child processes**.
+//!
+//! Non-`PATH` keys from `.env` override inherited values for the child only (host unchanged).
+//! `PATH` is **prepended** ahead of the inherited process `PATH` (Windows `;`, Unix `:`).
 
 use anyhow::{anyhow, Result};
-use log::warn;
+use log::{info, warn};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Parse a dotenv file into key/value pairs. Later duplicate keys in the same file win.
 pub fn parse_dotenv_bytes(content: &[u8]) -> HashMap<String, String> {
+    let content = strip_utf8_bom(content);
     let text = String::from_utf8_lossy(content);
     let mut out = HashMap::new();
     for line in text.lines() {
@@ -20,7 +23,7 @@ pub fn parse_dotenv_bytes(content: &[u8]) -> HashMap<String, String> {
     out
 }
 
-/// Load one or more `.env` files (in order) and apply only keys missing from the host process.
+/// Load one or more `.env` files (in order) and apply them to a child `Command`.
 pub fn apply_supplemental_env_files(
     cmd: &mut Command,
     env_files: &[PathBuf],
@@ -35,6 +38,7 @@ pub fn apply_supplemental_env_files(
                     merged.insert(k, v);
                 }
                 loaded.push(path.display().to_string());
+                info!("dotenv: loaded {}", path.display());
             }
             Err(e) => {
                 warn!(
@@ -46,13 +50,42 @@ pub fn apply_supplemental_env_files(
     }
 
     for (key, value) in merged {
-        if std::env::var(&key).is_ok() {
-            continue;
-        }
-        cmd.env(key, value);
+        let applied = env_value_for_child(&key, &value);
+        cmd.env(&key, applied);
     }
 
     loaded
+}
+
+/// Resolve the value to set on a child process for one `.env` entry.
+pub fn env_value_for_child(key: &str, value: &str) -> String {
+    if key.eq_ignore_ascii_case("PATH") {
+        let inherited = inherited_process_path();
+        let expanded = expand_path_value_placeholders(value, &inherited);
+        let merged = crate::shell_env::merge_path_entries(&inherited, &expanded);
+        return crate::shell_env::demote_windows_app_execution_aliases(&merged);
+    }
+    value.to_string()
+}
+
+fn inherited_process_path() -> String {
+    std::env::var("PATH")
+        .or_else(|_| std::env::var("Path"))
+        .unwrap_or_default()
+}
+
+fn expand_path_value_placeholders(value: &str, inherited_path: &str) -> String {
+    let mut out = value.replace("$PATH", inherited_path);
+    for pattern in ["%PATH%", "%Path%", "%path%", "%PATH", "%Path", "%path"] {
+        if out.contains(pattern) {
+            out = out.replace(pattern, inherited_path);
+        }
+    }
+    out
+}
+
+fn strip_utf8_bom(content: &[u8]) -> &[u8] {
+    content.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(content)
 }
 
 /// Default user env file under the app data directory (`PointerApp/.env`).
@@ -229,17 +262,58 @@ mod tests {
     }
 
     #[test]
-    fn supplemental_does_not_override_process_env() {
+    fn dotenv_overrides_non_path_for_child() {
         let _guard = env_test_guard();
         let key = "POINTER_DOTENV_TEST_ONLY";
         std::env::set_var(key, "from_process");
-        let mut cmd = Command::new("sh");
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join(".env");
-        std::fs::write(&path, format!("{key}=from_file\nOTHER_FROM_FILE=1\n")).unwrap();
-        let loaded = apply_supplemental_env_files(&mut cmd, &[path]);
-        assert_eq!(loaded.len(), 1);
+        assert_eq!(
+            env_value_for_child(key, "from_file"),
+            "from_file",
+            "child should use .env value even when host defines the key"
+        );
         std::env::remove_var(key);
+    }
+
+    #[test]
+    fn dotenv_path_prepends_before_inherited() {
+        let _guard = env_test_guard();
+        #[cfg(windows)]
+        {
+            std::env::set_var("PATH", r"C:\Windows\System32");
+            assert_eq!(
+                env_value_for_child("PATH", r"C:\Python314"),
+                r"C:\Python314;C:\Windows\System32"
+            );
+        }
+        #[cfg(not(windows))]
+        {
+            std::env::set_var("PATH", "/usr/bin");
+            assert_eq!(
+                env_value_for_child("PATH", "/opt/python/bin"),
+                "/opt/python/bin:/usr/bin"
+            );
+        }
+    }
+
+    #[test]
+    fn dotenv_path_expands_percent_path_placeholder() {
+        let _guard = env_test_guard();
+        std::env::set_var("PATH", "/usr/bin");
+        assert_eq!(
+            env_value_for_child("PATH", "/opt/python:%PATH%"),
+            "/opt/python:/usr/bin"
+        );
+        assert_eq!(
+            env_value_for_child("PATH", "/opt/python:%PATH"),
+            "/opt/python:/usr/bin"
+        );
+    }
+
+    #[test]
+    fn parse_strips_utf8_bom() {
+        let content = b"\xEF\xBB\xBFFOO=bar\n";
+        let m = parse_dotenv_bytes(content);
+        assert_eq!(m.get("FOO").map(|s| s.as_str()), Some("bar"));
     }
 
     #[test]

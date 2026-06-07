@@ -11,17 +11,22 @@ fi
 sudo apt-get update
 sudo apt-get install -y \
   libwebkit2gtk-4.1-dev \
+  libglib2.0-dev \
   build-essential \
   pkg-config \
   curl \
   wget \
   file \
   libfuse2 \
+  squashfs-tools \
   patchelf \
   zsync \
   libxdo-dev \
   libssl-dev \
   libayatana-appindicator3-dev \
+  libgtk-3-dev \
+  libgtk-3-bin \
+  libgdk-pixbuf-2.0-dev \
   librsvg2-dev \
   gstreamer1.0-plugins-base \
   gstreamer1.0-plugins-good \
@@ -34,5 +39,25 @@ sudo apt-get install -y \
   libegl1-mesa-dev \
   libdrm-dev \
   libwayland-dev
+
+missing=0
+for pkg in glib-2.0 gtk+-3.0 gdk-pixbuf-2.0 librsvg-2.0; do
+  if pkg-config --exists "$pkg" 2>/dev/null; then
+    echo "ok: $pkg"
+  else
+    echo "install-linux-build-deps.sh: pkg-config missing $pkg" >&2
+    missing=1
+  fi
+done
+if command -v gtk-query-immodules-3.0 >/dev/null 2>&1; then
+  echo "ok: gtk-query-immodules-3.0"
+else
+  echo "install-linux-build-deps.sh: gtk-query-immodules-3.0 not in PATH (libgtk-3-bin)" >&2
+  missing=1
+fi
+if [ "$missing" -ne 0 ]; then
+  echo "Some AppImage (linuxdeploy gtk plugin) prerequisites are still missing." >&2
+  exit 1
+fi
 
 echo "Linux build dependencies installed."

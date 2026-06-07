@@ -166,39 +166,43 @@ CI 使用 **ubuntu-22.04**；Ubuntu 24.04 同样适用下列依赖。
 
 ```bash
 sudo apt-get update
+sudo apt-get install -y build-essential pkg-config
+# 或一次性安装 Tauri Linux 打包全套依赖：
+# bash scripts/install-linux-build-deps.sh
+```
+
+完整 Tauri 打包还需 WebKitGTK、FUSE、GStreamer 等，见 `scripts/install-linux-build-deps.sh` 或下文「打包」一节。
+
+仅编译 Rust 原生依赖（如 `xcap`）时，可再装：
+
+```bash
 sudo apt-get install -y \
   libwebkit2gtk-4.1-dev \
-  build-essential \
-  pkg-config \
-  curl \
-  wget \
-  file \
-  libfuse2 \
-  patchelf \
-  zsync \
-  libxdo-dev \
-  libssl-dev \
-  libayatana-appindicator3-dev \
-  librsvg2-dev \
-  gstreamer1.0-plugins-base \
-  gstreamer1.0-plugins-good \
-  gstreamer1.0-plugins-bad \
-  gstreamer1.0-libav \
   libpipewire-0.3-dev \
   libspa-0.2-dev \
   libclang-dev \
   libgbm-dev \
   libegl1-mesa-dev \
   libdrm-dev \
-  libwayland-dev
+  libwayland-dev \
+  build-essential \
+  ca-certificates \
+  pkg-config \
+  libxdo-dev \
+  librsvg2-dev \
+  libgdk-pixbuf-2.0-dev \
+  libgtk-3-dev \
+  libgtk-3-bin \
+  patchelf
 ```
 
 说明：
 
-- `libwebkit2gtk-4.1-dev`：Tauri 2 WebView（**4.1**，不是旧版 4.0）
+- `build-essential`：提供 `gcc`/`cc` 链接器；缺了会报 **`linker cc not found`**
+- `libwebkit2gtk-4.1-dev`、`libglib2.0-dev`：Tauri 桌面壳依赖 GTK/WebKit；缺了会报 **`glib-sys` / `Package 'glib-2.0' not found`**
 - `libpipewire-0.3-dev`、`libspa-0.2-dev`：Linux 截图库 `xcap` 编译所需（缺了会报 `libspa-sys` / `libpipewire-0.3` not found）
 - `libclang-dev`：`libspa-sys` 通过 bindgen 生成 C 绑定时需要 `libclang.so`（缺了会报 `Unable to find libclang`）
-- `libxdo-dev`：电脑操控 agent 合成键鼠（X11）
+- `libxdo-dev`：电脑操控 agent（`enigo`）链接 `libxdo`；缺了会报 **`unable to find library -lxdo`**
 - Wayland 下截图/输入能力因 compositor 而异，复杂场景建议 X11 会话验证
 
 **Fedora / RHEL** 等发行版需自行对照安装 WebKitGTK 4.1、ayatana-appindicator、librsvg 等同名开发包；本文以 Ubuntu 为准。
@@ -211,8 +215,8 @@ curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
 # Rust
-export RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static
-export RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup
+export RUSTUP_DIST_SERVER=https://mirrors.tuna.tsinghua.edu.cn/rustup
+export RUSTUP_UPDATE_ROOT=https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source "$HOME/.cargo/env"
 ```
@@ -275,11 +279,13 @@ src-tauri/target/release/pointer-app
 
 | 现象 | 处理 |
 |------|------|
-| `failed to run linuxdeploy`（AppImage 阶段） | 运行 `bash scripts/install-linux-build-deps.sh` 安装依赖；**必须**用 `npm run tauri:build`（自动 `NO_STRIP=true`），勿直接 `npx tauri build`；查看详情：`npm run tauri:build -- --bundles appimage --verbose`；Docker/无 FUSE 环境已自动设 `APPIMAGE_EXTRACT_AND_RUN=1` |
+| `failed to run linuxdeploy`（AppImage 阶段） | ① **deb 已成功时**可先用 `bundle/deb/*.deb`；② 跑 `bash scripts/install-linux-build-deps.sh`（含 `libfuse2`、`squashfs-tools`、`patchelf`、`file`）；③ **必须** `npm run tauri:build`（自动 `NO_STRIP=true` + `APPIMAGE_EXTRACT_AND_RUN=1`），勿 `cargo tauri build`；④ 看详情：`npm run tauri:build -- --bundles appimage --verbose`（常见为 `Strip call failed` / `.relr.dyn` → 确认 `NO_STRIP=true`） |
+| `no 'libdir' variable for 'librsvg-2.0'` / gtk plugin exit 1 | 安装 `librsvg2-dev libgdk-pixbuf-2.0-dev libgtk-3-dev libgtk-3-bin`；验证 `pkg-config --variable=libdir librsvg-2.0` 有输出 |
 | WebKitGTK 找不到 | 确认 `libwebkit2gtk-4.1-dev` 已安装 |
 | `libspa-sys` / `libpipewire-0.3` not found | 安装 `libpipewire-0.3-dev` 和 `libspa-0.2-dev`，然后重新 `npm run tauri:build` |
 | `Unable to find libclang`（bindgen） | 安装 `libclang-dev`（或 `clang`），必要时 `export LIBCLANG_PATH=/usr/lib/llvm-*/lib` |
 | `unable to find library -lgbm`（链接） | 安装 `libgbm-dev libegl1-mesa-dev libdrm-dev libwayland-dev` |
+| `unable to find library -lxdo`（链接） | 安装 `libxdo-dev`（已含在 `scripts/install-linux-build-deps.sh`） |
 | 电脑操控异常 | Wayland 限制；试 X11；确认 `libxdo-dev` 已装 |
 | 首次编译极慢 | 正常，Rust release 全量编译约 10–30 分钟 |
 

@@ -10,6 +10,7 @@ const env = { ...process.env };
 if (process.platform === 'linux') {
   env.NO_STRIP = 'true';
   env.APPIMAGE_EXTRACT_AND_RUN = '1';
+  console.log('[tauri-build] Linux: NO_STRIP=true, APPIMAGE_EXTRACT_AND_RUN=1');
 }
 
 const extra = process.argv.slice(2);

@@ -5,6 +5,7 @@
 
 use log::{info, warn};
 use std::collections::HashSet;
+#[cfg(unix)]
 use std::process::Command;
 
 const PATH_VAR: &str = "PATH";
@@ -163,19 +164,17 @@ fn read_login_shell_path() -> Option<String> {
 
 #[cfg(windows)]
 fn read_windows_registry_path() -> Option<String> {
-    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ};
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
     use winreg::RegKey;
 
     let machine = read_registry_path_value(
         &RegKey::predef(HKEY_LOCAL_MACHINE),
         r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
-        KEY_READ,
         "Machine",
     );
     let user = read_registry_path_value(
         &RegKey::predef(HKEY_CURRENT_USER),
         "Environment",
-        KEY_READ,
         "User",
     );
 
@@ -188,13 +187,8 @@ fn read_windows_registry_path() -> Option<String> {
 }
 
 #[cfg(windows)]
-fn read_registry_path_value(
-    hive: &RegKey,
-    subkey: &str,
-    flags: winreg::enums::RegOpenFlags,
-    label: &str,
-) -> Option<String> {
-    let key = hive.open_subkey_with_flags(subkey, flags).map_err(|e| {
+fn read_registry_path_value(hive: &winreg::RegKey, subkey: &str, label: &str) -> Option<String> {
+    let key = hive.open_subkey(subkey).map_err(|e| {
         warn!("shell_env: failed to open registry {label} Path ({subkey}): {e}");
         e
     }).ok()?;

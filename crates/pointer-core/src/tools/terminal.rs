@@ -387,7 +387,8 @@ fn parse_terminal_cwd(value: Option<&serde_json::Value>) -> Result<Option<PathBu
 }
 
 /// True when `command` already invokes cmd or PowerShell at the start — run via `cmd.exe /C` as-is.
-pub(crate) fn windows_command_uses_explicit_shell(command: &str) -> bool {
+#[cfg(windows)]
+fn windows_command_uses_explicit_shell(command: &str) -> bool {
     let lower = command.trim().to_ascii_lowercase();
     const PREFIXES: &[&str] = &[
         "cmd ",
@@ -461,7 +462,7 @@ fn truncate_output(bytes: &[u8], max_bytes: usize) -> (String, bool) {
     (text, true)
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
 

@@ -5,7 +5,10 @@ description: Handles general tasks, simple Q&A, summarization, and default fallb
 role: worker
 profile: general
 enabled: true
-defaultSkillIds: []
+defaultSkillIds:
+  - find-skills
+  - dev-env-setup
+  - skill-creator
 allowAgents:
   - coder
   - computer

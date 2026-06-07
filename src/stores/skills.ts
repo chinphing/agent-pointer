@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { importSkillZip, listSkills, reloadSkillMeta } from '../lib/api'
 import type { SkillDef, SkillImportResult } from '../types/chat'
+import { DEFAULT_ENABLED_SKILL_IDS } from '../types/chat'
 import { useSettingsStore } from './settings'
 
 
@@ -17,7 +18,10 @@ export const useSkillsStore = defineStore('skills', () => {
 
   function initEnabledFromUserSettings() {
     const user = useSettingsStore().userSettings
-    enabledIds.value = [...(user.enabledSkillIds ?? [])]
+    enabledIds.value =
+      user.enabledSkillIds !== undefined
+        ? [...user.enabledSkillIds]
+        : [...DEFAULT_ENABLED_SKILL_IDS]
   }
 
   async function persistEnabledIds() {

@@ -27,7 +27,7 @@ pub const AGENT_MODE_SINGLE: &str = "single";
 pub const AGENT_MODE_SUPERVISOR: &str = "supervisor";
 pub const DEFAULT_AGENT_ID: &str = "general";
 /// Default worker selected in single-agent mode when `leadAgentId` is unset.
-pub const DEFAULT_LEAD_AGENT_ID: &str = "computer";
+pub const DEFAULT_LEAD_AGENT_ID: &str = "general";
 pub const SUPERVISOR_AGENT_ID: &str = "supervisor";
 const AGENTS_DIR: &str = "agents";
 const AGENT_MANIFEST: &str = "AGENT.md";
@@ -1248,6 +1248,17 @@ mod builtin_agent_tests {
                 "general allowTools should include {tool}"
             );
         }
+        for skill in crate::skills::DEFAULT_ENABLED_SKILL_IDS {
+            assert!(
+                agent.def.default_skill_ids.iter().any(|id| id == skill),
+                "general defaultSkillIds should include {skill}"
+            );
+        }
+    }
+
+    #[test]
+    fn default_lead_agent_id_is_general() {
+        assert_eq!(DEFAULT_LEAD_AGENT_ID, "general");
     }
 
     #[test]

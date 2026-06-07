@@ -1,6 +1,10 @@
 pub mod builtin;
 pub mod external;
 
+/// Bundled skills enabled for new users when lead agent is `general`.
+pub const DEFAULT_ENABLED_SKILL_IDS: &[&str] =
+    &["find-skills", "dev-env-setup", "skill-creator"];
+
 use crate::models::{SkillDef, SkillImportResult};
 use anyhow::{anyhow, Result};
 use parking_lot::RwLock;

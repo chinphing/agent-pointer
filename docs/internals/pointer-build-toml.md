@@ -17,7 +17,7 @@ Only `[platform]` scalar keys are supported (`string`/`int`/`float`/`bool`).
 tool_approval_mode = "auto"
 agent_mode = "single"
 workspace_root = ""
-lead_agent_id = "computer"
+lead_agent_id = "general"
 user_dynamic_inject_enabled = true
 
 # model defaults

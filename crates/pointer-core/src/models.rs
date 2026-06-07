@@ -854,7 +854,7 @@ fn default_workspace_root() -> String {
 }
 
 fn default_lead_agent_id() -> String {
-    build_cfg_str!("LEAD_AGENT_ID", "computer")
+    build_cfg_str!("LEAD_AGENT_ID", "general")
 }
 
 fn default_computer_initial_tier() -> String {
@@ -1071,16 +1071,33 @@ pub fn find_dashscope_provider(settings: &ModelSettings) -> Option<&ProviderConf
 
 // ── User / platform config split ─────────────────────────────────────────────
 
+fn default_enabled_skill_ids() -> Vec<String> {
+    crate::skills::DEFAULT_ENABLED_SKILL_IDS
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect()
+}
+
 /// Persisted user preferences (theme, optional UI cache).
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
     #[serde(default = "default_theme", rename = "theme")]
     pub theme: String,
     #[serde(default, rename = "userNickname")]
     pub user_nickname: Option<String>,
     /// Globally enabled skill ids (UI + runtime when lead agent is `general`).
-    #[serde(default, rename = "enabledSkillIds")]
+    #[serde(default = "default_enabled_skill_ids", rename = "enabledSkillIds")]
     pub enabled_skill_ids: Vec<String>,
+}
+
+impl Default for UserSettings {
+    fn default() -> Self {
+        Self {
+            theme: default_theme(),
+            user_nickname: None,
+            enabled_skill_ids: default_enabled_skill_ids(),
+        }
+    }
 }
 
 /// Per-tier LLM overrides for Computer Use Agent.

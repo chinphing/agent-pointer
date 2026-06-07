@@ -21,7 +21,7 @@ import type {
   ThemePreference,
   UserSettings
 } from '../types/chat'
-import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
+import { DEFAULT_ENABLED_SKILL_IDS, DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { GENERAL_AGENT_ID } from '../lib/agentUi'
 import { applyTheme } from '../lib/theme'
 import {
@@ -39,7 +39,7 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   toolApprovalMode: 'auto',
   agentMode: 'single',
   workspaceRoot: '',
-  leadAgentId: 'computer',
+  leadAgentId: 'general',
   contextCompressionEnabled: true,
   contextBudgetTokens: 100_000,
   contextKeepRecentUserTurns: 3,
@@ -199,7 +199,10 @@ function normalizeAgentDefaultModels(
 }
 
 export const useSettingsStore = defineStore('settings', () => {
-  const userSettings = ref<UserSettings>({ theme: 'system' })
+  const userSettings = ref<UserSettings>({
+    theme: 'system',
+    enabledSkillIds: [...DEFAULT_ENABLED_SKILL_IDS]
+  })
   const platformSettings = ref<PlatformSettings>(defaultPlatformSettings())
   const settings = ref<ModelSettings>({
     ...defaultPlatformSettings(),

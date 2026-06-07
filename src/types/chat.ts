@@ -29,7 +29,14 @@ export interface ToolCall {
   displaySummary?: string
 }
 
-export const DEFAULT_LEAD_AGENT_ID = 'computer'
+export const DEFAULT_LEAD_AGENT_ID = 'general'
+
+/** Bundled skills enabled for new users when lead agent is `general`. */
+export const DEFAULT_ENABLED_SKILL_IDS = [
+  'find-skills',
+  'dev-env-setup',
+  'skill-creator'
+] as const
 
 export type AgentMode = 'single' | 'supervisor'
 

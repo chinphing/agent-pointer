@@ -35,16 +35,9 @@ source ~/.bashrc
 
 ## Windows
 
-Swift on Windows 仍属实验性，推荐使用 **WSL2** + Linux 方案，或直接使用 macOS 开发。
+Swift on Windows 仍属实验性，推荐使用 **WSL2** + Linux 方案，或直接使用 macOS。
 
-## 国内镜像源参考
-
-| 资源 | 镜像地址 |
-|------|---------|
-| Swift 二进制 | `https://mirrors.tuna.tsinghua.edu.cn/swift-server/` |
-| 华为镜像（如果支持） | `https://mirrors.huaweicloud.com/swift/` |
-
-## 验证
+### 验证
 
 ```bash
 swift --version

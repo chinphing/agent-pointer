@@ -27,9 +27,8 @@ sudo mkdir -p /usr/share/dotnet
 sudo tar -C /usr/share/dotnet -xzf /tmp/dotnet.tar.gz
 sudo ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
 echo 'export DOTNET_ROOT=/usr/share/dotnet' >> ~/.bashrc
-echo 'export PATH=$PATH:$DOTNET_ROOT' >> ~/.bashrc
+echo 'export PATH=$PATH:/usr/share/dotnet' >> ~/.bashrc
 source ~/.bashrc
-rm /tmp/dotnet.tar.gz
 ```
 
 ## Windows
@@ -41,34 +40,21 @@ $version = "8.0.405"
 $url = "https://mirrors.huaweicloud.com/dotnet/sdk/$version/dotnet-sdk-$version-win-x64.zip"
 Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\dotnet.zip"
 Expand-Archive -Path "$env:TEMP\dotnet.zip" -DestinationPath "C:\Program Files\dotnet" -Force
+[Environment]::SetEnvironmentVariable("PATH", "C:\Program Files\dotnet;$env:PATH", "Machine")
 [Environment]::SetEnvironmentVariable("DOTNET_ROOT", "C:\Program Files\dotnet", "Machine")
-$path = [Environment]::GetEnvironmentVariable("Path", "Machine")
-[Environment]::SetEnvironmentVariable("Path", "$path;C:\Program Files\dotnet", "Machine")
 ```
 
-或手动：
-1. 打开 `https://mirrors.huaweicloud.com/dotnet/sdk/8.0.405/`
-2. 下载 `dotnet-sdk-8.0.405-win-x64.zip`
-3. 解压到 `C:\Program Files\dotnet`
-4. 设置系统环境变量 `DOTNET_ROOT` + PATH
+---
 
 ## NuGet 华为镜像
 
-创建 `%USERPROFILE%\AppData\Roaming\NuGet\nuget.config`：
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<configuration>
-  <packageSources>
-    <clear />
-    <add key="nuget-huawei" value="https://mirrors.huaweicloud.com/repository/nuget/v3/index.json" />
-  </packageSources>
-</configuration>
+```bash
+dotnet nuget add source https://mirrors.huaweicloud.com/repository/nuget/ -n huawei
 ```
 
-## 验证
+### 验证
 
 ```bash
 dotnet --version
-dotnet new console -o hello && cd hello && dotnet run
+dotnet --list-sdks
 ```

@@ -1,12 +1,17 @@
 ---
+id: dev-env-setup
 name: dev-env-setup
-description: 国内环境下安装主流开发语言（Node.js/Python/Java/Go/Rust/.NET/C/C++）。当用户说"装环境"、"配置开发环境"、"安装XX"时触发。每个语言有独立安装指南，SKILL.md 仅做索引。
-metadata:
-  tags:
-    - environment
-    - development
-    - china
-    - setup
+description: 国内环境下安装主流开发语言（Node.js/Python/Java/Go/Rust/.NET/C/C++/Kotlin/Swift）。每个语言有独立安装指南，references/ 下按需读取。
+resources:
+  - references/node-js.md
+  - references/python.md
+  - references/java.md
+  - references/go.md
+  - references/rust.md
+  - references/dotnet.md
+  - references/c-cpp.md
+  - references/kotlin.md
+  - references/swift.md
 ---
 
 # dev-env-setup
@@ -37,32 +42,10 @@ metadata:
 |------|------|---------|
 | references/node-js.md | Node.js (JS/TS) | nvm + npm + 华为镜像 |
 | references/python.md | Python | pyenv + pip + 华为镜像 |
-| references/java.md | Java | JDK 21 LTS + Maven/Gradle 华为镜像 |
+| references/java.md | Java | JDK 21 LTS + Maven/Gradle **清华镜像** |
 | references/go.md | Go | go install + GOPROXY 华为镜像 |
-| references/rust.md | Rust | rustup + cargo + 华为镜像 |
+| references/rust.md | Rust | rustup + cargo + 国内镜像（清华/中科大/华为/阿里云/上海交大） |
 | references/dotnet.md | .NET (C#) | dotnet SDK + NuGet 华为镜像 |
-| references/c-cpp.md | C/C++ | macOS Xcode CLT / Linux GCC / MinGW 华为镜像 |
-| references/kotlin.md | Kotlin | SDKMAN / 华为镜像手动下载 |
-| references/swift.md | Swift | macOS Xcode / 清华镜像 |
-
-调用方式：`skill_read_resource` 读对应文件内容。
-
-### 第三步：按指南逐步执行
-
-将指南内容呈现给用户，配合终端工具执行安装命令。指南中的命令已适配华为云镜像，可直接运行。
-
-### 第四步：验证安装
-
-安装后建议验证：
-- `node --version && npm --version`
-- `python --version && pip --version`
-- `java --version`
-- 依此类推
-
-## 约束
-
-- **所有包管理器 / 安装命令均已切换到华为云镜像**（`mirrors.huaweicloud.com`）。
-- Windows 不再使用 winget/scoop 等包管理器安装，改为直接从华为镜像下载压缩包手动配置。
-- 不涉及 IDE 安装（VS Code / IntelliJ 等），聚焦运行时和包管理器。
-- 如用户明确需要使用国外源，尊重用户选择。
-- Swift 因华为镜像暂未覆盖，使用清华镜像作为替代。
+| references/c-cpp.md | C/C++ | MinGW/MSVC + vcpkg |
+| references/kotlin.md | Kotlin | SDKMAN / 手动 + 华为镜像 |
+| references/swift.md | Swift | Xcode / Toolchain + 清华镜像 |

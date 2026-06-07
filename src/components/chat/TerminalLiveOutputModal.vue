@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
-import { Loader2, Maximize2, Minimize2, Terminal, X } from 'lucide-vue-next'
+import { Maximize2, Minimize2, Terminal, X } from 'lucide-vue-next'
 
 const props = defineProps<{
   command: string
@@ -53,11 +53,11 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <div
-      class="fixed inset-0 z-[240] backdrop-blur-sm"
+      class="fixed inset-0 z-[240]"
       :class="
         fullscreen
           ? 'bg-[hsl(var(--card-elevated))]'
-          : 'flex items-center justify-center bg-black/55 p-4'
+          : 'flex items-center justify-center bg-black/60 p-4'
       "
       role="dialog"
       aria-modal="true"
@@ -82,7 +82,11 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
               <h2 class="text-base font-semibold text-foreground">终端输出</h2>
-              <Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-accent" aria-hidden="true" />
+              <span
+                class="inline-flex h-2 w-2 shrink-0 rounded-full bg-accent"
+                aria-hidden="true"
+                title="运行中"
+              />
             </div>
             <p class="mt-1 text-[12px] text-muted leading-relaxed">
               命令已运行超过 5 秒，实时显示已捕获的输出；可手动关闭，命令仍在后台执行。

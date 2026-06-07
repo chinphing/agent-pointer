@@ -23,42 +23,18 @@ $version = "2.1.0"  # 前往 https://mirrors.huaweicloud.com/kotlin/ 查看最�
 $url = "https://mirrors.huaweicloud.com/kotlin/kotlin-compiler-$version.zip"
 Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\kotlin.zip"
 Expand-Archive -Path "$env:TEMP\kotlin.zip" -DestinationPath "C:\kotlin" -Force
-[Environment]::SetEnvironmentVariable("Path", "$env:Path;C:\kotlin\kotlinc\bin", "User")
+[Environment]::SetEnvironmentVariable("PATH", "$env:PATH;C:\kotlin\kotlinc\bin", "User")
 ```
 
 或手动：
 1. 打开 `https://mirrors.huaweicloud.com/kotlin/`
-2. 下载 `kotlin-compiler-2.1.0.zip`
+2. 下载最新版 `kotlin-compiler-*.zip`
 3. 解压到 `C:\kotlin`
-4. 系统环境变量 PATH 添加 `C:\kotlin\kotlinc\bin`
-
-## Android 开发（Android Studio + Kotlin）
-
-国内 Android Studio 下载：https://developer.android.google.cn/studio
-
-### Gradle 华为镜像
-
-在项目根 `settings.gradle.kts` 中：
-
-```kotlin
-pluginManagement {
-    repositories {
-        maven { url = uri("https://mirrors.huaweicloud.com/repository/maven/") }
-        google { url = uri("https://maven.aliyun.com/repository/google") }
-        mavenCentral()
-    }
-}
-dependencyResolutionManagement {
-    repositories {
-        maven { url = uri("https://mirrors.huaweicloud.com/repository/maven/") }
-        google { url = uri("https://maven.aliyun.com/repository/google") }
-        mavenCentral()
-    }
-}
-```
+4. 将 `C:\kotlin\kotlinc\bin` 加入 PATH
 
 ### 验证
 
 ```bash
-kotlin -e 'println("Kotlin OK")'
+kotlin -version
+kotlinc -version
 ```

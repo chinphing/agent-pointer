@@ -1,7 +1,7 @@
 /** APP 经验卡片展示字数上限（须与官网 API `experience_card_limits.py` 一致） */
 
-export const EXPERIENCE_CARD_TITLE_MAX = 48
-export const EXPERIENCE_CARD_NARRATIVE_MAX = 120
+export const EXPERIENCE_CARD_TITLE_MAX = 15
+export const EXPERIENCE_CARD_NARRATIVE_MAX = 45
 
 export function truncateExperienceCardTitle(title: string): string {
   const t = title.trim()

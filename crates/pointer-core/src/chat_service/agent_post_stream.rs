@@ -136,7 +136,10 @@ pub(super) fn log_reasoning_and_output_segments(
     if reasoning_text.is_empty() && output_text.is_empty() && tool_text.is_empty() {
         return;
     }
-    log::info!(
+    if !crate::logging::internal_runtime_log_enabled() {
+        return;
+    }
+    log::debug!(
         "assistant_segments scope={} message_id={}\n[推理|reasoning]\n{}\n[输出|output]\n{}\n[工具原始输出|tool_raw_output]\n{}",
         scope,
         message_id,

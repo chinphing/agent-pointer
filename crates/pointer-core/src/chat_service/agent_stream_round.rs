@@ -316,8 +316,11 @@ fn log_tool_call_parsed_block(
     tool_name: &str,
     args: Option<&str>,
 ) {
+    if !crate::logging::internal_runtime_log_enabled() {
+        return;
+    }
     let args_text = args.map(compact_tool_args_for_log).unwrap_or_else(|| "(empty)".into());
-    log::info!(
+    log::debug!(
         "tool_call_segments message_id={} trace_id={} tool_call_id={} tool_name={}\n[工具调用解析|tool_call_parsed]\n{}\n[参数|args]\n{}",
         message_id,
         trace_id.unwrap_or("-"),

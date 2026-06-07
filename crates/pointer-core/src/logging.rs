@@ -99,6 +99,36 @@ pub fn install_panic_hook() {
     });
 }
 
+/// Whether to log chat internals: model id, reasoning/output text, tool names/args, stream bodies.
+///
+/// - **Release** (`not(debug_assertions)`): only when settings `debugMenusEnabled` is true.
+/// - **Dev cargo build**: on unless `POINTER_INTERNAL_RUNTIME_LOG=0`.
+pub fn internal_runtime_log_enabled() -> bool {
+    if crate::platform_config::effective_settings_global().debug_menus_enabled {
+        return true;
+    }
+    #[cfg(debug_assertions)]
+    {
+        match std::env::var("POINTER_INTERNAL_RUNTIME_LOG") {
+            Ok(v) if v == "0" || v.eq_ignore_ascii_case("false") => false,
+            _ => true,
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        false
+    }
+}
+
+/// Default `RUST_LOG` filter for desktop / dev when the env var is unset.
+pub fn default_runtime_log_filter() -> &'static str {
+    if internal_runtime_log_enabled() {
+        "warn,pointer_core=info,pointer_core::provider=debug,pointer_app_lib=info"
+    } else {
+        "warn,pointer_core=info,pointer_app_lib=info"
+    }
+}
+
 /// 桌面端：与 [`crate::storage::app_data_dir`] 一致的数据目录下的 `logs`。
 pub fn desktop_log_dir() -> PathBuf {
     crate::storage::app_data_dir()
@@ -145,4 +175,21 @@ pub fn init_runtime_logging(log_dir: &Path, default_filter: &str) -> Result<(), 
     log::info!("runtime log directory: {}", log_dir.display());
     install_panic_hook();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn release_default_filter_omits_provider_debug() {
+        #[cfg(not(debug_assertions))]
+        {
+            assert!(
+                !default_runtime_log_filter().contains("provider=debug"),
+                "release default filter must not enable provider debug: {}",
+                default_runtime_log_filter()
+            );
+        }
+    }
 }

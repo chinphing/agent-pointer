@@ -440,15 +440,17 @@ impl OpenAIProvider {
                 .send() => r?,
         };
         let http_until_headers_ms = t_http.elapsed().as_millis();
-        log::info!(
-            "stream_chat: build_openai_messages_ms={} http_until_response_headers_ms={} api_message_count={} system_prompt_block_count={} dump_label={:?} pre_body_stream_wall_ms={}",
-            build_openai_messages_ms,
-            http_until_headers_ms,
-            api_message_count,
-            system.slice_count(),
-            dump_label,
-            stream_t0.elapsed().as_millis()
-        );
+        if crate::logging::internal_runtime_log_enabled() {
+            log::debug!(
+                "stream_chat: build_openai_messages_ms={} http_until_response_headers_ms={} api_message_count={} system_prompt_block_count={} dump_label={:?} pre_body_stream_wall_ms={}",
+                build_openai_messages_ms,
+                http_until_headers_ms,
+                api_message_count,
+                system.slice_count(),
+                dump_label,
+                stream_t0.elapsed().as_millis()
+            );
+        }
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -642,8 +644,11 @@ fn snapshot_from_stream_usage(u: &StreamUsage) -> LlmUsageSnapshot {
     }
 }
 
-/// 流式：将模型增量原文连续写到 **stderr**（无换行、无序号前缀）。关闭：`POINTER_STREAM_RAW_LLM_TO_STDOUT=0`。
+/// 流式：将模型增量原文连续写到 **stderr**（无换行、无序号前缀）。需调试模式；关闭：`POINTER_STREAM_RAW_LLM_TO_STDOUT=0`。
 fn raw_llm_stream_to_console_enabled() -> bool {
+    if !crate::logging::internal_runtime_log_enabled() {
+        return false;
+    }
     match std::env::var("POINTER_STREAM_RAW_LLM_TO_STDOUT") {
         Ok(v) if v == "0" || v.eq_ignore_ascii_case("false") => false,
         _ => true,

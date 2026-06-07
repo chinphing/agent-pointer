@@ -299,13 +299,15 @@ impl ComputerState {
     ) -> crate::models::ModelSettings {
         let tier = self.tier_for_conversation(conversation_id);
         let o = ComputerRoundLlmOverrides::for_tier(tier, &self.effective_tier_config());
-        log::info!(
-            "computer_llm_round: conversation_id={conversation_id} tier={} model={} enable_thinking={} thinking_budget={:?}",
-            tier.label(),
-            o.model,
-            o.enable_thinking,
-            o.thinking_budget
-        );
+        if crate::logging::internal_runtime_log_enabled() {
+            log::debug!(
+                "computer_llm_round: conversation_id={conversation_id} tier={} model={} enable_thinking={} thinking_budget={:?}",
+                tier.label(),
+                o.model,
+                o.enable_thinking,
+                o.thinking_budget
+            );
+        }
         let mut s = settings.clone();
         s.model = o.model;
         s.round_enable_thinking = Some(o.enable_thinking);

@@ -82,13 +82,15 @@ pub(crate) fn sub_agent_provider(parent: &OpenAIProvider, sub_agent_id: &str) ->
     } else {
         parent.api_key.clone()
     };
-    log::info!(
-        "sub_agent model override agent_id={} provider={} model={} provider_switched={}",
-        sub_agent_id.trim(),
-        settings.active_provider_id,
-        settings.model,
-        provider_switched
-    );
+    if crate::logging::internal_runtime_log_enabled() {
+        log::debug!(
+            "sub_agent model override agent_id={} provider={} model={} provider_switched={}",
+            sub_agent_id.trim(),
+            settings.active_provider_id,
+            settings.model,
+            provider_switched
+        );
+    }
     OpenAIProvider::new(settings, api_key)
 }
 

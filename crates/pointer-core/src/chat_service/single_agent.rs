@@ -117,10 +117,12 @@ pub(super) async fn run_single_agent_loop(
             state.computer_state.apply_round_settings(conversation_id, settings)
         } else {
             let s = settings.clone();
-            log::info!(
-                "llm_round: conversation_id={conversation_id} profile={lead_profile:?} model={}",
-                s.model
-            );
+            if crate::logging::internal_runtime_log_enabled() {
+                log::debug!(
+                    "llm_round: conversation_id={conversation_id} profile={lead_profile:?} model={}",
+                    s.model
+                );
+            }
             s
         };
 

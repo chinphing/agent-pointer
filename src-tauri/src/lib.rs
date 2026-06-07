@@ -83,19 +83,17 @@ fn configure_macos_window_chrome(app: &tauri::App) {
 pub fn run() {
     pointer_core::logging::init_backtrace_defaults();
 
-    // `pointer_core::provider=debug`：流式/非流式请求结束后在 stderr 打印模型原始正文（含 XML 工具块），便于调试。
-    // `pointer_core::llm_token_stats=debug`：每轮 LLM 的 usage token 调试行（见 docs/llm/llm-token-usage-logging.md）。
-    const DEFAULT_LOG_FILTER: &str =
-        "warn,pointer_core=info,pointer_core::provider=debug,pointer_app_lib=info";
+    // 发布版默认不含 `pointer_core::provider=debug`；调试模式或 dev 构建见 `logging::default_runtime_log_filter`。
+    let default_log_filter = pointer_core::logging::default_runtime_log_filter();
     let log_dir = pointer_core::logging::desktop_log_dir();
     if let Err(err) =
-        pointer_core::logging::init_runtime_logging(&log_dir, DEFAULT_LOG_FILTER)
+        pointer_core::logging::init_runtime_logging(&log_dir, default_log_filter)
     {
         eprintln!(
             "Pointer: file logging unavailable ({err}); logs are stderr-only. log_dir={}",
             log_dir.display()
         );
-        pointer_core::logging::init_stderr_only_logging(DEFAULT_LOG_FILTER);
+        pointer_core::logging::init_stderr_only_logging(default_log_filter);
         pointer_core::logging::install_panic_hook();
     }
 

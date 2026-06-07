@@ -165,7 +165,7 @@ fn parse_tool_json_value(work_str: &str) -> Result<Value, String> {
     let fixed = fix_json(work_str);
     if let Ok(v) = serde_json::from_str::<Value>(&fixed) {
         if fixed != work_str {
-            log::info!(
+            log::debug!(
                 "json_tool_caller: parsed tool JSON after partial-json-fixer (chars {} -> {})",
                 work_str.chars().count(),
                 fixed.chars().count()

@@ -7,6 +7,7 @@ import {
   Database,
   Gauge,
   Info,
+  MessageSquare,
   Monitor,
   Moon,
   Network,
@@ -37,6 +38,7 @@ import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
 import ProviderSettingsPanel from './ProviderSettingsPanel.vue'
+import ChannelSettingsPanel from './ChannelSettingsPanel.vue'
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -116,7 +118,8 @@ const AGENT_OUTPUT_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
 ]
 
 const alwaysSections = [
-  { id: 'assistant', label: '智能体', desc: 'Computer 与工具权限', icon: Bot }
+  { id: 'assistant', label: '智能体', desc: 'Computer 与工具权限', icon: Bot },
+  { id: 'channels', label: 'IM 通道', desc: '飞书/钉钉/企微/微信', icon: MessageSquare }
 ] as const
 
 const debugSections = [
@@ -127,6 +130,7 @@ const debugSections = [
 ] as const
 
 const providerPanelRef = ref<InstanceType<typeof ProviderSettingsPanel> | null>(null)
+const channelPanelRef = ref<InstanceType<typeof ChannelSettingsPanel> | null>(null)
 
 const showDebugMenus = computed(() => s.canEditPlatform && debugMenusEnabled.value)
 const debugSectionIds = new Set<string>(debugSections.map(s => s.id))
@@ -723,6 +727,10 @@ async function saveFromFooter() {
                 </div>
               </div>
             </div>
+          </section>
+
+          <section v-else-if="activeSection === 'channels'" class="p-6">
+            <ChannelSettingsPanel ref="channelPanelRef" />
           </section>
 
           <!-- ==================== Generation Section ==================== -->

@@ -7,6 +7,12 @@ use axum::{
     Json, Router,
 };
 use futures_util::Stream;
+use pointer_channels::{
+    adapters::register_builtin_channels,
+    adapters::weixin::qr_login::QrLoginState,
+    gateway::ChannelGateway,
+    registry::ChannelRegistry,
+};
 use pointer_core::{
     agents::computer::capture_debug,
     agents::AgentDef,
@@ -18,6 +24,13 @@ use pointer_core::{
     },
     provider::OpenAIProvider,
     storage,
+};
+mod channels;
+
+use channels::{
+    approve_channel_pairing, channel_webhook, get_channel_webhook_url, get_channels_config,
+    list_channel_pairing_pending, list_channels, start_weixin_login, update_channels,
+    weixin_login_status,
 };
 use serde::Deserialize;
 
@@ -38,16 +51,19 @@ use tokio::sync::{broadcast, mpsc};
 use tower_http::cors::CorsLayer;
 
 #[derive(Clone)]
-struct ServerState {
+pub(crate) struct ServerState {
     core: Arc<AppState>,
     events: broadcast::Sender<StreamEvent>,
+    channel_gateway: Arc<ChannelGateway>,
+    qr_login: Arc<QrLoginState>,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     pointer_core::logging::init_backtrace_defaults();
 
-    const DEFAULT_LOG_FILTER: &str = "warn,pointer_core=info,pointer_server=info";
+    const DEFAULT_LOG_FILTER: &str =
+        "warn,pointer_core=info,pointer_server=info,pointer_channels=info";
     let log_dir: PathBuf = env::var("POINTER_SERVER_LOG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| env::current_dir().unwrap_or_default().join("logs"));
@@ -75,7 +91,19 @@ async fn main() -> anyhow::Result<()> {
         Ok(_) => {}
         Err(e) => log::warn!("computer capture purge failed: {e}"),
     }
-    let state = ServerState { core, events };
+    let mut channel_registry = ChannelRegistry::new();
+    register_builtin_channels(&mut channel_registry);
+    let channel_gateway = Arc::new(ChannelGateway::new(core.clone(), channel_registry)?);
+    let cancel = tokio_util::sync::CancellationToken::new();
+    channel_gateway.spawn_weixin_monitors(cancel.clone());
+    channel_gateway.spawn_wecom_monitors(cancel.clone());
+
+    let state = ServerState {
+        core,
+        events,
+        channel_gateway,
+        qr_login: Arc::new(QrLoginState::new()),
+    };
 
     let app = Router::new()
         .route("/api/health", get(|| async { "ok" }))
@@ -124,6 +152,32 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/chat/:conversation_id/stream", get(chat_stream))
         .route("/api/tools/:tool_call_id/approve", post(approve_tool_call))
+        .route(
+            "/webhooks/:channel/:account_id",
+            post(channel_webhook).get(channel_webhook),
+        )
+        .route("/api/channels", get(list_channels).put(update_channels))
+        .route("/api/channels/config", get(get_channels_config))
+        .route(
+            "/api/channels/:channel/:account_id/webhook-url",
+            get(get_channel_webhook_url),
+        )
+        .route(
+            "/api/channels/weixin/:account_id/login/start",
+            post(start_weixin_login),
+        )
+        .route(
+            "/api/channels/weixin/:account_id/login/status",
+            get(weixin_login_status),
+        )
+        .route(
+            "/api/channels/:channel/:account_id/pairing/approve",
+            post(approve_channel_pairing),
+        )
+        .route(
+            "/api/channels/:channel/:account_id/pairing/pending",
+            get(list_channel_pairing_pending),
+        )
         .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
         .layer(CorsLayer::permissive())
         .with_state(state);

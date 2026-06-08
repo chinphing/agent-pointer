@@ -1,3 +1,5 @@
+mod channel_commands;
+mod channel_monitor;
 mod commands;
 #[cfg(target_os = "macos")]
 mod macos_computer_permissions;
@@ -7,6 +9,8 @@ mod macos_permission_commands;
 mod macos_traffic_lights;
 mod platform_commands;
 
+use pointer_channels::adapters::register_builtin_channels;
+use pointer_channels::{ChannelGateway, ChannelRegistry};
 use pointer_core::models::StreamEvent;
 use pointer_core::{chat_service::AppState, skills::external::skills_dir};
 use std::{fs, path::Path, sync::Arc};
@@ -123,7 +127,21 @@ pub fn run() {
                     log::warn!("token_usage_store: startup flush failed: {e}");
                 }
             });
-            app.manage(app_state);
+            app.manage(app_state.clone());
+            let mut channel_registry = ChannelRegistry::new();
+            register_builtin_channels(&mut channel_registry);
+            let channel_gateway = Arc::new(
+                ChannelGateway::new(app_state.clone(), channel_registry)
+                    .map_err(|e| format!("channel gateway init failed: {e:#}"))?,
+            );
+            let monitor_handle =
+                channel_monitor::ChannelMonitorHandle::new(channel_gateway.clone());
+            monitor_handle.start();
+            app.manage(channel_gateway);
+            app.manage(Arc::new(monitor_handle));
+            app.manage(Arc::new(
+                pointer_channels::adapters::weixin::qr_login::QrLoginState::new(),
+            ));
             let handle = app.handle().clone();
             match pointer_core::agents::computer::capture_debug::purge_computer_captures_older_than_days(
                 pointer_core::agents::computer::capture_debug::CAPTURE_RETENTION_DAYS,
@@ -176,6 +194,14 @@ pub fn run() {
             commands::list_experience_home,
             commands::search_experiences,
             commands::get_experience_detail,
+            channel_commands::get_channels_config,
+            channel_commands::update_channels_config,
+            channel_commands::list_channel_status,
+            channel_commands::get_channel_webhook_url,
+            channel_commands::start_weixin_login,
+            channel_commands::get_weixin_login_status,
+            channel_commands::approve_channel_pairing,
+            channel_commands::list_channel_pairing_pending,
             platform_commands::get_platform_session,
             platform_commands::open_platform_login,
             platform_commands::cancel_platform_login,

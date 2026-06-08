@@ -123,9 +123,9 @@ pub fn internal_runtime_log_enabled() -> bool {
 /// Default `RUST_LOG` filter for desktop / dev when the env var is unset.
 pub fn default_runtime_log_filter() -> &'static str {
     if internal_runtime_log_enabled() {
-        "warn,pointer_core=info,pointer_core::provider=debug,pointer_app_lib=info"
+        "warn,pointer_core=info,pointer_core::provider=debug,pointer_app_lib=info,pointer_channels=info"
     } else {
-        "warn,pointer_core=info,pointer_app_lib=info"
+        "warn,pointer_core=info,pointer_app_lib=info,pointer_channels=info"
     }
 }
 

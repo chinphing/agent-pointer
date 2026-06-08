@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::adapters::weixin::qr_login::QrLoginState;
-use crate::config::ChannelsConfig;
+use crate::config::{account_runtime_connected, ChannelsConfig};
 use crate::gateway::ChannelGateway;
 use crate::registration::ChannelRegistrationState;
 
@@ -29,6 +29,7 @@ struct ChannelStatusItem {
     channel: String,
     account_id: String,
     enabled: bool,
+    connected: bool,
     webhook_url: String,
 }
 
@@ -77,6 +78,7 @@ async fn list_channels(State(state): State<Arc<ChannelApiState>>) -> Json<Channe
                 channel: channel.into(),
                 account_id: account_id.clone(),
                 enabled: account.enabled,
+                connected: account_runtime_connected(channel, account_id, account),
                 webhook_url: cfg.webhook_url(channel, account_id),
             });
         }

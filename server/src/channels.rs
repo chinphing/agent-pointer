@@ -4,7 +4,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use pointer_channels::{
-    config::ChannelsConfig,
+    config::{account_runtime_connected, ChannelsConfig},
     registration::RegistrationSession,
     traits::WebhookContext,
     webhook::guards::WebhookGuards,
@@ -123,6 +123,7 @@ pub struct ChannelStatusItem {
     channel: String,
     account_id: String,
     enabled: bool,
+    connected: bool,
     webhook_url: String,
 }
 
@@ -144,6 +145,7 @@ pub async fn list_channels(State(state): State<ServerState>) -> Json<ChannelsSta
                 channel: channel.into(),
                 account_id: account_id.clone(),
                 enabled: account.enabled,
+                connected: account_runtime_connected(channel, account_id, account),
                 webhook_url: cfg.webhook_url(channel, account_id),
             });
         }

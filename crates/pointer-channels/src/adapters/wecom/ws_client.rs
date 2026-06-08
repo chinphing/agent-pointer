@@ -7,6 +7,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tokio_util::sync::CancellationToken;
 
+use crate::connection_state;
 use crate::session::build_conversation_key;
 use crate::traits::{InboundMessage, InboundReplyContext};
 
@@ -182,6 +183,7 @@ async fn run_single_connection(
         .context("send auth failed")?;
 
     let mut authenticated = false;
+    let mut connected_guard: Option<connection_state::ConnectionGuard> = None;
     let mut missed_pong = 0u32;
     let mut pending_outbound: VecDeque<super::ws_state::WsOutboundCmd> = VecDeque::new();
     let heartbeat = tokio::time::interval(Duration::from_millis(HEARTBEAT_INTERVAL_MS));
@@ -243,6 +245,12 @@ async fn run_single_connection(
                             return Ok(reason);
                         }
                         if !was_authenticated && authenticated {
+                            if connected_guard.is_none() {
+                                connected_guard = Some(connection_state::ConnectionGuard::connect(
+                                    "wecom",
+                                    &cfg.account_id,
+                                ));
+                            }
                             let ns = format!("wecom:{}", cfg.account_id);
                             gateway.dedup.clear_namespace(&ns);
                             log::info!(

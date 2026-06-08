@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use super::ilink_client::{ILinkClient, WeixinCredentials};
+use crate::connection_state;
 use crate::credentials::load_encrypted_json;
 use crate::gateway::ChannelGateway;
 use crate::session::build_conversation_key;
@@ -24,6 +25,7 @@ pub async fn run_weixin_monitor(
     let client = ILinkClient::new(account_id.clone(), creds);
     let mut context_tokens: HashMap<String, String> = HashMap::new();
     log::info!("weixin monitor started account={account_id}");
+    let _connected = connection_state::ConnectionGuard::connect("weixin", &account_id);
 
     loop {
         if cancel.is_cancelled() {

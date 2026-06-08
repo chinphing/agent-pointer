@@ -1,7 +1,7 @@
 use crate::channel_monitor::ChannelMonitorHandle;
 use pointer_channels::adapters::weixin::ilink_client::WeixinCredentials;
 use pointer_channels::adapters::weixin::qr_login::{QrLoginSession, QrLoginState};
-use pointer_channels::config::{load_channels_config, ChannelsConfig};
+use pointer_channels::config::{account_runtime_connected, load_channels_config, ChannelsConfig};
 use pointer_channels::registration::{ChannelRegistrationState, RegistrationSession};
 use pointer_channels::credentials::load_encrypted_json;
 use pointer_channels::ChannelGateway;
@@ -21,6 +21,7 @@ pub struct ChannelStatusItem {
     pub channel: String,
     pub account_id: String,
     pub enabled: bool,
+    pub connected: bool,
     pub webhook_url: String,
 }
 
@@ -37,6 +38,7 @@ fn build_status(cfg: &ChannelsConfig) -> ChannelsStatusResponse {
                 channel: channel.into(),
                 account_id: account_id.clone(),
                 enabled: account.enabled,
+                connected: account_runtime_connected(channel, account_id, account),
                 webhook_url: cfg.webhook_url(channel, account_id),
             });
         }

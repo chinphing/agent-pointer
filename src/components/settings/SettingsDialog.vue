@@ -119,7 +119,7 @@ const AGENT_OUTPUT_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
 
 const alwaysSections = [
   { id: 'assistant', label: '智能体', desc: 'Computer 与工具权限', icon: Bot },
-  { id: 'channels', label: 'IM 通道', desc: '飞书/钉钉/企微/微信', icon: MessageSquare }
+  { id: 'channels', label: 'IM 通道', desc: '微信/飞书/企微/钉钉', icon: MessageSquare }
 ] as const
 
 const debugSections = [
@@ -134,11 +134,15 @@ const channelPanelRef = ref<InstanceType<typeof ChannelSettingsPanel> | null>(nu
 
 const showDebugMenus = computed(() => s.canEditPlatform && debugMenusEnabled.value)
 const debugSectionIds = new Set<string>(debugSections.map(s => s.id))
-const persistedSectionIds = new Set<string>(['assistant'])
+const persistedSectionIds = new Set<string>(['assistant', 'channels'])
 const isPersistedSection = computed(() => persistedSectionIds.has(activeSection.value))
 const showFooterSave = computed(() => {
   if (activeSection.value === 'account' || activeSection.value === 'runtime') return false
-  return activeSection.value === 'assistant' || (s.canEditPlatform && debugSectionIds.has(activeSection.value))
+  return (
+    activeSection.value === 'assistant' ||
+    activeSection.value === 'channels' ||
+    (s.canEditPlatform && debugSectionIds.has(activeSection.value))
+  )
 })
 const footerSaveLabel = computed(() =>
   isPersistedSection.value ? '保存' : '保存(本次会话)'
@@ -486,6 +490,9 @@ async function saveFromFooter() {
         temperature: s.settings.temperature,
         maxTokens: s.settings.maxTokens
       })
+    } else if (activeSection.value === 'channels') {
+      await channelPanelRef.value?.save()
+      return
     } else if (activeSection.value === 'assistant') {
       await s.saveAgentPreferences({
         toolApprovalMode: toolApprovalMode.value,

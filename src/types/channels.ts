@@ -38,6 +38,7 @@ export interface ChannelStatusItem {
   channel: string
   accountId: string
   enabled: boolean
+  connected: boolean
   webhookUrl: string
 }
 

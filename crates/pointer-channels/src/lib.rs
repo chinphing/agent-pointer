@@ -3,6 +3,7 @@
 pub mod adapters;
 pub mod api;
 pub mod config;
+pub mod connection_state;
 pub mod credentials;
 pub mod crypto;
 pub mod dedup;
@@ -18,6 +19,7 @@ pub mod traits;
 pub mod webhook;
 
 pub use config::{load_channels_config, save_channels_config, ChannelsConfig};
+pub use connection_state::{is_connected as is_channel_runtime_connected, set_connected};
 pub use gateway::ChannelGateway;
 pub use registration::{ChannelRegistrationState, RegistrationSession};
 pub use registry::ChannelRegistry;

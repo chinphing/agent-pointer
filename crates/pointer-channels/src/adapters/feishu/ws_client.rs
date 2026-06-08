@@ -8,6 +8,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
+use crate::connection_state;
 use crate::gateway::ChannelGateway;
 use crate::http_client::HttpClient;
 use crate::session::build_conversation_key;
@@ -19,7 +20,8 @@ pub mod proto {
 
 use proto::{Frame, Header};
 
-const ENDPOINT_PATH: &str = "https://open.feishu.cn/open-apis/callback/ws/endpoint";
+/// 与 larksuite/oapi-sdk-go `GenEndpointUri` 一致：`FeishuBaseUrl + "/callback/ws/endpoint"`
+const ENDPOINT_PATH: &str = "https://open.feishu.cn/callback/ws/endpoint";
 const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(120);
 const RECONNECT_BASE_MS: u64 = 1_000;
 const RECONNECT_MAX_MS: u64 = 30_000;
@@ -114,6 +116,7 @@ async fn run_single_connection(
     let (ws, _) = connect_async(url).await.context("feishu ws connect")?;
     let (mut write, mut read) = ws.split();
     log::info!("feishu ws connected account={}", cfg.account_id);
+    let _connected = connection_state::ConnectionGuard::connect("feishu", &cfg.account_id);
 
     let ping_secs = endpoint
         .client_config

@@ -18,7 +18,7 @@ pub struct ChannelAccountConfig {
     pub enabled: bool,
     #[serde(default)]
     pub name: String,
-    #[serde(default = "default_webhook_mode")]
+    #[serde(default = "default_connection_mode")]
     pub connection_mode: String,
     // Feishu / generic
     #[serde(default, rename = "appId")]
@@ -66,7 +66,7 @@ pub struct ChannelAccountConfig {
 fn default_true() -> bool {
     true
 }
-fn default_webhook_mode() -> String {
+fn default_connection_mode() -> String {
     "websocket".into()
 }
 fn default_pairing() -> String {
@@ -137,18 +137,160 @@ fn config_path() -> Result<PathBuf> {
     Ok(dir.join("channels_config.json"))
 }
 
+fn prefer_connection_mode(channel: &str, account: &mut ChannelAccountConfig) -> bool {
+    if account.connection_mode.is_empty() {
+        account.connection_mode = default_connection_mode();
+        return false;
+    }
+    if account.connection_mode != "webhook" {
+        return false;
+    }
+    match channel {
+        "feishu" | "dingtalk" => {
+            log::info!("channel {channel}: prefer websocket over saved webhook mode");
+            account.connection_mode = default_connection_mode();
+            true
+        }
+        "wecom" => {
+            let ws_ready = !account.bot_id.trim().is_empty() && !account.secret.trim().is_empty();
+            let webhook_only = !account.corp_id.trim().is_empty()
+                && !account.agent_id.trim().is_empty()
+                && !account.token.trim().is_empty()
+                && !account.encoding_aes_key.trim().is_empty()
+                && !ws_ready;
+            if webhook_only {
+                return false;
+            }
+            log::info!("wecom: prefer websocket (bot credentials or incomplete webhook setup)");
+            account.connection_mode = default_connection_mode();
+            true
+        }
+        _ => false,
+    }
+}
+
+fn is_placeholder_credential(value: &str) -> bool {
+    let v = value.trim();
+    if v.is_empty() {
+        return true;
+    }
+    let lower = v.to_lowercase();
+    const EXACT: &[&str] = &["xxx", "cli_xxx", "test_encrypt_key", "test", "placeholder"];
+    if EXACT.contains(&lower.as_str()) {
+        return true;
+    }
+    lower.ends_with("_xxx")
+}
+
+fn is_placeholder_url(value: &str) -> bool {
+    let lower = value.trim().to_lowercase();
+    lower.contains("your-ngrok")
+        || lower.contains("example.com")
+        || lower.contains("pointer.example")
+}
+
+fn clear_if_placeholder(value: &mut String) -> bool {
+    if is_placeholder_credential(value) {
+        value.clear();
+        true
+    } else {
+        false
+    }
+}
+
+fn sanitize_account(account: &mut ChannelAccountConfig) -> bool {
+    let mut changed = false;
+    changed |= clear_if_placeholder(&mut account.app_id);
+    changed |= clear_if_placeholder(&mut account.app_secret);
+    changed |= clear_if_placeholder(&mut account.encrypt_key);
+    changed |= clear_if_placeholder(&mut account.verification_token);
+    changed |= clear_if_placeholder(&mut account.client_id);
+    changed |= clear_if_placeholder(&mut account.client_secret);
+    changed |= clear_if_placeholder(&mut account.corp_id);
+    changed |= clear_if_placeholder(&mut account.agent_id);
+    changed |= clear_if_placeholder(&mut account.secret);
+    changed |= clear_if_placeholder(&mut account.token);
+    changed |= clear_if_placeholder(&mut account.encoding_aes_key);
+    changed |= clear_if_placeholder(&mut account.bot_id);
+    changed |= clear_if_placeholder(&mut account.websocket_url);
+    changed
+}
+
+fn sanitize_config(cfg: &mut ChannelsConfig) -> bool {
+    let mut changed = false;
+    for account in cfg.feishu.values_mut() {
+        changed |= sanitize_account(account);
+    }
+    for account in cfg.dingtalk.values_mut() {
+        changed |= sanitize_account(account);
+    }
+    for account in cfg.wecom.values_mut() {
+        changed |= sanitize_account(account);
+    }
+    for account in cfg.weixin.values_mut() {
+        changed |= sanitize_account(account);
+    }
+    if is_placeholder_url(&cfg.meta.public_base_url) {
+        cfg.meta.public_base_url.clear();
+        changed = true;
+    }
+    changed
+}
+
+fn normalize_config(cfg: &mut ChannelsConfig) -> bool {
+    let mut migrated = false;
+    for account in cfg.feishu.values_mut() {
+        migrated |= prefer_connection_mode("feishu", account);
+    }
+    for account in cfg.dingtalk.values_mut() {
+        migrated |= prefer_connection_mode("dingtalk", account);
+    }
+    for account in cfg.wecom.values_mut() {
+        migrated |= prefer_connection_mode("wecom", account);
+    }
+    migrated
+}
+
 pub fn load_channels_config() -> Result<ChannelsConfig> {
     let path = config_path()?;
     if !path.exists() {
         return Ok(ChannelsConfig::default());
     }
     let raw = fs::read_to_string(&path)?;
-    Ok(serde_json::from_str(&raw).unwrap_or_default())
+    let mut cfg: ChannelsConfig = serde_json::from_str(&raw).unwrap_or_default();
+    let mut changed = sanitize_config(&mut cfg);
+    changed |= normalize_config(&mut cfg);
+    if changed {
+        if let Err(e) = save_channels_config(&cfg) {
+            log::warn!("failed to persist channels config cleanup: {e:#}");
+        }
+    }
+    Ok(cfg)
 }
 
 pub fn save_channels_config(cfg: &ChannelsConfig) -> Result<()> {
     let path = config_path()?;
-    let raw = serde_json::to_string_pretty(cfg)?;
+    let mut cfg = cfg.clone();
+    sanitize_config(&mut cfg);
+    normalize_config(&mut cfg);
+    let raw = serde_json::to_string_pretty(&cfg)?;
     fs::write(path, raw)?;
     Ok(())
+}
+
+/// Whether the channel monitor is actively connected (runtime state).
+pub fn account_runtime_connected(
+    channel: &str,
+    account_id: &str,
+    account: &ChannelAccountConfig,
+) -> bool {
+    if !account.enabled {
+        return false;
+    }
+    if matches!(channel, "feishu" | "dingtalk" | "wecom")
+        && account.connection_mode != "websocket"
+    {
+        return false;
+    }
+    crate::connection_state::is_connected(channel, account_id)
 }

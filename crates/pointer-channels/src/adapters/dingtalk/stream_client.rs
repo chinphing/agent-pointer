@@ -5,6 +5,7 @@ use std::time::Duration;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tokio_util::sync::CancellationToken;
 
+use crate::connection_state;
 use crate::gateway::ChannelGateway;
 use crate::http_client::HttpClient;
 use crate::traits::ChannelWebhookAdapter;
@@ -80,6 +81,7 @@ async fn run_single_connection(
         .with_context(|| format!("dingtalk ws connect {ws_url}"))?;
     let (mut write, mut read) = ws.split();
     log::info!("dingtalk stream connected account={}", cfg.account_id);
+    let _connected = connection_state::ConnectionGuard::connect("dingtalk", &cfg.account_id);
 
     loop {
         tokio::select! {

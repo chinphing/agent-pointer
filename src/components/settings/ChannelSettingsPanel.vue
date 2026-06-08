@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { Copy, RefreshCw } from 'lucide-vue-next'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { ChevronDown, Copy, Plug, QrCode, RefreshCw } from 'lucide-vue-next'
 import type { ChannelAccountConfig, ChannelsConfig } from '../../types/channels'
 import {
-  approveChannelPairing,
   approveChannelPairingAny,
   getChannelRegistrationStatus,
   getChannelsConfig,
@@ -17,31 +16,42 @@ import {
 } from '../../lib/channels'
 import { createWecomBotViaQr } from '../../lib/wecom-bot-auth'
 import { isTauriRuntime } from '../../lib/runtime'
+import {
+  normalizeConnectionMode,
+  preferConnectionMode,
+  resolveChannelStatus,
+  sanitizeChannelsConfig,
+  type ChannelTab
+} from '../../lib/channel-setup-status'
 
 const loading = ref(false)
 const saving = ref(false)
+const connecting = ref(false)
 const error = ref('')
 const pairingCode = ref('')
 const pairingSuccess = ref('')
 
-const CHANNEL_LABELS: Record<string, string> = {
-  weixin: '微信',
-  wecom: '企微',
-  feishu: '飞书',
-  dingtalk: '钉钉'
-}
+const CHANNEL_TABS: { id: ChannelTab; label: string }[] = [
+  { id: 'weixin', label: '微信' },
+  { id: 'feishu', label: '飞书' },
+  { id: 'wecom', label: '企微' },
+  { id: 'dingtalk', label: '钉钉' }
+]
+
+const activeTab = ref<ChannelTab>('weixin')
+
 const weixinQr = ref('')
 const weixinLoginStatus = ref('')
 const weixinLoggedIn = ref(false)
+const weixinBusy = ref(false)
 
-type QrChannel = 'feishu' | 'dingtalk' | 'wecom'
-const qrByChannel = ref<Record<QrChannel, string>>({ feishu: '', dingtalk: '', wecom: '' })
-const regStatusByChannel = ref<Record<QrChannel, string>>({
+const qrByChannel = ref<Record<'feishu' | 'dingtalk', string>>({ feishu: '', dingtalk: '' })
+const regStatusByChannel = ref<Record<'feishu' | 'dingtalk' | 'wecom', string>>({
   feishu: '',
   dingtalk: '',
   wecom: ''
 })
-const regBusy = ref<Record<QrChannel, boolean>>({
+const regBusy = ref<Record<'feishu' | 'dingtalk' | 'wecom', boolean>>({
   feishu: false,
   dingtalk: false,
   wecom: false
@@ -56,7 +66,110 @@ const config = ref<ChannelsConfig>({
 })
 
 const webhookUrls = ref<Record<string, string>>({})
+const connectionByTab = ref<Partial<Record<ChannelTab, boolean>>>({})
 const tauriMode = isTauriRuntime()
+let connectionPollId: ReturnType<typeof setInterval> | undefined
+
+const CONNECTION_MODE_LABELS: Record<ChannelTab, string> = {
+  weixin: 'iLink 长轮询',
+  feishu: 'WSS 长连接',
+  wecom: 'WSS 长连接',
+  dingtalk: 'Stream 长连接'
+}
+
+const tabHints: Record<ChannelTab, string> = {
+  weixin: '使用微信 App 扫描二维码，在手机上确认登录',
+  feishu: '使用飞书 App 扫描二维码，按提示完成应用授权',
+  wecom: '点击开始扫码，在弹出窗口中用企业微信 App 扫码并一键创建机器人',
+  dingtalk: '使用钉钉 App 扫描二维码，点击「一键创建新机器人」'
+}
+
+function normalizeAllConnectionModes() {
+  for (const ch of ['feishu', 'dingtalk', 'wecom'] as const) {
+    const acc = config.value[ch]?.default
+    if (acc) {
+      acc.connectionMode = normalizeConnectionMode(acc.connectionMode)
+    }
+  }
+}
+
+function sessionTextForTab(tab: ChannelTab): string {
+  if (tab === 'weixin') return weixinLoginStatus.value
+  if (tab === 'wecom') return regStatusByChannel.value.wecom
+  return regStatusByChannel.value[tab] ?? ''
+}
+
+const channelStatusByTab = computed(() => {
+  const out = {} as Record<ChannelTab, ReturnType<typeof resolveChannelStatus>>
+  for (const { id } of CHANNEL_TABS) {
+    out[id] = resolveChannelStatus(
+      id,
+      config.value,
+      weixinLoggedIn.value,
+      sessionTextForTab(id),
+      connectionByTab.value[id]
+    )
+  }
+  return out
+})
+
+const activeStatus = computed(() => channelStatusByTab.value[activeTab.value])
+
+const statusToneClass = computed(() => {
+  switch (activeStatus.value.tone) {
+    case 'success':
+      return 'text-green-600'
+    case 'warn':
+      return 'text-amber-600'
+    case 'error':
+      return 'text-red-500'
+    default:
+      return 'text-muted'
+  }
+})
+
+const activeQrBase64 = computed(() => {
+  if (activeTab.value === 'weixin') return weixinQr.value
+  if (activeTab.value === 'feishu') return qrByChannel.value.feishu
+  if (activeTab.value === 'dingtalk') return qrByChannel.value.dingtalk
+  return ''
+})
+
+const activeScanBusy = computed(() => {
+  if (activeTab.value === 'weixin') return weixinBusy.value
+  if (activeTab.value === 'wecom') return regBusy.value.wecom
+  return regBusy.value[activeTab.value as 'feishu' | 'dingtalk'] ?? false
+})
+
+const activeHasCredentials = computed(
+  () => activeStatus.value.setup !== 'no_credentials'
+)
+
+const activeConnectDisabled = computed(() => {
+  if (connecting.value || saving.value || loading.value) return true
+  if (activeTab.value === 'weixin' && !tauriMode) return true
+  const setup = activeStatus.value.setup
+  return setup === 'no_credentials' || setup === 'webhook_mode'
+})
+
+const activeConnectLabel = computed(() => {
+  if (connecting.value) return '连接中…'
+  if (connectionByTab.value[activeTab.value]) return '重新连接'
+  return '连接'
+})
+
+const activeScanLabel = computed(() => {
+  if (activeScanBusy.value) return '处理中…'
+  if (activeQrBase64.value || activeHasCredentials.value) return '重新扫码'
+  return '开始扫码'
+})
+
+const activeConnectionLabel = computed(() => {
+  if (activeTab.value === 'weixin') return CONNECTION_MODE_LABELS.weixin
+  const acc = config.value[activeTab.value]?.default
+  if (acc?.connectionMode === 'webhook') return 'HTTP 回调'
+  return CONNECTION_MODE_LABELS[activeTab.value]
+})
 
 function defaultFeishu(): ChannelAccountConfig {
   return {
@@ -82,7 +195,6 @@ function defaultWecom(): ChannelAccountConfig {
   return {
     enabled: false,
     connectionMode: 'websocket',
-    websocketUrl: 'wss://openws.work.weixin.qq.com',
     dmPolicy: 'pairing',
     groupPolicy: 'allowlist'
   }
@@ -97,12 +209,50 @@ function urlKey(channel: string, accountId = 'default') {
 }
 
 function mergeConfig(loaded: ChannelsConfig) {
+  const feishuAcc = { ...defaultFeishu(), ...loaded.feishu?.default }
+  const dingtalkAcc = { ...defaultDingtalk(), ...loaded.dingtalk?.default }
+  const wecomAcc = { ...defaultWecom(), ...loaded.wecom?.default }
+  const feishuMode = preferConnectionMode('feishu', feishuAcc)
+  const dingtalkMode = preferConnectionMode('dingtalk', dingtalkAcc)
+  const wecomMode = preferConnectionMode('wecom', wecomAcc)
+
   config.value = {
     meta: { publicBaseUrl: loaded.meta?.publicBaseUrl ?? '' },
-    feishu: { default: { ...defaultFeishu(), ...loaded.feishu?.default } },
-    dingtalk: { default: { ...defaultDingtalk(), ...loaded.dingtalk?.default } },
-    wecom: { default: { ...defaultWecom(), ...loaded.wecom?.default } },
+    feishu: {
+      default: {
+        ...feishuAcc,
+        connectionMode: feishuMode
+      }
+    },
+    dingtalk: {
+      default: {
+        ...dingtalkAcc,
+        connectionMode: dingtalkMode
+      }
+    },
+    wecom: {
+      default: {
+        ...wecomAcc,
+        connectionMode: wecomMode
+      }
+    },
     weixin: { default: { ...defaultWeixin(), ...loaded.weixin?.default } }
+  }
+  config.value = sanitizeChannelsConfig(config.value)
+}
+
+async function refreshConnectionStatus() {
+  try {
+    const status = await listChannelStatus()
+    const next: Partial<Record<ChannelTab, boolean>> = {}
+    for (const item of status.channels) {
+      if (item.accountId === 'default' && CHANNEL_TABS.some(t => t.id === item.channel)) {
+        next[item.channel as ChannelTab] = item.connected
+      }
+    }
+    connectionByTab.value = next
+  } catch {
+    // 连接态查询失败不阻断配置页
   }
 }
 
@@ -112,10 +262,19 @@ async function refresh() {
   try {
     const [loaded, status] = await Promise.all([getChannelsConfig(), listChannelStatus()])
     mergeConfig(loaded)
+    const nextConn: Partial<Record<ChannelTab, boolean>> = {}
     for (const item of status.channels) {
       webhookUrls.value[urlKey(item.channel, item.accountId)] = item.webhookUrl
+      if (item.accountId === 'default' && CHANNEL_TABS.some(t => t.id === item.channel)) {
+        nextConn[item.channel as ChannelTab] = item.connected
+      }
     }
+    connectionByTab.value = nextConn
     await refreshWeixinLoginState()
+    // 扫码会话状态仅当次有效，刷新后清掉避免误显示
+    regStatusByChannel.value = { feishu: '', dingtalk: '', wecom: '' }
+    weixinLoginStatus.value = ''
+    weixinQr.value = ''
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -123,16 +282,46 @@ async function refresh() {
   }
 }
 
+async function persistConfig() {
+  normalizeAllConnectionModes()
+  config.value = sanitizeChannelsConfig(config.value)
+  await updateChannelsConfig(config.value)
+}
+
+/** 供设置页底部「保存」调用：仅持久化配置，不强制连接 */
 async function save() {
   saving.value = true
   error.value = ''
   try {
-    await updateChannelsConfig(config.value)
+    await persistConfig()
     await refresh()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     saving.value = false
+  }
+}
+
+function enableChannelLocally(channel: ChannelTab) {
+  const acc = config.value[channel]?.default
+  if (acc) {
+    acc.enabled = true
+  }
+}
+
+/** 当前通道：启用 + 保存 + 启动 monitor */
+async function connectActiveChannel() {
+  const tab = activeTab.value
+  connecting.value = true
+  error.value = ''
+  try {
+    enableChannelLocally(tab)
+    await persistConfig()
+    await refreshConnectionStatus()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    connecting.value = false
   }
 }
 
@@ -149,15 +338,34 @@ async function copyWebhook(channel: string, accountId = 'default') {
 function weixinStatusLabel(status: string): string {
   switch (status) {
     case 'pending':
-      return '等待扫码（请用微信 App 扫描）'
+      return '等待扫码'
     case 'scanned':
-      return '已扫码，请在手机上确认登录'
+      return '已扫码，请在手机上确认'
     case 'confirmed':
-      return '登录成功，微信通道已就绪'
+      return '登录成功'
     case 'expired':
-      return '二维码已过期，请重新获取'
+      return '二维码已过期'
     case 'failed':
-      return '登录失败，请重试'
+      return '登录失败'
+    default:
+      return status
+  }
+}
+
+function registrationStatusLabel(status: string): string {
+  switch (status) {
+    case 'pending':
+      return '等待扫码'
+    case 'success':
+      return '授权成功，凭证已填入'
+    case 'denied':
+      return '用户拒绝授权'
+    case 'expired':
+      return '二维码已过期'
+    case 'timeout':
+      return '授权超时'
+    case 'failed':
+      return '授权失败'
     default:
       return status
   }
@@ -167,9 +375,6 @@ async function refreshWeixinLoginState() {
   if (!tauriMode) return
   try {
     weixinLoggedIn.value = await hasWeixinCredentials('default')
-    if (weixinLoggedIn.value && !weixinQr.value) {
-      weixinLoginStatus.value = '已登录（本地凭证有效）'
-    }
   } catch {
     weixinLoggedIn.value = false
   }
@@ -177,6 +382,7 @@ async function refreshWeixinLoginState() {
 
 async function startWeixinQr() {
   error.value = ''
+  weixinBusy.value = true
   weixinLoginStatus.value = '正在获取二维码…'
   try {
     const session = await startWeixinLogin('default')
@@ -186,46 +392,34 @@ async function startWeixinQr() {
   } catch (e) {
     weixinLoginStatus.value = ''
     error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    weixinBusy.value = false
   }
 }
 
-function registrationStatusLabel(status: string): string {
-  switch (status) {
-    case 'pending':
-      return '等待扫码（请用手机 App 扫描）'
-    case 'success':
-      return '授权成功，凭证已填入'
-    case 'denied':
-      return '用户拒绝授权'
-    case 'expired':
-      return '二维码已过期，请重新获取'
-    case 'timeout':
-      return '授权超时，请重新扫码'
-    case 'failed':
-      return '授权失败，请重试'
-    default:
-      return status
+function applyRegistrationCredentials(
+  channel: 'feishu' | 'dingtalk',
+  session: {
+    appId?: string
+    appSecret?: string
+    clientId?: string
+    clientSecret?: string
   }
-}
-
-function applyRegistrationCredentials(channel: QrChannel, session: {
-  appId?: string
-  appSecret?: string
-  clientId?: string
-  clientSecret?: string
-}) {
+) {
   if (channel === 'feishu' && session.appId && session.appSecret) {
     config.value.feishu!.default.appId = session.appId
     config.value.feishu!.default.appSecret = session.appSecret
+    config.value.feishu!.default.connectionMode = 'websocket'
     return
   }
   if (channel === 'dingtalk' && session.clientId && session.clientSecret) {
     config.value.dingtalk!.default.clientId = session.clientId
     config.value.dingtalk!.default.clientSecret = session.clientSecret
+    config.value.dingtalk!.default.connectionMode = 'websocket'
   }
 }
 
-async function pollChannelRegistration(channel: QrChannel) {
+async function pollChannelRegistration(channel: 'feishu' | 'dingtalk') {
   for (let i = 0; i < 180; i++) {
     await new Promise(r => setTimeout(r, 2000))
     const session = await getChannelRegistrationStatus(channel, 'default')
@@ -234,6 +428,7 @@ async function pollChannelRegistration(channel: QrChannel) {
     if (session.status === 'success') {
       qrByChannel.value[channel] = ''
       applyRegistrationCredentials(channel, session)
+      enableChannelLocally(channel)
       return
     }
     if (['denied', 'expired', 'timeout', 'failed'].includes(session.status)) {
@@ -266,13 +461,14 @@ async function startQrRegistration(channel: 'feishu' | 'dingtalk') {
 async function startWecomQrRegistration() {
   error.value = ''
   regBusy.value.wecom = true
-  regStatusByChannel.value.wecom = '正在打开企微授权窗口…'
-  qrByChannel.value.wecom = ''
+  regStatusByChannel.value.wecom = '正在打开授权窗口…'
   try {
     const creds = await createWecomBotViaQr()
     config.value.wecom!.default.botId = creds.botId
     config.value.wecom!.default.secret = creds.secret
+    config.value.wecom!.default.connectionMode = 'websocket'
     regStatusByChannel.value.wecom = '机器人创建成功，凭证已填入'
+    enableChannelLocally('wecom')
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     if (msg.includes('CANCELLED') || msg.includes('取消')) {
@@ -289,6 +485,18 @@ async function startWecomQrRegistration() {
   }
 }
 
+async function startActiveScan() {
+  if (activeTab.value === 'weixin') {
+    await startWeixinQr()
+    return
+  }
+  if (activeTab.value === 'wecom') {
+    await startWecomQrRegistration()
+    return
+  }
+  await startQrRegistration(activeTab.value)
+}
+
 async function pollWeixinStatus() {
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 2000))
@@ -297,7 +505,8 @@ async function pollWeixinStatus() {
       await refreshWeixinLoginState()
       if (weixinLoggedIn.value) {
         weixinQr.value = ''
-        weixinLoginStatus.value = '登录成功，微信通道已就绪'
+        weixinLoginStatus.value = '登录成功'
+        enableChannelLocally('weixin')
       }
       return
     }
@@ -305,6 +514,8 @@ async function pollWeixinStatus() {
     if (s.status === 'confirmed') {
       weixinQr.value = ''
       weixinLoggedIn.value = true
+      weixinLoginStatus.value = '登录成功'
+      enableChannelLocally('weixin')
       return
     }
     if (s.status === 'expired' || s.status === 'failed') {
@@ -316,21 +527,6 @@ async function pollWeixinStatus() {
   weixinLoginStatus.value = '登录超时，请重新扫码'
 }
 
-async function approvePairing(channel: string) {
-  if (!pairingCode.value.trim()) return
-  pairingSuccess.value = ''
-  try {
-    await approveChannelPairing(channel, 'default', pairingCode.value.trim())
-    pairingCode.value = ''
-    error.value = ''
-    const label = CHANNEL_LABELS[channel] ?? channel
-    pairingSuccess.value = `配对成功（${label}），请重新发送消息。`
-  } catch (e) {
-    pairingSuccess.value = ''
-    error.value = e instanceof Error ? e.message : String(e)
-  }
-}
-
 async function approvePairingAuto() {
   if (!pairingCode.value.trim()) return
   pairingSuccess.value = ''
@@ -338,7 +534,7 @@ async function approvePairingAuto() {
     const channel = await approveChannelPairingAny('default', pairingCode.value.trim())
     pairingCode.value = ''
     error.value = ''
-    const label = CHANNEL_LABELS[channel] ?? channel
+    const label = CHANNEL_TABS.find(t => t.id === channel)?.label ?? channel
     pairingSuccess.value = `配对成功（${label}），请重新发送消息。`
   } catch (e) {
     pairingSuccess.value = ''
@@ -348,251 +544,399 @@ async function approvePairingAuto() {
 
 onMounted(() => {
   void refresh()
-  void refreshWeixinLoginState()
+  connectionPollId = window.setInterval(() => {
+    void refreshConnectionStatus()
+  }, 5000)
+})
+
+onUnmounted(() => {
+  if (connectionPollId !== undefined) {
+    window.clearInterval(connectionPollId)
+  }
 })
 
 defineExpose({ save })
 </script>
 
 <template>
-  <div class="space-y-6">
+  <div class="space-y-5">
     <p class="text-sm text-muted">
-      企微 / 飞书 / 钉钉 / 微信默认使用长连接（WSS / Stream / iLink），桌面端可直接收发。Webhook 为可选备选。
-    </p>
-    <p v-if="tauriMode" class="text-xs text-muted">
-      保存并启用后，Tauri 会自动启动后台 monitor。仅在使用 Webhook 模式时才需要公网地址与 pointer-server。
+      扫码或手填凭证后，点「连接」启动当前通道；底部「保存」写入全部通道配置。飞书 / 企微为 WSS 长连接，钉钉为 Stream 长连接。
     </p>
 
-    <div v-if="error" class="text-sm text-red-500">{{ error }}</div>
-    <div v-if="pairingSuccess" class="text-sm text-green-600">{{ pairingSuccess }}</div>
-
-    <div class="space-y-2">
-      <label class="text-xs text-muted">公网 Base URL</label>
-      <input
-        v-model="config.meta!.publicBaseUrl"
-        class="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-        placeholder="https://pointer.example.com"
-      />
+    <div v-if="error" class="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-500">
+      {{ error }}
+    </div>
+    <div v-if="pairingSuccess" class="rounded-lg border border-green-500/30 bg-green-500/5 px-3 py-2 text-sm text-green-600">
+      {{ pairingSuccess }}
     </div>
 
-    <div class="rounded-xl border border-border p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <h3 class="text-sm font-medium">飞书</h3>
-        <label class="flex items-center gap-2 text-xs">
-          <input v-model="config.feishu!.default.enabled" type="checkbox" />
-          启用
-        </label>
-      </div>
-      <div class="flex gap-2">
-        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
-          <input v-model="config.feishu!.default.connectionMode" type="radio" value="websocket" />
-          WSS 长连接（推荐）
-        </label>
-        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
-          <input v-model="config.feishu!.default.connectionMode" type="radio" value="webhook" />
-          HTTP 回调
-        </label>
-      </div>
-      <p v-if="config.feishu!.default.connectionMode === 'websocket'" class="text-xs text-muted">
-        飞书后台事件订阅选「使用长连接接收事件」，订阅 im.message.receive_v1。
-      </p>
-      <div class="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          class="btn-ghost"
-          :disabled="regBusy.feishu"
-          @click="startQrRegistration('feishu')"
-        >
-          扫码一键创建
-        </button>
-        <span v-if="regStatusByChannel.feishu" class="text-xs text-muted">
-          {{ regStatusByChannel.feishu }}
-        </span>
-      </div>
-      <img
-        v-if="qrByChannel.feishu"
-        :src="`data:image/png;base64,${qrByChannel.feishu}`"
-        alt="Feishu QR"
-        class="w-40 h-40"
-      />
-      <input v-model="config.feishu!.default.appId" placeholder="App ID" class="field" />
-      <input v-model="config.feishu!.default.appSecret" placeholder="App Secret" class="field" />
-      <template v-if="config.feishu!.default.connectionMode === 'webhook'">
-        <input v-model="config.feishu!.default.encryptKey" placeholder="Encrypt Key" class="field" />
-        <button type="button" class="btn-ghost" @click="copyWebhook('feishu')">
-          <Copy class="w-3.5 h-3.5" />
-          复制 Webhook URL
-        </button>
-        <p v-if="webhookUrls[urlKey('feishu')]" class="text-xs text-muted break-all">
-          {{ webhookUrls[urlKey('feishu')] }}
-        </p>
-      </template>
-    </div>
-
-    <div class="rounded-xl border border-border p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <h3 class="text-sm font-medium">钉钉</h3>
-        <label class="flex items-center gap-2 text-xs">
-          <input v-model="config.dingtalk!.default.enabled" type="checkbox" />
-          启用
-        </label>
-      </div>
-      <div class="flex gap-2">
-        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
-          <input v-model="config.dingtalk!.default.connectionMode" type="radio" value="websocket" />
-          Stream 长连接（推荐）
-        </label>
-        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
-          <input v-model="config.dingtalk!.default.connectionMode" type="radio" value="webhook" />
-          HTTP 回调
-        </label>
-      </div>
-      <p v-if="config.dingtalk!.default.connectionMode === 'websocket'" class="text-xs text-muted">
-        钉钉机器人消息接收选 Stream 模式，无需公网回调地址。
-      </p>
-      <div class="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          class="btn-ghost"
-          :disabled="regBusy.dingtalk"
-          @click="startQrRegistration('dingtalk')"
-        >
-          扫码一键创建
-        </button>
-        <span v-if="regStatusByChannel.dingtalk" class="text-xs text-muted">
-          {{ regStatusByChannel.dingtalk }}
-        </span>
-      </div>
-      <img
-        v-if="qrByChannel.dingtalk"
-        :src="`data:image/png;base64,${qrByChannel.dingtalk}`"
-        alt="DingTalk QR"
-        class="w-40 h-40"
-      />
-      <input v-model="config.dingtalk!.default.clientId" placeholder="Client ID / AppKey" class="field" />
-      <input v-model="config.dingtalk!.default.clientSecret" placeholder="Client Secret" class="field" />
-      <template v-if="config.dingtalk!.default.connectionMode === 'webhook'">
-        <button type="button" class="btn-ghost" @click="copyWebhook('dingtalk')">
-          <Copy class="w-3.5 h-3.5" />
-          复制 Webhook URL
-        </button>
-        <p v-if="webhookUrls[urlKey('dingtalk')]" class="text-xs text-muted break-all">
-          {{ webhookUrls[urlKey('dingtalk')] }}
-        </p>
-      </template>
-    </div>
-
-    <div class="rounded-xl border border-border p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <h3 class="text-sm font-medium">企微</h3>
-        <label class="flex items-center gap-2 text-xs">
-          <input v-model="config.wecom!.default.enabled" type="checkbox" />
-          启用
-        </label>
-      </div>
-      <div class="flex gap-2">
-        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
-          <input v-model="config.wecom!.default.connectionMode" type="radio" value="websocket" />
-          WSS 长连接（推荐）
-        </label>
-        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
-          <input v-model="config.wecom!.default.connectionMode" type="radio" value="webhook" />
-          HTTP 回调
-        </label>
-      </div>
-      <template v-if="config.wecom!.default.connectionMode === 'websocket'">
-        <p class="text-xs text-muted">智能机器人 Bot 模式：无需公网 Webhook，客户端主动连企微 WSS。</p>
-        <div class="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            class="btn-ghost"
-            :disabled="regBusy.wecom"
-            @click="startWecomQrRegistration"
-          >
-            扫码一键创建
-          </button>
-          <span v-if="regStatusByChannel.wecom" class="text-xs text-muted">
-            {{ regStatusByChannel.wecom }}
-          </span>
-        </div>
-        <p class="text-xs text-muted">企微将弹出授权窗口，请用企业微信 App 扫码并点击「一键创建智能机器人」。</p>
-        <input v-model="config.wecom!.default.botId" placeholder="Bot ID" class="field" />
-        <input v-model="config.wecom!.default.secret" placeholder="Bot Secret" class="field" />
-        <input
-          v-model="config.wecom!.default.websocketUrl"
-          placeholder="WSS 地址（默认 wss://openws.work.weixin.qq.com）"
-          class="field"
-        />
-      </template>
-      <template v-else>
-        <p class="text-xs text-muted">自建应用 Agent 模式：需公网 HTTPS 回调。</p>
-        <input v-model="config.wecom!.default.corpId" placeholder="Corp ID" class="field" />
-        <input v-model="config.wecom!.default.agentId" placeholder="Agent ID" class="field" />
-        <input v-model="config.wecom!.default.secret" placeholder="应用 Secret" class="field" />
-        <input v-model="config.wecom!.default.token" placeholder="回调 Token" class="field" />
-        <input v-model="config.wecom!.default.encodingAesKey" placeholder="Encoding AES Key" class="field" />
-        <button type="button" class="btn-ghost" @click="copyWebhook('wecom')">
-          <Copy class="w-3.5 h-3.5" />
-          复制 Webhook URL
-        </button>
-      </template>
-    </div>
-
-    <div class="rounded-xl border border-border p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <h3 class="text-sm font-medium">微信（iLink 长轮询）</h3>
-        <label class="flex items-center gap-2 text-xs">
-          <input v-model="config.weixin!.default.enabled" type="checkbox" />
-          启用
-        </label>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <button type="button" class="btn-ghost" @click="startWeixinQr">
-          {{ weixinLoggedIn ? '重新扫码登录' : '扫码登录' }}
-        </button>
+    <div class="channel-tabs" role="tablist">
+      <button
+        v-for="tab in CHANNEL_TABS"
+        :key="tab.id"
+        type="button"
+        role="tab"
+        class="channel-tab"
+        :class="{ active: activeTab === tab.id }"
+        :aria-selected="activeTab === tab.id"
+        @click="activeTab = tab.id"
+      >
+        <span>{{ tab.label }}</span>
         <span
-          v-if="weixinLoginStatus"
-          class="text-xs"
-          :class="weixinLoggedIn ? 'text-green-600' : 'text-muted'"
-        >
-          {{ weixinLoginStatus }}
-        </span>
-      </div>
-      <img v-if="weixinQr" :src="`data:image/png;base64,${weixinQr}`" alt="Weixin QR" class="w-40 h-40" />
-    </div>
-
-    <div class="rounded-xl border border-border p-4 space-y-2">
-      <h3 class="text-sm font-medium">配对审批</h3>
-      <p class="text-xs text-muted">在 IM 收到配对码后，在此输入并批准。</p>
-      <div class="flex flex-wrap gap-2">
-        <input v-model="pairingCode" placeholder="配对码" class="field flex-1 min-w-[8rem]" />
-        <button type="button" class="btn-primary" @click="approvePairingAuto">自动批准</button>
-        <button type="button" class="btn-ghost" @click="approvePairing('weixin')">微信批准</button>
-        <button type="button" class="btn-ghost" @click="approvePairing('wecom')">企微批准</button>
-        <button type="button" class="btn-ghost" @click="approvePairing('feishu')">飞书批准</button>
-        <button type="button" class="btn-ghost" @click="approvePairing('dingtalk')">钉钉批准</button>
-      </div>
-    </div>
-
-    <div class="flex gap-2">
-      <button type="button" class="btn-primary" :disabled="saving" @click="save">
-        {{ saving ? '保存中…' : '保存通道配置' }}
+          v-if="channelStatusByTab[tab.id].tabDot !== 'none'"
+          :class="channelStatusByTab[tab.id].tabDot === 'ok' ? 'tab-dot' : 'tab-dot-warn'"
+          :title="channelStatusByTab[tab.id].setupLabel"
+        />
       </button>
+    </div>
+
+    <div class="rounded-xl border border-border overflow-hidden">
+      <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-3 bg-[hsl(var(--card-elevated))]">
+        <div>
+          <h3 class="text-sm font-medium">
+            {{ CHANNEL_TABS.find(t => t.id === activeTab)?.label }}
+          </h3>
+          <div class="flex items-center gap-2 mt-0.5">
+            <span class="mode-badge">{{ activeConnectionLabel }}</span>
+            <span class="text-xs text-muted">{{ tabHints[activeTab] }}</span>
+          </div>
+        </div>
+        <label class="flex items-center gap-2 text-xs shrink-0">
+          <span class="text-muted">启用</span>
+          <input
+            v-if="activeTab === 'weixin'"
+            v-model="config.weixin!.default.enabled"
+            type="checkbox"
+          />
+          <input
+            v-else-if="activeTab === 'feishu'"
+            v-model="config.feishu!.default.enabled"
+            type="checkbox"
+          />
+          <input
+            v-else-if="activeTab === 'wecom'"
+            v-model="config.wecom!.default.enabled"
+            type="checkbox"
+          />
+          <input
+            v-else
+            v-model="config.dingtalk!.default.enabled"
+            type="checkbox"
+          />
+        </label>
+      </div>
+
+      <div class="p-5">
+        <div class="qr-hero">
+          <div v-if="activeQrBase64" class="qr-frame">
+            <img
+              :src="`data:image/png;base64,${activeQrBase64}`"
+              :alt="`${activeTab} QR`"
+              class="qr-image"
+            />
+          </div>
+          <div v-else class="qr-placeholder">
+            <QrCode class="w-10 h-10 text-muted/50" />
+            <p class="text-sm text-muted mt-3">扫码连接</p>
+          </div>
+
+          <p
+            v-if="activeStatus.displayText"
+            class="text-sm mt-4"
+            :class="statusToneClass"
+          >
+            {{ activeStatus.displayText }}
+          </p>
+
+          <div class="btn-row">
+            <button
+              type="button"
+              class="btn-scan"
+              :disabled="activeScanBusy || (activeTab === 'weixin' && !tauriMode)"
+              @click="startActiveScan"
+            >
+              <QrCode class="w-4 h-4" />
+              {{ activeScanLabel }}
+            </button>
+            <button
+              type="button"
+              class="btn-connect"
+              :class="{ 'btn-connect-live': connectionByTab[activeTab] }"
+              :disabled="activeConnectDisabled"
+              @click="connectActiveChannel"
+            >
+              <Plug class="w-4 h-4" />
+              {{ activeConnectLabel }}
+            </button>
+          </div>
+
+          <p v-if="activeTab === 'weixin' && !tauriMode" class="text-xs text-muted mt-2">
+            微信扫码登录仅支持桌面客户端
+          </p>
+        </div>
+
+        <details class="manual-section mt-5">
+          <summary class="manual-summary">
+            <span>手动填写凭证</span>
+            <ChevronDown class="w-4 h-4 summary-chevron" />
+          </summary>
+
+          <div class="manual-body space-y-3">
+            <template v-if="activeTab === 'weixin'">
+              <p class="text-xs text-muted">微信通过扫码登录获取凭证，无需手填。</p>
+            </template>
+
+            <template v-else-if="activeTab === 'feishu'">
+              <input
+                v-model="config.feishu!.default.appId"
+                placeholder="App ID（如 cli_xxxxxxxx）"
+                class="field placeholder:text-muted"
+              />
+              <input
+                v-model="config.feishu!.default.appSecret"
+                placeholder="App Secret"
+                class="field placeholder:text-muted"
+              />
+            </template>
+
+            <template v-else-if="activeTab === 'wecom'">
+              <input
+                v-model="config.wecom!.default.botId"
+                placeholder="智能机器人 Bot ID"
+                class="field placeholder:text-muted"
+              />
+              <input
+                v-model="config.wecom!.default.secret"
+                placeholder="Bot Secret"
+                class="field placeholder:text-muted"
+              />
+              <input
+                v-model="config.wecom!.default.websocketUrl"
+                placeholder="WSS 地址（留空则用 wss://openws.work.weixin.qq.com）"
+                class="field placeholder:text-muted"
+              />
+            </template>
+
+            <template v-else>
+              <input
+                v-model="config.dingtalk!.default.clientId"
+                placeholder="Client ID / AppKey"
+                class="field placeholder:text-muted"
+              />
+              <input
+                v-model="config.dingtalk!.default.clientSecret"
+                placeholder="Client Secret / AppSecret"
+                class="field placeholder:text-muted"
+              />
+            </template>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <details class="manual-section">
+      <summary class="manual-summary">
+        <span>配对审批</span>
+        <ChevronDown class="w-4 h-4 summary-chevron" />
+      </summary>
+      <div class="manual-body space-y-2">
+        <p class="text-xs text-muted">在 IM 收到配对码后，在此输入并批准。</p>
+        <div class="flex flex-wrap gap-2">
+          <input v-model="pairingCode" placeholder="配对码" class="field flex-1 min-w-[8rem]" />
+          <button type="button" class="btn-primary" @click="approvePairingAuto">批准</button>
+        </div>
+      </div>
+    </details>
+
+    <details class="manual-section">
+      <summary class="manual-summary">
+        <span>高级设置（Webhook 备选）</span>
+        <ChevronDown class="w-4 h-4 summary-chevron" />
+      </summary>
+      <div class="manual-body space-y-4">
+        <p class="text-xs text-muted">
+          默认使用 WSS / Stream 长连接。仅在需要 HTTP 回调时才启用 Webhook 模式。
+        </p>
+
+        <div v-if="activeTab === 'feishu'" class="space-y-2">
+          <label class="flex items-center gap-2 text-xs cursor-pointer">
+            <input
+              type="checkbox"
+              :checked="config.feishu!.default.connectionMode === 'webhook'"
+              @change="config.feishu!.default.connectionMode = ($event.target as HTMLInputElement).checked ? 'webhook' : 'websocket'"
+            />
+            启用 HTTP 回调（飞书）
+          </label>
+          <template v-if="config.feishu!.default.connectionMode === 'webhook'">
+            <input v-model="config.feishu!.default.encryptKey" placeholder="Encrypt Key" class="field" />
+            <button type="button" class="btn-ghost" @click="copyWebhook('feishu')">
+              <Copy class="w-3.5 h-3.5" />
+              复制 Webhook URL
+            </button>
+            <p v-if="webhookUrls[urlKey('feishu')]" class="text-xs text-muted break-all">
+              {{ webhookUrls[urlKey('feishu')] }}
+            </p>
+          </template>
+        </div>
+
+        <div v-else-if="activeTab === 'wecom'" class="space-y-2">
+          <label class="flex items-center gap-2 text-xs cursor-pointer">
+            <input
+              type="checkbox"
+              :checked="config.wecom!.default.connectionMode === 'webhook'"
+              @change="config.wecom!.default.connectionMode = ($event.target as HTMLInputElement).checked ? 'webhook' : 'websocket'"
+            />
+            启用 HTTP 回调（企微 Agent 模式）
+          </label>
+          <template v-if="config.wecom!.default.connectionMode === 'webhook'">
+            <input v-model="config.wecom!.default.corpId" placeholder="Corp ID" class="field" />
+            <input v-model="config.wecom!.default.agentId" placeholder="Agent ID" class="field" />
+            <input v-model="config.wecom!.default.secret" placeholder="应用 Secret" class="field" />
+            <input v-model="config.wecom!.default.token" placeholder="回调 Token" class="field" />
+            <input v-model="config.wecom!.default.encodingAesKey" placeholder="Encoding AES Key" class="field" />
+            <button type="button" class="btn-ghost" @click="copyWebhook('wecom')">
+              <Copy class="w-3.5 h-3.5" />
+              复制 Webhook URL
+            </button>
+          </template>
+        </div>
+
+        <div v-else-if="activeTab === 'dingtalk'" class="space-y-2">
+          <label class="flex items-center gap-2 text-xs cursor-pointer">
+            <input
+              type="checkbox"
+              :checked="config.dingtalk!.default.connectionMode === 'webhook'"
+              @change="config.dingtalk!.default.connectionMode = ($event.target as HTMLInputElement).checked ? 'webhook' : 'websocket'"
+            />
+            启用 HTTP 回调（钉钉）
+          </label>
+          <template v-if="config.dingtalk!.default.connectionMode === 'webhook'">
+            <button type="button" class="btn-ghost" @click="copyWebhook('dingtalk')">
+              <Copy class="w-3.5 h-3.5" />
+              复制 Webhook URL
+            </button>
+            <p v-if="webhookUrls[urlKey('dingtalk')]" class="text-xs text-muted break-all">
+              {{ webhookUrls[urlKey('dingtalk')] }}
+            </p>
+          </template>
+        </div>
+
+        <div v-else class="text-xs text-muted">微信仅支持 iLink 长轮询，无 Webhook 模式。</div>
+
+        <div>
+          <label class="text-xs text-muted">公网 Base URL（Webhook 模式需要）</label>
+          <input
+            v-model="config.meta!.publicBaseUrl"
+            class="field mt-1.5"
+            placeholder="https://pointer.example.com"
+          />
+        </div>
+      </div>
+    </details>
+
+    <div class="flex gap-2 pt-1">
       <button type="button" class="btn-ghost" :disabled="loading" @click="refresh">
         <RefreshCw class="w-3.5 h-3.5" />
-        刷新
+        刷新状态
       </button>
     </div>
   </div>
 </template>
 
 <style scoped>
-.field {
-  @apply w-full rounded-lg border border-border bg-background px-3 py-2 text-sm;
+.channel-tabs {
+  @apply flex gap-1 p-1 rounded-xl border border-border bg-[hsl(var(--card-elevated))];
 }
+
+.channel-tab {
+  @apply relative flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm text-muted transition-colors;
+}
+
+.channel-tab:hover {
+  @apply text-foreground;
+}
+
+.channel-tab.active {
+  @apply bg-background text-foreground font-medium shadow-sm;
+}
+
+.mode-badge {
+  @apply inline-flex shrink-0 items-center rounded-md border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted;
+}
+
+.tab-dot {
+  @apply w-1.5 h-1.5 rounded-full bg-green-500;
+}
+
+.tab-dot-warn {
+  @apply w-1.5 h-1.5 rounded-full bg-amber-500;
+}
+
+.qr-hero {
+  @apply flex flex-col items-center text-center;
+}
+
+.qr-frame {
+  @apply rounded-2xl border-2 border-border bg-white p-4 shadow-sm;
+}
+
+.qr-image {
+  @apply w-52 h-52 object-contain;
+}
+
+.qr-placeholder {
+  @apply flex flex-col items-center justify-center w-52 h-52 rounded-2xl border-2 border-dashed border-border bg-[hsl(var(--card-elevated))];
+}
+
+.btn-row {
+  @apply mt-4 flex flex-wrap items-center justify-center gap-2;
+}
+
+.btn-scan {
+  @apply inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50;
+}
+
+.btn-connect {
+  @apply inline-flex items-center gap-2 rounded-xl border border-border bg-background px-5 py-2.5 text-sm font-medium hover:bg-hover disabled:opacity-50;
+}
+
+.btn-connect-live {
+  @apply border-green-500/40 text-green-700;
+}
+
+.manual-section {
+  @apply rounded-xl border border-border;
+}
+
+.manual-summary {
+  @apply flex items-center justify-between gap-2 cursor-pointer select-none px-4 py-3 text-sm font-medium list-none;
+}
+
+.manual-summary::-webkit-details-marker {
+  display: none;
+}
+
+.manual-body {
+  @apply px-4 pb-4 border-t border-border pt-3;
+}
+
+.manual-section[open] .summary-chevron {
+  transform: rotate(180deg);
+}
+
+.summary-chevron {
+  @apply text-muted transition-transform;
+}
+
+.field {
+  @apply w-full rounded-lg border border-border bg-background px-3 py-2 text-sm placeholder:text-muted;
+}
+
 .btn-ghost {
   @apply inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs hover:bg-hover;
 }
+
 .btn-primary {
   @apply rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50;
 }

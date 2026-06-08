@@ -98,6 +98,13 @@ export async function getWeixinLoginStatus(
   return webRequest(`/api/channels/weixin/${encodeURIComponent(accountId)}/login/status`)
 }
 
+export async function hasWeixinCredentials(accountId: string): Promise<boolean> {
+  if (isTauriRuntime()) {
+    return invoke<boolean>('has_weixin_credentials', { accountId })
+  }
+  return false
+}
+
 export async function approveChannelPairing(
   channel: string,
   accountId: string,
@@ -114,8 +121,40 @@ export async function approveChannelPairing(
 }
 
 export interface PairingPendingItem {
+  channel: string
   code: string
   senderId: string
+}
+
+const PAIRING_CHANNELS = ['weixin', 'wecom', 'feishu', 'dingtalk'] as const
+
+export async function listAllChannelPairingPending(
+  accountId: string
+): Promise<PairingPendingItem[]> {
+  const all: PairingPendingItem[] = []
+  for (const channel of PAIRING_CHANNELS) {
+    const pending = await listChannelPairingPending(channel, accountId)
+    for (const item of pending) {
+      all.push({ ...item, channel })
+    }
+  }
+  return all
+}
+
+export async function approveChannelPairingAny(
+  accountId: string,
+  code: string
+): Promise<string> {
+  let lastError = '配对码无效或已过期'
+  for (const channel of PAIRING_CHANNELS) {
+    try {
+      await approveChannelPairing(channel, accountId, code)
+      return channel
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e)
+    }
+  }
+  throw new Error(lastError)
 }
 
 export async function listChannelPairingPending(

@@ -47,8 +47,10 @@ Pointer 通过 `pointer-channels` crate 以 **Webhook 优先、纯 Rust** 方式
 ## 微信
 
 1. 在设置中点击「扫码登录」
-2. 凭证加密存储于本地 `channel_credentials/`
-3. 服务端自动启动 iLink 长轮询 monitor
+2. 使用**微信 App** 扫描（二维码内容为 `qrcode_img_content` 返回的 liteapp 链接，非轮询令牌）
+3. 手机端确认后凭证加密存储于本地 `channel_credentials/`
+4. 勾选「启用」并保存，桌面端自动启动 iLink `getupdates` 长轮询 monitor
+5. 首次私聊默认需配对（`dmPolicy: pairing`），或在设置里批准配对码
 
 ## 配对
 

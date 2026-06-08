@@ -125,12 +125,19 @@ impl ChannelGateway {
                     recipient_id: msg.sender_id.clone(),
                     reply_context: msg.reply_context.clone(),
                 };
+                let approve_label = match msg.channel.as_str() {
+                    "weixin" => "微信批准",
+                    "wecom" => "企微批准",
+                    "feishu" => "飞书批准",
+                    "dingtalk" => "钉钉批准",
+                    _ => "对应通道批准",
+                };
                 plugin
                     .outbound
                     .send_text(
                         outbound,
                         &format!(
-                            "需要配对。请在 Pointer 设置 → IM 通道 → 配对审批 中点击「企微批准」，或直接回复此配对码：{code}"
+                            "需要配对。请在 Pointer 设置 → IM 通道 → 配对审批 中点击「{approve_label}」，或直接回复此配对码：{code}"
                         ),
                     )
                     .await?;

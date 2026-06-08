@@ -39,15 +39,20 @@ impl QrLoginState {
             },
         );
         let resp = client.fetch_qrcode().await?;
-        let qrcode = resp
+        let qrcode_token = resp
             .get("qrcode")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("missing qrcode"))?
             .to_string();
-        let png_b64 = qrcode_png_base64(&qrcode)?;
+        let qrcode_url = resp
+            .get("qrcode_img_content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("missing qrcode_img_content"))?
+            .to_string();
+        let png_b64 = qrcode_png_base64(&qrcode_url)?;
         let session = QrLoginSession {
             account_id: account_id.to_string(),
-            qrcode: qrcode.clone(),
+            qrcode: qrcode_url,
             qrcode_png_base64: png_b64,
             status: "pending".into(),
         };
@@ -59,7 +64,7 @@ impl QrLoginState {
         let sessions = self.sessions.clone();
         let aid = account_id.to_string();
         tokio::spawn(async move {
-            if let Err(e) = poll_until_done(sessions, &aid, &qrcode).await {
+            if let Err(e) = poll_until_done(sessions, &aid, &qrcode_token).await {
                 log::error!("weixin qr poll failed account={aid}: {e:#}");
             }
         });
@@ -91,13 +96,9 @@ async fn poll_until_done(
         let status = resp
             .get("status")
             .and_then(|v| v.as_str())
-            .unwrap_or("pending");
-        if status == "confirmed" || status == "success" {
-            let info = resp
-                .get("info")
-                .or_else(|| resp.get("info_json"))
-                .ok_or_else(|| anyhow::anyhow!("missing login info"))?;
-            let creds = parse_login_info(info)?;
+            .unwrap_or("wait");
+        if status == "confirmed" {
+            let creds = parse_login_info(&resp)?;
             save_encrypted_json("weixin", account_id, &creds)?;
             let mut guard = sessions.write().await;
             if let Some(s) = guard.get_mut(account_id) {
@@ -105,6 +106,13 @@ async fn poll_until_done(
             }
             log::info!("weixin login confirmed account={account_id}");
             return Ok(());
+        }
+        if status == "scaned" {
+            let mut guard = sessions.write().await;
+            if let Some(s) = guard.get_mut(account_id) {
+                s.status = "scanned".into();
+            }
+            continue;
         }
         if status == "expired" || status == "failed" {
             let mut guard = sessions.write().await;

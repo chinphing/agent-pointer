@@ -200,6 +200,7 @@ pub fn run() {
             channel_commands::get_channel_webhook_url,
             channel_commands::start_weixin_login,
             channel_commands::get_weixin_login_status,
+            channel_commands::has_weixin_credentials,
             channel_commands::approve_channel_pairing,
             channel_commands::list_channel_pairing_pending,
             platform_commands::get_platform_session,

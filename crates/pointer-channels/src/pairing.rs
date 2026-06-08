@@ -140,6 +140,7 @@ impl PairingStore {
     }
 
     pub fn approve(&self, channel: &str, account_id: &str, code: &str) -> Result<bool> {
+        self.load_pending(channel, account_id)?;
         let key = format!("{channel}:{account_id}");
         let normalized = code.trim();
         let matched = {

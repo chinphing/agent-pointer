@@ -1,6 +1,8 @@
 use crate::channel_monitor::ChannelMonitorHandle;
+use pointer_channels::adapters::weixin::ilink_client::WeixinCredentials;
 use pointer_channels::adapters::weixin::qr_login::{QrLoginSession, QrLoginState};
 use pointer_channels::config::{load_channels_config, ChannelsConfig};
+use pointer_channels::credentials::load_encrypted_json;
 use pointer_channels::ChannelGateway;
 use serde::Serialize;
 use std::sync::Arc;
@@ -84,9 +86,22 @@ pub async fn start_weixin_login(
 #[tauri::command]
 pub async fn get_weixin_login_status(
     qr: State<'_, Arc<QrLoginState>>,
+    monitors: State<'_, Arc<ChannelMonitorHandle>>,
     account_id: String,
 ) -> Result<Option<QrLoginSession>, String> {
-    Ok(qr.get(&account_id).await)
+    let session = qr.get(&account_id).await;
+    if session.as_ref().is_some_and(|s| s.status == "confirmed") {
+        monitors.restart();
+        log::info!("weixin login confirmed; channel monitors restarted account={account_id}");
+    }
+    Ok(session)
+}
+
+#[tauri::command]
+pub fn has_weixin_credentials(account_id: String) -> Result<bool, String> {
+    let creds = load_encrypted_json::<WeixinCredentials>("weixin", &account_id)
+        .map_err(|e| format!("读取微信凭证失败: {e:#}"))?;
+    Ok(creds.is_some())
 }
 
 #[derive(Debug, Serialize)]
@@ -113,6 +128,7 @@ pub fn approve_channel_pairing(
         "pairing approve request channel={channel} account={account_id} code={}",
         code.trim()
     );
+    let _ = gateway.pairing.load(&channel, &account_id);
     let ok = gateway
         .pairing
         .approve(&channel, &account_id, &code)

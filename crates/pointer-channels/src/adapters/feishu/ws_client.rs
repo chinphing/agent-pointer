@@ -23,6 +23,7 @@ use proto::{Frame, Header};
 /// 与 larksuite/oapi-sdk-go `GenEndpointUri` 一致：`FeishuBaseUrl + "/callback/ws/endpoint"`
 const ENDPOINT_PATH: &str = "https://open.feishu.cn/callback/ws/endpoint";
 const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(120);
+const INBOUND_PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 const RECONNECT_BASE_MS: u64 = 1_000;
 const RECONNECT_MAX_MS: u64 = 30_000;
 
@@ -44,7 +45,9 @@ pub async fn run_feishu_ws_loop(
             log::info!("feishu ws loop cancelled account={}", cfg.account_id);
             return Ok(());
         }
-        match run_single_connection(&cfg, &http, gateway.clone(), cancel.clone()).await {
+        match run_single_connection(&cfg, &http, gateway.clone(), cancel.clone(), &mut attempt)
+            .await
+        {
             Ok(StopReason::Cancelled) => return Ok(()),
             Ok(StopReason::Disconnected) => {
                 attempt = attempt.saturating_add(1);
@@ -98,6 +101,7 @@ async fn run_single_connection(
     http: &HttpClient,
     gateway: std::sync::Arc<ChannelGateway>,
     cancel: CancellationToken,
+    reconnect_attempt: &mut u32,
 ) -> Result<StopReason> {
     let endpoint = open_endpoint(http, cfg).await?;
     let url = endpoint
@@ -116,7 +120,11 @@ async fn run_single_connection(
     let (ws, _) = connect_async(url).await.context("feishu ws connect")?;
     let (mut write, mut read) = ws.split();
     log::info!("feishu ws connected account={}", cfg.account_id);
+    *reconnect_attempt = 0;
     let _connected = connection_state::ConnectionGuard::connect("feishu", &cfg.account_id);
+    let dedup_ns = format!("feishu:{}", cfg.account_id);
+    gateway.dedup.clear_namespace(&dedup_ns);
+    log::info!("feishu ws dedup cleared on connect account={}", cfg.account_id);
 
     let ping_secs = endpoint
         .client_config
@@ -158,12 +166,7 @@ async fn run_single_connection(
                         }
                         let payload = frame.payload.clone().unwrap_or_default();
                         if let Some(inbound) = parse_feishu_event_payload(&payload, &cfg.account_id) {
-                            let gw = gateway.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = gw.process_inbound(inbound).await {
-                                    log::error!("feishu ws process_inbound failed: {e:#}");
-                                }
-                            });
+                            wait_process_inbound(gateway.clone(), inbound, &cfg.account_id).await;
                         }
                         let response = json!({ "code": 200, "headers": {}, "data": [] });
                         let mut resp_frame = frame;
@@ -290,6 +293,36 @@ fn parse_feishu_event_payload(payload: &[u8], account_id: &str) -> Option<Inboun
             wecom_req_id: None,
         }),
     })
+}
+
+/// 尽量在 ack 前完成处理；超时后后台继续，避免重连时 dedup 误杀重投消息。
+async fn wait_process_inbound(
+    gateway: std::sync::Arc<ChannelGateway>,
+    inbound: InboundMessage,
+    account_id: &str,
+) {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let result = gateway.process_inbound(inbound).await;
+        let _ = tx.send(result);
+    });
+    match tokio::time::timeout(INBOUND_PROCESS_TIMEOUT, rx).await {
+        Ok(Ok(Ok(()))) => {}
+        Ok(Ok(Err(e))) => {
+            log::error!(
+                "feishu ws process_inbound failed account={account_id}: {e:#}"
+            );
+        }
+        Ok(Err(_)) => {
+            log::warn!("feishu ws process_inbound channel closed account={account_id}");
+        }
+        Err(_) => {
+            log::warn!(
+                "feishu ws process_inbound still running after {}s account={account_id}",
+                INBOUND_PROCESS_TIMEOUT.as_secs()
+            );
+        }
+    }
 }
 
 fn reconnect_delay(attempt: u32) -> u64 {

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tokio_util::sync::CancellationToken;
 
@@ -11,6 +11,9 @@ use crate::http_client::HttpClient;
 use crate::traits::ChannelWebhookAdapter;
 const OPEN_URL: &str = "https://api.dingtalk.com/v1.0/gateway/connections/open";
 const BOT_MSG_TOPIC: &str = "/v1.0/im/bot/messages/get";
+const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+const IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+const INBOUND_PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 const RECONNECT_BASE_MS: u64 = 1_000;
 const RECONNECT_MAX_MS: u64 = 30_000;
 
@@ -32,7 +35,9 @@ pub async fn run_dingtalk_stream_loop(
             log::info!("dingtalk stream loop cancelled account={}", cfg.account_id);
             return Ok(());
         }
-        match run_single_connection(&cfg, &http, gateway.clone(), cancel.clone()).await {
+        match run_single_connection(&cfg, &http, gateway.clone(), cancel.clone(), &mut attempt)
+            .await
+        {
             Ok(StopReason::Cancelled) => return Ok(()),
             Ok(StopReason::Disconnected) => {
                 attempt = attempt.saturating_add(1);
@@ -72,6 +77,7 @@ async fn run_single_connection(
     http: &HttpClient,
     gateway: std::sync::Arc<ChannelGateway>,
     cancel: CancellationToken,
+    reconnect_attempt: &mut u32,
 ) -> Result<StopReason> {
     let (endpoint, ticket) = open_stream_ticket(http, cfg).await?;
     let ws_url = format!("{endpoint}?ticket={ticket}");
@@ -81,15 +87,37 @@ async fn run_single_connection(
         .with_context(|| format!("dingtalk ws connect {ws_url}"))?;
     let (mut write, mut read) = ws.split();
     log::info!("dingtalk stream connected account={}", cfg.account_id);
+    *reconnect_attempt = 0;
     let _connected = connection_state::ConnectionGuard::connect("dingtalk", &cfg.account_id);
+    let dedup_ns = format!("dingtalk:{}", cfg.account_id);
+    gateway.dedup.clear_namespace(&dedup_ns);
+    log::info!(
+        "dingtalk stream dedup cleared on connect account={}",
+        cfg.account_id
+    );
+
+    let mut last_activity = Instant::now();
+    let mut idle_check = tokio::time::interval(IDLE_CHECK_INTERVAL);
+    idle_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
         tokio::select! {
             _ = cancel.cancelled() => return Ok(StopReason::Cancelled),
+            _ = idle_check.tick() => {
+                if last_activity.elapsed() > IDLE_TIMEOUT {
+                    log::warn!(
+                        "dingtalk stream idle timeout account={} idle_secs={}",
+                        cfg.account_id,
+                        last_activity.elapsed().as_secs()
+                    );
+                    return Ok(StopReason::Disconnected);
+                }
+            }
             msg = read.next() => {
                 let Some(msg) = msg else {
                     return Ok(StopReason::Disconnected);
                 };
+                last_activity = Instant::now();
                 match msg.context("dingtalk ws read")? {
                     Message::Text(text) => {
                         let envelope: Value = serde_json::from_str(&text)
@@ -186,14 +214,7 @@ async fn handle_envelope(
                     if let Some(inbound) =
                         super::webhook::DingTalkWebhook.parse_inbound(&event, &cfg.account_id)
                     {
-                        let account_id = cfg.account_id.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = gateway.process_inbound(inbound).await {
-                                log::error!(
-                                    "dingtalk stream process_inbound failed account={account_id}: {e:#}"
-                                );
-                            }
-                        });
+                        wait_process_inbound(gateway.clone(), inbound, &cfg.account_id).await;
                     }
                 }
             }
@@ -225,6 +246,35 @@ fn stream_ack(code: u16, message_id: &str, data: Value) -> Value {
         },
         "data": serde_json::to_string(&data).unwrap_or_else(|_| "{}".into())
     })
+}
+
+async fn wait_process_inbound(
+    gateway: std::sync::Arc<ChannelGateway>,
+    inbound: crate::traits::InboundMessage,
+    account_id: &str,
+) {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let result = gateway.process_inbound(inbound).await;
+        let _ = tx.send(result);
+    });
+    match tokio::time::timeout(INBOUND_PROCESS_TIMEOUT, rx).await {
+        Ok(Ok(Ok(()))) => {}
+        Ok(Ok(Err(e))) => {
+            log::error!(
+                "dingtalk stream process_inbound failed account={account_id}: {e:#}"
+            );
+        }
+        Ok(Err(_)) => {
+            log::warn!("dingtalk stream process_inbound channel closed account={account_id}");
+        }
+        Err(_) => {
+            log::warn!(
+                "dingtalk stream process_inbound still running after {}s account={account_id}",
+                INBOUND_PROCESS_TIMEOUT.as_secs()
+            );
+        }
+    }
 }
 
 fn reconnect_delay(attempt: u32) -> u64 {

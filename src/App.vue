@@ -2,6 +2,8 @@
 import { defineAsyncComponent, onMounted, ref } from 'vue'
 import AppShell from './components/layout/AppShell.vue'
 import ChatView from './components/chat/ChatView.vue'
+import ChannelPairingModal from './components/channels/ChannelPairingModal.vue'
+import { useChannelPairingPrompt } from './composables/useChannelPairingPrompt'
 import { useChatStore } from './stores/chat'
 import { usePlatformAuthStore } from './stores/platformAuth'
 import { useSettingsStore } from './stores/settings'
@@ -19,6 +21,12 @@ const skills = useSkillsStore()
 
 const showSettings = ref(false)
 const showSkills = ref(false)
+const {
+  open: pairingModalOpen,
+  pendingItem: pairingModalPending,
+  dismiss: dismissPairingModal,
+  onApproved: onPairingApproved
+} = useChannelPairingPrompt()
 
 onMounted(() => {
   void loadSettingsDialog()
@@ -55,4 +63,11 @@ function onOpenSkillsFromSettings() {
     @open-skills="onOpenSkillsFromSettings"
   />
   <SkillPicker v-if="showSkills" @close="showSkills = false" />
+
+  <ChannelPairingModal
+    v-model:open="pairingModalOpen"
+    :pending="pairingModalPending"
+    @approved="onPairingApproved"
+    @dismiss="dismissPairingModal"
+  />
 </template>

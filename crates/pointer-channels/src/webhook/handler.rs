@@ -67,7 +67,13 @@ pub async fn handle_channel_webhook(
         query: &query_str,
     };
 
-    let inbound = parse_inbound_payload(&channel, &body, &account_id, &plugin);
+    let inbound = crate::webhook::payload::parse_inbound_payload(
+        &channel,
+        &body,
+        &account_id,
+        &account,
+        &plugin,
+    );
 
     let response = match plugin.webhook.handle_webhook(ctx).await {
         Ok(resp) => {
@@ -115,41 +121,3 @@ fn build_query_string(q: &WebhookQuery) -> String {
     parts.join("&")
 }
 
-fn parse_inbound_payload(
-    channel: &str,
-    body: &Bytes,
-    account_id: &str,
-    plugin: &std::sync::Arc<crate::traits::ChannelPlugin>,
-) -> Option<crate::traits::InboundMessage> {
-    if channel == "wecom" {
-        let raw = std::str::from_utf8(body).ok()?;
-        if raw.contains("<xml>") || raw.contains("<Encrypt>") {
-            let event = if raw.contains("<Encrypt>") {
-                let enc = extract_xml_tag(raw, "Encrypt")?;
-                serde_json::json!({ "Encrypt": enc })
-            } else {
-                return plugin.webhook.parse_inbound(
-                    &serde_json::json!({ "xml": raw }),
-                    account_id,
-                );
-            };
-            return plugin.webhook.parse_inbound(&event, account_id);
-        }
-    }
-    serde_json::from_slice::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| plugin.webhook.parse_inbound(&v, account_id))
-}
-
-fn extract_xml_tag(xml: &str, tag: &str) -> Option<String> {
-    let open = format!("<{tag}>");
-    let close = format!("</{tag}>");
-    let start = xml.find(&open)? + open.len();
-    let end = xml.find(&close)?;
-    let inner = &xml[start..end];
-    if inner.starts_with("<![CDATA[") && inner.ends_with("]]>") {
-        Some(inner[9..inner.len() - 3].to_string())
-    } else {
-        Some(inner.to_string())
-    }
-}

@@ -5,14 +5,17 @@ import type { ChannelAccountConfig, ChannelsConfig } from '../../types/channels'
 import {
   approveChannelPairing,
   approveChannelPairingAny,
+  getChannelRegistrationStatus,
   getChannelsConfig,
   getChannelWebhookUrl,
   getWeixinLoginStatus,
   hasWeixinCredentials,
   listChannelStatus,
+  startChannelRegistration,
   startWeixinLogin,
   updateChannelsConfig
 } from '../../lib/channels'
+import { createWecomBotViaQr } from '../../lib/wecom-bot-auth'
 import { isTauriRuntime } from '../../lib/runtime'
 
 const loading = ref(false)
@@ -31,6 +34,19 @@ const weixinQr = ref('')
 const weixinLoginStatus = ref('')
 const weixinLoggedIn = ref(false)
 
+type QrChannel = 'feishu' | 'dingtalk' | 'wecom'
+const qrByChannel = ref<Record<QrChannel, string>>({ feishu: '', dingtalk: '', wecom: '' })
+const regStatusByChannel = ref<Record<QrChannel, string>>({
+  feishu: '',
+  dingtalk: '',
+  wecom: ''
+})
+const regBusy = ref<Record<QrChannel, boolean>>({
+  feishu: false,
+  dingtalk: false,
+  wecom: false
+})
+
 const config = ref<ChannelsConfig>({
   meta: { publicBaseUrl: '' },
   feishu: { default: defaultFeishu() },
@@ -45,7 +61,7 @@ const tauriMode = isTauriRuntime()
 function defaultFeishu(): ChannelAccountConfig {
   return {
     enabled: false,
-    connectionMode: 'webhook',
+    connectionMode: 'websocket',
     dmPolicy: 'pairing',
     groupPolicy: 'allowlist',
     requireMention: true
@@ -55,7 +71,7 @@ function defaultFeishu(): ChannelAccountConfig {
 function defaultDingtalk(): ChannelAccountConfig {
   return {
     enabled: false,
-    connectionMode: 'webhook',
+    connectionMode: 'websocket',
     dmPolicy: 'pairing',
     groupPolicy: 'allowlist',
     requireMention: true
@@ -173,6 +189,106 @@ async function startWeixinQr() {
   }
 }
 
+function registrationStatusLabel(status: string): string {
+  switch (status) {
+    case 'pending':
+      return '等待扫码（请用手机 App 扫描）'
+    case 'success':
+      return '授权成功，凭证已填入'
+    case 'denied':
+      return '用户拒绝授权'
+    case 'expired':
+      return '二维码已过期，请重新获取'
+    case 'timeout':
+      return '授权超时，请重新扫码'
+    case 'failed':
+      return '授权失败，请重试'
+    default:
+      return status
+  }
+}
+
+function applyRegistrationCredentials(channel: QrChannel, session: {
+  appId?: string
+  appSecret?: string
+  clientId?: string
+  clientSecret?: string
+}) {
+  if (channel === 'feishu' && session.appId && session.appSecret) {
+    config.value.feishu!.default.appId = session.appId
+    config.value.feishu!.default.appSecret = session.appSecret
+    return
+  }
+  if (channel === 'dingtalk' && session.clientId && session.clientSecret) {
+    config.value.dingtalk!.default.clientId = session.clientId
+    config.value.dingtalk!.default.clientSecret = session.clientSecret
+  }
+}
+
+async function pollChannelRegistration(channel: QrChannel) {
+  for (let i = 0; i < 180; i++) {
+    await new Promise(r => setTimeout(r, 2000))
+    const session = await getChannelRegistrationStatus(channel, 'default')
+    if (!session) continue
+    regStatusByChannel.value[channel] = registrationStatusLabel(session.status)
+    if (session.status === 'success') {
+      qrByChannel.value[channel] = ''
+      applyRegistrationCredentials(channel, session)
+      return
+    }
+    if (['denied', 'expired', 'timeout', 'failed'].includes(session.status)) {
+      qrByChannel.value[channel] = ''
+      error.value = session.errorMessage || registrationStatusLabel(session.status)
+      return
+    }
+  }
+  regStatusByChannel.value[channel] = '授权超时，请重新扫码'
+}
+
+async function startQrRegistration(channel: 'feishu' | 'dingtalk') {
+  error.value = ''
+  regBusy.value[channel] = true
+  regStatusByChannel.value[channel] = '正在获取二维码…'
+  try {
+    const session = await startChannelRegistration(channel, 'default')
+    qrByChannel.value[channel] = session.qrcodePngBase64
+    regStatusByChannel.value[channel] = registrationStatusLabel(session.status || 'pending')
+    void pollChannelRegistration(channel)
+  } catch (e) {
+    qrByChannel.value[channel] = ''
+    regStatusByChannel.value[channel] = ''
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    regBusy.value[channel] = false
+  }
+}
+
+async function startWecomQrRegistration() {
+  error.value = ''
+  regBusy.value.wecom = true
+  regStatusByChannel.value.wecom = '正在打开企微授权窗口…'
+  qrByChannel.value.wecom = ''
+  try {
+    const creds = await createWecomBotViaQr()
+    config.value.wecom!.default.botId = creds.botId
+    config.value.wecom!.default.secret = creds.secret
+    regStatusByChannel.value.wecom = '机器人创建成功，凭证已填入'
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg.includes('CANCELLED') || msg.includes('取消')) {
+      regStatusByChannel.value.wecom = '已取消授权'
+    } else if (msg.includes('WINDOW_BLOCKED') || msg.includes('弹窗被拦截')) {
+      regStatusByChannel.value.wecom = '弹窗被拦截，请允许弹窗后重试'
+      error.value = msg
+    } else {
+      regStatusByChannel.value.wecom = '授权失败，请重试'
+      error.value = msg
+    }
+  } finally {
+    regBusy.value.wecom = false
+  }
+}
+
 async function pollWeixinStatus() {
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 2000))
@@ -241,10 +357,10 @@ defineExpose({ save })
 <template>
   <div class="space-y-6">
     <p class="text-sm text-muted">
-      IM 通道通过 pointer-server 的 Webhook 接收消息。请配置公网回调地址并启动 Web 服务端。
+      企微 / 飞书 / 钉钉 / 微信默认使用长连接（WSS / Stream / iLink），桌面端可直接收发。Webhook 为可选备选。
     </p>
     <p v-if="tauriMode" class="text-xs text-muted">
-      桌面端可本地保存配置；Webhook 入站与 Agent 回复需公网部署 pointer-server 并填写 publicBaseUrl。
+      保存并启用后，Tauri 会自动启动后台 monitor。仅在使用 Webhook 模式时才需要公网地址与 pointer-server。
     </p>
 
     <div v-if="error" class="text-sm text-red-500">{{ error }}</div>
@@ -267,16 +383,50 @@ defineExpose({ save })
           启用
         </label>
       </div>
+      <div class="flex gap-2">
+        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+          <input v-model="config.feishu!.default.connectionMode" type="radio" value="websocket" />
+          WSS 长连接（推荐）
+        </label>
+        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+          <input v-model="config.feishu!.default.connectionMode" type="radio" value="webhook" />
+          HTTP 回调
+        </label>
+      </div>
+      <p v-if="config.feishu!.default.connectionMode === 'websocket'" class="text-xs text-muted">
+        飞书后台事件订阅选「使用长连接接收事件」，订阅 im.message.receive_v1。
+      </p>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="btn-ghost"
+          :disabled="regBusy.feishu"
+          @click="startQrRegistration('feishu')"
+        >
+          扫码一键创建
+        </button>
+        <span v-if="regStatusByChannel.feishu" class="text-xs text-muted">
+          {{ regStatusByChannel.feishu }}
+        </span>
+      </div>
+      <img
+        v-if="qrByChannel.feishu"
+        :src="`data:image/png;base64,${qrByChannel.feishu}`"
+        alt="Feishu QR"
+        class="w-40 h-40"
+      />
       <input v-model="config.feishu!.default.appId" placeholder="App ID" class="field" />
       <input v-model="config.feishu!.default.appSecret" placeholder="App Secret" class="field" />
-      <input v-model="config.feishu!.default.encryptKey" placeholder="Encrypt Key" class="field" />
-      <button type="button" class="btn-ghost" @click="copyWebhook('feishu')">
-        <Copy class="w-3.5 h-3.5" />
-        复制 Webhook URL
-      </button>
-      <p v-if="webhookUrls[urlKey('feishu')]" class="text-xs text-muted break-all">
-        {{ webhookUrls[urlKey('feishu')] }}
-      </p>
+      <template v-if="config.feishu!.default.connectionMode === 'webhook'">
+        <input v-model="config.feishu!.default.encryptKey" placeholder="Encrypt Key" class="field" />
+        <button type="button" class="btn-ghost" @click="copyWebhook('feishu')">
+          <Copy class="w-3.5 h-3.5" />
+          复制 Webhook URL
+        </button>
+        <p v-if="webhookUrls[urlKey('feishu')]" class="text-xs text-muted break-all">
+          {{ webhookUrls[urlKey('feishu')] }}
+        </p>
+      </template>
     </div>
 
     <div class="rounded-xl border border-border p-4 space-y-3">
@@ -287,12 +437,49 @@ defineExpose({ save })
           启用
         </label>
       </div>
+      <div class="flex gap-2">
+        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+          <input v-model="config.dingtalk!.default.connectionMode" type="radio" value="websocket" />
+          Stream 长连接（推荐）
+        </label>
+        <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+          <input v-model="config.dingtalk!.default.connectionMode" type="radio" value="webhook" />
+          HTTP 回调
+        </label>
+      </div>
+      <p v-if="config.dingtalk!.default.connectionMode === 'websocket'" class="text-xs text-muted">
+        钉钉机器人消息接收选 Stream 模式，无需公网回调地址。
+      </p>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="btn-ghost"
+          :disabled="regBusy.dingtalk"
+          @click="startQrRegistration('dingtalk')"
+        >
+          扫码一键创建
+        </button>
+        <span v-if="regStatusByChannel.dingtalk" class="text-xs text-muted">
+          {{ regStatusByChannel.dingtalk }}
+        </span>
+      </div>
+      <img
+        v-if="qrByChannel.dingtalk"
+        :src="`data:image/png;base64,${qrByChannel.dingtalk}`"
+        alt="DingTalk QR"
+        class="w-40 h-40"
+      />
       <input v-model="config.dingtalk!.default.clientId" placeholder="Client ID / AppKey" class="field" />
       <input v-model="config.dingtalk!.default.clientSecret" placeholder="Client Secret" class="field" />
-      <button type="button" class="btn-ghost" @click="copyWebhook('dingtalk')">
-        <Copy class="w-3.5 h-3.5" />
-        复制 Webhook URL
-      </button>
+      <template v-if="config.dingtalk!.default.connectionMode === 'webhook'">
+        <button type="button" class="btn-ghost" @click="copyWebhook('dingtalk')">
+          <Copy class="w-3.5 h-3.5" />
+          复制 Webhook URL
+        </button>
+        <p v-if="webhookUrls[urlKey('dingtalk')]" class="text-xs text-muted break-all">
+          {{ webhookUrls[urlKey('dingtalk')] }}
+        </p>
+      </template>
     </div>
 
     <div class="rounded-xl border border-border p-4 space-y-3">
@@ -315,6 +502,20 @@ defineExpose({ save })
       </div>
       <template v-if="config.wecom!.default.connectionMode === 'websocket'">
         <p class="text-xs text-muted">智能机器人 Bot 模式：无需公网 Webhook，客户端主动连企微 WSS。</p>
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="btn-ghost"
+            :disabled="regBusy.wecom"
+            @click="startWecomQrRegistration"
+          >
+            扫码一键创建
+          </button>
+          <span v-if="regStatusByChannel.wecom" class="text-xs text-muted">
+            {{ regStatusByChannel.wecom }}
+          </span>
+        </div>
+        <p class="text-xs text-muted">企微将弹出授权窗口，请用企业微信 App 扫码并点击「一键创建智能机器人」。</p>
         <input v-model="config.wecom!.default.botId" placeholder="Bot ID" class="field" />
         <input v-model="config.wecom!.default.secret" placeholder="Bot Secret" class="field" />
         <input

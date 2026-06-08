@@ -34,7 +34,7 @@ pub async fn run_wecom_monitor(
     }
 
     let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
-    let (inbound_tx, mut inbound_rx) = mpsc::unbounded_channel::<(Value, String)>();
+    let (inbound_tx, inbound_rx) = mpsc::unbounded_channel::<(Value, String)>();
 
     register_session(WeComWsSession::new(account_id.clone(), outbound_tx));
 

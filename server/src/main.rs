@@ -10,6 +10,7 @@ use futures_util::Stream;
 use pointer_channels::{
     adapters::register_builtin_channels,
     adapters::weixin::qr_login::QrLoginState,
+    registration::ChannelRegistrationState,
     gateway::ChannelGateway,
     registry::ChannelRegistry,
 };
@@ -29,7 +30,7 @@ mod channels;
 
 use channels::{
     approve_channel_pairing, channel_webhook, get_channel_webhook_url, get_channels_config,
-    list_channel_pairing_pending, list_channels, start_weixin_login, update_channels,
+    list_channel_pairing_pending, list_channels,     channel_registration_status, start_channel_registration, start_weixin_login, update_channels,
     weixin_login_status,
 };
 use serde::Deserialize;
@@ -56,6 +57,7 @@ pub(crate) struct ServerState {
     events: broadcast::Sender<StreamEvent>,
     channel_gateway: Arc<ChannelGateway>,
     qr_login: Arc<QrLoginState>,
+    registration: Arc<ChannelRegistrationState>,
 }
 
 #[tokio::main]
@@ -97,12 +99,15 @@ async fn main() -> anyhow::Result<()> {
     let cancel = tokio_util::sync::CancellationToken::new();
     channel_gateway.spawn_weixin_monitors(cancel.clone());
     channel_gateway.spawn_wecom_monitors(cancel.clone());
+    channel_gateway.spawn_feishu_monitors(cancel.clone());
+    channel_gateway.spawn_dingtalk_monitors(cancel.clone());
 
     let state = ServerState {
         core,
         events,
         channel_gateway,
         qr_login: Arc::new(QrLoginState::new()),
+        registration: Arc::new(ChannelRegistrationState::new()),
     };
 
     let app = Router::new()
@@ -169,6 +174,14 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/channels/weixin/:account_id/login/status",
             get(weixin_login_status),
+        )
+        .route(
+            "/api/channels/:channel/:account_id/register/start",
+            post(start_channel_registration),
+        )
+        .route(
+            "/api/channels/:channel/:account_id/register/status",
+            get(channel_registration_status),
         )
         .route(
             "/api/channels/:channel/:account_id/pairing/approve",

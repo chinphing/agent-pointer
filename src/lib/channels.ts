@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import type {
+  ChannelRegistrationSession,
   ChannelsConfig,
   ChannelsStatusResponse,
   WeixinQrLoginSession
@@ -98,6 +99,37 @@ export async function getWeixinLoginStatus(
   return webRequest(`/api/channels/weixin/${encodeURIComponent(accountId)}/login/status`)
 }
 
+export async function startChannelRegistration(
+  channel: string,
+  accountId: string
+): Promise<ChannelRegistrationSession> {
+  if (isTauriRuntime()) {
+    return invoke<ChannelRegistrationSession>('start_channel_registration', {
+      channel,
+      accountId
+    })
+  }
+  return webRequest<ChannelRegistrationSession>(
+    `/api/channels/${encodeURIComponent(channel)}/${encodeURIComponent(accountId)}/register/start`,
+    { method: 'POST' }
+  )
+}
+
+export async function getChannelRegistrationStatus(
+  channel: string,
+  accountId: string
+): Promise<ChannelRegistrationSession | null> {
+  if (isTauriRuntime()) {
+    return invoke<ChannelRegistrationSession | null>('get_channel_registration_status', {
+      channel,
+      accountId
+    })
+  }
+  return webRequest<ChannelRegistrationSession | null>(
+    `/api/channels/${encodeURIComponent(channel)}/${encodeURIComponent(accountId)}/register/status`
+  )
+}
+
 export async function hasWeixinCredentials(accountId: string): Promise<boolean> {
   if (isTauriRuntime()) {
     return invoke<boolean>('has_weixin_credentials', { accountId })
@@ -171,5 +203,5 @@ export async function listChannelPairingPending(
   const res = await webRequest<{ pending: [string, string][] }>(
     `/api/channels/${encodeURIComponent(channel)}/${encodeURIComponent(accountId)}/pairing/pending`
   )
-  return res.pending.map(([code, senderId]) => ({ code, senderId }))
+  return res.pending.map(([code, senderId]) => ({ channel, code, senderId }))
 }

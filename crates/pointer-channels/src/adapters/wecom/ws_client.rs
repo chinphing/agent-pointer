@@ -68,13 +68,6 @@ pub async fn run_wecom_ws_loop(
         .await
         {
             Ok(StopReason::Cancelled) => break,
-            Ok(StopReason::AuthExhausted) => {
-                log::error!(
-                    "wecom ws auth failed after {MAX_AUTH_FAILURE_ATTEMPTS} attempts account={}",
-                    cfg.account_id
-                );
-                break;
-            }
             Ok(StopReason::Kicked) => {
                 log::error!(
                     "wecom ws kicked by server (duplicate connection?) account={}",
@@ -108,10 +101,14 @@ pub async fn run_wecom_ws_loop(
             }
             Ok(StopReason::AuthFailed) => {
                 reconnect_attempts = 0;
+                auth_failure_attempts += 1;
                 if auth_failure_attempts >= MAX_AUTH_FAILURE_ATTEMPTS {
+                    log::error!(
+                        "wecom ws auth failed after {MAX_AUTH_FAILURE_ATTEMPTS} attempts account={}",
+                        cfg.account_id
+                    );
                     break;
                 }
-                auth_failure_attempts += 1;
                 let delay = (RECONNECT_BASE_MS * 2u64.pow(auth_failure_attempts.saturating_sub(1)))
                     .min(RECONNECT_MAX_MS);
                 log::warn!(
@@ -145,7 +142,6 @@ enum StopReason {
     Cancelled,
     Disconnected,
     AuthFailed,
-    AuthExhausted,
     Kicked,
 }
 

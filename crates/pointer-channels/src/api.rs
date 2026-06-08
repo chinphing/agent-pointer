@@ -8,11 +8,13 @@ use std::sync::Arc;
 use crate::adapters::weixin::qr_login::QrLoginState;
 use crate::config::ChannelsConfig;
 use crate::gateway::ChannelGateway;
+use crate::registration::ChannelRegistrationState;
 
 #[derive(Clone)]
 pub struct ChannelApiState {
     pub gateway: Arc<ChannelGateway>,
     pub qr_login: Arc<QrLoginState>,
+    pub registration: Arc<ChannelRegistrationState>,
 }
 
 #[derive(Serialize)]
@@ -41,6 +43,14 @@ pub fn channel_api_routes(state: Arc<ChannelApiState>) -> Router {
         .route(
             "/api/channels/weixin/:account_id/login/status",
             get(weixin_login_status),
+        )
+        .route(
+            "/api/channels/:channel/:account_id/register/start",
+            post(start_channel_registration),
+        )
+        .route(
+            "/api/channels/:channel/:account_id/register/status",
+            get(channel_registration_status),
         )
         .route(
             "/api/channels/:channel/:account_id/pairing/approve",
@@ -118,6 +128,29 @@ async fn weixin_login_status(
     Path(account_id): Path<String>,
 ) -> Json<serde_json::Value> {
     let session = state.qr_login.get(&account_id).await;
+    Json(serde_json::json!(session))
+}
+
+async fn start_channel_registration(
+    State(state): State<Arc<ChannelApiState>>,
+    Path((channel, account_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let session = state
+        .registration
+        .start(&channel, &account_id)
+        .await
+        .map_err(|e| {
+            log::error!("channel registration start failed channel={channel}: {e:#}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    Ok(Json(serde_json::json!(session)))
+}
+
+async fn channel_registration_status(
+    State(state): State<Arc<ChannelApiState>>,
+    Path((channel, account_id)): Path<(String, String)>,
+) -> Json<serde_json::Value> {
+    let session = state.registration.get(&channel, &account_id).await;
     Json(serde_json::json!(session))
 }
 

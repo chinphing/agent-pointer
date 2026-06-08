@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::crypto::{constant_time_eq, feishu_webhook_signature};
+use crate::crypto::{
+    constant_time_eq, feishu_decode_event_body, feishu_webhook_signature,
+};
 use crate::session::build_conversation_key;
 use crate::traits::{
     ChannelWebhookAdapter, InboundMessage, InboundReplyContext, WebhookContext, WebhookResponse,
@@ -32,7 +34,16 @@ impl ChannelWebhookAdapter for FeishuWebhook {
             }
         }
 
-        let payload: Value = serde_json::from_str(raw).unwrap_or(Value::Null);
+        let payload = match feishu_decode_event_body(raw, encrypt_key) {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!(
+                    "feishu webhook decode failed account={}: {e:#}",
+                    ctx.account_id
+                );
+                return Ok(json_response(400, r#"{"error":"invalid payload"}"#));
+            }
+        };
         if payload.get("type").and_then(|v| v.as_str()) == Some("url_verification") {
             let challenge = payload
                 .get("challenge")

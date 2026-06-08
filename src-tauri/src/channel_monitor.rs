@@ -19,8 +19,10 @@ impl ChannelMonitorHandle {
         let cancel = self.cancel.lock().expect("channel monitor cancel lock").clone();
         let gateway = self.gateway.clone();
         tauri::async_runtime::spawn(async move {
-            log::info!("channel monitors: spawning wecom/weixin background tasks");
+            log::info!("channel monitors: spawning im channel background tasks");
             gateway.spawn_wecom_monitors(cancel.clone());
+            gateway.spawn_feishu_monitors(cancel.clone());
+            gateway.spawn_dingtalk_monitors(cancel.clone());
             gateway.spawn_weixin_monitors(cancel);
         });
     }
@@ -36,6 +38,8 @@ impl ChannelMonitorHandle {
         tauri::async_runtime::spawn(async move {
             log::info!("channel monitors: restarted after config update");
             gateway.spawn_wecom_monitors(new_cancel.clone());
+            gateway.spawn_feishu_monitors(new_cancel.clone());
+            gateway.spawn_dingtalk_monitors(new_cancel.clone());
             gateway.spawn_weixin_monitors(new_cancel);
         });
     }

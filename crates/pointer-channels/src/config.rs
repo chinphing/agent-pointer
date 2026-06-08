@@ -67,7 +67,7 @@ fn default_true() -> bool {
     true
 }
 fn default_webhook_mode() -> String {
-    "webhook".into()
+    "websocket".into()
 }
 fn default_pairing() -> String {
     "pairing".into()

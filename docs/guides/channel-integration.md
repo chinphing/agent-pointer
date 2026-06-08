@@ -1,36 +1,75 @@
 # IM 通道对接指南
 
-Pointer 通过 `pointer-channels` crate 以 **Webhook 优先、纯 Rust** 方式对接飞书、钉钉、企微、微信（iLink 长轮询）。
+Pointer 通过 `pointer-channels` crate 以 **长连接优先、纯 Rust** 方式对接飞书、钉钉、企微、微信。
 
 ## 架构
 
-- 入站：飞书 / 钉钉 / 企微 → `POST /webhooks/{channel}/{account_id}`
-- 入站：微信 → `getupdates` HTTP 长轮询（无 Webhook）
-- 出站：各平台 Open API 主动推送
+- 入站（默认）：飞书 WSS、钉钉 Stream、企微 Bot WSS、微信 iLink 长轮询
+- 入站（备选）：飞书 / 钉钉 / 企微 HTTP → `POST /webhooks/{channel}/{account_id}`
+- 出站：各平台 Open API / sessionWebhook 主动推送
 - 编排：入站消息 → `run_chat` → 回复文本回推
 
 ## 部署
 
+桌面端（Tauri）保存配置并启用后，会自动启动各通道 monitor，**通常无需公网地址**。
+
+仅当某通道选择 **Webhook 模式** 时：
+
 1. 公网部署 `pointer-server`，或在开发环境用 ngrok 暴露端口
-2. 在设置 → **IM 通道** 填写 `publicBaseUrl`（如 `https://pointer.example.com`）
+2. 在设置 → **IM 通道** 填写 `publicBaseUrl`
 3. 将生成的 Webhook URL 填入各平台管理后台
 
-## 飞书
+## 飞书（WSS 长连接 · 推荐）
+
+### 扫码一键创建（推荐）
+
+1. 设置 → IM 通道 → 飞书 → 点击 **扫码一键创建**
+2. 用**飞书 App** 扫描二维码，按提示完成应用授权
+3. 成功后 `App ID` / `App Secret` 自动填入，连接模式保持 **WSS 长连接**，启用并保存
+
+### 手动配置
 
 1. 创建企业自建应用，开通消息收发权限
-2. 事件订阅地址：`{publicBaseUrl}/webhooks/feishu/default`
-3. 配置 `appId`、`appSecret`、`encryptKey`
-4. 订阅 `im.message.receive_v1`
+2. 事件订阅 → 选择 **使用长连接接收事件**
+3. 订阅 `im.message.receive_v1`
+4. Pointer 填写 `appId`、`appSecret`，连接模式选 **WSS 长连接**，启用并保存
+5. 先启动 Pointer（建立长连接），再在飞书后台保存事件订阅配置
+6. 日志：`feishu ws connecting`、`channel inbound channel=feishu`
 
-## 钉钉
+### 飞书 Webhook 备选
 
-1. 创建企业内部应用机器人，消息接收选 **HTTP 模式**
-2. 回调 URL：`{publicBaseUrl}/webhooks/dingtalk/default`
-3. 配置 `clientId`（AppKey）、`clientSecret`
+回调地址：`{publicBaseUrl}/webhooks/feishu/default`，需填写 `encryptKey`。
+
+## 钉钉（Stream 长连接 · 推荐）
+
+### 扫码一键创建（推荐）
+
+1. 设置 → IM 通道 → 钉钉 → 点击 **扫码一键创建**
+2. 用**钉钉 App** 扫描二维码，点击「一键创建新机器人」
+3. 成功后 `Client ID` / `Client Secret` 自动填入，连接模式保持 **Stream 长连接**，启用并保存
+
+### 手动配置
+
+1. 创建企业内部应用机器人，消息接收选 **Stream 模式**
+2. Pointer 填写 `clientId`（AppKey）、`clientSecret`，连接模式选 **Stream 长连接**，启用并保存
+3. 群聊需 @ 机器人；单聊直接发消息
+4. 日志：`dingtalk stream connected`、`channel inbound channel=dingtalk`
+
+### 钉钉 HTTP 备选
+
+回调 URL：`{publicBaseUrl}/webhooks/dingtalk/default`
 
 ## 企微
 
 ### WSS 长连接（推荐 · 智能机器人 Bot）
+
+#### 扫码一键创建（推荐）
+
+1. 设置 → IM 通道 → 企微 → 点击 **扫码一键创建**
+2. 在弹出窗口中用**企业微信 App** 扫码，点击「一键创建智能机器人」
+3. 成功后 `Bot ID` / `Secret` 自动填入，连接模式保持 **WSS 长连接**，启用并保存
+
+#### 手动配置
 
 1. 企微管理后台创建**智能机器人**，获取 `botId` + `secret`
 2. 设置 → IM 通道 → 企微 → 选择 **WSS 长连接**

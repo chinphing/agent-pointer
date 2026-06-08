@@ -5,13 +5,12 @@ use axum::response::IntoResponse;
 use axum::Json;
 use pointer_channels::{
     config::ChannelsConfig,
+    registration::RegistrationSession,
     traits::WebhookContext,
     webhook::guards::WebhookGuards,
     webhook::handler::WebhookQuery,
 };
 use serde::Deserialize;
-use std::sync::Arc;
-
 use crate::ServerState;
 
 static WEBHOOK_GUARDS: std::sync::OnceLock<WebhookGuards> = std::sync::OnceLock::new();
@@ -60,7 +59,13 @@ pub async fn channel_webhook(
         query: &query_str,
     };
 
-    let inbound = parse_inbound_payload(&channel, &body, &account_id, &plugin);
+    let inbound = pointer_channels::webhook::payload::parse_inbound_payload(
+        &channel,
+        &body,
+        &account_id,
+        &account,
+        &plugin,
+    );
 
     let response = match plugin.webhook.handle_webhook(ctx).await {
         Ok(resp) => {
@@ -104,38 +109,6 @@ fn build_query_string(q: &WebhookQuery) -> String {
         parts.push(format!("echostr={}", q.echostr));
     }
     parts.join("&")
-}
-
-fn parse_inbound_payload(
-    channel: &str,
-    body: &Bytes,
-    account_id: &str,
-    plugin: &Arc<pointer_channels::traits::ChannelPlugin>,
-) -> Option<pointer_channels::traits::InboundMessage> {
-    if channel == "wecom" {
-        let raw = std::str::from_utf8(body).ok()?;
-        if raw.contains("<Encrypt>") {
-            let enc = extract_xml_tag(raw, "Encrypt")?;
-            let event = serde_json::json!({ "Encrypt": enc });
-            return plugin.webhook.parse_inbound(&event, account_id);
-        }
-    }
-    serde_json::from_slice::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| plugin.webhook.parse_inbound(&v, account_id))
-}
-
-fn extract_xml_tag(xml: &str, tag: &str) -> Option<String> {
-    let open = format!("<{tag}>");
-    let close = format!("</{tag}>");
-    let start = xml.find(&open)? + open.len();
-    let end = xml.find(&close)?;
-    let inner = &xml[start..end];
-    if inner.starts_with("<![CDATA[") && inner.ends_with("]]>") {
-        Some(inner[9..inner.len() - 3].to_string())
-    } else {
-        Some(inner.to_string())
-    }
 }
 
 #[derive(serde::Serialize)]
@@ -222,6 +195,29 @@ pub async fn weixin_login_status(
     Path(account_id): Path<String>,
 ) -> Json<serde_json::Value> {
     let session = state.qr_login.get(&account_id).await;
+    Json(serde_json::json!(session))
+}
+
+pub async fn start_channel_registration(
+    State(state): State<ServerState>,
+    Path((channel, account_id)): Path<(String, String)>,
+) -> Result<Json<RegistrationSession>, StatusCode> {
+    let session = state
+        .registration
+        .start(&channel, &account_id)
+        .await
+        .map_err(|e| {
+            log::error!("channel registration start failed channel={channel}: {e:#}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    Ok(Json(session))
+}
+
+pub async fn channel_registration_status(
+    State(state): State<ServerState>,
+    Path((channel, account_id)): Path<(String, String)>,
+) -> Json<serde_json::Value> {
+    let session = state.registration.get(&channel, &account_id).await;
     Json(serde_json::json!(session))
 }
 

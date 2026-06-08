@@ -31,6 +31,12 @@ qrcode = "0.14"
 image = { version = "0.25", default-features = false, features = ["png"] }
 subtle = "2"
 urlencoding = "2"
+url = "2"
+prost = "0.13"
+
+[build-dependencies]
+protoc-bin-vendored = "3"
+prost-build = "0.13"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

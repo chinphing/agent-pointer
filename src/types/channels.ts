@@ -51,3 +51,16 @@ export interface WeixinQrLoginSession {
   qrcodePngBase64: string
   status: string
 }
+
+export interface ChannelRegistrationSession {
+  channel: string
+  accountId: string
+  qrUrl: string
+  qrcodePngBase64: string
+  status: string
+  appId?: string
+  appSecret?: string
+  clientId?: string
+  clientSecret?: string
+  errorMessage?: string
+}

@@ -142,6 +142,9 @@ pub fn run() {
             app.manage(Arc::new(
                 pointer_channels::adapters::weixin::qr_login::QrLoginState::new(),
             ));
+            app.manage(Arc::new(
+                pointer_channels::registration::ChannelRegistrationState::new(),
+            ));
             let handle = app.handle().clone();
             match pointer_core::agents::computer::capture_debug::purge_computer_captures_older_than_days(
                 pointer_core::agents::computer::capture_debug::CAPTURE_RETENTION_DAYS,
@@ -201,6 +204,8 @@ pub fn run() {
             channel_commands::start_weixin_login,
             channel_commands::get_weixin_login_status,
             channel_commands::has_weixin_credentials,
+            channel_commands::start_channel_registration,
+            channel_commands::get_channel_registration_status,
             channel_commands::approve_channel_pairing,
             channel_commands::list_channel_pairing_pending,
             platform_commands::get_platform_session,

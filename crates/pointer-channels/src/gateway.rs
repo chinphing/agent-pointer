@@ -222,4 +222,67 @@ impl ChannelGateway {
             log::info!("wecom ws monitor: no websocket accounts to start");
         }
     }
+
+    pub fn spawn_feishu_monitors(self: &Arc<Self>, cancel: CancellationToken) {
+        let cfg = self.config.read().clone();
+        let mut started = 0u32;
+        for (account_id, account) in cfg.feishu.iter() {
+            if !account.enabled || account.connection_mode != "websocket" {
+                continue;
+            }
+            if account.app_id.trim().is_empty() || account.app_secret.trim().is_empty() {
+                log::warn!(
+                    "feishu ws monitor skipped account={account_id}: missing appId or appSecret"
+                );
+                continue;
+            }
+            started += 1;
+            log::info!("feishu ws monitor starting account={account_id}");
+            let gw = self.clone();
+            let account_id = account_id.clone();
+            let cancel_child = cancel.child_token();
+            tokio::spawn(async move {
+                if let Err(e) =
+                    crate::adapters::feishu::run_feishu_monitor(gw, account_id, cancel_child).await
+                {
+                    log::error!("feishu ws monitor stopped: {e:#}");
+                }
+            });
+        }
+        if started == 0 {
+            log::info!("feishu ws monitor: no websocket accounts to start");
+        }
+    }
+
+    pub fn spawn_dingtalk_monitors(self: &Arc<Self>, cancel: CancellationToken) {
+        let cfg = self.config.read().clone();
+        let mut started = 0u32;
+        for (account_id, account) in cfg.dingtalk.iter() {
+            if !account.enabled || account.connection_mode != "websocket" {
+                continue;
+            }
+            if account.client_id.trim().is_empty() || account.client_secret.trim().is_empty() {
+                log::warn!(
+                    "dingtalk stream monitor skipped account={account_id}: missing clientId or clientSecret"
+                );
+                continue;
+            }
+            started += 1;
+            log::info!("dingtalk stream monitor starting account={account_id}");
+            let gw = self.clone();
+            let account_id = account_id.clone();
+            let cancel_child = cancel.child_token();
+            tokio::spawn(async move {
+                if let Err(e) =
+                    crate::adapters::dingtalk::run_dingtalk_monitor(gw, account_id, cancel_child)
+                        .await
+                {
+                    log::error!("dingtalk stream monitor stopped: {e:#}");
+                }
+            });
+        }
+        if started == 0 {
+            log::info!("dingtalk stream monitor: no websocket accounts to start");
+        }
+    }
 }

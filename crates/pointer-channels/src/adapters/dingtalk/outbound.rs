@@ -28,7 +28,9 @@ impl ChannelOutboundAdapter for DingTalkOutbound {
             self.http.post_json(&url, &[], &body).await?;
             return Ok(());
         }
-        log::warn!("dingtalk outbound missing sessionWebhook account={}", ctx.account_id);
-        Ok(())
+        return Err(anyhow::anyhow!(
+            "dingtalk outbound missing sessionWebhook account={}",
+            ctx.account_id
+        ));
     }
 }

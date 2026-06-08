@@ -24,6 +24,10 @@ impl ChannelWebhookAdapter for DingTalkWebhook {
     }
 
     fn parse_inbound(&self, event: &Value, account_id: &str) -> Option<InboundMessage> {
+        let msgtype = event.get("msgtype").and_then(|v| v.as_str()).unwrap_or("");
+        if msgtype != "text" {
+            return None;
+        }
         let text = event
             .get("text")
             .and_then(|t| t.get("content"))

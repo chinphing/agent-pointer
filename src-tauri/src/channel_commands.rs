@@ -2,6 +2,7 @@ use crate::channel_monitor::ChannelMonitorHandle;
 use pointer_channels::adapters::weixin::ilink_client::WeixinCredentials;
 use pointer_channels::adapters::weixin::qr_login::{QrLoginSession, QrLoginState};
 use pointer_channels::config::{load_channels_config, ChannelsConfig};
+use pointer_channels::registration::{ChannelRegistrationState, RegistrationSession};
 use pointer_channels::credentials::load_encrypted_json;
 use pointer_channels::ChannelGateway;
 use serde::Serialize;
@@ -138,6 +139,27 @@ pub fn approve_channel_pairing(
     } else {
         Err("配对码无效或已过期（请确认点击了正确通道的批准按钮，或使用最新收到的配对码）".into())
     }
+}
+
+#[tauri::command]
+pub async fn start_channel_registration(
+    registration: State<'_, Arc<ChannelRegistrationState>>,
+    channel: String,
+    account_id: String,
+) -> Result<RegistrationSession, String> {
+    registration
+        .start(&channel, &account_id)
+        .await
+        .map_err(|e| format!("{channel} 扫码注册启动失败: {e:#}"))
+}
+
+#[tauri::command]
+pub async fn get_channel_registration_status(
+    registration: State<'_, Arc<ChannelRegistrationState>>,
+    channel: String,
+    account_id: String,
+) -> Result<Option<RegistrationSession>, String> {
+    Ok(registration.get(&channel, &account_id).await)
 }
 
 #[tauri::command]

@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
+use std::collections::VecDeque;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -186,6 +187,7 @@ async fn run_single_connection(
 
     let mut authenticated = false;
     let mut missed_pong = 0u32;
+    let mut pending_outbound: VecDeque<super::ws_state::WsOutboundCmd> = VecDeque::new();
     let heartbeat = tokio::time::interval(Duration::from_millis(HEARTBEAT_INTERVAL_MS));
     tokio::pin!(heartbeat);
 
@@ -195,22 +197,27 @@ async fn run_single_connection(
             inbound = inbound_rx.recv() => {
                 if let Some((body, req_id)) = inbound {
                     if let Some(msg) = parse_ws_inbound(&body, &cfg.account_id, &req_id) {
-                        if let Err(e) = gateway.process_inbound(msg).await {
-                            log::error!(
-                                "wecom ws process_inbound failed account={}: {e:#}",
-                                cfg.account_id
-                            );
-                        }
+                        let gw = gateway.clone();
+                        let account_id = cfg.account_id.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = gw.process_inbound(msg).await {
+                                log::error!(
+                                    "wecom ws process_inbound failed account={account_id}: {e:#}"
+                                );
+                            }
+                        });
                     }
                 }
             }
             maybe_out = outbound_rx.recv() => {
                 let Some(cmd) = maybe_out else { return Ok(StopReason::Disconnected); };
                 if !authenticated {
-                    log::warn!(
-                        "wecom ws outbound skipped: not authenticated account={}",
-                        cfg.account_id
+                    log::info!(
+                        "wecom ws outbound buffered until auth account={} pending={}",
+                        cfg.account_id,
+                        pending_outbound.len() + 1
                     );
+                    pending_outbound.push_back(cmd);
                     continue;
                 }
                 if let Err(e) = send_outbound(&mut write, cmd).await {
@@ -229,6 +236,7 @@ async fn run_single_connection(
                     Message::Text(text) => {
                         let frame: Value = serde_json::from_str(&text)
                             .context("parse ws frame")?;
+                        let was_authenticated = authenticated;
                         if let Some(reason) = handle_inbound_frame(
                             &frame,
                             &auth_req_id,
@@ -237,6 +245,24 @@ async fn run_single_connection(
                             &mut missed_pong,
                         ).await? {
                             return Ok(reason);
+                        }
+                        if !was_authenticated && authenticated {
+                            let ns = format!("wecom:{}", cfg.account_id);
+                            gateway.dedup.clear_namespace(&ns);
+                            log::info!(
+                                "wecom ws authenticated account={} flushing {} buffered outbound(s)",
+                                cfg.account_id,
+                                pending_outbound.len()
+                            );
+                            while let Some(cmd) = pending_outbound.pop_front() {
+                                if let Err(e) = send_outbound(&mut write, cmd).await {
+                                    log::error!(
+                                        "wecom ws flush outbound failed account={}: {e:#}",
+                                        cfg.account_id
+                                    );
+                                    return Ok(StopReason::Disconnected);
+                                }
+                            }
                         }
                     }
                     Message::Ping(data) => {

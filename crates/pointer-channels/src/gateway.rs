@@ -54,7 +54,7 @@ impl ChannelGateway {
 
     pub async fn process_inbound(&self, msg: InboundMessage) -> Result<()> {
         let namespace = format!("{}:{}", msg.channel, msg.account_id);
-        if self.dedup.seen(&namespace, &msg.message_id) {
+        if self.dedup.is_seen(&namespace, &msg.message_id) {
             log::info!("channel dedup drop id={}", msg.message_id);
             return Ok(());
         }
@@ -95,6 +95,7 @@ impl ChannelGateway {
                     .outbound
                     .send_text(outbound, "配对成功！请重新发送您的消息。")
                     .await?;
+                self.dedup.mark_seen(&namespace, &msg.message_id);
                 return Ok(());
             }
         }
@@ -141,6 +142,7 @@ impl ChannelGateway {
                         ),
                     )
                     .await?;
+                self.dedup.mark_seen(&namespace, &msg.message_id);
                 return Ok(());
             }
             crate::pairing::PairingDecision::Allow => {}
@@ -150,9 +152,18 @@ impl ChannelGateway {
             .registry
             .get(&msg.channel)
             .ok_or_else(|| anyhow::anyhow!("plugin missing"))?;
-        self.dispatch
+        let message_id = msg.message_id.clone();
+        match self
+            .dispatch
             .handle_inbound(self.core.clone(), &plugin, &account, msg)
             .await
+        {
+            Ok(()) => {
+                self.dedup.mark_seen(&namespace, &message_id);
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub fn spawn_weixin_monitors(self: &Arc<Self>, cancel: CancellationToken) {

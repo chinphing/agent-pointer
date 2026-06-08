@@ -136,7 +136,7 @@ impl DispatchService {
 
         if reply_text.trim().is_empty() {
             log::warn!("channel dispatch empty reply conv={conv_id}");
-            return Ok(());
+            return Err(anyhow::anyhow!("channel dispatch empty reply"));
         }
 
         history.push(channel_message(Role::Assistant, reply_text.clone()));

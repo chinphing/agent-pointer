@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { Copy, RefreshCw } from 'lucide-vue-next'
 import type { ChannelAccountConfig, ChannelsConfig } from '../../types/channels'
 import {
@@ -9,11 +9,9 @@ import {
   getChannelWebhookUrl,
   getWeixinLoginStatus,
   hasWeixinCredentials,
-  listAllChannelPairingPending,
   listChannelStatus,
   startWeixinLogin,
-  updateChannelsConfig,
-  type PairingPendingItem
+  updateChannelsConfig
 } from '../../lib/channels'
 import { isTauriRuntime } from '../../lib/runtime'
 
@@ -22,7 +20,6 @@ const saving = ref(false)
 const error = ref('')
 const pairingCode = ref('')
 const pairingSuccess = ref('')
-const pairingPending = ref<PairingPendingItem[]>([])
 
 const CHANNEL_LABELS: Record<string, string> = {
   weixin: '微信',
@@ -30,15 +27,6 @@ const CHANNEL_LABELS: Record<string, string> = {
   feishu: '飞书',
   dingtalk: '钉钉'
 }
-
-/** 每个通道只展示最新一条待批准码，不暴露内部 sender ID */
-const pairingPendingDisplay = computed(() => {
-  const latest = new Map<string, PairingPendingItem>()
-  for (const item of pairingPending.value) {
-    latest.set(item.channel, item)
-  }
-  return Array.from(latest.values())
-})
 const weixinQr = ref('')
 const weixinLoginStatus = ref('')
 const weixinLoggedIn = ref(false)
@@ -212,15 +200,6 @@ async function pollWeixinStatus() {
   weixinLoginStatus.value = '登录超时，请重新扫码'
 }
 
-async function refreshPairingPending() {
-  if (!tauriMode) return
-  try {
-    pairingPending.value = await listAllChannelPairingPending('default')
-  } catch {
-    pairingPending.value = []
-  }
-}
-
 async function approvePairing(channel: string) {
   if (!pairingCode.value.trim()) return
   pairingSuccess.value = ''
@@ -230,7 +209,6 @@ async function approvePairing(channel: string) {
     error.value = ''
     const label = CHANNEL_LABELS[channel] ?? channel
     pairingSuccess.value = `配对成功（${label}），请重新发送消息。`
-    await refreshPairingPending()
   } catch (e) {
     pairingSuccess.value = ''
     error.value = e instanceof Error ? e.message : String(e)
@@ -246,7 +224,6 @@ async function approvePairingAuto() {
     error.value = ''
     const label = CHANNEL_LABELS[channel] ?? channel
     pairingSuccess.value = `配对成功（${label}），请重新发送消息。`
-    await refreshPairingPending()
   } catch (e) {
     pairingSuccess.value = ''
     error.value = e instanceof Error ? e.message : String(e)
@@ -255,7 +232,6 @@ async function approvePairingAuto() {
 
 onMounted(() => {
   void refresh()
-  void refreshPairingPending()
   void refreshWeixinLoginState()
 })
 
@@ -386,20 +362,7 @@ defineExpose({ save })
 
     <div class="rounded-xl border border-border p-4 space-y-2">
       <h3 class="text-sm font-medium">配对审批</h3>
-      <p class="text-xs text-muted">
-        输入配对码后点「自动批准」；也可在 IM 里直接回复配对码。
-      </p>
-      <div v-if="pairingPendingDisplay.length" class="flex flex-wrap gap-2">
-        <button
-          v-for="item in pairingPendingDisplay"
-          :key="`${item.channel}-${item.code}`"
-          type="button"
-          class="rounded-lg border border-border px-2.5 py-1 text-xs hover:bg-hover"
-          @click="pairingCode = item.code"
-        >
-          {{ CHANNEL_LABELS[item.channel] ?? item.channel }} · {{ item.code }}
-        </button>
-      </div>
+      <p class="text-xs text-muted">在 IM 收到配对码后，在此输入并批准。</p>
       <div class="flex flex-wrap gap-2">
         <input v-model="pairingCode" placeholder="配对码" class="field flex-1 min-w-[8rem]" />
         <button type="button" class="btn-primary" @click="approvePairingAuto">自动批准</button>

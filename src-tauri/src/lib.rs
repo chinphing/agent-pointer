@@ -12,8 +12,11 @@ mod platform_commands;
 use pointer_channels::adapters::register_builtin_channels;
 use pointer_channels::{ChannelGateway, ChannelRegistry};
 use pointer_core::models::StreamEvent;
-use pointer_core::{chat_service::AppState, skills::external::skills_dir};
-use std::{fs, path::Path, sync::Arc};
+use pointer_core::{
+    chat_service::AppState,
+    skills::external::{skills_dir, sync_bundled_skill_dirs},
+};
+use std::{path::PathBuf, sync::Arc};
 use tauri::{Emitter, Manager, RunEvent};
 
 #[cfg(target_os = "macos")]
@@ -251,43 +254,27 @@ pub fn run() {
 }
 
 fn install_bundled_skills(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let Ok(resource_dir) = app.path().resource_dir() else {
-        return Ok(());
-    };
-    let bundled_skills = resource_dir.join("skills");
-    if !bundled_skills.exists() {
+    let mut sources = Vec::new();
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let bundled = resource_dir.join("skills");
+        if bundled.exists() {
+            sources.push(bundled);
+        }
+    }
+    // `tauri dev` 时 resource_dir 可能无 skills；回退到仓库 skills/
+    let dev_skills = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../skills");
+    if dev_skills.exists() {
+        sources.push(dev_skills);
+    }
+    if sources.is_empty() {
+        log::warn!("bundled skills: no source directory found");
         return Ok(());
     }
-
-    let target_root = skills_dir()?;
-    for entry in fs::read_dir(bundled_skills)? {
-        let entry = entry?;
-        let source = entry.path();
-        if !source.is_dir() {
-            continue;
-        }
-
-        let target = target_root.join(entry.file_name());
-        if target.exists() {
-            continue;
-        }
-        copy_dir_all(&source, &target)?;
-    }
-
-    Ok(())
-}
-
-fn copy_dir_all(source: &Path, target: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(target)?;
-    for entry in fs::read_dir(source)? {
-        let entry = entry?;
-        let source_path = entry.path();
-        let target_path = target.join(entry.file_name());
-        if source_path.is_dir() {
-            copy_dir_all(&source_path, &target_path)?;
-        } else if source_path.is_file() {
-            fs::copy(&source_path, &target_path)?;
-        }
+    let installed = sync_bundled_skill_dirs(&sources)?;
+    if installed.is_empty() {
+        log::info!("bundled skills: all present under {}", skills_dir()?.display());
+    } else {
+        log::info!("bundled skills: installed {:?}", installed);
     }
     Ok(())
 }

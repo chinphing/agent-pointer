@@ -35,7 +35,8 @@ export const DEFAULT_LEAD_AGENT_ID = 'general'
 export const DEFAULT_ENABLED_SKILL_IDS = [
   'find-skills',
   'dev-env-setup',
-  'skill-creator'
+  'skill-creator',
+  'pointer-config'
 ] as const
 
 export type AgentMode = 'single' | 'supervisor'

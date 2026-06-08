@@ -44,6 +44,55 @@ pub fn skills_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
+/// Copy bundled skill directories into `{app_data}/skills/` when missing.
+pub fn sync_bundled_skill_dirs(sources: &[PathBuf]) -> Result<Vec<String>> {
+    let target_root = skills_dir()?;
+    let mut installed = Vec::new();
+    let mut seen = HashSet::new();
+
+    for source_root in sources {
+        if !source_root.exists() {
+            continue;
+        }
+        for entry in fs::read_dir(source_root)? {
+            let entry = entry?;
+            let source = entry.path();
+            if !source.is_dir() || is_ignored_skill_dir(source.file_name()) {
+                continue;
+            }
+            let Some(name) = source.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if !seen.insert(name.to_string()) {
+                continue;
+            }
+            let target = target_root.join(entry.file_name());
+            if target.exists() {
+                continue;
+            }
+            copy_dir_recursive(&source, &target)?;
+            installed.push(name.to_string());
+            log::info!("bundled skill installed: {name}");
+        }
+    }
+    Ok(installed)
+}
+
+fn copy_dir_recursive(source: &Path, target: &Path) -> Result<()> {
+    fs::create_dir_all(target)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let source_path = entry.path();
+        let target_path = target.join(entry.file_name());
+        if source_path.is_dir() {
+            copy_dir_recursive(&source_path, &target_path)?;
+        } else if source_path.is_file() {
+            fs::copy(&source_path, &target_path)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn load_external_skills() -> Result<Vec<SkillDef>> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();

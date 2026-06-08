@@ -3,7 +3,7 @@ pub mod external;
 
 /// Bundled skills enabled for new users when lead agent is `general`.
 pub const DEFAULT_ENABLED_SKILL_IDS: &[&str] =
-    &["find-skills", "dev-env-setup", "skill-creator"];
+    &["find-skills", "dev-env-setup", "skill-creator", "pointer-config"];
 
 use crate::models::{SkillDef, SkillImportResult};
 use anyhow::{anyhow, Result};
@@ -83,19 +83,28 @@ impl SkillRegistry {
         let g = self.inner.read();
         let selected: Vec<_> = ids.iter().filter_map(|id| g.get(id)).collect();
         let mut prompts = Vec::new();
-        if !selected.is_empty() {
+        if !ids.is_empty() {
             let mut index = String::from(
                 "可用 Skills（第一层：frontmatter 索引）。根据用户任务判断是否需要使用某个 Skill；需要时调用 **`skill_load_instructions`** 读取该 Skill 的完整 SKILL.md 正文说明。不要在未读取正文前假设详细步骤。\n",
             );
-            for s in &selected {
-                index.push_str(&format!(
-                    "- id: {}\n  name: {}\n  description: {}\n",
-                    s.id, s.name, s.description
-                ));
-                if !s.resource_files.is_empty() {
+            for id in ids {
+                if let Some(s) = g.get(id) {
                     index.push_str(&format!(
-                        "  resources: {} 个，可按需通过 **skill:read_resource** 读取\n",
-                        s.resource_files.len()
+                        "- id: {}\n  name: {}\n  description: {}\n",
+                        s.id, s.name, s.description
+                    ));
+                    if !s.tags.is_empty() {
+                        index.push_str(&format!("  tags: {}\n", s.tags.join(", ")));
+                    }
+                    if !s.resource_files.is_empty() {
+                        index.push_str(&format!(
+                            "  resources: {} 个，可按需通过 **skill:read_resource** 读取\n",
+                            s.resource_files.len()
+                        ));
+                    }
+                } else {
+                    index.push_str(&format!(
+                        "- id: {id}\n  status: 未安装（`skill_load_instructions` 会失败；请重启应用同步内置技能，或用 skill_import 安装）\n"
                     ));
                 }
             }

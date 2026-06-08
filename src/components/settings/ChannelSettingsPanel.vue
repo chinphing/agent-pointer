@@ -309,9 +309,8 @@ function enableChannelLocally(channel: ChannelTab) {
   }
 }
 
-/** 当前通道：启用 + 保存 + 启动 monitor */
-async function connectActiveChannel() {
-  const tab = activeTab.value
+/** 指定通道：启用 + 保存 + 启动 monitor */
+async function connectChannel(tab: ChannelTab) {
   connecting.value = true
   error.value = ''
   try {
@@ -323,6 +322,10 @@ async function connectActiveChannel() {
   } finally {
     connecting.value = false
   }
+}
+
+async function connectActiveChannel() {
+  await connectChannel(activeTab.value)
 }
 
 async function copyWebhook(channel: string, accountId = 'default') {
@@ -428,7 +431,7 @@ async function pollChannelRegistration(channel: 'feishu' | 'dingtalk') {
     if (session.status === 'success') {
       qrByChannel.value[channel] = ''
       applyRegistrationCredentials(channel, session)
-      enableChannelLocally(channel)
+      await connectChannel(channel)
       return
     }
     if (['denied', 'expired', 'timeout', 'failed'].includes(session.status)) {
@@ -468,7 +471,7 @@ async function startWecomQrRegistration() {
     config.value.wecom!.default.secret = creds.secret
     config.value.wecom!.default.connectionMode = 'websocket'
     regStatusByChannel.value.wecom = '机器人创建成功，凭证已填入'
-    enableChannelLocally('wecom')
+    await connectChannel('wecom')
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     if (msg.includes('CANCELLED') || msg.includes('取消')) {
@@ -506,7 +509,7 @@ async function pollWeixinStatus() {
       if (weixinLoggedIn.value) {
         weixinQr.value = ''
         weixinLoginStatus.value = '登录成功'
-        enableChannelLocally('weixin')
+        await connectChannel('weixin')
       }
       return
     }
@@ -515,7 +518,7 @@ async function pollWeixinStatus() {
       weixinQr.value = ''
       weixinLoggedIn.value = true
       weixinLoginStatus.value = '登录成功'
-      enableChannelLocally('weixin')
+      await connectChannel('weixin')
       return
     }
     if (s.status === 'expired' || s.status === 'failed') {
@@ -561,7 +564,7 @@ defineExpose({ save })
 <template>
   <div class="space-y-5">
     <p class="text-sm text-muted">
-      扫码或手填凭证后，点「连接」启动当前通道；底部「保存」写入全部通道配置。飞书 / 企微为 WSS 长连接，钉钉为 Stream 长连接。
+      扫码授权成功后会自动连接；手填凭证需点「连接」。底部「保存」写入全部通道配置。飞书 / 企微为 WSS 长连接，钉钉为 Stream 长连接。
     </p>
 
     <div v-if="error" class="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-500">

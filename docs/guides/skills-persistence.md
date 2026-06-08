@@ -25,6 +25,10 @@
 
 前端发消息时：仅当 `agentMode === 'single'` 且 `leadAgentId === 'general'` 才传 `enabledSkillIds`；其余情况传空数组（与后端双重保险）。
 
+## 内置技能
+
+仓库 `skills/` 随应用打包；启动时同步到 `{data_dir}/skills/`（仅复制**尚未存在**的目录）。`tauri dev` 若 resource 无 skills，会回退读取仓库 `skills/`。默认启用含 **`pointer-config`** 等，见 `DEFAULT_ENABLED_SKILL_IDS`。若 `skill_load_instructions` 报「未找到 Skill」，检查 `{data_dir}/skills/<id>/` 是否存在并重启应用。
+
 ## 实现入口
 
 - `crates/pointer-core/src/models.rs` — `UserSettings.enabled_skill_ids`

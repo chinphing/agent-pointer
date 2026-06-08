@@ -46,7 +46,7 @@ const composerPlaceholder = computed(() => {
   if (tokenQuotaBlocked.value) {
     return '套餐 Token 额度已用尽，请前往官网充值'
   }
-  return settings.settings.hasKey ? '与 Pointer 对话…' : '请先在设置中配置 API Key'
+  return settings.settings.hasKey ? '告诉我你想做什么' : '请先在设置中配置 API Key'
 })
 
 const text = ref('')

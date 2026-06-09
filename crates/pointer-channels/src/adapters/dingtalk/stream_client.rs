@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tokio_util::sync::CancellationToken;
 
@@ -11,8 +11,7 @@ use crate::http_client::HttpClient;
 use crate::traits::ChannelWebhookAdapter;
 const OPEN_URL: &str = "https://api.dingtalk.com/v1.0/gateway/connections/open";
 const BOT_MSG_TOPIC: &str = "/v1.0/im/bot/messages/get";
-const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
-const IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+const HEARTBEAT_INTERVAL_MS: u64 = 30_000;
 const INBOUND_PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 const RECONNECT_BASE_MS: u64 = 1_000;
 const RECONNECT_MAX_MS: u64 = 30_000;
@@ -96,20 +95,23 @@ async fn run_single_connection(
         cfg.account_id
     );
 
-    let mut last_activity = Instant::now();
-    let mut idle_check = tokio::time::interval(IDLE_CHECK_INTERVAL);
-    idle_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut missed_pong = 0u32;
+    let heartbeat = tokio::time::interval(Duration::from_millis(HEARTBEAT_INTERVAL_MS));
+    tokio::pin!(heartbeat);
 
     loop {
         tokio::select! {
             _ = cancel.cancelled() => return Ok(StopReason::Cancelled),
-            _ = idle_check.tick() => {
-                if last_activity.elapsed() > IDLE_TIMEOUT {
+            _ = heartbeat.tick() => {
+                if missed_pong >= 2 {
                     log::warn!(
-                        "dingtalk stream idle timeout account={} idle_secs={}",
-                        cfg.account_id,
-                        last_activity.elapsed().as_secs()
+                        "dingtalk stream heartbeat timeout account={}",
+                        cfg.account_id
                     );
+                    return Ok(StopReason::Disconnected);
+                }
+                missed_pong += 1;
+                if write.send(Message::Ping(vec![].into())).await.is_err() {
                     return Ok(StopReason::Disconnected);
                 }
             }
@@ -117,7 +119,7 @@ async fn run_single_connection(
                 let Some(msg) = msg else {
                     return Ok(StopReason::Disconnected);
                 };
-                last_activity = Instant::now();
+                missed_pong = 0;
                 match msg.context("dingtalk ws read")? {
                     Message::Text(text) => {
                         let envelope: Value = serde_json::from_str(&text)
@@ -142,8 +144,11 @@ async fn run_single_connection(
                     }
                     Message::Close(_) => return Ok(StopReason::Disconnected),
                     Message::Ping(payload) => {
-                        let _ = write.send(Message::Pong(payload)).await;
+                        if write.send(Message::Pong(payload)).await.is_err() {
+                            return Ok(StopReason::Disconnected);
+                        }
                     }
+                    Message::Pong(_) => {}
                     _ => {}
                 }
             }

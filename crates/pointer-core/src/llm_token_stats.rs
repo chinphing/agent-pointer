@@ -104,7 +104,7 @@ impl ConversationLlmStats {
         if self.llm_rounds == 0 && self.tool_invocations == 0 {
             return;
         }
-        log::info!(
+        log::debug!(
             "LLM token summary conversation_id={} llm_rounds={} total_tokens={} tool_invocations={}",
             conversation_id,
             self.llm_rounds,

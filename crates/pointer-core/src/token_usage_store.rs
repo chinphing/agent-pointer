@@ -990,7 +990,7 @@ pub async fn flush_unsent_reports(
                 let rid = row.request_id.as_str();
                 match delivery {
                     ReportDelivery::Multipart => {
-                        log::info!(
+                        log::debug!(
                             "token_usage_store: report ok request_id={rid} (multipart+archive)"
                         );
                     }

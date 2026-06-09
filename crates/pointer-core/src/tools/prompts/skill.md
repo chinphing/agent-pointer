@@ -19,6 +19,10 @@ Do not invent skill contents from memory — use the tools below.
 
 #### When to use
 
+**Priority for attachment / capability gaps:** (1) enabled skill from the
+**可用 Skills** index → (2) **`find-skills`** / install → (3) ad-hoc code last.
+Never run `npx skills find` when an enabled skill already matches.
+
 - An enabled skill's `name` / `description` in your instructions clearly matches
   the task → call **`skill_load_instructions`** first.
 - The loaded skill body points at `references/`, `assets/`, or `scripts/` and

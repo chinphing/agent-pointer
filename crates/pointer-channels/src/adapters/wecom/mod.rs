@@ -4,7 +4,9 @@ mod outbound;
 pub mod parse;
 mod webhook;
 mod ws_client;
+mod ws_pending;
 mod ws_state;
+mod ws_upload;
 
 use std::sync::Arc;
 

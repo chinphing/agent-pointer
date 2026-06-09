@@ -1,4 +1,5 @@
 pub mod cdn;
+pub mod cdn_upload;
 pub mod ilink_client;
 pub mod media;
 pub mod monitor;

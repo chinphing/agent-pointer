@@ -1,3 +1,9 @@
+export const DEFAULT_CHANNEL_IDLE_MINUTES = 60
+
+export interface SessionResetConfig {
+  idleMinutes?: number
+}
+
 export interface ChannelAccountConfig {
   enabled?: boolean
   name?: string
@@ -24,6 +30,9 @@ export interface ChannelAccountConfig {
 
 export interface ChannelsMeta {
   publicBaseUrl?: string
+  sessionReset?: SessionResetConfig
+  /** Extra local directories allowed for outbound media (OpenClaw mediaLocalRoots). */
+  mediaLocalRoots?: string[]
 }
 
 export interface ChannelsConfig {

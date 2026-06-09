@@ -52,6 +52,7 @@ pub async fn download_inbound_ref(
                         file_name: out_name,
                     },
                     None,
+                    Some(media_ref.kind.as_str()),
                 ));
             }
             Err(e) => {
@@ -73,6 +74,7 @@ pub async fn download_inbound_ref(
             file_name,
         },
         media_ref.file_name.clone(),
+        Some(media_ref.kind.as_str()),
     ))
 }
 

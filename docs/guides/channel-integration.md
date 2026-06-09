@@ -6,8 +6,8 @@ Pointer 通过 `pointer-channels` crate 以 **长连接优先、纯 Rust** 方�
 
 - 入站（默认）：飞书 WSS、钉钉 Stream、企微 Bot WSS、微信 iLink 长轮询
 - 入站（备选）：飞书 / 钉钉 / 企微 HTTP → `POST /webhooks/{channel}/{account_id}`
-- 出站：各平台 Open API / sessionWebhook 主动推送
-- 编排：入站消息 → `run_chat` → 回复文本回推
+- 出站：各平台 Open API / sessionWebhook 主动推送（文本 + 图片/文件）
+- 编排：入站消息 → `run_chat` → 解析回复中的 `MEDIA:` 标记 → 文本与媒体分别回推
 
 ## 部署
 
@@ -91,12 +91,105 @@ Pointer 通过 `pointer-channels` crate 以 **长连接优先、纯 Rust** 方�
 4. 勾选「启用」并保存，桌面端自动启动 iLink `getupdates` 长轮询 monitor
 5. 首次私聊默认需配对（`dmPolicy: pairing`），或在设置里批准配对码
 
+## 出站媒体（图片 / 文件）
+
+四个 IM 通道均支持 Agent 向用户发送图片或文件。模型在回复末尾附加媒体路径行（对齐 OpenClaw `MEDIA:` 约定），dispatch 会自动解析并上传发送；这些行**不会**展示给用户。
+
+支持的写法：
+
+```
+这是分析结果。
+MEDIA:pointer-media://{convId}/{attachmentId}.png
+MEDIA:/absolute/path/to/report.pdf
+```
+
+路径解析顺序：
+
+1. `pointer-media://` 或 `conversation-media/` 相对路径 → 应用数据目录下的已保存附件
+2. 绝对路径 → 直接读取
+3. 相对路径 → 依次尝试数据目录、工作区
+
+发送行为：
+
+| 通道 | 文本 | 图片 | 文件 |
+| --- | --- | --- | --- |
+| 飞书 | post markdown | `im/v1/images` + image 消息 | `im/v1/files` + file 消息 |
+| 钉钉 | sessionWebhook markdown | media/upload + image | media/upload + file |
+| 企微 WSS | 流式 / markdown | WS 分片上传 + image/file 消息 | 同上 |
+| 企微 Agent HTTP | text | media/upload + message/send | 同上 |
+| 微信 iLink | text item | CDN 加密上传 + image_item | CDN 加密上传 + file_item |
+
+单文件上限 30 MB。若路径无法解析或上传失败，会记录错误日志，文本回复仍会发送。
+
+### `channel_message` 工具（对齐 OpenClaw `message` 工具）
+
+IM 会话中 Agent 可调用 `channel_message` 主动发送，无需等最终回复：
+
+```json
+{ "action": "send", "text": "报告如下", "mediaUrls": ["/path/to/report.pdf"] }
+```
+
+### 路径白名单 `mediaLocalRoots`
+
+设置 → IM 通道 → **出站媒体路径** 可配置额外允许目录（对齐 OpenClaw `mediaLocalRoots`）。
+始终允许：`pointer-media://…` 与 `conversation-media/` 下已保存附件。
+
+### 手动发送 API（对齐 `openclaw message send --media`）
+
+```bash
+curl -X POST http://127.0.0.1:8787/api/channels/feishu/default/send \
+  -H 'Content-Type: application/json' \
+  -d '{"recipientId":"ou_xxx","text":"hi","mediaUrls":["/path/file.png"]}'
+```
+
+钉钉需附带 `sessionWebhook`；微信需 `contextToken`；企微 Bot 被动回复可带 `wecomReqId`。
+
 ## 配对
 
 DM 策略默认为 `pairing`。未知用户会收到配对码，管理员在设置中输入配对码批准。
+
+## 会话重置
+
+IM 通道的会话历史与 App 内「新会话」**相互独立**。可通过聊天指令或空闲超时开始新对话。
+
+### 停止当前任务
+
+对齐 OpenClaw `/stop` **快速中止路径**：在任务执行中发送以下指令会**立即**取消当前 `run_chat`（不排队等待），并回复「已停止当前任务。」：
+
+- `/stop`、`/cancel`、`/abort`
+- `停止`、`停下来`、`暂停`
+
+同一 IM 会话同时只跑一个任务（新消息会等当前任务结束；停止后可立即发新消息）。
+
+### 手动重置
+
+在 IM 中发送以下任一内容即可清空当前会话历史（旧记录会归档，不会直接删除）：
+
+- `/new`、`/reset`
+- `新对话`、`重新开始`
+
+仅发送重置指令时，机器人回复「已开始新对话。」且**不会**把该指令交给模型。  
+若附带后续文字（如 `/new 帮我查天气`），会先重置再处理后续内容。
+
+手动重置**不会**从渠道 API 回填历史消息。
+
+### 空闲自动重置
+
+所有 IM 通道共用一项全局配置（`channels_config.json` → `meta`）：
+
+```json
+"meta": {
+  "sessionReset": { "idleMinutes": 60 }
+}
+```
+
+默认 **60 分钟**（1 小时）无新消息后，下一条入站消息会从空历史开始；旧记录同样归档到 `channel_histories/archives/`。  
+`idleMinutes` 设为 `0` 可关闭。设置页 → IM 通道 → **会话重置** 可修改（对所有通道生效）。
 
 ## 配置存储
 
 - 通道配置：`{data_dir}/PointerApp/channels_config.json`
 - 凭证：`{data_dir}/PointerApp/channel_credentials/`（加密）
 - 会话历史：`{data_dir}/PointerApp/channel_histories/`
+- 会话元数据：`{data_dir}/PointerApp/channel_histories/*_meta.json`（`lastInteractionAt`）
+- 归档历史：`{data_dir}/PointerApp/channel_histories/archives/`

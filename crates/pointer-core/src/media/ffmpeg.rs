@@ -1,9 +1,10 @@
-use std::path::PathBuf;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Returns true when both ffmpeg and ffprobe resolve on this machine.
+/// Returns true when both ffmpeg and ffprobe resolve and respond to `-version`.
 pub fn ffmpeg_available() -> bool {
-    resolve_tool("ffmpeg").is_some() && resolve_tool("ffprobe").is_some()
+    matches!(probe_ffmpeg_tools().status, FfmpegToolStatus::Ready)
 }
 
 pub fn resolve_ffmpeg() -> Option<PathBuf> {
@@ -14,9 +15,100 @@ pub fn resolve_ffprobe() -> Option<PathBuf> {
     resolve_tool("ffprobe")
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FfmpegToolStatus {
+    Ready,
+    NotFound,
+    Partial,
+    NotExecutable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FfmpegToolProbe {
+    pub status: FfmpegToolStatus,
+    pub ffmpeg_available: bool,
+    pub ffprobe_available: bool,
+    pub ffmpeg_path: Option<String>,
+    pub ffprobe_path: Option<String>,
+    pub detail: Option<String>,
+}
+
+pub fn probe_ffmpeg_tools() -> FfmpegToolProbe {
+    let ffmpeg_path = resolve_tool("ffmpeg");
+    let ffprobe_path = resolve_tool("ffprobe");
+    let ffmpeg_found = ffmpeg_path.is_some();
+    let ffprobe_found = ffprobe_path.is_some();
+
+    if !ffmpeg_found && !ffprobe_found {
+        return FfmpegToolProbe {
+            status: FfmpegToolStatus::NotFound,
+            ffmpeg_available: false,
+            ffprobe_available: false,
+            ffmpeg_path: None,
+            ffprobe_path: None,
+            detail: Some("未找到 ffmpeg 与 ffprobe 可执行文件".into()),
+        };
+    }
+
+    if !ffmpeg_found || !ffprobe_found {
+        let missing = if !ffmpeg_found { "ffmpeg" } else { "ffprobe" };
+        return FfmpegToolProbe {
+            status: FfmpegToolStatus::Partial,
+            ffmpeg_available: false,
+            ffprobe_available: false,
+            ffmpeg_path: ffmpeg_path.as_ref().map(|p| path_display(p.as_path())),
+            ffprobe_path: ffprobe_path.as_ref().map(|p| path_display(p.as_path())),
+            detail: Some(format!("仅找到部分组件，缺少 {missing}")),
+        };
+    }
+
+    let ffmpeg_path = ffmpeg_path.expect("ffmpeg path");
+    let ffprobe_path = ffprobe_path.expect("ffprobe path");
+    let ffmpeg_ok = tool_responds_to_version(&ffmpeg_path);
+    let ffprobe_ok = tool_responds_to_version(&ffprobe_path);
+    if !ffmpeg_ok || !ffprobe_ok {
+        let broken = if !ffmpeg_ok { "ffmpeg" } else { "ffprobe" };
+        return FfmpegToolProbe {
+            status: FfmpegToolStatus::NotExecutable,
+            ffmpeg_available: false,
+            ffprobe_available: false,
+            ffmpeg_path: Some(path_display(ffmpeg_path.as_path())),
+            ffprobe_path: Some(path_display(ffprobe_path.as_path())),
+            detail: Some(format!(
+                "{broken} 已找到但执行失败（权限、架构或安装损坏）"
+            )),
+        };
+    }
+
+    FfmpegToolProbe {
+        status: FfmpegToolStatus::Ready,
+        ffmpeg_available: true,
+        ffprobe_available: true,
+        ffmpeg_path: Some(path_display(ffmpeg_path.as_path())),
+        ffprobe_path: Some(path_display(ffprobe_path.as_path())),
+        detail: None,
+    }
+}
+
+fn path_display(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+fn tool_responds_to_version(path: &Path) -> bool {
+    Command::new(path)
+        .arg("-version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 fn resolve_tool(name: &str) -> Option<PathBuf> {
     if let Some(path) = resolve_via_which(name) {
-        return Some(path);
+        if path.is_file() {
+            return Some(path);
+        }
     }
     for dir in extra_search_dirs() {
         let candidate = dir.join(tool_filename(name));
@@ -74,4 +166,27 @@ fn extra_search_dirs() -> Vec<PathBuf> {
         }
     }
     dirs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probe_returns_structured_status() {
+        let probe = probe_ffmpeg_tools();
+        match probe.status {
+            FfmpegToolStatus::Ready => {
+                assert!(probe.ffmpeg_available);
+                assert!(probe.ffprobe_available);
+            }
+            FfmpegToolStatus::NotFound => {
+                assert!(!probe.ffmpeg_available);
+            }
+            FfmpegToolStatus::Partial | FfmpegToolStatus::NotExecutable => {
+                assert!(!probe.ffmpeg_available);
+                assert!(probe.detail.is_some());
+            }
+        }
+    }
 }

@@ -21,8 +21,12 @@ pub async fn download_inbound_ref(
         .context("wecom media missing aeskey")?;
     let (encrypted, content_type) = http.get_bytes(url, &[]).await?;
     enforce_max_bytes(&encrypted, "wecom media")?;
-    let bytes = wecom_aibot_decrypt_file(&encrypted, aes_key)
-        .with_context(|| format!("wecom decrypt media url={url}"))?;
+    let bytes = wecom_aibot_decrypt_file(&encrypted, aes_key).with_context(|| {
+        format!(
+            "wecom decrypt media url={url} aeskey_len={}",
+            aes_key.trim().len()
+        )
+    })?;
     enforce_max_bytes(&bytes, "wecom media")?;
     let file_name = media_ref
         .file_name
@@ -36,5 +40,6 @@ pub async fn download_inbound_ref(
             file_name,
         },
         media_ref.file_name.clone(),
+        Some(media_ref.kind.as_str()),
     ))
 }

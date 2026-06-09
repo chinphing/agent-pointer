@@ -57,6 +57,16 @@ export function getComposerAttachmentPreviewUrl(attachment: ComposerAttachment):
   )
 }
 
+/** Stable data URL for optimistic message thumbnails (survives blob URL revoke). */
+export function getComposerAttachmentDataUrl(attachment: ComposerAttachment): string | null {
+  const payload = payloads.get(attachment.id)
+  if (payload?.dataUrl) return payload.dataUrl
+  const b64 = getComposerAttachmentContentBase64(attachment)
+  if (!b64) return null
+  const mime = attachment.mimeType || 'application/octet-stream'
+  return `data:${mime};base64,${b64}`
+}
+
 export function cloneComposerAttachmentsForSend(
   attachments: readonly ComposerAttachment[]
 ): ComposerAttachment[] {

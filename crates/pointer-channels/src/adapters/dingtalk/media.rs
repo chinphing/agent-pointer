@@ -59,5 +59,6 @@ pub async fn download_inbound_ref(
             file_name,
         },
         media_ref.file_name.clone(),
+        Some(media_ref.kind.as_str()),
     ))
 }

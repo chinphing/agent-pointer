@@ -17,9 +17,23 @@ impl AgentInstanceScope {
         conversation_id: impl Into<String>,
         agent_role_id: impl Into<String>,
     ) -> Self {
+        Self::with_instance_id(
+            run_id,
+            conversation_id,
+            agent_role_id,
+            Uuid::new_v4().to_string(),
+        )
+    }
+
+    pub fn with_instance_id(
+        run_id: impl Into<String>,
+        conversation_id: impl Into<String>,
+        agent_role_id: impl Into<String>,
+        agent_instance_id: impl Into<String>,
+    ) -> Self {
         Self {
             run_id: run_id.into(),
-            agent_instance_id: Uuid::new_v4().to_string(),
+            agent_instance_id: agent_instance_id.into(),
             agent_role_id: agent_role_id.into(),
             conversation_id: conversation_id.into(),
         }

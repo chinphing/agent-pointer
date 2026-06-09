@@ -4,11 +4,26 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelsMeta {
     #[serde(default)]
     pub public_base_url: String,
+    #[serde(default)]
+    pub session_reset: SessionResetConfig,
+    /// Extra local directories allowed for outbound media (OpenClaw `mediaLocalRoots`).
+    #[serde(default, rename = "mediaLocalRoots")]
+    pub media_local_roots: Vec<String>,
+}
+
+impl Default for ChannelsMeta {
+    fn default() -> Self {
+        Self {
+            public_base_url: String::new(),
+            session_reset: SessionResetConfig::default(),
+            media_local_roots: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -61,6 +76,31 @@ pub struct ChannelAccountConfig {
     pub allow_from: Vec<String>,
     #[serde(default, rename = "groupAllowFrom")]
     pub group_allow_from: Vec<String>,
+    /// Legacy per-account field; migrated to `meta.sessionReset` on load.
+    #[serde(default, rename = "sessionReset", skip_serializing)]
+    session_reset_legacy: SessionResetConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionResetConfig {
+    /// Auto-reset session after this many minutes without messages. `0` = disabled; omitted = 60.
+    #[serde(default, rename = "idleMinutes")]
+    pub idle_minutes: Option<u32>,
+}
+
+impl SessionResetConfig {
+    pub fn effective_idle_minutes(&self) -> u32 {
+        match self.idle_minutes {
+            Some(0) => 0,
+            Some(m) => m,
+            None => default_idle_minutes(),
+        }
+    }
+}
+
+fn default_idle_minutes() -> u32 {
+    60
 }
 
 fn default_true() -> bool {
@@ -237,6 +277,26 @@ fn sanitize_config(cfg: &mut ChannelsConfig) -> bool {
     changed
 }
 
+fn migrate_session_reset(cfg: &mut ChannelsConfig) -> bool {
+    if cfg.meta.session_reset.idle_minutes.is_some() {
+        return false;
+    }
+    for accounts in [
+        &cfg.feishu,
+        &cfg.dingtalk,
+        &cfg.wecom,
+        &cfg.weixin,
+    ] {
+        for account in accounts.values() {
+            if let Some(m) = account.session_reset_legacy.idle_minutes {
+                cfg.meta.session_reset.idle_minutes = Some(m);
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn normalize_config(cfg: &mut ChannelsConfig) -> bool {
     let mut migrated = false;
     for account in cfg.feishu.values_mut() {
@@ -248,6 +308,7 @@ fn normalize_config(cfg: &mut ChannelsConfig) -> bool {
     for account in cfg.wecom.values_mut() {
         migrated |= prefer_connection_mode("wecom", account);
     }
+    migrated |= migrate_session_reset(cfg);
     migrated
 }
 
@@ -279,6 +340,30 @@ pub fn save_channels_config(cfg: &ChannelsConfig) -> Result<()> {
 }
 
 /// Whether the channel monitor is actively connected (runtime state).
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_reset_defaults_to_one_hour() {
+        assert_eq!(SessionResetConfig::default().effective_idle_minutes(), 60);
+        assert_eq!(
+            SessionResetConfig {
+                idle_minutes: Some(0)
+            }
+            .effective_idle_minutes(),
+            0
+        );
+        assert_eq!(
+            SessionResetConfig {
+                idle_minutes: Some(30)
+            }
+            .effective_idle_minutes(),
+            30
+        );
+    }
+}
+
 pub fn account_runtime_connected(
     channel: &str,
     account_id: &str,

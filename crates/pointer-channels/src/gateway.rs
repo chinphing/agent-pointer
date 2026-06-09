@@ -9,7 +9,9 @@ use crate::dedup::DedupStore;
 use crate::dispatch::DispatchService;
 use crate::pairing::PairingStore;
 use crate::registry::ChannelRegistry;
-use crate::traits::InboundMessage;
+use crate::session::conversation_id;
+use crate::session_abort::{is_abort_command, ABORT_ACK};
+use crate::traits::{InboundMessage, OutboundContext};
 
 pub struct ChannelGateway {
     registry: ChannelRegistry,
@@ -50,6 +52,17 @@ impl ChannelGateway {
     pub fn reload_config(&self) -> Result<()> {
         *self.config.write() = load_channels_config()?;
         Ok(())
+    }
+
+    /// Manual / API outbound (OpenClaw `openclaw message send --media`).
+    pub async fn send_outbound_explicit(
+        &self,
+        ctx: &OutboundContext,
+        text: Option<&str>,
+        media_paths: &[String],
+    ) -> Result<()> {
+        crate::outbound_delivery::deliver_outbound_explicit(self, ctx.clone(), text, media_paths)
+            .await
     }
 
     pub async fn process_inbound(&self, msg: InboundMessage) -> Result<()> {
@@ -152,10 +165,35 @@ impl ChannelGateway {
             .registry
             .get(&msg.channel)
             .ok_or_else(|| anyhow::anyhow!("plugin missing"))?;
+
+        let conv_id = conversation_id(&msg);
+        if is_abort_command(&msg.text) {
+            self.core.cancel(&conv_id);
+            let outbound = OutboundContext {
+                channel: msg.channel.clone(),
+                account_id: msg.account_id.clone(),
+                conversation_key: msg.conversation_key.clone(),
+                recipient_id: msg.sender_id.clone(),
+                reply_context: msg.reply_context.clone(),
+            };
+            plugin.outbound.send_text(outbound, ABORT_ACK).await?;
+            self.dispatch.history.touch_meta(&conv_id)?;
+            self.dedup.mark_seen(&namespace, &msg.dedup_key());
+            log::info!("channel fast abort conv={conv_id}");
+            return Ok(());
+        }
+
         let dedup_key = msg.dedup_key();
+        let idle_minutes = cfg.meta.session_reset.effective_idle_minutes();
         match self
             .dispatch
-            .handle_inbound(self.core.clone(), &plugin, &account, msg)
+            .handle_inbound(
+                self.core.clone(),
+                &plugin,
+                &account,
+                idle_minutes,
+                msg,
+            )
             .await
         {
             Ok(()) => {

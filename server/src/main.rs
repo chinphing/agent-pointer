@@ -33,6 +33,7 @@ use channels::{
     list_channel_pairing_pending, list_channels,     channel_registration_status, start_channel_registration, start_weixin_login, update_channels,
     weixin_login_status,
 };
+use base64::Engine;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -96,6 +97,10 @@ async fn main() -> anyhow::Result<()> {
     let mut channel_registry = ChannelRegistry::new();
     register_builtin_channels(&mut channel_registry);
     let channel_gateway = Arc::new(ChannelGateway::new(core.clone(), channel_registry)?);
+    pointer_channels::install_channel_outbound_bridge(
+        channel_gateway.clone(),
+        core.tools.clone(),
+    );
     let cancel = tokio_util::sync::CancellationToken::new();
     channel_gateway.spawn_weixin_monitors(cancel.clone());
     channel_gateway.spawn_wecom_monitors(cancel.clone());
@@ -150,6 +155,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/experiences/search", get(search_experiences))
         .route("/api/experiences/:slug", get(get_experience_detail))
         .route("/api/chat/media-preview", get(preview_chat_media))
+        .route("/api/chat/save-attachment", post(save_chat_attachment))
         .route("/api/media/deps", get(check_media_deps))
         .route("/api/chat", post(send_chat))
         .route("/api/chat/:conversation_id/cancel", post(cancel_chat))
@@ -376,6 +382,40 @@ async fn preview_chat_media(
     Ok(Json(
         pointer_core::media::read_chat_media_preview(&q.storage_rel_path).map_err(ApiError::from)?,
     ))
+}
+
+#[derive(Deserialize)]
+struct SaveChatAttachmentPayload {
+    #[serde(rename = "conversationId")]
+    conversation_id: String,
+    #[serde(rename = "attachmentId")]
+    attachment_id: String,
+    #[serde(rename = "contentBase64")]
+    content_base64: String,
+    #[serde(rename = "fileName")]
+    file_name: String,
+}
+
+#[derive(serde::Serialize)]
+struct SaveChatAttachmentResponse {
+    #[serde(rename = "storageRelPath")]
+    storage_rel_path: String,
+}
+
+async fn save_chat_attachment(
+    Json(payload): Json<SaveChatAttachmentPayload>,
+) -> Result<Json<SaveChatAttachmentResponse>, ApiError> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(payload.content_base64.trim())
+        .map_err(|e| ApiError(anyhow::anyhow!("decode attachment base64: {e}")))?;
+    let storage_rel_path = pointer_core::media::save_attachment_bytes(
+        &payload.conversation_id,
+        &payload.attachment_id,
+        &bytes,
+        &payload.file_name,
+    )
+    .map_err(ApiError::from)?;
+    Ok(Json(SaveChatAttachmentResponse { storage_rel_path }))
 }
 
 async fn check_media_deps() -> Json<pointer_core::media::MediaDepsStatus> {

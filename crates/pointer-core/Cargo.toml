@@ -29,9 +29,11 @@ base64 = "0.22"
 xcap = { version = "0.9", features = ["wgc"] }
 
 tokio-util = "0.7"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v5"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 pdf-extract = "0.7"
+lopdf = "0.34"
+flate2 = "1"
 tempfile = "3"
 globset = "0.4"
 grep-regex = "0.1"

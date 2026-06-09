@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ChevronDown, Copy, Plug, QrCode, RefreshCw } from 'lucide-vue-next'
-import type { ChannelAccountConfig, ChannelsConfig } from '../../types/channels'
+import {
+  DEFAULT_CHANNEL_IDLE_MINUTES,
+  type ChannelAccountConfig,
+  type ChannelsConfig
+} from '../../types/channels'
 import {
   approveChannelPairingAny,
   getChannelRegistrationStatus,
@@ -58,7 +62,11 @@ const regBusy = ref<Record<'feishu' | 'dingtalk' | 'wecom', boolean>>({
 })
 
 const config = ref<ChannelsConfig>({
-  meta: { publicBaseUrl: '' },
+  meta: {
+    publicBaseUrl: '',
+    sessionReset: { idleMinutes: DEFAULT_CHANNEL_IDLE_MINUTES },
+    mediaLocalRoots: []
+  },
   feishu: { default: defaultFeishu() },
   dingtalk: { default: defaultDingtalk() },
   wecom: { default: defaultWecom() },
@@ -171,6 +179,28 @@ const activeConnectionLabel = computed(() => {
   return CONNECTION_MODE_LABELS[activeTab.value]
 })
 
+const idleMinutes = computed(
+  () => config.value.meta?.sessionReset?.idleMinutes ?? DEFAULT_CHANNEL_IDLE_MINUTES
+)
+
+function setIdleMinutes(raw: string) {
+  const parsed = Number.parseInt(raw, 10)
+  const minutes = Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_CHANNEL_IDLE_MINUTES
+  if (!config.value.meta) config.value.meta = { publicBaseUrl: '' }
+  config.value.meta.sessionReset = { idleMinutes: minutes }
+}
+
+const mediaLocalRootsText = computed({
+  get: () => (config.value.meta?.mediaLocalRoots ?? []).join('\n'),
+  set: (raw: string) => {
+    if (!config.value.meta) config.value.meta = { publicBaseUrl: '' }
+    config.value.meta.mediaLocalRoots = raw
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+  }
+})
+
 function defaultFeishu(): ChannelAccountConfig {
   return {
     enabled: false,
@@ -217,7 +247,13 @@ function mergeConfig(loaded: ChannelsConfig) {
   const wecomMode = preferConnectionMode('wecom', wecomAcc)
 
   config.value = {
-    meta: { publicBaseUrl: loaded.meta?.publicBaseUrl ?? '' },
+    meta: {
+      publicBaseUrl: loaded.meta?.publicBaseUrl ?? '',
+      sessionReset: {
+        idleMinutes: loaded.meta?.sessionReset?.idleMinutes ?? DEFAULT_CHANNEL_IDLE_MINUTES
+      },
+      mediaLocalRoots: loaded.meta?.mediaLocalRoots ?? []
+    },
     feishu: {
       default: {
         ...feishuAcc,
@@ -737,6 +773,45 @@ defineExpose({ save })
         </details>
       </div>
     </div>
+
+    <details class="manual-section">
+      <summary class="manual-summary">
+        <span>会话重置</span>
+        <ChevronDown class="w-4 h-4 summary-chevron" />
+      </summary>
+      <div class="manual-body space-y-2">
+        <p class="text-xs text-muted">
+          在 IM 中发送 <code>/new</code>、<code>/reset</code>、<code>新对话</code> 或
+          <code>重新开始</code> 可手动开新会话。下方为所有 IM 通道共用的空闲自动重置（默认 60 分钟）。
+        </p>
+        <label class="text-xs text-muted">空闲自动重置（分钟，0 = 关闭）</label>
+        <input
+          type="number"
+          min="0"
+          class="field"
+          :value="idleMinutes"
+          @input="setIdleMinutes(($event.target as HTMLInputElement).value)"
+        />
+      </div>
+    </details>
+
+    <details class="manual-section">
+      <summary class="manual-summary">
+        <span>出站媒体路径</span>
+        <ChevronDown class="w-4 h-4 summary-chevron" />
+      </summary>
+      <div class="manual-body space-y-2">
+        <p class="text-xs text-muted">
+          Agent 通过 <code>MEDIA:</code> 或 <code>channel_message</code> 发送文件时，除已保存附件外，仅允许以下目录（每行一个，支持
+          <code>~/</code>）。对齐 OpenClaw <code>mediaLocalRoots</code>。
+        </p>
+        <textarea
+          v-model="mediaLocalRootsText"
+          class="field min-h-[5rem] font-mono text-xs"
+          placeholder="~/Downloads&#10;~/Documents"
+        />
+      </div>
+    </details>
 
     <details class="manual-section">
       <summary class="manual-summary">

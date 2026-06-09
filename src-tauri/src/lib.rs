@@ -137,6 +137,10 @@ pub fn run() {
                 ChannelGateway::new(app_state.clone(), channel_registry)
                     .map_err(|e| format!("channel gateway init failed: {e:#}"))?,
             );
+            pointer_channels::install_channel_outbound_bridge(
+                channel_gateway.clone(),
+                app_state.tools.clone(),
+            );
             let monitor_handle =
                 channel_monitor::ChannelMonitorHandle::new(channel_gateway.clone());
             monitor_handle.start();
@@ -191,6 +195,7 @@ pub fn run() {
             commands::preview_computer_annotated_screen,
             commands::preview_computer_round_screen,
             commands::preview_chat_media,
+            commands::save_chat_attachment,
             commands::check_media_deps,
             commands::list_computer_monitors,
             commands::set_computer_conversation_monitor,

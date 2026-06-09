@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
   sendChat, cancelChat, abortTerminalCommand, approveToolCall, onStream,
-  loadConversations, saveConversations
+  loadConversations, saveConversations, saveChatAttachment
 } from '../lib/api'
 import type {
   ChatMessage,
@@ -19,7 +19,8 @@ import { hasTaskBoardContent } from '../lib/taskBoard'
 import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
 import {
-  getComposerAttachmentPreviewUrl,
+  getComposerAttachmentContentBase64,
+  getComposerAttachmentDataUrl,
   releaseComposerAttachment
 } from '../lib/attachmentPayloadStore'
 import type { ComposerAttachment } from '../types/chat'
@@ -1270,14 +1271,31 @@ export const useChatStore = defineStore('chat', () => {
     }
     const settings = useSettingsStore()
 
-    const wireAttachments = attachments.map(a => {
-      const previewUrl = getComposerAttachmentPreviewUrl(a) ?? a.previewUrl
-      const { previewUrl: _p, ...rest } = a
-      return {
-        ...rest,
-        ...(previewUrl ? { previewUrl } : {})
+    const wireAttachments = []
+    for (const a of attachments) {
+      const contentBase64 = getComposerAttachmentContentBase64(a) ?? undefined
+      const previewUrl = getComposerAttachmentDataUrl(a) ?? undefined
+      let storageRelPath = a.storageRelPath
+      if (contentBase64 && !storageRelPath) {
+        try {
+          storageRelPath = await saveChatAttachment({
+            conversationId: conv.id,
+            attachmentId: a.id,
+            contentBase64,
+            fileName: a.fileName
+          })
+        } catch (e) {
+          console.warn('[chat] saveChatAttachment failed', e)
+        }
       }
-    })
+      const { previewUrl: _p, contentBase64: _c, ...rest } = a
+      wireAttachments.push({
+        ...rest,
+        ...(contentBase64 ? { contentBase64 } : {}),
+        ...(previewUrl ? { previewUrl } : {}),
+        ...(storageRelPath ? { storageRelPath } : {})
+      })
+    }
     const userMsg: ChatMessage = {
       id: uid(), role: 'user', content,
       status: 'done', createdAt: Date.now(),

@@ -107,7 +107,7 @@ const agentUiLocal = ref<Partial<AgentUiConfig>>({})
 const mediaImageModel = ref('')
 const mediaAudioModel = ref('')
 const mediaVideoModel = ref('')
-const ffmpegAvailable = ref<boolean | null>(null)
+const mediaDeps = ref<import('../../types/chat').MediaDepsStatus | null>(null)
 const agents = ref<AgentDef[]>([])
 
 const TOOL_CALL_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
@@ -341,13 +341,43 @@ onMounted(() => {
 
 async function refreshMediaDeps() {
   try {
-    const deps = await checkMediaDeps()
-    ffmpegAvailable.value = deps.ffmpegAvailable
+    mediaDeps.value = await checkMediaDeps()
   } catch (e) {
     console.warn('[settings] checkMediaDeps failed', e)
-    ffmpegAvailable.value = null
+    mediaDeps.value = null
   }
 }
+
+const ffmpegStatusLabel = computed(() => {
+  const deps = mediaDeps.value
+  if (!deps) return '检测中…'
+  switch (deps.status) {
+    case 'ready':
+      return '已就绪（可执行抽帧）'
+    case 'partial':
+      return '未就绪：缺少部分组件'
+    case 'not_executable':
+      return '未就绪：已找到但无法执行'
+    default:
+      return '未检测到'
+  }
+})
+
+const ffmpegStatusDetail = computed(() => {
+  const deps = mediaDeps.value
+  if (!deps?.detail?.trim()) {
+    if (deps?.status === 'ready' && deps.ffmpegPath) {
+      return deps.ffmpegPath
+    }
+    return ''
+  }
+  return deps.detail.trim()
+})
+
+const ffmpegNeedsInstall = computed(() => {
+  const status = mediaDeps.value?.status
+  return status === 'not_found' || status === 'partial' || status === 'not_executable'
+})
 
 async function askAssistantInstallFfmpeg() {
   emit('close')
@@ -831,14 +861,17 @@ async function saveFromFooter() {
                   <p class="text-[11px] text-muted">
                     IM 视频与抽帧理解需要本机安装；未安装时不打包进应用。
                   </p>
-                  <p class="text-[11px] mt-1" :class="ffmpegAvailable ? 'text-emerald-600' : 'text-amber-600'">
-                    {{
-                      ffmpegAvailable === null
-                        ? '检测中…'
-                        : ffmpegAvailable
-                          ? '已检测到'
-                          : '未检测到'
-                    }}
+                  <p
+                    class="text-[11px] mt-1"
+                    :class="mediaDeps?.status === 'ready' ? 'text-emerald-600' : 'text-amber-600'"
+                  >
+                    {{ ffmpegStatusLabel }}
+                  </p>
+                  <p v-if="ffmpegStatusDetail" class="text-[10px] text-muted mt-0.5 break-all">
+                    {{ ffmpegStatusDetail }}
+                  </p>
+                  <p v-if="mediaDeps?.status === 'ready'" class="text-[10px] text-muted mt-0.5">
+                    单个视频仍可能因编码或文件损坏抽帧失败，不代表未安装 ffmpeg。
                   </p>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
@@ -850,7 +883,7 @@ async function saveFromFooter() {
                     重新检测
                   </button>
                   <button
-                    v-if="ffmpegAvailable === false"
+                    v-if="ffmpegNeedsInstall"
                     type="button"
                     class="h-8 px-3 rounded-lg bg-accent text-accent-foreground text-xs hover:opacity-90"
                     @click="askAssistantInstallFfmpeg()"

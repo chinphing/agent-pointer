@@ -11,6 +11,8 @@ This skill helps you discover and install skills from the open agent skills ecos
 
 Use this skill when the user:
 
+- The conversation includes `<!-- pointer-unsupported-attachment -->` or
+  `<!-- pointer-media-processing-failed -->` (host could not parse an attachment inline)
 - Asks "how do I do X" where X might be a common task with an existing skill
 - Says "find a skill for X" or "is there a skill for X"
 - Asks "can you do X" where X is a specialized capability
@@ -36,6 +38,17 @@ any `npx skills` command.
 **Browse skills at:** https://skills.sh/
 
 ## How to Help Users Find Skills
+
+### Step 0: Check Already Installed Skills (required)
+
+**Before any `npx skills find` or `npx skills add`:**
+
+1. Read the **可用 Skills** index in your system instructions (enabled skills for this session).
+2. Judge whether any skill's `name`, `description`, or `tags` fits the task (attachment type,
+   file name, MIME, user goal). If yes, call **`skill_load_instructions`** and follow its body —
+   **stop here**.
+3. **Never** run `npx skills find` when a matching enabled skill already exists.
+4. Only continue below when no enabled skill fits.
 
 ### Step 1: Understand What They Need
 

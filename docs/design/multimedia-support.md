@@ -49,7 +49,7 @@ flowchart TD
 | `mimeType` | MIME |
 | `fileName` | 原始文件名 |
 | `sizeBytes` | 大小 |
-| `storageRelPath` | 相对 `conversation-media/{convId}/` |
+| `storageRelPath` | 相对 `conversation-media/{convId}/`；处理时注入 `pointer-media://` URI 与 **Local path** 供模型 `file_read`（对齐 OpenClaw `MediaPath` / `media://inbound/`） |
 | `contentBase64` | **仅 wire**，持久化前剥离 |
 | `derivedText` | 文档提取或 imageModel 描述（可选缓存） |
 
@@ -75,7 +75,7 @@ mediaModelOverrides: {
 | apply | `media/apply.rs` | 编排理解、写 `images_base64` / 注入 text |
 | understand | `media/understand.rs` | imageModel 单次 vision 描述 |
 
-挂载点：`session_inner::run_chat_inner`，在 `maybe_compress_history` **之前**调用 `apply_media_to_history`。
+挂载点：`session_inner::run_chat_inner`，在 `maybe_compress_history` **之前**调用 `apply_media_to_history`（传入 `run_id`，多媒体理解 token 写入 `token_usage_store`，独立 `agent_instance_id`）。
 
 ---
 
@@ -98,6 +98,8 @@ mediaModelOverrides: {
 | 单图 inline 上限 | 2 MB |
 | 单图硬上限 | 6 MB |
 | 文档文本提取上限 | 256 KiB |
+| 扫描 PDF 页图 OCR 上限 | 10 页 / 单页 6 MB（纯 Rust `lopdf` 提取嵌入图，无 poppler/ghostscript） |
+| PDF 文本 OCR 回退阈值 | 抽取文本 &lt; 48 字符时视为无效（页码/水印），走页图 OCR |
 | 单视频 Composer 上限 | 30 MB |
 | Composer video | 允许（需本机 ffmpeg 方可理解） |
 
@@ -108,6 +110,7 @@ mediaModelOverrides: {
 - **P0（已完成）**：图片 + 文档、vision 分支、Composer UI、imageModel 默认
 - **P1（已完成）**：设置页 image/audio 理解模型、语音转写注入、audio bubble 播放
 - **P2（已完成）**：IM 渠道 inbound 媒体、PDF/视频理解、ffmpeg Skill 引导安装
+- **P2b'（已完成）**：扫描/图片型 PDF：`pdf-extract` 文本失败后，`lopdf` 提取页内嵌 JPEG/栅格图 → 图片理解模型 OCR
 
 ---
 
@@ -215,6 +218,37 @@ CDN：`GET https://novac2c.cdn.weixin.qq.com/c2c/download?encrypted_query_param=
 | App 主对话 | general 助手加载 Skill，`terminal` 安装（需用户批准） |
 | IM 入站 | 回复短文案 + 提示在 Pointer 客户端说「帮我安装 ffmpeg」 |
 
+### 10.5a 不支持附件 / 处理失败：find-skills 引导
+
+zip、Office（docx/xlsx/pptx）等 Composer 可上传但后端无法内联解析的类型，以及
+图片/PDF/音频/视频理解失败时，`apply_media` 注入带标记的提示块：
+
+```text
+<!-- pointer-unsupported-attachment -->
+<!-- pointer-media-processing-failed -->
+…优先级：① 已启用 Skill（模型自判匹配）→ ② find-skills 按需搜索安装 → ③ 写代码最后手段
+```
+
+| 场景 | 行为 |
+|------|------|
+| App 主对话 | 先查「可用 Skills」；有匹配则直接 `skill_load_instructions`，**勿**重复 `npx skills find` |
+| 无匹配 | 征得同意后 `find-skills` → 搜索安装 |
+| 仍不可行 | `terminal` 一次性脚本或 `coder`（最后手段） |
+| 工具审批 | `terminal` / `skill_import` 是否弹批准卡片由 **toolApprovalMode** 决定，无额外 UI |
+| IM 入站 | 简短说明需在 Pointer 客户端继续（搜索/安装技能） |
+
+### 10.5b 附件重试（无需重发文件）
+
+首次处理失败后，附件字节已保存在 `conversation-media/`（`storageRelPath`）。用户无需重传：
+
+| 触发 | 行为 |
+|------|------|
+| 用户说「重试上一条附件」/「重试上一条视频」 | 从 `storageRelPath` 重跑 `apply_media`，替换原消息中的失败注入块 |
+| ffmpeg 从未就绪变为就绪 | 自动重试含 `<!-- pointer-media-deps -->` 的失败视频 |
+| 已成功（`derivedText` 有值） | 不重试 |
+
+范围：话术重试默认扫描最近 3 条带失败附件的用户消息；视频重试仅处理 `kind=video`。
+
 ### 10.6 子阶段
 
 | 阶段 | 内容 | 状态 |
@@ -226,3 +260,8 @@ CDN：`GET https://novac2c.cdn.weixin.qq.com/c2c/download?encrypted_query_param=
 | P2b | PDF 文本提取 | 已完成 |
 | P2c | ffmpeg 抽帧 + videoModel | 已完成 |
 | polish | 设置页 ffmpeg 检测、video 气泡 | 已完成 |
+| polish' | 设置页 ffmpeg 探测执行 `-version`；抽帧失败与未安装区分提示 | 已完成 |
+| polish'' | 图片/语音/视频/扫描 PDF 理解 token 计入 `token_usage_store`（独立 instance_id） | 已完成 |
+| polish''' | 媒体 `agent_instance_id` 改为 UUID v5（平台 `request_id` 按 `:` 分段，不可含冒号） | 已完成 |
+| polish'''' | 不支持附件与媒体处理失败注入 `find-skills` 引导标记 | 已完成 |
+| polish''''' | 附件重试：从 `storageRelPath` 重处理，话术触发 + ffmpeg 自动重试 | 已完成 |

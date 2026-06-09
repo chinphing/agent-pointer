@@ -61,6 +61,10 @@ pub fn channel_api_routes(state: Arc<ChannelApiState>) -> Router {
             "/api/channels/:channel/:account_id/pairing/pending",
             get(list_pending_pairing),
         )
+        .route(
+            "/api/channels/:channel/:account_id/send",
+            post(send_channel_message),
+        )
         .with_state(state)
 }
 
@@ -176,6 +180,82 @@ async fn approve_pairing(
     } else {
         Err(StatusCode::NOT_FOUND)
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SendChannelMessagePayload {
+    recipient_id: String,
+    #[serde(default)]
+    conversation_key: Option<String>,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    media: Option<String>,
+    #[serde(default, rename = "mediaUrls")]
+    media_urls: Option<Vec<String>>,
+    #[serde(default, rename = "contextToken")]
+    context_token: Option<String>,
+    #[serde(default, rename = "sessionWebhook")]
+    session_webhook: Option<String>,
+    #[serde(default, rename = "chatId")]
+    chat_id: Option<String>,
+    #[serde(default, rename = "wecomReqId")]
+    wecom_req_id: Option<String>,
+}
+
+async fn send_channel_message(
+    State(state): State<Arc<ChannelApiState>>,
+    Path((channel, account_id)): Path<(String, String)>,
+    Json(payload): Json<SendChannelMessagePayload>,
+) -> Result<StatusCode, StatusCode> {
+    let enabled = {
+        let cfg = state.gateway.config();
+        let account = cfg.account(&channel, &account_id).ok_or_else(|| {
+            log::warn!("channel send unknown account channel={channel} account={account_id}");
+            StatusCode::NOT_FOUND
+        })?;
+        account.enabled
+    };
+    if !enabled {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let mut media_paths: Vec<String> = payload.media_urls.unwrap_or_default();
+    if let Some(m) = payload.media.filter(|s| !s.trim().is_empty()) {
+        media_paths.push(m);
+    }
+
+    let conversation_key = payload
+        .conversation_key
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| {
+            crate::session::build_conversation_key(&channel, &payload.recipient_id, false)
+        });
+
+    let ctx = crate::traits::OutboundContext {
+        channel: channel.clone(),
+        account_id: account_id.clone(),
+        conversation_key,
+        recipient_id: payload.recipient_id.clone(),
+        reply_context: Some(crate::traits::InboundReplyContext {
+            session_webhook: payload.session_webhook,
+            chat_id: payload.chat_id,
+            open_id: Some(payload.recipient_id.clone()),
+            context_token: payload.context_token,
+            wecom_req_id: payload.wecom_req_id,
+        }),
+    };
+
+    state
+        .gateway
+        .send_outbound_explicit(&ctx, payload.text.as_deref(), &media_paths)
+        .await
+        .map_err(|e| {
+            log::error!("channel send failed channel={channel} account={account_id}: {e:#}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_pending_pairing(

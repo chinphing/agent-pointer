@@ -14,6 +14,9 @@ use crate::tools::web_search::{
     dispatch_to_tool_json_async, WebSearchDispatchContext, WebSearchInvokeContext,
     WebSearchTokenSink,
 };
+use crate::tools::media_generate::{
+    dispatch_media_generate_async, MediaGenerateDispatchContext,
+};
 use anyhow::{anyhow, Result};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -444,6 +447,28 @@ async fn execute_tool_invocation(
             invoke,
             token_sink,
             trace_id,
+        })
+        .await;
+    }
+
+    if tool_id == "image_generate" || tool_id == "video_generate" {
+        let run_id = if let Some(lead_cfg) = lead.as_ref() {
+            lead_cfg.run_id
+        } else if let Some(sub_cfg) = sub.as_ref() {
+            sub_cfg.instance_scope.run_id.as_str()
+        } else {
+            return Err(anyhow!("media generation requires lead or sub scope"));
+        };
+        return dispatch_media_generate_async(MediaGenerateDispatchContext {
+            settings: &provider.settings,
+            conversation_id,
+            run_id,
+            tool_id,
+            args: args_value,
+            cancel: cancel.clone(),
+            stream: stream.clone(),
+            message_id: message_id.to_string(),
+            tool_call_id: tc.id.clone(),
         })
         .await;
     }

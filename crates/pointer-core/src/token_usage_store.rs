@@ -26,6 +26,15 @@ const REPORT_STATUS_ACCUMULATING: &str = "accumulating";
 const REPORT_STATUS_PENDING: &str = "pending";
 const REPORT_STATUS_SENT: &str = "sent";
 
+const BILLING_MODE_TOKENS: &str = "tokens";
+
+/// Billing unit metadata for platform upload (tokens / per-image / per-sec).
+#[derive(Debug, Clone, Copy)]
+pub struct UsageBillingMeta {
+    pub billing_mode: &'static str,
+    pub unit_count: u32,
+}
+
 static DB: OnceLock<Mutex<Connection>> = OnceLock::new();
 
 pub fn request_id_for_run(run_id: &str, agent_instance_id: &str, model_name: &str) -> String {
@@ -106,6 +115,9 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
     }
     if table_exists(conn, "usage_accum")? && table_has_column(conn, "usage_accum", "model_totals_json")? {
         migrate_usage_accum_v3(conn)?;
+    }
+    if table_exists(conn, "usage_accum")? && !table_has_column(conn, "usage_accum", "billing_mode")? {
+        migrate_usage_accum_v4(conn)?;
     }
     migrate_legacy_jsonl(conn)?;
     Ok(())
@@ -527,6 +539,16 @@ fn migrate_usage_accum_v3(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn migrate_usage_accum_v4(conn: &Connection) -> Result<()> {
+    log::info!("token_usage_store: migrating usage_accum to billing_mode + unit_count");
+    conn.execute_batch(
+        "ALTER TABLE usage_accum ADD COLUMN billing_mode TEXT NOT NULL DEFAULT 'tokens';
+         ALTER TABLE usage_accum ADD COLUMN unit_count INTEGER NOT NULL DEFAULT 0;",
+    )?;
+    log::info!("token_usage_store: usage_accum v4 migration complete");
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct LegacyPendingRow {
     request_id: String,
@@ -620,6 +642,8 @@ struct ReportRow {
     thinking_tokens: u32,
     total_tokens: u32,
     llm_rounds: u32,
+    billing_mode: String,
+    unit_count: u32,
     period_start: Option<String>,
     period_end: Option<String>,
     history_archive_path: Option<String>,
@@ -634,15 +658,16 @@ fn ensure_model_accum_row(scope: &AgentInstanceScope, model: &str) -> Result<()>
         "INSERT OR IGNORE INTO usage_accum (
            run_id, conversation_id, agent_instance_id, model_name, agent_role_id,
            prompt_tokens, completion_tokens, thinking_tokens, total_tokens,
-           llm_rounds, period_start, period_end,
+           llm_rounds, billing_mode, unit_count, period_start, period_end,
            report_status, request_id, history_archive_path, created_at, updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, 0, 0, 0, NULL, NULL, ?6, ?7, NULL, ?8, ?8)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, 0, 0, 0, ?6, 0, NULL, NULL, ?7, ?8, NULL, ?9, ?9)",
         params![
             scope.run_id,
             scope.conversation_id,
             scope.agent_instance_id,
             model,
             scope.agent_role_id,
+            BILLING_MODE_TOKENS,
             REPORT_STATUS_ACCUMULATING,
             request_id,
             now,
@@ -679,12 +704,15 @@ pub fn record_round(
     scope: &AgentInstanceScope,
     usage: Option<&LlmUsageSnapshot>,
     model_name: Option<&str>,
+    billing: Option<&UsageBillingMeta>,
 ) -> Result<()> {
     let model = usage_model_key(model_name);
     ensure_model_accum_row(scope, &model)?;
     let guard = connection()?;
     let conn = guard.lock();
     let now = Utc::now().to_rfc3339();
+    let billing_mode = billing.map(|b| b.billing_mode).unwrap_or(BILLING_MODE_TOKENS);
+    let unit_delta = billing.map(|b| b.unit_count).unwrap_or(0);
     if let Some(u) = usage {
         conn.execute(
             "UPDATE usage_accum SET
@@ -693,11 +721,13 @@ pub fn record_round(
                thinking_tokens = thinking_tokens + ?6,
                total_tokens = total_tokens + ?7,
                llm_rounds = llm_rounds + 1,
-               period_start = COALESCE(period_start, ?8),
-               period_end = ?8,
-               updated_at = ?8
+               billing_mode = CASE WHEN ?8 != ?9 THEN ?8 ELSE billing_mode END,
+               unit_count = unit_count + ?10,
+               period_start = COALESCE(period_start, ?11),
+               period_end = ?11,
+               updated_at = ?11
              WHERE run_id = ?1 AND agent_instance_id = ?2 AND model_name = ?3
-               AND report_status = ?9",
+               AND report_status = ?12",
             params![
                 scope.run_id,
                 scope.agent_instance_id,
@@ -706,6 +736,9 @@ pub fn record_round(
                 u.completion_tokens,
                 u.reasoning_tokens,
                 u.total_tokens,
+                billing_mode,
+                BILLING_MODE_TOKENS,
+                unit_delta,
                 now,
                 REPORT_STATUS_ACCUMULATING,
             ],
@@ -714,15 +747,20 @@ pub fn record_round(
         conn.execute(
             "UPDATE usage_accum SET
                llm_rounds = llm_rounds + 1,
-               period_start = COALESCE(period_start, ?4),
-               period_end = ?4,
-               updated_at = ?4
+               billing_mode = CASE WHEN ?4 != ?5 THEN ?4 ELSE billing_mode END,
+               unit_count = unit_count + ?6,
+               period_start = COALESCE(period_start, ?7),
+               period_end = ?7,
+               updated_at = ?7
              WHERE run_id = ?1 AND agent_instance_id = ?2 AND model_name = ?3
-               AND report_status = ?5",
+               AND report_status = ?8",
             params![
                 scope.run_id,
                 scope.agent_instance_id,
                 model,
+                billing_mode,
+                BILLING_MODE_TOKENS,
+                unit_delta,
                 now,
                 REPORT_STATUS_ACCUMULATING,
             ],
@@ -814,7 +852,7 @@ fn read_unsent_reports(conn: &Connection) -> Result<Vec<ReportRow>> {
     let mut stmt = conn.prepare(
         "SELECT run_id, request_id, conversation_id, agent_instance_id, agent_role_id,
                 model_name, prompt_tokens, completion_tokens, thinking_tokens, total_tokens,
-                llm_rounds, period_start, period_end, history_archive_path
+                llm_rounds, billing_mode, unit_count, period_start, period_end, history_archive_path
          FROM usage_accum
          WHERE report_status = ?1
          ORDER BY created_at ASC",
@@ -832,9 +870,11 @@ fn read_unsent_reports(conn: &Connection) -> Result<Vec<ReportRow>> {
             thinking_tokens: row.get(8)?,
             total_tokens: row.get(9)?,
             llm_rounds: row.get(10)?,
-            period_start: row.get(11)?,
-            period_end: row.get(12)?,
-            history_archive_path: row.get(13)?,
+            billing_mode: row.get(11)?,
+            unit_count: row.get(12)?,
+            period_start: row.get(13)?,
+            period_end: row.get(14)?,
+            history_archive_path: row.get(15)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -860,7 +900,11 @@ fn build_report_metadata(row: &ReportRow, platform_agent_id: Option<String>) -> 
         "thinking_tokens": row.thinking_tokens,
         "total_tokens": row.total_tokens,
         "assistant_rounds": row.llm_rounds,
+        "billing_mode": row.billing_mode,
     });
+    if row.unit_count > 0 {
+        metadata["unit_count"] = json!(row.unit_count);
+    }
     if let Some(id) = platform_agent_id.filter(|id| !id.is_empty()) {
         metadata["platform_agent_id"] = json!(id);
     }
@@ -1050,6 +1094,8 @@ mod tests {
             thinking_tokens: 0,
             total_tokens: 3,
             llm_rounds: 2,
+            billing_mode: "tokens".into(),
+            unit_count: 0,
             period_start: None,
             period_end: None,
             history_archive_path: None,
@@ -1061,8 +1107,35 @@ mod tests {
         assert_eq!(metadata["prompt_tokens"], 1);
         assert_eq!(metadata["total_tokens"], 3);
         assert_eq!(metadata["assistant_rounds"], 2);
+        assert_eq!(metadata["billing_mode"], "tokens");
+        assert!(metadata.get("unit_count").is_none());
         assert!(metadata.get("agent_role_id").is_none());
         assert!(metadata.get("model_totals").is_none());
+    }
+
+    #[test]
+    fn report_metadata_includes_unit_count_for_per_image() {
+        let row = ReportRow {
+            run_id: "run-1".into(),
+            request_id: "run:run-1:inst1:wan@per-image".into(),
+            conversation_id: "conv1".into(),
+            agent_instance_id: "inst1".into(),
+            agent_role_id: Some("media-image-generate".into()),
+            model_name: "wan2.7-image-pro@per-image".into(),
+            prompt_tokens: 0,
+            completion_tokens: 20_000,
+            thinking_tokens: 0,
+            total_tokens: 20_000,
+            llm_rounds: 1,
+            billing_mode: "per-image".into(),
+            unit_count: 2,
+            period_start: None,
+            period_end: None,
+            history_archive_path: None,
+        };
+        let metadata = build_report_metadata(&row, None);
+        assert_eq!(metadata["billing_mode"], "per-image");
+        assert_eq!(metadata["unit_count"], 2);
     }
 
     #[test]

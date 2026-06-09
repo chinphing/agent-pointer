@@ -571,7 +571,7 @@ async fn compress_history_inner(
             let model = crate::llm_token_stats::model_name_for_usage_report(&out.model);
             if let Some(scope) = ui.agent_scope.as_ref() {
                 if let Err(e) =
-                    crate::token_usage_store::record_round(scope, out.usage.as_ref(), model)
+                    crate::token_usage_store::record_round(scope, out.usage.as_ref(), model, None)
                 {
                     log::warn!(
                         "token_usage_store: context compression record_round failed {}: {e}",

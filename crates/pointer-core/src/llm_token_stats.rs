@@ -88,7 +88,7 @@ impl ConversationLlmStats {
                 self.rounds_missing_usage = self.rounds_missing_usage.saturating_add(1);
             }
         }
-        if let Err(e) = token_usage_store::record_round(scope, usage, model_name) {
+        if let Err(e) = token_usage_store::record_round(scope, usage, model_name, None) {
             log::warn!(
                 "token_usage_store: record_round failed {}: {e}",
                 scope.log_suffix()

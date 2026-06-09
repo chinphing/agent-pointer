@@ -233,7 +233,7 @@ pub struct MediaAttachment {
     pub local_abs_path: Option<String>,
 }
 
-/// Independent models for media understanding (does not switch the primary chat model).
+/// Independent models for media understanding / generation (does not switch the primary chat model).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MediaModelOverrides {
@@ -243,6 +243,12 @@ pub struct MediaModelOverrides {
     pub audio: Option<AgentModelRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video: Option<AgentModelRef>,
+    /// Image generation tool (`image_generate`); defaults to Qwen Wan 2.7 or Doubao Seedream.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "imageGeneration")]
+    pub image_generation: Option<AgentModelRef>,
+    /// Video generation tool (`video_generate`); defaults to Qwen Wan 2.7 or Doubao Seedance 1.5.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "videoGeneration")]
+    pub video_generation: Option<AgentModelRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1035,6 +1041,23 @@ impl Default for ModelSettings {
                     thinking_budget: None,
                     reasoning_effort: None,
                 },
+                ProviderConfig {
+                    id: "doubao".into(),
+                    name: "豆包".into(),
+                    base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
+                    api_key: String::new(),
+                    models: vec![
+                        "doubao-seedream-5-0-lite-260128".into(),
+                        "doubao-seedance-1-5-pro-251215".into(),
+                    ],
+                    reasoning_in_messages: None,
+                    temperature: None,
+                    max_tokens: None,
+                    model_configs: HashMap::new(),
+                    enable_thinking: None,
+                    thinking_budget: None,
+                    reasoning_effort: None,
+                },
             ],
             active_provider_id: default_active_provider_id(),
             model: default_model_name(),
@@ -1502,6 +1525,23 @@ impl Default for PlatformSettings {
                     api_key: String::new(),
                     models: vec!["deepseek-v4-flash".into(), "deepseek-v4-pro".into()],
                     reasoning_in_messages: Some(true),
+                    temperature: Some(platform_default_temperature()),
+                    max_tokens: Some(platform_default_max_tokens()),
+                    model_configs: HashMap::new(),
+                    enable_thinking: None,
+                    thinking_budget: None,
+                    reasoning_effort: None,
+                },
+                ProviderConfig {
+                    id: "doubao".into(),
+                    name: "豆包".into(),
+                    base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
+                    api_key: String::new(),
+                    models: vec![
+                        "doubao-seedream-5-0-lite-260128".into(),
+                        "doubao-seedance-1-5-pro-251215".into(),
+                    ],
+                    reasoning_in_messages: None,
                     temperature: Some(platform_default_temperature()),
                     max_tokens: Some(platform_default_max_tokens()),
                     model_configs: HashMap::new(),

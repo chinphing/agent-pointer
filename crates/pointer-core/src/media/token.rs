@@ -58,7 +58,7 @@ pub fn record_media_understand_usage(
 ) {
     let scope = media_understand_scope(ctx, kind);
     let model = model_name_for_usage_report(&out.model);
-    match token_usage_store::record_round(&scope, out.usage.as_ref(), model) {
+    match token_usage_store::record_round(&scope, out.usage.as_ref(), model, None) {
         Ok(()) => {
             if let Some(u) = out.usage.as_ref() {
                 log::info!(

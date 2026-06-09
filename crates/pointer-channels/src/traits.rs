@@ -162,12 +162,29 @@ pub struct WebhookContext<'a> {
     pub query: &'a str,
 }
 
+#[derive(Debug, Clone)]
 pub struct OutboundContext {
     pub channel: String,
     pub account_id: String,
     pub conversation_key: String,
     pub recipient_id: String,
     pub reply_context: Option<InboundReplyContext>,
+}
+
+/// Local file bytes to send back to an IM user.
+#[derive(Debug, Clone)]
+pub struct OutboundMedia {
+    pub file_name: String,
+    pub mime_type: String,
+    pub bytes: Vec<u8>,
+    /// Resolved absolute path (logging / channel-specific metadata).
+    pub local_path: Option<std::path::PathBuf>,
+}
+
+impl OutboundMedia {
+    pub fn is_image(&self) -> bool {
+        self.mime_type.starts_with("image/")
+    }
 }
 
 #[async_trait::async_trait]
@@ -184,6 +201,19 @@ pub trait ChannelOutboundAdapter: Send + Sync {
     fn channel_id(&self) -> ChannelId;
 
     async fn send_text(&self, ctx: OutboundContext, text: &str) -> anyhow::Result<()>;
+
+    async fn send_media(
+        &self,
+        ctx: OutboundContext,
+        caption: Option<&str>,
+        media: OutboundMedia,
+    ) -> anyhow::Result<()> {
+        let _ = (ctx, caption, media);
+        Err(anyhow::anyhow!(
+            "channel {} does not support outbound media",
+            self.channel_id()
+        ))
+    }
 }
 
 pub struct ChannelPlugin {

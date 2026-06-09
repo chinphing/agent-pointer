@@ -9,6 +9,7 @@ use pointer_core::models::{
 
 use pointer_core::provider::OpenAIProvider;
 use pointer_core::storage;
+use base64::Engine;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc;
@@ -238,6 +239,25 @@ pub fn preview_computer_round_screen(rel_path: String) -> Result<ComputerAnnotat
 #[tauri::command]
 pub fn preview_chat_media(storage_rel_path: String) -> Result<ChatMediaPreview, String> {
     pointer_core::media::read_chat_media_preview(&storage_rel_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_chat_attachment(
+    conversation_id: String,
+    attachment_id: String,
+    content_base64: String,
+    file_name: String,
+) -> Result<String, String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(content_base64.trim())
+        .map_err(|e| format!("decode attachment base64: {e}"))?;
+    pointer_core::media::save_attachment_bytes(
+        &conversation_id,
+        &attachment_id,
+        &bytes,
+        &file_name,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

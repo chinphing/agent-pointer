@@ -24,17 +24,128 @@ pub fn to_media_attachment(downloaded: DownloadedMedia, kind_hint: &str) -> Medi
     }
 }
 
+/// Sniff common image/audio/video types from magic bytes (IM CDN often returns octet-stream).
+pub fn guess_mime_from_bytes(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF {
+        return Some("image/jpeg");
+    }
+    if bytes.len() >= 8 && bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some("image/png");
+    }
+    if bytes.len() >= 6 && (bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a")) {
+        return Some("image/gif");
+    }
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && bytes[8..12] == *b"WEBP" {
+        return Some("image/webp");
+    }
+    if bytes.len() >= 12 && bytes[4..8] == *b"ftyp" {
+        let brand = &bytes[8..12];
+        if brand == b"heic" || brand == b"heix" || brand == b"mif1" {
+            return Some("image/heic");
+        }
+    }
+    if bytes.len() >= 4 && &bytes[0..4] == b"%PDF" {
+        return Some("application/pdf");
+    }
+    if bytes.len() >= 12
+        && (bytes[4..8] == *b"ftyp"
+            && (bytes[8..12] == *b"isom" || bytes[8..12] == *b"mp41" || bytes[8..12] == *b"avc1"))
+    {
+        return Some("video/mp4");
+    }
+    None
+}
+
+fn extension_for_mime(mime: &str) -> &'static str {
+    match mime.trim().to_ascii_lowercase().as_str() {
+        "image/jpeg" => "jpg",
+        "image/png" => "png",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/heic" => "heic",
+        "application/pdf" => "pdf",
+        "video/mp4" => "mp4",
+        "audio/mpeg" => "mp3",
+        "audio/wav" => "wav",
+        _ => "bin",
+    }
+}
+
+fn replace_bin_extension(file_name: &str, ext: &str) -> String {
+    if file_name.to_ascii_lowercase().ends_with(".bin") {
+        let stem = file_name
+            .trim_end_matches(".bin")
+            .trim_end_matches(".BIN");
+        return format!("{stem}.{ext}");
+    }
+    format!("{file_name}.{ext}")
+}
+
 pub fn finalize_downloaded(
     mut downloaded: DownloadedMedia,
     file_name: Option<String>,
+    kind_hint: Option<&str>,
 ) -> DownloadedMedia {
     if let Some(name) = file_name.filter(|s| !s.trim().is_empty()) {
         downloaded.file_name = name;
     }
     if downloaded.mime_type == "application/octet-stream" {
+        if let Some(m) = guess_mime_from_bytes(&downloaded.bytes) {
+            downloaded.mime_type = m.into();
+        }
+    }
+    if downloaded.mime_type == "application/octet-stream" {
         downloaded.mime_type = guess_mime_from_name(&downloaded.file_name);
     }
+    let ext = extension_for_mime(&downloaded.mime_type);
+    if ext != "bin" && downloaded.file_name.to_ascii_lowercase().ends_with(".bin") {
+        downloaded.file_name = replace_bin_extension(&downloaded.file_name, ext);
+    } else if ext == "bin" {
+        if let Some(hint) = kind_hint {
+            let hinted = match hint {
+                "image" => "image/jpeg",
+                "video" => "video/mp4",
+                "audio" => "audio/mpeg",
+                _ => "",
+            };
+            if !hinted.is_empty() {
+                downloaded.mime_type = hinted.into();
+                let hinted_ext = extension_for_mime(hinted);
+                if downloaded.file_name.to_ascii_lowercase().ends_with(".bin") {
+                    downloaded.file_name =
+                        replace_bin_extension(&downloaded.file_name, hinted_ext);
+                }
+            }
+        }
+    }
     downloaded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sniff_jpeg_from_magic() {
+        let bytes = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+        assert_eq!(guess_mime_from_bytes(&bytes), Some("image/jpeg"));
+    }
+
+    #[test]
+    fn finalize_wecom_image_bin_to_jpg() {
+        let bytes = vec![0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46];
+        let out = finalize_downloaded(
+            DownloadedMedia {
+                bytes,
+                mime_type: "application/octet-stream".into(),
+                file_name: "wecom-test.bin".into(),
+            },
+            None,
+            Some("image"),
+        );
+        assert_eq!(out.mime_type, "image/jpeg");
+        assert!(out.file_name.ends_with(".jpg"));
+    }
 }
 
 pub const CHANNEL_MEDIA_MAX_BYTES: usize = 30 * 1024 * 1024;

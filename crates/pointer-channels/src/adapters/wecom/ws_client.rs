@@ -300,6 +300,10 @@ async fn handle_inbound_frame(
     authenticated: &mut bool,
     missed_pong: &mut u32,
 ) -> Result<Option<StopReason>> {
+    if super::ws_pending::dispatch_response(frame) {
+        return Ok(None);
+    }
+
     let cmd = frame.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
     let req_id = frame
         .get("headers")
@@ -355,6 +359,17 @@ async fn handle_inbound_frame(
     Ok(None)
 }
 
+fn media_msg_body(msgtype: &str, media_id: &str) -> Value {
+    let mut body = json!({ "msgtype": msgtype });
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert(
+            msgtype.to_string(),
+            json!({ "media_id": media_id }),
+        );
+    }
+    body
+}
+
 async fn send_outbound(
     write: &mut futures_util::stream::SplitSink<
         tokio_tungstenite::WebSocketStream<
@@ -392,6 +407,32 @@ async fn send_outbound(
                     "msgtype": "markdown",
                     "markdown": { "content": content }
                 }
+            })
+        }
+        super::ws_state::WsOutboundCmd::SendFrame(frame) => frame,
+        super::ws_state::WsOutboundCmd::RespondMedia {
+            req_id,
+            msgtype,
+            media_id,
+        } => json!({
+            "cmd": cmd::RESPONSE,
+            "headers": { "req_id": req_id },
+            "body": media_msg_body(&msgtype, &media_id)
+        }),
+        super::ws_state::WsOutboundCmd::SendMedia {
+            chat_id,
+            msgtype,
+            media_id,
+        } => {
+            let req_id = generate_req_id(cmd::SEND_MSG);
+            let mut body = media_msg_body(&msgtype, &media_id);
+            if let Some(obj) = body.as_object_mut() {
+                obj.insert("chatid".into(), json!(chat_id));
+            }
+            json!({
+                "cmd": cmd::SEND_MSG,
+                "headers": { "req_id": req_id },
+                "body": body
             })
         }
     };

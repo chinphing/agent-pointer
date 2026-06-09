@@ -129,6 +129,15 @@ export async function previewChatMedia(storageRelPath: string): Promise<ChatMedi
   return await invoke<ChatMediaPreview>('preview_chat_media', { storageRelPath })
 }
 
+export async function saveChatAttachment(payload: import('./api').SaveChatAttachmentPayload): Promise<string> {
+  return await invoke<string>('save_chat_attachment', {
+    conversationId: payload.conversationId,
+    attachmentId: payload.attachmentId,
+    contentBase64: payload.contentBase64,
+    fileName: payload.fileName
+  })
+}
+
 export async function checkMediaDeps(): Promise<MediaDepsStatus> {
   return await invoke<MediaDepsStatus>('check_media_deps')
 }

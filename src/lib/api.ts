@@ -22,6 +22,13 @@ import * as tauriApi from './tauri'
 import * as webApi from './web'
 import { isTauriRuntime } from './runtime'
 
+export interface SaveChatAttachmentPayload {
+  conversationId: string
+  attachmentId: string
+  contentBase64: string
+  fileName: string
+}
+
 export interface SendChatPayload {
   conversationId: string
   messages: ChatMessage[]
@@ -58,6 +65,7 @@ export interface RuntimeApi {
   previewComputerAnnotatedScreen(conversationId: string): Promise<ComputerAnnotatedPreview>
   previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview>
   previewChatMedia(storageRelPath: string): Promise<ChatMediaPreview>
+  saveChatAttachment(payload: SaveChatAttachmentPayload): Promise<string>
   checkMediaDeps(): Promise<MediaDepsStatus>
   listComputerMonitors(): Promise<ComputerMonitor[]>
   setComputerConversationMonitor(conversationId: string, monitorId: string | null): Promise<void>
@@ -96,6 +104,7 @@ export const getTaskBoardSnapshot = api.getTaskBoardSnapshot
 export const previewComputerAnnotatedScreen = api.previewComputerAnnotatedScreen
 export const previewComputerRoundScreen = api.previewComputerRoundScreen
 export const previewChatMedia = api.previewChatMedia
+export const saveChatAttachment = api.saveChatAttachment
 export const checkMediaDeps = api.checkMediaDeps
 export const listComputerMonitors = api.listComputerMonitors
 export const setComputerConversationMonitor = api.setComputerConversationMonitor

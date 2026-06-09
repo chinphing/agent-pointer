@@ -924,6 +924,17 @@ pub async fn flush_unsent_reports(
     let platform_agent_id = auth.platform_agent_id();
     let mut sent = 0usize;
     for row in pending {
+        if row.agent_instance_id.contains(':') {
+            log::warn!(
+                "token_usage_store: abandoning legacy media report with invalid agent_instance_id={} request_id={} (platform requires UUID; tokens were not uploaded)",
+                row.agent_instance_id,
+                row.request_id
+            );
+            let guard = connection()?;
+            let conn = guard.lock();
+            mark_report_sent(&conn, &row.request_id)?;
+            continue;
+        }
         let metadata = build_report_metadata(&row, platform_agent_id.clone());
         let zip_path = row
             .history_archive_path

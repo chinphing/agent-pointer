@@ -11,6 +11,20 @@ export interface RenderableAttachment {
   storageRelPath?: string
 }
 
+function attachmentDataUrlFromBase64(att: MediaAttachment): string | undefined {
+  const b64 = att.contentBase64?.trim()
+  if (!b64) return undefined
+  const mime = att.mimeType || 'application/octet-stream'
+  return `data:${mime};base64,${b64}`
+}
+
+export function attachmentPreviewUrl(att: MediaAttachment): string | undefined {
+  if (att.previewUrl) return att.previewUrl
+  const fromStore = getComposerAttachmentPreviewUrl(att as ComposerAttachment)
+  if (fromStore) return fromStore
+  return attachmentDataUrlFromBase64(att)
+}
+
 export function attachmentsForMessageRender(message: ChatMessage): RenderableAttachment[] {
   const list = message.attachments ?? []
   return list.map(att => ({
@@ -19,10 +33,7 @@ export function attachmentsForMessageRender(message: ChatMessage): RenderableAtt
     fileName: att.fileName,
     mimeType: att.mimeType,
     storageRelPath: att.storageRelPath,
-    previewUrl:
-      att.previewUrl ??
-      getComposerAttachmentPreviewUrl(att as ComposerAttachment) ??
-      undefined
+    previewUrl: attachmentPreviewUrl(att)
   }))
 }
 

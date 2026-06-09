@@ -1,4 +1,5 @@
 pub mod builtin;
+pub mod channel_message;
 pub mod display;
 pub mod file;
 pub mod media_generate;

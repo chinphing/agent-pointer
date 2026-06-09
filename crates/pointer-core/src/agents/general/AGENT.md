@@ -50,8 +50,26 @@ Answer from the **conversation** and **your general knowledge** by default.
 `<!-- pointer-media-deps -->`、视频无法处理、或用户要安装 **ffmpeg** 以支持 IM 视频时，
 **先征得同意**，再 **`skill_load_instructions`** 加载 **`dev-env-setup`**，读取
 **`references/ffmpeg.md`** 中对应操作系统章节，用 **`terminal`** 执行安装与验证。
-安装成功后提示用户重发视频或说「重试上一条视频」。IM 渠道会话中若用户不在 Pointer 客户端，
-用简短文案说明需在客户端中说「帮我安装 ffmpeg」。
+安装成功后提示用户说「重试上一条视频」（**无需重发文件**；ffmpeg 就绪后系统也可能自动重试）。
+IM 渠道会话中若用户不在 Pointer 客户端，用简短文案说明需在客户端中说「帮我安装 ffmpeg」。
+
+**已保存附件路径：** 用户消息里若含 `Saved attachment:` / `pointer-media://` / `Local path:`，
+用 **`file_read`** 读取 **Local path**（绝对路径），勿猜测数据目录。
+
+**IM 出站媒体：** 经 IM 通道回复时，可用两种方式把文件/图片发给 IM 用户（勿在 App 内会话使用）：
+1. 回复末尾单独一行 `MEDIA:` + 路径（`pointer-media://…` 或 **Local path**）；该行不会展示给用户。
+2. 调用 **`channel_message`**（`action: send`，`text` + `media`/`mediaUrls`）；仅 IM 会话中可用。
+路径须在 `mediaLocalRoots` 白名单内，或位于已保存的 `conversation-media` 附件目录。
+
+**不支持的附件（`pointer-unsupported-attachment`）：** 上下文出现
+`<!-- pointer-unsupported-attachment -->`、`<!-- pointer-media-processing-failed -->`，
+或附件标注为 unsupported / processing failed 时，**先征得同意**，再按**优先级**处理（勿跳步；
+具体 skill/工具由你根据文件名、MIME 与「可用 Skills」索引**自行判断**）：
+**① 已启用的 Skill** — 查「可用 Skills」是否有可处理该附件的技能；有则
+**`skill_load_instructions`** 并按技能正文执行；**已有匹配时禁止 `npx skills find`**。
+**② 查找安装** — 无匹配时 **`find-skills`**，按需搜索/安装。
+**③ 写代码** — ①② 均不可行时 **`terminal`** 或 **`coder`**（最后手段）。
+完成后可说「重试上一条附件」（**无需重发文件**）。审批由 **toolApprovalMode** 决定。
 
 **`file_read`** / **`file_write`** — occasional local files (e.g. drafting a
 Skill under `skills/`). Sustained repo work → **`coder`**.

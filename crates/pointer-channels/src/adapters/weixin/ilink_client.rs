@@ -102,6 +102,16 @@ impl ILinkClient {
         context_token: Option<&str>,
     ) -> Result<()> {
         let token = context_token.context("weixin sendmessage requires context_token")?;
+        let mut items = vec![json!({ "type": 1, "text_item": { "text": text } })];
+        self.send_message_items(to_user, token, &mut items).await
+    }
+
+    pub async fn send_message_items(
+        &self,
+        to_user: &str,
+        context_token: &str,
+        item_list: &mut [Value],
+    ) -> Result<()> {
         let url = format!("{}/ilink/bot/sendmessage", self.base());
         let client_id = format!(
             "pointer-weixin:{}-{}",
@@ -115,11 +125,8 @@ impl ILinkClient {
                 "client_id": client_id,
                 "message_type": 2,
                 "message_state": 2,
-                "context_token": token,
-                "item_list": [{
-                    "type": 1,
-                    "text_item": { "text": text }
-                }]
+                "context_token": context_token,
+                "item_list": item_list
             },
             "base_info": base_info(),
         });
@@ -131,6 +138,48 @@ impl ILinkClient {
         let resp = self.http.post_json(&url, &headers, &body).await?;
         check_ilink_ret(&resp, "sendmessage")?;
         Ok(())
+    }
+
+    pub async fn get_upload_url(
+        &self,
+        to_user_id: &str,
+        filekey: &str,
+        media_type: u64,
+        rawsize: u64,
+        filesize: u64,
+        rawfilemd5: &str,
+        aeskey_hex: &str,
+    ) -> Result<Value> {
+        let url = format!("{}/ilink/bot/getuploadurl", self.base());
+        let body = json!({
+            "filekey": filekey,
+            "media_type": media_type,
+            "to_user_id": to_user_id,
+            "rawsize": rawsize,
+            "rawfilemd5": rawfilemd5,
+            "filesize": filesize,
+            "aeskey": aeskey_hex,
+            "no_need_thumb": true,
+            "base_info": base_info(),
+        });
+        let auth = self.auth_headers();
+        let headers: Vec<(&str, &str)> = auth
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        let resp = self.http.post_json(&url, &headers, &body).await?;
+        check_ilink_ret(&resp, "getuploadurl")?;
+        Ok(resp)
+    }
+
+    pub async fn post_cdn_bytes(
+        &self,
+        upload_url: &str,
+        body: &[u8],
+    ) -> Result<(Value, Vec<(String, String)>)> {
+        self.http
+            .post_bytes(upload_url, &[], body, "application/octet-stream")
+            .await
     }
 
     pub async fn fetch_qrcode(&self) -> Result<Value> {

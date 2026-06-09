@@ -16,6 +16,17 @@ pub enum WsOutboundCmd {
         chat_id: String,
         content: String,
     },
+    SendFrame(serde_json::Value),
+    RespondMedia {
+        req_id: String,
+        msgtype: String,
+        media_id: String,
+    },
+    SendMedia {
+        chat_id: String,
+        msgtype: String,
+        media_id: String,
+    },
 }
 
 #[derive(Clone)]
@@ -54,6 +65,37 @@ impl WeComWsSession {
             .send(WsOutboundCmd::SendMarkdown {
                 chat_id: chat_id.to_string(),
                 content: content.to_string(),
+            })
+            .map_err(|e| anyhow::anyhow!("wecom ws outbound channel closed: {e}"))
+    }
+
+    pub fn send_frame(&self, frame: serde_json::Value) -> anyhow::Result<()> {
+        self.outbound_tx
+            .send(WsOutboundCmd::SendFrame(frame))
+            .map_err(|e| anyhow::anyhow!("wecom ws outbound channel closed: {e}"))
+    }
+
+    pub fn respond_media(
+        &self,
+        req_id: &str,
+        msgtype: &str,
+        media_id: &str,
+    ) -> anyhow::Result<()> {
+        self.outbound_tx
+            .send(WsOutboundCmd::RespondMedia {
+                req_id: req_id.to_string(),
+                msgtype: msgtype.to_string(),
+                media_id: media_id.to_string(),
+            })
+            .map_err(|e| anyhow::anyhow!("wecom ws outbound channel closed: {e}"))
+    }
+
+    pub fn send_media(&self, chat_id: &str, msgtype: &str, media_id: &str) -> anyhow::Result<()> {
+        self.outbound_tx
+            .send(WsOutboundCmd::SendMedia {
+                chat_id: chat_id.to_string(),
+                msgtype: msgtype.to_string(),
+                media_id: media_id.to_string(),
             })
             .map_err(|e| anyhow::anyhow!("wecom ws outbound channel closed: {e}"))
     }

@@ -120,6 +120,66 @@ impl HttpClient {
         let v = self.post_json(url, headers, body).await?;
         Ok(serde_json::from_value(v)?)
     }
+
+    pub async fn post_multipart(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+        parts: Vec<(&str, Vec<u8>, Option<String>)>,
+    ) -> Result<Value> {
+        let mut form = reqwest::multipart::Form::new();
+        for (name, data, file_name) in parts {
+            let part = if let Some(fname) = file_name {
+                reqwest::multipart::Part::bytes(data).file_name(fname)
+            } else {
+                reqwest::multipart::Part::bytes(data)
+            };
+            form = form.part(name.to_string(), part);
+        }
+        let mut req = self.inner.post(url).multipart(form);
+        for (k, v) in headers {
+            req = req.header(*k, *v);
+        }
+        let resp = req.send().await.context("http multipart post")?;
+        let status = resp.status();
+        let text = resp.text().await.context("http multipart body")?;
+        if !status.is_success() {
+            return Err(anyhow::anyhow!("POST {url} failed {status}: {text}"));
+        }
+        Ok(serde_json::from_str(&text).unwrap_or(Value::String(text)))
+    }
+
+    pub async fn post_bytes(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+        body: &[u8],
+        content_type: &str,
+    ) -> Result<(Value, Vec<(String, String)>)> {
+        let mut req = self
+            .inner
+            .post(url)
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .body(body.to_vec());
+        for (k, v) in headers {
+            req = req.header(*k, *v);
+        }
+        let resp = req.send().await.context("http post bytes")?;
+        let status = resp.status();
+        let resp_headers: Vec<(String, String)> = resp
+            .headers()
+            .iter()
+            .filter_map(|(k, v)| {
+                Some((k.as_str().to_string(), v.to_str().ok()?.to_string()))
+            })
+            .collect();
+        let text = resp.text().await.context("http post bytes body")?;
+        if !status.is_success() {
+            return Err(anyhow::anyhow!("POST {url} failed {status}: {text}"));
+        }
+        let json = serde_json::from_str(&text).unwrap_or(Value::String(text));
+        Ok((json, resp_headers))
+    }
 }
 
 impl Default for HttpClient {

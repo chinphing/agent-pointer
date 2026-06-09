@@ -1,3 +1,4 @@
+use crate::media::token::{record_media_understand_usage, MediaTokenContext, MediaUnderstandKind};
 use crate::models::{AgentModelRef, ChatMessage, ModelSettings, Role};
 use crate::provider::OpenAIProvider;
 use anyhow::{Context, Result};
@@ -24,6 +25,7 @@ pub async fn describe_image_with_model(
     api_key_fallback: &str,
     image_base64: &str,
     mime_type: &str,
+    token_ctx: &MediaTokenContext,
     cancel: &CancellationToken,
 ) -> Result<String> {
     let mut image_settings = settings.clone();
@@ -77,6 +79,7 @@ pub async fn describe_image_with_model(
         )
         .await
         .context("image understanding chat_once")?;
+    record_media_understand_usage(token_ctx, MediaUnderstandKind::Image, &out);
     let text = out.text.trim().to_string();
     if text.is_empty() {
         anyhow::bail!("image understanding returned empty content");
@@ -131,6 +134,7 @@ pub async fn transcribe_audio_with_model(
     audio_base64: &str,
     mime_type: &str,
     file_name: &str,
+    token_ctx: &MediaTokenContext,
     cancel: &CancellationToken,
 ) -> Result<String> {
     let mut audio_settings = settings.clone();
@@ -177,6 +181,7 @@ pub async fn transcribe_audio_with_model(
         )
         .await
         .context("audio transcription chat_once_wire")?;
+    record_media_understand_usage(token_ctx, MediaUnderstandKind::Audio, &out);
     let text = out.text.trim().to_string();
     if text.is_empty() {
         anyhow::bail!("audio transcription returned empty content");
@@ -184,9 +189,87 @@ pub async fn transcribe_audio_with_model(
     Ok(text)
 }
 
+const PDF_OCR_PROMPT: &str = "Extract and summarize the content of this PDF from the attached page images. \
+Transcribe visible text accurately, preserve headings/lists/tables where possible, \
+and describe non-text visuals briefly. Be concise but complete.";
+
 const VIDEO_DESCRIBE_PROMPT: &str = "Summarize this video from the attached still frames. \
 Describe the scene, actions, visible text, and anything relevant to a user question. \
 Be concise but complete.";
+
+pub async fn describe_pdf_pages_with_model(
+    settings: &ModelSettings,
+    image_model: &AgentModelRef,
+    api_key_fallback: &str,
+    page_base64s: &[String],
+    file_name: &str,
+    token_ctx: &MediaTokenContext,
+    cancel: &CancellationToken,
+) -> Result<String> {
+    if page_base64s.is_empty() {
+        anyhow::bail!("no pdf page images to describe");
+    }
+    let mut image_settings = settings.clone();
+    if !image_model.provider_id.trim().is_empty() {
+        image_settings.active_provider_id = image_model.provider_id.trim().to_string();
+    }
+    if !image_model.model.trim().is_empty() {
+        image_settings.model = image_model.model.trim().to_string();
+    }
+    let api_key = resolve_provider_api_key(&image_settings, api_key_fallback);
+    if api_key.is_empty() {
+        anyhow::bail!("no API key for pdf image understanding model");
+    }
+    let provider = OpenAIProvider::new(image_settings, api_key);
+    let user = ChatMessage {
+        id: "media-pdf-describe".into(),
+        role: Role::User,
+        content: format!(
+            "Extract content from the scanned PDF \"{file_name}\" using {} page image(s).",
+            page_base64s.len()
+        ),
+        status: "done".into(),
+        created_at: 0,
+        tool_calls: None,
+        tool_call_id: None,
+        error_message: None,
+        reasoning: None,
+        thoughts: None,
+        headline: None,
+        raw_content: None,
+        tool_raw_output: None,
+        agent_id: None,
+        agent_instance_id: None,
+        agent_name: None,
+        agent_trace: None,
+        images_base64: Some(page_base64s.to_vec()),
+        image_slot_labels: None,
+        computer_round_screen_rel_path: None,
+        ui_bindings: None,
+        context_state: None,
+        attachments: None,
+    };
+    let system = crate::models::SystemPromptSections::all_cacheable(vec![
+        PDF_OCR_PROMPT.to_string(),
+    ]);
+    let out = provider
+        .chat_once(
+            &[user],
+            &system,
+            vec![],
+            cancel.clone(),
+            Some(4096),
+            Some("media_pdf_understand"),
+        )
+        .await
+        .context("pdf image understanding chat_once")?;
+    record_media_understand_usage(token_ctx, MediaUnderstandKind::Pdf, &out);
+    let text = out.text.trim().to_string();
+    if text.is_empty() {
+        anyhow::bail!("pdf image understanding returned empty content");
+    }
+    Ok(text)
+}
 
 pub async fn describe_video_with_model(
     settings: &ModelSettings,
@@ -194,6 +277,7 @@ pub async fn describe_video_with_model(
     api_key_fallback: &str,
     frame_base64s: &[String],
     file_name: &str,
+    token_ctx: &MediaTokenContext,
     cancel: &CancellationToken,
 ) -> Result<String> {
     if frame_base64s.is_empty() {
@@ -253,6 +337,7 @@ pub async fn describe_video_with_model(
         )
         .await
         .context("video understanding chat_once")?;
+    record_media_understand_usage(token_ctx, MediaUnderstandKind::Video, &out);
     let text = out.text.trim().to_string();
     if text.is_empty() {
         anyhow::bail!("video understanding returned empty content");

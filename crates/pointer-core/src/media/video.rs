@@ -38,9 +38,10 @@ pub fn extract_video_frame_base64s(bytes: &[u8], file_name: &str) -> Result<Vec<
             .tempfile()
             .context("video temp frame")?;
         let out_path = output.path();
-        let status = Command::new(&ffmpeg)
+        let output = Command::new(&ffmpeg)
             .args([
                 "-hide_banner",
+                "-nostdin",
                 "-loglevel",
                 "error",
                 "-ss",
@@ -54,10 +55,18 @@ pub fn extract_video_frame_base64s(bytes: &[u8], file_name: &str) -> Result<Vec<
                 "-y",
                 out_path.to_str().unwrap_or_default(),
             ])
-            .status()
+            .output()
             .with_context(|| format!("ffmpeg frame extract at t={t}"))?;
-        if !status.success() {
-            log::warn!("ffmpeg frame extract failed at t={t} for {file_name}");
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            log::warn!(
+                "ffmpeg frame extract failed at t={t} for {file_name}: {}",
+                if stderr.is_empty() {
+                    "no stderr".into()
+                } else {
+                    stderr.clone()
+                }
+            );
             continue;
         }
         let frame_bytes = std::fs::read(out_path).context("read ffmpeg frame")?;
@@ -69,7 +78,9 @@ pub fn extract_video_frame_base64s(bytes: &[u8], file_name: &str) -> Result<Vec<
         );
     }
     if frames.is_empty() {
-        anyhow::bail!("ffmpeg extracted no frames from {file_name}");
+        anyhow::bail!(
+            "ffmpeg extracted no frames from {file_name} (codec/format may be unsupported or file damaged)"
+        );
     }
     Ok(frames)
 }

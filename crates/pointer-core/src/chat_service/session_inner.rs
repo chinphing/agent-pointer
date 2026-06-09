@@ -132,6 +132,7 @@ pub(super) async fn run_chat_inner(
     if let Err(e) = crate::media::apply_media_to_history(
         history,
         &settings,
+        run_id,
         conversation_id,
         &api_key,
         &cancel,
@@ -155,6 +156,17 @@ pub(super) async fn run_chat_inner(
         lead_opt,
     );
     let mut agent_plan = agent_plan;
+    if crate::channel_outbound::is_im_conversation(conversation_id)
+        && crate::channel_outbound::sender_configured()
+    {
+        if !agent_plan
+            .allowed_tool_names
+            .iter()
+            .any(|t| t == "channel_message")
+        {
+            agent_plan.allowed_tool_names.push("channel_message".into());
+        }
+    }
     if agent_plan.mode != AGENT_MODE_SUPERVISOR {
         if let Some(block) =
             delegatable_sub_agents_system_block(&state.agents, &agent_plan.allow_agents)

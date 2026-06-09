@@ -4,7 +4,7 @@ use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::computer::ComputerTierGuard;
 use crate::agents::{AgentDef, AgentProfile, AgentRunResult, AgentTask, FileToolLeadProfileGuard};
 use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
-use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent, ToolCall};
+use crate::models::{AgentTrace, ChatMessage, StreamEvent, ToolCall};
 use crate::provider::OpenAIProvider;
 use crate::tools::normalize_tool_invoke_name;
 use crate::tools::registry_tool_in_allow_list;
@@ -67,7 +67,6 @@ pub(super) struct LeadToolPassConfig<'a> {
     pub allow_agents: &'a [String],
     pub enabled_skill_ids: &'a mut Vec<String>,
     pub agent_trace: &'a mut Vec<AgentTrace>,
-    pub raw_content_buf: &'a str,
     pub file_tool_lead_for_invoke: AgentProfile,
     pub lead_agent_id: &'a str,
 }

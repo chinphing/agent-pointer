@@ -243,7 +243,6 @@ pub(super) async fn run_single_agent_loop(
             assistant_id.clone(),
             file_tool_lead_for_invoke.clone(),
             &buf.final_tool_calls,
-            buf.raw_content_buf.as_str(),
             &mut agent_trace,
             settings,
             &agent_plan.lead_agent_id,

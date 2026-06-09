@@ -52,14 +52,3 @@ pub async fn download_url_to_file(
     fs::write(dest, &bytes).with_context(|| format!("write {}", dest.display()))?;
     Ok(())
 }
-
-pub fn guess_ext_from_mime(mime: &str) -> &'static str {
-    match mime.trim().to_ascii_lowercase().as_str() {
-        "image/jpeg" | "image/jpg" => ".jpg",
-        "image/webp" => ".webp",
-        "image/gif" => ".gif",
-        "video/mp4" => ".mp4",
-        "video/webm" => ".webm",
-        _ => ".png",
-    }
-}

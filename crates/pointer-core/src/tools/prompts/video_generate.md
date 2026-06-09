@@ -1,3 +1,30 @@
+---
+schema:
+  type: object
+  properties:
+    prompt:
+      type: string
+      description: "Scene / motion description"
+    model:
+      type: string
+      description: "e.g. happyhorse-1.0-t2v, wan2.7-t2v, doubao-seedance-2-0-260128"
+    size:
+      type: string
+      description: "HappyHorse 720P/1080P; Wan 1280*720/1920*1080; Seedance 720p/1080p/2K"
+    durationSeconds:
+      type: integer
+      description: "Video duration in seconds (HappyHorse 3–15s, Wan 2–15s, Seedance 4–15s)"
+    image:
+      type: string
+      description: "First-frame image URL or path for image-to-video"
+    audio:
+      type: boolean
+      description: "Enable generated audio when supported (Seedance 2.0 defaults on)"
+  required:
+    - prompt
+  additionalProperties: false
+---
+
 Generate short videos from text (and optional first-frame image) using Qwen HappyHorse / Wan or Doubao Seedance models.
 
 ## When to use

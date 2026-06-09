@@ -27,13 +27,6 @@ pub fn parse_feishu_event(root: &Value, account_id: &str) -> Option<InboundMessa
     build_inbound_message(message, sender, account_id)
 }
 
-pub fn parse_feishu_message_event(event: &Value, account_id: &str) -> Option<InboundMessage> {
-    let ev = event.get("event")?;
-    let message = ev.get("message")?;
-    let sender = ev.get("sender")?;
-    build_inbound_message(message, sender, account_id)
-}
-
 fn build_inbound_message(
     message: &Value,
     sender: &Value,

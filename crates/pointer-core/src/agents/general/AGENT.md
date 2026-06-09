@@ -23,6 +23,8 @@ accessPolicy:
     - terminal
     - web_search
     - run_subagent
+    - image_generate
+    - video_generate
   denyTools: []
   allowSkills: []
   denySkills: []

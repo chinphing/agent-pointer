@@ -1,3 +1,27 @@
+---
+schema:
+  type: object
+  properties:
+    prompt:
+      type: string
+      description: What to generate
+    model:
+      type: string
+      description: "e.g. wan2.7-image-pro, qwen-image-2.0-pro, doubao-seedream-5-0-lite-260128"
+    size:
+      type: string
+      description: "1K, 2K, 4K or provider-specific (Seedream: 2K)"
+    image:
+      type: string
+      description: "Reference image URL or local path for edit / image-to-image"
+    count:
+      type: integer
+      description: "Number of images (1–4, default 1)"
+  required:
+    - prompt
+  additionalProperties: false
+---
+
 Generate images from text (and optional reference image) using configured Qwen Wan / Qwen-Image or Doubao Seedream models.
 
 ## When to use

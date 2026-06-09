@@ -134,6 +134,14 @@ const defaultProviders: ProviderConfig[] = [
     models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
     reasoningInMessages: true,
     modelConfigs: {}
+  },
+  {
+    id: 'doubao',
+    name: '豆包',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+    apiKey: '',
+    models: ['doubao-seedream-5-0-lite-260128', 'doubao-seedance-1-5-pro-251215'],
+    modelConfigs: {}
   }
 ]
 

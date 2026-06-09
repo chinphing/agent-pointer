@@ -1,6 +1,7 @@
 pub mod builtin;
 pub mod display;
 pub mod file;
+pub mod media_generate;
 pub mod response;
 pub mod run_subagent;
 pub mod skill;

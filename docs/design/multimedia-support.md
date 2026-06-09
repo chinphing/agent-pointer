@@ -60,9 +60,21 @@ Computer Agent 截图仍用 `imagesBase64` inject，与用户附件 `attachments
 ```typescript
 mediaModelOverrides: {
   image?: { providerId: string; model: string }  // 默认 qwen + qwen3.5-plus
-  audio?: { providerId: string; model: string }  // P1
+  audio?: { providerId: string; model: string }
+  video?: { providerId: string; model: string }
+  imageGeneration?: { providerId: string; model: string }  // image_generate 工具
+  videoGeneration?: { providerId: string; model: string }  // video_generate 工具
 }
 ```
+
+生成工具默认模型（未配置 override 时）：
+
+| 服务商 | 图片 | 视频 |
+|--------|------|------|
+| 千问 DashScope | `wan2.7-image-pro` | `wan2.7-t2v` |
+| 豆包 Volcengine Ark | `doubao-seedream-5-0-lite-260128` | `doubao-seedance-1-5-pro-251215` |
+
+路由规则：优先 `mediaModelOverrides.imageGeneration` / `videoGeneration` 的 `providerId`；否则若配置了豆包 provider 则走豆包，否则走千问。工具参数 `model` 可单次覆盖。
 
 ---
 
@@ -74,8 +86,12 @@ mediaModelOverrides: {
 | store | `media/store.rs` | 落盘、读取、media ticket 路径 |
 | apply | `media/apply.rs` | 编排理解、写 `images_base64` / 注入 text |
 | understand | `media/understand.rs` | imageModel 单次 vision 描述 |
+| media_generation | `media_generation/` | `image_generate` / `video_generate` 工具：DashScope Wan/Qwen-Image、Volcengine Seedream/Seedance |
+| media_generate | `tools/media_generate.rs` | 工具注册与 async dispatch |
 
 挂载点：`session_inner::run_chat_inner`，在 `maybe_compress_history` **之前**调用 `apply_media_to_history`。
+
+生成工具 async 路径：`agent_tool_pass.rs` → `dispatch_media_generate_async`；产出保存至 `generated-media/{conversation_id}/`，工具结果含 `MEDIA:<path>` 行。
 
 ---
 
@@ -121,7 +137,27 @@ mediaModelOverrides: {
 | 语音转写 | 音频附件 ASR（需模型支持 input_audio） | 同图片模型 |
 | 视频理解 | IM 视频抽帧后多图理解（需 ffmpeg） | 同图片模型 |
 
+在 **设置 → 智能体 → 图片 / 视频生成** 中配置：
+
+| 项 | 作用 | 默认 |
+|----|------|------|
+| 图片生成 | `image_generate` 工具 | wan2.7-image-pro 或 Seedream 5.0 |
+| 视频生成 | `video_generate` 工具 | wan2.7-t2v 或 Seedance 1.5 Pro |
+
 配置写入 `local_platform_settings.json`，重启后保留。
+
+### 计费记录
+
+生成调用写入 `token_usage_store`，独立 `agent_instance_id`（`media-image-generate` / `media-video-generate`）：
+
+| 模式 | 来源 | 记录方式 |
+|------|------|----------|
+| ProviderTokens | DashScope 响应 `usage.total_tokens` | 原样上报 |
+| PerImage | Seedream 等按张计费 | 合成 tokens 映射 |
+| PerVideoSecond | Seedance 1.x 按秒 | 合成 tokens（约 2 万 tokens/秒） |
+| PerVideoGenerationToken | Seedance 2.0（API 未全面开放） | 预留，模型 key 后缀 `@video-tokens` |
+
+模型名在用量库中带后缀 `@tokens` / `@per-image` / `@per-sec` 以区分计费维度。
 
 ---
 

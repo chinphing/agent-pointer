@@ -107,6 +107,28 @@ const agentUiLocal = ref<Partial<AgentUiConfig>>({})
 const mediaImageModel = ref('')
 const mediaAudioModel = ref('')
 const mediaVideoModel = ref('')
+const mediaImageGenerationModel = ref('')
+const mediaVideoGenerationModel = ref('')
+
+/** Curated image/video generation models (not chat completion lists). */
+const GENERATION_MODEL_OPTIONS: { providerId: string; providerName: string; model: string; label: string }[] = [
+  { providerId: 'qwen', providerName: '千问', model: 'wan2.7-image-pro', label: 'Wan 2.7 图片' },
+  { providerId: 'qwen', providerName: '千问', model: 'qwen-image-2.0-pro', label: 'Qwen Image 2.0' },
+  { providerId: 'doubao', providerName: '豆包', model: 'doubao-seedream-5-0-lite-260128', label: 'Seedream 5.0 Lite' },
+  { providerId: 'doubao', providerName: '豆包', model: 'doubao-seedream-4-5-251128', label: 'Seedream 4.5' },
+  { providerId: 'qwen', providerName: '千问', model: 'wan2.7-t2v', label: 'Wan 2.7 文生视频' },
+  { providerId: 'qwen', providerName: '千问', model: 'wan2.6-t2v', label: 'Wan 2.6 文生视频' },
+  { providerId: 'doubao', providerName: '豆包', model: 'doubao-seedance-1-5-pro-251215', label: 'Seedance 1.5 Pro' },
+  { providerId: 'doubao', providerName: '豆包', model: 'doubao-seedance-1-0-pro-250528', label: 'Seedance 1.0 Pro' }
+]
+
+const imageGenerationOptions = computed(() =>
+  GENERATION_MODEL_OPTIONS.filter(o => o.model.includes('image') || o.model.includes('seedream'))
+)
+
+const videoGenerationOptions = computed(() =>
+  GENERATION_MODEL_OPTIONS.filter(o => o.model.includes('t2v') || o.model.includes('seedance'))
+)
 const ffmpegAvailable = ref<boolean | null>(null)
 const agents = ref<AgentDef[]>([])
 
@@ -335,6 +357,8 @@ onMounted(() => {
   mediaImageModel.value = getMediaModelWithProvider('image')
   mediaAudioModel.value = getMediaModelWithProvider('audio')
   mediaVideoModel.value = getMediaModelWithProvider('video')
+  mediaImageGenerationModel.value = getMediaModelWithProvider('imageGeneration')
+  mediaVideoGenerationModel.value = getMediaModelWithProvider('videoGeneration')
   void refreshMediaDeps()
   loadAgents()
 })
@@ -398,6 +422,8 @@ async function selectMediaModelWithProvider(
     if (kind === 'image') mediaImageModel.value = ''
     if (kind === 'audio') mediaAudioModel.value = ''
     if (kind === 'video') mediaVideoModel.value = ''
+    if (kind === 'imageGeneration') mediaImageGenerationModel.value = ''
+    if (kind === 'videoGeneration') mediaVideoGenerationModel.value = ''
     return
   }
   const i = value.indexOf(':')
@@ -409,6 +435,8 @@ async function selectMediaModelWithProvider(
       if (kind === 'image') mediaImageModel.value = value
       if (kind === 'audio') mediaAudioModel.value = value
       if (kind === 'video') mediaVideoModel.value = value
+      if (kind === 'imageGeneration') mediaImageGenerationModel.value = value
+      if (kind === 'videoGeneration') mediaVideoGenerationModel.value = value
       return
     }
   }
@@ -857,6 +885,51 @@ async function saveFromFooter() {
                   >
                     让助手安装
                   </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
+              <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+                <Sparkles class="w-4 h-4 text-accent" />图片 / 视频生成
+              </h4>
+              <p class="text-[11px] text-muted">
+                供 Agent 的 image_generate / video_generate 工具使用；需在对应服务商配置 API Key。
+              </p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-[12px] text-muted mb-1.5">图片生成</label>
+                  <select
+                    :value="mediaImageGenerationModel"
+                    class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground cursor-pointer outline-none focus:border-accent/50"
+                    @change="selectMediaModelWithProvider('imageGeneration', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">默认（千问 wan2.7-image-pro 或豆包 Seedream）</option>
+                    <option
+                      v-for="item in imageGenerationOptions"
+                      :key="'img-gen-' + item.providerId + ':' + item.model"
+                      :value="item.providerId + ':' + item.model"
+                    >
+                      {{ item.providerName }} / {{ item.label }}
+                    </option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[12px] text-muted mb-1.5">视频生成</label>
+                  <select
+                    :value="mediaVideoGenerationModel"
+                    class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground cursor-pointer outline-none focus:border-accent/50"
+                    @change="selectMediaModelWithProvider('videoGeneration', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">默认（千问 wan2.7-t2v 或豆包 Seedance 1.5）</option>
+                    <option
+                      v-for="item in videoGenerationOptions"
+                      :key="'vid-gen-' + item.providerId + ':' + item.model"
+                      :value="item.providerId + ':' + item.model"
+                    >
+                      {{ item.providerName }} / {{ item.label }}
+                    </option>
+                  </select>
                 </div>
               </div>
             </div>

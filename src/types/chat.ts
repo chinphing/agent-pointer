@@ -193,6 +193,10 @@ export interface MediaModelOverrides {
   image?: AgentModelRef
   audio?: AgentModelRef
   video?: AgentModelRef
+  /** Image generation tool (`image_generate`). */
+  imageGeneration?: AgentModelRef
+  /** Video generation tool (`video_generate`). */
+  videoGeneration?: AgentModelRef
 }
 
 export interface MediaDepsStatus {

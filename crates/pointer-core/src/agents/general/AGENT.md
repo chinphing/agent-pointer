@@ -22,6 +22,8 @@ accessPolicy:
     - skill_read_resource
     - terminal
     - web_search
+    - image_generate
+    - video_generate
     - run_subagent
   denyTools: []
   allowSkills: []

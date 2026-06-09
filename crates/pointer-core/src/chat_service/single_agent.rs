@@ -170,6 +170,7 @@ pub(super) async fn run_single_agent_loop(
         }
         super::single_agent_post_stream::commit_assistant_turn(
             &stream,
+            conversation_id,
             history,
             &assistant_id,
             &assistant_msg,

@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 const SUPPORTED_PLATFORM_KEYS: &[(&str, &str)] = &[
     ("tool_approval_mode", "TOOL_APPROVAL_MODE"),
@@ -37,6 +38,8 @@ const SUPPORTED_PLATFORM_KEYS: &[(&str, &str)] = &[
 ];
 
 fn main() {
+    build_cjk_fts_extension();
+
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
     let workspace_cfg = manifest_dir.join("../../.pointer-build.toml");
     let local_cfg = manifest_dir.join(".pointer-build.toml");
@@ -112,5 +115,81 @@ fn serialize_toml_scalar(v: &toml::Value) -> Option<String> {
         toml::Value::Float(f) => Some(f.to_string()),
         toml::Value::Boolean(b) => Some(b.to_string()),
         _ => None,
+    }
+}
+
+fn build_cjk_fts_extension() {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
+    let src = manifest_dir.join("vendor/sqlite-cjk-fts/cjk_tokenizer.c");
+    let include_dir = manifest_dir.join("vendor/sqlite-cjk-fts");
+    println!("cargo:rerun-if-changed={}", src.display());
+    println!("cargo:rerun-if-changed={}", include_dir.join("sqlite3ext.h").display());
+
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR");
+    let out_path = PathBuf::from(&out_dir).join(cjk_fts_lib_name());
+
+    let compiler = env::var("CC").unwrap_or_else(|_| default_c_compiler());
+    let mut cmd = Command::new(&compiler);
+    if cfg!(target_os = "windows") {
+        if compiler.to_ascii_lowercase().contains("cl") {
+            cmd.args([
+                "/LD",
+                "/O2",
+                &format!("/I{}", include_dir.display()),
+                src.to_str().expect("utf8 path"),
+                &format!("/Fe:{}", out_path.display()),
+            ]);
+        } else {
+            cmd.args([
+                "-O2",
+                "-shared",
+                "-fPIC",
+                &format!("-I{}", include_dir.display()),
+                src.to_str().expect("utf8 path"),
+                "-o",
+                out_path.to_str().expect("utf8 path"),
+            ]);
+        }
+    } else {
+        cmd.args([
+            "-O2",
+            "-fPIC",
+            "-shared",
+            &format!("-I{}", include_dir.display()),
+            src.to_str().expect("utf8 path"),
+            "-o",
+            out_path.to_str().expect("utf8 path"),
+        ]);
+    }
+
+    let status = cmd
+        .status()
+        .unwrap_or_else(|e| panic!("failed to run C compiler {compiler} for cjk fts: {e}"));
+    if !status.success() {
+        panic!("cjk fts extension compile failed with {compiler}");
+    }
+    if !out_path.exists() {
+        panic!(
+            "cjk fts extension missing after compile: {}",
+            out_path.display()
+        );
+    }
+}
+
+fn cjk_fts_lib_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "libcjkfts.dylib"
+    } else if cfg!(target_os = "windows") {
+        "libcjkfts.dll"
+    } else {
+        "libcjkfts.so"
+    }
+}
+
+fn default_c_compiler() -> String {
+    if cfg!(target_os = "windows") {
+        "cl".to_string()
+    } else {
+        "cc".to_string()
     }
 }

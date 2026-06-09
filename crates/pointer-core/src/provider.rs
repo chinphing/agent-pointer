@@ -138,6 +138,22 @@ struct ChatResponseMessage {
     content: Option<String>,
     #[serde(default)]
     reasoning_content: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<ChatApiToolCall>>,
+}
+#[derive(Deserialize, Debug, Default)]
+struct ChatApiToolCall {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    function: Option<ChatApiToolFn>,
+}
+#[derive(Deserialize, Debug, Default)]
+struct ChatApiToolFn {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    arguments: Option<String>,
 }
 #[derive(Deserialize, Debug, Default)]
 struct StreamDelta {
@@ -195,6 +211,43 @@ pub struct ChatOnceOutput {
     pub usage: Option<LlmUsageSnapshot>,
     /// Model id sent on the chat/completions request (token reporting source of truth).
     pub model: String,
+    /// Native tool calls when the request included `tools`.
+    pub tool_calls: Vec<ToolCall>,
+}
+
+fn parse_chat_once_tool_calls(raw: Option<&[ChatApiToolCall]>) -> Vec<ToolCall> {
+    let Some(calls) = raw else {
+        return vec![];
+    };
+    calls
+        .iter()
+        .enumerate()
+        .filter_map(|(i, tc)| {
+            let func = tc.function.as_ref()?;
+            let name = func.name.as_deref()?.trim();
+            if name.is_empty() {
+                return None;
+            }
+            let id = tc
+                .id
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .unwrap_or_else(|| format!("chatonce_tc_{i}"));
+            Some(ToolCall {
+                id,
+                name: name.to_string(),
+                arguments: func.arguments.clone().unwrap_or_else(|| "{}".into()),
+                status: "done".into(),
+                result: None,
+                error: None,
+                duration_ms: None,
+                risk_level: None,
+                display_label: None,
+                display_summary: None,
+            })
+        })
+        .collect()
 }
 
 impl OpenAIProvider {
@@ -341,10 +394,12 @@ impl OpenAIProvider {
             .or_else(|| message.reasoning_content.clone())
             .unwrap_or_default();
         let usage = parsed.usage.as_ref().map(snapshot_from_stream_usage);
+        let tool_calls = parse_chat_once_tool_calls(message.tool_calls.as_deref());
         Ok(ChatOnceOutput {
             text,
             usage,
             model: self.settings.model.clone(),
+            tool_calls,
         })
     }
 
@@ -421,10 +476,12 @@ impl OpenAIProvider {
             .or_else(|| message.reasoning_content.clone())
             .unwrap_or_default();
         let usage = parsed.usage.as_ref().map(snapshot_from_stream_usage);
+        let tool_calls = parse_chat_once_tool_calls(message.tool_calls.as_deref());
         Ok(ChatOnceOutput {
             text,
             usage,
             model: self.settings.model.clone(),
+            tool_calls,
         })
     }
 

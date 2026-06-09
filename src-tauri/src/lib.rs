@@ -205,6 +205,8 @@ pub fn run() {
             commands::cancel_computer_monitor_pick,
             commands::load_conversations,
             commands::save_conversations,
+            commands::save_conversation_meta,
+            commands::replace_conversation_messages,
             commands::list_pinned_experiences,
             commands::list_experience_home,
             commands::search_experiences,

@@ -198,6 +198,7 @@ pub(super) async fn run_chat_inner(
         &stream,
         cancel.clone(),
         crate::context_compression::CompressionUiContext::main(lead_scope),
+        Some(state.memory_store.as_ref()),
     )
     .await;
     log::info!(
@@ -250,9 +251,15 @@ pub(super) async fn run_chat_inner(
         history,
     );
 
+    let review_due = crate::memory::should_run_memory_review(
+        &settings,
+        &agent_plan.allowed_tool_names,
+        history,
+    );
+
     super::single_agent::run_single_agent_loop(
-        stream,
-        state,
+        stream.clone(),
+        state.clone(),
         conversation_id,
         history,
         enabled_skill_ids,
@@ -268,5 +275,18 @@ pub(super) async fn run_chat_inner(
         &mut llm_token_session,
         reasoning_in_messages,
     )
-    .await
+    .await?;
+
+    if review_due {
+        crate::memory::spawn_memory_background_review(
+            state,
+            provider,
+            conversation_id.to_string(),
+            history.clone(),
+            settings,
+            stream,
+        );
+    }
+
+    Ok(())
 }

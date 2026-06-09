@@ -352,7 +352,8 @@ Retention rules (highest first):
 3) Shell/test/lint commands with pass/fail — never fabricate results
 4) Errors and tool failures — quote or tightly paraphrase
 5) run_subagent / explore conclusions and open questions
-6) task_board status and validate contracts
+6) User preferences, durable environment facts, and identity details worth long-term memory (when explicit in source)
+7) task_board status and validate contracts
 
 Drop: repeated tool dumps, large file bodies, small talk, duplicate facts.
 Never summarize tool output as "files were read" without naming paths and conclusions.
@@ -656,6 +657,13 @@ async fn compress_history_inner(
 
     match ui.scope {
         CompressionScope::Main if emit_history_replaced => {
+            if let Ok(store) = crate::conversation_store::global_store() {
+                if let Err(e) = store.sync_messages_ordered(conversation_id, history) {
+                    log::warn!(
+                        "conversation_store: sync after compression failed conversation_id={conversation_id}: {e:#}"
+                    );
+                }
+            }
             let _ = stream.send(StreamEvent::HistoryReplaced {
                 conversation_id: conversation_id.to_string(),
                 messages: history.clone(),
@@ -690,8 +698,9 @@ pub async fn maybe_compress_history(
     stream: &StreamTx,
     cancel: CancellationToken,
     ui: CompressionUiContext,
+    memory_store: Option<&crate::memory::MemoryStore>,
 ) {
-    let _ = compress_history_inner(
+    let changed = compress_history_inner(
         history,
         settings,
         provider,
@@ -703,6 +712,15 @@ pub async fn maybe_compress_history(
         &ui,
     )
     .await;
+    if changed {
+        if ui.scope == CompressionScope::Main {
+            if let Some(store) = memory_store {
+                if let Err(e) = store.reload_snapshot() {
+                    log::warn!("memory: reload after compression failed: {e:#}");
+                }
+            }
+        }
+    }
 }
 
 /// After tool-round limit: try summarization even if under char budget. Returns whether history changed.

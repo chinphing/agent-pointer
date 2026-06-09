@@ -17,6 +17,8 @@ accessPolicy:
   allowTools:
     - file_read
     - file_write
+    - memory
+    - session_search
     - skill_import
     - skill_load_instructions
     - skill_read_resource

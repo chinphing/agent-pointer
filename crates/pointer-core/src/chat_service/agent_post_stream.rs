@@ -252,6 +252,7 @@ pub(super) fn build_sub_assistant_message_after_stream(
 
 pub(super) fn commit_lead_assistant_turn(
     stream: &StreamTx,
+    conversation_id: &str,
     history: &mut Vec<ChatMessage>,
     assistant_id: &str,
     assistant_msg: &ChatMessage,
@@ -265,6 +266,7 @@ pub(super) fn commit_lead_assistant_turn(
         assistant_msg.tool_raw_output.as_deref(),
     );
     history.push(assistant_msg.clone());
+    super::conversation_persist::upsert_message(conversation_id, assistant_msg);
     emit(
         stream,
         StreamEvent::MessageEnd {

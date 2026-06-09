@@ -39,6 +39,8 @@ pub async fn run_chat(
         .lock()
         .insert(conversation_id.clone(), cancel.clone());
 
+    super::conversation_persist::append_missing(&conversation_id, &history);
+
     let run_id = Uuid::new_v4().to_string();
     let mut consumed_single = 0u32;
     let mut consumed_supervisor = 0u32;
@@ -99,6 +101,12 @@ pub async fn run_chat(
     let single_total = tool_rounds_used_single_start.saturating_add(consumed_single);
     let supervisor_total =
         tool_rounds_used_supervisor_start.saturating_add(consumed_supervisor);
+    super::conversation_persist::patch_tool_rounds(
+        &conversation_id,
+        single_total,
+        supervisor_total,
+        super::util::now_ms(),
+    );
     log::info!(
         "run_chat conversation end: emitting StreamEvent::Done conversation_id={} run_outcome={} history_messages_final={} consumed_this_run_single={} consumed_this_run_supervisor={} cumulative_tool_rounds_single={} cumulative_tool_rounds_supervisor={} max_tool_rounds_attached={}",
         conversation_id,

@@ -14,6 +14,9 @@ pub mod token_usage_store;
 pub mod workspace_delegation;
 pub mod extensions;
 pub mod context_compression;
+pub mod conversation_store;
+pub mod memory;
+pub mod session_search;
 pub mod message_context;
 pub mod task_board;
 

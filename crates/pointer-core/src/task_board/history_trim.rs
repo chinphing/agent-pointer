@@ -323,6 +323,14 @@ pub fn maybe_trim_after_tool_pass(
     });
 
     if hook.emit_history_replaced {
+        if let Ok(store) = crate::conversation_store::global_store() {
+            if let Err(e) = store.sync_messages_ordered(hook.conversation_id, history) {
+                log::warn!(
+                    "conversation_store: sync after task_board trim failed conversation_id={}: {e:#}",
+                    hook.conversation_id
+                );
+            }
+        }
         let _ = hook.stream.send(StreamEvent::HistoryReplaced {
             conversation_id: hook.conversation_id.to_string(),
             messages: history.clone(),

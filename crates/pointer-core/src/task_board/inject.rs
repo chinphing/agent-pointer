@@ -19,6 +19,7 @@ pub fn inject_host_task_board_conversation_id(
 ) -> Value {
     let is_task_board = is_task_board_tool_name(tool_id);
     let requires_injection = is_task_board
+        || tool_id == "session_search"
         || crate::agents::computer::is_desktop_vision_log_tool(tool_id)
         || crate::agents::computer::is_desktop_post_delay_tool(tool_id);
     if !requires_injection {
@@ -79,6 +80,21 @@ mod tests {
         let out = inject_host_task_board_conversation_id(
             "mouse_click_index",
             serde_json::json!({"goal": "打开微信应用", "index": 141}),
+            "conv-abc",
+            "conv-abc::tb",
+            &[],
+        );
+        assert_eq!(
+            out.get("_conversation_id").and_then(|v| v.as_str()),
+            Some("conv-abc")
+        );
+    }
+
+    #[test]
+    fn session_search_gets_conversation_binding() {
+        let out = inject_host_task_board_conversation_id(
+            "session_search",
+            serde_json::json!({"query": "auth"}),
             "conv-abc",
             "conv-abc::tb",
             &[],

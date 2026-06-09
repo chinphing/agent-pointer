@@ -42,11 +42,18 @@ pub(super) fn build_assistant_message_after_stream(
 
 pub(super) fn commit_assistant_turn(
     stream: &StreamTx,
+    conversation_id: &str,
     history: &mut Vec<ChatMessage>,
     assistant_id: &str,
     assistant_msg: &ChatMessage,
 ) {
-    super::agent_post_stream::commit_lead_assistant_turn(stream, history, assistant_id, assistant_msg);
+    super::agent_post_stream::commit_lead_assistant_turn(
+        stream,
+        conversation_id,
+        history,
+        assistant_id,
+        assistant_msg,
+    );
 }
 
 pub(super) async fn decide_when_no_tool_calls(

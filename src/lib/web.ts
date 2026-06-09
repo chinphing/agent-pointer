@@ -229,6 +229,20 @@ export async function saveConversations(conversations: Conversation[]): Promise<
   await request('/api/conversations', { method: 'PUT', body: JSON.stringify(conversations) })
 }
 
+export async function saveConversationMeta(metas: import('../types/chat').ConversationMeta[]): Promise<void> {
+  await request('/api/conversations/meta', { method: 'PUT', body: JSON.stringify(metas) })
+}
+
+export async function replaceConversationMessages(
+  conversationId: string,
+  messages: import('../types/chat').ChatMessage[]
+): Promise<void> {
+  await request(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
+    method: 'PUT',
+    body: JSON.stringify(messages)
+  })
+}
+
 export interface PlatformSessionView {
   logged_in: boolean
   expires_at?: number | null

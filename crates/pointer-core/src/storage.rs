@@ -1,7 +1,8 @@
 use crate::models::{
     ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults, filter_openrouter_providers,
-    merge_user_platform, AgentModelRef, Conversation, ModelRuntimeOverrides, ModelSettings,
-    PersistedLocalPlatformSettings, PlatformSettings, ProviderConfig, UserSettings,
+    merge_user_platform, AgentModelRef, ChatMessage, Conversation, ConversationMeta,
+    ModelRuntimeOverrides, ModelSettings, PersistedLocalPlatformSettings, PlatformSettings,
+    ProviderConfig, UserSettings,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -54,10 +55,6 @@ fn auth_dat_path() -> Result<PathBuf> {
 fn key_path() -> Result<PathBuf> {
     Ok(data_dir()?.join("key.dat"))
 }
-fn conv_path() -> Result<PathBuf> {
-    Ok(data_dir()?.join("conversations.json"))
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 struct StoredModelOverrides {
     #[serde(default, rename = "reasoningInMessages")]
@@ -251,6 +248,7 @@ fn migrate_legacy_settings_if_needed() -> Result<()> {
         theme,
         user_nickname: None,
         enabled_skill_ids: Vec::new(),
+        ..UserSettings::default()
     };
     write_user_settings_file(&user)?;
     let platform = stored_settings_to_platform(&stored);
@@ -617,15 +615,20 @@ pub fn clear_api_key() -> Result<()> {
 }
 
 pub fn load_conversations() -> Result<Vec<Conversation>> {
-    let path = conv_path()?;
-    if !path.exists() {
-        return Ok(vec![]);
-    }
-    let raw = fs::read_to_string(&path)?;
-    Ok(serde_json::from_str(&raw).unwrap_or_default())
+    crate::conversation_store::global_store()?.load_all()
 }
 
 pub fn save_conversations(list: &[Conversation]) -> Result<()> {
-    fs::write(conv_path()?, serde_json::to_vec_pretty(list)?)?;
-    Ok(())
+    crate::conversation_store::global_store()?.save_all(list)
+}
+
+pub fn save_conversation_meta(metas: &[ConversationMeta]) -> Result<()> {
+    crate::conversation_store::global_store()?.save_meta_all(metas)
+}
+
+pub fn replace_conversation_messages(
+    conversation_id: &str,
+    messages: &[ChatMessage],
+) -> Result<()> {
+    crate::conversation_store::global_store()?.replace_messages(conversation_id, messages)
 }

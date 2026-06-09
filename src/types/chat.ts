@@ -275,6 +275,20 @@ export interface Conversation {
   workspaceRoot?: string
 }
 
+/** Session shell fields for meta-only persistence (P1). */
+export type ConversationMeta = Pick<
+  Conversation,
+  | 'id'
+  | 'title'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'skillIds'
+  | 'toolRoundsUsed'
+  | 'toolRoundsUsedSupervisor'
+  | 'computerMonitorId'
+  | 'workspaceRoot'
+>
+
 /** Per-model API/runtime overrides; unset fields inherit from the parent provider. */
 export interface ModelRuntimeOverrides {
   reasoningInMessages?: boolean

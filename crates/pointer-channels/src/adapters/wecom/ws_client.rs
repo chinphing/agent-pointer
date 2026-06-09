@@ -8,8 +8,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tokio_util::sync::CancellationToken;
 
 use crate::connection_state;
-use crate::session::build_conversation_key;
-use crate::traits::{InboundMessage, InboundReplyContext};
+use crate::adapters::wecom::parse::parse_ws_inbound;
 
 pub const DEFAULT_WS_URL: &str = "wss://openws.work.weixin.qq.com";
 const HEARTBEAT_INTERVAL_MS: u64 = 30_000;
@@ -400,82 +399,4 @@ async fn send_outbound(
         .send(Message::Text(frame.to_string().into()))
         .await
         .map_err(|e| anyhow!("ws send failed: {e}"))
-}
-
-pub fn parse_ws_inbound(body: &Value, account_id: &str, req_id: &str) -> Option<InboundMessage> {
-    let msgtype = body.get("msgtype")?.as_str()?;
-    let text = extract_text(body, msgtype)?;
-    if text.trim().is_empty() {
-        return None;
-    }
-
-    let message_id = body
-        .get("msgid")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
-    let sender_id = body.get("from")?.get("userid")?.as_str()?.to_string();
-    let chat_id = body
-        .get("chatid")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| sender_id.clone());
-    let chattype = body.get("chattype").and_then(|v| v.as_str()).unwrap_or("single");
-    let is_group = chattype == "group";
-
-    Some(InboundMessage {
-        channel: "wecom".into(),
-        account_id: account_id.into(),
-        message_id,
-        conversation_key: build_conversation_key("wecom", &chat_id, is_group),
-        sender_id: sender_id.clone(),
-        sender_name: None,
-        text,
-        is_group,
-        mentioned_bot: true,
-        reply_context: Some(InboundReplyContext {
-            session_webhook: None,
-            chat_id: Some(chat_id),
-            open_id: None,
-            context_token: None,
-            wecom_req_id: Some(req_id.to_string()),
-        }),
-    })
-}
-
-fn extract_text(body: &Value, msgtype: &str) -> Option<String> {
-    match msgtype {
-        "text" => body
-            .get("text")
-            .and_then(|t| t.get("content"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        "voice" => body
-            .get("voice")
-            .and_then(|t| t.get("content"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-        "mixed" => {
-            let items = body.get("mixed")?.get("msg_item")?.as_array()?;
-            let parts: Vec<String> = items
-                .iter()
-                .filter_map(|it| {
-                    if it.get("msgtype").and_then(|v| v.as_str()) == Some("text") {
-                        it.get("text")
-                            .and_then(|t| t.get("content"))
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            if parts.is_empty() {
-                None
-            } else {
-                Some(parts.join("\n"))
-            }
-        }
-        _ => None,
-    }
 }

@@ -71,6 +71,32 @@ impl HttpClient {
         Ok(serde_json::from_str(&body).unwrap_or(Value::String(body)))
     }
 
+    pub async fn get_bytes(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<(Vec<u8>, Option<String>)> {
+        let mut req = self.inner.get(url);
+        for (k, v) in headers {
+            req = req.header(*k, *v);
+        }
+        let resp = req.send().await.context("http get bytes")?;
+        let status = resp.status();
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.split(';').next().unwrap_or(s).trim().to_string());
+        let body = resp.bytes().await.context("http get bytes body")?;
+        if !status.is_success() {
+            let preview = String::from_utf8_lossy(&body[..body.len().min(512)]);
+            return Err(anyhow::anyhow!(
+                "GET {url} failed {status}: {preview}"
+            ));
+        }
+        Ok((body.to_vec(), content_type))
+    }
+
     pub async fn post_json(&self, url: &str, headers: &[(&str, &str)], body: &Value) -> Result<Value> {
         let mut req = self.inner.post(url).json(body);
         for (k, v) in headers {

@@ -11,6 +11,7 @@ pub mod dispatch;
 pub mod gateway;
 pub mod http_client;
 pub mod inbound;
+pub mod media;
 mod outbound_format;
 pub mod pairing;
 pub mod registration;

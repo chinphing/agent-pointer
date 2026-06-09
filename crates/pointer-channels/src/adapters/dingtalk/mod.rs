@@ -1,5 +1,8 @@
+mod auth;
+pub mod media;
 mod monitor;
 mod outbound;
+pub mod parse;
 mod stream_client;
 mod webhook;
 

@@ -203,6 +203,43 @@ pub struct ChatMessage {
     /// Whether this message is included in LLM context.
     #[serde(default, rename = "contextState", skip_serializing_if = "Option::is_none")]
     pub context_state: Option<MessageContextState>,
+    /// User-attached files/images (metadata persisted; base64 wire-only via `contentBase64`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<Vec<MediaAttachment>>,
+}
+
+/// User message attachment (Composer / channels).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaAttachment {
+    pub id: String,
+    /// `image`, `document`, `audio`, `file`
+    pub kind: String,
+    #[serde(rename = "mimeType")]
+    pub mime_type: String,
+    #[serde(rename = "fileName")]
+    pub file_name: String,
+    #[serde(default, rename = "sizeBytes")]
+    pub size_bytes: u64,
+    #[serde(default, rename = "storageRelPath", skip_serializing_if = "Option::is_none")]
+    pub storage_rel_path: Option<String>,
+    /// Wire-only payload; stripped before conversation persist.
+    #[serde(default, rename = "contentBase64", skip_serializing_if = "Option::is_none")]
+    pub content_base64: Option<String>,
+    #[serde(default, rename = "derivedText", skip_serializing_if = "Option::is_none")]
+    pub derived_text: Option<String>,
+}
+
+/// Independent models for media understanding (does not switch the primary chat model).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaModelOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<AgentModelRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<AgentModelRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<AgentModelRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -771,6 +808,9 @@ pub struct ModelSettings {
     /// Model id for DashScope web search tool calls (defaults to `qwen3-max` when empty).
     #[serde(default = "default_web_search_model_setting", rename = "webSearchModel")]
     pub web_search_model: String,
+    /// Independent models for attachment understanding (image/audio/video).
+    #[serde(default, rename = "mediaModelOverrides")]
+    pub media_model_overrides: MediaModelOverrides,
     /// Per-request override (e.g. computer tier); not persisted.
     #[serde(skip)]
     pub round_enable_thinking: Option<bool>,
@@ -1028,6 +1068,7 @@ impl Default for ModelSettings {
             theme: default_theme(),
             agent_ui_overrides: HashMap::new(),
             web_search_model: default_web_search_model_setting(),
+            media_model_overrides: MediaModelOverrides::default(),
             round_enable_thinking: None,
             round_thinking_budget: None,
         }
@@ -1186,6 +1227,8 @@ pub struct PlatformSettings {
     /// Model id for DashScope web search tool calls (empty = default `qwen3-max`).
     #[serde(default = "default_web_search_model_setting", rename = "webSearchModel")]
     pub web_search_model: String,
+    #[serde(default, rename = "mediaModelOverrides")]
+    pub media_model_overrides: MediaModelOverrides,
     #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
     pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
 }
@@ -1255,6 +1298,8 @@ pub struct PersistedLocalPlatformSettings {
     pub workspace_root: String,
     #[serde(default = "default_captcha_slider_offset_px", rename = "captchaSliderOffsetPx")]
     pub captcha_slider_offset_px: i32,
+    #[serde(default, rename = "mediaModelOverrides")]
+    pub media_model_overrides: MediaModelOverrides,
 }
 
 impl PersistedLocalPlatformSettings {
@@ -1273,6 +1318,7 @@ impl PersistedLocalPlatformSettings {
             lead_agent_id: platform.lead_agent_id.clone(),
             workspace_root: platform.workspace_root.clone(),
             captcha_slider_offset_px: platform.captcha_slider_offset_px,
+            media_model_overrides: platform.media_model_overrides.clone(),
         }
     }
 
@@ -1305,6 +1351,7 @@ impl PersistedLocalPlatformSettings {
         };
         platform.workspace_root = self.workspace_root.clone();
         platform.captcha_slider_offset_px = self.captcha_slider_offset_px;
+        platform.media_model_overrides = self.media_model_overrides.clone();
     }
 }
 
@@ -1492,6 +1539,7 @@ impl Default for PlatformSettings {
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             agent_ui_overrides: HashMap::new(),
             web_search_model: default_web_search_model_setting(),
+            media_model_overrides: MediaModelOverrides::default(),
             computer_tier_llm: default_computer_tier_llm(),
         }
     }
@@ -1548,6 +1596,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         theme: user.theme.clone(),
         agent_ui_overrides: platform.agent_ui_overrides.clone(),
         web_search_model: platform.web_search_model.clone(),
+        media_model_overrides: platform.media_model_overrides.clone(),
         round_enable_thinking: None,
         round_thinking_budget: None,
     }
@@ -1598,6 +1647,15 @@ pub struct ComputerAnnotatedPreview {
 
 pub fn default_computer_preview_mime() -> String {
     "image/jpeg".to_string()
+}
+
+/// Chat attachment bytes for UI bubble reload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMediaPreview {
+    pub data_base64: String,
+    pub mime_type: String,
+    pub file_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2007,6 +2065,7 @@ fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMess
                             computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+        attachments: None,
             });
                     }
                     i = j;
@@ -2288,6 +2347,7 @@ mod make_openai_messages_tests {
             computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+        attachments: None,
             }
     }
 
@@ -2754,6 +2814,7 @@ mod effective_extra_body_tests {
                 computer_round_screen_rel_path: None,
                 ui_bindings: None,
                 context_state: None,
+        attachments: None,
             }],
             skill_ids: vec![],
             tool_rounds_used: 0,

@@ -131,6 +131,34 @@ pub fn wecom_msg_signature(token: &str, timestamp: &str, nonce: &str, encrypt: &
     sha1_hex(parts.join("").as_bytes())
 }
 
+/// Decrypt WeCom AI bot media using per-message Base64 `aeskey` (AES-256-CBC, IV=key[0..16]).
+pub fn wecom_aibot_decrypt_file(encrypted: &[u8], aes_key_b64: &str) -> Result<Vec<u8>> {
+    if encrypted.is_empty() {
+        return Err(anyhow!("wecom aibot decrypt: empty payload"));
+    }
+    let key = B64.decode(aes_key_b64.trim()).context("wecom aibot aeskey b64")?;
+    if key.len() < 32 {
+        return Err(anyhow!("wecom aibot aeskey too short"));
+    }
+    let iv = &key[..16];
+    let cipher = Aes256CbcDec::new_from_slices(&key, iv).context("wecom aibot aes256 cbc")?;
+    let mut buf = encrypted.to_vec();
+    match cipher.decrypt_padded_mut::<Pkcs7>(&mut buf) {
+        Ok(plain) => return Ok(plain.to_vec()),
+        Err(_) => {}
+    }
+    let pad_len = buf[buf.len() - 1] as usize;
+    if pad_len >= 1 && pad_len <= 32 && pad_len <= buf.len() {
+        let valid = buf[buf.len() - pad_len..]
+            .iter()
+            .all(|&b| b as usize == pad_len);
+        if valid {
+            return Ok(buf[..buf.len() - pad_len].to_vec());
+        }
+    }
+    Err(anyhow!("wecom aibot decrypt failed"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

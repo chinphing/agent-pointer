@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { ChevronDown, FolderOpen, Send, Square, X } from 'lucide-vue-next'
+import { ChevronDown, FolderOpen, Paperclip, Send, Square, X } from 'lucide-vue-next'
 import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { useSettingsStore } from '../../stores/settings'
 import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { resolveAgentUi, resolveLeadAgentUi, composerAgentLabel, RESEARCH_COMPOSER_UI_ENABLED } from '../../lib/agentUi'
 import { iconForAgent, sortComposerAgents, TEAM_MODE_UI_ENABLED } from '../../lib/agentIcons'
-import type { AgentDef, ComputerMonitor, ComputerMonitorPickRequest } from '../../types/chat'
+import type { AgentDef, ComputerMonitor, ComputerMonitorPickRequest, ComposerAttachment } from '../../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../../types/chat'
 import {
   getMacosComputerPermissions,
@@ -24,8 +24,21 @@ import {
   hasMacosComputerPermissionsUserAck
 } from '../../lib/macosPermissionsSession'
 import { isTauriRuntime } from '../../lib/runtime'
+import {
+  CHAT_ATTACHMENT_ACCEPT,
+  composerVideoSizeError,
+  dataUrlToBase64,
+  isSupportedChatAttachmentFile,
+  mediaKindFromFile
+} from '../../lib/attachmentSupport'
+import {
+  cloneComposerAttachmentsForSend,
+  registerComposerAttachmentPayload,
+  releaseComposerAttachment
+} from '../../lib/attachmentPayloadStore'
 import type { MacosComputerPermissionsStatus } from '../../types/macosPermissions'
 import ComputerScreenPickerModal from './ComputerScreenPickerModal.vue'
+import AttachmentChip from './AttachmentChip.vue'
 import MacosComputerPermissionsModal from './MacosComputerPermissionsModal.vue'
 import WorkspaceRequiredModal from './WorkspaceRequiredModal.vue'
 
@@ -56,6 +69,9 @@ const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const agentBtnRef = ref<HTMLButtonElement | null>(null)
 const agentPickerRef = ref<HTMLDivElement | null>(null)
 const workspaceInputRef = ref<HTMLInputElement | null>(null)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const pendingAttachments = ref<ComposerAttachment[]>([])
+const attachmentHint = ref<string | null>(null)
 
 const agents = ref<AgentDef[]>([])
 
@@ -126,7 +142,7 @@ const hasWorkspace = computed(() => !!(chat.current?.workspaceRoot?.trim()))
 
 const canSend = computed(
   () =>
-    text.value.trim().length > 0 &&
+    (text.value.trim().length > 0 || pendingAttachments.value.length > 0) &&
     !chat.generating &&
     !needsPlatformLogin.value &&
     !tokenQuotaBlocked.value &&
@@ -223,10 +239,93 @@ function macosComputerPermissionsAllowSend(perms: MacosComputerPermissionsStatus
   return hasMacosComputerPermissionsUserAck()
 }
 
+function uid() {
+  return crypto.randomUUID?.() ?? `att-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+async function readFileAsDataUrl(file: File): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? ''))
+    reader.onerror = () => reject(reader.error ?? new Error('read failed'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function addAttachmentFile(file: File) {
+  attachmentHint.value = null
+  if (!isSupportedChatAttachmentFile(file)) {
+    attachmentHint.value = `不支持该文件类型：${file.name}`
+    console.warn('unsupported attachment', file.name, file.type)
+    return
+  }
+  const videoSizeError = composerVideoSizeError(file)
+  if (videoSizeError) {
+    attachmentHint.value = videoSizeError
+    return
+  }
+  const dataUrl = await readFileAsDataUrl(file)
+  const contentBase64 = dataUrlToBase64(dataUrl)
+  const attachment: ComposerAttachment = {
+    id: uid(),
+    kind: mediaKindFromFile(file),
+    mimeType: file.type || 'application/octet-stream',
+    fileName: file.name,
+    sizeBytes: file.size
+  }
+  pendingAttachments.value.push(
+    registerComposerAttachmentPayload({ attachment, dataUrl, contentBase64, file })
+  )
+}
+
+async function onAttachmentFiles(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = input.files ? Array.from(input.files) : []
+  input.value = ''
+  for (const file of files) {
+    try {
+      await addAttachmentFile(file)
+    } catch (err) {
+      console.error('attachment add failed', err)
+    }
+  }
+}
+
+function removePendingAttachment(id: string) {
+  pendingAttachments.value = pendingAttachments.value.filter(a => a.id !== id)
+  releaseComposerAttachment(id)
+}
+
+function openAttachmentPicker() {
+  fileInputRef.value?.click()
+}
+
+async function onPasteAttachments(e: ClipboardEvent) {
+  const items = e.clipboardData?.items
+  if (!items?.length) return
+  for (const item of items) {
+    if (item.kind !== 'file' || !item.type.startsWith('image/')) continue
+    const file = item.getAsFile()
+    if (!file) continue
+    e.preventDefault()
+    try {
+      await addAttachmentFile(file)
+    } catch (err) {
+      console.error('paste attachment failed', err)
+    }
+  }
+}
+
+function dispatchSend(textValue: string) {
+  const attachments = cloneComposerAttachmentsForSend(pendingAttachments.value)
+  pendingAttachments.value = []
+  chat.sendUserMessage(textValue, attachments)
+}
+
 async function sendWithOptionalComputerScreenPick() {
   const conv = chat.current || chat.newConversation()
   const v = text.value
-  if (!v.trim()) return
+  if (!v.trim() && pendingAttachments.value.length === 0) return
 
   if (showComputerMonitorPicker.value && isMacDesktop.value) {
     try {
@@ -273,7 +372,7 @@ async function sendWithOptionalComputerScreenPick() {
   }
 
   text.value = ''
-  chat.sendUserMessage(v)
+  dispatchSend(v)
   nextTick(() => {
     if (textareaRef.value) textareaRef.value.style.height = 'auto'
   })
@@ -387,7 +486,7 @@ async function onPickScreen(monitorId: string) {
   pendingSendText.value = null
   if (!v) return
   text.value = ''
-  chat.sendUserMessage(v)
+  dispatchSend(v)
   nextTick(() => {
     if (textareaRef.value) textareaRef.value.style.height = 'auto'
   })
@@ -500,6 +599,31 @@ onUnmounted(() => {
       </div>
 
       <div class="panel-elevated rounded-2xl border border-border overflow-visible px-2 pb-2 pt-[18px]">
+        <input
+          ref="fileInputRef"
+          type="file"
+          class="hidden"
+          multiple
+          :accept="CHAT_ATTACHMENT_ACCEPT"
+          @change="onAttachmentFiles"
+        />
+        <div
+          v-if="pendingAttachments.length"
+          class="flex flex-wrap gap-2 px-3 pb-2"
+        >
+          <AttachmentChip
+            v-for="att in pendingAttachments"
+            :key="att.id"
+            :attachment="att"
+            @remove="removePendingAttachment(att.id)"
+          />
+        </div>
+        <p
+          v-if="attachmentHint"
+          class="px-3 pb-2 text-[11px] text-amber-600"
+        >
+          {{ attachmentHint }}
+        </p>
         <textarea
           ref="textareaRef"
           v-model="text"
@@ -510,12 +634,21 @@ onUnmounted(() => {
           :disabled="needsPlatformLogin || tokenQuotaBlocked"
           @keydown="onKeydown"
           @input="autoResize"
+          @paste="onPasteAttachments"
           @compositionstart="composing = true"
           @compositionend="onCompositionEnd"
         />
 
         <div class="flex items-center gap-2">
           <div class="relative flex flex-1 flex-wrap items-center gap-x-3 gap-y-0 min-w-0 px-1">
+            <button
+              type="button"
+              class="composer-agent-trigger cursor-pointer"
+              title="添加附件"
+              @click="openAttachmentPicker"
+            >
+              <Paperclip class="w-3 h-3 shrink-0 text-muted" />
+            </button>
             <div class="relative">
               <button
                 ref="agentBtnRef"

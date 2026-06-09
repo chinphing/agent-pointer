@@ -49,5 +49,6 @@ pub(crate) fn push_injected_format_retry_turn(
         computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+        attachments: None,
             });
 }

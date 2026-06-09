@@ -1,8 +1,9 @@
 ---
 id: dev-env-setup
 name: dev-env-setup
-description: 国内环境下安装主流开发语言（Node.js/Python/Java/Go/Rust/.NET/C/C++/Kotlin/Swift/Git）。每个语言有独立安装指南，references/ 下按需读取。
+description: 国内环境下安装主流开发语言（Node.js/Python/Java/Go/Rust/.NET/C/C++/Kotlin/Swift/Git）及多媒体依赖 ffmpeg。每个主题有独立安装指南，references/ 下按需读取。
 resources:
+  - references/ffmpeg.md
   - references/node-js.md
   - references/python.md
   - references/java.md
@@ -28,6 +29,8 @@ resources:
 - "我想学 xx，先装什么"
 - 重装系统后要搭开发机
 - 国内镜像源、代理设置相关提问
+- 安装 ffmpeg / ffprobe、处理视频需要多媒体依赖
+- 上下文出现 `pointer-media-deps` 或视频处理失败提示
 
 ## 工作流程
 
@@ -51,3 +54,4 @@ resources:
 | references/kotlin.md | Kotlin | SDKMAN / 手动 + 华为镜像 |
 | references/swift.md | Swift | Xcode / Toolchain + 清华镜像 |
 | references/git.md | Git | 华为镜像下载安装 / Linux/macOS 包管理器 + 基础配置 |
+| references/ffmpeg.md | ffmpeg | macOS/Linux/Windows 安装与 PATH 验证 |

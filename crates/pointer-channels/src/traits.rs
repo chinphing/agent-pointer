@@ -1,12 +1,93 @@
-use async_trait::async_trait;
-use axum::http::HeaderMap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::sync::Arc;
-
-use crate::config::ChannelAccountConfig;
 
 pub type ChannelId = &'static str;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboundMediaRef {
+    /// `image`, `document`, `audio`, `video`, `file`
+    pub kind: String,
+    #[serde(default, rename = "mimeType")]
+    pub mime_type: Option<String>,
+    #[serde(default, rename = "fileName")]
+    pub file_name: Option<String>,
+    #[serde(default, rename = "feishuImageKey")]
+    pub feishu_image_key: Option<String>,
+    #[serde(default, rename = "feishuFileKey")]
+    pub feishu_file_key: Option<String>,
+    /// Feishu message resource API `type`: `image`, `file`, or `media`.
+    #[serde(default, rename = "feishuResourceType")]
+    pub feishu_resource_type: Option<String>,
+    #[serde(default, rename = "wecomDownloadUrl")]
+    pub wecom_download_url: Option<String>,
+    #[serde(default, rename = "wecomAesKey")]
+    pub wecom_aes_key: Option<String>,
+    #[serde(default, rename = "dingtalkDownloadCode")]
+    pub dingtalk_download_code: Option<String>,
+    #[serde(default, rename = "weixinEncryptQueryParam")]
+    pub weixin_encrypt_query_param: Option<String>,
+    #[serde(default, rename = "weixinAesKey")]
+    pub weixin_aes_key: Option<String>,
+    /// 32-char hex AES key on some inbound images (`image_item.aeskey`).
+    #[serde(default, rename = "weixinImageAeskeyHex")]
+    pub weixin_image_aeskey_hex: Option<String>,
+    #[serde(default, rename = "weixinVoiceEncodeType")]
+    pub weixin_voice_encode_type: Option<u32>,
+    #[serde(default, rename = "weixinVoiceSampleRate")]
+    pub weixin_voice_sample_rate: Option<u32>,
+    /// WeChat ASR on voice messages; skip re-transcription when set.
+    #[serde(default, rename = "weixinVoiceAsrText")]
+    pub weixin_voice_asr_text: Option<String>,
+}
+
+impl InboundMediaRef {
+    pub fn new(kind: impl Into<String>) -> Self {
+        Self {
+            kind: kind.into(),
+            mime_type: None,
+            file_name: None,
+            feishu_image_key: None,
+            feishu_file_key: None,
+            feishu_resource_type: None,
+            wecom_download_url: None,
+            wecom_aes_key: None,
+            dingtalk_download_code: None,
+            weixin_encrypt_query_param: None,
+            weixin_aes_key: None,
+            weixin_image_aeskey_hex: None,
+            weixin_voice_encode_type: None,
+            weixin_voice_sample_rate: None,
+            weixin_voice_asr_text: None,
+        }
+    }
+
+    pub fn from_weixin_cdn(
+        kind: impl Into<String>,
+        encrypt_query_param: String,
+        aes_key: Option<String>,
+        image_aeskey_hex: Option<String>,
+        mime_type: Option<String>,
+        file_name: Option<String>,
+    ) -> Self {
+        Self {
+            kind: kind.into(),
+            mime_type,
+            file_name,
+            feishu_image_key: None,
+            feishu_file_key: None,
+            feishu_resource_type: None,
+            wecom_download_url: None,
+            wecom_aes_key: None,
+            dingtalk_download_code: None,
+            weixin_encrypt_query_param: Some(encrypt_query_param),
+            weixin_aes_key: aes_key,
+            weixin_image_aeskey_hex: image_aeskey_hex,
+            weixin_voice_encode_type: None,
+            weixin_voice_sample_rate: None,
+            weixin_voice_asr_text: None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +103,34 @@ pub struct InboundMessage {
     pub mentioned_bot: bool,
     #[serde(default)]
     pub reply_context: Option<InboundReplyContext>,
+    #[serde(default)]
+    pub attachments: Vec<InboundMediaRef>,
+}
+
+impl InboundMessage {
+    /// Dedup key including attachment identity when the same message_id carries distinct media.
+    pub fn dedup_key(&self) -> String {
+        if self.attachments.is_empty() {
+            return self.message_id.clone();
+        }
+        let mut parts: Vec<String> = self
+            .attachments
+            .iter()
+            .filter_map(|a| {
+                a.feishu_image_key
+                    .clone()
+                    .or_else(|| a.feishu_file_key.clone())
+                    .or_else(|| a.wecom_download_url.clone())
+                    .or_else(|| a.dingtalk_download_code.clone())
+                    .or_else(|| a.weixin_encrypt_query_param.clone())
+            })
+            .collect();
+        parts.sort();
+        if parts.is_empty() {
+            return self.message_id.clone();
+        }
+        format!("{}:{}", self.message_id, parts.join(","))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,8 +155,8 @@ pub struct WebhookResponse {
 pub struct WebhookContext<'a> {
     pub channel: ChannelId,
     pub account_id: &'a str,
-    pub account: &'a ChannelAccountConfig,
-    pub headers: &'a HeaderMap,
+    pub account: &'a crate::config::ChannelAccountConfig,
+    pub headers: &'a axum::http::HeaderMap,
     pub raw_body: &'a [u8],
     pub method: &'a str,
     pub query: &'a str,
@@ -61,16 +170,16 @@ pub struct OutboundContext {
     pub reply_context: Option<InboundReplyContext>,
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 pub trait ChannelWebhookAdapter: Send + Sync {
     fn channel_id(&self) -> ChannelId;
 
     async fn handle_webhook(&self, ctx: WebhookContext<'_>) -> anyhow::Result<WebhookResponse>;
 
-    fn parse_inbound(&self, event: &Value, account_id: &str) -> Option<InboundMessage>;
+    fn parse_inbound(&self, event: &serde_json::Value, account_id: &str) -> Option<InboundMessage>;
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 pub trait ChannelOutboundAdapter: Send + Sync {
     fn channel_id(&self) -> ChannelId;
 
@@ -78,14 +187,14 @@ pub trait ChannelOutboundAdapter: Send + Sync {
 }
 
 pub struct ChannelPlugin {
-    pub webhook: Arc<dyn ChannelWebhookAdapter>,
-    pub outbound: Arc<dyn ChannelOutboundAdapter>,
+    pub webhook: std::sync::Arc<dyn ChannelWebhookAdapter>,
+    pub outbound: std::sync::Arc<dyn ChannelOutboundAdapter>,
 }
 
 impl ChannelPlugin {
     pub fn new(
-        webhook: Arc<dyn ChannelWebhookAdapter>,
-        outbound: Arc<dyn ChannelOutboundAdapter>,
+        webhook: std::sync::Arc<dyn ChannelWebhookAdapter>,
+        outbound: std::sync::Arc<dyn ChannelOutboundAdapter>,
     ) -> Self {
         Self { webhook, outbound }
     }

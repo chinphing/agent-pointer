@@ -424,6 +424,7 @@ fn new_summary_user_message(body: String) -> ChatMessage {
         computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+        attachments: None,
             }
 }
 
@@ -529,6 +530,7 @@ async fn compress_history_inner(
         computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+        attachments: None,
             };
 
     let max_tok = settings.context_summary_max_tokens.max(128);
@@ -756,6 +758,7 @@ mod tests {
             computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+        attachments: None,
             }
     }
 

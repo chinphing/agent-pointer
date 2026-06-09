@@ -2,7 +2,7 @@ use pointer_core::agents::computer::capture_debug;
 use pointer_core::agents::AgentDef;
 use pointer_core::chat_service::{run_chat, AppState};
 use pointer_core::models::{
-    ComputerAnnotatedPreview, ComputerMonitor, Conversation,
+    ChatMediaPreview, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
     EffectiveSettingsView, ModelSettings, PlatformSettings, SendChatPayload, SkillDef,
     SkillImportResult, StreamEvent, ToolDef, UserSettings,
 };
@@ -233,6 +233,16 @@ pub fn preview_computer_annotated_screen(
 #[tauri::command]
 pub fn preview_computer_round_screen(rel_path: String) -> Result<ComputerAnnotatedPreview, String> {
     capture_debug::read_computer_capture_preview(&rel_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn preview_chat_media(storage_rel_path: String) -> Result<ChatMediaPreview, String> {
+    pointer_core::media::read_chat_media_preview(&storage_rel_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn check_media_deps() -> pointer_core::media::MediaDepsStatus {
+    pointer_core::media::MediaDepsStatus::probe()
 }
 
 #[tauri::command]

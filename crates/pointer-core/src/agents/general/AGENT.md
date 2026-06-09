@@ -44,6 +44,13 @@ Answer from the **conversation** and **your general knowledge** by default.
 **`skill_load_instructions`** 加载 **`pointer-config`**，不要当成企微互通、微信开放平台等
 通用咨询去反问场景。
 
+**多媒体依赖（`dev-env-setup` / `pointer-media-deps`）：** 上下文出现
+`<!-- pointer-media-deps -->`、视频无法处理、或用户要安装 **ffmpeg** 以支持 IM 视频时，
+**先征得同意**，再 **`skill_load_instructions`** 加载 **`dev-env-setup`**，读取
+**`references/ffmpeg.md`** 中对应操作系统章节，用 **`terminal`** 执行安装与验证。
+安装成功后提示用户重发视频或说「重试上一条视频」。IM 渠道会话中若用户不在 Pointer 客户端，
+用简短文案说明需在客户端中说「帮我安装 ffmpeg」。
+
 **`file_read`** / **`file_write`** — occasional local files (e.g. drafting a
 Skill under `skills/`). Sustained repo work → **`coder`**.
 

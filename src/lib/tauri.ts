@@ -5,9 +5,11 @@ import type {
   AgentMode,
   ChatMessage,
   ComputerAnnotatedPreview,
+  ChatMediaPreview,
   ComputerMonitor,
   Conversation,
   EffectiveSettingsView,
+  MediaDepsStatus,
   ModelSettings,
   PlatformSettings,
   SkillDef,
@@ -121,6 +123,14 @@ export async function previewComputerAnnotatedScreen(conversationId: string): Pr
 
 export async function previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview> {
   return await invoke<ComputerAnnotatedPreview>('preview_computer_round_screen', { relPath })
+}
+
+export async function previewChatMedia(storageRelPath: string): Promise<ChatMediaPreview> {
+  return await invoke<ChatMediaPreview>('preview_chat_media', { storageRelPath })
+}
+
+export async function checkMediaDeps(): Promise<MediaDepsStatus> {
+  return await invoke<MediaDepsStatus>('check_media_deps')
 }
 
 export async function listComputerMonitors(): Promise<ComputerMonitor[]> {

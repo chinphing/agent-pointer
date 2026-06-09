@@ -26,7 +26,7 @@ impl ChannelGateway {
         Ok(Self {
             registry,
             config: RwLock::new(config),
-            dispatch: DispatchService::new(),
+            dispatch: DispatchService::new()?,
             pairing: PairingStore::new(),
             dedup: DedupStore::new(),
             core,
@@ -54,8 +54,8 @@ impl ChannelGateway {
 
     pub async fn process_inbound(&self, msg: InboundMessage) -> Result<()> {
         let namespace = format!("{}:{}", msg.channel, msg.account_id);
-        if self.dedup.is_seen(&namespace, &msg.message_id) {
-            log::info!("channel dedup drop id={}", msg.message_id);
+        if self.dedup.is_seen(&namespace, &msg.dedup_key()) {
+            log::info!("channel dedup drop id={}", msg.dedup_key());
             return Ok(());
         }
 
@@ -95,7 +95,7 @@ impl ChannelGateway {
                     .outbound
                     .send_text(outbound, "配对成功！请重新发送您的消息。")
                     .await?;
-                self.dedup.mark_seen(&namespace, &msg.message_id);
+                self.dedup.mark_seen(&namespace, &msg.dedup_key());
                 return Ok(());
             }
         }
@@ -142,7 +142,7 @@ impl ChannelGateway {
                         ),
                     )
                     .await?;
-                self.dedup.mark_seen(&namespace, &msg.message_id);
+                self.dedup.mark_seen(&namespace, &msg.dedup_key());
                 return Ok(());
             }
             crate::pairing::PairingDecision::Allow => {}
@@ -152,14 +152,14 @@ impl ChannelGateway {
             .registry
             .get(&msg.channel)
             .ok_or_else(|| anyhow::anyhow!("plugin missing"))?;
-        let message_id = msg.message_id.clone();
+        let dedup_key = msg.dedup_key();
         match self
             .dispatch
             .handle_inbound(self.core.clone(), &plugin, &account, msg)
             .await
         {
             Ok(()) => {
-                self.dedup.mark_seen(&namespace, &message_id);
+                self.dedup.mark_seen(&namespace, &dedup_key);
                 Ok(())
             }
             Err(e) => Err(e),

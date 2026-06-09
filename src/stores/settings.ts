@@ -15,6 +15,7 @@ import type {
   AgentUiConfig,
   ComputerInitialTier,
   EffectiveSettingsView,
+  MediaModelOverrides,
   ModelSettings,
   PlatformSettings,
   ProviderConfig,
@@ -57,6 +58,10 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   computerAnnotatedScreenViewEnabled: false,
   captchaSliderOffsetPx: 0,
   agentUiOverrides: {},
+  mediaModelOverrides: {
+    image: { providerId: 'qwen', model: 'qwen3.5-plus' },
+    audio: { providerId: 'qwen', model: 'qwen3.5-plus' }
+  },
   computerTierLlm: {
     primary: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
     intermediate: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
@@ -89,7 +94,8 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     computerAnnotatedScreenViewEnabled: s.computerAnnotatedScreenViewEnabled === true,
     captchaSliderOffsetPx: Number.isFinite(Number(s.captchaSliderOffsetPx)) ? Number(s.captchaSliderOffsetPx) : 0,
     theme: (s.theme as ThemePreference) ?? 'system',
-    agentUiOverrides: { ...(s.agentUiOverrides ?? {}) }
+    agentUiOverrides: { ...(s.agentUiOverrides ?? {}) },
+    mediaModelOverrides: { ...(s.mediaModelOverrides ?? {}) }
   }
 }
 
@@ -514,6 +520,24 @@ export const useSettingsStore = defineStore('settings', () => {
     await save({ agentDefaultModels: next })
   }
 
+  function getMediaModelOverride(kind: keyof MediaModelOverrides): AgentModelRef | undefined {
+    return settings.value.mediaModelOverrides?.[kind]
+  }
+
+  async function setMediaModelOverride(
+    kind: keyof MediaModelOverrides,
+    ref: AgentModelRef | null
+  ) {
+    const next: MediaModelOverrides = { ...(settings.value.mediaModelOverrides ?? {}) }
+    if (!ref || !ref.model?.trim()) {
+      delete next[kind]
+    } else {
+      const pid = (ref.providerId || '').trim() || settings.value.activeProviderId
+      next[kind] = { providerId: pid, model: ref.model.trim() }
+    }
+    await saveAgentPreferences({ mediaModelOverrides: next })
+  }
+
   async function runTest() {
     testing.value = true
     testResult.value = null
@@ -554,6 +578,8 @@ export const useSettingsStore = defineStore('settings', () => {
     runTest,
     getAgentDefaultModelRef,
     setAgentDefaultModel,
+    getMediaModelOverride,
+    setMediaModelOverride,
     isTaskBoardHistoryTrimEnabled,
     setTaskBoardHistoryTrim,
     defaultTaskBoardHistoryTrim,

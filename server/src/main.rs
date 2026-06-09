@@ -19,7 +19,7 @@ use pointer_core::{
     agents::AgentDef,
     chat_service::{run_chat, AppState},
     models::{
-        ComputerAnnotatedPreview, ComputerMonitor, Conversation, EffectiveSettingsView,
+        ComputerAnnotatedPreview, ChatMediaPreview, ComputerMonitor, Conversation, EffectiveSettingsView,
         ModelSettings, PlatformSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent,
         ToolDef, UserSettings,
     },
@@ -149,6 +149,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/experiences/home", get(get_experience_home))
         .route("/api/experiences/search", get(search_experiences))
         .route("/api/experiences/:slug", get(get_experience_detail))
+        .route("/api/chat/media-preview", get(preview_chat_media))
+        .route("/api/media/deps", get(check_media_deps))
         .route("/api/chat", post(send_chat))
         .route("/api/chat/:conversation_id/cancel", post(cancel_chat))
         .route(
@@ -360,6 +362,24 @@ async fn preview_computer_round_screen(
     Ok(Json(
         capture_debug::read_computer_capture_preview(&q.rel_path).map_err(ApiError::from)?,
     ))
+}
+
+#[derive(Deserialize)]
+struct ChatMediaQuery {
+    #[serde(rename = "storageRelPath")]
+    storage_rel_path: String,
+}
+
+async fn preview_chat_media(
+    Query(q): Query<ChatMediaQuery>,
+) -> Result<Json<ChatMediaPreview>, ApiError> {
+    Ok(Json(
+        pointer_core::media::read_chat_media_preview(&q.storage_rel_path).map_err(ApiError::from)?,
+    ))
+}
+
+async fn check_media_deps() -> Json<pointer_core::media::MediaDepsStatus> {
+    Json(pointer_core::media::MediaDepsStatus::probe())
 }
 
 async fn list_computer_monitors() -> Result<Json<Vec<ComputerMonitor>>, ApiError> {

@@ -4,9 +4,9 @@ use serde_json::Value;
 use crate::crypto::{
     constant_time_eq, feishu_decode_event_body, feishu_webhook_signature,
 };
-use crate::session::build_conversation_key;
+use crate::adapters::feishu::parse::parse_feishu_event;
 use crate::traits::{
-    ChannelWebhookAdapter, InboundMessage, InboundReplyContext, WebhookContext, WebhookResponse,
+    ChannelWebhookAdapter, WebhookContext, WebhookResponse,
 };
 
 pub struct FeishuWebhook;
@@ -58,56 +58,8 @@ impl ChannelWebhookAdapter for FeishuWebhook {
         Ok(text_response(200, "ok"))
     }
 
-    fn parse_inbound(&self, event: &Value, account_id: &str) -> Option<InboundMessage> {
-        let header = event.get("header")?;
-        let event_type = header.get("event_type")?.as_str()?;
-        if event_type != "im.message.receive_v1" {
-            return None;
-        }
-        let ev = event.get("event")?;
-        let message = ev.get("message")?;
-        let sender = ev.get("sender")?;
-        let message_id = message.get("message_id")?.as_str()?;
-        let chat_id = message.get("chat_id")?.as_str()?;
-        let chat_type = message.get("chat_type")?.as_str().unwrap_or("p2p");
-        let is_group = chat_type == "group" || chat_type == "topic_group";
-        let content_raw = message.get("content")?.as_str().unwrap_or("{}");
-        let content: Value = serde_json::from_str(content_raw).ok()?;
-        let text = content
-            .get("text")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        if text.trim().is_empty() {
-            return None;
-        }
-        let sender_id = sender
-            .get("sender_id")
-            .and_then(|s| s.get("open_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-        let mentions = message.get("mentions").and_then(|v| v.as_array());
-        let mentioned_bot = mentions.map(|m| !m.is_empty()).unwrap_or(false);
-
-        Some(InboundMessage {
-            channel: "feishu".into(),
-            account_id: account_id.into(),
-            message_id: message_id.into(),
-            conversation_key: build_conversation_key("feishu", chat_id, is_group),
-            sender_id,
-            sender_name: None,
-            text,
-            is_group,
-            mentioned_bot,
-            reply_context: Some(InboundReplyContext {
-                session_webhook: None,
-                chat_id: Some(chat_id.into()),
-                open_id: None,
-                context_token: None,
-                wecom_req_id: None,
-            }),
-        })
+    fn parse_inbound(&self, event: &Value, account_id: &str) -> Option<crate::traits::InboundMessage> {
+        parse_feishu_event(event, account_id)
     }
 }
 

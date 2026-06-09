@@ -4,9 +4,11 @@ import type {
   AgentMode,
   ChatMessage,
   ComputerAnnotatedPreview,
+  ChatMediaPreview,
   ComputerMonitor,
   Conversation,
   EffectiveSettingsView,
+  MediaDepsStatus,
   ModelSettings,
   PlatformSettings,
   SkillDef,
@@ -55,6 +57,8 @@ export interface RuntimeApi {
   getTaskBoardSnapshot(conversationId: string, taskId?: string): Promise<import('../types/chat').TaskBoardDocument>
   previewComputerAnnotatedScreen(conversationId: string): Promise<ComputerAnnotatedPreview>
   previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview>
+  previewChatMedia(storageRelPath: string): Promise<ChatMediaPreview>
+  checkMediaDeps(): Promise<MediaDepsStatus>
   listComputerMonitors(): Promise<ComputerMonitor[]>
   setComputerConversationMonitor(conversationId: string, monitorId: string | null): Promise<void>
   confirmComputerMonitorPick(conversationId: string): Promise<void>
@@ -91,6 +95,8 @@ export const listAgents = api.listAgents
 export const getTaskBoardSnapshot = api.getTaskBoardSnapshot
 export const previewComputerAnnotatedScreen = api.previewComputerAnnotatedScreen
 export const previewComputerRoundScreen = api.previewComputerRoundScreen
+export const previewChatMedia = api.previewChatMedia
+export const checkMediaDeps = api.checkMediaDeps
 export const listComputerMonitors = api.listComputerMonitors
 export const setComputerConversationMonitor = api.setComputerConversationMonitor
 export const confirmComputerMonitorPick = api.confirmComputerMonitorPick

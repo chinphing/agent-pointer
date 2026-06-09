@@ -1,9 +1,13 @@
+pub mod auth;
+pub mod media;
 mod monitor;
 mod outbound;
+mod parse;
 mod webhook;
 mod ws_client;
 
 pub use monitor::run_feishu_monitor;
+pub use parse::parse_feishu_event;
 
 use std::sync::Arc;
 

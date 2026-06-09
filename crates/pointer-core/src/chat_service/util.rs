@@ -77,6 +77,7 @@ pub(crate) fn tool_result_msg(tool_call_id: &str, content: &str) -> ChatMessage 
         computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+        attachments: None,
             }
 }
 

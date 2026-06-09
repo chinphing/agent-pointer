@@ -9,10 +9,10 @@ use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::connection_state;
+use crate::adapters::feishu::parse::parse_feishu_event;
 use crate::gateway::ChannelGateway;
 use crate::http_client::HttpClient;
-use crate::session::build_conversation_key;
-use crate::traits::{InboundMessage, InboundReplyContext};
+use crate::traits::InboundMessage;
 
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/pbbp2.rs"));
@@ -165,8 +165,13 @@ async fn run_single_connection(
                             continue;
                         }
                         let payload = frame.payload.clone().unwrap_or_default();
-                        if let Some(inbound) = parse_feishu_event_payload(&payload, &cfg.account_id) {
-                            wait_process_inbound(gateway.clone(), inbound, &cfg.account_id).await;
+                        if let Ok(root) = serde_json::from_slice::<Value>(&payload) {
+                            if let Some(inbound) =
+                                parse_feishu_event(&root, &cfg.account_id)
+                            {
+                                wait_process_inbound(gateway.clone(), inbound, &cfg.account_id)
+                                    .await;
+                            }
                         }
                         let response = json!({ "code": 200, "headers": {}, "data": [] });
                         let mut resp_frame = frame;
@@ -234,65 +239,6 @@ fn header_value(headers: &[Header], key: &str) -> Option<String> {
         .iter()
         .find(|h| h.key == key)
         .map(|h| h.value.clone())
-}
-
-fn parse_feishu_event_payload(payload: &[u8], account_id: &str) -> Option<InboundMessage> {
-    let root: Value = serde_json::from_slice(payload).ok()?;
-    let event_type = root
-        .get("header")
-        .and_then(|h| h.get("event_type"))
-        .and_then(|v| v.as_str())
-        .or_else(|| root.get("event").and_then(|e| e.get("type")).and_then(|v| v.as_str()))?;
-    if event_type != "im.message.receive_v1" {
-        return None;
-    }
-    let ev = root.get("event")?;
-    let message = ev.get("message")?;
-    let sender = ev.get("sender")?;
-    let message_id = message.get("message_id")?.as_str()?;
-    let chat_id = message.get("chat_id")?.as_str()?;
-    let chat_type = message.get("chat_type").and_then(|v| v.as_str()).unwrap_or("p2p");
-    let is_group = chat_type == "group" || chat_type == "topic_group";
-    let content_raw = message.get("content").and_then(|v| v.as_str()).unwrap_or("{}");
-    let content: Value = serde_json::from_str(content_raw).ok()?;
-    let text = content.get("text")?.as_str()?.to_string();
-    if text.trim().is_empty() {
-        return None;
-    }
-    let sender_id = sender
-        .get("sender_id")
-        .and_then(|s| s.get("open_id"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
-    let mentioned_bot = message
-        .get("mentions")
-        .and_then(|v| v.as_array())
-        .map(|m| !m.is_empty())
-        .unwrap_or(false);
-
-    Some(InboundMessage {
-        channel: "feishu".into(),
-        account_id: account_id.into(),
-        message_id: message_id.into(),
-        conversation_key: build_conversation_key("feishu", chat_id, is_group),
-        sender_id,
-        sender_name: None,
-        text,
-        is_group,
-        mentioned_bot,
-        reply_context: Some(InboundReplyContext {
-            session_webhook: None,
-            chat_id: Some(chat_id.into()),
-            open_id: sender
-                .get("sender_id")
-                .and_then(|s| s.get("open_id"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
-            context_token: None,
-            wecom_req_id: None,
-        }),
-    })
 }
 
 /// 尽量在 ack 前完成处理；超时后后台继续，避免重连时 dedup 误杀重投消息。

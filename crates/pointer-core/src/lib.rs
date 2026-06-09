@@ -24,6 +24,7 @@ pub mod local_secret;
 pub mod logging;
 pub mod llm_prompt_dump;
 pub mod llm_token_stats;
+pub mod media;
 pub mod models;
 pub mod platform_config;
 pub mod provider;

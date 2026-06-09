@@ -116,6 +116,7 @@ mod tests {
             computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+        attachments: None,
             tool_raw_output: None,
             }
     }

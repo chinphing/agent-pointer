@@ -1,15 +1,17 @@
 use anyhow::Result;
 use pointer_core::chat_service::{run_chat, AppState};
-use pointer_core::models::{ChatMessage, Role, StreamEvent};
+use pointer_core::models::{ChatMessage, MediaAttachment, Role, StreamEvent};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::config::ChannelAccountConfig;
+use crate::http_client::HttpClient;
 use crate::inbound::ChannelHistoryStore;
+use crate::media::resolve_inbound_attachments;
 use crate::session::conversation_id;
 use crate::traits::{ChannelPlugin, InboundMessage, OutboundContext};
 
-fn channel_message(role: Role, content: String) -> ChatMessage {
+fn channel_message(role: Role, content: String, attachments: Option<Vec<MediaAttachment>>) -> ChatMessage {
     ChatMessage {
         id: uuid::Uuid::new_v4().to_string(),
         role,
@@ -33,18 +35,21 @@ fn channel_message(role: Role, content: String) -> ChatMessage {
         computer_round_screen_rel_path: None,
         ui_bindings: None,
         context_state: None,
+        attachments,
     }
 }
 
 pub struct DispatchService {
     pub history: ChannelHistoryStore,
+    http: HttpClient,
 }
 
 impl DispatchService {
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> Result<Self> {
+        Ok(Self {
             history: ChannelHistoryStore::new(),
-        }
+            http: HttpClient::new()?,
+        })
     }
 
     pub async fn handle_inbound(
@@ -85,7 +90,29 @@ impl DispatchService {
         }
 
         let mut history = self.history.load(&conv_id)?;
-        history.push(channel_message(Role::User, msg.text.clone()));
+        let media_attachments = resolve_inbound_attachments(&self.http, account, &msg).await?;
+        let mut user_content = msg.text.clone();
+        if !media_attachments.is_empty() {
+            let failed = msg.attachments.len().saturating_sub(media_attachments.len());
+            if failed > 0 {
+                log::warn!(
+                    "channel inbound {failed}/{} attachment(s) failed to download",
+                    msg.attachments.len()
+                );
+                if user_content.trim().is_empty() {
+                    user_content = format!(
+                        "[{} attachment(s) could not be downloaded]",
+                        failed
+                    );
+                }
+            }
+        }
+        let attachments_opt = if media_attachments.is_empty() {
+            None
+        } else {
+            Some(media_attachments)
+        };
+        history.push(channel_message(Role::User, user_content, attachments_opt));
 
         let (tx, mut rx) = mpsc::unbounded_channel::<StreamEvent>();
         let mut reply_text = String::new();
@@ -139,7 +166,7 @@ impl DispatchService {
             return Err(anyhow::anyhow!("channel dispatch empty reply"));
         }
 
-        history.push(channel_message(Role::Assistant, reply_text.clone()));
+        history.push(channel_message(Role::Assistant, reply_text.clone(), None));
         self.history.save(&conv_id, &history)?;
 
         let outbound = OutboundContext {
@@ -157,6 +184,6 @@ impl DispatchService {
 
 impl Default for DispatchService {
     fn default() -> Self {
-        Self::new()
+        Self::new().expect("dispatch http client")
     }
 }

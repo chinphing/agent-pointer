@@ -120,5 +120,6 @@ fn parse_wecom_xml(xml: &str, account_id: &str) -> Option<InboundMessage> {
             context_token: None,
             wecom_req_id: None,
         }),
+        attachments: vec![],
     })
 }

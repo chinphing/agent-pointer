@@ -25,6 +25,7 @@ import type {
   ComputerInitialTier,
   ComputerTierKey,
   ComputerTierLlmConfig,
+  MediaModelOverrides,
   ThemePreference
 } from '../../types/chat'
 import { COMPUTER_INITIAL_TIER_OPTIONS } from '../../types/chat'
@@ -33,6 +34,7 @@ import { applyTheme } from '../../lib/theme'
 import { resolveAgentUi, composerAgentLabel } from '../../lib/agentUi'
 import { sortComposerAgents, TEAM_MODE_UI_ENABLED } from '../../lib/agentIcons'
 import { listAgents } from '../../lib/api'
+import { checkMediaDeps } from '../../lib/api'
 import { isTauriRuntime } from '../../lib/runtime'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import { useChatStore } from '../../stores/chat'
@@ -102,6 +104,10 @@ const captchaSliderOffsetPx = ref(0)
 const theme = ref<ThemePreference>('system')
 const debugMenusEnabled = ref(false)
 const agentUiLocal = ref<Partial<AgentUiConfig>>({})
+const mediaImageModel = ref('')
+const mediaAudioModel = ref('')
+const mediaVideoModel = ref('')
+const ffmpegAvailable = ref<boolean | null>(null)
 const agents = ref<AgentDef[]>([])
 
 const TOOL_CALL_UI_FIELDS: { key: keyof AgentUiConfig; label: string }[] = [
@@ -326,8 +332,27 @@ onMounted(() => {
   theme.value = (s.settings.theme as ThemePreference) || 'system'
   debugMenusEnabled.value = s.canEditPlatform && s.settings.debugMenusEnabled === true
   agentUiLocal.value = { ...(s.settings.agentUiOverrides?.[activeUiAgentId.value] ?? {}) }
+  mediaImageModel.value = getMediaModelWithProvider('image')
+  mediaAudioModel.value = getMediaModelWithProvider('audio')
+  mediaVideoModel.value = getMediaModelWithProvider('video')
+  void refreshMediaDeps()
   loadAgents()
 })
+
+async function refreshMediaDeps() {
+  try {
+    const deps = await checkMediaDeps()
+    ffmpegAvailable.value = deps.ffmpegAvailable
+  } catch (e) {
+    console.warn('[settings] checkMediaDeps failed', e)
+    ffmpegAvailable.value = null
+  }
+}
+
+async function askAssistantInstallFfmpeg() {
+  emit('close')
+  await chat.sendUserMessage('帮我安装 ffmpeg')
+}
 
 watch(activeUiAgentId, id => {
   agentUiLocal.value = { ...(s.settings.agentUiOverrides?.[id] ?? {}) }
@@ -356,6 +381,41 @@ function setTaskBoardTrimLocal(agentId: string, enabled: boolean) {
     ...agentTaskBoardHistoryTrim.value,
     [agentId]: enabled
   }
+}
+
+function getMediaModelWithProvider(kind: keyof MediaModelOverrides): string {
+  const ref = s.getMediaModelOverride(kind)
+  if (!ref?.model) return ''
+  return `${ref.providerId}:${ref.model}`
+}
+
+async function selectMediaModelWithProvider(
+  kind: keyof MediaModelOverrides,
+  value: string
+) {
+  if (!value) {
+    await s.setMediaModelOverride(kind, null)
+    if (kind === 'image') mediaImageModel.value = ''
+    if (kind === 'audio') mediaAudioModel.value = ''
+    if (kind === 'video') mediaVideoModel.value = ''
+    return
+  }
+  const i = value.indexOf(':')
+  if (i > 0 && i < value.length - 1) {
+    const providerId = value.slice(0, i).trim()
+    const model = value.slice(i + 1).trim()
+    if (providerId && model) {
+      await s.setMediaModelOverride(kind, { providerId, model })
+      if (kind === 'image') mediaImageModel.value = value
+      if (kind === 'audio') mediaAudioModel.value = value
+      if (kind === 'video') mediaVideoModel.value = value
+      return
+    }
+  }
+  await s.setMediaModelOverride(kind, {
+    providerId: s.settings.activeProviderId,
+    model: value.trim()
+  })
 }
 
 /** Get agent default model with provider prefix: "providerId:model" */
@@ -702,6 +762,102 @@ async function saveFromFooter() {
                   <span class="block text-sm text-foreground">敏感操作确认</span>
                   <span class="mt-1 block text-[11px] text-muted">涉及文件、命令等操作时需要你确认</span>
                 </label>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
+              <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+                <Sparkles class="w-4 h-4 text-accent" />多媒体理解模型
+              </h4>
+              <p class="text-[11px] text-muted">
+                主会话模型不支持图片/语音时，使用以下模型理解附件；不会切换你选择的对话模型。
+              </p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-[12px] text-muted mb-1.5">图片理解</label>
+                  <select
+                    :value="mediaImageModel"
+                    class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground cursor-pointer outline-none focus:border-accent/50"
+                    @change="selectMediaModelWithProvider('image', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">默认（qwen3.5-plus）</option>
+                    <option
+                      v-for="item in s.allModels"
+                      :key="'img-' + item.providerId + ':' + item.model"
+                      :value="item.providerId + ':' + item.model"
+                    >
+                      {{ item.providerName }} / {{ item.model }}
+                    </option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[12px] text-muted mb-1.5">语音转写</label>
+                  <select
+                    :value="mediaAudioModel"
+                    class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground cursor-pointer outline-none focus:border-accent/50"
+                    @change="selectMediaModelWithProvider('audio', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">默认同图片理解模型</option>
+                    <option
+                      v-for="item in s.allModels"
+                      :key="'aud-' + item.providerId + ':' + item.model"
+                      :value="item.providerId + ':' + item.model"
+                    >
+                      {{ item.providerName }} / {{ item.model }}
+                    </option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[12px] text-muted mb-1.5">视频理解</label>
+                  <select
+                    :value="mediaVideoModel"
+                    class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground cursor-pointer outline-none focus:border-accent/50"
+                    @change="selectMediaModelWithProvider('video', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">默认同图片理解模型</option>
+                    <option
+                      v-for="item in s.allModels"
+                      :key="'vid-' + item.providerId + ':' + item.model"
+                      :value="item.providerId + ':' + item.model"
+                    >
+                      {{ item.providerName }} / {{ item.model }}
+                    </option>
+                  </select>
+                </div>
+              </div>
+              <div class="rounded-lg border border-border bg-card/50 px-3 py-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <p class="text-[12px] text-foreground">ffmpeg / ffprobe</p>
+                  <p class="text-[11px] text-muted">
+                    IM 视频与抽帧理解需要本机安装；未安装时不打包进应用。
+                  </p>
+                  <p class="text-[11px] mt-1" :class="ffmpegAvailable ? 'text-emerald-600' : 'text-amber-600'">
+                    {{
+                      ffmpegAvailable === null
+                        ? '检测中…'
+                        : ffmpegAvailable
+                          ? '已检测到'
+                          : '未检测到'
+                    }}
+                  </p>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    class="h-8 px-3 rounded-lg border border-border text-xs text-foreground hover:bg-muted/50"
+                    @click="refreshMediaDeps()"
+                  >
+                    重新检测
+                  </button>
+                  <button
+                    v-if="ffmpegAvailable === false"
+                    type="button"
+                    class="h-8 px-3 rounded-lg bg-accent text-accent-foreground text-xs hover:opacity-90"
+                    @click="askAssistantInstallFfmpeg()"
+                  >
+                    让助手安装
+                  </button>
+                </div>
               </div>
             </div>
 

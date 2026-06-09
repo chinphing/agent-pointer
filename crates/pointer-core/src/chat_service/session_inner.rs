@@ -129,6 +129,17 @@ pub(super) async fn run_chat_inner(
             settings.active_provider_id
         ));
     }
+    if let Err(e) = crate::media::apply_media_to_history(
+        history,
+        &settings,
+        conversation_id,
+        &api_key,
+        &cancel,
+    )
+    .await
+    {
+        log::warn!("media: apply_media_to_history failed: {:#}", e);
+    }
     let lead_worker_id = settings.lead_agent_id.trim();
     let lead_opt = if lead_worker_id.is_empty() {
         None

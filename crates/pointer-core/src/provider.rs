@@ -348,6 +348,86 @@ impl OpenAIProvider {
         })
     }
 
+    /// Non-streaming completion with explicit OpenAI-style message list (multimodal user parts).
+    pub async fn chat_once_wire_messages(
+        &self,
+        messages: Vec<Value>,
+        cancel: CancellationToken,
+        max_tokens_override: Option<u32>,
+        dump_label: Option<&str>,
+    ) -> Result<ChatOnceOutput> {
+        let base_url = self
+            .settings
+            .providers
+            .iter()
+            .find(|p| p.id == self.settings.active_provider_id)
+            .map(|p| p.base_url.clone())
+            .unwrap_or_else(|| {
+                self.settings
+                    .providers
+                    .first()
+                    .map(|p| p.base_url.clone())
+                    .unwrap_or_default()
+            });
+        let max_tok = max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
+        let extra_body = crate::models::effective_chat_extra_body(&self.settings);
+        crate::llm_prompt_dump::try_dump_round(
+            &self.settings,
+            dump_label,
+            "chat_once_wire",
+            false,
+            max_tok,
+            &messages,
+        );
+        let req = ChatRequest {
+            model: &self.settings.model,
+            messages,
+            stream: false,
+            temperature: crate::models::effective_temperature(&self.settings),
+            max_tokens: Some(max_tok),
+            stream_options: None,
+            tools: None,
+            tool_choice: None,
+            extra_body,
+        };
+        let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+        let wire_body = chat_request_wire_json(&req, &self.settings);
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(180))
+            .build()?;
+        let resp = tokio::select! {
+            _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
+            r = client
+                .post(&url)
+                .bearer_auth(&self.api_key)
+                .json(&wire_body)
+                .send() => r?,
+        };
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
+        }
+        let parsed: ChatOnceApiResponse = resp.json().await?;
+        let message = parsed
+            .choices
+            .into_iter()
+            .next()
+            .map(|choice| choice.message)
+            .ok_or_else(|| anyhow!("模型未返回候选结果"))?;
+        let text = message
+            .content
+            .clone()
+            .or_else(|| message.reasoning_content.clone())
+            .unwrap_or_default();
+        let usage = parsed.usage.as_ref().map(snapshot_from_stream_usage);
+        Ok(ChatOnceOutput {
+            text,
+            usage,
+            model: self.settings.model.clone(),
+        })
+    }
+
     pub async fn stream_chat(
         &self,
         messages: &[ChatMessage],

@@ -17,6 +17,12 @@ import { GENERAL_AGENT_ID } from '../lib/agentUi'
 import { getTaskBoardSnapshot } from '../lib/api'
 import { hasTaskBoardContent } from '../lib/taskBoard'
 import { subTaskIdFromTraceId } from '../lib/subAgentStats'
+import { stripWireAttachmentFields } from '../lib/messageNormalizer'
+import {
+  getComposerAttachmentPreviewUrl,
+  releaseComposerAttachment
+} from '../lib/attachmentPayloadStore'
+import type { ComposerAttachment } from '../types/chat'
 
 const TASK_BOARD_SUB_SEP = '\u{1f}ptr_sub_agent\u{1f}'
 const TASK_BOARD_MAIN_TURN_SEP = '\u{1f}ptr_main_turn\u{1f}'
@@ -91,7 +97,9 @@ function anchorFromMainTaskBoardStoreKey(storeKey: string): string | null {
 function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Conversation[] {
   return conversations.map(c => ({
     ...c,
-    messages: c.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
+    messages: stripWireAttachmentFields(
+      c.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
+    )
   }))
 }
 
@@ -1217,10 +1225,11 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function sendUserMessage(content: string) {
+  async function sendUserMessage(content: string, attachments: ComposerAttachment[] = []) {
     if (!current.value) newConversation()
     const conv = current.value!
-    if (!content.trim() || isConversationGenerating(conv.id)) return
+    const hasAttachments = attachments.length > 0
+    if ((!content.trim() && !hasAttachments) || isConversationGenerating(conv.id)) return
     const platformAuth = usePlatformAuthStore()
     let refreshErrorMessage: string | null = null
     if (isTauriRuntime()) {
@@ -1261,11 +1270,23 @@ export const useChatStore = defineStore('chat', () => {
     }
     const settings = useSettingsStore()
 
+    const wireAttachments = attachments.map(a => {
+      const previewUrl = getComposerAttachmentPreviewUrl(a) ?? a.previewUrl
+      const { previewUrl: _p, ...rest } = a
+      return {
+        ...rest,
+        ...(previewUrl ? { previewUrl } : {})
+      }
+    })
     const userMsg: ChatMessage = {
       id: uid(), role: 'user', content,
-      status: 'done', createdAt: Date.now()
+      status: 'done', createdAt: Date.now(),
+      ...(wireAttachments.length ? { attachments: wireAttachments } : {})
     }
     conv.messages.push(userMsg)
+    for (const att of attachments) {
+      releaseComposerAttachment(att.id)
+    }
     conv.updatedAt = Date.now()
     patchRunState(conv.id, { generating: true, activeMessageId: null })
     persist()

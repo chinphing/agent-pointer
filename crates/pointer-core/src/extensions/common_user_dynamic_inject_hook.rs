@@ -85,6 +85,7 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
             computer_round_screen_rel_path: None,
             ui_bindings: None,
             context_state: None,
+        attachments: None,
         });
         if ctx.lead_agent_profile == AgentProfile::Computer
             || ctx.lead_agent_profile == AgentProfile::Coder

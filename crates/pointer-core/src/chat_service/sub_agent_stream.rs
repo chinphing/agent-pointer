@@ -132,6 +132,7 @@ pub(super) async fn run_sub_agent_stream_round(
                     computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+        attachments: None,
             });
                 if sub_tool_budget.is_exhausted() {
                     let hint = format!(

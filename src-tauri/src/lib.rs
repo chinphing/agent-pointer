@@ -190,6 +190,8 @@ pub fn run() {
             commands::get_task_board_snapshot,
             commands::preview_computer_annotated_screen,
             commands::preview_computer_round_screen,
+            commands::preview_chat_media,
+            commands::check_media_deps,
             commands::list_computer_monitors,
             commands::set_computer_conversation_monitor,
             commands::confirm_computer_monitor_pick,

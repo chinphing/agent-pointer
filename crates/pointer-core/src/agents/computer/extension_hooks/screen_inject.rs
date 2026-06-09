@@ -314,6 +314,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+        attachments: None,
             });
             }
             Err(e) => {
@@ -347,6 +348,7 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
                     computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+        attachments: None,
             });
             }
         }
@@ -384,6 +386,7 @@ mod tests {
             computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+        attachments: None,
             }
     }
 

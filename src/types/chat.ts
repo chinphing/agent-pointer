@@ -172,6 +172,38 @@ export interface MessageContextState {
   excludedReason?: ExcludedReason
 }
 
+export type MediaAttachmentKind = 'image' | 'document' | 'audio' | 'video' | 'file'
+
+/** User message attachment metadata (wire may include contentBase64). */
+export interface MediaAttachment {
+  id: string
+  kind: MediaAttachmentKind
+  mimeType: string
+  fileName: string
+  sizeBytes: number
+  storageRelPath?: string
+  /** Wire-only; stripped before disk persist. */
+  contentBase64?: string
+  derivedText?: string
+  /** UI-only; stripped before disk persist. */
+  previewUrl?: string
+}
+
+export interface MediaModelOverrides {
+  image?: AgentModelRef
+  audio?: AgentModelRef
+  video?: AgentModelRef
+}
+
+export interface MediaDepsStatus {
+  ffmpegAvailable: boolean
+}
+
+/** Pending composer attachment (metadata + optional preview URL). */
+export interface ComposerAttachment extends MediaAttachment {
+  previewUrl?: string
+}
+
 export interface ChatMessage {
   id: string
   role: Role
@@ -209,6 +241,7 @@ export interface ChatMessage {
   uiBindings?: MessageUiBindings
   /** Whether this message participates in LLM context. */
   contextState?: MessageContextState
+  attachments?: MediaAttachment[]
 }
 
 export interface Conversation {
@@ -317,6 +350,7 @@ export interface PlatformSettings {
   captchaSliderOffsetPx?: number
   agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
   computerTierLlm?: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
+  mediaModelOverrides?: MediaModelOverrides
 }
 
 export interface EffectiveSettingsView {
@@ -375,6 +409,7 @@ export interface ModelSettings {
   theme?: ThemePreference
   /** Per-agent UI overrides (merged over manifest `ui`) */
   agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
+  mediaModelOverrides?: MediaModelOverrides
 }
 
 export interface SkillDef {
@@ -407,6 +442,13 @@ export interface ComputerAnnotatedPreview {
   /** `image/jpeg` or legacy `image/png`. */
   imageMime?: string
   caption: string
+}
+
+/** Chat attachment bytes for bubble preview reload. */
+export interface ChatMediaPreview {
+  dataBase64: string
+  mimeType: string
+  fileName: string
 }
 
 export interface ComputerMonitor {

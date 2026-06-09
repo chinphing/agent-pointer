@@ -132,6 +132,7 @@ pub(super) fn init_sub_agent_session(
         computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
+        attachments: None,
             }];
 
     Ok(SubAgentSession {

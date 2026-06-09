@@ -6,6 +6,7 @@ import type {
   ComputerAnnotatedPreview,
   ComputerMonitor,
   Conversation,
+  ConversationMeta,
   EffectiveSettingsView,
   ModelSettings,
   PlatformSettings,
@@ -66,6 +67,8 @@ export interface RuntimeApi {
 
   loadConversations(): Promise<Conversation[]>
   saveConversations(conversations: Conversation[]): Promise<void>
+  saveConversationMeta(metas: ConversationMeta[]): Promise<void>
+  replaceConversationMessages(conversationId: string, messages: ChatMessage[]): Promise<void>
   onStream(handler: (e: StreamEvent) => void, conversationId?: string): Promise<UnlistenFn>
 }
 
@@ -128,6 +131,8 @@ export const dismissMacosPermissionDragGuide = isTauriRuntime()
 
 export const loadConversations = api.loadConversations
 export const saveConversations = api.saveConversations
+export const saveConversationMeta = api.saveConversationMeta
+export const replaceConversationMessages = api.replaceConversationMessages
 export const onStream = api.onStream
 
 export type PlatformSessionView = import('./tauri').PlatformSessionView

@@ -6,6 +6,7 @@
 //! shared `agent_stream_round` / `agent_post_stream` / `agent_tool_pass` / `run_subagent_delegation`.
 
 mod computer_monitor_pick;
+mod conversation_persist;
 mod agent_post_stream;
 mod agent_stream_round;
 mod agent_tool_pass;

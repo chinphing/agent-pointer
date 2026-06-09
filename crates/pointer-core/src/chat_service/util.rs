@@ -80,6 +80,17 @@ pub(crate) fn tool_result_msg(tool_call_id: &str, content: &str) -> ChatMessage 
             }
 }
 
+pub(crate) fn push_tool_result(
+    history: &mut Vec<ChatMessage>,
+    conversation_id: &str,
+    tool_call_id: &str,
+    content: &str,
+) {
+    let msg = tool_result_msg(tool_call_id, content);
+    history.push(msg.clone());
+    super::conversation_persist::upsert_message(conversation_id, &msg);
+}
+
 pub(crate) fn append_assistant_tool_raw_output(
     history: &mut [ChatMessage],
     message_id: &str,

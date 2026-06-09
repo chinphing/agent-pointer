@@ -386,7 +386,7 @@ pub(crate) async fn run_supervisor_chat(
         );
     }
 
-    history.push(ChatMessage {
+    let final_msg = ChatMessage {
         id: assistant_id.clone(),
         role: Role::Assistant,
         content: final_answer.clone(),
@@ -408,8 +408,10 @@ pub(crate) async fn run_supervisor_chat(
         images_base64: None,
         computer_round_screen_rel_path: None,
         ui_bindings: None,
-            context_state: None,
-            });
+        context_state: None,
+    };
+    history.push(final_msg.clone());
+    super::conversation_persist::upsert_message(conversation_id, &final_msg);
     emit(
         &stream,
         StreamEvent::MessageEnd {

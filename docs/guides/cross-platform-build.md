@@ -40,7 +40,9 @@ Tauri CLI 由项目 devDependency 提供，**不要依赖全局 `tauri` 命令**
 | macOS / Linux | `cc` 或 `gcc`（Xcode CLT / build-essential） |
 | Windows | MSVC `cl` 或 MinGW `gcc` |
 
-扩展在 build 时嵌入二进制，首次运行释放到 `{data_dir}/PointerApp/native/`。从 `unicode61` 升级的用户会在下次打开时自动重建 FTS 索引。
+扩展在 build 时嵌入二进制，首次运行释放到 `{data_dir}/PointerApp/native/`。
+
+**对话历史**存于 `{data_dir}/PointerApp/conversations.db`（SQLite WAL，Hermes 同型写重试 + 增量 upsert）。首次升级会从 `conversations.json` 自动导入。旧版 `sessions.db` 索引库已废弃。
 
 首次进入项目：
 

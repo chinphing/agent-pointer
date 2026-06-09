@@ -31,7 +31,7 @@ use crate::task_board::{
 };
 use super::util::{
     append_assistant_tool_raw_output, desktop_tool_failure_note, patch_assistant_tool_call_display,
-    tool_display_stream_fields, tool_result_msg, truncate_str,
+    tool_display_stream_fields, truncate_str,
 };
 use super::StreamTx;
 
@@ -140,7 +140,7 @@ pub(super) async fn run_agent_tool_pass(
                     trace_id: trace_id_opt(sub_trace_id.as_deref()),
                 },
             );
-            history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
+            super::util::push_tool_result(history, conversation_id, &tc.id, &format!("ERROR: {err}"));
             any_executed = true;
             continue;
         }
@@ -162,7 +162,7 @@ pub(super) async fn run_agent_tool_pass(
                         trace_id: trace_id_opt(sub_trace_id.as_deref()),
                     },
                 );
-                history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
+                super::util::push_tool_result(history, conversation_id, &tc.id, &format!("ERROR: {err}"));
                 any_executed = true;
                 continue;
             }
@@ -198,7 +198,7 @@ pub(super) async fn run_agent_tool_pass(
                     trace_id: trace_id_opt(sub_trace_id.as_deref()),
                     },
                 );
-                history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
+                super::util::push_tool_result(history, conversation_id, &tc.id, &format!("ERROR: {err}"));
                 any_executed = true;
                 continue;
             }
@@ -207,6 +207,7 @@ pub(super) async fn run_agent_tool_pass(
         if !run_approval_gate(
             &stream,
             &state,
+            conversation_id,
             history,
             tool_approval_mode,
             &message_id,
@@ -429,6 +430,7 @@ fn handle_response_tool(
 async fn run_approval_gate(
     stream: &StreamTx,
     state: &AppState,
+    conversation_id: &str,
     history: &mut Vec<ChatMessage>,
     tool_approval_mode: &str,
     message_id: &str,
@@ -487,7 +489,7 @@ async fn run_approval_gate(
             trace_id: trace_id_opt(trace_id),
         },
     );
-    history.push(tool_result_msg(&tc.id, &err));
+    super::util::push_tool_result(history, conversation_id, &tc.id, &err);
     Ok(false)
 }
 
@@ -788,7 +790,7 @@ async fn record_tool_exec_outcome(
                 args_for_desktop_log,
                 &out,
             );
-            history.push(tool_result_msg(&tc.id, &out));
+            super::util::push_tool_result(history, conversation_id, &tc.id, &out);
         }
         Err(e) => {
             let err = e.to_string();
@@ -822,7 +824,7 @@ async fn record_tool_exec_outcome(
                 args_for_desktop_log,
                 &error_out,
             );
-            history.push(tool_result_msg(&tc.id, &error_out));
+            super::util::push_tool_result(history, conversation_id, &tc.id, &error_out);
         }
     }
 }

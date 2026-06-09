@@ -234,6 +234,47 @@ pub struct Conversation {
     pub workspace_root: String,
 }
 
+/// Conversation shell fields for P1 meta-only persistence (no messages).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationMeta {
+    pub id: String,
+    pub title: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: i64,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: i64,
+    #[serde(default, rename = "skillIds")]
+    pub skill_ids: Vec<String>,
+    #[serde(default, rename = "toolRoundsUsed")]
+    pub tool_rounds_used: u32,
+    #[serde(default, rename = "toolRoundsUsedSupervisor")]
+    pub tool_rounds_used_supervisor: u32,
+    #[serde(
+        default,
+        rename = "computerMonitorId",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub computer_monitor_id: Option<String>,
+    #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
+    pub workspace_root: String,
+}
+
+impl From<&Conversation> for ConversationMeta {
+    fn from(c: &Conversation) -> Self {
+        Self {
+            id: c.id.clone(),
+            title: c.title.clone(),
+            created_at: c.created_at,
+            updated_at: c.updated_at,
+            skill_ids: c.skill_ids.clone(),
+            tool_rounds_used: c.tool_rounds_used,
+            tool_rounds_used_supervisor: c.tool_rounds_used_supervisor,
+            computer_monitor_id: c.computer_monitor_id.clone(),
+            workspace_root: c.workspace_root.clone(),
+        }
+    }
+}
+
 /// Desktop monitor descriptor for Computer agent screen selection (UI).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComputerMonitor {

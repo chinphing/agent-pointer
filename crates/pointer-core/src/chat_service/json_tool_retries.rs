@@ -27,9 +27,9 @@ pub(crate) fn push_injected_format_retry_turn(
         },
     );
     history.push(ChatMessage {
-        id: retry_id,
+        id: retry_id.clone(),
         role: Role::User,
-        content: hint,
+        content: hint.clone(),
         status: "done".into(),
         created_at: now_ms(),
         tool_calls: None,
@@ -48,6 +48,10 @@ pub(crate) fn push_injected_format_retry_turn(
         images_base64: None,
         computer_round_screen_rel_path: None,
         ui_bindings: None,
-            context_state: None,
-            });
+        context_state: None,
+    });
+    super::conversation_persist::upsert_message(
+        conversation_id,
+        history.last().expect("injected retry turn"),
+    );
 }

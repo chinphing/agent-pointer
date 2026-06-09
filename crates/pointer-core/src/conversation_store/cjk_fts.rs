@@ -22,7 +22,6 @@ const EXT_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libcjkfts.dll
 
 static EXTRACTED_PATH: OnceLock<PathBuf> = OnceLock::new();
 
-/// Load `sqlite3_cjkfts_init` and register the `cjk_bigram` FTS5 tokenizer.
 pub fn ensure_loaded(conn: &Connection) -> Result<()> {
     let path = extracted_extension_path()?;
     unsafe {
@@ -31,7 +30,10 @@ pub fn ensure_loaded(conn: &Connection) -> Result<()> {
         conn.load_extension(&path, None::<&str>)
             .with_context(|| format!("load cjk fts extension {}", path.display()))?;
     }
-    log::info!("session_search: loaded cjk_bigram tokenizer from {}", path.display());
+    log::info!(
+        "conversation_store: loaded cjk_bigram tokenizer from {}",
+        path.display()
+    );
     Ok(())
 }
 

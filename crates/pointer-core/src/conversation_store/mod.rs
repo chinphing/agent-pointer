@@ -1,0 +1,279 @@
+//! Canonical SQLite conversation store (Hermes-style) with embedded FTS search.
+
+mod cjk_fts;
+mod db;
+mod migrate;
+mod persist;
+mod search;
+mod write;
+#[cfg(test)]
+mod tests;
+
+use anyhow::Result;
+use rusqlite::{Connection, OptionalExtension};
+use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
+
+use crate::models::{ChatMessage, Conversation, ConversationMeta};
+use crate::storage::app_data_dir;
+
+const DB_FILE: &str = "conversations.db";
+const SCHEMA_VERSION: i32 = 1;
+
+static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
+
+pub struct ConversationStore {
+    db: db::DbHandle,
+}
+
+impl ConversationStore {
+    pub fn open_default() -> Result<Arc<Self>> {
+        let path = app_data_dir()?.join(DB_FILE);
+        Self::open(path).map(Arc::new)
+    }
+
+    pub fn open(path: PathBuf) -> Result<Self> {
+        let db = db::DbHandle::open(&path)?;
+        {
+            let conn = db.conn.lock();
+            init_schema(&conn)?;
+            cjk_fts::ensure_loaded(&conn)?;
+            ensure_fts_schema(&conn)?;
+        }
+        let store = Self { db };
+        let canonical = app_data_dir()?.join(DB_FILE);
+        if path == canonical {
+            let conn = store.db.conn.lock();
+            migrate::migrate_json_if_needed(&conn, &migrate::default_json_path()?)?;
+        }
+        log::info!("conversation_store: opened {}", path.display());
+        Ok(store)
+    }
+
+    pub fn load_all(&self) -> Result<Vec<Conversation>> {
+        let conn = self.db.conn.lock();
+        persist::load_all_from_conn(&conn)
+    }
+
+    pub fn save_all(&self, list: &[Conversation]) -> Result<()> {
+        self.db.execute_write(|conn| {
+            let ids: Vec<String> = list.iter().map(|c| c.id.clone()).collect();
+            persist::delete_conversations_not_in(conn, &ids)?;
+            let mut written = 0u32;
+            for conv in list {
+                if persist::upsert_conversation(conn, conv, true)? {
+                    written += 1;
+                }
+            }
+            if written > 0 {
+                log::debug!(
+                    "conversation_store: upserted {written}/{} conversations",
+                    list.len()
+                );
+            }
+            Ok(())
+        })
+    }
+
+    /// P1: sync conversation shell fields only; messages are untouched.
+    pub fn save_meta_all(&self, metas: &[ConversationMeta]) -> Result<()> {
+        self.db.execute_write(|conn| write::save_meta_all_in_conn(conn, metas))
+    }
+
+    /// P0: append messages not yet present in the DB.
+    pub fn append_missing_messages(
+        &self,
+        conversation_id: &str,
+        messages: &[ChatMessage],
+    ) -> Result<u32> {
+        self.db.execute_write(|conn| {
+            write::append_missing_messages_in_conn(conn, conversation_id, messages)
+        })
+    }
+
+    /// P0: insert or update one message.
+    pub fn upsert_message(&self, conversation_id: &str, msg: &ChatMessage) -> Result<()> {
+        self.db
+            .execute_write(|conn| write::upsert_message_in_conn(conn, conversation_id, msg))
+    }
+
+    /// P2a: ordered upsert without deleting orphan rows (compression / trim).
+    pub fn sync_messages_ordered(
+        &self,
+        conversation_id: &str,
+        messages: &[ChatMessage],
+    ) -> Result<()> {
+        self.db.execute_write(|conn| {
+            write::sync_messages_ordered_in_conn(conn, conversation_id, messages)
+        })
+    }
+
+    /// P2b: replace full transcript (undo / retry).
+    pub fn replace_messages(
+        &self,
+        conversation_id: &str,
+        messages: &[ChatMessage],
+    ) -> Result<()> {
+        self.db
+            .execute_write(|conn| write::replace_messages_in_conn(conn, conversation_id, messages))
+    }
+
+    pub fn upsert_meta(&self, meta: &ConversationMeta) -> Result<()> {
+        self.db
+            .execute_write(|conn| write::upsert_conversation_meta(conn, meta))
+    }
+
+    pub fn dispatch_search_tool(&self, args: &serde_json::Value) -> Result<String> {
+        search::dispatch_tool(&self.db, args)
+    }
+
+    /// Alias for tool registration / tests.
+    pub fn dispatch_tool(&self, args: &serde_json::Value) -> Result<String> {
+        self.dispatch_search_tool(args)
+    }
+
+    #[cfg(test)]
+    pub fn sync_conversations(&self, convs: &[Conversation]) -> Result<()> {
+        self.save_all(convs)
+    }
+
+    #[cfg(test)]
+    pub fn dispatch_tool_for_test(&self, args: &serde_json::Value) -> Result<String> {
+        self.dispatch_search_tool(args)
+    }
+#[cfg(test)]
+    pub fn open_in_dir(dir: &std::path::Path) -> Result<Self> {
+        Self::open(dir.join(DB_FILE))
+    }
+}
+
+pub fn global_store() -> Result<Arc<ConversationStore>> {
+    if let Some(store) = GLOBAL.get() {
+        return Ok(store.clone());
+    }
+    let store = ConversationStore::open_default()?;
+    let _ = GLOBAL.set(store.clone());
+    Ok(store)
+}
+
+fn init_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS schema_version (
+           version INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS store_meta (
+           key TEXT PRIMARY KEY,
+           value TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS conversations (
+           id TEXT PRIMARY KEY,
+           title TEXT NOT NULL,
+           created_at_ms INTEGER NOT NULL,
+           updated_at_ms INTEGER NOT NULL,
+           message_count INTEGER NOT NULL DEFAULT 0,
+           preview TEXT NOT NULL DEFAULT '',
+           skill_ids_json TEXT NOT NULL DEFAULT '[]',
+           tool_rounds_used INTEGER NOT NULL DEFAULT 0,
+           tool_rounds_used_supervisor INTEGER NOT NULL DEFAULT 0,
+           computer_monitor_id TEXT,
+           workspace_root TEXT NOT NULL DEFAULT ''
+         );
+         CREATE TABLE IF NOT EXISTS messages (
+           id INTEGER PRIMARY KEY,
+           conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+           message_id TEXT NOT NULL,
+           role TEXT NOT NULL,
+           content TEXT NOT NULL,
+           payload TEXT NOT NULL,
+           created_at_ms INTEGER NOT NULL,
+           position INTEGER NOT NULL,
+           UNIQUE(conversation_id, message_id)
+         );
+         CREATE INDEX IF NOT EXISTS idx_conversations_updated
+           ON conversations(updated_at_ms DESC);
+         CREATE INDEX IF NOT EXISTS idx_messages_conv_pos
+           ON messages(conversation_id, position);",
+    )?;
+    let version: Option<i32> = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
+            row.get(0)
+        })
+        .optional()?;
+    if version.is_none() {
+        conn.execute(
+            "INSERT INTO schema_version(version) VALUES (?1)",
+            [SCHEMA_VERSION],
+        )?;
+    }
+    Ok(())
+}
+
+fn ensure_fts_schema(conn: &Connection) -> Result<()> {
+    let current: Option<String> = conn
+        .query_row(
+            "SELECT value FROM store_meta WHERE key = 'fts_tokenizer'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    if current.as_deref() == Some("cjk_bigram") && fts_table_exists(conn)? {
+        return Ok(());
+    }
+
+    if fts_table_exists(conn)? {
+        conn.execute_batch(
+            "DROP TRIGGER IF EXISTS messages_ai;
+             DROP TRIGGER IF EXISTS messages_ad;
+             DROP TRIGGER IF EXISTS messages_au;
+             DROP TABLE IF EXISTS messages_fts;",
+        )?;
+        log::info!("conversation_store: rebuilding FTS with cjk_bigram");
+    }
+
+    create_fts_table(conn)?;
+    conn.execute(
+        "INSERT INTO store_meta(key, value) VALUES ('fts_tokenizer', 'cjk_bigram')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [],
+    )?;
+    Ok(())
+}
+
+fn fts_table_exists(conn: &Connection) -> Result<bool> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='messages_fts'",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(n > 0)
+}
+
+fn create_fts_table(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+           content,
+           conversation_id UNINDEXED,
+           message_id UNINDEXED,
+           role UNINDEXED,
+           content='messages',
+           content_rowid='id',
+           tokenize='cjk_bigram'
+         );
+         CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+           INSERT INTO messages_fts(rowid, content, conversation_id, message_id, role)
+           VALUES (new.id, new.content, new.conversation_id, new.message_id, new.role);
+         END;
+         CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+           INSERT INTO messages_fts(messages_fts, rowid, content, conversation_id, message_id, role)
+           VALUES ('delete', old.id, old.content, old.conversation_id, old.message_id, old.role);
+         END;
+         CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+           INSERT INTO messages_fts(messages_fts, rowid, content, conversation_id, message_id, role)
+           VALUES ('delete', old.id, old.content, old.conversation_id, old.message_id, old.role);
+           INSERT INTO messages_fts(rowid, content, conversation_id, message_id, role)
+           VALUES (new.id, new.content, new.conversation_id, new.message_id, new.role);
+         END;",
+    )?;
+    Ok(())
+}

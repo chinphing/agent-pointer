@@ -655,6 +655,13 @@ async fn compress_history_inner(
 
     match ui.scope {
         CompressionScope::Main if emit_history_replaced => {
+            if let Ok(store) = crate::conversation_store::global_store() {
+                if let Err(e) = store.sync_messages_ordered(conversation_id, history) {
+                    log::warn!(
+                        "conversation_store: sync after compression failed conversation_id={conversation_id}: {e:#}"
+                    );
+                }
+            }
             let _ = stream.send(StreamEvent::HistoryReplaced {
                 conversation_id: conversation_id.to_string(),
                 messages: history.clone(),

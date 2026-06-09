@@ -2,12 +2,13 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import {
   sendChat, cancelChat, abortTerminalCommand, approveToolCall, onStream,
-  loadConversations, saveConversations
+  loadConversations, saveConversationMeta, replaceConversationMessages
 } from '../lib/api'
 import type {
   ChatMessage,
   ComputerMonitorPickRequest,
   Conversation,
+  ConversationMeta,
   StreamEvent,
   ToolCall,
   TaskBoardDocument
@@ -302,14 +303,39 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function persist() {
+  function toConversationMeta(c: Conversation): ConversationMeta {
+    return {
+      id: c.id,
+      title: c.title,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+      skillIds: c.skillIds,
+      toolRoundsUsed: c.toolRoundsUsed,
+      toolRoundsUsedSupervisor: c.toolRoundsUsedSupervisor,
+      computerMonitorId: c.computerMonitorId,
+      workspaceRoot: c.workspaceRoot
+    }
+  }
+
+  function persistMeta() {
     if (saveTimer) window.clearTimeout(saveTimer)
     saveTimer = window.setTimeout(() => {
-      const payload = JSON.parse(
-        JSON.stringify(stripEphemeralDesktopNoticesForDisk(conversations.value))
-      )
-      saveConversations(payload).catch(e => console.error('save error', e))
+      const metas = JSON.parse(
+        JSON.stringify(conversations.value.map(toConversationMeta))
+      ) as ConversationMeta[]
+      saveConversationMeta(metas).catch(e => console.error('save meta error', e))
     }, 400)
+  }
+
+  /** P2b: replace transcript when the UI rewrites history (undo, errors, etc.). */
+  function persistReplace(conversationId: string) {
+    const conv = conversations.value.find(c => c.id === conversationId)
+    if (!conv) return
+    const [stripped] = stripEphemeralDesktopNoticesForDisk([conv])
+    const messages = JSON.parse(JSON.stringify(stripped.messages)) as ChatMessage[]
+    replaceConversationMessages(conversationId, messages).catch(e =>
+      console.error('replace messages error', e)
+    )
   }
 
   function shouldSeedWorkspaceForNewConversation(): boolean {
@@ -337,7 +363,7 @@ export const useChatStore = defineStore('chat', () => {
     }
     conversations.value.unshift(c)
     currentId.value = c.id
-    persist()
+    persistMeta()
     return c
   }
 
@@ -364,7 +390,7 @@ export const useChatStore = defineStore('chat', () => {
       currentId.value = conversations.value[0]?.id || null
       if (!currentId.value) newConversation()
     }
-    persist()
+    persistMeta()
   }
 
   function findMessage(messageId: string): { conv: Conversation; msg: ChatMessage } | null {
@@ -540,7 +566,6 @@ export const useChatStore = defineStore('chat', () => {
     if (!isEphemeralDesktopNoticeMessage(msg)) return
     conv.messages.splice(i, 1)
     conv.updatedAt = Date.now()
-    persist()
   }
 
   /** 每次注入/更新文案后重置 5s 倒计时（必须在 store 里调度，避免组件未挂载时永不消失）。 */
@@ -738,7 +763,6 @@ export const useChatStore = defineStore('chat', () => {
           showUiToast(buildCompressionNoticeContent(e.compression), 'success')
         }
         conv.updatedAt = Date.now()
-        persist()
         break
       }
       case 'context_compressed': {
@@ -754,7 +778,6 @@ export const useChatStore = defineStore('chat', () => {
         }
         showUiToast(buildCompressionNoticeContent(e.compression), 'success')
         r.conv.updatedAt = Date.now()
-        persist()
         break
       }
       case 'ui_toast': {
@@ -778,7 +801,7 @@ export const useChatStore = defineStore('chat', () => {
           toolCalls: []
         })
         conv.updatedAt = Date.now()
-        persist()
+        persistReplace(e.conversationId)
         break
       }
       case 'message_start': {
@@ -864,7 +887,6 @@ export const useChatStore = defineStore('chat', () => {
           r.msg.status = 'streaming'
           if (e.agent.status === 'completed' || e.agent.status === 'failed') {
             finalizeSubSession(trace)
-            persist()
           } else if (trace.session) {
             trace.session.contentStreaming = true
           }
@@ -916,7 +938,7 @@ export const useChatStore = defineStore('chat', () => {
         if (conv) {
           conv.workspaceRoot = e.workspaceRoot
           conv.updatedAt = Date.now()
-          persist()
+          persistMeta()
         }
         if (e.isEphemeralSandbox) {
           showUiToast(`已创建临时工作目录：${e.workspaceRoot}`, 'warning')
@@ -937,7 +959,7 @@ export const useChatStore = defineStore('chat', () => {
         if (conv) {
           conv.computerMonitorId = e.monitorId ?? undefined
           conv.updatedAt = Date.now()
-          persist()
+          persistMeta()
         }
         break
       }
@@ -1082,7 +1104,7 @@ export const useChatStore = defineStore('chat', () => {
             }
           }
         }
-        persist()
+        persistMeta()
         break
       }
       case 'injected_user_message': {
@@ -1098,7 +1120,6 @@ export const useChatStore = defineStore('chat', () => {
           })
         }
         conv.updatedAt = Date.now()
-        persist()
         break
       }
       case 'injected_assistant_message': {
@@ -1113,7 +1134,6 @@ export const useChatStore = defineStore('chat', () => {
         ) {
           existingRow.content = e.content
           conv.updatedAt = Date.now()
-          persist()
           scheduleDesktopNoticeRemoval(e.conversationId, e.messageId)
           break
         }
@@ -1133,7 +1153,6 @@ export const useChatStore = defineStore('chat', () => {
           conv.messages.push(row)
         }
         conv.updatedAt = Date.now()
-        persist()
         scheduleDesktopNoticeRemoval(e.conversationId, e.messageId)
         break
       }
@@ -1144,7 +1163,6 @@ export const useChatStore = defineStore('chat', () => {
         if (msg && msg.role === 'assistant' && isEphemeralDesktopNoticeMessage(msg)) {
           msg.content = e.content
           conv.updatedAt = Date.now()
-          persist()
           scheduleDesktopNoticeRemoval(e.conversationId, e.messageId)
         }
         break
@@ -1155,16 +1173,17 @@ export const useChatStore = defineStore('chat', () => {
         if (r.msg.role !== 'assistant') break
         r.msg.computerRoundScreenRelPath = e.annotatedRelPath
         r.conv.updatedAt = Date.now()
-        // Persist immediately so relPath survives app restart if the user quits before `done`.
-        persist()
+        persistReplace(e.conversationId)
         break
       }
       case 'error': {
         flushReasoningDeltaBuffer(e.messageId ?? undefined)
         const cancelled = isGenerationCancelledMessage(e.message)
+        let replaceId: string | null = null
         if (e.messageId) {
           const r = findMessage(e.messageId)
           if (r) {
+            replaceId = r.conv.id
             if (cancelled && isDiscardableEmptyAssistant(r.msg)) {
               removeAssistantMessage(r.conv, e.messageId)
             } else {
@@ -1177,12 +1196,14 @@ export const useChatStore = defineStore('chat', () => {
         } else if (cancelled) {
           const conv = conversations.value.find(c => c.id === currentId.value)
           if (conv) {
+            replaceId = conv.id
             removeTrailingDiscardableEmptyAssistant(conv)
             clearRunState(conv.id)
           }
         } else {
           const conv = conversations.value.find(c => c.id === currentId.value)
           if (conv) {
+            replaceId = conv.id
             conv.messages.push({
               id: uid(),
               role: 'assistant',
@@ -1196,7 +1217,7 @@ export const useChatStore = defineStore('chat', () => {
           }
           clearAllRunStates()
         }
-        persist()
+        if (replaceId) persistReplace(replaceId)
         break
       }
       case 'done': {
@@ -1211,7 +1232,7 @@ export const useChatStore = defineStore('chat', () => {
             conv.toolRoundsUsedSupervisor = e.toolRoundsUsedSupervisorTotal
           }
         }
-        persist()
+        persistMeta()
         break
       }
     }
@@ -1242,7 +1263,7 @@ export const useChatStore = defineStore('chat', () => {
             platformAuth.error ||
             '请先登录 Pointer 账户'
         })
-        persist()
+        persistReplace(conv.id)
         return
       }
     }
@@ -1256,7 +1277,7 @@ export const useChatStore = defineStore('chat', () => {
         errorMessage:
           '套餐 Token 额度已用尽，请前往 Openpointer 官网充值或联系管理员。'
       })
-      persist()
+      persistReplace(conv.id)
       return
     }
     const settings = useSettingsStore()
@@ -1268,7 +1289,7 @@ export const useChatStore = defineStore('chat', () => {
     conv.messages.push(userMsg)
     conv.updatedAt = Date.now()
     patchRunState(conv.id, { generating: true, activeMessageId: null })
-    persist()
+    persistMeta()
 
     void refreshTaskBoard(conv.id)
 
@@ -1288,7 +1309,7 @@ export const useChatStore = defineStore('chat', () => {
         status: 'error', createdAt: Date.now(),
         errorMessage: String(err)
       })
-      persist()
+      persistReplace(conv.id)
     })
   }
 
@@ -1307,7 +1328,7 @@ export const useChatStore = defineStore('chat', () => {
       }
     }
     removeDiscardableAssistant(conv, msgId)
-    persist()
+    persistReplace(conv.id)
   }
 
   async function abortTerminalOnly() {
@@ -1324,6 +1345,7 @@ export const useChatStore = defineStore('chat', () => {
     }
     const last = conv.messages[conv.messages.length - 1]
     if (!last) return
+    persistReplace(conv.id)
     patchRunState(conv.id, { generating: true, activeMessageId: null })
     await sendChat({
       conversationId: conv.id,
@@ -1355,7 +1377,7 @@ export const useChatStore = defineStore('chat', () => {
       conv.messages.pop()
     }
     conv.updatedAt = Date.now()
-    persist()
+    persistReplace(conv.id)
   }
 
   function applyPersistedComposerDefaults() {
@@ -1365,7 +1387,7 @@ export const useChatStore = defineStore('chat', () => {
     const conv = current.value
     if (conv && !conv.workspaceRoot?.trim()) {
       conv.workspaceRoot = defaultWorkspace
-      persist()
+      persistMeta()
     }
   }
 
@@ -1376,7 +1398,7 @@ export const useChatStore = defineStore('chat', () => {
     conv.messages = conv.messages.filter(m => !isPlatformLoginErrorMessage(m))
     if (conv.messages.length !== before) {
       conv.updatedAt = Date.now()
-      persist()
+      persistReplace(conv.id)
     }
   }
 
@@ -1384,7 +1406,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!current.value) newConversation()
     if (!current.value) return
     current.value.workspaceRoot = root
-    persist()
+    persistMeta()
     void useSettingsStore().saveAgentPreferences({ workspaceRoot: root })
   }
 

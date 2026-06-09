@@ -135,11 +135,12 @@ User prefers concise replies in Chinese for design docs
 
 ### 2.7 Session Search（二期，可选）
 
-Hermes 用 SQLite FTS5 索引全部会话消息；Pointer 当前为 `conversations.json`，不适合直接 FTS。
+Hermes 用 SQLite FTS5 索引全部会话消息；Pointer 已对齐为 **`conversations.db` canonical 存储**（原 `conversations.json` 仅一次性迁移来源）。
 
 二期拟议：
 
-- `{data_dir}/PointerApp/sessions.db` 增量索引 message（FTS5 **`cjk_bigram`**，基于 vendored [sqlite-cjk-fts](https://pypi.org/project/sqlite-cjk-fts/)）
+- `{data_dir}/PointerApp/conversations.db` — **canonical** SQLite store（WAL + FTS5 `cjk_bigram`）；`session_search` 直接查同一库
+- 首次启动自动从 `conversations.json` 导入并归档为 `conversations.json.migrated`
 - `session_search` 工具：discovery（query）/ scroll（session_id + message_id）/ browse（最近列表）
 - 与 memory 分工：memory = 常驻关键事实；session_search = 「上周讨论过 X 吗」
 

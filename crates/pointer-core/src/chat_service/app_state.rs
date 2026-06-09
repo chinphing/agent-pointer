@@ -93,27 +93,18 @@ impl AppState {
         };
         crate::tools::builtin::register_all(&tools, task_board_store.clone());
         crate::memory::register_memory_tool(&tools, memory_store.clone());
-        let session_index = match crate::session_search::SessionIndex::open_default() {
-            Ok(idx) => Arc::new(idx),
-            Err(e) => {
-                log::warn!("session_search: open failed ({e:#}); using temp db");
-                let path = crate::storage::app_data_dir()
-                    .unwrap_or_else(|_| std::env::temp_dir())
-                    .join("sessions.db");
-                match crate::session_search::SessionIndex::open(path) {
-                    Ok(idx) => Arc::new(idx),
-                    Err(e2) => {
-                        log::error!("session_search: fallback open failed: {e2:#}");
-                        Arc::new(
-                            crate::session_search::SessionIndex::open(std::env::temp_dir().join(
-                                format!("pointer-sessions-{}.db", uuid::Uuid::new_v4()),
-                            ))
-                            .expect("session_search: temp db"),
-                        )
-                    }
-                }
-            }
-        };
+        let session_index = crate::conversation_store::global_store().unwrap_or_else(|e| {
+            log::warn!("conversation_store: open failed ({e:#}); using temp db");
+            Arc::new(
+                crate::conversation_store::ConversationStore::open(
+                    std::env::temp_dir().join(format!(
+                        "pointer-conversations-{}.db",
+                        uuid::Uuid::new_v4()
+                    )),
+                )
+                .expect("conversation_store temp db"),
+            )
+        });
         crate::session_search::register_session_search_tool(&tools, session_index.clone());
         let skills = Arc::new(SkillRegistry::new());
         crate::skills::builtin::register_all(&skills);

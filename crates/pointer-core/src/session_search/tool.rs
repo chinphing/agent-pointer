@@ -1,6 +1,6 @@
 //! `session_search` tool registration.
 
-use super::index::SessionIndex;
+use crate::conversation_store::ConversationStore;
 use crate::tools::{ToolEntry, ToolHandler, ToolRegistry};
 use anyhow::Result;
 use serde_json::{json, Value};
@@ -9,11 +9,11 @@ use std::sync::Arc;
 const SESSION_SEARCH_MD: &str = include_str!("prompts/session_search.md");
 const SESSION_SEARCH_DOC_SOURCE: &str = "session_search/prompts/session_search.md";
 
-pub fn register(reg: &ToolRegistry, index: Arc<SessionIndex>) {
+pub fn register(reg: &ToolRegistry, store: Arc<ConversationStore>) {
     let doc = SESSION_SEARCH_MD.trim();
-    let idx = index.clone();
+    let st = store.clone();
     let handler: ToolHandler = Arc::new(move |args: Value| -> Result<String> {
-        idx.dispatch_tool(&args)
+        st.dispatch_search_tool(&args)
     });
 
     reg.register(

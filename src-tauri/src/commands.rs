@@ -287,6 +287,19 @@ pub fn save_conversations(conversations: Vec<Conversation>) -> Result<(), String
 }
 
 #[tauri::command]
+pub fn save_conversation_meta(metas: Vec<pointer_core::models::ConversationMeta>) -> Result<(), String> {
+    storage::save_conversation_meta(&metas).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn replace_conversation_messages(
+    conversation_id: String,
+    messages: Vec<pointer_core::models::ChatMessage>,
+) -> Result<(), String> {
+    storage::replace_conversation_messages(&conversation_id, &messages).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn list_pinned_experiences(limit: Option<u32>) -> Result<Vec<pointer_core::experiences::ExperienceListItem>, String> {
     let n = limit.unwrap_or(3).max(1).min(10) as usize;
     pointer_core::experiences::fetch_pinned_experiences(n)

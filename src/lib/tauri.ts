@@ -7,6 +7,7 @@ import type {
   ComputerAnnotatedPreview,
   ComputerMonitor,
   Conversation,
+  ConversationMeta,
   EffectiveSettingsView,
   ModelSettings,
   PlatformSettings,
@@ -173,6 +174,17 @@ export async function loadConversations(): Promise<Conversation[]> {
 
 export async function saveConversations(conversations: Conversation[]): Promise<void> {
   await invoke('save_conversations', { conversations })
+}
+
+export async function saveConversationMeta(metas: ConversationMeta[]): Promise<void> {
+  await invoke('save_conversation_meta', { metas })
+}
+
+export async function replaceConversationMessages(
+  conversationId: string,
+  messages: ChatMessage[]
+): Promise<void> {
+  await invoke('replace_conversation_messages', { conversationId, messages })
 }
 
 export async function onStream(handler: (e: StreamEvent) => void): Promise<UnlistenFn> {

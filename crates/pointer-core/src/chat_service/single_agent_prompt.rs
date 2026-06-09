@@ -74,6 +74,12 @@ pub(super) async fn prepare_single_agent_round_prompts(
         cacheable.push(tools_system_appendix);
     }
     push_env_to_cacheable(&mut cacheable);
+    crate::memory::push_memory_to_cacheable(
+        &mut cacheable,
+        &state.memory_store,
+        settings.memory_enabled,
+        settings.user_profile_enabled,
+    );
     let assemble_system_prompts_ms = t.elapsed().as_millis();
 
     let t = Instant::now();

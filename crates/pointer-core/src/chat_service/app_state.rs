@@ -29,6 +29,8 @@ pub struct AppState {
     pub platform_auth: SharedPlatformAuth,
     pub platform_config: SharedPlatformConfig,
     pub task_board_store: Arc<crate::task_board::TaskBoardStore>,
+    pub memory_store: Arc<crate::memory::MemoryStore>,
+    pub session_index: Arc<crate::session_search::SessionIndex>,
     /// Lifecycle hooks aligned with Python `call_extensions(extension_point, …)`.
     pub extensions: Arc<ExtensionRegistry>,
     pub cancels: Mutex<HashMap<String, CancellationToken>>,
@@ -68,7 +70,51 @@ impl AppState {
                 Arc::new(crate::task_board::TaskBoardStore::new())
             }
         };
+        let memory_store = match crate::memory::MemoryStore::open_default() {
+            Ok(store) => {
+                let arc = Arc::new(store);
+                if let Err(e) = arc.reload_snapshot() {
+                    log::warn!("memory: initial load failed: {e:#}");
+                }
+                arc
+            }
+            Err(e) => {
+                log::warn!("memory: open failed ({e:#}); using empty in-memory store");
+                let arc = Arc::new(crate::memory::MemoryStore::open_in_dir(
+                    crate::storage::app_data_dir()
+                        .unwrap_or_else(|_| std::env::temp_dir())
+                        .join("memories"),
+                ));
+                if let Err(re) = arc.reload_snapshot() {
+                    log::warn!("memory: fallback load failed: {re:#}");
+                }
+                arc
+            }
+        };
         crate::tools::builtin::register_all(&tools, task_board_store.clone());
+        crate::memory::register_memory_tool(&tools, memory_store.clone());
+        let session_index = match crate::session_search::SessionIndex::open_default() {
+            Ok(idx) => Arc::new(idx),
+            Err(e) => {
+                log::warn!("session_search: open failed ({e:#}); using temp db");
+                let path = crate::storage::app_data_dir()
+                    .unwrap_or_else(|_| std::env::temp_dir())
+                    .join("sessions.db");
+                match crate::session_search::SessionIndex::open(path) {
+                    Ok(idx) => Arc::new(idx),
+                    Err(e2) => {
+                        log::error!("session_search: fallback open failed: {e2:#}");
+                        Arc::new(
+                            crate::session_search::SessionIndex::open(std::env::temp_dir().join(
+                                format!("pointer-sessions-{}.db", uuid::Uuid::new_v4()),
+                            ))
+                            .expect("session_search: temp db"),
+                        )
+                    }
+                }
+            }
+        };
+        crate::session_search::register_session_search_tool(&tools, session_index.clone());
         let skills = Arc::new(SkillRegistry::new());
         crate::skills::builtin::register_all(&skills);
         crate::tools::builtin::register_skill_tools(&tools, skills.clone());
@@ -98,6 +144,8 @@ impl AppState {
             platform_auth,
             platform_config,
             task_board_store,
+            memory_store,
+            session_index,
             extensions: Arc::new(extension_registry),
             cancels: Mutex::new(HashMap::new()),
             terminal_run_abort: Mutex::new(HashMap::new()),

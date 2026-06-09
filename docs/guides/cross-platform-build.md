@@ -33,6 +33,15 @@ Vue 统一界面
 
 Tauri CLI 由项目 devDependency 提供，**不要依赖全局 `tauri` 命令**，统一使用 `npm run tauri:*`。
 
+`pointer-core` 在编译时会构建 **sqlite-cjk-fts** 原生扩展（`cjk_bigram` FTS5 分词器），用于 `session_search` 中文检索。需本机 C 编译器：
+
+| 平台 | 要求 |
+|------|------|
+| macOS / Linux | `cc` 或 `gcc`（Xcode CLT / build-essential） |
+| Windows | MSVC `cl` 或 MinGW `gcc` |
+
+扩展在 build 时嵌入二进制，首次运行释放到 `{data_dir}/PointerApp/native/`。从 `unicode61` 升级的用户会在下次打开时自动重建 FTS 索引。
+
 首次进入项目：
 
 ```bash

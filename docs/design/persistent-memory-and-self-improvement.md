@@ -1,6 +1,6 @@
 # 跨会话记忆与 Self-improvement Review 设计稿
 
-> **状态**：设计对照稿，**尚未实现**。本文整理自 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的记忆与后台自省机制，并映射到 Pointer 现有架构（`pointer-core`、扩展钩子、Context Cache、Task Board 等）。若与代码不一致，以仓库当前实现为准；落地后应回更本文。
+> **状态**：**P0–P2、P4 已实现**（MEMORY/USER、`memory` 工具、cacheable 注入、压缩后 reload、后台 memory review、`session_search` FTS 索引）。Skill nudge / Curator 仍为后续阶段。
 
 ## 1. 背景与术语
 
@@ -139,7 +139,7 @@ Hermes 用 SQLite FTS5 索引全部会话消息；Pointer 当前为 `conversatio
 
 二期拟议：
 
-- `{data_dir}/PointerApp/sessions.db` 增量索引 message
+- `{data_dir}/PointerApp/sessions.db` 增量索引 message（FTS5 **`cjk_bigram`**，基于 vendored [sqlite-cjk-fts](https://pypi.org/project/sqlite-cjk-fts/)）
 - `session_search` 工具：discovery（query）/ scroll（session_id + message_id）/ browse（最近列表）
 - 与 memory 分工：memory = 常驻关键事实；session_search = 「上周讨论过 X 吗」
 
@@ -356,16 +356,16 @@ crates/pointer-core/src/memory/
 
 ## 7. 分阶段落地计划
 
-| 阶段 | 范围 | 预估 | 依赖 |
-|------|------|------|------|
-| **P0** | MEMORY.md + USER.md + `memory` 工具 + cacheable 注入 | 3–5 人天 | 无 |
-| **P1** | 压缩后 reload snapshot；压缩 prompt 记忆指引 | 1 人天 | P0 |
-| **P2** | Self-improvement review（memory nudge + fork） | 2–3 人天 | P0 |
-| **P3** | Skill nudge + combined review prompt | 1–2 人天 | P2、Skills |
-| **P4** | session_search（SQLite FTS） | 3–4 人天 | 会话索引 pipeline |
-| **P5** | Curator / 外部 Memory Provider | 按需 | P0–P3 稳定后 |
+| 阶段 | 范围 | 状态 |
+|------|------|------|
+| **P0** | MEMORY.md + USER.md + `memory` 工具 + cacheable 注入 | ✅ `crates/pointer-core/src/memory/` |
+| **P1** | 压缩后 reload snapshot；压缩 prompt 记忆指引 | ✅ |
+| **P2** | Self-improvement review（memory nudge + 后台 task） | ✅ 仅 memory |
+| **P3** | Skill nudge + combined review prompt | 未做 |
+| **P4** | session_search（SQLite FTS） | ✅ `crates/pointer-core/src/session_search/` |
+| **P5** | Curator / 外部 Memory Provider | 未做 |
 
-**当前决策**：仅保留本文档，**不提交实现代码**。开工时以 P0 → P1 → P2 为最小可用路径。
+**当前决策**：P0–P2、P4 已落地；P3/P5 按需迭代。
 
 ---
 

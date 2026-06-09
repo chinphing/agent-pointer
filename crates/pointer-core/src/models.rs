@@ -762,6 +762,18 @@ pub struct ModelSettings {
     /// When true, Composer shows the monitor picker for the computer agent.
     #[serde(default = "default_computer_show_monitor_picker", rename = "computerShowMonitorPicker")]
     pub computer_show_monitor_picker: bool,
+    #[serde(default = "default_memory_enabled", rename = "memoryEnabled")]
+    pub memory_enabled: bool,
+    #[serde(default = "default_user_profile_enabled", rename = "userProfileEnabled")]
+    pub user_profile_enabled: bool,
+    #[serde(default = "default_memory_char_limit", rename = "memoryCharLimit")]
+    pub memory_char_limit: u32,
+    #[serde(default = "default_user_char_limit", rename = "userCharLimit")]
+    pub user_char_limit: u32,
+    #[serde(default = "default_memory_nudge_interval", rename = "memoryNudgeInterval")]
+    pub memory_nudge_interval: u32,
+    #[serde(default = "default_background_review_enabled", rename = "backgroundReviewEnabled")]
+    pub background_review_enabled: bool,
     /// UI theme: `light`, `dark`, or `system`.
     #[serde(default = "default_theme", rename = "theme")]
     pub theme: String,
@@ -1025,6 +1037,12 @@ impl Default for ModelSettings {
             dati_author: default_dati_author(),
             captcha_slider_offset_px: default_captcha_slider_offset_px(),
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
+            memory_enabled: default_memory_enabled(),
+            user_profile_enabled: default_user_profile_enabled(),
+            memory_char_limit: default_memory_char_limit(),
+            user_char_limit: default_user_char_limit(),
+            memory_nudge_interval: default_memory_nudge_interval(),
+            background_review_enabled: default_background_review_enabled(),
             theme: default_theme(),
             agent_ui_overrides: HashMap::new(),
             web_search_model: default_web_search_model_setting(),
@@ -1078,6 +1096,30 @@ fn default_enabled_skill_ids() -> Vec<String> {
         .collect()
 }
 
+fn default_memory_enabled() -> bool {
+    true
+}
+
+fn default_user_profile_enabled() -> bool {
+    true
+}
+
+fn default_memory_char_limit() -> u32 {
+    crate::memory::DEFAULT_MEMORY_CHAR_LIMIT as u32
+}
+
+fn default_user_char_limit() -> u32 {
+    crate::memory::DEFAULT_USER_CHAR_LIMIT as u32
+}
+
+fn default_memory_nudge_interval() -> u32 {
+    10
+}
+
+fn default_background_review_enabled() -> bool {
+    true
+}
+
 /// Persisted user preferences (theme, optional UI cache).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
@@ -1088,6 +1130,18 @@ pub struct UserSettings {
     /// Globally enabled skill ids (UI + runtime when lead agent is `general`).
     #[serde(default = "default_enabled_skill_ids", rename = "enabledSkillIds")]
     pub enabled_skill_ids: Vec<String>,
+    #[serde(default = "default_memory_enabled", rename = "memoryEnabled")]
+    pub memory_enabled: bool,
+    #[serde(default = "default_user_profile_enabled", rename = "userProfileEnabled")]
+    pub user_profile_enabled: bool,
+    #[serde(default = "default_memory_char_limit", rename = "memoryCharLimit")]
+    pub memory_char_limit: u32,
+    #[serde(default = "default_user_char_limit", rename = "userCharLimit")]
+    pub user_char_limit: u32,
+    #[serde(default = "default_memory_nudge_interval", rename = "memoryNudgeInterval")]
+    pub memory_nudge_interval: u32,
+    #[serde(default = "default_background_review_enabled", rename = "backgroundReviewEnabled")]
+    pub background_review_enabled: bool,
 }
 
 impl Default for UserSettings {
@@ -1096,6 +1150,12 @@ impl Default for UserSettings {
             theme: default_theme(),
             user_nickname: None,
             enabled_skill_ids: default_enabled_skill_ids(),
+            memory_enabled: default_memory_enabled(),
+            user_profile_enabled: default_user_profile_enabled(),
+            memory_char_limit: default_memory_char_limit(),
+            user_char_limit: default_user_char_limit(),
+            memory_nudge_interval: default_memory_nudge_interval(),
+            background_review_enabled: default_background_review_enabled(),
         }
     }
 }
@@ -1545,6 +1605,12 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         dati_author: platform.dati_author.clone(),
         captcha_slider_offset_px: platform.captcha_slider_offset_px,
         computer_show_monitor_picker: platform.computer_show_monitor_picker,
+        memory_enabled: user.memory_enabled,
+        user_profile_enabled: user.user_profile_enabled,
+        memory_char_limit: user.memory_char_limit,
+        user_char_limit: user.user_char_limit,
+        memory_nudge_interval: user.memory_nudge_interval,
+        background_review_enabled: user.background_review_enabled,
         theme: user.theme.clone(),
         agent_ui_overrides: platform.agent_ui_overrides.clone(),
         web_search_model: platform.web_search_model.clone(),

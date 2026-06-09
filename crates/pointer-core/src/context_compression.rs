@@ -352,7 +352,8 @@ Retention rules (highest first):
 3) Shell/test/lint commands with pass/fail — never fabricate results
 4) Errors and tool failures — quote or tightly paraphrase
 5) run_subagent / explore conclusions and open questions
-6) task_board status and validate contracts
+6) User preferences, durable environment facts, and identity details worth long-term memory (when explicit in source)
+7) task_board status and validate contracts
 
 Drop: repeated tool dumps, large file bodies, small talk, duplicate facts.
 Never summarize tool output as "files were read" without naming paths and conclusions.
@@ -688,8 +689,9 @@ pub async fn maybe_compress_history(
     stream: &StreamTx,
     cancel: CancellationToken,
     ui: CompressionUiContext,
+    memory_store: Option<&crate::memory::MemoryStore>,
 ) {
-    let _ = compress_history_inner(
+    let changed = compress_history_inner(
         history,
         settings,
         provider,
@@ -701,6 +703,15 @@ pub async fn maybe_compress_history(
         &ui,
     )
     .await;
+    if changed {
+        if ui.scope == CompressionScope::Main {
+            if let Some(store) = memory_store {
+                if let Err(e) = store.reload_snapshot() {
+                    log::warn!("memory: reload after compression failed: {e:#}");
+                }
+            }
+        }
+    }
 }
 
 /// After tool-round limit: try summarization even if under char budget. Returns whether history changed.

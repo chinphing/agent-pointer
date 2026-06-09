@@ -251,6 +251,7 @@ fn migrate_legacy_settings_if_needed() -> Result<()> {
         theme,
         user_nickname: None,
         enabled_skill_ids: Vec::new(),
+        ..UserSettings::default()
     };
     write_user_settings_file(&user)?;
     let platform = stored_settings_to_platform(&stored);

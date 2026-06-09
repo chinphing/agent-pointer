@@ -35,7 +35,7 @@ const AGENT_COMMUNICATION: &str = "COMMUNICATION.md";
 /// Legacy per-request block; if present, merged into `COMMUNICATION.md` content at load (placeholders expanded each request).
 const AGENT_SESSION_INJECT: &str = "SESSION_INJECT.md";
 
-/// Model-facing shared rules: host context, skills, **`thoughts`** meaning, and **`response`** role (English). XML shape and examples for **`response`** stay in the tools appendix.
+/// Model-facing shared rules: host context, skills, **`thoughts`** meaning, and final-reply discipline (English).
 const COMMUNICATION_PUBLIC: &str = include_str!("_shared/COMMUNICATION_PUBLIC.md");
 /// Advanced tier: `[CUR_SCREEN]` image slots, frame registry, overlay digit rules.
 const COMPUTER_VISION_SLOTS: &str =
@@ -1084,7 +1084,7 @@ mod builtin_agent_tests {
     }
 
     #[test]
-    fn resolve_tools_does_not_auto_add_response() {
+    fn resolve_tools_excludes_removed_response_tool() {
         let tools = crate::tools::ToolRegistry::new();
         let store = std::sync::Arc::new(crate::task_board::TaskBoardStore::new());
         crate::tools::builtin::register_all(&tools, store);
@@ -1094,8 +1094,15 @@ mod builtin_agent_tests {
         };
         let names = resolve_tools(&policy, &["terminal".into()], &tools);
         assert!(
+            !tools
+                .list_defs()
+                .iter()
+                .any(|d| d.name == "response"),
+            "response tool removed (OpenClaw-aligned: final reply is assistant content)"
+        );
+        assert!(
             !names.contains(&"response".to_string()),
-            "response must not be injected implicitly"
+            "response must not appear in resolved tool list"
         );
     }
 

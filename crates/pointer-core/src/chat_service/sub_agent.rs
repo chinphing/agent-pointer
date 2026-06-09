@@ -170,6 +170,7 @@ pub(crate) async fn run_sub_agent(
                 thoughts: None,
                 headline: None,
                 trace_id: trace_id_opt(Some(&agent_trace_step_id(&task.id, &def.id))),
+                attachments: None,
             },
         );
 
@@ -309,7 +310,7 @@ pub(crate) async fn run_sub_agent(
                     reasoning,
                 ));
             }
-            ToolPassResult::LeadFinished | ToolPassResult::RanTools => {}
+            ToolPassResult::RanTools => {}
         }
 
         sub_tool_budget.record_tool_cycle();

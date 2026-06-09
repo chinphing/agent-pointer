@@ -242,6 +242,15 @@ pub fn preview_chat_media(storage_rel_path: String) -> Result<ChatMediaPreview, 
 }
 
 #[tauri::command]
+pub fn preview_media_ref(media_ref: String) -> Result<ChatMediaPreview, String> {
+    let extra_roots = pointer_channels::config::load_channels_config()
+        .ok()
+        .map(|c| c.meta.media_local_roots)
+        .unwrap_or_default();
+    pointer_core::media::read_media_ref_preview(&media_ref, &extra_roots).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn save_chat_attachment(
     conversation_id: String,
     attachment_id: String,

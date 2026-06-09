@@ -11,6 +11,9 @@ import ModelThoughtPanels from './ModelThoughtPanels.vue'
 import ToolMessageSegment from './ToolMessageSegment.vue'
 import AssistantMessageDebugChrome from './AssistantMessageDebugChrome.vue'
 import ThinkingIndicator from './ThinkingIndicator.vue'
+import { stripOutboundMediaMarkers } from '../../../../lib/outboundMedia'
+import { assistantReplyMediaForRender } from '../../../../lib/messageNormalizer'
+import ChatMessageMediaGallery from '../ChatMessageMediaGallery.vue'
 
 export interface AgentMessageBodyModel {
   thoughts?: string
@@ -66,11 +69,20 @@ const showMainMarkdownBody = computed(() => {
   return !hideStreamingJsonEnvelopeMarkdown.value
 })
 
+const replyMediaAttachments = computed(() =>
+  assistantReplyMediaForRender(
+    props.leadMessage,
+    props.body.responseTextDraft ?? props.body.rawContent ?? props.body.content
+  )
+)
+
 const markdownSource = computed(() => {
-  if (showMainMarkdownBody.value) return props.body.content ?? ''
-  if (hideStreamingJsonEnvelopeMarkdown.value || isStreamingResponseDraft.value)
-    return props.body.responseTextDraft ?? ''
-  return props.body.content ?? ''
+  let raw = ''
+  if (showMainMarkdownBody.value) raw = props.body.content ?? ''
+  else if (hideStreamingJsonEnvelopeMarkdown.value || isStreamingResponseDraft.value)
+    raw = props.body.responseTextDraft ?? ''
+  else raw = props.body.content ?? ''
+  return stripOutboundMediaMarkers(raw)
 })
 
 const html = computed(() => {
@@ -220,6 +232,7 @@ const showThinkingIndicator = computed(
 const hasMainBody = computed(
   () =>
     showMdBody.value ||
+    replyMediaAttachments.value.length > 0 ||
     showStreamingPlaceholderUnderThoughts.value ||
     showThoughtPanels.value ||
     showThinkingIndicator.value ||
@@ -327,6 +340,12 @@ onUnmounted(() => clearReasoningCollapseTimer())
             ref="bodyRef"
             class="md-body md-body-flow px-3"
             v-html="html"
+          />
+
+          <ChatMessageMediaGallery
+            v-if="replyMediaAttachments.length"
+            class="px-3 mt-2"
+            :attachments="replyMediaAttachments"
           />
           <div
             v-else-if="showStreamingPlaceholderUnderThoughts && !showThinkingIndicator"

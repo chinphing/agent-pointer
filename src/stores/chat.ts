@@ -18,6 +18,7 @@ import { getTaskBoardSnapshot } from '../lib/api'
 import { hasTaskBoardContent } from '../lib/taskBoard'
 import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
+import { stripOutboundMediaMarkers } from '../lib/outboundMedia'
 import {
   getComposerAttachmentContentBase64,
   getComposerAttachmentDataUrl,
@@ -1076,10 +1077,11 @@ export const useChatStore = defineStore('chat', () => {
             const preview = r.msg.toolNamePreview?.trim()
             const draft = r.msg.responseTextDraft?.trim()
             if (draft && preview && toolCallBaseName(preview) === 'response') {
-              r.msg.content = draft
+              r.msg.content = stripOutboundMediaMarkers(draft)
             }
             delete r.msg.toolNamePreview
-            if (e.content != null) r.msg.content = e.content
+            if (e.content != null) r.msg.content = stripOutboundMediaMarkers(e.content)
+            if (e.attachments?.length) r.msg.attachments = e.attachments
             if (e.rawContent != null) r.msg.rawContent = e.rawContent
             if (e.toolRawOutput != null) r.msg.toolRawOutput = e.toolRawOutput
             delete r.msg.responseTextDraft

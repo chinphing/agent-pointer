@@ -195,6 +195,7 @@ pub fn run() {
             commands::preview_computer_annotated_screen,
             commands::preview_computer_round_screen,
             commands::preview_chat_media,
+            commands::preview_media_ref,
             commands::save_chat_attachment,
             commands::check_media_deps,
             commands::list_computer_monitors,

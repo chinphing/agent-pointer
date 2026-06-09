@@ -1,7 +1,39 @@
+use crate::media::outbound_reply::{split_reply_media, strip_outbound_media_markers};
+use crate::media::attachments_from_reply_paths;
+use crate::models::MediaAttachment;
 use serde_json::Value;
 
 /// Remove structured tool JSON (or legacy XML) from assistant `content` for the user-visible bubble.
 pub(crate) fn extract_user_visible_content(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
+        if let Value::Object(ref obj) = v {
+            if obj.get("tool_name").and_then(|x| x.as_str()) == Some("response") {
+                let visible = obj
+                    .get("tool_args")
+                    .and_then(|a| a.get("text"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("");
+                return strip_outbound_media_markers(visible);
+            }
+            return String::new();
+        }
+    }
+    strip_outbound_media_markers(&extract_user_visible_content_xml_legacy(raw))
+}
+
+/// `MEDIA:` paths from assistant raw stream buffer (plain text or `response` tool JSON).
+pub(crate) fn reply_attachments_from_assistant_raw(raw: &str) -> Option<Vec<MediaAttachment>> {
+    let media_source = assistant_raw_media_source_owned(raw);
+    let (_, paths) = split_reply_media(&media_source);
+    if paths.is_empty() {
+        None
+    } else {
+        Some(attachments_from_reply_paths(&paths))
+    }
+}
+
+fn assistant_raw_media_source_owned(raw: &str) -> String {
     let trimmed = raw.trim();
     if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
         if let Value::Object(ref obj) = v {
@@ -13,10 +45,9 @@ pub(crate) fn extract_user_visible_content(raw: &str) -> String {
                     .unwrap_or("")
                     .to_string();
             }
-            return String::new();
         }
     }
-    extract_user_visible_content_xml_legacy(raw)
+    raw.to_string()
 }
 
 fn extract_user_visible_content_xml_legacy(raw: &str) -> String {
@@ -71,6 +102,26 @@ mod extract_user_visible_tests {
         assert_eq!(
             extract_user_visible_content("Hi<response></response>"),
             "Hi"
+        );
+    }
+
+    #[test]
+    fn strips_media_markers_from_prose() {
+        let raw = "发给你 👇\n\nMEDIA:/Users/me/Desktop/baby_cover.jpg";
+        let out = extract_user_visible_content(raw);
+        assert!(!out.contains("MEDIA:"));
+        assert!(out.contains("发给你"));
+    }
+
+    #[test]
+    fn plain_text_media_becomes_attachments() {
+        use super::reply_attachments_from_assistant_raw;
+        let raw = "好的，再发一次 👇\n\nMEDIA:/Users/me/Desktop/baby_cover.jpg";
+        let atts = reply_attachments_from_assistant_raw(raw).expect("attachments");
+        assert_eq!(atts.len(), 1);
+        assert_eq!(
+            atts[0].local_abs_path.as_deref(),
+            Some("/Users/me/Desktop/baby_cover.jpg")
         );
     }
 }

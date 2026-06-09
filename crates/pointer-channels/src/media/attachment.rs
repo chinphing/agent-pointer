@@ -21,6 +21,7 @@ pub fn to_media_attachment(downloaded: DownloadedMedia, kind_hint: &str) -> Medi
         storage_rel_path: None,
         content_base64: Some(b64),
         derived_text: None,
+        local_abs_path: None,
     }
 }
 

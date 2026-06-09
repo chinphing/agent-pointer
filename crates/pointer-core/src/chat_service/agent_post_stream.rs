@@ -11,7 +11,7 @@ use anyhow::{anyhow, Result};
 use tokio_util::sync::CancellationToken;
 
 use super::app_state::AppState;
-use super::content_extract::extract_user_visible_content;
+use super::content_extract::{extract_user_visible_content, reply_attachments_from_assistant_raw};
 use super::emit::emit;
 use super::session_budget::SessionToolBudget;
 use super::util::now_ms;
@@ -200,7 +200,7 @@ pub(super) fn build_lead_assistant_message_after_stream(
         computer_round_screen_rel_path: None,
         ui_bindings: None,
             context_state: None,
-        attachments: None,
+        attachments: reply_attachments_from_assistant_raw(raw_content_buf),
             }
 }
 
@@ -275,6 +275,7 @@ pub(super) fn commit_lead_assistant_turn(
             thoughts: assistant_msg.thoughts.clone(),
             headline: assistant_msg.headline.clone(),
             trace_id: None,
+            attachments: assistant_msg.attachments.clone(),
         },
     );
 }

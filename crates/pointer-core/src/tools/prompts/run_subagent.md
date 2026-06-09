@@ -21,8 +21,7 @@ schema:
 ### `run_subagent`
 
 Hand off a **self-contained sub-task** to another **worker** agent. The worker’s **deliverable** (for **`explore`**, etc.)
-is **Markdown** in the tool result’s **`content`** field — **final assistant content** from the worker, not a
-**`response`** tool call.
+is **Markdown** in the tool result’s **`content`** field — **final assistant content** from the worker.
 
 **What the lead receives**
 
@@ -77,7 +76,7 @@ is **Markdown** in the tool result’s **`content`** field — **final assistant
 
 - **`instruction`** must stand alone: prior turns, paths or facts not written there, or implicit context only in the main chat will **not** be available to the worker.
 - A worker run **cannot** call **`run_subagent`** again; do not plan nested delegation.
-- Workers **cannot** call **`response`**; they finish by writing Markdown as **assistant content** on the final turn.
+- Workers finish by writing Markdown as **assistant content** on the final turn (no separate delivery tool).
 - Optional **`taskId`** should stay stable if you need the same sidecar board across multiple handoffs to the same logical task.
 
 #### Parameters

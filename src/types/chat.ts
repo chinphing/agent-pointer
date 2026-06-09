@@ -182,6 +182,8 @@ export interface MediaAttachment {
   fileName: string
   sizeBytes: number
   storageRelPath?: string
+  /** Absolute local path for assistant reply `MEDIA:` preview in App UI. */
+  localAbsPath?: string
   /** Wire-only; stripped before disk persist. */
   contentBase64?: string
   derivedText?: string
@@ -501,7 +503,7 @@ export type StreamEvent =
   | { kind: 'terminal_output_delta'; messageId: string; toolCallId: string; output: string; traceId?: string }
   | { kind: 'web_search_output_delta'; messageId: string; toolCallId: string; text: string; traceId?: string }
   | { kind: 'web_search_sources_ready'; messageId: string; toolCallId: string; sources: WebSearchSourceEntry[]; searchCount: number; traceId?: string }
-  | { kind: 'message_end'; messageId: string; content?: string; rawContent?: string; toolRawOutput?: string; thoughts?: string; headline?: string; traceId?: string }
+  | { kind: 'message_end'; messageId: string; content?: string; rawContent?: string; toolRawOutput?: string; thoughts?: string; headline?: string; traceId?: string; attachments?: MediaAttachment[] }
   | { kind: 'injected_user_message'; conversationId: string; messageId: string; content: string }
   /** App-injected assistant line (e.g. desktop capture status); shown in thread, not from model. */
   | { kind: 'injected_assistant_message'; conversationId: string; messageId: string; content: string }

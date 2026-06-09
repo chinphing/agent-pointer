@@ -2,7 +2,6 @@ pub mod builtin;
 pub mod channel_message;
 pub mod display;
 pub mod file;
-pub mod response;
 pub mod run_subagent;
 pub mod skill;
 pub mod terminal;
@@ -240,7 +239,7 @@ pub struct ToolEntry {
     pub risk_level: String,
     pub requires_approval: bool,
     /// When true, the tool may only appear inside `<sidecar_tools>` / `<call>`, not as the root
-    /// `<tool_name>` when any sidecar calls are present (see `response` tool docs).
+    /// `<tool_name>` when any sidecar calls are present (see sidecar tool docs).
     pub is_sidecar: bool,
     /// Repo-relative path under `crates/pointer-core/src/` to the tool prompt `.md`.
     /// Dedup key for [`crate::tools_system_appendix::generate_tools_system_appendix`].

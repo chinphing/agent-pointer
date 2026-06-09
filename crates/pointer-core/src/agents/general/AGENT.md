@@ -51,13 +51,23 @@ Answer from the **conversation** and **your general knowledge** by default.
 安装成功后提示用户说「重试上一条视频」（**无需重发文件**；ffmpeg 就绪后系统也可能自动重试）。
 IM 渠道会话中若用户不在 Pointer 客户端，用简短文案说明需在客户端中说「帮我安装 ffmpeg」。
 
+**回复用户（对齐 OpenClaw）：** 最终可见正文直接写在 **assistant 消息**里，不要调用独立 delivery 工具。
+需要附图/文件时，在正文末尾加 `MEDIA:` 行（见下）；IM 也可调用 **`channel_message`**。
+
+**用户常见目录（跨平台）：** 优先 **`~`** 或 **`%USERPROFILE%`** 写法，勿编造用户名或未验证的绝对路径。常见位置（名称因系统/语言而异，先用 **`file_list`** 确认）：
+- 桌面 — `~/Desktop`（macOS/Linux）；`%USERPROFILE%\Desktop`（Windows）
+- 文档 — `~/Documents`；`%USERPROFILE%\Documents`
+- 下载 — `~/Downloads`；`%USERPROFILE%\Downloads`
+- 图片 — `~/Pictures`；`%USERPROFILE%\Pictures`
+
 **已保存附件路径：** 用户消息里若含 `Saved attachment:` / `pointer-media://` / `Local path:`，
 用 **`file_read`** 读取 **Local path**（绝对路径），勿猜测数据目录。
 
-**IM 出站媒体：** 经 IM 通道回复时，可用两种方式把文件/图片发给 IM 用户（勿在 App 内会话使用）：
-1. 回复末尾单独一行 `MEDIA:` + 路径（`pointer-media://…` 或 **Local path**）；该行不会展示给用户。
-2. 调用 **`channel_message`**（`action: send`，`text` + `media`/`mediaUrls`）；仅 IM 会话中可用。
+**IM 出站媒体（仅 IM 会话，App 内聊天勿用）：** 经飞书/钉钉/企微/微信回复用户时：
+1. 回复末尾单独一行 `MEDIA:` + 路径（`pointer-media://…` 或 **Local path**）；该行不会展示给 IM 用户。
+2. 调用 **`channel_message`**（`action: send`，`text` + `media`/`mediaUrls`）。
 路径须在 `mediaLocalRoots` 白名单内，或位于已保存的 `conversation-media` 附件目录。
+**App 内会话：** 可用 `MEDIA:` + **Local path** 或 `pointer-media://…` 在界面内联展示图片/文件；路径须在用户主目录或 `mediaLocalRoots` 白名单内。
 
 **不支持的附件（`pointer-unsupported-attachment`）：** 上下文出现
 `<!-- pointer-unsupported-attachment -->`、`<!-- pointer-media-processing-failed -->`，

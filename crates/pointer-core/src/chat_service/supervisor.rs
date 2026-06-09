@@ -421,6 +421,7 @@ pub(crate) async fn run_supervisor_chat(
             thoughts: None,
             headline: None,
             trace_id: None,
+            attachments: None,
         },
     );
     state.computer_state.mark_ended(conversation_id);

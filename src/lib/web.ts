@@ -174,6 +174,11 @@ export async function previewChatMedia(storageRelPath: string): Promise<ChatMedi
   return await request<ChatMediaPreview>(`/api/chat/media-preview?${q}`)
 }
 
+export async function previewMediaRef(mediaRef: string): Promise<ChatMediaPreview> {
+  const q = new URLSearchParams({ mediaRef })
+  return await request<ChatMediaPreview>(`/api/chat/media-ref-preview?${q}`)
+}
+
 export async function saveChatAttachment(
   payload: import('./api').SaveChatAttachmentPayload
 ): Promise<string> {

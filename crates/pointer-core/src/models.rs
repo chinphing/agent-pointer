@@ -228,6 +228,9 @@ pub struct MediaAttachment {
     pub content_base64: Option<String>,
     #[serde(default, rename = "derivedText", skip_serializing_if = "Option::is_none")]
     pub derived_text: Option<String>,
+    /// Absolute local path for assistant reply `MEDIA:` preview in App UI.
+    #[serde(default, rename = "localAbsPath", skip_serializing_if = "Option::is_none")]
+    pub local_abs_path: Option<String>,
 }
 
 /// Independent models for media understanding (does not switch the primary chat model).
@@ -1845,6 +1848,8 @@ pub enum StreamEvent {
         headline: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
         trace_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        attachments: Option<Vec<MediaAttachment>>,
     },
     /// Synthetic user row so the model (and UI history) see recovery instructions mid-run.
     InjectedUserMessage {

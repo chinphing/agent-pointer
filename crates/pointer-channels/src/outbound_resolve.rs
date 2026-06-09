@@ -7,7 +7,10 @@ use pointer_core::media::store::{media_abs_path, read_media_bytes, CONVERSATION_
 use pointer_core::media::path_hint::MEDIA_URI_SCHEME;
 
 use crate::media::attachment::{enforce_max_bytes, guess_mime_from_bytes};
-use crate::media_roots::{assert_media_path_allowed, is_pointer_media_uri, normalize_user_path, path_has_traversal};
+use crate::media_roots::{
+    assert_media_path_allowed, is_pointer_media_uri, is_user_filesystem_path, normalize_user_path,
+    path_has_traversal,
+};
 use crate::traits::OutboundMedia;
 
 const MAX_OUTBOUND_MEDIA: usize = 30 * 1024 * 1024;
@@ -34,7 +37,7 @@ pub fn resolve_outbound_media_with_policy(
         .map(str::trim)
         .unwrap_or(trimmed);
 
-    let (bytes, file_name, source_path) = if rel.contains('/') && !Path::new(rel).is_absolute() {
+    let (bytes, file_name, source_path) = if !is_user_filesystem_path(rel) && rel.contains('/') {
         let abs = media_abs_path(rel).with_context(|| format!("resolve pointer-media {rel}"))?;
         let name = abs
             .file_name()

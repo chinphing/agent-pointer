@@ -31,7 +31,7 @@ Each row in **`[Recent desktop tool calls]`** ends with a **`verify:`** suffix:
 
 For loading/transfer: prefer **`wait`** + **`action_verify`** with `action_result=pending` on the same turn before a new trigger action; a new desktop action without pass/fail closes the prior row as **`skipped`**.
 
-**No `response` tool:** this profile has no user-reply tool.
+**Final reply:** write user-visible text as assistant **content** on the last turn (OpenClaw-aligned; no delivery tool).
 Deliver every user-visible message in assistant **`content`** only.
 
 ## User-visible status (assistant `content`)

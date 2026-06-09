@@ -6,6 +6,12 @@ use std::path::{Path, PathBuf};
 use crate::models::ChatMediaPreview;
 use crate::storage::app_data_dir;
 
+use super::access::{
+    assert_app_media_preview_allowed, is_user_filesystem_path, normalize_user_path,
+    path_has_traversal,
+};
+use super::path_hint::MEDIA_URI_SCHEME;
+
 pub const CONVERSATION_MEDIA_DIR: &str = "conversation-media";
 
 pub fn conversation_media_root() -> Result<PathBuf> {
@@ -50,13 +56,78 @@ pub fn read_media_bytes(storage_rel_path: &str) -> Result<Vec<u8>> {
 
 pub fn read_chat_media_preview(storage_rel_path: &str) -> Result<ChatMediaPreview> {
     let path = media_abs_path(storage_rel_path)?;
-    let bytes = fs::read(&path).with_context(|| format!("read media file {}", path.display()))?;
+    read_file_preview(&path, extra_roots_empty())
+}
+
+/// Preview a media reference from assistant `MEDIA:` markers or attachment metadata.
+pub fn read_media_ref_preview(media_ref: &str, extra_roots: &[String]) -> Result<ChatMediaPreview> {
+    let trimmed = media_ref.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("empty media ref");
+    }
+
+    let rel = trimmed
+        .strip_prefix(MEDIA_URI_SCHEME)
+        .map(str::trim)
+        .unwrap_or(trimmed);
+
+    if !is_user_filesystem_path(rel) && rel.contains('/') {
+        let path = media_abs_path(rel)?;
+        return read_file_preview(&path, extra_roots);
+    }
+
+    if path_has_traversal(rel) {
+        anyhow::bail!("media path traversal not allowed: {rel}");
+    }
+
+    let path = resolve_filesystem_ref(rel)?;
+    assert_app_media_preview_allowed(&path, extra_roots)?;
+    read_file_preview(&path, extra_roots)
+}
+
+fn extra_roots_empty() -> &'static [String] {
+    &[]
+}
+
+fn resolve_filesystem_ref(raw: &str) -> Result<PathBuf> {
+    let path = normalize_user_path(raw)?;
+    if path.is_absolute() && path.is_file() {
+        return Ok(path);
+    }
+    if path.is_file() {
+        return Ok(path);
+    }
+
+    if let Ok(data_dir) = app_data_dir() {
+        let under_data = data_dir.join(raw.trim_start_matches('/'));
+        if under_data.is_file() {
+            return Ok(under_data);
+        }
+        let under_media = data_dir.join(CONVERSATION_MEDIA_DIR).join(raw.trim_start_matches('/'));
+        if under_media.is_file() {
+            return Ok(under_media);
+        }
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        let under_cwd = cwd.join(raw);
+        if under_cwd.is_file() {
+            return Ok(under_cwd);
+        }
+    }
+
+    anyhow::bail!("media file not found: {raw}")
+}
+
+fn read_file_preview(path: &Path, extra_roots: &[String]) -> Result<ChatMediaPreview> {
+    assert_app_media_preview_allowed(path, extra_roots)?;
+    let bytes = fs::read(path).with_context(|| format!("read media file {}", path.display()))?;
     let file_name = path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("attachment")
         .to_string();
-    let mime_type = mime_from_path(&path);
+    let mime_type = mime_from_path(path);
     Ok(ChatMediaPreview {
         data_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
         mime_type,

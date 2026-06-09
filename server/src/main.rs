@@ -155,6 +155,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/experiences/search", get(search_experiences))
         .route("/api/experiences/:slug", get(get_experience_detail))
         .route("/api/chat/media-preview", get(preview_chat_media))
+        .route("/api/chat/media-ref-preview", get(preview_media_ref))
         .route("/api/chat/save-attachment", post(save_chat_attachment))
         .route("/api/media/deps", get(check_media_deps))
         .route("/api/chat", post(send_chat))
@@ -381,6 +382,25 @@ async fn preview_chat_media(
 ) -> Result<Json<ChatMediaPreview>, ApiError> {
     Ok(Json(
         pointer_core::media::read_chat_media_preview(&q.storage_rel_path).map_err(ApiError::from)?,
+    ))
+}
+
+#[derive(Deserialize)]
+struct MediaRefQuery {
+    #[serde(rename = "mediaRef")]
+    media_ref: String,
+}
+
+async fn preview_media_ref(
+    Query(q): Query<MediaRefQuery>,
+) -> Result<Json<ChatMediaPreview>, ApiError> {
+    let extra_roots = pointer_channels::config::load_channels_config()
+        .ok()
+        .map(|c| c.meta.media_local_roots)
+        .unwrap_or_default();
+    Ok(Json(
+        pointer_core::media::read_media_ref_preview(&q.media_ref, &extra_roots)
+            .map_err(ApiError::from)?,
     ))
 }
 

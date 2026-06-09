@@ -9,7 +9,6 @@ use crate::provider::OpenAIProvider;
 use crate::tools::normalize_tool_invoke_name;
 use crate::tools::registry_tool_in_allow_list;
 use crate::tools::parse_tool_call_arguments;
-use crate::tools::response::response_text_from_args;
 use crate::tools::terminal::{run_terminal_command_streaming, terminal_stream_tool_status};
 use crate::tools::web_search::{
     dispatch_to_tool_json_async, WebSearchDispatchContext, WebSearchInvokeContext,
@@ -38,8 +37,6 @@ use super::StreamTx;
 /// Outcome of executing a non-empty validated tool batch for one assistant turn.
 #[derive(Debug)]
 pub(super) enum ToolPassResult {
-    /// Lead: `response` tool ended the turn successfully (`tool_budget` already synced).
-    LeadFinished,
     /// Sub-agent: tool pass ended without executing tools (legacy exit; prefer `FinishRun` in sub loop).
     SubFinished(AgentRunResult),
     /// No tool ran to completion in a way that consumes a round (synced out for lead).
@@ -152,39 +149,6 @@ pub(super) async fn run_agent_tool_pass(
             history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
             any_executed = true;
             continue;
-        }
-
-        if tool_id == "response" {
-            if sub.is_some() {
-                let err = "子 Agent 不可用 response 工具；请直接输出 Markdown 正文。";
-                emit(
-                    &stream,
-                    StreamEvent::ToolCallStatus {
-                        message_id: message_id.clone(),
-                        tool_call_id: tc.id.clone(),
-                        status: "failed".into(),
-                        result: None,
-                        error: Some(err.to_string()),
-                        duration_ms: Some(0),
-                        display_label: None,
-                        display_summary: None,
-                        trace_id: trace_id_opt(sub_trace_id.as_deref()),
-                    },
-                );
-                history.push(tool_result_msg(&tc.id, &format!("ERROR: {err}")));
-                any_executed = true;
-                continue;
-            }
-            return handle_response_tool(
-                &stream,
-                history,
-                tool_budget,
-                consumed_single,
-                &message_id,
-                tc,
-                &args_value,
-                lead.as_ref().expect("response tool requires lead context"),
-            );
         }
 
         if let Some(sub_cfg) = sub.as_ref() {
@@ -346,93 +310,6 @@ pub(super) async fn run_agent_tool_pass(
         return Ok(ToolPassResult::NoopExit);
     }
     Ok(ToolPassResult::RanTools)
-}
-
-fn handle_response_tool(
-    stream: &StreamTx,
-    history: &mut Vec<ChatMessage>,
-    tool_budget: &mut SessionToolBudget,
-    consumed_single: Option<&mut u32>,
-    message_id: &str,
-    tc: &ToolCall,
-    args_value: &serde_json::Value,
-    lead_cfg: &LeadToolPassConfig<'_>,
-) -> Result<ToolPassResult> {
-    let message = response_text_from_args(args_value).unwrap_or("");
-
-    if !message.is_empty() {
-        emit(
-            stream,
-            StreamEvent::Delta {
-                message_id: message_id.to_string(),
-                text: message.to_string(),
-            },
-        );
-    }
-
-    emit(
-        stream,
-        StreamEvent::ToolCallStatus {
-            message_id: message_id.to_string(),
-            tool_call_id: tc.id.clone(),
-            status: "success".into(),
-            result: Some("已回复用户".into()),
-            error: None,
-            duration_ms: Some(0),
-            display_label: None,
-            display_summary: None,
-            trace_id: None,
-        },
-    );
-
-    let assistant_id = message_id;
-    let mut wire_thoughts: Option<String> = None;
-    let mut wire_headline: Option<String> = None;
-    let mut wire_reasoning: Option<String> = None;
-    if let Some(last) = history.last_mut() {
-        if last.id == assistant_id && matches!(last.role, Role::Assistant) {
-            last.content = message.to_string();
-            last.tool_calls = None;
-            last.status = "completed".into();
-            wire_reasoning = last.reasoning.clone();
-            wire_thoughts = last.thoughts.clone();
-            wire_headline = last.headline.clone();
-        }
-    }
-    super::agent_post_stream::log_reasoning_and_output_segments(
-        "lead_response_tool",
-        assistant_id,
-        wire_reasoning.as_deref(),
-        wire_thoughts.as_deref(),
-        Some(message),
-        history
-            .iter()
-            .find(|m| m.id == assistant_id && matches!(m.role, Role::Assistant))
-            .and_then(|m| m.tool_raw_output.as_deref()),
-    );
-    emit(
-        stream,
-        StreamEvent::MessageEnd {
-            message_id: assistant_id.to_string(),
-            content: Some(message.to_string()),
-            raw_content: if lead_cfg.raw_content_buf.is_empty() {
-                None
-            } else {
-                Some(lead_cfg.raw_content_buf.to_string())
-            },
-            tool_raw_output: history
-                .iter()
-                .find(|m| m.id == assistant_id && matches!(m.role, Role::Assistant))
-                .and_then(|m| m.tool_raw_output.clone()),
-            thoughts: wire_thoughts,
-            headline: wire_headline,
-            trace_id: None,
-        },
-    );
-    if let Some(consumed) = consumed_single {
-        tool_budget.sync_out(consumed);
-    }
-    Ok(ToolPassResult::LeadFinished)
 }
 
 async fn run_approval_gate(

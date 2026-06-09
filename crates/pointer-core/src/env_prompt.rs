@@ -42,8 +42,9 @@ fn locale_hint() -> String {
 
 fn os_usage(os: &str) -> String {
     format!(
-        "- OS usage: **{os}** above is the user's host platform for this session. Default paths, \
-shell syntax, keyboard shortcuts, and native tooling to {os} unless the user targets another OS."
+        "- OS usage: **{os}** above is the user's host platform for this session. Platform-typical \
+paths, shell syntax, keyboard shortcuts, and native tooling apply to {os} unless the user \
+targets another OS."
     )
 }
 

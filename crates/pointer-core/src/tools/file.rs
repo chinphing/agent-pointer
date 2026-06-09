@@ -128,6 +128,19 @@ fn build_glob_set(globs: Option<&[String]>) -> Result<Option<globset::GlobSet>> 
     }
 }
 
+/// Expand `~` / `~/…` to the session user's home directory.
+fn expand_user_path_for_file(user_path: &str) -> Result<String> {
+    let s = normalize_user_fspath(user_path);
+    if s.is_empty() {
+        return Ok(String::new());
+    }
+    if s == "~" || s.starts_with("~/") || s.starts_with("~\\") {
+        return crate::media::access::expand_root(s)
+            .map(|p| p.to_string_lossy().into_owned());
+    }
+    Ok(s.to_string())
+}
+
 /// Trim and drop redundant trailing `/` or `\` so `.../mod.rs/` resolves like `.../mod.rs`.
 /// On Windows, leaves `C:\` unchanged when that is the whole path after trimming separators.
 fn normalize_user_fspath(user_path: &str) -> &str {
@@ -576,20 +589,20 @@ pub fn resolve_accessible_path(workspace_root: &Path, user_path: &str) -> Result
     let workspace_root = workspace_root
         .canonicalize()
         .map_err(|e| anyhow!("工作区根无效: {e}"))?;
-    let user_path = normalize_user_fspath(user_path);
+    let user_path = expand_user_path_for_file(user_path)?;
     if user_path.is_empty() {
         return Err(anyhow!("路径不能为空"));
     }
     if user_path.contains('\0') {
         return Err(anyhow!("路径含非法字符"));
     }
-    let path = Path::new(user_path);
+    let path = Path::new(user_path.as_str());
     if path.is_absolute() {
         return path
             .canonicalize()
             .map_err(|e| anyhow!("路径无效或不存在: {e}"));
     }
-    resolve_within_workspace_root(&workspace_root, user_path)
+    resolve_within_workspace_root(&workspace_root, user_path.as_str())
 }
 
 /// Normalize line breaks to `\n` so `file_read` output (LF-joined) can match CR / CRLF on disk.
@@ -2301,6 +2314,15 @@ mod tests {
             msg.contains("工作区") || msg.contains("不在"),
             "unexpected message: {msg}"
         );
+    }
+
+    #[test]
+    fn accessible_path_expands_tilde_home() {
+        let ws = tempfile::tempdir().expect("tmp");
+        let home = dirs::home_dir().expect("home");
+        let got = resolve_accessible_path(ws.path(), "~").expect("tilde");
+        let want = home.canonicalize().unwrap_or(home);
+        assert_eq!(got, want);
     }
 
     #[test]

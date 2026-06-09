@@ -88,7 +88,6 @@ pub(super) async fn run_single_agent_tool_pass(
     )
     .await?
     {
-        InnerToolPassResult::LeadFinished => Ok(ToolPassResult::Finished),
         InnerToolPassResult::SubFinished(_) => Ok(ToolPassResult::Finished),
         InnerToolPassResult::NoopExit => Ok(ToolPassResult::NoopExit),
         InnerToolPassResult::RanTools => Ok(ToolPassResult::RanTools),

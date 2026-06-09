@@ -193,6 +193,11 @@ export async function checkMediaDeps(): Promise<MediaDepsStatus> {
   return await request<MediaDepsStatus>('/api/media/deps')
 }
 
+export async function revealInFinder(_path: string): Promise<void> {
+  // Web 端不支持在 Finder 中显示
+  throw new Error('revealInFinder is not supported in web runtime')
+}
+
 export async function listComputerMonitors(): Promise<ComputerMonitor[]> {
   return await request<ComputerMonitor[]>('/api/computer/monitors')
 }

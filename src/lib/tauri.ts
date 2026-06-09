@@ -202,6 +202,10 @@ export async function onStream(handler: (e: StreamEvent) => void): Promise<Unlis
   return await listen<StreamEvent>(STREAM_EVENT, ev => handler(ev.payload))
 }
 
+export async function revealInFinder(path: string): Promise<void> {
+  await invoke('reveal_in_finder', { path })
+}
+
 export interface PlatformSessionView {
   logged_in: boolean
   expires_at?: number | null

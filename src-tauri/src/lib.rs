@@ -198,6 +198,7 @@ pub fn run() {
             commands::preview_media_ref,
             commands::save_chat_attachment,
             commands::check_media_deps,
+            commands::reveal_in_finder,
             commands::list_computer_monitors,
             commands::set_computer_conversation_monitor,
             commands::confirm_computer_monitor_pick,

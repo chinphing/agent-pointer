@@ -122,7 +122,7 @@ pub async fn generate_image_volcengine(
         if cancel.is_cancelled() {
             return Err(anyhow!("已停止生成"));
         }
-        let path = save_generated_bytes(conversation_id, &[], ".png")?;
+        let path = save_generated_bytes(conversation_id, &[], "gen.png")?;
         download_url_to_file(&client, &image_url, &path).await?;
         local_paths.push(path.to_string_lossy().into_owned());
     }
@@ -226,7 +226,7 @@ pub async fn generate_video_volcengine(
     if cancel.is_cancelled() {
         return Err(anyhow!("已停止生成"));
     }
-    let path = save_generated_bytes(conversation_id, &[], ".mp4")?;
+    let path = save_generated_bytes(conversation_id, &[], "gen.mp4")?;
     download_url_to_file(&client, video_url, &path).await?;
     record_generation_usage(run_id, conversation_id, GenerationKind::Video, &model, &usage);
     Ok(GenerationArtifact {

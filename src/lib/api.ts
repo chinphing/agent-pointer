@@ -79,6 +79,7 @@ export interface RuntimeApi {
 
   loadConversations(): Promise<Conversation[]>
   saveConversations(conversations: Conversation[]): Promise<void>
+  revealInFinder(path: string): Promise<void>
   onStream(handler: (e: StreamEvent) => void, conversationId?: string): Promise<UnlistenFn>
 }
 
@@ -108,6 +109,7 @@ export const previewChatMedia = api.previewChatMedia
 export const previewMediaRef = api.previewMediaRef
 export const saveChatAttachment = api.saveChatAttachment
 export const checkMediaDeps = api.checkMediaDeps
+export const revealInFinder = api.revealInFinder
 export const listComputerMonitors = api.listComputerMonitors
 export const setComputerConversationMonitor = api.setComputerConversationMonitor
 export const confirmComputerMonitorPick = api.confirmComputerMonitorPick

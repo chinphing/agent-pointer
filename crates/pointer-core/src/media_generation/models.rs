@@ -4,24 +4,14 @@ use crate::models::{AgentModelRef, MediaModelOverrides, ModelSettings, ProviderC
 
 /// DashScope 万相 2.7 — unified image gen/edit (sync multimodal API).
 pub const QWEN_DEFAULT_IMAGE_MODEL: &str = "wan2.7-image-pro";
-/// DashScope 千问 Image 2.0 — strong text rendering in images.
-pub const QWEN_ALT_IMAGE_MODEL: &str = "qwen-image-2.0-pro";
+
 /// HappyHorse 1.0 文生视频（官网推荐，原生音画同步）。
 pub const QWEN_DEFAULT_VIDEO_MODEL: &str = "happyhorse-1.0-t2v";
-pub const QWEN_HAPPYHORSE_T2V: &str = "happyhorse-1.0-t2v";
-pub const QWEN_HAPPYHORSE_I2V: &str = "happyhorse-1.0-i2v";
-pub const QWEN_HAPPYHORSE_R2V: &str = "happyhorse-1.0-r2v";
-/// DashScope 万相 2.7 文生视频（有声、多镜头）。
-pub const QWEN_ALT_VIDEO_MODEL: &str = "wan2.7-t2v";
-pub const QWEN_FALLBACK_VIDEO_MODEL: &str = "wan2.6-t2v";
 
 /// 火山方舟 Seedream 5.0 Lite（2026-01 快照，支持联网检索）。
 pub const DOUBAO_DEFAULT_IMAGE_MODEL: &str = "doubao-seedream-5-0-lite-260128";
-pub const DOUBAO_ALT_IMAGE_MODEL: &str = "doubao-seedream-4-5-251128";
 /// Seedance 2.0 标准版（百万 token 计费，API 已开放）。
 pub const DOUBAO_DEFAULT_VIDEO_MODEL: &str = "doubao-seedance-2-0-260128";
-pub const DOUBAO_SEEDANCE_2_FAST: &str = "doubao-seedance-2-0-fast-260128";
-pub const DOUBAO_FALLBACK_VIDEO_MODEL: &str = "doubao-seedance-1-5-pro-251215";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GenerationKind {
@@ -83,6 +73,19 @@ fn default_model_for_provider(provider_id: &str, kind: GenerationKind) -> &'stat
     }
 }
 
+/// Infer the intended provider from a model name string.
+/// Returns `Some("qwen")` for DashScope models or `Some("doubao")` for Volcengine models.
+fn provider_for_model(model: &str) -> Option<&'static str> {
+    let m = model.trim().to_ascii_lowercase();
+    if m.starts_with("wan") || m.starts_with("qwen") || m.contains("happyhorse") {
+        Some("qwen")
+    } else if m.starts_with("doubao") {
+        Some("doubao")
+    } else {
+        None
+    }
+}
+
 pub fn resolve_generation_config(
     settings: &ModelSettings,
     kind: GenerationKind,
@@ -98,6 +101,18 @@ pub fn resolve_generation_config(
             } else {
                 Some(pid.to_string())
             }
+        })
+        .or_else(|| {
+            // If the model_override points at a well-known model, route accordingly
+            model_override
+                .and_then(|m| provider_for_model(m))
+                .and_then(|pid| match pid {
+                    "qwen" if find_dashscope_provider(settings).is_some() => Some("qwen".into()),
+                    "doubao" if find_volcengine_provider(settings).is_some() => {
+                        Some("doubao".into())
+                    }
+                    _ => None,
+                })
         })
         .or_else(|| {
             if find_volcengine_provider(settings).is_some() {
@@ -204,23 +219,23 @@ pub fn volcengine_ark_origin(base_url: &str) -> String {
         }
         return trimmed.to_string();
     }
-    "https://ark.cn-beijing.volces.com/api/v3".to_string()
+    "https://ark.cn-beijing.volces.com".to_string()
 }
 
 pub fn volcengine_image_url(base_url: &str) -> String {
-    format!("{}/images/generations", volcengine_ark_origin(base_url))
+    format!("{}/api/v3/images/generations", volcengine_ark_origin(base_url))
 }
 
 pub fn volcengine_video_tasks_url(base_url: &str) -> String {
     format!(
-        "{}/contents/generations/tasks",
+        "{}/api/v3/contents/generations/tasks",
         volcengine_ark_origin(base_url)
     )
 }
 
 pub fn volcengine_video_task_url(base_url: &str, task_id: &str) -> String {
     format!(
-        "{}/contents/generations/tasks/{}",
+        "{}/api/v3/contents/generations/tasks/{}",
         volcengine_ark_origin(base_url),
         task_id.trim()
     )

@@ -63,5 +63,5 @@ pub async fn dispatch_media_generate_async(
     };
     let (artifact, kind) = result;
     let text = format_generation_tool_result(&artifact, kind);
-    Ok((text, false, None))
+    Ok((text, true, None))
 }

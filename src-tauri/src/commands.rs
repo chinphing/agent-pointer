@@ -241,6 +241,46 @@ pub fn preview_chat_media(storage_rel_path: String) -> Result<ChatMediaPreview, 
     pointer_core::media::read_chat_media_preview(&storage_rel_path).map_err(|e| e.to_string())
 }
 
+/// Reveal a local file in Finder (macOS) or file manager (other platforms).
+#[tauri::command]
+pub fn reveal_in_finder(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn()
+            .map_err(|e| format!("打开 Finder 失败: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .args(["/select,", &path])
+            .spawn()
+            .map_err(|e| format!("打开文件管理器失败: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // Try common file managers
+        for (cmd, args) in &[
+            ("xdg-open", vec![std::path::Path::new(&path).parent().unwrap_or(std::path::Path::new("/")).to_string_lossy().to_string()]),
+            ("nautilus", vec![path.clone()]),
+            ("dolphin", vec![format!("--select={path}")]),
+            ("nemo", vec![path.clone()]),
+        ] {
+            if std::process::Command::new(cmd).args(args).spawn().is_ok() {
+                return Ok(());
+            }
+        }
+        Err("未找到可用的文件管理器".into())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        Err("当前平台不支持")
+    }
+}
+
 #[tauri::command]
 pub fn preview_media_ref(media_ref: String) -> Result<ChatMediaPreview, String> {
     let extra_roots = pointer_channels::config::load_channels_config()

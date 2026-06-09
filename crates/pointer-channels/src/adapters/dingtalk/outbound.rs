@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use crate::http_client::HttpClient;
+use crate::outbound_format::dingtalk_markdown_title;
 use crate::traits::{ChannelOutboundAdapter, OutboundContext};
 
 #[derive(Default)]
@@ -22,10 +23,14 @@ impl ChannelOutboundAdapter for DingTalkOutbound {
             .and_then(|r| r.session_webhook.clone())
         {
             let body = json!({
-                "msgtype": "text",
-                "text": { "content": text }
+                "msgtype": "markdown",
+                "markdown": {
+                    "title": dingtalk_markdown_title(text),
+                    "text": text
+                }
             });
             self.http.post_json(&url, &[], &body).await?;
+            log::info!("dingtalk outbound markdown account={}", ctx.account_id);
             return Ok(());
         }
         return Err(anyhow::anyhow!(

@@ -156,6 +156,8 @@ export interface PairingPendingItem {
   channel: string
   code: string
   senderId: string
+  /** Unix seconds; 0 = legacy / invalid */
+  issuedAt?: number
 }
 
 const PAIRING_CHANNELS = ['weixin', 'wecom', 'feishu', 'dingtalk'] as const
@@ -200,8 +202,15 @@ export async function listChannelPairingPending(
     )
     return res.pending
   }
-  const res = await webRequest<{ pending: [string, string][] }>(
+  const res = await webRequest<{
+    pending: Array<{ code: string; senderId: string; issuedAt?: number }>
+  }>(
     `/api/channels/${encodeURIComponent(channel)}/${encodeURIComponent(accountId)}/pairing/pending`
   )
-  return res.pending.map(([code, senderId]) => ({ channel, code, senderId }))
+  return res.pending.map(item => ({
+    channel,
+    code: item.code,
+    senderId: item.senderId,
+    issuedAt: item.issuedAt
+  }))
 }

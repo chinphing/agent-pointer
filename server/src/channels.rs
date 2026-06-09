@@ -249,9 +249,18 @@ pub async fn list_channel_pairing_pending(
     State(state): State<ServerState>,
     Path((channel, account_id)): Path<(String, String)>,
 ) -> Json<serde_json::Value> {
-    let pending = state
+    let pending: Vec<serde_json::Value> = state
         .channel_gateway
         .pairing
-        .list_pending(&channel, &account_id);
+        .list_pending(&channel, &account_id)
+        .into_iter()
+        .map(|(code, sender_id, issued_at)| {
+            serde_json::json!({
+                "code": code,
+                "senderId": sender_id,
+                "issuedAt": issued_at,
+            })
+        })
+        .collect();
     Json(serde_json::json!({ "pending": pending }))
 }

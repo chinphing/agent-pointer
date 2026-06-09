@@ -118,6 +118,7 @@ pub struct PairingPendingResponse {
 pub struct PairingPendingItem {
     pub code: String,
     pub sender_id: String,
+    pub issued_at: i64,
 }
 
 #[tauri::command]
@@ -175,7 +176,11 @@ pub fn list_channel_pairing_pending(
         .pairing
         .list_pending(&channel, &account_id)
         .into_iter()
-        .map(|(code, sender_id)| PairingPendingItem { code, sender_id })
+        .map(|(code, sender_id, issued_at)| PairingPendingItem {
+            code,
+            sender_id,
+            issued_at,
+        })
         .collect();
     Ok(PairingPendingResponse { pending })
 }

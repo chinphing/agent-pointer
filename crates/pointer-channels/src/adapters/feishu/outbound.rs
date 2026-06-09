@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use serde_json::json;
 
 use crate::http_client::HttpClient;
+use crate::outbound_format::feishu_post_md_content;
 use crate::traits::{ChannelOutboundAdapter, OutboundContext};
 
 #[derive(Default)]
@@ -62,12 +63,13 @@ impl ChannelOutboundAdapter for FeishuOutbound {
             + receive_id_type;
         let body = json!({
             "receive_id": receive_id,
-            "msg_type": "text",
-            "content": serde_json::to_string(&json!({ "text": text }))?,
+            "msg_type": "post",
+            "content": feishu_post_md_content(text)?,
         });
         let auth = format!("Bearer {token}");
         let headers = [("Authorization", auth.as_str())];
         self.http.post_json(&url, &headers, &body).await?;
+        log::info!("feishu outbound post-md account={}", ctx.account_id);
         Ok(())
     }
 }

@@ -182,6 +182,18 @@ async fn list_pending_pairing(
     State(state): State<Arc<ChannelApiState>>,
     Path((channel, account_id)): Path<(String, String)>,
 ) -> Json<serde_json::Value> {
-    let pending = state.gateway.pairing.list_pending(&channel, &account_id);
+    let pending: Vec<serde_json::Value> = state
+        .gateway
+        .pairing
+        .list_pending(&channel, &account_id)
+        .into_iter()
+        .map(|(code, sender_id, issued_at)| {
+            serde_json::json!({
+                "code": code,
+                "senderId": sender_id,
+                "issuedAt": issued_at,
+            })
+        })
+        .collect();
     Json(serde_json::json!({ "pending": pending }))
 }

@@ -544,6 +544,13 @@ export interface ChatMediaPreview {
   fileName: string
 }
 
+export interface MonitorWorkArea {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
 export interface ComputerMonitor {
   id: string
   left: number
@@ -551,6 +558,8 @@ export interface ComputerMonitor {
   width: number
   height: number
   isPrimary: boolean
+  /** Excludes macOS Dock / menu bar when provided by the desktop host. */
+  workArea?: MonitorWorkArea
 }
 
 export interface ComputerMonitorPickRequest {

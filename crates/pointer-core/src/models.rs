@@ -333,6 +333,15 @@ impl From<&Conversation> for ConversationMeta {
     }
 }
 
+/// Usable desktop rectangle excluding OS chrome (macOS Dock / menu bar, Windows taskbar).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MonitorWorkArea {
+    pub left: i32,
+    pub top: i32,
+    pub width: i32,
+    pub height: i32,
+}
+
 /// Desktop monitor descriptor for Computer agent screen selection (UI).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComputerMonitor {
@@ -344,6 +353,9 @@ pub struct ComputerMonitor {
     pub height: i32,
     #[serde(default, rename = "isPrimary")]
     pub is_primary: bool,
+    /// When set, window placement should use this instead of full `left`/`top`/`width`/`height`.
+    #[serde(default, rename = "workArea", skip_serializing_if = "Option::is_none")]
+    pub work_area: Option<MonitorWorkArea>,
 }
 
 /// Per-model overrides for runtime/API behavior. Unset fields inherit from the parent provider.

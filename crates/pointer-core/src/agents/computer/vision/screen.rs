@@ -88,6 +88,7 @@ pub fn list_monitors() -> Result<Vec<ComputerMonitor>> {
             width: info.width,
             height: info.height,
             is_primary,
+            work_area: None,
         });
     }
     Ok(out)

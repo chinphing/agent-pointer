@@ -1,7 +1,6 @@
 import { isTauriRuntime } from '../lib/runtime'
 import { detectDesktopOs } from '../lib/desktopOs'
-import { listComputerMonitors, reapplyWindowChrome, setComputerCompactChrome } from '../lib/api'
-import type { ComputerMonitor } from '../types/chat'
+import { reapplyWindowChrome, setComputerCompactChrome } from '../lib/api'
 
 const COMPACT_BAR_WIDTH = 400
 const COMPACT_BAR_HEIGHT_SINGLE = 48
@@ -57,46 +56,33 @@ async function loadWindow() {
   return getCurrentWindow()
 }
 
-async function monitorForWindow(
-  outerX: number,
-  outerY: number,
-  outerW: number,
-  outerH: number
-): Promise<ComputerMonitor | null> {
-  try {
-    const monitors = await listComputerMonitors()
-    if (!monitors.length) return null
-    const cx = outerX + outerW / 2
-    const cy = outerY + outerH / 2
-    const hit = monitors.find(
-      m => cx >= m.left && cx < m.left + m.width && cy >= m.top && cy < m.top + m.height
-    )
-    return hit ?? monitors.find(m => m.isPrimary) ?? monitors[0]
-  } catch (e) {
-    console.warn('[computer-compact-window] list monitors failed', e)
-    return null
-  }
-}
-
 async function placeCompactWindow(
   win: Awaited<ReturnType<typeof loadWindow>>,
   twoLines: boolean
 ): Promise<void> {
-  const { PhysicalSize, PhysicalPosition } = await import('@tauri-apps/api/dpi')
-  const outerSize = await win.outerSize()
-  const outerPos = await win.outerPosition()
-  const monitor = await monitorForWindow(outerPos.x, outerPos.y, outerSize.width, outerSize.height)
+  const { LogicalSize, LogicalPosition } = await import('@tauri-apps/api/dpi')
+  const { currentMonitor } = await import('@tauri-apps/api/window')
 
-  const physicalW = compactWindowSize(twoLines).width
-  const physicalH = compactWindowSize(twoLines).height
+  const { width, height } = compactWindowSize(twoLines)
+  await win.setSize(new LogicalSize(width, height))
 
-  await win.setSize(new PhysicalSize(physicalW, physicalH))
-
-  if (monitor) {
-    const x = monitor.left + monitor.width - physicalW - COMPACT_MARGIN
-    const y = monitor.top + monitor.height - physicalH - COMPACT_MARGIN
-    await win.setPosition(new PhysicalPosition(x, y))
+  const monitor = await currentMonitor()
+  if (!monitor) {
+    console.warn('[computer-compact-window] currentMonitor unavailable; keeping window position')
+    return
   }
+
+  const scale = monitor.scaleFactor > 0 ? monitor.scaleFactor : 1
+  const work = monitor.workArea
+  // Tauri monitor/workArea use physical global coords; LogicalPosition expects logical global coords.
+  const areaLeft = work.position.x / scale
+  const areaTop = work.position.y / scale
+  const areaWidth = work.size.width / scale
+  const areaHeight = work.size.height / scale
+
+  const x = Math.round(areaLeft + areaWidth - width - COMPACT_MARGIN)
+  const y = Math.round(areaTop + areaHeight - height - COMPACT_MARGIN)
+  await win.setPosition(new LogicalPosition(x, y))
 }
 
 export async function shrinkComputerCompactWindow(
@@ -107,7 +93,7 @@ export async function shrinkComputerCompactWindow(
   if (!resizeOnly && compactActive) return
   try {
     const win = await loadWindow()
-    const { PhysicalSize } = await import('@tauri-apps/api/dpi')
+    const { LogicalSize } = await import('@tauri-apps/api/dpi')
 
     if (!resizeOnly) {
       const maximized = await win.isMaximized()
@@ -122,7 +108,7 @@ export async function shrinkComputerCompactWindow(
       }
 
       if (maximized) await win.unmaximize()
-      await win.setMinSize(new PhysicalSize(280, 48))
+      await win.setMinSize(new LogicalSize(280, 48))
       await setComputerCompactChrome(true)
       await setCompactWindowBackground(true)
       compactActive = true
@@ -147,10 +133,10 @@ export async function restoreComputerCompactWindow(): Promise<void> {
   }
   try {
     const win = await loadWindow()
-    const { PhysicalSize, PhysicalPosition } = await import('@tauri-apps/api/dpi')
+    const { LogicalSize, PhysicalSize, PhysicalPosition } = await import('@tauri-apps/api/dpi')
 
     // Restore geometry first — resize/maximize resets macOS overlay titlebar if chrome was already reapplied.
-    await win.setMinSize(new PhysicalSize(RESTORE_MIN_WIDTH, RESTORE_MIN_HEIGHT))
+    await win.setMinSize(new LogicalSize(RESTORE_MIN_WIDTH, RESTORE_MIN_HEIGHT))
 
     if (saved) {
       await win.setSize(new PhysicalSize(saved.width, saved.height))

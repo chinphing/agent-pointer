@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, defineComponent, h } from 'vue'
+import { computed, defineAsyncComponent, defineComponent, h, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import Composer from './Composer.vue'
 import ExperienceHomePanel from './ExperienceHomePanel.vue'
@@ -9,6 +9,7 @@ import { usePlatformAuthStore } from '../../stores/platformAuth'
 import TerminalLiveOutputModal from './TerminalLiveOutputModal.vue'
 
 import { isTauriRuntime } from '../../lib/runtime'
+import { ChevronDown } from 'lucide-vue-next'
 
 /** 避免异步分包未返回前主区域长时间空白（Windows 杀毒/冷盘常见）。 */
 const MessageListSkeleton = defineComponent({
@@ -43,6 +44,7 @@ const platformAuth = usePlatformAuthStore()
 const { uiToast, terminalLivePopup } = storeToRefs(chat)
 const empty = computed(() => !chat.current || chat.current.messages.length === 0)
 const needsPlatformLogin = computed(() => isTauriRuntime() && !platformAuth.session.logged_in)
+const experienceSectionExpanded = ref(false)
 
 async function onPlatformLogin() {
   try {
@@ -90,10 +92,10 @@ const toastClass = computed(() => {
     />
     <div class="flex-1 overflow-hidden relative">
       <div v-if="empty" class="chat-scroll-area h-full overflow-y-auto chat-shell">
-        <div class="chat-column w-full -translate-y-5 pb-10">
-          <div class="mx-auto flex w-full max-w-[42rem] min-h-[calc(50vh-4.5rem)] flex-col items-center justify-end">
+        <div class="chat-column w-full translate-y-[90px] pb-10">
+          <div class="mx-auto flex w-full max-w-[42rem] min-h-[clamp(7rem,calc(50vh-4.5rem),14rem)] flex-col items-center justify-end">
             <h1 class="mb-[30px] max-w-[22rem] text-center text-[1.375rem] font-semibold leading-snug tracking-tight text-foreground sm:max-w-none sm:text-[1.625rem] md:text-[1.75rem]">
-              Pointer：你说，我做，就这么简单！
+              <span class="brand-text">Pointer</span>：你说，我做，就这么简单！
             </h1>
           </div>
 
@@ -101,12 +103,32 @@ const toastClass = computed(() => {
             <Composer placement="inline" />
           </div>
 
-          <div class="flex min-h-[calc(50vh-4.5rem)] w-full flex-col items-center justify-start pt-10">
-            <div class="mb-3 flex w-full flex-col gap-2.5">
+          <div
+            class="flex w-full flex-col"
+            :class="experienceSectionExpanded ? 'min-h-[clamp(8rem,calc(50vh-4.5rem),16rem)] pt-8' : 'pt-6'"
+          >
+            <button
+              type="button"
+              class="mb-3 flex w-full cursor-pointer flex-col gap-2.5 border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+              :aria-expanded="experienceSectionExpanded"
+              @click="experienceSectionExpanded = !experienceSectionExpanded"
+            >
               <div class="h-px bg-border/50" />
-              <p class="text-xs font-medium text-muted">推荐经验</p>
-            </div>
-            <ExperienceHomePanel />
+              <span class="flex items-center justify-between gap-2">
+                <span class="text-xs font-medium text-muted">推荐经验</span>
+                <ChevronDown
+                  class="h-3.5 w-3.5 shrink-0 text-muted transition-transform duration-200"
+                  :class="experienceSectionExpanded ? 'rotate-180' : ''"
+                  aria-hidden="true"
+                />
+              </span>
+            </button>
+
+            <Transition name="experience-section-expand">
+              <div v-if="experienceSectionExpanded" class="w-full">
+                <ExperienceHomePanel />
+              </div>
+            </Transition>
 
             <div v-if="needsPlatformLogin" class="mt-10 flex w-full max-w-sm flex-col items-center">
               <div class="mb-4 h-px w-full bg-border" />
@@ -140,5 +162,23 @@ const toastClass = computed(() => {
 .toast-fade-enter-from,
 .toast-fade-leave-to {
   opacity: 0;
+}
+
+.experience-section-expand-enter-active,
+.experience-section-expand-leave-active {
+  overflow: hidden;
+  transition: max-height 0.24s ease, opacity 0.2s ease;
+}
+
+.experience-section-expand-enter-from,
+.experience-section-expand-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
+
+.experience-section-expand-enter-to,
+.experience-section-expand-leave-from {
+  max-height: 32rem;
+  opacity: 1;
 }
 </style>

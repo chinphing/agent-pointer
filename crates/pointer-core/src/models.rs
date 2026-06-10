@@ -639,10 +639,8 @@ pub fn default_doubao_provider_models() -> Vec<String> {
     vec![
         "doubao-seedream-5-0-lite-260128".into(),
         "doubao-seedream-4-5-251128".into(),
-        "doubao-seedance-1-0-lite-t2v-250428".into(),
-        "doubao-seedance-1-0-lite-i2v-250428".into(),
-        "doubao-seedance-2-0-260128".into(),
         "doubao-seedance-2-0-fast-260128".into(),
+        "doubao-seedance-2-0-260128".into(),
     ]
 }
 
@@ -654,7 +652,7 @@ pub fn default_media_generation_overrides() -> MediaModelOverrides {
         }),
         video_generation: Some(AgentModelRef {
             provider_id: "doubao".into(),
-            model: "doubao-seedance-1-0-lite-t2v-250428".into(),
+            model: "doubao-seedance-2-0-fast-260128".into(),
         }),
         ..MediaModelOverrides::default()
     }

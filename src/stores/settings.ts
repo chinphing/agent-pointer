@@ -110,7 +110,7 @@ const defaultPlatformSettings = (): PlatformSettings => ({
     },
     videoGeneration: {
       providerId: 'doubao',
-      model: 'doubao-seedance-1-0-lite-t2v-250428'
+      model: 'doubao-seedance-2-0-fast-260128'
     }
   },
   computerTierLlm: {

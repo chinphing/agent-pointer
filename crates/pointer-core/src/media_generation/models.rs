@@ -10,8 +10,8 @@ pub const QWEN_DEFAULT_VIDEO_MODEL: &str = "happyhorse-1.0-t2v";
 
 /// 火山方舟 Seedream 5.0 Lite（默认图片生成）。
 pub const DOUBAO_DEFAULT_IMAGE_MODEL: &str = "doubao-seedream-5-0-lite-260128";
-/// Seedance 1.0 Lite 文生视频（有首帧时自动切 `…-lite-i2v-…`）。
-pub const DOUBAO_DEFAULT_VIDEO_MODEL: &str = "doubao-seedance-1-0-lite-t2v-250428";
+/// Seedance 2.0 极速版（默认轻量档；与 2.0 标准版共用 Ark video API）。
+pub const DOUBAO_DEFAULT_VIDEO_MODEL: &str = "doubao-seedance-2-0-fast-260128";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GenerationKind {
@@ -336,11 +336,11 @@ mod tests {
         ];
         settings.media_model_overrides.video_generation = Some(AgentModelRef {
             provider_id: "doubao".into(),
-            model: "doubao-seedance-1-0-lite-t2v-250428".into(),
+            model: "doubao-seedance-2-0-fast-260128".into(),
         });
         let cfg =
             resolve_generation_config(&settings, GenerationKind::Video).expect("config");
-        assert_eq!(cfg.model, "doubao-seedance-1-0-lite-t2v-250428");
+        assert_eq!(cfg.model, "doubao-seedance-2-0-fast-260128");
         assert_eq!(cfg.provider_id, "doubao");
         assert!(cfg.base_url.contains("volces"));
     }
@@ -383,8 +383,8 @@ mod tests {
             "happyhorse-1.0-i2v"
         );
         assert_eq!(
-            resolve_volcengine_video_model("doubao-seedance-1-0-lite-t2v-250428", true),
-            "doubao-seedance-1-0-lite-i2v-250428"
+            resolve_volcengine_video_model("doubao-seedance-2-0-fast-260128", true),
+            "doubao-seedance-2-0-fast-260128"
         );
     }
 }

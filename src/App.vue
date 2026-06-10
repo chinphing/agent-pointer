@@ -43,7 +43,6 @@ const {
 } = useExternalSkillsImportPrompt()
 
 onMounted(() => {
-  void loadSettingsDialog()
   void Promise.all([platformAuth.load(), settings.load()])
     .then(async () => {
       skills.initEnabledFromUserSettings()

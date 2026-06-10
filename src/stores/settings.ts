@@ -14,9 +14,12 @@ import type {
   AgentModelRef,
   AgentUiConfig,
   ComputerInitialTier,
+  ComputerTierLlmConfig,
   EffectiveSettingsView,
   MediaModelOverrides,
+  MediaUnderstandingModes,
   ModelSettings,
+  PerformanceMode,
   PlatformSettings,
   ProviderConfig,
   ThemePreference,
@@ -26,10 +29,50 @@ import { DEFAULT_ENABLED_SKILL_IDS, DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { GENERAL_AGENT_ID } from '../lib/agentUi'
 import { applyTheme } from '../lib/theme'
 import {
+  DOUBAO_GENERATION_MODELS,
+  modelCanGenerateImage,
+  modelCanGenerateVideo,
+  modelSupportsVision,
+  QWEN_GENERATION_MODELS,
+  seedProviderModelCapabilities
+} from '../lib/modelCapabilities'
+import {
   DEFAULT_MODEL_MAX_TOKENS,
   DEFAULT_MODEL_TEMPERATURE,
   pruneInheritedModelConfigs
 } from '../composables/useRuntimeParams'
+
+function defaultModeLlm(
+  providerId: string,
+  fast: string,
+  standard: string,
+  expert: string
+): Record<PerformanceMode, ComputerTierLlmConfig> {
+  return {
+    fast: { providerId, model: fast, enableThinking: true, thinkingBudget: 2048 },
+    standard: { providerId, model: standard, enableThinking: true, thinkingBudget: 2048 },
+    expert: { providerId, model: expert, enableThinking: true, thinkingBudget: 8192 }
+  }
+}
+
+const defaultAgentModeLlm = () => ({
+  general: {
+    fast: { providerId: 'deepseek', model: 'deepseek-v4-flash', enableThinking: true, thinkingBudget: 2048 },
+    standard: { providerId: 'deepseek', model: 'deepseek-v4-pro', enableThinking: true, thinkingBudget: 2048 },
+    expert: { providerId: 'qwen', model: 'qwen3.7-max', enableThinking: true, thinkingBudget: 8192 }
+  },
+  coder: {
+    fast: { providerId: 'deepseek', model: 'deepseek-v4-flash', enableThinking: true, thinkingBudget: 2048 },
+    standard: { providerId: 'deepseek', model: 'deepseek-v4-pro', enableThinking: true, thinkingBudget: 2048 },
+    expert: { providerId: 'qwen', model: 'qwen3.7-max', enableThinking: true, thinkingBudget: 8192 }
+  }
+})
+
+const defaultMediaModeLlm = () => ({
+  image: defaultModeLlm('qwen', 'qwen3.5-flash', 'qwen3.5-plus', 'qwen3.6-plus'),
+  audio: defaultModeLlm('qwen', 'qwen3.5-flash', 'qwen3.5-plus', 'qwen3.6-plus'),
+  video: defaultModeLlm('qwen', 'qwen3.5-flash', 'qwen3.5-plus', 'qwen3.6-plus')
+})
 
 const defaultPlatformSettings = (): PlatformSettings => ({
   providers: defaultProviders,
@@ -65,8 +108,12 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   computerTierLlm: {
     primary: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
     intermediate: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },
-    advanced: { providerId: 'qwen', model: 'qwen3.6-plus', enableThinking: true, thinkingBudget: 8192 }
-  }
+    advanced: { providerId: 'qwen', model: 'qwen3.7-plus', enableThinking: true, thinkingBudget: 8192 }
+  },
+  agentModeLlm: defaultAgentModeLlm(),
+  mediaModeLlm: defaultMediaModeLlm(),
+  agentPerformanceModes: { general: 'fast', coder: 'fast' },
+  mediaUnderstandingModes: { image: 'fast', audio: 'fast', video: 'fast' }
 })
 
 function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSettings {
@@ -95,7 +142,11 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     captchaSliderOffsetPx: Number.isFinite(Number(s.captchaSliderOffsetPx)) ? Number(s.captchaSliderOffsetPx) : 0,
     theme: (s.theme as ThemePreference) ?? 'system',
     agentUiOverrides: { ...(s.agentUiOverrides ?? {}) },
-    mediaModelOverrides: { ...(s.mediaModelOverrides ?? {}) }
+    mediaModelOverrides: { ...(s.mediaModelOverrides ?? {}) },
+    agentPerformanceModes: { ...(s.agentPerformanceModes ?? {}) },
+    mediaUnderstandingModes: { ...(s.mediaUnderstandingModes ?? {}) },
+    agentModeLlm: { ...(s.agentModeLlm ?? {}) },
+    mediaModeLlm: { ...(s.mediaModeLlm ?? {}) }
   }
 }
 
@@ -107,7 +158,7 @@ function globalGenFallbackFrom(st?: Pick<ModelSettings, 'temperature' | 'maxToke
 }
 
 const defaultProviders: ProviderConfig[] = [
-  {
+  seedProviderModelCapabilities({
     id: 'qwen',
     name: '千问',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
@@ -117,16 +168,18 @@ const defaultProviders: ProviderConfig[] = [
       'qwen3.5-27b',
       'qwen3.5-flash',
       'qwen3.7-max',
+      'qwen3.7-plus',
       'qwen3.6-plus',
       'qwen3.6-27b',
-      'qwen3.6-flash'
+      'qwen3.6-flash',
+      ...QWEN_GENERATION_MODELS
     ],
     reasoningInMessages: false,
     enableThinking: true,
     thinkingBudget: 2048,
     modelConfigs: {}
-  },
-  {
+  }),
+  seedProviderModelCapabilities({
     id: 'deepseek',
     name: '深度求索',
     baseUrl: 'https://api.deepseek.com/v1',
@@ -134,15 +187,15 @@ const defaultProviders: ProviderConfig[] = [
     models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
     reasoningInMessages: true,
     modelConfigs: {}
-  },
-  {
+  }),
+  seedProviderModelCapabilities({
     id: 'doubao',
     name: '豆包',
     baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
     apiKey: '',
-    models: ['doubao-seedream-5-0-lite-260128', 'doubao-seedance-1-5-pro-251215'],
+    models: [...DOUBAO_GENERATION_MODELS],
     modelConfigs: {}
-  }
+  })
 ]
 
 /** Normalize provider entries from API; merge legacy root `reasoningInMessages` when per-provider value is absent. */
@@ -151,7 +204,7 @@ function normalizeProvider(
   legacyReasoning?: boolean,
   globalFallback?: { temperature: () => number; maxTokens: () => number }
 ): ProviderConfig {
-  const base: ProviderConfig = {
+  const base: ProviderConfig = seedProviderModelCapabilities({
     ...p,
     // 旧数据或异常响应可能缺 models；设置页模板会读 models.length，必须是数组。
     models: Array.isArray(p.models) ? [...p.models] : [],
@@ -162,7 +215,7 @@ function normalizeProvider(
         : legacyReasoning !== undefined
           ? legacyReasoning
           : undefined
-  }
+  })
   const fallback = globalFallback ?? {
     temperature: () => DEFAULT_MODEL_TEMPERATURE,
     maxTokens: () => DEFAULT_MODEL_MAX_TOKENS
@@ -235,7 +288,9 @@ export const useSettingsStore = defineStore('settings', () => {
       ...defaultPlatformSettings(),
       ...view.platform,
       providers: normalizeProviders(view.platform.providers, undefined, globalGenFallbackFrom(view.merged)),
-      computerTierLlm: { ...defaultPlatformSettings().computerTierLlm, ...view.platform.computerTierLlm }
+      computerTierLlm: { ...defaultPlatformSettings().computerTierLlm, ...view.platform.computerTierLlm },
+      agentModeLlm: { ...defaultAgentModeLlm(), ...view.platform.agentModeLlm },
+      mediaModeLlm: { ...defaultMediaModeLlm(), ...view.platform.mediaModeLlm }
     }
     canEditPlatform.value = view.canEditPlatform
     isPlatformAdmin.value = view.isPlatformAdmin
@@ -324,6 +379,24 @@ export const useSettingsStore = defineStore('settings', () => {
     return result
   })
 
+  const visionModels = computed(() =>
+    allModels.value.filter(item =>
+      modelSupportsVision(settings.value.providers, item.providerId, item.model)
+    )
+  )
+
+  const imageGenerationModels = computed(() =>
+    allModels.value.filter(item =>
+      modelCanGenerateImage(settings.value.providers, item.providerId, item.model)
+    )
+  )
+
+  const videoGenerationModels = computed(() =>
+    allModels.value.filter(item =>
+      modelCanGenerateVideo(settings.value.providers, item.providerId, item.model)
+    )
+  )
+
   async function load() {
     loading.value = true
     const view = await getSettings().catch(() => null)
@@ -386,10 +459,16 @@ export const useSettingsStore = defineStore('settings', () => {
     }
   }
 
-  async function save(patch: Partial<ModelSettings> & Pick<Partial<PlatformSettings>, 'computerTierLlm'>) {
-    const { computerTierLlm, ...sessionPatch } = patch
+  async function save(patch: Partial<ModelSettings> & Pick<Partial<PlatformSettings>, 'computerTierLlm' | 'agentModeLlm' | 'mediaModeLlm'>) {
+    const { computerTierLlm, agentModeLlm, mediaModeLlm, ...sessionPatch } = patch
     if (computerTierLlm !== undefined && canEditPlatform.value) {
       await savePlatform({ computerTierLlm })
+    }
+    if (agentModeLlm !== undefined && canEditPlatform.value) {
+      await savePlatform({ agentModeLlm })
+    }
+    if (mediaModeLlm !== undefined && canEditPlatform.value) {
+      await savePlatform({ mediaModeLlm })
     }
     if (Object.keys(sessionPatch).length > 0) {
       await saveSession(sessionPatch)
@@ -532,6 +611,29 @@ export const useSettingsStore = defineStore('settings', () => {
     return settings.value.mediaModelOverrides?.[kind]
   }
 
+  async function setAgentPerformanceMode(agentId: string, mode: PerformanceMode) {
+    const next = { ...(settings.value.agentPerformanceModes ?? {}) }
+    next[agentId] = mode
+    await saveAgentPreferences({ agentPerformanceModes: next })
+  }
+
+  function getAgentPerformanceMode(agentId: string): PerformanceMode {
+    return settings.value.agentPerformanceModes?.[agentId] ?? 'fast'
+  }
+
+  async function setMediaUnderstandingMode(
+    kind: keyof MediaUnderstandingModes,
+    mode: PerformanceMode
+  ) {
+    const next: MediaUnderstandingModes = { ...(settings.value.mediaUnderstandingModes ?? {}) }
+    next[kind] = mode
+    await saveAgentPreferences({ mediaUnderstandingModes: next })
+  }
+
+  function getMediaUnderstandingMode(kind: keyof MediaUnderstandingModes): PerformanceMode {
+    return settings.value.mediaUnderstandingModes?.[kind] ?? 'fast'
+  }
+
   async function setMediaModelOverride(
     kind: keyof MediaModelOverrides,
     ref: AgentModelRef | null
@@ -570,6 +672,9 @@ export const useSettingsStore = defineStore('settings', () => {
     effectiveTemperature,
     effectiveMaxTokens,
     allModels,
+    visionModels,
+    imageGenerationModels,
+    videoGenerationModels,
     load,
     save,
     saveSession,
@@ -586,8 +691,12 @@ export const useSettingsStore = defineStore('settings', () => {
     runTest,
     getAgentDefaultModelRef,
     setAgentDefaultModel,
+    setAgentPerformanceMode,
+    getAgentPerformanceMode,
     getMediaModelOverride,
     setMediaModelOverride,
+    setMediaUnderstandingMode,
+    getMediaUnderstandingMode,
     isTaskBoardHistoryTrimEnabled,
     setTaskBoardHistoryTrim,
     defaultTaskBoardHistoryTrim,

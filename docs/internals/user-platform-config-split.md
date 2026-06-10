@@ -57,7 +57,7 @@ Platform setting `computerTierLlm` maps `primary` | `intermediate` | `advanced` 
 Defaults:
 
 - Primary / intermediate: `qwen3.5-plus`, thinking on, budget 2048
-- Advanced: `qwen3.6-plus`, thinking on, budget 8192
+- Advanced: `qwen3.7-plus`, thinking on, budget 8192
 
 ## Security notes (`auth.dat`)
 

@@ -47,9 +47,9 @@ export type ThemePreference = 'light' | 'dark' | 'system'
 export type ComputerInitialTier = 'primary' | 'intermediate' | 'advanced'
 
 export const COMPUTER_INITIAL_TIER_OPTIONS: { value: ComputerInitialTier; label: string }[] = [
-  { value: 'primary', label: '初级' },
-  { value: 'intermediate', label: '中级' },
-  { value: 'advanced', label: '高级' }
+  { value: 'primary', label: '快速' },
+  { value: 'intermediate', label: '标准' },
+  { value: 'advanced', label: '专家' }
 ]
 
 /** Per-agent chat UI visibility (from AGENT.md `ui` block). */
@@ -300,7 +300,43 @@ export interface ModelRuntimeOverrides {
   thinkingBudget?: number
   /** DeepSeek: `reasoning_effort` — `high` | `max`. */
   reasoningEffort?: 'high' | 'max'
+  /** Whether the model accepts vision / image understanding input. */
+  supportsVision?: boolean
+  /** Whether the model can generate images (`image_generate`). */
+  canGenerateImage?: boolean
+  /** Whether the model can generate videos (`video_generate`). */
+  canGenerateVideo?: boolean
 }
+
+/** User-facing performance tier for chat / media understanding agents. */
+export type PerformanceMode = 'fast' | 'standard' | 'expert'
+
+export type PerformanceModeKey = PerformanceMode
+
+export const PERFORMANCE_MODE_OPTIONS: { value: PerformanceMode; label: string }[] = [
+  { value: 'fast', label: '快速' },
+  { value: 'standard', label: '标准' },
+  { value: 'expert', label: '专家' }
+]
+
+export interface MediaUnderstandingModes {
+  image?: PerformanceMode
+  audio?: PerformanceMode
+  video?: PerformanceMode
+}
+
+/** agentId → user-selected performance mode (general / coder). */
+export type AgentPerformanceModes = Partial<Record<string, PerformanceMode>>
+
+/** Debug: agentId → mode → LLM profile (like computer tier models). */
+export type AgentModeLlmMap = Partial<
+  Record<string, Partial<Record<PerformanceModeKey, ComputerTierLlmConfig>>>
+>
+
+/** Debug: media kind → mode → LLM profile. */
+export type MediaModeLlmMap = Partial<
+  Record<'image' | 'audio' | 'video', Partial<Record<PerformanceModeKey, ComputerTierLlmConfig>>>
+>
 
 export interface ProviderConfig {
   id: string
@@ -378,7 +414,13 @@ export interface PlatformSettings {
   captchaSliderOffsetPx?: number
   agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
   computerTierLlm?: Partial<Record<ComputerTierKey, ComputerTierLlmConfig>>
+  /** Debug: per-mode LLM for general / coder agents. */
+  agentModeLlm?: AgentModeLlmMap
+  /** Debug: per-mode LLM for image / audio / video understanding. */
+  mediaModeLlm?: MediaModeLlmMap
   mediaModelOverrides?: MediaModelOverrides
+  agentPerformanceModes?: AgentPerformanceModes
+  mediaUnderstandingModes?: MediaUnderstandingModes
 }
 
 export interface EffectiveSettingsView {
@@ -438,6 +480,10 @@ export interface ModelSettings {
   /** Per-agent UI overrides (merged over manifest `ui`) */
   agentUiOverrides?: Record<string, Partial<AgentUiConfig>>
   mediaModelOverrides?: MediaModelOverrides
+  agentPerformanceModes?: AgentPerformanceModes
+  mediaUnderstandingModes?: MediaUnderstandingModes
+  agentModeLlm?: AgentModeLlmMap
+  mediaModeLlm?: MediaModeLlmMap
 }
 
 export interface SkillDef {

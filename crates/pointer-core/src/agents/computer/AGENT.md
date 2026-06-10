@@ -46,7 +46,7 @@ config:
   computerInitialTier: "intermediate"
   computerModelPrimary: "qwen3.5-flash"
   computerModelIntermediate: "qwen3.5-plus"
-  computerModelAdvanced: "qwen3.6-plus"
+  computerModelAdvanced: "qwen3.7-plus"
 ---
 
 # computer-use

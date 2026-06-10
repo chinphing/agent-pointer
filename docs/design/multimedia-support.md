@@ -71,8 +71,8 @@ mediaModelOverrides: {
 
 | 服务商 | 图片 | 视频 |
 |--------|------|------|
-| 千问 DashScope | `wan2.7-image-pro` | `wan2.7-t2v` |
-| 豆包 Volcengine Ark | `doubao-seedream-5-0-lite-260128` | `doubao-seedance-1-5-pro-251215` |
+| 千问 DashScope | `wan2.7-image-pro` | `happyhorse-1.0-t2v`（有首帧图时自动切 `happyhorse-1.0-i2v`） |
+| 豆包 Volcengine Ark | `doubao-seedream-5-0-lite-260128` | `doubao-seedance-2-0-260128` |
 
 路由规则：优先 `mediaModelOverrides.imageGeneration` / `videoGeneration` 的 `providerId`；否则若配置了豆包 provider 则走豆包，否则走千问。工具参数 `model` 可单次覆盖。
 
@@ -132,20 +132,42 @@ mediaModelOverrides: {
 
 ## 8. 设置项
 
-在 **设置 → 智能体 → 多媒体理解模型** 中配置：
+### 模式选择（用户可见）
 
-| 项 | 作用 | 默认 |
-|----|------|------|
-| 图片理解 | 非 vision 主模型时描述图片 | qwen3.5-plus |
-| 语音转写 | 音频附件 ASR（需模型支持 input_audio） | 同图片模型 |
-| 视频理解 | IM 视频抽帧后多图理解（需 ffmpeg） | 同图片模型 |
+通用 Agent、编程 Agent、多媒体理解与电脑操控均在 **设置 → 智能体 → 模式选择** 中配置运行模式；用户选模式，不直接选模型。
+
+| 区域 | 模式作用 |
+|------|----------|
+| 通用 / 编程 Agent | 主会话 LLM 按所选模式解析模型 |
+| 图片 / 语音 / 视频理解 | 非 vision 主模型或抽帧理解时按所选模式解析模型 |
+| 电脑操控 | 新会话初始视觉模式（快速 / 标准 / 专家，对应 primary / intermediate / advanced） |
+
+各模式对应的具体模型在 **调试模式** 下配置（`agentModeLlm` / `mediaModeLlm` / `computerTierLlm`）。
+
+### 图片 / 视频生成（用户可选模型）
+
+`image_generate` / `video_generate` 仍暴露模型下拉；选项来自各服务商 `models` 列表，并按 `modelConfigs` 中 **可生成图片 / 可生成视频** 过滤。
+
+生成类模型已并入千问、豆包等服务商配置；每个模型可配置：
+
+| 字段 | 含义 |
+|------|------|
+| `supportsVision` | 是否支持视觉理解 |
+| `canGenerateImage` | 是否可生成图片 |
+| `canGenerateVideo` | 是否可生成视频 |
+
+在 **设置 → 模型服务 → 模型定制** 中勾选；未配置时对已知模型名自动推断默认值。
+
+### 旧版 `mediaModelOverrides`
+
+仍作为 legacy 回退（无模式配置时）；新安装默认走模式解析。
 
 在 **设置 → 智能体 → 图片 / 视频生成** 中配置：
 
 | 项 | 作用 | 默认 |
 |----|------|------|
 | 图片生成 | `image_generate` 工具 | wan2.7-image-pro 或 Seedream 5.0 |
-| 视频生成 | `video_generate` 工具 | wan2.7-t2v 或 Seedance 1.5 Pro |
+| 视频生成 | `video_generate` 工具 | HappyHorse 1.0 或 Seedance 2.0 |
 
 配置写入 `local_platform_settings.json`，重启后保留。
 

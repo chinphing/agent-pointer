@@ -32,9 +32,14 @@ export const PROVIDER_TEMPLATE_OPTIONS: ProviderTemplateMeta[] = [
       'qwen3.5-27b',
       'qwen3.5-flash',
       'qwen3.7-max',
+      'qwen3.7-plus',
       'qwen3.6-plus',
       'qwen3.6-27b',
-      'qwen3.6-flash'
+      'qwen3.6-flash',
+      'wan2.7-image-pro',
+      'qwen-image-2.0-pro',
+      'happyhorse-1.0-t2v',
+      'happyhorse-1.0-i2v'
     ]
   },
   {

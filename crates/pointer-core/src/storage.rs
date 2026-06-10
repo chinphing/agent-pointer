@@ -1,5 +1,6 @@
 use crate::models::{
-    ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults, filter_openrouter_providers,
+    ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults,
+    ensure_provider_model_capability_defaults, filter_openrouter_providers,
     merge_user_platform, AgentModelRef, ChatMessage, Conversation, ConversationMeta,
     ModelRuntimeOverrides, ModelSettings, PersistedLocalPlatformSettings, PlatformSettings,
     ProviderConfig, UserSettings,
@@ -370,6 +371,9 @@ fn stored_model_overrides_to_runtime(v: &StoredModelOverrides) -> ModelRuntimeOv
         enable_thinking: v.enable_thinking.or(v.thinking_enabled),
         thinking_budget: v.thinking_budget,
         reasoning_effort: v.reasoning_effort.clone(),
+        supports_vision: None,
+        can_generate_image: None,
+        can_generate_video: None,
     }
 }
 
@@ -496,6 +500,7 @@ pub fn load_settings() -> Result<ModelSettings> {
     let mut settings = merge_user_platform(&user, &platform);
     ensure_agent_model_refs_have_provider(&mut settings);
     ensure_provider_generation_defaults(&mut settings);
+    ensure_provider_model_capability_defaults(&mut settings);
     if let Some(p) = settings
         .providers
         .iter()

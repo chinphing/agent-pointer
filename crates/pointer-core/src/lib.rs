@@ -30,6 +30,7 @@ pub mod llm_prompt_dump;
 pub mod llm_token_stats;
 pub mod media;
 pub mod media_generation;
+pub mod mode_llm;
 pub mod models;
 pub mod platform_config;
 pub mod provider;

@@ -233,6 +233,18 @@ pub struct MediaAttachment {
     pub local_abs_path: Option<String>,
 }
 
+/// User-selected performance mode for image / audio / video understanding.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaUnderstandingModes {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<String>,
+}
+
 /// Independent models for media understanding / generation (does not switch the primary chat model).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -352,6 +364,15 @@ pub struct ModelRuntimeOverrides {
     /// DeepSeek: `reasoning_effort` — `high` or `max`.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "reasoningEffort")]
     pub reasoning_effort: Option<String>,
+    /// Whether the model accepts vision / image understanding input.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "supportsVision")]
+    pub supports_vision: Option<bool>,
+    /// Whether the model can generate images (`image_generate`).
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "canGenerateImage")]
+    pub can_generate_image: Option<bool>,
+    /// Whether the model can generate videos (`video_generate`).
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "canGenerateVideo")]
+    pub can_generate_video: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -479,6 +500,124 @@ pub fn ensure_provider_generation_defaults(settings: &mut ModelSettings) {
             provider.max_tokens = Some(global_max);
         }
     }
+}
+
+fn infer_model_capability_flags(model: &str) -> ModelRuntimeOverrides {
+    let m = model.trim().to_ascii_lowercase();
+    let mut over = ModelRuntimeOverrides::default();
+    if m.is_empty() {
+        return over;
+    }
+    if m.contains("-vl-")
+        || m.contains("omni")
+        || m.starts_with("qwen3.5-")
+        || m.starts_with("qwen3.6-")
+        || m.starts_with("qwen3.7-")
+        || m.contains("qwen-vl")
+        || m.starts_with("gpt-4o")
+        || m.starts_with("gpt-4.1")
+        || m.contains("claude-3")
+        || m.contains("claude-sonnet-4")
+        || m.contains("claude-opus-4")
+        || m.starts_with("deepseek-v4-")
+    {
+        over.supports_vision = Some(true);
+    }
+    if m.contains("image") || m.contains("seedream") || (m.contains("wan2.") && m.contains("image")) {
+        over.can_generate_image = Some(true);
+    }
+    if m.contains("t2v")
+        || m.contains("seedance")
+        || m.contains("happyhorse")
+        || (m.contains("wan2.") && !m.contains("image"))
+    {
+        over.can_generate_video = Some(true);
+    }
+    over
+}
+
+/// Seed inferred vision / generation capability flags on provider models when unset.
+pub fn ensure_provider_model_capability_defaults(settings: &mut ModelSettings) {
+    for provider in &mut settings.providers {
+        let models: Vec<String> = provider.models.clone();
+        for model in models {
+            let inferred = infer_model_capability_flags(&model);
+            let has = inferred.supports_vision.is_some()
+                || inferred.can_generate_image.is_some()
+                || inferred.can_generate_video.is_some();
+            if !has {
+                continue;
+            }
+            let entry = provider.model_configs.entry(model).or_default();
+            if entry.supports_vision.is_none() {
+                entry.supports_vision = inferred.supports_vision;
+            }
+            if entry.can_generate_image.is_none() {
+                entry.can_generate_image = inferred.can_generate_image;
+            }
+            if entry.can_generate_video.is_none() {
+                entry.can_generate_video = inferred.can_generate_video;
+            }
+        }
+    }
+}
+
+pub fn model_capability_flags(
+    settings: &ModelSettings,
+    provider_id: &str,
+    model: &str,
+) -> (bool, bool, bool) {
+    let inferred = infer_model_capability_flags(model);
+    let provider = settings
+        .providers
+        .iter()
+        .find(|p| p.id == provider_id)
+        .or_else(|| settings.providers.first());
+    let Some(p) = provider else {
+        return (
+            inferred.supports_vision.unwrap_or(false),
+            inferred.can_generate_image.unwrap_or(false),
+            inferred.can_generate_video.unwrap_or(false),
+        );
+    };
+    let over = p.model_configs.get(model.trim());
+    (
+        over.and_then(|o| o.supports_vision)
+            .or(inferred.supports_vision)
+            .unwrap_or(false),
+        over.and_then(|o| o.can_generate_image)
+            .or(inferred.can_generate_image)
+            .unwrap_or(false),
+        over.and_then(|o| o.can_generate_video)
+            .or(inferred.can_generate_video)
+            .unwrap_or(false),
+    )
+}
+
+pub fn default_qwen_provider_models() -> Vec<String> {
+    vec![
+        "qwen3.5-plus".into(),
+        "qwen3.5-27b".into(),
+        "qwen3.5-flash".into(),
+        "qwen3.7-max".into(),
+        "qwen3.7-plus".into(),
+        "qwen3.6-plus".into(),
+        "qwen3.6-27b".into(),
+        "qwen3.6-flash".into(),
+        "wan2.7-image-pro".into(),
+        "qwen-image-2.0-pro".into(),
+        "happyhorse-1.0-t2v".into(),
+        "happyhorse-1.0-i2v".into(),
+    ]
+}
+
+pub fn default_doubao_provider_models() -> Vec<String> {
+    vec![
+        "doubao-seedream-5-0-lite-260128".into(),
+        "doubao-seedream-4-5-251128".into(),
+        "doubao-seedance-2-0-260128".into(),
+        "doubao-seedance-2-0-fast-260128".into(),
+    ]
 }
 
 /// Build `extra_body` object from legacy `thinkingEnabled` / `thinkingBudget` (disk migration).
@@ -881,6 +1020,18 @@ pub struct ModelSettings {
     /// Independent models for attachment understanding (image/audio/video).
     #[serde(default, rename = "mediaModelOverrides")]
     pub media_model_overrides: MediaModelOverrides,
+    /// User-selected performance mode per agent (`general`, `coder`, …).
+    #[serde(default, rename = "agentPerformanceModes")]
+    pub agent_performance_modes: HashMap<String, String>,
+    /// User-selected performance mode for media understanding kinds.
+    #[serde(default, rename = "mediaUnderstandingModes")]
+    pub media_understanding_modes: MediaUnderstandingModes,
+    /// Debug: agent id → performance mode → LLM profile.
+    #[serde(default, rename = "agentModeLlm")]
+    pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
+    /// Debug: media kind → performance mode → LLM profile.
+    #[serde(default, rename = "mediaModeLlm")]
+    pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
     /// Per-request override (e.g. computer tier); not persisted.
     #[serde(skip)]
     pub round_enable_thinking: Option<bool>,
@@ -1071,15 +1222,7 @@ impl Default for ModelSettings {
                     name: "千问".into(),
                     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
                     api_key: String::new(),
-                    models: vec![
-                        "qwen3.5-plus".into(),
-                        "qwen3.5-27b".into(),
-                        "qwen3.5-flash".into(),
-                        "qwen3.7-max".into(),
-                        "qwen3.6-plus".into(),
-                        "qwen3.6-27b".into(),
-                        "qwen3.6-flash".into(),
-                    ],
+                    models: default_qwen_provider_models(),
                     reasoning_in_messages: None,
                     temperature: None,
                     max_tokens: None,
@@ -1107,10 +1250,7 @@ impl Default for ModelSettings {
                     name: "豆包".into(),
                     base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
                     api_key: String::new(),
-                    models: vec![
-                        "doubao-seedream-5-0-lite-260128".into(),
-                        "doubao-seedance-1-5-pro-251215".into(),
-                    ],
+                    models: default_doubao_provider_models(),
                     reasoning_in_messages: None,
                     temperature: None,
                     max_tokens: None,
@@ -1166,6 +1306,10 @@ impl Default for ModelSettings {
             agent_ui_overrides: HashMap::new(),
             web_search_model: default_web_search_model_setting(),
             media_model_overrides: MediaModelOverrides::default(),
+            agent_performance_modes: HashMap::new(),
+            media_understanding_modes: MediaUnderstandingModes::default(),
+            agent_mode_llm: default_agent_mode_llm(),
+            media_mode_llm: default_media_mode_llm(),
             round_enable_thinking: None,
             round_thinking_budget: None,
         }
@@ -1396,8 +1540,16 @@ pub struct PlatformSettings {
     pub web_search_model: String,
     #[serde(default, rename = "mediaModelOverrides")]
     pub media_model_overrides: MediaModelOverrides,
+    #[serde(default, rename = "agentPerformanceModes")]
+    pub agent_performance_modes: HashMap<String, String>,
+    #[serde(default, rename = "mediaUnderstandingModes")]
+    pub media_understanding_modes: MediaUnderstandingModes,
     #[serde(default = "default_computer_tier_llm", rename = "computerTierLlm")]
     pub computer_tier_llm: HashMap<String, ComputerTierLlmConfig>,
+    #[serde(default = "default_agent_mode_llm", rename = "agentModeLlm")]
+    pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
+    #[serde(default = "default_media_mode_llm", rename = "mediaModeLlm")]
+    pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
 }
 
 /// Provider entries we do not ship or persist (legacy / third-party).
@@ -1467,6 +1619,10 @@ pub struct PersistedLocalPlatformSettings {
     pub captcha_slider_offset_px: i32,
     #[serde(default, rename = "mediaModelOverrides")]
     pub media_model_overrides: MediaModelOverrides,
+    #[serde(default, rename = "agentPerformanceModes")]
+    pub agent_performance_modes: HashMap<String, String>,
+    #[serde(default, rename = "mediaUnderstandingModes")]
+    pub media_understanding_modes: MediaUnderstandingModes,
 }
 
 impl PersistedLocalPlatformSettings {
@@ -1486,6 +1642,8 @@ impl PersistedLocalPlatformSettings {
             workspace_root: platform.workspace_root.clone(),
             captcha_slider_offset_px: platform.captcha_slider_offset_px,
             media_model_overrides: platform.media_model_overrides.clone(),
+            agent_performance_modes: platform.agent_performance_modes.clone(),
+            media_understanding_modes: platform.media_understanding_modes.clone(),
         }
     }
 
@@ -1519,6 +1677,8 @@ impl PersistedLocalPlatformSettings {
         platform.workspace_root = self.workspace_root.clone();
         platform.captcha_slider_offset_px = self.captcha_slider_offset_px;
         platform.media_model_overrides = self.media_model_overrides.clone();
+        platform.agent_performance_modes = self.agent_performance_modes.clone();
+        platform.media_understanding_modes = self.media_understanding_modes.clone();
     }
 }
 
@@ -1551,6 +1711,58 @@ fn default_computer_tier_llm() -> HashMap<String, ComputerTierLlmConfig> {
             thinking_budget: Some(ADVANCED_THINKING_BUDGET),
         },
     );
+    m
+}
+
+fn mode_llm_entry(provider_id: &str, model: &str, budget: u32) -> ComputerTierLlmConfig {
+    ComputerTierLlmConfig {
+        provider_id: provider_id.into(),
+        model: model.into(),
+        enable_thinking: true,
+        thinking_budget: Some(budget),
+    }
+}
+
+fn default_agent_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
+    let mut general = HashMap::new();
+    general.insert("fast".into(), mode_llm_entry("deepseek", "deepseek-v4-flash", 2048));
+    general.insert(
+        "standard".into(),
+        mode_llm_entry("deepseek", "deepseek-v4-pro", 2048),
+    );
+    general.insert("expert".into(), mode_llm_entry("qwen", "qwen3.7-max", 8192));
+
+    let mut coder = HashMap::new();
+    coder.insert("fast".into(), mode_llm_entry("deepseek", "deepseek-v4-flash", 2048));
+    coder.insert("standard".into(), mode_llm_entry("deepseek", "deepseek-v4-pro", 4096));
+    coder.insert("expert".into(), mode_llm_entry("qwen", "qwen3.7-max", 8192));
+
+    let mut m = HashMap::new();
+    m.insert("general".into(), general);
+    m.insert("coder".into(), coder);
+    m
+}
+
+fn default_media_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmConfig>> {
+    let mut image = HashMap::new();
+    image.insert("fast".into(), mode_llm_entry("qwen", "qwen3.5-flash", 2048));
+    image.insert("standard".into(), mode_llm_entry("qwen", "qwen3.5-plus", 2048));
+    image.insert("expert".into(), mode_llm_entry("qwen", "qwen3.6-plus", 8192));
+
+    let mut audio = HashMap::new();
+    audio.insert("fast".into(), mode_llm_entry("qwen", "qwen3.5-flash", 2048));
+    audio.insert("standard".into(), mode_llm_entry("qwen", "qwen3.5-plus", 2048));
+    audio.insert("expert".into(), mode_llm_entry("qwen", "qwen3.6-plus", 8192));
+
+    let mut video = HashMap::new();
+    video.insert("fast".into(), mode_llm_entry("qwen", "qwen3.5-flash", 2048));
+    video.insert("standard".into(), mode_llm_entry("qwen", "qwen3.5-plus", 2048));
+    video.insert("expert".into(), mode_llm_entry("qwen", "qwen3.6-plus", 8192));
+
+    let mut m = HashMap::new();
+    m.insert("image".into(), image);
+    m.insert("audio".into(), audio);
+    m.insert("video".into(), video);
     m
 }
 
@@ -1642,15 +1854,7 @@ impl Default for PlatformSettings {
                     name: "千问".into(),
                     base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
                     api_key: String::new(),
-                    models: vec![
-                        "qwen3.5-plus".into(),
-                        "qwen3.5-27b".into(),
-                        "qwen3.5-flash".into(),
-                        "qwen3.7-max".into(),
-                        "qwen3.6-plus".into(),
-                        "qwen3.6-27b".into(),
-                        "qwen3.6-flash".into(),
-                    ],
+                    models: default_qwen_provider_models(),
                     reasoning_in_messages: Some(false),
                     temperature: Some(platform_default_temperature()),
                     max_tokens: Some(platform_default_max_tokens()),
@@ -1678,10 +1882,7 @@ impl Default for PlatformSettings {
                     name: "豆包".into(),
                     base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
                     api_key: String::new(),
-                    models: vec![
-                        "doubao-seedream-5-0-lite-260128".into(),
-                        "doubao-seedance-1-5-pro-251215".into(),
-                    ],
+                    models: default_doubao_provider_models(),
                     reasoning_in_messages: None,
                     temperature: Some(platform_default_temperature()),
                     max_tokens: Some(platform_default_max_tokens()),
@@ -1724,7 +1925,11 @@ impl Default for PlatformSettings {
             agent_ui_overrides: HashMap::new(),
             web_search_model: default_web_search_model_setting(),
             media_model_overrides: MediaModelOverrides::default(),
+            agent_performance_modes: HashMap::new(),
+            media_understanding_modes: MediaUnderstandingModes::default(),
             computer_tier_llm: default_computer_tier_llm(),
+            agent_mode_llm: default_agent_mode_llm(),
+            media_mode_llm: default_media_mode_llm(),
         }
     }
 }
@@ -1791,6 +1996,10 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         agent_ui_overrides: platform.agent_ui_overrides.clone(),
         web_search_model: platform.web_search_model.clone(),
         media_model_overrides: platform.media_model_overrides.clone(),
+        agent_performance_modes: platform.agent_performance_modes.clone(),
+        media_understanding_modes: platform.media_understanding_modes.clone(),
+        agent_mode_llm: platform.agent_mode_llm.clone(),
+        media_mode_llm: platform.media_mode_llm.clone(),
         round_enable_thinking: None,
         round_thinking_budget: None,
     }

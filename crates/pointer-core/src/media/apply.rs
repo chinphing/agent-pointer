@@ -1,4 +1,5 @@
 use crate::media::capabilities::model_supports_vision;
+use crate::mode_llm::resolve_media_mode_llm;
 use crate::media::retry::{
     auto_ffmpeg_video_retry_plan, content_has_media_block_for_file, detect_media_retry_plan,
     message_indices_for_retry, replace_media_injection, should_retry_attachment, MediaRetryPlan,
@@ -45,33 +46,15 @@ fn is_video_mime(mime: &str) -> bool {
 }
 
 fn effective_audio_model(settings: &ModelSettings) -> AgentModelRef {
-    if let Some(ref m) = settings.media_model_overrides.audio {
-        if !m.model.trim().is_empty() {
-            return m.clone();
-        }
-    }
-    effective_image_model(settings)
+    resolve_media_mode_llm(settings, "audio")
 }
 
 fn effective_video_model(settings: &ModelSettings) -> AgentModelRef {
-    if let Some(ref m) = settings.media_model_overrides.video {
-        if !m.model.trim().is_empty() {
-            return m.clone();
-        }
-    }
-    effective_image_model(settings)
+    resolve_media_mode_llm(settings, "video")
 }
 
 fn effective_image_model(settings: &ModelSettings) -> AgentModelRef {
-    if let Some(ref m) = settings.media_model_overrides.image {
-        if !m.model.trim().is_empty() {
-            return m.clone();
-        }
-    }
-    AgentModelRef {
-        provider_id: "qwen".into(),
-        model: "qwen3.5-plus".into(),
-    }
+    resolve_media_mode_llm(settings, "image")
 }
 
 fn load_attachment_bytes(att: &MediaAttachment) -> Result<Vec<u8>> {

@@ -6,6 +6,16 @@
 
 > 配置写入内存，重启后恢复默认；底部「保存(本次会话)」调用 `saveModelService`。
 
+## 模型能力标记
+
+- 各模型在「定制」弹窗中可勾选：**支持视觉理解**、**可生成图片**、**可生成视频**。
+- 图片/视频生成下拉、vision 能力检测会读取 `modelConfigs` 中对应字段；未设置时对已知模型名自动推断。
+- 千问 / 豆包默认列表已包含 Wan、Seedream、Seedance 等生成模型。
+
+## 模式选择与调试模型映射
+
+- 通用 / 编程 Agent、多媒体理解、电脑操控：用户在 **设置 → 智能体 → 模式选择** 中选运行模式；具体模型在调试模式下于 `agentModeLlm` / `mediaModeLlm` / `computerTierLlm` 配置（平台内存，重启恢复默认，相同持久化策略）。
+
 ## 保存后界面「空白」
 
 编辑区由 `v-if="editingProvider"` 控制。`saveProvider` 成功后**不要**把 `editingProvider` 设为 `null`，否则编辑表单消失，用户会以为配置页坏了。应使用 store 中规范化后的条目调用 `startEditProvider` 重新打开。

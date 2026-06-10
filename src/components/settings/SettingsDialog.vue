@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import {
   Bot,
   Bug,
+  CircleHelp,
   Cpu,
   Database,
   Gauge,
@@ -26,9 +27,11 @@ import type {
   ComputerTierKey,
   ComputerTierLlmConfig,
   MediaModelOverrides,
+  PerformanceMode,
+  PerformanceModeKey,
   ThemePreference
 } from '../../types/chat'
-import { COMPUTER_INITIAL_TIER_OPTIONS } from '../../types/chat'
+import { COMPUTER_INITIAL_TIER_OPTIONS, PERFORMANCE_MODE_OPTIONS } from '../../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../../types/chat'
 import { applyTheme } from '../../lib/theme'
 import { resolveAgentUi, composerAgentLabel } from '../../lib/agentUi'
@@ -53,14 +56,86 @@ const chat = useChatStore()
 const platformReadOnly = computed(() => !s.canEditPlatform)
 
 const COMPUTER_TIER_UI: { key: ComputerTierKey; label: string }[] = [
-  { key: 'primary', label: '初级' },
-  { key: 'intermediate', label: '中级' },
-  { key: 'advanced', label: '高级' }
+  { key: 'primary', label: '快速' },
+  { key: 'intermediate', label: '标准' },
+  { key: 'advanced', label: '专家' }
 ]
+
+const PERFORMANCE_MODE_UI = PERFORMANCE_MODE_OPTIONS
+
+const PERFORMANCE_MODE_HELP =
+  '快速、标准、专家由低到高：速度从高到低，价格从低到高，智能从低到高。'
+
+const MEDIA_DEBUG_KINDS = ['image', 'audio', 'video'] as const
+type MediaDebugKind = (typeof MEDIA_DEBUG_KINDS)[number]
+
+const MODE_AGENT_IDS = new Set(['general', 'coder'])
+
+const AGENT_MODE_USER_ROWS: { id: string; label: string }[] = [
+  { id: 'general', label: '通用助手' },
+  { id: 'coder', label: '氛围编程' }
+]
+
+const MEDIA_MODE_USER_ROWS: { key: MediaDebugKind; label: string }[] = [
+  { key: 'image', label: '图片理解' },
+  { key: 'audio', label: '语音转写' },
+  { key: 'video', label: '视频理解' }
+]
+
+function isModeAgent(agentId: string): boolean {
+  return MODE_AGENT_IDS.has(agentId)
+}
+
+function patchAgentModeLlm(agentId: string, mode: PerformanceModeKey, patch: Partial<ComputerTierLlmConfig>) {
+  const next = { ...(s.platformSettings.agentModeLlm ?? {}) }
+  const agentMap = { ...(next[agentId] ?? {}) }
+  const prev = agentMap[mode] ?? agentModeLlm(agentId, mode)
+  agentMap[mode] = { ...prev, ...patch }
+  next[agentId] = agentMap
+  s.platformSettings.agentModeLlm = next
+}
+
+function agentModeLlm(agentId: string, mode: PerformanceModeKey): ComputerTierLlmConfig {
+  const m = s.platformSettings.agentModeLlm?.[agentId]?.[mode]
+  if (m) return m
+  if (mode === 'fast') {
+    return { providerId: 'deepseek', model: 'deepseek-v4-flash', enableThinking: true, thinkingBudget: 2048 }
+  }
+  if (mode === 'expert') {
+    return { providerId: 'qwen', model: 'qwen3.7-max', enableThinking: true, thinkingBudget: 8192 }
+  }
+  return { providerId: 'deepseek', model: 'deepseek-v4-pro', enableThinking: true, thinkingBudget: 2048 }
+}
+
+function patchMediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey, patch: Partial<ComputerTierLlmConfig>) {
+  const next = { ...(s.platformSettings.mediaModeLlm ?? {}) }
+  const kindMap = { ...(next[kind] ?? {}) }
+  const prev = kindMap[mode] ?? {
+    providerId: 'qwen',
+    model: mode === 'fast' ? 'qwen3.5-flash' : mode === 'expert' ? 'qwen3.6-plus' : 'qwen3.5-plus',
+    enableThinking: true,
+    thinkingBudget: mode === 'expert' ? 8192 : 2048
+  }
+  kindMap[mode] = { ...prev, ...patch }
+  next[kind] = kindMap
+  s.platformSettings.mediaModeLlm = next
+}
+
+function mediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey): ComputerTierLlmConfig {
+  const m = s.platformSettings.mediaModeLlm?.[kind]?.[mode]
+  return (
+    m ?? {
+      providerId: 'qwen',
+      model: mode === 'fast' ? 'qwen3.5-flash' : mode === 'expert' ? 'qwen3.6-plus' : 'qwen3.5-plus',
+      enableThinking: true,
+      thinkingBudget: mode === 'expert' ? 8192 : 2048
+    }
+  )
+}
 
 const qwenModelOptions = computed(() => {
   const q = s.settings.providers.find(p => p.id === 'qwen')
-  return q?.models?.length ? q.models : ['qwen3.5-plus', 'qwen3.6-plus']
+  return q?.models?.length ? q.models : ['qwen3.5-plus', 'qwen3.7-plus', 'qwen3.7-max']
 })
 
 function computerTierLlm(key: ComputerTierKey): ComputerTierLlmConfig {
@@ -68,7 +143,7 @@ function computerTierLlm(key: ComputerTierKey): ComputerTierLlmConfig {
   return (
     m ?? {
       providerId: 'qwen',
-      model: key === 'advanced' ? 'qwen3.6-plus' : 'qwen3.5-plus',
+      model: key === 'advanced' ? 'qwen3.7-plus' : 'qwen3.5-plus',
       enableThinking: true,
       thinkingBudget: key === 'advanced' ? 8192 : 2048
     }
@@ -104,31 +179,16 @@ const captchaSliderOffsetPx = ref(0)
 const theme = ref<ThemePreference>('system')
 const debugMenusEnabled = ref(false)
 const agentUiLocal = ref<Partial<AgentUiConfig>>({})
-const mediaImageModel = ref('')
-const mediaAudioModel = ref('')
-const mediaVideoModel = ref('')
 const mediaImageGenerationModel = ref('')
 const mediaVideoGenerationModel = ref('')
 
-/** Curated image/video generation models (not chat completion lists). */
-const GENERATION_MODEL_OPTIONS: { providerId: string; providerName: string; model: string; label: string }[] = [
-  { providerId: 'qwen', providerName: '千问', model: 'wan2.7-image-pro', label: 'Wan 2.7 图片' },
-  { providerId: 'qwen', providerName: '千问', model: 'qwen-image-2.0-pro', label: 'Qwen Image 2.0' },
-  { providerId: 'doubao', providerName: '豆包', model: 'doubao-seedream-5-0-lite-260128', label: 'Seedream 5.0 Lite' },
-  { providerId: 'doubao', providerName: '豆包', model: 'doubao-seedream-4-5-251128', label: 'Seedream 4.5' },
-  { providerId: 'qwen', providerName: '千问', model: 'happyhorse-1.0-t2v', label: 'HappyHorse 1.0 视频' },
-  { providerId: 'qwen', providerName: '千问', model: 'wan2.7-t2v', label: 'Wan 2.7 文生视频' },
-  { providerId: 'doubao', providerName: '豆包', model: 'doubao-seedance-2-0-260128', label: 'Seedance 2.0' },
-  { providerId: 'doubao', providerName: '豆包', model: 'doubao-seedance-1-5-pro-251215', label: 'Seedance 1.5 Pro' },
-]
+const agentPerformanceModesLocal = ref<Record<string, PerformanceMode>>({})
+const mediaUnderstandingModesLocal = ref<{ image: PerformanceMode; audio: PerformanceMode; video: PerformanceMode }>({
+  image: 'fast',
+  audio: 'fast',
+  video: 'fast'
+})
 
-const imageGenerationOptions = computed(() =>
-  GENERATION_MODEL_OPTIONS.filter(o => o.model.includes('image') || o.model.includes('seedream'))
-)
-
-const videoGenerationOptions = computed(() =>
-  GENERATION_MODEL_OPTIONS.filter(o => o.model.includes('t2v') || o.model.includes('seedance') || o.model.includes('happyhorse'))
-)
 const mediaDeps = ref<import('../../types/chat').MediaDepsStatus | null>(null)
 const agents = ref<AgentDef[]>([])
 
@@ -354,11 +414,17 @@ onMounted(() => {
   theme.value = (s.settings.theme as ThemePreference) || 'system'
   debugMenusEnabled.value = s.canEditPlatform && s.settings.debugMenusEnabled === true
   agentUiLocal.value = { ...(s.settings.agentUiOverrides?.[activeUiAgentId.value] ?? {}) }
-  mediaImageModel.value = getMediaModelWithProvider('image')
-  mediaAudioModel.value = getMediaModelWithProvider('audio')
-  mediaVideoModel.value = getMediaModelWithProvider('video')
   mediaImageGenerationModel.value = getMediaModelWithProvider('imageGeneration')
   mediaVideoGenerationModel.value = getMediaModelWithProvider('videoGeneration')
+  agentPerformanceModesLocal.value = {
+    general: s.getAgentPerformanceMode('general'),
+    coder: s.getAgentPerformanceMode('coder')
+  }
+  mediaUnderstandingModesLocal.value = {
+    image: s.getMediaUnderstandingMode('image'),
+    audio: s.getMediaUnderstandingMode('audio'),
+    video: s.getMediaUnderstandingMode('video')
+  }
   void refreshMediaDeps()
   loadAgents()
 })
@@ -420,10 +486,6 @@ watch(showDebugMenus, enabled => {
   }
 })
 
-function onComputerInitialTierChecked(value: ComputerInitialTier, checked: boolean) {
-  if (checked) computerInitialTier.value = value
-}
-
 function taskBoardTrimChecked(agentId: string): boolean {
   const v = agentTaskBoardHistoryTrim.value[agentId]
   if (v !== undefined) return v
@@ -449,9 +511,6 @@ async function selectMediaModelWithProvider(
 ) {
   if (!value) {
     await s.setMediaModelOverride(kind, null)
-    if (kind === 'image') mediaImageModel.value = ''
-    if (kind === 'audio') mediaAudioModel.value = ''
-    if (kind === 'video') mediaVideoModel.value = ''
     if (kind === 'imageGeneration') mediaImageGenerationModel.value = ''
     if (kind === 'videoGeneration') mediaVideoGenerationModel.value = ''
     return
@@ -462,9 +521,6 @@ async function selectMediaModelWithProvider(
     const model = value.slice(i + 1).trim()
     if (providerId && model) {
       await s.setMediaModelOverride(kind, { providerId, model })
-      if (kind === 'image') mediaImageModel.value = value
-      if (kind === 'audio') mediaAudioModel.value = value
-      if (kind === 'video') mediaVideoModel.value = value
       if (kind === 'imageGeneration') mediaImageGenerationModel.value = value
       if (kind === 'videoGeneration') mediaVideoGenerationModel.value = value
       return
@@ -473,6 +529,22 @@ async function selectMediaModelWithProvider(
   await s.setMediaModelOverride(kind, {
     providerId: s.settings.activeProviderId,
     model: value.trim()
+  })
+}
+
+function selectAgentModeModel(agentId: string, mode: PerformanceModeKey, model: string) {
+  const item = s.allModels.find(m => m.model === model)
+  patchAgentModeLlm(agentId, mode, {
+    model,
+    providerId: item?.providerId ?? agentModeLlm(agentId, mode).providerId
+  })
+}
+
+function selectMediaModeModel(kind: MediaDebugKind, mode: PerformanceModeKey, model: string) {
+  const item = s.allModels.find(m => m.model === model)
+  patchMediaModeLlm(kind, mode, {
+    model,
+    providerId: item?.providerId ?? mediaModeLlm(kind, mode).providerId
   })
 }
 
@@ -622,6 +694,8 @@ async function saveFromFooter() {
         contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
         contextSummaryMaxTokens: Number(contextSummaryMaxTokens.value),
         maxToolRounds: Number(maxToolRounds.value),
+        agentPerformanceModes: { ...agentPerformanceModesLocal.value },
+        mediaUnderstandingModes: { ...mediaUnderstandingModesLocal.value },
         theme: s.settings.theme
       })
     } else {
@@ -644,6 +718,8 @@ async function saveFromFooter() {
           [activeUiAgentId.value]: { ...agentUiLocal.value }
         },
         computerTierLlm: { ...s.platformSettings.computerTierLlm },
+        agentModeLlm: { ...s.platformSettings.agentModeLlm },
+        mediaModeLlm: { ...s.platformSettings.mediaModeLlm },
         theme: s.settings.theme
       })
     }
@@ -750,58 +826,181 @@ async function saveFromFooter() {
             </div>
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
-              <h4 class="text-sm font-medium text-foreground">电脑操控</h4>
-              <div class="grid grid-cols-3 gap-6 lg:gap-8 items-center w-full">
-                <div class="px-1 py-1 inline-flex items-center gap-2 whitespace-nowrap min-w-0 w-full justify-start">
-                  <label class="inline-flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      class="rounded border-border bg-card text-accent focus:ring-accent/40"
-                      :checked="computerHumanLike"
-                      @change="computerHumanLike = ($event.target as HTMLInputElement).checked"
-                    />
-                    <span class="text-[12px] text-foreground">人性化鼠标移动</span>
-                  </label>
+              <div>
+                <div class="flex items-center gap-1.5">
+                  <h4 class="text-sm font-medium text-foreground">模式选择</h4>
                   <button
                     type="button"
                     class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
-                    title="启用后鼠标沿曲线移动并带微抖动；关闭时使用直线匀速移动（约 0.5–1.5 秒随机）"
-                    aria-label="人性化鼠标移动说明"
+                    :title="PERFORMANCE_MODE_HELP"
+                    aria-label="模式说明"
                     @click.stop
                   >
-                    <Info class="w-3.5 h-3.5 pointer-events-none" />
+                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
                   </button>
                 </div>
-                <div
-                  class="px-1 py-1 inline-flex items-center gap-3 min-w-0 w-full justify-start -ml-8"
-                  title="新会话开始时电脑操控智能体使用的视觉级别；会话中仍可能因验证失败自动升档"
-                >
-                  <span class="text-[12px] text-foreground whitespace-nowrap shrink-0">初始级别</span>
-                  <div class="inline-flex items-center gap-3 min-w-0 shrink-0">
-                    <label
-                      v-for="opt in COMPUTER_INITIAL_TIER_OPTIONS"
-                      :key="opt.value"
-                      class="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-muted whitespace-nowrap"
-                    >
+                <p class="mt-1 text-[11px] text-muted">
+                  选择各场景的运行模式；具体模型在调试模式中配置。
+                </p>
+              </div>
+              <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
+                <div class="space-y-3 min-w-0">
+                  <h5 class="text-[12px] font-medium text-foreground flex items-center gap-1.5">
+                    <Bot class="w-3.5 h-3.5 text-accent shrink-0" />智能体
+                  </h5>
+                  <div
+                    class="flex flex-wrap items-center gap-x-4 gap-y-2"
+                    title="新会话开始时电脑操控使用的模式；会话中仍可能因验证失败自动升级"
+                  >
+                    <span class="text-[12px] text-foreground whitespace-nowrap shrink-0 w-20">电脑操控</span>
+                    <div class="inline-flex flex-wrap items-center gap-3 min-w-0">
+                      <label
+                        v-for="opt in COMPUTER_INITIAL_TIER_OPTIONS"
+                        :key="'computer-tier-' + opt.value"
+                        class="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-muted whitespace-nowrap"
+                      >
+                        <input
+                          type="radio"
+                          class="rounded-full border-border bg-card text-accent focus:ring-accent/40"
+                          name="computer-initial-tier"
+                          :checked="computerInitialTier === opt.value"
+                          @change="computerInitialTier = opt.value"
+                        />
+                        <span class="text-foreground whitespace-nowrap">{{ opt.label }}</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div
+                    v-for="row in AGENT_MODE_USER_ROWS"
+                    :key="'agent-mode-row-' + row.id"
+                    class="flex flex-wrap items-center gap-x-4 gap-y-2"
+                  >
+                    <span class="text-[12px] text-foreground whitespace-nowrap shrink-0 w-20">{{ row.label }}</span>
+                    <div class="inline-flex flex-wrap items-center gap-3 min-w-0">
+                      <label
+                        v-for="opt in PERFORMANCE_MODE_UI"
+                        :key="row.id + '-mode-' + opt.value"
+                        class="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-muted whitespace-nowrap"
+                      >
+                        <input
+                          type="radio"
+                          class="rounded-full border-border bg-card text-accent focus:ring-accent/40"
+                          :name="'agent-mode-' + row.id"
+                          :checked="(agentPerformanceModesLocal[row.id] ?? 'fast') === opt.value"
+                          @change="agentPerformanceModesLocal[row.id] = opt.value"
+                        />
+                        <span class="text-foreground whitespace-nowrap">{{ opt.label }}</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+                <div class="space-y-3 min-w-0 lg:border-l lg:border-border lg:pl-8">
+                  <h5 class="text-[12px] font-medium text-foreground flex items-center gap-1.5">
+                    <Wrench class="w-3.5 h-3.5 text-accent shrink-0" />工具
+                  </h5>
+                  <div
+                    v-for="row in MEDIA_MODE_USER_ROWS"
+                    :key="'media-mode-row-' + row.key"
+                    class="flex flex-wrap items-center gap-x-4 gap-y-2"
+                  >
+                    <span class="text-[12px] text-foreground whitespace-nowrap shrink-0 w-20">{{ row.label }}</span>
+                    <div class="inline-flex flex-wrap items-center gap-3 min-w-0">
+                      <label
+                        v-for="opt in PERFORMANCE_MODE_UI"
+                        :key="row.key + '-mode-' + opt.value"
+                        class="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-muted whitespace-nowrap"
+                      >
+                        <input
+                          type="radio"
+                          class="rounded-full border-border bg-card text-accent focus:ring-accent/40"
+                          :name="'media-mode-' + row.key"
+                          :checked="mediaUnderstandingModesLocal[row.key] === opt.value"
+                          @change="mediaUnderstandingModesLocal[row.key] = opt.value"
+                        />
+                        <span class="text-foreground whitespace-nowrap">{{ opt.label }}</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="pt-3 border-t border-border space-y-3">
+                <h5 class="text-[12px] font-medium text-foreground">电脑操控选项</h5>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center w-full">
+                  <div class="inline-flex items-center gap-2 whitespace-nowrap min-w-0">
+                    <label class="inline-flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
                         class="rounded border-border bg-card text-accent focus:ring-accent/40"
-                        :checked="computerInitialTier === opt.value"
-                        @change="onComputerInitialTierChecked(opt.value, ($event.target as HTMLInputElement).checked)"
+                        :checked="computerHumanLike"
+                        @change="computerHumanLike = ($event.target as HTMLInputElement).checked"
                       />
-                      <span class="text-foreground whitespace-nowrap">{{ opt.label }}</span>
+                      <span class="text-[12px] text-foreground">人性化鼠标移动</span>
                     </label>
+                    <button
+                      type="button"
+                      class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
+                      title="启用后鼠标沿曲线移动并带微抖动；关闭时使用直线匀速移动（约 0.5–1.5 秒随机）"
+                      aria-label="人性化鼠标移动说明"
+                      @click.stop
+                    >
+                      <Info class="w-3.5 h-3.5 pointer-events-none" />
+                    </button>
                   </div>
+                  <label class="inline-flex items-center gap-2 whitespace-nowrap min-w-0 sm:justify-end">
+                    <span class="text-[12px] text-foreground whitespace-nowrap">滑块终点偏移（px）</span>
+                    <input
+                      v-model.number="captchaSliderOffsetPx"
+                      type="number"
+                      step="1"
+                      class="w-16 rounded-lg border border-border bg-card px-2 py-2 text-xs outline-none focus:border-accent/50"
+                    />
+                  </label>
                 </div>
-                <label class="px-1 py-1 inline-flex items-center gap-2 whitespace-nowrap min-w-0 w-full justify-end">
-                  <span class="text-[12px] text-foreground whitespace-nowrap">滑块终点偏移（px）</span>
-                  <input
-                    v-model.number="captchaSliderOffsetPx"
-                    type="number"
-                    step="1"
-                    class="w-16 rounded-lg border border-border bg-card px-2 py-2 text-xs outline-none focus:border-accent/50"
-                  />
-                </label>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
+              <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+                <Sparkles class="w-4 h-4 text-accent" />图片 / 视频生成
+              </h4>
+              <p class="text-[11px] text-muted">
+                暂时支持文本和图片生成视频。
+              </p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-[12px] text-muted mb-1.5">图片生成</label>
+                  <select
+                    :value="mediaImageGenerationModel"
+                    class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground cursor-pointer outline-none focus:border-accent/50"
+                    @change="selectMediaModelWithProvider('imageGeneration', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">默认（千问 wan2.7-image-pro 或豆包 Seedream）</option>
+                    <option
+                      v-for="item in s.imageGenerationModels"
+                      :key="'img-gen-' + item.providerId + ':' + item.model"
+                      :value="item.providerId + ':' + item.model"
+                    >
+                      {{ item.providerName }} / {{ item.model }}
+                    </option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[12px] text-muted mb-1.5">视频生成</label>
+                  <select
+                    :value="mediaVideoGenerationModel"
+                    class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground cursor-pointer outline-none focus:border-accent/50"
+                    @change="selectMediaModelWithProvider('videoGeneration', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">默认（千问 HappyHorse 或豆包 Seedance 2.0）</option>
+                    <option
+                      v-for="item in s.videoGenerationModels"
+                      :key="'vid-gen-' + item.providerId + ':' + item.model"
+                      :value="item.providerId + ':' + item.model"
+                    >
+                      {{ item.providerName }} / {{ item.model }}
+                    </option>
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -823,66 +1022,40 @@ async function saveFromFooter() {
               </div>
             </div>
 
-            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
-              <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-                <Sparkles class="w-4 h-4 text-accent" />多媒体理解模型
-              </h4>
-              <p class="text-[11px] text-muted">
-                主会话模型不支持图片/语音时，使用以下模型理解附件；不会切换你选择的对话模型。
-              </p>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
+              <div class="flex items-center justify-between">
+                <h4 class="text-sm font-medium text-foreground">上下文自动压缩</h4>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input v-model="contextCompressionEnabled" type="checkbox" class="sr-only peer" />
+                  <div class="settings-toggle-track"></div>
+                </label>
+              </div>
+              <p class="text-[11px] text-muted">当历史消息超过预算时，自动生成摘要并保留最近若干轮对话原文。</p>
+
+              <div v-if="contextCompressionEnabled" class="grid grid-cols-2 gap-3 pt-2 border-t border-border">
                 <div>
-                  <label class="block text-[12px] text-muted mb-1.5">图片理解</label>
-                  <select
-                    :value="mediaImageModel"
-                    class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground cursor-pointer outline-none focus:border-accent/50"
-                    @change="selectMediaModelWithProvider('image', ($event.target as HTMLSelectElement).value)"
-                  >
-                    <option value="">默认（qwen3.5-plus）</option>
-                    <option
-                      v-for="item in s.allModels"
-                      :key="'img-' + item.providerId + ':' + item.model"
-                      :value="item.providerId + ':' + item.model"
-                    >
-                      {{ item.providerName }} / {{ item.model }}
-                    </option>
-                  </select>
+                  <label class="block text-[12px] text-muted mb-1.5">触发预算（tokens）</label>
+                  <input v-model.number="contextBudgetTokens" type="number" min="4096" max="2000000" step="1000" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
                 </div>
                 <div>
-                  <label class="block text-[12px] text-muted mb-1.5">语音转写</label>
-                  <select
-                    :value="mediaAudioModel"
-                    class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground cursor-pointer outline-none focus:border-accent/50"
-                    @change="selectMediaModelWithProvider('audio', ($event.target as HTMLSelectElement).value)"
-                  >
-                    <option value="">默认同图片理解模型</option>
-                    <option
-                      v-for="item in s.allModels"
-                      :key="'aud-' + item.providerId + ':' + item.model"
-                      :value="item.providerId + ':' + item.model"
-                    >
-                      {{ item.providerName }} / {{ item.model }}
-                    </option>
-                  </select>
+                  <label class="block text-[12px] text-muted mb-1.5">保留最近用户轮数</label>
+                  <input v-model.number="contextKeepRecentUserTurns" type="number" min="1" max="50" step="1" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
                 </div>
                 <div>
-                  <label class="block text-[12px] text-muted mb-1.5">视频理解</label>
-                  <select
-                    :value="mediaVideoModel"
-                    class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground cursor-pointer outline-none focus:border-accent/50"
-                    @change="selectMediaModelWithProvider('video', ($event.target as HTMLSelectElement).value)"
-                  >
-                    <option value="">默认同图片理解模型</option>
-                    <option
-                      v-for="item in s.allModels"
-                      :key="'vid-' + item.providerId + ':' + item.model"
-                      :value="item.providerId + ':' + item.model"
-                    >
-                      {{ item.providerName }} / {{ item.model }}
-                    </option>
-                  </select>
+                  <label class="block text-[12px] text-muted mb-1.5">摘要最大 tokens</label>
+                  <input v-model.number="contextSummaryMaxTokens" type="number" min="128" max="8192" step="64" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
+                </div>
+                <div>
+                  <label class="block text-[12px] text-muted mb-1.5">单轮最大工具调用轮次</label>
+                  <input v-model.number="maxToolRounds" type="number" min="1" max="10000" step="1" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
                 </div>
               </div>
+            </div>
+
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
+              <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+                <Sparkles class="w-4 h-4 text-accent" />多媒体理解
+              </h4>
               <div class="rounded-lg border border-border bg-card/50 px-3 py-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div>
                   <p class="text-[12px] text-foreground">ffmpeg / ffprobe</p>
@@ -918,81 +1091,6 @@ async function saveFromFooter() {
                   >
                     让助手安装
                   </button>
-                </div>
-              </div>
-            </div>
-
-            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
-              <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
-                <Sparkles class="w-4 h-4 text-accent" />图片 / 视频生成
-              </h4>
-              <p class="text-[11px] text-muted">
-                供 Agent 的 image_generate / video_generate 工具使用；需在对应服务商配置 API Key。
-              </p>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-[12px] text-muted mb-1.5">图片生成</label>
-                  <select
-                    :value="mediaImageGenerationModel"
-                    class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground cursor-pointer outline-none focus:border-accent/50"
-                    @change="selectMediaModelWithProvider('imageGeneration', ($event.target as HTMLSelectElement).value)"
-                  >
-                    <option value="">默认（千问 wan2.7-image-pro 或豆包 Seedream）</option>
-                    <option
-                      v-for="item in imageGenerationOptions"
-                      :key="'img-gen-' + item.providerId + ':' + item.model"
-                      :value="item.providerId + ':' + item.model"
-                    >
-                      {{ item.providerName }} / {{ item.label }}
-                    </option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-[12px] text-muted mb-1.5">视频生成</label>
-                  <select
-                    :value="mediaVideoGenerationModel"
-                    class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground cursor-pointer outline-none focus:border-accent/50"
-                    @change="selectMediaModelWithProvider('videoGeneration', ($event.target as HTMLSelectElement).value)"
-                  >
-                    <option value="">默认（千问 wan2.7-t2v 或豆包 Seedance 1.5）</option>
-                    <option
-                      v-for="item in videoGenerationOptions"
-                      :key="'vid-gen-' + item.providerId + ':' + item.model"
-                      :value="item.providerId + ':' + item.model"
-                    >
-                      {{ item.providerName }} / {{ item.label }}
-                    </option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
-              <div class="flex items-center justify-between">
-                <h4 class="text-sm font-medium text-foreground">上下文自动压缩</h4>
-                <label class="relative inline-flex items-center cursor-pointer">
-                  <input v-model="contextCompressionEnabled" type="checkbox" class="sr-only peer" />
-                  <div class="settings-toggle-track"></div>
-                </label>
-              </div>
-              <p class="text-[11px] text-muted">当历史消息超过预算时，自动生成摘要并保留最近若干轮对话原文。</p>
-
-              <div v-if="contextCompressionEnabled" class="grid grid-cols-2 gap-3 pt-2 border-t border-border">
-                <div>
-                  <label class="block text-[12px] text-muted mb-1.5">触发预算（tokens）</label>
-                  <input v-model.number="contextBudgetTokens" type="number" min="4096" max="2000000" step="1000" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
-                </div>
-                <div>
-                  <label class="block text-[12px] text-muted mb-1.5">保留最近用户轮数</label>
-                  <input v-model.number="contextKeepRecentUserTurns" type="number" min="1" max="50" step="1" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
-                </div>
-                <div>
-                  <label class="block text-[12px] text-muted mb-1.5">摘要最大 tokens</label>
-                  <input v-model.number="contextSummaryMaxTokens" type="number" min="128" max="8192" step="64" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
-                </div>
-                <div>
-                  <label class="block text-[12px] text-muted mb-1.5">单轮最大工具调用轮次</label>
-                  <input v-model.number="maxToolRounds" type="number" min="1" max="10000" step="1" class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors" />
                 </div>
               </div>
             </div>
@@ -1129,7 +1227,7 @@ async function saveFromFooter() {
 
                     <!-- Per-agent default model (lead or delegated sub-agent runs) -->
                     <div class="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2" @click.stop>
-                      <div class="flex items-center gap-2 min-w-0">
+                      <div v-if="!isModeAgent(w.id)" class="flex items-center gap-2 min-w-0">
                         <Sparkles class="w-3.5 h-3.5 text-accent shrink-0" />
                         <span class="text-[11px] text-muted shrink-0">默认模型</span>
                         <select
@@ -1156,13 +1254,56 @@ async function saveFromFooter() {
                     </div>
 
                     <div
+                      v-if="isModeAgent(w.id) && showDebugMenus"
+                      class="col-span-full mt-3 rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3"
+                      :class="platformReadOnly ? 'opacity-60 pointer-events-none' : ''"
+                    >
+                      <div class="flex items-center justify-between gap-2">
+                        <h4 class="text-xs font-medium text-foreground">各模式对应模型（调试）</h4>
+                        <span class="text-[10px] text-muted">快速 / 标准 / 专家 各模式对应模型</span>
+                      </div>
+                      <div
+                        v-for="mode in PERFORMANCE_MODE_UI"
+                        :key="w.id + '-tier-' + mode.value"
+                        class="grid grid-cols-[3rem_1fr_auto_6rem] gap-2 items-center px-2 py-1.5"
+                      >
+                        <span class="text-[11px] text-muted font-medium">{{ mode.label }}</span>
+                        <select
+                          :value="agentModeLlm(w.id, mode.value).model"
+                          class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                          @change="selectAgentModeModel(w.id, mode.value, ($event.target as HTMLSelectElement).value)"
+                        >
+                          <option v-for="item in s.allModels" :key="item.providerId + ':' + item.model" :value="item.model">{{ item.providerName }} / {{ item.model }}</option>
+                        </select>
+                        <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
+                          <input
+                            type="checkbox"
+                            class="rounded border-border bg-[hsl(var(--card-elevated))]"
+                            :checked="agentModeLlm(w.id, mode.value).enableThinking !== false"
+                            @change="patchAgentModeLlm(w.id, mode.value, { enableThinking: ($event.target as HTMLInputElement).checked })"
+                          />
+                          思考
+                        </label>
+                        <input
+                          type="number"
+                          min="256"
+                          step="256"
+                          class="h-8 w-full px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                          :value="agentModeLlm(w.id, mode.value).thinkingBudget ?? 2048"
+                          :disabled="agentModeLlm(w.id, mode.value).enableThinking === false"
+                          @change="patchAgentModeLlm(w.id, mode.value, { thinkingBudget: Number(($event.target as HTMLInputElement).value) })"
+                        />
+                      </div>
+                    </div>
+
+                    <div
                       v-if="w.id === 'computer'"
                       class="col-span-full mt-3 rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3"
                       :class="platformReadOnly ? 'opacity-60 pointer-events-none' : ''"
                     >
                       <div class="flex items-center justify-between gap-2">
-                        <h4 class="text-xs font-medium text-foreground">电脑操控分级模型</h4>
-                        <span class="text-[10px] text-muted">按级别覆盖模型与思考参数</span>
+                        <h4 class="text-xs font-medium text-foreground">电脑操控各模式对应模型（调试）</h4>
+                        <span class="text-[10px] text-muted">快速 / 标准 / 专家 各模式对应模型与思考参数</span>
                       </div>
                       <div
                         v-for="tier in COMPUTER_TIER_UI"
@@ -1198,6 +1339,52 @@ async function saveFromFooter() {
                       </div>
                     </div>
 
+                  </div>
+                </div>
+              </div>
+
+              <div
+                v-if="showDebugMenus"
+                class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3"
+                :class="platformReadOnly ? 'opacity-60 pointer-events-none' : ''"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <h4 class="text-xs font-medium text-foreground">多媒体理解各模式对应模型（调试）</h4>
+                  <span class="text-[10px] text-muted">图片 / 语音 / 视频各模式对应模型</span>
+                </div>
+                <div v-for="kind in MEDIA_DEBUG_KINDS" :key="'media-debug-' + kind" class="space-y-2">
+                  <span class="text-[12px] text-foreground font-medium">{{ kind === 'image' ? '图片' : kind === 'audio' ? '语音' : '视频' }}</span>
+                  <div
+                    v-for="mode in PERFORMANCE_MODE_UI"
+                    :key="kind + '-' + mode.value"
+                    class="grid grid-cols-[3rem_1fr_auto_6rem] gap-2 items-center px-2 py-1.5"
+                  >
+                    <span class="text-[11px] text-muted font-medium">{{ mode.label }}</span>
+                    <select
+                      :value="mediaModeLlm(kind, mode.value).model"
+                      class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                      @change="selectMediaModeModel(kind, mode.value, ($event.target as HTMLSelectElement).value)"
+                    >
+                      <option v-for="item in s.visionModels" :key="item.providerId + ':' + item.model" :value="item.model">{{ item.providerName }} / {{ item.model }}</option>
+                    </select>
+                    <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        class="rounded border-border bg-[hsl(var(--card-elevated))]"
+                        :checked="mediaModeLlm(kind, mode.value).enableThinking !== false"
+                        @change="patchMediaModeLlm(kind, mode.value, { enableThinking: ($event.target as HTMLInputElement).checked })"
+                      />
+                      思考
+                    </label>
+                    <input
+                      type="number"
+                      min="256"
+                      step="256"
+                      class="h-8 w-full px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
+                      :value="mediaModeLlm(kind, mode.value).thinkingBudget ?? 2048"
+                      :disabled="mediaModeLlm(kind, mode.value).enableThinking === false"
+                      @change="patchMediaModeLlm(kind, mode.value, { thinkingBudget: Number(($event.target as HTMLInputElement).value) })"
+                    />
                   </div>
                 </div>
               </div>

@@ -16,7 +16,7 @@ pub const CONFIG_KEY_MODEL_ADVANCED: &str = "computerModelAdvanced";
 
 pub const DEFAULT_MODEL_PRIMARY: &str = "qwen3.5-flash";
 pub const DEFAULT_MODEL_INTERMEDIATE: &str = "qwen3.5-plus";
-pub const DEFAULT_MODEL_ADVANCED: &str = "qwen3.6-plus";
+pub const DEFAULT_MODEL_ADVANCED: &str = "qwen3.7-plus";
 /// Qwen `thinking_budget` for Primary / Intermediate (`qwen3.5-plus`).
 pub const PRIMARY_INTERMEDIATE_THINKING_BUDGET: u32 = 2048;
 pub const ADVANCED_THINKING_BUDGET: u32 = 8192;

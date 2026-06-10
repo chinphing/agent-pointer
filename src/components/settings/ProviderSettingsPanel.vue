@@ -21,6 +21,7 @@ import {
   useRuntimeParams
 } from '../../composables/useRuntimeParams'
 import RuntimeParamsForm from './RuntimeParamsForm.vue'
+import ModelCapabilityForm from './ModelCapabilityForm.vue'
 import { useSettingsStore } from '../../stores/settings'
 
 const s = useSettingsStore()
@@ -585,6 +586,11 @@ defineExpose({
           </button>
         </div>
         <RuntimeParamsForm v-if="modelConfigModalId" :api="modelRuntimeApi" />
+        <ModelCapabilityForm
+          v-if="modelConfigModalId && editingProvider"
+          :provider="editingProvider"
+          :model-id="modelConfigModalId"
+        />
         <div class="flex items-center justify-end gap-2 pt-1">
           <button type="button" class="h-8 px-4 rounded-lg bg-hover hover:bg-hover text-sm text-foreground cursor-pointer transition-colors" @click="closeModelConfigModal">取消</button>
           <button type="button" class="h-8 px-4 rounded-lg bg-accent text-white text-sm font-medium cursor-pointer hover:opacity-95 transition-opacity" @click="confirmModelConfigModal">完成</button>

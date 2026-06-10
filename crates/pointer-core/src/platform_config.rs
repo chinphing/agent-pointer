@@ -5,8 +5,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use crate::models::{
-    ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults, filter_openrouter_providers,
-    merge_user_platform, ModelSettings, PlatformSettings, ProviderConfig, UserSettings,
+    ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults,
+    ensure_provider_model_capability_defaults, filter_openrouter_providers, merge_user_platform,
+    ModelSettings, PlatformSettings, ProviderConfig, UserSettings,
 };
 use crate::storage;
 
@@ -84,6 +85,7 @@ pub fn finalize_merged_settings(mut settings: ModelSettings) -> ModelSettings {
     }
     ensure_agent_model_refs_have_provider(&mut settings);
     ensure_provider_generation_defaults(&mut settings);
+    ensure_provider_model_capability_defaults(&mut settings);
     settings
 }
 
@@ -124,7 +126,11 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         agent_ui_overrides: s.agent_ui_overrides.clone(),
         web_search_model: s.web_search_model.clone(),
         media_model_overrides: s.media_model_overrides.clone(),
+        agent_performance_modes: s.agent_performance_modes.clone(),
+        media_understanding_modes: s.media_understanding_modes.clone(),
         computer_tier_llm: PlatformSettings::default().computer_tier_llm,
+        agent_mode_llm: PlatformSettings::default().agent_mode_llm,
+        media_mode_llm: PlatformSettings::default().media_mode_llm,
     }
 }
 
@@ -132,6 +138,8 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
 pub fn merge_platform_preferences(incoming: &ModelSettings, existing: &PlatformSettings) -> PlatformSettings {
     let mut next = platform_settings_from_model_settings(incoming);
     next.computer_tier_llm = existing.computer_tier_llm.clone();
+    next.agent_mode_llm = existing.agent_mode_llm.clone();
+    next.media_mode_llm = existing.media_mode_llm.clone();
     next.providers = filter_openrouter_providers(next.providers);
     let preserved_keys: HashMap<String, String> = existing
         .providers

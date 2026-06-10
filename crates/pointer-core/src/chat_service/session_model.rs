@@ -1,4 +1,5 @@
 use crate::agents::{DEFAULT_LEAD_AGENT_ID, SUPERVISOR_AGENT_ID, AGENT_MODE_SUPERVISOR};
+use crate::mode_llm::resolve_agent_mode_llm;
 use crate::models::ModelSettings;
 use crate::provider::OpenAIProvider;
 
@@ -8,6 +9,20 @@ pub(crate) fn apply_agent_model_defaults(settings: &mut ModelSettings, agent_id:
     let key = agent_id.trim();
     if key.is_empty() {
         return false;
+    }
+    if let Some(pref) = resolve_agent_mode_llm(settings, key) {
+        let mut applied = false;
+        if !pref.provider_id.trim().is_empty() {
+            settings.active_provider_id = pref.provider_id.trim().to_string();
+            applied = true;
+        }
+        if !pref.model.trim().is_empty() {
+            settings.model = pref.model.trim().to_string();
+            applied = true;
+        }
+        if applied {
+            return true;
+        }
     }
     let Some(pref) = settings.agent_default_models.get(key) else {
         return false;

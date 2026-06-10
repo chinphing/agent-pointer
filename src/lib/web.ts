@@ -218,6 +218,14 @@ export async function listComputerMonitors(): Promise<ComputerMonitor[]> {
   return await request<ComputerMonitor[]>('/api/computer/monitors')
 }
 
+export async function setComputerCompactChrome(_compact: boolean): Promise<void> {
+  /* Web: no OS window chrome */
+}
+
+export async function reapplyWindowChrome(): Promise<void> {
+  /* Web: no OS window chrome */
+}
+
 export async function setComputerConversationMonitor(conversationId: string, monitorId: string | null): Promise<void> {
   await request('/api/computer/monitor', {
     method: 'POST',

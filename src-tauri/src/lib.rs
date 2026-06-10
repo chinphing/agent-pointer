@@ -8,6 +8,7 @@ mod macos_permission_commands;
 #[cfg(target_os = "macos")]
 mod macos_traffic_lights;
 mod platform_commands;
+mod window_chrome_commands;
 
 use pointer_channels::adapters::register_builtin_channels;
 use pointer_channels::{ChannelGateway, ChannelRegistry};
@@ -20,7 +21,7 @@ use std::{path::PathBuf, sync::Arc};
 use tauri::{Emitter, Manager, RunEvent};
 
 #[cfg(target_os = "macos")]
-fn apply_macos_traffic_light_inset(
+pub(crate) fn apply_macos_traffic_light_inset(
     win: &tauri::WebviewWindow<tauri::Wry>,
     label: &'static str,
 ) {
@@ -45,14 +46,16 @@ fn apply_macos_traffic_light_inset(
 }
 
 #[cfg(target_os = "macos")]
-fn configure_macos_window_chrome(app: &tauri::App) {
-    use std::time::Duration;
-    use tauri::{Manager, TitleBarStyle};
+pub(crate) fn reapply_macos_window_chrome(win: &tauri::WebviewWindow<tauri::Wry>) {
+    apply_macos_overlay_chrome_api(win);
 
-    let Some(win) = app.get_webview_window("main") else {
-        log::warn!("macOS window chrome: main window not found");
-        return;
-    };
+    schedule_macos_overlay_chrome_pass(win, "reapply-delayed-200", 200);
+    schedule_macos_overlay_chrome_pass(win, "reapply-delayed-500", 500);
+}
+
+#[cfg(target_os = "macos")]
+fn apply_macos_overlay_chrome_api(win: &tauri::WebviewWindow<tauri::Wry>) {
+    use tauri::TitleBarStyle;
 
     if let Err(e) = win.set_decorations(true) {
         log::warn!("macOS window chrome: set_decorations(true) failed: {e}");
@@ -60,29 +63,54 @@ fn configure_macos_window_chrome(app: &tauri::App) {
     if let Err(e) = win.set_title_bar_style(TitleBarStyle::Overlay) {
         log::warn!("macOS window chrome: set_title_bar_style(Overlay) failed: {e}");
     }
-    // Keep a non-empty NSWindow title so Force Quit / Activity Monitor show
-    // "Pointer Render" instead of the custom-protocol URL (tauri://localhost).
-    // hiddenTitle still hides this text in the title bar overlay.
     if let Err(e) = win.set_title("Pointer Render") {
         log::warn!("macOS window chrome: set_title failed: {e}");
     }
 
     let win_initial = win.clone();
     if let Err(e) = win.run_on_main_thread(move || {
-        apply_macos_traffic_light_inset(&win_initial, "initial");
+        if let Ok(ns_window) = win_initial.ns_window() {
+            macos_traffic_lights::set_compact_surface(ns_window, false);
+            macos_traffic_lights::apply_overlay_titlebar(ns_window);
+            macos_traffic_lights::set_traffic_lights_visible(ns_window, true);
+            apply_macos_traffic_light_inset(&win_initial, "reapply");
+        }
     }) {
         log::warn!("macOS window chrome: run_on_main_thread failed: {e}");
     }
+}
+
+#[cfg(target_os = "macos")]
+fn schedule_macos_overlay_chrome_pass(
+    win: &tauri::WebviewWindow<tauri::Wry>,
+    label: &'static str,
+    delay_ms: u64,
+) {
+    use std::time::Duration;
+    use tauri::TitleBarStyle;
 
     let win_delayed = win.clone();
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        let _ = win_delayed.set_title_bar_style(TitleBarStyle::Overlay);
         let win_apply = win_delayed.clone();
         let _ = win_delayed.run_on_main_thread(move || {
-            apply_macos_traffic_light_inset(&win_apply, "delayed");
+            if let Ok(ns_window) = win_apply.ns_window() {
+                macos_traffic_lights::apply_overlay_titlebar(ns_window);
+                macos_traffic_lights::set_traffic_lights_visible(ns_window, true);
+            }
+            apply_macos_traffic_light_inset(&win_apply, label);
         });
     });
+}
 
+#[cfg(target_os = "macos")]
+fn configure_macos_window_chrome(app: &tauri::App) {
+    let Some(win) = app.get_webview_window("main") else {
+        log::warn!("macOS window chrome: main window not found");
+        return;
+    };
+    reapply_macos_window_chrome(&win);
     log::info!("macOS window chrome: native traffic lights enabled (decorations + overlay)");
 }
 
@@ -110,6 +138,16 @@ pub fn run() {
         .setup(|app| {
             #[cfg(target_os = "macos")]
             configure_macos_window_chrome(app);
+
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            {
+                use tauri::Manager;
+                if let Some(win) = app.get_webview_window("main") {
+                    window_chrome_commands::configure_frameless_window_chrome(&win);
+                } else {
+                    log::warn!("frameless window chrome: main window not found at startup");
+                }
+            }
 
             if let Err(err) = install_bundled_skills(app) {
                 log::warn!("install bundled skills failed: {err}");
@@ -244,6 +282,8 @@ pub fn run() {
             macos_permission_commands::begin_macos_permission_drag_flow,
             #[cfg(target_os = "macos")]
             macos_permission_commands::dismiss_macos_permission_drag_guide,
+            window_chrome_commands::set_computer_compact_chrome,
+            window_chrome_commands::reapply_window_chrome,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

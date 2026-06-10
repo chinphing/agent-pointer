@@ -12,7 +12,7 @@
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "acceptFirstMouse": true,
-        "transparent": false,
+        "transparent": true,
         "resizable": true,
         "fullscreen": false,
         "trafficLightPosition": {

@@ -18,8 +18,9 @@
         "height": 820,
         "minWidth": 960,
         "minHeight": 640,
+        "decorations": false,
         "acceptFirstMouse": true,
-        "transparent": false,
+        "transparent": true,
         "resizable": true,
         "fullscreen": false
       }

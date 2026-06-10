@@ -8,7 +8,8 @@
         "minWidth": 960,
         "minHeight": 640,
         "resizable": true,
-        "decorations": false
+        "decorations": false,
+        "transparent": true
       }
     ]
   }

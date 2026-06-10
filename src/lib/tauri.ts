@@ -164,6 +164,14 @@ export async function listComputerMonitors(): Promise<ComputerMonitor[]> {
   return await invoke<ComputerMonitor[]>('list_computer_monitors')
 }
 
+export async function setComputerCompactChrome(compact: boolean): Promise<void> {
+  await invoke('set_computer_compact_chrome', { compact })
+}
+
+export async function reapplyWindowChrome(): Promise<void> {
+  await invoke('reapply_window_chrome')
+}
+
 export async function setComputerConversationMonitor(conversationId: string, monitorId: string | null): Promise<void> {
   await invoke('set_computer_conversation_monitor', {
     conversationId,

@@ -1,0 +1,77 @@
+import type { AgentMode, ChatMessage } from '../types/chat'
+import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
+import { toolCallBaseName } from './messageTooling'
+
+const COMPUTER_TOOL_BASES = new Set([
+  'mouse',
+  'keyboard',
+  'hotkey',
+  'clipboard',
+  'screenshot',
+  'scroll',
+  'type',
+  'wait',
+  'input',
+  'modified_click',
+  'captcha_verify'
+])
+
+export function isComputerToolBase(base: string): boolean {
+  const b = base.trim()
+  if (!b) return false
+  if (COMPUTER_TOOL_BASES.has(b)) return true
+  if (b.startsWith('mouse_')) return true
+  if (b.startsWith('input_')) return true
+  if (b.startsWith('modified_click_')) return true
+  return false
+}
+
+export function isComputerToolName(name: string): boolean {
+  return isComputerToolBase(toolCallBaseName(name))
+}
+
+function toolInProgress(status: string): boolean {
+  return status === 'running' || status === 'pending' || status === 'pending_approval'
+}
+
+function messageHasInProgressComputerTool(message: ChatMessage): boolean {
+  const onMessage = (message.toolCalls ?? []).some(
+    tc => isComputerToolName(tc.name) && toolInProgress(tc.status)
+  )
+  if (onMessage) return true
+  for (const trace of message.agentTrace ?? []) {
+    if (trace.id !== 'computer') continue
+    const calls = trace.session?.toolCalls ?? []
+    if (calls.some(tc => isComputerToolName(tc.name) && toolInProgress(tc.status))) {
+      return true
+    }
+  }
+  return false
+}
+
+/** True while computer agent (lead or sub-agent) is actively executing. */
+export function isComputerExecuting(
+  generating: boolean,
+  agentMode: AgentMode,
+  leadAgentId: string | undefined,
+  message: ChatMessage | undefined
+): boolean {
+  if (!generating) return false
+
+  if (agentMode === 'single') {
+    const lead = leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
+    if (lead === 'computer') return true
+  }
+
+  if (!message) return false
+  if (message.agentId === 'computer') return true
+  if (message.agentTrace?.some(t => t.id === 'computer' && t.status === 'running')) return true
+  if (messageHasInProgressComputerTool(message)) return true
+
+  return false
+}
+
+export function activeComputerTrace(message: ChatMessage | undefined) {
+  if (!message) return undefined
+  return message.agentTrace?.find(t => t.id === 'computer' && t.status === 'running')
+}

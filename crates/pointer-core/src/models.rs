@@ -1400,6 +1400,10 @@ fn default_curator_interval_days() -> u32 {
     7
 }
 
+fn default_computer_auto_compact() -> bool {
+    true
+}
+
 /// Persisted user preferences (theme, optional UI cache).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
@@ -1430,6 +1434,8 @@ pub struct UserSettings {
     pub curator_idle_hours: u32,
     #[serde(default = "default_curator_interval_days", rename = "curatorIntervalDays")]
     pub curator_interval_days: u32,
+    #[serde(default = "default_computer_auto_compact", rename = "computerAutoCompact")]
+    pub computer_auto_compact: bool,
 }
 
 impl Default for UserSettings {
@@ -1448,6 +1454,7 @@ impl Default for UserSettings {
             curator_enabled: default_curator_enabled(),
             curator_idle_hours: default_curator_idle_hours(),
             curator_interval_days: default_curator_interval_days(),
+            computer_auto_compact: default_computer_auto_compact(),
         }
     }
 }

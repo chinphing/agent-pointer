@@ -63,6 +63,20 @@
   .panel-elevated {
     @apply bg-[hsl(var(--card-elevated))] border border-border;
   }
+
+  /* Computer compact dock: only the bar has a fill; window + webview corners stay transparent. */
+  html.computer-compact-mode,
+  html.computer-compact-mode body,
+  html.computer-compact-mode #app,
+  html.computer-compact-mode #app > * {
+    background: transparent !important;
+    background-color: transparent !important;
+    overflow: hidden;
+  }
+
+  html.computer-compact-mode .computer-compact-bar {
+    background-color: hsl(var(--card)) !important;
+  }
   /* Legacy aliases (P0): components not yet migrated keep working */
   .glass {
     @apply bg-card border border-border;

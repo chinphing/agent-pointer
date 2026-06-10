@@ -1,14 +1,19 @@
 <script setup lang="ts">
-import { defineAsyncComponent, onMounted, ref } from 'vue'
+import { defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import AppShell from './components/layout/AppShell.vue'
 import ChatView from './components/chat/ChatView.vue'
+import ComputerCompactBar from './components/chat/ComputerCompactBar.vue'
 import ChannelPairingModal from './components/channels/ChannelPairingModal.vue'
+import { useComputerCompactMode } from './composables/useComputerCompactMode'
 import { useChannelPairingPrompt } from './composables/useChannelPairingPrompt'
 import { useExternalSkillsImportPrompt } from './composables/useExternalSkillsImportPrompt'
 import { useChatStore } from './stores/chat'
 import { usePlatformAuthStore } from './stores/platformAuth'
 import { useSettingsStore } from './stores/settings'
 import { useSkillsStore } from './stores/skills'
+import { isTauriRuntime } from './lib/runtime'
+
+const isDesktopApp = isTauriRuntime()
 
 /** Lazy: large SFC + many icons; keeps dev / first-paint transform graph small. */
 const loadSettingsDialog = () => import('./components/settings/SettingsDialog.vue')
@@ -42,6 +47,15 @@ const {
   importSelected: importExternalSkillsSelected
 } = useExternalSkillsImportPrompt()
 
+const {
+  isCompact,
+  planLine,
+  statusLine,
+  twoLines,
+  expand: expandComputerCompact,
+  stop: stopComputerCompact
+} = useComputerCompactMode()
+
 onMounted(() => {
   void Promise.all([platformAuth.load(), settings.load()])
     .then(async () => {
@@ -62,14 +76,37 @@ function onOpenSkillsFromSettings() {
   showSettings.value = false
   showSkills.value = true
 }
+
+watch(showSettings, open => {
+  if (open && isCompact.value) expandComputerCompact()
+})
+
+watch(showSkills, open => {
+  if (open && isCompact.value) expandComputerCompact()
+})
 </script>
 
 <template>
-  <AppShell
-    @open-settings="showSettings = true"
-  >
-    <ChatView />
-  </AppShell>
+  <div class="h-full w-full min-h-0 flex flex-col">
+  <ComputerCompactBar
+    v-if="isCompact"
+    :class="isDesktopApp
+      ? 'h-full w-full min-h-0'
+      : 'fixed bottom-4 right-4 z-[500] w-[min(400px,calc(100vw-32px))] shadow-lg'"
+    :plan-line="planLine"
+    :status-line="statusLine"
+    :two-lines="twoLines"
+    @expand="expandComputerCompact"
+    @stop="stopComputerCompact"
+  />
+    <template v-else>
+      <AppShell
+        @open-settings="showSettings = true"
+      >
+        <ChatView />
+      </AppShell>
+    </template>
+  </div>
 
   <SettingsDialog
     v-if="showSettings"

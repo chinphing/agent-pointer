@@ -173,6 +173,7 @@ const debugDumpLlmPrompts = ref(false)
 const taskBoardShowChildBoards = ref(false)
 const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
 const computerHumanLike = ref(false)
+const computerAutoCompact = ref(true)
 const computerInitialTier = ref<ComputerInitialTier>('intermediate')
 const computerAnnotatedScreenViewEnabled = ref(false)
 const captchaSliderOffsetPx = ref(0)
@@ -408,6 +409,7 @@ onMounted(() => {
   taskBoardShowChildBoards.value = s.settings.taskBoardShowChildBoards === true
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true
+  computerAutoCompact.value = s.userSettings.computerAutoCompact !== false
   computerInitialTier.value = s.settings.computerInitialTier ?? 'intermediate'
   computerAnnotatedScreenViewEnabled.value = s.settings.computerAnnotatedScreenViewEnabled === true
   captchaSliderOffsetPx.value = Number(s.settings.captchaSliderOffsetPx ?? 0) || 0
@@ -684,6 +686,7 @@ async function saveFromFooter() {
       await channelPanelRef.value?.save()
       return
     } else if (activeSection.value === 'assistant') {
+      await s.saveUser({ computerAutoCompact: computerAutoCompact.value })
       await s.saveAgentPreferences({
         toolApprovalMode: toolApprovalMode.value,
         computerHumanLike: computerHumanLike.value,
@@ -926,6 +929,15 @@ async function saveFromFooter() {
               <div class="pt-3 border-t border-border space-y-3">
                 <h5 class="text-[12px] font-medium text-foreground">电脑操控选项</h5>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center w-full">
+                  <label class="inline-flex items-center gap-2 cursor-pointer whitespace-nowrap min-w-0">
+                    <input
+                      type="checkbox"
+                      class="rounded border-border bg-card text-accent focus:ring-accent/40"
+                      :checked="computerAutoCompact"
+                      @change="computerAutoCompact = ($event.target as HTMLInputElement).checked"
+                    />
+                    <span class="text-[12px] text-foreground">执行时收缩为状态条</span>
+                  </label>
                   <div class="inline-flex items-center gap-2 whitespace-nowrap min-w-0">
                     <label class="inline-flex items-center gap-2 cursor-pointer">
                       <input

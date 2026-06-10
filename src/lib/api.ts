@@ -73,6 +73,8 @@ export interface RuntimeApi {
   saveChatAttachment(payload: SaveChatAttachmentPayload): Promise<string>
   checkMediaDeps(): Promise<MediaDepsStatus>
   listComputerMonitors(): Promise<ComputerMonitor[]>
+  setComputerCompactChrome(compact: boolean): Promise<void>
+  reapplyWindowChrome(): Promise<void>
   setComputerConversationMonitor(conversationId: string, monitorId: string | null): Promise<void>
   confirmComputerMonitorPick(conversationId: string): Promise<void>
   cancelComputerMonitorPick(conversationId: string): Promise<void>
@@ -120,6 +122,8 @@ export const saveChatAttachment = api.saveChatAttachment
 export const checkMediaDeps = api.checkMediaDeps
 export const revealInFinder = api.revealInFinder
 export const listComputerMonitors = api.listComputerMonitors
+export const setComputerCompactChrome = api.setComputerCompactChrome
+export const reapplyWindowChrome = api.reapplyWindowChrome
 export const setComputerConversationMonitor = api.setComputerConversationMonitor
 export const confirmComputerMonitorPick = api.confirmComputerMonitorPick
 export const cancelComputerMonitorPick = api.cancelComputerMonitorPick

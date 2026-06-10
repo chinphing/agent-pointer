@@ -55,3 +55,75 @@ unsafe fn inset_traffic_lights(window: &objc2_app_kit::NSWindow, position: Logic
         button.setFrameOrigin(rect.origin);
     }
 }
+
+/// Hide or show standard close / minimize / zoom buttons (computer compact dock bar).
+pub fn set_traffic_lights_visible(ns_window: *mut std::ffi::c_void, visible: bool) {
+    // SAFETY: pointer from `WebviewWindow::ns_window()` on the main thread.
+    unsafe { set_traffic_lights_visible_inner(&*(ns_window.cast()), visible) }
+}
+
+unsafe fn set_traffic_lights_visible_inner(window: &objc2_app_kit::NSWindow, visible: bool) {
+    use objc2_app_kit::NSView;
+    use objc2_app_kit::NSWindowButton;
+
+    let hidden = !visible;
+    for kind in [
+        NSWindowButton::CloseButton,
+        NSWindowButton::MiniaturizeButton,
+        NSWindowButton::ZoomButton,
+    ] {
+        if let Some(button) = window.standardWindowButton(kind) {
+            NSView::setHidden(button.as_ref(), hidden);
+        }
+    }
+}
+
+/// Overlay title bar (traffic lights only, no visible title strip) after runtime decoration changes.
+pub fn apply_overlay_titlebar(ns_window: *mut std::ffi::c_void) {
+    // SAFETY: pointer from `WebviewWindow::ns_window()` on the main thread.
+    unsafe {
+        use objc2_app_kit::{NSWindow, NSWindowTitleVisibility};
+        let window = &*(ns_window.cast::<NSWindow>());
+        window.setTitleVisibility(NSWindowTitleVisibility::Hidden);
+        window.setTitlebarAppearsTransparent(true);
+    }
+}
+
+const COMPACT_CORNER_RADIUS: f64 = 14.0;
+
+unsafe fn apply_content_corner_radius(window: &objc2_app_kit::NSWindow, radius: f64) {
+    use objc2::msg_send;
+    use objc2_app_kit::NSView;
+
+    let Some(content) = window.contentView() else {
+        return;
+    };
+    let cv: &NSView = content.as_ref();
+    NSView::setWantsLayer(cv, true);
+    let layer: *mut objc2::runtime::AnyObject = msg_send![cv, layer];
+    if layer.is_null() {
+        return;
+    }
+    let _: () = msg_send![layer, setCornerRadius: radius];
+    let _: () = msg_send![layer, setMasksToBounds: radius > 0.0];
+}
+
+/// Transparent rounded window surface for compact dock bar; reset when restoring full UI.
+pub fn set_compact_surface(ns_window: *mut std::ffi::c_void, compact: bool) {
+    // SAFETY: pointer from `WebviewWindow::ns_window()` on the main thread.
+    unsafe {
+        use objc2_app_kit::{NSColor, NSWindow};
+        let window = &*(ns_window.cast::<NSWindow>());
+        if compact {
+            window.setOpaque(false);
+            window.setBackgroundColor(Some(&NSColor::clearColor()));
+            window.setHasShadow(true);
+            apply_content_corner_radius(window, COMPACT_CORNER_RADIUS);
+        } else {
+            apply_content_corner_radius(window, 0.0);
+            window.setOpaque(true);
+            window.setBackgroundColor(None);
+            window.setHasShadow(true);
+        }
+    }
+}

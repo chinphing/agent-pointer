@@ -34,6 +34,8 @@ Do **not** reintroduce `.glass`, `.neon-ring`, aurora body gradients, or heavy `
 
 ## Desktop window chrome (Tauri only)
 
+> macOS 红绿灯对齐、reapply/repair 机制、紧凑模式恢复顺序见 [**guides/macos-window-chrome.md**](../guides/macos-window-chrome.md)（改窗口 chrome 前必读）。
+
 - Base `tauri.conf.json`: `decorations: false` (Windows/Linux custom chrome).
 - macOS `tauri.macos.conf.json`: `decorations: true`, `titleBarStyle: Overlay`, `hiddenTitle: true` — **required** for native traffic lights; `decorations: false` hides them entirely.
 - `AppShell.vue` (Manus-style): **sidebar top** = macOS traffic-light inset + drag + collapse only; **main top** = drag strip + Windows/Linux `WindowControls` (top-right). Skills / settings in sidebar footer. Sidebar `260px` ↔ collapsed (`useSidebarCollapse`). No in-app theme toggle (theme remains in Settings).

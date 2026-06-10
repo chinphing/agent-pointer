@@ -3,6 +3,7 @@
 | 文档 | 说明 |
 |------|------|
 | [**cross-platform-build.md**](cross-platform-build.md) | **Windows / macOS / Linux 开发与打包**（环境、命令、产物、CI） |
+| [**macos-window-chrome.md**](macos-window-chrome.md) | **macOS 红绿灯与顶栏对齐**（reapply/repair、紧凑模式、常量同步、排查） |
 | [pointer-run-subagent.md](pointer-run-subagent.md) | `run_subagent`、`allowAgents`、内置 `explore` |
 | [pointer-lint-config.md](pointer-lint-config.md) | 混合 `read_lints` 与 `.pointer/lint.toml` |
 | [coder-agent-offline-eval-setup.md](coder-agent-offline-eval-setup.md) | Coder 离线评测环境搭建 |

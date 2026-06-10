@@ -1,6 +1,9 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { detectDesktopOs, type DesktopOs } from '../lib/desktopOs'
+import { reapplyWindowChrome } from '../lib/api'
 import { isTauriRuntime } from '../lib/runtime'
+
+const MACOS_CHROME_REPAIR_DEBOUNCE_MS = 400
 
 export type { DesktopOs }
 
@@ -13,7 +16,19 @@ export function useWindowChrome() {
   const showCustomControls = ref(false)
   const macTrafficLightPadding = ref(false)
 
-  let unlisten: (() => void) | undefined
+  let unlistenResize: (() => void) | undefined
+  let macosChromeRepairTimer: ReturnType<typeof setTimeout> | undefined
+
+  function scheduleMacosChromeRepair() {
+    if (os.value !== 'macos') return
+    if (macosChromeRepairTimer) clearTimeout(macosChromeRepairTimer)
+    macosChromeRepairTimer = setTimeout(() => {
+      macosChromeRepairTimer = undefined
+      void reapplyWindowChrome().catch(e => {
+        console.warn('[window-chrome] macOS chrome repair failed', e)
+      })
+    }, MACOS_CHROME_REPAIR_DEBOUNCE_MS)
+  }
 
   onMounted(async () => {
     if (!enabled) return
@@ -25,8 +40,9 @@ export function useWindowChrome() {
       const { getCurrentWindow } = await import('@tauri-apps/api/window')
       const win = getCurrentWindow()
       maximized.value = await win.isMaximized()
-      unlisten = await win.onResized(async () => {
+      unlistenResize = await win.onResized(async () => {
         maximized.value = await win.isMaximized()
+        scheduleMacosChromeRepair()
       })
     } catch (e) {
       console.warn('[window-chrome] init failed', e)
@@ -34,7 +50,8 @@ export function useWindowChrome() {
   })
 
   onUnmounted(() => {
-    unlisten?.()
+    unlistenResize?.()
+    if (macosChromeRepairTimer) clearTimeout(macosChromeRepairTimer)
   })
 
   async function runWindowAction(action: string, fn: () => Promise<void>) {
@@ -56,6 +73,7 @@ export function useWindowChrome() {
     await runWindowAction('toggleMaximize', async () => {
       await win.toggleMaximize()
       maximized.value = await win.isMaximized()
+      scheduleMacosChromeRepair()
     })
   }
 

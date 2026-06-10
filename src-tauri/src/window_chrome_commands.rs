@@ -1,11 +1,21 @@
 //! Window chrome toggles for computer compact dock bar mode.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use tauri::{WebviewWindow, window::Color};
 
 const TRANSPARENT: Color = Color(0, 0, 0, 0);
 
+static COMPUTER_COMPACT_CHROME: AtomicBool = AtomicBool::new(false);
+
+/// Whether the main window is in computer compact dock mode (skip traffic-light repair).
+pub fn is_computer_compact_chrome_active() -> bool {
+    COMPUTER_COMPACT_CHROME.load(Ordering::Relaxed)
+}
+
 #[tauri::command]
 pub fn set_computer_compact_chrome(window: WebviewWindow, compact: bool) -> Result<(), String> {
+    COMPUTER_COMPACT_CHROME.store(compact, Ordering::Relaxed);
     if compact {
         apply_compact_chrome(&window)?;
         log::info!("computer compact chrome: compact mode applied");

@@ -17,8 +17,14 @@ use pointer_core::{
     chat_service::AppState,
     skills::external::{system_skills_dir, sync_bundled_skill_dirs},
 };
-use std::{path::PathBuf, sync::Arc};
-use tauri::{Emitter, Manager, RunEvent};
+use std::{
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
+use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 
 #[cfg(target_os = "macos")]
 pub(crate) fn apply_macos_traffic_light_inset(
@@ -49,8 +55,55 @@ pub(crate) fn apply_macos_traffic_light_inset(
 pub(crate) fn reapply_macos_window_chrome(win: &tauri::WebviewWindow<tauri::Wry>) {
     apply_macos_overlay_chrome_api(win);
 
+    schedule_macos_overlay_chrome_pass(win, "reapply-delayed-50", 50);
     schedule_macos_overlay_chrome_pass(win, "reapply-delayed-200", 200);
     schedule_macos_overlay_chrome_pass(win, "reapply-delayed-500", 500);
+}
+
+#[cfg(target_os = "macos")]
+static MACOS_CHROME_REPAIR_GEN: AtomicU64 = AtomicU64::new(0);
+
+/// Re-apply overlay title bar + traffic-light inset without toggling decorations.
+#[cfg(target_os = "macos")]
+pub(crate) fn repair_macos_overlay_chrome(win: &tauri::WebviewWindow<tauri::Wry>, label: &'static str) {
+    if window_chrome_commands::is_computer_compact_chrome_active() {
+        return;
+    }
+
+    let win_thread = win.clone();
+    let win_inset = win.clone();
+    if let Err(e) = win_thread.run_on_main_thread(move || {
+        if window_chrome_commands::is_computer_compact_chrome_active() {
+            return;
+        }
+        if let Ok(ns_window) = win_inset.ns_window() {
+            macos_traffic_lights::apply_overlay_titlebar(ns_window);
+            macos_traffic_lights::set_traffic_lights_visible(ns_window, true);
+            apply_macos_traffic_light_inset(&win_inset, label);
+        }
+    }) {
+        log::warn!("macOS window chrome: repair run_on_main_thread failed ({label}): {e}");
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn schedule_macos_overlay_chrome_repair(
+    win: &tauri::WebviewWindow<tauri::Wry>,
+    reason: &'static str,
+) {
+    if window_chrome_commands::is_computer_compact_chrome_active() {
+        return;
+    }
+
+    let gen = MACOS_CHROME_REPAIR_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let win = win.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        if MACOS_CHROME_REPAIR_GEN.load(Ordering::SeqCst) != gen {
+            return;
+        }
+        repair_macos_overlay_chrome(&win, reason);
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -111,6 +164,23 @@ fn configure_macos_window_chrome(app: &tauri::App) {
         return;
     };
     reapply_macos_window_chrome(&win);
+
+    let win_for_events = win.clone();
+    win.on_window_event(move |event| {
+        match event {
+            WindowEvent::Resized(_) => {
+                schedule_macos_overlay_chrome_repair(&win_for_events, "window-resized");
+            }
+            WindowEvent::ScaleFactorChanged { .. } => {
+                schedule_macos_overlay_chrome_repair(&win_for_events, "scale-factor-changed");
+            }
+            WindowEvent::Focused(true) => {
+                schedule_macos_overlay_chrome_repair(&win_for_events, "window-focused");
+            }
+            _ => {}
+        }
+    });
+
     log::info!("macOS window chrome: native traffic lights enabled (decorations + overlay)");
 }
 

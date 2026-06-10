@@ -939,26 +939,21 @@ async function saveFromFooter() {
               </div>
               <div class="pt-3 border-t border-border space-y-3">
                 <h5 class="text-[12px] font-medium text-foreground">电脑操控选项</h5>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center w-full">
-                  <label class="inline-flex items-center gap-2 cursor-pointer whitespace-nowrap min-w-0">
-                    <input
-                      type="checkbox"
-                      class="rounded border-border bg-card text-accent focus:ring-accent/40"
-                      :checked="computerAutoCompact"
-                      @change="computerAutoCompact = ($event.target as HTMLInputElement).checked"
-                    />
-                    <span class="text-[12px] text-foreground">执行时收缩为状态条</span>
-                  </label>
-                  <div class="inline-flex items-center gap-2 whitespace-nowrap min-w-0">
-                    <label class="inline-flex items-center gap-2 cursor-pointer">
+                <div class="grid grid-cols-3 gap-x-8 w-full">
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="text-[12px] text-foreground whitespace-nowrap">执行时收缩为状态条</span>
+                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
                       <input
                         type="checkbox"
-                        class="rounded border-border bg-card text-accent focus:ring-accent/40"
-                        :checked="computerHumanLike"
-                        @change="computerHumanLike = ($event.target as HTMLInputElement).checked"
+                        class="sr-only peer"
+                        :checked="computerAutoCompact"
+                        @change="computerAutoCompact = ($event.target as HTMLInputElement).checked"
                       />
-                      <span class="text-[12px] text-foreground">人性化鼠标移动</span>
+                      <div class="settings-toggle-track" />
                     </label>
+                  </div>
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="text-[12px] text-foreground whitespace-nowrap">人性化鼠标移动</span>
                     <button
                       type="button"
                       class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
@@ -968,16 +963,25 @@ async function saveFromFooter() {
                     >
                       <Info class="w-3.5 h-3.5 pointer-events-none" />
                     </button>
+                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        class="sr-only peer"
+                        :checked="computerHumanLike"
+                        @change="computerHumanLike = ($event.target as HTMLInputElement).checked"
+                      />
+                      <div class="settings-toggle-track" />
+                    </label>
                   </div>
-                  <label class="inline-flex items-center gap-2 whitespace-nowrap min-w-0 sm:justify-end">
+                  <div class="flex items-center gap-1.5 min-w-0">
                     <span class="text-[12px] text-foreground whitespace-nowrap">滑块终点偏移（px）</span>
                     <input
                       v-model.number="captchaSliderOffsetPx"
                       type="number"
                       step="1"
-                      class="w-16 rounded-lg border border-border bg-card px-2 py-2 text-xs outline-none focus:border-accent/50"
+                      class="w-16 h-8 rounded-lg border border-border bg-card px-2 text-[12px] text-right text-foreground outline-none focus:border-accent/50"
                     />
-                  </label>
+                  </div>
                 </div>
               </div>
             </div>

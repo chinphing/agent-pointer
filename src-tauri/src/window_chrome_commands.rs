@@ -18,10 +18,10 @@ pub fn set_computer_compact_chrome(window: WebviewWindow, compact: bool) -> Resu
     COMPUTER_COMPACT_CHROME.store(compact, Ordering::Relaxed);
     if compact {
         apply_compact_chrome(&window)?;
-        log::info!("computer compact chrome: compact mode applied");
+        log::debug!("computer compact chrome: compact mode applied");
     } else {
         restore_full_window_chrome(&window)?;
-        log::info!("computer compact chrome: full UI chrome restored");
+        log::debug!("computer compact chrome: full UI chrome restored");
     }
     Ok(())
 }

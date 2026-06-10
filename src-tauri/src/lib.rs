@@ -27,6 +27,20 @@ use std::{
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 
 #[cfg(target_os = "macos")]
+fn traffic_light_inset_log_level(label: &'static str) -> Option<log::Level> {
+    match label {
+        // Routine repair / delayed passes — too noisy at INFO during resize and reapply storms.
+        "reapply-delayed-50"
+        | "reapply-delayed-200"
+        | "reapply-delayed-500"
+        | "window-resized"
+        | "scale-factor-changed"
+        | "window-focused" => None,
+        _ => Some(log::Level::Debug),
+    }
+}
+
+#[cfg(target_os = "macos")]
 pub(crate) fn apply_macos_traffic_light_inset(
     win: &tauri::WebviewWindow<tauri::Wry>,
     label: &'static str,
@@ -44,11 +58,14 @@ pub(crate) fn apply_macos_traffic_light_inset(
             macos_traffic_lights::INSET_Y,
         ),
     );
-    log::info!(
-        "macOS traffic lights inset applied ({label}, x={}, y={})",
-        macos_traffic_lights::INSET_X,
-        macos_traffic_lights::INSET_Y
-    );
+    if let Some(level) = traffic_light_inset_log_level(label) {
+        log::log!(
+            level,
+            "macOS traffic lights inset applied ({label}, x={}, y={})",
+            macos_traffic_lights::INSET_X,
+            macos_traffic_lights::INSET_Y
+        );
+    }
 }
 
 #[cfg(target_os = "macos")]

@@ -20,20 +20,20 @@ unsafe fn inset_traffic_lights(window: &objc2_app_kit::NSWindow, position: Logic
     let (x, y) = (position.x, position.y);
 
     let Some(close) = window.standardWindowButton(NSWindowButton::CloseButton) else {
-        log::warn!("macOS traffic lights: close button not found");
+        log::debug!("macOS traffic lights: close button not found");
         return;
     };
     let Some(miniaturize) = window.standardWindowButton(NSWindowButton::MiniaturizeButton) else {
-        log::warn!("macOS traffic lights: minimize button not found");
+        log::debug!("macOS traffic lights: minimize button not found");
         return;
     };
     let Some(zoom) = window.standardWindowButton(NSWindowButton::ZoomButton) else {
-        log::warn!("macOS traffic lights: zoom button not found");
+        log::debug!("macOS traffic lights: zoom button not found");
         return;
     };
 
     let Some(title_bar_container_view) = close.superview().and_then(|v| v.superview()) else {
-        log::warn!("macOS traffic lights: title bar container not found");
+        log::debug!("macOS traffic lights: title bar container not found");
         return;
     };
 

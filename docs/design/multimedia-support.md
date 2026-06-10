@@ -93,6 +93,8 @@ mediaModelOverrides: {
 
 生成工具 async 路径：`agent_tool_pass.rs` → `dispatch_media_generate_async`；产出保存至 `generated-media/{conversation_id}/`，工具结果含 `MEDIA:<path>` 行。计费上报支持 `tokens` / `per-image` / `per-sec` 三种模式（见 `media_generation/billing.rs`）。
 
+**`final_reply` 工具**：注册时使用 `ToolEntry::with_final_reply(true)`（默认 `false`）。当该工具**单独**调用且成功时，宿主不再发起后续 LLM 回合，而是将工具输出作为最终 assistant 消息交付（含 `MEDIA:` 附件内联展示）。当前启用：`image_generate`、`video_generate`。
+
 ---
 
 ## 5. 前端模块

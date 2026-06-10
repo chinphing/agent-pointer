@@ -252,6 +252,9 @@ pub struct ToolEntry {
     pub handler: ToolHandler,
     /// Optional UI label/summary formatter for chat tool cards.
     pub display: Option<ToolDisplayFn>,
+    /// When true, a lone successful invocation ends the agent run and the host delivers
+    /// the tool output as the final assistant message (e.g. `image_generate`, `video_generate`).
+    pub final_reply: bool,
 }
 
 impl ToolEntry {
@@ -314,6 +317,7 @@ impl ToolEntry {
             schema: None,
             handler,
             display: None,
+            final_reply: false,
         }
     }
 
@@ -326,6 +330,11 @@ impl ToolEntry {
 
     pub fn with_display(mut self, display: ToolDisplayFn) -> Self {
         self.display = Some(display);
+        self
+    }
+
+    pub fn with_final_reply(mut self, final_reply: bool) -> Self {
+        self.final_reply = final_reply;
         self
     }
 }
@@ -394,6 +403,25 @@ impl ToolRegistry {
             .read()
             .get(base)
             .is_some_and(|e| e.is_sidecar)
+    }
+
+    /// Whether the tool is registered with [`ToolEntry::final_reply`].
+    pub fn is_final_reply_tool(&self, raw_name: &str) -> bool {
+        let base = registry_tool_base_name(raw_name);
+        self.inner
+            .read()
+            .get(base)
+            .is_some_and(|e| e.final_reply)
+    }
+
+    /// Lone successful `final_reply` tool — host should end the run and deliver output directly.
+    pub fn should_finalize_after_success(
+        &self,
+        tool_calls: &[crate::models::ToolCall],
+        tool_id: &str,
+        ok: bool,
+    ) -> bool {
+        ok && tool_calls.len() == 1 && self.is_final_reply_tool(tool_id)
     }
 
     pub fn xml_tool_descriptors(&self, allow: &[String]) -> Vec<XmlToolDescriptor> {
@@ -607,6 +635,38 @@ mod openai_tools_schema_tests {
     use super::ToolEntry;
     use super::ToolRegistry;
     use std::sync::Arc;
+
+    #[test]
+    fn final_reply_tool_finalize_only_when_lone_success() {
+        let reg = ToolRegistry::new();
+        reg.register(
+            ToolEntry::new(
+                "image_generate",
+                "test:image",
+                "medium",
+                true,
+                "doc",
+                Arc::new(|_| Ok(String::new())),
+            )
+            .with_final_reply(true),
+        );
+        let one = vec![crate::models::ToolCall {
+            id: "tc1".into(),
+            name: "image_generate".into(),
+            arguments: "{}".into(),
+            status: "pending".into(),
+            result: None,
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+            display_label: None,
+            display_summary: None,
+        }];
+        assert!(reg.should_finalize_after_success(&one, "image_generate", true));
+        assert!(!reg.should_finalize_after_success(&one, "image_generate", false));
+        assert!(!reg.should_finalize_after_success(&[], "image_generate", true));
+        assert!(!reg.is_final_reply_tool("file_read"));
+    }
 
     #[test]
     fn openai_tools_flat_file_tool_uses_standalone_schema() {

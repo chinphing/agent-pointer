@@ -50,6 +50,8 @@ Override via `mediaModelOverrides.imageGeneration` in settings or tool `model` a
 
 Returns `MEDIA:<local-path>` lines. Use those paths with `channel_message` or append `MEDIA:` in IM replies.
 
+This tool is a **final reply** tool: on success the host ends the turn and delivers output in chat.
+
 ## Billing
 
 DashScope Wan 2.7 reports `usage.total_tokens` (token-based). Seedream is billed per image; usage is recorded for platform reporting.

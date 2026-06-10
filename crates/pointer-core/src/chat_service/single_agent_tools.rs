@@ -16,10 +16,12 @@ use super::session_budget::SessionToolBudget;
 use super::StreamTx;
 
 /// Outcome of executing a non-empty validated tool batch for one assistant turn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ToolPassResult {
     Finished,
     NoopExit,
+    /// Lone successful `final_reply` tool — caller should emit the delivery message.
+    FinalReplyComplete(String),
     RanTools,
 }
 
@@ -88,6 +90,9 @@ pub(super) async fn run_single_agent_tool_pass(
     {
         InnerToolPassResult::SubFinished(_) => Ok(ToolPassResult::Finished),
         InnerToolPassResult::NoopExit => Ok(ToolPassResult::NoopExit),
+        InnerToolPassResult::FinalReplyComplete(output) => {
+            Ok(ToolPassResult::FinalReplyComplete(output))
+        }
         InnerToolPassResult::RanTools => Ok(ToolPassResult::RanTools),
     }
 }

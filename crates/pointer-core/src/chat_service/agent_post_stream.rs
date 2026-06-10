@@ -149,6 +149,48 @@ pub(super) fn log_reasoning_and_output_segments(
     );
 }
 
+/// Final assistant bubble after a lone successful [`ToolEntry::final_reply`] tool.
+pub(super) fn build_final_reply_delivery_message(
+    assistant_id: &str,
+    tool_output: &str,
+    agent_plan: &AgentPlan,
+    agent_instance_id: Option<String>,
+    _state: &AppState,
+) -> ChatMessage {
+    let (visible, _) = crate::media::split_reply_media(tool_output);
+    let attachments = reply_attachments_from_assistant_raw(tool_output);
+    let content = if attachments.is_some() {
+        String::new()
+    } else {
+        visible.trim().to_string()
+    };
+    ChatMessage {
+        id: assistant_id.to_string(),
+        role: Role::Assistant,
+        content,
+        status: "completed".into(),
+        created_at: now_ms(),
+        tool_calls: None,
+        tool_call_id: None,
+        error_message: None,
+        reasoning: None,
+        thoughts: None,
+        headline: None,
+        raw_content: Some(tool_output.to_string()),
+        tool_raw_output: None,
+        agent_id: Some(agent_plan.lead_agent_id.clone()),
+        agent_instance_id,
+        agent_name: Some(agent_plan.lead_agent_name.clone()),
+        agent_trace: None,
+        image_slot_labels: None,
+        images_base64: None,
+        computer_round_screen_rel_path: None,
+        ui_bindings: None,
+        context_state: None,
+        attachments,
+    }
+}
+
 pub(super) fn build_lead_assistant_message_after_stream(
     assistant_id: &str,
     raw_content_buf: &str,

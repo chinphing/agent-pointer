@@ -75,22 +75,28 @@ fn stub_handler() -> ToolHandler {
 }
 
 pub fn register_all(reg: &ToolRegistry) {
-    reg.register(ToolEntry::new(
-        "image_generate",
-        "tools/prompts/image_generate.md",
-        "medium",
-        true,
-        IMAGE_DOC.trim(),
-        stub_handler(),
-    ));
-    reg.register(ToolEntry::new(
-        "video_generate",
-        "tools/prompts/video_generate.md",
-        "high",
-        true,
-        VIDEO_DOC.trim(),
-        stub_handler(),
-    ));
+    reg.register(
+        ToolEntry::new(
+            "image_generate",
+            "tools/prompts/image_generate.md",
+            "medium",
+            true,
+            IMAGE_DOC.trim(),
+            stub_handler(),
+        )
+        .with_final_reply(true),
+    );
+    reg.register(
+        ToolEntry::new(
+            "video_generate",
+            "tools/prompts/video_generate.md",
+            "high",
+            true,
+            VIDEO_DOC.trim(),
+            stub_handler(),
+        )
+        .with_final_reply(true),
+    );
 }
 
 #[cfg(test)]

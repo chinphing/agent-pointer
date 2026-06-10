@@ -161,7 +161,7 @@ pub(super) async fn run_single_agent_loop(
             &buf.final_tool_calls,
             buf.xml_thoughts,
             agent_plan,
-            lead_instance_id,
+            lead_instance_id.clone(),
             &agent_trace,
             state.as_ref(),
         );
@@ -252,6 +252,33 @@ pub(super) async fn run_single_agent_loop(
         {
             super::single_agent_tools::ToolPassResult::Finished
             | super::single_agent_tools::ToolPassResult::NoopExit => return Ok(()),
+            super::single_agent_tools::ToolPassResult::FinalReplyComplete(tool_output) => {
+                let delivery_id = new_id("msg");
+                emit(
+                    &stream,
+                    StreamEvent::MessageStart {
+                        message_id: delivery_id.clone(),
+                        conversation_id: conversation_id.to_string(),
+                    },
+                );
+                let delivery_msg =
+                    super::single_agent_post_stream::build_final_reply_delivery_message(
+                        &delivery_id,
+                        &tool_output,
+                        agent_plan,
+                        lead_instance_id,
+                        state.as_ref(),
+                    );
+                super::single_agent_post_stream::commit_assistant_turn(
+                    &stream,
+                    conversation_id,
+                    history,
+                    &delivery_id,
+                    &delivery_msg,
+                );
+                tool_budget.sync_out(consumed_single);
+                return Ok(());
+            }
             super::single_agent_tools::ToolPassResult::RanTools => {}
         }
         tool_budget.record_tool_cycle();

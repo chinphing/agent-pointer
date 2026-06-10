@@ -47,12 +47,15 @@ With a first-frame `image`, HappyHorse auto-switches to `happyhorse-1.0-i2v`. Se
 - `model` (optional): Provider model id.
 - `size` (optional): HappyHorse `720P` / `1080P`; Seedance 2.0 `720p` / `1080p` / `2K`.
 - `durationSeconds` (optional): HappyHorse 3–15s; Seedance 2.0 4–15s.
-- `image` (optional): First-frame image URL or path (image-to-video).
+- `image` (optional): First-frame reference — `http(s)` URL, `data:` URL, or **local path** (`~/Desktop/…`, absolute path).
 - `audio` (optional): Enable generated audio when supported (Seedance 2.0 defaults on).
 
 ## Output
 
 Returns `MEDIA:<local-path>` for the generated MP4.
+
+This tool is a **final reply** tool: on success the host ends the turn and delivers output in chat.
+Do **not** claim local `image` paths are unsupported.
 
 ## Billing
 

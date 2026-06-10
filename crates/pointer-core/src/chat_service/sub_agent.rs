@@ -301,6 +301,15 @@ pub(crate) async fn run_sub_agent(
         .await?
         {
             ToolPassResult::SubFinished(result) => return Ok(result),
+            ToolPassResult::FinalReplyComplete(output) => {
+                return Ok(sub_agent_run_result(
+                    &task.id,
+                    &def,
+                    output,
+                    reasoning_in_messages,
+                    reasoning,
+                ));
+            }
             ToolPassResult::NoopExit => {
                 return Ok(sub_agent_run_result(
                     &task.id,

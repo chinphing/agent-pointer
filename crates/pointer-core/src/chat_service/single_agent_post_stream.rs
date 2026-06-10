@@ -40,6 +40,22 @@ pub(super) fn build_assistant_message_after_stream(
     )
 }
 
+pub(super) fn build_final_reply_delivery_message(
+    assistant_id: &str,
+    tool_output: &str,
+    agent_plan: &AgentPlan,
+    agent_instance_id: Option<String>,
+    state: &AppState,
+) -> ChatMessage {
+    super::agent_post_stream::build_final_reply_delivery_message(
+        assistant_id,
+        tool_output,
+        agent_plan,
+        agent_instance_id,
+        state,
+    )
+}
+
 pub(super) fn commit_assistant_turn(
     stream: &StreamTx,
     conversation_id: &str,

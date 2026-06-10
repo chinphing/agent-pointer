@@ -42,6 +42,8 @@ use super::StreamTx;
 pub(super) enum ToolPassResult {
     /// Sub-agent: tool pass ended without executing tools (legacy exit; prefer `FinishRun` in sub loop).
     SubFinished(AgentRunResult),
+    /// Lone successful [`ToolEntry::final_reply`] tool — host delivers output as the final message.
+    FinalReplyComplete(String),
     /// No tool ran to completion in a way that consumes a round (synced out for lead).
     NoopExit,
     /// At least one tool produced results; caller should record a tool cycle and check budget.
@@ -105,6 +107,7 @@ pub(super) async fn run_agent_tool_pass(
     let sub_trace_id = sub.as_ref().map(|s| s.trace_id.clone());
     let mut any_executed = false;
     let mut task_board_succeeded = false;
+    let mut final_reply_output: Option<String> = None;
     for tc in final_tool_calls {
         if cancel.is_cancelled() {
             if let Some(consumed) = consumed_single {
@@ -257,6 +260,12 @@ pub(super) async fn run_agent_tool_pass(
             Ok((_, ok, _)) => *ok,
             Err(_) => false,
         };
+        let final_reply_candidate = exec.as_ref().ok().and_then(|(out, ok, _)| {
+            state
+                .tools
+                .should_finalize_after_success(final_tool_calls, &tool_id, *ok)
+                .then(|| out.clone())
+        });
         record_tool_exec_outcome(
             &stream,
             &state,
@@ -271,6 +280,9 @@ pub(super) async fn run_agent_tool_pass(
             sub_trace_id.as_deref(),
         )
         .await;
+        if let Some(out) = final_reply_candidate {
+            final_reply_output = Some(out);
+        }
         if tool_ok && is_task_board_tool_name(&tool_id) {
             if task_board_call_is_checkpoint(&tool_id, &args_value) {
                 task_board_succeeded = true;
@@ -311,6 +323,9 @@ pub(super) async fn run_agent_tool_pass(
             )));
         }
         return Ok(ToolPassResult::NoopExit);
+    }
+    if let Some(output) = final_reply_output {
+        return Ok(ToolPassResult::FinalReplyComplete(output));
     }
     Ok(ToolPassResult::RanTools)
 }

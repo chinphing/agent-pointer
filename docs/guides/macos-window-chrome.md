@@ -141,6 +141,8 @@ flowchart TB
 
 紧凑态标志 `COMPUTER_COMPACT_CHROME`（`AtomicBool`）在 Rust 侧阻止 resize/focus repair 误显示红绿灯。
 
+子 agent computer **任务目标是 Pointer 自身**（`computerTarget: self`）时不进入紧凑态。见 [computer-compact-dock-bar.md §操作目标](../design/computer-compact-dock-bar.md#操作目标任务意图--已实现)。
+
 ---
 
 ## 6. 前端布局落点

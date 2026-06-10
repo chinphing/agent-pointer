@@ -2,7 +2,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
-import { isComputerExecuting } from '../lib/computerExecuting'
+import { shouldShrinkComputerWindow } from '../lib/computerExecuting'
 import {
   restoreComputerCompactWindow,
   setCompactShellActive,
@@ -42,7 +42,7 @@ export function useComputerCompactMode() {
     if (!computerAutoCompact.value) return false
     if (userExpandedOverride.value) return false
     if (computerMonitorPickRequest.value) return false
-    return isComputerExecuting(
+    return shouldShrinkComputerWindow(
       generating.value,
       settings.settings.agentMode,
       settings.settings.leadAgentId,

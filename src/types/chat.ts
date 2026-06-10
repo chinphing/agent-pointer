@@ -111,6 +111,9 @@ export interface SubAgentSessionUi {
   userExpanded: boolean
 }
 
+/** Delegated computer task: automate Pointer UI vs external desktop apps. */
+export type ComputerOperationTarget = 'self' | 'external'
+
 export interface AgentTrace {
   id: string
   name: string
@@ -121,6 +124,8 @@ export interface AgentTrace {
   /** 0 = 顶格（主编排），1 = 委托子 Agent；缺省时 UI 对首条顶格、其余一级缩进 */
   depth?: number
   session?: SubAgentSessionUi
+  /** `run_subagent` → computer: task goal targets Pointer itself (`self`) or other apps (`external`). */
+  computerTarget?: ComputerOperationTarget
 }
 
 export type AgentProfile =

@@ -4,6 +4,7 @@ use crate::agents::agent_ui::agent_display_label;
 use crate::agents::AgentTask;
 use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::{AgentTrace, StreamEvent};
+use crate::tools::run_subagent::resolve_computer_operation_target;
 use crate::provider::OpenAIProvider;
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;
@@ -117,20 +118,38 @@ pub(super) async fn run_subagent_delegation(
                     } else {
                         task.title.clone()
                     };
+                    let computer_target = (def.id == "computer").then(|| {
+                        resolve_computer_operation_target(
+                            &task.instruction,
+                            &task.title,
+                            parsed.computer_target,
+                        )
+                    });
+                    if def.id == "computer" {
+                        log::info!(
+                            "run_subagent computer target conversation_id={} task_id={} computer_target={:?}",
+                            conversation_id,
+                            task.id,
+                            computer_target
+                        );
+                    }
+                    let make_trace =
+                        |status: &str, detail: Option<String>| AgentTrace {
+                            id: agent_trace_step_id(&task.id, &def.id),
+                            name: agent_display_label(&def),
+                            role: def.role.clone(),
+                            status: status.into(),
+                            detail,
+                            content: None,
+                            depth: Some(1),
+                            session: None,
+                            computer_target,
+                        };
                     emit_agent_step(
                         stream,
                         message_id,
                         agent_trace,
-                        AgentTrace {
-                            id: agent_trace_step_id(&task.id, &def.id),
-                            name: agent_display_label(&def),
-                            role: def.role.clone(),
-                            status: "running".into(),
-                            detail: Some(detail),
-                            content: None,
-                            depth: Some(1),
-                            session: None,
-                        },
+                        make_trace("running", Some(detail)),
                     );
                     let sub_cap = provider
                         .settings
@@ -170,16 +189,10 @@ pub(super) async fn run_subagent_delegation(
                                 stream,
                                 message_id,
                                 agent_trace,
-                                AgentTrace {
-                                    id: agent_trace_step_id(&task.id, &def.id),
-                                    name: agent_display_label(&def),
-                                    role: def.role.clone(),
-                                    status: "completed".into(),
-                                    detail: Some(truncate_str(&result.content, 160)),
-                                    content: None,
-                                    depth: Some(1),
-                                    session: None,
-                                },
+                                make_trace(
+                                    "completed",
+                                    Some(truncate_str(&result.content, 160)),
+                                ),
                             );
                             Ok((json, true, None))
                         }
@@ -192,16 +205,7 @@ pub(super) async fn run_subagent_delegation(
                                 stream,
                                 message_id,
                                 agent_trace,
-                                AgentTrace {
-                                    id: agent_trace_step_id(&task.id, &def.id),
-                                    name: agent_display_label(&def),
-                                    role: def.role.clone(),
-                                    status: "failed".into(),
-                                    detail: Some(e.to_string()),
-                                    content: None,
-                                    depth: Some(1),
-                                    session: None,
-                                },
+                                make_trace("failed", Some(e.to_string())),
                             );
                             Ok((format!("ERROR: {e}"), false, None))
                         }

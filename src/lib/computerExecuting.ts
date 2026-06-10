@@ -75,3 +75,27 @@ export function activeComputerTrace(message: ChatMessage | undefined) {
   if (!message) return undefined
   return message.agentTrace?.find(t => t.id === 'computer' && t.status === 'running')
 }
+
+function isLeadComputerAgent(agentMode: AgentMode, leadAgentId: string | undefined): boolean {
+  if (agentMode !== 'single') return false
+  const lead = leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
+  return lead === 'computer'
+}
+
+/**
+ * Whether the desktop client should shrink to the compact dock bar.
+ * Lead computer always shrinks; delegated computer shrinks only when the task
+ * target is external apps (not Pointer itself).
+ */
+export function shouldShrinkComputerWindow(
+  generating: boolean,
+  agentMode: AgentMode,
+  leadAgentId: string | undefined,
+  message: ChatMessage | undefined
+): boolean {
+  if (!isComputerExecuting(generating, agentMode, leadAgentId, message)) return false
+  if (isLeadComputerAgent(agentMode, leadAgentId)) return true
+  const trace = activeComputerTrace(message)
+  if (trace?.computerTarget === 'self') return false
+  return true
+}

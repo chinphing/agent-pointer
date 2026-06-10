@@ -8,7 +8,47 @@
 |----|------|
 | 收缩层级 | **OS 窗口**（Tauri `setSize` / `setPosition`）；Web 端降级为 viewport 内 fixed 浮条 |
 | 结束行为 | **默认自动展开**（恢复进入前的窗口 bounds 与完整 UI） |
-| 触发范围 | **只要 computer 在执行就收缩**，不区分 lead 或子 agent |
+| 触发范围 | **lead computer**：执行即收缩；**子 agent computer**：按任务目标（§操作目标） |
+| 操作 Pointer 自身 | **不收缩**（`computerTarget: self`） |
+
+## 操作目标（任务意图 · 已实现）
+
+区分依据是 **委派任务的目标**，不是运行时点击坐标或前台应用。
+
+| `computerTarget` | 含义 | 紧凑态 |
+|------------------|------|--------|
+| `self` | 任务目标是 **Pointer 自身 UI**（设置页、应用内按钮等） | **不收缩** |
+| `external`（默认） | 任务是 **其他软件 / 桌面**（浏览器、微信、Excel 等） | 收缩 |
+
+### 谁来判定？
+
+1. **Lead agent 显式声明**（推荐）：`run_subagent` 参数 **`computerTarget`**，写入 `AgentTrace.computerTarget`。
+2. **主机推断**（兜底）：解析 `instruction` + `title` 中的措辞（如「Pointer 设置」「本应用」→ `self`；其余 → `external`）。
+
+### 收缩逻辑（`shouldShrinkComputerWindow`）
+
+```
+computer 在执行
+  ├─ lead === computer → 收缩
+  └─ 子 agent computer
+        ├─ computerTarget === self → 不收缩
+        └─ computerTarget === external（或未写、推断为外部）→ 收缩
+```
+
+### 实现落点
+
+| 层 | 文件 |
+|----|------|
+| 参数 / 推断 | `tools/run_subagent.rs` → `resolve_computer_operation_target` |
+| 写入 trace | `run_subagent_delegation.rs`、`supervisor.rs`（computer 子任务） |
+| 前端门控 | `computerExecuting.ts` → `shouldShrinkComputerWindow`；`useComputerCompactMode.ts` |
+| Lead 提示 | `tools/prompts/run_subagent.md`、`agents/general/AGENT.md` |
+
+### 反模式
+
+- **用前台应用判断** — 子 agent 对外操作时用户仍可能在看 Pointer 聊天窗。
+- **用点击坐标推断任务目标** — 与「任务是否要操作 Pointer」不是同一层语义。
+- **子 agent 一律不收缩** — 对外任务仍需让出桌面空间。
 
 ## 目标
 

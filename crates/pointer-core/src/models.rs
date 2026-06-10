@@ -90,6 +90,15 @@ pub struct SubAgentSessionUi {
     pub user_expanded: bool,
 }
 
+/// Whether a delegated `computer` sub-task automates Pointer itself or external apps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComputerOperationTarget {
+    #[serde(rename = "self")]
+    SelfApp,
+    External,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentTrace {
     pub id: String,
@@ -106,6 +115,9 @@ pub struct AgentTrace {
     /// Delegated sub-agent UI session (tool rows, stats, collapsed state).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<SubAgentSessionUi>,
+    /// Set on `run_subagent` → `computer` traces; controls dock-bar shrink in the desktop client.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "computerTarget")]
+    pub computer_target: Option<ComputerOperationTarget>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3211,6 +3223,7 @@ mod effective_extra_body_tests {
             detail: None,
             content: None,
             depth: Some(1),
+            computer_target: Some(ComputerOperationTarget::External),
             session: Some(SubAgentSessionUi {
                 thoughts: Some("done".into()),
                 stats: SubAgentToolStats {

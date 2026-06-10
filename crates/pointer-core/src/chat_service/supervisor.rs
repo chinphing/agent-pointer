@@ -71,6 +71,7 @@ pub(crate) async fn run_supervisor_chat(
             content: None,
             depth: Some(0),
             session: None,
+            computer_target: None,
         },
     );
 
@@ -161,6 +162,13 @@ pub(crate) async fn run_supervisor_chat(
             .or_else(|| state.agents.get(DEFAULT_AGENT_ID))
             .ok_or_else(|| anyhow!("未找到可执行 Agent: {}", task.agent_id))?;
         let def = agent.def();
+        let computer_target = (def.id == "computer").then(|| {
+            crate::tools::run_subagent::resolve_computer_operation_target(
+                &task.instruction,
+                &task.title,
+                None,
+            )
+        });
         emit_agent_step(
             &stream,
             &assistant_id,
@@ -178,6 +186,7 @@ pub(crate) async fn run_supervisor_chat(
                 content: Some(String::new()),
                 depth: Some(1),
                 session: None,
+                computer_target,
             },
         );
 
@@ -304,6 +313,7 @@ pub(crate) async fn run_supervisor_chat(
                         content: Some(result.content.clone()),
                         depth: Some(1),
                         session: None,
+                        computer_target,
                     },
                 );
                 results.push(result);
@@ -343,6 +353,7 @@ pub(crate) async fn run_supervisor_chat(
                         content: None,
                         depth: Some(1),
                         session: None,
+                        computer_target,
                     },
                 );
             }
@@ -362,6 +373,7 @@ pub(crate) async fn run_supervisor_chat(
             content: None,
             depth: Some(0),
             session: None,
+            computer_target: None,
         },
     );
 

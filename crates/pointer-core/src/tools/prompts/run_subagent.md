@@ -12,6 +12,11 @@ schema:
       type: string
     workspaceRoot:
       type: string
+    computerTarget:
+      type: string
+      enum:
+        - self
+        - external
   required:
     - agentId
     - instruction
@@ -86,6 +91,10 @@ is **Markdown** in the tool result’s **`content`** field — **final assistant
 - **`title`** (optional) — Short label for traces.
 - **`taskId`** (optional) — Stable id for sidecar state; omit to let the host assign one.
 - **`workspaceRoot`** (optional, **general → `coder`**) — Absolute directory for the coder worker. Omit when the user did not specify a project path; the host uses a unique ephemeral sandbox for this conversation.
+- **`computerTarget`** (optional, **general → `computer`**) — Task **goal**, not runtime clicks:
+  - **`self`** — automate **Pointer's own UI** (in-app settings, buttons, panels). Host keeps the full window.
+  - **`external`** (default) — automate **other apps** or the wider desktop (browser, WeChat, Excel, etc.). Host may shrink to the status dock bar.
+  - Set from the **task intent** in **`instruction`** / **`title`**. If omitted, the host infers from wording (e.g. "Pointer 设置" → `self`).
 
 **Handoff flow**
 

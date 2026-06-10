@@ -1,5 +1,6 @@
 //! `run_subagent` tool: executed in the chat runtime (`run_chat_inner`), not via [`ToolRegistry::invoke`].
 use crate::agents::{AgentDef, AgentRegistry};
+use crate::models::ComputerOperationTarget;
 use crate::tools::{ToolEntry, ToolHandler, ToolRegistry};
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -31,6 +32,53 @@ pub struct RunSubagentArgs {
     pub title: String,
     pub task_id: String,
     pub workspace_root: Option<String>,
+    pub computer_target: Option<ComputerOperationTarget>,
+}
+
+/// Resolve whether a delegated computer task operates Pointer itself or external apps.
+pub fn resolve_computer_operation_target(
+    instruction: &str,
+    title: &str,
+    explicit: Option<ComputerOperationTarget>,
+) -> ComputerOperationTarget {
+    if let Some(target) = explicit {
+        return target;
+    }
+    let blob = format!("{title}\n{instruction}").to_lowercase();
+    const SELF_MARKERS: &[&str] = &[
+        "pointer 设置",
+        "pointer设置",
+        "pointer 界面",
+        "pointer界面",
+        "pointer 客户端",
+        "pointer客户端",
+        "操作 pointer",
+        "操作pointer",
+        "在 pointer",
+        "在pointer",
+        "pointer app",
+        "本应用",
+        "当前应用",
+        "本客户端",
+        "本软件",
+        "pointer 内",
+        "pointer内",
+    ];
+    for marker in SELF_MARKERS {
+        if blob.contains(marker) {
+            return ComputerOperationTarget::SelfApp;
+        }
+    }
+    ComputerOperationTarget::External
+}
+
+fn parse_computer_target(args: &Value) -> Option<ComputerOperationTarget> {
+    let raw = args.get("computerTarget").and_then(|v| v.as_str())?.trim();
+    match raw {
+        "self" => Some(ComputerOperationTarget::SelfApp),
+        "external" => Some(ComputerOperationTarget::External),
+        _ => None,
+    }
 }
 
 /// Parse tool JSON for `run_subagent`.
@@ -65,12 +113,14 @@ pub fn parse_run_subagent_args(args: &Value) -> Result<RunSubagentArgs, String> 
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
+    let computer_target = parse_computer_target(args);
     Ok(RunSubagentArgs {
         agent_id: agent_id.to_string(),
         instruction: instruction.to_string(),
         title,
         task_id,
         workspace_root,
+        computer_target,
     })
 }
 
@@ -133,6 +183,50 @@ mod tests {
         assert!(parsed.title.is_empty());
         assert!(parsed.task_id.is_empty());
         assert!(parsed.workspace_root.is_none());
+    }
+
+    #[test]
+    fn parse_accepts_computer_target() {
+        let parsed = parse_run_subagent_args(&json!({
+            "agentId": "computer",
+            "instruction": "Open settings",
+            "computerTarget": "self"
+        }))
+        .unwrap();
+        assert_eq!(
+            parsed.computer_target,
+            Some(crate::models::ComputerOperationTarget::SelfApp)
+        );
+    }
+
+    #[test]
+    fn resolve_computer_target_prefers_explicit() {
+        let t = resolve_computer_operation_target(
+            "操作 Chrome 浏览器",
+            "外部任务",
+            Some(crate::models::ComputerOperationTarget::SelfApp),
+        );
+        assert_eq!(t, crate::models::ComputerOperationTarget::SelfApp);
+    }
+
+    #[test]
+    fn resolve_computer_target_infers_pointer_settings() {
+        let t = resolve_computer_operation_target(
+            "在 Pointer 设置页打开技能管理并启用 find-skills",
+            "配置技能",
+            None,
+        );
+        assert_eq!(t, crate::models::ComputerOperationTarget::SelfApp);
+    }
+
+    #[test]
+    fn resolve_computer_target_defaults_external() {
+        let t = resolve_computer_operation_target(
+            "在 Chrome 中填写注册表单",
+            "注册账号",
+            None,
+        );
+        assert_eq!(t, crate::models::ComputerOperationTarget::External);
     }
 
     #[test]

@@ -117,8 +117,10 @@ they already asked for code work or desktop control.
   console and locate keys; do not conflate "cannot generate a secret" with
   "cannot help via the UI").
 - **On agree** (or they already asked you to **do the work on their machine**):
-  **`run_subagent`** with a full **`instruction`**. **On decline:** brief manual
-  steps.
+  **`run_subagent`** with a full **`instruction`**. For **`computer`**, set
+  **`computerTarget`**: **`self`** when the task is **Pointer's own UI** (settings,
+  in-app controls); **`external`** when automating **other apps** (default).
+  **On decline:** brief manual steps.
 - **`coder` workspace:** ask for an absolute project path; pass **`workspaceRoot`**
   if given, else omit (host uses a per-conversation sandbox).
 

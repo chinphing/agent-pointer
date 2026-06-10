@@ -139,7 +139,7 @@ flowchart TB
 
 > resize/maximize 若在 reapply 之后发生，会冲掉 overlay title bar。
 
-紧凑态标志 `COMPUTER_COMPACT_CHROME`（`AtomicBool`）在 Rust 侧阻止 resize/focus repair 误显示红绿灯。
+紧凑态标志 `COMPUTER_COMPACT_CHROME`（`AtomicBool`）在 Rust 侧阻止 resize/focus repair **以及** `schedule_macos_overlay_chrome_pass` 延迟任务误显示红绿灯；`place_computer_compact_window` 在 macOS 定位后会再次隐藏红绿灯（resize 可能重置 NSWindow 按钮可见性）。
 
 子 agent computer **任务目标是 Pointer 自身**（`computerTarget: self`）时不进入紧凑态。见 [computer-compact-dock-bar.md §操作目标](../design/computer-compact-dock-bar.md#操作目标任务意图--已实现)。
 

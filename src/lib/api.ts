@@ -74,6 +74,7 @@ export interface RuntimeApi {
   checkMediaDeps(): Promise<MediaDepsStatus>
   listComputerMonitors(): Promise<ComputerMonitor[]>
   setComputerCompactChrome(compact: boolean): Promise<void>
+  placeComputerCompactWindow(width: number, height: number, margin: number): Promise<void>
   reapplyWindowChrome(): Promise<void>
   setComputerConversationMonitor(conversationId: string, monitorId: string | null): Promise<void>
   confirmComputerMonitorPick(conversationId: string): Promise<void>
@@ -123,6 +124,7 @@ export const checkMediaDeps = api.checkMediaDeps
 export const revealInFinder = api.revealInFinder
 export const listComputerMonitors = api.listComputerMonitors
 export const setComputerCompactChrome = api.setComputerCompactChrome
+export const placeComputerCompactWindow = api.placeComputerCompactWindow
 export const reapplyWindowChrome = api.reapplyWindowChrome
 export const setComputerConversationMonitor = api.setComputerConversationMonitor
 export const confirmComputerMonitorPick = api.confirmComputerMonitorPick

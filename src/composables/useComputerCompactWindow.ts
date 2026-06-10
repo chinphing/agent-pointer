@@ -1,6 +1,6 @@
 import { isTauriRuntime } from '../lib/runtime'
 import { detectDesktopOs } from '../lib/desktopOs'
-import { reapplyWindowChrome, setComputerCompactChrome } from '../lib/api'
+import { placeComputerCompactWindow, reapplyWindowChrome, setComputerCompactChrome } from '../lib/api'
 
 const COMPACT_BAR_WIDTH = 400
 const COMPACT_BAR_HEIGHT_SINGLE = 48
@@ -56,41 +56,17 @@ async function loadWindow() {
   return getCurrentWindow()
 }
 
-async function placeCompactWindow(
-  win: Awaited<ReturnType<typeof loadWindow>>,
-  twoLines: boolean
-): Promise<void> {
-  const { LogicalSize, LogicalPosition } = await import('@tauri-apps/api/dpi')
-  const { currentMonitor } = await import('@tauri-apps/api/window')
-
+async function placeCompactWindow(twoLines: boolean): Promise<void> {
   const { width, height } = compactWindowSize(twoLines)
-  await win.setSize(new LogicalSize(width, height))
-
-  const monitor = await currentMonitor()
-  if (!monitor) {
-    console.warn('[computer-compact-window] currentMonitor unavailable; keeping window position')
-    return
-  }
-
-  const scale = monitor.scaleFactor > 0 ? monitor.scaleFactor : 1
-  const work = monitor.workArea
-  // Tauri monitor/workArea use physical global coords; LogicalPosition expects logical global coords.
-  const areaLeft = work.position.x / scale
-  const areaTop = work.position.y / scale
-  const areaWidth = work.size.width / scale
-  const areaHeight = work.size.height / scale
-
-  const x = Math.round(areaLeft + areaWidth - width - COMPACT_MARGIN)
-  const y = Math.round(areaTop + areaHeight - height - COMPACT_MARGIN)
-  await win.setPosition(new LogicalPosition(x, y))
+  await placeComputerCompactWindow(width, height, COMPACT_MARGIN)
 }
 
 export async function shrinkComputerCompactWindow(
   twoLines: boolean,
   resizeOnly = false
-): Promise<void> {
-  if (!isTauriRuntime()) return
-  if (!resizeOnly && compactActive) return
+): Promise<boolean> {
+  if (!isTauriRuntime()) return false
+  if (!resizeOnly && compactActive) return true
   try {
     const win = await loadWindow()
     const { LogicalSize } = await import('@tauri-apps/api/dpi')
@@ -114,13 +90,24 @@ export async function shrinkComputerCompactWindow(
       compactActive = true
     }
 
-    await placeCompactWindow(win, twoLines)
-    // Re-apply after resize: some platforms reset webview bg when bounds change.
+    await placeCompactWindow(twoLines)
     if (!resizeOnly) {
       await setCompactWindowBackground(true)
     }
+    return true
   } catch (e) {
     console.warn('[computer-compact-window] shrink failed', e)
+    if (!resizeOnly) {
+      compactActive = false
+      saved = null
+      try {
+        await setComputerCompactChrome(false)
+        await setCompactWindowBackground(false)
+      } catch {
+        /* best-effort rollback */
+      }
+    }
+    return false
   }
 }
 
@@ -135,7 +122,6 @@ export async function restoreComputerCompactWindow(): Promise<void> {
     const win = await loadWindow()
     const { LogicalSize, PhysicalSize, PhysicalPosition } = await import('@tauri-apps/api/dpi')
 
-    // Restore geometry first — resize/maximize resets macOS overlay titlebar if chrome was already reapplied.
     await win.setMinSize(new LogicalSize(RESTORE_MIN_WIDTH, RESTORE_MIN_HEIGHT))
 
     if (saved) {
@@ -147,8 +133,11 @@ export async function restoreComputerCompactWindow(): Promise<void> {
     await setComputerCompactChrome(false)
     await setCompactWindowBackground(false)
 
-    if (detectDesktopOs() === 'macos') {
+    const os = detectDesktopOs()
+    if (os === 'macos') {
       await delay(MACOS_CHROME_REAPPLY_DELAY_MS)
+    }
+    if (os === 'macos' || os === 'windows' || os === 'linux') {
       await reapplyWindowChrome()
     }
 

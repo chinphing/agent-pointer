@@ -222,6 +222,14 @@ export async function setComputerCompactChrome(_compact: boolean): Promise<void>
   /* Web: no OS window chrome */
 }
 
+export async function placeComputerCompactWindow(
+  _width: number,
+  _height: number,
+  _margin: number
+): Promise<void> {
+  /* Web: no OS window placement */
+}
+
 export async function reapplyWindowChrome(): Promise<void> {
   /* Web: no OS window chrome */
 }

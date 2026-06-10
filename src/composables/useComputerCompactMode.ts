@@ -53,8 +53,13 @@ export function useComputerCompactMode() {
   async function applyCompact(enter: boolean) {
     if (enter) {
       setCompactShellActive(true)
-      await shrinkComputerCompactWindow(twoLines.value)
-      isCompact.value = true
+      const ok = await shrinkComputerCompactWindow(twoLines.value)
+      if (ok) {
+        isCompact.value = true
+      } else {
+        setCompactShellActive(false)
+        isCompact.value = false
+      }
     } else {
       isCompact.value = false
       await restoreComputerCompactWindow()

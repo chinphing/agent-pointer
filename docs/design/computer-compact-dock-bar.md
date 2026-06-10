@@ -138,7 +138,8 @@ if (generating && messageHasComputerTools(msg) && hasInProgressComputerTool(msg)
 | 平台 | 注意点 |
 |------|--------|
 | macOS | Overlay title bar + 隐藏标题；紧凑态 `decorations: false`；恢复时先几何再 `reapply`（详见 [macos-window-chrome.md](../guides/macos-window-chrome.md) §5） |
-| Windows / Linux | **`decorations: false` 全程**（启动 + 紧凑 + 恢复）；无系统标题栏，仅 `AppShell` 内自定义 WindowControls |
+| Windows | **`decorations: false` 全程**；右下角定位由 Rust `place_computer_compact_window` 用物理坐标 + `work_area` |
+| Linux | 同 Windows 无系统标题栏；定位用 **xcap 显示器边界**（与 Computer 选屏同源）+ **LogicalPosition**，`set_size` 后延迟再 `set_position`（GTK）；Wayland 若 `outer_position` 恒为 (0,0) 则回退主屏 |
 | Web | 无 OS API → 仅 `position: fixed` 浮条 + 主内容隐藏 |
 
 ## 浮条 UI

@@ -71,6 +71,9 @@ pub(crate) fn apply_macos_traffic_light_inset(
 
 #[cfg(target_os = "macos")]
 pub(crate) fn reapply_macos_window_chrome(win: &tauri::WebviewWindow<tauri::Wry>) {
+    if window_chrome_commands::is_computer_compact_chrome_active() {
+        return;
+    }
     apply_macos_overlay_chrome_api(win);
 
     schedule_macos_overlay_chrome_pass(win, "reapply-delayed-50", 50);
@@ -126,6 +129,9 @@ pub(crate) fn schedule_macos_overlay_chrome_repair(
 
 #[cfg(target_os = "macos")]
 fn apply_macos_overlay_chrome_api(win: &tauri::WebviewWindow<tauri::Wry>) {
+    if window_chrome_commands::is_computer_compact_chrome_active() {
+        return;
+    }
     use tauri::TitleBarStyle;
 
     if let Err(e) = win.set_decorations(true) {
@@ -140,6 +146,9 @@ fn apply_macos_overlay_chrome_api(win: &tauri::WebviewWindow<tauri::Wry>) {
 
     let win_initial = win.clone();
     if let Err(e) = win.run_on_main_thread(move || {
+        if window_chrome_commands::is_computer_compact_chrome_active() {
+            return;
+        }
         if let Ok(ns_window) = win_initial.ns_window() {
             macos_traffic_lights::set_compact_surface(ns_window, false);
             macos_traffic_lights::apply_overlay_titlebar(ns_window);
@@ -163,9 +172,15 @@ fn schedule_macos_overlay_chrome_pass(
     let win_delayed = win.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        if window_chrome_commands::is_computer_compact_chrome_active() {
+            return;
+        }
         let _ = win_delayed.set_title_bar_style(TitleBarStyle::Overlay);
         let win_apply = win_delayed.clone();
         let _ = win_delayed.run_on_main_thread(move || {
+            if window_chrome_commands::is_computer_compact_chrome_active() {
+                return;
+            }
             if let Ok(ns_window) = win_apply.ns_window() {
                 macos_traffic_lights::apply_overlay_titlebar(ns_window);
                 macos_traffic_lights::set_traffic_lights_visible(ns_window, true);
@@ -372,6 +387,7 @@ pub fn run() {
             macos_permission_commands::dismiss_macos_permission_drag_guide,
             window_chrome_commands::set_computer_compact_chrome,
             window_chrome_commands::reapply_window_chrome,
+            window_chrome_commands::place_computer_compact_window,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

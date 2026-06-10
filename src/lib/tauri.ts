@@ -168,6 +168,14 @@ export async function setComputerCompactChrome(compact: boolean): Promise<void> 
   await invoke('set_computer_compact_chrome', { compact })
 }
 
+export async function placeComputerCompactWindow(
+  width: number,
+  height: number,
+  margin: number
+): Promise<void> {
+  await invoke('place_computer_compact_window', { width, height, margin })
+}
+
 export async function reapplyWindowChrome(): Promise<void> {
   await invoke('reapply_window_chrome')
 }

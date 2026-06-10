@@ -58,7 +58,48 @@ npm install
 ### 环境要求
 
 - **Microsoft C++ Build Tools**（勾选「使用 C++ 的桌面开发」）
+- **LLVM（libclang）** — 仅**从源码编译**时需要；`silk-v3-sys` 的 build 脚本通过 bindgen 生成 C 绑定。最终用户安装 MSI 后**不需要** LLVM。见下文「安装 LLVM / libclang」。
 - **WebView2 Runtime**（Win10/11 通常已预装；开发机缺失时从微软官网安装 Evergreen Bootstrapper）
+
+### 安装 LLVM / libclang（开发者）
+
+bindgen 在 Windows 上需要 `libclang.dll`（或 `clang.dll`）。任选一种安装方式，**安装后新开终端**。
+
+**方式 1：winget（推荐）**
+
+```powershell
+winget install LLVM.LLVM
+```
+
+默认路径：`C:\Program Files\LLVM\bin\libclang.dll`
+
+**方式 2：官方安装包**
+
+从 [LLVM Releases](https://github.com/llvm/llvm-project/releases) 下载 **Windows 64-bit** 安装程序（例如 `LLVM-19.x.x-win64.exe`），安装时勾选 **Add LLVM to the system PATH**。
+
+**配置环境变量**
+
+若安装后仍报 `Unable to find libclang`，在 PowerShell 中设置（路径按实际安装目录调整）：
+
+```powershell
+# 当前终端会话
+$env:LIBCLANG_PATH = "C:\Program Files\LLVM\bin"
+
+# 永久写入用户环境变量（执行后新开终端）
+[Environment]::SetEnvironmentVariable("LIBCLANG_PATH", "C:\Program Files\LLVM\bin", "User")
+```
+
+**验证**
+
+```powershell
+Test-Path "C:\Program Files\LLVM\bin\libclang.dll"   # 应输出 True
+$env:LIBCLANG_PATH = "C:\Program Files\LLVM\bin"
+npm run tauri:build
+```
+
+若 LLVM 装在 Visual Studio 的 Clang 组件下，常见路径为：
+
+`C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Tools\Llvm\x64\bin`
 
 ### 开发
 
@@ -102,6 +143,7 @@ src-tauri/target/release/pointer-app.exe
 |------|------|
 | 提示缺少 C++ 工具链 | 安装 [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)，勾选 **「使用 C++ 的桌面开发」**；安装后**新开**终端再编译 |
 | `failed to run C compiler cl` / `cjk fts` 编译失败 | 同上；或在已配置 MSVC 的 **x64 Native Tools Command Prompt** 中执行 `npm run tauri:build`。MinGW 工具链可设置 `CC=gcc` |
+| `Unable to find libclang`（`silk-v3-sys` / bindgen） | 按上文「安装 LLVM / libclang」安装 LLVM，设置 `LIBCLANG_PATH` 为含 `libclang.dll` 的 `bin` 目录，**新开终端**后重编 |
 | `tauri` 找不到 | 使用 `npm run tauri:dev`，先 `npm install` |
 | 电脑操控无响应 | 检查屏幕录制/辅助功能权限；以 Release 包测试 |
 

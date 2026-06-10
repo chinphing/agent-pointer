@@ -36,6 +36,8 @@ export function setCompactShellActive(active: boolean): void {
 
 async function setCompactWindowBackground(transparent: boolean): Promise<void> {
   if (!isTauriRuntime()) return
+  // Windows: WebView2 transparency is re-applied from Rust after resize (alpha=0 only).
+  if (transparent && detectDesktopOs() === 'windows') return
   try {
     const win = await loadWindow()
     await win.setBackgroundColor(transparent ? '#00000000' : appBackgroundCssColor())

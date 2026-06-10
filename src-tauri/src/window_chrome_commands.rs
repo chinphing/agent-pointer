@@ -51,10 +51,37 @@ fn apply_compact_chrome(window: &WebviewWindow) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     apply_macos_compact_chrome(window)?;
 
-    #[cfg(not(target_os = "macos"))]
-    log::info!("computer compact chrome: frameless (no OS title bar on Windows/Linux)");
+    #[cfg(target_os = "windows")]
+    apply_windows_compact_transparency(window)?;
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    log::info!("computer compact chrome: frameless (no OS title bar on Linux)");
 
     Ok(())
+}
+
+/// WebView2 only treats alpha=0 as transparent; resize after compact placement resets it on Windows.
+#[cfg(target_os = "windows")]
+fn apply_windows_compact_transparency(window: &WebviewWindow) -> Result<(), String> {
+    window
+        .set_background_color(Some(TRANSPARENT))
+        .map_err(|e| format!("windows compact transparency: {e}"))
+}
+
+#[cfg(target_os = "windows")]
+fn schedule_windows_compact_transparency_reapply(window: &WebviewWindow) {
+    let win = window.clone();
+    tauri::async_runtime::spawn(async move {
+        for delay_ms in [50_u64, 150, 300] {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            if !is_computer_compact_chrome_active() {
+                return;
+            }
+            if let Err(e) = apply_windows_compact_transparency(&win) {
+                log::warn!("windows compact transparency reapply: {e}");
+            }
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -175,6 +202,12 @@ pub async fn place_computer_compact_window(
     if is_computer_compact_chrome_active() {
         apply_macos_compact_chrome(&window)?;
         schedule_macos_compact_chrome_reapply(&window);
+    }
+
+    #[cfg(target_os = "windows")]
+    if is_computer_compact_chrome_active() {
+        apply_windows_compact_transparency(&window)?;
+        schedule_windows_compact_transparency_reapply(&window);
     }
 
     Ok(())

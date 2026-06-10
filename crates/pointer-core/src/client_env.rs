@@ -2,6 +2,19 @@
 
 use serde::{Deserialize, Serialize};
 use std::env;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+use std::process::Command;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LoginClientEnv {
@@ -48,7 +61,7 @@ fn detect_os_version() -> Option<String> {
     }
     #[cfg(target_os = "windows")]
     {
-        return std::process::Command::new("cmd")
+        return hidden_command("cmd")
             .args(["/C", "ver"])
             .output()
             .ok()

@@ -427,8 +427,19 @@ onMounted(() => {
     audio: s.getMediaUnderstandingMode('audio'),
     video: s.getMediaUnderstandingMode('video')
   }
-  void refreshMediaDeps()
   loadAgents()
+  // Defer ffmpeg probe so opening settings → IM 通道 stays responsive on Windows.
+  window.setTimeout(() => {
+    if (activeSection.value === 'assistant' && mediaDeps.value === null) {
+      void refreshMediaDeps()
+    }
+  }, 400)
+})
+
+watch(activeSection, section => {
+  if (section === 'assistant' && mediaDeps.value === null) {
+    void refreshMediaDeps()
+  }
 })
 
 async function refreshMediaDeps() {

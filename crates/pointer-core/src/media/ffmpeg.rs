@@ -2,6 +2,19 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
 /// Returns true when both ffmpeg and ffprobe resolve and respond to `-version`.
 pub fn ffmpeg_available() -> bool {
     matches!(probe_ffmpeg_tools().status, FfmpegToolStatus::Ready)
@@ -97,7 +110,7 @@ fn path_display(path: &Path) -> String {
 }
 
 fn tool_responds_to_version(path: &Path) -> bool {
-    Command::new(path)
+    hidden_command(path)
         .arg("-version")
         .output()
         .map(|o| o.status.success())
@@ -105,15 +118,15 @@ fn tool_responds_to_version(path: &Path) -> bool {
 }
 
 fn resolve_tool(name: &str) -> Option<PathBuf> {
-    if let Some(path) = resolve_via_which(name) {
-        if path.is_file() {
-            return Some(path);
-        }
-    }
     for dir in extra_search_dirs() {
         let candidate = dir.join(tool_filename(name));
         if candidate.is_file() {
             return Some(candidate);
+        }
+    }
+    if let Some(path) = resolve_via_path_lookup(name) {
+        if path.is_file() {
+            return Some(path);
         }
     }
     None
@@ -127,20 +140,38 @@ fn tool_filename(name: &str) -> String {
     }
 }
 
-fn resolve_via_which(name: &str) -> Option<PathBuf> {
+/// Walk `PATH` in-process (Windows-friendly: avoids spawning `where.exe` on every settings open).
+fn resolve_via_path_lookup(name: &str) -> Option<PathBuf> {
     #[cfg(windows)]
-    let output = Command::new("where").arg(name).output().ok()?;
-    #[cfg(not(windows))]
-    let output = Command::new("which").arg(name).output().ok()?;
-    if !output.status.success() {
+    {
+        let path_env = std::env::var("PATH")
+            .or_else(|_| std::env::var("Path"))
+            .unwrap_or_default();
+        for dir in path_env.split(';') {
+            let dir = dir.trim();
+            if dir.is_empty() {
+                continue;
+            }
+            let candidate = PathBuf::from(dir).join(tool_filename(name));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
         return None;
     }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let line = text.lines().next()?.trim();
-    if line.is_empty() {
-        None
-    } else {
-        Some(PathBuf::from(line))
+    #[cfg(not(windows))]
+    {
+        let output = Command::new("which").arg(name).output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        let line = text.lines().next()?.trim();
+        if line.is_empty() {
+            None
+        } else {
+            Some(PathBuf::from(line))
+        }
     }
 }
 

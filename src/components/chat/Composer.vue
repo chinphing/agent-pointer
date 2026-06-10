@@ -42,6 +42,14 @@ import AttachmentChip from './AttachmentChip.vue'
 import MacosComputerPermissionsModal from './MacosComputerPermissionsModal.vue'
 import WorkspaceRequiredModal from './WorkspaceRequiredModal.vue'
 
+const props = withDefaults(
+  defineProps<{
+    /** footer: fixed bottom bar; inline: embedded in welcome hero */
+    placement?: 'footer' | 'inline'
+  }>(),
+  { placement: 'footer' }
+)
+
 const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 const settings = useSettingsStore()
@@ -579,8 +587,12 @@ onUnmounted(() => {
     @pick="onWorkspaceRequiredPick"
   />
 
-  <div class="chat-shell shrink-0 bg-background pt-2 pb-5">
-    <div class="chat-column">
+  <div
+    :class="props.placement === 'inline'
+      ? 'w-full'
+      : 'chat-shell shrink-0 bg-background pt-2 pb-5'"
+  >
+    <div :class="props.placement === 'inline' ? 'w-full' : 'chat-column'">
       <div v-if="showLoginBanner" class="mb-2 flex w-fit max-w-full flex-col gap-1.5">
         <div
           class="inline-flex max-w-full flex-wrap items-center gap-3 rounded-xl border border-accent/20 bg-accent-muted/40 px-3.5 py-2.5"
@@ -629,7 +641,7 @@ onUnmounted(() => {
           v-model="text"
           rows="1"
           class="block w-full resize-none bg-transparent border-0 outline-none px-3 pt-[3px] pb-2 text-[15px] text-foreground placeholder:text-muted"
-          style="max-height: 250px; min-height: 24px;"
+          :style="{ maxHeight: '250px', minHeight: '24px' }"
           :placeholder="composerPlaceholder"
           :disabled="needsPlatformLogin || tokenQuotaBlocked"
           @keydown="onKeydown"
@@ -664,7 +676,8 @@ onUnmounted(() => {
               <div
                 v-if="showAgentPicker"
                 ref="agentPickerRef"
-                class="composer-dropdown composer-dropdown--fit composer-dropdown--up"
+                class="composer-dropdown composer-dropdown--fit"
+                :class="props.placement === 'inline' ? 'composer-dropdown--down' : 'composer-dropdown--up'"
               >
                 <div class="px-2 py-1.5 border-b border-border">
                   <div class="text-[11px] text-muted font-medium whitespace-nowrap">执行智能体</div>

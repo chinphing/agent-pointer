@@ -144,55 +144,56 @@ async function onSelect(item: ExperienceListItem) {
 </script>
 
 <template>
-  <section class="w-full space-y-5">
-    <template v-if="isSearching">
-      <div class="flex items-center justify-end gap-2">
-        <div class="relative flex items-center">
-          <Search class="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted" />
-          <input
-            ref="searchInputEl"
-            v-model="searchInput"
-            type="search"
-            placeholder="搜索经验…"
-            class="w-44 rounded-full border border-border/80 bg-panel py-1.5 pl-8 pr-8 text-xs outline-none focus-visible:ring-2 focus-visible:ring-accent/30 sm:w-52"
-            autocomplete="off"
-          />
-          <button
-            type="button"
-            class="absolute right-1.5 rounded-full p-0.5 text-muted hover:bg-hover hover:text-foreground"
-            aria-label="关闭搜索"
-            @click="closeSearch"
-          >
-            <X class="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-
-      <p v-if="searchLoading" class="text-center text-xs text-muted">搜索中…</p>
-      <p v-else-if="searchResults.length === 0" class="text-center text-sm text-muted">
-        未找到相关经验
-      </p>
-      <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <ExperienceHomeCard
-          v-for="(item, index) in searchResults"
-          :key="item.id"
-          :item="item"
-          :tone="cardTone(index)"
-          :disabled="loadingSlug === item.slug"
-          @select="onSelect"
-        />
-      </div>
+  <section class="w-full space-y-4">
+    <template v-if="!home && !loadErr">
+      <p class="text-center text-xs text-muted">加载中…</p>
     </template>
 
-    <template v-else-if="!home && !loadErr">
-      <p class="text-center text-xs text-muted">加载中…</p>
+    <template v-else-if="loadErr">
+      <p class="text-center text-sm text-muted">{{ loadErr }}</p>
     </template>
 
     <template v-else>
       <div v-if="homeTabs.length > 0" class="space-y-3">
-        <div class="flex items-center gap-2">
+        <div class="flex min-w-0 items-center gap-1.5">
           <div
-            class="-mx-1 flex min-w-0 flex-1 gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:thin]"
+            class="relative flex h-7 shrink-0 items-center overflow-hidden rounded-full bg-accent/10 transition-[width] duration-200 ease-out"
+            :class="searchExpanded ? 'w-44 sm:w-52' : ''"
+          >
+            <button
+              v-if="!searchExpanded"
+              type="button"
+              class="inline-flex h-7 w-7 shrink-0 items-center justify-center text-muted transition-colors hover:text-foreground"
+              aria-label="搜索经验"
+              @click="openSearch"
+            >
+              <Search class="h-3.5 w-3.5" />
+            </button>
+            <template v-else>
+              <Search class="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted" />
+              <input
+                ref="searchInputEl"
+                v-model="searchInput"
+                type="search"
+                placeholder="搜索…"
+                class="h-7 w-full min-w-0 rounded-full border-0 bg-transparent py-0 pl-8 pr-8 text-xs leading-none outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+                autocomplete="off"
+                @keydown.esc="closeSearch"
+              />
+              <button
+                type="button"
+                class="absolute right-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-muted hover:bg-hover hover:text-foreground"
+                aria-label="关闭搜索"
+                @click="closeSearch"
+              >
+                <X class="h-3.5 w-3.5" />
+              </button>
+            </template>
+          </div>
+
+          <div
+            v-if="!isSearching"
+            class="-mx-0.5 flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto px-0.5 [scrollbar-width:thin]"
             role="tablist"
           >
             <button
@@ -200,10 +201,10 @@ async function onSelect(item: ExperienceListItem) {
               :key="tab.id"
               type="button"
               role="tab"
-              class="shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
+              class="inline-flex h-7 shrink-0 items-center rounded-full px-3 text-xs font-medium leading-none transition-colors"
               :class="
                 activeTab?.id === tab.id
-                  ? 'bg-foreground text-background'
+                  ? 'bg-accent text-white'
                   : 'bg-accent/10 text-muted hover:text-foreground'
               "
               :aria-selected="activeTab?.id === tab.id"
@@ -212,41 +213,26 @@ async function onSelect(item: ExperienceListItem) {
               {{ tab.name_zh }}
             </button>
           </div>
+        </div>
 
-          <div class="shrink-0 pb-1">
-            <button
-              v-if="!searchExpanded"
-              type="button"
-              class="flex h-7 w-7 items-center justify-center rounded-full text-muted transition-colors hover:bg-hover hover:text-foreground"
-              aria-label="搜索经验"
-              @click="openSearch"
-            >
-              <Search class="h-4 w-4" />
-            </button>
-            <div v-else class="relative flex items-center">
-              <Search class="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted" />
-              <input
-                ref="searchInputEl"
-                v-model="searchInput"
-                type="search"
-                placeholder="搜索…"
-                class="w-32 rounded-full border border-border/80 bg-panel py-1.5 pl-8 pr-8 text-xs outline-none focus-visible:ring-2 focus-visible:ring-accent/30 sm:w-40"
-                autocomplete="off"
-                @keydown.esc="closeSearch"
-              />
-              <button
-                type="button"
-                class="absolute right-1.5 rounded-full p-0.5 text-muted hover:bg-hover hover:text-foreground"
-                aria-label="关闭搜索"
-                @click="closeSearch"
-              >
-                <X class="h-3.5 w-3.5" />
-              </button>
-            </div>
+        <div v-if="isSearching" role="search">
+          <p v-if="searchLoading" class="text-center text-xs text-muted">搜索中…</p>
+          <p v-else-if="searchResults.length === 0" class="text-center text-sm text-muted">
+            未找到相关经验
+          </p>
+          <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <ExperienceHomeCard
+              v-for="(item, index) in searchResults"
+              :key="item.id"
+              :item="item"
+              :tone="cardTone(index)"
+              :disabled="loadingSlug === item.slug"
+              @select="onSelect"
+            />
           </div>
         </div>
 
-        <div v-if="activeTab" role="tabpanel" class="min-h-[8rem]">
+        <div v-else-if="activeTab" role="tabpanel" class="min-h-[8rem]">
           <div
             v-if="activeTab.items.length === 0"
             class="flex min-h-[8rem] items-center justify-center rounded-2xl border border-dashed border-border/70 px-4 py-8 text-sm text-muted"
@@ -265,8 +251,6 @@ async function onSelect(item: ExperienceListItem) {
           </div>
         </div>
       </div>
-
-      <p v-else-if="loadErr" class="text-center text-sm text-muted">{{ loadErr }}</p>
     </template>
   </section>
 </template>

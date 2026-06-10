@@ -19,12 +19,13 @@ use pointer_core::{
 };
 use std::{
     path::PathBuf,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
+    sync::Arc,
 };
-use tauri::{Emitter, Manager, RunEvent, WindowEvent};
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicU64, Ordering};
+use tauri::{Emitter, Manager, RunEvent};
+#[cfg(target_os = "macos")]
+use tauri::WindowEvent;
 
 #[cfg(target_os = "macos")]
 fn traffic_light_inset_log_level(label: &'static str) -> Option<log::Level> {

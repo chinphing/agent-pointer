@@ -9,6 +9,7 @@ const TRANSPARENT: Color = Color(0, 0, 0, 0);
 static COMPUTER_COMPACT_CHROME: AtomicBool = AtomicBool::new(false);
 
 /// Whether the main window is in computer compact dock mode (skip traffic-light repair).
+#[cfg(target_os = "macos")]
 pub fn is_computer_compact_chrome_active() -> bool {
     COMPUTER_COMPACT_CHROME.load(Ordering::Relaxed)
 }

@@ -12,6 +12,11 @@ use std::path::PathBuf;
 /// Day-level folders older than this are removed on app startup (desktop).
 pub const CAPTURE_RETENTION_DAYS: i64 = 7;
 
+/// On-disk capture dumps are debug-only (title-bar bug icon → 调试模式).
+pub fn computer_capture_dump_enabled() -> bool {
+    crate::platform_config::effective_settings_global().debug_menus_enabled
+}
+
 fn sanitize_path_segment(s: &str) -> String {
     s.chars()
         .map(|c| {
@@ -111,6 +116,9 @@ pub fn save_computer_capture_debug(
     cap: &ScreenCaptureResult,
     tier: ComputerTier,
 ) -> Option<String> {
+    if !computer_capture_dump_enabled() {
+        return None;
+    }
     if cap.annotated_marked_jpeg.is_empty() {
         log::warn!("computer capture dump: skip — empty annotated frame");
         return None;

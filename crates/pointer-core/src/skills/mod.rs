@@ -6,7 +6,7 @@ pub mod provenance;
 
 /// Bundled skills enabled for new users when lead agent is `general`.
 pub const DEFAULT_ENABLED_SKILL_IDS: &[&str] =
-    &["find-skills", "dev-env-setup", "skill-creator", "pointer-config"];
+    &["find-skills", "dev-env-setup", "skill-creator", "pointer-manager"];
 
 use crate::models::{SkillDef, SkillImportResult};
 use anyhow::{anyhow, Result};
@@ -178,3 +178,4 @@ fn safe_resource_join(root: &Path, rel: &Path) -> Result<std::path::PathBuf> {
     }
     Ok(out)
 }
+

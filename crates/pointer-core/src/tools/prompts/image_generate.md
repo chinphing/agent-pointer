@@ -5,15 +5,12 @@ schema:
     prompt:
       type: string
       description: What to generate
-    model:
-      type: string
-      description: "e.g. wan2.7-image-pro, qwen-image-2.0-pro, doubao-seedream-5-0-lite-260128"
     size:
       type: string
       description: "1K, 2K, 4K or provider-specific (Seedream: 2K)"
     image:
       type: string
-      description: "Reference image URL or local path for edit / image-to-image"
+      description: "Reference — http(s) URL, data URL, or local path (~/…, absolute, cwd-relative)"
     count:
       type: integer
       description: "Number of images (1–4, default 1)"
@@ -22,28 +19,27 @@ schema:
   additionalProperties: false
 ---
 
-Generate images from text (and optional reference image) using configured Qwen Wan / Qwen-Image or Doubao Seedream models.
+Generate images from text (and optional reference image). **Provider and model come from user settings** (`mediaModelOverrides.imageGeneration`) — do not pass `model`.
 
 ## When to use
 
 - User asks to create, draw, or edit an image.
 - You need a visual asset to send via IM (`MEDIA:` or `channel_message`).
 
-## Providers (configure API keys in settings)
+## Providers (configure in settings)
 
-| Provider | Default model | Notes |
+| Provider | Example model | Notes |
 |----------|---------------|-------|
-| Qwen (DashScope) | `wan2.7-image-pro` | Unified gen/edit; 2K/4K; alt `qwen-image-2.0-pro` for text-heavy posters |
-| Doubao (Volcengine Ark) | `doubao-seedream-5-0-lite-260128` | Seedream 5.0 Lite; alt `doubao-seedream-4-5-251128` |
+| Qwen (DashScope) | `wan2.7-image-pro` | Unified gen/edit; 2K/4K |
+| Doubao (Volcengine Ark) | `doubao-seedream-5-0-lite-260128` | Seedream 5.0 Lite |
 
-Override via `mediaModelOverrides.imageGeneration` in settings or tool `model` arg.
+Change provider/model in **Settings → 图片生成**, not in tool args.
 
 ## Parameters
 
 - `prompt` (required): What to generate.
-- `model` (optional): e.g. `wan2.7-image-pro`, `qwen-image-2.0-pro`, `doubao-seedream-5-0-lite-260128`.
 - `size` (optional): `1K`, `2K`, `4K`, or provider-specific (Seedream: `2K`).
-- `image` (optional): Reference image URL or local path for edit / image-to-image.
+- `image` (optional): Reference for edit / image-to-image — `http(s)`, `data:`, or **local path** (`~/…`, absolute, cwd-relative).
 - `count` (optional): Number of images (1–4, default 1).
 
 ## Output

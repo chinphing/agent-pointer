@@ -86,42 +86,44 @@ fn provider_for_model(model: &str) -> Option<&'static str> {
     }
 }
 
+fn provider_configured(settings: &ModelSettings, pid: &str) -> bool {
+    match pid {
+        "qwen" => find_dashscope_provider(settings).is_some(),
+        "doubao" => find_volcengine_provider(settings).is_some(),
+        _ => false,
+    }
+}
+
+/// Provider from settings `mediaModelOverrides.*Generation` only (not tool args).
+fn resolve_provider_id(settings: &ModelSettings, model_ref: Option<&AgentModelRef>) -> String {
+    if let Some(r) = model_ref {
+        let pid = r.provider_id.trim();
+        if !pid.is_empty() {
+            return pid.to_string();
+        }
+        let model = r.model.trim();
+        if !model.is_empty() {
+            if let Some(pid) = provider_for_model(model) {
+                if provider_configured(settings, pid) {
+                    return pid.to_string();
+                }
+            }
+        }
+    }
+    if find_volcengine_provider(settings).is_some() {
+        "doubao".into()
+    } else {
+        "qwen".into()
+    }
+}
+
 pub fn resolve_generation_config(
     settings: &ModelSettings,
     kind: GenerationKind,
-    model_override: Option<&str>,
 ) -> anyhow::Result<ResolvedGenerationConfig> {
     let overrides = &settings.media_model_overrides;
     let model_ref = pick_override(overrides, kind);
-    let provider_id = model_ref
-        .and_then(|r| {
-            let pid = r.provider_id.trim();
-            if pid.is_empty() {
-                None
-            } else {
-                Some(pid.to_string())
-            }
-        })
-        .or_else(|| {
-            // If the model_override points at a well-known model, route accordingly
-            model_override
-                .and_then(|m| provider_for_model(m))
-                .and_then(|pid| match pid {
-                    "qwen" if find_dashscope_provider(settings).is_some() => Some("qwen".into()),
-                    "doubao" if find_volcengine_provider(settings).is_some() => {
-                        Some("doubao".into())
-                    }
-                    _ => None,
-                })
-        })
-        .or_else(|| {
-            if find_volcengine_provider(settings).is_some() {
-                Some("doubao".into())
-            } else {
-                Some("qwen".into())
-            }
-        })
-        .unwrap_or_else(|| "qwen".into());
+    let provider_id = resolve_provider_id(settings, model_ref);
 
     let provider = if provider_id.eq_ignore_ascii_case("doubao")
         || provider_id.eq_ignore_ascii_case("volcengine")
@@ -149,11 +151,10 @@ pub fn resolve_generation_config(
         );
     }
 
-    let model = model_override
-        .map(str::trim)
+    let model = model_ref
+        .map(|r| r.model.trim())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
-        .or_else(|| model_ref.map(|r| r.model.trim().to_string()).filter(|s| !s.is_empty()))
         .unwrap_or_else(|| default_model_for_provider(&provider.id, kind).to_string());
 
     Ok(ResolvedGenerationConfig {
@@ -296,6 +297,81 @@ mod tests {
         let base = "https://ark.cn-beijing.volces.com/api/v3";
         assert!(volcengine_image_url(base).ends_with("/images/generations"));
         assert!(volcengine_video_tasks_url(base).ends_with("/contents/generations/tasks"));
+    }
+
+    #[test]
+    fn video_generation_uses_settings_not_tool_model() {
+        use crate::models::{AgentModelRef, ProviderConfig};
+
+        let mut settings = ModelSettings::default();
+        settings.providers = vec![
+            ProviderConfig {
+                id: "qwen".into(),
+                name: "Qwen".into(),
+                api_key: "ds-key".into(),
+                base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+                models: vec![],
+                reasoning_in_messages: None,
+                temperature: None,
+                max_tokens: None,
+                model_configs: Default::default(),
+                enable_thinking: None,
+                thinking_budget: None,
+                reasoning_effort: None,
+            },
+            ProviderConfig {
+                id: "doubao".into(),
+                name: "Doubao".into(),
+                api_key: "ark-key".into(),
+                base_url: "https://ark.cn-beijing.volces.com/api/v3".into(),
+                models: vec![],
+                reasoning_in_messages: None,
+                temperature: None,
+                max_tokens: None,
+                model_configs: Default::default(),
+                enable_thinking: None,
+                thinking_budget: None,
+                reasoning_effort: None,
+            },
+        ];
+        settings.media_model_overrides.video_generation = Some(AgentModelRef {
+            provider_id: "doubao".into(),
+            model: "doubao-seedance-2-0-260128".into(),
+        });
+        let cfg =
+            resolve_generation_config(&settings, GenerationKind::Video).expect("config");
+        assert_eq!(cfg.model, "doubao-seedance-2-0-260128");
+        assert_eq!(cfg.provider_id, "doubao");
+        assert!(cfg.base_url.contains("volces"));
+    }
+
+    #[test]
+    fn qwen_happyhorse_settings_route_to_dashscope() {
+        use crate::models::{AgentModelRef, ProviderConfig};
+
+        let mut settings = ModelSettings::default();
+        settings.providers = vec![ProviderConfig {
+            id: "qwen".into(),
+            name: "Qwen".into(),
+            api_key: "ds-key".into(),
+            base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+            models: vec![],
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            model_configs: Default::default(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+        }];
+        settings.media_model_overrides.video_generation = Some(AgentModelRef {
+            provider_id: "qwen".into(),
+            model: "happyhorse-1.0-t2v".into(),
+        });
+        let cfg =
+            resolve_generation_config(&settings, GenerationKind::Video).expect("config");
+        assert_eq!(cfg.model, "happyhorse-1.0-t2v");
+        assert_eq!(cfg.provider_id, "qwen");
     }
 
     #[test]

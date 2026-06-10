@@ -26,12 +26,17 @@ pub struct MediaGenerateDispatchContext<'a> {
 pub async fn dispatch_media_generate_async(
     ctx: MediaGenerateDispatchContext<'_>,
 ) -> Result<(String, bool, Option<String>)> {
-    let model_override = ctx
+    if let Some(ignored) = ctx
         .args
         .get("model")
         .and_then(|v| v.as_str())
         .map(str::trim)
-        .filter(|s| !s.is_empty());
+        .filter(|s| !s.is_empty())
+    {
+        log::warn!(
+            "media_generate: ignoring tool model arg \"{ignored}\" — use settings mediaModelOverrides"
+        );
+    }
     let result = match ctx.tool_id {
         "image_generate" => {
             let req = build_image_request(&ctx.args)?;
@@ -40,7 +45,6 @@ pub async fn dispatch_media_generate_async(
                 ctx.conversation_id,
                 ctx.run_id,
                 &req,
-                model_override,
                 ctx.cancel,
             )
             .await
@@ -53,7 +57,6 @@ pub async fn dispatch_media_generate_async(
                 ctx.conversation_id,
                 ctx.run_id,
                 &req,
-                model_override,
                 ctx.cancel,
             )
             .await

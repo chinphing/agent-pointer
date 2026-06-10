@@ -74,7 +74,7 @@ mediaModelOverrides: {
 | 千问 DashScope | `wan2.7-image-pro` | `happyhorse-1.0-t2v`（有首帧图时自动切 `happyhorse-1.0-i2v`） |
 | 豆包 Volcengine Ark | `doubao-seedream-5-0-lite-260128` | `doubao-seedance-2-0-260128` |
 
-路由规则：优先 `mediaModelOverrides.imageGeneration` / `videoGeneration` 的 `providerId`；否则若配置了豆包 provider 则走豆包，否则走千问。工具参数 `model` 可单次覆盖。
+路由规则：**仅**使用设置中的 `mediaModelOverrides.imageGeneration` / `videoGeneration`（`providerId` + `model`）；未配置时若存在豆包 provider 则默认豆包，否则千问。工具参数 **`model` 已移除/忽略**，不由 AI 指定模型。
 
 ---
 

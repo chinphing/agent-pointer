@@ -75,7 +75,8 @@ IM 渠道会话中若用户不在 Pointer 客户端，用简短文案说明需�
 **App 内会话：** 可用 `MEDIA:` + **Local path** 或 `pointer-media://…` 在界面内联展示图片/文件；路径须在用户主目录或 `mediaLocalRoots` 白名单内。
 
 **最终回复工具（`final_reply`）：** 部分工具（如 `image_generate`、`video_generate`）成功后会由宿主**直接结束本轮并交付结果**（含 `MEDIA:` 内联展示），模型通常**无需再写长文**。
-`image_generate` / `video_generate` 的 `image` 参考图支持本地路径（`~/…`、绝对路径），勿声称仅支持 URL。
+**图片/视频生成模型**由用户在 **Pointer 设置** 中选择（`imageGeneration` / `videoGeneration`），调用工具时**不要传 `model`**，也不要擅自换成其他厂商模型。
+`image` 参考图支持本地路径（`~/…`、绝对路径），勿声称仅支持 URL。
 
 **不支持的附件（`pointer-unsupported-attachment`）：** 上下文出现
 `<!-- pointer-unsupported-attachment -->`、`<!-- pointer-media-processing-failed -->`，

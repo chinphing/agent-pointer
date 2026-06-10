@@ -25,10 +25,9 @@ pub async fn generate_image(
     conversation_id: &str,
     run_id: &str,
     req: &ImageGenerateRequest,
-    model_override: Option<&str>,
     cancel: CancellationToken,
 ) -> Result<GenerationArtifact> {
-    let cfg = resolve_generation_config(settings, GenerationKind::Image, model_override)?;
+    let cfg = resolve_generation_config(settings, GenerationKind::Image)?;
     if volcengine::route_volcengine(&cfg) {
         volcengine::generate_image_volcengine(&cfg, conversation_id, run_id, req, cancel).await
     } else {
@@ -41,10 +40,9 @@ pub async fn generate_video(
     conversation_id: &str,
     run_id: &str,
     req: &VideoGenerateRequest,
-    model_override: Option<&str>,
     cancel: CancellationToken,
 ) -> Result<GenerationArtifact> {
-    let cfg = resolve_generation_config(settings, GenerationKind::Video, model_override)?;
+    let cfg = resolve_generation_config(settings, GenerationKind::Video)?;
     if volcengine::route_volcengine(&cfg) {
         volcengine::generate_video_volcengine(&cfg, conversation_id, run_id, req, cancel).await
     } else {

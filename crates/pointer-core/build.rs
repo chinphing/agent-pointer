@@ -1,7 +1,6 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 const SUPPORTED_PLATFORM_KEYS: &[(&str, &str)] = &[
     ("tool_approval_mode", "TOOL_APPROVAL_MODE"),
@@ -125,34 +124,38 @@ fn build_cjk_fts_extension() {
     println!("cargo:rerun-if-changed={}", src.display());
     println!("cargo:rerun-if-changed={}", include_dir.join("sqlite3ext.h").display());
 
-    let out_dir = env::var("OUT_DIR").expect("OUT_DIR");
-    let out_path = PathBuf::from(&out_dir).join(cjk_fts_lib_name());
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
+    let out_path = out_dir.join(cjk_fts_lib_name());
 
-    let mut cc_probe = cc::Build::new();
-    cc_probe
-        .file(&src)
-        .include(&include_dir)
-        .opt_level(2);
-    if !cfg!(target_os = "windows") {
-        cc_probe.pic(true);
-    }
-    let compiler = cc_probe.get_compiler();
+    let mut build = cc::Build::new();
+    build.include(&include_dir).opt_level(2);
+    let compiler = build.get_compiler();
     let compiler_path = compiler.path().to_string_lossy().into_owned();
 
-    let mut cmd = Command::new(compiler.path());
+    // cc::Tool::to_command sets MSVC INCLUDE/LIB/PATH; bare cl.exe often fails on Windows.
+    let mut cmd = compiler.to_command();
     if compiler.is_like_msvc() {
+        // MSVC treats `\t`, `\n`, … as escapes; Cargo OUT_DIR is under `\target\...`.
+        let include = msvc_cl_path(&include_dir);
+        let src_path = msvc_cl_path(&src);
+        let out = msvc_cl_path(&out_path);
+        cmd.current_dir(&out_dir);
         cmd.args([
-            "/LD",
+            "/nologo",
+            "/TC",
             "/O2",
-            &format!("/I{}", include_dir.display()),
-            src.to_str().expect("utf8 path"),
-            &format!("/Fe:{}", out_path.display()),
+            "/LD",
+            &format!("/I{include}"),
+            &src_path,
+            &format!("/Fe:{out}"),
         ]);
     } else {
+        if !cfg!(target_os = "windows") {
+            cmd.arg("-fPIC");
+        }
         cmd.args([
             "-O2",
             "-shared",
-            "-fPIC",
             &format!("-I{}", include_dir.display()),
             src.to_str().expect("utf8 path"),
             "-o",
@@ -160,22 +163,46 @@ fn build_cjk_fts_extension() {
         ]);
     }
 
-    let status = cmd.status().unwrap_or_else(|e| {
-        panic!(
-            "failed to run C compiler {compiler_path} for cjk fts: {e} \
-             (Windows: install Microsoft C++ Build Tools with Desktop C++, \
-             then open a new terminal; or set CC to gcc/cl)"
+    let output = cmd.output().unwrap_or_else(|e| {
+        let msg = format!(
+            "failed to run C compiler {compiler_path} for sqlite-cjk-fts: {e} \
+             (Windows: use x64 Native Tools / Developer PowerShell for VS; \
+             install Desktop C++ workload; or set CC=gcc)"
         );
+        emit_build_warnings(&msg);
+        panic!("{msg}");
     });
-    if !status.success() {
-        panic!("cjk fts extension compile failed with {compiler_path}");
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let msg = format!(
+            "sqlite-cjk-fts compile failed (compiler={compiler_path}, exit={:?})\n\
+             --- cl stdout ---\n{stdout}\n--- cl stderr ---\n{stderr}",
+            output.status.code()
+        );
+        emit_build_warnings(&msg);
+        panic!("{msg}");
     }
     if !out_path.exists() {
-        panic!(
-            "cjk fts extension missing after compile: {}",
+        let msg = format!(
+            "sqlite-cjk-fts missing after compile: {}",
             out_path.display()
         );
+        emit_build_warnings(&msg);
+        panic!("{msg}");
     }
+}
+
+/// Emit each line as cargo:warning so failures stay visible under `npm run tauri:build`.
+fn emit_build_warnings(msg: &str) {
+    for line in msg.lines() {
+        println!("cargo:warning=pointer-core: {line}");
+    }
+}
+
+/// MSVC `cl` treats `\t`, `\n`, … as escapes in unquoted paths; use forward slashes.
+fn msvc_cl_path(path: &Path) -> String {
+    path.display().to_string().replace('\\', "/")
 }
 
 fn cjk_fts_lib_name() -> &'static str {

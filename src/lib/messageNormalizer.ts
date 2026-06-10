@@ -34,6 +34,23 @@ function fileNameFromPath(path: string): string {
   return parts[parts.length - 1] || 'attachment'
 }
 
+function mimeFromFileName(fileName: string): string {
+  const ext = fileName.split('.').pop()?.toLowerCase() ?? ''
+  if (ext === 'png') return 'image/png'
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg'
+  if (ext === 'gif') return 'image/gif'
+  if (ext === 'webp') return 'image/webp'
+  if (ext === 'pdf') return 'application/pdf'
+  if (ext === 'mp4' || ext === 'm4v') return 'video/mp4'
+  if (ext === 'webm') return 'video/webm'
+  if (ext === 'mov') return 'video/quicktime'
+  if (ext === 'mkv') return 'video/x-matroska'
+  if (ext === 'mp3') return 'audio/mpeg'
+  if (ext === 'wav') return 'audio/wav'
+  if (ext === 'm4a') return 'audio/mp4'
+  return 'application/octet-stream'
+}
+
 function kindFromFileName(fileName: string): MediaAttachmentKind {
   const ext = fileName.split('.').pop()?.toLowerCase() ?? ''
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) return 'image'
@@ -72,7 +89,7 @@ function renderableFromMediaPath(path: string, index: number): RenderableAttachm
     id: `reply-media-draft-${index}`,
     kind: kindFromFileName(fileName),
     fileName,
-    mimeType: 'application/octet-stream',
+    mimeType: mimeFromFileName(fileName),
     storageRelPath,
     localAbsPath,
     mediaRef: path

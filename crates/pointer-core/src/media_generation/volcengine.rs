@@ -12,6 +12,7 @@ use super::models::{
     volcengine_image_url, volcengine_video_task_url, volcengine_video_tasks_url, GenerationKind,
     ResolvedGenerationConfig,
 };
+use super::reference_image::resolve_reference_image_for_api;
 use super::save::{download_url_to_file, save_generated_bytes};
 use super::dashscope::{GenerationArtifact, ImageGenerateRequest, VideoGenerateRequest};
 
@@ -73,8 +74,8 @@ pub async fn generate_image_volcengine(
         "stream": false,
         "watermark": false,
     });
-    if let Some(url) = req.image_url.as_deref().filter(|s| !s.trim().is_empty()) {
-        body["image"] = json!(url);
+    if let Some(raw) = req.image_url.as_deref().filter(|s| !s.trim().is_empty()) {
+        body["image"] = json!(resolve_reference_image_for_api(raw)?);
     }
     if cancel.is_cancelled() {
         return Err(anyhow!("已停止生成"));
@@ -146,6 +147,10 @@ pub async fn generate_video_volcengine(
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .build()
         .context("build HTTP client")?;
+    let mut req = req.clone();
+    if let Some(raw) = req.image_url.as_deref().filter(|s| !s.trim().is_empty()) {
+        req.image_url = Some(resolve_reference_image_for_api(raw)?);
+    }
     let has_image = req
         .image_url
         .as_deref()

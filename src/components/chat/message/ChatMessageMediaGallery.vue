@@ -25,7 +25,10 @@ async function ensureMediaPreview(att: RenderableAttachment) {
     } else {
       return
     }
-    const mime = preview.mimeType || 'application/octet-stream'
+    const mime =
+      preview.mimeType && preview.mimeType !== 'application/octet-stream'
+        ? preview.mimeType
+        : att.mimeType || preview.mimeType || 'application/octet-stream'
     loadedPreviews.value = {
       ...loadedPreviews.value,
       [att.id]: `data:${mime};base64,${preview.dataBase64}`
@@ -92,7 +95,7 @@ onMounted(() => {
         <img
           v-if="att.kind === 'image' && mediaSrc(att)"
           :src="mediaSrc(att)!"
-          :alt="att.fileName"
+          alt=""
           class="max-h-64 max-w-full rounded-xl border border-border object-contain"
         />
         <div
@@ -108,19 +111,13 @@ onMounted(() => {
             :src="mediaSrc(att)!"
           />
         </div>
-        <div
-          v-else-if="att.kind === 'video'"
-          class="w-full max-w-sm rounded-xl border border-border bg-muted/30 px-3 py-2"
-        >
-          <p class="text-[11px] text-muted mb-1 truncate" :title="att.fileName">{{ att.fileName }}</p>
-          <video
-            v-if="mediaSrc(att)"
-            controls
-            preload="metadata"
-            class="w-full max-h-64 rounded-lg"
-            :src="mediaSrc(att)!"
-          />
-        </div>
+        <video
+          v-else-if="att.kind === 'video' && mediaSrc(att)"
+          controls
+          preload="metadata"
+          class="max-h-64 max-w-full rounded-xl border border-border"
+          :src="mediaSrc(att)!"
+        />
         <div
           v-else
           class="inline-flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-xs text-foreground"

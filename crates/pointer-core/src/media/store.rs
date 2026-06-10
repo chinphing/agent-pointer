@@ -136,15 +136,30 @@ fn read_file_preview(path: &Path, extra_roots: &[String]) -> Result<ChatMediaPre
 }
 
 fn mime_from_path(path: &Path) -> String {
-    match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()) {
-        Some(ext) if ext == "png" => "image/png".into(),
-        Some(ext) if ext == "jpg" || ext == "jpeg" => "image/jpeg".into(),
-        Some(ext) if ext == "gif" => "image/gif".into(),
-        Some(ext) if ext == "webp" => "image/webp".into(),
-        Some(ext) if ext == "pdf" => "application/pdf".into(),
-        Some(ext) if ext == "txt" => "text/plain".into(),
-        Some(ext) if ext == "md" => "text/markdown".into(),
-        Some(ext) if ext == "json" => "application/json".into(),
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png") => "image/png".into(),
+        Some("jpg") | Some("jpeg") => "image/jpeg".into(),
+        Some("gif") => "image/gif".into(),
+        Some("webp") => "image/webp".into(),
+        Some("pdf") => "application/pdf".into(),
+        Some("txt") => "text/plain".into(),
+        Some("md") => "text/markdown".into(),
+        Some("json") => "application/json".into(),
+        Some("mp4") | Some("m4v") => "video/mp4".into(),
+        Some("webm") => "video/webm".into(),
+        Some("mov") => "video/quicktime".into(),
+        Some("mkv") => "video/x-matroska".into(),
+        Some("mp3") => "audio/mpeg".into(),
+        Some("wav") => "audio/wav".into(),
+        Some("m4a") => "audio/mp4".into(),
+        Some("aac") => "audio/aac".into(),
+        Some("ogg") => "audio/ogg".into(),
+        Some("flac") => "audio/flac".into(),
         _ => "application/octet-stream".into(),
     }
 }

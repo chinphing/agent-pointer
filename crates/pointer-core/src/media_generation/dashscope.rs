@@ -10,6 +10,7 @@ use super::models::{
     dashscope_multimodal_image_url, dashscope_tasks_url, dashscope_video_synthesis_url,
     is_happyhorse_model, resolve_dashscope_video_model, GenerationKind, ResolvedGenerationConfig,
 };
+use super::reference_image::resolve_reference_image_for_api;
 use super::save::{download_url_to_file, save_generated_bytes};
 
 const IMAGE_TIMEOUT_SECS: u64 = 180;
@@ -237,7 +238,8 @@ pub async fn generate_image_dashscope(
         .build()
         .context("build HTTP client")?;
     let mut content = vec![json!({"text": req.prompt})];
-    if let Some(url) = req.image_url.as_deref().filter(|s| !s.trim().is_empty()) {
+    if let Some(raw) = req.image_url.as_deref().filter(|s| !s.trim().is_empty()) {
+        let url = resolve_reference_image_for_api(raw)?;
         content.insert(0, json!({"image": url}));
     }
     let mut parameters = json!({
@@ -312,6 +314,10 @@ pub async fn generate_video_dashscope(
         .timeout(Duration::from_secs(VIDEO_TIMEOUT_SECS))
         .build()
         .context("build HTTP client")?;
+    let mut req = req.clone();
+    if let Some(raw) = req.image_url.as_deref().filter(|s| !s.trim().is_empty()) {
+        req.image_url = Some(resolve_reference_image_for_api(raw)?);
+    }
     let has_first_frame = req
         .image_url
         .as_deref()
@@ -321,9 +327,9 @@ pub async fn generate_video_dashscope(
     let model = resolve_dashscope_video_model(&cfg.model, has_first_frame);
     let happyhorse = is_happyhorse_model(&model);
     let body = if happyhorse {
-        build_happyhorse_video_body(&model, req)
+        build_happyhorse_video_body(&model, &req)
     } else {
-        build_wan_video_body(&model, req)
+        build_wan_video_body(&model, &req)
     };
     let poll_interval = if happyhorse {
         HAPPYHORSE_POLL_INTERVAL_MS

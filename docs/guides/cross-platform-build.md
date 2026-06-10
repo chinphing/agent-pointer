@@ -102,7 +102,6 @@ src-tauri/target/release/pointer-app.exe
 |------|------|
 | 提示缺少 C++ 工具链 | 安装 [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)，勾选 **「使用 C++ 的桌面开发」**；安装后**新开**终端再编译 |
 | `failed to run C compiler cl` / `cjk fts` 编译失败 | 同上；或在已配置 MSVC 的 **x64 Native Tools Command Prompt** 中执行 `npm run tauri:build`。MinGW 工具链可设置 `CC=gcc` |
-| `Unable to find libclang`（`silk-v3-sys` / bindgen） | 拉取最新 `main`（已 vendoring SILK，构建不再需要 libclang）；旧版可安装 [LLVM for Windows](https://releases.llvm.org/) 并设置 `LIBCLANG_PATH` 指向其 `bin` 目录 |
 | `tauri` 找不到 | 使用 `npm run tauri:dev`，先 `npm install` |
 | 电脑操控无响应 | 检查屏幕录制/辅助功能权限；以 Release 包测试 |
 

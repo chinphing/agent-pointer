@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::process::Command;
 
 #[cfg(windows)]

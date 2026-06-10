@@ -103,7 +103,15 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   agentUiOverrides: {},
   mediaModelOverrides: {
     image: { providerId: 'qwen', model: 'qwen3.5-plus' },
-    audio: { providerId: 'qwen', model: 'qwen3.5-plus' }
+    audio: { providerId: 'qwen', model: 'qwen3.5-plus' },
+    imageGeneration: {
+      providerId: 'doubao',
+      model: 'doubao-seedream-5-0-lite-260128'
+    },
+    videoGeneration: {
+      providerId: 'doubao',
+      model: 'doubao-seedance-1-0-lite-t2v-250428'
+    }
   },
   computerTierLlm: {
     primary: { providerId: 'qwen', model: 'qwen3.5-plus', enableThinking: true, thinkingBudget: 2048 },

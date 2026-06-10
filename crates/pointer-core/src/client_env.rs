@@ -9,9 +9,9 @@ use std::process::Command;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+#[cfg(windows)]
 fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     let mut cmd = Command::new(program);
-    #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd
 }
@@ -51,7 +51,7 @@ fn app_version() -> String {
 fn detect_os_version() -> Option<String> {
     #[cfg(target_os = "macos")]
     {
-        return std::process::Command::new("sw_vers")
+        return Command::new("sw_vers")
             .arg("-productVersion")
             .output()
             .ok()

@@ -142,8 +142,10 @@ export const DOUBAO_IMAGE_GENERATION_MODELS = [
   'doubao-seedream-4-5-251128'
 ] as const
 
-/** Mainstream Doubao video models (Seedance 2.0 series). */
+/** Mainstream Doubao video models (Seedance Lite default, 2.0 optional). */
 export const DOUBAO_VIDEO_GENERATION_MODELS = [
+  'doubao-seedance-1-0-lite-t2v-250428',
+  'doubao-seedance-1-0-lite-i2v-250428',
   'doubao-seedance-2-0-260128',
   'doubao-seedance-2-0-fast-260128'
 ] as const

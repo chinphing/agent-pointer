@@ -639,9 +639,25 @@ pub fn default_doubao_provider_models() -> Vec<String> {
     vec![
         "doubao-seedream-5-0-lite-260128".into(),
         "doubao-seedream-4-5-251128".into(),
+        "doubao-seedance-1-0-lite-t2v-250428".into(),
+        "doubao-seedance-1-0-lite-i2v-250428".into(),
         "doubao-seedance-2-0-260128".into(),
         "doubao-seedance-2-0-fast-260128".into(),
     ]
+}
+
+pub fn default_media_generation_overrides() -> MediaModelOverrides {
+    MediaModelOverrides {
+        image_generation: Some(AgentModelRef {
+            provider_id: "doubao".into(),
+            model: "doubao-seedream-5-0-lite-260128".into(),
+        }),
+        video_generation: Some(AgentModelRef {
+            provider_id: "doubao".into(),
+            model: "doubao-seedance-1-0-lite-t2v-250428".into(),
+        }),
+        ..MediaModelOverrides::default()
+    }
 }
 
 /// Build `extra_body` object from legacy `thinkingEnabled` / `thinkingBudget` (disk migration).
@@ -1329,7 +1345,7 @@ impl Default for ModelSettings {
             theme: default_theme(),
             agent_ui_overrides: HashMap::new(),
             web_search_model: default_web_search_model_setting(),
-            media_model_overrides: MediaModelOverrides::default(),
+            media_model_overrides: default_media_generation_overrides(),
             agent_performance_modes: HashMap::new(),
             media_understanding_modes: MediaUnderstandingModes::default(),
             agent_mode_llm: default_agent_mode_llm(),
@@ -1955,7 +1971,7 @@ impl Default for PlatformSettings {
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             agent_ui_overrides: HashMap::new(),
             web_search_model: default_web_search_model_setting(),
-            media_model_overrides: MediaModelOverrides::default(),
+            media_model_overrides: default_media_generation_overrides(),
             agent_performance_modes: HashMap::new(),
             media_understanding_modes: MediaUnderstandingModes::default(),
             computer_tier_llm: default_computer_tier_llm(),

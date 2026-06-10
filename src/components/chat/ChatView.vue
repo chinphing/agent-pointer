@@ -109,19 +109,16 @@ const toastClass = computed(() => {
           >
             <button
               type="button"
-              class="mb-3 flex w-full cursor-pointer flex-col gap-2.5 border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+              class="mb-3 inline-flex w-auto cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
               :aria-expanded="experienceSectionExpanded"
               @click="experienceSectionExpanded = !experienceSectionExpanded"
             >
-              <div class="h-px bg-border/50" />
-              <span class="flex items-center justify-between gap-2">
-                <span class="text-xs font-medium text-muted">推荐经验</span>
-                <ChevronDown
-                  class="h-3.5 w-3.5 shrink-0 text-muted transition-transform duration-200"
-                  :class="experienceSectionExpanded ? 'rotate-180' : ''"
-                  aria-hidden="true"
-                />
-              </span>
+              <span class="text-xs font-medium text-muted">推荐经验</span>
+              <ChevronDown
+                class="h-3.5 w-3.5 shrink-0 text-muted transition-transform duration-200"
+                :class="experienceSectionExpanded ? 'rotate-180' : ''"
+                aria-hidden="true"
+              />
             </button>
 
             <Transition name="experience-section-expand">

@@ -3,6 +3,7 @@ id: dev-env-setup
 name: dev-env-setup
 description: 国内环境下安装主流开发语言（Node.js/Python/Java/Go/Rust/.NET/C/C++/Kotlin/Swift/Git）及多媒体依赖 ffmpeg。每个主题有独立安装指南，references/ 下按需读取。
 resources:
+  - references/chocolatey-windows.md
   - references/ffmpeg.md
   - references/node-js.md
   - references/python.md
@@ -38,12 +39,15 @@ resources:
 
 确定用户需要的**语言/工具**、**操作系统**（macOS / Linux / Windows）和**用途**（Web 开发 / 数据分析 / 后端 / 系统编程等）。
 
+**Windows 通则：** 除非对应 `references/` 指南另有特别说明（例如指定唯一安装方式或明确禁用 Chocolatey），**Chocolatey 均可作为 Windows 软件安装的备选方案**——文档中的「首选 / 推荐 / 备选」以各文件为准；未提及时，可优先尝试 `choco install <包名> -y`。系统未安装 Chocolatey 时，先按 **references/chocolatey-windows.md** 安装，再装目标软件。
+
 ### 第二步：加载对应语言指南
 
 根据用户需求，从 `references/` 加载对应文件：
 
 | 文件 | 语言/工具 | 覆盖内容 |
 |------|-----------|---------|
+| references/chocolatey-windows.md | Chocolatey (Windows) | 安装 Chocolatey、`choco install` 通用用法 |
 | references/node-js.md | Node.js (JS/TS) | nvm + npm + 华为镜像 |
 | references/python.md | Python | pyenv + pip + 华为镜像 |
 | references/java.md | Java | JDK 21 LTS + Maven/Gradle **清华镜像** |

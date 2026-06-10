@@ -49,20 +49,33 @@ sudo pacman -S ffmpeg
 
 ## Windows
 
-推荐 winget（需用户确认 UAC）：
+**首选 Chocolatey**（需管理员 PowerShell）。
+
+### 1. 确认 Chocolatey 是否已安装
+
+若未安装，先按 **references/chocolatey-windows.md** 完成安装与验证。
 
 ```powershell
-winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
+choco -v
 ```
 
-或 Chocolatey：
+### 2. 安装 ffmpeg
 
 ```powershell
 choco install ffmpeg -y
 ```
 
+### 备选：winget
+
+Chocolatey 不可用或安装失败时，可尝试 winget（需用户确认 UAC）：
+
+```powershell
+winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
+```
+
 安装后**新开终端**再验证。若仍找不到，将安装目录下的 `bin`
-（例如 `C:\ffmpeg\bin`）加入系统 PATH。
+（例如 `C:\ffmpeg\bin` 或 Chocolatey 的 `C:\ProgramData\chocolatey\bin`）
+加入系统 PATH。
 
 ## 安装后验证
 

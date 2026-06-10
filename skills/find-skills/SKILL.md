@@ -120,6 +120,80 @@ npx skills add <owner/repo@skill> -g -y
 
 The `-g` flag installs globally (user-level) and `-y` skips confirmation prompts.
 
+## GitHub Download Fallback (Mainland China)
+
+`npx skills add` and related commands fetch skill packages from GitHub.
+If the network cannot reach `github.com` (timeout, `ETIMEDOUT`,
+`ECONNRESET`, `Failed to connect`, or hung clone/download), **do not stop
+after one failure**. Switch to a domestic GitHub proxy and retry.
+
+### Step 1: Route Git through a proxy (preferred)
+
+Configure Git to rewrite GitHub HTTPS URLs, then run the same install
+command again. Try mirrors **in order** until one succeeds.
+
+**Common mirrors** (third-party; availability changes — try the next if one
+fails or times out):
+
+| Mirror | Git `insteadOf` prefix (append `https://github.com/`) |
+| ------ | ----------------------------------------------------- |
+| ghproxy.net (default) | `https://ghproxy.net/` |
+| gh-proxy.com | `https://gh-proxy.com/` |
+| mirror.ghproxy.com | `https://mirror.ghproxy.com/` |
+| ghps.cc | `https://ghps.cc/` |
+| ghproxy.link | `https://ghproxy.link/` |
+| moeyy.xyz | `https://github.moeyy.xyz/` |
+
+Example with the default mirror:
+
+```bash
+git config --global url."https://ghproxy.net/https://github.com/".insteadOf "https://github.com/"
+npx skills add <owner/repo@skill> -g -y
+```
+
+Switch mirror — unset the old rule, then set the new prefix:
+
+```bash
+git config --global --unset url.https://ghproxy.net/https://github.com/.insteadOf
+git config --global url."https://gh-proxy.com/https://github.com/".insteadOf "https://github.com/"
+npx skills add <owner/repo@skill> -g -y
+```
+
+Start with **ghproxy.net**; only rotate mirrors after a clear failure.
+
+To remove proxy routing when done:
+
+```bash
+git config --global --unset url.https://ghproxy.net/https://github.com/.insteadOf
+# repeat --unset for any other mirror prefix you configured
+```
+
+### Step 2: Manual download via proxy (when CLI still fails)
+
+1. Build the original GitHub URL for the skill repo or archive, for example:
+   `https://github.com/owner/repo/archive/refs/heads/main.zip`
+2. Prefix the **full** URL with a mirror base (same list as above), for
+   example:
+   - `https://ghproxy.net/https://github.com/owner/repo/archive/refs/heads/main.zip`
+   - `https://gh-proxy.com/https://github.com/owner/repo/archive/refs/heads/main.zip`
+   - `https://mirror.ghproxy.com/https://github.com/owner/repo/archive/refs/heads/main.zip`
+3. If one mirror fails, try the next row in the table before giving up.
+4. Download and extract the skill folder (or the subdirectory named in
+   `owner/repo@skill`).
+5. Install with **`skill_import`** (zip or local directory) into the app
+   skills library, or copy into a discovered skills path such as
+   `~/.agents/skills/<skill-name>/` with a valid `SKILL.md`.
+
+### Step 3: Tell the user what changed
+
+Briefly explain that GitHub was unreachable directly and the install used
+a China-accessible proxy. If proxy install also fails, offer to help manually
+or proceed without the skill.
+
+**Do not** assume every user is in mainland China — only apply this section
+after a GitHub connectivity or timeout error, or when the user says GitHub
+is blocked or slow.
+
 ## Common Skill Categories
 
 When searching, consider these common categories:

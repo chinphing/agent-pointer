@@ -2,6 +2,7 @@
 members = [
   "crates/pointer-core",
   "crates/pointer-channels",
+  "crates/silk-v3-sys",
   "server",
   "src-tauri"
 ]

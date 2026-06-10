@@ -177,7 +177,15 @@ impl DispatchService {
         } else {
             Some(media_attachments)
         };
-        history.push(channel_message(Role::User, user_content, attachments_opt));
+        history.push(channel_message(Role::User, user_content.clone(), attachments_opt));
+
+        if let Err(e) = state.session_index.ensure_im_title(
+            &conv_id,
+            msg.sender_name.as_deref(),
+            Some(user_content.as_str()),
+        ) {
+            log::warn!("channel ensure im title failed conv={conv_id}: {e:#}");
+        }
 
         session_context::register(&conv_id, outbound.clone());
         pointer_core::channel_outbound::register_im_session(&conv_id);

@@ -123,6 +123,23 @@ impl ConversationStore {
             .execute_write(|conn| write::upsert_conversation_meta(conn, meta))
     }
 
+    /// Set IM sidebar title when the row is new or still uses the default placeholder.
+    pub fn ensure_im_title(
+        &self,
+        conversation_id: &str,
+        sender_name: Option<&str>,
+        first_user_text: Option<&str>,
+    ) -> Result<()> {
+        let Some(title) =
+            crate::channel_outbound::im_conversation_title(conversation_id, sender_name, first_user_text)
+        else {
+            return Ok(());
+        };
+        self.db.execute_write(|conn| {
+            write::patch_title_if_default_in_conn(conn, conversation_id, &title)
+        })
+    }
+
     pub fn dispatch_search_tool(&self, args: &serde_json::Value) -> Result<String> {
         search::dispatch_tool(&self.db, args)
     }

@@ -1,5 +1,8 @@
 pub mod builtin;
+pub mod curator;
 pub mod external;
+pub mod external_probe;
+pub mod provenance;
 
 /// Bundled skills enabled for new users when lead agent is `general`.
 pub const DEFAULT_ENABLED_SKILL_IDS: &[&str] =
@@ -127,12 +130,27 @@ impl SkillRegistry {
     }
 
     pub fn load_instructions(&self, id: &str) -> Result<String> {
-        let g = self.inner.read();
-        let skill = g.get(id).ok_or_else(|| anyhow!("未找到 Skill: {id}"))?;
-        Ok(format!(
-            "【Skill：{}】\n{}",
-            skill.name, skill.system_prompt
-        ))
+        let (name, body, track_usage) = {
+            let g = self.inner.read();
+            let skill = g.get(id).ok_or_else(|| anyhow!("未找到 Skill: {id}"))?;
+            let track = !skill.builtin
+                && skill.source.as_deref().is_some_and(|s| {
+                    s.contains(".pointer/skills") || s.contains(".pointer\\skills")
+                });
+            (
+                skill.name.clone(),
+                skill.system_prompt.clone(),
+                track,
+            )
+        };
+        if track_usage {
+            curator::record_skill_usage(id);
+        }
+        Ok(format!("【Skill：{}】\n{}", name, body))
+    }
+
+    pub fn patch_instructions(&self, id: &str, new_body: &str) -> Result<()> {
+        external::patch_skill_instructions(id, new_body)
     }
 
     pub fn read_resource(&self, id: &str, path: &str) -> Result<String> {

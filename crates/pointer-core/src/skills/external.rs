@@ -3,15 +3,14 @@ use crate::storage;
 use anyhow::{anyhow, Context, Result};
 use serde::{de, Deserialize, Deserializer};
 use std::collections::HashSet;
-use std::env;
 use std::fs;
 use std::io::{Cursor, Read};
 use std::path::{Component, Path, PathBuf};
 use zip::ZipArchive;
 
-const SKILLS_DIR: &str = "skills";
 const MAX_ZIP_SIZE: usize = 20 * 1024 * 1024;
 const MAX_ENTRY_SIZE: u64 = 5 * 1024 * 1024;
+const LEGACY_SKILLS_DIR: &str = "skills";
 
 #[derive(Debug, Deserialize)]
 struct SkillManifest {
@@ -38,15 +37,119 @@ struct SkillManifest {
     body: String,
 }
 
-pub fn skills_dir() -> Result<PathBuf> {
-    let dir = storage::app_data_dir()?.join(SKILLS_DIR);
+/// Pointer home (`~/.pointer`), shared across app installs.
+pub fn pointer_home_dir() -> Result<PathBuf> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow!("无法解析用户主目录"))?;
+    let dir = home.join(".pointer");
     fs::create_dir_all(&dir)?;
     Ok(dir)
 }
 
-/// Copy bundled skill directories into `{app_data}/skills/` when missing.
+/// Curator-managed skill library (`~/.pointer/skills`).
+pub fn pointer_skills_dir() -> Result<PathBuf> {
+    let dir = pointer_home_dir()?.join("skills");
+    fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// System bundled skills (`{data_dir}/PointerApp/skills/`), immutable via manifest.
+pub fn system_skills_dir() -> Result<PathBuf> {
+    let dir = storage::app_data_dir()?.join(LEGACY_SKILLS_DIR);
+    fs::create_dir_all(&dir)?;
+    migrate_system_skills_layout_if_needed()?;
+    Ok(dir)
+}
+
+/// User-managed imports (`~/.pointer/skills`).
+pub fn skills_dir() -> Result<PathBuf> {
+    pointer_skills_dir()
+}
+
+fn migrate_system_skills_layout_if_needed() -> Result<()> {
+    let marker = storage::app_data_dir()?.join(".skills_system_layout_v2");
+    if marker.exists() {
+        return Ok(());
+    }
+    let system = storage::app_data_dir()?.join(LEGACY_SKILLS_DIR);
+    if system.is_dir() {
+        for entry in fs::read_dir(&system)? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_dir() || is_ignored_skill_dir(path.file_name()) {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if let Ok(hash) = super::provenance::skill_dir_hash(&path) {
+                let _ = super::provenance::upsert_bundled_manifest_entry(&system, name, &hash);
+            }
+        }
+    }
+    fs::write(&marker, b"")?;
+    Ok(())
+}
+
+/// Update SKILL.md body for a user-managed skill under `~/.pointer/skills`.
+pub fn patch_skill_instructions(id: &str, new_body: &str) -> Result<()> {
+    validate_skill_id(id)?;
+    super::provenance::assert_patch_allowed(id)?;
+    let root = pointer_skills_dir()?;
+    let dir = root.join(id.trim());
+    if !dir.is_dir() {
+        return Err(anyhow!("未找到托管 Skill: {id}（路径: ~/.pointer/skills/{id}）"));
+    }
+    let manifest_path = manifest_path_in_dir(&dir)
+        .ok_or_else(|| anyhow!("Skill 目录缺少 SKILL.md: {}", dir.display()))?;
+    let raw = fs::read_to_string(&manifest_path)?;
+    let updated = replace_skill_body(&raw, new_body)?;
+    atomic_write(&manifest_path, updated.as_bytes())?;
+    log::info!("skill_patch: updated instructions for {id}");
+    Ok(())
+}
+
+fn replace_skill_body(raw: &str, new_body: &str) -> Result<String> {
+    let text = raw.trim_start_matches('\u{feff}');
+    let mut lines = text.lines();
+    if lines.next().map(str::trim) != Some("---") {
+        return Err(anyhow!("SKILL.md 缺少 YAML frontmatter"));
+    }
+    let mut frontmatter = vec!["---".to_string()];
+    let mut closed = false;
+    for line in lines {
+        if line.trim() == "---" {
+            frontmatter.push("---".to_string());
+            closed = true;
+            break;
+        }
+        frontmatter.push(line.to_string());
+    }
+    if !closed {
+        return Err(anyhow!("SKILL.md frontmatter 未闭合"));
+    }
+    let mut out = frontmatter.join("\n");
+    out.push('\n');
+    out.push_str(new_body.trim());
+    if !new_body.ends_with('\n') {
+        out.push('\n');
+    }
+    Ok(out)
+}
+
+fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("invalid path: {}", path.display()))?;
+    fs::create_dir_all(parent)?;
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, bytes)?;
+    fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+/// Copy bundled skill directories into `{data_dir}/skills/` with `.bundled_manifest`.
 pub fn sync_bundled_skill_dirs(sources: &[PathBuf]) -> Result<Vec<String>> {
-    let target_root = skills_dir()?;
+    let target_root = system_skills_dir()?;
     let mut installed = Vec::new();
     let mut seen = HashSet::new();
 
@@ -68,9 +171,26 @@ pub fn sync_bundled_skill_dirs(sources: &[PathBuf]) -> Result<Vec<String>> {
             }
             let target = target_root.join(entry.file_name());
             if target.exists() {
-                continue;
+                if let Ok(local_hash) = super::provenance::skill_dir_hash(&target) {
+                    if let Some(origin) =
+                        super::provenance::read_bundled_origin_hash(&target_root, name)
+                    {
+                        if origin != local_hash {
+                            log::info!("bundled skill skipped (modified): {name}");
+                            continue;
+                        }
+                        fs::remove_dir_all(&target)?;
+                    } else {
+                        continue;
+                    }
+                } else {
+                    continue;
+                }
             }
             copy_dir_recursive(&source, &target)?;
+            if let Ok(hash) = super::provenance::skill_dir_hash(&target) {
+                super::provenance::upsert_bundled_manifest_entry(&target_root, name, &hash)?;
+            }
             installed.push(name.to_string());
             log::info!("bundled skill installed: {name}");
         }
@@ -253,7 +373,19 @@ fn discover_skill_dirs(root: &Path) -> Vec<PathBuf> {
     out
 }
 
-fn install_skill_dir(source: &Path) -> Result<SkillDef> {
+pub fn discover_skill_dirs_in(root: &Path) -> Vec<PathBuf> {
+    discover_skill_dirs(root)
+}
+
+pub fn install_skill_dir(source: &Path) -> Result<SkillDef> {
+    install_skill_dir_internal(source, None)
+}
+
+pub fn install_skill_dir_with_provenance(source: &Path, imported_from: &str) -> Result<SkillDef> {
+    install_skill_dir_internal(source, Some(imported_from))
+}
+
+fn install_skill_dir_internal(source: &Path, imported_from: Option<&str>) -> Result<SkillDef> {
     let preview = load_skill_from_dir(source)?;
     let target = skills_dir()?.join(&preview.id);
     let source_canon = source.canonicalize().unwrap_or_else(|_| source.to_path_buf());
@@ -270,7 +402,9 @@ fn install_skill_dir(source: &Path) -> Result<SkillDef> {
     }
     fs::create_dir_all(&target.parent().unwrap_or(&target))?;
     copy_dir_all(source, &target)?;
-    load_skill_from_dir(&target)
+    let skill = load_skill_from_dir(&target)?;
+    super::provenance::mark_agent_created(&skill.id, imported_from);
+    Ok(skill)
 }
 
 fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
@@ -301,45 +435,23 @@ fn is_zip_file(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
 }
 
-/// Discovery roots for Codex / Agent-standard compatible skills (first match wins per id).
+/// Runtime discovery roots: user library first, then system bundled.
 fn skill_roots() -> Result<Vec<PathBuf>> {
-    let mut roots = Vec::new();
-
-    // App imports (Pointer UI / skill_import) — highest priority.
-    roots.push(skills_dir()?);
-
-    if let Ok(cwd) = env::current_dir() {
-        roots.push(cwd.join(".agents").join("skills"));
-        roots.push(cwd.join("skills"));
-    }
-
-    if let Some(home) = dirs::home_dir() {
-        roots.push(home.join(".agents").join("skills"));
-
-        let codex_home = env::var("CODEX_HOME")
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join(".codex"));
-        roots.push(codex_home.join("skills"));
-    }
-
-    Ok(roots)
+    Ok(vec![pointer_skills_dir()?, system_skills_dir()?])
 }
 
 /// Skip vendor/system skill buckets (e.g. Codex `.system`, Cursor `skills-cursor`).
-fn is_ignored_skill_dir(name: Option<&std::ffi::OsStr>) -> bool {
+pub fn is_ignored_skill_dir(name: Option<&std::ffi::OsStr>) -> bool {
     let Some(name) = name.and_then(|n| n.to_str()) else {
         return true;
     };
     if name.starts_with('.') {
         return true;
     }
-    name.eq_ignore_ascii_case("skills-cursor")
+    name.eq_ignore_ascii_case("skills-cursor") || name.eq_ignore_ascii_case(".archive")
 }
 
-fn load_skill_from_dir(dir: &Path) -> Result<SkillDef> {
+pub fn load_skill_from_dir(dir: &Path) -> Result<SkillDef> {
     let manifest_path = manifest_path_in_dir(dir)
         .ok_or_else(|| anyhow!("未找到 SKILL.md 或 skill.md"))?;
 
@@ -352,6 +464,8 @@ fn manifest_to_skill(manifest: SkillManifest, dir: &Path) -> Result<SkillDef> {
     validate_manifest(&manifest)?;
 
     let id = manifest.name.clone();
+    let provenance = super::provenance::resolve_provenance_for_path(&id, dir);
+    let mutable = super::provenance::is_mutable(&id, dir);
     Ok(SkillDef {
         id,
         name: manifest.name,
@@ -363,6 +477,8 @@ fn manifest_to_skill(manifest: SkillManifest, dir: &Path) -> Result<SkillDef> {
         builtin: false,
         resource_files: collect_resource_files(dir)?,
         source: Some(dir.to_string_lossy().to_string()),
+        provenance: provenance.as_str().to_string(),
+        mutable,
     })
 }
 
@@ -530,7 +646,11 @@ fn validate_skill_id(id: &str) -> Result<()> {
     Ok(())
 }
 
-fn manifest_path_in_dir(dir: &Path) -> Option<PathBuf> {
+pub fn is_skill_package_dir(dir: &Path) -> bool {
+    manifest_path_in_dir(dir).is_some()
+}
+
+pub fn manifest_path_in_dir(dir: &Path) -> Option<PathBuf> {
     for name in ["SKILL.md", "skill.md"] {
         let path = dir.join(name);
         if path.is_file() {

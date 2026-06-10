@@ -518,6 +518,10 @@ pub fn memory_review_due(user_turns: u32, interval: u32) -> bool {
     interval > 0 && user_turns > 0 && user_turns % interval == 0
 }
 
+pub fn skill_review_due(cumulative_tool_iters: u32, interval: u32) -> bool {
+    interval > 0 && cumulative_tool_iters > 0 && cumulative_tool_iters % interval == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

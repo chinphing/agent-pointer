@@ -20,6 +20,7 @@ import { hasTaskBoardContent } from '../lib/taskBoard'
 import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
 import { stripOutboundMediaMarkers } from '../lib/outboundMedia'
+import { imConversationTitle, isImConversation } from '../lib/channel-labels'
 import {
   getComposerAttachmentContentBase64,
   getComposerAttachmentDataUrl,
@@ -299,11 +300,26 @@ export const useChatStore = defineStore('chat', () => {
     return null
   }
 
+  function normalizeImConversationTitles(list: Conversation[]): boolean {
+    let changed = false
+    for (const conv of list) {
+      if (conv.title !== '新会话' || !isImConversation(conv.id)) continue
+      const firstUser = conv.messages.find(m => m.role === 'user')
+      const title = imConversationTitle(conv.id, { firstUserText: firstUser?.content })
+      if (title === conv.title) continue
+      conv.title = title
+      changed = true
+    }
+    return changed
+  }
+
   async function init() {
     const list = await loadConversations().catch(() => [])
     normalizeInterruptedAssistantStatuses(list)
     normalizeSubAgentTraces(list)
+    const imTitlesUpdated = normalizeImConversationTitles(list)
     conversations.value = stripEphemeralDesktopNoticesForDisk(list)
+    if (imTitlesUpdated) persistMeta()
     if (list.length === 0) newConversation()
     else currentId.value = list[0].id
     if (!unlisten) unlisten = await onStream(handleEvent)
@@ -1111,7 +1127,13 @@ export const useChatStore = defineStore('chat', () => {
             r.conv.updatedAt = Date.now()
             if (r.conv.title === '新会话') {
               const firstUser = r.conv.messages.find(m => m.role === 'user')
-              if (firstUser) r.conv.title = firstUser.content.slice(0, 24) || '新会话'
+              if (isImConversation(r.conv.id)) {
+                r.conv.title = imConversationTitle(r.conv.id, {
+                  firstUserText: firstUser?.content
+                })
+              } else if (firstUser) {
+                r.conv.title = firstUser.content.slice(0, 24) || '新会话'
+              }
             }
           }
         }

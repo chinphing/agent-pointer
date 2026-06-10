@@ -2,6 +2,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -43,6 +44,10 @@ pub struct AppState {
     pub active_main_task_boards: Mutex<HashMap<String, String>>,
     /// Main task board anchor bindings: conversation -> (store_key -> user_message_id).
     pub task_board_anchor_by_store_key: Mutex<HashMap<String, HashMap<String, String>>>,
+    /// Last user/chat activity for curator idle detection.
+    pub last_activity_at: Mutex<Instant>,
+    /// Prevents overlapping curator LLM passes.
+    pub curator_llm_running: AtomicBool,
 }
 
 impl AppState {
@@ -144,7 +149,21 @@ impl AppState {
             monitor_picks: Mutex::new(HashMap::new()),
             active_main_task_boards: Mutex::new(HashMap::new()),
             task_board_anchor_by_store_key: Mutex::new(HashMap::new()),
+            last_activity_at: Mutex::new(Instant::now()),
+            curator_llm_running: AtomicBool::new(false),
         }
+    }
+
+    pub fn touch_activity(&self) {
+        *self.last_activity_at.lock() = Instant::now();
+    }
+
+    pub fn idle_duration(&self) -> std::time::Duration {
+        self.last_activity_at.lock().elapsed()
+    }
+
+    pub fn start_background_tasks(self: &Arc<Self>) {
+        crate::skills::curator::start_background_loop(self.clone());
     }
 
     pub fn load_user_settings(&self) -> UserSettings {

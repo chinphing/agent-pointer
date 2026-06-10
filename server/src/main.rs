@@ -82,6 +82,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let core = Arc::new(AppState::new());
+    core.start_background_tasks();
     let (events, _) = broadcast::channel::<StreamEvent>(512);
     match capture_debug::purge_computer_captures_older_than_days(capture_debug::CAPTURE_RETENTION_DAYS) {
         Ok(removed) if removed > 0 => {
@@ -125,6 +126,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/test-connection", post(test_connection))
         .route("/api/skills", get(list_skills).post(import_skill_zip))
         .route("/api/skills/reload-meta", post(reload_skill_meta))
+        .route("/api/skills/external-probe", get(probe_external_skills))
+        .route("/api/skills/import-external", post(import_external_skills))
+        .route("/api/skills/external-probe/dismiss", post(dismiss_external_skills_prompt))
         .route("/api/tools", get(list_tools))
         .route("/api/agents", get(list_agents))
         .route("/api/task-board/snapshot", get(get_task_board_snapshot))
@@ -302,6 +306,30 @@ async fn import_skill_zip(
     body: axum::body::Bytes,
 ) -> Result<Json<SkillImportResult>, ApiError> {
     Ok(Json(state.core.skills.import_zip(&body)?))
+}
+
+async fn probe_external_skills() -> Result<Json<pointer_core::skills::external_probe::ExternalSkillsProbeResult>, ApiError> {
+    Ok(Json(pointer_core::skills::external_probe::probe_external_skill_sources()?))
+}
+
+#[derive(serde::Deserialize)]
+struct ImportExternalSkillsBody {
+    #[serde(rename = "sourceIds")]
+    source_ids: Vec<String>,
+}
+
+async fn import_external_skills(
+    State(state): State<ServerState>,
+    Json(body): Json<ImportExternalSkillsBody>,
+) -> Result<Json<SkillImportResult>, ApiError> {
+    let result = pointer_core::skills::external_probe::import_external_skills(&body.source_ids)?;
+    state.core.skills.reload_meta()?;
+    Ok(Json(result))
+}
+
+async fn dismiss_external_skills_prompt() -> Result<StatusCode, ApiError> {
+    pointer_core::skills::external_probe::dismiss_external_skills_prompt()?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn list_tools(State(state): State<ServerState>) -> Json<Vec<ToolDef>> {

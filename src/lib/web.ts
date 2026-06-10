@@ -12,6 +12,7 @@ import type {
   PlatformSettings,
   SkillDef,
   SkillImportResult,
+  ExternalSkillsProbeResult,
   StreamEvent,
   ToolDef,
   UserSettings
@@ -140,6 +141,21 @@ export async function importSkillZip(file: File): Promise<SkillImportResult> {
     method: 'POST',
     body: await file.arrayBuffer()
   })
+}
+
+export async function probeExternalSkills(): Promise<ExternalSkillsProbeResult> {
+  return await request<ExternalSkillsProbeResult>('/api/skills/external-probe')
+}
+
+export async function importExternalSkills(sourceIds: string[]): Promise<SkillImportResult> {
+  return await request<SkillImportResult>('/api/skills/import-external', {
+    method: 'POST',
+    body: JSON.stringify({ sourceIds })
+  })
+}
+
+export async function dismissExternalSkillsPrompt(): Promise<void> {
+  await request('/api/skills/external-probe/dismiss', { method: 'POST' })
 }
 
 export async function listTools(): Promise<ToolDef[]> {

@@ -251,7 +251,7 @@ pub(super) async fn run_chat_inner(
         history,
     );
 
-    let review_due = crate::memory::should_run_memory_review(
+    let memory_due = crate::memory::memory_review_due_for(
         &settings,
         &agent_plan.allowed_tool_names,
         history,
@@ -277,13 +277,21 @@ pub(super) async fn run_chat_inner(
     )
     .await?;
 
-    if review_due {
-        crate::memory::spawn_memory_background_review(
+    let new_tool_total = tool_rounds_used_single_start.saturating_add(*consumed_single);
+    let skill_due = crate::memory::skill_review_due_for(
+        &settings,
+        &agent_plan.allowed_tool_names,
+        new_tool_total,
+    );
+    if let Some(kind) = crate::memory::resolve_review_kind(memory_due, skill_due) {
+        crate::memory::spawn_background_review(
             state,
             provider,
             conversation_id.to_string(),
             history.clone(),
             settings,
+            enabled_skill_ids.clone(),
+            kind,
             stream,
         );
     }

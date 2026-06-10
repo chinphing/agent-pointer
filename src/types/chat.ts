@@ -451,6 +451,23 @@ export interface SkillDef {
   builtin: boolean
   resourceFiles: string[]
   source?: string
+  /** `system` = app data bundled; `user` = ~/.pointer/skills */
+  provenance?: string
+  mutable?: boolean
+}
+
+export interface ExternalSkillSource {
+  id: string
+  label: string
+  path: string
+  skillCount: number
+  skillIds: string[]
+}
+
+export interface ExternalSkillsProbeResult {
+  shouldPrompt: boolean
+  sources: ExternalSkillSource[]
+  totalSkills: number
 }
 
 export interface SkillImportResult {

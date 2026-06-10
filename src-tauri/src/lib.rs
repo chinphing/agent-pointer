@@ -14,7 +14,7 @@ use pointer_channels::{ChannelGateway, ChannelRegistry};
 use pointer_core::models::StreamEvent;
 use pointer_core::{
     chat_service::AppState,
-    skills::external::{skills_dir, sync_bundled_skill_dirs},
+    skills::external::{system_skills_dir, sync_bundled_skill_dirs},
 };
 use std::{path::PathBuf, sync::Arc};
 use tauri::{Emitter, Manager, RunEvent};
@@ -118,6 +118,7 @@ pub fn run() {
             let auth = app_state.platform_auth.clone();
             let app_for_creds = app_state.clone();
             tauri::async_runtime::spawn(async move {
+                app_for_creds.start_background_tasks();
                 match auth.load_persisted_session().await {
                     Ok(Some(creds)) => app_for_creds.apply_login_credentials(&creds),
                     Ok(None) => {}
@@ -189,6 +190,9 @@ pub fn run() {
             commands::list_skills,
             commands::reload_skill_meta,
             commands::import_skill_zip,
+            commands::probe_external_skills,
+            commands::import_external_skills,
+            commands::dismiss_external_skills_prompt,
             commands::list_tools,
             commands::list_agents,
             commands::get_task_board_snapshot,
@@ -283,7 +287,7 @@ fn install_bundled_skills(app: &tauri::App) -> Result<(), Box<dyn std::error::Er
     }
     let installed = sync_bundled_skill_dirs(&sources)?;
     if installed.is_empty() {
-        log::info!("bundled skills: all present under {}", skills_dir()?.display());
+        log::info!("bundled skills: all present under {}", system_skills_dir()?.display());
     } else {
         log::info!("bundled skills: installed {:?}", installed);
     }

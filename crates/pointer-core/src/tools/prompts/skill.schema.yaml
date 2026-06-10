@@ -19,6 +19,17 @@ skill_read_resource:
   required: [skill_id, path]
   additionalProperties: false
 
+skill_patch_instructions:
+  type: object
+  properties:
+    skill_id:
+      type: string
+    body:
+      type: string
+      description: Full SKILL.md markdown body (content after YAML frontmatter).
+  required: [skill_id, body]
+  additionalProperties: false
+
 skill_import:
   type: object
   properties:

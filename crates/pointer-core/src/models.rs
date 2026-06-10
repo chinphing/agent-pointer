@@ -861,6 +861,14 @@ pub struct ModelSettings {
     pub memory_nudge_interval: u32,
     #[serde(default = "default_background_review_enabled", rename = "backgroundReviewEnabled")]
     pub background_review_enabled: bool,
+    #[serde(default = "default_skill_creation_nudge_interval", rename = "skillCreationNudgeInterval")]
+    pub skill_creation_nudge_interval: u32,
+    #[serde(default = "default_curator_enabled", rename = "curatorEnabled")]
+    pub curator_enabled: bool,
+    #[serde(default = "default_curator_idle_hours", rename = "curatorIdleHours")]
+    pub curator_idle_hours: u32,
+    #[serde(default = "default_curator_interval_days", rename = "curatorIntervalDays")]
+    pub curator_interval_days: u32,
     /// UI theme: `light`, `dark`, or `system`.
     #[serde(default = "default_theme", rename = "theme")]
     pub theme: String,
@@ -1150,6 +1158,10 @@ impl Default for ModelSettings {
             user_char_limit: default_user_char_limit(),
             memory_nudge_interval: default_memory_nudge_interval(),
             background_review_enabled: default_background_review_enabled(),
+            skill_creation_nudge_interval: default_skill_creation_nudge_interval(),
+            curator_enabled: default_curator_enabled(),
+            curator_idle_hours: default_curator_idle_hours(),
+            curator_interval_days: default_curator_interval_days(),
             theme: default_theme(),
             agent_ui_overrides: HashMap::new(),
             web_search_model: default_web_search_model_setting(),
@@ -1228,6 +1240,22 @@ fn default_background_review_enabled() -> bool {
     true
 }
 
+fn default_skill_creation_nudge_interval() -> u32 {
+    10
+}
+
+fn default_curator_enabled() -> bool {
+    true
+}
+
+fn default_curator_idle_hours() -> u32 {
+    2
+}
+
+fn default_curator_interval_days() -> u32 {
+    7
+}
+
 /// Persisted user preferences (theme, optional UI cache).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
@@ -1250,6 +1278,14 @@ pub struct UserSettings {
     pub memory_nudge_interval: u32,
     #[serde(default = "default_background_review_enabled", rename = "backgroundReviewEnabled")]
     pub background_review_enabled: bool,
+    #[serde(default = "default_skill_creation_nudge_interval", rename = "skillCreationNudgeInterval")]
+    pub skill_creation_nudge_interval: u32,
+    #[serde(default = "default_curator_enabled", rename = "curatorEnabled")]
+    pub curator_enabled: bool,
+    #[serde(default = "default_curator_idle_hours", rename = "curatorIdleHours")]
+    pub curator_idle_hours: u32,
+    #[serde(default = "default_curator_interval_days", rename = "curatorIntervalDays")]
+    pub curator_interval_days: u32,
 }
 
 impl Default for UserSettings {
@@ -1264,6 +1300,10 @@ impl Default for UserSettings {
             user_char_limit: default_user_char_limit(),
             memory_nudge_interval: default_memory_nudge_interval(),
             background_review_enabled: default_background_review_enabled(),
+            skill_creation_nudge_interval: default_skill_creation_nudge_interval(),
+            curator_enabled: default_curator_enabled(),
+            curator_idle_hours: default_curator_idle_hours(),
+            curator_interval_days: default_curator_interval_days(),
         }
     }
 }
@@ -1743,6 +1783,10 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         user_char_limit: user.user_char_limit,
         memory_nudge_interval: user.memory_nudge_interval,
         background_review_enabled: user.background_review_enabled,
+        skill_creation_nudge_interval: user.skill_creation_nudge_interval,
+        curator_enabled: user.curator_enabled,
+        curator_idle_hours: user.curator_idle_hours,
+        curator_interval_days: user.curator_interval_days,
         theme: user.theme.clone(),
         agent_ui_overrides: platform.agent_ui_overrides.clone(),
         web_search_model: platform.web_search_model.clone(),
@@ -1768,6 +1812,20 @@ pub struct SkillDef {
     pub resource_files: Vec<String>,
     #[serde(default)]
     pub source: Option<String>,
+    /// `system` (bundled under data dir) or `user` (`~/.pointer/skills`).
+    #[serde(default = "default_skill_provenance", rename = "provenance")]
+    pub provenance: String,
+    /// Whether review / skill_patch may modify this skill.
+    #[serde(default = "default_skill_mutable", rename = "mutable")]
+    pub mutable: bool,
+}
+
+fn default_skill_provenance() -> String {
+    "user".to_string()
+}
+
+fn default_skill_mutable() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

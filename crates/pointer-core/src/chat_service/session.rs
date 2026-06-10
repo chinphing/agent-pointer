@@ -33,6 +33,8 @@ pub async fn run_chat(
         tool_rounds_used_supervisor_start,
     );
 
+    state.touch_activity();
+
     let cancel = CancellationToken::new();
     state
         .cancels

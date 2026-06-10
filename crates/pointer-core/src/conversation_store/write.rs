@@ -3,10 +3,10 @@
 use anyhow::Result;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::models::{ChatMessage, Conversation, ConversationMeta};
+use crate::models::{ChatMessage, ConversationMeta};
 
 use super::persist::{
-    conversation_preview, load_messages, message_index_content, role_str, upsert_conversation,
+    conversation_preview, load_messages, message_index_content, role_str,
 };
 
 pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> Result<()> {
@@ -68,7 +68,20 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+fn default_conversation_title(conversation_id: &str) -> String {
+    crate::channel_outbound::im_conversation_title(conversation_id, None, None)
+        .unwrap_or_else(|| "新会话".into())
+}
+
 fn ensure_conversation_row(conn: &Connection, conversation_id: &str) -> Result<()> {
+    ensure_conversation_row_with_title(conn, conversation_id, None)
+}
+
+fn ensure_conversation_row_with_title(
+    conn: &Connection,
+    conversation_id: &str,
+    title: Option<&str>,
+) -> Result<()> {
     let exists: bool = conn
         .query_row(
             "SELECT 1 FROM conversations WHERE id = ?1 LIMIT 1",
@@ -81,11 +94,14 @@ fn ensure_conversation_row(conn: &Connection, conversation_id: &str) -> Result<(
         return Ok(());
     }
     let now = now_ms();
+    let title = title
+        .map(str::to_string)
+        .unwrap_or_else(|| default_conversation_title(conversation_id));
     upsert_conversation_meta(
         conn,
         &ConversationMeta {
             id: conversation_id.to_string(),
-            title: "新会话".into(),
+            title,
             created_at: now,
             updated_at: now,
             skill_ids: vec![],
@@ -95,6 +111,24 @@ fn ensure_conversation_row(conn: &Connection, conversation_id: &str) -> Result<(
             workspace_root: String::new(),
         },
     )
+}
+
+pub fn patch_title_if_default_in_conn(
+    conn: &Connection,
+    conversation_id: &str,
+    title: &str,
+) -> Result<()> {
+    if title.trim().is_empty() {
+        return Ok(());
+    }
+    let updated = conn.execute(
+        "UPDATE conversations SET title = ?2 WHERE id = ?1 AND title = '新会话'",
+        params![conversation_id, title],
+    )?;
+    if updated == 0 {
+        ensure_conversation_row_with_title(conn, conversation_id, Some(title))?;
+    }
+    Ok(())
 }
 
 fn existing_message_ids(conn: &Connection, conversation_id: &str) -> Result<Vec<String>> {
@@ -250,14 +284,6 @@ pub fn replace_messages_in_conn(
         "conversation_store: replace_messages conversation_id={conversation_id} count={}",
         messages.len()
     );
-    Ok(())
-}
-
-/// Full save for tests / legacy import.
-pub fn replace_all_in_conn(conn: &Connection, list: &[Conversation]) -> Result<()> {
-    for conv in list {
-        upsert_conversation(conn, conv, true)?;
-    }
     Ok(())
 }
 

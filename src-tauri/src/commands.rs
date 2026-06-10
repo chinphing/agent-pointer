@@ -168,6 +168,27 @@ pub fn import_skill_zip(
 }
 
 #[tauri::command]
+pub fn probe_external_skills() -> Result<pointer_core::skills::external_probe::ExternalSkillsProbeResult, String> {
+    pointer_core::skills::external_probe::probe_external_skill_sources().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn import_external_skills(
+    state: State<'_, Arc<AppState>>,
+    source_ids: Vec<String>,
+) -> Result<SkillImportResult, String> {
+    let result = pointer_core::skills::external_probe::import_external_skills(&source_ids)
+        .map_err(|e| e.to_string())?;
+    state.skills.reload_meta().map_err(|e| e.to_string())?;
+    Ok(result)
+}
+
+#[tauri::command]
+pub fn dismiss_external_skills_prompt() -> Result<(), String> {
+    pointer_core::skills::external_probe::dismiss_external_skills_prompt().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn list_tools(state: State<'_, Arc<AppState>>) -> Result<Vec<ToolDef>, String> {
     Ok(state.tools.list_defs())
 }

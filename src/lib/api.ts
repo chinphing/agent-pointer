@@ -60,6 +60,9 @@ export interface RuntimeApi {
   listSkills(): Promise<SkillDef[]>
   reloadSkillMeta(): Promise<SkillDef[]>
   importSkillZip(file: File): Promise<SkillImportResult>
+  probeExternalSkills(): Promise<import('../types/chat').ExternalSkillsProbeResult>
+  importExternalSkills(sourceIds: string[]): Promise<SkillImportResult>
+  dismissExternalSkillsPrompt(): Promise<void>
   listTools(): Promise<ToolDef[]>
   listAgents(): Promise<AgentDef[]>
   getTaskBoardSnapshot(conversationId: string, taskId?: string): Promise<import('../types/chat').TaskBoardDocument>
@@ -103,6 +106,9 @@ export const testConnection = api.testConnection
 export const listSkills = api.listSkills
 export const reloadSkillMeta = api.reloadSkillMeta
 export const importSkillZip = api.importSkillZip
+export const probeExternalSkills = api.probeExternalSkills
+export const importExternalSkills = api.importExternalSkills
+export const dismissExternalSkillsPrompt = api.dismissExternalSkillsPrompt
 export const listTools = api.listTools
 export const listAgents = api.listAgents
 export const getTaskBoardSnapshot = api.getTaskBoardSnapshot

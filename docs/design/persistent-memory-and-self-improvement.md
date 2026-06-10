@@ -8,26 +8,30 @@
 
 Hermes 将「长期记忆」与「会话后自省」拆为两条互补链路：
 
-| 能力 | Hermes 实现 | 社区俗称 |
-|------|-------------|----------|
-| 跨会话 curated 记忆 | `MEMORY.md` + `USER.md` + `memory` 工具 | Persistent Memory |
-| 会话后后台回顾 | `agent/background_review.py` | **Self-improvement loop**；社区有时称为 Agent「做梦」 |
-| 历史会话检索 | `session_search`（SQLite FTS5） | 与 memory 互补，按需召回 |
-| Skill 库保洁 | `curator`（空闲 + 周期触发） | 与 review 不同触发器，同类 fork 模式 |
+
+| 能力             | Hermes 实现                             | 社区俗称                                       |
+| -------------- | ------------------------------------- | ------------------------------------------ |
+| 跨会话 curated 记忆 | `MEMORY.md` + `USER.md` + `memory` 工具 | Persistent Memory                          |
+| 会话后后台回顾        | `agent/background_review.py`          | **Self-improvement loop**；社区有时称为 Agent「做梦」 |
+| 历史会话检索         | `session_search`（SQLite FTS5）         | 与 memory 互补，按需召回                           |
+| Skill 库保洁      | `curator`（空闲 + 周期触发）                  | 与 review 不同触发器，同类 fork 模式                  |
+
 
 **说明**：Hermes 核心仓库 **没有** 名为 `dream` 的官方模块。Discord 上的 Dream Auto / Dreamer 等为第三方插件，不在本文 MVP 范围内。
 
 ### 1.2 Pointer 现状（对照）
 
-| 能力 | Pointer 现状 |
-|------|----------------|
-| 跨会话 curated 记忆 | **无** |
-| 用户画像持久化 | **无**（仅有 `user_settings.json` 等功能配置） |
-| 会话内工作记忆 | **Task Board**（见 [`taskboard-lifecycle-and-fields.md`](../taskboard-lifecycle-and-fields.md)） |
-| 完整对话持久化 | `conversations.json`（前端列表 + 消息体） |
-| 上下文压缩 | `context_compression.rs`（LLM 摘要旧消息） |
-| 可复用能力包 | **Skills**（见 [`guides/skills-persistence.md`](../guides/skills-persistence.md)） |
-| Prompt 分区与缓存 | [`llm-prompt-assembly-order.md`](../internals/llm-prompt-assembly-order.md)、[`qwen-context-cache.md`](../llm/qwen-context-cache.md) |
+
+| 能力             | Pointer 现状                                                                                                                          |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 跨会话 curated 记忆 | **无**                                                                                                                               |
+| 用户画像持久化        | **无**（仅有 `user_settings.json` 等功能配置）                                                                                                |
+| 会话内工作记忆        | **Task Board**（见 `[taskboard-lifecycle-and-fields.md](../taskboard-lifecycle-and-fields.md)`）                                       |
+| 完整对话持久化        | `conversations.json`（前端列表 + 消息体）                                                                                                    |
+| 上下文压缩          | `context_compression.rs`（LLM 摘要旧消息）                                                                                                 |
+| 可复用能力包         | **Skills**（见 `[guides/skills-persistence.md](../guides/skills-persistence.md)`）                                                     |
+| Prompt 分区与缓存   | `[llm-prompt-assembly-order.md](../internals/llm-prompt-assembly-order.md)`、`[qwen-context-cache.md](../llm/qwen-context-cache.md)` |
+
 
 **原则**：Task Board = 单会话多步执行状态；Memory = 跨会话关键事实；Session Search = 按需查历史原文。三者不可混用。
 
@@ -52,10 +56,12 @@ Hermes 将「长期记忆」与「会话后自省」拆为两条互补链路：
 
 建议默认字符上限（与 Hermes 对齐，可配置）：
 
-| 文件 | 默认上限 | 典型条目数 |
-|------|----------|------------|
-| MEMORY.md | 2 200 chars (~800 tokens) | 8–15 |
-| USER.md | 1 375 chars (~500 tokens) | 5–10 |
+
+| 文件        | 默认上限                      | 典型条目数 |
+| --------- | ------------------------- | ----- |
+| MEMORY.md | 2 200 chars (~800 tokens) | 8–15  |
+| USER.md   | 1 375 chars (~500 tokens) | 5–10  |
+
 
 条目分隔符：`\n§\n`（section sign）。条目允许多行。
 
@@ -63,10 +69,12 @@ Hermes 将「长期记忆」与「会话后自省」拆为两条互补链路：
 
 Hermes 的核心性能策略，Pointer 应原样采用：
 
-| 状态 | 用途 | 何时更新 |
-|------|------|----------|
+
+| 状态                         | 用途                | 何时更新                     |
+| -------------------------- | ----------------- | ------------------------ |
 | **System prompt snapshot** | 注入 LLM 的 memory 块 | 会话开始；**上下文压缩完成后** reload |
-| **Live entries**（内存 + 磁盘） | `memory` 工具读写 | 每次工具调用后立即落盘 |
+| **Live entries**（内存 + 磁盘）  | `memory` 工具读写     | 每次工具调用后立即落盘              |
+
 
 会话中 `memory(action=add)` 会写盘，但 **不** 改变当前会话已注入的 system snapshot。工具返回 JSON 含最新 `entries` 与 `usage`，模型仍可知 live 状态。
 
@@ -74,13 +82,15 @@ Hermes 的核心性能策略，Pointer 应原样采用：
 
 ### 2.4 System prompt 注入位置（拟议）
 
-对齐 [`llm-prompt-assembly-order.md`](../internals/llm-prompt-assembly-order.md)：
+对齐 `[llm-prompt-assembly-order.md](../internals/llm-prompt-assembly-order.md)`：
 
-| 分区 | 内容 | 稳定性 |
-|------|------|--------|
-| **cacheable** | … → `[Environment]` → **`[MEMORY]` / `[USER PROFILE]`** | 会话内冻结；跨日 Environment 可能变 |
-| **dynamic** | `[LOCKED GOAL]` 等 | 每轮可能变 |
-| **messages（user inject）** | Task Board、屏幕等 | 每轮可能变 |
+
+| 分区                        | 内容                                                      | 稳定性                      |
+| ------------------------- | ------------------------------------------------------- | ------------------------ |
+| **cacheable**             | … → `[Environment]` → `**[MEMORY]` / `[USER PROFILE]`** | 会话内冻结；跨日 Environment 可能变 |
+| **dynamic**               | `[LOCKED GOAL]` 等                                       | 每轮可能变                    |
+| **messages（user inject）** | Task Board、屏幕等                                          | 每轮可能变                    |
+
 
 Memory 块 **不应** 放入 dynamic 或每轮 user inject，否则会破坏 cacheable 前缀。
 
@@ -99,16 +109,20 @@ User prefers concise replies in Chinese for design docs
 
 单工具、多 action（Hermes 同型）：
 
-| action | 说明 |
-|--------|------|
-| `add` | 追加条目；超限时返回 `current_entries` 引导 consolidate |
-| `replace` | `old_text` 子串匹配唯一条目后替换 |
-| `remove` | `old_text` 子串匹配后删除 |
 
-| target | 含义 |
-|--------|------|
+| action    | 说明                                          |
+| --------- | ------------------------------------------- |
+| `add`     | 追加条目；超限时返回 `current_entries` 引导 consolidate |
+| `replace` | `old_text` 子串匹配唯一条目后替换                      |
+| `remove`  | `old_text` 子串匹配后删除                          |
+
+
+
+| target   | 含义        |
+| -------- | --------- |
 | `memory` | MEMORY.md |
-| `user` | USER.md |
+| `user`   | USER.md   |
+
 
 **不写 `read` action**：snapshot 已在 system；live 状态由工具返回 JSON 展示。
 
@@ -125,7 +139,7 @@ User prefers concise replies in Chinese for design docs
 - 可轻易重新发现的事实
 - 大块原始 dump
 
-可复用工作流应优先 **Skills**（`skill_*`），而非 memory。
+可复用工作流应优先 **Skills**（`skill_`*），而非 memory。
 
 ### 2.6 安全与并发
 
@@ -135,7 +149,7 @@ User prefers concise replies in Chinese for design docs
 
 ### 2.7 Session Search（二期，可选）
 
-Hermes 用 SQLite FTS5 索引全部会话消息；Pointer 已对齐为 **`conversations.db` canonical 存储**（原 `conversations.json` 仅一次性迁移来源）。
+Hermes 用 SQLite FTS5 索引全部会话消息；Pointer 已对齐为 `**conversations.db` canonical 存储**（原 `conversations.json` 仅一次性迁移来源）。
 
 二期拟议：
 
@@ -158,10 +172,12 @@ Hermes 用 SQLite FTS5 索引全部会话消息；Pointer 已对齐为 **`conver
 
 两个独立计数器，默认值建议与 Hermes 对齐：
 
-| 维度 | 计数器 | 默认阈值 | 配置键（拟议） |
-|------|--------|----------|----------------|
-| **记忆回顾** | `turns_since_memory` | 每 **10** 个 user turn | `memoryNudgeInterval` |
-| **Skill 回顾** | `iters_since_skill` | 每 **10** 次 tool iteration（单轮内累计） | `skillCreationNudgeInterval` |
+
+| 维度           | 计数器                  | 默认阈值                             | 配置键（拟议）                      |
+| ------------ | -------------------- | -------------------------------- | ---------------------------- |
+| **记忆回顾**     | `turns_since_memory` | 每 **10** 个 user turn             | `memoryNudgeInterval`        |
+| **Skill 回顾** | `iters_since_skill`  | 每 **10** 次 tool iteration（单轮内累计） | `skillCreationNudgeInterval` |
+
 
 **记忆**：在 turn **开始前**递增并判定 `should_review_memory`。  
 **技能**：在 turn **结束后**根据本轮 tool 迭代次数判定 `should_review_skills`。
@@ -198,21 +214,25 @@ sequenceDiagram
     end
 ```
 
+
+
 ### 3.4 Review Agent 约束（与 Hermes 对齐）
 
 后台 fork **必须** 满足：
 
-| 约束 | 原因 |
-|------|------|
-| 工具白名单仅 `memory` + `skill_*`（或 `skill_manage` 等价） | 禁止 shell / file 等副作用 |
-| 继承主会话 **cacheable system 快照**（或等价 frozen 块） | 复用 prefix cache，降成本 |
-| **禁用**上下文压缩 | 避免 fork 轮换 session_id 破坏主会话 |
-| **nudge 计数归零** | 防止「梦中之梦」递归 |
-| 危险操作 auto-deny | 后台线程不可阻塞 UI 审批 |
-| stdout / 中间 status **静默** | 用户只见最终 summary |
-| **不修改**主会话 `history` | transcript 保持干净 |
-| 跳过外部 Memory Provider（若未来有） | 防止 review prompt 污染 Honcho/Mem0 等 |
-| 共享内置 `MemoryStore` 实例 | review 写入仍落 MEMORY/USER |
+
+| 约束                                               | 原因                                |
+| ------------------------------------------------ | --------------------------------- |
+| 工具白名单仅 `memory` + `skill_*`（或 `skill_manage` 等价） | 禁止 shell / file 等副作用              |
+| 继承主会话 **cacheable system 快照**（或等价 frozen 块）      | 复用 prefix cache，降成本               |
+| **禁用**上下文压缩                                      | 避免 fork 轮换 session_id 破坏主会话       |
+| **nudge 计数归零**                                   | 防止「梦中之梦」递归                        |
+| 危险操作 auto-deny                                   | 后台线程不可阻塞 UI 审批                    |
+| stdout / 中间 status **静默**                        | 用户只见最终 summary                    |
+| **不修改**主会话 `history`                             | transcript 保持干净                   |
+| 跳过外部 Memory Provider（若未来有）                       | 防止 review prompt 污染 Honcho/Mem0 等 |
+| 共享内置 `MemoryStore` 实例                            | review 写入仍落 MEMORY/USER           |
+
 
 ### 3.5 Review Prompt 要点
 
@@ -234,7 +254,7 @@ sequenceDiagram
 
 ### 3.6 用户可见反馈
 
-成功写入后汇总工具结果，发送 **`StreamEvent::UiToast`**（中英文界面文案保持简洁）：
+成功写入后汇总工具结果，发送 `**StreamEvent::UiToast`**（中英文界面文案保持简洁）：
 
 - 示例：`已更新记忆` / `已更新技能：xxx`
 - Hermes CLI 等价：`💾 Self-improvement review: Memory updated · Skill patched …`
@@ -243,11 +263,13 @@ Toast **不**写入聊天记录、**不**进入模型 payload。
 
 ### 3.7 与 Curator 的边界（三期可选）
 
-| | Self-improvement Review | Curator（Hermes） |
-|--|-------------------------|-------------------|
-| 触发 | 每 N 轮 / 每 N 次 tool call | 空闲 2h + 距上次 7 天 |
-| 输入 | 当前会话 snapshot | 整个 skill 库目录 |
-| 动作 | 新增 memory、写/改 skill | stale/archive、合并重复 skill |
+
+|     | Self-improvement Review | Curator（Hermes）          |
+| --- | ----------------------- | ------------------------ |
+| 触发  | 每 N 轮 / 每 N 次 tool call | 空闲 2h + 距上次 7 天          |
+| 输入  | 当前会话 snapshot           | 整个 skill 库目录             |
+| 动作  | 新增 memory、写/改 skill     | stale/archive、合并重复 skill |
+
 
 Pointer 若实现 Curator，应复用同一 **fork + 白名单** 模式，但触发器与 prompt 独立。
 
@@ -284,6 +306,8 @@ flowchart TB
     SS -->|按需 tool| LLM
 ```
 
+
+
 **反模式**：
 
 - 在 Task Board 行内存用户偏好 ❌
@@ -312,27 +336,31 @@ crates/pointer-core/src/memory/
 
 ### 5.2 挂载点
 
-| 阶段 | 文件 / 钩子 | 行为 |
-|------|-------------|------|
-| 会话开始 | `session_inner.rs` / `AppState` | `MemoryStore::load_from_disk()`，组装 cacheable memory 块 |
-| 每轮 LLM 前 | `turn_context` 等价逻辑 | `turns_since_memory` 递增 |
-| System 组装 | `single_agent_prompt.rs` 等 | 追加 memory snapshot 到 cacheable |
-| Turn 结束 | `single_agent_post_stream.rs` / finalizer | 判定 skill nudge；`spawn_background_review` |
-| 压缩前 | `context_compression.rs` | 可选：摘要 prompt 追加「保留用户偏好/环境事实」指引 |
-| 压缩后 | 同上 | `MemoryStore::reload_snapshot()` + 重建 cacheable |
-| 工具注册 | `tools/mod.rs` | 注册 `memory`；general lead 或配置控制可见性 |
-| UI | `StreamEvent::UiToast` | review 摘要 |
 
-扩展钩子可选封装：`_memory_cacheable_inject` 作为 `before_main_llm_call` 之前步骤，与 [`agent-extension-hooks.md`](../internals/agent-extension-hooks.md) 一致。
+| 阶段        | 文件 / 钩子                                   | 行为                                                    |
+| --------- | ----------------------------------------- | ----------------------------------------------------- |
+| 会话开始      | `session_inner.rs` / `AppState`           | `MemoryStore::load_from_disk()`，组装 cacheable memory 块 |
+| 每轮 LLM 前  | `turn_context` 等价逻辑                       | `turns_since_memory` 递增                               |
+| System 组装 | `single_agent_prompt.rs` 等                | 追加 memory snapshot 到 cacheable                        |
+| Turn 结束   | `single_agent_post_stream.rs` / finalizer | 判定 skill nudge；`spawn_background_review`              |
+| 压缩前       | `context_compression.rs`                  | 可选：摘要 prompt 追加「保留用户偏好/环境事实」指引                        |
+| 压缩后       | 同上                                        | `MemoryStore::reload_snapshot()` + 重建 cacheable       |
+| 工具注册      | `tools/mod.rs`                            | 注册 `memory`；general lead 或配置控制可见性                     |
+| UI        | `StreamEvent::UiToast`                    | review 摘要                                             |
+
+
+扩展钩子可选封装：`_memory_cacheable_inject` 作为 `before_main_llm_call` 之前步骤，与 `[agent-extension-hooks.md](../internals/agent-extension-hooks.md)` 一致。
 
 ### 5.3 Agent 策略
 
-| Agent | memory 工具 | 参与 review |
-|-------|-------------|-------------|
-| general（single lead） | 默认启用 | 是 |
-| coder / explore / research 等 worker | 否 | 否（子 Agent 无独立跨会话记忆） |
-| Supervisor 父线程 | 是 | 是；子 Agent 完成后可将摘要交给父级 memory（`on_delegation` 同型，拟议） |
-| Computer | 是（环境/UI 惯例） | 是；不记逐步操作日志 |
+
+| Agent                               | memory 工具   | 参与 review                                           |
+| ----------------------------------- | ----------- | --------------------------------------------------- |
+| general（single lead）                | 默认启用        | 是                                                   |
+| coder / explore / research 等 worker | 否           | 否（子 Agent 无独立跨会话记忆）                                 |
+| Supervisor 父线程                      | 是           | 是；子 Agent 完成后可将摘要交给父级 memory（`on_delegation` 同型，拟议） |
+| Computer                            | 是（环境/UI 惯例） | 是；不记逐步操作日志                                          |
+
 
 ---
 
@@ -357,14 +385,16 @@ crates/pointer-core/src/memory/
 
 ## 7. 分阶段落地计划
 
-| 阶段 | 范围 | 状态 |
-|------|------|------|
-| **P0** | MEMORY.md + USER.md + `memory` 工具 + cacheable 注入 | ✅ `crates/pointer-core/src/memory/` |
-| **P1** | 压缩后 reload snapshot；压缩 prompt 记忆指引 | ✅ |
-| **P2** | Self-improvement review（memory nudge + 后台 task） | ✅ 仅 memory |
-| **P3** | Skill nudge + combined review prompt | 未做 |
-| **P4** | session_search（SQLite FTS） | ✅ `crates/pointer-core/src/session_search/` |
-| **P5** | Curator / 外部 Memory Provider | 未做 |
+
+| 阶段     | 范围                                               | 状态                                          |
+| ------ | ------------------------------------------------ | ------------------------------------------- |
+| **P0** | MEMORY.md + USER.md + `memory` 工具 + cacheable 注入 | ✅ `crates/pointer-core/src/memory/`         |
+| **P1** | 压缩后 reload snapshot；压缩 prompt 记忆指引               | ✅                                           |
+| **P2** | Self-improvement review（memory nudge + 后台 task）  | ✅ 仅 memory                                  |
+| **P3** | Skill nudge + combined review prompt             | 未做                                          |
+| **P4** | session_search（SQLite FTS）                       | ✅ `crates/pointer-core/src/session_search/` |
+| **P5** | Curator / 外部 Memory Provider                     | 未做                                          |
+
 
 **当前决策**：P0–P2、P4 已落地；P3/P5 按需迭代。
 
@@ -381,14 +411,16 @@ crates/pointer-core/src/memory/
 
 ## 9. 相关文档
 
-| 文档 | 关系 |
-|------|------|
-| [`internals/llm-prompt-assembly-order.md`](../internals/llm-prompt-assembly-order.md) | cacheable / dynamic 注入顺序 |
-| [`llm/qwen-context-cache.md`](../llm/qwen-context-cache.md) | Frozen snapshot 与 cache 关系 |
-| [`internals/agent-extension-hooks.md`](../internals/agent-extension-hooks.md) | 可选 hook 挂载 |
-| [`guides/skills-persistence.md`](../guides/skills-persistence.md) | Skills 与 review skill 维度的边界 |
-| [`taskboard-lifecycle-and-fields.md`](../taskboard-lifecycle-and-fields.md) | Task Board ≠ Memory |
-| [`internals/agent-task-board-and-verification.md`](../internals/agent-task-board-and-verification.md) | 会话内工作状态 |
+
+| 文档                                                                                                    | 关系                          |
+| ----------------------------------------------------------------------------------------------------- | --------------------------- |
+| `[internals/llm-prompt-assembly-order.md](../internals/llm-prompt-assembly-order.md)`                 | cacheable / dynamic 注入顺序    |
+| `[llm/qwen-context-cache.md](../llm/qwen-context-cache.md)`                                           | Frozen snapshot 与 cache 关系  |
+| `[internals/agent-extension-hooks.md](../internals/agent-extension-hooks.md)`                         | 可选 hook 挂载                  |
+| `[guides/skills-persistence.md](../guides/skills-persistence.md)`                                     | Skills 与 review skill 维度的边界 |
+| `[taskboard-lifecycle-and-fields.md](../taskboard-lifecycle-and-fields.md)`                           | Task Board ≠ Memory         |
+| `[internals/agent-task-board-and-verification.md](../internals/agent-task-board-and-verification.md)` | 会话内工作状态                     |
+
 
 ---
 
@@ -397,3 +429,4 @@ crates/pointer-core/src/memory/
 - Hermes User Guide — [Persistent Memory](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/memory.md)
 - Hermes — [Self-improvement loop（codex runtime 文档 §）](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/user-guide/features/codex-app-server-runtime.md)
 - Hermes 源码 — `tools/memory_tool.py`、`agent/memory_manager.py`、`agent/background_review.py`
+

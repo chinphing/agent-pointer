@@ -57,6 +57,7 @@ wiremock = "0.6"
 
 [build-dependencies]
 anyhow = "1"
+cc = "1"
 serde_json = "1"
 toml = "0.8"
 

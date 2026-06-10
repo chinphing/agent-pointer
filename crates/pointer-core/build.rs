@@ -128,33 +128,31 @@ fn build_cjk_fts_extension() {
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR");
     let out_path = PathBuf::from(&out_dir).join(cjk_fts_lib_name());
 
-    let compiler = env::var("CC").unwrap_or_else(|_| default_c_compiler());
-    let mut cmd = Command::new(&compiler);
-    if cfg!(target_os = "windows") {
-        if compiler.to_ascii_lowercase().contains("cl") {
-            cmd.args([
-                "/LD",
-                "/O2",
-                &format!("/I{}", include_dir.display()),
-                src.to_str().expect("utf8 path"),
-                &format!("/Fe:{}", out_path.display()),
-            ]);
-        } else {
-            cmd.args([
-                "-O2",
-                "-shared",
-                "-fPIC",
-                &format!("-I{}", include_dir.display()),
-                src.to_str().expect("utf8 path"),
-                "-o",
-                out_path.to_str().expect("utf8 path"),
-            ]);
-        }
+    let mut cc_probe = cc::Build::new();
+    cc_probe
+        .file(&src)
+        .include(&include_dir)
+        .opt_level(2);
+    if !cfg!(target_os = "windows") {
+        cc_probe.pic(true);
+    }
+    let compiler = cc_probe.get_compiler();
+    let compiler_path = compiler.path().to_string_lossy().into_owned();
+
+    let mut cmd = Command::new(compiler.path());
+    if compiler.is_like_msvc() {
+        cmd.args([
+            "/LD",
+            "/O2",
+            &format!("/I{}", include_dir.display()),
+            src.to_str().expect("utf8 path"),
+            &format!("/Fe:{}", out_path.display()),
+        ]);
     } else {
         cmd.args([
             "-O2",
-            "-fPIC",
             "-shared",
+            "-fPIC",
             &format!("-I{}", include_dir.display()),
             src.to_str().expect("utf8 path"),
             "-o",
@@ -162,11 +160,15 @@ fn build_cjk_fts_extension() {
         ]);
     }
 
-    let status = cmd
-        .status()
-        .unwrap_or_else(|e| panic!("failed to run C compiler {compiler} for cjk fts: {e}"));
+    let status = cmd.status().unwrap_or_else(|e| {
+        panic!(
+            "failed to run C compiler {compiler_path} for cjk fts: {e} \
+             (Windows: install Microsoft C++ Build Tools with Desktop C++, \
+             then open a new terminal; or set CC to gcc/cl)"
+        );
+    });
     if !status.success() {
-        panic!("cjk fts extension compile failed with {compiler}");
+        panic!("cjk fts extension compile failed with {compiler_path}");
     }
     if !out_path.exists() {
         panic!(
@@ -183,13 +185,5 @@ fn cjk_fts_lib_name() -> &'static str {
         "libcjkfts.dll"
     } else {
         "libcjkfts.so"
-    }
-}
-
-fn default_c_compiler() -> String {
-    if cfg!(target_os = "windows") {
-        "cl".to_string()
-    } else {
-        "cc".to_string()
     }
 }

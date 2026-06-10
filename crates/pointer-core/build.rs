@@ -121,14 +121,19 @@ fn build_cjk_fts_extension() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
     let src = manifest_dir.join("vendor/sqlite-cjk-fts/cjk_tokenizer.c");
     let include_dir = manifest_dir.join("vendor/sqlite-cjk-fts");
+    let sqlite3_include = sqlite3_include_dir();
     println!("cargo:rerun-if-changed={}", src.display());
     println!("cargo:rerun-if-changed={}", include_dir.join("sqlite3ext.h").display());
+    println!("cargo:rerun-if-changed={}", sqlite3_include.join("sqlite3.h").display());
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let out_path = out_dir.join(cjk_fts_lib_name());
 
     let mut build = cc::Build::new();
-    build.include(&include_dir).opt_level(2);
+    build
+        .include(&include_dir)
+        .include(&sqlite3_include)
+        .opt_level(2);
     let compiler = build.get_compiler();
     let compiler_path = compiler.path().to_string_lossy().into_owned();
 
@@ -137,15 +142,18 @@ fn build_cjk_fts_extension() {
     if compiler.is_like_msvc() {
         // MSVC treats `\t`, `\n`, … as escapes; Cargo OUT_DIR is under `\target\...`.
         let include = msvc_cl_path(&include_dir);
+        let sqlite3 = msvc_cl_path(&sqlite3_include);
         let src_path = msvc_cl_path(&src);
         let out = msvc_cl_path(&out_path);
         cmd.current_dir(&out_dir);
         cmd.args([
             "/nologo",
             "/TC",
+            "/utf-8",
             "/O2",
             "/LD",
             &format!("/I{include}"),
+            &format!("/I{sqlite3}"),
             &src_path,
             &format!("/Fe:{out}"),
         ]);
@@ -157,6 +165,7 @@ fn build_cjk_fts_extension() {
             "-O2",
             "-shared",
             &format!("-I{}", include_dir.display()),
+            &format!("-I{}", sqlite3_include.display()),
             src.to_str().expect("utf8 path"),
             "-o",
             out_path.to_str().expect("utf8 path"),
@@ -191,6 +200,17 @@ fn build_cjk_fts_extension() {
         emit_build_warnings(&msg);
         panic!("{msg}");
     }
+}
+
+/// Bundled `sqlite3.h` from libsqlite3-sys (same as rusqlite); Windows has no system copy.
+fn sqlite3_include_dir() -> PathBuf {
+    env::var("DEP_SQLITE3_INCLUDE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+        panic!(
+            "DEP_SQLITE3_INCLUDE is not set; ensure libsqlite3-sys is a direct dependency with bundled"
+        )
+    })
 }
 
 /// Emit each line as cargo:warning so failures stay visible under `npm run tauri:build`.

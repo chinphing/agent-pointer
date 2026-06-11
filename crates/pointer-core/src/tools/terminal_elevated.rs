@@ -126,7 +126,7 @@ fn run_elevated_platform(
     command: &str,
     cwd: Option<&Path>,
     env: &HashMap<String, String>,
-    wall_cap_ms: u64,
+    _wall_cap_ms: u64,
     on_output: &impl Fn(&str),
 ) -> Result<ElevatedPlatformResult> {
     use super::terminal::windows_command_uses_explicit_shell;
@@ -200,7 +200,6 @@ exit $p.ExitCode
     on_output("[elevated] 等待 Windows UAC 确认…\n");
 
     let launcher_path_str = launcher_path.display().to_string();
-    let wall = Duration::from_millis(wall_cap_ms);
     let output = thread::spawn(move || {
         Command::new("powershell.exe")
             .args([
@@ -240,7 +239,7 @@ exit $p.ExitCode
     Ok(ElevatedPlatformResult {
         exit_code,
         success,
-        timed_out,
+        timed_out: false,
         elevation_denied,
         stdout,
         stderr,

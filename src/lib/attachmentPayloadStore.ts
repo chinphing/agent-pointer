@@ -80,6 +80,16 @@ export function cloneComposerAttachmentsForSend(
   })
 }
 
+/** Restore preview URLs from the in-memory payload store after draft reload. */
+export function hydrateComposerAttachments(
+  attachments: readonly ComposerAttachment[]
+): ComposerAttachment[] {
+  return attachments.map(att => {
+    const previewUrl = getComposerAttachmentPreviewUrl(att)
+    return previewUrl ? { ...att, previewUrl } : { ...att }
+  })
+}
+
 export function releaseComposerAttachment(id: string): void {
   const previous = payloads.get(id)
   revokeObjectUrl(previous?.previewUrl)

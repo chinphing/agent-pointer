@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import {
   sendChat, cancelChat, abortTerminalCommand, approveToolCall, onStream,
   loadConversations, saveConversationMeta, replaceConversationMessages, saveChatAttachment
@@ -24,9 +24,10 @@ import { imConversationTitle, isImConversation } from '../lib/channel-labels'
 import {
   getComposerAttachmentContentBase64,
   getComposerAttachmentDataUrl,
+  hydrateComposerAttachments,
   releaseComposerAttachment
 } from '../lib/attachmentPayloadStore'
-import type { ComposerAttachment } from '../types/chat'
+import type { ComposerAttachment, ComposerDraft } from '../types/chat'
 
 const TASK_BOARD_SUB_SEP = '\u{1f}ptr_sub_agent\u{1f}'
 const TASK_BOARD_MAIN_TURN_SEP = '\u{1f}ptr_main_turn\u{1f}'
@@ -209,6 +210,12 @@ export const useChatStore = defineStore('chat', () => {
   const taskBoards = ref<Record<string, ConversationTaskBoardState>>({})
   /** One-shot composer draft from home experience suggestions. */
   const composerPrefill = ref<string | null>(null)
+  /** In-memory composer drafts per conversation (survives layout / compact-mode remounts). */
+  const composerDraftByConvId = ref<Record<string, ComposerDraft>>({})
+  /** Active composer state (shared across inline/footer instances and compact-mode remounts). */
+  const composerText = ref('')
+  const composerAttachments = ref<ComposerAttachment[]>([])
+  const composerDraftHydrating = ref(false)
   /** Set when a computer sub-agent needs monitor selection before it can start. */
   const computerMonitorPickRequest = ref<ComputerMonitorPickRequest | null>(null)
   const terminalLivePopup = ref<TerminalLivePopup | null>(null)
@@ -321,7 +328,10 @@ export const useChatStore = defineStore('chat', () => {
     conversations.value = stripEphemeralDesktopNoticesForDisk(list)
     if (imTitlesUpdated) persistMeta()
     if (list.length === 0) newConversation()
-    else currentId.value = list[0].id
+    else {
+      currentId.value = list[0].id
+      loadActiveComposerDraft(currentId.value)
+    }
     if (!unlisten) unlisten = await onStream(handleEvent)
     if (currentId.value) {
       void refreshTaskBoard(currentId.value)
@@ -388,13 +398,18 @@ export const useChatStore = defineStore('chat', () => {
       workspaceRoot: defaultWorkspace
     }
     conversations.value.unshift(c)
+    flushActiveComposerDraft()
     currentId.value = c.id
+    loadActiveComposerDraft(c.id)
     persistMeta()
     return c
   }
 
   function selectConversation(id: string) {
+    if (currentId.value === id) return
+    flushActiveComposerDraft()
     currentId.value = id
+    loadActiveComposerDraft(id)
     void refreshTaskBoard(id)
     void refreshSubAgentTaskBoards(id)
   }
@@ -413,8 +428,12 @@ export const useChatStore = defineStore('chat', () => {
     const i = conversations.value.findIndex(c => c.id === id)
     if (i >= 0) conversations.value.splice(i, 1)
     if (currentId.value === id) {
+      clearComposerDraft(id)
       currentId.value = conversations.value[0]?.id || null
       if (!currentId.value) newConversation()
+      else loadActiveComposerDraft(currentId.value)
+    } else {
+      clearComposerDraft(id)
     }
     persistMeta()
   }
@@ -750,8 +769,83 @@ export const useChatStore = defineStore('chat', () => {
     return entry.childrenByParentStoreKey[parentStoreKey] ?? {}
   }
 
+  function emptyComposerDraft(): ComposerDraft {
+    return { text: '', attachments: [] }
+  }
+
+  function getComposerDraft(conversationId: string | null): ComposerDraft {
+    if (!conversationId) return emptyComposerDraft()
+    return composerDraftByConvId.value[conversationId] ?? emptyComposerDraft()
+  }
+
+  function setComposerDraft(conversationId: string | null, draft: ComposerDraft) {
+    if (!conversationId) return
+    const next = { ...composerDraftByConvId.value }
+    const isEmpty = !draft.text && draft.attachments.length === 0
+    if (isEmpty) delete next[conversationId]
+    else {
+      next[conversationId] = {
+        text: draft.text,
+        attachments: draft.attachments.map(a => ({ ...a }))
+      }
+    }
+    composerDraftByConvId.value = next
+  }
+
+  function clearComposerDraft(conversationId: string | null) {
+    if (!conversationId) return
+    const draft = composerDraftByConvId.value[conversationId]
+    if (draft) {
+      for (const att of draft.attachments) {
+        releaseComposerAttachment(att.id)
+      }
+    }
+    const next = { ...composerDraftByConvId.value }
+    delete next[conversationId]
+    composerDraftByConvId.value = next
+  }
+
+  function clearActiveComposer() {
+    composerDraftHydrating.value = true
+    composerText.value = ''
+    composerAttachments.value = []
+    if (currentId.value) {
+      const next = { ...composerDraftByConvId.value }
+      delete next[currentId.value]
+      composerDraftByConvId.value = next
+    }
+    nextTick(() => {
+      composerDraftHydrating.value = false
+    })
+  }
+
+  function flushActiveComposerDraft() {
+    const id = currentId.value
+    if (!id) return
+    setComposerDraft(id, {
+      text: composerText.value,
+      attachments: composerAttachments.value.map(a => ({ ...a }))
+    })
+  }
+
+  function loadActiveComposerDraft(conversationId: string | null) {
+    composerDraftHydrating.value = true
+    const draft = getComposerDraft(conversationId)
+    composerText.value = draft.text
+    composerAttachments.value = hydrateComposerAttachments(draft.attachments)
+    nextTick(() => {
+      composerDraftHydrating.value = false
+    })
+  }
+
+  watch([composerText, composerAttachments], () => {
+    if (composerDraftHydrating.value) return
+    flushActiveComposerDraft()
+  }, { deep: true })
+
   function prefillComposer(text: string) {
     composerPrefill.value = text
+    composerText.value = text
   }
 
   function consumeComposerPrefill(): string | null {
@@ -1486,6 +1580,8 @@ export const useChatStore = defineStore('chat', () => {
     setConversationWorkspace, applyPersistedComposerDefaults, showUiToast,
     clearPlatformLoginErrorMessages,
     composerPrefill, prefillComposer, consumeComposerPrefill,
+    composerText, composerAttachments, clearActiveComposer,
+    getComposerDraft, setComposerDraft, clearComposerDraft,
     computerMonitorPickRequest, clearComputerMonitorPickRequest,
     terminalLivePopup, dismissTerminalLivePopup
   }

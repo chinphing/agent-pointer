@@ -223,6 +223,12 @@ export interface ComposerAttachment extends MediaAttachment {
   previewUrl?: string
 }
 
+/** In-memory composer draft (text + pending attachments); not persisted to disk. */
+export interface ComposerDraft {
+  text: string
+  attachments: ComposerAttachment[]
+}
+
 export interface ChatMessage {
   id: string
   role: Role

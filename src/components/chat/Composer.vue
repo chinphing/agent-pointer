@@ -53,7 +53,7 @@ const props = withDefaults(
 const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 const settings = useSettingsStore()
-const { composerPrefill } = storeToRefs(chat)
+const { composerPrefill, composerText, composerAttachments } = storeToRefs(chat)
 
 const tokenQuotaBlocked = computed(() => platformAuth.tokenQuotaExhausted)
 const needsPlatformLogin = computed(() => isTauriRuntime() && !platformAuth.session.logged_in)
@@ -70,7 +70,6 @@ const composerPlaceholder = computed(() => {
   return settings.settings.hasKey ? '告诉我你想做什么' : '请先在设置中配置 API Key'
 })
 
-const text = ref('')
 const composing = ref(false)
 const showAgentPicker = ref(false)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
@@ -78,7 +77,6 @@ const agentBtnRef = ref<HTMLButtonElement | null>(null)
 const agentPickerRef = ref<HTMLDivElement | null>(null)
 const workspaceInputRef = ref<HTMLInputElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
-const pendingAttachments = ref<ComposerAttachment[]>([])
 const attachmentHint = ref<string | null>(null)
 
 const agents = ref<AgentDef[]>([])
@@ -150,7 +148,7 @@ const hasWorkspace = computed(() => !!(chat.current?.workspaceRoot?.trim()))
 
 const canSend = computed(
   () =>
-    (text.value.trim().length > 0 || pendingAttachments.value.length > 0) &&
+    (composerText.value.trim().length > 0 || composerAttachments.value.length > 0) &&
     !chat.generating &&
     !needsPlatformLogin.value &&
     !tokenQuotaBlocked.value &&
@@ -281,7 +279,7 @@ async function addAttachmentFile(file: File) {
     fileName: file.name,
     sizeBytes: file.size
   }
-  pendingAttachments.value.push(
+  composerAttachments.value.push(
     registerComposerAttachmentPayload({ attachment, dataUrl, contentBase64, file })
   )
 }
@@ -300,7 +298,7 @@ async function onAttachmentFiles(e: Event) {
 }
 
 function removePendingAttachment(id: string) {
-  pendingAttachments.value = pendingAttachments.value.filter(a => a.id !== id)
+  composerAttachments.value = composerAttachments.value.filter(a => a.id !== id)
   releaseComposerAttachment(id)
 }
 
@@ -325,15 +323,15 @@ async function onPasteAttachments(e: ClipboardEvent) {
 }
 
 function dispatchSend(textValue: string) {
-  const attachments = cloneComposerAttachmentsForSend(pendingAttachments.value)
-  pendingAttachments.value = []
+  const attachments = cloneComposerAttachmentsForSend(composerAttachments.value)
+  chat.clearActiveComposer()
   chat.sendUserMessage(textValue, attachments)
 }
 
 async function sendWithOptionalComputerScreenPick() {
   const conv = chat.current || chat.newConversation()
-  const v = text.value
-  if (!v.trim() && pendingAttachments.value.length === 0) return
+  const v = composerText.value
+  if (!v.trim() && composerAttachments.value.length === 0) return
 
   if (showComputerMonitorPicker.value && isMacDesktop.value) {
     try {
@@ -379,7 +377,6 @@ async function sendWithOptionalComputerScreenPick() {
     }
   }
 
-  text.value = ''
   dispatchSend(v)
   nextTick(() => {
     if (textareaRef.value) textareaRef.value.style.height = 'auto'
@@ -396,7 +393,7 @@ async function onPermissionsReady() {
   const v = pendingSendText.value
   if (!v) return
   pendingSendText.value = null
-  text.value = v
+  composerText.value = v
   send()
 }
 
@@ -493,7 +490,6 @@ async function onPickScreen(monitorId: string) {
   const v = pendingSendText.value
   pendingSendText.value = null
   if (!v) return
-  text.value = ''
   dispatchSend(v)
   nextTick(() => {
     if (textareaRef.value) textareaRef.value.style.height = 'auto'
@@ -522,7 +518,8 @@ async function selectWorkerAgent(agent: AgentDef) {
 function autoResize() {
   if (!textareaRef.value) return
   textareaRef.value.style.height = 'auto'
-  textareaRef.value.style.height = Math.min(textareaRef.value.scrollHeight, 250) + 'px'
+  const nextHeight = Math.max(textareaRef.value.scrollHeight, 24)
+  textareaRef.value.style.height = Math.min(nextHeight, 250) + 'px'
 }
 
 function handleClickOutside(e: MouseEvent) {
@@ -536,7 +533,7 @@ function handleClickOutside(e: MouseEvent) {
 
 watch(composerPrefill, (draft) => {
   if (!draft?.trim()) return
-  text.value = draft
+  composerText.value = draft
   chat.consumeComposerPrefill()
   nextTick(() => {
     autoResize()
@@ -544,7 +541,12 @@ watch(composerPrefill, (draft) => {
   })
 })
 
+watch(composerText, () => {
+  nextTick(autoResize)
+})
+
 onMounted(() => {
+  nextTick(autoResize)
   loadAgentsList()
   if (!TEAM_MODE_UI_ENABLED && settings.settings.agentMode === 'supervisor') {
     void settings.saveAgentPreferences({
@@ -620,11 +622,11 @@ onUnmounted(() => {
           @change="onAttachmentFiles"
         />
         <div
-          v-if="pendingAttachments.length"
+          v-if="composerAttachments.length"
           class="flex flex-wrap gap-2 px-3 pb-2"
         >
           <AttachmentChip
-            v-for="att in pendingAttachments"
+            v-for="att in composerAttachments"
             :key="att.id"
             :attachment="att"
             @remove="removePendingAttachment(att.id)"
@@ -638,7 +640,7 @@ onUnmounted(() => {
         </p>
         <textarea
           ref="textareaRef"
-          v-model="text"
+          v-model="composerText"
           rows="1"
           class="block w-full resize-none bg-transparent border-0 outline-none px-3 pt-[3px] pb-2 text-[15px] text-foreground placeholder:text-muted"
           :style="{ maxHeight: '250px', minHeight: '24px' }"

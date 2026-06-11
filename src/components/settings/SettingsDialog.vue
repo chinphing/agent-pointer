@@ -102,7 +102,8 @@ function agentModeLlm(agentId: string, mode: PerformanceModeKey): ComputerTierLl
     return { providerId: 'deepseek', model: 'deepseek-v4-flash', enableThinking: true, thinkingBudget: 2048 }
   }
   if (mode === 'expert') {
-    return { providerId: 'qwen', model: 'qwen3.7-max', enableThinking: true, thinkingBudget: 8192 }
+    const expertModel = agentId === 'general' ? 'qwen3.7-plus' : 'qwen3.7-max'
+    return { providerId: 'qwen', model: expertModel, enableThinking: true, thinkingBudget: 8192 }
   }
   return { providerId: 'deepseek', model: 'deepseek-v4-pro', enableThinking: true, thinkingBudget: 2048 }
 }

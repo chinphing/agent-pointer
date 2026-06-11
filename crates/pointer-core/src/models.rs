@@ -1781,7 +1781,7 @@ fn default_agent_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmCo
         "standard".into(),
         mode_llm_entry("deepseek", "deepseek-v4-pro", 2048),
     );
-    general.insert("expert".into(), mode_llm_entry("qwen", "qwen3.7-max", 8192));
+    general.insert("expert".into(), mode_llm_entry("qwen", "qwen3.7-plus", 8192));
 
     let mut coder = HashMap::new();
     coder.insert("fast".into(), mode_llm_entry("deepseek", "deepseek-v4-flash", 2048));

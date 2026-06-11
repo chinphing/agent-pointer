@@ -343,10 +343,13 @@ async fn run_approval_gate(
     cancel: &CancellationToken,
     trace_id: Option<&str>,
 ) -> Result<bool> {
-    let requires_approval = tool_approval_mode == "manual"
-        && state
-            .tools
-            .tool_invocation_needs_approval(tool_id, args_value);
+    let elevated_terminal =
+        tool_id == "terminal" && crate::tools::terminal::terminal_requests_elevation(args_value);
+    let requires_approval = elevated_terminal
+        || (tool_approval_mode == "manual"
+            && state
+                .tools
+                .tool_invocation_needs_approval(tool_id, args_value));
     if !requires_approval {
         return Ok(true);
     }
@@ -643,6 +646,7 @@ async fn run_terminal_tool(
                 "timedOut": r.timed_out,
                 "cancelled": r.cancelled,
                 "runAborted": r.run_aborted,
+                "elevationDenied": r.elevation_denied,
                 "durationMs": r.duration_ms,
                 "stdout": r.stdout,
                 "stderr": r.stderr,

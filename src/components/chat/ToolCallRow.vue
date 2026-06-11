@@ -55,14 +55,27 @@ const showStatusLabel = computed(
 const showSuccessQuiet = computed(() => effectiveStatus.value === 'success')
 const showResults = computed(() => props.showToolCallResults === true)
 
+const terminalArgs = computed(() => {
+  if (!isTerminal.value) return null
+  const text = props.toolCall.arguments?.trim()
+  if (!text) return null
+  try {
+    return JSON.parse(text) as { command?: string; elevated?: boolean }
+  } catch {
+    return null
+  }
+})
+
+const terminalElevated = computed(
+  () => terminalArgs.value?.elevated === true
+)
+
 const terminalCommand = computed(() => {
   if (!isTerminal.value) return ''
+  const fromArgs = terminalArgs.value?.command
+  if (fromArgs) return fromArgs
   const text = props.toolCall.arguments?.trim()
-  if (!text) return ''
-  try {
-    const parsed = JSON.parse(text)
-    return parsed.command || ''
-  } catch { return text }
+  return text || ''
 })
 
 const prettyArgs = computed(() => {
@@ -81,6 +94,7 @@ type TerminalResult = {
   timedOut?: boolean
   cancelled?: boolean
   runAborted?: boolean
+  elevationDenied?: boolean
 }
 
 const terminalResult = computed<TerminalResult | null>(() => {
@@ -180,6 +194,7 @@ const terminalMeta = computed(() => {
   const items = []
   if (typeof result.exitCode !== 'undefined' && result.exitCode !== null) items.push(`exit ${result.exitCode}`)
   if (result.timedOut) items.push('timeout')
+  if (result.elevationDenied) items.push('已拒绝提权')
   if (result.runAborted) items.push('已结束命令')
   if (result.cancelled) items.push('已停止')
   return items.join(' · ')
@@ -189,6 +204,7 @@ const effectiveStatus = computed(() => {
   if (!isTerminal.value || props.toolCall.status !== 'success') return props.toolCall.status
   const r = terminalResult.value
   if (r?.timedOut === true) return 'failed' as ToolCall['status']
+  if (r?.elevationDenied === true) return 'failed' as ToolCall['status']
   if (r?.runAborted === true || r?.cancelled === true) return 'failed' as ToolCall['status']
   const code = r?.exitCode
   if (typeof code === 'number' && code !== 0) return 'failed' as ToolCall['status']
@@ -231,7 +247,13 @@ function openSourceUrl(url: string) {
       <span>{{ displayLabel }}</span>
       <span v-if="displaySummary">· {{ displaySummary }}</span>
       <span
-        v-if="toolCall.riskLevel === 'high'"
+        v-if="terminalElevated"
+        class="shrink-0 text-[10px] text-warning inline-flex items-center gap-0.5"
+      >
+        <ShieldAlert class="w-2.5 h-2.5" />提权
+      </span>
+      <span
+        v-else-if="toolCall.riskLevel === 'high'"
         class="shrink-0 text-[10px] text-danger inline-flex items-center gap-0.5"
       >
         <ShieldAlert class="w-2.5 h-2.5" />高风险
@@ -252,6 +274,30 @@ function openSourceUrl(url: string) {
         class="tool-call-chevron w-3 h-3 shrink-0 ml-[2ch] text-muted hidden"
       />
     </button>
+
+    <div
+      v-if="toolCall.status === 'pending_approval'"
+      class="pl-4 pb-1.5 space-y-1.5"
+    >
+      <p
+        v-if="terminalElevated"
+        class="text-[11px] text-warning leading-relaxed"
+      >
+        提权命令：允许后还会在系统中弹出管理员确认（UAC / 密码 / polkit）。
+      </p>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="h-8 px-3 rounded-lg bg-success/20 hover:bg-success/30 text-success text-xs flex items-center gap-1.5 cursor-pointer transition"
+          @click="approve(true)"
+        ><Check class="w-3.5 h-3.5" />允许</button>
+        <button
+          type="button"
+          class="h-8 px-3 rounded-lg bg-danger/15 hover:bg-danger/25 text-danger text-xs flex items-center gap-1.5 cursor-pointer transition"
+          @click="approve(false)"
+        ><X class="w-3.5 h-3.5" />拒绝</button>
+      </div>
+    </div>
 
     <div v-if="open" class="pb-2 space-y-2">
       <template v-if="isTerminal">
@@ -332,17 +378,6 @@ function openSourceUrl(url: string) {
       <div v-if="toolCall.error" class="text-[12px] text-danger">{{ toolCall.error }}</div>
 
       <p v-if="open" class="text-[10px] text-muted font-mono truncate">{{ toolCall.name }}</p>
-
-      <div v-if="toolCall.status === 'pending_approval'" class="flex items-center gap-2 pt-1">
-        <button
-          class="h-8 px-3 rounded-lg bg-success/20 hover:bg-success/30 text-success text-xs flex items-center gap-1.5 cursor-pointer transition"
-          @click="approve(true)"
-        ><Check class="w-3.5 h-3.5" />允许</button>
-        <button
-          class="h-8 px-3 rounded-lg bg-danger/15 hover:bg-danger/25 text-danger text-xs flex items-center gap-1.5 cursor-pointer transition"
-          @click="approve(false)"
-        ><X class="w-3.5 h-3.5" />拒绝</button>
-      </div>
     </div>
   </div>
 </template>

@@ -43,3 +43,16 @@ Merge rules:
 Relative paths resolve against the effective **`cwd`** (or workspace root when **`cwd`** is omitted). Absolute paths are allowed when the file exists.
 
 Implementation: `crates/pointer-core/src/dotenv.rs`, wired in `tools/terminal.rs`.
+
+## Elevated execution (`elevated: true`)
+
+When the model passes **`elevated`: true** on a `terminal` tool call:
+
+1. **In-app approval** is required even if tool approval mode is **auto** (same `pending_approval` UI as manual mode).
+2. After approval, the host runs the command with OS elevation:
+   - **Windows** — `Start-Process -Verb RunAs` (UAC).
+   - **macOS** — `osascript` `do shell script … with administrator privileges`.
+   - **Linux** — `pkexec sh -lc …` (requires polkit).
+3. Live stdout/stderr streaming is **not** available; output is returned when the elevated process exits. The result JSON may include **`elevationDenied`** if the user declines the OS prompt.
+
+Implementation: `crates/pointer-core/src/tools/terminal_elevated.rs`, wired from `tools/terminal.rs`.

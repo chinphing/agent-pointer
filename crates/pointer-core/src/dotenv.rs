@@ -23,6 +23,28 @@ pub fn parse_dotenv_bytes(content: &[u8]) -> HashMap<String, String> {
     out
 }
 
+/// Load one or more `.env` files (in order) into a merged map for child processes.
+pub fn merged_env_from_files(env_files: &[PathBuf]) -> HashMap<String, String> {
+    let mut merged: HashMap<String, String> = HashMap::new();
+    for path in env_files {
+        match std::fs::read(path) {
+            Ok(bytes) => {
+                for (k, v) in parse_dotenv_bytes(&bytes) {
+                    let applied = env_value_for_child(&k, &v);
+                    merged.insert(k, applied);
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "dotenv: failed to read {}: {e}",
+                    path.display()
+                );
+            }
+        }
+    }
+    merged
+}
+
 /// Load one or more `.env` files (in order) and apply them to a child `Command`.
 pub fn apply_supplemental_env_files(
     cmd: &mut Command,

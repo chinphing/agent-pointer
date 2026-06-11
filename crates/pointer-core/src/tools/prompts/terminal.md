@@ -21,6 +21,8 @@ schema:
         - type: array
           items:
             type: string
+    elevated:
+      type: boolean
   required:
     - command
   additionalProperties: true
@@ -46,6 +48,8 @@ Use when you need the shell for builds, checks, tests, directory listings, or ot
   - When unsure on Windows, prefer **`cmd.exe /c "…"`** for simple CLI checks (`python --version`, `npm -v`, `git status`).
 - Do not run destructive commands unless the user clearly asked and approval allows it.
 - Do not read or exfiltrate secrets via the terminal.
+- Use **`elevated`: true** only when the task clearly needs administrator / root privileges (e.g. system-wide install, protected paths). The host always requires **in-app approval** first; the OS may show a second prompt (UAC / admin password / polkit). Do not set **`elevated`** for ordinary project commands.
+- With **`elevated`: true**, do **not** prefix the command with **`sudo`**, **`pkexec`**, or Windows **`Start-Process -Verb RunAs`** — the host elevates once. Combine multiple admin steps in **one** call with **`&&`** (e.g. `apt update && apt install -y pkg`) instead of several separate **`elevated`** calls; **each** elevated call triggers a **new** OS password / UAC prompt.
 - **Default user env:** When **`envFiles`** is omitted, the host loads the app data directory **`.env`** (see **App data directory** in session context) if that file exists. Users store personal / cross-project vars there (e.g. API keys).
 - **Project env:** When a command needs workspace-specific vars, pass **`envFiles`** with paths to project `.env` files. Loaded vars apply to the **child shell only** (non-`PATH` keys override inherited values; `PATH` is prepended before inherited `PATH`). Later entries in **`envFiles`** override earlier ones. Paths may be absolute or relative to **`cwd`** (or the workspace root when **`cwd`** is omitted).
 
@@ -70,6 +74,7 @@ Either limit can stop the process (**`timedOut`** in the result). Set both per c
 - **`maxWallMs`** (optional) — See **Timeouts**.
 - **`maxOutputBytes`** (optional) — Max bytes per stream for stdout and stderr; default **20000**, max **200000**; output is truncated per stream when exceeded.
 - **`envFiles`** (optional) — One `.env` path (string) or an array of paths; processed in order. When omitted, the default app-data **`.env`** is loaded if it exists.
+- **`elevated`** (optional) — When **true**, run with administrator / root privileges after **in-app** user approval. Windows: UAC; macOS: admin password; Linux: `pkexec` (polkit). Output is collected after the command finishes (no live stream). Result may include **`elevationDenied`** when the user declines the OS prompt.
 
 #### Stopping the run (host)
 

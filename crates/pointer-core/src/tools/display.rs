@@ -312,12 +312,23 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
     let method = resolve_method(raw_name, args);
 
     let (label, summary) = match base {
-        "terminal" => (
-            "终端命令".to_string(),
-            str_field(args, &["command"])
-                .map(|c| truncate(c.lines().next().unwrap_or(&c), SUMMARY_MAX))
-                .unwrap_or_default(),
-        ),
+        "terminal" => {
+            let elevated = args
+                .get("elevated")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let label = if elevated {
+                "终端命令（提权）".to_string()
+            } else {
+                "终端命令".to_string()
+            };
+            (
+                label,
+                str_field(args, &["command"])
+                    .map(|c| truncate(c.lines().next().unwrap_or(&c), SUMMARY_MAX))
+                    .unwrap_or_default(),
+            )
+        }
         n if n.starts_with("file_") => {
             let m = if method.is_empty() { "read" } else { method.as_str() };
             (file_method_label(m).to_string(), file_summary(args, m))

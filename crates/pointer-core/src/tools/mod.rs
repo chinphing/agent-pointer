@@ -6,6 +6,7 @@ pub mod media_generate;
 pub mod run_subagent;
 pub mod skill;
 pub mod terminal;
+mod terminal_elevated;
 pub mod web_search;
 pub mod tool_doc;
 pub mod tool_md;

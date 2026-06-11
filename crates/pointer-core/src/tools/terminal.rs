@@ -1,4 +1,7 @@
+use super::terminal_elevated::run_terminal_command_elevated;
 use super::{ToolEntry, ToolHandler, ToolRegistry};
+
+pub(crate) use super::terminal_elevated::terminal_requests_elevation;
 use crate::dotenv::{
     apply_supplemental_env_files, default_user_env_file, parse_env_file_args,
     resolve_env_file_path,
@@ -46,7 +49,7 @@ fn register_terminal(reg: &ToolRegistry) {
     ));
 }
 
-fn effective_terminal_cwd(explicit: Option<PathBuf>) -> Result<Option<PathBuf>> {
+pub(crate) fn effective_terminal_cwd(explicit: Option<PathBuf>) -> Result<Option<PathBuf>> {
     if explicit.is_some() {
         return Ok(explicit);
     }
@@ -124,6 +127,8 @@ pub struct TerminalStreamingResult {
     pub cancelled: bool,
     /// Host requested abort of this terminal run only (conversation still active).
     pub run_aborted: bool,
+    /// User denied OS elevation (UAC / admin password / polkit).
+    pub elevation_denied: bool,
     pub duration_ms: u64,
     pub stdout: String,
     pub stderr: String,
@@ -140,6 +145,10 @@ pub fn run_terminal_command_streaming(
     cancel: Option<CancellationToken>,
     run_abort: Option<Arc<AtomicBool>>,
 ) -> Result<TerminalStreamingResult> {
+    if terminal_requests_elevation(&args) {
+        return run_terminal_command_elevated(args, on_output, cancel, run_abort);
+    }
+
     let command = args
         .get("command")
         .and_then(|v| v.as_str())
@@ -276,6 +285,7 @@ pub fn run_terminal_command_streaming(
         timed_out,
         cancelled,
         run_aborted,
+        elevation_denied: false,
         duration_ms,
         stdout,
         stderr,
@@ -347,7 +357,7 @@ fn workspace_root_dir() -> Option<PathBuf> {
     }
 }
 
-fn resolve_terminal_env_files(
+pub(crate) fn resolve_terminal_env_files(
     args: &serde_json::Value,
     cwd: Option<&Path>,
 ) -> Result<Vec<String>> {
@@ -369,7 +379,7 @@ fn resolve_terminal_env_files(
     Ok(resolved)
 }
 
-fn parse_terminal_cwd(value: Option<&serde_json::Value>) -> Result<Option<PathBuf>> {
+pub(crate) fn parse_terminal_cwd(value: Option<&serde_json::Value>) -> Result<Option<PathBuf>> {
     let Some(raw) = value.and_then(|v| v.as_str()).map(str::trim) else {
         return Ok(None);
     };
@@ -388,7 +398,7 @@ fn parse_terminal_cwd(value: Option<&serde_json::Value>) -> Result<Option<PathBu
 
 /// True when `command` already invokes cmd or PowerShell at the start — run via `cmd.exe /C` as-is.
 #[cfg(windows)]
-fn windows_command_uses_explicit_shell(command: &str) -> bool {
+pub(crate) fn windows_command_uses_explicit_shell(command: &str) -> bool {
     let lower = command.trim().to_ascii_lowercase();
     const PREFIXES: &[&str] = &[
         "cmd ",
@@ -436,6 +446,9 @@ pub fn terminal_stream_tool_status(r: &TerminalStreamingResult) -> (bool, Option
     if r.run_aborted {
         return (false, Some("命令已由宿主终止（仅结束当前终端）".to_string()));
     }
+    if r.elevation_denied {
+        return (false, Some("用户已拒绝系统提权".to_string()));
+    }
     if r.timed_out {
         return (false, Some("命令执行超时".to_string()));
     }
@@ -449,7 +462,7 @@ pub fn terminal_stream_tool_status(r: &TerminalStreamingResult) -> (bool, Option
     (false, Some(msg))
 }
 
-fn truncate_output(bytes: &[u8], max_bytes: usize) -> (String, bool) {
+pub(crate) fn truncate_output(bytes: &[u8], max_bytes: usize) -> (String, bool) {
     if bytes.len() <= max_bytes {
         return (String::from_utf8_lossy(bytes).to_string(), false);
     }

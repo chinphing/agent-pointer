@@ -330,6 +330,7 @@ impl OpenAIProvider {
             system,
             crate::models::effective_reasoning_in_messages(&self.settings),
             crate::models::qwen_explicit_system_cache_enabled(&self.settings),
+            crate::media::model_supports_vision(&self.settings),
         );
         let max_tok = max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
         let extra_body = crate::models::effective_chat_extra_body(&self.settings);
@@ -521,6 +522,7 @@ impl OpenAIProvider {
             system,
             crate::models::effective_reasoning_in_messages(&self.settings),
             crate::models::qwen_explicit_system_cache_enabled(&self.settings),
+            crate::media::model_supports_vision(&self.settings),
         );
         let build_openai_messages_ms = t_build.elapsed().as_millis();
         let api_message_count = openai_msgs.len();

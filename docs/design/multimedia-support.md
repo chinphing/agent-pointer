@@ -82,7 +82,7 @@ mediaModelOverrides: {
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
-| capabilities | `media/capabilities.rs` | `model_supports_vision` 启发式 |
+| capabilities | `media/capabilities.rs` | `model_supports_vision`（千问=true、深度求索=false，按服务商固化） |
 | store | `media/store.rs` | 落盘、读取、media ticket 路径 |
 | apply | `media/apply.rs` | 编排理解、写 `images_base64` / 注入 text |
 | understand | `media/understand.rs` | imageModel 单次 vision 描述 |
@@ -158,7 +158,7 @@ mediaModelOverrides: {
 | `canGenerateImage` | 是否可生成图片 |
 | `canGenerateVideo` | 是否可生成视频 |
 
-在 **设置 → 模型服务 → 模型定制** 中勾选；未配置时对已知模型名自动推断默认值。
+**视觉理解**按服务商固化：千问下所有模型默认 `supportsVision: true`，深度求索下均为 `false`（可在 **设置 → 模型服务 → 模型定制** 按模型覆盖）。图片/视频**生成**能力仍按模型 id 关键字推断。
 
 ### 旧版 `mediaModelOverrides`
 

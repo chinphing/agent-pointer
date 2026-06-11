@@ -22,7 +22,9 @@ function patch(flag: 'supportsVision' | 'canGenerateImage' | 'canGenerateVideo',
 
 <template>
   <div class="rounded-lg border border-border bg-[hsl(var(--card-elevated))] p-3 space-y-2">
-    <p class="text-[11px] text-muted">模型能力（用于下拉过滤与多媒体路由）</p>
+    <p class="text-[11px] text-muted">
+      模型能力（用于下拉过滤与多媒体路由）。千问默认支持视觉；深度求索默认不支持。
+    </p>
     <label class="inline-flex items-center gap-2 cursor-pointer text-[12px] text-foreground">
       <input
         type="checkbox"

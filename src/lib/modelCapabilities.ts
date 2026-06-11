@@ -6,29 +6,20 @@ export interface ModelCapabilityFlags {
   canGenerateVideo?: boolean
 }
 
-/** Heuristic defaults when provider modelConfigs has no explicit capability flags. */
-export function inferModelCapabilities(modelId: string): ModelCapabilityFlags {
+/** Fixed provider defaults for vision (no model-name heuristics). */
+export function providerDefaultSupportsVision(providerId: string): boolean | undefined {
+  const id = providerId.trim().toLowerCase()
+  if (id === 'qwen') return true
+  if (id === 'deepseek') return false
+  return undefined
+}
+
+/** Generation capability hints from model id (image/video tools only). */
+export function inferModelGenerationCapabilities(modelId: string): ModelCapabilityFlags {
   const m = modelId.trim().toLowerCase()
   if (!m) return {}
 
   const flags: ModelCapabilityFlags = {}
-
-  if (
-    m.includes('-vl-') ||
-    m.includes('omni') ||
-    m.startsWith('qwen3.5-') ||
-    m.startsWith('qwen3.6-') ||
-    m.startsWith('qwen3.7-') ||
-    m.includes('qwen-vl') ||
-    m.startsWith('gpt-4o') ||
-    m.startsWith('gpt-4.1') ||
-    m.includes('claude-3') ||
-    m.includes('claude-sonnet-4') ||
-    m.includes('claude-opus-4') ||
-    m.startsWith('deepseek-v4-')
-  ) {
-    flags.supportsVision = true
-  }
 
   if (
     m.includes('image') ||
@@ -65,9 +56,10 @@ export function resolvedModelCapabilities(
   model: string
 ): Required<ModelCapabilityFlags> {
   const over = modelOverride(providers, providerId, model)
-  const inferred = inferModelCapabilities(model)
+  const inferred = inferModelGenerationCapabilities(model)
+  const providerVision = providerDefaultSupportsVision(providerId)
   return {
-    supportsVision: over?.supportsVision ?? inferred.supportsVision ?? false,
+    supportsVision: over?.supportsVision ?? providerVision ?? false,
     canGenerateImage: over?.canGenerateImage ?? inferred.canGenerateImage ?? false,
     canGenerateVideo: over?.canGenerateVideo ?? inferred.canGenerateVideo ?? false
   }
@@ -97,18 +89,20 @@ export function modelCanGenerateVideo(
   return resolvedModelCapabilities(providers, providerId, model).canGenerateVideo
 }
 
-/** Seed default capability flags into provider modelConfigs for known models (no overwrite). */
+/** Seed provider-fixed vision defaults and generation flags (no overwrite of explicit values). */
 export function seedProviderModelCapabilities(provider: ProviderConfig): ProviderConfig {
   const configs = { ...(provider.modelConfigs ?? {}) }
+  const providerVision = providerDefaultSupportsVision(provider.id)
   for (const model of provider.models ?? []) {
-    const inferred = inferModelCapabilities(model)
-    const hasAny =
-      inferred.supportsVision || inferred.canGenerateImage || inferred.canGenerateVideo
-    if (!hasAny) continue
+    const inferred = inferModelGenerationCapabilities(model)
     const prev = configs[model] ?? {}
     const next: ModelRuntimeOverrides = { ...prev }
-    if (next.supportsVision === undefined && inferred.supportsVision !== undefined) {
-      next.supportsVision = inferred.supportsVision
+    if (provider.id === 'deepseek') {
+      next.supportsVision = false
+    } else if (provider.id === 'qwen') {
+      if (next.supportsVision === undefined) next.supportsVision = true
+    } else if (next.supportsVision === undefined && providerVision !== undefined) {
+      next.supportsVision = providerVision
     }
     if (next.canGenerateImage === undefined && inferred.canGenerateImage !== undefined) {
       next.canGenerateImage = inferred.canGenerateImage

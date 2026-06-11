@@ -526,26 +526,21 @@ pub fn ensure_provider_generation_defaults(settings: &mut ModelSettings) {
     }
 }
 
-fn infer_model_capability_flags(model: &str) -> ModelRuntimeOverrides {
+/// Fixed provider defaults for vision (no model-name heuristics).
+/// Qwen: all models support vision; DeepSeek: none do.
+pub fn provider_default_supports_vision(provider_id: &str) -> Option<bool> {
+    match provider_id.trim().to_ascii_lowercase().as_str() {
+        "qwen" => Some(true),
+        "deepseek" => Some(false),
+        _ => None,
+    }
+}
+
+fn infer_model_generation_capability_flags(model: &str) -> ModelRuntimeOverrides {
     let m = model.trim().to_ascii_lowercase();
     let mut over = ModelRuntimeOverrides::default();
     if m.is_empty() {
         return over;
-    }
-    if m.contains("-vl-")
-        || m.contains("omni")
-        || m.starts_with("qwen3.5-")
-        || m.starts_with("qwen3.6-")
-        || m.starts_with("qwen3.7-")
-        || m.contains("qwen-vl")
-        || m.starts_with("gpt-4o")
-        || m.starts_with("gpt-4.1")
-        || m.contains("claude-3")
-        || m.contains("claude-sonnet-4")
-        || m.contains("claude-opus-4")
-        || m.starts_with("deepseek-v4-")
-    {
-        over.supports_vision = Some(true);
     }
     if m.contains("image") || m.contains("seedream") || (m.contains("wan2.") && m.contains("image")) {
         over.can_generate_image = Some(true);
@@ -560,21 +555,34 @@ fn infer_model_capability_flags(model: &str) -> ModelRuntimeOverrides {
     over
 }
 
-/// Seed inferred vision / generation capability flags on provider models when unset.
+fn resolve_supports_vision(
+    provider_id: &str,
+    model_over: Option<&ModelRuntimeOverrides>,
+) -> bool {
+    model_over
+        .and_then(|o| o.supports_vision)
+        .or_else(|| provider_default_supports_vision(provider_id))
+        .unwrap_or(false)
+}
+
+/// Seed provider-fixed vision defaults and generation flags on provider models when unset.
 pub fn ensure_provider_model_capability_defaults(settings: &mut ModelSettings) {
     for provider in &mut settings.providers {
+        let provider_id = provider.id.clone();
         let models: Vec<String> = provider.models.clone();
         for model in models {
-            let inferred = infer_model_capability_flags(&model);
-            let has = inferred.supports_vision.is_some()
-                || inferred.can_generate_image.is_some()
-                || inferred.can_generate_video.is_some();
-            if !has {
-                continue;
-            }
+            let inferred = infer_model_generation_capability_flags(&model);
             let entry = provider.model_configs.entry(model).or_default();
-            if entry.supports_vision.is_none() {
-                entry.supports_vision = inferred.supports_vision;
+            if provider_id.eq_ignore_ascii_case("deepseek") {
+                entry.supports_vision = Some(false);
+            } else if provider_id.eq_ignore_ascii_case("qwen") {
+                if entry.supports_vision.is_none() {
+                    entry.supports_vision = Some(true);
+                }
+            } else if entry.supports_vision.is_none() {
+                if let Some(v) = provider_default_supports_vision(&provider_id) {
+                    entry.supports_vision = Some(v);
+                }
             }
             if entry.can_generate_image.is_none() {
                 entry.can_generate_image = inferred.can_generate_image;
@@ -591,7 +599,7 @@ pub fn model_capability_flags(
     provider_id: &str,
     model: &str,
 ) -> (bool, bool, bool) {
-    let inferred = infer_model_capability_flags(model);
+    let inferred = infer_model_generation_capability_flags(model);
     let provider = settings
         .providers
         .iter()
@@ -599,16 +607,14 @@ pub fn model_capability_flags(
         .or_else(|| settings.providers.first());
     let Some(p) = provider else {
         return (
-            inferred.supports_vision.unwrap_or(false),
+            provider_default_supports_vision(provider_id).unwrap_or(false),
             inferred.can_generate_image.unwrap_or(false),
             inferred.can_generate_video.unwrap_or(false),
         );
     };
     let over = p.model_configs.get(model.trim());
     (
-        over.and_then(|o| o.supports_vision)
-            .or(inferred.supports_vision)
-            .unwrap_or(false),
+        resolve_supports_vision(&p.id, over),
         over.and_then(|o| o.can_generate_image)
             .or(inferred.can_generate_image)
             .unwrap_or(false),
@@ -2667,11 +2673,36 @@ fn push_openai_system_messages(
     }
 }
 
+fn flatten_user_images_to_text(m: &ChatMessage) -> String {
+    let mut content = m.content.clone();
+    let Some(imgs) = m.images_base64.as_ref() else {
+        return content;
+    };
+    if imgs.is_empty() {
+        return content;
+    }
+    let labels = m.image_slot_labels.as_deref();
+    for (i, _) in imgs.iter().enumerate() {
+        let lab = labels
+            .and_then(|labs| labs.get(i))
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.as_str())
+            .unwrap_or("[image attachment]");
+        if !content.is_empty() {
+            content.push_str("\n\n");
+        }
+        content.push_str(lab);
+        content.push_str(" (image not inlined: primary model does not support vision)");
+    }
+    content
+}
+
 pub fn make_openai_messages(
     msgs: &[ChatMessage],
     system: &SystemPromptSections,
     include_reasoning_in_api: bool,
     explicit_system_cache: bool,
+    inline_vision: bool,
 ) -> Vec<serde_json::Value> {
     let included = crate::message_context::filter_context_messages(msgs);
     let expanded = expand_tool_messages_for_openai_request(&included);
@@ -2684,6 +2715,17 @@ pub fn make_openai_messages(
             })),
             Role::User => {
                 if let Some(ref imgs) = m.images_base64 {
+                    if !imgs.is_empty() && !inline_vision {
+                        log::warn!(
+                            "make_openai_messages: stripping {} inline image(s); model does not support vision",
+                            imgs.len()
+                        );
+                        out.push(serde_json::json!({
+                            "role": "user",
+                            "content": flatten_user_images_to_text(m)
+                        }));
+                        continue;
+                    }
                     if !imgs.is_empty() {
                         let mut parts: Vec<serde_json::Value> = Vec::new();
                         if !m.content.trim().is_empty() {
@@ -2821,7 +2863,7 @@ mod make_openai_messages_tests {
             cacheable: vec!["static system".into()],
             dynamic: vec!["task board".into()],
         };
-        let out = make_openai_messages(&[], &system, false, true);
+        let out = make_openai_messages(&[], &system, false, true, false);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0]["role"], "system");
         let content = out[0]["content"].as_array().expect("multipart system");
@@ -2836,7 +2878,7 @@ mod make_openai_messages_tests {
     #[test]
     fn system_prompt_plain_string_when_cache_disabled() {
         let system = SystemPromptSections::all_cacheable(vec!["static system".into()]);
-        let out = make_openai_messages(&[], &system, false, false);
+        let out = make_openai_messages(&[], &system, false, false, false);
         assert_eq!(out[0]["content"], "static system");
     }
 
@@ -2845,7 +2887,7 @@ mod make_openai_messages_tests {
         let mut u = msg(Role::User);
         u.content = "see screen".into();
         u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
-        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false);
+        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, true);
         assert_eq!(out.len(), 1);
         let content = out[0]["content"].as_array().expect("multipart content");
         assert_eq!(content[0]["type"], "text");
@@ -2857,12 +2899,25 @@ mod make_openai_messages_tests {
     }
 
     #[test]
+    fn user_message_without_vision_flattens_images_to_text() {
+        let mut u = msg(Role::User);
+        u.content = "what is this".into();
+        u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
+        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, false);
+        assert_eq!(out[0]["role"], "user");
+        let content = out[0]["content"].as_str().expect("text content");
+        assert!(content.contains("what is this"));
+        assert!(content.contains("does not support vision"));
+        assert!(out[0]["content"].as_array().is_none());
+    }
+
+    #[test]
     fn user_message_interleaves_slot_label_before_each_image() {
         let mut u = msg(Role::User);
         u.content = "[CUR_SCREEN] preamble".into();
         u.image_slot_labels = Some(vec!["[Screen after action]".into()]);
         u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
-        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false);
+        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, true);
         let content = out[0]["content"].as_array().expect("multipart content");
         assert_eq!(content.len(), 3);
         assert_eq!(content[0]["text"], "[CUR_SCREEN] preamble");
@@ -2875,7 +2930,7 @@ mod make_openai_messages_tests {
         let mut a = msg(Role::Assistant);
         a.content = "answer".into();
         a.reasoning = Some("step 1…".into());
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false, false);
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "answer");
         assert_eq!(out[0]["reasoning_content"], "step 1…");
@@ -2886,7 +2941,7 @@ mod make_openai_messages_tests {
         let mut a = msg(Role::Assistant);
         a.content = "answer".into();
         a.reasoning = Some("hidden".into());
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false);
         assert!(out[0].as_object().unwrap().get("reasoning_content").is_none());
     }
 
@@ -2910,7 +2965,7 @@ mod make_openai_messages_tests {
         t.tool_call_id = Some("call_abc".into());
         t.content = "{}".into();
 
-        let out = make_openai_messages(&[a, t], &SystemPromptSections::default(), true, false);
+        let out = make_openai_messages(&[a, t], &SystemPromptSections::default(), true, false, false);
         assert_eq!(out.len(), 2, "assistant + tool");
         assert_eq!(out[0]["role"], "assistant");
         assert!(out[0].as_object().unwrap().get("tool_calls").is_some());
@@ -2936,7 +2991,7 @@ mod make_openai_messages_tests {
             display_label: None,
             display_summary: None,
         }]);
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false, false);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "calling");
@@ -2958,6 +3013,7 @@ mod make_openai_messages_tests {
         let out = make_openai_messages(
             &[excluded, included],
             &SystemPromptSections::default(),
+            false,
             false,
             false,
         );
@@ -2982,7 +3038,7 @@ mod make_openai_messages_tests {
             display_label: None,
             display_summary: None,
         }]);
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false);
         assert_eq!(out[0]["content"], "visible");
         assert!(out[0].as_object().unwrap().get("tool_calls").is_some());
     }
@@ -3005,7 +3061,7 @@ mod make_openai_messages_tests {
             display_summary: None,
         }]);
 
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false);
         assert_eq!(out.len(), 1, "assistant only");
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "");
@@ -3040,6 +3096,49 @@ mod qwen_explicit_cache_tests {
         s.providers[0].base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1".into();
         s.model = "qwen-plus".into();
         assert!(qwen_explicit_system_cache_enabled(&s));
+    }
+}
+
+#[cfg(test)]
+mod model_capability_vision_tests {
+    use super::*;
+
+    #[test]
+    fn qwen_models_default_support_vision() {
+        let s = ModelSettings::default();
+        let (vision, _, _) = model_capability_flags(&s, "qwen", "qwen3.5-plus");
+        assert!(vision);
+        let (vision, _, _) = model_capability_flags(&s, "qwen", "qwen3.5-flash");
+        assert!(vision);
+    }
+
+    #[test]
+    fn deepseek_models_do_not_support_vision() {
+        let mut s = ModelSettings::default();
+        ensure_provider_model_capability_defaults(&mut s);
+        let (vision, _, _) = model_capability_flags(&s, "deepseek", "deepseek-v4-flash");
+        assert!(!vision);
+        let (vision, _, _) = model_capability_flags(&s, "deepseek", "deepseek-v4-pro");
+        assert!(!vision);
+    }
+
+    #[test]
+    fn ensure_provider_resets_deepseek_vision_false() {
+        let mut s = ModelSettings::default();
+        {
+            let ds = s.providers.iter_mut().find(|p| p.id == "deepseek").unwrap();
+            ds.model_configs.insert(
+                "deepseek-v4-flash".into(),
+                ModelRuntimeOverrides {
+                    supports_vision: Some(true),
+                    ..Default::default()
+                },
+            );
+        }
+        ensure_provider_model_capability_defaults(&mut s);
+        let ds = s.providers.iter().find(|p| p.id == "deepseek").unwrap();
+        let entry = ds.model_configs.get("deepseek-v4-flash").unwrap();
+        assert_eq!(entry.supports_vision, Some(false));
     }
 }
 

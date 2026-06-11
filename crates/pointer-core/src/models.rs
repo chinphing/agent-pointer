@@ -2543,7 +2543,14 @@ fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMess
                 }
             }
         }
-        out.push(m.clone());
+        if matches!(m.role, Role::Tool) {
+            log::warn!(
+                "expand_tool_messages_for_openai_request: skipping orphan tool message id={} (no preceding assistant with tool_calls)",
+                m.id
+            );
+        } else {
+            out.push(m.clone());
+        }
         i += 1;
     }
     out
@@ -3066,6 +3073,59 @@ mod make_openai_messages_tests {
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "");
         assert!(out[0].as_object().unwrap().get("tool_calls").is_none());
+    }
+
+    #[test]
+    fn orphan_tool_message_skipped_on_wire() {
+        let mut assistant = msg(Role::Assistant);
+        assistant.content = "done".into();
+        assistant.tool_calls = Some(vec![ToolCall {
+            id: "call_ok".into(),
+            name: "terminal".into(),
+            arguments: "{}".into(),
+            status: "success".into(),
+            result: Some("ok".into()),
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+            display_label: None,
+            display_summary: None,
+        }]);
+        let mut orphan = msg(Role::Tool);
+        orphan.id = "tool_orphan".into();
+        orphan.content = "stale db tail".into();
+        orphan.tool_call_id = Some("call_orphan".into());
+
+        let out = make_openai_messages(
+            &[assistant.clone(), orphan],
+            &SystemPromptSections::default(),
+            false,
+            false,
+            false,
+        );
+        assert_eq!(out.len(), 2, "assistant + synthesized tool from inline result");
+        assert_eq!(out[0]["role"], "assistant");
+        assert_eq!(out[1]["role"], "tool");
+        assert_eq!(out[1]["tool_call_id"], "call_ok");
+    }
+
+    #[test]
+    fn orphan_tool_after_user_skipped_on_wire() {
+        let user = msg(Role::User);
+        let mut orphan = msg(Role::Tool);
+        orphan.id = "tool_orphan".into();
+        orphan.content = "orphan".into();
+        orphan.tool_call_id = Some("call_orphan".into());
+
+        let out = make_openai_messages(
+            &[user, orphan],
+            &SystemPromptSections::default(),
+            false,
+            false,
+            false,
+        );
+        assert_eq!(out.len(), 1, "user only; orphan tool dropped");
+        assert_eq!(out[0]["role"], "user");
     }
 }
 

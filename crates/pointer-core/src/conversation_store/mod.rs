@@ -22,6 +22,10 @@ const SCHEMA_VERSION: i32 = 1;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
+pub fn conversation_preview(messages: &[ChatMessage]) -> String {
+    persist::conversation_preview(messages)
+}
+
 pub struct ConversationStore {
     db: db::DbHandle,
 }
@@ -97,18 +101,57 @@ impl ConversationStore {
             .execute_write(|conn| write::upsert_message_in_conn(conn, conversation_id, msg))
     }
 
-    /// P2a: ordered upsert without deleting orphan rows (compression / trim).
-    pub fn sync_messages_ordered(
+    pub fn upsert_message_no_refresh(
         &self,
         conversation_id: &str,
-        messages: &[ChatMessage],
+        msg: &ChatMessage,
     ) -> Result<()> {
         self.db.execute_write(|conn| {
-            write::sync_messages_ordered_in_conn(conn, conversation_id, messages)
+            write::upsert_message_no_refresh_in_conn(conn, conversation_id, msg)
         })
     }
 
-    /// P2b: replace full transcript (undo / retry).
+    pub fn flush_conversation_meta(
+        &self,
+        conversation_id: &str,
+        message_count: u32,
+        preview: &str,
+    ) -> Result<()> {
+        self.db.execute_write(|conn| {
+            write::flush_conversation_meta_in_conn(conn, conversation_id, message_count, preview)
+        })
+    }
+
+    pub fn message_count(&self, conversation_id: &str) -> Result<u32> {
+        self.db
+            .execute_write(|conn| write::message_count_in_conn(conn, conversation_id))
+    }
+
+    pub fn stored_conversation_preview(&self, conversation_id: &str) -> Result<String> {
+        self.db
+            .execute_write(|conn| write::stored_preview_in_conn(conn, conversation_id))
+    }
+
+    /// P2a: ordered upsert without deleting orphan rows (compression / trim).
+    pub fn sync_messages_ordered_with_meta(
+        &self,
+        conversation_id: &str,
+        messages: &[ChatMessage],
+        message_count: u32,
+        preview: &str,
+    ) -> Result<()> {
+        self.db.execute_write(|conn| {
+            write::sync_messages_ordered_with_meta_in_conn(
+                conn,
+                conversation_id,
+                messages,
+                message_count,
+                preview,
+            )
+        })
+    }
+
+    /// P2b: replace full transcript from client-held messages.
     pub fn replace_messages(
         &self,
         conversation_id: &str,

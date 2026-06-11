@@ -383,11 +383,6 @@ fn strip_redundant_windows_elevation(command: &str) -> String {
     trimmed.to_string()
 }
 
-#[cfg(not(windows))]
-fn strip_redundant_windows_elevation(command: &str) -> String {
-    command.trim().to_string()
-}
-
 #[cfg(windows)]
 fn extract_runas_inner_command(command: &str) -> Option<String> {
     let marker = "-verb";

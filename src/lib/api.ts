@@ -88,7 +88,7 @@ export interface RuntimeApi {
   saveConversations(conversations: Conversation[]): Promise<void>
   revealInFinder(path: string): Promise<void>
   saveConversationMeta(metas: ConversationMeta[]): Promise<void>
-  replaceConversationMessages(conversationId: string, messages: ChatMessage[]): Promise<void>
+  appendConversationMessages(conversationId: string, messages: ChatMessage[]): Promise<number>
   onStream(handler: (e: StreamEvent) => void, conversationId?: string): Promise<UnlistenFn>
 }
 
@@ -163,7 +163,7 @@ export const dismissMacosPermissionDragGuide = isTauriRuntime()
 export const loadConversations = api.loadConversations
 export const saveConversations = api.saveConversations
 export const saveConversationMeta = api.saveConversationMeta
-export const replaceConversationMessages = api.replaceConversationMessages
+export const appendConversationMessages = api.appendConversationMessages
 export const onStream = api.onStream
 
 export type PlatformSessionView = import('./tauri').PlatformSessionView

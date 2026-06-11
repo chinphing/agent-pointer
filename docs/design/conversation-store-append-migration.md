@@ -1,109 +1,193 @@
-# 对话存储：逐条 Append 迁移（P0–P2）
+# 对话存储与 Transcript 协调（P0–P2a）
 
-> **状态**：**P0–P2 已实现**（见下方模块与 API）。P0 后端 chat stream 落库；P1 前端 meta-only；P2a 压缩/trim sync；P2b 前端 replace。
+> **状态**：**已实现**（2026-06）。后端 `run_chat` 由 `ConversationTranscript` 协调落库；前端 messages **append-only**；**已移除**对外 `replace` API 与 undo/retry 全量覆盖路径。
 
-## 1. 背景
+## 1. 背景与目标
 
-| | 迁移前 | 目标（Hermes 式） |
-|--|--------|-------------------|
-| 主存储 | `conversations.json` → `conversations.db` | 同上，SQLite 为唯一真相源 |
-| 写入路径 | 前端 `persist()` debounce 400ms，**全量** `save_conversations` | 后端 append 为主；前端只写 meta |
-| 单次聊天 I/O | DELETE 会话全部 messages + INSERT 全量 | 通常 1 条 INSERT / UPDATE |
-| FTS | 与 messages 同事务 | 触发器随 INSERT/UPDATE 同步 |
+| | 迁移前 | 当前 |
+|--|--------|------|
+| 主存储 | `conversations.json` → `conversations.db` | SQLite `conversations.db` 为磁盘真相源 |
+| 写入路径 | 前端 debounce **全量** `save_conversations` | 后端 transcript 为主；前端 **meta + append** |
+| 工具结果 | 独立 `role: tool` 行可能落在表尾（orphan） | 插入对应 assistant 之后；批末 `sync_ordered` |
+| 会话统计 | 每条 upsert 后 `load_messages` 全量 reload | 内存 count/preview + `flush_conversation_meta` |
+| 前端改历史 | `replace` DELETE 全表再 INSERT | **禁止**客户端全量覆盖（避免抹掉 tool 行） |
 
-## 2. 三阶段定义（Pointer 修正版）
+目标（Hermes 式 append 为主）已达成；Pointer 压缩仍为 **软标记 + append summary**，不是 replace。
+
+## 2. 单一真相（三层）
+
+| 层 | 内容 | 说明 |
+|----|------|------|
+| **磁盘 canonical** | `messages` 表中独立 `role: tool` 行 | 紧跟发出 `tool_calls` 的 assistant 行之后；稳定 id `tool_{tool_call_id}` |
+| **UI 展示** | `assistant.toolCalls[].result/error` | 流式 `ToolCallStatus`；用户不看 `role: tool` 行 |
+| **发 LLM（wire）** | `expand_tool_messages` 从有序 transcript 展开 | 孤立 tool 行 **warn + 跳过**（防御性，避免 OpenAI 400） |
+
+**不要**在磁盘上依赖 inline `toolCalls[].result` 作为 tool 结果主存储；wire 展开以有序 `role: tool` 行为准。
+
+## 3. 架构：`ConversationTranscript`
+
+`run_chat` 期间每个活跃 `conversation_id` 注册一个会话级协调器，作为 **transcript 变更的唯一写入口**（与 `cancels` 同生命周期假设：同会话单活跃 run）。
+
+```
+crates/pointer-core/src/
+├── conversation_transcript/     # run_chat 内 transcript 协调
+│   ├── mod.rs                   # begin/end、record_tool_result、sync_ordered
+│   ├── registry.rs              # conversation_id → active session
+│   └── reconcile.rs             # orphan 清理、tool 插入锚点
+├── conversation_store/
+│   ├── persist.rs               # load、低层 SQL
+│   ├── write.rs                 # append / sync_with_meta / flush_meta
+│   └── mod.rs                   # ConversationStore
+└── chat_service/
+    ├── session.rs               # begin/end 挂点
+    └── conversation_persist.rs  # 薄封装 → transcript
+```
+
+### 3.1 生命周期（`session.rs`）
 
 ```text
-P0  chat stream ──append/upsert──► messages 表
-P1  前端 UI     ──patch meta──► conversations 表字段（不带 messages）
-P2  例外路径：
-      P2a  patch + append — 压缩 / TaskBoard trim（改 context_state，插入 summary）
-      P2b  replace         — undo / retry / 物理删改 transcript
+run_chat
+  ├─ ConversationTranscriptSession::begin(history)
+  │    ├─ reconcile_tool_messages（内存去掉 orphan tool）
+  │    ├─ append_missing_messages（补前端已有、库中尚无的 id）
+  │    ├─ 若 reconcile 改过顺序 → sync_messages_ordered_with_meta
+  │    └─ register Registry
+  ├─ run_chat_inner …
+  └─ ConversationTranscriptSession::end(history)
+       ├─ flush_transcript（若 transcript_dirty）
+       └─ unregister Registry
 ```
 
-### P0：后端在聊天流里逐条落库
+`begin()` 失败时回退 `conversation_persist::append_missing`，**不**注册 Registry（应极少；打 warn）。
 
-在 `pointer-core` 聊天循环中，对**主会话** `history` 的变更写库：
+### 3.2 工具结果写入
 
-- `run_chat` 开始：`append_missing_messages`（补写前端已发、库中尚无的消息）
-- 助手回合结束（`commit_lead_assistant_turn`）：`upsert_message`
-- 工具结果入 `history`：`upsert_message`
-- 压缩 / trim 成功：**P2a**（见下）
+- **内存**：`record_tool_result` 按 `tool_call_id` **向前**找含该 call 的 assistant（非「最后一条 assistant」）；插入 anchor 后 tool 块末尾；同 `tool_call_id` upsert。
+- **磁盘**：不在每个工具结束时单独 upsert；**每轮 tool pass 结束** `flush_after_tool_pass` → 一次 `sync_messages_ordered_with_meta`。
 
-过渡期可与前端双写；稳定后前端不再 bulk 写 messages。
+### 3.3 Assistant / 注入 user 行
 
-### P1：前端 `persist()` 只做元数据同步
+`commit_lead_assistant_turn`、`supervisor` 终稿、`json_tool_retries` 注入行：
 
-前端只同步 **会话壳** 字段：
+- 有 Registry → `upsert_message_no_refresh` + `flush_conversation_meta`（增量 count/preview）
+- 无 Registry → `upsert_no_refresh` + `COUNT(*)` + preview（打 warn）
 
-- `title`、`updatedAt`
-- `workspaceRoot`、`computerMonitorId`
-- `toolRoundsUsed` / `toolRoundsUsedSupervisor`
-- `skillIds`（字段保留，UI 基本未用）
+## 4. 写入阶段定义（P0 / P1 / P2a）
 
-API：`save_conversation_meta(metas[])`；删除会话仍通过 meta 列表 diff（`delete_conversations_not_in`）。
+```text
+P0  run_chat transcript ──append/upsert/sync──► messages 表
+P1  前端 UI           ──save_conversation_meta──► conversations 壳字段
+P2a 压缩 / TaskBoard trim ──sync_ordered_with_meta──► 改 position/context，不 DELETE
+（P2b replace 已废弃，见 §6）
+```
 
-**功能入口**（`src/stores/chat.ts`）：
+### P0 挂点
 
-| 入口 | 说明 |
+| 时机 | 行为 |
 |------|------|
-| `newConversation` / `deleteConversation` | 会话生命周期 |
-| `setConversationWorkspace` / `applyPersistedComposerDefaults` | Composer 工作目录 |
-| stream `workspace_updated` / `computer_monitor_updated` | 后端确认 meta |
-| stream `done` | 工具轮次计数（meta） |
-| stream `message_end` | 自动标题（meta 部分） |
+| `begin` | reconcile + append_missing + 可选 sync |
+| assistant commit | upsert 单行 + flush meta |
+| tool pass 结束 | sync_ordered（批末） |
+| `end` | 最终 flush |
+| 压缩 / trim（仍在 run 内） | `conversation_transcript::sync_ordered` |
 
-### P2：Pointer 版例外路径
+### P1 前端 meta-only
 
-**不是** Hermes 式「压缩 = replace_messages」。
+`persistMeta()` debounce 同步：`title`、`updatedAt`、`workspaceRoot`、`computerMonitorId`、`toolRoundsUsed*`、`skillIds` 等。
 
-Pointer 压缩（`context_compression.rs`）：
+**不写** messages 全量的入口：`newConversation`、`deleteConversation`、`setConversationWorkspace`、`stream done`、workspace/monitor 更新等。
 
-1. 旧消息 **保留**，仅 `context_state.included = false`
-2. **插入** summary user 消息
-3. LLM 侧用 `filter_context_messages()` 过滤；磁盘 transcript 完整
+### P2a 有序 sync（不删行）
 
-| 子类 | 存储行为 | 场景 |
-|------|----------|------|
-| **P2a** | `sync_messages_ordered`：按序 upsert payload/position，**不 DELETE** | 压缩、`TaskBoardTrim` |
-| **P2b** | `replace_messages`：DELETE 全消息 + INSERT | `undo`、`retry`、清除错误气泡 |
+- 按 `history` 顺序 upsert `position` / `payload`
+- 不 DELETE 库中多余 id（压缩只改 `context_state`、插入 summary）
+- 统计：`sync_messages_ordered_with_meta(count, preview)`，**不** `load_messages`
 
-## 3. 模块与 API
+## 5. Store API（Rust）
 
-```
-crates/pointer-core/src/conversation_store/
-├── persist.rs    # load + 低层 SQL
-├── write.rs      # append / sync / replace / meta
-└── mod.rs        # ConversationStore 公开方法
+| API | 用途 |
+|-----|------|
+| `append_missing_messages` | 仅插入库中缺失的 message_id |
+| `upsert_message_no_refresh` | 单行 upsert，不 reload 统计 |
+| `flush_conversation_meta` | `UPDATE message_count, preview` |
+| `sync_messages_ordered_with_meta` | P2a 有序 upsert + 轻量 meta |
+| `message_count` / `stored_conversation_preview` | 轻量读 meta |
+| `save_meta_all` | P1 壳字段 |
+| `replace_messages` | **仅单元测试**；生产不调用 |
 
-crates/pointer-core/src/chat_service/
-└── conversation_persist.rs   # run_chat 挂点，warn 日志
-```
+**已删除**：`sync_messages_ordered`（无 meta、内部 reload）、对外 `replace_conversation_messages`。
 
-| Rust API | 用途 |
-|----------|------|
-| `append_missing_messages` | P0 |
-| `upsert_message` | P0 |
-| `sync_messages_ordered` | P2a |
-| `replace_messages` | P2b |
-| `save_meta_all` | P1 |
-| `replace_conversation_messages`（HTTP/Tauri） | 前端 undo 等 |
+`refresh_conversation_stats`（全量 `load_messages`）已从生产路径移除。
 
-跨入口：Tauri command + Web `PUT /api/conversations/meta`、`PUT /api/conversations/:id/messages`。
+## 6. 为何废弃 P2b `replace`
 
-## 4. 与 Hermes 差异
+| 问题 | 说明 |
+|------|------|
+| 与 canonical 冲突 | 前端 messages **不含** `role: tool` 行；DELETE+INSERT 会抹掉磁盘 tool 行 |
+| 曾触发 400 | orphan tool + wire 顺序错误（assistant 无 tool_calls 后跟 tool） |
+| 产品无 undo/retry | UI 未暴露；无需客户端全量覆盖 |
 
-- Hermes：压缩可能 end session + child session；默认 `append_message`，`replace_messages` 为例外。
-- Pointer：**同一会话、同表**；压缩 = **软标记 + append summary**；`replace_messages` 仅 P2b。
+### 6.1 前端落库策略（`chat.ts`）
 
-## 5. 测试要点
+| 场景 | 策略 |
+|------|------|
+| 正常对话 | 后端 `run_chat` 落库；前端 `persistMeta` |
+| `sendChat` 网络失败 | `persistAppend`（`append_conversation_messages`） |
+| 登录 / 额度错误（未发 chat） | **仅 UI**，不写 messages |
+| 清除登录错误气泡 | **仅 UI** 过滤 |
+
+### 6.2 对外 HTTP / Tauri
+
+| 方法 | 路径 / command | 说明 |
+|------|----------------|------|
+| PUT | `/api/conversations/meta` | P1 meta |
+| POST | `/api/conversations/:id/messages/append` | P0 追加缺失 id |
+| — | `append_conversation_messages`（Tauri） | 同上 |
+
+**不再提供** `PUT /messages` 全量 replace。
+
+## 7. Orphan tool 与 wire 防御
+
+**产生原因（历史）**：
+
+- 后端 `push_tool_result` 曾在表尾 upsert tool 行
+- 前端 `replace` / 仅 inline `toolCalls` 不同步 tool 行
+- `append_missing` 只增不删 → user 后出现孤立 tool
+
+**现状**：
+
+- `begin`：`reconcile_tool_messages` 清理内存 orphan；必要时 sync 纠正 position
+- `expand_tool_messages_for_openai_request`：wire 上孤立 tool **跳过 + warn**
+- 插入：锚定含 `tool_call_id` 的 assistant
+
+## 8. `message_count` / `preview` 规则
+
+- `preview`：第一条非空 **user**，否则第一条 **assistant**（约 160 字）；不看 tool、不看最新消息。
+- Transcript session 内存维护 count/preview；批末 / upsert 后 `flush_conversation_meta`。
+- `append_missing` 后 count 取 `SELECT COUNT(*)`，preview 由调用方传入的 history 计算。
+
+## 9. 与 Hermes 差异
+
+- Hermes：压缩可能 end session；默认 append，`replace` 为例外。
+- Pointer：同会话同表；压缩 = 软标记 + append summary；**无客户端 replace**。
+- Tool 行：Pointer 磁盘保留独立 `role: tool`；UI 用 inline 展示。
+
+## 10. 测试要点
 
 - meta-only save 不覆盖 messages
 - append 后 FTS 可检索新内容
-- sync_messages_ordered：context_state 变更 + 中间插入 summary，message 总数不减
-- replace_messages：undo 后 DB 与内存一致
+- `sync_messages_ordered_with_meta`：context_state 变更 + 插入 summary，总行数不减
+- `conversation_transcript`：tool 插入 anchor 后、reconcile 去掉 user 后 orphan
+- `make_openai_messages_tests`：orphan tool 不上 wire
+- **回归**：长对话多 tool 轮后 wire 顺序正确、无 HTTP 400
 
-## 6. 相关文档
+## 11. 后续扩展（未做）
+
+- 按 message_id **删除** API（若需持久化「清错误气泡」）
+- 多客户端同会话：仍依赖 SQLite `BEGIN IMMEDIATE`；内存 Registry 假设单活跃 run
+- 将压缩/trim 以外所有 `conversation_store` 直写收口到 Registry
+
+## 12. 相关文档
 
 - [persistent-memory-and-self-improvement.md](persistent-memory-and-self-improvement.md) — MEMORY/USER 与 review
 - [../guides/cross-platform-build.md](../guides/cross-platform-build.md) — `conversations.db` 路径

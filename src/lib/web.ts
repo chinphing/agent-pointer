@@ -265,14 +265,15 @@ export async function saveConversationMeta(metas: import('../types/chat').Conver
   await request('/api/conversations/meta', { method: 'PUT', body: JSON.stringify(metas) })
 }
 
-export async function replaceConversationMessages(
+export async function appendConversationMessages(
   conversationId: string,
   messages: import('../types/chat').ChatMessage[]
-): Promise<void> {
-  await request(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
-    method: 'PUT',
-    body: JSON.stringify(messages)
-  })
+): Promise<number> {
+  const written = await request<number>(
+    `/api/conversations/${encodeURIComponent(conversationId)}/messages/append`,
+    { method: 'POST', body: JSON.stringify(messages) }
+  )
+  return written ?? 0
 }
 
 export interface PlatformSessionView {

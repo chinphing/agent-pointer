@@ -21,19 +21,21 @@ pub fn append_missing(conversation_id: &str, history: &[ChatMessage]) {
         log::warn!(
             "conversation_persist: append_missing failed conversation_id={conversation_id}: {e:#}"
         );
+        return;
+    }
+    let count = store
+        .message_count(conversation_id)
+        .unwrap_or(history.len() as u32);
+    let preview = conversation_store::conversation_preview(history);
+    if let Err(e) = store.flush_conversation_meta(conversation_id, count, &preview) {
+        log::warn!(
+            "conversation_persist: flush_meta after append_missing failed conversation_id={conversation_id}: {e:#}"
+        );
     }
 }
 
 pub fn upsert_message(conversation_id: &str, msg: &ChatMessage) {
-    let Some(store) = store() else {
-        return;
-    };
-    if let Err(e) = store.upsert_message(conversation_id, msg) {
-        log::warn!(
-            "conversation_persist: upsert_message failed conversation_id={conversation_id} message_id={}: {e:#}",
-            msg.id
-        );
-    }
+    crate::conversation_transcript::upsert_message(conversation_id, msg);
 }
 
 pub fn upsert_meta(meta: &ConversationMeta) {

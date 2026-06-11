@@ -232,11 +232,11 @@ export async function saveConversationMeta(metas: ConversationMeta[]): Promise<v
   await invoke('save_conversation_meta', { metas })
 }
 
-export async function replaceConversationMessages(
+export async function appendConversationMessages(
   conversationId: string,
   messages: ChatMessage[]
-): Promise<void> {
-  await invoke('replace_conversation_messages', { conversationId, messages })
+): Promise<number> {
+  return await invoke<number>('append_conversation_messages', { conversationId, messages })
 }
 
 export async function onStream(handler: (e: StreamEvent) => void): Promise<UnlistenFn> {

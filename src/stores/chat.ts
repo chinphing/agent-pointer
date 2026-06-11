@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch, nextTick } from 'vue'
 import {
   sendChat, cancelChat, abortTerminalCommand, approveToolCall, onStream,
-  loadConversations, saveConversationMeta, replaceConversationMessages, saveChatAttachment
+  loadConversations, saveConversationMeta, appendConversationMessages, saveChatAttachment
 } from '../lib/api'
 import type {
   ChatMessage,
@@ -363,14 +363,14 @@ export const useChatStore = defineStore('chat', () => {
     }, 400)
   }
 
-  /** P2b: replace transcript when the UI rewrites history (undo, errors, etc.). */
-  function persistReplace(conversationId: string) {
+  /** P0: append client-held messages missing from DB (never deletes tool rows). */
+  function persistAppend(conversationId: string) {
     const conv = conversations.value.find(c => c.id === conversationId)
     if (!conv) return
     const [stripped] = stripEphemeralDesktopNoticesForDisk([conv])
     const messages = JSON.parse(JSON.stringify(stripped.messages)) as ChatMessage[]
-    replaceConversationMessages(conversationId, messages).catch(e =>
-      console.error('replace messages error', e)
+    appendConversationMessages(conversationId, messages).catch(e =>
+      console.error('append messages error', e)
     )
   }
 
@@ -921,7 +921,7 @@ export const useChatStore = defineStore('chat', () => {
           toolCalls: []
         })
         conv.updatedAt = Date.now()
-        persistReplace(e.conversationId)
+        persistMeta()
         break
       }
       case 'message_start': {
@@ -1300,17 +1300,14 @@ export const useChatStore = defineStore('chat', () => {
         if (r.msg.role !== 'assistant') break
         r.msg.computerRoundScreenRelPath = e.annotatedRelPath
         r.conv.updatedAt = Date.now()
-        persistReplace(e.conversationId)
         break
       }
       case 'error': {
         flushReasoningDeltaBuffer(e.messageId ?? undefined)
         const cancelled = isGenerationCancelledMessage(e.message)
-        let replaceId: string | null = null
         if (e.messageId) {
           const r = findMessage(e.messageId)
           if (r) {
-            replaceId = r.conv.id
             if (cancelled && isDiscardableEmptyAssistant(r.msg)) {
               removeAssistantMessage(r.conv, e.messageId)
             } else {
@@ -1323,14 +1320,12 @@ export const useChatStore = defineStore('chat', () => {
         } else if (cancelled) {
           const conv = conversations.value.find(c => c.id === currentId.value)
           if (conv) {
-            replaceId = conv.id
             removeTrailingDiscardableEmptyAssistant(conv)
             clearRunState(conv.id)
           }
         } else {
           const conv = conversations.value.find(c => c.id === currentId.value)
           if (conv) {
-            replaceId = conv.id
             conv.messages.push({
               id: uid(),
               role: 'assistant',
@@ -1344,7 +1339,7 @@ export const useChatStore = defineStore('chat', () => {
           }
           clearAllRunStates()
         }
-        if (replaceId) persistReplace(replaceId)
+        persistMeta()
         break
       }
       case 'done': {
@@ -1391,7 +1386,6 @@ export const useChatStore = defineStore('chat', () => {
             platformAuth.error ||
             '请先登录 Pointer 账户'
         })
-        persistReplace(conv.id)
         return
       }
     }
@@ -1405,7 +1399,6 @@ export const useChatStore = defineStore('chat', () => {
         errorMessage:
           '套餐 Token 额度已用尽，请前往 Openpointer 官网充值或联系管理员。'
       })
-      persistReplace(conv.id)
       return
     }
     const settings = useSettingsStore()
@@ -1466,7 +1459,7 @@ export const useChatStore = defineStore('chat', () => {
         status: 'error', createdAt: Date.now(),
         errorMessage: String(err)
       })
-      persistReplace(conv.id)
+      persistAppend(conv.id)
     })
   }
 
@@ -1485,7 +1478,7 @@ export const useChatStore = defineStore('chat', () => {
       }
     }
     removeDiscardableAssistant(conv, msgId)
-    persistReplace(conv.id)
+    persistMeta()
   }
 
   async function abortTerminalOnly() {
@@ -1493,48 +1486,10 @@ export const useChatStore = defineStore('chat', () => {
     await abortTerminalCommand(current.value.id).catch(e => console.error(e))
   }
 
-  async function retry() {
-    if (!current.value) return
-    const conv = current.value
-    const settings = useSettingsStore()
-    while (conv.messages.length && conv.messages[conv.messages.length - 1].role !== 'user') {
-      conv.messages.pop()
-    }
-    const last = conv.messages[conv.messages.length - 1]
-    if (!last) return
-    persistReplace(conv.id)
-    patchRunState(conv.id, { generating: true, activeMessageId: null })
-    await sendChat({
-      conversationId: conv.id,
-      messages: JSON.parse(JSON.stringify(conv.messages)),
-      enabledSkillIds: enabledSkillIdsForRequest(),
-      agentMode: settings.settings.agentMode,
-      toolRoundsUsed: conv.toolRoundsUsed ?? 0,
-      toolRoundsUsedSupervisor: conv.toolRoundsUsedSupervisor ?? 0,
-      workspaceRoot: conv.workspaceRoot ?? ''
-    }).catch(err => {
-      clearRunState(conv.id)
-      console.error(err)
-    })
-  }
-
   async function approve(toolCall: ToolCall, approved: boolean) {
     if (!current.value) return
     await approveToolCall(current.value.id, toolCall.id, approved)
       .catch(e => console.error(e))
-  }
-
-  function undo() {
-    if (!current.value || isConversationGenerating(current.value.id)) return
-    const conv = current.value
-    while (conv.messages.length && conv.messages[conv.messages.length - 1].role !== 'user') {
-      conv.messages.pop()
-    }
-    if (conv.messages.length && conv.messages[conv.messages.length - 1].role === 'user') {
-      conv.messages.pop()
-    }
-    conv.updatedAt = Date.now()
-    persistReplace(conv.id)
   }
 
   function applyPersistedComposerDefaults() {
@@ -1555,7 +1510,6 @@ export const useChatStore = defineStore('chat', () => {
     conv.messages = conv.messages.filter(m => !isPlatformLoginErrorMessage(m))
     if (conv.messages.length !== before) {
       conv.updatedAt = Date.now()
-      persistReplace(conv.id)
     }
   }
 
@@ -1574,7 +1528,7 @@ export const useChatStore = defineStore('chat', () => {
   return {
     conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards,
     init, newConversation, selectConversation, deleteConversation,
-    sendUserMessage, stop, abortTerminalOnly, retry, approve, undo,
+    sendUserMessage, stop, abortTerminalOnly, approve,
     refreshTaskBoard, refreshSubAgentTaskBoards, taskBoardForConversation, parentBoardsBoundToMessage,
     childBoardsForParent, lookupChildTaskBoard,
     setConversationWorkspace, applyPersistedComposerDefaults, showUiToast,

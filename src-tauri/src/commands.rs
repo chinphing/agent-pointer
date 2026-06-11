@@ -392,11 +392,11 @@ pub fn save_conversation_meta(metas: Vec<pointer_core::models::ConversationMeta>
 }
 
 #[tauri::command]
-pub fn replace_conversation_messages(
+pub fn append_conversation_messages(
     conversation_id: String,
     messages: Vec<pointer_core::models::ChatMessage>,
-) -> Result<(), String> {
-    storage::replace_conversation_messages(&conversation_id, &messages).map_err(|e| e.to_string())
+) -> Result<u32, String> {
+    storage::append_conversation_messages(&conversation_id, &messages).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -151,7 +151,13 @@ pub(super) async fn run_agent_tool_pass(
                     trace_id: trace_id_opt(sub_trace_id.as_deref()),
                 },
             );
-            super::util::push_tool_result(history, conversation_id, &tc.id, &format!("ERROR: {err}"));
+            super::util::push_tool_result(
+                history,
+                conversation_id,
+                &message_id,
+                &tc.id,
+                &format!("ERROR: {err}"),
+            );
             any_executed = true;
             continue;
         }
@@ -176,7 +182,13 @@ pub(super) async fn run_agent_tool_pass(
                     trace_id: trace_id_opt(sub_trace_id.as_deref()),
                     },
                 );
-                super::util::push_tool_result(history, conversation_id, &tc.id, &format!("ERROR: {err}"));
+                super::util::push_tool_result(
+                history,
+                conversation_id,
+                &message_id,
+                &tc.id,
+                &format!("ERROR: {err}"),
+            );
                 any_executed = true;
                 continue;
             }
@@ -308,6 +320,8 @@ pub(super) async fn run_agent_tool_pass(
         maybe_trim_after_tool_pass(history, hook, task_board_succeeded);
     }
 
+    crate::conversation_transcript::flush_after_tool_pass(conversation_id, history);
+
     if !any_executed {
         if let Some(consumed) = consumed_single {
             tool_budget.sync_out(consumed);
@@ -395,7 +409,7 @@ async fn run_approval_gate(
             trace_id: trace_id_opt(trace_id),
         },
     );
-    super::util::push_tool_result(history, conversation_id, &tc.id, &err);
+    super::util::push_tool_result(history, conversation_id, message_id, &tc.id, &err);
     Ok(false)
 }
 
@@ -719,7 +733,7 @@ async fn record_tool_exec_outcome(
                 args_for_desktop_log,
                 &out,
             );
-            super::util::push_tool_result(history, conversation_id, &tc.id, &out);
+            super::util::push_tool_result(history, conversation_id, message_id, &tc.id, &out);
         }
         Err(e) => {
             let err = e.to_string();
@@ -753,7 +767,7 @@ async fn record_tool_exec_outcome(
                 args_for_desktop_log,
                 &error_out,
             );
-            super::util::push_tool_result(history, conversation_id, &tc.id, &error_out);
+            super::util::push_tool_result(history, conversation_id, message_id, &tc.id, &error_out);
         }
     }
 }

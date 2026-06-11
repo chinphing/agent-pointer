@@ -156,8 +156,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/conversations/meta", put(save_conversation_meta))
         .route(
-            "/api/conversations/:conversation_id/messages",
-            put(replace_conversation_messages),
+            "/api/conversations/:conversation_id/messages/append",
+            post(append_conversation_messages),
         )
         .route("/api/experiences/pinned", get(list_pinned_experiences))
         .route("/api/experiences/home", get(get_experience_home))
@@ -540,12 +540,12 @@ async fn save_conversation_meta(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn replace_conversation_messages(
+async fn append_conversation_messages(
     axum::extract::Path(conversation_id): axum::extract::Path<String>,
     Json(messages): Json<Vec<pointer_core::models::ChatMessage>>,
-) -> Result<StatusCode, ApiError> {
-    storage::replace_conversation_messages(&conversation_id, &messages)?;
-    Ok(StatusCode::NO_CONTENT)
+) -> Result<Json<u32>, ApiError> {
+    let written = storage::append_conversation_messages(&conversation_id, &messages)?;
+    Ok(Json(written))
 }
 
 async fn send_chat(

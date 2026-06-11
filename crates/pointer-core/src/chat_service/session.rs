@@ -41,7 +41,20 @@ pub async fn run_chat(
         .lock()
         .insert(conversation_id.clone(), cancel.clone());
 
-    super::conversation_persist::append_missing(&conversation_id, &history);
+    let transcript_session = match crate::conversation_transcript::ConversationTranscriptSession::begin(
+        &conversation_id,
+        &mut history,
+    ) {
+        Ok(session) => Some(session),
+        Err(e) => {
+            log::warn!(
+                "run_chat: transcript begin failed conversation_id={}: {e:#}",
+                conversation_id
+            );
+            super::conversation_persist::append_missing(&conversation_id, &history);
+            None
+        }
+    };
 
     let run_id = Uuid::new_v4().to_string();
     let mut consumed_single = 0u32;
@@ -72,6 +85,12 @@ pub async fn run_chat(
         crate::token_usage_store::flush_unsent_reports(&state.platform_auth).await
     {
         log::warn!("token_usage_store: flush after chat failed: {e}");
+    }
+
+    if let Some(session) = transcript_session.as_ref() {
+        crate::conversation_transcript::ConversationTranscriptSession::end(&history, session);
+    } else {
+        super::conversation_persist::append_missing(&conversation_id, &history);
     }
 
     state.cancels.lock().remove(&conversation_id);

@@ -631,9 +631,17 @@ pub fn save_conversation_meta(metas: &[ConversationMeta]) -> Result<()> {
     crate::conversation_store::global_store()?.save_meta_all(metas)
 }
 
-pub fn replace_conversation_messages(
+/// Append messages whose ids are not yet in the DB (P0); does not delete existing rows.
+pub fn append_conversation_messages(
     conversation_id: &str,
     messages: &[ChatMessage],
-) -> Result<()> {
-    crate::conversation_store::global_store()?.replace_messages(conversation_id, messages)
+) -> Result<u32> {
+    let store = crate::conversation_store::global_store()?;
+    let written = store.append_missing_messages(conversation_id, messages)?;
+    if written > 0 {
+        let count = store.message_count(conversation_id)?;
+        let preview = crate::conversation_store::conversation_preview(messages);
+        store.flush_conversation_meta(conversation_id, count, &preview)?;
+    }
+    Ok(written)
 }

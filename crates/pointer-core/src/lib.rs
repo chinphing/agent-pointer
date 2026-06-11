@@ -15,6 +15,7 @@ pub mod workspace_delegation;
 pub mod extensions;
 pub mod context_compression;
 pub mod conversation_store;
+pub mod conversation_transcript;
 pub mod memory;
 pub mod session_search;
 pub mod message_context;

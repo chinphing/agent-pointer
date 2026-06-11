@@ -53,43 +53,20 @@ pub(crate) fn patch_assistant_tool_call_display(
     };
 }
 
-pub(crate) fn tool_result_msg(tool_call_id: &str, content: &str) -> ChatMessage {
-    ChatMessage {
-        id: new_id("tool"),
-        role: Role::Tool,
-        content: content.to_string(),
-        status: "completed".into(),
-        created_at: now_ms(),
-        tool_calls: None,
-        tool_call_id: Some(tool_call_id.to_string()),
-        error_message: None,
-        reasoning: None,
-        thoughts: None,
-        headline: None,
-        raw_content: None,
-        tool_raw_output: None,
-        agent_id: None,
-        agent_instance_id: None,
-        agent_name: None,
-        agent_trace: None,
-        image_slot_labels: None,
-        images_base64: None,
-        computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-        attachments: None,
-            }
-}
-
 pub(crate) fn push_tool_result(
     history: &mut Vec<ChatMessage>,
     conversation_id: &str,
+    hint_message_id: &str,
     tool_call_id: &str,
     content: &str,
 ) {
-    let msg = tool_result_msg(tool_call_id, content);
-    history.push(msg.clone());
-    super::conversation_persist::upsert_message(conversation_id, &msg);
+    crate::conversation_transcript::record_tool_result(
+        conversation_id,
+        history,
+        hint_message_id,
+        tool_call_id,
+        content,
+    );
 }
 
 pub(crate) fn append_assistant_tool_raw_output(

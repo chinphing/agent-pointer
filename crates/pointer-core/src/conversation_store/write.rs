@@ -5,9 +5,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::models::{ChatMessage, ConversationMeta};
 
-use super::persist::{
-    conversation_preview, load_messages, message_index_content, role_str,
-};
+use super::persist::{conversation_preview, message_index_content, role_str};
 
 pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> Result<()> {
     let skill_ids_json = serde_json::to_string(&meta.skill_ids)?;
@@ -182,12 +180,36 @@ fn insert_message_at(
     Ok(())
 }
 
-fn refresh_conversation_stats(conn: &Connection, conversation_id: &str) -> Result<()> {
-    let messages = load_messages(conn, conversation_id)?;
-    let preview = conversation_preview(&messages);
+pub fn message_count_in_conn(conn: &Connection, conversation_id: &str) -> Result<u32> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM messages WHERE conversation_id = ?1",
+        params![conversation_id],
+        |row| row.get(0),
+    )?;
+    Ok(count as u32)
+}
+
+pub fn stored_preview_in_conn(conn: &Connection, conversation_id: &str) -> Result<String> {
+    let preview: Option<String> = conn
+        .query_row(
+            "SELECT preview FROM conversations WHERE id = ?1",
+            params![conversation_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten();
+    Ok(preview.unwrap_or_default())
+}
+
+pub fn flush_conversation_meta_in_conn(
+    conn: &Connection,
+    conversation_id: &str,
+    message_count: u32,
+    preview: &str,
+) -> Result<()> {
     conn.execute(
         "UPDATE conversations SET message_count = ?2, preview = ?3 WHERE id = ?1",
-        params![conversation_id, messages.len() as i64, preview],
+        params![conversation_id, message_count as i64, preview],
     )?;
     Ok(())
 }
@@ -212,12 +234,39 @@ pub fn append_missing_messages_in_conn(
         written += 1;
     }
     if written > 0 {
-        refresh_conversation_stats(conn, conversation_id)?;
         log::debug!(
             "conversation_store: append_missing conversation_id={conversation_id} new_messages={written}"
         );
     }
     Ok(written)
+}
+
+/// P0: upsert without reloading the full transcript for stats.
+pub fn upsert_message_no_refresh_in_conn(
+    conn: &Connection,
+    conversation_id: &str,
+    msg: &ChatMessage,
+) -> Result<()> {
+    ensure_conversation_row(conn, conversation_id)?;
+    let exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM messages WHERE conversation_id = ?1 AND message_id = ?2 LIMIT 1",
+            params![conversation_id, msg.id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    let position = if exists {
+        conn.query_row(
+            "SELECT position FROM messages WHERE conversation_id = ?1 AND message_id = ?2",
+            params![conversation_id, msg.id],
+            |row| row.get::<_, i64>(0),
+        )?
+    } else {
+        max_message_position(conn, conversation_id)? + 1
+    };
+    insert_message_at(conn, conversation_id, msg, position)?;
+    Ok(())
 }
 
 /// P0: upsert a single message at the end (or update payload in place).
@@ -245,20 +294,23 @@ pub fn upsert_message_in_conn(
         max_message_position(conn, conversation_id)? + 1
     };
     insert_message_at(conn, conversation_id, msg, position)?;
-    refresh_conversation_stats(conn, conversation_id)?;
+    let count = message_count_in_conn(conn, conversation_id)?;
+    let preview = stored_preview_in_conn(conn, conversation_id)?;
+    flush_conversation_meta_in_conn(conn, conversation_id, count, &preview)?;
     Ok(())
 }
 
-/// P2a: upsert all messages in order; do not delete rows missing from the slice.
-pub fn sync_messages_ordered_in_conn(
+pub fn sync_messages_ordered_with_meta_in_conn(
     conn: &Connection,
     conversation_id: &str,
     messages: &[ChatMessage],
+    message_count: u32,
+    preview: &str,
 ) -> Result<()> {
     for (pos, msg) in messages.iter().enumerate() {
         insert_message_at(conn, conversation_id, msg, pos as i64)?;
     }
-    refresh_conversation_stats(conn, conversation_id)?;
+    flush_conversation_meta_in_conn(conn, conversation_id, message_count, preview)?;
     log::info!(
         "conversation_store: sync_messages_ordered conversation_id={conversation_id} count={}",
         messages.len()
@@ -279,7 +331,9 @@ pub fn replace_messages_in_conn(
     for (pos, msg) in messages.iter().enumerate() {
         insert_message_at(conn, conversation_id, msg, pos as i64)?;
     }
-    refresh_conversation_stats(conn, conversation_id)?;
+    let count = messages.len() as u32;
+    let preview = conversation_preview(messages);
+    flush_conversation_meta_in_conn(conn, conversation_id, count, &preview)?;
     log::info!(
         "conversation_store: replace_messages conversation_id={conversation_id} count={}",
         messages.len()
@@ -336,7 +390,15 @@ mod tests {
             999,
         );
         conv.messages.insert(1, summary);
-        store.sync_messages_ordered("c1", &conv.messages).unwrap();
+        let preview = conversation_preview(&conv.messages);
+        store
+            .sync_messages_ordered_with_meta(
+                "c1",
+                &conv.messages,
+                conv.messages.len() as u32,
+                &preview,
+            )
+            .unwrap();
         let loaded = store.load_all().unwrap();
         assert_eq!(loaded[0].messages.len(), 3);
         assert_eq!(

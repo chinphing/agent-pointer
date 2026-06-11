@@ -7,6 +7,7 @@ use tokio::sync::RwLock;
 use super::dingtalk;
 use super::feishu;
 use super::qr::qrcode_png_base64;
+use super::wecom;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +21,8 @@ pub struct RegistrationSession {
     pub app_secret: Option<String>,
     pub client_id: Option<String>,
     pub client_secret: Option<String>,
+    pub bot_id: Option<String>,
+    pub secret: Option<String>,
     pub error_message: Option<String>,
 }
 
@@ -68,6 +71,18 @@ impl ChannelRegistrationState {
                     },
                 )
             }
+            "wecom" => {
+                let begin = wecom::begin_registration().await?;
+                (
+                    begin.qr_url.clone(),
+                    PollContext {
+                        channel: channel.into(),
+                        device_code: begin.scode,
+                        interval_secs: begin.interval_secs,
+                        expire_secs: begin.expire_secs,
+                    },
+                )
+            }
             other => anyhow::bail!("channel {other} does not support QR registration"),
         };
 
@@ -82,6 +97,8 @@ impl ChannelRegistrationState {
             app_secret: None,
             client_id: None,
             client_secret: None,
+            bot_id: None,
+            secret: None,
             error_message: None,
         };
 
@@ -151,6 +168,28 @@ async fn poll_until_done(
                         session.status = "success".into();
                     }
                     log::info!("dingtalk registration success key={key}");
+                    Ok(())
+                }
+                Ok(None) => Err(anyhow::anyhow!("授权未完成")),
+                Err(e) => Err(e),
+            }
+        }
+        "wecom" => {
+            match wecom::poll_registration(
+                &ctx.device_code,
+                ctx.interval_secs,
+                ctx.expire_secs,
+            )
+            .await
+            {
+                Ok(Some(creds)) => {
+                    let mut guard = sessions.write().await;
+                    if let Some(session) = guard.get_mut(key) {
+                        session.bot_id = Some(creds.bot_id);
+                        session.secret = Some(creds.secret);
+                        session.status = "success".into();
+                    }
+                    log::info!("wecom registration success key={key}");
                     Ok(())
                 }
                 Ok(None) => Err(anyhow::anyhow!("授权未完成")),

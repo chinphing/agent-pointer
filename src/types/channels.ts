@@ -72,5 +72,7 @@ export interface ChannelRegistrationSession {
   appSecret?: string
   clientId?: string
   clientSecret?: string
+  botId?: string
+  secret?: string
   errorMessage?: string
 }

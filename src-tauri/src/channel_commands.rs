@@ -56,11 +56,15 @@ pub fn update_channels_config(
     gateway: State<'_, Arc<ChannelGateway>>,
     monitors: State<'_, Arc<ChannelMonitorHandle>>,
     cfg: ChannelsConfig,
+    restart_monitors: Option<bool>,
 ) -> Result<(), String> {
     gateway
         .update_config(cfg)
         .map_err(|e| format!("保存通道配置失败: {e:#}"))?;
-    monitors.restart();
+    if restart_monitors.unwrap_or(false) {
+        monitors.restart();
+        log::info!("channel monitors restarted after explicit connect");
+    }
     Ok(())
 }
 
@@ -89,15 +93,9 @@ pub async fn start_weixin_login(
 #[tauri::command]
 pub async fn get_weixin_login_status(
     qr: State<'_, Arc<QrLoginState>>,
-    monitors: State<'_, Arc<ChannelMonitorHandle>>,
     account_id: String,
 ) -> Result<Option<QrLoginSession>, String> {
-    let session = qr.get(&account_id).await;
-    if session.as_ref().is_some_and(|s| s.status == "confirmed") {
-        monitors.restart();
-        log::info!("weixin login confirmed; channel monitors restarted account={account_id}");
-    }
-    Ok(session)
+    Ok(qr.get(&account_id).await)
 }
 
 #[tauri::command]

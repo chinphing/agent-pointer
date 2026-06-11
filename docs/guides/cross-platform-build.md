@@ -204,6 +204,24 @@ macOS 电脑操控需「屏幕录制 + 辅助功能」。
 `tauri dev` 下可执行文件可能不在 `.app` 内，权限向导可能不完整——**建议用打包后的 `.app` 测试**。  
 详见 [`docs/internals/macos-computer-permissions.md`](../internals/macos-computer-permissions.md)。
 
+### 打开提示「已损坏，无法打开」
+
+从浏览器 / 网盘 / 聊天工具下载的 `.dmg` / `.app`，若 **未做 Developer ID 签名 + 公证**，macOS Gatekeeper 常会显示「已损坏」或「无法验证开发者」——**不是安装包真的坏了**，而是系统拒绝运行未信任来源的应用。
+
+**用户侧（内测 / 自构建包）：**
+
+1. **推荐**：不要双击 DMG 里直接打开的 App；将 `Pointer.app` 拖入「应用程序」后，在终端执行（路径按实际修改）：
+   ```bash
+   xattr -cr /Applications/Pointer.app
+   ```
+   去掉下载隔离属性 `com.apple.quarantine` 后再从启动台或应用程序文件夹打开。
+
+2. **或**：Finder 中 **右键** `Pointer.app` → **打开** → 在对话框中再次点 **打开**（仅首次需要）。
+
+3. 若仍失败，在「系统设置 → 隐私与安全性」中查看是否有「仍要打开」按钮。
+
+**分发侧（正式发布）：** 见下文「签名与分发」——需 Apple Developer 证书签名并完成 Notarization，用户才无需上述步骤。
+
 ### 正式发布（可选）
 
 - Apple Developer 证书签名

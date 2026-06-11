@@ -8,6 +8,7 @@ mod macos_permission_commands;
 #[cfg(target_os = "macos")]
 mod macos_traffic_lights;
 mod platform_commands;
+mod popup_windows;
 mod window_chrome_commands;
 
 use pointer_channels::adapters::register_builtin_channels;
@@ -239,6 +240,9 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            popup_windows::create_main_window(app)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+
             #[cfg(target_os = "macos")]
             configure_macos_window_chrome(app);
 

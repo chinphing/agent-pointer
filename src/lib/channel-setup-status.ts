@@ -194,9 +194,16 @@ export function resolveSetupState(
 
 function sessionTone(text: string): StatusTone {
   if (
+    text.includes('连接未建立') ||
+    text.includes('连接失败')
+  ) {
+    return 'error'
+  }
+  if (
     text.includes('成功') ||
     text.includes('凭证已填入') ||
-    text.includes('创建成功')
+    text.includes('创建成功') ||
+    text.includes('运行中')
   ) {
     return 'success'
   }
@@ -210,7 +217,12 @@ function sessionTone(text: string): StatusTone {
   ) {
     return 'error'
   }
-  if (text.includes('已扫码') || text.includes('等待')) {
+  if (
+    text.includes('已扫码') ||
+    text.includes('等待') ||
+    text.includes('正在连接') ||
+    text.includes('正在获取')
+  ) {
     return 'warn'
   }
   return 'muted'

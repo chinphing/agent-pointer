@@ -57,9 +57,15 @@ export async function listChannelStatus(): Promise<ChannelsStatusResponse> {
   return webRequest<ChannelsStatusResponse>('/api/channels')
 }
 
-export async function updateChannelsConfig(cfg: ChannelsConfig): Promise<void> {
+export async function updateChannelsConfig(
+  cfg: ChannelsConfig,
+  opts?: { restartMonitors?: boolean }
+): Promise<void> {
   if (isTauriRuntime()) {
-    await invoke('update_channels_config', { cfg })
+    await invoke('update_channels_config', {
+      cfg,
+      restartMonitors: opts?.restartMonitors ?? false
+    })
     return
   }
   await webRequest('/api/channels', { method: 'PUT', body: JSON.stringify(cfg) })

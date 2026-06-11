@@ -695,7 +695,6 @@ async function saveFromFooter() {
       })
     } else if (activeSection.value === 'channels') {
       await channelPanelRef.value?.save()
-      return
     } else if (activeSection.value === 'assistant') {
       await s.saveUser({ computerAutoCompact: computerAutoCompact.value })
       await s.saveAgentPreferences({

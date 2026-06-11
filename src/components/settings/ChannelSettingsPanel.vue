@@ -18,7 +18,6 @@ import {
   startWeixinLogin,
   updateChannelsConfig
 } from '../../lib/channels'
-import { createWecomBotViaQr } from '../../lib/wecom-bot-auth'
 import { isTauriRuntime } from '../../lib/runtime'
 import {
   normalizeConnectionMode,
@@ -49,7 +48,11 @@ const weixinLoginStatus = ref('')
 const weixinLoggedIn = ref(false)
 const weixinBusy = ref(false)
 
-const qrByChannel = ref<Record<'feishu' | 'dingtalk', string>>({ feishu: '', dingtalk: '' })
+const qrByChannel = ref<Record<'feishu' | 'dingtalk' | 'wecom', string>>({
+  feishu: '',
+  dingtalk: '',
+  wecom: ''
+})
 const regStatusByChannel = ref<Record<'feishu' | 'dingtalk' | 'wecom', string>>({
   feishu: '',
   dingtalk: '',
@@ -88,7 +91,7 @@ const CONNECTION_MODE_LABELS: Record<ChannelTab, string> = {
 const tabHints: Record<ChannelTab, string> = {
   weixin: '使用微信 App 扫描二维码，在手机上确认登录',
   feishu: '使用飞书 App 扫描二维码，按提示完成应用授权',
-  wecom: '点击开始扫码，在弹出窗口中用企业微信 App 扫码并一键创建机器人',
+  wecom: '使用企业微信 App 扫描二维码，点击「一键创建智能机器人」',
   dingtalk: '使用钉钉 App 扫描二维码，点击「一键创建新机器人」'
 }
 
@@ -140,13 +143,13 @@ const activeQrBase64 = computed(() => {
   if (activeTab.value === 'weixin') return weixinQr.value
   if (activeTab.value === 'feishu') return qrByChannel.value.feishu
   if (activeTab.value === 'dingtalk') return qrByChannel.value.dingtalk
+  if (activeTab.value === 'wecom') return qrByChannel.value.wecom
   return ''
 })
 
 const activeScanBusy = computed(() => {
   if (activeTab.value === 'weixin') return weixinBusy.value
-  if (activeTab.value === 'wecom') return regBusy.value.wecom
-  return regBusy.value[activeTab.value as 'feishu' | 'dingtalk'] ?? false
+  return regBusy.value[activeTab.value as 'feishu' | 'dingtalk' | 'wecom'] ?? false
 })
 
 const activeHasCredentials = computed(
@@ -318,10 +321,10 @@ async function refresh() {
   }
 }
 
-async function persistConfig() {
+async function persistConfig(restartMonitors = false) {
   normalizeAllConnectionModes()
   config.value = sanitizeChannelsConfig(config.value)
-  await updateChannelsConfig(config.value)
+  await updateChannelsConfig(config.value, { restartMonitors })
 }
 
 /** 供设置页底部「保存」调用：仅持久化配置，不强制连接 */
@@ -333,6 +336,7 @@ async function save() {
     await refresh()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
+    throw e
   } finally {
     saving.value = false
   }
@@ -345,15 +349,50 @@ function enableChannelLocally(channel: ChannelTab) {
   }
 }
 
-/** 指定通道：启用 + 保存 + 启动 monitor */
+function setChannelSessionMessage(tab: ChannelTab, message: string) {
+  if (tab === 'weixin') {
+    weixinLoginStatus.value = message
+    return
+  }
+  regStatusByChannel.value[tab] = message
+}
+
+/** 保存配置并重启 monitor 后，轮询直到长连接就绪或超时 */
+async function waitForChannelConnection(
+  tab: ChannelTab,
+  opts: { attempts?: number; intervalMs?: number } = {}
+): Promise<boolean> {
+  const attempts = opts.attempts ?? 20
+  const intervalMs = opts.intervalMs ?? 1500
+  for (let i = 0; i < attempts; i++) {
+    await refreshConnectionStatus()
+    if (connectionByTab.value[tab] === true) return true
+    if (i < attempts - 1) {
+      await new Promise(r => setTimeout(r, intervalMs))
+    }
+  }
+  await refreshConnectionStatus()
+  return connectionByTab.value[tab] === true
+}
+
+/** 指定通道：启用 + 保存 + 启动 monitor + 等待连接结果 */
 async function connectChannel(tab: ChannelTab) {
   connecting.value = true
   error.value = ''
   try {
     enableChannelLocally(tab)
-    await persistConfig()
-    await refreshConnectionStatus()
+    setChannelSessionMessage(tab, '正在连接…')
+    await persistConfig(true)
+    const connected = await waitForChannelConnection(tab)
+    setChannelSessionMessage(
+      tab,
+      connected ? '连接成功，运行中可收发消息' : '连接未建立，请稍后点击「连接」重试'
+    )
+    if (!connected) {
+      error.value = '通道在预期时间内未建立连接，请检查凭证或网络后重试'
+    }
   } catch (e) {
+    setChannelSessionMessage(tab, '连接失败')
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     connecting.value = false
@@ -437,12 +476,14 @@ async function startWeixinQr() {
 }
 
 function applyRegistrationCredentials(
-  channel: 'feishu' | 'dingtalk',
+  channel: 'feishu' | 'dingtalk' | 'wecom',
   session: {
     appId?: string
     appSecret?: string
     clientId?: string
     clientSecret?: string
+    botId?: string
+    secret?: string
   }
 ) {
   if (channel === 'feishu' && session.appId && session.appSecret) {
@@ -455,10 +496,16 @@ function applyRegistrationCredentials(
     config.value.dingtalk!.default.clientId = session.clientId
     config.value.dingtalk!.default.clientSecret = session.clientSecret
     config.value.dingtalk!.default.connectionMode = 'websocket'
+    return
+  }
+  if (channel === 'wecom' && session.botId && session.secret) {
+    config.value.wecom!.default.botId = session.botId
+    config.value.wecom!.default.secret = session.secret
+    config.value.wecom!.default.connectionMode = 'websocket'
   }
 }
 
-async function pollChannelRegistration(channel: 'feishu' | 'dingtalk') {
+async function pollChannelRegistration(channel: 'feishu' | 'dingtalk' | 'wecom') {
   for (let i = 0; i < 180; i++) {
     await new Promise(r => setTimeout(r, 2000))
     const session = await getChannelRegistrationStatus(channel, 'default')
@@ -467,6 +514,7 @@ async function pollChannelRegistration(channel: 'feishu' | 'dingtalk') {
     if (session.status === 'success') {
       qrByChannel.value[channel] = ''
       applyRegistrationCredentials(channel, session)
+      regStatusByChannel.value[channel] = '授权成功，正在连接…'
       await connectChannel(channel)
       return
     }
@@ -479,7 +527,7 @@ async function pollChannelRegistration(channel: 'feishu' | 'dingtalk') {
   regStatusByChannel.value[channel] = '授权超时，请重新扫码'
 }
 
-async function startQrRegistration(channel: 'feishu' | 'dingtalk') {
+async function startQrRegistration(channel: 'feishu' | 'dingtalk' | 'wecom') {
   error.value = ''
   regBusy.value[channel] = true
   regStatusByChannel.value[channel] = '正在获取二维码…'
@@ -497,40 +545,9 @@ async function startQrRegistration(channel: 'feishu' | 'dingtalk') {
   }
 }
 
-async function startWecomQrRegistration() {
-  error.value = ''
-  regBusy.value.wecom = true
-  regStatusByChannel.value.wecom = '正在打开授权窗口…'
-  try {
-    const creds = await createWecomBotViaQr()
-    config.value.wecom!.default.botId = creds.botId
-    config.value.wecom!.default.secret = creds.secret
-    config.value.wecom!.default.connectionMode = 'websocket'
-    regStatusByChannel.value.wecom = '机器人创建成功，凭证已填入'
-    await connectChannel('wecom')
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    if (msg.includes('CANCELLED') || msg.includes('取消')) {
-      regStatusByChannel.value.wecom = '已取消授权'
-    } else if (msg.includes('WINDOW_BLOCKED') || msg.includes('弹窗被拦截')) {
-      regStatusByChannel.value.wecom = '弹窗被拦截，请允许弹窗后重试'
-      error.value = msg
-    } else {
-      regStatusByChannel.value.wecom = '授权失败，请重试'
-      error.value = msg
-    }
-  } finally {
-    regBusy.value.wecom = false
-  }
-}
-
 async function startActiveScan() {
   if (activeTab.value === 'weixin') {
     await startWeixinQr()
-    return
-  }
-  if (activeTab.value === 'wecom') {
-    await startWecomQrRegistration()
     return
   }
   await startQrRegistration(activeTab.value)
@@ -544,7 +561,7 @@ async function pollWeixinStatus() {
       await refreshWeixinLoginState()
       if (weixinLoggedIn.value) {
         weixinQr.value = ''
-        weixinLoginStatus.value = '登录成功'
+        weixinLoginStatus.value = '登录成功，正在连接…'
         await connectChannel('weixin')
       }
       return
@@ -553,7 +570,7 @@ async function pollWeixinStatus() {
     if (s.status === 'confirmed') {
       weixinQr.value = ''
       weixinLoggedIn.value = true
-      weixinLoginStatus.value = '登录成功'
+      weixinLoginStatus.value = '登录成功，正在连接…'
       await connectChannel('weixin')
       return
     }

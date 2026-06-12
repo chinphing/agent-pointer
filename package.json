@@ -15,6 +15,11 @@
     "icons": "tauri icon src-tauri/icons/icon.png && node scripts/sync-web-icons.mjs",
     "build:windows": "npm run tauri:build",
     "build:macos": "npm run tauri:build",
+    "build:macos:signed": "node scripts/macos-signed-build.mjs",
+    "build:macos:sign-only": "node scripts/macos-signed-build.mjs --sign-only",
+    "build:macos:universal": "npm run tauri:build -- --target universal-apple-darwin",
+    "build:macos:universal:signed": "MACOS_BUILD_ARCH=universal node scripts/macos-signed-build.mjs",
+    "signing:macos:setup": "node scripts/macos-signing-setup.mjs",
     "build:linux": "npm run tauri:build",
     "build:linux:appimage": "npm run tauri:build -- --bundles appimage"
   },

@@ -421,11 +421,7 @@ pub fn read_local_file_for_attachment(path: String) -> Result<LocalFileAttachmen
 
 #[tauri::command]
 pub fn preview_media_ref(media_ref: String) -> Result<ChatMediaPreview, String> {
-    let extra_roots = pointer_channels::config::load_channels_config()
-        .ok()
-        .map(|c| c.meta.media_local_roots)
-        .unwrap_or_default();
-    pointer_core::media::read_media_ref_preview(&media_ref, &extra_roots).map_err(|e| e.to_string())
+    pointer_core::media::read_media_ref_preview(&media_ref).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

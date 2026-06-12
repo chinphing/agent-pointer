@@ -7,10 +7,7 @@ use pointer_core::media::store::{media_abs_path, read_media_bytes, CONVERSATION_
 use pointer_core::media::path_hint::MEDIA_URI_SCHEME;
 
 use crate::media::attachment::{enforce_max_bytes, guess_mime_from_bytes};
-use crate::media_roots::{
-    assert_media_path_allowed, is_pointer_media_uri, is_user_filesystem_path, normalize_user_path,
-    path_has_traversal,
-};
+use crate::media_roots::{is_user_filesystem_path, normalize_user_path, path_has_traversal};
 use crate::traits::OutboundMedia;
 
 const MAX_OUTBOUND_MEDIA: usize = 30 * 1024 * 1024;
@@ -20,13 +17,6 @@ pub struct ResolvedOutboundMedia {
 }
 
 pub fn resolve_outbound_media(raw: &str) -> Result<ResolvedOutboundMedia> {
-    resolve_outbound_media_with_policy(raw, &[])
-}
-
-pub fn resolve_outbound_media_with_policy(
-    raw: &str,
-    media_local_roots: &[String],
-) -> Result<ResolvedOutboundMedia> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         anyhow::bail!("empty media path");
@@ -51,9 +41,6 @@ pub fn resolve_outbound_media_with_policy(
             anyhow::bail!("outbound media path traversal not allowed: {rel}");
         }
         let path = resolve_filesystem_path(rel)?;
-        if !is_pointer_media_uri(raw) {
-            assert_media_path_allowed(&path, media_local_roots)?;
-        }
         let name = path
             .file_name()
             .and_then(|n| n.to_str())

@@ -6,14 +6,33 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ImOutboundConfig {
+    /// Push assistant text to IM after each model round completes.
+    #[serde(default = "default_true", rename = "sendIntermediateText")]
+    pub send_intermediate_text: bool,
+    /// Push tool-call progress lines to IM during agent runs.
+    #[serde(default = "default_true", rename = "sendToolCalls")]
+    pub send_tool_calls: bool,
+}
+
+impl Default for ImOutboundConfig {
+    fn default() -> Self {
+        Self {
+            send_intermediate_text: true,
+            send_tool_calls: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChannelsMeta {
     #[serde(default)]
     pub public_base_url: String,
     #[serde(default)]
     pub session_reset: SessionResetConfig,
-    /// Extra local directories allowed for outbound media (OpenClaw `mediaLocalRoots`).
-    #[serde(default, rename = "mediaLocalRoots")]
-    pub media_local_roots: Vec<String>,
+    #[serde(default, rename = "imOutbound")]
+    pub im_outbound: ImOutboundConfig,
 }
 
 impl Default for ChannelsMeta {
@@ -21,7 +40,7 @@ impl Default for ChannelsMeta {
         Self {
             public_base_url: String::new(),
             session_reset: SessionResetConfig::default(),
-            media_local_roots: Vec::new(),
+            im_outbound: ImOutboundConfig::default(),
         }
     }
 }
@@ -343,6 +362,13 @@ pub fn save_channels_config(cfg: &ChannelsConfig) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn im_outbound_defaults() {
+        let cfg: ImOutboundConfig = serde_json::from_str("{}").unwrap();
+        assert!(cfg.send_intermediate_text);
+        assert!(cfg.send_tool_calls);
+    }
 
     #[test]
     fn session_reset_defaults_to_one_hour() {

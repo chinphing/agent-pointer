@@ -151,12 +151,14 @@ MEDIA:/absolute/path/to/report.pdf
 
 IM 会话中模型将**最终正文写在 assistant 消息**里，宿主在 `run_chat` 结束后自动发到对应 IM 通道；无需独立 delivery 工具（本项目已移除早期的 `channel_message` 工具，避免与最终回复重复）。
 
-中途进度无法在 IM 侧单独推送（除非后续增加流式分块出站）；与 OpenClaw 的 block streaming 能力不同，当前为**整轮结束后一次投递**。
+**中间轮次推送**（设置 → IM 通道 → **IM 出站推送**）：
 
-### 路径白名单 `mediaLocalRoots`
+| 选项 | 默认 | 说明 |
+|------|------|------|
+| `sendIntermediateText` | 开启 | 每轮模型输出（`MessageEnd` 有正文）立即推送给 IM 客户 |
+| `sendToolCalls` | 开启 | 推送工具调用进度行，与 App 工具条一致：`displayLabel` + `displaySummary`（如 `🔧 联网搜索: 关键词`） |
 
-设置 → IM 通道 → **出站媒体路径** 可配置额外允许目录（对齐 OpenClaw `mediaLocalRoots`）。
-始终允许：`pointer-media://…` 与 `conversation-media/` 下已保存附件。
+最终回复若与已推送的中间文字相同则不会重复发送；`MEDIA:` 附件按可解析的本地路径发送（`pointer-media://…`、绝对路径、相对路径均可，禁止 `..` 路径穿越）。
 
 ### 手动发送 API（对齐 `openclaw message send --media`）
 

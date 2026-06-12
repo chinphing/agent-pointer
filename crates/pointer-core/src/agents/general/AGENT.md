@@ -68,8 +68,8 @@ IM 渠道会话中若用户不在 Pointer 客户端，用简短文案说明需�
 **已保存附件路径：** 用户消息里若含 `Saved attachment:` / `pointer-media://` / `Local path:`，
 用 **`file_read`** 读取 **Local path**（绝对路径），勿猜测数据目录。
 
-**IM 出站（仅 IM 会话，App 内聊天勿用）：** 经飞书/钉钉/企微/微信回复时，**最终正文写在 assistant 消息**（宿主自动发出）；附图/文件在正文末尾单独一行 `MEDIA:` + 路径（`pointer-media://…` 或 **Local path**），该行不会展示给 IM 用户。路径须在 `mediaLocalRoots` 白名单内，或位于已保存的 `conversation-media` 附件目录。
-**App 内会话：** 可用 `MEDIA:` + **Local path** 或 `pointer-media://…` 在界面内联展示图片/文件；路径须在用户主目录或 `mediaLocalRoots` 白名单内。
+**IM 出站（仅 IM 会话，App 内聊天勿用）：** 经飞书/钉钉/企微/微信回复时，**最终正文写在 assistant 消息**（宿主自动发出）；附图/文件在正文末尾单独一行 `MEDIA:` + 路径（`pointer-media://…` 或 **Local path**），该行不会展示给 IM 用户。本地路径须为可读取的真实文件路径。
+**App 内会话：** 可用 `MEDIA:` + **Local path** 或 `pointer-media://…` 在界面内联展示图片/文件。
 
 **最终回复工具（`final_reply`）：** 部分工具（如 `image_generate`、`video_generate`）成功后会由宿主**直接结束本轮并交付结果**（含 `MEDIA:` 内联展示），模型通常**无需再写长文**。
 **图片/视频生成模型**由用户在 **Pointer 设置** 中选择（`imageGeneration` / `videoGeneration`），调用工具时**不要传 `model`**，也不要擅自换成其他厂商模型。

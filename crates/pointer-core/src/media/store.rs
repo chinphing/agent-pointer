@@ -119,11 +119,11 @@ fn wav_sibling_abs_path(path: &Path) -> Option<PathBuf> {
 
 pub fn read_chat_media_preview(storage_rel_path: &str) -> Result<ChatMediaPreview> {
     let path = media_abs_path(storage_rel_path)?;
-    read_file_preview(&path, extra_roots_empty())
+    read_file_preview(&path)
 }
 
 /// Preview a media reference from assistant `MEDIA:` markers or attachment metadata.
-pub fn read_media_ref_preview(media_ref: &str, extra_roots: &[String]) -> Result<ChatMediaPreview> {
+pub fn read_media_ref_preview(media_ref: &str) -> Result<ChatMediaPreview> {
     let trimmed = media_ref.trim();
     if trimmed.is_empty() {
         anyhow::bail!("empty media ref");
@@ -136,7 +136,7 @@ pub fn read_media_ref_preview(media_ref: &str, extra_roots: &[String]) -> Result
 
     if !is_user_filesystem_path(rel) && rel.contains('/') {
         let path = media_abs_path(rel)?;
-        return read_file_preview(&path, extra_roots);
+        return read_file_preview(&path);
     }
 
     if path_has_traversal(rel) {
@@ -144,12 +144,8 @@ pub fn read_media_ref_preview(media_ref: &str, extra_roots: &[String]) -> Result
     }
 
     let path = resolve_filesystem_ref(rel)?;
-    assert_app_media_preview_allowed(&path, extra_roots)?;
-    read_file_preview(&path, extra_roots)
-}
-
-fn extra_roots_empty() -> &'static [String] {
-    &[]
+    assert_app_media_preview_allowed(&path)?;
+    read_file_preview(&path)
 }
 
 fn resolve_filesystem_ref(raw: &str) -> Result<PathBuf> {
@@ -182,8 +178,8 @@ fn resolve_filesystem_ref(raw: &str) -> Result<PathBuf> {
     anyhow::bail!("media file not found: {raw}")
 }
 
-fn read_file_preview(path: &Path, extra_roots: &[String]) -> Result<ChatMediaPreview> {
-    assert_app_media_preview_allowed(path, extra_roots)?;
+fn read_file_preview(path: &Path) -> Result<ChatMediaPreview> {
+    assert_app_media_preview_allowed(path)?;
     if let Some(wav_path) = wav_sibling_abs_path(path) {
         let bytes = fs::read(&wav_path)
             .with_context(|| format!("read persisted wav {}", wav_path.display()))?;

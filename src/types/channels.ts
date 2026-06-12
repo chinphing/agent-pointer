@@ -28,11 +28,17 @@ export interface ChannelAccountConfig {
   groupAllowFrom?: string[]
 }
 
+export interface ImOutboundConfig {
+  /** Push assistant text to IM after each model round. Default true. */
+  sendIntermediateText?: boolean
+  /** Push tool-call progress lines to IM during agent runs. Default true. */
+  sendToolCalls?: boolean
+}
+
 export interface ChannelsMeta {
   publicBaseUrl?: string
   sessionReset?: SessionResetConfig
-  /** Extra local directories allowed for outbound media (OpenClaw mediaLocalRoots). */
-  mediaLocalRoots?: string[]
+  imOutbound?: ImOutboundConfig
 }
 
 export interface ChannelsConfig {

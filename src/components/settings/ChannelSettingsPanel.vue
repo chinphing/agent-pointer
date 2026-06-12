@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { ChevronDown, Copy, Plug, QrCode, RefreshCw } from 'lucide-vue-next'
+import { ChevronDown, CircleHelp, Copy, Plug, QrCode, RefreshCw } from 'lucide-vue-next'
 import {
   DEFAULT_CHANNEL_IDLE_MINUTES,
   type ChannelAccountConfig,
@@ -68,7 +68,7 @@ const config = ref<ChannelsConfig>({
   meta: {
     publicBaseUrl: '',
     sessionReset: { idleMinutes: DEFAULT_CHANNEL_IDLE_MINUTES },
-    mediaLocalRoots: []
+    imOutbound: { sendIntermediateText: true, sendToolCalls: true }
   },
   feishu: { default: defaultFeishu() },
   dingtalk: { default: defaultDingtalk() },
@@ -80,6 +80,21 @@ const webhookUrls = ref<Record<string, string>>({})
 const connectionByTab = ref<Partial<Record<ChannelTab, boolean>>>({})
 const tauriMode = isTauriRuntime()
 let connectionPollId: ReturnType<typeof setInterval> | undefined
+
+const COMMON_SETTINGS_HELP =
+  '以下配置对所有 IM 通道（微信、飞书、企微、钉钉）生效。'
+
+const SESSION_RESET_HELP =
+  'IM 中发送 /new、/reset、新对话 或 重新开始 可手动开新会话。下方为空闲自动重置，默认 60 分钟，0 表示关闭。'
+
+const IM_OUTBOUND_HELP =
+  '控制 Agent 运行过程中推送到 IM 客户的消息。最终回复仍会发送；中间文字与工具进度默认均开启。'
+
+const PUBLIC_BASE_URL_HELP =
+  '各通道启用 Webhook 模式时需要填写，用于生成平台回调地址。'
+
+const PAIRING_HELP =
+  'DM 策略为配对模式时，陌生用户会收到配对码，在此输入并批准后可开始对话。'
 
 const CONNECTION_MODE_LABELS: Record<ChannelTab, string> = {
   weixin: 'iLink 长轮询',
@@ -193,14 +208,25 @@ function setIdleMinutes(raw: string) {
   config.value.meta.sessionReset = { idleMinutes: minutes }
 }
 
-const mediaLocalRootsText = computed({
-  get: () => (config.value.meta?.mediaLocalRoots ?? []).join('\n'),
-  set: (raw: string) => {
+const sendIntermediateText = computed({
+  get: () => config.value.meta?.imOutbound?.sendIntermediateText ?? true,
+  set: (value: boolean) => {
     if (!config.value.meta) config.value.meta = { publicBaseUrl: '' }
-    config.value.meta.mediaLocalRoots = raw
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
+    if (!config.value.meta.imOutbound) {
+      config.value.meta.imOutbound = { sendIntermediateText: true, sendToolCalls: true }
+    }
+    config.value.meta.imOutbound.sendIntermediateText = value
+  }
+})
+
+const sendToolCalls = computed({
+  get: () => config.value.meta?.imOutbound?.sendToolCalls ?? true,
+  set: (value: boolean) => {
+    if (!config.value.meta) config.value.meta = { publicBaseUrl: '' }
+    if (!config.value.meta.imOutbound) {
+      config.value.meta.imOutbound = { sendIntermediateText: true, sendToolCalls: true }
+    }
+    config.value.meta.imOutbound.sendToolCalls = value
   }
 })
 
@@ -255,7 +281,10 @@ function mergeConfig(loaded: ChannelsConfig) {
       sessionReset: {
         idleMinutes: loaded.meta?.sessionReset?.idleMinutes ?? DEFAULT_CHANNEL_IDLE_MINUTES
       },
-      mediaLocalRoots: loaded.meta?.mediaLocalRoots ?? []
+      imOutbound: {
+        sendIntermediateText: loaded.meta?.imOutbound?.sendIntermediateText ?? true,
+        sendToolCalls: loaded.meta?.imOutbound?.sendToolCalls ?? true
+      }
     },
     feishu: {
       default: {
@@ -788,147 +817,193 @@ defineExpose({ save })
             </template>
           </div>
         </details>
+
+        <details class="manual-section mt-3">
+          <summary class="manual-summary">
+            <span>高级设置（Webhook 备选）</span>
+            <ChevronDown class="w-4 h-4 summary-chevron" />
+          </summary>
+          <div class="manual-body space-y-4">
+            <p class="text-xs text-muted">
+              默认使用 WSS / Stream 长连接。仅在需要 HTTP 回调时才启用 Webhook 模式。
+            </p>
+
+            <div v-if="activeTab === 'feishu'" class="space-y-2">
+              <label class="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  :checked="config.feishu!.default.connectionMode === 'webhook'"
+                  @change="config.feishu!.default.connectionMode = ($event.target as HTMLInputElement).checked ? 'webhook' : 'websocket'"
+                />
+                启用 HTTP 回调（飞书）
+              </label>
+              <template v-if="config.feishu!.default.connectionMode === 'webhook'">
+                <input v-model="config.feishu!.default.encryptKey" placeholder="Encrypt Key" class="field" />
+                <button type="button" class="btn-ghost" @click="copyWebhook('feishu')">
+                  <Copy class="w-3.5 h-3.5" />
+                  复制 Webhook URL
+                </button>
+                <p v-if="webhookUrls[urlKey('feishu')]" class="text-xs text-muted break-all">
+                  {{ webhookUrls[urlKey('feishu')] }}
+                </p>
+              </template>
+            </div>
+
+            <div v-else-if="activeTab === 'wecom'" class="space-y-2">
+              <label class="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  :checked="config.wecom!.default.connectionMode === 'webhook'"
+                  @change="config.wecom!.default.connectionMode = ($event.target as HTMLInputElement).checked ? 'webhook' : 'websocket'"
+                />
+                启用 HTTP 回调（企微 Agent 模式）
+              </label>
+              <template v-if="config.wecom!.default.connectionMode === 'webhook'">
+                <input v-model="config.wecom!.default.corpId" placeholder="Corp ID" class="field" />
+                <input v-model="config.wecom!.default.agentId" placeholder="Agent ID" class="field" />
+                <input v-model="config.wecom!.default.secret" placeholder="应用 Secret" class="field" />
+                <input v-model="config.wecom!.default.token" placeholder="回调 Token" class="field" />
+                <input v-model="config.wecom!.default.encodingAesKey" placeholder="Encoding AES Key" class="field" />
+                <button type="button" class="btn-ghost" @click="copyWebhook('wecom')">
+                  <Copy class="w-3.5 h-3.5" />
+                  复制 Webhook URL
+                </button>
+              </template>
+            </div>
+
+            <div v-else-if="activeTab === 'dingtalk'" class="space-y-2">
+              <label class="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  :checked="config.dingtalk!.default.connectionMode === 'webhook'"
+                  @change="config.dingtalk!.default.connectionMode = ($event.target as HTMLInputElement).checked ? 'webhook' : 'websocket'"
+                />
+                启用 HTTP 回调（钉钉）
+              </label>
+              <template v-if="config.dingtalk!.default.connectionMode === 'webhook'">
+                <button type="button" class="btn-ghost" @click="copyWebhook('dingtalk')">
+                  <Copy class="w-3.5 h-3.5" />
+                  复制 Webhook URL
+                </button>
+                <p v-if="webhookUrls[urlKey('dingtalk')]" class="text-xs text-muted break-all">
+                  {{ webhookUrls[urlKey('dingtalk')] }}
+                </p>
+              </template>
+            </div>
+
+            <div v-else class="text-xs text-muted">微信仅支持 iLink 长轮询，无 Webhook 模式。</div>
+          </div>
+        </details>
       </div>
     </div>
 
-    <details class="manual-section">
-      <summary class="manual-summary">
-        <span>会话重置</span>
-        <ChevronDown class="w-4 h-4 summary-chevron" />
-      </summary>
-      <div class="manual-body space-y-2">
-        <p class="text-xs text-muted">
-          在 IM 中发送 <code>/new</code>、<code>/reset</code>、<code>新对话</code> 或
-          <code>重新开始</code> 可手动开新会话。下方为所有 IM 通道共用的空闲自动重置（默认 60 分钟）。
-        </p>
-        <label class="text-xs text-muted">空闲自动重置（分钟，0 = 关闭）</label>
-        <input
-          type="number"
-          min="0"
-          class="field"
-          :value="idleMinutes"
-          @input="setIdleMinutes(($event.target as HTMLInputElement).value)"
-        />
+    <div class="common-settings-card">
+      <div class="common-settings-title flex items-center gap-1.5">
+        <h3>通用设置</h3>
+        <button
+          type="button"
+          class="field-help"
+          :title="COMMON_SETTINGS_HELP"
+          aria-label="通用设置说明"
+          @click.stop
+        >
+          <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+        </button>
       </div>
-    </details>
 
-    <details class="manual-section">
-      <summary class="manual-summary">
-        <span>出站媒体路径</span>
-        <ChevronDown class="w-4 h-4 summary-chevron" />
-      </summary>
-      <div class="manual-body space-y-2">
-        <p class="text-xs text-muted">
-          Agent 在 IM 回复末尾通过 <code>MEDIA:</code> 发送文件时，除已保存附件外，仅允许以下目录（每行一个，支持
-          <code>~/</code>）。对齐 OpenClaw <code>mediaLocalRoots</code>。
-        </p>
-        <textarea
-          v-model="mediaLocalRootsText"
-          class="field min-h-[5rem] font-mono text-xs"
-          placeholder="~/Downloads&#10;~/Documents"
-        />
-      </div>
-    </details>
-
-    <details class="manual-section">
-      <summary class="manual-summary">
-        <span>配对审批</span>
-        <ChevronDown class="w-4 h-4 summary-chevron" />
-      </summary>
-      <div class="manual-body space-y-2">
-        <p class="text-xs text-muted">在 IM 收到配对码后，在此输入并批准。</p>
-        <div class="flex flex-wrap gap-2">
-          <input v-model="pairingCode" placeholder="配对码" class="field flex-1 min-w-[8rem]" />
-          <button type="button" class="btn-primary" @click="approvePairingAuto">批准</button>
-        </div>
-      </div>
-    </details>
-
-    <details class="manual-section">
-      <summary class="manual-summary">
-        <span>高级设置（Webhook 备选）</span>
-        <ChevronDown class="w-4 h-4 summary-chevron" />
-      </summary>
-      <div class="manual-body space-y-4">
-        <p class="text-xs text-muted">
-          默认使用 WSS / Stream 长连接。仅在需要 HTTP 回调时才启用 Webhook 模式。
-        </p>
-
-        <div v-if="activeTab === 'feishu'" class="space-y-2">
-          <label class="flex items-center gap-2 text-xs cursor-pointer">
+      <section class="common-block">
+        <div class="common-settings-grid">
+          <div class="common-settings-cell">
+            <div class="common-block-head">
+              <h4 class="common-block-title">IM 出站推送</h4>
+              <button
+                type="button"
+                class="field-help"
+                :title="IM_OUTBOUND_HELP"
+                aria-label="IM 出站推送说明"
+                @click.stop
+              >
+                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+            </div>
+            <div class="common-pair-controls common-pair-controls-loose">
+              <label class="common-check">
+                <input v-model="sendIntermediateText" type="checkbox" class="rounded" />
+                <span>中间文字</span>
+              </label>
+              <label class="common-check">
+                <input v-model="sendToolCalls" type="checkbox" class="rounded" />
+                <span>工具进度</span>
+              </label>
+            </div>
+          </div>
+          <div class="common-settings-cell common-settings-cell-aside">
+            <div class="common-block-head">
+              <h4 class="common-block-title">会话重置</h4>
+              <button
+                type="button"
+                class="field-help"
+                :title="SESSION_RESET_HELP"
+                aria-label="会话重置说明"
+                @click.stop
+              >
+                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+            </div>
+            <div class="common-aside-controls common-pair-controls common-session-input">
+              <input
+                type="number"
+                min="0"
+                class="field min-w-0 flex-1"
+                placeholder="60"
+                :value="idleMinutes"
+                @input="setIdleMinutes(($event.target as HTMLInputElement).value)"
+              />
+              <span class="common-unit">分钟</span>
+            </div>
+          </div>
+          <div class="common-settings-cell common-settings-cell-split">
+            <div class="common-block-head">
+              <h4 class="common-block-title">公网 Base URL</h4>
+              <button
+                type="button"
+                class="field-help"
+                :title="PUBLIC_BASE_URL_HELP"
+                aria-label="公网 Base URL 说明"
+                @click.stop
+              >
+                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+            </div>
             <input
-              type="checkbox"
-              :checked="config.feishu!.default.connectionMode === 'webhook'"
-              @change="config.feishu!.default.connectionMode = ($event.target as HTMLInputElement).checked ? 'webhook' : 'websocket'"
+              v-model="config.meta!.publicBaseUrl"
+              class="field"
+              placeholder="https://pointer.example.com"
             />
-            启用 HTTP 回调（飞书）
-          </label>
-          <template v-if="config.feishu!.default.connectionMode === 'webhook'">
-            <input v-model="config.feishu!.default.encryptKey" placeholder="Encrypt Key" class="field" />
-            <button type="button" class="btn-ghost" @click="copyWebhook('feishu')">
-              <Copy class="w-3.5 h-3.5" />
-              复制 Webhook URL
-            </button>
-            <p v-if="webhookUrls[urlKey('feishu')]" class="text-xs text-muted break-all">
-              {{ webhookUrls[urlKey('feishu')] }}
-            </p>
-          </template>
+          </div>
+          <div class="common-settings-cell common-settings-cell-aside common-settings-cell-split">
+            <div class="common-block-head">
+              <h4 class="common-block-title">配对审批</h4>
+              <button
+                type="button"
+                class="field-help"
+                :title="PAIRING_HELP"
+                aria-label="配对审批说明"
+                @click.stop
+              >
+                <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+              </button>
+            </div>
+            <div class="common-aside-controls common-pair-controls">
+              <input v-model="pairingCode" placeholder="配对码" class="field min-w-0 flex-1" />
+              <button type="button" class="btn-primary btn-compact shrink-0" @click="approvePairingAuto">
+                批准
+              </button>
+            </div>
+          </div>
         </div>
-
-        <div v-else-if="activeTab === 'wecom'" class="space-y-2">
-          <label class="flex items-center gap-2 text-xs cursor-pointer">
-            <input
-              type="checkbox"
-              :checked="config.wecom!.default.connectionMode === 'webhook'"
-              @change="config.wecom!.default.connectionMode = ($event.target as HTMLInputElement).checked ? 'webhook' : 'websocket'"
-            />
-            启用 HTTP 回调（企微 Agent 模式）
-          </label>
-          <template v-if="config.wecom!.default.connectionMode === 'webhook'">
-            <input v-model="config.wecom!.default.corpId" placeholder="Corp ID" class="field" />
-            <input v-model="config.wecom!.default.agentId" placeholder="Agent ID" class="field" />
-            <input v-model="config.wecom!.default.secret" placeholder="应用 Secret" class="field" />
-            <input v-model="config.wecom!.default.token" placeholder="回调 Token" class="field" />
-            <input v-model="config.wecom!.default.encodingAesKey" placeholder="Encoding AES Key" class="field" />
-            <button type="button" class="btn-ghost" @click="copyWebhook('wecom')">
-              <Copy class="w-3.5 h-3.5" />
-              复制 Webhook URL
-            </button>
-          </template>
-        </div>
-
-        <div v-else-if="activeTab === 'dingtalk'" class="space-y-2">
-          <label class="flex items-center gap-2 text-xs cursor-pointer">
-            <input
-              type="checkbox"
-              :checked="config.dingtalk!.default.connectionMode === 'webhook'"
-              @change="config.dingtalk!.default.connectionMode = ($event.target as HTMLInputElement).checked ? 'webhook' : 'websocket'"
-            />
-            启用 HTTP 回调（钉钉）
-          </label>
-          <template v-if="config.dingtalk!.default.connectionMode === 'webhook'">
-            <button type="button" class="btn-ghost" @click="copyWebhook('dingtalk')">
-              <Copy class="w-3.5 h-3.5" />
-              复制 Webhook URL
-            </button>
-            <p v-if="webhookUrls[urlKey('dingtalk')]" class="text-xs text-muted break-all">
-              {{ webhookUrls[urlKey('dingtalk')] }}
-            </p>
-          </template>
-        </div>
-
-        <div v-else class="text-xs text-muted">微信仅支持 iLink 长轮询，无 Webhook 模式。</div>
-
-        <div>
-          <label class="text-xs text-muted">公网 Base URL（Webhook 模式需要）</label>
-          <input
-            v-model="config.meta!.publicBaseUrl"
-            class="field mt-1.5"
-            placeholder="https://pointer.example.com"
-          />
-        </div>
-      </div>
-    </details>
+      </section>
+    </div>
 
     <div class="flex gap-2 pt-1">
       <button type="button" class="btn-ghost" :disabled="loading" @click="refresh">
@@ -1000,6 +1075,70 @@ defineExpose({ save })
   @apply border-green-500/40 text-green-700;
 }
 
+.common-settings-card {
+  @apply rounded-xl border border-border;
+}
+
+.common-settings-title {
+  @apply px-4 py-3 text-sm font-medium bg-[hsl(var(--card-elevated))] border-b border-border rounded-t-xl;
+}
+
+.common-block {
+  @apply px-4 py-3 border-b border-border last:border-b-0;
+}
+
+.common-settings-grid {
+  @apply grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-x-0 sm:gap-y-0;
+}
+
+.common-settings-cell {
+  @apply flex flex-col gap-1.5 min-w-0 sm:pr-4;
+}
+
+.common-settings-cell-aside {
+  @apply sm:border-l sm:border-border sm:pl-4 sm:pr-3;
+}
+
+.common-settings-cell-split {
+  @apply sm:mt-4 sm:pt-4 sm:border-t sm:border-border;
+}
+
+.common-aside-controls {
+  @apply w-1/2 min-w-0 max-w-[11rem];
+}
+
+.common-pair-controls {
+  @apply flex items-center min-h-[2.25rem] flex-nowrap gap-2;
+}
+
+.common-pair-controls-loose {
+  @apply gap-x-4;
+}
+
+.common-session-input {
+  @apply gap-1.5;
+}
+
+.common-unit {
+  @apply text-xs text-muted shrink-0 leading-none;
+}
+
+.common-check {
+  @apply flex items-center gap-1.5 text-sm cursor-pointer whitespace-nowrap;
+}
+
+.common-block-head {
+  @apply flex items-center gap-1.5;
+}
+
+.common-block-title {
+  @apply text-sm font-medium;
+}
+
+.field-help {
+  @apply inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0;
+}
+
 .manual-section {
   @apply rounded-xl border border-border;
 }
@@ -1034,5 +1173,9 @@ defineExpose({ save })
 
 .btn-primary {
   @apply rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50;
+}
+
+.btn-compact {
+  @apply px-3 py-1.5 text-xs;
 }
 </style>

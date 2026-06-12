@@ -25,7 +25,7 @@ pub fn resolve_reference_image_for_api(raw: &str) -> Result<String> {
         .map(str::trim)
         .unwrap_or(trimmed);
 
-    let preview = read_media_ref_preview(path_ref, &[])
+    let preview = read_media_ref_preview(path_ref)
         .with_context(|| format!("read reference image {path_ref}"))?;
 
     let bytes = base64::engine::general_purpose::STANDARD

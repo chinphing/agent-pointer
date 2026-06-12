@@ -15,8 +15,8 @@ use crate::session::{conversation_id, inbound_user_message_id};
 use crate::session_fork::{fork_im_desktop_session, resolve_active_desktop_id};
 use crate::session_agent::{agent_switch_ack, detect_agent_switch, AgentSwitchAction};
 use crate::session_reset::{self, ManualResetAction, MANUAL_RESET_ACK};
+use crate::im_stream_outbound::ImStreamOutbound;
 use crate::outbound_reply::split_reply_media;
-use crate::outbound_resolve::resolve_outbound_media_with_policy;
 use crate::traits::{ChannelPlugin, InboundMessage, OutboundContext};
 
 fn broadcast_im_session_agent(
@@ -340,8 +340,17 @@ impl DispatchService {
 
         let workspace_root = store.workspace_root(&desktop_conv_id).unwrap_or_default();
 
+        let channels_cfg = crate::config::load_channels_config().unwrap_or_default();
+        let im_outbound_cfg = channels_cfg.meta.im_outbound.clone();
+
         let (tx, mut rx) = mpsc::unbounded_channel::<StreamEvent>();
         let mut reply_text = String::new();
+        let mut stream_out = ImStreamOutbound::new(
+            plugin,
+            outbound.clone(),
+            im_outbound_cfg,
+            conv_id.clone(),
+        );
 
         let run = run_chat(
             tx.clone(),
@@ -360,18 +369,30 @@ impl DispatchService {
         // MessageEnd with empty content; breaking early drops the final answer.
         let collect = async {
             while let Some(ev) = rx.recv().await {
-                match ev {
-                    StreamEvent::Delta { text, .. } => reply_text.push_str(&text),
+                match &ev {
+                    StreamEvent::Delta { text, .. } => reply_text.push_str(text),
                     StreamEvent::MessageEnd { content, .. } => {
                         if let Some(c) = content {
                             if !c.trim().is_empty() {
-                                reply_text = c;
+                                reply_text = c.clone();
                             }
+                        }
+                        if let Err(e) = stream_out.on_event(&ev).await {
+                            log::warn!(
+                                "channel im stream outbound message_end failed conv={conv_id}: {e:#}"
+                            );
+                        }
+                    }
+                    StreamEvent::ToolCallStatus { .. } => {
+                        if let Err(e) = stream_out.on_event(&ev).await {
+                            log::warn!(
+                                "channel im stream outbound tool_status failed conv={conv_id}: {e:#}"
+                            );
                         }
                     }
                     StreamEvent::Error { message, .. } => {
                         if reply_text.trim().is_empty() && !message.is_empty() {
-                            reply_text = message;
+                            reply_text = message.clone();
                         }
                         break;
                     }
@@ -390,10 +411,6 @@ impl DispatchService {
             return Err(e);
         }
 
-        let media_roots = crate::config::load_channels_config()
-            .map(|c| c.meta.media_local_roots)
-            .unwrap_or_default();
-
         let (visible_text, media_refs) = split_reply_media(&reply_text);
         if visible_text.trim().is_empty() && media_refs.is_empty() {
             log::warn!("channel dispatch empty reply conv={conv_id}");
@@ -402,32 +419,10 @@ impl DispatchService {
 
         store.touch_im_interaction(&conv_id)?;
 
-        if !visible_text.trim().is_empty() {
-            plugin
-                .outbound
-                .send_text(outbound.clone(), &visible_text)
-                .await?;
-        }
-
-        for raw_path in media_refs.iter() {
-            match resolve_outbound_media_with_policy(raw_path, &media_roots) {
-                Ok(resolved) => {
-                    if let Err(e) = plugin
-                        .outbound
-                        .send_media(outbound.clone(), None, resolved.media)
-                        .await
-                    {
-                        log::error!(
-                            "channel outbound media failed conv={conv_id} path={raw_path}: {e:#}"
-                        );
-                    }
-                }
-                Err(e) => {
-                    log::error!(
-                        "channel outbound media resolve failed conv={conv_id} path={raw_path}: {e:#}"
-                    );
-                }
-            }
+        let sent = stream_out.finish(&reply_text).await?;
+        if !sent && visible_text.trim().is_empty() && media_refs.is_empty() {
+            log::warn!("channel dispatch empty outbound conv={conv_id}");
+            return Err(anyhow::anyhow!("channel dispatch empty reply"));
         }
 
         Ok(())

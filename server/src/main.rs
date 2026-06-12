@@ -427,13 +427,8 @@ struct MediaRefQuery {
 async fn preview_media_ref(
     Query(q): Query<MediaRefQuery>,
 ) -> Result<Json<ChatMediaPreview>, ApiError> {
-    let extra_roots = pointer_channels::config::load_channels_config()
-        .ok()
-        .map(|c| c.meta.media_local_roots)
-        .unwrap_or_default();
     Ok(Json(
-        pointer_core::media::read_media_ref_preview(&q.media_ref, &extra_roots)
-            .map_err(ApiError::from)?,
+        pointer_core::media::read_media_ref_preview(&q.media_ref).map_err(ApiError::from)?,
     ))
 }
 

@@ -195,7 +195,12 @@ async function pickWorkspaceFolder() {
   const conv = chat.current || chat.newConversation()
   try {
     const { open } = await import('@tauri-apps/plugin-dialog')
-    const dir = await open({ directory: true, multiple: false })
+    const current = conv.workspaceRoot?.trim()
+    const dir = await open({
+      directory: true,
+      multiple: false,
+      ...(current ? { defaultPath: current } : {})
+    })
     if (typeof dir === 'string' && dir) {
       chat.setConversationWorkspace(dir)
     }

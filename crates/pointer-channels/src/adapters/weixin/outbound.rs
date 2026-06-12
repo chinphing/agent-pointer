@@ -65,9 +65,13 @@ impl ChannelOutboundAdapter for WeixinOutbound {
             items.push(file_item_json(&uploaded, &media.file_name));
         }
 
-        client
-            .send_message_items(&ctx.recipient_id, context_token, &mut items)
-            .await?;
+        // iLink expects one item per sendmessage (matches OpenClaw / reference clients).
+        for item in &items {
+            let mut batch = [item.clone()];
+            client
+                .send_message_items(&ctx.recipient_id, context_token, &mut batch)
+                .await?;
+        }
         log::info!(
             "weixin outbound media account={} file={}",
             ctx.account_id,

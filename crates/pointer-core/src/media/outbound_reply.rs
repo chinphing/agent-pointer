@@ -2,6 +2,7 @@
 
 use super::path_hint::MEDIA_URI_SCHEME;
 use regex::Regex;
+use serde_json::Value;
 use std::sync::OnceLock;
 
 const MEDIA_PREFIX: &str = "MEDIA:";
@@ -57,6 +58,53 @@ pub fn strip_outbound_media_markers(text: &str) -> String {
     split_reply_media(text).0.trim().to_string()
 }
 
+/// Assistant raw output slice that may contain `MEDIA:` (plain text or response-tool JSON).
+pub fn reply_media_source(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
+        if let Value::Object(ref obj) = v {
+            if obj.get("tool_name").and_then(|x| x.as_str()) == Some("response") {
+                return obj
+                    .get("tool_args")
+                    .and_then(|a| a.get("text"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string();
+            }
+        }
+    }
+    raw.to_string()
+}
+
+/// Rebuild IM outbound reply text: user-visible body plus `MEDIA:` lines from raw assistant output.
+pub fn im_outbound_reply_source(raw_content: Option<&str>, visible_content: Option<&str>) -> String {
+    let Some(raw) = raw_content.map(str::trim).filter(|s| !s.is_empty()) else {
+        return visible_content.unwrap_or("").trim().to_string();
+    };
+
+    let source = reply_media_source(raw);
+    let (_, media_paths) = split_reply_media(&source);
+    if media_paths.is_empty() {
+        return visible_content.unwrap_or(raw).trim().to_string();
+    }
+
+    let visible = visible_content
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .unwrap_or_else(|| split_reply_media(&source).0.trim().to_string());
+
+    let mut out = visible;
+    for path in media_paths {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(MEDIA_PREFIX);
+        out.push_str(&path);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +150,15 @@ mod tests {
         let (text, media) = split_reply_media(&format!("好的\nMEDIA:{uri}"));
         assert_eq!(media, vec![uri]);
         assert!(!text.contains("pointer-media://"));
+    }
+
+    #[test]
+    fn im_outbound_reply_source_restores_media_from_raw() {
+        let raw = "文件在这里 👇\n\nMEDIA:/tmp/minesweeper.html";
+        let visible = strip_outbound_media_markers(raw);
+        let outbound = im_outbound_reply_source(Some(raw), Some(&visible));
+        let (text, media) = split_reply_media(&outbound);
+        assert_eq!(text, visible);
+        assert_eq!(media, vec!["/tmp/minesweeper.html"]);
     }
 }

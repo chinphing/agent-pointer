@@ -20,7 +20,9 @@ pub use capabilities::model_supports_vision;
 pub use deps_hint::MediaDepsStatus;
 pub use ffmpeg::{ffmpeg_available, probe_ffmpeg_tools, FfmpegToolProbe, FfmpegToolStatus};
 pub use access::is_user_filesystem_path;
-pub use outbound_reply::{split_reply_media, strip_outbound_media_markers};
+pub use outbound_reply::{
+    im_outbound_reply_source, reply_media_source, split_reply_media, strip_outbound_media_markers,
+};
 pub use path_hint::{append_attachment_paths, attachment_path_lines, MEDIA_URI_SCHEME};
 pub use reply_attachments::attachments_from_reply_paths;
 pub use store::{

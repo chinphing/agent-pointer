@@ -6,7 +6,7 @@ use anyhow::Result;
 use pointer_core::models::StreamEvent;
 
 use crate::config::ImOutboundConfig;
-use crate::outbound_reply::split_reply_media;
+use crate::outbound_reply::{im_outbound_reply_source, split_reply_media};
 use crate::outbound_resolve::resolve_outbound_media;
 use crate::traits::{ChannelPlugin, OutboundContext};
 
@@ -51,8 +51,11 @@ impl<'a> ImStreamOutbound<'a> {
             StreamEvent::MessageEnd {
                 message_id,
                 content,
+                raw_content,
                 ..
-            } => self.handle_message_end(message_id, content.as_deref()).await,
+            } => self
+                .handle_message_end(message_id, content.as_deref(), raw_content.as_deref())
+                .await,
             StreamEvent::ToolCallStatus {
                 tool_call_id,
                 status,
@@ -102,18 +105,24 @@ impl<'a> ImStreamOutbound<'a> {
         Ok(sent_any)
     }
 
-    async fn handle_message_end(&mut self, message_id: &str, content: Option<&str>) -> Result<()> {
+    async fn handle_message_end(
+        &mut self,
+        message_id: &str,
+        content: Option<&str>,
+        raw_content: Option<&str>,
+    ) -> Result<()> {
         if !self.cfg.send_intermediate_text {
             return Ok(());
         }
         if self.sent_message_ids.contains(message_id) {
             return Ok(());
         }
-        let Some(raw) = content.filter(|c| !c.trim().is_empty()) else {
+        let outbound = im_outbound_reply_source(raw_content, content);
+        if outbound.trim().is_empty() {
             return Ok(());
-        };
+        }
 
-        let sent = self.send_visible_chunk(raw).await?;
+        let sent = self.send_visible_chunk(&outbound).await?;
         if sent {
             self.sent_message_ids.insert(message_id.to_string());
         }

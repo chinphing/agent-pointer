@@ -68,29 +68,38 @@ pub(super) async fn run_subagent_delegation(
                         }
                     }
                     let mut sub_settings = provider.settings.clone();
-                    if def.id == "coder" {
-                        match crate::workspace_delegation::ensure_coder_delegation_workspace(
-                            conversation_id,
-                            parsed.workspace_root.as_deref(),
-                        ) {
-                            Ok((root, ephemeral)) => {
-                                sub_settings.workspace_root = root.clone();
+                    let prior_workspace = sub_settings.workspace_root.clone();
+                    let explicit_ws = if def.id == "coder" {
+                        parsed.workspace_root.as_deref()
+                    } else {
+                        None
+                    };
+                    match crate::workspace_delegation::ensure_subagent_workspace(
+                        conversation_id,
+                        explicit_ws,
+                        &mut sub_settings,
+                    ) {
+                        Ok(ephemeral) => {
+                            if sub_settings.workspace_root.trim() != prior_workspace.trim() {
                                 emit(
                                     stream,
                                     StreamEvent::WorkspaceUpdated {
                                         conversation_id: conversation_id.to_string(),
-                                        workspace_root: root,
-                                        is_ephemeral_sandbox: ephemeral,
+                                        workspace_root: sub_settings.workspace_root.clone(),
+                                        is_ephemeral_sandbox: ephemeral
+                                            && explicit_ws.is_none()
+                                            && prior_workspace.trim().is_empty(),
                                     },
                                 );
                             }
-                            Err(e) => {
-                                let msg = e.to_string();
-                                log::warn!(
-                                    "run_subagent coder workspace failed conversation_id={conversation_id}: {msg}"
-                                );
-                                return Ok((format!("ERROR: {msg}"), false, Some(msg)));
-                            }
+                        }
+                        Err(e) => {
+                            let msg = e.to_string();
+                            log::warn!(
+                                "run_subagent workspace failed conversation_id={conversation_id} sub_agent={}: {msg}",
+                                def.id
+                            );
+                            return Ok((format!("ERROR: {msg}"), false, Some(msg)));
                         }
                     }
                     let sub_provider =

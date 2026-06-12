@@ -4,17 +4,24 @@ use super::terminal::{
 };
 use crate::dotenv::merged_env_from_files;
 use anyhow::{anyhow, Result};
-use log::{info, warn};
+use log::info;
+#[cfg(unix)]
+use log::warn;
 use std::collections::HashMap;
 #[cfg(windows)]
 use std::fs;
+#[cfg(unix)]
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
+#[cfg(unix)]
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
+#[cfg(unix)]
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 #[cfg(windows)]

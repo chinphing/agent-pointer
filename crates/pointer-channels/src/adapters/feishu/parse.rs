@@ -27,11 +27,34 @@ pub fn parse_feishu_event(root: &Value, account_id: &str) -> Option<InboundMessa
     build_inbound_message(message, sender, account_id)
 }
 
+fn is_feishu_self_sent(sender: &Value) -> bool {
+    match sender.get("sender_type").and_then(|v| v.as_str()) {
+        Some("bot" | "app") => return true,
+        Some("user") => return false,
+        _ => {}
+    }
+    sender
+        .get("sender_id")
+        .and_then(|s| s.get("id_type"))
+        .and_then(|v| v.as_str())
+        == Some("app_id")
+}
+
 fn build_inbound_message(
     message: &Value,
     sender: &Value,
     account_id: &str,
 ) -> Option<InboundMessage> {
+    if is_feishu_self_sent(sender) {
+        log::debug!(
+            "feishu inbound drop self-sent message_id={}",
+            message
+                .get("message_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+        );
+        return None;
+    }
     let message_id = message.get("message_id")?.as_str()?;
     let chat_id = message.get("chat_id")?.as_str()?;
     let chat_type = message
@@ -355,4 +378,71 @@ fn to_post_payload(value: &Value) -> Option<PostPayload> {
         .unwrap_or("")
         .to_string();
     Some(PostPayload { title, content })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn drops_app_sender_messages() {
+        let root = json!({
+            "header": { "event_type": "im.message.receive_v1" },
+            "event": {
+                "sender": {
+                    "sender_id": { "open_id": "ou_bot", "id_type": "app_id" },
+                    "sender_type": "app"
+                },
+                "message": {
+                    "message_id": "om_bot_echo",
+                    "chat_id": "oc_test",
+                    "message_type": "text",
+                    "content": "{\"text\":\"扫雷 HTML 文件在这里\"}"
+                }
+            }
+        });
+        assert!(parse_feishu_event(&root, "default").is_none());
+    }
+
+    #[test]
+    fn drops_bot_sender_messages() {
+        let root = json!({
+            "header": { "event_type": "im.message.receive_v1" },
+            "event": {
+                "sender": {
+                    "sender_id": { "open_id": "ou_bot" },
+                    "sender_type": "bot"
+                },
+                "message": {
+                    "message_id": "om_bot_echo2",
+                    "chat_id": "oc_test",
+                    "message_type": "post",
+                    "content": "{\"zh_cn\":{\"title\":\"\",\"content\":[[{\"tag\":\"text\",\"text\":\"hello\"}]]}}"
+                }
+            }
+        });
+        assert!(parse_feishu_event(&root, "default").is_none());
+    }
+
+    #[test]
+    fn accepts_user_sender_messages() {
+        let root = json!({
+            "header": { "event_type": "im.message.receive_v1" },
+            "event": {
+                "sender": {
+                    "sender_id": { "open_id": "ou_user" },
+                    "sender_type": "user"
+                },
+                "message": {
+                    "message_id": "om_user1",
+                    "chat_id": "oc_test",
+                    "message_type": "text",
+                    "content": "{\"text\":\"发文件\"}"
+                }
+            }
+        });
+        let inbound = parse_feishu_event(&root, "default").expect("user message");
+        assert_eq!(inbound.text, "发文件");
+    }
 }

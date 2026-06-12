@@ -147,6 +147,17 @@ MEDIA:/absolute/path/to/report.pdf
 
 单文件上限 30 MB。若路径无法解析或上传失败，会记录错误日志，文本回复仍会发送。
 
+### 入站自消息过滤（避免多跑一轮）
+
+部分 IM 平台会把**机器人自己发出的消息**再推回应用，若不过滤会被当成用户新消息，触发多余的 `run_chat` 轮次（飞书典型表现：先发文字、再发文件 → 文字回显又触发一轮）。
+
+| 通道 | 平台是否会回推自消息 | 本项目处理 |
+| --- | --- | --- |
+| 飞书 | 会（`sender_type` 为 `app` / `bot`） | `feishu/parse.rs` 丢弃自消息 |
+| 微信 iLink | 一般不会（`message_type=2` 为 BOT） | 仅接受 `message_type=1`；额外丢弃 `*@im.bot` 发送方 |
+| 企微 WSS | 不会（文档：`aibot_send_msg` 不触发回调） | 仅处理 `aibot_msg_callback` 用户消息 |
+| 钉钉 Stream | 一般不会（topic 为用户 → 机器人） | 依赖平台语义；无额外字段可稳定识别自消息 |
+
 ### 出站回复（对齐 OpenClaw）
 
 IM 会话中模型将**最终正文写在 assistant 消息**里，宿主在 `run_chat` 结束后自动发到对应 IM 通道；无需独立 delivery 工具（本项目已移除早期的 `channel_message` 工具，避免与最终回复重复）。

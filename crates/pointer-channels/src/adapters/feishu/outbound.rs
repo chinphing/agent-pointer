@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde_json::json;
 
-use super::auth::{auth_header, tenant_access_token};
+use super::auth::{auth_header, feishu_upload_file_type, tenant_access_token};
 use crate::http_client::HttpClient;
 use crate::outbound_format::feishu_post_md_content;
 use crate::traits::{ChannelOutboundAdapter, OutboundContext, OutboundMedia};
@@ -63,15 +63,10 @@ impl FeishuOutbound {
         let url = "https://open.feishu.cn/open-apis/im/v1/files";
         let auth = auth_header(token);
         let headers = [("Authorization", auth.as_str())];
-        let file_type = if media.mime_type.starts_with("audio/") {
-            "opus"
-        } else if media.mime_type.starts_with("video/") {
-            "mp4"
-        } else {
-            "stream"
-        };
+        let file_type = feishu_upload_file_type(&media.mime_type, &media.file_name);
         let parts = vec![
             ("file_type", file_type.as_bytes().to_vec(), None),
+            ("file_name", media.file_name.as_bytes().to_vec(), None),
             (
                 "file",
                 media.bytes.clone(),

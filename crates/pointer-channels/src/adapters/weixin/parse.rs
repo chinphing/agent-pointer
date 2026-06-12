@@ -30,6 +30,10 @@ pub fn parse_weixin_message(
         .or_else(|| msg.get("from_user"))
         .or_else(|| msg.get("from"))
         .and_then(|v| v.as_str())?;
+    if is_weixin_bot_sender(from) {
+        log::debug!("weixin inbound drop self-sent from={from}");
+        return None;
+    }
     if let Some(token) = msg.get("context_token").and_then(|v| v.as_str()) {
         tokens.insert(from.to_string(), token.to_string());
     }
@@ -71,6 +75,10 @@ pub fn parse_weixin_message(
         }),
         attachments: parsed.attachments,
     })
+}
+
+fn is_weixin_bot_sender(from: &str) -> bool {
+    from.ends_with("@im.bot")
 }
 
 fn parse_item_list(items: &[Value]) -> Option<ParsedContent> {
@@ -331,5 +339,20 @@ mod tests {
         .expect("parse");
         assert_eq!(inbound.attachments.len(), 1);
         assert_eq!(inbound.attachments[0].kind, "image");
+    }
+
+    #[test]
+    fn drops_bot_sender_even_without_message_type() {
+        let mut tokens = HashMap::new();
+        let inbound = parse_weixin_message(
+            &json!({
+                "message_id": "bot1",
+                "from_user_id": "hex@im.bot",
+                "item_list": [{ "type": 1, "text_item": { "text": "echo" } }]
+            }),
+            "default",
+            &mut tokens,
+        );
+        assert!(inbound.is_none());
     }
 }

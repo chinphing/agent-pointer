@@ -81,6 +81,30 @@ pub fn guess_mime_from_name(file_name: &str) -> String {
     "application/octet-stream".into()
 }
 
+/// Feishu `im/v1/files` upload `file_type` (see open platform docs).
+pub fn feishu_upload_file_type(mime_type: &str, file_name: &str) -> &'static str {
+    let lower = file_name.trim().to_ascii_lowercase();
+    if mime_type.starts_with("video/") || lower.ends_with(".mp4") || lower.ends_with(".mov") {
+        return "mp4";
+    }
+    if mime_type.starts_with("audio/") {
+        return "opus";
+    }
+    if mime_type == "application/pdf" || lower.ends_with(".pdf") {
+        return "pdf";
+    }
+    if lower.ends_with(".doc") {
+        return "doc";
+    }
+    if lower.ends_with(".xls") || lower.ends_with(".xlsx") {
+        return "xls";
+    }
+    if lower.ends_with(".ppt") || lower.ends_with(".pptx") {
+        return "ppt";
+    }
+    "stream"
+}
+
 pub fn kind_from_mime(mime: &str, fallback_kind: &str) -> String {
     let m = mime.trim().to_ascii_lowercase();
     if m.starts_with("image/") {
@@ -96,4 +120,25 @@ pub fn kind_from_mime(mime: &str, fallback_kind: &str) -> String {
         return "document".into();
     }
     fallback_kind.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn feishu_upload_file_type_for_html() {
+        assert_eq!(
+            feishu_upload_file_type("text/html", "minesweeper.html"),
+            "stream"
+        );
+    }
+
+    #[test]
+    fn feishu_upload_file_type_for_pdf() {
+        assert_eq!(
+            feishu_upload_file_type("application/pdf", "report.pdf"),
+            "pdf"
+        );
+    }
 }

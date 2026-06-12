@@ -7,7 +7,7 @@ use crate::dotenv::{
     resolve_env_file_path,
 };
 use anyhow::{anyhow, Result};
-use log::warn;
+use log::{info, warn};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -49,19 +49,24 @@ fn register_terminal(reg: &ToolRegistry) {
     ));
 }
 
-pub(crate) fn effective_terminal_cwd(explicit: Option<PathBuf>) -> Result<Option<PathBuf>> {
-    if explicit.is_some() {
-        return Ok(explicit);
+pub(crate) fn effective_terminal_cwd(
+    explicit: Option<PathBuf>,
+    session_workspace: &str,
+) -> Result<PathBuf> {
+    if let Some(path) = explicit {
+        return Ok(path.canonicalize().unwrap_or(path));
     }
-    let w = crate::tools::file::workspace_root_from_override_or_settings();
-    let w = w.trim();
-    if !w.is_empty() {
-        let p = PathBuf::from(w);
-        if p.is_dir() {
-            return Ok(Some(p.canonicalize().unwrap_or(p)));
+    let trimmed = session_workspace.trim();
+    if !trimmed.is_empty() {
+        let p = PathBuf::from(trimmed);
+        if !p.is_dir() {
+            return Err(anyhow!("工作区目录无效或不存在: {trimmed}"));
         }
+        return p
+            .canonicalize()
+            .map_err(|e| anyhow!("无法解析工作区路径: {e}"));
     }
-    Ok(None)
+    std::env::current_dir().map_err(|e| anyhow!("无法获取当前目录: {e}"))
 }
 
 /// 超时或需要强制结束时：在 Windows 上仅 `Child::kill` 往往只杀掉 shell（如 PowerShell），
@@ -88,20 +93,21 @@ fn run_terminal_command(args: serde_json::Value) -> Result<String> {
         .filter(|v| !v.is_empty())
         .map(|s| s.to_string())
         .ok_or_else(|| anyhow!("缺少 command"))?;
-    let cwd = effective_terminal_cwd(parse_terminal_cwd(args.get("cwd"))?)?;
+    let session_workspace = crate::tools::file::workspace_root_from_override_or_settings();
+    let cwd = effective_terminal_cwd(parse_terminal_cwd(args.get("cwd"))?, &session_workspace)?;
     let max_output_bytes = args
         .get("maxOutputBytes")
         .and_then(|v| v.as_u64())
         .unwrap_or(TERMINAL_DEFAULT_MAX_OUTPUT_BYTES as u64)
         .min(TERMINAL_MAX_OUTPUT_BYTES as u64) as usize;
     let (shell, _) = terminal_shell_command(&command);
-    let env_files = resolve_terminal_env_files(&args, cwd.as_deref())?;
+    let env_files = resolve_terminal_env_files(&args, Some(cwd.as_path()))?;
 
-    let r = run_terminal_command_streaming(args, |_| {}, None, None)?;
+    let r = run_terminal_command_streaming(args, session_workspace, |_| {}, None, None)?;
 
     Ok(serde_json::json!({
         "command": command.as_str(),
-        "cwd": cwd.map(|p| p.display().to_string()).unwrap_or_else(|| std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default()),
+        "cwd": cwd.display().to_string(),
         "envFiles": env_files,
         "shell": shell,
         "exitCode": r.exit_code,
@@ -141,12 +147,19 @@ pub struct TerminalStreamingResult {
 /// - `run_abort`: only this subprocess should stop (`Arc<AtomicBool>` set by host).
 pub fn run_terminal_command_streaming(
     args: serde_json::Value,
+    session_workspace: String,
     on_output: impl Fn(&str) + Send,
     cancel: Option<CancellationToken>,
     run_abort: Option<Arc<AtomicBool>>,
 ) -> Result<TerminalStreamingResult> {
     if terminal_requests_elevation(&args) {
-        return run_terminal_command_elevated(args, on_output, cancel, run_abort);
+        return run_terminal_command_elevated(
+            args,
+            session_workspace,
+            on_output,
+            cancel,
+            run_abort,
+        );
     }
 
     let command = args
@@ -155,7 +168,8 @@ pub fn run_terminal_command_streaming(
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .ok_or_else(|| anyhow!("缺少 command"))?;
-    let cwd = effective_terminal_cwd(parse_terminal_cwd(args.get("cwd"))?)?;
+    let cwd = effective_terminal_cwd(parse_terminal_cwd(args.get("cwd"))?, &session_workspace)?;
+    info!("terminal: cwd={}", cwd.display());
     let timeout_ms = args
         .get("timeoutMs")
         .and_then(|v| v.as_u64())
@@ -172,14 +186,12 @@ pub fn run_terminal_command_streaming(
         .unwrap_or(TERMINAL_DEFAULT_MAX_OUTPUT_BYTES as u64)
         .min(TERMINAL_MAX_OUTPUT_BYTES as u64) as usize;
 
-    let env_file_paths = resolve_terminal_env_files(&args, cwd.as_deref())?;
+    let env_file_paths = resolve_terminal_env_files(&args, Some(cwd.as_path()))?;
 
     crate::shell_env::refresh_process_path_from_registry();
 
     let (_shell, mut cmd) = terminal_shell_command(command);
-    if let Some(dir) = &cwd {
-        cmd.current_dir(dir);
-    }
+    cmd.current_dir(&cwd);
     if !env_file_paths.is_empty() {
         let paths: Vec<PathBuf> = env_file_paths.iter().map(PathBuf::from).collect();
         apply_supplemental_env_files(&mut cmd, &paths);
@@ -344,17 +356,7 @@ fn drain_pipe_chunks(
 }
 
 fn workspace_root_dir() -> Option<PathBuf> {
-    let w = crate::tools::file::workspace_root_from_override_or_settings();
-    let w = w.trim();
-    if w.is_empty() {
-        return None;
-    }
-    let p = PathBuf::from(w);
-    if p.is_dir() {
-        Some(p.canonicalize().unwrap_or(p))
-    } else {
-        None
-    }
+    crate::tools::file::resolve_tool_workspace_root().ok()
 }
 
 pub(crate) fn resolve_terminal_env_files(
@@ -473,6 +475,37 @@ pub(crate) fn truncate_output(bytes: &[u8], max_bytes: usize) -> (String, bool) 
     let mut text = String::from_utf8_lossy(&bytes[..end]).to_string();
     text.push_str("\n...[output truncated]");
     (text, true)
+}
+
+#[cfg(test)]
+mod cwd_tests {
+    use super::*;
+
+    #[test]
+    fn effective_terminal_cwd_defaults_to_workspace_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().display().to_string();
+        let cwd = effective_terminal_cwd(None, &ws).unwrap();
+        assert_eq!(cwd, dir.path().canonicalize().unwrap());
+    }
+
+    #[test]
+    fn effective_terminal_cwd_prefers_explicit_path() {
+        let ws_dir = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let cwd = effective_terminal_cwd(Some(other.path().to_path_buf()), ws_dir.path().to_str().unwrap()).unwrap();
+        assert_eq!(cwd, other.path().canonicalize().unwrap());
+    }
+
+    #[test]
+    fn effective_terminal_cwd_uses_session_workspace_not_thread_local() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().display().to_string();
+        let resolved = std::thread::spawn(move || effective_terminal_cwd(None, &ws).unwrap())
+            .join()
+            .unwrap();
+        assert_eq!(resolved, dir.path().canonicalize().unwrap());
+    }
 }
 
 #[cfg(all(test, windows))]

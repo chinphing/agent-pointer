@@ -1207,7 +1207,7 @@ mod builtin_agent_tests {
     }
 
     #[test]
-    fn coder_communication_expands_workspace_placeholder() {
+    fn communication_public_expands_workspace_placeholder() {
         let vars = SessionInjectVars {
             workspace_root: "/tmp/example-workspace",
         };

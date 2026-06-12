@@ -1,11 +1,11 @@
-//! Workspace resolution when a lead agent delegates to **coder** (general has no picker).
+//! Workspace resolution when a lead agent delegates to **coder**.
 
 use anyhow::{anyhow, Context, Result};
 use log::info;
 use std::path::PathBuf;
 
 use crate::storage;
-use crate::tools::file::{resolve_tool_workspace_root, set_runtime_workspace_root, workspace_root_from_override_or_settings};
+use crate::tools::file::{resolve_tool_workspace_root, workspace_root_from_override_or_settings};
 
 const CODER_SANDBOXES_DIR: &str = "coder-sandboxes";
 
@@ -19,7 +19,6 @@ pub fn ensure_coder_delegation_workspace(
 ) -> Result<(String, bool)> {
     if let Some(raw) = explicit_from_tool.map(str::trim).filter(|s| !s.is_empty()) {
         let path = validate_existing_workspace_dir(raw)?;
-        set_runtime_workspace_root(path.clone());
         info!(
             "workspace_delegation: using explicit path for conversation_id={conversation_id}: {path}"
         );
@@ -31,7 +30,6 @@ pub fn ensure_coder_delegation_workspace(
         match resolve_tool_workspace_root() {
             Ok(p) => {
                 let path = p.display().to_string();
-                set_runtime_workspace_root(path.clone());
                 info!(
                     "workspace_delegation: using session workspace for conversation_id={conversation_id}: {path}"
                 );
@@ -46,7 +44,6 @@ pub fn ensure_coder_delegation_workspace(
     }
 
     let sandbox = ensure_conversation_sandbox(conversation_id)?;
-    set_runtime_workspace_root(sandbox.clone());
     info!(
         "workspace_delegation: ephemeral sandbox for conversation_id={conversation_id}: {sandbox}"
     );

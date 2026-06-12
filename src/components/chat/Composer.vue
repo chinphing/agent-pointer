@@ -41,7 +41,11 @@ import type { MacosComputerPermissionsStatus } from '../../types/macosPermission
 import ComputerScreenPickerModal from './ComputerScreenPickerModal.vue'
 import AttachmentChip from './AttachmentChip.vue'
 import MacosComputerPermissionsModal from './MacosComputerPermissionsModal.vue'
-import WorkspaceRequiredModal from './WorkspaceRequiredModal.vue'
+
+function isEphemeralWorkspacePath(path: string): boolean {
+  const normalized = path.replace(/\\/g, '/')
+  return normalized.includes('/session-sandboxes/') || normalized.includes('/coder-sandboxes/')
+}
 
 const props = withDefaults(
   defineProps<{
@@ -122,12 +126,7 @@ const isMacDesktop = computed(
   () => isTauriRuntime() && detectDesktopOs() === 'macos'
 )
 
-const needsWorkspace = computed(
-  () =>
-    sessionAgentMode.value === 'single'
-    && selectedWorkerId.value === 'coder'
-    && leadUi.value.showWorkspacePicker
-)
+const showWorkspacePicker = computed(() => true)
 
 const supervisorRoundsLabel = computed(() => {
   if (sessionAgentMode.value !== 'supervisor' || !chat.current) return ''
@@ -139,12 +138,15 @@ const supervisorRoundsLabel = computed(() => {
 const workspaceDirName = computed(() => {
   const p = chat.current?.workspaceRoot ?? ''
   if (!p) return ''
+  if (isEphemeralWorkspacePath(p)) return '临时目录'
   return p.replace(/[/\\]+$/, '').split(/[/\\]/).pop() || ''
 })
 
 const workspaceTooltip = computed(() => {
   const p = chat.current?.workspaceRoot?.trim()
-  return p || '未设置工作目录'
+  if (!p) return '未设置时将自动创建临时工作目录'
+  if (isEphemeralWorkspacePath(p)) return `临时工作目录：${p}`
+  return p
 })
 
 const currentAgentLabel = computed(() => composerAgentLabel(selectedWorker.value, sessionAgentSettings.value))
@@ -152,6 +154,11 @@ const currentAgentLabel = computed(() => composerAgentLabel(selectedWorker.value
 const currentAgentIcon = computed(() => iconForAgent(selectedWorker.value, sessionAgentSettings.value))
 
 const hasWorkspace = computed(() => !!(chat.current?.workspaceRoot?.trim()))
+
+const workspaceNeedsAttention = computed(() => {
+  const p = chat.current?.workspaceRoot?.trim() ?? ''
+  return !p || isEphemeralWorkspacePath(p)
+})
 
 const canSend = computed(
   () =>
@@ -211,31 +218,13 @@ function onWorkspaceInput(e: Event) {
   onWorkspaceInputChange()
 }
 
-function remindWorkspaceRequired() {
-  showWorkspaceRequiredModal.value = true
-}
-
-async function onWorkspaceRequiredPick() {
-  showWorkspaceRequiredModal.value = false
-  if (isTauriRuntime()) {
-    await pickWorkspaceFolder()
-    return
-  }
-  nextTick(() => workspaceInputRef.value?.focus())
-}
-
 function send() {
   if (!canSend.value) return
-  if (needsWorkspace.value && !hasWorkspace.value) {
-    remindWorkspaceRequired()
-    return
-  }
   void sendWithOptionalComputerScreenPick()
 }
 
 const showScreenPicker = ref(false)
 const showPermissionsModal = ref(false)
-const showWorkspaceRequiredModal = ref(false)
 const screenPickerLoading = ref(false)
 const screenPickerError = ref<string | null>(null)
 const screenPickerMonitors = ref<ComputerMonitor[]>([])
@@ -652,12 +641,6 @@ onUnmounted(() => {
     @pick="onPickScreen"
   />
 
-  <WorkspaceRequiredModal
-    v-model:open="showWorkspaceRequiredModal"
-    :is-desktop="isTauriRuntime()"
-    @pick="onWorkspaceRequiredPick"
-  />
-
   <div
     :class="props.placement === 'inline'
       ? 'w-full'
@@ -769,7 +752,7 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <div v-if="needsWorkspace" class="relative flex items-center gap-1 min-w-0">
+            <div v-if="showWorkspacePicker" class="relative flex items-center gap-1 min-w-0">
               <button
                 v-if="isTauriRuntime()"
                 type="button"
@@ -777,7 +760,10 @@ onUnmounted(() => {
                 :title="workspaceTooltip"
                 @click="pickWorkspaceFolder"
               >
-                <FolderOpen class="w-3 h-3 shrink-0 text-warning" />
+                <FolderOpen
+                  class="w-3 h-3 shrink-0"
+                  :class="workspaceNeedsAttention ? 'text-warning' : 'text-muted'"
+                />
                 <span class="truncate max-w-[150px]">{{ workspaceDirName || '工作目录…' }}</span>
               </button>
               <input
@@ -785,7 +771,7 @@ onUnmounted(() => {
                 ref="workspaceInputRef"
                 :value="chat.current?.workspaceRoot ?? ''"
                 type="text"
-                placeholder="工作目录"
+                placeholder="项目目录（可选，留空则自动创建临时目录）"
                 class="composer-workspace-input"
                 :title="workspaceTooltip"
                 @input="onWorkspaceInput"

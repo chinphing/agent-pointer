@@ -34,6 +34,7 @@ pub fn terminal_requests_elevation(args: &serde_json::Value) -> bool {
 
 pub fn run_terminal_command_elevated(
     args: serde_json::Value,
+    session_workspace: String,
     on_output: impl Fn(&str) + Send,
     cancel: Option<CancellationToken>,
     run_abort: Option<Arc<AtomicBool>>,
@@ -54,7 +55,7 @@ pub fn run_terminal_command_elevated(
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .ok_or_else(|| anyhow!("缺少 command"))?;
-    let cwd = effective_terminal_cwd(parse_terminal_cwd(args.get("cwd"))?)?;
+    let cwd = effective_terminal_cwd(parse_terminal_cwd(args.get("cwd"))?, &session_workspace)?;
     let wall_cap_ms = args
         .get("maxWallMs")
         .and_then(|v| v.as_u64())
@@ -66,7 +67,7 @@ pub fn run_terminal_command_elevated(
         .unwrap_or(20_000)
         .min(200_000) as usize;
 
-    let env_file_paths = resolve_terminal_env_files(&args, cwd.as_deref())?;
+    let env_file_paths = resolve_terminal_env_files(&args, Some(cwd.as_path()))?;
     let env_paths: Vec<PathBuf> = env_file_paths.iter().map(PathBuf::from).collect();
     let env = merged_env_from_files(&env_paths);
 
@@ -75,7 +76,7 @@ pub fn run_terminal_command_elevated(
     crate::shell_env::refresh_process_path_from_registry();
 
     let started = Instant::now();
-    let inner = run_elevated_platform(command, cwd.as_deref(), &env, wall_cap_ms, &on_output)?;
+    let inner = run_elevated_platform(command, Some(cwd.as_path()), &env, wall_cap_ms, &on_output)?;
     let duration_ms = started.elapsed().as_millis() as u64;
 
     if inner.elevation_denied {
@@ -133,7 +134,6 @@ fn run_elevated_platform(
 
     let work_dir = cwd
         .map(|p| p.to_path_buf())
-        .or_else(|| std::env::current_dir().ok())
         .ok_or_else(|| anyhow!("无法确定工作目录"))?;
 
     let temp_dir = std::env::temp_dir().join(format!(

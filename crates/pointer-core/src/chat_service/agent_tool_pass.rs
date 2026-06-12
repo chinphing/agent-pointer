@@ -10,6 +10,7 @@ use crate::tools::normalize_tool_invoke_name;
 use crate::tools::registry_tool_in_allow_list;
 use crate::tools::parse_tool_call_arguments;
 use crate::tools::terminal::{run_terminal_command_streaming, terminal_stream_tool_status};
+use crate::tools::file::ConversationWorkspaceGuard;
 use crate::tools::web_search::{
     dispatch_to_tool_json_async, WebSearchDispatchContext, WebSearchInvokeContext,
     WebSearchTokenSink,
@@ -430,6 +431,7 @@ async fn execute_tool_invocation(
             args_value,
             cancel,
             sub.map(|s| s.trace_id.clone()),
+            provider.settings.workspace_root.clone(),
         )
         .await;
     }
@@ -606,6 +608,38 @@ async fn execute_tool_invocation(
         .map(|out| (out, true, None))
 }
 
+fn resolve_terminal_session_workspace(conversation_id: &str, from_settings: String) -> String {
+    let trimmed = from_settings.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    if let Ok(store) = crate::conversation_store::global_store() {
+        if let Ok(ws) = store.workspace_root(conversation_id) {
+            if !ws.trim().is_empty() {
+                log::info!(
+                    "terminal: workspace from conversation store conversation_id={conversation_id}: {ws}"
+                );
+                return ws.trim().to_string();
+            }
+        }
+    }
+    match crate::session_sandbox::SessionSandbox::ensure(conversation_id) {
+        Ok(path) => {
+            let ws = path.display().to_string();
+            log::info!(
+                "terminal: workspace from session sandbox conversation_id={conversation_id}: {ws}"
+            );
+            ws
+        }
+        Err(e) => {
+            log::warn!(
+                "terminal: session sandbox ensure failed conversation_id={conversation_id}: {e:#}"
+            );
+            String::new()
+        }
+    }
+}
+
 async fn run_terminal_tool(
     stream: &StreamTx,
     state: &AppState,
@@ -615,7 +649,15 @@ async fn run_terminal_tool(
     args_value: serde_json::Value,
     cancel: &CancellationToken,
     trace_id: Option<String>,
+    session_workspace: String,
 ) -> Result<(String, bool, Option<String>), anyhow::Error> {
+    let session_workspace =
+        resolve_terminal_session_workspace(conversation_id, session_workspace);
+    if session_workspace.trim().is_empty() {
+        log::warn!(
+            "terminal: no session workspace; cwd may fall back to process directory conversation_id={conversation_id}"
+        );
+    }
     let cancel_terminal = cancel.clone();
     let abort_flag = Arc::new(AtomicBool::new(false));
     {
@@ -629,9 +671,13 @@ async fn run_terminal_tool(
     let tc_id_for_stream = tc.id.clone();
     let stream_for_terminal = stream.clone();
     let trace_id_for_terminal = trace_id_opt(trace_id.as_deref());
+    // Terminal runs on a blocking thread pool; pass session workspace explicitly
+    // (thread-local + tokio worker migration do not reliably propagate it).
     let join = tokio::task::spawn_blocking(move || {
+        let _workspace_guard = ConversationWorkspaceGuard::enter(session_workspace.clone());
         run_terminal_command_streaming(
             args_value,
+            session_workspace,
             move |output| {
                 let _ = stream_for_terminal.send(StreamEvent::TerminalOutputDelta {
                     message_id: msg_id_for_stream.clone(),

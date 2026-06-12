@@ -34,7 +34,7 @@ ui:
   userSelectable: true
   composerLabel: 通用助手
   showSubAgentTrace: true
-  showWorkspacePicker: false
+  showWorkspacePicker: true
   showTaskBoardPanel: true
   hideToolNames: []
 ---
@@ -123,8 +123,8 @@ they already asked for code work or desktop control.
   **`computerTarget`**: **`self`** when the task is **Pointer's own UI** (settings,
   in-app controls); **`external`** when automating **other apps** (default).
   **On decline:** brief manual steps.
-- **`coder` workspace:** ask for an absolute project path; pass **`workspaceRoot`**
-  if given, else omit (host uses a per-conversation sandbox).
+- **Workspace:** ask for an absolute project path when the task needs a real repo; pass **`workspaceRoot`**
+  if given, else omit (host uses the session workspace or a per-conversation sandbox).
 
 Workers (delegatable metadata block): **`coder`** — repo code & terminal;
 **`computer`** — hands-on desktop & browser work on the user's machine.

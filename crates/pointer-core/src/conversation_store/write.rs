@@ -21,10 +21,10 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
         "INSERT INTO conversations (
            id, title, created_at_ms, updated_at_ms, message_count, preview,
            skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
-           computer_monitor_id, workspace_root, lead_agent_id, agent_mode
+           computer_monitor_id, workspace_root, workspace_user_set, lead_agent_id, agent_mode
          ) VALUES (?1,?2,?3,?4,
            COALESCE((SELECT message_count FROM conversations WHERE id = ?1), 0),
-           ?5,?6,?7,?8,?9,?10,?11,?12)
+           ?5,?6,?7,?8,?9,?10,?11,?12,?13)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            updated_at_ms = excluded.updated_at_ms,
@@ -33,6 +33,7 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
            tool_rounds_used_supervisor = excluded.tool_rounds_used_supervisor,
            computer_monitor_id = excluded.computer_monitor_id,
            workspace_root = excluded.workspace_root,
+           workspace_user_set = excluded.workspace_user_set,
            lead_agent_id = excluded.lead_agent_id,
            agent_mode = excluded.agent_mode",
         params![
@@ -46,6 +47,7 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
             meta.tool_rounds_used_supervisor,
             meta.computer_monitor_id,
             meta.workspace_root,
+            i64::from(meta.workspace_user_set),
             meta.lead_agent_id,
             meta.agent_mode,
         ],
@@ -111,6 +113,7 @@ fn ensure_conversation_row_with_title(
             tool_rounds_used_supervisor: 0,
             computer_monitor_id: None,
             workspace_root: String::new(),
+            workspace_user_set: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
             agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
         },
@@ -385,6 +388,7 @@ mod tests {
             tool_rounds_used_supervisor: 0,
             computer_monitor_id: None,
             workspace_root: "/tmp".into(),
+            workspace_user_set: true,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
             agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
         };

@@ -302,6 +302,9 @@ pub struct Conversation {
     /// Per-conversation workspace root for coder/file tools (session UI only).
     #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
     pub workspace_root: String,
+    /// True when the user explicitly picked `workspace_root` in the composer (not auto sandbox).
+    #[serde(default, rename = "workspaceUserSet", skip_serializing_if = "is_false_bool")]
+    pub workspace_user_set: bool,
     /// Per-conversation lead worker when `agent_mode` is `single`.
     #[serde(
         default = "default_lead_agent_id",
@@ -324,6 +327,10 @@ fn is_default_session_lead_agent(id: &str) -> bool {
 
 fn is_default_session_agent_mode(mode: &str) -> bool {
     mode.trim().is_empty() || mode.trim() == default_agent_mode()
+}
+
+fn is_false_bool(v: &bool) -> bool {
+    !*v
 }
 
 /// Conversation shell fields for P1 meta-only persistence (no messages).
@@ -349,6 +356,8 @@ pub struct ConversationMeta {
     pub computer_monitor_id: Option<String>,
     #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
     pub workspace_root: String,
+    #[serde(default, rename = "workspaceUserSet", skip_serializing_if = "is_false_bool")]
+    pub workspace_user_set: bool,
     #[serde(
         default = "default_lead_agent_id",
         rename = "leadAgentId",
@@ -375,6 +384,7 @@ impl From<&Conversation> for ConversationMeta {
             tool_rounds_used_supervisor: c.tool_rounds_used_supervisor,
             computer_monitor_id: c.computer_monitor_id.clone(),
             workspace_root: c.workspace_root.clone(),
+            workspace_user_set: c.workspace_user_set,
             lead_agent_id: c.lead_agent_id.clone(),
             agent_mode: c.agent_mode.clone(),
         }
@@ -3542,6 +3552,7 @@ mod effective_extra_body_tests {
             tool_rounds_used_supervisor: 0,
             computer_monitor_id: None,
             workspace_root: String::new(),
+            workspace_user_set: false,
             lead_agent_id: default_lead_agent_id(),
             agent_mode: default_agent_mode(),
         };

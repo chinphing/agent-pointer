@@ -33,6 +33,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", features = ["sink"] }
 uuid = { version = "1", features = ["v4"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 qrcode = "0.14"
 image = { version = "0.25", default-features = false, features = ["png"] }
 subtle = "2"

@@ -346,14 +346,29 @@ pub(super) async fn run_chat_inner(
 /// Resolve the effective workspace for a conversation when the frontend sends
 /// an empty `workspaceRoot`.
 ///
-/// Priority:
+/// Desktop sessions:
 ///   1. The most recent *other* conversation's `workspace_root` (inherits last
 ///      active session's directory).
 ///   2. Session sandbox (`{app_data}/session-sandboxes/{conversation_id}/`).
+///
+/// IM sessions (Feishu / DingTalk / WeCom / Weixin): always use a per-conversation
+/// session sandbox when no explicit `workspaceRoot` was stored — never inherit another
+/// conversation's project directory.
 fn resolve_effective_workspace(
     conversation_id: &str,
     _state: &AppState,
 ) -> Result<String> {
+    if crate::channel_outbound::is_im_conversation(conversation_id) {
+        let sandbox = crate::session_sandbox::SessionSandbox::ensure(conversation_id)
+            .map(|p| p.display().to_string())?;
+        log::info!(
+            "resolve_effective_workspace: IM session sandbox for conversation_id={conversation_id}: {sandbox}",
+            conversation_id = conversation_id,
+            sandbox = sandbox
+        );
+        return Ok(sandbox);
+    }
+
     // Try the last-active conversation's workspace (skip ourselves).
     if let Ok(store) = crate::conversation_store::global_store() {
         if let Ok(convs) = store.load_all() {

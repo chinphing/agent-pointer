@@ -1,6 +1,9 @@
 //! IM conversation helpers (titles, session commands, routing).
 
+use std::path::Path;
+
 use crate::agents::{agent_display_label, AgentDef, AgentRegistry};
+use crate::session_sandbox::SessionSandbox;
 
 const IM_CHANNELS: &[&str] = &["feishu", "dingtalk", "wecom", "weixin"];
 const DEFAULT_CONVERSATION_TITLE: &str = "新会话";
@@ -140,6 +143,27 @@ pub fn is_im_conversation(conversation_id: &str) -> bool {
     IM_CHANNELS.contains(&channel)
 }
 
+/// Workspace root to pass into `run_chat` for an IM desktop session.
+///
+/// Priority matches product docs: user-picked project folder → auto session sandbox.
+/// Ignores polluted non-sandbox paths left by the pre-fix inherit bug.
+pub fn resolve_im_run_workspace(stored_workspace: &str, workspace_user_set: bool) -> String {
+    let trimmed = stored_workspace.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if workspace_user_set {
+        return trimmed.to_string();
+    }
+    if SessionSandbox::is_sandbox(Path::new(trimmed)).unwrap_or(false) {
+        return trimmed.to_string();
+    }
+    log::info!(
+        "resolve_im_run_workspace: ignoring stored non-user workspace {trimmed}; will use session sandbox"
+    );
+    String::new()
+}
+
 /// System-prompt block listing IM-only user commands (reset, agent switch).
 pub fn im_session_commands_block(registry: &AgentRegistry) -> String {
     let mut lines = vec![
@@ -246,6 +270,29 @@ mod tests {
         assert_eq!(
             im_session_fork_title(&forked, Some("张三"), 1).as_deref(),
             Some("飞书 · 张三 · 新对话")
+        );
+    }
+
+    #[test]
+    fn dingtalk_conversation_is_im() {
+        let id = "dingtalk:default:dingtalk:dm:cid123:sender456";
+        assert!(is_im_conversation(id));
+        assert!(is_im_conversation(&format!("{id}@s1")));
+    }
+
+    #[test]
+    fn resolve_im_run_workspace_honors_user_pick() {
+        assert_eq!(
+            resolve_im_run_workspace("/tmp/my-project", true),
+            "/tmp/my-project"
+        );
+    }
+
+    #[test]
+    fn resolve_im_run_workspace_ignores_polluted_project_path() {
+        assert_eq!(
+            resolve_im_run_workspace("/Users/dev/pointer-app", false),
+            ""
         );
     }
 }

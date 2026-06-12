@@ -79,18 +79,25 @@ impl SessionSandbox {
     }
 }
 
-/// Remove path separators and null bytes from a conversation id so it can be
-/// used as a directory name.
+/// Flatten a conversation id into a single cross-platform directory name.
+///
+/// IM ids contain `:` (e.g. `dingtalk:default:dingtalk:dm:cid:sender@s1`); on macOS
+/// Finder displays `:` as `/`, which looks like nested folders. Windows rejects `:`.
 fn sanitize_id(id: &str) -> String {
-    id.chars()
+    let mut out: String = id
+        .chars()
         .map(|c| {
-            if c == '/' || c == '\\' || c == '\0' || c == '.' {
-                '_'
-            } else {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
                 c
+            } else {
+                '_'
             }
         })
-        .collect()
+        .collect();
+    while out.contains("__") {
+        out = out.replace("__", "_");
+    }
+    out.trim_matches('_').to_string()
 }
 
 #[cfg(test)]
@@ -127,6 +134,21 @@ mod tests {
     #[test]
     fn sanitize_removes_separators() {
         let safe = sanitize_id("conv/../foo\\bar\0baz");
-        assert_eq!(safe, "conv__.._foo_bar_baz");
+        assert_eq!(safe, "conv_foo_bar_baz");
+    }
+
+    #[test]
+    fn sanitize_im_conversation_id_is_flat() {
+        let id = "dingtalk:default:dingtalk:dm:cidXuzjtFpqURa0N4CrrYrb9ZeeMktGbZLsHrJqwRGRyD8=:01263708524221016@s1";
+        let safe = sanitize_id(id);
+        assert!(!safe.contains(':'));
+        assert!(!safe.contains('@'));
+        assert!(!safe.contains('/'));
+        assert!(safe.contains("dingtalk_default_dingtalk_dm"));
+        let path = SessionSandbox::path(id).unwrap();
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some(safe.as_str())
+        );
     }
 }

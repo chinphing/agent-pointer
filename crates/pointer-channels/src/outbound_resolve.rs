@@ -123,4 +123,18 @@ mod tests {
     fn rejects_empty_path() {
         assert!(resolve_outbound_media("").is_err());
     }
+
+    #[test]
+    fn resolves_file_uri_as_local_path() {
+        let file = std::env::temp_dir().join(format!(
+            "pointer_outbound_index_test_{}.html",
+            std::process::id()
+        ));
+        std::fs::write(&file, b"<html></html>").unwrap();
+        let uri = format!("file://{}", file.display());
+        let resolved = resolve_outbound_media(&uri).unwrap();
+        assert!(resolved.media.file_name.ends_with(".html"));
+        assert_eq!(resolved.media.bytes, b"<html></html>");
+        let _ = std::fs::remove_file(&file);
+    }
 }

@@ -19,7 +19,7 @@ use crate::models::{ChatMessage, Conversation, ConversationMeta};
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 3;
+const SCHEMA_VERSION: i32 = 4;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -227,6 +227,18 @@ impl ConversationStore {
         Ok(root.unwrap_or_default())
     }
 
+    pub fn workspace_user_set(&self, conversation_id: &str) -> Result<bool> {
+        let conn = self.db.conn.lock();
+        let flag: Option<i64> = conn
+            .query_row(
+                "SELECT workspace_user_set FROM conversations WHERE id = ?1",
+                rusqlite::params![conversation_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(flag.unwrap_or(0) != 0)
+    }
+
     pub fn patch_session_agent(
         &self,
         conversation_id: &str,
@@ -328,6 +340,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
            tool_rounds_used_supervisor INTEGER NOT NULL DEFAULT 0,
            computer_monitor_id TEXT,
            workspace_root TEXT NOT NULL DEFAULT '',
+           workspace_user_set INTEGER NOT NULL DEFAULT 0,
            lead_agent_id TEXT NOT NULL DEFAULT 'general',
            agent_mode TEXT NOT NULL DEFAULT 'single',
            im_session_epoch INTEGER NOT NULL DEFAULT 0,
@@ -392,6 +405,12 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
         "INTEGER NOT NULL DEFAULT 0",
     )?;
     add_column_if_missing(conn, "conversations", "im_active_conversation_id", "TEXT")?;
+    add_column_if_missing(
+        conn,
+        "conversations",
+        "workspace_user_set",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     conn.execute(
         "UPDATE schema_version SET version = ?1",
         params![SCHEMA_VERSION],

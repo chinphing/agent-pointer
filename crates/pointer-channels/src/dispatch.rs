@@ -339,6 +339,11 @@ impl DispatchService {
         broadcast_im_session_agent(&desktop_conv_id, &conv_id, &im_session);
 
         let workspace_root = store.workspace_root(&desktop_conv_id).unwrap_or_default();
+        let workspace_user_set = store.workspace_user_set(&desktop_conv_id).unwrap_or(false);
+        let workspace_root = pointer_core::channel_outbound::resolve_im_run_workspace(
+            &workspace_root,
+            workspace_user_set,
+        );
 
         let channels_cfg = crate::config::load_channels_config().unwrap_or_default();
         let im_outbound_cfg = channels_cfg.meta.im_outbound.clone();

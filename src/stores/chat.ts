@@ -485,6 +485,7 @@ export const useChatStore = defineStore('chat', () => {
       toolRoundsUsedSupervisor: c.toolRoundsUsedSupervisor,
       computerMonitorId: c.computerMonitorId,
       workspaceRoot: c.workspaceRoot,
+      workspaceUserSet: c.workspaceUserSet,
       leadAgentId: c.leadAgentId,
       agentMode: c.agentMode
     }
@@ -1228,9 +1229,18 @@ export const useChatStore = defineStore('chat', () => {
       case 'workspace_updated': {
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (conv) {
-          conv.workspaceRoot = e.workspaceRoot
-          conv.updatedAt = Date.now()
-          persistMeta()
+          // IM sessions must not inherit another conversation's project path via this event.
+          // Only persist auto-created sandboxes; user-picked folders go through setConversationWorkspace.
+          const shouldPersist =
+            e.isEphemeralSandbox || !isImConversation(e.conversationId)
+          if (shouldPersist) {
+            conv.workspaceRoot = e.workspaceRoot
+            if (e.isEphemeralSandbox) {
+              conv.workspaceUserSet = false
+            }
+            conv.updatedAt = Date.now()
+            persistMeta()
+          }
         }
         if (e.isEphemeralSandbox) {
           showUiToast('已自动创建临时工作目录，可在输入框下方更换为项目目录', 'warning')
@@ -1731,7 +1741,9 @@ export const useChatStore = defineStore('chat', () => {
   function setConversationWorkspace(root: string) {
     if (!current.value) newConversation()
     if (!current.value) return
+    const trimmed = root.trim()
     current.value.workspaceRoot = root
+    current.value.workspaceUserSet = trimmed.length > 0
     persistMeta()
   }
 

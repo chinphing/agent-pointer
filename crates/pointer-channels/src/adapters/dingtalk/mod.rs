@@ -1,6 +1,7 @@
 mod auth;
 pub mod media;
 mod monitor;
+mod oapi;
 mod outbound;
 pub mod parse;
 mod stream_client;

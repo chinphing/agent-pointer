@@ -284,6 +284,8 @@ export interface Conversation {
   computerMonitorId?: string
   /** Per-conversation workspace for coder/file tools (set in composer). */
   workspaceRoot?: string
+  /** User explicitly picked workspaceRoot in composer (not auto sandbox). */
+  workspaceUserSet?: boolean
   /** Per-conversation lead worker when agentMode is single. */
   leadAgentId?: string
   /** Per-conversation orchestration mode. */
@@ -302,6 +304,7 @@ export type ConversationMeta = Pick<
   | 'toolRoundsUsedSupervisor'
   | 'computerMonitorId'
   | 'workspaceRoot'
+  | 'workspaceUserSet'
   | 'leadAgentId'
   | 'agentMode'
 >

@@ -437,7 +437,7 @@ async fn compress_history_inner(
     stream: &StreamTx,
     cancel: CancellationToken,
     force_ignore_char_budget: bool,
-    emit_history_replaced: bool,
+    emit_compression_ui: bool,
     ui: &CompressionUiContext,
 ) -> bool {
     let wall = Instant::now();
@@ -612,19 +612,25 @@ async fn compress_history_inner(
         return false;
     }
 
-    let summary_msg = new_summary_user_message(summary_body);
+    let insert_before_message_id = history
+        .get(split)
+        .map(|m| m.id.clone())
+        .unwrap_or_default();
+    let mut excluded_message_ids = Vec::new();
     for m in history.iter_mut().take(split) {
         if crate::message_context::is_synthetic_user_content(&m.content) {
             continue;
         }
         if crate::message_context::is_context_included(m) {
+            excluded_message_ids.push(m.id.clone());
             crate::message_context::mark_excluded(
                 m,
                 crate::models::ExcludedReason::ContextCompression,
             );
         }
     }
-    history.insert(split, summary_msg);
+    let summary_msg = new_summary_user_message(summary_body);
+    history.insert(split, summary_msg.clone());
     let messages_after = history.len();
 
     let compression = build_compression_info(
@@ -656,12 +662,14 @@ async fn compress_history_inner(
     emit_ui_toast(stream, conversation_id, &done_msg, done_level);
 
     match ui.scope {
-        CompressionScope::Main if emit_history_replaced => {
+        CompressionScope::Main if emit_compression_ui => {
             crate::conversation_transcript::sync_ordered(conversation_id, history);
-            let _ = stream.send(StreamEvent::HistoryReplaced {
+            let _ = stream.send(StreamEvent::ContextCompressionApplied {
                 conversation_id: conversation_id.to_string(),
-                messages: history.clone(),
-                compression: Some(compression),
+                excluded_message_ids,
+                insert_before_message_id,
+                summary_message: summary_msg,
+                compression,
             });
         }
         CompressionScope::SubAgent => {
@@ -683,7 +691,7 @@ async fn compress_history_inner(
     true
 }
 
-/// When history exceeds char budget, summarize prefix. Emits `HistoryReplaced` when successful.
+/// When history exceeds char budget, summarize prefix. Emits `ContextCompressionApplied` when successful.
 pub async fn maybe_compress_history(
     history: &mut Vec<ChatMessage>,
     settings: &ModelSettings,
@@ -725,7 +733,7 @@ pub async fn maybe_compress_after_tool_round_limit(
     conversation_id: &str,
     stream: &StreamTx,
     cancel: CancellationToken,
-    emit_history_replaced: bool,
+    emit_compression_ui: bool,
     ui: CompressionUiContext,
 ) -> bool {
     compress_history_inner(
@@ -736,7 +744,7 @@ pub async fn maybe_compress_after_tool_round_limit(
         stream,
         cancel,
         true,
-        emit_history_replaced,
+        emit_compression_ui,
         &ui,
     )
     .await

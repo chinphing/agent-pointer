@@ -352,7 +352,7 @@ pub(crate) async fn try_background_provider(state: &AppState) -> Option<OpenAIPr
     settings.agent_mode = "single".into();
     settings.lead_agent_id = "general".into();
     let api_key =
-        crate::chat_service::prepare_session_llm_settings(&mut settings, "single");
+        crate::chat_service::prepare_session_llm_settings(&mut settings, "single", None);
     if api_key.is_empty() {
         return None;
     }

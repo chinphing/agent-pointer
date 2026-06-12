@@ -568,6 +568,7 @@ async fn send_chat(
             payload.messages,
             payload.enabled_skill_ids,
             payload.agent_mode,
+            payload.lead_agent_id.clone(),
             payload.tool_rounds_used,
             payload.tool_rounds_used_supervisor,
             payload.workspace_root,
@@ -629,7 +630,12 @@ async fn chat_stream(
                             conversation_id: id,
                             ..
                         } => id == &conversation_id,
-                        StreamEvent::HistoryReplaced { conversation_id: id, .. } => id == &conversation_id,
+                        StreamEvent::ContextTrimApplied { conversation_id: id, .. } => {
+                            id == &conversation_id
+                        }
+                        StreamEvent::ContextCompressionApplied { conversation_id: id, .. } => {
+                            id == &conversation_id
+                        }
                         StreamEvent::ToolRoundsExhausted { conversation_id: id, .. } => {
                             id == &conversation_id
                         }

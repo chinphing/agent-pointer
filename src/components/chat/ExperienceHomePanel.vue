@@ -11,14 +11,12 @@ import type {
   ExperienceListItem,
 } from '../../types/experience'
 import { useChatStore } from '../../stores/chat'
-import { useSettingsStore } from '../../stores/settings'
 import { Search, X } from 'lucide-vue-next'
 import ExperienceHomeCard from './ExperienceHomeCard.vue'
 
 const FEATURED_TAB_ID = '__featured__'
 
 const chat = useChatStore()
-const settings = useSettingsStore()
 
 const home = ref<ExperienceHomeResponse | null>(null)
 const searchInput = ref('')
@@ -129,7 +127,8 @@ async function onSelect(item: ExperienceListItem) {
   try {
     const detail = await getExperienceDetail(item.slug)
     const agentId = resolveAgentId(detail.agent_id ?? item.agent_id)
-    await settings.saveAgentPreferences({ agentMode: 'single', leadAgentId: agentId })
+    if (!chat.current) chat.newConversation()
+    chat.setConversationAgent(agentId, 'single')
     const prompt = detail.prompt_text?.trim()
     if (prompt) {
       chat.prefillComposer(prompt)

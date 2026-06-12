@@ -48,6 +48,8 @@ export interface SendChatPayload {
   toolRoundsUsedSupervisor?: number
   /** Per-conversation workspace root for this run. */
   workspaceRoot?: string
+  /** Session lead worker for this run (`single` mode). */
+  leadAgentId?: string
 }
 
 export interface RuntimeApi {

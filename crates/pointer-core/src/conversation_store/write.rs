@@ -21,10 +21,10 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
         "INSERT INTO conversations (
            id, title, created_at_ms, updated_at_ms, message_count, preview,
            skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
-           computer_monitor_id, workspace_root
+           computer_monitor_id, workspace_root, lead_agent_id, agent_mode
          ) VALUES (?1,?2,?3,?4,
            COALESCE((SELECT message_count FROM conversations WHERE id = ?1), 0),
-           ?5,?6,?7,?8,?9,?10)
+           ?5,?6,?7,?8,?9,?10,?11,?12)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            updated_at_ms = excluded.updated_at_ms,
@@ -32,7 +32,9 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
            tool_rounds_used = excluded.tool_rounds_used,
            tool_rounds_used_supervisor = excluded.tool_rounds_used_supervisor,
            computer_monitor_id = excluded.computer_monitor_id,
-           workspace_root = excluded.workspace_root",
+           workspace_root = excluded.workspace_root,
+           lead_agent_id = excluded.lead_agent_id,
+           agent_mode = excluded.agent_mode",
         params![
             meta.id,
             meta.title,
@@ -44,6 +46,8 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
             meta.tool_rounds_used_supervisor,
             meta.computer_monitor_id,
             meta.workspace_root,
+            meta.lead_agent_id,
+            meta.agent_mode,
         ],
     )?;
     Ok(())
@@ -107,8 +111,24 @@ fn ensure_conversation_row_with_title(
             tool_rounds_used_supervisor: 0,
             computer_monitor_id: None,
             workspace_root: String::new(),
+            lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
+            agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
         },
     )
+}
+
+pub fn patch_session_agent_in_conn(
+    conn: &Connection,
+    conversation_id: &str,
+    lead_agent_id: &str,
+    agent_mode: &str,
+) -> Result<()> {
+    ensure_conversation_row(conn, conversation_id)?;
+    conn.execute(
+        "UPDATE conversations SET lead_agent_id = ?2, agent_mode = ?3, updated_at_ms = ?4 WHERE id = ?1",
+        params![conversation_id, lead_agent_id, agent_mode, now_ms()],
+    )?;
+    Ok(())
 }
 
 pub fn patch_title_if_default_in_conn(
@@ -365,6 +385,8 @@ mod tests {
             tool_rounds_used_supervisor: 0,
             computer_monitor_id: None,
             workspace_root: "/tmp".into(),
+            lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
+            agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
         };
         store.save_meta_all(&[meta]).unwrap();
         let loaded = store.load_all().unwrap();

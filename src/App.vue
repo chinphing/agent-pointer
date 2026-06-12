@@ -63,7 +63,6 @@ onMounted(() => {
       await skills.load()
       await checkExternalSkillsOnBoot()
       await chat.init()
-      chat.applyPersistedComposerDefaults()
       if (chat.currentId) {
         void chat.refreshTaskBoard(chat.currentId)
         void chat.refreshSubAgentTaskBoards(chat.currentId)

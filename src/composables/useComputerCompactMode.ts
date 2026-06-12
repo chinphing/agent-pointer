@@ -44,8 +44,8 @@ export function useComputerCompactMode() {
     if (computerMonitorPickRequest.value) return false
     return shouldShrinkComputerWindow(
       generating.value,
-      settings.settings.agentMode,
-      settings.settings.leadAgentId,
+      chat.effectiveConversationAgentMode(chat.current),
+      chat.effectiveConversationLeadAgentId(chat.current),
       activeMessage.value
     )
   })
@@ -102,7 +102,7 @@ export function useComputerCompactMode() {
   })
 
   watch(
-    () => settings.settings.leadAgentId,
+    () => chat.effectiveConversationLeadAgentId(chat.current),
     () => {
       if (isCompact.value && !shouldEnterCompact.value) void applyCompact(false)
     }

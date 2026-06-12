@@ -58,7 +58,7 @@ pub(super) async fn run_single_agent_tool_pass(
         agent_id: lead_agent_id,
         conversation_id,
         stream: &stream_for_trim,
-        emit_history_replaced: true,
+        emit_trim_ui_event: true,
         anchor_message_id: anchor_message_id.as_deref(),
     };
     match run_agent_tool_pass(

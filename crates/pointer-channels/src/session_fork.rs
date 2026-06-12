@@ -31,6 +31,8 @@ pub fn fork_im_desktop_session(
     let title = im_session_fork_title(base_conv_id, sender_name, session_meta.session_epoch)
         .unwrap_or_else(|| "新会话".to_string());
     let now = chrono::Utc::now().timestamp_millis();
+    let lead_agent_id = session_meta.effective_lead_agent_id();
+    let agent_mode = session_meta.effective_agent_mode();
     store.upsert_meta(&ConversationMeta {
         id: new_id.clone(),
         title: title.clone(),
@@ -41,6 +43,8 @@ pub fn fork_im_desktop_session(
         tool_rounds_used_supervisor: 0,
         computer_monitor_id: None,
         workspace_root: String::new(),
+        lead_agent_id: lead_agent_id.clone(),
+        agent_mode: agent_mode.clone(),
     })?;
 
     pointer_core::stream_broadcast::broadcast_stream(&StreamEvent::ImSessionForked {
@@ -48,6 +52,8 @@ pub fn fork_im_desktop_session(
         base_conversation_id: base_conv_id.to_string(),
         title,
         session_epoch: session_meta.session_epoch,
+        lead_agent_id,
+        agent_mode,
     });
 
     Ok(new_id)

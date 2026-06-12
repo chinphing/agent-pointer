@@ -82,7 +82,16 @@ const attachmentHint = ref<string | null>(null)
 
 const agents = ref<AgentDef[]>([])
 
-const leadUi = computed(() => resolveLeadAgentUi(settings.settings, agents.value))
+const sessionAgentMode = computed(() => chat.effectiveConversationAgentMode(chat.current))
+const sessionLeadAgentId = computed(() => chat.effectiveConversationLeadAgentId(chat.current))
+
+const sessionAgentSettings = computed(() => ({
+  ...settings.settings,
+  agentMode: sessionAgentMode.value,
+  leadAgentId: sessionLeadAgentId.value
+}))
+
+const leadUi = computed(() => resolveLeadAgentUi(sessionAgentSettings.value, agents.value))
 
 const workers = computed(() => {
   const list = agents.value.filter(a => {
@@ -93,23 +102,20 @@ const workers = computed(() => {
 })
 
 const selectedWorker = computed(() => {
-  if (settings.settings.agentMode !== 'single') return undefined
-  const id = settings.settings.leadAgentId?.trim()
-  if (!id) return workers.value.find(w => w.id === DEFAULT_LEAD_AGENT_ID)
-  return workers.value.find(w => w.id === id)
+  if (sessionAgentMode.value !== 'single') return undefined
+  const id = sessionLeadAgentId.value
+  return workers.value.find(w => w.id === id) ?? workers.value.find(w => w.id === DEFAULT_LEAD_AGENT_ID)
 })
 
 const selectedWorkerId = computed(() => selectedWorker.value?.id?.trim() || DEFAULT_LEAD_AGENT_ID)
 
 function isLeadAgentSelected(agentId: string): boolean {
-  const st = settings.settings
-  if (st.agentMode !== 'single') return false
-  const id = st.leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
-  return id === agentId
+  if (sessionAgentMode.value !== 'single') return false
+  return sessionLeadAgentId.value === agentId
 }
 
 const showComputerMonitorPicker = computed(
-  () => settings.settings.agentMode === 'single' && leadUi.value.showComputerMonitorPicker
+  () => sessionAgentMode.value === 'single' && leadUi.value.showComputerMonitorPicker
 )
 
 const isMacDesktop = computed(
@@ -118,13 +124,13 @@ const isMacDesktop = computed(
 
 const needsWorkspace = computed(
   () =>
-    settings.settings.agentMode === 'single'
+    sessionAgentMode.value === 'single'
     && selectedWorkerId.value === 'coder'
     && leadUi.value.showWorkspacePicker
 )
 
 const supervisorRoundsLabel = computed(() => {
-  if (settings.settings.agentMode !== 'supervisor' || !chat.current) return ''
+  if (sessionAgentMode.value !== 'supervisor' || !chat.current) return ''
   const used = chat.current.toolRoundsUsedSupervisor ?? 0
   const max = settings.settings.maxSubAgentToolRounds ?? settings.settings.maxToolRounds ?? 100
   return `子任务轮次 ${used}/${max}`
@@ -141,9 +147,9 @@ const workspaceTooltip = computed(() => {
   return p || '未设置工作目录'
 })
 
-const currentAgentLabel = computed(() => composerAgentLabel(selectedWorker.value, settings.settings))
+const currentAgentLabel = computed(() => composerAgentLabel(selectedWorker.value, sessionAgentSettings.value))
 
-const currentAgentIcon = computed(() => iconForAgent(selectedWorker.value, settings.settings))
+const currentAgentIcon = computed(() => iconForAgent(selectedWorker.value, sessionAgentSettings.value))
 
 const hasWorkspace = computed(() => !!(chat.current?.workspaceRoot?.trim()))
 
@@ -575,8 +581,8 @@ function onCompositionEnd() {
   }, 50)
 }
 
-async function selectWorkerAgent(agent: AgentDef) {
-  await settings.saveAgentPreferences({ agentMode: 'single', leadAgentId: agent.id })
+function selectWorkerAgent(agent: AgentDef) {
+  chat.setConversationAgent(agent.id, 'single')
   showAgentPicker.value = false
 }
 
@@ -613,17 +619,15 @@ watch(composerText, () => {
 onMounted(() => {
   nextTick(autoResize)
   loadAgentsList()
-  if (!TEAM_MODE_UI_ENABLED && settings.settings.agentMode === 'supervisor') {
-    void settings.saveAgentPreferences({
-      agentMode: 'single',
-      leadAgentId: settings.settings.leadAgentId || DEFAULT_LEAD_AGENT_ID
-    })
+  if (!TEAM_MODE_UI_ENABLED && sessionAgentMode.value === 'supervisor') {
+    chat.setConversationAgent(DEFAULT_LEAD_AGENT_ID, 'single')
   }
-  if (!RESEARCH_COMPOSER_UI_ENABLED && settings.settings.leadAgentId === 'research') {
-    void settings.saveAgentPreferences({
-      agentMode: 'single',
-      leadAgentId: DEFAULT_LEAD_AGENT_ID
-    })
+  if (
+    !RESEARCH_COMPOSER_UI_ENABLED
+    && chat.current
+    && chat.effectiveConversationLeadAgentId(chat.current) === 'research'
+  ) {
+    chat.setConversationAgent(DEFAULT_LEAD_AGENT_ID, 'single')
   }
   document.addEventListener('click', handleClickOutside)
 })

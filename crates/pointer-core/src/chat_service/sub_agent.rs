@@ -277,7 +277,7 @@ pub(crate) async fn run_sub_agent(
             agent_id: &def.id,
             conversation_id,
             stream: &stream,
-            emit_history_replaced: false,
+            emit_trim_ui_event: false,
             anchor_message_id: anchor_message_id.as_deref(),
         };
         match Box::pin(run_agent_tool_pass(

@@ -10,7 +10,7 @@ mod write;
 mod tests;
 
 use anyhow::Result;
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
@@ -18,7 +18,7 @@ use crate::models::{ChatMessage, Conversation, ConversationMeta};
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -171,6 +171,29 @@ impl ConversationStore {
             .execute_write(|conn| write::upsert_conversation_meta(conn, meta))
     }
 
+    pub fn workspace_root(&self, conversation_id: &str) -> Result<String> {
+        let conn = self.db.conn.lock();
+        let root: Option<String> = conn
+            .query_row(
+                "SELECT workspace_root FROM conversations WHERE id = ?1",
+                rusqlite::params![conversation_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(root.unwrap_or_default())
+    }
+
+    pub fn patch_session_agent(
+        &self,
+        conversation_id: &str,
+        lead_agent_id: &str,
+        agent_mode: &str,
+    ) -> Result<()> {
+        self.db.execute_write(|conn| {
+            write::patch_session_agent_in_conn(conn, conversation_id, lead_agent_id, agent_mode)
+        })
+    }
+
     /// Set IM sidebar title when the row is new or still uses the default placeholder.
     pub fn ensure_im_title(
         &self,
@@ -241,7 +264,9 @@ fn init_schema(conn: &Connection) -> Result<()> {
            tool_rounds_used INTEGER NOT NULL DEFAULT 0,
            tool_rounds_used_supervisor INTEGER NOT NULL DEFAULT 0,
            computer_monitor_id TEXT,
-           workspace_root TEXT NOT NULL DEFAULT ''
+           workspace_root TEXT NOT NULL DEFAULT '',
+           lead_agent_id TEXT NOT NULL DEFAULT 'general',
+           agent_mode TEXT NOT NULL DEFAULT 'single'
          );
          CREATE TABLE IF NOT EXISTS messages (
            id INTEGER PRIMARY KEY,
@@ -270,6 +295,56 @@ fn init_schema(conn: &Connection) -> Result<()> {
             [SCHEMA_VERSION],
         )?;
     }
+    migrate_schema_columns(conn)?;
+    Ok(())
+}
+
+fn migrate_schema_columns(conn: &Connection) -> Result<()> {
+    let version: i32 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
+            row.get(0)
+        })
+        .unwrap_or(1);
+    if version >= SCHEMA_VERSION {
+        return Ok(());
+    }
+    add_column_if_missing(
+        conn,
+        "conversations",
+        "lead_agent_id",
+        "TEXT NOT NULL DEFAULT 'general'",
+    )?;
+    add_column_if_missing(
+        conn,
+        "conversations",
+        "agent_mode",
+        "TEXT NOT NULL DEFAULT 'single'",
+    )?;
+    conn.execute(
+        "UPDATE schema_version SET version = ?1",
+        params![SCHEMA_VERSION],
+    )?;
+    log::info!("conversation_store: migrated schema to v{}", SCHEMA_VERSION);
+    Ok(())
+}
+
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    column_def: &str,
+) -> Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for name in rows {
+        if name? == column {
+            return Ok(());
+        }
+    }
+    conn.execute(
+        &format!("ALTER TABLE {table} ADD COLUMN {column} {column_def}"),
+        [],
+    )?;
     Ok(())
 }
 

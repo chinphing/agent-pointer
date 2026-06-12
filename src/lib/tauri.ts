@@ -31,6 +31,7 @@ export interface SendChatPayload {
   toolRoundsUsed?: number
   toolRoundsUsedSupervisor?: number
   workspaceRoot?: string
+  leadAgentId?: string
 }
 
 export async function sendChat(payload: SendChatPayload): Promise<string> {

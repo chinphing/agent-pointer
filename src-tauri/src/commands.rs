@@ -37,7 +37,7 @@ pub async fn send_chat(
             payload.messages,
             payload.enabled_skill_ids,
             payload.agent_mode,
-            None,
+            payload.lead_agent_id.clone(),
             payload.tool_rounds_used,
             payload.tool_rounds_used_supervisor,
             payload.workspace_root,

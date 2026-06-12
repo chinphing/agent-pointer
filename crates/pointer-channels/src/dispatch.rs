@@ -8,7 +8,7 @@ use tokio::sync::{mpsc, Mutex as AsyncMutex};
 
 use crate::config::ChannelAccountConfig;
 use crate::http_client::HttpClient;
-use crate::inbound::{ChannelHistoryStore, SessionArchiveReason};
+use crate::inbound::{ChannelHistoryStore, ChannelSessionMeta, SessionArchiveReason};
 use crate::media::resolve_inbound_attachments;
 use crate::session::{conversation_id, inbound_user_message_id};
 use crate::session_fork::{fork_im_desktop_session, resolve_active_desktop_id};
@@ -17,6 +17,33 @@ use crate::session_reset::{self, ManualResetAction, MANUAL_RESET_ACK};
 use crate::outbound_reply::split_reply_media;
 use crate::outbound_resolve::resolve_outbound_media_with_policy;
 use crate::traits::{ChannelPlugin, InboundMessage, OutboundContext};
+
+fn broadcast_im_session_agent(
+    desktop_conv_id: &str,
+    base_conv_id: &str,
+    session_meta: &ChannelSessionMeta,
+) {
+    pointer_core::stream_broadcast::broadcast_stream(&StreamEvent::ImSessionAgentChanged {
+        conversation_id: desktop_conv_id.to_string(),
+        base_conversation_id: base_conv_id.to_string(),
+        lead_agent_id: session_meta.effective_lead_agent_id(),
+        agent_mode: session_meta.effective_agent_mode(),
+    });
+}
+
+fn sync_im_desktop_session_agent(
+    store: &pointer_core::conversation_store::ConversationStore,
+    desktop_conv_id: &str,
+    session_meta: &ChannelSessionMeta,
+) {
+    let lead = session_meta.effective_lead_agent_id();
+    let mode = session_meta.effective_agent_mode();
+    if let Err(e) = store.patch_session_agent(desktop_conv_id, &lead, &mode) {
+        log::warn!(
+            "channel patch session agent failed desktop={desktop_conv_id}: {e:#}"
+        );
+    }
+}
 
 fn channel_message(role: Role, content: String, attachments: Option<Vec<MediaAttachment>>) -> ChatMessage {
     channel_message_with_id(uuid::Uuid::new_v4().to_string(), role, content, attachments)
@@ -215,6 +242,8 @@ impl DispatchService {
                     .outbound
                     .send_text(outbound.clone(), &agent_switch_ack(&target))
                     .await?;
+                sync_im_desktop_session_agent(&state.session_index, &desktop_conv_id, &session_meta);
+                broadcast_im_session_agent(&desktop_conv_id, &conv_id, &session_meta);
                 log::info!(
                     "channel session agent switch conv={conv_id} mode={} lead={:?}",
                     target.agent_mode,
@@ -287,8 +316,15 @@ impl DispatchService {
             attachments: attachments_opt,
         });
 
+        sync_im_desktop_session_agent(&state.session_index, &desktop_conv_id, &session_meta);
+        broadcast_im_session_agent(&desktop_conv_id, &conv_id, &session_meta);
+
         let request_agent_mode = session_meta.agent_mode.clone();
         let lead_agent_override = session_meta.lead_agent_id.clone();
+        let workspace_root = state
+            .session_index
+            .workspace_root(&desktop_conv_id)
+            .unwrap_or_default();
 
         let (tx, mut rx) = mpsc::unbounded_channel::<StreamEvent>();
         let mut reply_text = String::new();
@@ -304,7 +340,7 @@ impl DispatchService {
             lead_agent_override,
             0,
             0,
-            String::new(),
+            workspace_root,
         );
 
         // Keep collecting until StreamEvent::Done. Tool rounds emit an intermediate

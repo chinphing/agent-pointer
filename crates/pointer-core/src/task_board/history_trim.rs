@@ -31,6 +31,7 @@ pub struct TaskBoardTrimStats {
     pub messages_after: usize,
     pub split_at: usize,
     pub dropped_count: u32,
+    pub excluded_message_ids: Vec<String>,
 }
 
 pub struct TaskBoardTrimHook<'a> {
@@ -38,8 +39,8 @@ pub struct TaskBoardTrimHook<'a> {
     pub agent_id: &'a str,
     pub conversation_id: &'a str,
     pub stream: &'a StreamTx,
-    /// When true, emit `HistoryReplaced` so the chat UI persists updated flags.
-    pub emit_history_replaced: bool,
+    /// When true, emit `ContextTrimApplied` so the chat UI patches excluded flags.
+    pub emit_trim_ui_event: bool,
     /// User message id this task board is bound to (`get_main_task_board_anchor` / store key).
     pub anchor_message_id: Option<&'a str>,
 }
@@ -118,12 +119,15 @@ pub fn resolve_task_board_anchor_user_index(
     find_first_real_user_index(msgs)
 }
 
-fn mark_range_excluded(history: &mut [ChatMessage], start: usize, end: usize) {
+fn mark_range_excluded_collect(history: &mut [ChatMessage], start: usize, end: usize) -> Vec<String> {
+    let mut ids = Vec::new();
     for m in history.iter_mut().take(end).skip(start) {
         if is_context_included(m) {
+            ids.push(m.id.clone());
             mark_excluded(m, ExcludedReason::TaskBoardTrim);
         }
     }
+    ids
 }
 
 /// Live `[CUR_SCREEN]` inject (not the stripped-history placeholder).
@@ -183,11 +187,13 @@ pub fn trim_history_first_user_and_tail(
     }
     let split_at = keep.first().copied().unwrap_or(0);
     let mut dropped_count = 0u32;
+    let mut excluded_message_ids = Vec::new();
     for (i, m) in history.iter_mut().enumerate() {
         if keep.binary_search(&i).is_ok() {
             continue;
         }
         if is_context_included(m) {
+            excluded_message_ids.push(m.id.clone());
             mark_excluded(m, ExcludedReason::TaskBoardTrim);
             dropped_count += 1;
         }
@@ -200,6 +206,7 @@ pub fn trim_history_first_user_and_tail(
         messages_after: history.len(),
         split_at,
         dropped_count,
+        excluded_message_ids,
     })
 }
 
@@ -217,7 +224,7 @@ pub fn trim_history_after_task_board(
     let messages_before = history.len();
     let first_in_suffix = split <= first_idx;
 
-    let dropped_count = if !first_in_suffix {
+    let (dropped_count, excluded_message_ids) = if !first_in_suffix {
         if split <= first_idx + 1 {
             return None;
         }
@@ -228,9 +235,9 @@ pub fn trim_history_after_task_board(
         if dropped_count == 0 {
             return None;
         }
-        mark_range_excluded(history, 0, first_idx);
-        mark_range_excluded(history, first_idx + 1, split);
-        dropped_count
+        let mut excluded_message_ids = mark_range_excluded_collect(history, 0, first_idx);
+        excluded_message_ids.extend(mark_range_excluded_collect(history, first_idx + 1, split));
+        (dropped_count, excluded_message_ids)
     } else {
         let dropped_count = history[..split]
             .iter()
@@ -239,8 +246,8 @@ pub fn trim_history_after_task_board(
         if dropped_count == 0 {
             return None;
         }
-        mark_range_excluded(history, 0, split);
-        dropped_count
+        let excluded_message_ids = mark_range_excluded_collect(history, 0, split);
+        (dropped_count, excluded_message_ids)
     };
 
     let messages_after = history.len();
@@ -250,6 +257,7 @@ pub fn trim_history_after_task_board(
         messages_after,
         split_at: split,
         dropped_count,
+        excluded_message_ids,
     })
 }
 
@@ -322,12 +330,11 @@ pub fn maybe_trim_after_tool_pass(
         level: "info".to_string(),
     });
 
-    if hook.emit_history_replaced {
+    if hook.emit_trim_ui_event {
         crate::conversation_transcript::sync_ordered(hook.conversation_id, history);
-        let _ = hook.stream.send(StreamEvent::HistoryReplaced {
+        let _ = hook.stream.send(StreamEvent::ContextTrimApplied {
             conversation_id: hook.conversation_id.to_string(),
-            messages: history.clone(),
-            compression: None,
+            excluded_message_ids: stats.excluded_message_ids.clone(),
         });
     }
 }
@@ -578,7 +585,7 @@ mod tests {
             agent_id: "computer",
             conversation_id: "c1",
             stream: &tokio::sync::mpsc::unbounded_channel().0,
-            emit_history_replaced: false,
+            emit_trim_ui_event: false,
             anchor_message_id: None,
         };
         maybe_trim_after_tool_pass(&mut hist, &hook, true);

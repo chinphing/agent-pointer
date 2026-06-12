@@ -284,6 +284,10 @@ export interface Conversation {
   computerMonitorId?: string
   /** Per-conversation workspace for coder/file tools (set in composer). */
   workspaceRoot?: string
+  /** Per-conversation lead worker when agentMode is single. */
+  leadAgentId?: string
+  /** Per-conversation orchestration mode. */
+  agentMode?: AgentMode
 }
 
 /** Session shell fields for meta-only persistence (P1). */
@@ -298,6 +302,8 @@ export type ConversationMeta = Pick<
   | 'toolRoundsUsedSupervisor'
   | 'computerMonitorId'
   | 'workspaceRoot'
+  | 'leadAgentId'
+  | 'agentMode'
 >
 
 /** Per-model API/runtime overrides; unset fields inherit from the parent provider. */
@@ -620,6 +626,15 @@ export type StreamEvent =
       baseConversationId: string
       title: string
       sessionEpoch: number
+      leadAgentId: string
+      agentMode: AgentMode
+    }
+  | {
+      kind: 'im_session_agent_changed'
+      conversationId: string
+      baseConversationId: string
+      leadAgentId: string
+      agentMode: AgentMode
     }
   | {
       kind: 'user_message_attachments_updated'
@@ -634,7 +649,15 @@ export type StreamEvent =
   | { kind: 'injected_assistant_message_update'; conversationId: string; messageId: string; content: string }
   | { kind: 'error'; messageId?: string; message: string }
   | { kind: 'done'; conversationId: string; toolRoundsUsedTotal?: number; toolRoundsUsedSupervisorTotal?: number; maxToolRounds?: number }
-  | { kind: 'history_replaced'; conversationId: string; messages: ChatMessage[]; compression?: ContextCompressionInfo }
+  | { kind: 'context_trim_applied'; conversationId: string; excludedMessageIds: string[] }
+  | {
+      kind: 'context_compression_applied'
+      conversationId: string
+      excludedMessageIds: string[]
+      insertBeforeMessageId: string
+      summaryMessage: ChatMessage
+      compression: ContextCompressionInfo
+    }
   | { kind: 'context_compressed'; conversationId: string; messageId: string; compression: ContextCompressionInfo }
   | { kind: 'tool_rounds_exhausted'; conversationId: string; maxRounds: number; message: string; willRetryAfterCompress: boolean }
   /** Ephemeral UI only; not saved as a chat message or sent to the model. */

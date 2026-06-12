@@ -9,10 +9,12 @@ import {
   saveChatAttachment
 } from '../lib/api'
 import type {
+  AgentMode,
   ChatMessage,
   ComputerMonitorPickRequest,
   Conversation,
   ConversationMeta,
+  ExcludedReason,
   StreamEvent,
   ToolCall,
   TaskBoardDocument
@@ -113,25 +115,32 @@ function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Con
   }))
 }
 
-/** Preserve sub-agent streaming UI when host replaces history (compression / trim). */
-function mergeAgentTraceSessions(incoming: ChatMessage[], existing: ChatMessage[]): ChatMessage[] {
-  const sessionByKey = new Map<string, NonNullable<ChatMessage['agentTrace']>[number]['session']>()
-  for (const msg of existing) {
-    for (const trace of msg.agentTrace ?? []) {
-      if (trace.session) sessionByKey.set(`${msg.id}\0${trace.id}`, trace.session)
-    }
+function excludedContextState(reason: ExcludedReason): ChatMessage['contextState'] {
+  return { included: false, excludedReason: reason }
+}
+
+function applyExcludedMessageIds(
+  conv: Conversation,
+  messageIds: string[],
+  reason: ExcludedReason
+) {
+  const state = excludedContextState(reason)
+  for (const id of messageIds) {
+    const msg = conv.messages.find(m => m.id === id)
+    if (msg) msg.contextState = state
   }
-  return incoming.map(msg => {
-    if (!msg.agentTrace?.length) return msg
-    return {
-      ...msg,
-      agentTrace: msg.agentTrace.map(trace => {
-        const prev = sessionByKey.get(`${msg.id}\0${trace.id}`)
-        if (!prev) return trace
-        return { ...trace, session: trace.session ?? prev }
-      })
-    }
-  })
+}
+
+function insertMessageBeforeAnchor(
+  conv: Conversation,
+  insertBeforeMessageId: string,
+  message: ChatMessage
+) {
+  if (conv.messages.some(m => m.id === message.id)) return
+  const anchor = insertBeforeMessageId.trim()
+  const idx = anchor ? conv.messages.findIndex(m => m.id === anchor) : -1
+  const insertAt = idx >= 0 ? idx : conv.messages.length
+  conv.messages.splice(insertAt, 0, message)
 }
 
 function childStoreKey(parentStoreKey: string, taskId: string): string {
@@ -266,10 +275,30 @@ export const useChatStore = defineStore('chat', () => {
     return id ? runStateFor(id).activeMessageId : null
   })
 
-  function enabledSkillIdsForRequest(): string[] {
-    const settings = useSettingsStore().settings
-    if (settings.agentMode === 'supervisor') return []
-    const lead = settings.leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
+  function effectiveConversationAgentMode(conv?: Conversation | null): AgentMode {
+    const mode = conv?.agentMode?.trim()
+    if (mode === 'supervisor' || mode === 'single') return mode
+    return 'single'
+  }
+
+  function effectiveConversationLeadAgentId(conv?: Conversation | null): string {
+    const id = conv?.leadAgentId?.trim()
+    return id || DEFAULT_LEAD_AGENT_ID
+  }
+
+  function applySessionAgentToConversation(
+    conv: Conversation,
+    leadAgentId: string,
+    agentMode: AgentMode
+  ) {
+    conv.leadAgentId = leadAgentId.trim() || DEFAULT_LEAD_AGENT_ID
+    conv.agentMode = agentMode
+    conv.updatedAt = Date.now()
+  }
+
+  function enabledSkillIdsForRequest(conv: Conversation): string[] {
+    if (effectiveConversationAgentMode(conv) === 'supervisor') return []
+    const lead = effectiveConversationLeadAgentId(conv)
     if (lead !== GENERAL_AGENT_ID) return []
     return [...useSkillsStore().enabledIds]
   }
@@ -324,7 +353,9 @@ export const useChatStore = defineStore('chat', () => {
         updatedAt: Date.now(),
         skillIds: [],
         toolRoundsUsed: 0,
-        toolRoundsUsedSupervisor: 0
+        toolRoundsUsedSupervisor: 0,
+        leadAgentId: DEFAULT_LEAD_AGENT_ID,
+        agentMode: 'single'
       },
       ...conversations.value
     ]
@@ -348,6 +379,10 @@ export const useChatStore = defineStore('chat', () => {
     const list = await loadConversations().catch(() => [])
     normalizeInterruptedAssistantStatuses(list)
     normalizeSubAgentTraces(list)
+    for (const conv of list) {
+      if (!conv.leadAgentId?.trim()) conv.leadAgentId = DEFAULT_LEAD_AGENT_ID
+      if (!conv.agentMode?.trim()) conv.agentMode = 'single'
+    }
     const imTitlesUpdated = normalizeImConversationTitles(list)
     for (const conv of list) {
       if (!isImConversation(conv.id)) continue
@@ -377,7 +412,9 @@ export const useChatStore = defineStore('chat', () => {
       toolRoundsUsed: c.toolRoundsUsed,
       toolRoundsUsedSupervisor: c.toolRoundsUsedSupervisor,
       computerMonitorId: c.computerMonitorId,
-      workspaceRoot: c.workspaceRoot
+      workspaceRoot: c.workspaceRoot,
+      leadAgentId: c.leadAgentId,
+      agentMode: c.agentMode
     }
   }
 
@@ -402,18 +439,7 @@ export const useChatStore = defineStore('chat', () => {
     )
   }
 
-  function shouldSeedWorkspaceForNewConversation(): boolean {
-    const settings = useSettingsStore().settings
-    if (settings.agentMode !== 'single') return false
-    const lead = settings.leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
-    return lead === 'coder'
-  }
-
   function newConversation(): Conversation {
-    const settingsStore = useSettingsStore()
-    const defaultWorkspace = shouldSeedWorkspaceForNewConversation()
-      ? (settingsStore.settings.workspaceRoot?.trim() || '')
-      : ''
     const c: Conversation = {
       id: uid(),
       title: '新会话',
@@ -423,7 +449,9 @@ export const useChatStore = defineStore('chat', () => {
       skillIds: [],
       toolRoundsUsed: 0,
       toolRoundsUsedSupervisor: 0,
-      workspaceRoot: defaultWorkspace
+      workspaceRoot: '',
+      leadAgentId: DEFAULT_LEAD_AGENT_ID,
+      agentMode: 'single'
     }
     conversations.value.unshift(c)
     flushActiveComposerDraft()
@@ -483,7 +511,23 @@ export const useChatStore = defineStore('chat', () => {
     persistMeta()
   }
 
-  function findMessage(messageId: string): { conv: Conversation; msg: ChatMessage } | null {
+  function findMessage(
+    messageId: string,
+    preferConversationId?: string
+  ): { conv: Conversation; msg: ChatMessage } | null {
+    const prefer = preferConversationId?.trim() || currentId.value?.trim()
+    if (prefer) {
+      const conv = conversations.value.find(c => c.id === prefer)
+      if (conv) {
+        const msg = conv.messages.find(m => m.id === messageId)
+        if (msg) return { conv, msg }
+      }
+    }
+    for (const conv of conversations.value) {
+      if (!isConversationGenerating(conv.id)) continue
+      const msg = conv.messages.find(m => m.id === messageId)
+      if (msg) return { conv, msg }
+    }
     for (const conv of conversations.value) {
       const msg = conv.messages.find(m => m.id === messageId)
       if (msg) return { conv, msg }
@@ -910,39 +954,30 @@ export const useChatStore = defineStore('chat', () => {
 
   function handleEventInner(e: StreamEvent) {
     switch (e.kind) {
-      case 'history_replaced': {
+      case 'context_trim_applied': {
+        ensureImConversation(e.conversationId)
+        const conv = conversations.value.find(c => c.id === e.conversationId)
+        if (!conv) break
+        applyExcludedMessageIds(conv, e.excludedMessageIds, 'task_board_trim')
+        conv.updatedAt = Date.now()
+        persistMeta()
+        break
+      }
+      case 'context_compression_applied': {
         clearReasoningDeltaBuffer()
         ensureImConversation(e.conversationId)
         const conv = conversations.value.find(c => c.id === e.conversationId)
-        if (!conv) return
-        const prevMessages = conv.messages
-        const incoming = e.messages
-          .map(m => ({
-            ...m,
-            toolCalls: m.toolCalls ?? (m.role === 'assistant' ? [] : undefined)
-          }))
-          .filter(m => !isEphemeralDesktopNoticeMessage(m))
-        if (
-          isImConversation(e.conversationId) &&
-          !e.compression &&
-          incoming.length < prevMessages.length
-        ) {
-          console.warn(
-            '[chat] skipped IM history_replaced: channel history is shorter than desktop transcript',
-            e.conversationId,
-            incoming.length,
-            prevMessages.length
-          )
-          break
+        if (!conv) break
+        applyExcludedMessageIds(conv, e.excludedMessageIds, 'context_compression')
+        const summary = {
+          ...e.summaryMessage,
+          toolCalls: e.summaryMessage.toolCalls ?? undefined
         }
-        conv.messages = dedupeImInboundUserMessages(
-          e.conversationId,
-          mergeAgentTraceSessions(incoming, prevMessages)
-        )
-        if (e.compression) {
-          showUiToast(buildCompressionNoticeContent(e.compression), 'success')
-        }
+        insertMessageBeforeAnchor(conv, e.insertBeforeMessageId, summary)
+        showUiToast(buildCompressionNoticeContent(e.compression), 'success')
         conv.updatedAt = Date.now()
+        persistMeta()
+        persistAppend(e.conversationId)
         break
       }
       case 'context_compressed': {
@@ -1297,9 +1332,22 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'im_session_forked': {
         ensureImConversation(e.conversationId, e.title)
+        const forked = conversations.value.find(c => c.id === e.conversationId)
+        if (forked) {
+          applySessionAgentToConversation(forked, e.leadAgentId, e.agentMode)
+        }
         currentId.value = e.conversationId
         loadActiveComposerDraft(e.conversationId)
         persistMeta()
+        break
+      }
+      case 'im_session_agent_changed': {
+        ensureImConversation(e.conversationId)
+        const conv = conversations.value.find(c => c.id === e.conversationId)
+        if (conv) {
+          applySessionAgentToConversation(conv, e.leadAgentId, e.agentMode)
+          persistMeta()
+        }
         break
       }
       case 'user_message_attachments_updated': {
@@ -1487,8 +1535,6 @@ export const useChatStore = defineStore('chat', () => {
       })
       return
     }
-    const settings = useSettingsStore()
-
     const wireAttachments = []
     for (const a of attachments) {
       const contentBase64 = getComposerAttachmentContentBase64(a) ?? undefined
@@ -1532,8 +1578,9 @@ export const useChatStore = defineStore('chat', () => {
     await sendChat({
       conversationId: conv.id,
       messages: JSON.parse(JSON.stringify(conv.messages)),
-      enabledSkillIds: enabledSkillIdsForRequest(),
-      agentMode: settings.settings.agentMode,
+      enabledSkillIds: enabledSkillIdsForRequest(conv),
+      agentMode: effectiveConversationAgentMode(conv),
+      leadAgentId: effectiveConversationLeadAgentId(conv),
       toolRoundsUsed: conv.toolRoundsUsed ?? 0,
       toolRoundsUsedSupervisor: conv.toolRoundsUsedSupervisor ?? 0,
       workspaceRoot: conv.workspaceRoot ?? ''
@@ -1578,15 +1625,10 @@ export const useChatStore = defineStore('chat', () => {
       .catch(e => console.error(e))
   }
 
-  function applyPersistedComposerDefaults() {
-    if (!shouldSeedWorkspaceForNewConversation()) return
-    const defaultWorkspace = useSettingsStore().settings.workspaceRoot?.trim() || ''
-    if (!defaultWorkspace) return
-    const conv = current.value
-    if (conv && !conv.workspaceRoot?.trim()) {
-      conv.workspaceRoot = defaultWorkspace
-      persistMeta()
-    }
+  function setConversationAgent(leadAgentId: string, agentMode: AgentMode = 'single') {
+    const conv = current.value ?? newConversation()
+    applySessionAgentToConversation(conv, leadAgentId, agentMode)
+    persistMeta()
   }
 
   function clearPlatformLoginErrorMessages() {
@@ -1604,7 +1646,6 @@ export const useChatStore = defineStore('chat', () => {
     if (!current.value) return
     current.value.workspaceRoot = root
     persistMeta()
-    void useSettingsStore().saveAgentPreferences({ workspaceRoot: root })
   }
 
   function clearComputerMonitorPickRequest() {
@@ -1617,7 +1658,9 @@ export const useChatStore = defineStore('chat', () => {
     sendUserMessage, stop, abortTerminalOnly, approve,
     refreshTaskBoard, refreshSubAgentTaskBoards, taskBoardForConversation, parentBoardsBoundToMessage,
     childBoardsForParent, lookupChildTaskBoard,
-    setConversationWorkspace, applyPersistedComposerDefaults, showUiToast,
+    setConversationWorkspace, setConversationAgent,
+    effectiveConversationLeadAgentId, effectiveConversationAgentMode,
+    showUiToast,
     clearPlatformLoginErrorMessages,
     composerPrefill, prefillComposer, consumeComposerPrefill,
     composerText, composerAttachments, clearActiveComposer,

@@ -39,21 +39,32 @@ pub(crate) fn apply_agent_model_defaults(settings: &mut ModelSettings, agent_id:
     applied
 }
 
+fn resolve_lead_agent_key(
+    settings: &ModelSettings,
+    effective_agent_mode: &str,
+    lead_agent_id_override: Option<&str>,
+) -> String {
+    let mode = effective_agent_mode.trim();
+    if mode == AGENT_MODE_SUPERVISOR {
+        return SUPERVISOR_AGENT_ID.to_string();
+    }
+    if let Some(id) = lead_agent_id_override.map(str::trim).filter(|s| !s.is_empty()) {
+        return id.to_string();
+    }
+    let id = settings.lead_agent_id.trim();
+    if id.is_empty() {
+        DEFAULT_LEAD_AGENT_ID.to_string()
+    } else {
+        id.to_string()
+    }
+}
+
 pub(crate) fn apply_session_agent_model_defaults(
     settings: &mut ModelSettings,
     effective_agent_mode: &str,
+    lead_agent_id_override: Option<&str>,
 ) {
-    let mode = effective_agent_mode.trim();
-    let key = if mode == AGENT_MODE_SUPERVISOR {
-        SUPERVISOR_AGENT_ID.to_string()
-    } else {
-        let id = settings.lead_agent_id.trim();
-        if id.is_empty() {
-            DEFAULT_LEAD_AGENT_ID.to_string()
-        } else {
-            id.to_string()
-        }
-    };
+    let key = resolve_lead_agent_key(settings, effective_agent_mode, lead_agent_id_override);
     let _ = apply_agent_model_defaults(settings, &key);
 }
 
@@ -74,9 +85,10 @@ pub(crate) fn resolve_provider_api_key(settings: &ModelSettings, fallback_api_ke
 pub(crate) fn prepare_session_llm_settings(
     settings: &mut ModelSettings,
     effective_agent_mode: &str,
+    lead_agent_id_override: Option<&str>,
 ) -> String {
     let fallback_key = settings.api_key.clone();
-    apply_session_agent_model_defaults(settings, effective_agent_mode);
+    apply_session_agent_model_defaults(settings, effective_agent_mode, lead_agent_id_override);
     let api_key = resolve_provider_api_key(settings, &fallback_key);
     settings.api_key = api_key.clone();
     settings.has_key = !api_key.is_empty();
@@ -208,9 +220,21 @@ mod tests {
         let mut settings = sample_settings();
         settings.api_key = "qwen-key".into();
         settings.lead_agent_id = "explore".into();
-        let key = prepare_session_llm_settings(&mut settings, "single");
+        let key = prepare_session_llm_settings(&mut settings, "single", None);
         assert_eq!(settings.active_provider_id, "openai");
         assert_eq!(key, "openai-key");
         assert_ne!(key, "qwen-key");
+    }
+
+    #[test]
+    fn prepare_session_llm_settings_honors_lead_agent_override() {
+        let mut settings = sample_settings();
+        settings.api_key = "qwen-key".into();
+        settings.lead_agent_id = "coder".into();
+        // IM session override should win over global settings.lead_agent_id.
+        let key = prepare_session_llm_settings(&mut settings, "single", Some("explore"));
+        assert_eq!(settings.active_provider_id, "openai");
+        assert_eq!(settings.model, "gpt-4o");
+        assert_eq!(key, "openai-key");
     }
 }

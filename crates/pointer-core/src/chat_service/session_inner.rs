@@ -123,7 +123,23 @@ pub(super) async fn run_chat_inner(
         .filter(|mode| !mode.trim().is_empty())
         .unwrap_or(&settings.agent_mode)
         .to_string();
-    let api_key = prepare_session_llm_settings(&mut settings, &effective_agent_mode);
+    let lead_worker_id: Option<String> = request_lead_agent_id
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            let id = settings.lead_agent_id.trim();
+            if id.is_empty() {
+                None
+            } else {
+                Some(id.to_string())
+            }
+        });
+    let api_key = prepare_session_llm_settings(
+        &mut settings,
+        &effective_agent_mode,
+        lead_worker_id.as_deref(),
+    );
     if api_key.is_empty() {
         return Err(anyhow!(
             "尚未配置 API Key（{}），请先登录平台账户或在设置中配置密钥",
@@ -156,25 +172,13 @@ pub(super) async fn run_chat_inner(
             });
         }
     }
-    let lead_worker_id = request_lead_agent_id
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            let id = settings.lead_agent_id.trim();
-            if id.is_empty() {
-                None
-            } else {
-                Some(id)
-            }
-        });
-    let lead_opt = lead_worker_id;
     let agent_plan = AgentOrchestrator::build_plan(
         &state.agents,
         &state.skills,
         &state.tools,
         enabled_skill_ids,
         &effective_agent_mode,
-        lead_opt,
+        lead_worker_id.as_deref(),
     );
     let mut agent_plan = agent_plan;
     if crate::channel_outbound::is_im_conversation(conversation_id) {
@@ -195,11 +199,9 @@ pub(super) async fn run_chat_inner(
     } else {
         Some(settings.model.clone())
     };
-    let lead_role = if let Some(id) = lead_worker_id {
-        id.to_string()
-    } else {
-        effective_agent_mode.clone()
-    };
+    let lead_role = lead_worker_id
+        .clone()
+        .unwrap_or_else(|| effective_agent_mode.clone());
     let mut llm_token_session =
         ChatLlmTokenSession::new(run_id.to_string(), conversation_id.to_string(), lead_role, model_name);
     let lead_scope = llm_token_session.lead_scope.clone();

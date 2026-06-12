@@ -302,6 +302,28 @@ pub struct Conversation {
     /// Per-conversation workspace root for coder/file tools (session UI only).
     #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
     pub workspace_root: String,
+    /// Per-conversation lead worker when `agent_mode` is `single`.
+    #[serde(
+        default = "default_lead_agent_id",
+        rename = "leadAgentId",
+        skip_serializing_if = "is_default_session_lead_agent"
+    )]
+    pub lead_agent_id: String,
+    /// Per-conversation orchestration mode (`single` or `supervisor`).
+    #[serde(
+        default = "default_agent_mode",
+        rename = "agentMode",
+        skip_serializing_if = "is_default_session_agent_mode"
+    )]
+    pub agent_mode: String,
+}
+
+fn is_default_session_lead_agent(id: &str) -> bool {
+    id.trim().is_empty() || id.trim() == default_lead_agent_id()
+}
+
+fn is_default_session_agent_mode(mode: &str) -> bool {
+    mode.trim().is_empty() || mode.trim() == default_agent_mode()
 }
 
 /// Conversation shell fields for P1 meta-only persistence (no messages).
@@ -327,6 +349,18 @@ pub struct ConversationMeta {
     pub computer_monitor_id: Option<String>,
     #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
     pub workspace_root: String,
+    #[serde(
+        default = "default_lead_agent_id",
+        rename = "leadAgentId",
+        skip_serializing_if = "is_default_session_lead_agent"
+    )]
+    pub lead_agent_id: String,
+    #[serde(
+        default = "default_agent_mode",
+        rename = "agentMode",
+        skip_serializing_if = "is_default_session_agent_mode"
+    )]
+    pub agent_mode: String,
 }
 
 impl From<&Conversation> for ConversationMeta {
@@ -341,6 +375,8 @@ impl From<&Conversation> for ConversationMeta {
             tool_rounds_used_supervisor: c.tool_rounds_used_supervisor,
             computer_monitor_id: c.computer_monitor_id.clone(),
             workspace_root: c.workspace_root.clone(),
+            lead_agent_id: c.lead_agent_id.clone(),
+            agent_mode: c.agent_mode.clone(),
         }
     }
 }
@@ -2153,6 +2189,9 @@ pub struct SendChatPayload {
     /// Workspace root for this conversation run (overrides global settings when non-empty).
     #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
     pub workspace_root: String,
+    /// Session lead worker override for this run (`single` mode).
+    #[serde(default, rename = "leadAgentId", skip_serializing_if = "Option::is_none")]
+    pub lead_agent_id: Option<String>,
 }
 
 /// Metadata emitted when context compression replaces older turns with a summary.
@@ -2354,6 +2393,21 @@ pub enum StreamEvent {
         title: String,
         #[serde(rename = "sessionEpoch")]
         session_epoch: u32,
+        #[serde(rename = "leadAgentId")]
+        lead_agent_id: String,
+        #[serde(rename = "agentMode")]
+        agent_mode: String,
+    },
+    /// IM session agent / mode changed (mirror sidebar + Composer).
+    ImSessionAgentChanged {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "baseConversationId")]
+        base_conversation_id: String,
+        #[serde(rename = "leadAgentId")]
+        lead_agent_id: String,
+        #[serde(rename = "agentMode")]
+        agent_mode: String,
     },
     /// Short assistant-role line in the thread (e.g. desktop capture status); not from the model.
     InjectedAssistantMessage {
@@ -2386,12 +2440,24 @@ pub enum StreamEvent {
         #[serde(skip_serializing_if = "Option::is_none", rename = "maxToolRounds")]
         max_tool_rounds: Option<u32>,
     },
-    HistoryReplaced {
+    /// Task-board trim marked earlier messages excluded from LLM context (UI patch only).
+    ContextTrimApplied {
         #[serde(rename = "conversationId")]
         conversation_id: String,
-        messages: Vec<ChatMessage>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        compression: Option<ContextCompressionInfo>,
+        #[serde(rename = "excludedMessageIds")]
+        excluded_message_ids: Vec<String>,
+    },
+    /// Main-thread context compression: soft-exclude prefix + insert summary user row.
+    ContextCompressionApplied {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "excludedMessageIds")]
+        excluded_message_ids: Vec<String>,
+        #[serde(rename = "insertBeforeMessageId")]
+        insert_before_message_id: String,
+        #[serde(rename = "summaryMessage")]
+        summary_message: ChatMessage,
+        compression: ContextCompressionInfo,
     },
     /// Sub-agent local history was compressed; main thread messages are unchanged.
     ContextCompressed {
@@ -3476,6 +3542,8 @@ mod effective_extra_body_tests {
             tool_rounds_used_supervisor: 0,
             computer_monitor_id: None,
             workspace_root: String::new(),
+            lead_agent_id: default_lead_agent_id(),
+            agent_mode: default_agent_mode(),
         };
         let json = serde_json::to_string(&conv).expect("serialize");
         let back: Conversation = serde_json::from_str(&json).expect("deserialize");

@@ -38,6 +38,26 @@ pub struct ChannelSessionMeta {
     pub active_conversation_id: Option<String>,
 }
 
+impl ChannelSessionMeta {
+    pub fn effective_lead_agent_id(&self) -> String {
+        self.lead_agent_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(pointer_core::agents::DEFAULT_LEAD_AGENT_ID)
+            .to_string()
+    }
+
+    pub fn effective_agent_mode(&self) -> String {
+        self.agent_mode
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(pointer_core::agents::AGENT_MODE_SINGLE)
+            .to_string()
+    }
+}
+
 pub struct ChannelHistoryStore;
 
 impl ChannelHistoryStore {

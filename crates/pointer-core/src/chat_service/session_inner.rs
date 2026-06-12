@@ -13,9 +13,11 @@ use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::app_state::AppState;
+use super::emit::emit;
 use super::session_budget::SessionToolBudget;
 use super::session_model::prepare_session_llm_settings;
 use super::StreamTx;
+use std::path::Path;
 
 fn latest_real_user_turn(history: &[ChatMessage]) -> Option<(&str, &str)> {
     history.iter().rev().find_map(|m| {
@@ -89,7 +91,32 @@ pub(super) async fn run_chat_inner(
     cancel: CancellationToken,
     run_id: &str,
 ) -> Result<()> {
-    let _workspace_guard = ConversationWorkspaceGuard::enter(workspace_root.clone());
+    // Resolve effective workspace: payload → last-active conversation → session sandbox.
+    let effective_workspace = if workspace_root.trim().is_empty() {
+        resolve_effective_workspace(conversation_id, &state).unwrap_or_else(|e| {
+            log::warn!("session workspace resolution failed: {e:#}; using empty");
+            String::new()
+        })
+    } else {
+        workspace_root.trim().to_string()
+    };
+
+    let _workspace_guard = ConversationWorkspaceGuard::enter(effective_workspace.clone());
+    if effective_workspace.trim() != workspace_root.trim() {
+        let is_ephemeral = workspace_root.trim().is_empty()
+            && crate::session_sandbox::SessionSandbox::is_sandbox(Path::new(
+                effective_workspace.trim(),
+            ))
+            .unwrap_or(false);
+        emit(
+            &stream,
+            StreamEvent::WorkspaceUpdated {
+                conversation_id: conversation_id.to_string(),
+                workspace_root: effective_workspace.clone(),
+                is_ephemeral_sandbox: is_ephemeral,
+            },
+        );
+    }
     // Restore from auth.dat / refresh near-expiry tokens before gating chat.
     match state.platform_auth.refresh_if_needed().await {
         Ok(Some((_session, creds))) => {
@@ -115,8 +142,8 @@ pub(super) async fn run_chat_inner(
         return Err(anyhow!("请先登录 Pointer 账户"));
     }
     let mut settings = state.effective_settings();
-    if !workspace_root.trim().is_empty() {
-        settings.workspace_root = workspace_root.trim().to_string();
+    if !effective_workspace.trim().is_empty() {
+        settings.workspace_root = effective_workspace.trim().to_string();
     }
     let tool_approval_mode = settings.tool_approval_mode.clone();
     let effective_agent_mode = request_agent_mode
@@ -314,4 +341,43 @@ pub(super) async fn run_chat_inner(
     }
 
     Ok(())
+}
+
+/// Resolve the effective workspace for a conversation when the frontend sends
+/// an empty `workspaceRoot`.
+///
+/// Priority:
+///   1. The most recent *other* conversation's `workspace_root` (inherits last
+///      active session's directory).
+///   2. Session sandbox (`{app_data}/session-sandboxes/{conversation_id}/`).
+fn resolve_effective_workspace(
+    conversation_id: &str,
+    _state: &AppState,
+) -> Result<String> {
+    // Try the last-active conversation's workspace (skip ourselves).
+    if let Ok(store) = crate::conversation_store::global_store() {
+        if let Ok(convs) = store.load_all() {
+            for conv in &convs {
+                if conv.id != conversation_id && !conv.workspace_root.trim().is_empty() {
+                    let ws = conv.workspace_root.trim().to_string();
+                    log::info!(
+                        "resolve_effective_workspace: inheriting from conversation_id={}: {}",
+                        conv.id,
+                        ws
+                    );
+                    return Ok(ws);
+                }
+            }
+        }
+    }
+
+    // Fallback: create a session sandbox.
+    let sandbox = crate::session_sandbox::SessionSandbox::ensure(conversation_id)
+        .map(|p| p.display().to_string())?;
+    log::info!(
+        "resolve_effective_workspace: using session sandbox for conversation_id={conversation_id}: {sandbox}",
+        conversation_id = conversation_id,
+        sandbox = sandbox
+    );
+    Ok(sandbox)
 }

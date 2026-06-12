@@ -16,7 +16,7 @@ use crate::session_fork::{fork_im_desktop_session, resolve_active_desktop_id};
 use crate::session_agent::{agent_switch_ack, detect_agent_switch, AgentSwitchAction};
 use crate::session_reset::{self, ManualResetAction, MANUAL_RESET_ACK};
 use crate::im_stream_outbound::ImStreamOutbound;
-use crate::outbound_reply::split_reply_media;
+use crate::outbound_reply::{im_outbound_reply_source, split_reply_media};
 use crate::traits::{ChannelPlugin, InboundMessage, OutboundContext};
 
 fn broadcast_im_session_agent(
@@ -371,11 +371,15 @@ impl DispatchService {
             while let Some(ev) = rx.recv().await {
                 match &ev {
                     StreamEvent::Delta { text, .. } => reply_text.push_str(text),
-                    StreamEvent::MessageEnd { content, .. } => {
-                        if let Some(c) = content {
-                            if !c.trim().is_empty() {
-                                reply_text = c.clone();
-                            }
+                    StreamEvent::MessageEnd {
+                        content,
+                        raw_content,
+                        ..
+                    } => {
+                        let next =
+                            im_outbound_reply_source(raw_content.as_deref(), content.as_deref());
+                        if !next.trim().is_empty() {
+                            reply_text = next;
                         }
                         if let Err(e) = stream_out.on_event(&ev).await {
                             log::warn!(

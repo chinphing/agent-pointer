@@ -84,6 +84,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NO_STRIP: ${{ matrix.platform == 'ubuntu-22.04' && 'true' || '' }}
+          # macOS: set repository secrets to enable sign + notarize (see signing/macos/README.md)
+          APPLE_CERTIFICATE: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_ID: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_PASSWORD || '' }}
         with:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}
           releaseName: Pointer ${{ github.ref_type == 'tag' && github.ref_name || format('manual-{0}', github.run_number) }}

@@ -61,11 +61,9 @@ keep internal stage templates out of **`content`**.
 
 ---
 
-## Workspace (brief)
+## Session context (runtime)
 
-When agent instructions include a **workspace root** (absolute path), relative paths
-for **`file`** tools and the default working directory for **`terminal`** resolve
-under that root unless a tool description says otherwise.
+**Workspace root** (absolute path from app settings): `{{workspace_root}}`
 
 ## App data directory
 

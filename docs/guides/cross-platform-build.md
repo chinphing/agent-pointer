@@ -180,14 +180,30 @@ npm run tauri:dev
 
 ```bash
 npm run icons
-npm run build:macos    # 与 npm run tauri:build 相同（macOS 不设 NO_STRIP）
+npm run build:macos              # 不签名（默认）
+npm run build:macos:sign-only    # 仅签名，不公证（需 signing.env 中的 p12 配置）
+npm run build:macos:signed       # Developer ID 签名 + 公证（需完整 signing.env）
+npm run build:macos:universal    # Universal，不签名
 ```
 
-**通用二进制（Intel + Apple Silicon，与 CI 一致）：**
+**签名 + 公证（正式发布）：**
+
+```bash
+# 交互式生成 signing/macos/signing.env（p12 路径、密码、Team ID、Apple ID 等）
+npm run signing:macos:setup
+
+# 打包（Universal Binary，与 CI 一致）
+npm run build:macos:signed
+```
+
+详见 [`signing/macos/README.md`](../../signing/macos/README.md)。  
+`signing.env`、`*.p12` 已 gitignore，勿提交仓库。
+
+**通用二进制（Intel + Apple Silicon，不签名）：**
 
 ```bash
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
-npm run tauri:build -- --target universal-apple-darwin
+npm run build:macos:universal
 ```
 
 **产物目录：**

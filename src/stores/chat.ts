@@ -512,6 +512,10 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function newConversation(): Conversation {
+    // Inherit workspaceRoot from the last active conversation.
+    const lastWorkspace = conversations.value.length > 0
+      ? (conversations.value[0].workspaceRoot ?? '')
+      : '';
     const c: Conversation = {
       id: uid(),
       title: '新会话',
@@ -521,7 +525,7 @@ export const useChatStore = defineStore('chat', () => {
       skillIds: [],
       toolRoundsUsed: 0,
       toolRoundsUsedSupervisor: 0,
-      workspaceRoot: '',
+      workspaceRoot: lastWorkspace,
       leadAgentId: DEFAULT_LEAD_AGENT_ID,
       agentMode: 'single'
     }
@@ -1229,7 +1233,7 @@ export const useChatStore = defineStore('chat', () => {
           persistMeta()
         }
         if (e.isEphemeralSandbox) {
-          showUiToast(`已创建临时工作目录：${e.workspaceRoot}`, 'warning')
+          showUiToast('已自动创建临时工作目录，可在输入框下方更换为项目目录', 'warning')
         }
         break
       }

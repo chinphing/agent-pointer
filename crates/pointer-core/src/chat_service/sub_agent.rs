@@ -88,6 +88,11 @@ pub(crate) async fn run_sub_agent(
             .reset_for_new_user_guidance(conversation_id);
     }
 
+    // Set thread-local for this sub-agent's tool calls; restore parent on exit.
+    let _agent_guard = crate::tools::file::AgentWorkspaceGuard::enter(
+        &sub_provider.settings.workspace_root,
+    );
+
     loop {
         if cancel.is_cancelled() {
             state.computer_state.mark_cancelled(conversation_id);

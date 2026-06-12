@@ -1,52 +1,55 @@
-//! Workspace resolution when a lead agent delegates to **coder** (general has no picker).
+//! Workspace resolution when a lead agent delegates to a sub-agent (especially **coder**).
 
 use anyhow::{anyhow, Context, Result};
 use log::info;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use crate::storage;
-use crate::tools::file::{resolve_tool_workspace_root, set_runtime_workspace_root, workspace_root_from_override_or_settings};
+use crate::models::ModelSettings;
+use crate::session_sandbox::SessionSandbox;
 
-const CODER_SANDBOXES_DIR: &str = "coder-sandboxes";
-
-/// Resolve workspace for a **coder** `run_subagent` call.
+/// Resolve workspace for a **`run_subagent`** call and write it to `settings.workspace_root`.
 ///
-/// Priority: explicit tool arg → valid in-run / settings root → per-conversation sandbox.
-/// Returns `(absolute_path, is_ephemeral_sandbox)`.
-pub fn ensure_coder_delegation_workspace(
+/// Priority: explicit tool arg → existing `settings.workspace_root` → session sandbox.
+/// Returns whether the resolved path is an ephemeral session sandbox.
+pub fn ensure_subagent_workspace(
     conversation_id: &str,
     explicit_from_tool: Option<&str>,
+    settings: &mut ModelSettings,
+) -> Result<bool> {
+    let (root, ephemeral) = resolve_subagent_workspace(
+        conversation_id,
+        explicit_from_tool,
+        settings.workspace_root.as_str(),
+    )?;
+    settings.workspace_root = root;
+    Ok(ephemeral)
+}
+
+fn resolve_subagent_workspace(
+    conversation_id: &str,
+    explicit_from_tool: Option<&str>,
+    session_workspace: &str,
 ) -> Result<(String, bool)> {
     if let Some(raw) = explicit_from_tool.map(str::trim).filter(|s| !s.is_empty()) {
         let path = validate_existing_workspace_dir(raw)?;
-        set_runtime_workspace_root(path.clone());
         info!(
             "workspace_delegation: using explicit path for conversation_id={conversation_id}: {path}"
         );
         return Ok((path, false));
     }
 
-    let current = workspace_root_from_override_or_settings();
-    if !current.trim().is_empty() {
-        match resolve_tool_workspace_root() {
-            Ok(p) => {
-                let path = p.display().to_string();
-                set_runtime_workspace_root(path.clone());
-                info!(
-                    "workspace_delegation: using session workspace for conversation_id={conversation_id}: {path}"
-                );
-                return Ok((path, false));
-            }
-            Err(e) => {
-                log::warn!(
-                    "workspace_delegation: session workspace invalid for conversation_id={conversation_id}: {e:#}; using sandbox"
-                );
-            }
-        }
+    let session_ws = session_workspace.trim();
+    if !session_ws.is_empty() {
+        let path = validate_existing_workspace_dir(session_ws)?;
+        let ephemeral = SessionSandbox::is_sandbox(Path::new(&path)).unwrap_or(false);
+        info!(
+            "workspace_delegation: using session workspace for conversation_id={conversation_id}: {path} ephemeral={ephemeral}"
+        );
+        return Ok((path, ephemeral));
     }
 
-    let sandbox = ensure_conversation_sandbox(conversation_id)?;
-    set_runtime_workspace_root(sandbox.clone());
+    let sandbox = SessionSandbox::ensure(conversation_id)
+        .map(|p| p.display().to_string())?;
     info!(
         "workspace_delegation: ephemeral sandbox for conversation_id={conversation_id}: {sandbox}"
     );
@@ -69,40 +72,15 @@ fn validate_existing_workspace_dir(raw: &str) -> Result<String> {
         .with_context(|| format!("cannot canonicalize workspace path: {raw}"))
 }
 
-fn ensure_conversation_sandbox(conversation_id: &str) -> Result<String> {
-    let cid = conversation_id.trim();
-    if cid.is_empty() {
-        return Err(anyhow!("conversation id is empty"));
-    }
-    if cid.contains('/') || cid.contains('\\') || cid.contains('\0') {
-        return Err(anyhow!("invalid conversation id for sandbox"));
-    }
-    let base = storage::app_data_dir()?.join(CODER_SANDBOXES_DIR).join(cid);
-    std::fs::create_dir_all(&base).with_context(|| {
-        format!(
-            "failed to create coder sandbox directory: {}",
-            base.display()
-        )
-    })?;
-    Ok(base
-        .canonicalize()
-        .unwrap_or(base)
-        .display()
-        .to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::file::ConversationWorkspaceGuard;
     use std::path::Path;
 
-    #[test]
-    fn sandbox_path_is_under_app_data() {
-        let path = ensure_conversation_sandbox("conv_test_123").unwrap();
-        assert!(path.contains("coder-sandboxes"));
-        assert!(path.contains("conv_test_123"));
-        assert!(Path::new(&path).is_dir());
+    fn settings_with_workspace(ws: &str) -> ModelSettings {
+        let mut s = ModelSettings::default();
+        s.workspace_root = ws.to_string();
+        s
     }
 
     #[test]
@@ -111,13 +89,41 @@ mod tests {
     }
 
     #[test]
-    fn ensure_prefers_explicit_over_sandbox() {
+    fn ensure_prefers_explicit_over_session() {
         let dir = tempfile::tempdir().unwrap();
         let explicit = dir.path().display().to_string();
-        let (path, ephemeral) =
-            ensure_coder_delegation_workspace("conv_explicit", Some(&explicit)).unwrap();
-        assert_eq!(path, dir.path().canonicalize().unwrap().display().to_string());
+        let session = tempfile::tempdir().unwrap();
+        let mut settings = settings_with_workspace(session.path().to_str().unwrap());
+        let ephemeral =
+            ensure_subagent_workspace("conv_explicit", Some(&explicit), &mut settings).unwrap();
+        assert_eq!(
+            settings.workspace_root,
+            dir.path().canonicalize().unwrap().display().to_string()
+        );
         assert!(!ephemeral);
-        let _guard = ConversationWorkspaceGuard::enter(String::new());
+    }
+
+    #[test]
+    fn ensure_uses_session_workspace_when_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().display().to_string();
+        let mut settings = settings_with_workspace(&ws);
+        let ephemeral = ensure_subagent_workspace("conv_session", None, &mut settings).unwrap();
+        assert_eq!(
+            settings.workspace_root,
+            dir.path().canonicalize().unwrap().display().to_string()
+        );
+        assert!(!ephemeral);
+    }
+
+    #[test]
+    fn ensure_falls_back_to_session_sandbox() {
+        let mut settings = settings_with_workspace("");
+        let ephemeral =
+            ensure_subagent_workspace("conv_fallback_test", None, &mut settings).unwrap();
+        assert!(settings.workspace_root.contains("session-sandboxes"));
+        assert!(settings.workspace_root.contains("conv_fallback_test"));
+        assert!(Path::new(&settings.workspace_root).is_dir());
+        assert!(ephemeral);
     }
 }

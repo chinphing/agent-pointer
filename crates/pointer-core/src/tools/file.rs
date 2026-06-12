@@ -272,6 +272,39 @@ impl Drop for ConversationWorkspaceGuard {
     }
 }
 
+/// Lightweight save/restore guard for sub-agent execution.
+///
+/// Wraps a single agent run (lead or sub-agent): saves the current thread-local
+/// workspace root, sets it to `agent_workspace_root`, and restores the original
+/// on drop.  This prevents sub-agents from contaminating the parent's workspace
+/// in `CONVERSATION_WORKSPACE_ROOT`.
+pub struct AgentWorkspaceGuard {
+    previous: Option<String>,
+}
+
+impl AgentWorkspaceGuard {
+    pub fn enter(agent_workspace_root: &str) -> Self {
+        let trimmed = agent_workspace_root.trim();
+        let next = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+        let previous = CONVERSATION_WORKSPACE_ROOT.with(|c| {
+            std::mem::replace(&mut *c.borrow_mut(), next)
+        });
+        Self { previous }
+    }
+}
+
+impl Drop for AgentWorkspaceGuard {
+    fn drop(&mut self) {
+        CONVERSATION_WORKSPACE_ROOT.with(|c| {
+            *c.borrow_mut() = self.previous.take();
+        });
+    }
+}
+
 pub fn workspace_root_from_override_or_settings() -> String {
     CONVERSATION_WORKSPACE_ROOT
         .with(|c| c.borrow().clone())

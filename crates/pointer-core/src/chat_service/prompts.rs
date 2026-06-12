@@ -15,7 +15,7 @@ pub(crate) fn push_agent_role_cacheable_prompts(
     non_computer_system_prompts: &[String],
 ) {
     if let Some(block) = rendered_communication_public_inject() {
-        cacheable.push(block);
+        cacheable.push(expand_agent_prompt_placeholders(&block, session_vars));
     }
     if *profile == AgentProfile::Computer {
         let tier = computer_state.tier_for_conversation(conversation_id);

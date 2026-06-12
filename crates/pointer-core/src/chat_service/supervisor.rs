@@ -386,6 +386,7 @@ pub(crate) async fn run_supervisor_chat(
         &assistant_id,
         llm_stats,
         run_id,
+        provider.settings.workspace_root.as_str(),
     )
     .await?;
     if !final_answer.is_empty() {

@@ -3,7 +3,10 @@
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 
-use crate::agents::{rendered_communication_public_inject, AgentRunResult};
+use crate::agents::{
+    expand_agent_prompt_placeholders, rendered_communication_public_inject, AgentRunResult,
+    SessionInjectVars,
+};
 use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::ChatMessage;
 use crate::provider::OpenAIProvider;
@@ -17,6 +20,7 @@ pub(crate) async fn synthesize_final_answer(
     assistant_message_id: &str,
     llm_stats: &mut ConversationLlmStats,
     run_id: &str,
+    workspace_root: &str,
 ) -> Result<(String, String)> {
     let mut report = String::new();
     for result in results {
@@ -33,7 +37,10 @@ pub(crate) async fn synthesize_final_answer(
     };
     let mut prompt_parts: Vec<String> = Vec::new();
     if let Some(block) = rendered_communication_public_inject() {
-        prompt_parts.push(block);
+        let vars = SessionInjectVars {
+            workspace_root: workspace_root.trim(),
+        };
+        prompt_parts.push(expand_agent_prompt_placeholders(&block, &vars));
     }
     prompt_parts.push(env_context);
     prompt_parts.push(

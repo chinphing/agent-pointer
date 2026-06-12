@@ -67,9 +67,17 @@ impl ConversationStore {
     }
 
     pub fn save_all(&self, list: &[Conversation]) -> Result<()> {
+        // Snapshot old IDs before the write so we can detect deletions.
+        let old_ids: Vec<String> = self
+            .load_all()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        let new_ids: Vec<String> = list.iter().map(|c| c.id.clone()).collect();
+
         self.db.execute_write(|conn| {
-            let ids: Vec<String> = list.iter().map(|c| c.id.clone()).collect();
-            persist::delete_conversations_not_in(conn, &ids)?;
+            persist::delete_conversations_not_in(conn, &new_ids)?;
             let mut written = 0u32;
             for conv in list {
                 if persist::upsert_conversation(conn, conv, true)? {
@@ -83,12 +91,46 @@ impl ConversationStore {
                 );
             }
             Ok(())
-        })
+        })?;
+
+        // Clean up sandbox directories for deleted conversations.
+        let deleted_ids: Vec<&str> = old_ids
+            .iter()
+            .filter(|id| !new_ids.contains(id))
+            .map(|s| s.as_str())
+            .collect();
+        for id in &deleted_ids {
+            if let Err(e) = crate::session_sandbox::SessionSandbox::cleanup(id) {
+                log::warn!("session_sandbox cleanup failed for {id}: {e}");
+            }
+        }
+
+        Ok(())
     }
 
     /// P1: sync conversation shell fields only; messages are untouched.
     pub fn save_meta_all(&self, metas: &[ConversationMeta]) -> Result<()> {
-        self.db.execute_write(|conn| write::save_meta_all_in_conn(conn, metas))
+        let old_ids: Vec<String> = self
+            .load_all()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        let new_ids: Vec<String> = metas.iter().map(|m| m.id.clone()).collect();
+
+        self.db
+            .execute_write(|conn| write::save_meta_all_in_conn(conn, metas))?;
+
+        // Clean up sandbox directories for deleted conversations.
+        for id in &old_ids {
+            if !new_ids.contains(id) {
+                if let Err(e) = crate::session_sandbox::SessionSandbox::cleanup(id) {
+                    log::warn!("session_sandbox cleanup failed for {id}: {e}");
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// P0: append messages not yet present in the DB.

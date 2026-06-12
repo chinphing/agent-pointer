@@ -38,6 +38,7 @@ pub mod provider;
 pub mod shell_env;
 pub mod skills;
 pub mod storage;
+pub mod stream_broadcast;
 pub mod tools;
 pub mod tool_envelope;
 pub mod json_tool_caller;

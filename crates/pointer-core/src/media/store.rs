@@ -128,6 +128,33 @@ fn read_file_preview(path: &Path, extra_roots: &[String]) -> Result<ChatMediaPre
         .unwrap_or("attachment")
         .to_string();
     let mime_type = mime_from_path(path);
+    let mime_lower = mime_type.to_ascii_lowercase();
+    let needs_audio_transcode =
+        mime_lower.starts_with("audio/") && mime_lower != "audio/wav"
+            || file_name.to_ascii_lowercase().ends_with(".bin");
+    if needs_audio_transcode && crate::media::ffmpeg::ffmpeg_available() {
+        match crate::media::audio::prepare_audio_bytes_for_asr(
+            &bytes,
+            &mime_type,
+            &file_name,
+        ) {
+            Ok(prepared) if prepared.mime_type == "audio/wav" => {
+                return Ok(ChatMediaPreview {
+                    data_base64: base64::engine::general_purpose::STANDARD.encode(&prepared.bytes),
+                    mime_type: prepared.mime_type,
+                    file_name: prepared.file_name,
+                });
+            }
+            Err(e) => {
+                log::warn!(
+                    "media preview: audio transcode failed for {}: {:#}",
+                    file_name,
+                    e
+                );
+            }
+            _ => {}
+        }
+    }
     Ok(ChatMediaPreview {
         data_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
         mime_type,

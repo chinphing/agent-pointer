@@ -623,6 +623,10 @@ pub fn load_conversations() -> Result<Vec<Conversation>> {
     crate::conversation_store::global_store()?.load_all()
 }
 
+pub fn load_conversation_messages(conversation_id: &str) -> Result<Vec<ChatMessage>> {
+    crate::conversation_store::global_store()?.load_messages(conversation_id)
+}
+
 pub fn save_conversations(list: &[Conversation]) -> Result<()> {
     crate::conversation_store::global_store()?.save_all(list)
 }

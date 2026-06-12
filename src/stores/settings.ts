@@ -70,7 +70,7 @@ const defaultAgentModeLlm = () => ({
 
 const defaultMediaModeLlm = () => ({
   image: defaultModeLlm('qwen', 'qwen3.5-flash', 'qwen3.5-plus', 'qwen3.6-plus'),
-  audio: defaultModeLlm('qwen', 'qwen3.5-flash', 'qwen3.5-plus', 'qwen3.6-plus'),
+  audio: defaultModeLlm('qwen', 'qwen3-asr-flash', 'qwen3-asr-flash', 'qwen3-asr-flash'),
   video: defaultModeLlm('qwen', 'qwen3.5-flash', 'qwen3.5-plus', 'qwen3.6-plus')
 })
 
@@ -103,7 +103,7 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   agentUiOverrides: {},
   mediaModelOverrides: {
     image: { providerId: 'qwen', model: 'qwen3.5-plus' },
-    audio: { providerId: 'qwen', model: 'qwen3.5-plus' },
+    audio: { providerId: 'qwen', model: 'qwen3-asr-flash' },
     imageGeneration: {
       providerId: 'doubao',
       model: 'doubao-seedream-5-0-lite-260128'

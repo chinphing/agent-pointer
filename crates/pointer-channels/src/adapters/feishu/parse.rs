@@ -148,13 +148,18 @@ fn parse_file_content(message_type: &str, content_raw: &str) -> Option<ParsedCon
         text: String::new(),
         attachments: vec![InboundMediaRef {
             kind: kind.into(),
-            mime_type: None,
+            mime_type: if message_type == "audio" {
+                Some("audio/ogg".into())
+            } else {
+                None
+            },
             file_name: content
                 .get("file_name")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
             feishu_image_key: None,
             feishu_file_key: Some(file_key),
+            // Feishu API only accepts type=image|file; audio/video use file.
             feishu_resource_type: Some("file".into()),
             wecom_download_url: None,
             wecom_aes_key: None,

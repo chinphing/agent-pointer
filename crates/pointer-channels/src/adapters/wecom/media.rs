@@ -2,7 +2,8 @@ use anyhow::{Context, Result};
 
 use crate::crypto::wecom_aibot_decrypt_file;
 use crate::http_client::HttpClient;
-use crate::media::attachment::{enforce_max_bytes, finalize_downloaded, DownloadedMedia};
+use crate::media::attachment::{enforce_max_bytes, DownloadedMedia};
+use crate::media::audio_normalize::normalize_channel_audio_download;
 use crate::traits::InboundMediaRef;
 
 pub async fn download_inbound_ref(
@@ -33,13 +34,12 @@ pub async fn download_inbound_ref(
         .clone()
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| format!("wecom-{}.bin", uuid::Uuid::new_v4()));
-    Ok(finalize_downloaded(
+    Ok(normalize_channel_audio_download(
         DownloadedMedia {
             bytes,
             mime_type: content_type.unwrap_or_else(|| "application/octet-stream".into()),
             file_name,
         },
-        media_ref.file_name.clone(),
-        Some(media_ref.kind.as_str()),
+        media_ref,
     ))
 }

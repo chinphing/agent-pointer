@@ -59,6 +59,11 @@ impl ConversationStore {
         persist::load_all_from_conn(&conn)
     }
 
+    pub fn load_messages(&self, conversation_id: &str) -> Result<Vec<ChatMessage>> {
+        let conn = self.db.conn.lock();
+        persist::load_messages(&conn, conversation_id)
+    }
+
     pub fn save_all(&self, list: &[Conversation]) -> Result<()> {
         self.db.execute_write(|conn| {
             let ids: Vec<String> = list.iter().map(|c| c.id.clone()).collect();

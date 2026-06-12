@@ -1,0 +1,271 @@
+//! Normalize IM / channel audio (e.g. Feishu `.bin`) for speech-to-text APIs.
+
+use anyhow::{Context, Result};
+use std::io::Write;
+use std::process::Command;
+
+pub struct PreparedAudio {
+    pub bytes: Vec<u8>,
+    pub mime_type: String,
+    pub file_name: String,
+    pub wire_format: String,
+}
+
+/// Feishu voice and similar channels often ship opaque `.bin` blobs (opus etc.).
+pub fn needs_audio_transcode(mime_type: &str, file_name: &str) -> bool {
+    let mime = mime_type.trim().to_ascii_lowercase();
+    let lower = file_name.trim().to_ascii_lowercase();
+    if lower.ends_with(".bin") {
+        return true;
+    }
+    if mime.is_empty() || mime == "application/octet-stream" {
+        return true;
+    }
+    if mime == "audio/opus" || mime == "audio/amr" || mime == "audio/silk" {
+        return true;
+    }
+    false
+}
+
+fn audio_input_suffix(file_name: &str) -> &'static str {
+    let lower = file_name.to_ascii_lowercase();
+    if lower.ends_with(".mp3") {
+        return ".mp3";
+    }
+    if lower.ends_with(".wav") {
+        return ".wav";
+    }
+    if lower.ends_with(".m4a") {
+        return ".m4a";
+    }
+    if lower.ends_with(".ogg") {
+        return ".ogg";
+    }
+    if lower.ends_with(".amr") {
+        return ".amr";
+    }
+    ".bin"
+}
+
+fn wav_output_name(file_name: &str) -> String {
+    let stem = file_name
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(file_name)
+        .trim();
+    if stem.is_empty() {
+        "audio.wav".into()
+    } else {
+        format!("{stem}.wav")
+    }
+}
+
+pub fn transcode_audio_to_wav(bytes: &[u8], file_name: &str) -> Result<Vec<u8>> {
+    let ffmpeg = crate::media::ffmpeg::resolve_ffmpeg().context("ffmpeg not found")?;
+    let suffix = audio_input_suffix(file_name);
+    let mut input = tempfile::Builder::new()
+        .prefix("pointer-aud-")
+        .suffix(suffix)
+        .tempfile()
+        .context("audio temp input")?;
+    input.write_all(bytes).context("write audio temp input")?;
+    let input_path = input.path();
+
+    let output = tempfile::Builder::new()
+        .suffix(".wav")
+        .tempfile()
+        .context("audio temp output")?;
+    let out_path = output.path();
+
+    let output = Command::new(&ffmpeg)
+        .args([
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-i",
+            input_path.to_str().unwrap_or_default(),
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-y",
+            out_path.to_str().unwrap_or_default(),
+        ])
+        .output()
+        .context("ffmpeg audio transcode")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        anyhow::bail!(
+            "ffmpeg audio transcode failed for {file_name}: {}",
+            if detail.is_empty() {
+                "no stderr"
+            } else {
+                detail
+            }
+        );
+    }
+
+    let wav = std::fs::read(out_path).context("read transcoded wav")?;
+    if wav.is_empty() {
+        anyhow::bail!("ffmpeg produced empty wav for {file_name}");
+    }
+    Ok(wav)
+}
+
+pub fn prepare_audio_bytes_for_asr(
+    bytes: &[u8],
+    mime_type: &str,
+    file_name: &str,
+) -> Result<PreparedAudio> {
+    if crate::media::ffmpeg::ffmpeg_available() && needs_audio_transcode(mime_type, file_name) {
+        log::info!(
+            "media: transcoding audio {} (mime={}) via ffmpeg for ASR",
+            file_name,
+            mime_type
+        );
+        let wav = transcode_audio_to_wav(bytes, file_name)?;
+        return Ok(PreparedAudio {
+            bytes: wav,
+            mime_type: "audio/wav".into(),
+            file_name: wav_output_name(file_name),
+            wire_format: "wav".into(),
+        });
+    }
+
+    let wire_format = audio_wire_format(mime_type, file_name).to_string();
+    Ok(PreparedAudio {
+        bytes: bytes.to_vec(),
+        mime_type: mime_type.to_string(),
+        file_name: file_name.to_string(),
+        wire_format,
+    })
+}
+
+pub fn audio_wire_format(mime_type: &str, file_name: &str) -> &'static str {
+    let m = mime_type.trim().to_ascii_lowercase();
+    if m.contains("wav") {
+        return "wav";
+    }
+    if m.contains("mpeg") || m.contains("mp3") {
+        return "mp3";
+    }
+    if m.contains("mp4") || m.contains("m4a") {
+        return "mp4";
+    }
+    if m.contains("webm") {
+        return "webm";
+    }
+    if m.contains("ogg") {
+        return "ogg";
+    }
+    let lower = file_name.to_ascii_lowercase();
+    if lower.ends_with(".wav") {
+        return "wav";
+    }
+    if lower.ends_with(".mp3") {
+        return "mp3";
+    }
+    if lower.ends_with(".m4a") {
+        return "mp4";
+    }
+    if lower.ends_with(".webm") {
+        return "webm";
+    }
+    if lower.ends_with(".ogg") {
+        return "ogg";
+    }
+    "wav"
+}
+
+/// Data URL for DashScope `multimodal-generation` audio parts.
+pub fn wire_audio_data_for_multimodal(wire_format: &str, raw_base64: &str) -> String {
+    let fmt = wire_format.trim().to_ascii_lowercase();
+    let mime = match fmt.as_str() {
+        "wav" => "wav",
+        "mp3" | "mpeg" => "mpeg",
+        "mp4" | "m4a" => "mp4",
+        "ogg" => "ogg",
+        "webm" => "webm",
+        other => other,
+    };
+    format!("data:audio/{mime};base64,{raw_base64}")
+}
+
+/// DashScope compatible Chat API expects `data:audio/...;base64,...` not raw base64.
+pub fn wire_audio_data_for_provider(
+    provider: &crate::models::ProviderConfig,
+    wire_format: &str,
+    raw_base64: &str,
+) -> String {
+    if crate::models::provider_uses_dashscope_compatible_api(provider) {
+        let fmt = wire_format.trim().to_ascii_lowercase();
+        let mime = match fmt.as_str() {
+            "wav" => "wav",
+            "mp3" | "mpeg" => "mpeg",
+            "mp4" | "m4a" => "mp4",
+            "ogg" => "ogg",
+            "webm" => "webm",
+            other => other,
+        };
+        return format!("data:audio/{mime};base64,{raw_base64}");
+    }
+    raw_base64.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn feishu_bin_needs_transcode() {
+        assert!(needs_audio_transcode("application/octet-stream", "file_v3_abc.bin"));
+    }
+
+    #[test]
+    fn wav_skips_transcode() {
+        assert!(!needs_audio_transcode("audio/wav", "clip.wav"));
+    }
+
+    #[test]
+    fn dashscope_wire_uses_data_url() {
+        let provider = crate::models::ProviderConfig {
+            id: "qwen".into(),
+            name: "Qwen".into(),
+            base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".into(),
+            api_key: String::new(),
+            models: vec![],
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            model_configs: std::collections::HashMap::new(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+        };
+        let wired = wire_audio_data_for_provider(&provider, "wav", "abc123");
+        assert_eq!(wired, "data:audio/wav;base64,abc123");
+    }
+
+    #[test]
+    fn openai_wire_keeps_raw_base64() {
+        let provider = crate::models::ProviderConfig {
+            id: "openai".into(),
+            name: "OpenAI".into(),
+            base_url: "https://api.openai.com/v1".into(),
+            api_key: String::new(),
+            models: vec![],
+            reasoning_in_messages: None,
+            temperature: None,
+            max_tokens: None,
+            model_configs: std::collections::HashMap::new(),
+            enable_thinking: None,
+            thinking_budget: None,
+            reasoning_effort: None,
+        };
+        let wired = wire_audio_data_for_provider(&provider, "wav", "abc123");
+        assert_eq!(wired, "abc123");
+    }
+}

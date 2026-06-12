@@ -819,7 +819,7 @@ defineExpose({ save })
       </summary>
       <div class="manual-body space-y-2">
         <p class="text-xs text-muted">
-          Agent 通过 <code>MEDIA:</code> 或 <code>channel_message</code> 发送文件时，除已保存附件外，仅允许以下目录（每行一个，支持
+          Agent 在 IM 回复末尾通过 <code>MEDIA:</code> 发送文件时，除已保存附件外，仅允许以下目录（每行一个，支持
           <code>~/</code>）。对齐 OpenClaw <code>mediaLocalRoots</code>。
         </p>
         <textarea

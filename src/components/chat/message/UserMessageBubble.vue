@@ -4,11 +4,19 @@ import { marked } from 'marked'
 import { Clipboard, FileText, FolderOpen, User } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
 import type { RenderableAttachment } from '../../../lib/messageNormalizer'
+import ChatAudioPlayer from './ChatAudioPlayer.vue'
+import ChatAudioTranscript from './ChatAudioTranscript.vue'
+import { userMessageDisplayContent } from '../../../lib/messageNormalizer'
 import MessageFooterActions from './MessageFooterActions.vue'
 import { useMarkdownCodeCopy } from '../../../composables/useMarkdownCodeCopy'
 import { useMarkdownExternalLinks } from '../../../composables/useMarkdownExternalLinks'
+import { isUsableAttachmentPreviewUrl } from '../../../lib/attachmentSupport'
 import { attachmentsForMessageRender } from '../../../lib/messageNormalizer'
 import { previewChatMedia, revealInFinder } from '../../../lib/api'
+import {
+  isOpenableFileAttachment,
+  openAttachmentWithSystemDefault
+} from '../../../lib/openAttachment'
 import { isTauriRuntime } from '../../../lib/runtime'
 
 const props = defineProps<{ message: ChatMessage }>()
@@ -18,8 +26,10 @@ const loadedPreviews = ref<Record<string, string>>({})
 
 marked.setOptions({ breaks: true, gfm: true })
 
+const displayContent = computed(() => userMessageDisplayContent(props.message))
+
 const html = computed(() =>
-  props.message.content ? (marked.parse(props.message.content) as string) : ''
+  displayContent.value ? (marked.parse(displayContent.value) as string) : ''
 )
 
 const attachments = computed(() => attachmentsForMessageRender(props.message))
@@ -42,7 +52,7 @@ async function ensureMediaPreview(attId: string, storageRelPath?: string) {
 }
 
 function mediaSrc(att: { id: string; previewUrl?: string; storageRelPath?: string }): string | null {
-  if (att.previewUrl) return att.previewUrl
+  if (isUsableAttachmentPreviewUrl(att.previewUrl)) return att.previewUrl!.trim()
   return loadedPreviews.value[att.id] ?? null
 }
 
@@ -70,11 +80,19 @@ async function onRevealInFinder(att: RenderableAttachment) {
   }
 }
 
+async function onOpenAttachment(att: RenderableAttachment) {
+  try {
+    await openAttachmentWithSystemDefault(att)
+  } catch (e) {
+    console.warn('open attachment failed', e)
+  }
+}
+
 watch(
   attachments,
   list => {
     for (const att of list) {
-      if (att.storageRelPath && !att.previewUrl) {
+      if (att.storageRelPath) {
         void ensureMediaPreview(att.id, att.storageRelPath)
       }
     }
@@ -114,15 +132,16 @@ onMounted(() => {
             />
             <div
               v-else-if="att.kind === 'audio'"
-              class="w-full max-w-sm rounded-xl border border-border bg-muted/30 px-3 py-2"
+              class="flex flex-col gap-1 items-end max-w-sm"
             >
-              <p class="text-[11px] text-muted mb-1 truncate" :title="att.fileName">{{ att.fileName }}</p>
-              <audio
-                v-if="mediaSrc(att)"
-                controls
-                preload="metadata"
-                class="w-full"
-                :src="mediaSrc(att)!"
+              <ChatAudioPlayer
+                variant="user"
+                :src="mediaSrc(att)"
+              />
+              <ChatAudioTranscript
+                v-if="att.derivedText?.trim()"
+                :text="att.derivedText.trim()"
+                align="end"
               />
             </div>
             <div
@@ -138,6 +157,16 @@ onMounted(() => {
                 :src="mediaSrc(att)!"
               />
             </div>
+            <button
+              v-else-if="isOpenableFileAttachment(att.kind)"
+              type="button"
+              class="inline-flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-xs text-foreground cursor-pointer transition-colors hover:bg-muted/50"
+              :title="`打开 ${att.fileName}`"
+              @click="onOpenAttachment(att)"
+            >
+              <FileText class="h-4 w-4 shrink-0 text-muted" />
+              <span class="truncate max-w-[240px]">{{ att.fileName }}</span>
+            </button>
             <div
               v-else
               class="inline-flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-xs text-foreground"
@@ -171,7 +200,7 @@ onMounted(() => {
       </div>
 
       <div
-        v-if="message.content"
+        v-if="displayContent"
         class="relative w-full rounded-2xl px-3 pt-2 pb-2 panel-elevated break-words text-foreground"
       >
         <div
@@ -182,7 +211,7 @@ onMounted(() => {
         <MessageFooterActions
           class="justify-end"
           :created-at="message.createdAt"
-          :copy-text="message.content"
+          :copy-text="displayContent"
           :show-copy="true"
         />
       </div>

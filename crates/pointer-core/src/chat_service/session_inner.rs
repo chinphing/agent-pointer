@@ -5,7 +5,7 @@ use crate::agents::{
 };
 use crate::llm_token_stats::ChatLlmTokenSession;
 use crate::tools::file::ConversationWorkspaceGuard;
-use crate::models::{effective_reasoning_in_messages, ChatMessage};
+use crate::models::{effective_reasoning_in_messages, ChatMessage, StreamEvent};
 use crate::provider::OpenAIProvider;
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
@@ -80,6 +80,7 @@ pub(super) async fn run_chat_inner(
     history: &mut Vec<ChatMessage>,
     enabled_skill_ids: &mut Vec<String>,
     request_agent_mode: Option<&str>,
+    request_lead_agent_id: Option<&str>,
     tool_rounds_used_single_start: u32,
     tool_rounds_used_supervisor_start: u32,
     workspace_root: String,
@@ -141,12 +142,32 @@ pub(super) async fn run_chat_inner(
     {
         log::warn!("media: apply_media_to_history failed: {:#}", e);
     }
-    let lead_worker_id = settings.lead_agent_id.trim();
-    let lead_opt = if lead_worker_id.is_empty() {
-        None
-    } else {
-        Some(lead_worker_id)
-    };
+    // apply_media sets storage_rel_path, derived_text (ASR), clears wire base64; upsert + notify UI.
+    for msg in history.iter() {
+        if matches!(msg.role, crate::models::Role::User)
+            && msg.attachments.as_ref().is_some_and(|a| !a.is_empty())
+        {
+            super::conversation_persist::upsert_message(conversation_id, msg);
+            crate::stream_broadcast::broadcast_stream(&StreamEvent::UserMessageAttachmentsUpdated {
+                conversation_id: conversation_id.to_string(),
+                message_id: msg.id.clone(),
+                attachments: msg.attachments.clone().unwrap_or_default(),
+                content: Some(msg.content.clone()),
+            });
+        }
+    }
+    let lead_worker_id = request_lead_agent_id
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            let id = settings.lead_agent_id.trim();
+            if id.is_empty() {
+                None
+            } else {
+                Some(id)
+            }
+        });
+    let lead_opt = lead_worker_id;
     let agent_plan = AgentOrchestrator::build_plan(
         &state.agents,
         &state.skills,
@@ -156,16 +177,10 @@ pub(super) async fn run_chat_inner(
         lead_opt,
     );
     let mut agent_plan = agent_plan;
-    if crate::channel_outbound::is_im_conversation(conversation_id)
-        && crate::channel_outbound::sender_configured()
-    {
-        if !agent_plan
-            .allowed_tool_names
-            .iter()
-            .any(|t| t == "channel_message")
-        {
-            agent_plan.allowed_tool_names.push("channel_message".into());
-        }
+    if crate::channel_outbound::is_im_conversation(conversation_id) {
+        agent_plan
+            .system_prompts
+            .push(crate::channel_outbound::im_session_commands_block(&state.agents));
     }
     if agent_plan.mode != AGENT_MODE_SUPERVISOR {
         if let Some(block) =
@@ -180,10 +195,10 @@ pub(super) async fn run_chat_inner(
     } else {
         Some(settings.model.clone())
     };
-    let lead_role = if lead_worker_id.is_empty() {
-        effective_agent_mode.clone()
+    let lead_role = if let Some(id) = lead_worker_id {
+        id.to_string()
     } else {
-        lead_worker_id.to_string()
+        effective_agent_mode.clone()
     };
     let mut llm_token_session =
         ChatLlmTokenSession::new(run_id.to_string(), conversation_id.to_string(), lead_role, model_name);

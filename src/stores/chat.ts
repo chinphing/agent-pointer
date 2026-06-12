@@ -2,7 +2,11 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch, nextTick } from 'vue'
 import {
   sendChat, cancelChat, abortTerminalCommand, approveToolCall, onStream,
-  loadConversations, saveConversationMeta, appendConversationMessages, saveChatAttachment
+  loadConversations,
+  loadConversationMessages,
+  saveConversationMeta,
+  appendConversationMessages,
+  saveChatAttachment
 } from '../lib/api'
 import type {
   ChatMessage,
@@ -21,6 +25,7 @@ import { subTaskIdFromTraceId } from '../lib/subAgentStats'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
 import { stripOutboundMediaMarkers } from '../lib/outboundMedia'
 import { imConversationTitle, isImConversation } from '../lib/channel-labels'
+import { dedupeImInboundUserMessages } from '../lib/imMessageDedupe'
 import {
   getComposerAttachmentContentBase64,
   getComposerAttachmentDataUrl,
@@ -307,6 +312,25 @@ export const useChatStore = defineStore('chat', () => {
     return null
   }
 
+  function ensureImConversation(conversationId: string, title?: string) {
+    if (!isImConversation(conversationId)) return
+    if (conversations.value.some(c => c.id === conversationId)) return
+    conversations.value = [
+      {
+        id: conversationId,
+        title: title ?? imConversationTitle(conversationId),
+        messages: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        skillIds: [],
+        toolRoundsUsed: 0,
+        toolRoundsUsedSupervisor: 0
+      },
+      ...conversations.value
+    ]
+    persistMeta()
+  }
+
   function normalizeImConversationTitles(list: Conversation[]): boolean {
     let changed = false
     for (const conv of list) {
@@ -325,6 +349,10 @@ export const useChatStore = defineStore('chat', () => {
     normalizeInterruptedAssistantStatuses(list)
     normalizeSubAgentTraces(list)
     const imTitlesUpdated = normalizeImConversationTitles(list)
+    for (const conv of list) {
+      if (!isImConversation(conv.id)) continue
+      conv.messages = dedupeImInboundUserMessages(conv.id, conv.messages)
+    }
     conversations.value = stripEphemeralDesktopNoticesForDisk(list)
     if (imTitlesUpdated) persistMeta()
     if (list.length === 0) newConversation()
@@ -405,11 +433,28 @@ export const useChatStore = defineStore('chat', () => {
     return c
   }
 
+  async function hydrateConversationMessagesFromStore(conversationId: string) {
+    if (!isImConversation(conversationId)) return
+    const conv = conversations.value.find(c => c.id === conversationId)
+    if (!conv) return
+    try {
+      const messages = await loadConversationMessages(conversationId)
+      const deduped = dedupeImInboundUserMessages(conversationId, messages)
+      if (deduped.length > conv.messages.length) {
+        conv.messages = deduped
+        conv.updatedAt = Date.now()
+      }
+    } catch (err) {
+      console.warn('[chat] hydrate conversation messages failed', conversationId, err)
+    }
+  }
+
   function selectConversation(id: string) {
     if (currentId.value === id) return
     flushActiveComposerDraft()
     currentId.value = id
     loadActiveComposerDraft(id)
+    void hydrateConversationMessagesFromStore(id)
     void refreshTaskBoard(id)
     void refreshSubAgentTaskBoards(id)
   }
@@ -867,17 +912,32 @@ export const useChatStore = defineStore('chat', () => {
     switch (e.kind) {
       case 'history_replaced': {
         clearReasoningDeltaBuffer()
+        ensureImConversation(e.conversationId)
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (!conv) return
         const prevMessages = conv.messages
-        conv.messages = mergeAgentTraceSessions(
-          e.messages
-            .map(m => ({
-              ...m,
-              toolCalls: m.toolCalls ?? (m.role === 'assistant' ? [] : undefined)
-            }))
-            .filter(m => !isEphemeralDesktopNoticeMessage(m)),
-          prevMessages
+        const incoming = e.messages
+          .map(m => ({
+            ...m,
+            toolCalls: m.toolCalls ?? (m.role === 'assistant' ? [] : undefined)
+          }))
+          .filter(m => !isEphemeralDesktopNoticeMessage(m))
+        if (
+          isImConversation(e.conversationId) &&
+          !e.compression &&
+          incoming.length < prevMessages.length
+        ) {
+          console.warn(
+            '[chat] skipped IM history_replaced: channel history is shorter than desktop transcript',
+            e.conversationId,
+            incoming.length,
+            prevMessages.length
+          )
+          break
+        }
+        conv.messages = dedupeImInboundUserMessages(
+          e.conversationId,
+          mergeAgentTraceSessions(incoming, prevMessages)
         )
         if (e.compression) {
           showUiToast(buildCompressionNoticeContent(e.compression), 'success')
@@ -925,6 +985,7 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'message_start': {
+        ensureImConversation(e.conversationId)
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (!conv) return
         patchRunState(e.conversationId, { generating: true, activeMessageId: e.messageId })
@@ -1234,18 +1295,42 @@ export const useChatStore = defineStore('chat', () => {
         persistMeta()
         break
       }
-      case 'injected_user_message': {
+      case 'im_session_forked': {
+        ensureImConversation(e.conversationId, e.title)
+        currentId.value = e.conversationId
+        loadActiveComposerDraft(e.conversationId)
+        persistMeta()
+        break
+      }
+      case 'user_message_attachments_updated': {
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (!conv) break
-        if (!conv.messages.find(m => m.id === e.messageId)) {
+        const msg = conv.messages.find(m => m.id === e.messageId)
+        if (!msg) break
+        msg.attachments = e.attachments
+        if (e.content !== undefined) msg.content = e.content
+        conv.updatedAt = Date.now()
+        break
+      }
+      case 'injected_user_message': {
+        ensureImConversation(e.conversationId)
+        const conv = conversations.value.find(c => c.id === e.conversationId)
+        if (!conv) break
+        const existing = conv.messages.find(m => m.id === e.messageId)
+        if (existing) {
+          existing.content = e.content
+          if (e.attachments?.length) existing.attachments = e.attachments
+        } else {
           conv.messages.push({
             id: e.messageId,
             role: 'user',
             content: e.content,
             status: 'done',
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            ...(e.attachments?.length ? { attachments: e.attachments } : {})
           })
         }
+        conv.messages = dedupeImInboundUserMessages(e.conversationId, conv.messages)
         conv.updatedAt = Date.now()
         break
       }
@@ -1345,6 +1430,7 @@ export const useChatStore = defineStore('chat', () => {
       case 'done': {
         flushReasoningDeltaBuffer()
         clearRunState(e.conversationId)
+        ensureImConversation(e.conversationId)
         const conv = conversations.value.find(c => c.id === e.conversationId)
         if (conv) {
           normalizeInterruptedAssistantStatuses([conv])

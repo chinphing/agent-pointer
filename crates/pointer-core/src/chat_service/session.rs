@@ -19,16 +19,18 @@ pub async fn run_chat(
     mut history: Vec<ChatMessage>,
     mut enabled_skill_ids: Vec<String>,
     agent_mode: Option<String>,
+    lead_agent_id_override: Option<String>,
     tool_rounds_used_single_start: u32,
     tool_rounds_used_supervisor_start: u32,
     workspace_root: String,
 ) -> Result<()> {
     log::info!(
-        "run_chat start conversation_id={} incoming_history_messages={} enabled_skill_ids={} request_agent_mode={:?} tool_rounds_used_single_start={} tool_rounds_used_supervisor_start={}",
+        "run_chat start conversation_id={} incoming_history_messages={} enabled_skill_ids={} request_agent_mode={:?} lead_agent_id_override={:?} tool_rounds_used_single_start={} tool_rounds_used_supervisor_start={}",
         conversation_id,
         history.len(),
         enabled_skill_ids.len(),
         agent_mode,
+        lead_agent_id_override,
         tool_rounds_used_single_start,
         tool_rounds_used_supervisor_start,
     );
@@ -66,6 +68,7 @@ pub async fn run_chat(
         &mut history,
         &mut enabled_skill_ids,
         agent_mode.as_deref(),
+        lead_agent_id_override.as_deref(),
         tool_rounds_used_single_start,
         tool_rounds_used_supervisor_start,
         workspace_root,

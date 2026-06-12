@@ -54,6 +54,12 @@ pub fn guess_mime_from_bytes(bytes: &[u8]) -> Option<&'static str> {
     {
         return Some("video/mp4");
     }
+    if bytes.len() >= 4 && bytes.starts_with(b"OggS") {
+        return Some("audio/ogg");
+    }
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && bytes[8..12] == *b"WAVE" {
+        return Some("audio/wav");
+    }
     None
 }
 
@@ -68,6 +74,9 @@ fn extension_for_mime(mime: &str) -> &'static str {
         "video/mp4" => "mp4",
         "audio/mpeg" => "mp3",
         "audio/wav" => "wav",
+        "audio/ogg" => "ogg",
+        "audio/opus" => "ogg",
+        "audio/amr" => "amr",
         _ => "bin",
     }
 }
@@ -130,6 +139,12 @@ mod tests {
     fn sniff_jpeg_from_magic() {
         let bytes = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
         assert_eq!(guess_mime_from_bytes(&bytes), Some("image/jpeg"));
+    }
+
+    #[test]
+    fn sniff_ogg_from_magic() {
+        let bytes = b"OggS\x00\x02\x00\x00";
+        assert_eq!(guess_mime_from_bytes(bytes), Some("audio/ogg"));
     }
 
     #[test]

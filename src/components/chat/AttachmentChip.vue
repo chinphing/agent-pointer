@@ -41,7 +41,11 @@ function previewUrl(att: ComposerAttachment): string | null {
     />
     <Video v-else-if="attachment.kind === 'video'" class="h-4 w-4 shrink-0 text-muted" />
     <FileText v-else class="h-4 w-4 shrink-0 text-muted" />
-    <span class="min-w-0 truncate" :title="attachment.fileName">{{ attachment.fileName }}</span>
+    <span
+      v-if="attachment.kind !== 'audio'"
+      class="min-w-0 truncate"
+      :title="attachment.fileName"
+    >{{ attachment.fileName }}</span>
     <button
       type="button"
       class="shrink-0 rounded p-0.5 text-muted hover:bg-muted hover:text-foreground"

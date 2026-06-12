@@ -1,6 +1,13 @@
-export const CHAT_ATTACHMENT_ACCEPT =
-  'image/*,audio/*,video/*,application/pdf,text/*,.csv,.json,.md,.txt,.zip,' +
-  '.doc,.docx,.xls,.xlsx,.ppt,.pptx,.mp4,.mov,.webm,.m4v,.avi,.mpeg,.mpg'
+/** No MIME filter — user may attach from any folder and any file type. */
+export const CHAT_ATTACHMENT_ACCEPT = '*/*'
+
+/** Blob URLs expire after restart; only data/http(s) URLs are safe to reuse. */
+export function isUsableAttachmentPreviewUrl(url: string | undefined | null): boolean {
+  const u = url?.trim()
+  if (!u) return false
+  if (u.startsWith('blob:')) return false
+  return u.startsWith('data:') || u.startsWith('http://') || u.startsWith('https://')
+}
 
 /** Align with IM inbound media cap (30 MB). */
 export const COMPOSER_VIDEO_MAX_BYTES = 30 * 1024 * 1024
@@ -15,18 +22,11 @@ export function isVideoAttachmentFile(file: Pick<File, 'name' | 'type'>): boolea
   return /\.(?:avi|m4v|mov|mp4|mpeg|mpg|webm)$/i.test(file.name)
 }
 
-export function isSupportedChatAttachmentFile(file: Pick<File, 'name' | 'type'>): boolean {
-  if (isVideoAttachmentFile(file)) return true
-  if (file.type.startsWith('image/') || file.type.startsWith('audio/')) return true
-  if (
-    file.type.startsWith('text/') ||
-    file.type === 'application/pdf' ||
-    file.type === 'application/json' ||
-    /\.(?:txt|md|json|csv|pdf|zip|doc|docx|xls|xlsx|ppt|pptx)$/i.test(file.name)
-  ) {
-    return true
-  }
-  return file.type === 'application/octet-stream' && file.name.trim().length > 0
+export function isSupportedChatAttachmentFile(file: Pick<File, 'name' | 'size' | 'type'>): boolean {
+  const name = file.name.trim()
+  if (!name) return false
+  if (isVideoAttachmentFile(file) && file.size > COMPOSER_VIDEO_MAX_BYTES) return false
+  return true
 }
 
 export function mediaKindFromFile(

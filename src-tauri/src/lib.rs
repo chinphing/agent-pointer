@@ -277,6 +277,12 @@ pub fn run() {
                 }
             });
             app.manage(app_state.clone());
+            let stream_app = app.handle().clone();
+            pointer_core::stream_broadcast::subscribe_stream(Arc::new(move |ev| {
+                if let Err(e) = stream_app.emit(commands::STREAM_EVENT, ev) {
+                    log::warn!("stream broadcast emit failed: {e}");
+                }
+            }));
             let mut channel_registry = ChannelRegistry::new();
             register_builtin_channels(&mut channel_registry);
             let channel_gateway = Arc::new(
@@ -348,11 +354,15 @@ pub fn run() {
             commands::save_chat_attachment,
             commands::check_media_deps,
             commands::reveal_in_finder,
+            commands::open_path_with_default_app,
+            commands::open_chat_media,
+            commands::read_local_file_for_attachment,
             commands::list_computer_monitors,
             commands::set_computer_conversation_monitor,
             commands::confirm_computer_monitor_pick,
             commands::cancel_computer_monitor_pick,
             commands::load_conversations,
+            commands::load_conversation_messages,
             commands::save_conversations,
             commands::save_conversation_meta,
             commands::append_conversation_messages,

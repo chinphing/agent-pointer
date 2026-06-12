@@ -10,16 +10,26 @@ use crate::config::ChannelAccountConfig;
 use crate::http_client::HttpClient;
 use crate::inbound::{ChannelHistoryStore, SessionArchiveReason};
 use crate::media::resolve_inbound_attachments;
-use crate::session::conversation_id;
+use crate::session::{conversation_id, inbound_user_message_id};
+use crate::session_fork::{fork_im_desktop_session, resolve_active_desktop_id};
+use crate::session_agent::{agent_switch_ack, detect_agent_switch, AgentSwitchAction};
 use crate::session_reset::{self, ManualResetAction, MANUAL_RESET_ACK};
 use crate::outbound_reply::split_reply_media;
 use crate::outbound_resolve::resolve_outbound_media_with_policy;
-use crate::session_context;
 use crate::traits::{ChannelPlugin, InboundMessage, OutboundContext};
 
 fn channel_message(role: Role, content: String, attachments: Option<Vec<MediaAttachment>>) -> ChatMessage {
+    channel_message_with_id(uuid::Uuid::new_v4().to_string(), role, content, attachments)
+}
+
+fn channel_message_with_id(
+    id: String,
+    role: Role,
+    content: String,
+    attachments: Option<Vec<MediaAttachment>>,
+) -> ChatMessage {
     ChatMessage {
-        id: uuid::Uuid::new_v4().to_string(),
+        id,
         role,
         content,
         status: "done".into(),
@@ -119,11 +129,22 @@ impl DispatchService {
 
         let now_ms = chrono::Utc::now().timestamp_millis();
         let mut user_text = msg.text.clone();
+        let mut session_meta = self.history.load_meta(&conv_id)?;
 
+        let mut session_forked = false;
         match session_reset::detect_manual_reset(&user_text) {
             Some(ManualResetAction::ResetOnly) => {
                 self.history
                     .reset_session(&conv_id, SessionArchiveReason::Manual)?;
+                if let Err(e) = fork_im_desktop_session(
+                    &self.history,
+                    &state.session_index,
+                    &conv_id,
+                    &mut session_meta,
+                    msg.sender_name.as_deref(),
+                ) {
+                    log::warn!("channel session fork failed conv={conv_id}: {e:#}");
+                }
                 self.history.touch_meta(&conv_id)?;
                 plugin
                     .outbound
@@ -135,23 +156,84 @@ impl DispatchService {
             Some(ManualResetAction::ResetWithMessage(rest)) => {
                 self.history
                     .reset_session(&conv_id, SessionArchiveReason::Manual)?;
+                if let Err(e) = fork_im_desktop_session(
+                    &self.history,
+                    &state.session_index,
+                    &conv_id,
+                    &mut session_meta,
+                    msg.sender_name.as_deref(),
+                ) {
+                    log::warn!("channel session fork failed conv={conv_id}: {e:#}");
+                } else {
+                    session_forked = true;
+                }
                 user_text = rest;
                 log::info!("channel session manual reset with follow-up conv={conv_id}");
             }
             None => {
-                let meta = self.history.load_meta(&conv_id)?;
                 if session_reset::should_idle_reset(
-                    meta.last_interaction_at,
+                    session_meta.last_interaction_at,
                     idle_minutes,
                     now_ms,
                 ) {
                     self.history
                         .reset_session(&conv_id, SessionArchiveReason::Idle)?;
+                    if let Err(e) = fork_im_desktop_session(
+                        &self.history,
+                        &state.session_index,
+                        &conv_id,
+                        &mut session_meta,
+                        msg.sender_name.as_deref(),
+                    ) {
+                        log::warn!("channel session idle fork failed conv={conv_id}: {e:#}");
+                    } else {
+                        session_forked = true;
+                    }
                     log::info!(
                         "channel session idle reset conv={conv_id} idle_minutes={idle_minutes}"
                     );
                 }
             }
+        }
+
+        let desktop_conv_id = if session_forked {
+            session_meta
+                .active_conversation_id
+                .clone()
+                .unwrap_or_else(|| resolve_active_desktop_id(&conv_id, &session_meta))
+        } else {
+            resolve_active_desktop_id(&conv_id, &session_meta)
+        };
+
+        match detect_agent_switch(&state.agents, &user_text) {
+            Some(AgentSwitchAction::SwitchOnly(target)) => {
+                session_meta.agent_mode = Some(target.agent_mode.clone());
+                session_meta.lead_agent_id = target.lead_agent_id.clone();
+                self.history.save_meta(&conv_id, &session_meta)?;
+                self.history.touch_meta(&conv_id)?;
+                plugin
+                    .outbound
+                    .send_text(outbound.clone(), &agent_switch_ack(&target))
+                    .await?;
+                log::info!(
+                    "channel session agent switch conv={conv_id} mode={} lead={:?}",
+                    target.agent_mode,
+                    target.lead_agent_id
+                );
+                return Ok(());
+            }
+            Some(AgentSwitchAction::SwitchWithMessage(target, rest)) => {
+                session_meta.agent_mode = Some(target.agent_mode.clone());
+                session_meta.lead_agent_id = target.lead_agent_id.clone();
+                self.history.save_meta(&conv_id, &session_meta)?;
+                user_text = rest;
+                log::info!(
+                    "channel session agent switch with message conv={conv_id} mode={} lead={:?}",
+                    target.agent_mode,
+                    target.lead_agent_id
+                );
+            }
+            None => {}
         }
 
         let mut history = self.history.load(&conv_id)?;
@@ -177,18 +259,36 @@ impl DispatchService {
         } else {
             Some(media_attachments)
         };
-        history.push(channel_message(Role::User, user_content.clone(), attachments_opt));
+        let user_msg_id = inbound_user_message_id(&msg.channel, &msg.message_id);
+        let user_msg = channel_message_with_id(
+            user_msg_id,
+            Role::User,
+            user_content.clone(),
+            attachments_opt.clone(),
+        );
+        history.push(user_msg.clone());
 
         if let Err(e) = state.session_index.ensure_im_title(
-            &conv_id,
+            &desktop_conv_id,
             msg.sender_name.as_deref(),
             Some(user_content.as_str()),
         ) {
-            log::warn!("channel ensure im title failed conv={conv_id}: {e:#}");
+            log::warn!(
+                "channel ensure im title failed desktop={desktop_conv_id} base={conv_id}: {e:#}"
+            );
         }
 
-        session_context::register(&conv_id, outbound.clone());
-        pointer_core::channel_outbound::register_im_session(&conv_id);
+        // Mirror inbound user row only — do not HistoryReplaced with channel_histories
+        // (that store lacks tool traces and can wipe the desktop transcript in memory).
+        pointer_core::stream_broadcast::broadcast_stream(&StreamEvent::InjectedUserMessage {
+            conversation_id: desktop_conv_id.clone(),
+            message_id: user_msg.id.clone(),
+            content: user_content.clone(),
+            attachments: attachments_opt,
+        });
+
+        let request_agent_mode = session_meta.agent_mode.clone();
+        let lead_agent_override = session_meta.lead_agent_id.clone();
 
         let (tx, mut rx) = mpsc::unbounded_channel::<StreamEvent>();
         let mut reply_text = String::new();
@@ -197,10 +297,11 @@ impl DispatchService {
         let run = run_chat(
             tx.clone(),
             state,
-            conv_id.clone(),
+            desktop_conv_id.clone(),
             history.clone(),
             vec![],
-            None,
+            request_agent_mode,
+            lead_agent_override,
             0,
             0,
             String::new(),
@@ -235,8 +336,6 @@ impl DispatchService {
         };
 
         let (run_res, ()) = tokio::join!(run, collect);
-        pointer_core::channel_outbound::unregister_im_session(&conv_id);
-        session_context::unregister(&conv_id);
         if let Err(e) = run_res {
             if e.to_string().contains("已停止生成") {
                 log::info!("channel dispatch run cancelled conv={conv_id}");

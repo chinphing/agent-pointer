@@ -41,6 +41,23 @@ fn is_audio_mime(mime: &str) -> bool {
     mime.trim().to_ascii_lowercase().starts_with("audio/")
 }
 
+fn should_save_playable_wav(
+    att: &MediaAttachment,
+    prepared: &crate::media::audio::PreparedAudio,
+) -> bool {
+    if prepared.mime_type != "audio/wav" {
+        return false;
+    }
+    let name = att.file_name.to_ascii_lowercase();
+    let mime = att.mime_type.to_ascii_lowercase();
+    let storage_bin = att
+        .storage_rel_path
+        .as_deref()
+        .map(|p| p.to_ascii_lowercase().ends_with(".bin"))
+        .unwrap_or(false);
+    name.ends_with(".bin") || mime.contains("octet-stream") || storage_bin
+}
+
 fn is_video_mime(mime: &str) -> bool {
     mime.trim().to_ascii_lowercase().starts_with("video/")
 }
@@ -309,11 +326,51 @@ async fn process_attachment_with_bytes(
                 )),
             ));
         }
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let prepared = match crate::media::audio::prepare_audio_bytes_for_asr(&bytes, &mime, &att.file_name)
+        {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!(
+                    "media: audio prepare failed for {}: {:#}",
+                    att.file_name,
+                    e
+                );
+                return Ok((
+                    None,
+                    Some(crate::media::deps_hint::audio_transcription_failed_hint(
+                        &att.file_name,
+                        &e.to_string(),
+                        att.storage_rel_path.as_deref(),
+                    )),
+                ));
+            }
+        };
+        if should_save_playable_wav(att, &prepared) {
+            match save_attachment_bytes(
+                conversation_id,
+                &att.id,
+                &prepared.bytes,
+                &prepared.file_name,
+            ) {
+                Ok(rel) => {
+                    att.storage_rel_path = Some(rel);
+                    att.mime_type = prepared.mime_type.clone();
+                    att.file_name = prepared.file_name.clone();
+                }
+                Err(e) => {
+                    log::warn!(
+                        "media: failed to save playable wav for {}: {:#}",
+                        att.file_name,
+                        e
+                    );
+                }
+            }
+        }
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&prepared.bytes);
         let audio_model = effective_audio_model(settings);
         log::info!(
             "media: transcribing audio {} via model {}",
-            att.file_name,
+            prepared.file_name,
             audio_model.model
         );
         match transcribe_audio_with_model(
@@ -321,8 +378,8 @@ async fn process_attachment_with_bytes(
             &audio_model,
             api_key,
             &b64,
-            &mime,
-            &att.file_name,
+            &prepared.mime_type,
+            &prepared.file_name,
             token_ctx,
             cancel,
         )

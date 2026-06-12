@@ -27,14 +27,9 @@ pub fn split_reply_media(reply: &str) -> (String, Vec<String>) {
             }
             continue;
         }
+        // Bare `pointer-media://` lines are inbound attachment hints — hide from text but
+        // do not inline them as assistant outbound media (only explicit `MEDIA:` counts).
         if trimmed.starts_with(MEDIA_URI_SCHEME) {
-            let rel = trimmed
-                .strip_prefix(MEDIA_URI_SCHEME)
-                .unwrap_or(trimmed)
-                .trim();
-            if !rel.is_empty() {
-                media_paths.push(rel.to_string());
-            }
             continue;
         }
 
@@ -90,5 +85,22 @@ mod tests {
         assert!(!out.contains("/Users/starliu/Desktop"));
         assert!(out.contains("发给你"));
         assert!(out.contains("baby_cover.jpg"));
+    }
+
+    #[test]
+    fn bare_pointer_media_line_is_not_outbound_media() {
+        let uri = "pointer-media://conv-id/27582151-a370-4170-873b-bc12b9bff2c5.wav";
+        let (text, media) = split_reply_media(&format!("{uri}\n当然可以！我能帮你写代码。"));
+        assert!(media.is_empty());
+        assert!(text.contains("当然可以"));
+        assert!(!text.contains("pointer-media://"));
+    }
+
+    #[test]
+    fn media_prefix_pointer_uri_is_outbound() {
+        let uri = "pointer-media://conv-id/att.wav";
+        let (text, media) = split_reply_media(&format!("好的\nMEDIA:{uri}"));
+        assert_eq!(media, vec![uri]);
+        assert!(!text.contains("pointer-media://"));
     }
 }

@@ -24,6 +24,18 @@ impl SessionArchiveReason {
 pub struct ChannelSessionMeta {
     #[serde(default)]
     pub last_interaction_at: i64,
+    /// Per-IM-session lead worker (`single` mode).
+    #[serde(default, rename = "leadAgentId")]
+    pub lead_agent_id: Option<String>,
+    /// Per-IM-session orchestration mode: `single` or `supervisor`.
+    #[serde(default, rename = "agentMode")]
+    pub agent_mode: Option<String>,
+    /// Desktop sidebar fork counter for this IM thread (`@sN` suffix).
+    #[serde(default, rename = "sessionEpoch")]
+    pub session_epoch: u32,
+    /// Active desktop conversation id (may include `@sN`); model context stays on base id.
+    #[serde(default, rename = "activeConversationId")]
+    pub active_conversation_id: Option<String>,
 }
 
 pub struct ChannelHistoryStore;
@@ -105,15 +117,18 @@ impl ChannelHistoryStore {
         Ok(serde_json::from_str(&raw).unwrap_or_default())
     }
 
-    pub fn touch_meta(&self, conversation_id: &str) -> Result<()> {
-        let meta = ChannelSessionMeta {
-            last_interaction_at: chrono::Utc::now().timestamp_millis(),
-        };
+    pub fn save_meta(&self, conversation_id: &str, meta: &ChannelSessionMeta) -> Result<()> {
         fs::write(
             Self::meta_path(conversation_id)?,
-            serde_json::to_string_pretty(&meta)?,
+            serde_json::to_string_pretty(meta)?,
         )?;
         Ok(())
+    }
+
+    pub fn touch_meta(&self, conversation_id: &str) -> Result<()> {
+        let mut meta = self.load_meta(conversation_id)?;
+        meta.last_interaction_at = chrono::Utc::now().timestamp_millis();
+        self.save_meta(conversation_id, &meta)
     }
 
     /// Move the active history file into `archives/` if it has content. Returns whether archived.

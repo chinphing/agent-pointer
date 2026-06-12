@@ -126,15 +126,6 @@ pub(super) async fn run_agent_tool_pass(
             task_board_store_key,
             history,
         );
-        let mut args_value = args_value;
-        if tool_id == "channel_message" {
-            if let Some(obj) = args_value.as_object_mut() {
-                obj.insert(
-                    "_conversation_id".to_string(),
-                    serde_json::Value::String(conversation_id.to_string()),
-                );
-            }
-        }
         if tool_id.is_empty() {
             let err = "工具名为空：请检查 <tool_name>（例如 mouse_click_index、input、response）。";
             emit(

@@ -14,11 +14,6 @@ export function extractOutboundMediaPaths(text: string): string[] {
       if (path) paths.push(path)
       continue
     }
-    if (trimmed.startsWith(POINTER_SCHEME)) {
-      const path = trimmed.slice(POINTER_SCHEME.length).trim()
-      if (path) paths.push(path)
-      continue
-    }
     for (const match of line.matchAll(INLINE_MEDIA_RE)) {
       const path = match[1]?.trim()
       if (path) paths.push(path)

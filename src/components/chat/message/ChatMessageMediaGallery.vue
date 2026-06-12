@@ -2,7 +2,14 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { Clipboard, FileText, FolderOpen } from 'lucide-vue-next'
 import type { RenderableAttachment } from '../../../lib/messageNormalizer'
+import ChatAudioPlayer from './ChatAudioPlayer.vue'
+import ChatAudioTranscript from './ChatAudioTranscript.vue'
 import { previewChatMedia, previewMediaRef, revealInFinder } from '../../../lib/api'
+import { isUsableAttachmentPreviewUrl } from '../../../lib/attachmentSupport'
+import {
+  isOpenableFileAttachment,
+  openAttachmentWithSystemDefault
+} from '../../../lib/openAttachment'
 import { isTauriRuntime } from '../../../lib/runtime'
 
 const props = defineProps<{
@@ -13,7 +20,7 @@ const props = defineProps<{
 const loadedPreviews = ref<Record<string, string>>({})
 
 async function ensureMediaPreview(att: RenderableAttachment) {
-  if (loadedPreviews.value[att.id] || att.previewUrl) return
+  if (loadedPreviews.value[att.id]) return
   try {
     let preview
     if (att.mediaRef) {
@@ -39,7 +46,7 @@ async function ensureMediaPreview(att: RenderableAttachment) {
 }
 
 function mediaSrc(att: RenderableAttachment): string | null {
-  if (att.previewUrl) return att.previewUrl
+  if (isUsableAttachmentPreviewUrl(att.previewUrl)) return att.previewUrl!.trim()
   return loadedPreviews.value[att.id] ?? null
 }
 
@@ -64,6 +71,14 @@ async function onRevealInFinder(att: RenderableAttachment) {
     await revealInFinder(path)
   } catch (e) {
     console.warn('reveal in finder failed', e)
+  }
+}
+
+async function onOpenAttachment(att: RenderableAttachment) {
+  try {
+    await openAttachmentWithSystemDefault(att)
+  } catch (e) {
+    console.warn('open attachment failed', e)
   }
 }
 
@@ -100,15 +115,17 @@ onMounted(() => {
         />
         <div
           v-else-if="att.kind === 'audio'"
-          class="w-full max-w-sm rounded-xl border border-border bg-muted/30 px-3 py-2"
+          class="flex flex-col gap-1 max-w-sm"
+          :class="align === 'end' ? 'items-end' : 'items-start'"
         >
-          <p class="text-[11px] text-muted mb-1 truncate" :title="att.fileName">{{ att.fileName }}</p>
-          <audio
-            v-if="mediaSrc(att)"
-            controls
-            preload="metadata"
-            class="w-full"
-            :src="mediaSrc(att)!"
+          <ChatAudioPlayer
+            :variant="align === 'end' ? 'user' : 'default'"
+            :src="mediaSrc(att)"
+          />
+          <ChatAudioTranscript
+            v-if="att.derivedText?.trim()"
+            :text="att.derivedText.trim()"
+            :align="align === 'end' ? 'end' : 'start'"
           />
         </div>
         <video
@@ -118,6 +135,16 @@ onMounted(() => {
           class="max-h-64 max-w-full rounded-xl border border-border"
           :src="mediaSrc(att)!"
         />
+        <button
+          v-else-if="isOpenableFileAttachment(att.kind)"
+          type="button"
+          class="inline-flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-xs text-foreground cursor-pointer transition-colors hover:bg-muted/50"
+          :title="`打开 ${att.fileName}`"
+          @click="onOpenAttachment(att)"
+        >
+          <FileText class="h-4 w-4 shrink-0 text-muted" />
+          <span class="truncate max-w-[240px]">{{ att.fileName }}</span>
+        </button>
         <div
           v-else
           class="inline-flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2 text-xs text-foreground"

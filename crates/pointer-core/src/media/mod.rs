@@ -1,4 +1,6 @@
 pub mod access;
+pub mod audio;
+pub mod dashscope_audio;
 pub mod apply;
 pub mod outbound_reply;
 pub mod reply_attachments;

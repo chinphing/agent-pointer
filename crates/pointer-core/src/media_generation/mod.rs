@@ -10,9 +10,10 @@ pub use reference_image::resolve_reference_image_for_api;
 pub use billing::{GenerationBillingMode, GenerationUsage};
 pub use dashscope::{GenerationArtifact, ImageGenerateRequest, VideoGenerateRequest};
 pub use models::{
-    dashscope_aigc_origin, find_volcengine_provider, resolve_generation_config,
-    GenerationKind, ResolvedGenerationConfig, DOUBAO_DEFAULT_IMAGE_MODEL,
-    DOUBAO_DEFAULT_VIDEO_MODEL, QWEN_DEFAULT_IMAGE_MODEL, QWEN_DEFAULT_VIDEO_MODEL,
+    dashscope_aigc_origin, dashscope_multimodal_image_url, find_volcengine_provider,
+    resolve_generation_config, GenerationKind, ResolvedGenerationConfig,
+    DOUBAO_DEFAULT_IMAGE_MODEL, DOUBAO_DEFAULT_VIDEO_MODEL, QWEN_DEFAULT_IMAGE_MODEL,
+    QWEN_DEFAULT_VIDEO_MODEL,
 };
 
 use anyhow::Result;

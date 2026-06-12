@@ -30,6 +30,13 @@ export interface SaveChatAttachmentPayload {
   fileName: string
 }
 
+export interface LocalFileAttachmentPayload {
+  fileName: string
+  mimeType: string
+  sizeBytes: number
+  contentBase64: string
+}
+
 export interface SendChatPayload {
   conversationId: string
   messages: ChatMessage[]
@@ -85,8 +92,12 @@ export interface RuntimeApi {
   dismissMacosPermissionDragGuide?(): Promise<void>
 
   loadConversations(): Promise<Conversation[]>
+  loadConversationMessages(conversationId: string): Promise<ChatMessage[]>
   saveConversations(conversations: Conversation[]): Promise<void>
   revealInFinder(path: string): Promise<void>
+  openPathWithDefaultApp(path: string): Promise<void>
+  openChatMedia(storageRelPath: string): Promise<void>
+  readLocalFileForAttachment(path: string): Promise<LocalFileAttachmentPayload>
   saveConversationMeta(metas: ConversationMeta[]): Promise<void>
   appendConversationMessages(conversationId: string, messages: ChatMessage[]): Promise<number>
   onStream(handler: (e: StreamEvent) => void, conversationId?: string): Promise<UnlistenFn>
@@ -122,6 +133,9 @@ export const previewMediaRef = api.previewMediaRef
 export const saveChatAttachment = api.saveChatAttachment
 export const checkMediaDeps = api.checkMediaDeps
 export const revealInFinder = api.revealInFinder
+export const openPathWithDefaultApp = api.openPathWithDefaultApp
+export const openChatMedia = api.openChatMedia
+export const readLocalFileForAttachment = api.readLocalFileForAttachment
 export const listComputerMonitors = api.listComputerMonitors
 export const setComputerCompactChrome = api.setComputerCompactChrome
 export const placeComputerCompactWindow = api.placeComputerCompactWindow
@@ -161,6 +175,7 @@ export const dismissMacosPermissionDragGuide = isTauriRuntime()
   : async () => {}
 
 export const loadConversations = api.loadConversations
+export const loadConversationMessages = api.loadConversationMessages
 export const saveConversations = api.saveConversations
 export const saveConversationMeta = api.saveConversationMeta
 export const appendConversationMessages = api.appendConversationMessages

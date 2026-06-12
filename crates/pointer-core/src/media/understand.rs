@@ -1,5 +1,7 @@
 use crate::media::token::{record_media_understand_usage, MediaTokenContext, MediaUnderstandKind};
-use crate::models::{AgentModelRef, ChatMessage, ModelSettings, Role};
+use crate::models::{
+    provider_uses_dashscope_compatible_api, AgentModelRef, ChatMessage, ModelSettings, Role,
+};
 use crate::provider::OpenAIProvider;
 use anyhow::{Context, Result};
 use serde_json::json;
@@ -91,42 +93,6 @@ pub async fn describe_image_with_model(
 const TRANSCRIBE_PROMPT: &str = "Transcribe the attached audio to plain text. \
 Reply with the transcript only, no preamble.";
 
-fn audio_wire_format(mime_type: &str, file_name: &str) -> &'static str {
-    let m = mime_type.trim().to_ascii_lowercase();
-    if m.contains("wav") {
-        return "wav";
-    }
-    if m.contains("mpeg") || m.contains("mp3") {
-        return "mp3";
-    }
-    if m.contains("mp4") || m.contains("m4a") {
-        return "mp4";
-    }
-    if m.contains("webm") {
-        return "webm";
-    }
-    if m.contains("ogg") {
-        return "ogg";
-    }
-    let lower = file_name.to_ascii_lowercase();
-    if lower.ends_with(".wav") {
-        return "wav";
-    }
-    if lower.ends_with(".mp3") {
-        return "mp3";
-    }
-    if lower.ends_with(".m4a") {
-        return "mp4";
-    }
-    if lower.ends_with(".webm") {
-        return "webm";
-    }
-    if lower.ends_with(".ogg") {
-        return "ogg";
-    }
-    "mp3"
-}
-
 pub async fn transcribe_audio_with_model(
     settings: &ModelSettings,
     audio_model: &AgentModelRef,
@@ -148,8 +114,38 @@ pub async fn transcribe_audio_with_model(
     if api_key.is_empty() {
         anyhow::bail!("no API key for audio understanding model");
     }
-    let provider = OpenAIProvider::new(audio_settings, api_key);
-    let format = audio_wire_format(mime_type, file_name);
+    let format = crate::media::audio::audio_wire_format(mime_type, file_name);
+    let provider_cfg = audio_settings
+        .providers
+        .iter()
+        .find(|p| p.id == audio_settings.active_provider_id);
+
+    if let Some(p) = provider_cfg {
+        if provider_uses_dashscope_compatible_api(p) {
+            let audio_url =
+                crate::media::audio::wire_audio_data_for_multimodal(format, audio_base64);
+            let out = crate::media::dashscope_audio::transcribe_audio_dashscope_multimodal(
+                p,
+                &api_key,
+                &audio_settings.model,
+                &audio_url,
+                cancel,
+            )
+            .await
+            .context("dashscope multimodal audio transcribe")?;
+            record_media_understand_usage(token_ctx, MediaUnderstandKind::Audio, &out);
+            let text = out.text.trim().to_string();
+            if text.is_empty() {
+                anyhow::bail!("audio transcription returned empty content");
+            }
+            return Ok(text);
+        }
+    }
+
+    let provider = OpenAIProvider::new(audio_settings.clone(), api_key);
+    let wired_audio = provider_cfg
+        .map(|p| crate::media::audio::wire_audio_data_for_provider(p, format, audio_base64))
+        .unwrap_or_else(|| audio_base64.to_string());
     let messages = vec![
         json!({
             "role": "system",
@@ -161,7 +157,7 @@ pub async fn transcribe_audio_with_model(
                 {
                     "type": "input_audio",
                     "input_audio": {
-                        "data": audio_base64,
+                        "data": wired_audio,
                         "format": format
                     }
                 },

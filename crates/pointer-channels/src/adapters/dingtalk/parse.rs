@@ -107,7 +107,12 @@ fn parse_message_content(event: &Value, msgtype: &str) -> Option<ParsedContent> 
             let file_name = file_name_from(event, "audio");
             Some(ParsedContent {
                 text: String::new(),
-                attachments: vec![dingtalk_ref("audio", code, file_name, None)],
+                attachments: vec![dingtalk_ref(
+                    "audio",
+                    code,
+                    file_name,
+                    Some("audio/amr".into()),
+                )],
             })
         }
         "video" => {

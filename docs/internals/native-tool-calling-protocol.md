@@ -10,8 +10,8 @@ are assistant message text**, not a separate delivery tool.
 - Tool arguments are sent as native function args.
 - **User-facing replies** are written as **assistant `content`** on the final
   turn (no standalone `response` tool).
-- **IM outbound media:** append `MEDIA:` lines in the final reply, or call
-  `channel_message` (`action: send`) — see `docs/guides/channel-integration.md`.
+- **IM outbound media:** append `MEDIA:` lines in the final assistant reply; the
+  host delivers text and files to the IM channel — see `docs/guides/channel-integration.md`.
 - Text-serialized custom envelopes are deprecated and must not be emitted by prompts.
 
 ## Request/response behavior

@@ -14,6 +14,7 @@ import {
   getMacosComputerPermissions,
   listAgents,
   listComputerMonitors,
+  readLocalFileForAttachment,
   setComputerConversationMonitor,
   confirmComputerMonitorPick,
   cancelComputerMonitorPick
@@ -258,10 +259,28 @@ async function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
+function pushComposerAttachment(
+  file: File,
+  dataUrl: string,
+  contentBase64: string,
+  meta: Pick<ComposerAttachment, 'kind' | 'mimeType' | 'fileName' | 'sizeBytes'>
+) {
+  const attachment: ComposerAttachment = {
+    id: uid(),
+    kind: meta.kind,
+    mimeType: meta.mimeType,
+    fileName: meta.fileName,
+    sizeBytes: meta.sizeBytes
+  }
+  composerAttachments.value.push(
+    registerComposerAttachmentPayload({ attachment, dataUrl, contentBase64, file })
+  )
+}
+
 async function addAttachmentFile(file: File) {
   attachmentHint.value = null
   if (!isSupportedChatAttachmentFile(file)) {
-    attachmentHint.value = `不支持该文件类型：${file.name}`
+    attachmentHint.value = `无法添加附件：${file.name}`
     console.warn('unsupported attachment', file.name, file.type)
     return
   }
@@ -272,16 +291,42 @@ async function addAttachmentFile(file: File) {
   }
   const dataUrl = await readFileAsDataUrl(file)
   const contentBase64 = dataUrlToBase64(dataUrl)
-  const attachment: ComposerAttachment = {
-    id: uid(),
+  pushComposerAttachment(file, dataUrl, contentBase64, {
     kind: mediaKindFromFile(file),
     mimeType: file.type || 'application/octet-stream',
     fileName: file.name,
     sizeBytes: file.size
+  })
+}
+
+async function addAttachmentFromLocalPath(path: string) {
+  attachmentHint.value = null
+  const payload = await readLocalFileForAttachment(path)
+  const fileLike = {
+    name: payload.fileName,
+    type: payload.mimeType,
+    size: payload.sizeBytes
   }
-  composerAttachments.value.push(
-    registerComposerAttachmentPayload({ attachment, dataUrl, contentBase64, file })
-  )
+  if (!isSupportedChatAttachmentFile(fileLike)) {
+    attachmentHint.value = `无法添加附件：${payload.fileName}`
+    return
+  }
+  const videoSizeError = composerVideoSizeError(fileLike)
+  if (videoSizeError) {
+    attachmentHint.value = videoSizeError
+    return
+  }
+  const mime = payload.mimeType || 'application/octet-stream'
+  const bytes = Uint8Array.from(atob(payload.contentBase64), c => c.charCodeAt(0))
+  const blob = new Blob([bytes], { type: mime })
+  const file = new File([blob], payload.fileName, { type: mime })
+  const dataUrl = `data:${mime};base64,${payload.contentBase64}`
+  pushComposerAttachment(file, dataUrl, payload.contentBase64, {
+    kind: mediaKindFromFile(fileLike),
+    mimeType: mime,
+    fileName: payload.fileName,
+    sizeBytes: payload.sizeBytes
+  })
 }
 
 async function onAttachmentFiles(e: Event) {
@@ -302,7 +347,27 @@ function removePendingAttachment(id: string) {
   releaseComposerAttachment(id)
 }
 
-function openAttachmentPicker() {
+async function openAttachmentPicker() {
+  if (isTauriRuntime()) {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const selected = await open({ multiple: true })
+      if (!selected) return
+      const paths = typeof selected === 'string' ? [selected] : selected
+      for (const path of paths) {
+        try {
+          await addAttachmentFromLocalPath(path)
+        } catch (err) {
+          console.error('attachment from path failed', path, err)
+          attachmentHint.value =
+            err instanceof Error ? err.message : `无法读取文件：${path}`
+        }
+      }
+      return
+    } catch (e) {
+      console.warn('tauri file dialog failed, falling back to input', e)
+    }
+  }
   fileInputRef.value?.click()
 }
 

@@ -214,6 +214,18 @@ export async function revealInFinder(_path: string): Promise<void> {
   throw new Error('revealInFinder is not supported in web runtime')
 }
 
+export async function openPathWithDefaultApp(_path: string): Promise<void> {
+  throw new Error('openPathWithDefaultApp is not supported in web runtime')
+}
+
+export async function openChatMedia(_storageRelPath: string): Promise<void> {
+  throw new Error('openChatMedia is not supported in web runtime')
+}
+
+export async function readLocalFileForAttachment(_path: string): Promise<import('./api').LocalFileAttachmentPayload> {
+  throw new Error('readLocalFileForAttachment is not supported in web runtime')
+}
+
 export async function listComputerMonitors(): Promise<ComputerMonitor[]> {
   return await request<ComputerMonitor[]>('/api/computer/monitors')
 }
@@ -251,6 +263,13 @@ export async function cancelComputerMonitorPick(conversationId: string): Promise
   await request(`/api/computer/monitor-pick/${encodeURIComponent(conversationId)}/cancel`, {
     method: 'POST'
   })
+}
+
+export async function loadConversationMessages(
+  conversationId: string
+): Promise<ChatMessage[]> {
+  const convs = await loadConversations()
+  return convs.find(c => c.id === conversationId)?.messages ?? []
 }
 
 export async function loadConversations(): Promise<Conversation[]> {

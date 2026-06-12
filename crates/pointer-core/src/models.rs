@@ -1801,9 +1801,18 @@ fn default_media_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmCo
     image.insert("expert".into(), mode_llm_entry("qwen", "qwen3.6-plus", 8192));
 
     let mut audio = HashMap::new();
-    audio.insert("fast".into(), mode_llm_entry("qwen", "qwen3.5-flash", 2048));
-    audio.insert("standard".into(), mode_llm_entry("qwen", "qwen3.5-plus", 2048));
-    audio.insert("expert".into(), mode_llm_entry("qwen", "qwen3.6-plus", 8192));
+    audio.insert(
+        "fast".into(),
+        mode_llm_entry("qwen", "qwen3-asr-flash", 2048),
+    );
+    audio.insert(
+        "standard".into(),
+        mode_llm_entry("qwen", "qwen3-asr-flash", 2048),
+    );
+    audio.insert(
+        "expert".into(),
+        mode_llm_entry("qwen", "qwen3-asr-flash", 8192),
+    );
 
     let mut video = HashMap::new();
     video.insert("fast".into(), mode_llm_entry("qwen", "qwen3.5-flash", 2048));
@@ -2323,6 +2332,28 @@ pub enum StreamEvent {
         #[serde(rename = "messageId")]
         message_id: String,
         content: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        attachments: Option<Vec<MediaAttachment>>,
+    },
+    /// User message attachments processed (ASR, storage path, etc.).
+    UserMessageAttachmentsUpdated {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "messageId")]
+        message_id: String,
+        attachments: Vec<MediaAttachment>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content: Option<String>,
+    },
+    /// IM `/new` or idle reset created a new desktop sidebar row for the same IM thread.
+    ImSessionForked {
+        #[serde(rename = "conversationId")]
+        conversation_id: String,
+        #[serde(rename = "baseConversationId")]
+        base_conversation_id: String,
+        title: String,
+        #[serde(rename = "sessionEpoch")]
+        session_epoch: u32,
     },
     /// Short assistant-role line in the thread (e.g. desktop capture status); not from the model.
     InjectedAssistantMessage {

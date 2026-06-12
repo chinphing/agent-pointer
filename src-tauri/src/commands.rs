@@ -2,7 +2,7 @@ use pointer_core::agents::computer::capture_debug;
 use pointer_core::agents::AgentDef;
 use pointer_core::chat_service::{run_chat, AppState};
 use pointer_core::models::{
-    ChatMediaPreview, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
+    ChatMediaPreview, ChatMessage, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
     EffectiveSettingsView, ModelSettings, PlatformSettings, SendChatPayload, SkillDef,
     SkillImportResult, StreamEvent, ToolDef, UserSettings,
 };
@@ -10,6 +10,8 @@ use pointer_core::models::{
 use pointer_core::provider::OpenAIProvider;
 use pointer_core::storage;
 use base64::Engine;
+use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc;
@@ -25,11 +27,8 @@ pub async fn send_chat(
     let st = state.inner().clone();
     tauri::async_runtime::spawn(async move {
         let (tx, mut rx) = mpsc::unbounded_channel::<StreamEvent>();
-        let app_for_events = app.clone();
         tauri::async_runtime::spawn(async move {
-            while let Some(ev) = rx.recv().await {
-                let _ = app_for_events.emit(STREAM_EVENT, ev);
-            }
+            while rx.recv().await.is_some() {}
         });
         let _ = run_chat(
             tx,
@@ -38,6 +37,7 @@ pub async fn send_chat(
             payload.messages,
             payload.enabled_skill_ids,
             payload.agent_mode,
+            None,
             payload.tool_rounds_used,
             payload.tool_rounds_used_supervisor,
             payload.workspace_root,
@@ -302,6 +302,123 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
     }
 }
 
+const MAX_LOCAL_ATTACHMENT_BYTES: u64 = 30 * 1024 * 1024;
+
+#[derive(serde::Serialize)]
+pub struct LocalFileAttachmentPayload {
+    pub file_name: String,
+    pub mime_type: String,
+    pub size_bytes: u64,
+    pub content_base64: String,
+}
+
+fn open_path_with_system_default(path: &Path) -> Result<(), String> {
+    if !path.is_file() {
+        return Err(format!("文件不存在: {}", path.display()));
+    }
+    let path_str = path.to_string_lossy().to_string();
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path_str)
+            .spawn()
+            .map_err(|e| format!("打开文件失败: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &path_str])
+            .spawn()
+            .map_err(|e| format!("打开文件失败: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path_str)
+            .spawn()
+            .map_err(|e| format!("打开文件失败: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        Err("当前平台不支持".into())
+    }
+}
+
+fn mime_from_file_name(file_name: &str) -> String {
+    let ext = Path::new(file_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        "md" => "text/markdown",
+        "json" => "application/json",
+        "csv" => "text/csv",
+        "zip" => "application/zip",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        _ => "application/octet-stream",
+    }
+    .to_string()
+}
+
+/// Open a local file with the OS default application.
+#[tauri::command]
+pub fn open_path_with_default_app(path: String) -> Result<(), String> {
+    let path_buf = pointer_core::media::access::normalize_user_path(&path).map_err(|e| e.to_string())?;
+    let canonical = path_buf
+        .canonicalize()
+        .unwrap_or(path_buf);
+    open_path_with_system_default(&canonical)
+}
+
+/// Open a saved chat attachment (`conversation-media/...`) with the OS default application.
+#[tauri::command]
+pub fn open_chat_media(storage_rel_path: String) -> Result<(), String> {
+    let path = pointer_core::media::media_abs_path(&storage_rel_path).map_err(|e| e.to_string())?;
+    open_path_with_system_default(&path)
+}
+
+/// Read a user-selected local file for composer attachment upload (any directory).
+#[tauri::command]
+pub fn read_local_file_for_attachment(path: String) -> Result<LocalFileAttachmentPayload, String> {
+    let path_buf = pointer_core::media::access::normalize_user_path(&path).map_err(|e| e.to_string())?;
+    if !path_buf.is_file() {
+        return Err(format!("文件不存在: {}", path_buf.display()));
+    }
+    let meta = fs::metadata(&path_buf).map_err(|e| format!("读取文件信息失败: {e}"))?;
+    if meta.len() > MAX_LOCAL_ATTACHMENT_BYTES {
+        let limit_mb = MAX_LOCAL_ATTACHMENT_BYTES / (1024 * 1024);
+        return Err(format!("文件超过 {limit_mb} MB 上限"));
+    }
+    let bytes = fs::read(&path_buf).map_err(|e| format!("读取文件失败: {e}"))?;
+    let file_name = path_buf
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("attachment")
+        .to_string();
+    let mime_type = mime_from_file_name(&file_name);
+    let content_base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(LocalFileAttachmentPayload {
+        file_name,
+        mime_type,
+        size_bytes: meta.len(),
+        content_base64,
+    })
+}
+
 #[tauri::command]
 pub fn preview_media_ref(media_ref: String) -> Result<ChatMediaPreview, String> {
     let extra_roots = pointer_channels::config::load_channels_config()
@@ -379,6 +496,11 @@ pub fn cancel_computer_monitor_pick(
 #[tauri::command]
 pub fn load_conversations() -> Result<Vec<Conversation>, String> {
     storage::load_conversations().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn load_conversation_messages(conversation_id: String) -> Result<Vec<ChatMessage>, String> {
+    storage::load_conversation_messages(&conversation_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

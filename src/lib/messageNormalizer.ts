@@ -1,3 +1,4 @@
+import { isUsableAttachmentPreviewUrl } from './attachmentSupport'
 import type { ChatMessage, MediaAttachment, MediaAttachmentKind } from '../types/chat'
 import { getComposerAttachmentPreviewUrl } from './attachmentPayloadStore'
 import type { ComposerAttachment } from '../types/chat'
@@ -13,6 +14,12 @@ export interface RenderableAttachment {
   localAbsPath?: string
   /** Resolved preview key: storageRelPath or localAbsPath or pointer-media ref. */
   mediaRef?: string
+  /** ASR / document extraction cached on attachment. */
+  derivedText?: string
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function attachmentDataUrlFromBase64(att: MediaAttachment): string | undefined {
@@ -23,7 +30,7 @@ function attachmentDataUrlFromBase64(att: MediaAttachment): string | undefined {
 }
 
 export function attachmentPreviewUrl(att: MediaAttachment): string | undefined {
-  if (att.previewUrl) return att.previewUrl
+  if (isUsableAttachmentPreviewUrl(att.previewUrl)) return att.previewUrl!.trim()
   const fromStore = getComposerAttachmentPreviewUrl(att as ComposerAttachment)
   if (fromStore) return fromStore
   return attachmentDataUrlFromBase64(att)
@@ -70,8 +77,48 @@ function renderableFromMediaAttachment(att: MediaAttachment): RenderableAttachme
     storageRelPath: att.storageRelPath,
     localAbsPath: att.localAbsPath,
     mediaRef,
-    previewUrl: attachmentPreviewUrl(att)
+    previewUrl: attachmentPreviewUrl(att),
+    derivedText: att.derivedText
   }
+}
+
+/** Model-only path hints injected into user content; never show in the chat UI. */
+export function stripSavedAttachmentHints(content: string): string {
+  return content
+    .replace(
+      /Saved attachment:\s*\n- URI:\s*[^\n]+(?:\n- Local path:\s*[^\n]+)?(?:\n- Read with file_read[^\n]*)?/gi,
+      ''
+    )
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/** Hide model injection blocks from the user bubble (ASR under player, path hints, etc.). */
+export function userMessageDisplayContent(message: ChatMessage): string {
+  let content = stripSavedAttachmentHints(message.content?.trim() ?? '')
+  if (!content) return ''
+  const attachments = message.attachments ?? []
+  const audioAtts = attachments.filter(
+    a => a.kind === 'audio' || a.mimeType?.toLowerCase().startsWith('audio/')
+  )
+  if (!audioAtts.length) return content
+  for (const att of audioAtts) {
+    const derived = att.derivedText?.trim()
+    if (derived) {
+      const blockRe = new RegExp(
+        `\\[Audio:\\s*${escapeRegExp(att.fileName)}\\]\\s*\\n?\\s*${escapeRegExp(derived)}`,
+        'gi'
+      )
+      content = content.replace(blockRe, '').trim()
+      if (content === derived) content = ''
+    } else {
+      content = content
+        .replace(new RegExp(`\\[Audio:\\s*${escapeRegExp(att.fileName)}\\]\\s*`, 'gi'), '')
+        .trim()
+    }
+  }
+  content = content.replace(/\[Audio:[^\]]+\]\s*/gi, '').trim()
+  return stripSavedAttachmentHints(content)
 }
 
 function isUserFilesystemPath(path: string): boolean {
@@ -112,11 +159,8 @@ export function assistantReplyMediaForRender(
   if (message?.attachments?.length) {
     return message.attachments.map(renderableFromMediaAttachment)
   }
-  const raw =
-    streamingText?.trim() ||
-    message?.rawContent?.trim() ||
-    message?.content?.trim() ||
-    ''
+  // Only parse user-visible / streaming reply text — not wire `rawContent` JSON.
+  const raw = streamingText?.trim() || message?.content?.trim() || ''
   const paths = extractOutboundMediaPaths(raw)
   return paths.map((path, i) => renderableFromMediaPath(path, i))
 }
@@ -126,7 +170,17 @@ export function stripWireAttachmentFields(messages: ChatMessage[]): ChatMessage[
     if (!msg.attachments?.length) return msg
     return {
       ...msg,
-      attachments: msg.attachments.map(({ contentBase64: _c, previewUrl: _p, ...rest }) => rest)
+      attachments: msg.attachments.map(({ contentBase64, previewUrl, ...rest }) => {
+        const keepBase64 =
+          contentBase64?.trim() &&
+          !rest.storageRelPath?.trim() &&
+          (rest.kind === 'audio' || rest.mimeType?.toLowerCase().startsWith('audio/'))
+        return {
+          ...rest,
+          ...(keepBase64 ? { contentBase64: contentBase64!.trim() } : {}),
+          ...(isUsableAttachmentPreviewUrl(previewUrl) ? { previewUrl: previewUrl!.trim() } : {})
+        }
+      })
     }
   })
 }

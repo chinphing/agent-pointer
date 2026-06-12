@@ -224,6 +224,10 @@ export async function loadConversations(): Promise<Conversation[]> {
   return await invoke<Conversation[]>('load_conversations')
 }
 
+export async function loadConversationMessages(conversationId: string): Promise<ChatMessage[]> {
+  return await invoke<ChatMessage[]>('load_conversation_messages', { conversationId })
+}
+
 export async function saveConversations(conversations: Conversation[]): Promise<void> {
   await invoke('save_conversations', { conversations })
 }
@@ -245,6 +249,31 @@ export async function onStream(handler: (e: StreamEvent) => void): Promise<Unlis
 
 export async function revealInFinder(path: string): Promise<void> {
   await invoke('reveal_in_finder', { path })
+}
+
+export async function openPathWithDefaultApp(path: string): Promise<void> {
+  await invoke('open_path_with_default_app', { path })
+}
+
+export async function openChatMedia(storageRelPath: string): Promise<void> {
+  await invoke('open_chat_media', { storageRelPath })
+}
+
+export async function readLocalFileForAttachment(
+  path: string
+): Promise<import('./api').LocalFileAttachmentPayload> {
+  const raw = await invoke<{
+    file_name: string
+    mime_type: string
+    size_bytes: number
+    content_base64: string
+  }>('read_local_file_for_attachment', { path })
+  return {
+    fileName: raw.file_name,
+    mimeType: raw.mime_type,
+    sizeBytes: raw.size_bytes,
+    contentBase64: raw.content_base64
+  }
 }
 
 export interface PlatformSessionView {

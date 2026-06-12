@@ -607,7 +607,27 @@ export type StreamEvent =
   | { kind: 'web_search_output_delta'; messageId: string; toolCallId: string; text: string; traceId?: string }
   | { kind: 'web_search_sources_ready'; messageId: string; toolCallId: string; sources: WebSearchSourceEntry[]; searchCount: number; traceId?: string }
   | { kind: 'message_end'; messageId: string; content?: string; rawContent?: string; toolRawOutput?: string; thoughts?: string; headline?: string; traceId?: string; attachments?: MediaAttachment[] }
-  | { kind: 'injected_user_message'; conversationId: string; messageId: string; content: string }
+  | {
+      kind: 'injected_user_message'
+      conversationId: string
+      messageId: string
+      content: string
+      attachments?: MediaAttachment[]
+    }
+  | {
+      kind: 'im_session_forked'
+      conversationId: string
+      baseConversationId: string
+      title: string
+      sessionEpoch: number
+    }
+  | {
+      kind: 'user_message_attachments_updated'
+      conversationId: string
+      messageId: string
+      attachments: MediaAttachment[]
+      content?: string
+    }
   /** App-injected assistant line (e.g. desktop capture status); shown in thread, not from model. */
   | { kind: 'injected_assistant_message'; conversationId: string; messageId: string; content: string }
   /** Same `messageId` as a prior `injected_assistant_message`; updates its `content` only. */

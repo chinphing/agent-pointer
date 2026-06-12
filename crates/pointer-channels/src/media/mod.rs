@@ -1,4 +1,5 @@
 pub mod attachment;
+pub mod audio_normalize;
 mod resolve;
 
 pub use attachment::{to_media_attachment, DownloadedMedia, CHANNEL_MEDIA_MAX_BYTES};

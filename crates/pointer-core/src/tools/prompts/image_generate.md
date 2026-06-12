@@ -24,7 +24,7 @@ Generate images from text (and optional reference image). **Provider and model c
 ## When to use
 
 - User asks to create, draw, or edit an image.
-- You need a visual asset to send via IM (`MEDIA:` or `channel_message`).
+- You need a visual asset to send via IM (`MEDIA:` in the final reply).
 
 ## Providers (configure in settings)
 
@@ -44,7 +44,7 @@ Change provider/model in **Settings → 图片生成**, not in tool args.
 
 ## Output
 
-Returns `MEDIA:<local-path>` lines. Use those paths with `channel_message` or append `MEDIA:` in IM replies.
+Returns `MEDIA:<local-path>` lines. Append `MEDIA:` in IM final replies.
 
 This tool is a **final reply** tool: on success the host ends the turn and delivers output in chat.
 

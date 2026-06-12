@@ -4,7 +4,8 @@ use super::auth::access_token;
 use crate::adapters::feishu::auth::guess_mime_from_name;
 use crate::config::ChannelAccountConfig;
 use crate::http_client::HttpClient;
-use crate::media::attachment::{enforce_max_bytes, finalize_downloaded, DownloadedMedia};
+use crate::media::attachment::{enforce_max_bytes, DownloadedMedia};
+use crate::media::audio_normalize::normalize_channel_audio_download;
 use crate::traits::InboundMediaRef;
 use serde_json::json;
 
@@ -52,13 +53,12 @@ pub async fn download_inbound_ref(
     let mime_type = content_type
         .or_else(|| media_ref.mime_type.clone())
         .unwrap_or_else(|| guess_mime_from_name(&file_name));
-    Ok(finalize_downloaded(
+    Ok(normalize_channel_audio_download(
         DownloadedMedia {
             bytes,
             mime_type,
             file_name,
         },
-        media_ref.file_name.clone(),
-        Some(media_ref.kind.as_str()),
+        media_ref,
     ))
 }

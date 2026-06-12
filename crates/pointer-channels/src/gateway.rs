@@ -177,7 +177,9 @@ impl ChannelGateway {
                 reply_context: msg.reply_context.clone(),
             };
             plugin.outbound.send_text(outbound, ABORT_ACK).await?;
-            self.dispatch.history.touch_meta(&conv_id)?;
+            if let Err(e) = self.core.session_index.touch_im_interaction(&conv_id) {
+                log::warn!("channel abort touch interaction failed conv={conv_id}: {e:#}");
+            }
             self.dedup.mark_seen(&namespace, &msg.dedup_key());
             log::info!("channel fast abort conv={conv_id}");
             return Ok(());

@@ -11,7 +11,6 @@ pub mod dedup;
 pub mod dispatch;
 pub mod gateway;
 pub mod http_client;
-pub mod inbound;
 pub mod media;
 mod media_roots;
 mod outbound_delivery;

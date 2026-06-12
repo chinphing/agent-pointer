@@ -1,38 +1,29 @@
 use anyhow::Result;
-use pointer_core::channel_outbound::{
-    im_base_conversation_id, im_desktop_conversation_id, im_session_fork_title,
-};
+use pointer_core::channel_outbound::{im_desktop_conversation_id, im_session_fork_title};
+use pointer_core::conversation_store::im_session::ImSessionState;
 use pointer_core::conversation_store::ConversationStore;
 use pointer_core::models::{ConversationMeta, StreamEvent};
 
-use crate::inbound::{ChannelHistoryStore, ChannelSessionMeta};
-
-pub fn resolve_active_desktop_id(base_conv_id: &str, meta: &ChannelSessionMeta) -> String {
-    if let Some(active) = &meta.active_conversation_id {
-        if im_base_conversation_id(active) == base_conv_id {
-            return active.clone();
-        }
-    }
-    im_desktop_conversation_id(base_conv_id, meta.session_epoch)
+pub fn resolve_active_desktop_id(base_conv_id: &str, state: &ImSessionState) -> String {
+    pointer_core::conversation_store::im_session::resolve_active_desktop_id(base_conv_id, state)
 }
 
 pub fn fork_im_desktop_session(
-    history: &ChannelHistoryStore,
     store: &ConversationStore,
     base_conv_id: &str,
-    session_meta: &mut ChannelSessionMeta,
+    session_state: &mut ImSessionState,
     sender_name: Option<&str>,
 ) -> Result<String> {
-    session_meta.session_epoch = session_meta.session_epoch.saturating_add(1);
-    let new_id = im_desktop_conversation_id(base_conv_id, session_meta.session_epoch);
-    session_meta.active_conversation_id = Some(new_id.clone());
-    history.save_meta(base_conv_id, session_meta)?;
+    session_state.session_epoch = session_state.session_epoch.saturating_add(1);
+    let new_id = im_desktop_conversation_id(base_conv_id, session_state.session_epoch);
+    session_state.active_conversation_id = Some(new_id.clone());
+    store.save_im_session(base_conv_id, session_state)?;
 
-    let title = im_session_fork_title(base_conv_id, sender_name, session_meta.session_epoch)
+    let title = im_session_fork_title(base_conv_id, sender_name, session_state.session_epoch)
         .unwrap_or_else(|| "新会话".to_string());
     let now = chrono::Utc::now().timestamp_millis();
-    let lead_agent_id = session_meta.effective_lead_agent_id();
-    let agent_mode = session_meta.effective_agent_mode();
+    let lead_agent_id = session_state.lead_agent_id.clone();
+    let agent_mode = session_state.agent_mode.clone();
     store.upsert_meta(&ConversationMeta {
         id: new_id.clone(),
         title: title.clone(),
@@ -51,7 +42,7 @@ pub fn fork_im_desktop_session(
         conversation_id: new_id.clone(),
         base_conversation_id: base_conv_id.to_string(),
         title,
-        session_epoch: session_meta.session_epoch,
+        session_epoch: session_state.session_epoch,
         lead_agent_id,
         agent_mode,
     });

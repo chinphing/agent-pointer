@@ -62,7 +62,7 @@ pub fn save_meta_all_in_conn(conn: &Connection, metas: &[ConversationMeta]) -> R
     Ok(())
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -75,7 +75,7 @@ fn default_conversation_title(conversation_id: &str) -> String {
         .unwrap_or_else(|| "新会话".into())
 }
 
-fn ensure_conversation_row(conn: &Connection, conversation_id: &str) -> Result<()> {
+pub(crate) fn ensure_conversation_row(conn: &Connection, conversation_id: &str) -> Result<()> {
     ensure_conversation_row_with_title(conn, conversation_id, None)
 }
 

@@ -54,6 +54,69 @@ pub fn read_media_bytes(storage_rel_path: &str) -> Result<Vec<u8>> {
     fs::read(&path).with_context(|| format!("read media file {}", path.display()))
 }
 
+/// `{conv}/{id}.bin` -> `{conv}/{id}.wav` when the wav file already exists on disk.
+pub fn stored_wav_sibling_rel(storage_rel_path: &str) -> Option<String> {
+    let rel = storage_rel_path.trim().trim_start_matches('/');
+    let lower = rel.to_ascii_lowercase();
+    if !lower.ends_with(".bin") {
+        return None;
+    }
+    let wav_rel = format!("{}wav", &rel[..rel.len() - 3]);
+    let path = match media_abs_path(&wav_rel) {
+        Ok(p) => p,
+        Err(_) => return None,
+    };
+    if path.is_file() {
+        Some(wav_rel)
+    } else {
+        None
+    }
+}
+
+/// Parse `conversation-media/{conv}/{attachment_id}.{ext}` into `(conv, attachment_id)`.
+pub fn parse_conversation_media_ids(storage_rel_path: &str) -> Option<(String, String)> {
+    let rel = storage_rel_path.trim().trim_start_matches('/');
+    let (conv, file) = rel.split_once('/')?;
+    if conv.is_empty() {
+        return None;
+    }
+    let stem = file
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(file);
+    if stem.is_empty() {
+        return None;
+    }
+    Some((conv.to_string(), stem.to_string()))
+}
+
+pub fn conversation_media_abs_to_rel(path: &Path) -> Option<String> {
+    let root = match conversation_media_root() {
+        Ok(r) => r,
+        Err(_) => return None,
+    };
+    let rel = match path.strip_prefix(&root) {
+        Ok(r) => r,
+        Err(_) => return None,
+    };
+    Some(rel.to_string_lossy().replace('\\', "/"))
+}
+
+fn wav_sibling_abs_path(path: &Path) -> Option<PathBuf> {
+    let name = path.file_name().and_then(|n| n.to_str())?;
+    let lower = name.to_ascii_lowercase();
+    if !lower.ends_with(".bin") {
+        return None;
+    }
+    let wav_name = format!("{}wav", &name[..name.len() - 3]);
+    let wav_path = path.with_file_name(wav_name);
+    if wav_path.is_file() {
+        Some(wav_path)
+    } else {
+        None
+    }
+}
+
 pub fn read_chat_media_preview(storage_rel_path: &str) -> Result<ChatMediaPreview> {
     let path = media_abs_path(storage_rel_path)?;
     read_file_preview(&path, extra_roots_empty())
@@ -121,6 +184,20 @@ fn resolve_filesystem_ref(raw: &str) -> Result<PathBuf> {
 
 fn read_file_preview(path: &Path, extra_roots: &[String]) -> Result<ChatMediaPreview> {
     assert_app_media_preview_allowed(path, extra_roots)?;
+    if let Some(wav_path) = wav_sibling_abs_path(path) {
+        let bytes = fs::read(&wav_path)
+            .with_context(|| format!("read persisted wav {}", wav_path.display()))?;
+        let file_name = wav_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("audio.wav")
+            .to_string();
+        return Ok(ChatMediaPreview {
+            data_base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
+            mime_type: "audio/wav".into(),
+            file_name,
+        });
+    }
     let bytes = fs::read(path).with_context(|| format!("read media file {}", path.display()))?;
     let file_name = path
         .file_name()
@@ -133,10 +210,19 @@ fn read_file_preview(path: &Path, extra_roots: &[String]) -> Result<ChatMediaPre
         mime_lower.starts_with("audio/") && mime_lower != "audio/wav"
             || file_name.to_ascii_lowercase().ends_with(".bin");
     if needs_audio_transcode && crate::media::ffmpeg::ffmpeg_available() {
-        match crate::media::audio::prepare_audio_bytes_for_asr(
+        let storage_ctx = conversation_media_abs_to_rel(path).map(|rel| {
+            let (conv, id) = parse_conversation_media_ids(&rel).unwrap_or((String::new(), String::new()));
+            crate::media::audio::AudioStorageContext {
+                storage_rel_path: Some(rel),
+                conversation_id: conv,
+                attachment_id: id,
+            }
+        });
+        match crate::media::audio::prepare_audio_bytes_for_asr_cached(
             &bytes,
             &mime_type,
             &file_name,
+            storage_ctx.as_ref(),
         ) {
             Ok(prepared) if prepared.mime_type == "audio/wav" => {
                 return Ok(ChatMediaPreview {

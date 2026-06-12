@@ -78,4 +78,24 @@ mod tests {
         let loaded = store.load_all().unwrap();
         assert_eq!(loaded[0].messages[0].content, "hello");
     }
+
+    #[test]
+    fn im_session_round_trip_on_base_row() {
+        use crate::conversation_store::im_session::ImSessionState;
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let base = "feishu:acct:group:g1:user1";
+        let state = ImSessionState {
+            session_epoch: 2,
+            active_conversation_id: Some(format!("{base}@s2")),
+            last_interaction_at_ms: 0,
+            lead_agent_id: "coder".into(),
+            agent_mode: "single".into(),
+        };
+        store.save_im_session(base, &state).unwrap();
+        let loaded = store.load_im_session(base).unwrap();
+        assert_eq!(loaded.session_epoch, 2);
+        assert_eq!(loaded.active_conversation_id.as_deref(), Some(format!("{base}@s2").as_str()));
+        assert_eq!(loaded.lead_agent_id, "coder");
+    }
 }

@@ -2,6 +2,7 @@
 
 mod cjk_fts;
 mod db;
+pub mod im_session;
 mod migrate;
 mod persist;
 mod search;
@@ -18,7 +19,7 @@ use crate::models::{ChatMessage, Conversation, ConversationMeta};
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -49,6 +50,7 @@ impl ConversationStore {
         if path == canonical {
             let conn = store.db.conn.lock();
             migrate::migrate_json_if_needed(&conn, &migrate::default_json_path()?)?;
+            migrate::migrate_channel_histories_if_needed(&conn)?;
         }
         log::info!("conversation_store: opened {}", path.display());
         Ok(store)
@@ -195,6 +197,25 @@ impl ConversationStore {
     }
 
     /// Set IM sidebar title when the row is new or still uses the default placeholder.
+    pub fn load_im_session(&self, base_conv_id: &str) -> Result<im_session::ImSessionState> {
+        self.db
+            .execute_write(|conn| im_session::load_im_session_in_conn(conn, base_conv_id))
+    }
+
+    pub fn save_im_session(
+        &self,
+        base_conv_id: &str,
+        state: &im_session::ImSessionState,
+    ) -> Result<()> {
+        self.db
+            .execute_write(|conn| im_session::save_im_session_in_conn(conn, base_conv_id, state))
+    }
+
+    pub fn touch_im_interaction(&self, base_conv_id: &str) -> Result<()> {
+        self.db
+            .execute_write(|conn| im_session::touch_im_interaction_in_conn(conn, base_conv_id))
+    }
+
     pub fn ensure_im_title(
         &self,
         conversation_id: &str,
@@ -266,7 +287,9 @@ fn init_schema(conn: &Connection) -> Result<()> {
            computer_monitor_id TEXT,
            workspace_root TEXT NOT NULL DEFAULT '',
            lead_agent_id TEXT NOT NULL DEFAULT 'general',
-           agent_mode TEXT NOT NULL DEFAULT 'single'
+           agent_mode TEXT NOT NULL DEFAULT 'single',
+           im_session_epoch INTEGER NOT NULL DEFAULT 0,
+           im_active_conversation_id TEXT
          );
          CREATE TABLE IF NOT EXISTS messages (
            id INTEGER PRIMARY KEY,
@@ -320,6 +343,13 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
         "agent_mode",
         "TEXT NOT NULL DEFAULT 'single'",
     )?;
+    add_column_if_missing(
+        conn,
+        "conversations",
+        "im_session_epoch",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    add_column_if_missing(conn, "conversations", "im_active_conversation_id", "TEXT")?;
     conn.execute(
         "UPDATE schema_version SET version = ?1",
         params![SCHEMA_VERSION],

@@ -11,6 +11,13 @@ pub struct PreparedAudio {
     pub wire_format: String,
 }
 
+/// Optional conversation-media location for reading/writing a persisted `.wav` sibling.
+pub struct AudioStorageContext {
+    pub storage_rel_path: Option<String>,
+    pub conversation_id: String,
+    pub attachment_id: String,
+}
+
 /// Feishu voice and similar channels often ship opaque `.bin` blobs (opus etc.).
 pub fn needs_audio_transcode(mime_type: &str, file_name: &str) -> bool {
     let mime = mime_type.trim().to_ascii_lowercase();
@@ -120,19 +127,57 @@ pub fn prepare_audio_bytes_for_asr(
     mime_type: &str,
     file_name: &str,
 ) -> Result<PreparedAudio> {
-    if crate::media::ffmpeg::ffmpeg_available() && needs_audio_transcode(mime_type, file_name) {
+    prepare_audio_bytes_for_asr_cached(bytes, mime_type, file_name, None)
+}
+
+pub fn prepare_audio_bytes_for_asr_cached(
+    bytes: &[u8],
+    mime_type: &str,
+    file_name: &str,
+    storage: Option<&AudioStorageContext>,
+) -> Result<PreparedAudio> {
+    if let Some(ctx) = storage {
+        if let Some(rel) = ctx
+            .storage_rel_path
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            if let Some(wav_rel) = crate::media::store::stored_wav_sibling_rel(rel) {
+                log::info!(
+                    "media: using persisted wav for {} (skip transcode)",
+                    file_name
+                );
+                let wav_bytes = crate::media::store::read_media_bytes(&wav_rel)?;
+                let wav_name = wav_rel.rsplit('/').next().unwrap_or("audio.wav");
+                return Ok(PreparedAudio {
+                    bytes: wav_bytes,
+                    mime_type: "audio/wav".into(),
+                    file_name: wav_name.into(),
+                    wire_format: "wav".into(),
+                });
+            }
+        }
+    }
+
+    let needs_transcode =
+        crate::media::ffmpeg::ffmpeg_available() && needs_audio_transcode(mime_type, file_name);
+    if needs_transcode {
         log::info!(
             "media: transcoding audio {} (mime={}) via ffmpeg for ASR",
             file_name,
             mime_type
         );
         let wav = transcode_audio_to_wav(bytes, file_name)?;
-        return Ok(PreparedAudio {
+        let prepared = PreparedAudio {
             bytes: wav,
             mime_type: "audio/wav".into(),
             file_name: wav_output_name(file_name),
             wire_format: "wav".into(),
-        });
+        };
+        if let Some(ctx) = storage {
+            persist_playable_wav(ctx, &prepared);
+        }
+        return Ok(prepared);
     }
 
     let wire_format = audio_wire_format(mime_type, file_name).to_string();
@@ -142,6 +187,57 @@ pub fn prepare_audio_bytes_for_asr(
         file_name: file_name.to_string(),
         wire_format,
     })
+}
+
+fn persist_playable_wav(ctx: &AudioStorageContext, prepared: &PreparedAudio) {
+    if prepared.mime_type != "audio/wav" {
+        return;
+    }
+    if let Some(rel) = ctx.storage_rel_path.as_deref() {
+        if rel.to_ascii_lowercase().ends_with(".wav") {
+            return;
+        }
+        if crate::media::store::stored_wav_sibling_rel(rel).is_some() {
+            return;
+        }
+    }
+    let conv = if !ctx.conversation_id.is_empty() {
+        ctx.conversation_id.clone()
+    } else if let Some(rel) = ctx.storage_rel_path.as_deref() {
+        crate::media::store::parse_conversation_media_ids(rel)
+            .map(|(c, _)| c)
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let id = if !ctx.attachment_id.is_empty() {
+        ctx.attachment_id.clone()
+    } else if let Some(rel) = ctx.storage_rel_path.as_deref() {
+        crate::media::store::parse_conversation_media_ids(rel)
+            .map(|(_, i)| i)
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    if conv.is_empty() || id.is_empty() {
+        return;
+    }
+    persist_playable_wav_ids(&conv, &id, prepared);
+}
+
+fn persist_playable_wav_ids(conv: &str, id: &str, prepared: &PreparedAudio) {
+    match crate::media::store::save_attachment_bytes(conv, id, &prepared.bytes, &prepared.file_name) {
+        Ok(rel) => {
+            log::info!("media: persisted playable wav at {}", rel);
+        }
+        Err(e) => {
+            log::warn!(
+                "media: failed to persist playable wav for {}: {:#}",
+                prepared.file_name,
+                e
+            );
+        }
+    }
 }
 
 pub fn audio_wire_format(mime_type: &str, file_name: &str) -> &'static str {

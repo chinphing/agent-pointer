@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Clipboard, FileText, FolderOpen } from 'lucide-vue-next'
 import type { RenderableAttachment } from '../../../lib/messageNormalizer'
 import ChatAudioPlayer from './ChatAudioPlayer.vue'
@@ -18,9 +18,11 @@ const props = defineProps<{
 }>()
 
 const loadedPreviews = ref<Record<string, string>>({})
+const previewInflight = new Set<string>()
 
 async function ensureMediaPreview(att: RenderableAttachment) {
-  if (loadedPreviews.value[att.id]) return
+  if (loadedPreviews.value[att.id] || previewInflight.has(att.id)) return
+  previewInflight.add(att.id)
   try {
     let preview
     if (att.mediaRef) {
@@ -42,6 +44,8 @@ async function ensureMediaPreview(att: RenderableAttachment) {
     }
   } catch (e) {
     console.warn('media preview failed', att.fileName, e)
+  } finally {
+    previewInflight.delete(att.id)
   }
 }
 
@@ -93,10 +97,6 @@ watch(
   },
   { immediate: true, deep: true }
 )
-
-onMounted(() => {
-  for (const att of props.attachments) void ensureMediaPreview(att)
-})
 </script>
 
 <template>

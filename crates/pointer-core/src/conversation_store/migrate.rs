@@ -6,8 +6,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::models::Conversation;
+use crate::storage::app_data_dir;
 
+use super::im_session;
 use super::persist;
+use super::write;
 
 pub fn migrate_json_if_needed(conn: &Connection, json_path: &Path) -> Result<()> {
     if meta_flag(conn, "json_migrated")? {
@@ -68,4 +71,95 @@ fn set_meta(conn: &Connection, key: &str, value: &str) -> Result<()> {
         (key, value),
     )?;
     Ok(())
+}
+
+/// Deprecate legacy `channel_histories/` JSON (session state now lives in SQLite).
+pub fn migrate_channel_histories_if_needed(conn: &Connection) -> Result<()> {
+    if meta_flag(conn, "channel_histories_migrated")? {
+        return Ok(());
+    }
+    let dir = app_data_dir()?.join("channel_histories");
+    if dir.is_dir() {
+        let deprecated = dir.with_file_name("channel_histories.deprecated");
+        if deprecated.exists() {
+            let _ = fs::remove_dir_all(&deprecated);
+        }
+        if let Err(e) = fs::rename(&dir, &deprecated) {
+            log::warn!(
+                "conversation_store: could not rename legacy channel_histories: {e:#}"
+            );
+        } else {
+            log::info!(
+                "conversation_store: deprecated legacy channel_histories at {}",
+                deprecated.display()
+            );
+            import_legacy_channel_meta(conn, &deprecated)?;
+        }
+    }
+    set_meta(conn, "channel_histories_migrated", "1")?;
+    Ok(())
+}
+
+fn import_legacy_channel_meta(conn: &Connection, dir: &Path) -> Result<()> {
+    for entry in fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        if !name.ends_with("_meta.json") {
+            continue;
+        }
+        let raw = fs::read_to_string(&path)
+            .with_context(|| format!("read legacy channel meta {}", path.display()))?;
+        let legacy: LegacyChannelMeta = serde_json::from_str(&raw).unwrap_or_default();
+        let base = legacy
+            .active_conversation_id
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .map(crate::channel_outbound::im_base_conversation_id);
+        let Some(base) = base else {
+            log::warn!(
+                "conversation_store: skip legacy channel meta without activeConversationId: {}",
+                path.display()
+            );
+            continue;
+        };
+        write::ensure_conversation_row(conn, &base)?;
+        let state = im_session::ImSessionState {
+            session_epoch: legacy.session_epoch,
+            active_conversation_id: legacy.active_conversation_id.filter(|s| !s.trim().is_empty()),
+            last_interaction_at_ms: legacy.last_interaction_at,
+            lead_agent_id: legacy
+                .lead_agent_id
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| crate::agents::DEFAULT_LEAD_AGENT_ID.to_string()),
+            agent_mode: legacy
+                .agent_mode
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| crate::agents::AGENT_MODE_SINGLE.to_string()),
+        };
+        im_session::save_im_session_in_conn(conn, &base, &state)?;
+        log::info!(
+            "conversation_store: imported legacy IM session meta for base={base} epoch={}",
+            state.session_epoch
+        );
+    }
+    Ok(())
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyChannelMeta {
+    #[serde(default)]
+    last_interaction_at: i64,
+    #[serde(default, rename = "leadAgentId")]
+    lead_agent_id: Option<String>,
+    #[serde(default, rename = "agentMode")]
+    agent_mode: Option<String>,
+    #[serde(default, rename = "sessionEpoch")]
+    session_epoch: u32,
+    #[serde(default, rename = "activeConversationId")]
+    active_conversation_id: Option<String>,
 }

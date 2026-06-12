@@ -207,13 +207,13 @@ IM 通道的模型上下文与 App 内桌面会话可通过聊天指令或空闲
 }
 ```
 
-默认 **60 分钟**（1 小时）无新消息后，下一条入站消息会从空历史开始；旧记录同样归档到 `channel_histories/archives/`。  
+默认 **60 分钟**（1 小时）无新消息后，下一条入站消息会 fork 新的桌面会话（`@sN`）；旧 fork 仍保留在 `conversations.db` 中。  
 `idleMinutes` 设为 `0` 可关闭。设置页 → IM 通道 → **会话重置** 可修改（对所有通道生效）。
 
 ## 配置存储
 
 - 通道配置：`{data_dir}/PointerApp/channels_config.json`
 - 凭证：`{data_dir}/PointerApp/channel_credentials/`（加密）
-- 会话历史：`{data_dir}/PointerApp/channel_histories/`
-- 会话元数据：`{data_dir}/PointerApp/channel_histories/*_meta.json`（`lastInteractionAt`）
-- 归档历史：`{data_dir}/PointerApp/channel_histories/archives/`
+- 会话历史与 IM 元数据：`{data_dir}/PointerApp/conversations.db`（与桌面会话共用）
+- IM 线程状态（`sessionEpoch`、`activeConversationId`、idle 用的 `updatedAt`）保存在 base 会话行的 `conversations` 表字段中
+- 旧版 `channel_histories/` 首次启动时会改名为 `channel_histories.deprecated/`（仅尝试导入其中的 `activeConversationId` 元数据）

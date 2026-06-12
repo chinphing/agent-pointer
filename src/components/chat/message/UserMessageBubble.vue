@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { marked } from 'marked'
 import { Clipboard, FileText, FolderOpen, User } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
@@ -23,6 +23,7 @@ const props = defineProps<{ message: ChatMessage }>()
 
 const bodyRef = ref<HTMLElement | null>(null)
 const loadedPreviews = ref<Record<string, string>>({})
+const previewInflight = new Set<string>()
 
 marked.setOptions({ breaks: true, gfm: true })
 
@@ -38,7 +39,8 @@ useMarkdownCodeCopy(bodyRef, () => props.message.content)
 useMarkdownExternalLinks(bodyRef, () => props.message.content)
 
 async function ensureMediaPreview(attId: string, storageRelPath?: string) {
-  if (!storageRelPath || loadedPreviews.value[attId]) return
+  if (!storageRelPath || loadedPreviews.value[attId] || previewInflight.has(attId)) return
+  previewInflight.add(attId)
   try {
     const preview = await previewChatMedia(storageRelPath)
     const mime = preview.mimeType || 'application/octet-stream'
@@ -48,6 +50,8 @@ async function ensureMediaPreview(attId: string, storageRelPath?: string) {
     }
   } catch (e) {
     console.warn('previewChatMedia failed', e)
+  } finally {
+    previewInflight.delete(attId)
   }
 }
 
@@ -99,14 +103,6 @@ watch(
   },
   { immediate: true }
 )
-
-onMounted(() => {
-  for (const att of attachments.value) {
-    if (att.storageRelPath && !att.previewUrl) {
-      void ensureMediaPreview(att.id, att.storageRelPath)
-    }
-  }
-})
 </script>
 
 <template>

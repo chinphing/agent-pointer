@@ -33,7 +33,7 @@
 | `token_usage.db` | Token 用量统计 | ❌ |
 | `channels_config.json` | IM 通道配置 | ❌ |
 | `channel_credentials/` | 通道凭证 | ❌ |
-| `channel_histories/` | 通道消息历史缓存 | ⚠️ 按需清理 |
+| `channel_histories.deprecated/` | 旧版 IM JSON 历史（已弃用，可删） | ⚠️ 按需清理 |
 | `channel_pairing/` | 通道配对状态 | ❌ |
 
 ---

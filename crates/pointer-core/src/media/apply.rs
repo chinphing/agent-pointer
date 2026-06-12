@@ -326,8 +326,17 @@ async fn process_attachment_with_bytes(
                 )),
             ));
         }
-        let prepared = match crate::media::audio::prepare_audio_bytes_for_asr(&bytes, &mime, &att.file_name)
-        {
+        let storage_ctx = crate::media::audio::AudioStorageContext {
+            storage_rel_path: att.storage_rel_path.clone(),
+            conversation_id: conversation_id.to_string(),
+            attachment_id: att.id.clone(),
+        };
+        let prepared = match crate::media::audio::prepare_audio_bytes_for_asr_cached(
+            &bytes,
+            &mime,
+            &att.file_name,
+            Some(&storage_ctx),
+        ) {
             Ok(p) => p,
             Err(e) => {
                 log::warn!(
@@ -346,24 +355,23 @@ async fn process_attachment_with_bytes(
             }
         };
         if should_save_playable_wav(att, &prepared) {
-            match save_attachment_bytes(
-                conversation_id,
-                &att.id,
-                &prepared.bytes,
-                &prepared.file_name,
-            ) {
-                Ok(rel) => {
-                    att.storage_rel_path = Some(rel);
-                    att.mime_type = prepared.mime_type.clone();
-                    att.file_name = prepared.file_name.clone();
-                }
-                Err(e) => {
-                    log::warn!(
-                        "media: failed to save playable wav for {}: {:#}",
-                        att.file_name,
-                        e
-                    );
-                }
+            let new_rel = att
+                .storage_rel_path
+                .as_deref()
+                .and_then(crate::media::store::stored_wav_sibling_rel)
+                .or_else(|| {
+                    save_attachment_bytes(
+                        conversation_id,
+                        &att.id,
+                        &prepared.bytes,
+                        &prepared.file_name,
+                    )
+                    .ok()
+                });
+            if let Some(rel) = new_rel {
+                att.storage_rel_path = Some(rel);
+                att.mime_type = prepared.mime_type.clone();
+                att.file_name = prepared.file_name.clone();
             }
         }
         let b64 = base64::engine::general_purpose::STANDARD.encode(&prepared.bytes);

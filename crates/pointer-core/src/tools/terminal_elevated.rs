@@ -354,6 +354,7 @@ fn run_elevated_platform(
 }
 
 /// Host already elevates once; strip leading `sudo` so nested prompts are less likely.
+#[cfg(unix)]
 fn strip_redundant_sudo(command: &str) -> String {
     let mut out = command.trim().to_string();
     let mut stripped = false;
@@ -410,6 +411,7 @@ fn unquote_windows_arg_list(raw: &str) -> String {
     raw.to_string()
 }
 
+#[cfg(unix)]
 fn build_unix_elevated_shell_script(
     cwd: Option<&Path>,
     env: &HashMap<String, String>,
@@ -433,6 +435,7 @@ fn build_unix_elevated_shell_script(
     parts.join(" && ")
 }
 
+#[cfg(unix)]
 fn shell_escape_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
@@ -458,6 +461,7 @@ fn read_exit_code_file(path: &Path) -> Option<i32> {
     raw.trim().parse().ok()
 }
 
+#[cfg(unix)]
 fn run_command_with_wall_cap(cmd: &mut Command, wall_cap_ms: u64) -> Result<std::process::Output> {
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| anyhow!("启动提权命令失败: {e}"))?;
@@ -541,11 +545,13 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn unix_shell_escape_single_quote() {
         assert_eq!(shell_escape_single_quote("a'b"), "'a'\"'\"'b'");
     }
 
     #[test]
+    #[cfg(unix)]
     fn strip_redundant_sudo_removes_prefix() {
         assert_eq!(strip_redundant_sudo("sudo apt update"), "apt update");
         assert_eq!(strip_redundant_sudo("sudo sudo ls"), "ls");

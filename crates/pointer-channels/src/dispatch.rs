@@ -48,10 +48,6 @@ fn sync_im_desktop_session_agent(
     }
 }
 
-fn channel_message(role: Role, content: String, attachments: Option<Vec<MediaAttachment>>) -> ChatMessage {
-    channel_message_with_id(uuid::Uuid::new_v4().to_string(), role, content, attachments)
-}
-
 fn channel_message_with_id(
     id: String,
     role: Role,

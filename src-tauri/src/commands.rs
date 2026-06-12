@@ -13,14 +13,14 @@ use base64::Engine;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 use tokio::sync::mpsc;
 
 pub const STREAM_EVENT: &str = "chat://stream";
 
 #[tauri::command]
 pub async fn send_chat(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, Arc<AppState>>,
     payload: SendChatPayload,
 ) -> Result<(), String> {

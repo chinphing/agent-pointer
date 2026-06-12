@@ -54,7 +54,7 @@ const props = withDefaults(
 const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 const settings = useSettingsStore()
-const { composerPrefill, composerText, composerAttachments } = storeToRefs(chat)
+const { composerPrefill, composerText, composerAttachments, generating } = storeToRefs(chat)
 
 const tokenQuotaBlocked = computed(() => platformAuth.tokenQuotaExhausted)
 const needsPlatformLogin = computed(() => isTauriRuntime() && !platformAuth.session.logged_in)
@@ -156,7 +156,7 @@ const hasWorkspace = computed(() => !!(chat.current?.workspaceRoot?.trim()))
 const canSend = computed(
   () =>
     (composerText.value.trim().length > 0 || composerAttachments.value.length > 0) &&
-    !chat.generating &&
+    !generating.value &&
     !needsPlatformLogin.value &&
     !tokenQuotaBlocked.value &&
     settings.settings.hasKey
@@ -803,7 +803,7 @@ onUnmounted(() => {
           </div>
 
           <button
-            v-if="chat.generating"
+            v-if="generating"
             class="h-10 w-10 shrink-0 rounded-xl bg-danger/20 hover:bg-danger/30 text-danger flex items-center justify-center cursor-pointer transition"
             @click="chat.stop()"
             title="停止"

@@ -254,7 +254,79 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function clearRunState(id: string) {
-    patchRunState(id, { generating: false, activeMessageId: null })
+    const key = id.trim()
+    if (!key) return
+    cancelGeneratingClearTimer(key)
+    patchRunState(key, { generating: false, activeMessageId: null })
+  }
+
+  const generatingClearTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  function cancelGeneratingClearTimer(conversationId: string) {
+    const key = conversationId.trim()
+    if (!key) return
+    const timer = generatingClearTimers.get(key)
+    if (timer != null) {
+      clearTimeout(timer)
+      generatingClearTimers.delete(key)
+    }
+  }
+
+  function hasInFlightToolCalls(msg: ChatMessage): boolean {
+    return (
+      msg.toolCalls?.some(
+        t =>
+          t.status === 'running' ||
+          t.status === 'pending' ||
+          t.status === 'pending_approval'
+      ) ?? false
+    )
+  }
+
+  function maybeFinishGenerating(conversationId: string, messageId: string) {
+    const convId = conversationId.trim()
+    const msgId = messageId.trim()
+    if (!convId || !msgId) return
+    if (!isConversationGenerating(convId)) return
+
+    const activeId = runStateFor(convId).activeMessageId
+    if (activeId && activeId !== msgId) return
+
+    const conv = conversations.value.find(c => c.id === convId)
+    const msg = conv?.messages.find(m => m.id === msgId)
+    if (!msg || msg.role !== 'assistant') return
+    if (!msg.content.trim()) return
+    if (hasInFlightToolCalls(msg)) return
+
+    if (!activeId) {
+      const streaming = conv!.messages.filter(
+        m => m.role === 'assistant' && (m.status === 'streaming' || m.status === 'pending')
+      )
+      if (streaming.length !== 1 || streaming[0]!.id !== msgId) return
+    }
+
+    console.warn(
+      '[chat] finishing generating after assistant reply (done event missing?) conv=%s msg=%s',
+      convId,
+      msgId
+    )
+    clearRunState(convId)
+    msg.status = 'done'
+    msg.contentStreaming = false
+  }
+
+  function scheduleMaybeFinishGenerating(conversationId: string, messageId: string) {
+    const convId = conversationId.trim()
+    const msgId = messageId.trim()
+    if (!convId || !msgId) return
+    cancelGeneratingClearTimer(convId)
+    generatingClearTimers.set(
+      convId,
+      window.setTimeout(() => {
+        generatingClearTimers.delete(convId)
+        maybeFinishGenerating(convId, msgId)
+      }, 400)
+    )
   }
 
   function clearAllRunStates() {
@@ -1021,9 +1093,9 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'message_start': {
         ensureImConversation(e.conversationId)
-        const conv = conversations.value.find(c => c.id === e.conversationId)
-        if (!conv) return
         patchRunState(e.conversationId, { generating: true, activeMessageId: e.messageId })
+        const conv = conversations.value.find(c => c.id === e.conversationId)
+        if (!conv) break
         const existing = conv.messages.find(m => m.id === e.messageId)
         if (!existing) {
           conv.messages.push({
@@ -1325,6 +1397,7 @@ export const useChatStore = defineStore('chat', () => {
                 r.conv.title = firstUser.content.slice(0, 24) || '新会话'
               }
             }
+            scheduleMaybeFinishGenerating(r.conv.id, e.messageId)
           }
         }
         persistMeta()
@@ -1449,6 +1522,11 @@ export const useChatStore = defineStore('chat', () => {
               r.msg.contentStreaming = false
             }
             clearRunState(r.conv.id)
+          } else {
+            const id = currentId.value
+            if (id && isConversationGenerating(id)) {
+              clearRunState(id)
+            }
           }
         } else if (cancelled) {
           const conv = conversations.value.find(c => c.id === currentId.value)
@@ -1476,10 +1554,15 @@ export const useChatStore = defineStore('chat', () => {
         break
       }
       case 'done': {
+        const convId = e.conversationId?.trim() || currentId.value?.trim() || ''
+        if (convId) clearRunState(convId)
+        const cur = currentId.value?.trim()
+        if (cur && cur !== convId && isConversationGenerating(cur)) {
+          clearRunState(cur)
+        }
         flushReasoningDeltaBuffer()
-        clearRunState(e.conversationId)
-        ensureImConversation(e.conversationId)
-        const conv = conversations.value.find(c => c.id === e.conversationId)
+        if (convId) ensureImConversation(convId)
+        const conv = convId ? conversations.value.find(c => c.id === convId) : undefined
         if (conv) {
           normalizeInterruptedAssistantStatuses([conv])
           removeTrailingDiscardableEmptyAssistant(conv)

@@ -286,6 +286,8 @@ export interface Conversation {
   workspaceRoot?: string
   /** User explicitly picked workspaceRoot in composer (not auto sandbox). */
   workspaceUserSet?: boolean
+  /** User cleared workspace in composer; prefer session sandbox over inherit. */
+  workspaceInheritDisabled?: boolean
   /** Per-conversation lead worker when agentMode is single. */
   leadAgentId?: string
   /** Per-conversation orchestration mode. */
@@ -305,6 +307,7 @@ export type ConversationMeta = Pick<
   | 'computerMonitorId'
   | 'workspaceRoot'
   | 'workspaceUserSet'
+  | 'workspaceInheritDisabled'
   | 'leadAgentId'
   | 'agentMode'
 >

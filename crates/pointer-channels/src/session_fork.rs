@@ -35,6 +35,7 @@ pub fn fork_im_desktop_session(
         computer_monitor_id: None,
         workspace_root: String::new(),
         workspace_user_set: false,
+        workspace_inherit_disabled: false,
         lead_agent_id: lead_agent_id.clone(),
         agent_mode: agent_mode.clone(),
     })?;

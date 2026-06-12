@@ -9,7 +9,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, created_at_ms, updated_at_ms, skill_ids_json,
                 tool_rounds_used, tool_rounds_used_supervisor, computer_monitor_id, workspace_root,
-                workspace_user_set, lead_agent_id, agent_mode
+                workspace_user_set, workspace_inherit_disabled, lead_agent_id, agent_mode
          FROM conversations
          ORDER BY updated_at_ms DESC",
     )?;
@@ -25,8 +25,9 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             row.get::<_, Option<String>>(7)?,
             row.get::<_, String>(8)?,
             row.get::<_, i64>(9)? != 0,
-            row.get::<_, String>(10)?,
+            row.get::<_, i64>(10)? != 0,
             row.get::<_, String>(11)?,
+            row.get::<_, String>(12)?,
         ))
     })?;
     let mut out = Vec::new();
@@ -42,6 +43,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             computer_monitor_id,
             workspace_root,
             workspace_user_set,
+            workspace_inherit_disabled,
             lead_agent_id,
             agent_mode,
         ) = row?;
@@ -59,6 +61,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             computer_monitor_id,
             workspace_root,
             workspace_user_set,
+            workspace_inherit_disabled,
             lead_agent_id,
             agent_mode,
         });
@@ -116,8 +119,9 @@ pub fn upsert_conversation(conn: &Connection, conv: &Conversation, replace_messa
         "INSERT INTO conversations (
            id, title, created_at_ms, updated_at_ms, message_count, preview,
            skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
-           computer_monitor_id, workspace_root, workspace_user_set, lead_agent_id, agent_mode
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
+           computer_monitor_id, workspace_root, workspace_user_set, workspace_inherit_disabled,
+           lead_agent_id, agent_mode
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            created_at_ms = excluded.created_at_ms,
@@ -130,6 +134,7 @@ pub fn upsert_conversation(conn: &Connection, conv: &Conversation, replace_messa
            computer_monitor_id = excluded.computer_monitor_id,
            workspace_root = excluded.workspace_root,
            workspace_user_set = excluded.workspace_user_set,
+           workspace_inherit_disabled = excluded.workspace_inherit_disabled,
            lead_agent_id = excluded.lead_agent_id,
            agent_mode = excluded.agent_mode",
         params![
@@ -145,6 +150,7 @@ pub fn upsert_conversation(conn: &Connection, conv: &Conversation, replace_messa
             conv.computer_monitor_id,
             conv.workspace_root,
             i64::from(conv.workspace_user_set),
+            i64::from(conv.workspace_inherit_disabled),
             conv.lead_agent_id,
             conv.agent_mode,
         ],
@@ -261,6 +267,7 @@ pub fn sample_conv(id: &str, title: &str, user_text: &str) -> Conversation {
         computer_monitor_id: None,
         workspace_root: String::new(),
         workspace_user_set: false,
+        workspace_inherit_disabled: false,
         lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
         agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
     }

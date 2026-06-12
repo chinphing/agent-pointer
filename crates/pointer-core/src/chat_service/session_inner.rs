@@ -92,7 +92,7 @@ pub(super) async fn run_chat_inner(
     run_id: &str,
 ) -> Result<()> {
     // Resolve effective workspace: payload → last-active conversation → session sandbox.
-    let effective_workspace = if workspace_root.trim().is_empty() {
+    let mut effective_workspace = if workspace_root.trim().is_empty() {
         resolve_effective_workspace(conversation_id, &state).unwrap_or_else(|e| {
             log::warn!("session workspace resolution failed: {e:#}; using empty");
             String::new()
@@ -101,13 +101,21 @@ pub(super) async fn run_chat_inner(
         workspace_root.trim().to_string()
     };
 
+    effective_workspace =
+        ensure_session_sandbox_at_run_start(conversation_id, &effective_workspace)?;
+
     let _workspace_guard = ConversationWorkspaceGuard::enter(effective_workspace.clone());
     if effective_workspace.trim() != workspace_root.trim() {
         let is_ephemeral = workspace_root.trim().is_empty()
-            && crate::session_sandbox::SessionSandbox::is_sandbox(Path::new(
-                effective_workspace.trim(),
-            ))
-            .unwrap_or(false);
+            && (crate::session_sandbox::SessionSandbox::is_path_for(
+                conversation_id,
+                Path::new(effective_workspace.trim()),
+            )
+            .unwrap_or(false)
+                || crate::session_sandbox::SessionSandbox::is_sandbox(Path::new(
+                    effective_workspace.trim(),
+                ))
+                .unwrap_or(false));
         emit(
             &stream,
             StreamEvent::WorkspaceUpdated {
@@ -348,8 +356,9 @@ pub(super) async fn run_chat_inner(
 ///
 /// Desktop sessions:
 ///   1. The most recent *other* conversation's `workspace_root` (inherits last
-///      active session's directory).
-///   2. Session sandbox (`{app_data}/session-sandboxes/{conversation_id}/`).
+///      active session's directory), unless the user cleared workspace in composer.
+///   2. Session sandbox path (`{app_data}/session-sandboxes/{conversation_id}/`;
+///      directory is created on first chat run, not here).
 ///
 /// IM sessions (Feishu / DingTalk / WeCom / Weixin): always use a per-conversation
 /// session sandbox when no explicit `workspaceRoot` was stored — never inherit another
@@ -359,10 +368,21 @@ fn resolve_effective_workspace(
     _state: &AppState,
 ) -> Result<String> {
     if crate::channel_outbound::is_im_conversation(conversation_id) {
-        let sandbox = crate::session_sandbox::SessionSandbox::ensure(conversation_id)
+        let sandbox = crate::session_sandbox::SessionSandbox::path(conversation_id)
             .map(|p| p.display().to_string())?;
         log::info!(
             "resolve_effective_workspace: IM session sandbox for conversation_id={conversation_id}: {sandbox}",
+            conversation_id = conversation_id,
+            sandbox = sandbox
+        );
+        return Ok(sandbox);
+    }
+
+    if workspace_inherit_disabled(conversation_id) {
+        let sandbox = crate::session_sandbox::SessionSandbox::path(conversation_id)
+            .map(|p| p.display().to_string())?;
+        log::info!(
+            "resolve_effective_workspace: user cleared workspace; session sandbox (lazy) for conversation_id={conversation_id}: {sandbox}",
             conversation_id = conversation_id,
             sandbox = sandbox
         );
@@ -386,8 +406,8 @@ fn resolve_effective_workspace(
         }
     }
 
-    // Fallback: create a session sandbox.
-    let sandbox = crate::session_sandbox::SessionSandbox::ensure(conversation_id)
+    // Fallback: session sandbox path (lazy create on run start).
+    let sandbox = crate::session_sandbox::SessionSandbox::path(conversation_id)
         .map(|p| p.display().to_string())?;
     log::info!(
         "resolve_effective_workspace: using session sandbox for conversation_id={conversation_id}: {sandbox}",
@@ -395,4 +415,28 @@ fn resolve_effective_workspace(
         sandbox = sandbox
     );
     Ok(sandbox)
+}
+
+fn workspace_inherit_disabled(conversation_id: &str) -> bool {
+    crate::conversation_store::global_store()
+        .ok()
+        .and_then(|store| store.workspace_inherit_disabled(conversation_id).ok())
+        .unwrap_or(false)
+}
+
+/// Create the on-disk session sandbox when this run resolved to that path.
+fn ensure_session_sandbox_at_run_start(conversation_id: &str, workspace: &str) -> Result<String> {
+    let trimmed = workspace.trim();
+    if trimmed.is_empty() {
+        return Ok(workspace.to_string());
+    }
+    if crate::session_sandbox::SessionSandbox::is_path_for(conversation_id, Path::new(trimmed))? {
+        let path = crate::session_sandbox::SessionSandbox::ensure(conversation_id)?;
+        log::info!(
+            "ensure_session_sandbox_at_run_start: created session sandbox for conversation_id={conversation_id}: {}",
+            path.display()
+        );
+        return Ok(path.display().to_string());
+    }
+    Ok(workspace.to_string())
 }

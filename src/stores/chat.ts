@@ -486,6 +486,7 @@ export const useChatStore = defineStore('chat', () => {
       computerMonitorId: c.computerMonitorId,
       workspaceRoot: c.workspaceRoot,
       workspaceUserSet: c.workspaceUserSet,
+      workspaceInheritDisabled: c.workspaceInheritDisabled,
       leadAgentId: c.leadAgentId,
       agentMode: c.agentMode
     }
@@ -1237,6 +1238,7 @@ export const useChatStore = defineStore('chat', () => {
             conv.workspaceRoot = e.workspaceRoot
             if (e.isEphemeralSandbox) {
               conv.workspaceUserSet = false
+              conv.workspaceInheritDisabled = false
             }
             conv.updatedAt = Date.now()
             persistMeta()
@@ -1743,7 +1745,13 @@ export const useChatStore = defineStore('chat', () => {
     if (!current.value) return
     const trimmed = root.trim()
     current.value.workspaceRoot = root
-    current.value.workspaceUserSet = trimmed.length > 0
+    if (trimmed.length > 0) {
+      current.value.workspaceUserSet = true
+      current.value.workspaceInheritDisabled = false
+    } else {
+      current.value.workspaceUserSet = false
+      current.value.workspaceInheritDisabled = true
+    }
     persistMeta()
   }
 

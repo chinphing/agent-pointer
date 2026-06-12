@@ -305,6 +305,13 @@ pub struct Conversation {
     /// True when the user explicitly picked `workspace_root` in the composer (not auto sandbox).
     #[serde(default, rename = "workspaceUserSet", skip_serializing_if = "is_false_bool")]
     pub workspace_user_set: bool,
+    /// User cleared workspace in composer; do not inherit another session's directory.
+    #[serde(
+        default,
+        rename = "workspaceInheritDisabled",
+        skip_serializing_if = "is_false_bool"
+    )]
+    pub workspace_inherit_disabled: bool,
     /// Per-conversation lead worker when `agent_mode` is `single`.
     #[serde(
         default = "default_lead_agent_id",
@@ -359,6 +366,12 @@ pub struct ConversationMeta {
     #[serde(default, rename = "workspaceUserSet", skip_serializing_if = "is_false_bool")]
     pub workspace_user_set: bool,
     #[serde(
+        default,
+        rename = "workspaceInheritDisabled",
+        skip_serializing_if = "is_false_bool"
+    )]
+    pub workspace_inherit_disabled: bool,
+    #[serde(
         default = "default_lead_agent_id",
         rename = "leadAgentId",
         skip_serializing_if = "is_default_session_lead_agent"
@@ -385,6 +398,7 @@ impl From<&Conversation> for ConversationMeta {
             computer_monitor_id: c.computer_monitor_id.clone(),
             workspace_root: c.workspace_root.clone(),
             workspace_user_set: c.workspace_user_set,
+            workspace_inherit_disabled: c.workspace_inherit_disabled,
             lead_agent_id: c.lead_agent_id.clone(),
             agent_mode: c.agent_mode.clone(),
         }
@@ -3553,6 +3567,7 @@ mod effective_extra_body_tests {
             computer_monitor_id: None,
             workspace_root: String::new(),
             workspace_user_set: false,
+            workspace_inherit_disabled: false,
             lead_agent_id: default_lead_agent_id(),
             agent_mode: default_agent_mode(),
         };

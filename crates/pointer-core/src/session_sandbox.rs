@@ -13,6 +13,11 @@ const SANDBOXES_DIR: &str = "session-sandboxes";
 pub struct SessionSandbox;
 
 impl SessionSandbox {
+    /// Whether `path` is this conversation's sandbox directory (may not exist yet).
+    pub fn is_path_for(conversation_id: &str, path: &Path) -> Result<bool> {
+        Ok(Self::path(conversation_id)? == path)
+    }
+
     /// Return the sandbox path for `conversation_id` (no side effects, path may
     /// not exist on disk yet).
     pub fn path(conversation_id: &str) -> Result<PathBuf> {

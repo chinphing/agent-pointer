@@ -1,8 +1,8 @@
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
-    http::StatusCode,
+    http::{header, HeaderValue, StatusCode, Uri},
     response::sse::{Event, KeepAlive, Sse},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{get, post, put},
     Json, Router,
 };
@@ -45,8 +45,8 @@ use std::{
     convert::Infallible,
     env,
     net::SocketAddr,
-    path::PathBuf,
-    sync::Arc,
+    path::{PathBuf},
+    sync::{Arc, OnceLock},
     time::Duration,
 };
 use tokio::sync::{broadcast, mpsc};
@@ -208,7 +208,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/channels/:channel/:account_id/pairing/pending",
             get(list_channel_pairing_pending),
-        )
+        );
+
+    let static_dir = resolve_static_dir();
+    let app = maybe_with_static_files(app, static_dir.clone())
         .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -216,7 +219,13 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = std::env::var("POINTER_SERVER_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8787".into())
         .parse()?;
-    println!("Pointer web server listening on http://{addr}");
+    if static_dir.is_some() {
+        println!("Pointer web server listening on http://{addr} (API + static UI)");
+    } else {
+        println!(
+            "Pointer web server listening on http://{addr} (API only; run npm run server:build for integrated UI)"
+        );
+    }
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
@@ -706,6 +715,101 @@ async fn get_experience_detail(
 ) -> Result<Json<pointer_core::experiences::ExperienceDetail>, ApiError> {
     let detail = pointer_core::experiences::fetch_experience_detail(&slug).await?;
     Ok(Json(detail))
+}
+
+/// Resolve Vue production bundle directory (`dist/`).
+fn resolve_static_dir() -> Option<PathBuf> {
+    if let Ok(raw) = env::var("POINTER_SERVER_STATIC_DIR") {
+        let path = PathBuf::from(raw.trim());
+        if path.is_dir() {
+            return path.canonicalize().ok();
+        }
+        log::warn!(
+            "POINTER_SERVER_STATIC_DIR={} is not a directory; static hosting disabled",
+            path.display()
+        );
+        return None;
+    }
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(cwd) = env::current_dir() {
+        candidates.push(cwd.join("dist"));
+    }
+    if let Ok(exe) = env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidates.push(parent.join("dist"));
+            candidates.push(parent.join("../../dist"));
+        }
+    }
+
+    for candidate in candidates {
+        if let Ok(canonical) = candidate.canonicalize() {
+            if canonical.is_dir() {
+                return Some(canonical);
+            }
+        }
+    }
+    None
+}
+
+/// When `dist/` exists, serve the Vue SPA from the same process (API routes take precedence).
+fn maybe_with_static_files(api: Router<ServerState>, static_dir: Option<PathBuf>) -> Router<ServerState> {
+    let Some(dir) = static_dir else {
+        log::info!("pointer-server: no dist/ found; API-only mode");
+        return api;
+    };
+    let _ = WEB_DIST.set(dir);
+    log::info!(
+        "pointer-server: serving web UI from {}",
+        WEB_DIST.get().map(|p| p.display().to_string()).unwrap_or_default()
+    );
+    api.fallback(get(spa_fallback))
+}
+
+static WEB_DIST: OnceLock<PathBuf> = OnceLock::new();
+
+async fn spa_fallback(uri: Uri) -> Result<Response, StatusCode> {
+    let root = WEB_DIST.get().ok_or(StatusCode::NOT_FOUND)?;
+    let rel = uri.path().trim_start_matches('/');
+    let candidate = if rel.is_empty() {
+        root.join("index.html")
+    } else {
+        root.join(rel)
+    };
+    if candidate.is_file() {
+        return serve_static_file(&candidate).await;
+    }
+    serve_static_file(&root.join("index.html")).await
+}
+
+async fn serve_static_file(path: &std::path::Path) -> Result<Response, StatusCode> {
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let mut response = Response::new(bytes.into());
+    if let Ok(value) = HeaderValue::from_str(static_content_type(path)) {
+        response.headers_mut().insert(header::CONTENT_TYPE, value);
+    }
+    Ok(response)
+}
+
+fn static_content_type(path: &std::path::Path) -> &'static str {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("ico") => "image/x-icon",
+        Some("json") => "application/json; charset=utf-8",
+        Some("woff2") => "font/woff2",
+        Some("woff") => "font/woff",
+        Some("ttf") => "font/ttf",
+        Some("map") => "application/json; charset=utf-8",
+        _ => "application/octet-stream",
+    }
 }
 
 struct ApiError(anyhow::Error);

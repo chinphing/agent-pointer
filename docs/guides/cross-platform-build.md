@@ -410,9 +410,29 @@ POINTER_SERVER_LOG_DIR=/var/log/pointer npm run server:dev
 
 ### 生产构建（示意）
 
+**前后端分离**（API 与静态页分开部署）：
+
 ```bash
 npm run build                              # Vue → dist/
-cargo build -p pointer-server --release    # 二进制在 target/release/pointer-server
+cargo build -p pointer-server --release    # target/release/pointer-server
+# 静态页由 Nginx 等托管；构建时可设 VITE_WEB_API_BASE=https://api.example.com
+```
+
+**前后端一体化**（推荐：单进程同时提供 API + Web UI）：
+
+```bash
+npm run server:build    # 同域前端 + release 二进制
+npm run server:start    # 或 ./target/release/pointer-server
+```
+
+浏览器打开 `http://127.0.0.1:8787` 即可（API 与页面同端口）。
+
+`dist/` 查找顺序：`POINTER_SERVER_STATIC_DIR` → 当前目录 `dist/` → 可执行文件旁 `dist/` → `target/release/../../dist`。
+
+```bash
+POINTER_SERVER_ADDR=0.0.0.0:8787 npm run server:start
+POINTER_SERVER_STATIC_DIR=/opt/pointer/dist npm run server:start
+POINTER_SERVER_LOG_DIR=/var/log/pointer npm run server:start
 ```
 
 Web 端不提供完整电脑操控；桌面能力（`invoke`、本地存储等）仅在 Tauri 内可用。

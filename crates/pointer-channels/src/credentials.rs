@@ -1,14 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use pointer_core::local_secret;
 use serde::{de::DeserializeOwned, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
 fn creds_dir() -> Result<PathBuf> {
-    let base = dirs::data_dir().context("data dir")?;
-    let dir = base
-        .join(pointer_core::storage::APP_DATA_SUBDIR)
-        .join("channel_credentials");
+    let dir = pointer_core::storage::app_data_dir()?.join("channel_credentials");
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
     }

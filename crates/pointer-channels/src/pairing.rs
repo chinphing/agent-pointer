@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use parking_lot::Mutex;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -28,10 +28,7 @@ impl PairingStore {
     }
 
     fn dir() -> Result<PathBuf> {
-        let base = dirs::data_dir().context("data dir")?;
-        let dir = base
-            .join(pointer_core::storage::APP_DATA_SUBDIR)
-            .join("channel_pairing");
+        let dir = pointer_core::storage::app_data_dir()?.join("channel_pairing");
         if !dir.exists() {
             fs::create_dir_all(&dir)?;
         }

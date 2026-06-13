@@ -11,21 +11,62 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Once;
+use std::sync::{Once, OnceLock};
 
-/// Subfolder under the OS user data directory (`dirs::data_dir()`). Used for settings, skills, logs, computer captures, etc.
+/// Production subfolder under the OS user data directory (`dirs::data_dir()`).
 pub const APP_DATA_SUBDIR: &str = "PointerApp";
 
-const APP_DIR: &str = APP_DATA_SUBDIR;
+/// Default subfolder for debug builds (`cargo run` / `tauri dev`) so dev and release can run side by side.
+pub const APP_DATA_SUBDIR_DEV: &str = "PointerAppDev";
+
+static RESOLVED_APP_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 static LEGACY_MIGRATION_ONCE: Once = Once::new();
 
-fn data_dir() -> Result<PathBuf> {
+fn default_app_data_subdir() -> &'static str {
+    if cfg!(debug_assertions) {
+        APP_DATA_SUBDIR_DEV
+    } else {
+        APP_DATA_SUBDIR
+    }
+}
+
+fn compute_app_data_dir() -> Result<PathBuf> {
+    if let Ok(raw) = std::env::var("POINTER_APP_DATA_DIR") {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let dir = PathBuf::from(trimmed);
+            if !dir.exists() {
+                fs::create_dir_all(&dir)?;
+            }
+            log::info!("storage: using POINTER_APP_DATA_DIR={}", dir.display());
+            return Ok(dir);
+        }
+    }
+
     let base = dirs::data_dir().context("无法获取数据目录")?;
-    let dir = base.join(APP_DIR);
+    let subdir = std::env::var("POINTER_APP_DATA_SUBDIR")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| default_app_data_subdir().to_string());
+    let dir = base.join(&subdir);
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
     }
+    log::info!(
+        "storage: app data dir={} (subdir={subdir})",
+        dir.display()
+    );
+    Ok(dir)
+}
+
+fn data_dir() -> Result<PathBuf> {
+    if let Some(dir) = RESOLVED_APP_DATA_DIR.get() {
+        return Ok(dir.clone());
+    }
+    let dir = compute_app_data_dir()?;
+    let _ = RESOLVED_APP_DATA_DIR.set(dir.clone());
     Ok(dir)
 }
 

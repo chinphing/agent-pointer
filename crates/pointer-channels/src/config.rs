@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -188,12 +188,7 @@ impl ChannelsConfig {
 }
 
 fn config_path() -> Result<PathBuf> {
-    let base = dirs::data_dir().context("data dir")?;
-    let dir = base.join(pointer_core::storage::APP_DATA_SUBDIR);
-    if !dir.exists() {
-        fs::create_dir_all(&dir)?;
-    }
-    Ok(dir.join("channels_config.json"))
+    Ok(pointer_core::storage::app_data_dir()?.join("channels_config.json"))
 }
 
 fn prefer_connection_mode(channel: &str, account: &mut ChannelAccountConfig) -> bool {

@@ -87,6 +87,25 @@ npm run tauri dev
 - Tauri 桌面窗口
 - Rust 后端服务
 
+**与正式版并行运行：** Debug 构建（`tauri dev` / `cargo run`）默认使用独立数据目录 **`PointerAppDev`**，与正式安装的 **`PointerApp`** 完全隔离（对话、设置、登录态、任务板等互不影响）。三平台路径示例：
+
+| 平台 | 正式版 | 开发版 |
+|------|--------|--------|
+| **macOS** | `~/Library/Application Support/PointerApp/` | `…/PointerAppDev/` |
+| **Linux** | `$XDG_DATA_HOME/PointerApp/`（默认 `~/.local/share/PointerApp/`） | `…/PointerAppDev/` |
+| **Windows** | `%APPDATA%\PointerApp\` | `%APPDATA%\PointerAppDev\` |
+
+首次 `tauri dev` 会新建空目录，需在开发实例里重新配置模型与登录。
+
+可选环境变量（优先级从高到低）：
+
+| 变量 | 作用 |
+|------|------|
+| `POINTER_APP_DATA_DIR` | 绝对路径，完全指定数据目录 |
+| `POINTER_APP_DATA_SUBDIR` | 覆盖 `data_dir()` 下的子目录名（如 `PointerAppDev`） |
+
+Release 构建（`tauri:build` 产物）始终使用 **`PointerApp`**，除非设置了上述环境变量。
+
 ### Web 端
 
 Web 端复用同一套 Vue 界面，后端复用 `crates/pointer-core`，由 `server` crate 提供 HTTP/SSE API。

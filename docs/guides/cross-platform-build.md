@@ -485,7 +485,12 @@ src-tauri/target/release/bundle/
 
 ```bash
 npm run icons
+# 或指定源图：node scripts/generate-app-icons.mjs /path/to/logo.png
 ```
+
+从源 PNG 生成圆角图标（源图 1254px 时圆角半径 250px，透明四角），并生成各平台尺寸：
+- **Windows / Linux**：满幅，无额外留白
+- **macOS**（`icon.icns`）：四边各留 10% 透明边距
 
 生成 `32x32.png`、`128x128.png`、`128x128@2x.png`、`icon.ico`、`icon.icns` 等，并同步到 `public/`。
 

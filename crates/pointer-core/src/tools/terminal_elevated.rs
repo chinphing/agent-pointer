@@ -158,9 +158,12 @@ fn run_elevated_platform(
     fs::write(&env_path, env_json)?;
 
     let command = strip_redundant_windows_elevation(command);
-    let wrapped_command = windows_elevated_command_with_utf8(&command);
-    let proc_args_ps =
-        escape_powershell_single_quoted(&format!("/C {}", wrapped_command));
+    let cmd_line = format!(
+        "chcp 65001>nul & {command} > {} 2> {}",
+        windows_cmd_quoted_path(&out_path),
+        windows_cmd_quoted_path(&err_path),
+    );
+    let proc_args_ps = escape_powershell_single_quoted(&format!("/C {}", cmd_line));
     let work_dir_ps = escape_powershell_single_quoted(&work_dir.display().to_string());
     let out_ps = escape_powershell_single_quoted(&out_path.display().to_string());
     let err_ps = escape_powershell_single_quoted(&err_path.display().to_string());
@@ -173,20 +176,12 @@ $psi.FileName = 'cmd.exe'
 $psi.Arguments = {proc_args_ps}
 $psi.WorkingDirectory = {work_dir_ps}
 $psi.UseShellExecute = $false
-$psi.RedirectStandardOutput = $true
-$psi.RedirectStandardError = $true
 $psi.CreateNoWindow = $true
 $p = [System.Diagnostics.Process]::Start($psi)
 if ($null -eq $p) {{
   $code = 1
 }} else {{
-  $outTask = [System.Threading.Tasks.Task]::Run([Func[string]]{{ $p.StandardOutput.ReadToEnd() }})
-  $errTask = [System.Threading.Tasks.Task]::Run([Func[string]]{{ $p.StandardError.ReadToEnd() }})
   $p.WaitForExit()
-  $outText = $outTask.GetAwaiter().GetResult()
-  $errText = $errTask.GetAwaiter().GetResult()
-  [System.IO.File]::WriteAllText({out_ps}, $outText, $utf8)
-  [System.IO.File]::WriteAllText({err_ps}, $errText, $utf8)
   $code = $p.ExitCode
 }}"#
     );
@@ -499,8 +494,11 @@ fn shell_escape_single_quote(value: &str) -> String {
 }
 
 #[cfg(windows)]
-fn windows_elevated_command_with_utf8(command: &str) -> String {
-    format!("chcp 65001>nul & {command}")
+fn windows_cmd_quoted_path(path: &Path) -> String {
+    format!(
+        "\"{}\"",
+        path.display().to_string().replace('"', "")
+    )
 }
 
 #[cfg(windows)]

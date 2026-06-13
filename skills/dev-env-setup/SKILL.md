@@ -1,8 +1,9 @@
 ---
 id: dev-env-setup
 name: dev-env-setup
-description: 国内环境下安装主流开发语言（Node.js/Python/Java/Go/Rust/.NET/C/C++/Kotlin/Swift/Git）及多媒体依赖 ffmpeg。每个主题有独立安装指南，references/ 下按需读取。
+description: 国内环境下安装系统软件与主流开发语言（Node.js/Python/Java/Go/Rust/.NET/C/C++/Kotlin/Swift/Git）及多媒体依赖 ffmpeg。Windows 上所有软件安装优先 Chocolatey。每个主题有独立安装指南，references/ 下按需读取。
 resources:
+  - references/general-software.md
   - references/chocolatey-windows.md
   - references/ffmpeg.md
   - references/node-js.md
@@ -21,11 +22,13 @@ resources:
 
 ## 职责
 
-为国内用户提供主流开发语言的一站式环境安装指导。**SKILL.md 本身不包含具体安装步骤**，各语言的详细指南在 `references/` 下独立文件。
+为国内用户提供**系统软件**与**主流开发语言**的一站式安装指导。
+**SKILL.md 本身不包含具体安装步骤**，详细指南在 `references/` 下独立文件。
 
 ## 触发条件
 
 用户表达以下意图时激活：
+- "安装 xx" / "帮我装 xx 软件" / "下载 xx"
 - "安装 xx 环境" / "配置开发环境"
 - "我想学 xx，先装什么"
 - 重装系统后要搭开发机
@@ -37,16 +40,26 @@ resources:
 
 ### 第一步：确认用户需求
 
-确定用户需要的**语言/工具**、**操作系统**（macOS / Linux / Windows）和**用途**（Web 开发 / 数据分析 / 后端 / 系统编程等）。
+确定用户需要的**软件/语言/工具**、**操作系统**（macOS / Linux / Windows）和**用途**（日常办公 / Web 开发 / 数据分析 / 后端 / 系统编程等）。
 
-**Windows 通则：** 除非对应 `references/` 指南另有特别说明（例如指定唯一安装方式或明确禁用 Chocolatey），**Chocolatey 均可作为 Windows 软件安装的备选方案**——文档中的「首选 / 推荐 / 备选」以各文件为准；未提及时，可优先尝试 `choco install <包名> -y`。系统未安装 Chocolatey 时，先按 **references/chocolatey-windows.md** 安装，再装目标软件。
+**Windows 通则（最高优先级）：**
+在 Windows 上安装**任何软件**（含开发工具、浏览器、编辑器、数据库、实用工具等），**一律优先 Chocolatey**。
+流程：`choco search <关键词>` → `choco install <包名> -y`。
+系统未安装 Chocolatey 时，先按 **references/chocolatey-windows.md** 安装，再装目标软件。
+仅当 Chocolatey 无对应包、企业策略禁止、或专项指南明确禁用/指定其它方式时，才改用 winget 或官方安装包（见 **references/general-software.md**）。
 
-### 第二步：加载对应语言指南
+**macOS / Linux 通则：**
+优先使用系统包管理器（Homebrew / apt / dnf / pacman），详见 **references/general-software.md**。
 
-根据用户需求，从 `references/` 加载对应文件：
+### 第二步：加载对应指南
+
+**通用软件**（不在下表专项范围内的任意桌面/CLI 软件）→ **references/general-software.md**
+
+**开发语言与专项工具** → 对应文件：
 
 | 文件 | 语言/工具 | 覆盖内容 |
 |------|-----------|---------|
+| references/general-software.md | 通用软件 | Windows **choco 优先** / macOS Homebrew / Linux 包管理器 |
 | references/chocolatey-windows.md | Chocolatey (Windows) | 安装 Chocolatey、`choco install` 通用用法 |
 | references/node-js.md | Node.js (JS/TS) | nvm + npm + 华为镜像 |
 | references/python.md | Python | pyenv + pip + 华为镜像 |
@@ -59,3 +72,7 @@ resources:
 | references/swift.md | Swift | Xcode / Toolchain + 清华镜像 |
 | references/git.md | Git | 华为镜像下载安装 / Linux/macOS 包管理器 + 基础配置 |
 | references/ffmpeg.md | ffmpeg | macOS/Linux/Windows 安装与 PATH 验证 |
+
+### 第三步：执行安装并验证
+
+按指南用 `terminal` 执行安装命令；安装后**新开终端**，运行 `--version` 或启动应用确认成功。

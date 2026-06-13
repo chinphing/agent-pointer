@@ -37,6 +37,8 @@ const AGENT_SESSION_INJECT: &str = "SESSION_INJECT.md";
 
 /// Model-facing shared rules: host context, skills, **`thoughts`** meaning, and final-reply discipline (English).
 const COMMUNICATION_PUBLIC: &str = include_str!("_shared/COMMUNICATION_PUBLIC.md");
+/// Authoritative rules for assistant `MEDIA:` delivery (App, IM, final-reply tools, terminal output).
+const MEDIA_DELIVERY: &str = include_str!("_shared/MEDIA_DELIVERY.md");
 /// Advanced tier: `[CUR_SCREEN]` image slots, frame registry, overlay digit rules.
 const COMPUTER_VISION_SLOTS: &str =
     include_str!("computer/prompts/tiers/advanced/vision_slots.md");
@@ -55,6 +57,16 @@ const COMPUTER_OS_PROMPT_LINUX: &str = include_str!("computer/prompts/os/linux.m
 /// Injected on **every** main-LLM and sub-agent round (see `chat_service`).
 pub fn communication_public_md() -> &'static str {
     COMMUNICATION_PUBLIC.trim()
+}
+
+/// Authoritative assistant media delivery rules (injected on every main/sub-agent round).
+pub fn media_delivery_md() -> &'static str {
+    MEDIA_DELIVERY.trim()
+}
+
+pub fn rendered_media_delivery_inject() -> Option<String> {
+    let md = media_delivery_md();
+    (!md.is_empty()).then(|| md.to_string())
 }
 
 struct BuiltinAgentBundle {
@@ -1215,6 +1227,13 @@ mod builtin_agent_tests {
         let expanded = expand_agent_prompt_placeholders(&public, &vars);
         assert!(expanded.contains("/tmp/example-workspace"));
         assert!(!expanded.contains("{{workspace_root}}"));
+    }
+
+    #[test]
+    fn media_delivery_inject_non_empty() {
+        let block = rendered_media_delivery_inject().expect("media delivery inject");
+        assert!(block.contains("Delivering local media in chat"));
+        assert!(block.contains("MEDIA:"));
     }
 
     #[test]

@@ -193,7 +193,7 @@ pub fn im_session_commands_block(registry: &AgentRegistry) -> String {
             .to_string(),
     );
     lines.push(
-        "Append `MEDIA:` lines at the end for attachments (paths are not shown as raw text)."
+        "Attachment and `MEDIA:` rules: follow **Delivering local media in chat** in the shared system rules (authoritative)."
             .to_string(),
     );
     lines.push("There is no separate delivery tool — do not expect a desktop chat UI.".to_string());

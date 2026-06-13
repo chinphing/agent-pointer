@@ -1,7 +1,13 @@
 ---
 id: dev-env-setup
 name: dev-env-setup
-description: 国内环境下安装系统软件与主流开发语言（Node.js/Python/Java/Go/Rust/.NET/C/C++/Kotlin/Swift/Git）及多媒体依赖 ffmpeg。Windows 上所有软件安装优先 Chocolatey。每个主题有独立安装指南，references/ 下按需读取。
+description: >-
+  Install system software and mainstream dev stacks (Node.js, Python, Java, Go, Rust, .NET, C/C++,
+  Kotlin, Swift, Git) and multimedia deps (ffmpeg) for China-friendly setups. On Windows, prefer
+  Chocolatey for all software installs. Per-topic guides live under references/; load on demand.
+  Use when the user asks to install software or dev environments, needs ffmpeg/ffprobe, or context
+  includes <!-- pointer-media-deps --> or video processing failed. Ask for consent before installing.
+  When matched, call skill_load_instructions first; read references/ffmpeg.md for ffmpeg tasks.
 resources:
   - references/general-software.md
   - references/chocolatey-windows.md
@@ -34,13 +40,15 @@ resources:
 - 重装系统后要搭开发机
 - 国内镜像源、代理设置相关提问
 - 安装 ffmpeg / ffprobe、处理视频需要多媒体依赖
-- 上下文出现 `pointer-media-deps` 或视频处理失败提示
+- 上下文出现 `<!-- pointer-media-deps -->`、`pointer-media-deps` 或视频处理失败提示
 
 ## 工作流程
 
 ### 第一步：确认用户需求
 
 确定用户需要的**软件/语言/工具**、**操作系统**（macOS / Linux / Windows）和**用途**（日常办公 / Web 开发 / 数据分析 / 后端 / 系统编程等）。
+
+**安装前须征得用户同意**，说明将要执行的命令与影响（含 sudo / UAC / 管理员权限）。
 
 **Windows 通则（最高优先级）：**
 在 Windows 上安装**任何软件**（含开发工具、浏览器、编辑器、数据库、实用工具等），**一律优先 Chocolatey**。

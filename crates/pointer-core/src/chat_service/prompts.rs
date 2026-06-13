@@ -1,7 +1,8 @@
 use crate::agents::computer::ComputerState;
 use crate::agents::{
     computer_agent_body_for_tier, computer_communication_for_tier, expand_agent_prompt_placeholders,
-    rendered_communication_public_inject, AgentProfile, SessionInjectVars,
+    rendered_communication_public_inject, rendered_media_delivery_inject, AgentProfile,
+    SessionInjectVars,
 };
 
 /// Cacheable lead role prompts: `COMMUNICATION_PUBLIC` + computer tier slice, or non-computer system prompts.
@@ -16,6 +17,9 @@ pub(crate) fn push_agent_role_cacheable_prompts(
 ) {
     if let Some(block) = rendered_communication_public_inject() {
         cacheable.push(expand_agent_prompt_placeholders(&block, session_vars));
+    }
+    if let Some(block) = rendered_media_delivery_inject() {
+        cacheable.push(block);
     }
     if *profile == AgentProfile::Computer {
         let tier = computer_state.tier_for_conversation(conversation_id);

@@ -52,7 +52,6 @@ Use when you need the shell for builds, checks, tests, directory listings, or ot
 - With **`elevated`: true**, do **not** prefix the command with **`sudo`**, **`pkexec`**, or Windows **`Start-Process -Verb RunAs`** — the host elevates once. Combine multiple admin steps in **one** call with **`&&`** (e.g. `apt update && apt install -y pkg`) instead of several separate **`elevated`** calls; **each** elevated call triggers a **new** OS password / UAC prompt.
 - **Default user env:** When **`envFiles`** is omitted, the host loads the app data directory **`.env`** (see **App data directory** in session context) if that file exists. Users store personal / cross-project vars there (e.g. API keys).
 - **Project env:** When a command needs workspace-specific vars, pass **`envFiles`** with paths to project `.env` files. Loaded vars apply to the **child shell only** (non-`PATH` keys override inherited values; `PATH` is prepended before inherited `PATH`). Later entries in **`envFiles`** override earlier ones. Paths may be absolute or relative to **`cwd`** (or the workspace root when **`cwd`** is omitted).
-
 The result includes `stdout`, `stderr`, exit code, timing, truncation flags, **`envFiles`** (resolved paths that were loaded), and **`cancelled`** when the host stopped the turn; it may set **`runAborted`: true** when only this command was stopped and the turn continues—treat that as an interrupted run, not a full turn cancel. When replying, summarize only output relevant to the task.
 
 #### Timeouts

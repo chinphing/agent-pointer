@@ -1,12 +1,13 @@
 ---
 name: pointer-manager
 description: >-
-  Pointer 应用内设置与本地数据目录管理：IM 通道对接、智能体选项、平台登录；
-  以及 PointerApp 数据目录说明、日志查看与清理、调试产物管理。
-  可用 Computer 代操作设置界面；数据目录任务用 file/terminal 在用户授权下处理。
-  Use when user says Pointer设置, 对接微信/飞书/企微/钉钉, 数据目录, 日志在哪,
-  清理日志, Application Support PointerApp, 应用数据, pointer-manager—not generic
-  WeChat Open Platform or unrelated app config advice.
+  Pointer in-app settings and local data directory: IM channel setup (WeChat, Feishu, WeCom,
+  DingTalk), agent options, platform login; PointerApp data directory, logs, debug artifacts.
+  Use Computer for settings UI; file/terminal for directory tasks with user consent.
+  Use when the user mentions Pointer settings, connect/configure IM channels, data directory,
+  log location, clear logs, Application Support PointerApp, pointer-manager—not generic WeChat
+  Open Platform or unrelated app config.
+  When matched, call skill_load_instructions first; do not answer from the skills index alone.
 tags:
   - pointer
   - wechat

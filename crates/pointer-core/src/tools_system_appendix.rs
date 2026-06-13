@@ -126,4 +126,10 @@ mod tests {
 
         assert_eq!(appendix.matches("Same body.").count(), 2);
     }
+
+    #[test]
+    fn empty_when_no_tools_enabled() {
+        let reg = ToolRegistry::new();
+        assert!(generate_tools_system_appendix(&reg, &[]).is_empty());
+    }
 }

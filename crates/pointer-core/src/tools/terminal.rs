@@ -54,7 +54,7 @@ pub(crate) fn effective_terminal_cwd(
     session_workspace: &str,
 ) -> Result<PathBuf> {
     if let Some(path) = explicit {
-        return Ok(path.canonicalize().unwrap_or(path));
+        return Ok(normalize_terminal_cwd(path.canonicalize().unwrap_or(path)));
     }
     let trimmed = session_workspace.trim();
     if !trimmed.is_empty() {
@@ -64,9 +64,35 @@ pub(crate) fn effective_terminal_cwd(
         }
         return p
             .canonicalize()
+            .map(normalize_terminal_cwd)
             .map_err(|e| anyhow!("无法解析工作区路径: {e}"));
     }
-    std::env::current_dir().map_err(|e| anyhow!("无法获取当前目录: {e}"))
+    Ok(normalize_terminal_cwd(
+        std::env::current_dir().map_err(|e| anyhow!("无法获取当前目录: {e}"))?,
+    ))
+}
+
+/// `canonicalize()` on Windows may return extended-length paths (`\\?\C:\...`).
+/// `cmd.exe` rejects those as `WorkingDirectory` — strip before spawning shells.
+#[cfg(windows)]
+fn normalize_terminal_cwd(path: PathBuf) -> PathBuf {
+    PathBuf::from(strip_windows_extended_path_prefix(path.display().to_string()))
+}
+
+#[cfg(not(windows))]
+fn normalize_terminal_cwd(path: PathBuf) -> PathBuf {
+    path
+}
+
+#[cfg(windows)]
+pub(crate) fn strip_windows_extended_path_prefix(path: String) -> String {
+    const UNC_PREFIX: &str = "\\\\?\\UNC\\";
+    if let Some(rest) = path.strip_prefix(UNC_PREFIX) {
+        return format!("\\\\{rest}");
+    }
+    path.strip_prefix("\\\\?\\")
+        .map(str::to_string)
+        .unwrap_or(path)
 }
 
 /// 超时或需要强制结束时：在 Windows 上仅 `Child::kill` 往往只杀掉 shell（如 PowerShell），
@@ -502,7 +528,10 @@ mod cwd_tests {
         let resolved = std::thread::spawn(move || effective_terminal_cwd(None, &ws).unwrap())
             .join()
             .unwrap();
-        assert_eq!(resolved, dir.path().canonicalize().unwrap());
+        let expected = dir.path().canonicalize().unwrap();
+        #[cfg(windows)]
+        let expected = normalize_terminal_cwd(expected);
+        assert_eq!(resolved, expected);
     }
 }
 
@@ -531,5 +560,21 @@ mod tests {
         assert!(!windows_command_uses_explicit_shell("python --version"));
         assert!(!windows_command_uses_explicit_shell("npm run build"));
         assert!(!windows_command_uses_explicit_shell("git status"));
+    }
+
+    #[test]
+    fn strip_windows_extended_path_prefix_removes_verbatim() {
+        assert_eq!(
+            strip_windows_extended_path_prefix("\\\\?\\C:\\project\\pointer-app".to_string()),
+            "C:\\project\\pointer-app"
+        );
+        assert_eq!(
+            strip_windows_extended_path_prefix("\\\\?\\UNC\\server\\share\\repo".to_string()),
+            "\\\\server\\share\\repo"
+        );
+        assert_eq!(
+            strip_windows_extended_path_prefix("C:\\already\\normal".to_string()),
+            "C:\\already\\normal"
+        );
     }
 }

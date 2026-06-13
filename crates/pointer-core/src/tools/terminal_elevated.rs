@@ -138,8 +138,6 @@ fn run_elevated_platform(
     _wall_cap_ms: u64,
     on_output: &impl Fn(&str),
 ) -> Result<ElevatedPlatformResult> {
-    use super::terminal::windows_command_uses_explicit_shell;
-
     let work_dir = cwd
         .map(|p| p.to_path_buf())
         .ok_or_else(|| anyhow!("无法确定工作目录"))?;
@@ -161,19 +159,8 @@ fn run_elevated_platform(
 
     let command = strip_redundant_windows_elevation(command);
     let wrapped_command = windows_elevated_command_with_utf8(&command);
-    let proc_exe = if windows_command_uses_explicit_shell(&command) {
-        "cmd.exe"
-    } else {
-        "powershell.exe"
-    };
-    let proc_args_ps = if windows_command_uses_explicit_shell(&command) {
-        escape_powershell_single_quoted(&format!("/C {}", wrapped_command))
-    } else {
-        escape_powershell_single_quoted(&format!(
-            "-ExecutionPolicy Bypass -NoProfile -Command {}",
-            wrapped_command
-        ))
-    };
+    let proc_args_ps =
+        escape_powershell_single_quoted(&format!("/C {}", wrapped_command));
     let work_dir_ps = escape_powershell_single_quoted(&work_dir.display().to_string());
     let out_ps = escape_powershell_single_quoted(&out_path.display().to_string());
     let err_ps = escape_powershell_single_quoted(&err_path.display().to_string());
@@ -182,22 +169,22 @@ fn run_elevated_platform(
 
     let run_block = format!(
         r#"$psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName = '{proc_exe}'
+$psi.FileName = 'cmd.exe'
 $psi.Arguments = {proc_args_ps}
 $psi.WorkingDirectory = {work_dir_ps}
 $psi.UseShellExecute = $false
 $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
-$psi.StandardOutputEncoding = $utf8
-$psi.StandardErrorEncoding = $utf8
 $psi.CreateNoWindow = $true
 $p = [System.Diagnostics.Process]::Start($psi)
 if ($null -eq $p) {{
   $code = 1
 }} else {{
-  $outText = $p.StandardOutput.ReadToEnd()
-  $errText = $p.StandardError.ReadToEnd()
+  $outTask = [System.Threading.Tasks.Task]::Run([Func[string]]{{ $p.StandardOutput.ReadToEnd() }})
+  $errTask = [System.Threading.Tasks.Task]::Run([Func[string]]{{ $p.StandardError.ReadToEnd() }})
   $p.WaitForExit()
+  $outText = $outTask.GetAwaiter().GetResult()
+  $errText = $errTask.GetAwaiter().GetResult()
   [System.IO.File]::WriteAllText({out_ps}, $outText, $utf8)
   [System.IO.File]::WriteAllText({err_ps}, $errText, $utf8)
   $code = $p.ExitCode
@@ -216,7 +203,11 @@ try {{
   {run_block}
   if ($null -eq $code) {{ $code = 0 }}
 }} catch {{
-  [System.IO.File]::AppendAllText({err_ps}, $_.ToString(), $utf8)
+  $errMsg = $null
+  try {{ $errMsg = $_.Exception.Message }} catch {{}}
+  if ($errMsg) {{
+    [System.IO.File]::AppendAllText({err_ps}, ($errMsg + "`r`n"), $utf8)
+  }}
   $code = 1
 }}
 Set-Content -LiteralPath {exit_ps} -Value $code -NoNewline -Encoding ascii
@@ -509,14 +500,7 @@ fn shell_escape_single_quote(value: &str) -> String {
 
 #[cfg(windows)]
 fn windows_elevated_command_with_utf8(command: &str) -> String {
-    use super::terminal::windows_command_uses_explicit_shell;
-    if windows_command_uses_explicit_shell(command) {
-        format!("chcp 65001>nul & {command}")
-    } else {
-        format!(
-            "chcp 65001 | Out-Null; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $OutputEncoding = [Text.UTF8Encoding]::new($false); {command}"
-        )
-    }
+    format!("chcp 65001>nul & {command}")
 }
 
 #[cfg(windows)]

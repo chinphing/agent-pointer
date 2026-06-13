@@ -22,9 +22,9 @@ The `terminal` tool picks the Windows wrapper from the model-supplied **`command
 
 | Command prefix | Host behavior |
 |----------------|---------------|
-| (none) | `powershell -ExecutionPolicy Bypass -Command` (profile loaded) |
-| `cmd` / `cmd.exe` | **Direct** `cmd.exe /C <script>` — no outer `cmd /C` wrapper (avoids `%PATH%` expansion breaking nested `/c`) |
-| `powershell` / `pwsh` | **Direct** `powershell.exe` / `pwsh.exe` with parsed argv — no outer `cmd /C` |
+| (none) | `powershell -ExecutionPolicy Bypass -Command` (profile loaded); UTF-8 `OutputEncoding` preamble on the command |
+| `cmd` / `cmd.exe` | **Direct** `cmd.exe /C <script>` — no outer `cmd /C` wrapper; script prefixed with `chcp 65001>nul &` |
+| `powershell` / `pwsh` | **Direct** `powershell.exe` / `pwsh.exe` with parsed argv — no outer `cmd /C`; `-Command` / `-c` body gets UTF-8 preamble |
 
 Prompt: `tools/prompts/terminal.md` tells the model to prefix **`cmd.exe /c "…"`** when CMD semantics are needed. Profile-only PATH hooks still require registry/`Path`, startup merge, or `{app_data_dir}/.env`.
 
@@ -58,7 +58,7 @@ When the model passes **`elevated`: true** on a `terminal` tool call:
    - **Linux** — `pkexec sh -lc …` (requires polkit).
 3. Live stdout/stderr streaming is **not** available; output is returned when the elevated process exits. The result JSON may include **`elevationDenied`** if the user declines the OS prompt.
 4. **Environment** matches non-elevated runs (same `build_terminal_child_environment` map). Windows elevated PowerShell still uses `-NoProfile`; Unix elevated shells do not load login profiles — only explicit env injection + system defaults for keys not in the Pointer process.
-5. **Windows elevated encoding** — child commands are prefixed with `chcp 65001`; stdout/stderr capture files are written as **UTF-8 (no BOM)**. Non-elevated Windows `terminal` is unchanged (system default code page).
+5. **Windows encoding** — non-elevated runs: default PowerShell wrapper and explicit `-Command` / `-c` get a UTF-8 `OutputEncoding` preamble; `cmd.exe` scripts get `chcp 65001>nul &`. Elevated runs prefix `chcp 65001` on the child command; stdout/stderr capture files are written as **UTF-8 (no BOM)**.
 6. **Windows `cwd`** — `canonicalize()` may yield `\\?\` extended paths; `terminal` strips that prefix before setting child / elevated `WorkingDirectory` so `cmd.exe` does not emit UNC cwd warnings.
 
 Implementation: `crates/pointer-core/src/tools/terminal_elevated.rs`, wired from `tools/terminal.rs`.

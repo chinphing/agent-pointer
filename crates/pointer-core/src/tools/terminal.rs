@@ -542,28 +542,75 @@ pub(crate) fn windows_command_uses_explicit_shell(command: &str) -> bool {
     PREFIXES.iter().any(|p| lower.starts_with(p))
 }
 
+/// PowerShell preamble so child stdout/stderr use UTF-8 instead of the system OEM code page.
+#[cfg(windows)]
+const POWERSHELL_UTF8_PREAMBLE: &str =
+    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [System.Text.UTF8Encoding]::new($false); ";
+
+#[cfg(windows)]
+fn command_already_sets_utf8(command: &str) -> bool {
+    let lower = command.to_ascii_lowercase();
+    lower.contains("outputencoding")
+        || lower.contains("utf8encoding")
+        || lower.starts_with("chcp ")
+        || lower.contains("chcp 65001")
+}
+
+#[cfg(windows)]
+fn wrap_windows_powershell_command(command: &str) -> String {
+    if command_already_sets_utf8(command) {
+        return command.to_string();
+    }
+    format!("{POWERSHELL_UTF8_PREAMBLE}{command}")
+}
+
+#[cfg(windows)]
+fn prefix_cmd_utf8_codepage(script: &str) -> String {
+    if command_already_sets_utf8(script) {
+        return script.to_string();
+    }
+    format!("chcp 65001>nul & {script}")
+}
+
+/// When the model passes `-Command` / `-c`, prepend UTF-8 encoding setup to that argument.
+#[cfg(windows)]
+fn wrap_powershell_args_with_utf8(mut args: Vec<String>) -> Vec<String> {
+    let mut i = 0;
+    while i < args.len() {
+        let flag = args[i].to_ascii_lowercase();
+        if flag == "-command" || flag == "-c" {
+            if let Some(cmd) = args.get_mut(i + 1) {
+                *cmd = wrap_windows_powershell_command(cmd);
+            }
+            break;
+        }
+        i += 1;
+    }
+    args
+}
+
 #[cfg(windows)]
 fn terminal_shell_command(command: &str) -> (&'static str, Command) {
     if let Some((flag, script)) = parse_direct_cmd_invocation(command) {
         let mut cmd = Command::new("cmd.exe");
-        cmd.arg(flag).arg(script);
+        cmd.arg(flag).arg(prefix_cmd_utf8_codepage(&script));
         return ("cmd.exe (direct /C)", cmd);
     }
     if let Some((exe, args)) = parse_direct_powershell_invocation(command) {
         let mut cmd = Command::new(exe);
-        cmd.args(args);
+        cmd.args(wrap_powershell_args_with_utf8(args));
         return ("powershell (direct)", cmd);
     }
     if windows_command_uses_explicit_shell(command) {
         let mut cmd = Command::new("cmd.exe");
-        cmd.arg("/C").arg(command);
+        cmd.arg("/C").arg(prefix_cmd_utf8_codepage(command));
         return ("cmd.exe /C (explicit shell fallback)", cmd);
     }
     let mut cmd = Command::new("powershell");
     cmd.arg("-ExecutionPolicy")
         .arg("Bypass")
         .arg("-Command")
-        .arg(command);
+        .arg(wrap_windows_powershell_command(command));
     (
         "powershell -ExecutionPolicy Bypass -Command",
         cmd,
@@ -732,6 +779,44 @@ mod tests {
         assert!(!windows_command_uses_explicit_shell("python --version"));
         assert!(!windows_command_uses_explicit_shell("npm run build"));
         assert!(!windows_command_uses_explicit_shell("git status"));
+    }
+
+    #[test]
+    fn wrap_windows_powershell_command_prepends_utf8_preamble() {
+        let wrapped = wrap_windows_powershell_command("lark-cli config init --new");
+        assert!(wrapped.starts_with(POWERSHELL_UTF8_PREAMBLE));
+        assert!(wrapped.ends_with("lark-cli config init --new"));
+    }
+
+    #[test]
+    fn wrap_windows_powershell_command_skips_when_already_set() {
+        let cmd = "$OutputEncoding = [System.Text.UTF8Encoding]::new($false); foo";
+        assert_eq!(wrap_windows_powershell_command(cmd), cmd);
+    }
+
+    #[test]
+    fn prefix_cmd_utf8_codepage_prepends_chcp() {
+        assert_eq!(
+            prefix_cmd_utf8_codepage("echo %PATH%"),
+            "chcp 65001>nul & echo %PATH%"
+        );
+    }
+
+    #[test]
+    fn prefix_cmd_utf8_codepage_skips_when_already_set() {
+        let script = "chcp 65001>nul & dir";
+        assert_eq!(prefix_cmd_utf8_codepage(script), script);
+    }
+
+    #[test]
+    fn wrap_powershell_args_with_utf8_wraps_command_flag() {
+        let args = wrap_powershell_args_with_utf8(vec![
+            "-NoProfile".to_string(),
+            "-Command".to_string(),
+            "choco -v".to_string(),
+        ]);
+        assert!(args[2].starts_with(POWERSHELL_UTF8_PREAMBLE));
+        assert!(args[2].ends_with("choco -v"));
     }
 
     #[test]

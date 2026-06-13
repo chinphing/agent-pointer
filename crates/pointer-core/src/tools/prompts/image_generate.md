@@ -44,7 +44,7 @@ Change provider/model in **Settings → 图片生成**, not in tool args.
 
 ## Output
 
-Returns `MEDIA:<local-path>` lines. This is a **final-reply** tool — on success the host delivers images automatically (see **Delivering local media in chat** in shared system rules).
+Returns `MEDIA:<local-path>` lines. This is a **final-reply** tool — on success the host delivers images automatically (see **Delivering local files in chat** in shared system rules).
 
 ## Billing
 

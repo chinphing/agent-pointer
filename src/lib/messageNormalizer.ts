@@ -41,6 +41,23 @@ function fileNameFromPath(path: string): string {
   return parts[parts.length - 1] || 'attachment'
 }
 
+function stripFileUri(raw: string): string | undefined {
+  const trimmed = raw.trim()
+  if (!trimmed.toLowerCase().startsWith('file://')) return undefined
+  const rest = trimmed.slice(7).trim()
+  if (!rest) return undefined
+  if (rest.startsWith('/')) {
+    const without = rest.replace(/^\/+/, '')
+    if (/^[A-Za-z]:/.test(without)) return without.replace(/\\/g, '/')
+    return rest
+  }
+  return rest.replace(/\\/g, '/')
+}
+
+function normalizeMediaPath(path: string): string {
+  return stripFileUri(path) ?? path.trim()
+}
+
 function mimeFromFileName(fileName: string): string {
   const ext = fileName.split('.').pop()?.toLowerCase() ?? ''
   if (ext === 'png') return 'image/png'
@@ -48,6 +65,10 @@ function mimeFromFileName(fileName: string): string {
   if (ext === 'gif') return 'image/gif'
   if (ext === 'webp') return 'image/webp'
   if (ext === 'pdf') return 'application/pdf'
+  if (ext === 'html' || ext === 'htm') return 'text/html'
+  if (ext === 'json') return 'application/json'
+  if (ext === 'csv') return 'text/csv'
+  if (ext === 'txt' || ext === 'md') return 'text/plain'
   if (ext === 'mp4' || ext === 'm4v') return 'video/mp4'
   if (ext === 'webm') return 'video/webm'
   if (ext === 'mov') return 'video/quicktime'
@@ -63,7 +84,7 @@ function kindFromFileName(fileName: string): MediaAttachmentKind {
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) return 'image'
   if (['mp4', 'webm', 'mov', 'mkv'].includes(ext)) return 'video'
   if (['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'].includes(ext)) return 'audio'
-  if (['pdf', 'txt', 'md', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'document'
+  if (['pdf', 'txt', 'md', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'html', 'htm', 'json', 'csv'].includes(ext)) return 'document'
   return 'file'
 }
 
@@ -123,15 +144,18 @@ export function userMessageDisplayContent(message: ChatMessage): string {
 
 function isUserFilesystemPath(path: string): boolean {
   const t = path.trim()
-  return t === '~' || t.startsWith('~/') || t.startsWith('~\\') ||
-    path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)
+  if (stripFileUri(t)) return true
+  if (t === '~' || t.startsWith('~/') || t.startsWith('~\\')) return true
+  if (/^[A-Za-z]:[\\/]/.test(t)) return true
+  return path.startsWith('/')
 }
 
 function renderableFromMediaPath(path: string, index: number): RenderableAttachment {
-  const fileName = fileNameFromPath(path)
-  const isFs = isUserFilesystemPath(path)
-  const storageRelPath = !isFs && path.includes('/') ? path : undefined
-  const localAbsPath = isFs ? path : undefined
+  const normalized = normalizeMediaPath(path)
+  const fileName = fileNameFromPath(normalized)
+  const isFs = isUserFilesystemPath(normalized)
+  const storageRelPath = !isFs && normalized.includes('/') ? normalized : undefined
+  const localAbsPath = isFs ? normalized : undefined
   return {
     id: `reply-media-draft-${index}`,
     kind: kindFromFileName(fileName),
@@ -139,7 +163,7 @@ function renderableFromMediaPath(path: string, index: number): RenderableAttachm
     mimeType: mimeFromFileName(fileName),
     storageRelPath,
     localAbsPath,
-    mediaRef: path
+    mediaRef: normalized
   }
 }
 

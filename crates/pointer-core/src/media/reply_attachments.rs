@@ -6,8 +6,8 @@ use uuid::Uuid;
 
 use crate::models::MediaAttachment;
 
-use super::access::is_user_filesystem_path;
 use super::path_hint::MEDIA_URI_SCHEME;
+use super::access::{is_user_filesystem_path, strip_file_uri};
 
 pub fn attachments_from_reply_paths(paths: &[String]) -> Vec<MediaAttachment> {
     paths
@@ -22,10 +22,11 @@ fn attachment_from_media_ref(raw: &str) -> Option<MediaAttachment> {
         return None;
     }
 
-    let rel = trimmed
+    let normalized = strip_file_uri(trimmed).unwrap_or_else(|| trimmed.to_string());
+    let rel = normalized
         .strip_prefix(MEDIA_URI_SCHEME)
         .map(str::trim)
-        .unwrap_or(trimmed);
+        .unwrap_or(normalized.as_str());
 
     let (storage_rel_path, local_abs_path) = classify_media_ref(rel);
     let file_name = file_name_from_ref(rel, local_abs_path.as_deref());
@@ -80,9 +81,9 @@ fn kind_from_file_name(file_name: &str) -> String {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" => "image".into(),
         "mp4" | "webm" | "mov" | "mkv" => "video".into(),
         "mp3" | "wav" | "m4a" | "aac" | "ogg" | "flac" => "audio".into(),
-        "pdf" | "txt" | "md" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" => {
-            "document".into()
-        }
+        "pdf" | "txt" | "md" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "html"
+        | "htm" | "json" | "csv" | "xml" | "yaml" | "yml" => "document".into(),
+        "zip" | "tar" | "gz" | "7z" | "rar" => "file".into(),
         _ => "file".into(),
     }
 }
@@ -99,6 +100,10 @@ fn mime_from_file_name(file_name: &str) -> String {
         Some("gif") => "image/gif".into(),
         Some("webp") => "image/webp".into(),
         Some("pdf") => "application/pdf".into(),
+        Some("html") | Some("htm") => "text/html".into(),
+        Some("json") => "application/json".into(),
+        Some("csv") => "text/csv".into(),
+        Some("txt") | Some("md") => "text/plain".into(),
         Some("mp4") => "video/mp4".into(),
         Some("mp3") => "audio/mpeg".into(),
         _ => "application/octet-stream".into(),
@@ -122,6 +127,25 @@ mod tests {
         let atts = attachments_from_reply_paths(&["conv-id/att.png".into()]);
         assert_eq!(atts.len(), 1);
         assert_eq!(atts[0].storage_rel_path.as_deref(), Some("conv-id/att.png"));
+    }
+
+    #[test]
+    fn html_path_becomes_document_attachment() {
+        let atts = attachments_from_reply_paths(&["/tmp/minesweeper.html".into()]);
+        assert_eq!(atts.len(), 1);
+        assert_eq!(atts[0].kind, "document");
+        assert_eq!(atts[0].mime_type, "text/html");
+    }
+
+    #[test]
+    fn file_uri_normalizes_to_local_abs_path() {
+        let atts =
+            attachments_from_reply_paths(&["file:///C:/Users/me/game.html".into()]);
+        assert_eq!(atts.len(), 1);
+        assert_eq!(
+            atts[0].local_abs_path.as_deref(),
+            Some("C:/Users/me/game.html")
+        );
     }
 
     #[test]

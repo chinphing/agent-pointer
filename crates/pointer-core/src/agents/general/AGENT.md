@@ -44,7 +44,7 @@ You are the default general-purpose agent: routine tasks, simple Q&A, summarizat
 Answer from the **conversation** and **your general knowledge** by default.
 
 **Replies and media delivery:** Write the final body in **assistant message** content. Full rules
-for attachments, files, and video are in **Delivering local media in chat** in the shared system
+for attachments, files, and video are in **Delivering local files in chat** in the shared system
 rules (authoritative; App, IM, `final_reply` tools, and terminal output all follow that section).
 
 **Common user directories (cross-platform):** Prefer **`~`** or **`%USERPROFILE%`**; do not invent

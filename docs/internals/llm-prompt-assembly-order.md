@@ -24,7 +24,7 @@
 | 分区 | 顺序 | 内容 | 稳定性 |
 |------|------|------|--------|
 | **cacheable** | 1 | **公共 COMMUNICATION** | `rendered_communication_public_inject()` | 固定 |
-| | 2 | **媒体交付（`MEDIA:`）** | `rendered_media_delivery_inject()` → [`agents/_shared/MEDIA_DELIVERY.md`](../../crates/pointer-core/src/agents/_shared/MEDIA_DELIVERY.md) | 固定 |
+| | 2 | **文件交付（`MEDIA:`）** | `rendered_media_delivery_inject()` → [`agents/_shared/MEDIA_DELIVERY.md`](../../crates/pointer-core/src/agents/_shared/MEDIA_DELIVERY.md) | 固定 |
 | | 3 | **Agent 系统提示**：Computer 为 **tier** communication + loop（`push_agent_role_cacheable_prompts`，主轮与子 Agent 共用）；非 Computer 为 `AGENT.md` + profile 通信；子 Agent 另在步骤 3 后追加短 **sub_agent_header** + **skills** | `agent_plan.system_prompts` / tier 运行时 | 会话内固定（`{{workspace_root}}` 随工作区变） |
 | | 4 | **工具系统附录** | `generate_tools_system_appendix` | 工具集不变则固定；同一 `ToolEntry::doc_source`（提示词 `.md` 路径）只输出一次 |
 | | 5 | **`[Environment]`**（OS、locale、**日历日期**） | `push_env_to_cacheable` | 按自然日变，**非每轮** |

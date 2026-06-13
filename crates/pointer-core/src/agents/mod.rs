@@ -1232,7 +1232,7 @@ mod builtin_agent_tests {
     #[test]
     fn media_delivery_inject_non_empty() {
         let block = rendered_media_delivery_inject().expect("media delivery inject");
-        assert!(block.contains("Delivering local media in chat"));
+        assert!(block.contains("Delivering local files in chat"));
         assert!(block.contains("MEDIA:"));
     }
 

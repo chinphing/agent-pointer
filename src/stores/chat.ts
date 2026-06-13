@@ -56,7 +56,12 @@ interface TerminalLiveTrack {
   traceId?: string
   command: string
   delayTimer: ReturnType<typeof setTimeout> | null
+  delayElapsed: boolean
   dismissed: boolean
+}
+
+function hasTerminalLiveOutput(output?: string): boolean {
+  return (output ?? '').trim().length > 0
 }
 
 export interface ConversationTaskBoardState {
@@ -644,9 +649,37 @@ export const useChatStore = defineStore('chat', () => {
     if (terminalLiveTrack) terminalLiveTrack.dismissed = true
   }
 
+  function tryShowTerminalLivePopup(messageId: string, toolCallId: string, traceId?: string) {
+    const track = terminalLiveTrack
+    if (!track || track.dismissed || !track.delayElapsed) return
+    if (
+      terminalLiveKey(messageId, toolCallId, traceId) !== terminalLiveKey(
+        track.messageId,
+        track.toolCallId,
+        track.traceId
+      )
+    ) {
+      return
+    }
+    if (terminalLivePopup.value) return
+    const current = resolveToolCall(messageId, toolCallId, traceId)
+    if (!current || current.status !== 'running') return
+    if (!hasTerminalLiveOutput(current.terminalOutput)) return
+    terminalLivePopup.value = {
+      messageId,
+      toolCallId,
+      traceId: traceId?.trim() || undefined,
+      command: track.command,
+      output: current.terminalOutput ?? ''
+    }
+  }
+
   function syncTerminalLivePopupOutput(messageId: string, toolCallId: string, traceId?: string) {
     const popup = terminalLivePopup.value
-    if (!popup) return
+    if (!popup) {
+      tryShowTerminalLivePopup(messageId, toolCallId, traceId)
+      return
+    }
     if (terminalLiveKey(messageId, toolCallId, traceId) !== terminalLiveKey(
       popup.messageId,
       popup.toolCallId,
@@ -681,6 +714,7 @@ export const useChatStore = defineStore('chat', () => {
       traceId: traceId?.trim() || undefined,
       command: parseTerminalCommandFromArgs(tc.arguments),
       delayTimer: null,
+      delayElapsed: false,
       dismissed: false
     }
     terminalLiveTrack = track
@@ -696,16 +730,9 @@ export const useChatStore = defineStore('chat', () => {
       ) {
         return
       }
-      const current = resolveToolCall(messageId, toolCallId, traceId)
-      if (!current || current.status !== 'running') return
       if (terminalLiveTrack.dismissed) return
-      terminalLivePopup.value = {
-        messageId,
-        toolCallId,
-        traceId: traceId?.trim() || undefined,
-        command: track.command,
-        output: current.terminalOutput ?? ''
-      }
+      terminalLiveTrack.delayElapsed = true
+      tryShowTerminalLivePopup(messageId, toolCallId, traceId)
     }, TERMINAL_LIVE_DELAY_MS)
   }
 

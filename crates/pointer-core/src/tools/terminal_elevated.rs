@@ -3,7 +3,9 @@ use super::terminal::{
     TerminalStreamingResult,
 };
 use crate::dotenv::build_terminal_child_environment;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
+#[cfg(unix)]
+use anyhow::Context;
 use log::info;
 #[cfg(unix)]
 use log::warn;

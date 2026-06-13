@@ -1,5 +1,6 @@
-import type { AgentMode, ChatMessage } from '../types/chat'
+import type { AgentMode, AgentTrace, ChatMessage } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
+import { subAgentIdFromTraceId } from './subAgentStats'
 import { toolCallBaseName } from './messageTooling'
 
 const COMPUTER_TOOL_BASES = new Set([
@@ -30,6 +31,12 @@ export function isComputerToolName(name: string): boolean {
   return isComputerToolBase(toolCallBaseName(name))
 }
 
+/** Lead trace id is `computer`; delegated traces use `{taskId}:computer`. */
+export function isComputerAgentTrace(trace: Pick<AgentTrace, 'id'>): boolean {
+  const agentId = subAgentIdFromTraceId(trace.id)
+  return (agentId || trace.id.trim()) === 'computer'
+}
+
 function toolInProgress(status: string): boolean {
   return status === 'running' || status === 'pending' || status === 'pending_approval'
 }
@@ -40,7 +47,7 @@ function messageHasInProgressComputerTool(message: ChatMessage): boolean {
   )
   if (onMessage) return true
   for (const trace of message.agentTrace ?? []) {
-    if (trace.id !== 'computer') continue
+    if (!isComputerAgentTrace(trace)) continue
     const calls = trace.session?.toolCalls ?? []
     if (calls.some(tc => isComputerToolName(tc.name) && toolInProgress(tc.status))) {
       return true
@@ -65,7 +72,7 @@ export function isComputerExecuting(
 
   if (!message) return false
   if (message.agentId === 'computer') return true
-  if (message.agentTrace?.some(t => t.id === 'computer' && t.status === 'running')) return true
+  if (message.agentTrace?.some(t => isComputerAgentTrace(t) && t.status === 'running')) return true
   if (messageHasInProgressComputerTool(message)) return true
 
   return false
@@ -73,7 +80,7 @@ export function isComputerExecuting(
 
 export function activeComputerTrace(message: ChatMessage | undefined) {
   if (!message) return undefined
-  return message.agentTrace?.find(t => t.id === 'computer' && t.status === 'running')
+  return message.agentTrace?.find(t => isComputerAgentTrace(t) && t.status === 'running')
 }
 
 function isLeadComputerAgent(agentMode: AgentMode, leadAgentId: string | undefined): boolean {

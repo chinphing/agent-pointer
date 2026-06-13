@@ -45,7 +45,8 @@ export function ensureSubTrace(
       role: patch?.role ?? '',
       status: patch?.status ?? 'running',
       depth: patch?.depth ?? 1,
-      detail: patch?.detail
+      detail: patch?.detail,
+      computerTarget: patch?.computerTarget
     }
     msg.agentTrace.push(trace)
   } else if (patch) {

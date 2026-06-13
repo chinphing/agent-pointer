@@ -1,5 +1,6 @@
 import type { ChatMessage } from '../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
+import { isComputerAgentTrace } from './computerExecuting'
 
 export interface ComputerUiSettings {
   agentMode: 'single' | 'supervisor'
@@ -15,7 +16,7 @@ export function computerSingleLead(settings: ComputerUiSettings): boolean {
 
 export function messageFromComputerAgent(message: ChatMessage): boolean {
   if (message.agentId === 'computer') return true
-  return message.agentTrace?.some(t => t.id === 'computer') ?? false
+  return message.agentTrace?.some(t => isComputerAgentTrace(t)) ?? false
 }
 
 const COMPUTER_TOOL_BASES = new Set([

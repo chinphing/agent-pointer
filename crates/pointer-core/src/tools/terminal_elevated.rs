@@ -165,11 +165,15 @@ fn run_elevated_platform(
     let exit_ps = escape_powershell_single_quoted(&exit_path.display().to_string());
     let env_ps = escape_powershell_single_quoted(&env_path.display().to_string());
 
-    let run_line = if windows_command_uses_explicit_shell(&command) {
-        format!("cmd.exe /C {command_ps} *> {out_ps} 2> {err_ps}")
+    let run_block = if windows_command_uses_explicit_shell(&command) {
+        format!(
+            r#"$p = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/C', {command_ps}) -WorkingDirectory {work_dir_ps} -Wait -NoNewWindow -RedirectStandardOutput {out_ps} -RedirectStandardError {err_ps} -PassThru
+if ($null -eq $p) {{ $code = 1 }} else {{ $code = $p.ExitCode }}"#
+        )
     } else {
         format!(
-            "powershell.exe -ExecutionPolicy Bypass -NoProfile -Command {command_ps} *> {out_ps} 2> {err_ps}"
+            r#"$p = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-ExecutionPolicy','Bypass','-NoProfile','-Command',{command_ps}) -WorkingDirectory {work_dir_ps} -Wait -NoNewWindow -RedirectStandardOutput {out_ps} -RedirectStandardError {err_ps} -PassThru
+if ($null -eq $p) {{ $code = 1 }} else {{ $code = $p.ExitCode }}"#
         )
     };
 
@@ -181,8 +185,7 @@ foreach ($p in $envMap.PSObject.Properties) {{
   Set-Item -LiteralPath ("Env:" + $p.Name) -Value ([string]$p.Value)
 }}
 try {{
-  {run_line}
-  $code = $LASTEXITCODE
+  {run_block}
   if ($null -eq $code) {{ $code = 0 }}
 }} catch {{
   $_ | Out-File -FilePath {err_ps} -Append -Encoding utf8
@@ -488,7 +491,22 @@ fn escape_for_osascript_double_quoted(value: &str) -> String {
 
 #[cfg(windows)]
 fn read_text_file_best_effort(path: &Path) -> String {
-    fs::read_to_string(path).unwrap_or_default()
+    let bytes = fs::read(path).unwrap_or_default();
+    if bytes.is_empty() {
+        return String::new();
+    }
+    // Start-Process redirect files are UTF-8; legacy PowerShell *> may be UTF-16 LE.
+    if bytes.starts_with(&[0xFF, 0xFE]) {
+        let units: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+        return String::from_utf16_lossy(&units);
+    }
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        return String::from_utf8_lossy(&bytes[3..]).to_string();
+    }
+    String::from_utf8_lossy(&bytes).to_string()
 }
 
 #[cfg(windows)]

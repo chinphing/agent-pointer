@@ -57,5 +57,6 @@ When the model passes **`elevated`: true** on a `terminal` tool call:
    - **Linux** — `pkexec sh -lc …` (requires polkit).
 3. Live stdout/stderr streaming is **not** available; output is returned when the elevated process exits. The result JSON may include **`elevationDenied`** if the user declines the OS prompt.
 4. **Environment** matches non-elevated runs (same `build_terminal_child_environment` map). Windows elevated PowerShell still uses `-NoProfile`; Unix elevated shells do not load login profiles — only explicit env injection + system defaults for keys not in the Pointer process.
+5. **Windows elevated encoding** — child commands are prefixed with `chcp 65001`; stdout/stderr capture files are written as **UTF-8 (no BOM)**. Non-elevated Windows `terminal` is unchanged (system default code page).
 
 Implementation: `crates/pointer-core/src/tools/terminal_elevated.rs`, wired from `tools/terminal.rs`.

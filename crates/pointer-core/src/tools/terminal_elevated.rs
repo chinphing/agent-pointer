@@ -158,27 +158,53 @@ fn run_elevated_platform(
     fs::write(&env_path, env_json)?;
 
     let command = strip_redundant_windows_elevation(command);
-    let command_ps = escape_powershell_single_quoted(&command);
+    let wrapped_command = windows_elevated_command_with_utf8(&command);
+    let proc_exe = if windows_command_uses_explicit_shell(&command) {
+        "cmd.exe"
+    } else {
+        "powershell.exe"
+    };
+    let proc_args_ps = if windows_command_uses_explicit_shell(&command) {
+        escape_powershell_single_quoted(&format!("/C {}", wrapped_command))
+    } else {
+        escape_powershell_single_quoted(&format!(
+            "-ExecutionPolicy Bypass -NoProfile -Command {}",
+            wrapped_command
+        ))
+    };
     let work_dir_ps = escape_powershell_single_quoted(&work_dir.display().to_string());
     let out_ps = escape_powershell_single_quoted(&out_path.display().to_string());
     let err_ps = escape_powershell_single_quoted(&err_path.display().to_string());
     let exit_ps = escape_powershell_single_quoted(&exit_path.display().to_string());
     let env_ps = escape_powershell_single_quoted(&env_path.display().to_string());
 
-    let run_block = if windows_command_uses_explicit_shell(&command) {
-        format!(
-            r#"$p = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/C', {command_ps}) -WorkingDirectory {work_dir_ps} -Wait -NoNewWindow -RedirectStandardOutput {out_ps} -RedirectStandardError {err_ps} -PassThru
-if ($null -eq $p) {{ $code = 1 }} else {{ $code = $p.ExitCode }}"#
-        )
-    } else {
-        format!(
-            r#"$p = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-ExecutionPolicy','Bypass','-NoProfile','-Command',{command_ps}) -WorkingDirectory {work_dir_ps} -Wait -NoNewWindow -RedirectStandardOutput {out_ps} -RedirectStandardError {err_ps} -PassThru
-if ($null -eq $p) {{ $code = 1 }} else {{ $code = $p.ExitCode }}"#
-        )
-    };
+    let run_block = format!(
+        r#"$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = '{proc_exe}'
+$psi.Arguments = {proc_args_ps}
+$psi.WorkingDirectory = {work_dir_ps}
+$psi.UseShellExecute = $false
+$psi.RedirectStandardOutput = $true
+$psi.RedirectStandardError = $true
+$psi.StandardOutputEncoding = $utf8
+$psi.StandardErrorEncoding = $utf8
+$psi.CreateNoWindow = $true
+$p = [System.Diagnostics.Process]::Start($psi)
+if ($null -eq $p) {{
+  $code = 1
+}} else {{
+  $outText = $p.StandardOutput.ReadToEnd()
+  $errText = $p.StandardError.ReadToEnd()
+  $p.WaitForExit()
+  [System.IO.File]::WriteAllText({out_ps}, $outText, $utf8)
+  [System.IO.File]::WriteAllText({err_ps}, $errText, $utf8)
+  $code = $p.ExitCode
+}}"#
+    );
 
     let job_script = format!(
         r#"$ErrorActionPreference = 'Continue'
+$utf8 = [System.Text.UTF8Encoding]::new($false)
 Set-Location -LiteralPath {work_dir_ps}
 $envMap = Get-Content -LiteralPath {env_ps} -Raw | ConvertFrom-Json
 foreach ($p in $envMap.PSObject.Properties) {{
@@ -188,7 +214,7 @@ try {{
   {run_block}
   if ($null -eq $code) {{ $code = 0 }}
 }} catch {{
-  $_ | Out-File -FilePath {err_ps} -Append -Encoding utf8
+  [System.IO.File]::AppendAllText({err_ps}, $_.ToString(), $utf8)
   $code = 1
 }}
 Set-Content -LiteralPath {exit_ps} -Value $code -NoNewline -Encoding ascii
@@ -477,6 +503,18 @@ fn write_unix_env_exports_file(path: &Path, env: &HashMap<String, String>) -> Re
 #[cfg(unix)]
 fn shell_escape_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(windows)]
+fn windows_elevated_command_with_utf8(command: &str) -> String {
+    use super::terminal::windows_command_uses_explicit_shell;
+    if windows_command_uses_explicit_shell(command) {
+        format!("chcp 65001>nul & {command}")
+    } else {
+        format!(
+            "chcp 65001 | Out-Null; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $OutputEncoding = [Text.UTF8Encoding]::new($false); {command}"
+        )
+    }
 }
 
 #[cfg(windows)]

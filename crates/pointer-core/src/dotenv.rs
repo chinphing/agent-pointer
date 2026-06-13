@@ -45,22 +45,19 @@ pub fn merged_env_from_files(env_files: &[PathBuf]) -> HashMap<String, String> {
     merged
 }
 
-/// Load one or more `.env` files (in order) and apply them to a child `Command`.
-pub fn apply_supplemental_env_files(
-    cmd: &mut Command,
-    env_files: &[PathBuf],
-) -> Vec<String> {
-    let mut merged: HashMap<String, String> = HashMap::new();
-    let mut loaded = Vec::new();
-
+/// Full child environment for the `terminal` tool: Pointer process env + `.env` overlays.
+///
+/// Matches non-elevated `Command::env_clear()` + explicit vars and elevated host injection.
+pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String, String> {
+    let mut env: HashMap<String, String> = std::env::vars().collect();
     for path in env_files {
         match std::fs::read(path) {
             Ok(bytes) => {
-                for (k, v) in parse_dotenv_bytes(&bytes) {
-                    merged.insert(k, v);
-                }
-                loaded.push(path.display().to_string());
                 info!("dotenv: loaded {}", path.display());
+                for (k, v) in parse_dotenv_bytes(&bytes) {
+                    let applied = env_value_for_child(&k, &v);
+                    env.insert(k, applied);
+                }
             }
             Err(e) => {
                 warn!(
@@ -70,12 +67,22 @@ pub fn apply_supplemental_env_files(
             }
         }
     }
+    env
+}
 
-    for (key, value) in merged {
-        let applied = env_value_for_child(&key, &value);
-        cmd.env(&key, applied);
-    }
-
+/// Load one or more `.env` files (in order) and apply them to a child `Command`.
+pub fn apply_supplemental_env_files(
+    cmd: &mut Command,
+    env_files: &[PathBuf],
+) -> Vec<String> {
+    let child_env = build_terminal_child_environment(env_files);
+    let loaded: Vec<String> = env_files
+        .iter()
+        .filter(|p| p.is_file())
+        .map(|p| p.display().to_string())
+        .collect();
+    cmd.env_clear();
+    cmd.envs(child_env);
     loaded
 }
 
@@ -351,6 +358,27 @@ mod tests {
     fn parse_env_file_args_accepts_single_string() {
         let args = serde_json::json!({ "envFiles": ".env" });
         assert_eq!(parse_env_file_args(&args), vec![".env"]);
+    }
+
+    #[test]
+    fn build_terminal_child_environment_overlays_dotenv_on_process() {
+        let _guard = env_test_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let env_path = dir.path().join(".env");
+        std::fs::write(&env_path, "POINTER_DOTENV_TEST_ONLY=from_file\n").unwrap();
+        std::env::set_var("POINTER_DOTENV_TEST_ONLY", "from_process");
+        std::env::set_var("POINTER_DOTENV_PROCESS_ONLY", "keep");
+        let map = build_terminal_child_environment(&[env_path]);
+        assert_eq!(
+            map.get("POINTER_DOTENV_TEST_ONLY").map(|s| s.as_str()),
+            Some("from_file")
+        );
+        assert_eq!(
+            map.get("POINTER_DOTENV_PROCESS_ONLY").map(|s| s.as_str()),
+            Some("keep")
+        );
+        std::env::remove_var("POINTER_DOTENV_TEST_ONLY");
+        std::env::remove_var("POINTER_DOTENV_PROCESS_ONLY");
     }
 
     #[test]

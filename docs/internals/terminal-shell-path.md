@@ -35,10 +35,12 @@ Optional **`envFiles`** overrides the default and loads only the listed paths (f
 
 Merge rules:
 
-1. The subprocess inherits the Pointer process environment (including the merged login-shell `PATH` on Unix).
-2. Non-`PATH` variables from `.env` **override** the inherited value for the child only (host process unchanged).
+1. Start from the **Pointer process environment** (including merged login-shell / registry `PATH`).
+2. Non-`PATH` variables from `.env` **override** those values for the child only (host unchanged).
 3. `PATH` from `.env` is **prepended** before the inherited `PATH` (deduplicated). `%PATH%` / `$PATH` in the `.env` value is expanded before merge.
 4. When multiple files are listed, later files override earlier ones within the merged layer.
+
+Non-elevated and **elevated** (`elevated: true`) terminal runs both use the same builder (`build_terminal_child_environment`): full process env + `.env` overlays. Elevated hosts inject that map into the admin/root child (Windows `env.json`; Unix `env.sh` + `set -a`).
 
 Relative paths resolve against the effective **`cwd`** (or workspace root when **`cwd`** is omitted). Absolute paths are allowed when the file exists.
 
@@ -54,5 +56,6 @@ When the model passes **`elevated`: true** on a `terminal` tool call:
    - **macOS** — `osascript` `do shell script … with administrator privileges`.
    - **Linux** — `pkexec sh -lc …` (requires polkit).
 3. Live stdout/stderr streaming is **not** available; output is returned when the elevated process exits. The result JSON may include **`elevationDenied`** if the user declines the OS prompt.
+4. **Environment** matches non-elevated runs (same `build_terminal_child_environment` map). Windows elevated PowerShell still uses `-NoProfile`; Unix elevated shells do not load login profiles — only explicit env injection + system defaults for keys not in the Pointer process.
 
 Implementation: `crates/pointer-core/src/tools/terminal_elevated.rs`, wired from `tools/terminal.rs`.

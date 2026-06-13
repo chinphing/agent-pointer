@@ -192,10 +192,8 @@ pub fn run_terminal_command_streaming(
 
     let (_shell, mut cmd) = terminal_shell_command(command);
     cmd.current_dir(&cwd);
-    if !env_file_paths.is_empty() {
-        let paths: Vec<PathBuf> = env_file_paths.iter().map(PathBuf::from).collect();
-        apply_supplemental_env_files(&mut cmd, &paths);
-    }
+    let paths: Vec<PathBuf> = env_file_paths.iter().map(PathBuf::from).collect();
+    apply_supplemental_env_files(&mut cmd, &paths);
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);

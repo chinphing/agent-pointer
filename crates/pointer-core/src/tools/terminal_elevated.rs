@@ -2,13 +2,12 @@ use super::terminal::{
     effective_terminal_cwd, parse_terminal_cwd, resolve_terminal_env_files, truncate_output,
     TerminalStreamingResult,
 };
-use crate::dotenv::merged_env_from_files;
-use anyhow::{anyhow, Result};
+use crate::dotenv::build_terminal_child_environment;
+use anyhow::{anyhow, Context, Result};
 use log::info;
 #[cfg(unix)]
 use log::warn;
 use std::collections::HashMap;
-#[cfg(windows)]
 use std::fs;
 #[cfg(unix)]
 use std::io::Read;
@@ -76,7 +75,7 @@ pub fn run_terminal_command_elevated(
 
     let env_file_paths = resolve_terminal_env_files(&args, Some(cwd.as_path()))?;
     let env_paths: Vec<PathBuf> = env_file_paths.iter().map(PathBuf::from).collect();
-    let env = merged_env_from_files(&env_paths);
+    let env = build_terminal_child_environment(&env_paths);
 
     on_output("[elevated] 提权执行中。请在应用内确认后，在系统权限对话框中授予管理员权限。\n");
 
@@ -262,7 +261,14 @@ fn run_elevated_platform(
     on_output: &impl Fn(&str),
 ) -> Result<ElevatedPlatformResult> {
     let command = strip_redundant_sudo(command);
-    let script = build_unix_elevated_shell_script(cwd, env, &command);
+    let temp_dir = std::env::temp_dir().join(format!(
+        "pointer-elev-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    fs::create_dir_all(&temp_dir)?;
+    let env_path = temp_dir.join("env.sh");
+    write_unix_env_exports_file(&env_path, env)?;
+    let script = build_unix_elevated_shell_script(cwd, Some(&env_path), &command);
     let escaped = escape_for_osascript_double_quoted(&script);
     let applescript = format!(r#"do shell script "{escaped}" with administrator privileges"#);
 
@@ -271,7 +277,9 @@ fn run_elevated_platform(
     let output = run_command_with_wall_cap(
         Command::new("osascript").arg("-e").arg(applescript),
         wall_cap_ms,
-    )?;
+    );
+    let _ = fs::remove_dir_all(&temp_dir);
+    let output = output?;
 
     let combined_err = String::from_utf8_lossy(&output.stderr).to_string();
     let elevation_denied = combined_err.contains("User canceled")
@@ -309,7 +317,14 @@ fn run_elevated_platform(
     on_output: &impl Fn(&str),
 ) -> Result<ElevatedPlatformResult> {
     let command = strip_redundant_sudo(command);
-    let script = build_unix_elevated_shell_script(cwd, env, &command);
+    let temp_dir = std::env::temp_dir().join(format!(
+        "pointer-elev-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    fs::create_dir_all(&temp_dir)?;
+    let env_path = temp_dir.join("env.sh");
+    write_unix_env_exports_file(&env_path, env)?;
+    let script = build_unix_elevated_shell_script(cwd, Some(&env_path), &command);
 
     on_output("[elevated] 等待 polkit (pkexec) 授权…\n");
 
@@ -320,6 +335,8 @@ fn run_elevated_platform(
             .arg(&script),
         wall_cap_ms,
     );
+
+    let _ = fs::remove_dir_all(&temp_dir);
 
     let output = match output {
         Ok(o) => o,
@@ -421,25 +438,37 @@ fn unquote_windows_arg_list(raw: &str) -> String {
 #[cfg(unix)]
 fn build_unix_elevated_shell_script(
     cwd: Option<&Path>,
-    env: &HashMap<String, String>,
+    env_file: Option<&Path>,
     command: &str,
 ) -> String {
     let mut parts = Vec::new();
+    if let Some(path) = env_file {
+        parts.push(format!(
+            "set -a && . {} && set +a",
+            shell_escape_single_quote(&path.display().to_string())
+        ));
+    }
     if let Some(dir) = cwd {
         parts.push(format!(
             "cd {}",
             shell_escape_single_quote(&dir.display().to_string())
         ));
     }
+    parts.push(command.to_string());
+    parts.join(" && ")
+}
+
+#[cfg(unix)]
+fn write_unix_env_exports_file(path: &Path, env: &HashMap<String, String>) -> Result<()> {
+    let mut content = String::new();
     for (key, value) in env {
-        parts.push(format!(
-            "export {}={}",
+        content.push_str(&format!(
+            "export {}={}\n",
             key,
             shell_escape_single_quote(value)
         ));
     }
-    parts.push(command.to_string());
-    parts.join(" && ")
+    fs::write(path, content).with_context(|| format!("write elevated env file {}", path.display()))
 }
 
 #[cfg(unix)]

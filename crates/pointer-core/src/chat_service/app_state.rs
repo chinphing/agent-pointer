@@ -22,6 +22,33 @@ use crate::skills::SkillRegistry;
 use crate::storage;
 use crate::tools::ToolRegistry;
 
+fn open_conversation_store_with_fallback() -> Arc<crate::conversation_store::ConversationStore> {
+    match crate::conversation_store::global_store() {
+        Ok(store) => store,
+        Err(e) => {
+            log::warn!("conversation_store: open failed ({e:#}); using temp db");
+            let temp_path = std::env::temp_dir().join(format!(
+                "pointer-conversations-{}.db",
+                uuid::Uuid::new_v4()
+            ));
+            match crate::conversation_store::ConversationStore::open(temp_path) {
+                Ok(store) => Arc::new(store),
+                Err(e2) => {
+                    log::error!(
+                        "conversation_store: temp db failed ({e2:#}); using in-memory db"
+                    );
+                    Arc::new(
+                        crate::conversation_store::ConversationStore::open(
+                            std::path::PathBuf::from(":memory:"),
+                        )
+                        .expect("conversation_store in-memory db"),
+                    )
+                }
+            }
+        }
+    }
+}
+
 pub struct AppState {
     pub tools: Arc<ToolRegistry>,
     pub skills: Arc<SkillRegistry>,
@@ -98,18 +125,7 @@ impl AppState {
         };
         crate::tools::builtin::register_all(&tools, task_board_store.clone());
         crate::memory::register_memory_tool(&tools, memory_store.clone());
-        let session_index = crate::conversation_store::global_store().unwrap_or_else(|e| {
-            log::warn!("conversation_store: open failed ({e:#}); using temp db");
-            Arc::new(
-                crate::conversation_store::ConversationStore::open(
-                    std::env::temp_dir().join(format!(
-                        "pointer-conversations-{}.db",
-                        uuid::Uuid::new_v4()
-                    )),
-                )
-                .expect("conversation_store temp db"),
-            )
-        });
+        let session_index = open_conversation_store_with_fallback();
         crate::session_search::register_session_search_tool(&tools, session_index.clone());
         let skills = Arc::new(SkillRegistry::new());
         crate::skills::builtin::register_all(&skills);

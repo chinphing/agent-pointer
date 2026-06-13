@@ -38,11 +38,11 @@ impl ConversationStore {
     }
 
     pub fn open(path: PathBuf) -> Result<Self> {
+        cjk_fts::ensure_registered()?;
         let db = db::DbHandle::open(&path)?;
         {
             let conn = db.conn.lock();
             init_schema(&conn)?;
-            cjk_fts::ensure_loaded(&conn)?;
             ensure_fts_schema(&conn)?;
         }
         let store = Self { db };

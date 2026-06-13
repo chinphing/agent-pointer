@@ -117,89 +117,32 @@ fn serialize_toml_scalar(v: &toml::Value) -> Option<String> {
     }
 }
 
+/// Statically link sqlite-cjk-fts into pointer-core (no runtime DLL load on Windows).
 fn build_cjk_fts_extension() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
     let src = manifest_dir.join("vendor/sqlite-cjk-fts/cjk_tokenizer.c");
     let include_dir = manifest_dir.join("vendor/sqlite-cjk-fts");
     let sqlite3_include = sqlite3_include_dir();
     println!("cargo:rerun-if-changed={}", src.display());
-    println!("cargo:rerun-if-changed={}", include_dir.join("sqlite3ext.h").display());
-    println!("cargo:rerun-if-changed={}", sqlite3_include.join("sqlite3.h").display());
-
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
-    let out_path = out_dir.join(cjk_fts_lib_name());
+    println!(
+        "cargo:rerun-if-changed={}",
+        include_dir.join("sqlite3ext.h").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        sqlite3_include.join("sqlite3.h").display()
+    );
 
     let mut build = cc::Build::new();
     build
+        .file(&src)
         .include(&include_dir)
         .include(&sqlite3_include)
         .opt_level(2);
-    let compiler = build.get_compiler();
-    let compiler_path = compiler.path().to_string_lossy().into_owned();
-
-    // cc::Tool::to_command sets MSVC INCLUDE/LIB/PATH; bare cl.exe often fails on Windows.
-    let mut cmd = compiler.to_command();
-    if compiler.is_like_msvc() {
-        // MSVC treats `\t`, `\n`, … as escapes; Cargo OUT_DIR is under `\target\...`.
-        let include = msvc_cl_path(&include_dir);
-        let sqlite3 = msvc_cl_path(&sqlite3_include);
-        let src_path = msvc_cl_path(&src);
-        let out = msvc_cl_path(&out_path);
-        cmd.current_dir(&out_dir);
-        cmd.args([
-            "/nologo",
-            "/TC",
-            "/utf-8",
-            "/O2",
-            "/LD",
-            &format!("/I{include}"),
-            &format!("/I{sqlite3}"),
-            &src_path,
-            &format!("/Fe:{out}"),
-        ]);
-    } else {
-        if !cfg!(target_os = "windows") {
-            cmd.arg("-fPIC");
-        }
-        cmd.args([
-            "-O2",
-            "-shared",
-            &format!("-I{}", include_dir.display()),
-            &format!("-I{}", sqlite3_include.display()),
-            src.to_str().expect("utf8 path"),
-            "-o",
-            out_path.to_str().expect("utf8 path"),
-        ]);
+    if !cfg!(target_os = "windows") {
+        build.flag("-fPIC");
     }
-
-    let output = cmd.output().unwrap_or_else(|e| {
-        let msg = format!(
-            "failed to run C compiler {compiler_path} for sqlite-cjk-fts: {e} \
-             (Windows: use x64 Native Tools / Developer PowerShell for VS; \
-             install Desktop C++ workload; or set CC=gcc)"
-        );
-        emit_build_warnings(&msg);
-        panic!("{msg}");
-    });
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let msg = format!(
-            "sqlite-cjk-fts compile failed (compiler={compiler_path}, exit={:?})\n\
-             --- cl stdout ---\n{stdout}\n--- cl stderr ---\n{stderr}",
-            output.status.code()
-        );
-        emit_build_warnings(&msg);
-        panic!("{msg}");
-    }
-    if !out_path.exists() {
-        let msg = format!(
-            "sqlite-cjk-fts missing after compile: {}",
-            out_path.display()
-        );
-        emit_build_warnings(&msg);
-        panic!("{msg}");
-    }
+    build.compile("cjkfts");
 }
 
 /// Bundled `sqlite3.h` from libsqlite3-sys (same as rusqlite); Windows has no system copy.
@@ -207,30 +150,8 @@ fn sqlite3_include_dir() -> PathBuf {
     env::var("DEP_SQLITE3_INCLUDE")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-        panic!(
-            "DEP_SQLITE3_INCLUDE is not set; ensure libsqlite3-sys is a direct dependency with bundled"
-        )
-    })
-}
-
-/// Emit each line as cargo:warning so failures stay visible under `npm run tauri:build`.
-fn emit_build_warnings(msg: &str) {
-    for line in msg.lines() {
-        println!("cargo:warning=pointer-core: {line}");
-    }
-}
-
-/// MSVC `cl` treats `\t`, `\n`, … as escapes in unquoted paths; use forward slashes.
-fn msvc_cl_path(path: &Path) -> String {
-    path.display().to_string().replace('\\', "/")
-}
-
-fn cjk_fts_lib_name() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "libcjkfts.dylib"
-    } else if cfg!(target_os = "windows") {
-        "libcjkfts.dll"
-    } else {
-        "libcjkfts.so"
-    }
+            panic!(
+                "DEP_SQLITE3_INCLUDE is not set; ensure libsqlite3-sys is a direct dependency with bundled"
+            )
+        })
 }

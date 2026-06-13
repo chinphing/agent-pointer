@@ -23,7 +23,8 @@ The `terminal` tool picks the Windows wrapper from the model-supplied **`command
 | Command prefix | Host behavior |
 |----------------|---------------|
 | (none) | `powershell -ExecutionPolicy Bypass -Command` (profile loaded) |
-| `cmd` / `cmd.exe` / `powershell` / `pwsh` | `cmd.exe /C <command>` as-is — no second wrapper |
+| `cmd` / `cmd.exe` | **Direct** `cmd.exe /C <script>` — no outer `cmd /C` wrapper (avoids `%PATH%` expansion breaking nested `/c`) |
+| `powershell` / `pwsh` | **Direct** `powershell.exe` / `pwsh.exe` with parsed argv — no outer `cmd /C` |
 
 Prompt: `tools/prompts/terminal.md` tells the model to prefix **`cmd.exe /c "…"`** when CMD semantics are needed. Profile-only PATH hooks still require registry/`Path`, startup merge, or `{app_data_dir}/.env`.
 

@@ -422,7 +422,110 @@ pub(crate) fn parse_terminal_cwd(value: Option<&serde_json::Value>) -> Result<Op
     Ok(Some(path))
 }
 
-/// True when `command` already invokes cmd or PowerShell at the start — run via `cmd.exe /C` as-is.
+/// Split a Windows command tail into argv tokens (handles `"…"` and `'…'`).
+#[cfg(windows)]
+fn split_windows_command_line(s: &str) -> Vec<String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Vec::new();
+    }
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_double = false;
+    let mut in_single = false;
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' if !in_single => {
+                in_double = !in_double;
+            }
+            '\'' if !in_double => {
+                in_single = !in_single;
+            }
+            ' ' | '\t' if !in_double && !in_single => {
+                if !current.is_empty() {
+                    args.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(c),
+        }
+    }
+    if !current.is_empty() {
+        args.push(current);
+    }
+    args
+}
+
+/// When the model prefixes with `powershell` / `pwsh`, spawn that executable directly.
+///
+/// Avoids `cmd.exe /C powershell …`, where the outer cmd expands `%VAR%` inside the
+/// `-Command` string before PowerShell runs.
+#[cfg(windows)]
+fn parse_direct_powershell_invocation(command: &str) -> Option<(&'static str, Vec<String>)> {
+    let trimmed = command.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let (exe, rest) = if lower.starts_with("pwsh.exe") {
+        ("pwsh.exe", trimmed.get("pwsh.exe".len()..)?.trim_start())
+    } else if lower.starts_with("pwsh ") || lower.starts_with("pwsh/") {
+        ("pwsh.exe", trimmed.get(4..)?.trim_start())
+    } else if lower.starts_with("powershell.exe") {
+        (
+            "powershell.exe",
+            trimmed.get("powershell.exe".len()..)?.trim_start(),
+        )
+    } else if lower.starts_with("powershell ") || lower.starts_with("powershell/") {
+        ("powershell.exe", trimmed.get(11..)?.trim_start())
+    } else {
+        return None;
+    };
+    let args = split_windows_command_line(rest);
+    Some((exe, args))
+}
+
+/// Strip one pair of matching outer quotes from a `/c` argument string.
+#[cfg(windows)]
+fn strip_cmd_c_argument_quotes(s: &str) -> String {
+    let s = s.trim();
+    if s.len() >= 2 {
+        let open = s.as_bytes()[0];
+        let close = s.as_bytes()[s.len() - 1];
+        if (open == b'"' && close == b'"') || (open == b'\'' && close == b'\'') {
+            return s[1..s.len() - 1].to_string();
+        }
+    }
+    s.to_string()
+}
+
+/// When the model already prefixes with `cmd` / `cmd.exe`, spawn **one** `cmd.exe` process.
+///
+/// Avoids `cmd.exe /C cmd.exe /c "…"` double-wrapping: the outer cmd would expand `%VAR%`
+/// (e.g. `%PATH%` with `(x86)` / `&`) before the inner command runs, often yielding exit 1
+/// and empty output.
+#[cfg(windows)]
+fn parse_direct_cmd_invocation(command: &str) -> Option<(&'static str, String)> {
+    let trimmed = command.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let rest = if lower.starts_with("cmd.exe") {
+        trimmed.get(7..)?.trim_start()
+    } else if lower.starts_with("cmd/") {
+        trimmed.get(3..)?.trim_start()
+    } else if lower.starts_with("cmd ") {
+        trimmed.get(3..)?.trim_start()
+    } else {
+        return None;
+    };
+    let rest_lower = rest.to_ascii_lowercase();
+    let (flag, script_start) = if rest_lower.starts_with("/c") {
+        ("/C", rest.get(2..)?.trim_start())
+    } else if rest_lower.starts_with("/k") {
+        ("/K", rest.get(2..)?.trim_start())
+    } else {
+        return None;
+    };
+    Some((flag, strip_cmd_c_argument_quotes(script_start)))
+}
+
+/// True when `command` already invokes cmd or PowerShell at the start — legacy fallback via `cmd.exe /C`.
 #[cfg(windows)]
 pub(crate) fn windows_command_uses_explicit_shell(command: &str) -> bool {
     let lower = command.trim().to_ascii_lowercase();
@@ -441,10 +544,20 @@ pub(crate) fn windows_command_uses_explicit_shell(command: &str) -> bool {
 
 #[cfg(windows)]
 fn terminal_shell_command(command: &str) -> (&'static str, Command) {
+    if let Some((flag, script)) = parse_direct_cmd_invocation(command) {
+        let mut cmd = Command::new("cmd.exe");
+        cmd.arg(flag).arg(script);
+        return ("cmd.exe (direct /C)", cmd);
+    }
+    if let Some((exe, args)) = parse_direct_powershell_invocation(command) {
+        let mut cmd = Command::new(exe);
+        cmd.args(args);
+        return ("powershell (direct)", cmd);
+    }
     if windows_command_uses_explicit_shell(command) {
         let mut cmd = Command::new("cmd.exe");
         cmd.arg("/C").arg(command);
-        return ("cmd.exe /C (explicit shell in command)", cmd);
+        return ("cmd.exe /C (explicit shell fallback)", cmd);
     }
     let mut cmd = Command::new("powershell");
     cmd.arg("-ExecutionPolicy")
@@ -538,6 +651,65 @@ mod cwd_tests {
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn split_windows_command_line_handles_quotes() {
+        assert_eq!(
+            split_windows_command_line(r#"-Command "choco -v""#),
+            vec!["-Command".to_string(), "choco -v".to_string()]
+        );
+        assert_eq!(
+            split_windows_command_line("-NoProfile -Command foo"),
+            vec![
+                "-NoProfile".to_string(),
+                "-Command".to_string(),
+                "foo".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_direct_powershell_invocation_extracts_args() {
+        assert_eq!(
+            parse_direct_powershell_invocation(r#"powershell -Command "choco -v""#),
+            Some((
+                "powershell.exe",
+                vec!["-Command".to_string(), "choco -v".to_string()]
+            ))
+        );
+        assert_eq!(
+            parse_direct_powershell_invocation("pwsh -NoProfile -Command $env:Path"),
+            Some((
+                "pwsh.exe",
+                vec![
+                    "-NoProfile".to_string(),
+                    "-Command".to_string(),
+                    "$env:Path".to_string()
+                ]
+            ))
+        );
+        assert!(parse_direct_powershell_invocation("cmd /c dir").is_none());
+    }
+
+    #[test]
+    fn parse_direct_cmd_invocation_extracts_script() {
+        assert_eq!(
+            parse_direct_cmd_invocation(r#"cmd.exe /c "echo %PATH%""#),
+            Some(("/C", "echo %PATH%".to_string()))
+        );
+        assert_eq!(
+            parse_direct_cmd_invocation("cmd /c dir"),
+            Some(("/C", "dir".to_string()))
+        );
+        assert_eq!(
+            parse_direct_cmd_invocation(r#"cmd.exe /C "choco -v 2>nul || echo NOT_FOUND""#),
+            Some((
+                "/C",
+                "choco -v 2>nul || echo NOT_FOUND".to_string()
+            ))
+        );
+        assert!(parse_direct_cmd_invocation("powershell -Command foo").is_none());
+    }
 
     #[test]
     fn windows_explicit_shell_detects_cmd_prefix() {

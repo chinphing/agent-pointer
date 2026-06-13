@@ -42,8 +42,8 @@ Use when you need the shell for builds, checks, tests, directory listings, or ot
 - For git in the current project: omit `cd` (default cwd is the workspace root) or run **`git -C "<workspace_root>" …`** using the root from session context—not a guessed path.
 - **Windows shell (you choose):** The host picks the wrapper from your **`command`** text:
   - **Default** — no `cmd` / `powershell` / `pwsh` prefix → host runs **`powershell -ExecutionPolicy Bypass -Command`** (user PowerShell profile loaded).
-  - **Explicit CMD** — start with **`cmd.exe /c "…"`** or **`cmd /c "…"`** → host runs **`cmd.exe /C`** with your string as-is (Command Prompt semantics). Use for batch-style tools, `2>&1`, or when PowerShell aliases/redirects get in the way.
-  - **Explicit PowerShell** — start with **`powershell …`** or **`pwsh …`** → host runs **`cmd.exe /C`** with your string as-is (you own flags/profile).
+  - **Explicit CMD** — start with **`cmd.exe /c "…"`** or **`cmd /c "…"`** → host parses `/c` and runs a **single** `cmd.exe /C <script>` (Command Prompt semantics; safe for `%PATH%`, `2>nul`, `||`). Use for batch-style tools, `2>&1`, or when PowerShell aliases/redirects get in the way.
+  - **Explicit PowerShell** — start with **`powershell …`** or **`pwsh …`** → host spawns **`powershell.exe` / `pwsh.exe` directly** with your flags (no outer `cmd.exe /C`; safe for `$env:Path` and mixed quoting).
   - **Do not double-wrap** — never prefix a command that already starts with `cmd` / `powershell` / `pwsh`.
   - When unsure on Windows, prefer **`cmd.exe /c "…"`** for simple CLI checks (`python --version`, `npm -v`, `git status`).
 - Do not run destructive commands unless the user clearly asked and approval allows it.
@@ -68,7 +68,7 @@ Either limit can stop the process (**`timedOut`** in the result). Set both per c
 
 #### Parameters
 
-- **`command`** (required) — The shell command to run. Windows: default **PowerShell** wrapper unless the command already starts with `cmd` / `powershell` / `pwsh` (then run as-is via `cmd.exe /C`). macOS/Linux: `sh -lc`.
+- **`command`** (required) — The shell command to run. Windows: default **PowerShell** wrapper; `cmd` / `powershell` / `pwsh` prefixes spawn that shell **directly** (no outer `cmd.exe /C`). macOS/Linux: `sh -lc`.
 - **`cwd`** (optional) — Working directory; must be an existing directory.
 - **`timeoutMs`** (optional) — See **Timeouts**.
 - **`maxWallMs`** (optional) — See **Timeouts**.

@@ -68,6 +68,7 @@ export interface ConversationTaskBoardState {
   childrenByParentStoreKey: Record<string, Record<string, TaskBoardDocument>>
 }
 import {
+  assistantHasDeliverableContent,
   isDiscardableEmptyAssistant,
   isEphemeralDesktopNoticeMessage,
   isGenerationCancelledMessage
@@ -295,7 +296,7 @@ export const useChatStore = defineStore('chat', () => {
     const conv = conversations.value.find(c => c.id === convId)
     const msg = conv?.messages.find(m => m.id === msgId)
     if (!msg || msg.role !== 'assistant') return
-    if (!msg.content.trim()) return
+    if (!assistantHasDeliverableContent(msg)) return
     if (hasInFlightToolCalls(msg)) return
 
     if (!activeId) {
@@ -1387,8 +1388,13 @@ export const useChatStore = defineStore('chat', () => {
             const trace = ensureSubTrace(r.msg, e.traceId.trim())
             if (trace.session) trace.session.contentStreaming = false
           } else {
-            // 工具轮次/Supervisor 编排中间回合也会发 message_end，此时 generating 仍为 true
-            r.msg.status = isConversationGenerating(r.conv.id) ? 'streaming' : 'done'
+            // 工具轮次/Supervisor 中间回合 generating 仍为 true；纯媒体交付（如 video_generate）无在途工具时可立即 done
+            const terminalMediaDelivery =
+              (e.attachments?.length ?? 0) > 0 && !hasInFlightToolCalls(r.msg)
+            r.msg.status =
+              isConversationGenerating(r.conv.id) && !terminalMediaDelivery
+                ? 'streaming'
+                : 'done'
             r.msg.contentStreaming = false
             const preview = r.msg.toolNamePreview?.trim()
             const draft = r.msg.responseTextDraft?.trim()

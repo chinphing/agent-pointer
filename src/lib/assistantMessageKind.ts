@@ -1,4 +1,14 @@
 import type { ChatMessage, MessageStatus } from '../types/chat'
+import { extractOutboundMediaPaths } from './outboundMedia'
+
+/** User-visible assistant body: text and/or inline media (persisted attachments or `MEDIA:` draft). */
+export function assistantHasDeliverableContent(message: ChatMessage): boolean {
+  if (message.content?.trim()) return true
+  if ((message.attachments?.length ?? 0) > 0) return true
+  const raw = message.rawContent?.trim() ?? ''
+  if (raw && extractOutboundMediaPaths(raw).length > 0) return true
+  return false
+}
 
 /** How we render an assistant row in the thread (layout + emphasis). */
 export type AssistantDisplayKind = 'model' | 'injected_notice' | 'error'
@@ -46,13 +56,14 @@ export function isDiscardableEmptyAssistant(message: ChatMessage): boolean {
   if (isMessageStreaming(message.status)) return false
 
   const hasText =
-    !!(message.content?.trim()) ||
+    assistantHasDeliverableContent(message) ||
     !!(message.thoughts?.trim()) ||
     !!(message.reasoning?.trim()) ||
     !!(message.responseTextDraft?.trim()) ||
     !!(
       message.rawContent?.trim() &&
-      message.rawContent !== message.content
+      message.rawContent !== message.content &&
+      extractOutboundMediaPaths(message.rawContent).length === 0
     )
 
   const hasStructured =

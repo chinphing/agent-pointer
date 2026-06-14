@@ -1,0 +1,848 @@
+{
+  "generated_at": "2026-06-14T18:34:32Z",
+  "git": {
+    "ref": "HEAD",
+    "commit": "368e8a69bfb2fba4aa3cdd9ba74bfa0c68ab86ac",
+    "short": "368e8a6",
+    "date": "2026-06-15 02:18:40 +0800",
+    "subject": "grep调用加强path参数"
+  },
+  "tokenizer": {
+    "model": "cl100k_base (tiktoken)",
+    "note": "OpenAI-compatible BPE; same family as Qwen3.5 tokenizer. ~10% off native Qwen tokenizer but pip-installable."
+  },
+  "primary_computer": {
+    "static_primary_cacheable": {
+      "sections": [
+        {
+          "name": "COMMUNICATION_PUBLIC",
+          "path": "crates/pointer-core/src/agents/_shared/COMMUNICATION_PUBLIC.md",
+          "chars": 3254,
+          "tokens": 753
+        },
+        {
+          "name": "tier slice (communication + os + loop)",
+          "path": "runtime merge",
+          "chars": 37484,
+          "tokens": 9509
+        },
+        {
+          "name": "Tools appendix (deduped)",
+          "path": "(see TOOL_FILES)",
+          "chars": 27241,
+          "tokens": 7047
+        },
+        {
+          "name": "[Environment] stub (~530 chars)",
+          "path": "runtime-built",
+          "chars": 530,
+          "tokens": 67
+        }
+      ],
+      "merged_chars": 68515,
+      "merged_tokens": 17376,
+      "appendix_chars_nodup": 76408,
+      "appendix_chars_dedup": 27215
+    },
+    "native_openai_tools": {
+      "tool_count": 34,
+      "json_chars": 13903,
+      "json_tokens": 2973,
+      "note": "Sent in API tools[] on every round; omitted from llm_prompts dump.",
+      "per_tool": [
+        {
+          "name": "action_verify",
+          "tokens": 97
+        },
+        {
+          "name": "captcha_verify_click",
+          "tokens": 74
+        },
+        {
+          "name": "captcha_verify_drag",
+          "tokens": 97
+        },
+        {
+          "name": "captcha_verify_type",
+          "tokens": 86
+        },
+        {
+          "name": "clipboard_read",
+          "tokens": 58
+        },
+        {
+          "name": "clipboard_write",
+          "tokens": 66
+        },
+        {
+          "name": "hotkey",
+          "tokens": 98
+        },
+        {
+          "name": "input_at",
+          "tokens": 110
+        },
+        {
+          "name": "input_focused",
+          "tokens": 96
+        },
+        {
+          "name": "input_index",
+          "tokens": 102
+        },
+        {
+          "name": "modified_click_range_select_at",
+          "tokens": 86
+        },
+        {
+          "name": "modified_click_range_select_index",
+          "tokens": 93
+        },
+        {
+          "name": "modified_click_select_at",
+          "tokens": 84
+        },
+        {
+          "name": "modified_click_select_index",
+          "tokens": 91
+        },
+        {
+          "name": "mouse_click_at",
+          "tokens": 90
+        },
+        {
+          "name": "mouse_click_index",
+          "tokens": 82
+        },
+        {
+          "name": "mouse_double_click_at",
+          "tokens": 92
+        },
+        {
+          "name": "mouse_double_click_index",
+          "tokens": 84
+        },
+        {
+          "name": "mouse_drag_from_to_at",
+          "tokens": 118
+        },
+        {
+          "name": "mouse_drag_from_to_index",
+          "tokens": 98
+        },
+        {
+          "name": "mouse_hover_at",
+          "tokens": 90
+        },
+        {
+          "name": "mouse_hover_index",
+          "tokens": 82
+        },
+        {
+          "name": "mouse_right_click_at",
+          "tokens": 92
+        },
+        {
+          "name": "mouse_right_click_index",
+          "tokens": 84
+        },
+        {
+          "name": "mouse_scroll_current",
+          "tokens": 82
+        },
+        {
+          "name": "mouse_scroll_index",
+          "tokens": 90
+        },
+        {
+          "name": "task_board_check_deps",
+          "tokens": 66
+        },
+        {
+          "name": "task_board_finalize",
+          "tokens": 55
+        },
+        {
+          "name": "task_board_init",
+          "tokens": 135
+        },
+        {
+          "name": "task_board_patch",
+          "tokens": 103
+        },
+        {
+          "name": "task_board_prune",
+          "tokens": 70
+        },
+        {
+          "name": "task_board_replace",
+          "tokens": 82
+        },
+        {
+          "name": "task_board_sync_finding",
+          "tokens": 66
+        },
+        {
+          "name": "wait",
+          "tokens": 72
+        }
+      ]
+    },
+    "tools_per_file": [
+      {
+        "file": "mouse.md",
+        "path": "crates/pointer-core/src/agents/computer/tools/prompts/mouse.md",
+        "tokens": 813
+      },
+      {
+        "file": "input.md",
+        "path": "crates/pointer-core/src/agents/computer/tools/prompts/input.md",
+        "tokens": 842
+      },
+      {
+        "file": "modified_click.md",
+        "path": "crates/pointer-core/src/agents/computer/tools/prompts/modified_click.md",
+        "tokens": 227
+      },
+      {
+        "file": "captcha_verify.md",
+        "path": "crates/pointer-core/src/agents/computer/tools/prompts/captcha_verify.md",
+        "tokens": 518
+      },
+      {
+        "file": "clipboard.md",
+        "path": "crates/pointer-core/src/agents/computer/tools/prompts/clipboard.md",
+        "tokens": 582
+      },
+      {
+        "file": "hotkey.md",
+        "path": "crates/pointer-core/src/agents/computer/tools/prompts/hotkey.md",
+        "tokens": 553
+      },
+      {
+        "file": "wait.md",
+        "path": "crates/pointer-core/src/agents/computer/tools/prompts/wait.md",
+        "tokens": 456
+      },
+      {
+        "file": "action_verify.md",
+        "path": "crates/pointer-core/src/agents/computer/tools/prompts/action_verify.md",
+        "tokens": 533
+      },
+      {
+        "file": "task_board.md",
+        "path": "crates/pointer-core/src/task_board/prompts/task_board.md",
+        "tokens": 2519
+      }
+    ],
+    "dynamic_primary_round": {
+      "image_assumption": "1920x1080 monitor JPEG full capture",
+      "image_resized_for_formula": "1920x1088",
+      "image_tokens_each": 2042,
+      "scenarios": [
+        {
+          "id": "first_turn_minimal",
+          "cur_screen_text_tokens": 610,
+          "image_slot_label_tokens": 9,
+          "image_count": 2,
+          "image_tokens_each": 2042,
+          "image_tokens_total": 4084,
+          "dialog_history_tokens": 0,
+          "round_content_tokens": 22079,
+          "api_prompt_estimate_tokens": 25052
+        },
+        {
+          "id": "mid_task_typical",
+          "cur_screen_text_tokens": 839,
+          "image_slot_label_tokens": 14,
+          "image_count": 3,
+          "image_tokens_each": 2042,
+          "image_tokens_total": 6126,
+          "dialog_history_tokens": 273,
+          "round_content_tokens": 24355,
+          "api_prompt_estimate_tokens": 27601
+        },
+        {
+          "id": "heavy_history",
+          "cur_screen_text_tokens": 994,
+          "image_slot_label_tokens": 14,
+          "image_count": 3,
+          "image_tokens_each": 2042,
+          "image_tokens_total": 6126,
+          "dialog_history_tokens": 522,
+          "round_content_tokens": 24510,
+          "api_prompt_estimate_tokens": 28005
+        }
+      ]
+    }
+  },
+  "coder": {
+    "static_chars": 67621,
+    "static_tokens": 17752,
+    "sections": [
+      {
+        "name": "COMMUNICATION_PUBLIC",
+        "path": "crates/pointer-core/src/agents/_shared/COMMUNICATION_PUBLIC.md",
+        "chars": 3254,
+        "tokens": 753
+      },
+      {
+        "name": "MEDIA_DELIVERY",
+        "path": "crates/pointer-core/src/agents/_shared/MEDIA_DELIVERY.md",
+        "chars": 1929,
+        "tokens": 469
+      },
+      {
+        "name": "agent_prompt(compose_system_prompt(COMMUNICATION.md, composed_system_body()))",
+        "path": "runtime merge",
+        "chars": 23748,
+        "tokens": 5972
+      },
+      {
+        "name": "Tools appendix (deduped)",
+        "path": "6 tool doc files",
+        "chars": 38152,
+        "tokens": 10490
+      },
+      {
+        "name": "[Environment] stub (~530 chars)",
+        "path": "runtime-built",
+        "chars": 530,
+        "tokens": 67
+      }
+    ],
+    "sliced_detail": [
+      {
+        "label": "COMMUNICATION.md",
+        "path": "crates/pointer-core/src/agents/coder/COMMUNICATION.md",
+        "chars": 10194,
+        "tokens": 2694
+      },
+      {
+        "label": "role",
+        "path": "crates/pointer-core/src/agents/coder/prompts/role.md",
+        "chars": 2795,
+        "tokens": 650
+      },
+      {
+        "label": "routine",
+        "path": "crates/pointer-core/src/agents/coder/prompts/flow/routine.md",
+        "chars": 3028,
+        "tokens": 767
+      },
+      {
+        "label": "delegation",
+        "path": "crates/pointer-core/src/agents/coder/prompts/delegation.md",
+        "chars": 2317,
+        "tokens": 559
+      },
+      {
+        "label": "task_board",
+        "path": "crates/pointer-core/src/agents/coder/prompts/task_board.md",
+        "chars": 1955,
+        "tokens": 518
+      },
+      {
+        "label": "scenario_impl",
+        "path": "crates/pointer-core/src/agents/coder/prompts/scenarios/implementation.md",
+        "chars": 710,
+        "tokens": 167
+      },
+      {
+        "label": "scenario_debug",
+        "path": "crates/pointer-core/src/agents/coder/prompts/scenarios/debugging.md",
+        "chars": 924,
+        "tokens": 209
+      },
+      {
+        "label": "scenario_refactor",
+        "path": "crates/pointer-core/src/agents/coder/prompts/scenarios/refactor.md",
+        "chars": 610,
+        "tokens": 129
+      },
+      {
+        "label": "scenario_design",
+        "path": "crates/pointer-core/src/agents/coder/prompts/scenarios/design_only.md",
+        "chars": 539,
+        "tokens": 128
+      },
+      {
+        "label": "scenario_spec",
+        "path": "crates/pointer-core/src/agents/coder/prompts/scenarios/spec_audit.md",
+        "chars": 415,
+        "tokens": 93
+      },
+      {
+        "label": "playbooks_header",
+        "path": "(static)",
+        "chars": 21,
+        "tokens": 4
+      }
+    ],
+    "composed_body_chars": 13368,
+    "composed_body_tokens": 3234,
+    "composed_body_slices": [
+      {
+        "label": "role",
+        "path": "crates/pointer-core/src/agents/coder/prompts/role.md",
+        "chars": 2795,
+        "tokens": 650
+      },
+      {
+        "label": "routine",
+        "path": "crates/pointer-core/src/agents/coder/prompts/flow/routine.md",
+        "chars": 3028,
+        "tokens": 767
+      },
+      {
+        "label": "delegation",
+        "path": "crates/pointer-core/src/agents/coder/prompts/delegation.md",
+        "chars": 2317,
+        "tokens": 559
+      },
+      {
+        "label": "task_board",
+        "path": "crates/pointer-core/src/agents/coder/prompts/task_board.md",
+        "chars": 1955,
+        "tokens": 518
+      },
+      {
+        "label": "scenario_impl",
+        "path": "crates/pointer-core/src/agents/coder/prompts/scenarios/implementation.md",
+        "chars": 710,
+        "tokens": 167
+      },
+      {
+        "label": "scenario_debug",
+        "path": "crates/pointer-core/src/agents/coder/prompts/scenarios/debugging.md",
+        "chars": 924,
+        "tokens": 209
+      },
+      {
+        "label": "scenario_refactor",
+        "path": "crates/pointer-core/src/agents/coder/prompts/scenarios/refactor.md",
+        "chars": 610,
+        "tokens": 129
+      },
+      {
+        "label": "scenario_design",
+        "path": "crates/pointer-core/src/agents/coder/prompts/scenarios/design_only.md",
+        "chars": 539,
+        "tokens": 128
+      },
+      {
+        "label": "scenario_spec",
+        "path": "crates/pointer-core/src/agents/coder/prompts/scenarios/spec_audit.md",
+        "chars": 415,
+        "tokens": 93
+      }
+    ],
+    "dynamic_scenarios": {
+      "scenarios": [
+        {
+          "id": "first_turn",
+          "task_board_tokens": 0,
+          "env_text_tokens": 67,
+          "dialog_history_tokens": 0,
+          "round_content_tokens": 17819
+        },
+        {
+          "id": "mid_task",
+          "task_board_tokens": 600,
+          "env_text_tokens": 67,
+          "dialog_history_tokens": 0,
+          "round_content_tokens": 18419
+        },
+        {
+          "id": "with_history",
+          "task_board_tokens": 1500,
+          "env_text_tokens": 67,
+          "dialog_history_tokens": 0,
+          "round_content_tokens": 19319
+        }
+      ]
+    },
+    "native_openai_tools": {
+      "tool_count": 17,
+      "json_chars": 7203,
+      "json_tokens": 1532,
+      "note": "Sent in API tools[] on every round; omitted from llm_prompts dump.",
+      "per_tool": [
+        {
+          "name": "file_edit",
+          "tokens": 94
+        },
+        {
+          "name": "file_glob",
+          "tokens": 95
+        },
+        {
+          "name": "file_grep",
+          "tokens": 148
+        },
+        {
+          "name": "file_list",
+          "tokens": 88
+        },
+        {
+          "name": "file_read",
+          "tokens": 123
+        },
+        {
+          "name": "file_write",
+          "tokens": 58
+        },
+        {
+          "name": "read_lints",
+          "tokens": 75
+        },
+        {
+          "name": "run_subagent",
+          "tokens": 97
+        },
+        {
+          "name": "task_board_check_deps",
+          "tokens": 66
+        },
+        {
+          "name": "task_board_finalize",
+          "tokens": 55
+        },
+        {
+          "name": "task_board_init",
+          "tokens": 135
+        },
+        {
+          "name": "task_board_patch",
+          "tokens": 103
+        },
+        {
+          "name": "task_board_prune",
+          "tokens": 70
+        },
+        {
+          "name": "task_board_replace",
+          "tokens": 82
+        },
+        {
+          "name": "task_board_sync_finding",
+          "tokens": 66
+        },
+        {
+          "name": "terminal",
+          "tokens": 123
+        },
+        {
+          "name": "web_search",
+          "tokens": 52
+        }
+      ]
+    }
+  },
+  "explore": {
+    "static_chars": 37790,
+    "static_tokens": 9826,
+    "sections": [
+      {
+        "name": "COMMUNICATION_PUBLIC",
+        "path": "crates/pointer-core/src/agents/_shared/COMMUNICATION_PUBLIC.md",
+        "chars": 3254,
+        "tokens": 753
+      },
+      {
+        "name": "MEDIA_DELIVERY",
+        "path": "crates/pointer-core/src/agents/_shared/MEDIA_DELIVERY.md",
+        "chars": 1929,
+        "tokens": 469
+      },
+      {
+        "name": "sub_agent_header (COMMUNICATION.md + composed_system_body)",
+        "path": "runtime",
+        "chars": 11890,
+        "tokens": 2857
+      },
+      {
+        "name": "Tools appendix (deduped)",
+        "path": "2 tool doc files",
+        "chars": 20179,
+        "tokens": 5678
+      },
+      {
+        "name": "[Environment] stub (~530 chars)",
+        "path": "runtime-built",
+        "chars": 530,
+        "tokens": 67
+      }
+    ],
+    "sliced_detail": [
+      {
+        "label": "COMMUNICATION.md",
+        "path": "crates/pointer-core/src/agents/explore/COMMUNICATION.md",
+        "chars": 643,
+        "tokens": 165
+      },
+      {
+        "label": "role",
+        "path": "crates/pointer-core/src/agents/explore/prompts/role.md",
+        "chars": 638,
+        "tokens": 151
+      },
+      {
+        "label": "router",
+        "path": "crates/pointer-core/src/agents/explore/prompts/flow/router.md",
+        "chars": 504,
+        "tokens": 118
+      },
+      {
+        "label": "flow_standard",
+        "path": "crates/pointer-core/src/agents/explore/prompts/flow/standard.md",
+        "chars": 439,
+        "tokens": 100
+      },
+      {
+        "label": "flow_narrow",
+        "path": "crates/pointer-core/src/agents/explore/prompts/flow/fast_narrow.md",
+        "chars": 344,
+        "tokens": 89
+      },
+      {
+        "label": "flow_reach",
+        "path": "crates/pointer-core/src/agents/explore/prompts/flow/fast_reachability.md",
+        "chars": 434,
+        "tokens": 109
+      },
+      {
+        "label": "scenario_single",
+        "path": "crates/pointer-core/src/agents/explore/prompts/scenarios/single_module_fix.md",
+        "chars": 275,
+        "tokens": 57
+      },
+      {
+        "label": "scenario_cross",
+        "path": "crates/pointer-core/src/agents/explore/prompts/scenarios/cross_module_change.md",
+        "chars": 323,
+        "tokens": 67
+      },
+      {
+        "label": "scenario_arch",
+        "path": "crates/pointer-core/src/agents/explore/prompts/scenarios/architecture_explain.md",
+        "chars": 238,
+        "tokens": 51
+      },
+      {
+        "label": "scenario_reach",
+        "path": "crates/pointer-core/src/agents/explore/prompts/scenarios/reachability_audit.md",
+        "chars": 207,
+        "tokens": 45
+      },
+      {
+        "label": "scenario_spec",
+        "path": "crates/pointer-core/src/agents/explore/prompts/scenarios/spec_map.md",
+        "chars": 189,
+        "tokens": 39
+      },
+      {
+        "label": "scenario_debug",
+        "path": "crates/pointer-core/src/agents/explore/prompts/scenarios/production_debug.md",
+        "chars": 486,
+        "tokens": 105
+      },
+      {
+        "label": "scenario_design",
+        "path": "crates/pointer-core/src/agents/explore/prompts/scenarios/design_only.md",
+        "chars": 273,
+        "tokens": 58
+      },
+      {
+        "label": "impact_scan",
+        "path": "crates/pointer-core/src/agents/_shared/exploration/impact_scan.md",
+        "chars": 1380,
+        "tokens": 307
+      },
+      {
+        "label": "handoff_contract",
+        "path": "crates/pointer-core/src/agents/_shared/exploration/handoff_contract.md",
+        "chars": 1790,
+        "tokens": 469
+      },
+      {
+        "label": "trace_when",
+        "path": "crates/pointer-core/src/agents/_shared/exploration/trace_when.md",
+        "chars": 958,
+        "tokens": 258
+      },
+      {
+        "label": "file_discipline",
+        "path": "crates/pointer-core/src/agents/_shared/exploration/file_discipline.md",
+        "chars": 913,
+        "tokens": 253
+      },
+      {
+        "label": "deliverable",
+        "path": "crates/pointer-core/src/agents/explore/prompts/deliverable.md",
+        "chars": 615,
+        "tokens": 161
+      },
+      {
+        "label": "playbooks_header",
+        "path": "(static)",
+        "chars": 21,
+        "tokens": 4
+      }
+    ],
+    "composed_body_chars": 10129,
+    "composed_body_tokens": 2459,
+    "composed_body_slices": [
+      {
+        "label": "role",
+        "path": "crates/pointer-core/src/agents/explore/prompts/role.md",
+        "chars": 638,
+        "tokens": 151
+      },
+      {
+        "label": "router",
+        "path": "crates/pointer-core/src/agents/explore/prompts/flow/router.md",
+        "chars": 504,
+        "tokens": 118
+      },
+      {
+        "label": "flow_standard",
+        "path": "crates/pointer-core/src/agents/explore/prompts/flow/standard.md",
+        "chars": 439,
+        "tokens": 100
+      },
+      {
+        "label": "flow_narrow",
+        "path": "crates/pointer-core/src/agents/explore/prompts/flow/fast_narrow.md",
+        "chars": 344,
+        "tokens": 89
+      },
+      {
+        "label": "flow_reach",
+        "path": "crates/pointer-core/src/agents/explore/prompts/flow/fast_reachability.md",
+        "chars": 434,
+        "tokens": 109
+      },
+      {
+        "label": "scenario_single",
+        "path": "crates/pointer-core/src/agents/explore/prompts/scenarios/single_module_fix.md",
+        "chars": 275,
+        "tokens": 57
+      },
+      {
+        "label": "scenario_cross",
+        "path": "crates/pointer-core/src/agents/explore/prompts/scenarios/cross_module_change.md",
+        "chars": 323,
+        "tokens": 67
+      },
+      {
+        "label": "scenario_arch",
+        "path": "crates/pointer-core/src/agents/explore/prompts/scenarios/architecture_explain.md",
+        "chars": 238,
+        "tokens": 51
+      },
+      {
+        "label": "scenario_reach",
+        "path": "crates/pointer-core/src/agents/explore/prompts/scenarios/reachability_audit.md",
+        "chars": 207,
+        "tokens": 45
+      },
+      {
+        "label": "scenario_spec",
+        "path": "crates/pointer-core/src/agents/explore/prompts/scenarios/spec_map.md",
+        "chars": 189,
+        "tokens": 39
+      },
+      {
+        "label": "scenario_debug",
+        "path": "crates/pointer-core/src/agents/explore/prompts/scenarios/production_debug.md",
+        "chars": 486,
+        "tokens": 105
+      },
+      {
+        "label": "scenario_design",
+        "path": "crates/pointer-core/src/agents/explore/prompts/scenarios/design_only.md",
+        "chars": 273,
+        "tokens": 58
+      },
+      {
+        "label": "impact_scan",
+        "path": "crates/pointer-core/src/agents/_shared/exploration/impact_scan.md",
+        "chars": 1380,
+        "tokens": 307
+      },
+      {
+        "label": "handoff_contract",
+        "path": "crates/pointer-core/src/agents/_shared/exploration/handoff_contract.md",
+        "chars": 1790,
+        "tokens": 469
+      },
+      {
+        "label": "trace_when",
+        "path": "crates/pointer-core/src/agents/_shared/exploration/trace_when.md",
+        "chars": 958,
+        "tokens": 258
+      },
+      {
+        "label": "file_discipline",
+        "path": "crates/pointer-core/src/agents/_shared/exploration/file_discipline.md",
+        "chars": 913,
+        "tokens": 253
+      },
+      {
+        "label": "deliverable",
+        "path": "crates/pointer-core/src/agents/explore/prompts/deliverable.md",
+        "chars": 615,
+        "tokens": 161
+      }
+    ],
+    "dynamic_scenarios": {
+      "scenarios": [
+        {
+          "id": "first_turn",
+          "task_board_tokens": 0,
+          "env_text_tokens": 67,
+          "round_content_tokens": 9893
+        },
+        {
+          "id": "typical",
+          "task_board_tokens": 300,
+          "env_text_tokens": 67,
+          "round_content_tokens": 10193
+        }
+      ]
+    },
+    "native_openai_tools": {
+      "tool_count": 6,
+      "json_chars": 2786,
+      "json_tokens": 608,
+      "note": "Sent in API tools[] on every round; omitted from llm_prompts dump.",
+      "per_tool": [
+        {
+          "name": "file_edit",
+          "tokens": 94
+        },
+        {
+          "name": "file_glob",
+          "tokens": 95
+        },
+        {
+          "name": "file_grep",
+          "tokens": 148
+        },
+        {
+          "name": "file_list",
+          "tokens": 88
+        },
+        {
+          "name": "file_read",
+          "tokens": 123
+        },
+        {
+          "name": "file_write",
+          "tokens": 58
+        }
+      ]
+    }
+  }
+}

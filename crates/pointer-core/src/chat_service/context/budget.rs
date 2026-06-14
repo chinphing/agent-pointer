@@ -13,7 +13,7 @@ pub struct ToolBudgetExhaustionScope {
 }
 
 impl ToolBudgetExhaustionScope {
-    pub(super) fn lead_single(max_cap: u32, compression_scope: AgentInstanceScope) -> Self {
+    pub(in crate::chat_service) fn lead_single(max_cap: u32, compression_scope: AgentInstanceScope) -> Self {
         Self {
             compression_scope,
             user_hint: format!(
@@ -27,7 +27,7 @@ impl ToolBudgetExhaustionScope {
         }
     }
 
-    pub(super) fn sub_agent(max_cap: u32, compression_scope: AgentInstanceScope) -> Self {
+    pub(in crate::chat_service) fn sub_agent(max_cap: u32, compression_scope: AgentInstanceScope) -> Self {
         Self {
             compression_scope,
             user_hint: format!(

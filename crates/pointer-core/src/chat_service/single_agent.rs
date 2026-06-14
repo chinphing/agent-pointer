@@ -191,24 +191,29 @@ pub(super) async fn run_single_agent_loop(
         }
 
         let budget_scope =
-            super::agent_post_stream::ToolBudgetExhaustionScope::lead_single(max_cap, lead_scope.clone());
-        let post_action = super::agent_round_lifecycle::resolve_post_assistant_action(
-            &stream,
-            state.as_ref(),
-            history,
-            settings,
-            provider,
-            conversation_id,
-            &cancel,
-            tool_budget,
-            Some(consumed_single),
-            max_cap,
-            &budget_scope,
-            state.tools.as_ref(),
-            &buf.final_tool_calls,
-            "lead",
-        )
-        .await?;
+            super::context::ToolBudgetExhaustionScope::lead_single(max_cap, lead_scope.clone());
+        let post_action = {
+            let mut post_ctx = super::context::PostAssistantContext::new(
+                &stream,
+                state.as_ref(),
+                conversation_id,
+                &cancel,
+                history,
+                provider,
+                settings,
+                tool_budget,
+                Some(consumed_single),
+                max_cap,
+                &budget_scope,
+            );
+            super::agent_round_lifecycle::resolve_post_assistant_action(
+                &mut post_ctx,
+                state.tools.as_ref(),
+                &buf.final_tool_calls,
+                "lead",
+            )
+            .await?
+        };
 
         match post_action {
             super::single_agent_post_stream::PostAssistantTurnAction::FinishRun => {
@@ -272,19 +277,21 @@ pub(super) async fn run_single_agent_loop(
             }
             super::single_agent_tools::ToolPassResult::RanTools => {}
         }
-        super::agent_round_lifecycle::finish_tool_round_cycle(
-            &stream,
-            state.as_ref(),
-            history,
-            settings,
-            provider,
-            conversation_id,
-            &cancel,
-            tool_budget,
-            Some(consumed_single),
-            max_cap,
-            &budget_scope,
-        )
-        .await?;
+        {
+            let mut post_ctx = super::context::PostAssistantContext::new(
+                &stream,
+                state.as_ref(),
+                conversation_id,
+                &cancel,
+                history,
+                provider,
+                settings,
+                tool_budget,
+                Some(consumed_single),
+                max_cap,
+                &budget_scope,
+            );
+            super::agent_round_lifecycle::finish_tool_round_cycle(&mut post_ctx).await?;
+        }
     }
 }

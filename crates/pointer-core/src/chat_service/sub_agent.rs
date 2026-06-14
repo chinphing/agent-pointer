@@ -11,8 +11,9 @@ use crate::provider::OpenAIProvider;
 
 use super::agent_post_stream::{
     build_sub_assistant_message_after_stream, push_sub_assistant_turn, sub_agent_run_result,
-    PostAssistantTurnAction, ToolBudgetExhaustionScope,
+    PostAssistantTurnAction,
 };
+use super::context::{PostAssistantContext, ToolBudgetExhaustionScope};
 use super::agent_round_lifecycle;
 use super::agent_tool_pass::{
     run_agent_tool_pass, SubToolPassConfig, ToolInvocationStats, ToolPassResult,
@@ -210,23 +211,28 @@ pub(crate) async fn run_sub_agent(
             return Err(err);
         }
 
-        let post_action = agent_round_lifecycle::resolve_post_assistant_action(
-            stream,
-            state,
-            &mut local_history,
-            &sub_provider.settings,
-            &sub_provider,
-            conversation_id,
-            &cancel,
-            sub_tool_budget,
-            None,
-            max_cap,
-            &budget_scope,
-            state.tools.as_ref(),
-            &buf.final_tool_calls,
-            "sub-agent",
-        )
-        .await?;
+        let post_action = {
+            let mut post_ctx = PostAssistantContext::new(
+                stream,
+                state,
+                conversation_id,
+                &cancel,
+                &mut local_history,
+                &sub_provider,
+                &sub_provider.settings,
+                sub_tool_budget,
+                None,
+                max_cap,
+                &budget_scope,
+            );
+            agent_round_lifecycle::resolve_post_assistant_action(
+                &mut post_ctx,
+                state.tools.as_ref(),
+                &buf.final_tool_calls,
+                "sub-agent",
+            )
+            .await?
+        };
 
         match post_action {
             PostAssistantTurnAction::FinishRun => {
@@ -319,20 +325,22 @@ pub(crate) async fn run_sub_agent(
             ToolPassResult::RanTools => {}
         }
 
-        agent_round_lifecycle::finish_tool_round_cycle(
-            stream,
-            state,
-            &mut local_history,
-            &sub_provider.settings,
-            &sub_provider,
-            conversation_id,
-            &cancel,
-            sub_tool_budget,
-            None,
-            max_cap,
-            &budget_scope,
-        )
-        .await?;
+        {
+            let mut post_ctx = PostAssistantContext::new(
+                stream,
+                state,
+                conversation_id,
+                &cancel,
+                &mut local_history,
+                &sub_provider,
+                &sub_provider.settings,
+                sub_tool_budget,
+                None,
+                max_cap,
+                &budget_scope,
+            );
+            agent_round_lifecycle::finish_tool_round_cycle(&mut post_ctx).await?;
+        }
     }
 }
 

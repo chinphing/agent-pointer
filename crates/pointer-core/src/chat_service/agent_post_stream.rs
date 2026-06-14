@@ -12,6 +12,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::app_state::AppState;
 use super::content_extract::{extract_user_visible_content, reply_attachments_from_assistant_raw};
+use super::context::PostAssistantContext;
+pub(super) use super::context::ToolBudgetExhaustionScope;
 use super::emit::emit;
 use super::session_budget::SessionToolBudget;
 use super::util::now_ms;
@@ -26,50 +28,6 @@ pub(super) enum PostAssistantTurnAction {
     FinishRun,
     /// Valid tool batch — run tool pass.
     ExecuteTools,
-}
-
-/// Tool-round budget exhaustion copy and compression behavior.
-pub(super) struct ToolBudgetExhaustionScope {
-    pub user_hint: String,
-    pub error_message: String,
-    pub compress_for_session: bool,
-    pub compression_scope: crate::agent_instance_scope::AgentInstanceScope,
-}
-
-impl ToolBudgetExhaustionScope {
-    pub(super) fn lead_single(
-        max_cap: u32,
-        compression_scope: crate::agent_instance_scope::AgentInstanceScope,
-    ) -> Self {
-        Self {
-            compression_scope,
-            user_hint: format!(
-                "单智能体模式下工具调用累计已达上限（{} 轮，含此前消息）。建议新开对话；将尝试压缩上下文以便查看摘要。",
-                max_cap
-            ),
-            error_message: format!(
-                "单智能体模式下工具调用轮次已达上限（{max_cap}）。请新开对话或在设置中调高上限。"
-            ),
-            compress_for_session: true,
-        }
-    }
-
-    pub(super) fn sub_agent(
-        max_cap: u32,
-        compression_scope: crate::agent_instance_scope::AgentInstanceScope,
-    ) -> Self {
-        Self {
-            compression_scope,
-            user_hint: format!(
-                "子 Agent 内工具调用累计已达上限（{} 轮）。建议新开对话。",
-                max_cap
-            ),
-            error_message: format!(
-                "子 Agent 内工具调用轮次已达上限（{max_cap}）。请新开对话。"
-            ),
-            compress_for_session: false,
-        }
-    }
 }
 
 fn assistant_tool_calls_with_risk(
@@ -338,29 +296,10 @@ pub(super) fn push_sub_assistant_turn(history: &mut Vec<ChatMessage>, assistant_
 
 /// Empty tool batch: optional JSON format retry, or successful stop.
 pub(super) async fn decide_when_no_tool_calls(
-    stream: &StreamTx,
-    state: &AppState,
-    history: &mut Vec<ChatMessage>,
-    settings: &ModelSettings,
-    provider: &OpenAIProvider,
-    conversation_id: &str,
-    cancel: &CancellationToken,
-    tool_budget: &mut SessionToolBudget,
-    mut consumed_single: Option<&mut u32>,
-    max_cap: u32,
-    scope: &ToolBudgetExhaustionScope,
+    ctx: &mut PostAssistantContext<'_>,
 ) -> Result<PostAssistantTurnAction> {
-    let _ = scope;
-    let _ = max_cap;
-    let _ = stream;
-    let _ = state;
-    let _ = history;
-    let _ = settings;
-    let _ = provider;
-    let _ = conversation_id;
-    let _ = cancel;
-    if let Some(consumed) = consumed_single.as_mut() {
-        tool_budget.sync_out(consumed);
+    if let Some(consumed) = ctx.budget.consumed_single.as_mut() {
+        ctx.budget.tool_budget.sync_out(consumed);
     }
     Ok(PostAssistantTurnAction::FinishRun)
 }
@@ -376,45 +315,39 @@ pub(super) async fn decide_when_tool_calls_present(
 
 /// After optional `tool_budget.sync_out`, if the budget is exhausted: emit, compress, cancel, and fail.
 pub(super) async fn bail_on_tool_budget_exhausted(
-    stream: &StreamTx,
-    state: &AppState,
-    history: &mut Vec<ChatMessage>,
-    settings: &ModelSettings,
-    provider: &OpenAIProvider,
-    conversation_id: &str,
-    cancel: &CancellationToken,
-    tool_budget: &mut SessionToolBudget,
-    mut consumed_single: Option<&mut u32>,
-    max_cap: u32,
-    scope: &ToolBudgetExhaustionScope,
+    ctx: &mut PostAssistantContext<'_>,
 ) -> Result<()> {
-    if !tool_budget.is_exhausted() {
+    if !ctx.budget.tool_budget.is_exhausted() {
         return Ok(());
     }
+    let scope = ctx.budget.budget_scope;
     emit(
-        stream,
+        ctx.session.stream,
         StreamEvent::ToolRoundsExhausted {
-            conversation_id: conversation_id.to_string(),
-            max_rounds: max_cap,
+            conversation_id: ctx.session.conversation_id.to_string(),
+            max_rounds: ctx.budget.max_cap,
             message: scope.user_hint.clone(),
-            will_retry_after_compress: settings.context_compression_enabled,
+            will_retry_after_compress: ctx.llm.settings.context_compression_enabled,
         },
     );
     let _ = crate::context_compression::maybe_compress_after_tool_round_limit(
-        history,
-        settings,
-        provider,
-        conversation_id,
-        stream,
-        cancel.clone(),
+        ctx.transcript.history,
+        ctx.llm.settings,
+        ctx.llm.provider,
+        ctx.session.conversation_id,
+        ctx.session.stream,
+        ctx.session.cancel.clone(),
         scope.compress_for_session,
         crate::context_compression::CompressionUiContext::main(scope.compression_scope.clone()),
     )
     .await;
-    if let Some(consumed) = consumed_single.as_mut() {
-        tool_budget.sync_out(consumed);
+    if let Some(consumed) = ctx.budget.consumed_single.as_mut() {
+        ctx.budget.tool_budget.sync_out(consumed);
     }
-    state.computer_state.mark_cancelled(conversation_id);
+    ctx.session
+        .state
+        .computer_state
+        .mark_cancelled(ctx.session.conversation_id);
     Err(anyhow!(scope.error_message.clone()))
 }
 

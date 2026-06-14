@@ -8,20 +8,19 @@
 //! - **Supervisor**: no inner loop; delegates each task to `run_sub_agent`
 
 use anyhow::{anyhow, Result};
-use tokio_util::sync::CancellationToken;
 
 use crate::agents::AgentProfile;
-use crate::models::{ChatMessage, ModelSettings, ToolCall};
-use crate::provider::OpenAIProvider;
+use crate::models::ToolCall;
 use crate::tools::ToolRegistry;
 
 use super::agent_post_stream::{
     bail_on_tool_budget_exhausted, decide_when_no_tool_calls, decide_when_tool_calls_present,
-    PostAssistantTurnAction, ToolBudgetExhaustionScope,
+    PostAssistantTurnAction,
 };
 use super::app_state::AppState;
+use super::context::PostAssistantContext;
 use super::session_budget::SessionToolBudget;
-use super::StreamTx;
+use tokio_util::sync::CancellationToken;
 
 /// Buffers produced by one provider stream round (lead or sub).
 pub(super) struct StreamRoundBuffers {
@@ -80,71 +79,23 @@ pub(super) fn computer_round_complete_or_give_up(
 
 /// After assistant turn persisted: format retry vs tool execution vs successful stop.
 pub(super) async fn resolve_post_assistant_action(
-    stream: &StreamTx,
-    state: &AppState,
-    history: &mut Vec<ChatMessage>,
-    settings: &ModelSettings,
-    provider: &OpenAIProvider,
-    conversation_id: &str,
-    cancel: &CancellationToken,
-    tool_budget: &mut SessionToolBudget,
-    consumed_single: Option<&mut u32>,
-    max_cap: u32,
-    budget_scope: &ToolBudgetExhaustionScope,
+    ctx: &mut PostAssistantContext<'_>,
     tools: &ToolRegistry,
     final_tool_calls: &[ToolCall],
     log_prefix: &str,
 ) -> Result<PostAssistantTurnAction> {
     if final_tool_calls.is_empty() {
-        decide_when_no_tool_calls(
-            stream,
-            state,
-            history,
-            settings,
-            provider,
-            conversation_id,
-            cancel,
-            tool_budget,
-            consumed_single,
-            max_cap,
-            budget_scope,
-        )
-        .await
+        decide_when_no_tool_calls(ctx).await
     } else {
         decide_when_tool_calls_present(tools, final_tool_calls, log_prefix).await
     }
 }
 
 /// Record one tool cycle, sync counters, and fail if budget is exhausted.
-pub(super) async fn finish_tool_round_cycle(
-    stream: &StreamTx,
-    state: &AppState,
-    history: &mut Vec<ChatMessage>,
-    settings: &ModelSettings,
-    provider: &OpenAIProvider,
-    conversation_id: &str,
-    cancel: &CancellationToken,
-    tool_budget: &mut SessionToolBudget,
-    mut consumed_single: Option<&mut u32>,
-    max_cap: u32,
-    budget_scope: &ToolBudgetExhaustionScope,
-) -> Result<()> {
-    tool_budget.record_tool_cycle();
-    if let Some(consumed) = consumed_single.as_mut() {
-        tool_budget.sync_out(consumed);
+pub(super) async fn finish_tool_round_cycle(ctx: &mut PostAssistantContext<'_>) -> Result<()> {
+    ctx.budget.tool_budget.record_tool_cycle();
+    if let Some(consumed) = ctx.budget.consumed_single.as_mut() {
+        ctx.budget.tool_budget.sync_out(consumed);
     }
-    bail_on_tool_budget_exhausted(
-        stream,
-        state,
-        history,
-        settings,
-        provider,
-        conversation_id,
-        cancel,
-        tool_budget,
-        consumed_single,
-        max_cap,
-        budget_scope,
-    )
-    .await
+    bail_on_tool_budget_exhausted(ctx).await
 }

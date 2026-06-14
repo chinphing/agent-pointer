@@ -139,15 +139,38 @@ models/
 
 ## P3 — 前端 Settings 大组件
 
-| 文件 | 行数 |
-|------|------|
-| `SettingsDialog.vue` | 1591 |
-| `ChannelSettingsPanel.vue` | 1181 |
+| 文件（重构前） | 行数 | 重构后 |
+|------|------|--------|
+| `SettingsDialog.vue` | 1591 | ~282（shell + 路由） |
+| `ChannelSettingsPanel.vue` | 1181 | ~540（模板/样式） + `useChannelSettingsForm.ts` |
+
+**目标结构**
+
+```
+src/composables/
+  useSettingsDialogForm.ts
+  useChannelSettingsForm.ts
+src/components/settings/
+  SettingsDialog.vue
+  panels/
+    AssistantSettingsPanel.vue
+    GenerationSettingsPanel.vue
+    AgentSettingsPanel.vue
+    AccountSettingsPanel.vue
+    RuntimeSettingsPanel.vue
+  ChannelSettingsPanel.vue
+```
 
 **步骤**
 
-- [ ] 按设置 Tab 拆子面板组件
-- [ ] 共享 form state composable
+- [x] 按设置 Tab 拆 `SettingsDialog` 子面板组件
+- [x] 共享 `useSettingsDialogForm` composable
+- [x] 提取 `useChannelSettingsForm`（Channel 面板逻辑与生命周期）
+
+**验收**
+
+- `npm run build` 通过
+- 设置页各 Tab 保存/连接/扫码行为与重构前一致
 
 ---
 
@@ -166,4 +189,5 @@ models/
 | 2026-06-14 | P2 v1 | `tools/file/` 模块拆分 + `agent_round_lifecycle` 共享循环阶段 |
 | 2026-06-14 | P1 v2 | `models/` 拆分（message / conversation / settings / stream_event / openai_convert） |
 | 2026-06-14 | P0 v2 | taskBoard / terminalLive / desktopNotice 模块 + vitest |
+| 2026-06-14 | P3 v1 | Settings 拆分：`panels/*` + `useSettingsDialogForm` + `useChannelSettingsForm` |
 | 2026-06-14 | 文档 | 创建本路线图 |

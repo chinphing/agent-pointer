@@ -222,13 +222,16 @@ impl ChannelOutboundAdapter for FeishuOutbound {
                     Err(e) => return Err(e),
                 }
             };
+            // Video/audio → msg_type = "media"; generic files (pdf, doc, etc.) → msg_type = "file"
+            let is_media = media.mime_type.starts_with("video/") || media.mime_type.starts_with("audio/");
+            let msg_type = if is_media { "media" } else { "file" };
             let content = serde_json::to_string(&json!({ "file_key": file_key }))?;
             self.send_message_with_token_retry(
                 &app_id,
                 &app_secret,
                 &receive_id,
                 receive_id_type,
-                "file",
+                msg_type,
                 &content,
             )
             .await?;

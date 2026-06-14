@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use pointer_core::media::store::{media_abs_path, read_media_bytes, CONVERSATION_MEDIA_DIR};
 use pointer_core::media::path_hint::MEDIA_URI_SCHEME;
+use pointer_core::media::video::remux_video_faststart;
 
 use crate::media::attachment::{enforce_max_bytes, guess_mime_from_bytes};
 use crate::media_roots::{is_user_filesystem_path, normalize_user_path, path_has_traversal};
@@ -75,6 +76,15 @@ pub fn resolve_outbound_media(raw: &str) -> Result<ResolvedOutboundMedia> {
         bytes.len(),
         mime_type
     );
+
+    // AI-generated videos often have the moov atom at the end, causing IM platforms
+    // (Feishu, etc.) to show "0s" duration in previews. Remux with +faststart to move
+    // the moov atom to the beginning — a fast stream-copy, no re-encoding.
+    let bytes = if mime_type.starts_with("video/") {
+        remux_video_faststart(&bytes, &file_name)
+    } else {
+        bytes
+    };
 
     Ok(ResolvedOutboundMedia {
         media: OutboundMedia {

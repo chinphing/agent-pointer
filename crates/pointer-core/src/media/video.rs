@@ -6,6 +6,95 @@ use std::process::Command;
 
 const MAX_FRAMES: usize = 5;
 
+/// Remux video with `-movflags +faststart` to move the moov atom to the beginning of the file.
+///
+/// IM platforms (Feishu, DingTalk, etc.) need the moov atom at the start to display
+/// correct duration metadata in message previews. AI-generated MP4s often have the
+/// moov atom at the end, causing the platform to show "0s".
+///
+/// Returns the remuxed bytes on success, or the **original bytes** if ffmpeg is
+/// unavailable or the operation fails (best-effort, never blocks delivery).
+pub fn remux_video_faststart(bytes: &[u8], file_name: &str) -> Vec<u8> {
+    let ffmpeg = match crate::media::ffmpeg::resolve_ffmpeg() {
+        Some(p) => p,
+        None => return bytes.to_vec(),
+    };
+
+    let suffix = video_suffix(file_name);
+    let mut input = match tempfile::Builder::new()
+        .prefix("pointer-vid-remux-")
+        .suffix(suffix)
+        .tempfile()
+    {
+        Ok(f) => f,
+        Err(e) => {
+            log::warn!("video faststart: tempfile create failed: {e}");
+            return bytes.to_vec();
+        }
+    };
+    if let Err(e) = input.write_all(bytes) {
+        log::warn!("video faststart: tempfile write failed: {e}");
+        return bytes.to_vec();
+    }
+    let input_path = input.path().to_owned();
+
+    let output = match tempfile::Builder::new()
+        .prefix("pointer-vid-remux-out-")
+        .suffix(suffix)
+        .tempfile()
+    {
+        Ok(f) => f,
+        Err(e) => {
+            log::warn!("video faststart: output tempfile failed: {e}");
+            return bytes.to_vec();
+        }
+    };
+    let output_path = output.path().to_owned();
+
+    let result = Command::new(&ffmpeg)
+        .args([
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-i",
+            input_path.to_str().unwrap_or_default(),
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            "-y",
+            output_path.to_str().unwrap_or_default(),
+        ])
+        .output();
+
+    match result {
+        Ok(out) if out.status.success() => {
+            match std::fs::read(&output_path) {
+                Ok(remuxed) if !remuxed.is_empty() => {
+                    log::info!(
+                        "video faststart ok: {} bytes → {} bytes for {}",
+                        bytes.len(),
+                        remuxed.len(),
+                        file_name
+                    );
+                    return remuxed;
+                }
+                Ok(_) => log::warn!("video faststart: output empty for {file_name}"),
+                Err(e) => log::warn!("video faststart: read output failed: {e}"),
+            }
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            log::warn!("video faststart failed for {file_name}: {stderr}");
+        }
+        Err(e) => {
+            log::warn!("video faststart spawn failed: {e}");
+        }
+    }
+    bytes.to_vec()
+}
+
 pub fn extract_video_frame_base64s(bytes: &[u8], file_name: &str) -> Result<Vec<String>> {
     let ffmpeg = crate::media::ffmpeg::resolve_ffmpeg().context("ffmpeg not found")?;
     let ffprobe = crate::media::ffmpeg::resolve_ffprobe().context("ffprobe not found")?;

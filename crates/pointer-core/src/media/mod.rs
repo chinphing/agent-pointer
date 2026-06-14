@@ -29,3 +29,4 @@ pub use store::{
     media_abs_path, read_chat_media_preview, read_media_bytes, read_media_ref_preview,
     save_attachment_bytes,
 };
+pub use video::{extract_video_frame_base64s, remux_video_faststart};

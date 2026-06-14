@@ -374,6 +374,7 @@ pub fn default_qwen_provider_models() -> Vec<String> {
         "qwen3.6-plus".into(),
         "qwen3.6-27b".into(),
         "qwen3.6-flash".into(),
+        "qwen3-asr-flash".into(),
         "wan2.7-image-pro".into(),
         "qwen-image-2.0-pro".into(),
         "happyhorse-1.0-t2v".into(),

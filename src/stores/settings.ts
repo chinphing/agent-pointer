@@ -32,7 +32,9 @@ import {
   DOUBAO_GENERATION_MODELS,
   modelCanGenerateImage,
   modelCanGenerateVideo,
+  modelSupportsAudioTranscription,
   modelSupportsVision,
+  QWEN_AUDIO_TRANSCRIPTION_MODELS,
   QWEN_GENERATION_MODELS,
   seedProviderModelCapabilities
 } from '../lib/modelCapabilities'
@@ -180,6 +182,7 @@ const defaultProviders: ProviderConfig[] = [
       'qwen3.6-plus',
       'qwen3.6-27b',
       'qwen3.6-flash',
+      ...QWEN_AUDIO_TRANSCRIPTION_MODELS,
       ...QWEN_GENERATION_MODELS
     ],
     reasoningInMessages: false,
@@ -390,6 +393,12 @@ export const useSettingsStore = defineStore('settings', () => {
   const visionModels = computed(() =>
     allModels.value.filter(item =>
       modelSupportsVision(settings.value.providers, item.providerId, item.model)
+    )
+  )
+
+  const audioModels = computed(() =>
+    allModels.value.filter(item =>
+      modelSupportsAudioTranscription(settings.value.providers, item.providerId, item.model)
     )
   )
 
@@ -681,6 +690,7 @@ export const useSettingsStore = defineStore('settings', () => {
     effectiveMaxTokens,
     allModels,
     visionModels,
+    audioModels,
     imageGenerationModels,
     videoGenerationModels,
     load,

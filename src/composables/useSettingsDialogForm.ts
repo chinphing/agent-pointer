@@ -1,4 +1,4 @@
-import { computed, inject, onMounted, provide, ref, watch, type InjectionKey, type Ref } from 'vue'
+import { computed, getCurrentInstance, inject, onScopeDispose, provide, ref, watch, type InjectionKey, type Ref } from 'vue'
 import {
   Bot,
   CircleHelp,
@@ -38,7 +38,9 @@ import { useSettingsStore } from '../stores/settings'
 
 export type SettingsDialogForm = ReturnType<typeof createSettingsDialogForm>
 
-export const SettingsDialogFormKey: InjectionKey<SettingsDialogForm> = Symbol('SettingsDialogForm')
+export const SettingsDialogFormKey: InjectionKey<SettingsDialogForm> = Symbol.for('SettingsDialogForm')
+
+let activeSettingsDialogForm: SettingsDialogForm | null = null
 
 export function provideSettingsDialogForm(deps: {
   onClose: () => void
@@ -46,12 +48,20 @@ export function provideSettingsDialogForm(deps: {
   debugSectionIds: ReadonlySet<string>
 }) {
   const form = createSettingsDialogForm(deps)
+  activeSettingsDialogForm = form
   provide(SettingsDialogFormKey, form)
+  if (getCurrentInstance()) {
+    onScopeDispose(() => {
+      if (activeSettingsDialogForm === form) {
+        activeSettingsDialogForm = null
+      }
+    })
+  }
   return form
 }
 
 export function useSettingsDialogForm() {
-  const form = inject(SettingsDialogFormKey)
+  const form = inject(SettingsDialogFormKey, null) ?? activeSettingsDialogForm
   if (!form) {
     throw new Error('useSettingsDialogForm() must be used inside SettingsDialog')
   }

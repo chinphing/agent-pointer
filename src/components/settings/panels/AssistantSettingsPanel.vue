@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { useSettingsDialogForm } from '../../../composables/useSettingsDialogForm'
+import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import { useSettingsStore } from '../../../stores/settings'
 import { Bot, CircleHelp, Info, Sparkles, Wrench } from 'lucide-vue-next'
+
+const props = defineProps<{
+  form: SettingsDialogForm
+}>()
 
 const s = useSettingsStore()
 const {
@@ -31,7 +35,7 @@ const {
   ffmpegNeedsInstall,
   refreshMediaDeps,
   askAssistantInstallFfmpeg
-} = useSettingsDialogForm()
+} = props.form
 </script>
 
 <template>            <div>
@@ -102,7 +106,7 @@ const {
                           class="rounded-full border-border bg-card text-accent focus:ring-accent/40"
                           :name="'agent-mode-' + row.id"
                           :checked="(agentPerformanceModesLocal[row.id] ?? 'fast') === opt.value"
-                          @change="agentPerformanceModesLocal[row.id] = opt.value"
+                          @change="agentPerformanceModesLocal = { ...agentPerformanceModesLocal, [row.id]: opt.value }"
                         />
                         <span class="text-foreground whitespace-nowrap">{{ opt.label }}</span>
                       </label>
@@ -130,7 +134,7 @@ const {
                           class="rounded-full border-border bg-card text-accent focus:ring-accent/40"
                           :name="'media-mode-' + row.key"
                           :checked="mediaUnderstandingModesLocal[row.key] === opt.value"
-                          @change="mediaUnderstandingModesLocal[row.key] = opt.value"
+                          @change="mediaUnderstandingModesLocal = { ...mediaUnderstandingModesLocal, [row.key]: opt.value }"
                         />
                         <span class="text-foreground whitespace-nowrap">{{ opt.label }}</span>
                       </label>

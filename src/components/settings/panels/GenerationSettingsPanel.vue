@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { useSettingsDialogForm } from '../../../composables/useSettingsDialogForm'
+import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import { useSettingsStore } from '../../../stores/settings'
 import { Gauge } from 'lucide-vue-next'
+
+const props = defineProps<{
+  form: SettingsDialogForm
+}>()
 
 const s = useSettingsStore()
 const {
@@ -12,7 +16,7 @@ const {
   computerAnnotatedScreenViewEnabled,
   taskBoardShowChildBoards,
   debugDumpLlmPrompts
-} = useSettingsDialogForm()
+} = props.form
 </script>
 
 <template>            <div>

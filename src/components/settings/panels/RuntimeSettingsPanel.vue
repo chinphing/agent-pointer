@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { useSettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import { useSettingsStore } from '../../../stores/settings'
 import { Database, Network } from 'lucide-vue-next'
 

@@ -4,6 +4,7 @@ import AppShell from './components/layout/AppShell.vue'
 import ChatView from './components/chat/ChatView.vue'
 import ComputerCompactBar from './components/chat/ComputerCompactBar.vue'
 import ChannelPairingModal from './components/channels/ChannelPairingModal.vue'
+import SettingsDialog from './components/settings/SettingsDialog.vue'
 import { useComputerCompactMode } from './composables/useComputerCompactMode'
 import { useChannelPairingPrompt } from './composables/useChannelPairingPrompt'
 import { useExternalSkillsImportPrompt } from './composables/useExternalSkillsImportPrompt'
@@ -16,8 +17,6 @@ import { isTauriRuntime } from './lib/runtime'
 const isDesktopApp = isTauriRuntime()
 
 /** Lazy: large SFC + many icons; keeps dev / first-paint transform graph small. */
-const loadSettingsDialog = () => import('./components/settings/SettingsDialog.vue')
-const SettingsDialog = defineAsyncComponent(loadSettingsDialog)
 const SkillPicker = defineAsyncComponent(() => import('./components/skills/SkillPicker.vue'))
 const ExternalSkillsImportModal = defineAsyncComponent(
   () => import('./components/skills/ExternalSkillsImportModal.vue')

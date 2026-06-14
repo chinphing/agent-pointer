@@ -41,6 +41,17 @@ export function inferModelGenerationCapabilities(modelId: string): ModelCapabili
   return flags
 }
 
+/** Speech-to-text / ASR models (aligned with Rust `dashscope_audio_model_id`). */
+export function inferModelAudioTranscription(modelId: string): boolean {
+  const m = modelId.trim().toLowerCase()
+  if (!m) return false
+  return (
+    m.includes('asr') ||
+    m.includes('whisper') ||
+    (m.includes('audio') && !m.includes('seedance'))
+  )
+}
+
 function modelOverride(
   providers: ProviderConfig[],
   providerId: string,
@@ -89,6 +100,16 @@ export function modelCanGenerateVideo(
   return resolvedModelCapabilities(providers, providerId, model).canGenerateVideo
 }
 
+export function modelSupportsAudioTranscription(
+  providers: ProviderConfig[],
+  providerId: string,
+  model: string
+): boolean {
+  void providers
+  void providerId
+  return inferModelAudioTranscription(model)
+}
+
 /** Seed provider-fixed vision defaults and generation flags (no overwrite of explicit values). */
 export function seedProviderModelCapabilities(provider: ProviderConfig): ProviderConfig {
   const configs = { ...(provider.modelConfigs ?? {}) }
@@ -124,6 +145,11 @@ export const QWEN_IMAGE_GENERATION_MODELS = [
 export const QWEN_VIDEO_GENERATION_MODELS = [
   'happyhorse-1.0-t2v',
   'happyhorse-1.0-i2v'
+] as const
+
+/** Qwen speech-to-text models for media understanding (audio). */
+export const QWEN_AUDIO_TRANSCRIPTION_MODELS = [
+  'qwen3-asr-flash'
 ] as const
 
 export const QWEN_GENERATION_MODELS = [

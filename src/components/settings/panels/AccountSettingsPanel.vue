@@ -1,8 +1,13 @@
 <script setup lang="ts">
-import { useSettingsDialogForm } from '../../../composables/useSettingsDialogForm'
+import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import { useSettingsStore } from '../../../stores/settings'
 import { UserCircle } from 'lucide-vue-next'
 import { usePlatformAuthStore } from '../../../stores/platformAuth'
+
+const props = defineProps<{
+  form: SettingsDialogForm
+}>()
+
 const platformAuth = usePlatformAuthStore()
 
 const s = useSettingsStore()
@@ -11,7 +16,7 @@ const {
   platformLogoutBusy,
   logoutPlatformAccount,
   loginPlatformAccount
-} = useSettingsDialogForm()
+} = props.form
 </script>
 
 <template>            <div>

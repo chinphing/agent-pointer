@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { useSettingsDialogForm } from '../../../composables/useSettingsDialogForm'
+import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import { useSettingsStore } from '../../../stores/settings'
 import { Bot, Sparkles, Users } from 'lucide-vue-next'
 import { composerAgentLabel } from '../../../lib/agentUi'
+
+const props = defineProps<{
+  form: SettingsDialogForm
+}>()
 
 const s = useSettingsStore()
 const {
@@ -33,7 +37,12 @@ const {
   isLeadWorkerSelected,
   isLeadAgentSelectable,
   selectLeadWorker
-} = useSettingsDialogForm()
+} = props.form
+
+function mediaDebugModelOptions(kind: (typeof MEDIA_DEBUG_KINDS)[number]) {
+  if (kind === 'audio') return s.audioModels
+  return s.visionModels
+}
 </script>
 
 <template>            <div>
@@ -213,7 +222,7 @@ const {
                       class="h-8 px-2 rounded border border-border bg-[hsl(var(--card-elevated))] text-[12px] text-foreground outline-none focus:border-accent/50"
                       @change="selectMediaModeModel(kind, mode.value, ($event.target as HTMLSelectElement).value)"
                     >
-                      <option v-for="item in s.visionModels" :key="item.providerId + ':' + item.model" :value="item.model">{{ item.providerName }} / {{ item.model }}</option>
+                      <option v-for="item in mediaDebugModelOptions(kind)" :key="item.providerId + ':' + item.model" :value="item.model">{{ item.providerName }} / {{ item.model }}</option>
                     </select>
                     <label class="inline-flex items-center gap-1 text-[11px] text-muted whitespace-nowrap">
                       <input

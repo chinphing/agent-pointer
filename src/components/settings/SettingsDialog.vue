@@ -143,7 +143,10 @@ async function saveFromFooter() {
 
 <template>
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="onDialogBackdropClick">
-    <div class="w-[960px] max-w-[94vw] h-[740px] max-h-[90vh] glass-strong rounded-2xl border border-border shadow-2xl flex flex-col overflow-hidden">
+    <div
+      class="w-[960px] max-w-[94vw] h-[740px] max-h-[90vh] glass-strong rounded-2xl border border-border shadow-2xl flex flex-col overflow-hidden"
+      data-tauri-drag-region="false"
+    >
       <!-- Header -->
       <header class="px-6 h-14 flex items-center gap-2 border-b border-border shrink-0">
         <div class="w-8 h-8 rounded-lg bg-accent/15 flex items-center justify-center">
@@ -230,26 +233,26 @@ async function saveFromFooter() {
           </p>
           <!-- ==================== Assistant Section ==================== -->
           <section v-if="activeSection === 'assistant'" class="p-6 space-y-5">
-            <AssistantSettingsPanel />
+            <AssistantSettingsPanel :form="form" />
           </section>
 
-          <section v-else-if="activeSection === 'channels'"" class="p-6">
+          <section v-else-if="activeSection === 'channels'" class="p-6">
             <ChannelSettingsPanel ref="channelPanelRef" />
           </section>
 
           <!-- ==================== Generation Section ==================== -->
           <section v-else-if="activeSection === 'generation'" class="p-6 space-y-5">
-            <GenerationSettingsPanel />
+            <GenerationSettingsPanel :form="form" />
           </section>
 
           <!-- ==================== Agent Section ==================== -->
           <section v-else-if="activeSection === 'agent'" class="p-6 space-y-5">
-            <AgentSettingsPanel />
+            <AgentSettingsPanel :form="form" />
           </section>
 
           <!-- ==================== Platform account (desktop) ==================== -->
           <section v-else-if="activeSection === 'account'" class="p-6 space-y-5">
-            <AccountSettingsPanel />
+            <AccountSettingsPanel :form="form" />
           </section>
 
           <!-- ==================== Runtime Section ==================== -->

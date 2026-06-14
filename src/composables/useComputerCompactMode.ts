@@ -25,7 +25,7 @@ export function useComputerCompactMode() {
   const stoppedHint = ref(false)
   let stoppedTimer: ReturnType<typeof setTimeout> | undefined
 
-  const { planLine, statusLine, twoLines } = useComputerCompactTitle(stoppedHint)
+  const { planSummary, planLine, statusLine, twoLines } = useComputerCompactTitle(stoppedHint)
 
   const activeMessage = computed(() => {
     const conv = chat.current
@@ -70,6 +70,8 @@ export function useComputerCompactMode() {
     shouldEnterCompact,
     enter => {
       if (enter && !isCompact.value) {
+        const id = currentId.value
+        if (id) void chat.refreshTaskBoard(id)
         void applyCompact(true)
       } else if (!enter && isCompact.value) {
         void applyCompact(false)
@@ -130,6 +132,7 @@ export function useComputerCompactMode() {
 
   return {
     isCompact,
+    planSummary,
     planLine,
     statusLine,
     twoLines,

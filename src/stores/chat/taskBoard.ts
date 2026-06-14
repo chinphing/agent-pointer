@@ -111,6 +111,19 @@ export interface TaskBoardManager {
     taskId?: string,
     anchorMessageId?: string
   ): Promise<void>
+  activeParentBoardDocument(
+    convId: string | null,
+    messageId?: string | null
+  ): TaskBoardDocument | null
+  activeParentBoardBinding(
+    convId: string | null,
+    messageId?: string | null
+  ): { storeKey: string; document: TaskBoardDocument; isActive: boolean } | null
+  compactTaskBoardDocument(
+    convId: string | null,
+    messageId: string | null | undefined,
+    computerSubTaskId?: string | null
+  ): TaskBoardDocument | null
   parentBoardsBoundToMessage(
     convId: string | null,
     messageId: string
@@ -125,6 +138,105 @@ export interface TaskBoardManager {
     taskId: string,
     messageId?: string
   ): TaskBoardDocument | null
+}
+
+function findStoreKeyForParentDocument(
+  entry: ConversationTaskBoardState,
+  document: TaskBoardDocument
+): string | null {
+  for (const [storeKey, doc] of Object.entries(entry.parentByStoreKey)) {
+    if (doc === document) return storeKey
+  }
+  return null
+}
+
+export function resolveActiveParentBoardDocument(
+  entry: ConversationTaskBoardState | null | undefined,
+  messageId?: string | null
+): TaskBoardDocument | null {
+  if (!entry) return null
+  const mid = messageId?.trim()
+  if (mid) {
+    for (const [storeKey, anchor] of Object.entries(entry.parentBindings)) {
+      if (anchor !== mid) continue
+      const document = entry.parentByStoreKey[storeKey]
+      if (document && hasTaskBoardContent(document)) return document
+    }
+  }
+  const activeKey = entry.activeParentStoreKey
+  if (activeKey) {
+    const document = entry.parentByStoreKey[activeKey]
+    if (document && hasTaskBoardContent(document)) return document
+  }
+  for (const document of Object.values(entry.parentByStoreKey)) {
+    if (document && hasTaskBoardContent(document) && !isTaskBoardTerminal(document.meta?.status)) {
+      return document
+    }
+  }
+  return null
+}
+
+export function resolveActiveParentBoardBinding(
+  entry: ConversationTaskBoardState | null | undefined,
+  messageId?: string | null
+): { storeKey: string; document: TaskBoardDocument; isActive: boolean } | null {
+  if (!entry) return null
+  const document = resolveActiveParentBoardDocument(entry, messageId)
+  if (!document) return null
+  const storeKey =
+    (entry.activeParentStoreKey &&
+    entry.parentByStoreKey[entry.activeParentStoreKey] === document
+      ? entry.activeParentStoreKey
+      : null) ?? findStoreKeyForParentDocument(entry, document)
+  if (!storeKey) return null
+  return {
+    storeKey,
+    document,
+    isActive: entry.activeParentStoreKey === storeKey
+  }
+}
+
+/** Child board for a sub-agent trace (anchor is usually the lead assistant message id). */
+export function resolveChildTaskBoardDocument(
+  entry: ConversationTaskBoardState | null | undefined,
+  taskId: string,
+  messageId?: string | null
+): TaskBoardDocument | null {
+  if (!entry || !taskId.trim()) return null
+  const tid = taskId.trim()
+  for (const [parentStoreKey, group] of Object.entries(entry.childrenByParentStoreKey)) {
+    const document = group[tid]
+    if (!document || !hasTaskBoardContent(document)) continue
+    if (messageId?.trim()) {
+      const storeKey = childStoreKey(parentStoreKey, tid)
+      const bound = entry.childBindings?.[storeKey]
+      if (bound && bound !== messageId.trim()) continue
+    }
+    return document
+  }
+  return null
+}
+
+/**
+ * Task board document for the computer compact bar.
+ * - Lead computer (no sub trace): main/parent board.
+ * - Delegated computer sub-agent: child board when present, else parent.
+ */
+export function resolveCompactTaskBoardDocument(
+  entry: ConversationTaskBoardState | null | undefined,
+  messageId: string | null | undefined,
+  /** Supervisor sub-task id only (not lead trace id `computer`). */
+  computerSubTaskId?: string | null
+): TaskBoardDocument | null {
+  if (!entry) return null
+  const mid = messageId?.trim() || null
+  const subTaskId = computerSubTaskId?.trim()
+  const child =
+    subTaskId && mid ? resolveChildTaskBoardDocument(entry, subTaskId, mid) : null
+  const parent = resolveActiveParentBoardDocument(entry, mid)
+  if (child && !isTaskBoardTerminal(child.meta?.status)) return child
+  if (parent) return parent
+  return child
 }
 
 export function createTaskBoardManager(deps: {
@@ -184,6 +296,10 @@ export function createTaskBoardManager(deps: {
   ) {
     try {
       const doc = (await deps.fetchSnapshot(conversationId, taskId)) as TaskBoardDocument
+      if (!hasTaskBoardContent(doc)) {
+        console.warn('[task board] snapshot empty, keeping cached board', conversationId, taskId)
+        return
+      }
       const inferredStoreKey =
         typeof doc.task_id === 'string' && doc.task_id.startsWith('tb_')
           ? doc.task_id.slice(3)
@@ -197,6 +313,30 @@ export function createTaskBoardManager(deps: {
     } catch (e) {
       console.warn('[task board] snapshot failed', e)
     }
+  }
+
+  /** Active parent board for compact dock bar (anchor is usually the user turn id, not assistant). */
+  function activeParentBoardDocument(convId: string | null, messageId?: string | null) {
+    if (!convId) return null
+    return resolveActiveParentBoardDocument(deps.taskBoards.value[convId], messageId)
+  }
+
+  function activeParentBoardBinding(convId: string | null, messageId?: string | null) {
+    if (!convId) return null
+    return resolveActiveParentBoardBinding(deps.taskBoards.value[convId], messageId)
+  }
+
+  function compactTaskBoardDocument(
+    convId: string | null,
+    messageId: string | null | undefined,
+    computerSubTaskId?: string | null
+  ) {
+    if (!convId) return null
+    return resolveCompactTaskBoardDocument(
+      deps.taskBoards.value[convId],
+      messageId,
+      computerSubTaskId
+    )
   }
 
   function parentBoardsBoundToMessage(convId: string | null, messageId: string) {
@@ -235,25 +375,15 @@ export function createTaskBoardManager(deps: {
     messageId?: string
   ): TaskBoardDocument | null {
     if (!convId || !taskId.trim()) return null
-    const entry = deps.taskBoards.value[convId]
-    if (!entry) return null
-    const tid = taskId.trim()
-    for (const [parentStoreKey, group] of Object.entries(entry.childrenByParentStoreKey)) {
-      const doc = group[tid]
-      if (!doc || !hasTaskBoardContent(doc)) continue
-      if (messageId?.trim()) {
-        const storeKey = childStoreKey(parentStoreKey, tid)
-        const bound = entry.childBindings?.[storeKey]
-        if (bound && bound !== messageId.trim()) continue
-      }
-      return doc
-    }
-    return null
+    return resolveChildTaskBoardDocument(deps.taskBoards.value[convId], taskId, messageId)
   }
 
   return {
     applyTaskBoardDocumentDebounced,
     refreshTaskBoard,
+    activeParentBoardDocument,
+    activeParentBoardBinding,
+    compactTaskBoardDocument,
     parentBoardsBoundToMessage,
     taskBoardForConversation,
     childBoardsForParent,

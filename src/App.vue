@@ -48,6 +48,7 @@ const {
 
 const {
   isCompact,
+  planSummary,
   planLine,
   statusLine,
   twoLines,
@@ -91,6 +92,7 @@ watch(showSkills, open => {
     :class="isDesktopApp
       ? 'h-full w-full min-h-0'
       : 'fixed bottom-4 right-4 z-[500] w-[min(400px,calc(100vw-32px))] shadow-lg'"
+    :plan-summary="planSummary"
     :plan-line="planLine"
     :status-line="statusLine"
     :two-lines="twoLines"

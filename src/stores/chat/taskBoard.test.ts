@@ -4,6 +4,11 @@ import {
   applyTaskBoardDocumentToEntry,
   childStoreKey,
   emptyTaskBoardEntry,
+  resolveActiveParentBoardDocument,
+  resolveActiveParentBoardBinding,
+  resolveChildTaskBoardDocument,
+  resolveCompactTaskBoardDocument,
+  TASK_BOARD_MAIN_TURN_SEP,
   TASK_BOARD_SUB_SEP
 } from './taskBoard'
 
@@ -37,6 +42,55 @@ describe('taskBoard logic', () => {
     applyTaskBoardDocumentToEntry(entry, 'conv1', 'conv1', doc('x', 'active'), 'u1', [])
     applyTaskBoardDocumentToEntry(entry, 'conv1', 'conv1', doc('x', 'completed'), 'u1', [])
     expect(entry.activeParentStoreKey).toBeNull()
+  })
+
+  it('resolveActiveParentBoardDocument falls back to active parent when anchor is user id', () => {
+    const entry = emptyTaskBoardEntry()
+    applyTaskBoardDocumentToEntry(entry, 'conv1', 'conv1', doc('open browser'), 'u1', [])
+    expect(resolveActiveParentBoardDocument(entry, 'assistant_msg')).toEqual(entry.parentByStoreKey.conv1)
+    expect(resolveActiveParentBoardDocument(entry, 'u1')).toEqual(entry.parentByStoreKey.conv1)
+  })
+
+  it('resolveCompactTaskBoardDocument prefers child board for delegated computer sub-agent', () => {
+    const entry = emptyTaskBoardEntry()
+    applyTaskBoardDocumentToEntry(entry, 'conv1', 'conv1', doc('supervisor goal'), 'u1', [])
+    const storeKey = childStoreKey('conv1', 'task_a')
+    applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('click button'), 'msg_lead', [])
+    const out = resolveCompactTaskBoardDocument(entry, 'msg_lead', 'task_a')
+    expect(out?.meta?.goal).toBe('click button')
+  })
+
+  it('resolveCompactTaskBoardDocument uses parent board for lead computer without sub task id', () => {
+    const entry = emptyTaskBoardEntry()
+    applyTaskBoardDocumentToEntry(entry, 'conv1', 'conv1', doc('solo computer'), 'u1', [])
+    const out = resolveCompactTaskBoardDocument(entry, 'assistant_msg', null)
+    expect(out?.meta?.goal).toBe('solo computer')
+  })
+
+  it('resolveCompactTaskBoardDocument reuses active parent after resume on new assistant id', () => {
+    const entry = emptyTaskBoardEntry()
+    const storeKey = `conv1${TASK_BOARD_MAIN_TURN_SEP}u_original`
+    applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('open wechat'), 'u_original', [])
+    const out = resolveCompactTaskBoardDocument(entry, 'assistant_after_continue', null)
+    expect(out?.meta?.goal).toBe('open wechat')
+  })
+
+  it('resolveActiveParentBoardBinding returns store key for compact resume', () => {
+    const entry = emptyTaskBoardEntry()
+    const storeKey = `conv1${TASK_BOARD_MAIN_TURN_SEP}u_original`
+    applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('resume goal'), 'u_original', [])
+    const binding = resolveActiveParentBoardBinding(entry, 'u_continue')
+    expect(binding?.storeKey).toBe(storeKey)
+    expect(binding?.document.meta?.goal).toBe('resume goal')
+    expect(binding?.isActive).toBe(true)
+  })
+
+  it('resolveChildTaskBoardDocument respects message anchor', () => {
+    const entry = emptyTaskBoardEntry()
+    const storeKey = childStoreKey('conv1', 'task_a')
+    applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('child'), 'msg_a', [])
+    expect(resolveChildTaskBoardDocument(entry, 'task_a', 'msg_a')?.meta?.goal).toBe('child')
+    expect(resolveChildTaskBoardDocument(entry, 'task_a', 'msg_other')).toBeNull()
   })
 
   it('stores child board under parent store key', () => {

@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { Monitor, Maximize2, Square } from 'lucide-vue-next'
+import { LayoutList, Monitor, Maximize2, Square } from 'lucide-vue-next'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import { isTauriRuntime } from '../../lib/runtime'
+import type { TaskBoardCompactSummary } from '../../lib/taskBoardCollapsedLine'
 
 defineProps<{
+  planSummary: TaskBoardCompactSummary | null
   planLine: string | null
   statusLine: string
   twoLines: boolean
@@ -44,16 +46,27 @@ function onBarMouseDown(e: MouseEvent) {
         <Monitor class="relative w-4 h-4" />
       </div>
       <div class="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
-        <p
-          v-if="planLine"
-          class="text-[11px] leading-snug text-muted truncate"
-          :title="planLine"
+        <div
+          v-if="planSummary"
+          class="flex min-w-0 items-center gap-3"
+          :title="planLine ?? undefined"
         >
-          {{ planLine }}
-        </p>
+          <div
+            class="flex shrink-0 items-center gap-1.5"
+            :aria-label="`进度 ${planSummary.progress}`"
+          >
+            <LayoutList class="w-3.5 h-3.5 shrink-0 text-accent" aria-hidden="true" />
+            <span class="text-[11px] font-medium leading-[1.25rem] tabular-nums text-muted">
+              {{ planSummary.progress }}
+            </span>
+          </div>
+          <p class="min-w-0 flex-1 truncate text-[11px] leading-[1.25rem] text-muted">
+            {{ planSummary.taskLine }}
+          </p>
+        </div>
         <p
-          class="text-[13px] leading-snug text-foreground truncate"
-          :class="planLine ? 'font-normal' : 'font-medium'"
+          class="text-[13px] leading-[1.25rem] text-foreground truncate"
+          :class="planSummary ? 'font-normal' : 'font-medium'"
           :title="statusLine"
           role="status"
           aria-live="polite"

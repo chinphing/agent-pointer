@@ -37,6 +37,16 @@ export function isComputerAgentTrace(trace: Pick<AgentTrace, 'id'>): boolean {
   return (agentId || trace.id.trim()) === 'computer'
 }
 
+/** Sub-task id for delegated computer only; lead trace `computer` returns null. */
+export function delegatedComputerSubTaskId(
+  trace: Pick<AgentTrace, 'id'> | undefined
+): string | null {
+  const id = trace?.id.trim()
+  if (!id || !id.includes(':')) return null
+  const taskId = id.slice(0, id.indexOf(':')).trim()
+  return taskId || null
+}
+
 function toolInProgress(status: string): boolean {
   return status === 'running' || status === 'pending' || status === 'pending_approval'
 }

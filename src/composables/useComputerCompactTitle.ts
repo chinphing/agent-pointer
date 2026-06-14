@@ -2,9 +2,13 @@ import { computed, type Ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
-import { activeComputerTrace, isComputerToolName } from '../lib/computerExecuting'
-import { taskBoardCollapsedLine } from '../lib/taskBoardCollapsedLine'
+import { activeComputerTrace, delegatedComputerSubTaskId, isComputerToolName } from '../lib/computerExecuting'
+import { taskBoardCompactSummary } from '../lib/taskBoardCollapsedLine'
 import { visibleToolCalls } from '../lib/messageTooling'
+import {
+  compactToolCallStatusLine,
+  latestToolCallForCompactStatus
+} from '../lib/toolCallDisplay'
 import { thinkingLabel, streamedCharCountFromBody } from '../lib/thinkingIndicator'
 import type { ChatMessage, ToolCall } from '../types/chat'
 
@@ -19,16 +23,6 @@ const COMPUTER_HIDE_TOOL_NAMES = [
   'action_verify'
 ]
 
-function toolInProgress(tc: ToolCall): boolean {
-  return tc.status === 'running' || tc.status === 'pending' || tc.status === 'pending_approval'
-}
-
-function formatToolLine(tc: ToolCall): string {
-  const label = tc.displayLabel?.trim() || tc.name
-  const summary = tc.displaySummary?.trim()
-  return summary ? `${label} · ${summary}` : label
-}
-
 function visibleComputerToolCalls(message: ChatMessage | undefined): ToolCall[] {
   if (!message) return []
   const trace = activeComputerTrace(message)
@@ -36,13 +30,6 @@ function visibleComputerToolCalls(message: ChatMessage | undefined): ToolCall[] 
   return visibleToolCalls(calls, COMPUTER_HIDE_TOOL_NAMES, false, true).filter(tc =>
     isComputerToolName(tc.name)
   )
-}
-
-function activeComputerTool(calls: ToolCall[]): ToolCall | undefined {
-  for (let i = calls.length - 1; i >= 0; i -= 1) {
-    if (toolInProgress(calls[i])) return calls[i]
-  }
-  return undefined
 }
 
 function streamBodyFromMessage(message: ChatMessage | undefined) {
@@ -81,23 +68,28 @@ export function useComputerCompactTitle(stoppedHint: Ref<boolean>) {
     return conv.messages.find(m => m.id === id)
   })
 
-  const planLine = computed((): string | null => {
+  const planSummary = computed(() => {
     const conv = chat.current
+    if (!conv) return null
+    const msg = activeMessage.value
     const msgId = activeGeneratingMessageId.value
-    if (!conv || !msgId) return null
-    const boards = chat.parentBoardsBoundToMessage(conv.id, msgId)
-    const active = boards.find(b => b.isActive) ?? boards[0]
-    if (!active?.document) return null
-    return taskBoardCollapsedLine(active.document)
+    const subTaskId = delegatedComputerSubTaskId(activeComputerTrace(msg))
+    const document =
+      chat.compactTaskBoardDocument(conv.id, msgId, subTaskId) ??
+      chat.compactTaskBoardDocument(conv.id, null, subTaskId)
+    if (!document) return null
+    return taskBoardCompactSummary(document)
   })
+
+  const planLine = computed((): string | null => planSummary.value?.fullLine ?? null)
 
   const statusLine = computed((): string => {
     if (stoppedHint.value) return '已停止'
     if (computerMonitorPickRequest.value) return '请选择操控屏幕…'
 
     const msg = activeMessage.value
-    const tool = activeComputerTool(visibleComputerToolCalls(msg))
-    if (tool) return formatToolLine(tool)
+    const tool = latestToolCallForCompactStatus(visibleComputerToolCalls(msg))
+    if (tool) return compactToolCallStatusLine(tool)
 
     const body = streamBodyFromMessage(msg)
     const preview = body.toolNamePreview?.trim()
@@ -107,7 +99,7 @@ export function useComputerCompactTitle(stoppedHint: Ref<boolean>) {
     return thinkingLabel(chars)
   })
 
-  const twoLines = computed(() => planLine.value != null && planLine.value.length > 0)
+  const twoLines = computed(() => planSummary.value != null)
 
-  return { planLine, statusLine, twoLines }
+  return { planSummary, planLine, statusLine, twoLines }
 }

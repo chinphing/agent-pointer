@@ -1,5 +1,5 @@
 import type { ToolCall } from '../types/chat'
-import { toolCallBaseName } from './messageTooling'
+import { taskBoardPatchSummaryFromArgs, toolCallBaseName } from './messageTooling'
 
 export type ToolSummaryIcon = 'explore' | 'search' | 'terminal' | 'edit'
 
@@ -278,4 +278,36 @@ export function truncateToolSummary(text: string, maxLen = 52): string {
   const t = text.trim()
   if (t.length <= maxLen) return t
   return `${t.slice(0, maxLen - 1)}…`
+}
+
+function toolInProgress(status: ToolCall['status']): boolean {
+  return status === 'running' || status === 'pending' || status === 'pending_approval'
+}
+
+/** One-line tool status for compact dock bar (aligns with ToolCallRow label + summary + outcome). */
+export function compactToolCallStatusLine(tc: ToolCall): string {
+  const label = tc.displayLabel?.trim() || tc.name
+  let summary = tc.displaySummary?.trim()
+  if (!summary) {
+    summary = taskBoardPatchSummaryFromArgs(tc.arguments)?.trim() ?? ''
+  }
+  if (summary) summary = truncateToolSummary(summary)
+
+  const parts: string[] = []
+  parts.push(summary ? `${label} · ${summary}` : label)
+
+  if (toolInProgress(tc.status)) {
+    parts.push('执行中')
+  }
+
+  return parts.join(' · ')
+}
+
+/** Prefer last in-progress computer tool; else last visible tool in the run. */
+export function latestToolCallForCompactStatus(calls: ToolCall[]): ToolCall | undefined {
+  if (!calls.length) return undefined
+  for (let i = calls.length - 1; i >= 0; i -= 1) {
+    if (toolInProgress(calls[i].status)) return calls[i]
+  }
+  return calls[calls.length - 1]
 }

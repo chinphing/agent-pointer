@@ -15,6 +15,7 @@ import {
   isEphemeralDesktopNoticeMessage,
   isToolOnlyAssistantMessage
 } from '../../lib/assistantMessageKind'
+import { findLastRealUserMessage } from '../../lib/messageContext'
 import { isToolRunContinuityGlue, shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 
 const chat = useChatStore()
@@ -103,6 +104,7 @@ const flatMessages = computed<FlatEntry[]>(() => {
   const msgs = chat.current?.messages ?? []
   const entries: FlatEntry[] = []
   const convId = chat.currentId
+  const lastUser = findLastRealUserMessage(msgs)
   let toolRunItems: ToolRunItem[] = []
 
   function flushToolRun() {
@@ -161,7 +163,16 @@ const flatMessages = computed<FlatEntry[]>(() => {
       entries.push({ type: 'message', message })
     }
 
-    const boards = chat.parentBoardsBoundToMessage(convId, message.id)
+    let boards = chat.parentBoardsBoundToMessage(convId, message.id)
+    if (
+      boards.length === 0
+      && message.role === 'user'
+      && lastUser?.id === message.id
+      && convId
+    ) {
+      const active = chat.activeParentBoardBinding(convId)
+      if (active) boards = [active]
+    }
     for (const board of boards) {
       flushToolRun()
       entries.push({

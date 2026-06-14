@@ -148,12 +148,26 @@ if (generating && messageHasComputerTools(msg) && hasInProgressComputerTool(msg)
 
 ```
 ┌────────────────────────────────────────────────────────┐
-│ [icon]  行1: 任务板收缩摘要（可选）          [终止][展开] │
+│ [icon]  行1: [看板] 1/3   当前任务…              [终止][展开] │
 │         行2: 思考中… / 工具 displayLabel · summary      │
 └────────────────────────────────────────────────────────┘
 ```
 
+### 行1（任务板，可选）
+
+存在活跃 task board 时显示：
+
+```
+{LayoutList icon} {done}/{total}   {当前 in_progress 里程碑 title}
+```
+
+进度为普通文字（无底色），与任务标题同一行高、垂直居中；图标与进度数字间距较紧，进度与标题间距略宽（`gap-3`）。无进行中里程碑时，标题回退为 `{goal}`。
+
+数据：`chat.compactTaskBoardDocument(convId, activeMessageId)` — 优先当前活跃主看板（`activeParentStoreKey` / 未完成父板），不依赖 assistant 与 user anchor 对齐；委派 computer 子 agent 时优先子看板。发送前 `refreshTaskBoard` 拉取快照，空快照不覆盖缓存。
+
 ### 行2（主状态，必有）
+
+仅显示执行状态，**不重复**当前里程碑标题。有 computer 工具记录时显示与 `ToolCallRow` 主行一致（`displayLabel · displaySummary`；进行中时追加「执行中」）；无工具时再回退「思考中…」。
 
 | 条件 | 文案 |
 |------|------|
@@ -164,16 +178,6 @@ if (generating && messageHasComputerTools(msg) && hasInProgressComputerTool(msg)
 | 已停止 | `已停止`（短暂显示后随自动展开消失） |
 
 数据：`chat.activeGeneratingMessageId`、`visibleToolCalls()`、`toolCall.displayLabel` / `displaySummary`（后端 `tools/display.rs`）。
-
-### 行1（任务板，可选）
-
-存在活跃 task board 时显示，格式对齐 `TaskBoardPanel` summary：
-
-```
-{goal} · {done}/{total} · {当前 in_progress 项 title}
-```
-
-数据：`chat.parentBoardsBoundToMessage(convId, activeMessageId)` 中 `isActive === true` 的 document。
 
 ## 模块
 

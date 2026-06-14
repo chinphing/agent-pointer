@@ -15,8 +15,22 @@ function rowLabel(item: {
   return `#${item.id}`
 }
 
-/** One-line collapsed summary for task board (matches TaskBoardPanel summary). */
-export function taskBoardCollapsedLine(document: TaskBoardDocument | null | undefined): string | null {
+export interface TaskBoardCompactSummary {
+  goal: string
+  /** Row 1 primary text: in-progress milestone title, else goal. */
+  taskLine: string
+  progress: string
+  doneCount: number
+  total: number
+  currentStep: string | null
+  /** Full one-line summary for tooltip / accessibility. */
+  fullLine: string
+}
+
+/** Structured summary for compact dock bar (goal truncates; progress stays visible). */
+export function taskBoardCompactSummary(
+  document: TaskBoardDocument | null | undefined
+): TaskBoardCompactSummary | null {
   if (!document?.board?.length && !document?.meta?.goal?.trim()) return null
 
   const goal = document.meta?.goal?.trim() || '任务板'
@@ -24,10 +38,18 @@ export function taskBoardCollapsedLine(document: TaskBoardDocument | null | unde
   const doneCount = items.filter(i => i.status === 'done').length
   const total = items.length
   const progress = total > 0 ? `${doneCount}/${total}` : '0/0'
-
   const inProgress = items.find(i => i.status === 'in_progress')
-  if (inProgress) {
-    return `${goal} · ${progress} · ${rowLabel(inProgress)}`
-  }
-  return `${goal} · ${progress}`
+  const currentStep = inProgress ? rowLabel(inProgress) : null
+  const taskLine = currentStep ?? goal
+
+  const fullLine = currentStep
+    ? `${goal} · ${progress} · ${currentStep}`
+    : `${goal} · ${progress}`
+
+  return { goal, taskLine, progress, doneCount, total, currentStep, fullLine }
+}
+
+/** One-line collapsed summary for task board (matches TaskBoardPanel summary). */
+export function taskBoardCollapsedLine(document: TaskBoardDocument | null | undefined): string | null {
+  return taskBoardCompactSummary(document)?.fullLine ?? null
 }

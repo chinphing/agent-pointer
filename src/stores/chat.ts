@@ -554,6 +554,9 @@ export const useChatStore = defineStore('chat', () => {
   const {
     applyTaskBoardDocumentDebounced,
     refreshTaskBoard,
+    activeParentBoardDocument,
+    activeParentBoardBinding,
+    compactTaskBoardDocument,
     parentBoardsBoundToMessage,
     taskBoardForConversation,
     childBoardsForParent
@@ -762,7 +765,7 @@ export const useChatStore = defineStore('chat', () => {
     patchRunState(conv.id, { generating: true, activeMessageId: null })
     persistMeta()
 
-    void refreshTaskBoard(conv.id)
+    await refreshTaskBoard(conv.id)
 
     await sendChat({
       conversationId: conv.id,
@@ -857,7 +860,7 @@ export const useChatStore = defineStore('chat', () => {
     conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards,
     init, newConversation, selectConversation, deleteConversation,
     sendUserMessage, stop, abortTerminalOnly, approve,
-    refreshTaskBoard, refreshSubAgentTaskBoards, taskBoardForConversation, parentBoardsBoundToMessage,
+    refreshTaskBoard, refreshSubAgentTaskBoards, taskBoardForConversation, activeParentBoardDocument, activeParentBoardBinding, compactTaskBoardDocument, parentBoardsBoundToMessage,
     childBoardsForParent, lookupChildTaskBoard,
     setConversationWorkspace, setConversationAgent,
     effectiveConversationLeadAgentId, effectiveConversationAgentMode,

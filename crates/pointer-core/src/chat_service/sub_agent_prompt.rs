@@ -16,7 +16,6 @@ use super::prompts::{push_agent_role_cacheable_prompts, push_env_to_cacheable};
 use crate::task_board::sub_agent_hint::sub_agent_task_board_init_hint;
 use crate::task_board::sub_agent_task_board_store_key;
 use super::util::{new_id, now_ms};
-use super::StreamTx;
 
 pub(super) struct SubAgentSession {
     pub def: AgentDef,

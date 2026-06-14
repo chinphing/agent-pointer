@@ -1,10 +1,8 @@
 //! Prompt assembly context for lead and sub-agent rounds.
 
 use crate::agents::{AgentDef, AgentPlan, AgentProfile};
-use std::sync::Arc;
 
 use super::session::{SessionRefs, SessionRefsArc};
-use super::super::app_state::AppState;
 use crate::models::{ChatMessage, ModelSettings};
 
 /// Lead single-agent round prompt assembly.
@@ -33,11 +31,4 @@ pub struct SubAgentPromptContext<'a> {
     pub def: &'a AgentDef,
     pub workspace_root: &'a str,
     pub user_dynamic_inject_enabled: bool,
-}
-
-/// Convenience builder when only `Arc<AppState>` is available at the call site.
-pub struct PromptSessionArc<'a> {
-    pub state: Arc<AppState>,
-    pub stream: &'a super::super::StreamTx,
-    pub conversation_id: &'a str,
 }

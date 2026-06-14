@@ -1,12 +1,11 @@
 //! Per-round prompt assembly for the single-agent loop (extensions + system env).
 
-use crate::agents::{AgentPlan, AgentProfile, SessionInjectVars};
+use crate::agents::{AgentProfile, SessionInjectVars};
 use crate::extensions::{BeforeMainLlmCallContext, MessageLoopPromptsAfterContext};
-use crate::models::{ChatMessage, ModelSettings, SystemPromptSections};
+use crate::models::{ChatMessage, SystemPromptSections};
 use anyhow::Result;
 use std::time::Instant;
 
-use super::context::SingleAgentPromptContext;
 use super::prompts::{push_agent_role_cacheable_prompts, push_env_to_cacheable};
 
 pub(super) struct SingleAgentRoundPrompts {

@@ -8,15 +8,12 @@ use crate::tools::file::ConversationWorkspaceGuard;
 use crate::models::{effective_reasoning_in_messages, ChatMessage, StreamEvent};
 use crate::provider::OpenAIProvider;
 use anyhow::{anyhow, Result};
-use std::sync::Arc;
 use std::time::Instant;
-use tokio_util::sync::CancellationToken;
 
 use super::app_state::AppState;
 use super::emit::emit;
 use super::session_budget::SessionToolBudget;
 use super::session_model::prepare_session_llm_settings;
-use super::StreamTx;
 use std::path::Path;
 
 fn latest_real_user_turn(history: &[ChatMessage]) -> Option<(&str, &str)> {

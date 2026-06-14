@@ -3,19 +3,15 @@
 
 use crate::agents::agent_ui::agent_display_label;
 use crate::agents::{AgentDef, AgentPlan, AgentRunResult};
-use crate::models::{AgentTrace, ChatMessage, ModelSettings, Role, StreamEvent, ToolCall};
-use crate::provider::OpenAIProvider;
+use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent, ToolCall};
 use crate::tools::parse_tool_call_arguments;
 use crate::tools::ToolRegistry;
 use anyhow::{anyhow, Result};
-use tokio_util::sync::CancellationToken;
 
 use super::app_state::AppState;
 use super::content_extract::{extract_user_visible_content, reply_attachments_from_assistant_raw};
 use super::context::PostAssistantContext;
-pub(super) use super::context::ToolBudgetExhaustionScope;
 use super::emit::emit;
-use super::session_budget::SessionToolBudget;
 use super::util::now_ms;
 use super::StreamTx;
 

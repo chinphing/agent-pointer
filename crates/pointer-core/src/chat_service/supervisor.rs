@@ -1,24 +1,18 @@
 //! Supervisor multi-agent orchestration (`run_supervisor_chat`).
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use tokio_util::sync::CancellationToken;
 
 use crate::agents::agent_ui::agent_display_label;
 use crate::agents::{AgentRunLimits, AgentRunResult, DEFAULT_AGENT_ID, SUPERVISOR_AGENT_ID};
-use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::{AgentTrace, ChatMessage, Role, StreamEvent, SupervisorPlanTask};
-use crate::provider::OpenAIProvider;
 
-use super::app_state::AppState;
 use super::emit::{agent_trace_step_id, emit, emit_agent_step, emit_task_board_updated};
 use super::session_budget::SessionToolBudget;
 use super::supervisor_plan::{fallback_agent_tasks, plan_agent_tasks, sort_agent_tasks_topologically};
 use super::supervisor_synth::synthesize_final_answer;
 use super::util::{new_id, now_ms, truncate_str};
-use super::StreamTx;
 use crate::task_board::{
     check_dependencies, dispatch_to_child, observability, report_child_status,
     sub_agent_task_board_store_key, sync_parent_board_from_supervisor_plan, BoardItem,
@@ -33,7 +27,6 @@ pub(crate) async fn run_supervisor_chat(
     let conversation_id = ctx.session.conversation_id;
     let provider = &ctx.provider;
     let cancel = ctx.session.cancel.clone();
-    let reasoning_in_messages = ctx.reasoning_in_messages;
     let run_id = ctx.run_id;
     if cancel.is_cancelled() {
         return Err(anyhow!("已停止生成"));
@@ -272,7 +265,6 @@ pub(crate) async fn run_supervisor_chat(
             sub_tool_budget: &mut sub_budget,
             llm_stats: ctx.llm_stats,
             run_id,
-            reasoning_in_messages,
         };
         match super::sub_agent::run_sub_agent(&mut sub_ctx).await
         {

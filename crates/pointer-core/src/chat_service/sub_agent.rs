@@ -1,32 +1,26 @@
 //! Sub-agent (`run_sub_agent`) tool loop: isolated history, shared stream/post-stream/tool-pass with lead.
 
 use anyhow::{anyhow, Result};
-use tokio_util::sync::CancellationToken;
 
 use crate::agent_instance_scope::AgentInstanceScope;
-use crate::agents::{AgentProfile, AgentRunResult, AgentTask};
-use crate::llm_token_stats::ConversationLlmStats;
-use crate::models::{effective_reasoning_in_messages, AgentTrace, ChatMessage, Role, StreamEvent};
-use crate::provider::OpenAIProvider;
+use crate::agents::{AgentProfile, AgentRunResult};
+use crate::models::{effective_reasoning_in_messages, ChatMessage, Role, StreamEvent};
 
 use super::agent_post_stream::{
     build_sub_assistant_message_after_stream, push_sub_assistant_turn, sub_agent_run_result,
     PostAssistantTurnAction,
 };
-use super::context::{PostAssistantContext, SubAgentLoopContext, ToolBudgetExhaustionScope};
+use super::context::{PostAssistantContext, ToolBudgetExhaustionScope};
 use super::agent_round_lifecycle;
 use super::agent_tool_pass::{
     run_agent_tool_pass, SubToolPassConfig, ToolInvocationStats, ToolPassResult,
 };
 use crate::task_board::TaskBoardTrimHook;
-use super::app_state::AppState;
 use super::emit::{agent_trace_step_id, emit, trace_id_opt};
-use super::session_budget::SessionToolBudget;
 use super::session_model::sub_agent_provider;
 use super::sub_agent_prompt::{init_sub_agent_session, prepare_sub_agent_round_prompts};
 use super::sub_agent_stream::{run_sub_agent_stream_round, SubAgentStreamOutcome};
 use super::util::new_id;
-use super::StreamTx;
 
 /// Final handoff for `run_subagent`: prefer the latest assistant turn (final Markdown digest),
 /// fall back to accumulated stream content when that turn is empty.

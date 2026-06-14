@@ -1,11 +1,9 @@
 //! Agent loop entry contexts (lead single, sub, supervisor).
 
-use crate::agents::{AgentDef, AgentPlan, AgentTask};
-use crate::agent_instance_scope::AgentInstanceScope;
+use crate::agents::{AgentPlan, AgentTask};
 use crate::llm_token_stats::{ChatLlmTokenSession, ConversationLlmStats};
 use crate::models::{AgentTrace, ChatMessage, ModelSettings};
 use crate::provider::OpenAIProvider;
-use std::sync::Arc;
 
 use super::session::{SessionRefs, SessionRefsArc};
 use super::super::session_budget::SessionToolBudget;
@@ -39,7 +37,6 @@ pub struct SubAgentLoopContext<'a> {
     pub sub_tool_budget: &'a mut SessionToolBudget,
     pub llm_stats: &'a mut ConversationLlmStats,
     pub run_id: &'a str,
-    pub reasoning_in_messages: bool,
 }
 
 /// Supervisor orchestration loop.
@@ -67,12 +64,4 @@ pub struct SubagentDelegationContext<'a> {
     pub llm_stats: &'a mut ConversationLlmStats,
     pub tool_call_id: &'a str,
     pub args_value: serde_json::Value,
-}
-
-/// Sub-agent runtime refs populated after session init.
-pub struct SubRunRefs<'a> {
-    pub def: &'a AgentDef,
-    pub task: &'a AgentTask,
-    pub instance_scope: &'a AgentInstanceScope,
-    pub message_id: &'a str,
 }

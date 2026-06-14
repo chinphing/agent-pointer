@@ -22,14 +22,6 @@ use super::context::PostAssistantContext;
 use super::session_budget::SessionToolBudget;
 use tokio_util::sync::CancellationToken;
 
-/// Buffers produced by one provider stream round (lead or sub).
-pub(super) struct StreamRoundBuffers {
-    pub raw_content_buf: String,
-    pub reasoning_buf: String,
-    pub final_tool_calls: Vec<ToolCall>,
-    pub xml_thoughts: Option<String>,
-}
-
 /// Loop guard: cancel token or zero remaining tool budget.
 pub(super) enum LoopGuardOutcome {
     Continue,

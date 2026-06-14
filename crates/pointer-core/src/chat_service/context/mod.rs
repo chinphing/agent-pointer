@@ -16,18 +16,25 @@ mod session;
 mod stream_round;
 mod transcript;
 
-pub use budget::{ToolBudgetExhaustionScope, ToolBudgetRefs};
+// Re-exports for `super::context::Type` paths across chat_service.
+#[allow(unused_imports)]
+pub use budget::ToolBudgetExhaustionScope;
+#[allow(unused_imports)]
 pub use chat_run::{ChatRunContext, ChatRunRequest};
-pub use llm::{ConversationLlmRefs, LeadLlmSession, LlmRoundRefs};
+#[allow(unused_imports)]
 pub use loop_ctx::{
-    LeadAgentLoopContext, SubagentDelegationContext, SubAgentLoopContext, SubRunRefs,
-    SupervisorLoopContext,
+    LeadAgentLoopContext, SubagentDelegationContext, SubAgentLoopContext, SupervisorLoopContext,
 };
+#[allow(unused_imports)]
 pub use post_assistant::PostAssistantContext;
-pub use prompt::{PromptSessionArc, SingleAgentPromptContext, SubAgentPromptContext};
+#[allow(unused_imports)]
+pub use prompt::{SingleAgentPromptContext, SubAgentPromptContext};
+#[allow(unused_imports)]
 pub use session::{SessionRefs, SessionRefsArc};
+#[allow(unused_imports)]
 pub use stream_round::{
     cancel_owned, LeadStreamRoundContext, StreamRoundInput, SubStreamRoundContext,
     SubStreamRoundRefs,
 };
+#[allow(unused_imports)]
 pub use transcript::{TranscriptPersist, TranscriptRefs};

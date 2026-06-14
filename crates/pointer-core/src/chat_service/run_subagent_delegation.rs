@@ -2,18 +2,14 @@
 
 use crate::agents::agent_ui::agent_display_label;
 use crate::agents::AgentTask;
-use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::{AgentTrace, StreamEvent};
 use crate::tools::run_subagent::resolve_computer_operation_target;
 use crate::provider::OpenAIProvider;
 use anyhow::Result;
-use tokio_util::sync::CancellationToken;
 
-use super::app_state::AppState;
 use super::emit::{agent_trace_step_id, emit, emit_agent_step};
 use super::session_budget::SessionToolBudget;
 use super::util::{new_id, truncate_str};
-use super::StreamTx;
 
 pub(super) async fn run_subagent_delegation(
     ctx: &mut super::context::SubagentDelegationContext<'_>,
@@ -180,7 +176,6 @@ pub(super) async fn run_subagent_delegation(
                         sub_tool_budget: &mut sub_budget,
                         llm_stats: ctx.llm_stats,
                         run_id,
-                        reasoning_in_messages: true,
                     };
                     match Box::pin(super::sub_agent::run_sub_agent(&mut sub_ctx))
                     .await

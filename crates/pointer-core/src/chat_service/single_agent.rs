@@ -1,17 +1,11 @@
 //! Single-agent streaming loop: prompt hooks per round, then `single_agent_stream` + tools.
 
-use crate::agents::{AgentPlan, AgentProfile};
-use crate::llm_token_stats::ChatLlmTokenSession;
-use crate::models::{ChatMessage, ModelSettings, StreamEvent};
-use crate::provider::OpenAIProvider;
+use crate::agents::AgentProfile;
+use crate::models::{ChatMessage, StreamEvent};
 use anyhow::{anyhow, Result};
-use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
 
-use super::context::LeadAgentLoopContext;
 use super::emit::emit;
 use super::util::new_id;
-use super::StreamTx;
 
 fn latest_round_tool_raw_output(history: &[ChatMessage]) -> Option<String> {
     history

@@ -184,9 +184,18 @@ mod tests {
     #[test]
     fn apply_agent_model_defaults_noop_for_unknown_agent() {
         let mut settings = sample_settings();
-        assert!(!apply_agent_model_defaults(&mut settings, "coder"));
+        assert!(!apply_agent_model_defaults(&mut settings, "computer"));
         assert_eq!(settings.active_provider_id, "qwen");
         assert_eq!(settings.model, "qwen-plus");
+    }
+
+    #[test]
+    fn apply_agent_model_defaults_applies_mode_llm_for_coder() {
+        let mut settings = sample_settings();
+        assert!(apply_agent_model_defaults(&mut settings, "coder"));
+        // Default performance mode is fast → deepseek-v4-flash from platform agentModeLlm.
+        assert_eq!(settings.active_provider_id, "deepseek");
+        assert_eq!(settings.model, "deepseek-v4-flash");
     }
 
     #[test]
@@ -201,7 +210,7 @@ mod tests {
     #[test]
     fn sub_agent_provider_keeps_parent_when_no_override() {
         let parent = OpenAIProvider::new(sample_settings(), "parent-key".into());
-        let sub = sub_agent_provider(&parent, "coder");
+        let sub = sub_agent_provider(&parent, "computer");
         assert_eq!(sub.settings.active_provider_id, "qwen");
         assert_eq!(sub.settings.model, "qwen-plus");
         assert_eq!(sub.api_key, "parent-key");

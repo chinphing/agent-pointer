@@ -1236,6 +1236,10 @@ mod builtin_agent_tests {
         let comm = include_str!("explore/COMMUNICATION.md");
         let agent = load_builtin_agent("explore", raw, comm).expect("load builtin explore");
         assert_eq!(agent.def.id, "explore");
+        assert!(
+            agent.def.description.contains("Use proactively"),
+            "explore description should signal proactive delegation"
+        );
         assert_eq!(agent.def.role, "worker");
         assert!(agent.def.enabled);
         assert_eq!(agent.def.profile, AgentProfile::Explore);
@@ -1283,6 +1287,14 @@ mod builtin_agent_tests {
         assert!(
             prompt.contains("G3"),
             "coder should include G3 gate"
+        );
+        assert!(
+            prompt.contains("When to delegate"),
+            "coder should include explore delegation decision table"
+        );
+        assert!(
+            prompt.contains("Hard stop"),
+            "coder G2 should include read-loop hard stop"
         );
         assert!(
             prompt.contains("Delegating to the `explore` worker"),

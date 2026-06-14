@@ -3,9 +3,11 @@ id: explore
 name: Explore Agent
 description: >-
   Read-only codebase reconnaissance: map symbols, callers/callees, and data flow.
-  Deliver a structured Markdown digest in final assistant content for the parent.
-  Use via run_subagent when the lead thread risks context bloat from many grep/read rounds,
-  or when a self-contained instruction can state goal, scope, completion criteria, and optional lead facts.
+  Use proactively via run_subagent when the lead needs breadth before editing:
+  unclear map, cross-module or cross-layer work, shared state or wiring,
+  or more than one local read-only file round would be needed.
+  Do not use when path and symbol are already known (narrow confirm).
+  Returns a structured Markdown digest in final assistant content for the parent.
 role: worker
 profile: explore
 enabled: true

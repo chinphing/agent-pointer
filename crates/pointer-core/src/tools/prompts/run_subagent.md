@@ -41,9 +41,10 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 
 **`explore` (coder lead)**
 
-- Behavior, Lead context template, and handoff merge rules: see **Delegating to the `explore` worker** in your primary instructions and **Handoff contract** in explore policy.
+- When to delegate vs stay local: **Delegating to the `explore` worker** and **G2** in primary instructions.
+- Worker's **description** in **delegatable sub-agents** metadata — read before calling.
 - **`instruction`** first line: **`Scenario: <id>`**; include goal, scope, completion criteria, and **Lead context (trusted)** / **Already checked** / **Still unknown**.
-- Prefer **`explore`** when mapping is unclear; use local **`file`** only when path+line are already known (see **G2** gate).
+- If you are in a read-only **`file_*`** streak with no edit list, prefer **`run_subagent`** (explore) over another local read round.
 
 **`coder` / `computer` (general lead only)**
 

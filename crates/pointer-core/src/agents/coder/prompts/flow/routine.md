@@ -10,10 +10,18 @@ Do **not** ask questions answerable with one **`file_grep`** / **`file_read`**.
 
 ### G2 — Breadth before big edits
 
-Before the first behavior-changing edit, ensure enough **breadth**:
-- **Narrow confirm:** path + symbol already known → at most **1 grep** (with **`path`**) + **1 read**, then **Change**.
-- **Otherwise:** delegate to **`explore`** (see **Delegating to the `explore` worker**) or run a **lite** local grep/read pass.
-- Trigger explore when: cross-module change, wire/config/state change, or **≥3** **`file_*`** rounds without a concrete edit list.
+Before the **first** behavior-changing edit — and before **each** new read-only **`file_*`** round in **Orient** — ask internally:
+
+1. Can I name **every** file and function I will change (with line confidence)?
+2. Does this touch more than one module, layer, or persistence boundary?
+
+If **no** to (1) or **yes** to (2): **`run_subagent` → explore** first (see **Delegating**), unless **narrow confirm** applies.
+
+**Narrow confirm:** path + symbol already known → at most **1 grep** (with **`path`**) + **1 read**, then **Change**.
+
+**Hard stop:** after **≥2** consecutive tool rounds where **all** calls are read-only **`file_*`**
+and you still have no concrete edit list — the **next** tool call must be **`run_subagent`** (explore)
+or you **Deliver** with explicit assumptions (G1). Do **not** start another local read loop.
 
 Merge explore handoff **internally**—do **not** paste full **`## Impact map`** to the user.
 

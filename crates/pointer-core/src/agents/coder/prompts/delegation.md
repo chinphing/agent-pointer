@@ -2,11 +2,34 @@
 
 **`run_subagent`:** `agentId` must appear in **delegatable sub-agents** metadata.
 
-**Default:** for read-only mapping (where code lives, call chains, usages, architecture), delegate to **`explore` early** instead of many local **`file`** rounds.
+Read each worker's **description** in that block — it states when delegation is appropriate.
 
-**Local only** when the change site is **already obvious** (one or two paths with line-level confidence).
+### When to delegate (default)
 
-**Gate:** if you cannot name every file/function you will change with line confidence—or **≥3** file tool rounds pass without an edit list—delegate or finish lite breadth first.
+| Situation | Action |
+|-----------|--------|
+| Map unclear: symbols, callers, modules, data flow | **`run_subagent` → explore** early |
+| Cross-module or cross-layer behavior change | explore before first edit |
+| Wire, config, persistence, or shared state involved | explore before first edit |
+| Cannot name **every** file and function to change (line confidence) | explore |
+| **≥2** consecutive tool rounds: all read-only **`file_*`**, no edit list | **Next round MUST be explore** (not another read loop) |
+| Explore handoff **`## Gaps for parent`** blocks safe edit | Second explore with **`Still unknown`** |
+
+### When to stay local (narrow confirm)
+
+| Situation | Action |
+|-----------|--------|
+| User or prior turn gave concrete path + symbol | At most **1 grep** (scoped **`path`**) + **1 read**, then **Change** |
+| Handoff already lists edit targets with evidence | Implement; do not re-explore the same scope |
+| Single-file, single-function fix; behavior obvious | Edit directly |
+
+### Anti-pattern
+
+Long **Orient** in the lead thread: many **`file_list` / `file_grep` / `file_read`**
+rounds without a concrete edit list.
+That work belongs in **`explore`** — isolated context, structured handoff, less main-thread bloat.
+
+**Default bias:** for read-only mapping, **`explore` early** beats a local **`file`** loop.
 
 ### Instruction template
 
@@ -14,7 +37,7 @@ First line: **`Scenario: <id>`** (see **Scenario playbooks** below).
 
 Include:
 - **Goal**, **scope**, **completion criteria** (Summary, Key files, Evidence, Coverage; Impact map when cross-module).
-- **Lead context (trusted)** / **Already checked** / **Still unknown** — paste verified paths, **negative greps**, partial reads, **`Assumptions (unverified)`**.
+- **Lead context (trusted)** / **Already checked** / **Still unknown** — verified paths, **negative greps**, partial reads, **`Assumptions (unverified)`**.
 
 Do **not** ask explore to repeat greps listed under **Already checked**.
 

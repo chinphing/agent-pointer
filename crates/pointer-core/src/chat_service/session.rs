@@ -61,23 +61,25 @@ pub async fn run_chat(
     let run_id = Uuid::new_v4().to_string();
     let mut consumed_single = 0u32;
     let mut consumed_supervisor = 0u32;
-    let result = super::session_inner::run_chat_inner(
-        stream.clone(),
-        state.clone(),
-        &conversation_id,
-        &mut history,
-        &mut enabled_skill_ids,
-        agent_mode.as_deref(),
-        lead_agent_id_override.as_deref(),
+    let run_req = super::context::ChatRunRequest {
+        agent_mode,
+        lead_agent_id_override,
         tool_rounds_used_single_start,
         tool_rounds_used_supervisor_start,
         workspace_root,
-        &mut consumed_single,
-        &mut consumed_supervisor,
-        cancel.clone(),
-        &run_id,
-    )
-    .await;
+        run_id: run_id.clone(),
+    };
+    let mut run_ctx = super::context::ChatRunContext {
+        stream: stream.clone(),
+        state: state.clone(),
+        conversation_id: &conversation_id,
+        history: &mut history,
+        enabled_skill_ids: &mut enabled_skill_ids,
+        consumed_single: &mut consumed_single,
+        consumed_supervisor: &mut consumed_supervisor,
+        cancel: cancel.clone(),
+    };
+    let result = super::session_inner::run_chat_inner(&mut run_ctx, &run_req).await;
 
     if let Err(e) = crate::token_usage_store::finalize_run(&run_id, &conversation_id, &history) {
         log::warn!(

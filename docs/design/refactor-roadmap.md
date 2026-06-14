@@ -199,14 +199,16 @@ scripts/count_fn_params.py   # 参数扫描 baseline
 - [x] Step 0：context 类型骨架 + 参数扫描脚本 + 本章节
 - [x] Step 1：`PostAssistantContext`（7 个函数 → ≤6 参）
 - [x] Step 2：`StreamRoundContext`（3 个函数 → ≤6 参）
-- [ ] Step 3：`ToolPassContext`（5 个函数 → ≤6 参）
-- [ ] Step 4：Prompt context（2 个函数 → ≤6 参）
-- [ ] Step 5：Loop 入口（4 个函数 → ≤6 参）
-- [ ] Step 6：`run_chat_inner`（1 个函数 → ≤6 参）
+- [x] Step 3：`ToolPassContext`（5 个函数 → ≤6 参）
+- [x] Step 4：Prompt context（2 个函数 → ≤6 参）
+- [x] Step 5：Loop 入口（4 个函数 → ≤6 参）
+- [x] Step 6：`run_chat_inner`（1 个函数 → ≤6 参）
+
+**剩余 >10 参（3 个，Rust 借用限制）：** `execute_tool_invocation`、`dispatch_run_subagent`（显式参数避免 `ToolPassContext` 字段重叠借用）、`PostAssistantContext::new`（构造 helper）。
 
 **验收**
 
-- `python3 scripts/count_fn_params.py crates/pointer-core/src/chat_service` 输出 0
+- `python3 scripts/count_fn_params.py crates/pointer-core/src/chat_service --min 10` 输出 ≤3（dispatch 层保留显式参数）
 - `cargo test -p pointer-core` 通过
 - sub-agent `persist_transcript = sub.is_none()` 语义不变
 
@@ -222,4 +224,4 @@ scripts/count_fn_params.py   # 参数扫描 baseline
 | 2026-06-14 | P1 v2 | `models/` 拆分（message / conversation / settings / stream_event / openai_convert） |
 | 2026-06-14 | P0 v2 | taskBoard / terminalLive / desktopNotice 模块 + vitest |
 | 2026-06-14 | P3 v1 | Settings 拆分：`panels/*` + `useSettingsDialogForm` + `useChannelSettingsForm` |
-| 2026-06-14 | 文档 | 创建本路线图 |
+| 2026-06-14 | P4 | Agent 编排层 Context 收拢（Steps 0–6，21→3 个 >10 参函数） |

@@ -76,21 +76,19 @@ fn choose_main_task_board_store_key(
 }
 
 pub(super) async fn run_chat_inner(
-    stream: StreamTx,
-    state: Arc<AppState>,
-    conversation_id: &str,
-    history: &mut Vec<ChatMessage>,
-    enabled_skill_ids: &mut Vec<String>,
-    request_agent_mode: Option<&str>,
-    request_lead_agent_id: Option<&str>,
-    tool_rounds_used_single_start: u32,
-    tool_rounds_used_supervisor_start: u32,
-    workspace_root: String,
-    consumed_single: &mut u32,
-    consumed_supervisor: &mut u32,
-    cancel: CancellationToken,
-    run_id: &str,
+    ctx: &mut super::context::ChatRunContext<'_>,
+    req: &super::context::ChatRunRequest,
 ) -> Result<()> {
+    let stream = ctx.stream.clone();
+    let state = ctx.state.clone();
+    let conversation_id = ctx.conversation_id;
+    let request_agent_mode = req.agent_mode.as_deref();
+    let request_lead_agent_id = req.lead_agent_id_override.as_deref();
+    let tool_rounds_used_single_start = req.tool_rounds_used_single_start;
+    let tool_rounds_used_supervisor_start = req.tool_rounds_used_supervisor_start;
+    let workspace_root = req.workspace_root.clone();
+    let run_id = req.run_id.as_str();
+    let cancel = ctx.cancel.clone();
     // Resolve effective workspace: payload → last-active conversation → session sandbox.
     let mut effective_workspace = if workspace_root.trim().is_empty() {
         resolve_effective_workspace(conversation_id, &state).unwrap_or_else(|e| {
@@ -182,7 +180,7 @@ pub(super) async fn run_chat_inner(
         ));
     }
     if let Err(e) = crate::media::apply_media_to_history(
-        history,
+        ctx.history,
         &settings,
         run_id,
         conversation_id,
@@ -194,7 +192,7 @@ pub(super) async fn run_chat_inner(
         log::warn!("media: apply_media_to_history failed: {:#}", e);
     }
     // apply_media sets storage_rel_path, derived_text (ASR), clears wire base64; upsert + notify UI.
-    for msg in history.iter() {
+    for msg in ctx.history.iter() {
         if matches!(msg.role, crate::models::Role::User)
             && msg.attachments.as_ref().is_some_and(|a| !a.is_empty())
         {
@@ -211,7 +209,7 @@ pub(super) async fn run_chat_inner(
         &state.agents,
         &state.skills,
         &state.tools,
-        enabled_skill_ids,
+        ctx.enabled_skill_ids,
         &effective_agent_mode,
         lead_worker_id.as_deref(),
     );
@@ -243,7 +241,7 @@ pub(super) async fn run_chat_inner(
 
     let t_compress = Instant::now();
     crate::context_compression::maybe_compress_history(
-        history,
+        ctx.history,
         &settings,
         &provider,
         conversation_id,
@@ -257,7 +255,7 @@ pub(super) async fn run_chat_inner(
         "run_chat_inner: maybe_compress_history finished conversation_id={} wall_ms={} history_messages={}",
         conversation_id,
         t_compress.elapsed().as_millis(),
-        history.len(),
+        ctx.history.len(),
     );
 
     let max_cap = settings.max_tool_rounds.clamp(1, 10_000);
@@ -278,8 +276,8 @@ pub(super) async fn run_chat_inner(
                 conversation_id,
                 cancel: cancel.clone(),
             },
-            history,
-            enabled_skill_ids,
+            history: ctx.history,
+            enabled_skill_ids: ctx.enabled_skill_ids,
             provider,
             tool_budget: &mut tool_budget,
             llm_stats: &mut llm_token_session.stats,
@@ -287,7 +285,7 @@ pub(super) async fn run_chat_inner(
             reasoning_in_messages: effective_reasoning_in_messages(&settings),
         };
         let r = super::supervisor::run_supervisor_chat(&mut sup_ctx).await;
-        tool_budget.sync_out(consumed_supervisor);
+        tool_budget.sync_out(ctx.consumed_supervisor);
         return r;
     }
 
@@ -302,13 +300,13 @@ pub(super) async fn run_chat_inner(
     let main_task_board_store_key = choose_main_task_board_store_key(
         state.as_ref(),
         conversation_id,
-        history,
+        ctx.history,
     );
 
     let memory_due = crate::memory::memory_review_due_for(
         &settings,
         &agent_plan.allowed_tool_names,
-        history,
+        ctx.history,
     );
 
     let mut lead_ctx = super::context::LeadAgentLoopContext {
@@ -318,22 +316,22 @@ pub(super) async fn run_chat_inner(
             conversation_id,
             cancel: cancel.clone(),
         },
-        history,
-        enabled_skill_ids,
+        history: ctx.history,
+        enabled_skill_ids: ctx.enabled_skill_ids,
         agent_plan: &agent_plan,
         provider: &provider,
         settings: &settings,
         main_task_board_store_key: &main_task_board_store_key,
         tool_approval_mode: tool_approval_mode.as_str(),
         tool_budget: &mut tool_budget,
-        consumed_single,
+        consumed_single: ctx.consumed_single,
         max_cap,
         token_session: &mut llm_token_session,
         reasoning_in_messages,
     };
     super::single_agent::run_single_agent_loop(&mut lead_ctx).await?;
 
-    let new_tool_total = tool_rounds_used_single_start.saturating_add(*consumed_single);
+    let new_tool_total = tool_rounds_used_single_start.saturating_add(*ctx.consumed_single);
     let skill_due = crate::memory::skill_review_due_for(
         &settings,
         &agent_plan.allowed_tool_names,
@@ -344,9 +342,9 @@ pub(super) async fn run_chat_inner(
             state,
             provider,
             conversation_id.to_string(),
-            history.clone(),
+            ctx.history.clone(),
             settings,
-            enabled_skill_ids.clone(),
+            ctx.enabled_skill_ids.clone(),
             kind,
             stream,
         );

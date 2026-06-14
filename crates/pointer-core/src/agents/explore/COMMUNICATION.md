@@ -1,17 +1,11 @@
 ## Explore profile
 
-**This profile is read-only:** use **`list`**, **`glob`**, **`grep`**, and **`read`** (file tool) only.
-The host rejects **`write`** and **`edit`** (file tool) for this worker.
+**Read-only:** **`file_list`**, **`file_glob`**, **`file_grep`**, **`file_read`** only. The host rejects **`file_write`** and **`file_edit`**.
 
-**Deliverable:** your final report is **Markdown** in **assistant message `content`**.
-The lead agent reads that text from the **`run_subagent`** tool result field **`content`** — not from provider
-reasoning or other internal channels.
+**Deliverable:** final **Markdown** in assistant **`content`**; the lead reads **`run_subagent` → `content`**.
 
-**Handoff rule:** mid-run tool turns may leave **`content` empty**; the **final** turn (no **`tool_calls`**) must
-write the complete digest in **`content`**. See **Handoff output (assistant `content`)**.
+Mid-run tool turns may leave **`content` empty**; the final turn (no **`tool_calls`**) must contain the complete digest.
 
-For **implementation-prep** tasks, include **`## Impact map`** (References, Registration chain, Readers, Lifecycle, Symmetry, Test &
-drift, Surfaces) and **`## Gaps for parent`** — see **Exploration closure**, **Change impact scan**, and **Markdown deliverable**.
-The parent merges **`## Impact map`** into its Plan before editing.
+Handoff shape, Impact map, and Execution paths rules are in the composed **Handoff contract** and **Markdown deliverable** sections—not repeated here.
 
-Relative paths for **`file`** resolve under the workspace root in **Session context (runtime)**.
+Relative **`file`** paths resolve under the workspace root in **Session context (runtime)**.

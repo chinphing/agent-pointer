@@ -17,6 +17,9 @@ pub mod computer;
 /// Coder agent: embedded policy (`AGENT.md`); tools used only by the coder lead (e.g. `read_lints`).
 pub mod coder;
 
+/// Read-only explore sub-agent for delegated breadth reconnaissance.
+pub mod explore;
+
 /// Deep research agent runtime (SearchAgent web_search path, extension hooks).
 pub mod research;
 
@@ -67,6 +70,18 @@ pub fn media_delivery_md() -> &'static str {
 pub fn rendered_media_delivery_inject() -> Option<String> {
     let md = media_delivery_md();
     (!md.is_empty()).then(|| md.to_string())
+}
+
+/// Join model-facing prompt slices with `\n\n---\n\n` between non-empty sections.
+pub(crate) fn join_agent_prompt_sections(sections: &[&str]) -> String {
+    let mut parts = Vec::new();
+    for section in sections {
+        let trimmed = section.trim();
+        if !trimmed.is_empty() {
+            parts.push(trimmed);
+        }
+    }
+    parts.join("\n\n---\n\n")
 }
 
 struct BuiltinAgentBundle {
@@ -650,7 +665,12 @@ fn supervisor_agent_def() -> AgentDef {
 }
 
 fn load_builtin_agent(id: &str, raw: &str, communication: &str) -> Result<BaseAgent> {
-    let manifest = parse_agent_md(raw)?;
+    let mut manifest = parse_agent_md(raw)?;
+    manifest.body = match id {
+        "coder" => coder::composed_system_body(),
+        "explore" => explore::composed_system_body(),
+        _ => manifest.body,
+    };
     let mut agent = manifest_to_agent(manifest, None, communication)?;
     agent.def.builtin = true;
     agent.def.source = Some(format!("builtin://{id}"));
@@ -1203,6 +1223,13 @@ mod builtin_agent_tests {
         );
     }
 
+    fn prompt_requires_top_level_trace_section(prompt: &str, heading: &str) -> bool {
+        prompt.lines().any(|line| {
+            let t = line.trim();
+            t == heading || t.starts_with(&format!("{heading} —"))
+        })
+    }
+
     #[test]
     fn explore_builtin_manifest_parses_and_loads() {
         let raw = include_str!("explore/AGENT.md");
@@ -1212,9 +1239,106 @@ mod builtin_agent_tests {
         assert_eq!(agent.def.role, "worker");
         assert!(agent.def.enabled);
         assert_eq!(agent.def.profile, AgentProfile::Explore);
+        let prompt = &agent.system_prompt;
         assert!(
-            agent.system_prompt.contains("How to explore workdir"),
-            "explore body should include workdir playbook heading"
+            prompt.contains("Handoff contract"),
+            "explore should include handoff contract"
+        );
+        assert!(
+            prompt.contains("Execution paths (when mandatory)"),
+            "explore should include trace_when rules"
+        );
+        assert!(
+            !prompt_requires_top_level_trace_section(prompt, "## Forward trace"),
+            "explore should not require top-level Forward trace section"
+        );
+        assert!(
+            !prompt_requires_top_level_trace_section(prompt, "## Backward trace"),
+            "explore should not require top-level Backward trace section"
+        );
+        assert!(
+            prompt.contains("Scenario: cross_module_change"),
+            "explore should include cross_module scenario playbook"
+        );
+        assert!(
+            prompt.contains("Surfaces"),
+            "explore cross-module playbook should mention Surfaces"
+        );
+    }
+
+    #[test]
+    fn coder_builtin_composed_prompt_anchors() {
+        let raw = include_str!("coder/AGENT.md");
+        let comm = include_str!("coder/COMMUNICATION.md");
+        let agent = load_builtin_agent("coder", raw, comm).expect("load builtin coder");
+        let prompt = &agent.system_prompt;
+        assert!(
+            prompt.contains("G1"),
+            "coder should include G1 gate"
+        );
+        assert!(
+            prompt.contains("G2"),
+            "coder should include G2 gate"
+        );
+        assert!(
+            prompt.contains("G3"),
+            "coder should include G3 gate"
+        );
+        assert!(
+            prompt.contains("Delegating to the `explore` worker"),
+            "coder should include delegation section"
+        );
+        assert!(
+            !prompt.contains("## Change impact scan"),
+            "coder should not include legacy Change impact scan section"
+        );
+        assert!(
+            !prompt.contains("Finding references and usages"),
+            "coder should not include legacy Finding references section"
+        );
+        assert!(
+            !prompt_requires_top_level_trace_section(prompt, "## Forward trace"),
+            "coder should not include top-level Forward trace"
+        );
+        assert!(
+            !prompt.contains("Exploration closure"),
+            "coder should not duplicate explore impact_scan closure block"
+        );
+        assert!(
+            prompt.contains("Scenario: production_debug"),
+            "coder debugging scenario should mention production_debug"
+        );
+    }
+
+    #[test]
+    fn coder_legacy_agent_archived_not_loaded() {
+        let legacy = include_str!("coder/author/legacy_agent.md");
+        assert!(
+            legacy.contains("## Change impact scan"),
+            "legacy archive should retain old section for A/B reference"
+        );
+        let raw = include_str!("coder/AGENT.md");
+        let comm = include_str!("coder/COMMUNICATION.md");
+        let agent = load_builtin_agent("coder", raw, comm).expect("load coder");
+        assert!(
+            !agent.system_prompt.contains("## Change impact scan"),
+            "composed coder prompt must not load legacy body"
+        );
+    }
+
+    #[test]
+    fn explore_handoff_contract_includes_impact_map_surfaces() {
+        let raw = include_str!("explore/AGENT.md");
+        let comm = include_str!("explore/COMMUNICATION.md");
+        let agent = load_builtin_agent("explore", raw, comm).expect("load explore");
+        let prompt = &agent.system_prompt;
+        assert!(
+            prompt.contains("## Impact map"),
+            "handoff contract should define Impact map section"
+        );
+        assert!(
+            prompt.contains("Surfaces"),
+            "handoff contract should mention Surfaces for cross-module work"
         );
     }
 

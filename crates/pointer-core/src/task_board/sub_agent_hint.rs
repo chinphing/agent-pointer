@@ -49,7 +49,7 @@ fn main_agent_task_board_hint(profile: &AgentProfile) -> Option<String> {
         String::new()
     };
     let profile_rows = if matches!(profile, AgentProfile::Coder) {
-        "Use **3-6** milestones in **`items`** when initialized, including **Impact scan**, **Implement**, and **Unit tests**.
+        "Use **3-6** milestones in **`items`** when initialized, including **Recon**, **Implement**, and **Unit tests**.
 Each milestone: `plan`, `validate_requirement`, append `validate_result_delta` when evidence exists.
 "
     } else if matches!(profile, AgentProfile::Computer) {

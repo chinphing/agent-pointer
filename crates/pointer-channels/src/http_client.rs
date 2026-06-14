@@ -5,7 +5,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
 pub struct HttpClient {
@@ -16,7 +16,8 @@ pub struct HttpClient {
 #[derive(Clone)]
 struct CachedToken {
     value: String,
-    expires_at: Instant,
+    /// Wall-clock expiry (Unix seconds). Survives system sleep unlike `Instant`.
+    expires_at_unix_secs: u64,
 }
 
 impl HttpClient {
@@ -36,9 +37,10 @@ impl HttpClient {
     }
 
     pub fn get_cached_token(&self, key: &str) -> Option<String> {
+        let now = unix_secs_now();
         let guard = self.tokens.lock();
         guard.get(key).and_then(|t| {
-            if t.expires_at > Instant::now() {
+            if t.expires_at_unix_secs > now {
                 Some(t.value.clone())
             } else {
                 None
@@ -46,13 +48,29 @@ impl HttpClient {
         })
     }
 
+    pub fn invalidate_cached_token(&self, key: &str) {
+        self.tokens.lock().remove(key);
+    }
+
     pub fn set_cached_token(&self, key: &str, value: String, ttl_secs: u64) {
+        self.set_cached_token_with_early_refresh(key, value, ttl_secs, 60);
+    }
+
+    pub fn set_cached_token_with_early_refresh(
+        &self,
+        key: &str,
+        value: String,
+        ttl_secs: u64,
+        early_refresh_secs: u64,
+    ) {
+        let now = unix_secs_now();
+        let margin = early_refresh_secs.min(ttl_secs.saturating_sub(1));
         let mut guard = self.tokens.lock();
         guard.insert(
             key.to_string(),
             CachedToken {
                 value,
-                expires_at: Instant::now() + Duration::from_secs(ttl_secs.saturating_sub(60)),
+                expires_at_unix_secs: now.saturating_add(ttl_secs.saturating_sub(margin)),
             },
         );
     }
@@ -186,4 +204,11 @@ impl Default for HttpClient {
     fn default() -> Self {
         Self::new().expect("http client")
     }
+}
+
+fn unix_secs_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }

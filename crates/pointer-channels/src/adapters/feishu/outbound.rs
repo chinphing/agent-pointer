@@ -103,6 +103,32 @@ impl FeishuOutbound {
         self.http.post_json(&url, &headers, &body).await?;
         Ok(())
     }
+
+    async fn send_message_with_token_retry(
+        &self,
+        app_id: &str,
+        app_secret: &str,
+        receive_id: &str,
+        receive_id_type: &str,
+        msg_type: &str,
+        content: &str,
+    ) -> anyhow::Result<()> {
+        let token = tenant_access_token(&self.http, app_id, app_secret).await?;
+        match self
+            .send_message(&token, receive_id, receive_id_type, msg_type, content)
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(e) if crate::token_cache::is_feishu_invalid_token_error(&e) => {
+                log::warn!("feishu token rejected; refreshing and retrying once");
+                super::auth::invalidate_tenant_access_token(&self.http, app_id);
+                let token = tenant_access_token(&self.http, app_id, app_secret).await?;
+                self.send_message(&token, receive_id, receive_id_type, msg_type, content)
+                    .await
+            }
+            Err(e) => Err(e),
+        }
+    }
 }
 
 #[async_trait]
@@ -116,11 +142,17 @@ impl ChannelOutboundAdapter for FeishuOutbound {
         let account = cfg
             .account("feishu", &ctx.account_id)
             .ok_or_else(|| anyhow::anyhow!("feishu account missing"))?;
-        let token = tenant_access_token(&self.http, &account.app_id, &account.app_secret).await?;
         let (receive_id, receive_id_type) = self.receive_target(&ctx).await?;
         let content = feishu_post_md_content(text)?;
-        self.send_message(&token, &receive_id, receive_id_type, "post", &content)
-            .await?;
+        self.send_message_with_token_retry(
+            &account.app_id,
+            &account.app_secret,
+            &receive_id,
+            receive_id_type,
+            "post",
+            &content,
+        )
+        .await?;
         log::info!("feishu outbound post-md account={}", ctx.account_id);
         Ok(())
     }
@@ -135,25 +167,71 @@ impl ChannelOutboundAdapter for FeishuOutbound {
         let account = cfg
             .account("feishu", &ctx.account_id)
             .ok_or_else(|| anyhow::anyhow!("feishu account missing"))?;
-        let token = tenant_access_token(&self.http, &account.app_id, &account.app_secret).await?;
         let (receive_id, receive_id_type) = self.receive_target(&ctx).await?;
+        let app_id = account.app_id.clone();
+        let app_secret = account.app_secret.clone();
 
         if let Some(text) = caption.filter(|s| !s.trim().is_empty()) {
             let content = feishu_post_md_content(text)?;
-            self.send_message(&token, &receive_id, receive_id_type, "post", &content)
-                .await?;
+            self.send_message_with_token_retry(
+                &app_id,
+                &app_secret,
+                &receive_id,
+                receive_id_type,
+                "post",
+                &content,
+            )
+            .await?;
         }
 
         if media.is_image() {
-            let image_key = self.upload_image(&token, &media).await?;
+            let image_key = {
+                let token = tenant_access_token(&self.http, &app_id, &app_secret).await?;
+                match self.upload_image(&token, &media).await {
+                    Ok(key) => key,
+                    Err(e) if crate::token_cache::is_feishu_invalid_token_error(&e) => {
+                        log::warn!("feishu token rejected on image upload; refreshing and retrying once");
+                        super::auth::invalidate_tenant_access_token(&self.http, &app_id);
+                        let token = tenant_access_token(&self.http, &app_id, &app_secret).await?;
+                        self.upload_image(&token, &media).await?
+                    }
+                    Err(e) => return Err(e),
+                }
+            };
             let content = serde_json::to_string(&json!({ "image_key": image_key }))?;
-            self.send_message(&token, &receive_id, receive_id_type, "image", &content)
-                .await?;
+            self.send_message_with_token_retry(
+                &app_id,
+                &app_secret,
+                &receive_id,
+                receive_id_type,
+                "image",
+                &content,
+            )
+            .await?;
         } else {
-            let file_key = self.upload_file(&token, &media).await?;
+            let file_key = {
+                let token = tenant_access_token(&self.http, &app_id, &app_secret).await?;
+                match self.upload_file(&token, &media).await {
+                    Ok(key) => key,
+                    Err(e) if crate::token_cache::is_feishu_invalid_token_error(&e) => {
+                        log::warn!("feishu token rejected on file upload; refreshing and retrying once");
+                        super::auth::invalidate_tenant_access_token(&self.http, &app_id);
+                        let token = tenant_access_token(&self.http, &app_id, &app_secret).await?;
+                        self.upload_file(&token, &media).await?
+                    }
+                    Err(e) => return Err(e),
+                }
+            };
             let content = serde_json::to_string(&json!({ "file_key": file_key }))?;
-            self.send_message(&token, &receive_id, receive_id_type, "file", &content)
-                .await?;
+            self.send_message_with_token_retry(
+                &app_id,
+                &app_secret,
+                &receive_id,
+                receive_id_type,
+                "file",
+                &content,
+            )
+            .await?;
         }
         log::info!(
             "feishu outbound media account={} file={}",

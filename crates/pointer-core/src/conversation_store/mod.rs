@@ -19,7 +19,7 @@ use crate::models::{ChatMessage, Conversation, ConversationMeta};
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 5;
+const SCHEMA_VERSION: i32 = 6;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -357,7 +357,8 @@ fn init_schema(conn: &Connection) -> Result<()> {
            lead_agent_id TEXT NOT NULL DEFAULT 'general',
            agent_mode TEXT NOT NULL DEFAULT 'single',
            im_session_epoch INTEGER NOT NULL DEFAULT 0,
-           im_active_conversation_id TEXT
+           im_active_conversation_id TEXT,
+           im_last_interaction_at_ms INTEGER NOT NULL DEFAULT 0
          );
          CREATE TABLE IF NOT EXISTS messages (
            id INTEGER PRIMARY KEY,
@@ -429,6 +430,17 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
         "conversations",
         "workspace_inherit_disabled",
         "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    add_column_if_missing(
+        conn,
+        "conversations",
+        "im_last_interaction_at_ms",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    conn.execute(
+        "UPDATE conversations SET im_last_interaction_at_ms = updated_at_ms
+         WHERE im_last_interaction_at_ms = 0 AND updated_at_ms > 0",
+        [],
     )?;
     conn.execute(
         "UPDATE schema_version SET version = ?1",

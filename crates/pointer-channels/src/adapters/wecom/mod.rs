@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod media;
 pub mod monitor;
 mod outbound;

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use serde_json::json;
 
+use super::auth::{access_token, check_wecom_api_response, invalidate_access_token};
 use super::ws_state::{get_session, is_connected};
 use super::ws_upload;
 use crate::http_client::HttpClient;
@@ -12,24 +13,6 @@ pub struct WeComOutbound {
 }
 
 impl WeComOutbound {
-    async fn access_token(&self, corp_id: &str, secret: &str) -> anyhow::Result<String> {
-        let key = format!("wecom:{corp_id}");
-        if let Some(t) = self.http.get_cached_token(&key) {
-            return Ok(t);
-        }
-        let url = format!(
-            "https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid={corp_id}&corpsecret={secret}"
-        );
-        let resp = self.http.get_json(&url, &[]).await?;
-        let token = resp
-            .get("access_token")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("missing access_token"))?
-            .to_string();
-        self.http.set_cached_token(&key, token.clone(), 7200);
-        Ok(token)
-    }
-
     fn wecom_media_type(media: &OutboundMedia) -> &'static str {
         if media.is_image() {
             "image"
@@ -47,10 +30,32 @@ impl WeComOutbound {
         account: &crate::config::ChannelAccountConfig,
         media: &OutboundMedia,
     ) -> anyhow::Result<String> {
-        let token = self
-            .access_token(&account.corp_id, &account.secret)
-            .await?;
+        let corp_id = account.corp_id.as_str();
+        let secret = account.secret.as_str();
         let media_type = Self::wecom_media_type(media);
+        let token = access_token(&self.http, corp_id, secret).await?;
+        match self
+            .upload_media_with_token(&token, media_type, media)
+            .await
+        {
+            Ok(id) => Ok(id),
+            Err(e) if crate::token_cache::is_wecom_invalid_token_error(&e) => {
+                log::warn!("wecom token rejected on media/upload; refreshing and retrying once");
+                invalidate_access_token(&self.http, corp_id);
+                let token = access_token(&self.http, corp_id, secret).await?;
+                self.upload_media_with_token(&token, media_type, media)
+                    .await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn upload_media_with_token(
+        &self,
+        token: &str,
+        media_type: &str,
+        media: &OutboundMedia,
+    ) -> anyhow::Result<String> {
         let url = format!(
             "https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token={token}&type={media_type}"
         );
@@ -60,11 +65,11 @@ impl WeComOutbound {
             Some(media.file_name.clone()),
         )];
         let resp = self.http.post_multipart(&url, &[], parts).await?;
-        let media_id = resp
-            .get("media_id")
+        check_wecom_api_response(&resp, "media/upload")?;
+        resp.get("media_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("wecom agent upload missing media_id"))?;
-        Ok(media_id.to_string())
+            .ok_or_else(|| anyhow::anyhow!("wecom agent upload missing media_id"))
+            .map(|s| s.to_string())
     }
 
     async fn send_via_agent_http(
@@ -81,9 +86,31 @@ impl WeComOutbound {
                 "wecom agent HTTP fallback missing corpId/agentId/secret"
             ));
         }
-        let token = self
-            .access_token(&account.corp_id, &account.secret)
-            .await?;
+        let corp_id = account.corp_id.as_str();
+        let secret = account.secret.as_str();
+        let token = access_token(&self.http, corp_id, secret).await?;
+        match self
+            .send_text_with_token(account, ctx, text, &token)
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(e) if crate::token_cache::is_wecom_invalid_token_error(&e) => {
+                log::warn!("wecom token rejected on message/send; refreshing and retrying once");
+                invalidate_access_token(&self.http, corp_id);
+                let token = access_token(&self.http, corp_id, secret).await?;
+                self.send_text_with_token(account, ctx, text, &token).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn send_text_with_token(
+        &self,
+        account: &crate::config::ChannelAccountConfig,
+        ctx: &OutboundContext,
+        text: &str,
+        token: &str,
+    ) -> anyhow::Result<()> {
         let url = format!("https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token={token}");
         let body = json!({
             "touser": ctx.recipient_id,
@@ -91,8 +118,8 @@ impl WeComOutbound {
             "agentid": account.agent_id.parse::<i64>().unwrap_or(0),
             "text": { "content": text }
         });
-        self.http.post_json(&url, &[], &body).await?;
-        Ok(())
+        let resp = self.http.post_json(&url, &[], &body).await?;
+        check_wecom_api_response(&resp, "message/send")
     }
 
     async fn send_media_via_agent_http(
@@ -102,9 +129,33 @@ impl WeComOutbound {
         media_type: &str,
         media_id: &str,
     ) -> anyhow::Result<()> {
-        let token = self
-            .access_token(&account.corp_id, &account.secret)
-            .await?;
+        let corp_id = account.corp_id.as_str();
+        let secret = account.secret.as_str();
+        let token = access_token(&self.http, corp_id, secret).await?;
+        match self
+            .send_media_with_token(account, ctx, media_type, media_id, &token)
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(e) if crate::token_cache::is_wecom_invalid_token_error(&e) => {
+                log::warn!("wecom token rejected on media/send; refreshing and retrying once");
+                invalidate_access_token(&self.http, corp_id);
+                let token = access_token(&self.http, corp_id, secret).await?;
+                self.send_media_with_token(account, ctx, media_type, media_id, &token)
+                    .await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn send_media_with_token(
+        &self,
+        account: &crate::config::ChannelAccountConfig,
+        ctx: &OutboundContext,
+        media_type: &str,
+        media_id: &str,
+        token: &str,
+    ) -> anyhow::Result<()> {
         let url = format!("https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token={token}");
         let mut body = json!({
             "touser": ctx.recipient_id,
@@ -117,8 +168,8 @@ impl WeComOutbound {
                 json!({ "media_id": media_id }),
             );
         }
-        self.http.post_json(&url, &[], &body).await?;
-        Ok(())
+        let resp = self.http.post_json(&url, &[], &body).await?;
+        check_wecom_api_response(&resp, "message/send media")
     }
 }
 

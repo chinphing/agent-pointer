@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use super::auth::access_token;
+use super::auth::{access_token, invalidate_access_token};
 use super::oapi::{
     check_oapi_errcode, check_openapi_response, is_group_conversation_key, prepare_oapi_file_upload,
     sample_file_type,
@@ -39,30 +39,54 @@ impl DingTalkOutbound {
         account: &crate::config::ChannelAccountConfig,
         media: &OutboundMedia,
     ) -> anyhow::Result<(String, String)> {
-        let token = access_token(&self.http, &account.client_id, &account.client_secret).await?;
         let prepared = prepare_oapi_file_upload(media)?;
         let media_type = if media.is_image() { "image" } else { "file" };
-        let url = format!(
-            "https://oapi.dingtalk.com/media/upload?access_token={token}&type={media_type}"
-        );
-        let parts = vec![(
-            "media",
-            prepared.bytes,
-            Some(prepared.file_name.clone()),
-        )];
-        let resp = self.http.post_multipart(&url, &[], parts).await?;
-        check_oapi_errcode(&resp, "media/upload")?;
-        let media_id = resp
-            .get("media_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("dingtalk upload missing media_id response={resp}"))?
-            .to_string();
+        let client_id = account.client_id.as_str();
+        let client_secret = account.client_secret.as_str();
+
+        let token = access_token(&self.http, client_id, client_secret).await?;
+        let media_id = match self
+            .upload_media_with_token(&token, media_type, &prepared)
+            .await
+        {
+            Ok(id) => id,
+            Err(e) if crate::token_cache::is_dingtalk_invalid_token_error(&e) => {
+                log::warn!("dingtalk token rejected on media/upload; refreshing and retrying once");
+                invalidate_access_token(&self.http, client_id);
+                let token = access_token(&self.http, client_id, client_secret).await?;
+                self.upload_media_with_token(&token, media_type, &prepared)
+                    .await?
+            }
+            Err(e) => return Err(e),
+        };
         log::info!(
             "dingtalk oapi media/upload ok type={media_type} file={} zipped={} media_id={media_id}",
             prepared.file_name,
             prepared.zipped
         );
         Ok((media_id, prepared.file_name))
+    }
+
+    async fn upload_media_with_token(
+        &self,
+        token: &str,
+        media_type: &str,
+        prepared: &super::oapi::PreparedOapiUpload,
+    ) -> anyhow::Result<String> {
+        let url = format!(
+            "https://oapi.dingtalk.com/media/upload?access_token={token}&type={media_type}"
+        );
+        let parts = vec![(
+            "media",
+            prepared.bytes.clone(),
+            Some(prepared.file_name.clone()),
+        )];
+        let resp = self.http.post_multipart(&url, &[], parts).await?;
+        check_oapi_errcode(&resp, "media/upload")?;
+        resp.get("media_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("dingtalk upload missing media_id response={resp}"))
+            .map(|s| s.to_string())
     }
 
     /// Files cannot be sent via sessionWebhook (`401102 file->mediaId`). Use robot OpenAPI.
@@ -73,8 +97,9 @@ impl DingTalkOutbound {
         media_id: &str,
         upload_file_name: &str,
     ) -> anyhow::Result<()> {
-        let token = access_token(&self.http, &account.client_id, &account.client_secret).await?;
-        let robot_code = account.client_id.trim();
+        let client_id = account.client_id.as_str();
+        let client_secret = account.client_secret.as_str();
+        let robot_code = client_id;
         if robot_code.is_empty() {
             anyhow::bail!("dingtalk account missing clientId (robotCode)");
         }
@@ -114,15 +139,42 @@ impl DingTalkOutbound {
                 }),
             )
         };
-        let headers = [("x-acs-dingtalk-access-token", token.as_str())];
-        let resp = self.http.post_json(url, &headers, &body).await?;
-        check_openapi_response(&resp, "robot proactive file")?;
+
+        let token = access_token(&self.http, client_id, client_secret).await?;
+        match self
+            .post_proactive_file_with_token(&token, url, &body)
+            .await
+        {
+            Ok(()) => {}
+            Err(e) if crate::token_cache::is_dingtalk_invalid_token_error(&e) => {
+                log::warn!(
+                    "dingtalk token rejected on proactive file; refreshing and retrying once"
+                );
+                invalidate_access_token(&self.http, client_id);
+                let token = access_token(&self.http, client_id, client_secret).await?;
+                self.post_proactive_file_with_token(&token, url, &body)
+                    .await?;
+            }
+            Err(e) => return Err(e),
+        }
+
         log::info!(
             "dingtalk proactive file ok account={} file={} group={is_group}",
             ctx.account_id,
             upload_file_name
         );
         Ok(())
+    }
+
+    async fn post_proactive_file_with_token(
+        &self,
+        token: &str,
+        url: &str,
+        body: &Value,
+    ) -> anyhow::Result<()> {
+        let headers = [("x-acs-dingtalk-access-token", token)];
+        let resp = self.http.post_json(url, &headers, body).await?;
+        check_openapi_response(&resp, "robot proactive file")
     }
 }
 

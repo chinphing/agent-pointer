@@ -2,6 +2,7 @@ use anyhow::Result;
 use serde_json::json;
 
 use crate::http_client::HttpClient;
+use crate::token_cache::FEISHU_EARLY_REFRESH_SECS;
 
 const TENANT_TOKEN_URL: &str =
     "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";
@@ -11,22 +12,53 @@ pub async fn tenant_access_token(
     app_id: &str,
     app_secret: &str,
 ) -> Result<String> {
-    let cache_key = format!("feishu:{app_id}");
+    let cache_key = feishu_token_cache_key(app_id);
     if let Some(t) = http.get_cached_token(&cache_key) {
         return Ok(t);
     }
+    fetch_tenant_access_token(http, app_id, app_secret).await
+}
+
+pub fn feishu_token_cache_key(app_id: &str) -> String {
+    format!("feishu:{app_id}")
+}
+
+pub fn invalidate_tenant_access_token(http: &HttpClient, app_id: &str) {
+    http.invalidate_cached_token(&feishu_token_cache_key(app_id));
+}
+
+async fn fetch_tenant_access_token(
+    http: &HttpClient,
+    app_id: &str,
+    app_secret: &str,
+) -> Result<String> {
+    let cache_key = feishu_token_cache_key(app_id);
     let body = json!({ "app_id": app_id, "app_secret": app_secret });
     let resp = http.post_json(TENANT_TOKEN_URL, &[], &body).await?;
+    let code = resp.get("code").and_then(|v| v.as_i64()).unwrap_or(-1);
+    if code != 0 {
+        let msg = resp
+            .get("msg")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        return Err(anyhow::anyhow!("feishu tenant_access_token failed code={code}: {msg}"));
+    }
     let token = resp
         .get("tenant_access_token")
         .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
         .ok_or_else(|| anyhow::anyhow!("missing tenant_access_token"))?
         .to_string();
     let expire = resp
         .get("expire")
         .and_then(|v| v.as_u64())
         .unwrap_or(7200);
-    http.set_cached_token(&cache_key, token.clone(), expire);
+    http.set_cached_token_with_early_refresh(
+        &cache_key,
+        token.clone(),
+        expire,
+        FEISHU_EARLY_REFRESH_SECS,
+    );
     Ok(token)
 }
 

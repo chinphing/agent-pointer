@@ -29,6 +29,7 @@ pub fn check_oapi_errcode(resp: &Value, step: &str) -> Result<()> {
 
 /// New OpenAPI (`api.dingtalk.com`) may return `{ success, code, message }` instead of errcode.
 pub fn check_openapi_response(resp: &Value, step: &str) -> Result<()> {
+    super::auth::check_openapi_token_response(resp, step)?;
     if let Some(success) = resp.get("success").and_then(|v| v.as_bool()) {
         if !success {
             let message = resp

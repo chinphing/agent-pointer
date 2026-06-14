@@ -88,7 +88,7 @@ impl SkillRegistry {
         let mut prompts = Vec::new();
         if !ids.is_empty() {
             let mut index = String::from(
-                "可用 Skills（第一层：frontmatter 索引）。根据用户任务判断是否需要使用某个 Skill；需要时调用 **`skill_load_instructions`** 读取该 Skill 的完整 SKILL.md 正文说明。不要在未读取正文前假设详细步骤。\n",
+                "可用 Skills（第一层：frontmatter 索引）。根据用户任务判断是否需要使用某个 Skill；需要时调用 **`skill_read`**（仅 `skill_id`）读取该 Skill 的完整 SKILL.md 正文。不要在未读取正文前假设详细步骤。\n",
             );
             for id in ids {
                 if let Some(s) = g.get(id) {
@@ -101,13 +101,13 @@ impl SkillRegistry {
                     }
                     if !s.resource_files.is_empty() {
                         index.push_str(&format!(
-                            "  resources: {} 个，可按需通过 **skill:read_resource** 读取\n",
+                            "  resources: {} 个，可按需通过 **skill_read**（带 `path`）读取\n",
                             s.resource_files.len()
                         ));
                     }
                 } else {
                     index.push_str(&format!(
-                        "- id: {id}\n  status: 未安装（`skill_load_instructions` 会失败；请重启应用同步内置技能，或用 skill_import 安装）\n"
+                        "- id: {id}\n  status: 未安装（`skill_read` 会失败；请重启应用同步内置技能，或用 skill_import 安装）\n"
                     ));
                 }
             }
@@ -116,8 +116,7 @@ impl SkillRegistry {
 
         let mut tools = vec![
             "skill_import".to_string(),
-            "skill_load_instructions".to_string(),
-            "skill_read_resource".to_string(),
+            "skill_read".to_string(),
         ];
         for s in selected {
             for t in &s.tool_names {
@@ -129,7 +128,16 @@ impl SkillRegistry {
         (prompts, tools)
     }
 
-    pub fn load_instructions(&self, id: &str) -> Result<String> {
+    /// Read skill content: omit `path` (or pass `SKILL.md`) for instructions; otherwise read a bundled resource.
+    pub fn read(&self, id: &str, path: Option<&str>) -> Result<String> {
+        match path.map(str::trim).filter(|p| !p.is_empty()) {
+            None => self.load_instructions(id),
+            Some(p) if external::is_skill_manifest_path(p) => self.load_instructions(id),
+            Some(p) => self.read_resource(id, p),
+        }
+    }
+
+    fn load_instructions(&self, id: &str) -> Result<String> {
         let (name, body, track_usage) = {
             let g = self.inner.read();
             let skill = g.get(id).ok_or_else(|| anyhow!("未找到 Skill: {id}"))?;
@@ -149,11 +157,12 @@ impl SkillRegistry {
         Ok(format!("【Skill：{}】\n{}", name, body))
     }
 
-    pub fn patch_instructions(&self, id: &str, new_body: &str) -> Result<()> {
-        external::patch_skill_instructions(id, new_body)
+    /// Patch skill content: omit `path` (or pass `SKILL.md`) for instructions body; otherwise replace the whole file at `path`.
+    pub fn patch(&self, id: &str, path: Option<&str>, content: &str) -> Result<()> {
+        external::patch_skill(id, path, content)
     }
 
-    pub fn read_resource(&self, id: &str, path: &str) -> Result<String> {
+    fn read_resource(&self, id: &str, path: &str) -> Result<String> {
         let g = self.inner.read();
         let skill = g.get(id).ok_or_else(|| anyhow!("未找到 Skill: {id}"))?;
         if !skill.resource_files.iter().any(|p| p == path) {
@@ -177,5 +186,18 @@ fn safe_resource_join(root: &Path, rel: &Path) -> Result<std::path::PathBuf> {
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_skill_manifest_path_matches_skill_md() {
+        assert!(external::is_skill_manifest_path("SKILL.md"));
+        assert!(external::is_skill_manifest_path("skill.md"));
+        assert!(external::is_skill_manifest_path("./SKILL.md"));
+        assert!(!external::is_skill_manifest_path("references/guide.md"));
+    }
 }
 

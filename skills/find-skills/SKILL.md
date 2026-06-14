@@ -45,7 +45,7 @@ any `npx skills` command.
 
 1. Read the **可用 Skills** index in your system instructions (enabled skills for this session).
 2. Judge whether any skill's `name`, `description`, or `tags` fits the task (attachment type,
-   file name, MIME, user goal). If yes, call **`skill_load_instructions`** and follow its body —
+   file name, MIME, user goal). If yes, call **`skill_read`** and follow its body —
    **stop here**.
 3. **Never** run `npx skills find` when a matching enabled skill already exists.
 4. Only continue below when no enabled skill fits.

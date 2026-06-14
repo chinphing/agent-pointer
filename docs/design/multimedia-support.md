@@ -270,7 +270,7 @@ CDN：`GET https://novac2c.cdn.weixin.qq.com/c2c/download?encrypted_query_param=
 
 ```text
 <!-- pointer-media-deps -->
-…请 skill_load_instructions(dev-env-setup) → references/ffmpeg.md …
+…请 skill_read(dev-env-setup) → path references/ffmpeg.md …
 ```
 
 | 场景 | 行为 |
@@ -291,7 +291,7 @@ zip、Office（docx/xlsx/pptx）等 Composer 可上传但后端无法内联解�
 
 | 场景 | 行为 |
 |------|------|
-| App 主对话 | 先查「可用 Skills」；有匹配则直接 `skill_load_instructions`，**勿**重复 `npx skills find` |
+| App 主对话 | 先查「可用 Skills」；有匹配则直接 `skill_read`，**勿**重复 `npx skills find` |
 | 无匹配 | 征得同意后 `find-skills` → 搜索安装 |
 | 仍不可行 | `terminal` 一次性脚本或 `coder`（最后手段） |
 | 工具审批 | `terminal` / `skill_import` 是否弹批准卡片由 **toolApprovalMode** 决定，无额外 UI |

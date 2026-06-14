@@ -7,7 +7,7 @@ description: >-
   Use when the user mentions Pointer settings, connect/configure IM channels, data directory,
   log location, clear logs, Application Support PointerApp, pointer-manager—not generic WeChat
   Open Platform or unrelated app config.
-  When matched, call skill_load_instructions first; do not answer from the skills index alone.
+  When matched, call skill_read first; do not answer from the skills index alone.
 tags:
   - pointer
   - wechat

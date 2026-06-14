@@ -29,7 +29,7 @@ Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdow
 
 ## 资源目录
 
-与 Codex / Claude 一致，支持同目录下的 `references/`、`scripts/`、`assets/` 等文件；通过 **`skill_read_resource`** 按需读取（不自动执行脚本）。
+与 Codex / Claude 一致，支持同目录下的 `references/`、`scripts/`、`assets/` 等文件；通过 **`skill_read`**（带 `path`）按需读取（不自动执行脚本）。
 
 ## 手动导入
 

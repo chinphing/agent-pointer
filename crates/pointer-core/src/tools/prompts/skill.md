@@ -24,19 +24,19 @@ Do not invent skill contents from memory — use the tools below.
 Never run `npx skills find` when an enabled skill already matches.
 
 - An enabled skill's `name` / `description` in your instructions clearly matches
-  the task → call **`skill_load_instructions`** first.
+  the task → call **`skill_read`** with **`skill_id` only** (loads `SKILL.md`).
 - The loaded skill body points at `references/`, `assets/`, or `scripts/` and
-  the task needs that file → call **`skill_read_resource`**.
+  the task needs that file → call **`skill_read`** with **`skill_id`** and **`path`**.
 - The user provides a skill package on disk → call **`skill_import`**.
 
 Never read or write skill files under the app data directory directly
 (see **App data directory** in general rules). Always use
-**`skill_load_instructions`** / **`skill_read_resource`** / **`skill_import`**.
+**`skill_read`** / **`skill_patch`** / **`skill_import`**.
 
 #### Tools
 
-- **`skill_load_instructions`** — load the full **`SKILL.md`** body for an enabled Skill (layer 2).
-- **`skill_read_resource`** — read one indexed resource file under that Skill (layer 3).
+- **`skill_read`** — read an enabled Skill: omit **`path`** for **`SKILL.md`** instructions (layer 2); pass **`path`** for a bundled resource file (layer 3).
+- **`skill_patch`** — update a **user-managed** skill under `~/.pointer/skills/`: omit **`path`** to patch SKILL.md body (after frontmatter); pass **`path`** to replace another file entirely.
 - **`skill_import`** — install a Skill from a `.zip` file or directory into the app skill store.
 
 #### Usage
@@ -63,19 +63,22 @@ Example:
 }
 ```
 
-**`skill_load_instructions`**
+**`skill_read`**
 
 - Call when an enabled skill's `name` / `description` clearly matches the task.
 - Pass only enabled `skill_id` values.
-- After loading, follow the skill body to complete the work.
+- **Instructions:** omit `path`, or pass `"SKILL.md"`.
+- **Resource file:** pass `path` relative to the skill directory, e.g. `references/api-guide.md`.
+- After loading instructions, follow the skill body to complete the work.
 - Do not reload the same skill unless its body is missing from context.
+- Resource reads return file content only; they do not execute scripts or binaries.
 
-Example:
+Example — load instructions:
 
 ```json
 {
   "function": {
-    "name": "skill_load_instructions",
+    "name": "skill_read",
     "arguments": {
       "skill_id": "my-skill-id"
     }
@@ -83,21 +86,51 @@ Example:
 }
 ```
 
-**`skill_read_resource`**
-
-- Call only when the skill body points at `references/`, `assets/`, or `scripts/` and the task truly needs that file.
-- `path` must be a resource-relative path, e.g. `references/api-guide.md`.
-- This tool reads file content only; it does not execute scripts or binaries.
-
-Example:
+Example — read a reference file:
 
 ```json
 {
   "function": {
-    "name": "skill_read_resource",
+    "name": "skill_read",
     "arguments": {
       "skill_id": "my-skill-id",
       "path": "references/api-guide.md"
+    }
+  }
+}
+```
+
+**`skill_patch`**
+
+- Only for **user-managed** skills (`~/.pointer/skills/`); system bundled skills cannot be patched.
+- **Instructions:** omit `path`, or pass `"SKILL.md"`. `body` is markdown **after** YAML frontmatter (frontmatter is preserved).
+- **Other files:** pass `path` relative to the skill directory (e.g. `references/guide.md`). `body` is the **full** new file content (creates the file if missing).
+- After patching, the skill registry refreshes automatically.
+
+Example — patch instructions:
+
+```json
+{
+  "function": {
+    "name": "skill_patch",
+    "arguments": {
+      "skill_id": "my-skill-id",
+      "body": "# Updated Skill\n\nNew instructions here.\n"
+    }
+  }
+}
+```
+
+Example — patch a reference file:
+
+```json
+{
+  "function": {
+    "name": "skill_patch",
+    "arguments": {
+      "skill_id": "my-skill-id",
+      "path": "references/api-guide.md",
+      "body": "# API Guide\n\nUpdated reference content.\n"
     }
   }
 }

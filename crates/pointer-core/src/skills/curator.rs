@@ -199,7 +199,7 @@ pub async fn run_llm_curator(
             .unwrap_or_else(|e: anyhow::Error| {
                 serde_json::json!({ "success": false, "error": e.to_string() }).to_string()
             });
-            if tc.name == "skill_patch_instructions" {
+            if tc.name == "skill_patch" {
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(&result) {
                     if v.get("success").and_then(|b| b.as_bool()) == Some(true) {
                         patches += 1;

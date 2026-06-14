@@ -13,9 +13,9 @@ Worth remembering → use the **`memory`** tool.
 2. Did you discover a reusable technique worth capturing?
 3. Are loaded skills outdated or missing expected steps?
 
-Worth updating → use **`skill_patch_instructions`** for **user-managed** skills under ~/.pointer/skills.
+Worth updating → use **`skill_patch`** for **user-managed** skills under ~/.pointer/skills.
 Do **not** patch system bundled skills (`provenance=system`).
-Inspect with **`skill_load_instructions`** / **`skill_read_resource`**.
+Inspect with **`skill_read`**.
 
 Do not encode transient tool failures as permanent skill rules.
 

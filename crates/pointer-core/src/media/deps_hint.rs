@@ -12,10 +12,10 @@ fn skill_recovery_block(marker: &str) -> String {
         "{marker}\n\
 若用户希望处理该附件，请先征得同意，按以下**优先级**执行（勿跳步；具体 skill/工具由你根据文件名、MIME 与「可用 Skills」索引自行判断）：\n\
 **① 已安装/已启用的 Skill**\n\
-- 查阅「可用 Skills」索引，判断是否有技能可处理该附件；有则 skill_load_instructions 并按技能正文执行（用下方 Saved attachment 的 Local path 配合 file_read）\n\
+- 查阅「可用 Skills」索引，判断是否有技能可处理该附件；有则 skill_read 并按技能正文执行（用下方 Saved attachment 的 Local path 配合 file_read）\n\
 - 已有匹配技能时**禁止** npx skills find\n\
 **② 查找并安装 Skill（无匹配时）**\n\
-- skill_load_instructions(find-skills)，按需搜索并安装合适技能\n\
+- skill_read(find-skills)，按需搜索并安装合适技能\n\
 **③ 写代码 / 临时脚本（最后手段）**\n\
 - 仅当 ①② 均不可行：terminal 一次性脚本或 run_subagent(coder)\n\
 无需重发文件，可说「重试上一条附件」或由技能/工具直接给出结果。\n\
@@ -129,7 +129,7 @@ pub fn video_ffmpeg_missing(file_name: &str, storage_rel_path: Option<&str>) -> 
             "[Video: {file_name}] 无法处理：本机未检测到可用的 ffmpeg/ffprobe。\n\n\
 {MEDIA_DEPS_MARKER}\n\
 若用户希望处理 IM 视频，请先征得同意，然后：\n\
-1. 调用 skill_load_instructions，skill_id=dev-env-setup\n\
+1. 调用 skill_read，skill_id=dev-env-setup\n\
 2. 读取 references/ffmpeg.md 中对应操作系统章节\n\
 3. 用 terminal 执行安装命令并验证：ffmpeg -version && ffprobe -version\n\
 4. 安装成功后无需重发视频，请用户说「重试上一条视频」；ffmpeg 就绪后也可能自动重试\n\

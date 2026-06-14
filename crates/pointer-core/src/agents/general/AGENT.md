@@ -20,8 +20,7 @@ accessPolicy:
     - memory
     - session_search
     - skill_import
-    - skill_load_instructions
-    - skill_read_resource
+    - skill_read
     - terminal
     - web_search
     - run_subagent
@@ -67,7 +66,7 @@ Reference images support local paths (`~/…`, absolute paths); do not claim URL
 marked unsupported / processing failed, **ask for consent first**, then handle in **priority order**
 (do not skip steps; pick skill/tools from filename, MIME, and the **Available Skills** index):
 **① Enabled Skill** — check **Available Skills** for one that can handle the attachment; if found,
-**`skill_load_instructions`** and follow the skill body; **do not run `npx skills find` when a match exists**.
+**`skill_read`** and follow the skill body; **do not run `npx skills find` when a match exists**.
 **② Find and install** — if none match, use **`find-skills`** to search/install as needed.
 **③ Code** — if ① and ② fail, **`terminal`** or **`coder`** (last resort).
 Afterward the user can say "retry the last attachment" (**no need to resend the file**). Approval follows **toolApprovalMode**.

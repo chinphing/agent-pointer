@@ -379,8 +379,16 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
         }
         n if n.starts_with("skill_") => {
             let label = match method.as_str() {
-                "load_instructions" => "加载技能",
-                "read_resource" => "读取技能资源",
+                "read" => {
+                    let has_path = str_field(args, &["path", "resource"])
+                        .is_some_and(|s| !s.trim().is_empty());
+                    if has_path {
+                        "读取技能资源"
+                    } else {
+                        "加载技能"
+                    }
+                }
+                "patch" => "更新技能",
                 _ => "技能",
             };
             (

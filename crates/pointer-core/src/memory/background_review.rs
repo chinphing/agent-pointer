@@ -22,9 +22,8 @@ const REVIEW_HISTORY_MSG_CAP: usize = 80;
 const REVIEW_SNIPPET_CHARS: usize = 2500;
 
 const MEMORY_TOOL: &str = "memory";
-const SKILL_LOAD: &str = "skill_load_instructions";
-const SKILL_READ: &str = "skill_read_resource";
-const SKILL_PATCH: &str = "skill_patch_instructions";
+const SKILL_READ: &str = "skill_read";
+const SKILL_PATCH: &str = "skill_patch";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReviewKind {
@@ -40,9 +39,7 @@ fn review_base_eligible(settings: &ModelSettings) -> bool {
 }
 
 fn plan_includes_skill_tools(names: &[String]) -> bool {
-    names.iter().any(|n| {
-        n == SKILL_LOAD || n == SKILL_READ || n == SKILL_PATCH
-    })
+    names.iter().any(|n| n == SKILL_READ || n == SKILL_PATCH)
 }
 
 pub fn memory_review_due_for(settings: &ModelSettings, allowed_tool_names: &[String], history: &[ChatMessage]) -> bool {
@@ -302,10 +299,9 @@ async fn run_background_review(
 pub(crate) fn allowed_tools_for(kind: ReviewKind) -> Vec<String> {
     match kind {
         ReviewKind::MemoryOnly => vec![MEMORY_TOOL.into()],
-        ReviewKind::SkillOnly => vec![SKILL_LOAD.into(), SKILL_READ.into(), SKILL_PATCH.into()],
+        ReviewKind::SkillOnly => vec![SKILL_READ.into(), SKILL_PATCH.into()],
         ReviewKind::Combined => vec![
             MEMORY_TOOL.into(),
-            SKILL_LOAD.into(),
             SKILL_READ.into(),
             SKILL_PATCH.into(),
         ],
@@ -329,13 +325,6 @@ pub(crate) fn dispatch_review_tool(
             );
             memory_store.dispatch_tool(&args)
         }
-        SKILL_LOAD => {
-            let id = args
-                .get("skill_id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow!("missing skill_id"))?;
-            skills.load_instructions(id)
-        }
         SKILL_READ => {
             let id = args
                 .get("skill_id")
@@ -344,8 +333,8 @@ pub(crate) fn dispatch_review_tool(
             let path = args
                 .get("path")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow!("missing path"))?;
-            skills.read_resource(id, path)
+                .filter(|p| !p.trim().is_empty());
+            skills.read(id, path)
         }
         SKILL_PATCH => {
             let id = args
@@ -356,7 +345,11 @@ pub(crate) fn dispatch_review_tool(
                 .get("body")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow!("missing body"))?;
-            skills.patch_instructions(id, body)?;
+            let path = args
+                .get("path")
+                .and_then(|v| v.as_str())
+                .filter(|p| !p.trim().is_empty());
+            skills.patch(id, path, body)?;
             skills.reload_meta()?;
             Ok(json!({ "success": true, "skill_id": id }).to_string())
         }
@@ -521,7 +514,7 @@ mod tests {
         settings.background_review_enabled = true;
         assert!(skill_review_due_for(
             &settings,
-            &["skill_load_instructions".into()],
+            &["skill_read".into()],
             10
         ));
     }

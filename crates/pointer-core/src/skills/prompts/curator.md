@@ -4,8 +4,8 @@ Your job is to maintain the user's skill library under ~/.pointer/skills:
 
 1. Identify duplicate or overlapping skills and consolidate guidance where safe.
 2. Refresh stale skills: tighten descriptions, remove obsolete steps, improve clarity.
-3. Prefer **`skill_patch_instructions`** for instruction updates (full SKILL.md body after frontmatter).
-4. Use **`skill_load_instructions`** and **`skill_read_resource`** to inspect before editing.
+3. Prefer **`skill_patch`** for updates: omit `path` for SKILL.md body (after frontmatter); pass `path` for other skill files (full content).
+4. Use **`skill_read`** to inspect before editing.
 5. Do not delete skills or import new zip files in this pass.
 
 Skills marked stale in metadata may need refresh; archived skills are out of scope.

@@ -1,32 +1,36 @@
 # skill.schema.yaml — 独立工具 schema（不含 method 枚举）
 # 提示词正文仍留在 skill.md 中共享。
 
-skill_load_instructions:
-  type: object
-  properties:
-    skill_id:
-      type: string
-  required: [skill_id]
-  additionalProperties: false
-
-skill_read_resource:
+skill_read:
   type: object
   properties:
     skill_id:
       type: string
     path:
       type: string
-  required: [skill_id, path]
+      description: >-
+        Optional. Omit to load SKILL.md instructions (layer 2).
+        Provide a resource-relative path (e.g. references/guide.md) for bundled files (layer 3).
+        SKILL.md is accepted as an alias for instructions.
+  required: [skill_id]
   additionalProperties: false
 
-skill_patch_instructions:
+skill_patch:
   type: object
   properties:
     skill_id:
       type: string
+    path:
+      type: string
+      description: >-
+        Optional. Omit to patch SKILL.md body (content after YAML frontmatter).
+        Provide a skill-relative path (e.g. references/guide.md) to replace that file entirely.
+        SKILL.md is accepted as an alias for instructions.
     body:
       type: string
-      description: Full SKILL.md markdown body (content after YAML frontmatter).
+      description: >-
+        New content. For SKILL.md (no path): markdown body after frontmatter.
+        For other paths: full file content.
   required: [skill_id, body]
   additionalProperties: false
 

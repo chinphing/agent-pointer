@@ -7,7 +7,7 @@ description: >-
   Chocolatey for all software installs. Per-topic guides live under references/; load on demand.
   Use when the user asks to install software or dev environments, needs ffmpeg/ffprobe, or context
   includes <!-- pointer-media-deps --> or video processing failed. Ask for consent before installing.
-  When matched, call skill_load_instructions first; read references/ffmpeg.md for ffmpeg tasks.
+  When matched, call skill_read first; use path references/ffmpeg.md for ffmpeg tasks.
 resources:
   - references/general-software.md
   - references/chocolatey-windows.md

@@ -728,21 +728,21 @@ mod openai_tools_schema_tests {
         let reg = ToolRegistry::new();
         reg.register(
             ToolEntry::new(
-                "skill_load_instructions",
-                "test:skill_load_instructions",
+                "skill_read",
+                "test:skill_read",
                 "low",
                 false,
-                "### `skill_load_instructions`\n-",
+                "### `skill_read`\n-",
                 Arc::new(|_| Ok(String::new())),
             )
             .with_schema(serde_json::json!({
                 "type": "object",
-                "properties": { "skill_id": { "type": "string" } },
+                "properties": { "skill_id": { "type": "string" }, "path": { "type": "string" } },
                 "required": ["skill_id"]
             })),
         );
         let tools = reg.openai_tools(&[]);
-        assert_eq!(tools[0]["function"]["name"], "skill_load_instructions");
+        assert_eq!(tools[0]["function"]["name"], "skill_read");
     }
 
     #[test]

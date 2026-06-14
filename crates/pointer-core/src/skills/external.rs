@@ -90,8 +90,17 @@ fn migrate_system_skills_layout_if_needed() -> Result<()> {
     Ok(())
 }
 
-/// Update SKILL.md body for a user-managed skill under `~/.pointer/skills`.
-pub fn patch_skill_instructions(id: &str, new_body: &str) -> Result<()> {
+pub fn is_skill_manifest_path(path: &str) -> bool {
+    Path::new(path.trim())
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("SKILL.md"))
+}
+
+/// Patch a user-managed skill file under `~/.pointer/skills`.
+/// Omit `path` (or pass `SKILL.md`) to replace the SKILL.md body after frontmatter.
+/// Otherwise `path` is skill-relative and `content` replaces the whole file.
+pub fn patch_skill(id: &str, path: Option<&str>, content: &str) -> Result<()> {
     validate_skill_id(id)?;
     super::provenance::assert_patch_allowed(id)?;
     let root = pointer_skills_dir()?;
@@ -99,13 +108,42 @@ pub fn patch_skill_instructions(id: &str, new_body: &str) -> Result<()> {
     if !dir.is_dir() {
         return Err(anyhow!("未找到托管 Skill: {id}（路径: ~/.pointer/skills/{id}）"));
     }
-    let manifest_path = manifest_path_in_dir(&dir)
+    match path.map(str::trim).filter(|p| !p.is_empty()) {
+        None => patch_manifest_body_in_dir(&dir, id, content),
+        Some(p) if is_skill_manifest_path(p) => patch_manifest_body_in_dir(&dir, id, content),
+        Some(rel) => {
+            let target = safe_skill_relative_path(&dir, rel)?;
+            atomic_write(&target, content.as_bytes())?;
+            log::info!("skill_patch: updated file {rel} for {id}");
+            Ok(())
+        }
+    }
+}
+
+fn patch_manifest_body_in_dir(dir: &Path, id: &str, new_body: &str) -> Result<()> {
+    let manifest_path = manifest_path_in_dir(dir)
         .ok_or_else(|| anyhow!("Skill 目录缺少 SKILL.md: {}", dir.display()))?;
     let raw = fs::read_to_string(&manifest_path)?;
     let updated = replace_skill_body(&raw, new_body)?;
     atomic_write(&manifest_path, updated.as_bytes())?;
     log::info!("skill_patch: updated instructions for {id}");
     Ok(())
+}
+
+fn safe_skill_relative_path(skill_dir: &Path, rel: &str) -> Result<PathBuf> {
+    let rel_path = Path::new(rel.trim());
+    if rel_path.is_absolute() {
+        return Err(anyhow!("path 必须是 Skill 目录内的相对路径: {rel}"));
+    }
+    let mut out = skill_dir.to_path_buf();
+    for c in rel_path.components() {
+        match c {
+            Component::Normal(part) => out.push(part),
+            Component::CurDir => {}
+            _ => return Err(anyhow!("非法路径: {rel}")),
+        }
+    }
+    Ok(out)
 }
 
 fn replace_skill_body(raw: &str, new_body: &str) -> Result<String> {

@@ -59,14 +59,24 @@ pub(crate) fn push_tool_result(
     hint_message_id: &str,
     tool_call_id: &str,
     content: &str,
+    persist_transcript: bool,
 ) {
-    crate::conversation_transcript::record_tool_result(
-        conversation_id,
-        history,
-        hint_message_id,
-        tool_call_id,
-        content,
-    );
+    if persist_transcript {
+        crate::conversation_transcript::record_tool_result(
+            conversation_id,
+            history,
+            hint_message_id,
+            tool_call_id,
+            content,
+        );
+    } else {
+        crate::conversation_transcript::insert_tool_result_in_history(
+            history,
+            hint_message_id,
+            tool_call_id,
+            content,
+        );
+    }
 }
 
 pub(crate) fn append_assistant_tool_raw_output(

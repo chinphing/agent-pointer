@@ -223,6 +223,29 @@ pub fn upsert_message(conversation_id: &str, msg: &ChatMessage) {
     }
 }
 
+/// Insert or update a tool row in an in-memory history only (no DB / transcript session).
+pub fn insert_tool_result_in_history(
+    history: &mut Vec<ChatMessage>,
+    hint_message_id: &str,
+    tool_call_id: &str,
+    content: &str,
+) {
+    let msg = reconcile::tool_result_message(tool_call_id, content);
+    if let Some(idx) =
+        reconcile::find_existing_tool_index(history, tool_call_id, hint_message_id)
+    {
+        history[idx].content = content.to_string();
+    } else if let Some(idx) =
+        reconcile::find_tool_insert_index(history, tool_call_id, hint_message_id)
+    {
+        history.insert(idx, msg);
+    } else {
+        log::warn!(
+            "conversation_transcript: dropped in-memory tool result tool_call_id={tool_call_id} hint_message_id={hint_message_id}"
+        );
+    }
+}
+
 pub fn record_tool_result(
     conversation_id: &str,
     history: &mut Vec<ChatMessage>,
@@ -240,21 +263,8 @@ pub fn record_tool_result(
         );
         return;
     }
-  // Fallback when no active session (tests / edge paths).
-    let msg = reconcile::tool_result_message(tool_call_id, content);
-    if let Some(idx) =
-        reconcile::find_existing_tool_index(history, tool_call_id, hint_message_id)
-    {
-        history[idx].content = content.to_string();
-    } else if let Some(idx) =
-        reconcile::find_tool_insert_index(history, tool_call_id, hint_message_id)
-    {
-        history.insert(idx, msg);
-    } else {
-        log::warn!(
-            "conversation_transcript: fallback dropped tool result tool_call_id={tool_call_id}"
-        );
-    }
+    // Fallback when no active session (tests / edge paths).
+    insert_tool_result_in_history(history, hint_message_id, tool_call_id, content);
 }
 
 pub fn flush_after_tool_pass(conversation_id: &str, history: &[ChatMessage]) {

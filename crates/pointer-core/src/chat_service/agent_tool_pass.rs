@@ -106,6 +106,8 @@ pub(super) async fn run_agent_tool_pass(
     task_board_trim: Option<TaskBoardTrimHook<'_>>,
 ) -> Result<ToolPassResult> {
     let sub_trace_id = sub.as_ref().map(|s| s.trace_id.clone());
+    // Sub-agent runs on isolated `local_history`; never flush or record tool rows to the main transcript DB.
+    let persist_transcript = sub.is_none();
     let mut any_executed = false;
     let mut task_board_succeeded = false;
     let mut final_reply_output: Option<String> = None;
@@ -149,6 +151,7 @@ pub(super) async fn run_agent_tool_pass(
                 &message_id,
                 &tc.id,
                 &format!("ERROR: {err}"),
+                persist_transcript,
             );
             any_executed = true;
             continue;
@@ -180,6 +183,7 @@ pub(super) async fn run_agent_tool_pass(
                 &message_id,
                 &tc.id,
                 &format!("ERROR: {err}"),
+                persist_transcript,
             );
                 any_executed = true;
                 continue;
@@ -198,6 +202,7 @@ pub(super) async fn run_agent_tool_pass(
             &args_value,
             &cancel,
             sub_trace_id.as_deref(),
+            persist_transcript,
         )
         .await?
         {
@@ -282,6 +287,7 @@ pub(super) async fn run_agent_tool_pass(
             exec,
             duration,
             sub_trace_id.as_deref(),
+            persist_transcript,
         )
         .await;
         if let Some(out) = final_reply_candidate {
@@ -312,7 +318,9 @@ pub(super) async fn run_agent_tool_pass(
         maybe_trim_after_tool_pass(history, hook, task_board_succeeded);
     }
 
-    crate::conversation_transcript::flush_after_tool_pass(conversation_id, history);
+    if persist_transcript {
+        crate::conversation_transcript::flush_after_tool_pass(conversation_id, history);
+    }
 
     if !any_executed {
         if let Some(consumed) = consumed_single {
@@ -348,6 +356,7 @@ async fn run_approval_gate(
     args_value: &serde_json::Value,
     cancel: &CancellationToken,
     trace_id: Option<&str>,
+    persist_transcript: bool,
 ) -> Result<bool> {
     let elevated_terminal =
         tool_id == "terminal" && crate::tools::terminal::terminal_requests_elevation(args_value);
@@ -401,7 +410,7 @@ async fn run_approval_gate(
             trace_id: trace_id_opt(trace_id),
         },
     );
-    super::util::push_tool_result(history, conversation_id, message_id, &tc.id, &err);
+    super::util::push_tool_result(history, conversation_id, message_id, &tc.id, &err, persist_transcript);
     Ok(false)
 }
 
@@ -725,6 +734,7 @@ async fn record_tool_exec_outcome(
     exec: Result<(String, bool, Option<String>), anyhow::Error>,
     duration: u64,
     trace_id: Option<&str>,
+    persist_transcript: bool,
 ) {
     match exec {
         Ok((out, ok, err_note)) => {
@@ -770,7 +780,14 @@ async fn record_tool_exec_outcome(
                 args_for_desktop_log,
                 &out,
             );
-            super::util::push_tool_result(history, conversation_id, message_id, &tc.id, &out);
+            super::util::push_tool_result(
+                history,
+                conversation_id,
+                message_id,
+                &tc.id,
+                &out,
+                persist_transcript,
+            );
         }
         Err(e) => {
             let err = e.to_string();
@@ -804,7 +821,14 @@ async fn record_tool_exec_outcome(
                 args_for_desktop_log,
                 &error_out,
             );
-            super::util::push_tool_result(history, conversation_id, message_id, &tc.id, &error_out);
+            super::util::push_tool_result(
+                history,
+                conversation_id,
+                message_id,
+                &tc.id,
+                &error_out,
+                persist_transcript,
+            );
         }
     }
 }

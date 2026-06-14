@@ -1,6 +1,8 @@
 //! Tool execution pass request context.
 
-use crate::models::ToolCall;
+use crate::agents::AgentProfile;
+use crate::llm_token_stats::ChatLlmTokenSession;
+use crate::models::{AgentTrace, ChatMessage, ModelSettings, ToolCall};
 use crate::provider::OpenAIProvider;
 use crate::task_board::TaskBoardTrimHook;
 use tokio_util::sync::CancellationToken;
@@ -30,6 +32,27 @@ impl<'a> ToolPassContext<'a> {
     pub fn persist_transcript(&self) -> bool {
         self.persist.persist_transcript()
     }
+}
+
+/// Lead single-agent tool pass request (wrapper over shared `run_agent_tool_pass`).
+pub struct LeadSingleToolPassRequest<'a> {
+    pub session: SessionRefs<'a>,
+    pub main_task_board_store_key: &'a str,
+    pub history: &'a mut Vec<ChatMessage>,
+    pub allow_agents: &'a [String],
+    pub enabled_skill_ids: &'a mut Vec<String>,
+    pub provider: &'a OpenAIProvider,
+    pub tool_approval_mode: &'a str,
+    pub tool_budget: &'a mut SessionToolBudget,
+    pub consumed_single: &'a mut u32,
+    pub token_session: &'a mut ChatLlmTokenSession,
+    pub settings: &'a ModelSettings,
+    pub lead_agent_id: &'a str,
+    pub file_tool_lead_for_invoke: AgentProfile,
+    pub assistant_id: String,
+    pub final_tool_calls: &'a [ToolCall],
+    pub agent_trace: &'a mut Vec<AgentTrace>,
+    pub cancel: CancellationToken,
 }
 
 /// One tool-pass invocation: validated tool batch + lead/sub config + optional trim hook.

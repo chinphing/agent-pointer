@@ -198,7 +198,7 @@ scripts/count_fn_params.py   # 参数扫描 baseline
 
 - [x] Step 0：context 类型骨架 + 参数扫描脚本 + 本章节
 - [x] Step 1：`PostAssistantContext`（7 个函数 → ≤6 参）
-- [ ] Step 2：`StreamRoundContext`（3 个函数 → ≤6 参）
+- [x] Step 2：`StreamRoundContext`（3 个函数 → ≤6 参）
 - [ ] Step 3：`ToolPassContext`（5 个函数 → ≤6 参）
 - [ ] Step 4：Prompt context（2 个函数 → ≤6 参）
 - [ ] Step 5：Loop 入口（4 个函数 → ≤6 参）

@@ -1,24 +1,19 @@
 //! One sub-agent `stream_chat` round: spawn provider task, drain events, await join outcome.
 
 use crate::agents::agent_ui::agent_display_label;
-use crate::agents::{AgentDef, AgentProfile, AgentTask};
-use crate::llm_token_stats::ConversationLlmStats;
-use crate::models::{effective_max_tokens, ChatMessage, StreamEvent, SystemPromptSections};
-use crate::provider::{OpenAIProvider, ProviderEvent};
+use crate::agents::AgentProfile;
+use crate::models::{effective_max_tokens, ChatMessage, Role, StreamEvent};
 use anyhow::{anyhow, Result};
 use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
 
 use super::agent_stream_round::{
     drain_provider_events, ContentDeltaMode, LlmRoundRecorder, StreamRoundBuffers,
 };
-use super::app_state::AppState;
+use super::context::{cancel_owned, StreamRoundInput, SubStreamRoundContext, SubStreamRoundRefs};
 use super::emit::{agent_trace_step_id, emit};
 use super::provider_stream::{is_recoverable_provider_stream_error, provider_stream_recoverable_retry_message};
-use super::session_budget::SessionToolBudget;
 use super::util::{new_id, now_ms};
-use super::StreamTx;
-use crate::models::{AgentTrace, Role};
+use crate::provider::ProviderEvent;
 
 /// Outcome of one sub-agent provider stream round.
 #[derive(Debug)]
@@ -29,44 +24,38 @@ pub(super) enum SubAgentStreamOutcome {
 }
 
 pub(super) async fn run_sub_agent_stream_round(
-    stream: &StreamTx,
-    state: &AppState,
-    provider: &OpenAIProvider,
-    conversation_id: &str,
-    message_id: &str,
-    task: &AgentTask,
-    def: &AgentDef,
-    instance_scope: &crate::agent_instance_scope::AgentInstanceScope,
-    _agent_trace: &mut Vec<AgentTrace>,
-    session_content: &mut String,
-    reasoning_in_messages: bool,
-    llm_stats: &mut ConversationLlmStats,
-    local_history: &mut Vec<ChatMessage>,
-    sub_tool_budget: &mut SessionToolBudget,
-    max_cap: u32,
-    tools_appendix_enabled: bool,
-    native_tools: Vec<serde_json::Value>,
-    cancel: CancellationToken,
-    history_for_api: Vec<ChatMessage>,
-    system_prompts: SystemPromptSections,
+    ctx: &mut SubStreamRoundContext<'_>,
+    sub: &mut SubStreamRoundRefs<'_>,
+    input: StreamRoundInput,
 ) -> Result<SubAgentStreamOutcome> {
+    let stream = ctx.session.stream;
+    let state = ctx.session.state;
+    let conversation_id = ctx.session.conversation_id;
+    let provider = ctx.provider;
+    let max_cap = ctx.max_cap;
+    let cancel = ctx.cancel.clone();
+    let reasoning_in_messages = ctx.reasoning_in_messages;
+    let tools_appendix_enabled = input.tools_appendix_enabled;
+
     let (tx, mut rx) = mpsc::channel::<ProviderEvent>(64);
-    let round_settings = if def.profile == AgentProfile::Computer {
+    let round_settings = if sub.def.profile == AgentProfile::Computer {
         state
             .computer_state
             .apply_round_settings(conversation_id, &provider.settings)
     } else {
         provider.settings.clone()
     };
-    let prov = OpenAIProvider::new(round_settings, provider.api_key.clone());
-    let cancel_clone = cancel.clone();
-    let dump_lbl = format!("{}_{}_sub_{}", conversation_id, message_id, task.id);
-    let system_clone = system_prompts;
+    let prov = crate::provider::OpenAIProvider::new(round_settings, provider.api_key.clone());
+    let cancel_clone = cancel_owned(&cancel);
+    let dump_lbl = format!(
+        "{}_{}_sub_{}",
+        conversation_id, sub.message_id, sub.task.id
+    );
     let handle = tokio::spawn(async move {
         prov.stream_chat(
-            &history_for_api,
-            &system_clone,
-            native_tools,
+            &input.history_for_api,
+            &input.system_prompts,
+            input.native_tools,
             tx,
             cancel_clone,
             Some(dump_lbl.as_str()),
@@ -74,16 +63,16 @@ pub(super) async fn run_sub_agent_stream_round(
         .await
     });
 
-    let trace_id = agent_trace_step_id(&task.id, &def.id);
+    let trace_id = agent_trace_step_id(&sub.task.id, &sub.def.id);
     let mut buffers = StreamRoundBuffers::default();
     let mut llm_recorder = LlmRoundRecorder::Scoped {
-        stats: llm_stats,
-        scope: instance_scope,
+        stats: sub.llm_stats,
+        scope: sub.instance_scope,
     };
     drain_provider_events(
         &mut rx,
         state,
-        message_id,
+        sub.message_id,
         reasoning_in_messages,
         ContentDeltaMode::SubAgentTrace {
             trace_id: trace_id.clone(),
@@ -94,7 +83,7 @@ pub(super) async fn run_sub_agent_stream_round(
         cancel.clone(),
     )
     .await;
-    session_content.push_str(&buffers.raw_content_buf);
+    sub.session_content.push_str(&buffers.raw_content_buf);
 
     match handle.await {
         Ok(Ok(())) => Ok(SubAgentStreamOutcome::Completed(buffers)),
@@ -102,14 +91,14 @@ pub(super) async fn run_sub_agent_stream_round(
             if tools_appendix_enabled && is_recoverable_provider_stream_error(&err) {
                 log::warn!(
                     "recoverable provider stream error sub_agent task_id={} agent={}: {err:#}",
-                    task.id,
-                    def.id
+                    sub.task.id,
+                    sub.def.id
                 );
                 let hint = provider_stream_recoverable_retry_message(
                     &err,
                     effective_max_tokens(&provider.settings),
                 );
-                local_history.push(ChatMessage {
+                sub.local_history.push(ChatMessage {
                     id: new_id("fmt_retry"),
                     role: Role::User,
                     content: hint,
@@ -130,11 +119,11 @@ pub(super) async fn run_sub_agent_stream_round(
                     image_slot_labels: None,
                     images_base64: None,
                     computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-        attachments: None,
-            });
-                if sub_tool_budget.is_exhausted() {
+                    ui_bindings: None,
+                    context_state: None,
+                    attachments: None,
+                });
+                if ctx.sub_tool_budget.is_exhausted() {
                     let hint = format!(
                         "子 Agent 内工具调用累计已达上限（{} 轮）。建议新开对话。",
                         max_cap
@@ -149,7 +138,7 @@ pub(super) async fn run_sub_agent_stream_round(
                         },
                     );
                     let _ = crate::context_compression::maybe_compress_after_tool_round_limit(
-                        local_history,
+                        sub.local_history,
                         &provider.settings,
                         provider,
                         conversation_id,
@@ -157,11 +146,11 @@ pub(super) async fn run_sub_agent_stream_round(
                         cancel.clone(),
                         false,
                         crate::context_compression::CompressionUiContext::sub_agent(
-                            instance_scope.clone(),
-                            message_id,
-                            &def.id,
-                            &agent_display_label(def),
-                            &task.id,
+                            sub.instance_scope.clone(),
+                            sub.message_id,
+                            &sub.def.id,
+                            &agent_display_label(sub.def),
+                            &sub.task.id,
                         ),
                     )
                     .await;

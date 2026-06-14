@@ -29,6 +29,9 @@ pub use prompt::{PromptSessionArc, SingleAgentPromptContext, SubAgentPromptConte
 pub use session::{SessionRefs, SessionRefsArc};
 pub use stream_round::{
     cancel_owned, LeadStreamRoundContext, StreamRoundInput, SubStreamRoundContext,
+    SubStreamRoundRefs,
 };
-pub use tool_pass::{ToolInvocationContext, ToolPassContext, ToolPassRequest};
+pub use tool_pass::{
+    LeadSingleToolPassRequest, ToolInvocationContext, ToolPassContext, ToolPassRequest,
+};
 pub use transcript::{TranscriptPersist, TranscriptRefs};

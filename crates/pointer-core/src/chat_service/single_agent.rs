@@ -128,24 +128,33 @@ pub(super) async fn run_single_agent_loop(
             s
         };
 
-        let stream_outcome = super::single_agent_stream::run_provider_stream_round(
-            stream.clone(),
-            state.clone(),
+        let mut stream_ctx = super::context::LeadStreamRoundContext {
+            session: super::context::SessionRefsArc {
+                stream: &stream,
+                state: state.clone(),
+                conversation_id,
+                cancel: cancel.clone(),
+            },
             provider,
-            &round_settings,
-            conversation_id,
+            settings: &round_settings,
             history,
-            llm_token_session,
-            assistant_id.clone(),
-            tools_appendix_enabled,
+            token_session: llm_token_session,
             tool_budget,
             consumed_single,
             max_cap,
-            cancel.clone(),
             reasoning_in_messages,
-            round_prompts.history_for_api,
-            round_prompts.system_prompts,
+            cancel: cancel.clone(),
+        };
+        let stream_input = super::context::StreamRoundInput {
+            history_for_api: round_prompts.history_for_api,
+            system_prompts: round_prompts.system_prompts,
             native_tools,
+            tools_appendix_enabled,
+        };
+        let stream_outcome = super::single_agent_stream::run_provider_stream_round(
+            &mut stream_ctx,
+            stream_input,
+            assistant_id.clone(),
         )
         .await?;
         let buf = match stream_outcome {
@@ -223,26 +232,30 @@ pub(super) async fn run_single_agent_loop(
         }
 
         match super::single_agent_tools::run_single_agent_tool_pass(
-            stream.clone(),
-            state.as_ref(),
-            conversation_id,
-            main_task_board_store_key,
-            history,
-            &agent_plan.allow_agents,
-            enabled_skill_ids,
-            provider,
-            tool_approval_mode,
-            tool_budget,
-            consumed_single,
-            cancel.clone(),
-            llm_token_session,
-            reasoning_in_messages,
-            assistant_id.clone(),
-            file_tool_lead_for_invoke.clone(),
-            &buf.final_tool_calls,
-            &mut agent_trace,
-            settings,
-            &agent_plan.lead_agent_id,
+            super::context::LeadSingleToolPassRequest {
+                session: super::context::SessionRefs {
+                    stream: &stream,
+                    state: state.as_ref(),
+                    conversation_id,
+                    cancel: &cancel,
+                },
+                main_task_board_store_key,
+                history,
+                allow_agents: &agent_plan.allow_agents,
+                enabled_skill_ids,
+                provider,
+                tool_approval_mode,
+                tool_budget,
+                consumed_single,
+                token_session: llm_token_session,
+                settings,
+                lead_agent_id: &agent_plan.lead_agent_id,
+                file_tool_lead_for_invoke: file_tool_lead_for_invoke.clone(),
+                assistant_id: assistant_id.clone(),
+                final_tool_calls: &buf.final_tool_calls,
+                agent_trace: &mut agent_trace,
+                cancel: cancel.clone(),
+            },
         )
         .await?
         {

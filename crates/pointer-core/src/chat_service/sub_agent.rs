@@ -138,27 +138,38 @@ pub(crate) async fn run_sub_agent(
         )
         .await?;
 
-        let stream_outcome = run_sub_agent_stream_round(
-            stream,
-            state,
-            &sub_provider,
-            conversation_id,
-            message_id,
-            task,
-            &def,
-            &instance_scope,
-            agent_trace,
-            &mut content,
-            reasoning_in_messages,
-            llm_stats,
-            &mut local_history,
+        let mut stream_ctx = super::context::SubStreamRoundContext {
+            session: super::context::SessionRefs {
+                stream,
+                state,
+                conversation_id,
+                cancel: &cancel,
+            },
+            provider: &sub_provider,
             sub_tool_budget,
             max_cap,
+            reasoning_in_messages,
+            cancel: cancel.clone(),
+        };
+        let mut stream_refs = super::context::SubStreamRoundRefs {
+            task,
+            def: &def,
+            instance_scope: &instance_scope,
+            message_id,
+            session_content: &mut content,
+            local_history: &mut local_history,
+            llm_stats,
+        };
+        let stream_input = super::context::StreamRoundInput {
+            history_for_api: round_prompts.history_for_api,
+            system_prompts: round_prompts.system_prompts,
+            native_tools: native_tools.clone(),
             tools_appendix_enabled,
-            native_tools.clone(),
-            cancel.clone(),
-            round_prompts.history_for_api,
-            round_prompts.system_prompts,
+        };
+        let stream_outcome = run_sub_agent_stream_round(
+            &mut stream_ctx,
+            &mut stream_refs,
+            stream_input,
         )
         .await?;
 

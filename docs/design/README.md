@@ -10,6 +10,7 @@
 | [coder-agent-capability-roadmap.md](coder-agent-capability-roadmap.md) | Coder 能力增强路线图与优先级矩阵 |
 | [computer-use-implementation-plan.md](computer-use-implementation-plan.md) | Computer Use Agent（视觉桌面）迁移与分期计划 |
 | [computer-compact-dock-bar.md](computer-compact-dock-bar.md) | 电脑操控时 OS 窗口收缩为右下角 Dock Bar（已确认：OS 级、结束自动展开、含子 agent） |
+| [refactor-roadmap.md](refactor-roadmap.md) | 代码重构路线图（文件/函数行数、分步 P0–P3） |
 | [file-grep-d-enhancement-proposal.md](file-grep-d-enhancement-proposal.md) | `file:grep` 增强草案（对齐 rg 行为等） |
 
 产品行为与配置说明见 **[`../guides/`](../guides/)**；全局索引见 **[`../README.md`](../README.md)**。

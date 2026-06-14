@@ -14,7 +14,6 @@ mod post_assistant;
 mod prompt;
 mod session;
 mod stream_round;
-mod tool_pass;
 mod transcript;
 
 pub use budget::{ToolBudgetExhaustionScope, ToolBudgetRefs};
@@ -30,8 +29,5 @@ pub use session::{SessionRefs, SessionRefsArc};
 pub use stream_round::{
     cancel_owned, LeadStreamRoundContext, StreamRoundInput, SubStreamRoundContext,
     SubStreamRoundRefs,
-};
-pub use tool_pass::{
-    LeadSingleToolPassRequest, ToolInvocationContext, ToolPassContext, ToolPassRequest,
 };
 pub use transcript::{TranscriptPersist, TranscriptRefs};

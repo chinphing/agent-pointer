@@ -290,29 +290,37 @@ pub(crate) async fn run_sub_agent(
             settings: &sub_provider.settings,
             agent_id: &def.id,
             conversation_id,
-            stream: &stream,
+            stream,
             emit_trim_ui_event: false,
             anchor_message_id: anchor_message_id.as_deref(),
         };
-        match Box::pin(run_agent_tool_pass(
-            stream.clone(),
-            state,
-            conversation_id,
-            message_id.to_string(),
-            &mut local_history,
-            &tool_approval_mode,
-            sub_tool_budget,
-            None,
-            cancel.clone(),
-            &sub_provider,
-            &sub_task_board_key,
-            &mut stats,
-            &buf.final_tool_calls,
-            None,
-            Some(sub_cfg),
-            Some(trim_hook),
-        ))
-        .await?
+        let pass = super::agent_tool_pass::ToolPassRequest {
+            ctx: super::agent_tool_pass::ToolPassContext {
+                session: super::context::SessionRefs {
+                    stream,
+                    state,
+                    conversation_id,
+                    cancel: &cancel,
+                },
+                transcript: super::context::TranscriptRefs {
+                    history: &mut local_history,
+                },
+                persist: super::context::TranscriptPersist::LocalOnly,
+                message_id: message_id.to_string(),
+                task_board_store_key: &sub_task_board_key,
+                tool_approval_mode: &tool_approval_mode,
+                tool_budget: sub_tool_budget,
+                consumed_single: None,
+                provider: &sub_provider,
+                stats: &mut stats,
+                lead: None,
+                sub: Some(sub_cfg),
+            },
+            final_tool_calls: &buf.final_tool_calls,
+            trim_hook: Some(trim_hook),
+            cancel: cancel.clone(),
+        };
+        match Box::pin(run_agent_tool_pass(pass)).await?
         {
             ToolPassResult::SubFinished(result) => return Ok(result),
             ToolPassResult::FinalReplyComplete(output) => {

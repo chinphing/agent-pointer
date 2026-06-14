@@ -26,7 +26,7 @@ pub(super) async fn execute_tool_invocation(
     tc: &ToolCall,
     tool_id: &str,
     args_value: serde_json::Value,
-    mut lead: Option<&mut LeadToolPassConfig<'_>>,
+    lead: Option<&mut LeadToolPassConfig<'_>>,
     sub: Option<&mut SubToolPassConfig<'_>>,
     cancel: &CancellationToken,
     stats: &mut ToolInvocationStats<'_>,

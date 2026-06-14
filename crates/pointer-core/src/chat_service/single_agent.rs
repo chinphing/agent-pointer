@@ -232,7 +232,7 @@ pub(super) async fn run_single_agent_loop(
         }
 
         match super::single_agent_tools::run_single_agent_tool_pass(
-            super::context::LeadSingleToolPassRequest {
+            super::agent_tool_pass::LeadSingleToolPassRequest {
                 session: super::context::SessionRefs {
                     stream: &stream,
                     state: state.as_ref(),

@@ -1,27 +1,27 @@
 //! Record tool execution outcome to stream, history, and computer state.
 
-use crate::models::{ChatMessage, StreamEvent, ToolCall};
+use crate::models::{StreamEvent, ToolCall};
 use std::time::Duration;
 
-use super::super::app_state::AppState;
+use super::types::ToolPassContext;
 use super::super::emit::{emit, trace_id_opt};
 use super::super::util::{append_assistant_tool_raw_output, desktop_tool_failure_note, truncate_str};
-use super::super::StreamTx;
 
 pub(super) async fn record_tool_exec_outcome(
-    stream: &StreamTx,
-    state: &AppState,
-    history: &mut Vec<ChatMessage>,
-    conversation_id: &str,
-    message_id: &str,
+    ctx: &mut ToolPassContext<'_>,
     tc: &ToolCall,
     tool_id: &str,
     args_for_desktop_log: &serde_json::Value,
     exec: super::types::ToolExecResult,
     duration: u64,
     trace_id: Option<&str>,
-    persist_transcript: bool,
 ) {
+    let persist_transcript = ctx.persist_transcript();
+    let conversation_id = ctx.session.conversation_id;
+    let message_id = ctx.message_id.as_str();
+    let stream = ctx.session.stream;
+    let state = ctx.session.state;
+
     match exec {
         Ok((out, ok, err_note)) => {
             let failed_note = desktop_tool_failure_note(ok, &err_note, &out);
@@ -59,7 +59,7 @@ pub(super) async fn record_tool_exec_outcome(
                 },
             );
             append_assistant_tool_raw_output(
-                history,
+                ctx.transcript.history,
                 message_id,
                 &tc.name,
                 &tc.id,
@@ -67,7 +67,7 @@ pub(super) async fn record_tool_exec_outcome(
                 &out,
             );
             super::super::util::push_tool_result(
-                history,
+                ctx.transcript.history,
                 conversation_id,
                 message_id,
                 &tc.id,
@@ -100,7 +100,7 @@ pub(super) async fn record_tool_exec_outcome(
             );
             let error_out = format!("ERROR: {err}");
             append_assistant_tool_raw_output(
-                history,
+                ctx.transcript.history,
                 message_id,
                 &tc.name,
                 &tc.id,
@@ -108,7 +108,7 @@ pub(super) async fn record_tool_exec_outcome(
                 &error_out,
             );
             super::super::util::push_tool_result(
-                history,
+                ctx.transcript.history,
                 conversation_id,
                 message_id,
                 &tc.id,

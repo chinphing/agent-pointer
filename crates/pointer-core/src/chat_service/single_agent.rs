@@ -101,17 +101,22 @@ pub(super) async fn run_single_agent_loop(
         let mut agent_trace = Vec::new();
 
         let round_prompts = super::single_agent_prompt::prepare_single_agent_round_prompts(
-            &state,
-            &stream,
-            conversation_id,
-            history,
-            agent_plan,
-            settings,
-            main_task_board_store_key,
-            &assistant_id,
-            lead_profile.clone(),
-            tools_system_appendix,
-            tools_appendix_enabled,
+            super::context::SingleAgentPromptContext {
+                session: super::context::SessionRefsArc {
+                    stream: &stream,
+                    state: state.clone(),
+                    conversation_id,
+                    cancel: cancel.clone(),
+                },
+                history,
+                agent_plan,
+                settings,
+                main_task_board_store_key,
+                assistant_id: &assistant_id,
+                lead_profile: lead_profile.clone(),
+                tools_system_appendix,
+                tools_appendix_enabled,
+            },
         )
         .await?;
 

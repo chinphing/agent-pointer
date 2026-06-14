@@ -4,12 +4,10 @@ use crate::agents::{AgentPlan, AgentProfile, SessionInjectVars};
 use crate::extensions::{BeforeMainLlmCallContext, MessageLoopPromptsAfterContext};
 use crate::models::{ChatMessage, ModelSettings, SystemPromptSections};
 use anyhow::Result;
-use std::sync::Arc;
 use std::time::Instant;
 
-use super::app_state::AppState;
+use super::context::SingleAgentPromptContext;
 use super::prompts::{push_agent_role_cacheable_prompts, push_env_to_cacheable};
-use super::StreamTx;
 
 pub(super) struct SingleAgentRoundPrompts {
     pub history_for_api: Vec<ChatMessage>,
@@ -17,18 +15,19 @@ pub(super) struct SingleAgentRoundPrompts {
 }
 
 pub(super) async fn prepare_single_agent_round_prompts(
-    state: &Arc<AppState>,
-    stream: &StreamTx,
-    conversation_id: &str,
-    history: &[ChatMessage],
-    agent_plan: &AgentPlan,
-    settings: &ModelSettings,
-    main_task_board_store_key: &str,
-    assistant_id: &str,
-    lead_profile: AgentProfile,
-    tools_system_appendix: String,
-    _tools_appendix_enabled: bool,
+    ctx: super::context::SingleAgentPromptContext<'_>,
 ) -> Result<SingleAgentRoundPrompts> {
+    let state = &ctx.session.state;
+    let stream = ctx.session.stream;
+    let conversation_id = ctx.session.conversation_id;
+    let history = ctx.history;
+    let agent_plan = ctx.agent_plan;
+    let settings = ctx.settings;
+    let main_task_board_store_key = ctx.main_task_board_store_key;
+    let assistant_id = ctx.assistant_id;
+    let lead_profile = ctx.lead_profile.clone();
+    let tools_system_appendix = ctx.tools_system_appendix;
+    let _tools_appendix_enabled = ctx.tools_appendix_enabled;
     let round_prep = Instant::now();
     let t = Instant::now();
     let mut history_for_api = history.to_vec();

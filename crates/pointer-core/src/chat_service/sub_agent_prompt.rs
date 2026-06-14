@@ -148,20 +148,21 @@ pub(super) fn init_sub_agent_session(
 }
 
 pub(super) async fn prepare_sub_agent_round_prompts(
-    state: &AppState,
-    stream: &StreamTx,
-    conversation_id: &str,
-    message_id: &str,
-    task_id: &str,
-    round_message_id: &str,
-    local_history: &[ChatMessage],
-    session_extras: &[String],
-    tools_system_appendix: &str,
-    sub_task_board_key: &str,
-    def: &AgentDef,
-    workspace_root: &str,
-    user_dynamic_inject_enabled: bool,
+    ctx: super::context::SubAgentPromptContext<'_>,
 ) -> Result<SubAgentRoundPrompts> {
+    let state = ctx.session.state;
+    let stream = ctx.session.stream;
+    let conversation_id = ctx.session.conversation_id;
+    let message_id = ctx.message_id;
+    let task_id = ctx.task_id;
+    let round_message_id = ctx.round_message_id;
+    let local_history = ctx.local_history;
+    let session_extras = ctx.session_extras;
+    let tools_system_appendix = ctx.tools_system_appendix;
+    let sub_task_board_key = ctx.sub_task_board_key;
+    let def = ctx.def;
+    let workspace_root = ctx.workspace_root;
+    let user_dynamic_inject_enabled = ctx.user_dynamic_inject_enabled;
     let round_prep = Instant::now();
     let t = Instant::now();
     let mut history_for_api = local_history.to_vec();

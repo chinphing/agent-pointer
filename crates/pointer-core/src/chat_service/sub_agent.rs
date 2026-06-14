@@ -121,21 +121,24 @@ pub(crate) async fn run_sub_agent(
         }
 
         let round_message_id = new_id("agent_msg");
-        let round_prompts = prepare_sub_agent_round_prompts(
-            state,
-            stream,
-            conversation_id,
+        let round_prompts = prepare_sub_agent_round_prompts(super::context::SubAgentPromptContext {
+            session: super::context::SessionRefs {
+                stream,
+                state,
+                conversation_id,
+                cancel: &cancel,
+            },
             message_id,
-            &task.id,
-            &round_message_id,
-            &local_history,
-            &session_extras,
-            &tools_system_appendix,
-            &sub_task_board_key,
-            &def,
-            sub_provider.settings.workspace_root.as_str(),
-            sub_provider.settings.user_dynamic_inject_enabled,
-        )
+            task_id: &task.id,
+            round_message_id: &round_message_id,
+            local_history: &local_history,
+            session_extras: &session_extras,
+            tools_system_appendix: &tools_system_appendix,
+            sub_task_board_key: &sub_task_board_key,
+            def: &def,
+            workspace_root: sub_provider.settings.workspace_root.as_str(),
+            user_dynamic_inject_enabled: sub_provider.settings.user_dynamic_inject_enabled,
+        })
         .await?;
 
         let mut stream_ctx = super::context::SubStreamRoundContext {

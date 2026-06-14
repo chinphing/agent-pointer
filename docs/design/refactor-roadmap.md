@@ -180,6 +180,38 @@ src/components/settings/
 
 ---
 
+## P4 — Agent 编排层 Context 收拢（>10 参函数）
+
+**问题**：`chat_service` 内 21 个函数参数 >10，编排层传参重复、难维护。
+
+**目标结构**
+
+```
+chat_service/context/
+  session.rs, budget.rs, llm.rs, transcript.rs
+  post_assistant.rs, stream_round.rs, tool_pass.rs
+  prompt.rs, loop_ctx.rs, chat_run.rs
+scripts/count_fn_params.py   # 参数扫描 baseline
+```
+
+**步骤**
+
+- [x] Step 0：context 类型骨架 + 参数扫描脚本 + 本章节
+- [ ] Step 1：`PostAssistantContext`（7 个函数 → ≤6 参）
+- [ ] Step 2：`StreamRoundContext`（3 个函数 → ≤6 参）
+- [ ] Step 3：`ToolPassContext`（5 个函数 → ≤6 参）
+- [ ] Step 4：Prompt context（2 个函数 → ≤6 参）
+- [ ] Step 5：Loop 入口（4 个函数 → ≤6 参）
+- [ ] Step 6：`run_chat_inner`（1 个函数 → ≤6 参）
+
+**验收**
+
+- `python3 scripts/count_fn_params.py crates/pointer-core/src/chat_service` 输出 0
+- `cargo test -p pointer-core` 通过
+- sub-agent `persist_transcript = sub.is_none()` 语义不变
+
+---
+
 ## 进度记录
 
 | 日期 | 项 | 说明 |

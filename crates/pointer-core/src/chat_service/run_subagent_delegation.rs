@@ -16,21 +16,20 @@ use super::util::{new_id, truncate_str};
 use super::StreamTx;
 
 pub(super) async fn run_subagent_delegation(
-    stream: &StreamTx,
-    state: &AppState,
-    provider: &OpenAIProvider,
-    conversation_id: &str,
-    parent_task_board_store_key: &str,
-    message_id: &str,
-    tool_call_id: &str,
-    args_value: serde_json::Value,
-    run_id: &str,
-    allow_agents: &[String],
-    enabled_skill_ids: &[String],
-    agent_trace: &mut Vec<AgentTrace>,
-    cancel: &CancellationToken,
-    llm_stats: &mut ConversationLlmStats,
+    ctx: &mut super::context::SubagentDelegationContext<'_>,
 ) -> Result<(String, bool, Option<String>), anyhow::Error> {
+    let stream = ctx.session.stream;
+    let state = ctx.session.state;
+    let provider = ctx.provider;
+    let conversation_id = ctx.session.conversation_id;
+    let parent_task_board_store_key = ctx.parent_task_board_store_key;
+    let message_id = ctx.message_id;
+    let tool_call_id = ctx.tool_call_id;
+    let args_value = ctx.args_value.clone();
+    let run_id = ctx.run_id;
+    let allow_agents = ctx.allow_agents;
+    let enabled_skill_ids = ctx.enabled_skill_ids;
+    let cancel = ctx.session.cancel;
     let parsed = crate::tools::run_subagent::parse_run_subagent_args(&args_value);
     match parsed {
         Err(msg) => Ok((format!("ERROR: {msg}"), false, Some(msg))),
@@ -157,7 +156,7 @@ pub(super) async fn run_subagent_delegation(
                     emit_agent_step(
                         stream,
                         message_id,
-                        agent_trace,
+                        ctx.agent_trace,
                         make_trace("running", Some(detail)),
                     );
                     let sub_cap = provider
@@ -165,22 +164,25 @@ pub(super) async fn run_subagent_delegation(
                         .max_sub_agent_tool_rounds
                         .clamp(1, 10_000);
                     let mut sub_budget = SessionToolBudget::new(sub_cap, 0);
-                    match Box::pin(super::sub_agent::run_sub_agent(
-                        &sub_provider,
-                        state,
-                        stream,
-                        conversation_id,
+                    let mut sub_ctx = super::context::SubAgentLoopContext {
+                        session: super::context::SessionRefs {
+                            stream,
+                            state,
+                            conversation_id,
+                            cancel: &cancel,
+                        },
+                        provider: &sub_provider,
                         parent_task_board_store_key,
                         message_id,
-                        agent_trace,
+                        agent_trace: ctx.agent_trace,
                         enabled_skill_ids,
-                        &task,
-                        &mut sub_budget,
-                        cancel.clone(),
-                        true,
-                        llm_stats,
+                        task: &task,
+                        sub_tool_budget: &mut sub_budget,
+                        llm_stats: ctx.llm_stats,
                         run_id,
-                    ))
+                        reasoning_in_messages: true,
+                    };
+                    match Box::pin(super::sub_agent::run_sub_agent(&mut sub_ctx))
                     .await
                     {
                         Ok(result) => {
@@ -197,7 +199,7 @@ pub(super) async fn run_subagent_delegation(
                             emit_agent_step(
                                 stream,
                                 message_id,
-                                agent_trace,
+                                ctx.agent_trace,
                                 make_trace(
                                     "completed",
                                     Some(truncate_str(&result.content, 160)),
@@ -213,7 +215,7 @@ pub(super) async fn run_subagent_delegation(
                             emit_agent_step(
                                 stream,
                                 message_id,
-                                agent_trace,
+                                ctx.agent_trace,
                                 make_trace("failed", Some(e.to_string())),
                             );
                             Ok((format!("ERROR: {e}"), false, None))

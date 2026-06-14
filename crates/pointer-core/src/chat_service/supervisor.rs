@@ -26,18 +26,15 @@ use crate::task_board::{
 };
 
 pub(crate) async fn run_supervisor_chat(
-    stream: StreamTx,
-    state: Arc<AppState>,
-    conversation_id: &str,
-    history: &mut Vec<ChatMessage>,
-    enabled_skill_ids: &[String],
-    provider: OpenAIProvider,
-    tool_budget: &mut SessionToolBudget,
-    cancel: CancellationToken,
-    reasoning_in_messages: bool,
-    llm_stats: &mut ConversationLlmStats,
-    run_id: &str,
+    ctx: &mut super::context::SupervisorLoopContext<'_>,
 ) -> Result<()> {
+    let stream = ctx.session.stream.clone();
+    let state = ctx.session.state.clone();
+    let conversation_id = ctx.session.conversation_id;
+    let provider = &ctx.provider;
+    let cancel = ctx.session.cancel.clone();
+    let reasoning_in_messages = ctx.reasoning_in_messages;
+    let run_id = ctx.run_id;
     if cancel.is_cancelled() {
         return Err(anyhow!("已停止生成"));
     }
@@ -79,13 +76,13 @@ pub(crate) async fn run_supervisor_chat(
     let tasks = match plan_agent_tasks(
         &provider,
         &state,
-        history,
+        ctx.history,
         &limits,
         cancel.clone(),
         &env_context,
         conversation_id,
         &assistant_id,
-        llm_stats,
+        ctx.llm_stats,
         run_id,
     )
     .await
@@ -93,13 +90,13 @@ pub(crate) async fn run_supervisor_chat(
         Ok(tasks) => tasks,
         Err(err) => {
             log::warn!("agent planning failed, fallback to default agent: {err}");
-            fallback_agent_tasks(&state, history, &limits)
+            fallback_agent_tasks(&state, ctx.history, &limits)
         }
     };
     let tasks = sort_agent_tasks_topologically(tasks);
     let tasks: Vec<_> = tasks.into_iter().take(limits.max_sub_agents).collect();
 
-    let plan_goal = history
+    let plan_goal = ctx.history
         .iter()
         .rev()
         .find(|m| matches!(m.role, Role::User))
@@ -149,11 +146,11 @@ pub(crate) async fn run_supervisor_chat(
         if cancel.is_cancelled() {
             return Err(anyhow!("已停止生成"));
         }
-        if tool_budget.remaining() == 0 {
+        if ctx.tool_budget.remaining() == 0 {
             state.computer_state.mark_cancelled(conversation_id);
             return Err(anyhow!(
                 "本会话在编排模式下可执行的子任务次数已达上限（{}），请新开对话或在设置中调高上限。",
-                tool_budget.cap()
+                ctx.tool_budget.cap()
             ));
         }
         let agent = state
@@ -259,26 +256,28 @@ pub(crate) async fn run_supervisor_chat(
 
         let sub_cap = provider.settings.max_sub_agent_tool_rounds.clamp(1, 10_000);
         let mut sub_budget = SessionToolBudget::new(sub_cap, 0);
-        match super::sub_agent::run_sub_agent(
-            &provider,
-            &state,
-            &stream,
-            conversation_id,
-            parent_board_key,
-            &assistant_id,
-            &mut agent_trace,
-            enabled_skill_ids,
-            &task_run,
-            &mut sub_budget,
-            cancel.clone(),
-            reasoning_in_messages,
-            llm_stats,
+        let mut sub_ctx = super::context::SubAgentLoopContext {
+            session: super::context::SessionRefs {
+                stream: &stream,
+                state: &state,
+                conversation_id,
+                cancel: &cancel,
+            },
+            provider: &provider,
+            parent_task_board_store_key: parent_board_key,
+            message_id: &assistant_id,
+            agent_trace: &mut agent_trace,
+            enabled_skill_ids: ctx.enabled_skill_ids,
+            task: &task_run,
+            sub_tool_budget: &mut sub_budget,
+            llm_stats: ctx.llm_stats,
             run_id,
-        )
-        .await
+            reasoning_in_messages,
+        };
+        match super::sub_agent::run_sub_agent(&mut sub_ctx).await
         {
             Ok(result) => {
-                tool_budget.record_tool_cycle();
+                ctx.tool_budget.record_tool_cycle();
                 let mut parent = state.task_board_store.document(parent_board_key);
                 if parent.board.iter().any(|i| i.id == task.id) {
                     if let Err(err) = report_child_status(
@@ -379,12 +378,12 @@ pub(crate) async fn run_supervisor_chat(
 
     let (final_answer, synth_instance_id) = synthesize_final_answer(
         &provider,
-        history,
+        ctx.history,
         &results,
         cancel,
         conversation_id,
         &assistant_id,
-        llm_stats,
+        ctx.llm_stats,
         run_id,
         provider.settings.workspace_root.as_str(),
     )
@@ -424,7 +423,7 @@ pub(crate) async fn run_supervisor_chat(
         context_state: None,
         attachments: None,
     };
-    history.push(final_msg.clone());
+    ctx.history.push(final_msg.clone());
     super::conversation_persist::upsert_message(conversation_id, &final_msg);
     emit(
         &stream,

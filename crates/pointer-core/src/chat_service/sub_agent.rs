@@ -13,7 +13,7 @@ use super::agent_post_stream::{
     build_sub_assistant_message_after_stream, push_sub_assistant_turn, sub_agent_run_result,
     PostAssistantTurnAction,
 };
-use super::context::{PostAssistantContext, ToolBudgetExhaustionScope};
+use super::context::{PostAssistantContext, SubAgentLoopContext, ToolBudgetExhaustionScope};
 use super::agent_round_lifecycle;
 use super::agent_tool_pass::{
     run_agent_tool_pass, SubToolPassConfig, ToolInvocationStats, ToolPassResult,
@@ -41,21 +41,17 @@ fn sub_agent_handoff_content(local_history: &[ChatMessage], accumulated: &str) -
 }
 
 pub(crate) async fn run_sub_agent(
-    provider: &OpenAIProvider,
-    state: &AppState,
-    stream: &StreamTx,
-    conversation_id: &str,
-    parent_task_board_store_key: &str,
-    message_id: &str,
-    agent_trace: &mut Vec<AgentTrace>,
-    enabled_skill_ids: &[String],
-    task: &AgentTask,
-    sub_tool_budget: &mut SessionToolBudget,
-    cancel: CancellationToken,
-    _reasoning_in_messages: bool,
-    llm_stats: &mut ConversationLlmStats,
-    run_id: &str,
+    ctx: &mut super::context::SubAgentLoopContext<'_>,
 ) -> Result<AgentRunResult> {
+    let provider = ctx.provider;
+    let state = ctx.session.state;
+    let stream = ctx.session.stream;
+    let conversation_id = ctx.session.conversation_id;
+    let parent_task_board_store_key = ctx.parent_task_board_store_key;
+    let message_id = ctx.message_id;
+    let task = ctx.task;
+    let cancel = ctx.session.cancel.clone();
+    let run_id = ctx.run_id;
     let instance_scope = AgentInstanceScope::new(run_id, conversation_id, task.agent_id.clone());
     let sub_provider = sub_agent_provider(provider, &task.agent_id);
     let reasoning_in_messages = effective_reasoning_in_messages(&sub_provider.settings);
@@ -66,7 +62,7 @@ pub(crate) async fn run_sub_agent(
             conversation_id,
             parent_task_board_store_key,
             task,
-            enabled_skill_ids,
+            ctx.enabled_skill_ids,
         )?;
     let def = session.def;
     let session_extras = session.session_extras;
@@ -76,7 +72,7 @@ pub(crate) async fn run_sub_agent(
     let sub_task_board_key = session.sub_task_board_key;
     let tool_approval_mode = session.tool_approval_mode;
     let mut local_history = session.local_history;
-    let max_cap = sub_tool_budget.cap();
+    let max_cap = ctx.sub_tool_budget.cap();
     let tools_appendix_enabled = !tools_system_appendix.is_empty();
     let native_tools = state.tools.openai_tools(&allowed_tools);
     let budget_scope = ToolBudgetExhaustionScope::sub_agent(max_cap, instance_scope.clone());
@@ -95,7 +91,7 @@ pub(crate) async fn run_sub_agent(
     );
 
     loop {
-        match agent_round_lifecycle::check_loop_guards(&cancel, sub_tool_budget) {
+        match agent_round_lifecycle::check_loop_guards(&cancel, ctx.sub_tool_budget) {
             agent_round_lifecycle::LoopGuardOutcome::Continue => {}
             agent_round_lifecycle::LoopGuardOutcome::Cancelled => {
                 state.computer_state.mark_cancelled(conversation_id);
@@ -149,7 +145,7 @@ pub(crate) async fn run_sub_agent(
                 cancel: &cancel,
             },
             provider: &sub_provider,
-            sub_tool_budget,
+            sub_tool_budget: ctx.sub_tool_budget,
             max_cap,
             reasoning_in_messages,
             cancel: cancel.clone(),
@@ -161,7 +157,7 @@ pub(crate) async fn run_sub_agent(
             message_id,
             session_content: &mut content,
             local_history: &mut local_history,
-            llm_stats,
+            llm_stats: ctx.llm_stats,
         };
         let stream_input = super::context::StreamRoundInput {
             history_for_api: round_prompts.history_for_api,
@@ -234,7 +230,7 @@ pub(crate) async fn run_sub_agent(
                 &mut local_history,
                 &sub_provider,
                 &sub_provider.settings,
-                sub_tool_budget,
+                ctx.sub_tool_budget,
                 None,
                 max_cap,
                 &budget_scope,
@@ -280,13 +276,13 @@ pub(crate) async fn run_sub_agent(
             allowed_tools: &allowed_tools,
             allow_agents: &allow_agents,
             instance_scope: &instance_scope,
-            agent_trace,
+            agent_trace: ctx.agent_trace,
             accumulated_content: content.clone(),
             accumulated_reasoning: reasoning.clone(),
             reasoning_in_messages,
             trace_id: agent_trace_step_id(&task.id, &def.id),
         };
-        let mut stats = ToolInvocationStats::Conversation(llm_stats);
+        let mut stats = ToolInvocationStats::Conversation(ctx.llm_stats);
         let anchor_message_id =
             state.get_main_task_board_anchor(conversation_id, &sub_task_board_key);
         let trim_hook = TaskBoardTrimHook {
@@ -312,7 +308,7 @@ pub(crate) async fn run_sub_agent(
                 message_id: message_id.to_string(),
                 task_board_store_key: &sub_task_board_key,
                 tool_approval_mode: &tool_approval_mode,
-                tool_budget: sub_tool_budget,
+                tool_budget: ctx.sub_tool_budget,
                 consumed_single: None,
                 provider: &sub_provider,
                 stats: &mut stats,
@@ -356,7 +352,7 @@ pub(crate) async fn run_sub_agent(
                 &mut local_history,
                 &sub_provider,
                 &sub_provider.settings,
-                sub_tool_budget,
+                ctx.sub_tool_budget,
                 None,
                 max_cap,
                 &budget_scope,

@@ -30,6 +30,7 @@ pub struct LeadAgentLoopContext<'a> {
 /// Sub-agent run loop.
 pub struct SubAgentLoopContext<'a> {
     pub session: SessionRefs<'a>,
+    pub provider: &'a OpenAIProvider,
     pub parent_task_board_store_key: &'a str,
     pub message_id: &'a str,
     pub agent_trace: &'a mut Vec<AgentTrace>,
@@ -64,6 +65,8 @@ pub struct SubagentDelegationContext<'a> {
     pub enabled_skill_ids: &'a [String],
     pub agent_trace: &'a mut Vec<AgentTrace>,
     pub llm_stats: &'a mut ConversationLlmStats,
+    pub tool_call_id: &'a str,
+    pub args_value: serde_json::Value,
 }
 
 /// Sub-agent runtime refs populated after session init.

@@ -8,9 +8,8 @@ use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-use super::app_state::AppState;
+use super::context::LeadAgentLoopContext;
 use super::emit::emit;
-use super::session_budget::SessionToolBudget;
 use super::util::new_id;
 use super::StreamTx;
 
@@ -34,23 +33,19 @@ fn latest_round_tool_raw_output(history: &[ChatMessage]) -> Option<String> {
 }
 
 pub(super) async fn run_single_agent_loop(
-    stream: StreamTx,
-    state: Arc<AppState>,
-    conversation_id: &str,
-    history: &mut Vec<ChatMessage>,
-    enabled_skill_ids: &mut Vec<String>,
-    agent_plan: &AgentPlan,
-    provider: &OpenAIProvider,
-    settings: &ModelSettings,
-    main_task_board_store_key: &str,
-    tool_approval_mode: &str,
-    tool_budget: &mut SessionToolBudget,
-    consumed_single: &mut u32,
-    max_cap: u32,
-    cancel: CancellationToken,
-    llm_token_session: &mut ChatLlmTokenSession,
-    reasoning_in_messages: bool,
+    ctx: &mut super::context::LeadAgentLoopContext<'_>,
 ) -> Result<()> {
+    let stream = ctx.session.stream.clone();
+    let state = ctx.session.state.clone();
+    let conversation_id = ctx.session.conversation_id;
+    let agent_plan = ctx.agent_plan;
+    let provider = ctx.provider;
+    let settings = ctx.settings;
+    let main_task_board_store_key = ctx.main_task_board_store_key;
+    let tool_approval_mode = ctx.tool_approval_mode;
+    let max_cap = ctx.max_cap;
+    let cancel = ctx.session.cancel.clone();
+    let reasoning_in_messages = ctx.reasoning_in_messages;
     let lead_profile = state
         .agents
         .get(&agent_plan.lead_agent_id)
@@ -63,14 +58,14 @@ pub(super) async fn run_single_agent_loop(
     }
 
     loop {
-        match super::agent_round_lifecycle::check_loop_guards(&cancel, tool_budget) {
+        match super::agent_round_lifecycle::check_loop_guards(&cancel, ctx.tool_budget) {
             super::agent_round_lifecycle::LoopGuardOutcome::Continue => {}
             super::agent_round_lifecycle::LoopGuardOutcome::Cancelled => {
-                tool_budget.sync_out(consumed_single);
+                ctx.tool_budget.sync_out(ctx.consumed_single);
                 return Err(anyhow!("已停止生成"));
             }
             super::agent_round_lifecycle::LoopGuardOutcome::BudgetExhausted => {
-                tool_budget.sync_out(consumed_single);
+                ctx.tool_budget.sync_out(ctx.consumed_single);
                 return Err(anyhow!(
                     "本会话单智能体工具调用轮次已达上限（{}）。请新开对话。",
                     max_cap
@@ -108,7 +103,7 @@ pub(super) async fn run_single_agent_loop(
                     conversation_id,
                     cancel: cancel.clone(),
                 },
-                history,
+                history: ctx.history,
                 agent_plan,
                 settings,
                 main_task_board_store_key,
@@ -142,10 +137,10 @@ pub(super) async fn run_single_agent_loop(
             },
             provider,
             settings: &round_settings,
-            history,
-            token_session: llm_token_session,
-            tool_budget,
-            consumed_single,
+            history: ctx.history,
+            token_session: ctx.token_session,
+            tool_budget: ctx.tool_budget,
+            consumed_single: ctx.consumed_single,
             max_cap,
             reasoning_in_messages,
             cancel: cancel.clone(),
@@ -167,7 +162,7 @@ pub(super) async fn run_single_agent_loop(
             super::single_agent_stream::ProviderRoundOutcome::Completed(b) => b,
         };
 
-        let lead_scope = llm_token_session.lead_scope.clone();
+        let lead_scope = ctx.token_session.lead_scope.clone();
         let lead_instance_id = Some(lead_scope.agent_instance_id.clone());
         let mut assistant_msg = super::single_agent_post_stream::build_assistant_message_after_stream(
             &assistant_id,
@@ -182,12 +177,12 @@ pub(super) async fn run_single_agent_loop(
             state.as_ref(),
         );
         if assistant_msg.tool_raw_output.is_none() {
-            assistant_msg.tool_raw_output = latest_round_tool_raw_output(history);
+            assistant_msg.tool_raw_output = latest_round_tool_raw_output(ctx.history);
         }
         super::single_agent_post_stream::commit_assistant_turn(
             &stream,
             conversation_id,
-            history,
+            ctx.history,
             &assistant_id,
             &assistant_msg,
         );
@@ -200,7 +195,7 @@ pub(super) async fn run_single_agent_loop(
             assistant_msg.tool_calls.as_deref(),
             false,
         ) {
-            tool_budget.sync_out(consumed_single);
+            ctx.tool_budget.sync_out(ctx.consumed_single);
             return Err(err);
         }
 
@@ -212,11 +207,11 @@ pub(super) async fn run_single_agent_loop(
                 state.as_ref(),
                 conversation_id,
                 &cancel,
-                history,
+                ctx.history,
                 provider,
                 settings,
-                tool_budget,
-                Some(consumed_single),
+                ctx.tool_budget,
+                Some(ctx.consumed_single),
                 max_cap,
                 &budget_scope,
             );
@@ -245,14 +240,14 @@ pub(super) async fn run_single_agent_loop(
                     cancel: &cancel,
                 },
                 main_task_board_store_key,
-                history,
+                history: ctx.history,
                 allow_agents: &agent_plan.allow_agents,
-                enabled_skill_ids,
+                enabled_skill_ids: ctx.enabled_skill_ids,
                 provider,
                 tool_approval_mode,
-                tool_budget,
-                consumed_single,
-                token_session: llm_token_session,
+                tool_budget: ctx.tool_budget,
+                consumed_single: ctx.consumed_single,
+                token_session: ctx.token_session,
                 settings,
                 lead_agent_id: &agent_plan.lead_agent_id,
                 file_tool_lead_for_invoke: file_tool_lead_for_invoke.clone(),
@@ -286,11 +281,11 @@ pub(super) async fn run_single_agent_loop(
                 super::single_agent_post_stream::commit_assistant_turn(
                     &stream,
                     conversation_id,
-                    history,
+                    ctx.history,
                     &delivery_id,
                     &delivery_msg,
                 );
-                tool_budget.sync_out(consumed_single);
+                ctx.tool_budget.sync_out(ctx.consumed_single);
                 return Ok(());
             }
             super::single_agent_tools::ToolPassResult::RanTools => {}
@@ -301,11 +296,11 @@ pub(super) async fn run_single_agent_loop(
                 state.as_ref(),
                 conversation_id,
                 &cancel,
-                history,
+                ctx.history,
                 provider,
                 settings,
-                tool_budget,
-                Some(consumed_single),
+                ctx.tool_budget,
+                Some(ctx.consumed_single),
                 max_cap,
                 &budget_scope,
             );

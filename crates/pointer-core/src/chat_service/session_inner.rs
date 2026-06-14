@@ -271,20 +271,22 @@ pub(super) async fn run_chat_inner(
             ));
         }
         let mut tool_budget = SessionToolBudget::new(max_cap, tool_rounds_used_supervisor_start);
-        let r = super::supervisor::run_supervisor_chat(
-            stream,
-            state,
-            conversation_id,
+        let mut sup_ctx = super::context::SupervisorLoopContext {
+            session: super::context::SessionRefsArc {
+                stream: &stream,
+                state: state.clone(),
+                conversation_id,
+                cancel: cancel.clone(),
+            },
             history,
             enabled_skill_ids,
             provider,
-            &mut tool_budget,
-            cancel,
-            effective_reasoning_in_messages(&settings),
-            &mut llm_token_session.stats,
+            tool_budget: &mut tool_budget,
+            llm_stats: &mut llm_token_session.stats,
             run_id,
-        )
-        .await;
+            reasoning_in_messages: effective_reasoning_in_messages(&settings),
+        };
+        let r = super::supervisor::run_supervisor_chat(&mut sup_ctx).await;
         tool_budget.sync_out(consumed_supervisor);
         return r;
     }
@@ -309,25 +311,27 @@ pub(super) async fn run_chat_inner(
         history,
     );
 
-    super::single_agent::run_single_agent_loop(
-        stream.clone(),
-        state.clone(),
-        conversation_id,
+    let mut lead_ctx = super::context::LeadAgentLoopContext {
+        session: super::context::SessionRefsArc {
+            stream: &stream,
+            state: state.clone(),
+            conversation_id,
+            cancel: cancel.clone(),
+        },
         history,
         enabled_skill_ids,
-        &agent_plan,
-        &provider,
-        &settings,
-        &main_task_board_store_key,
-        tool_approval_mode.as_str(),
-        &mut tool_budget,
+        agent_plan: &agent_plan,
+        provider: &provider,
+        settings: &settings,
+        main_task_board_store_key: &main_task_board_store_key,
+        tool_approval_mode: tool_approval_mode.as_str(),
+        tool_budget: &mut tool_budget,
         consumed_single,
         max_cap,
-        cancel,
-        &mut llm_token_session,
+        token_session: &mut llm_token_session,
         reasoning_in_messages,
-    )
-    .await?;
+    };
+    super::single_agent::run_single_agent_loop(&mut lead_ctx).await?;
 
     let new_tool_total = tool_rounds_used_single_start.saturating_add(*consumed_single);
     let skill_due = crate::memory::skill_review_due_for(

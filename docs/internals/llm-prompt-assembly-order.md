@@ -108,10 +108,33 @@
 |------|----------|------|
 | **COMMUNICATION_PUBLIC** | `agents/_shared/COMMUNICATION_PUBLIC.md` | cacheable |
 | **AGENT.md** / **COMMUNICATION.md** | `agents/<id>/` | cacheable |
+| **Coder / Explore compose** | `agents/coder/mod.rs`, `agents/explore/mod.rs` → `composed_system_body()` | cacheable（`load_builtin_agent` 替换 AGENT 正文） |
 | **Tools** | `tools/prompts/*.md` 等 | cacheable |
 | **Env** | `env_prompt::build_environment_system_prompt_slice` | cacheable（日历日期）；Computer **`[CUR_SCREEN]`** 含完整墙钟时间 |
 | **Task board** | `CommonUserDynamicInjectHook` | `message_loop_prompts_after` 的 user 注入（有 board 或 hint 时） |
 | **屏幕等多模态** | `screen_inject.rs` | **§1.1** `user` + 图 |
+
+### 3.1 Coder / Explore `composed_system_body()` 顺序
+
+`load_builtin_agent` 在解析 manifest 后替换 `AGENT.md` 正文（`compose_system_prompt(COMMUNICATION, body)` 不变）。
+
+**Explore**（[`explore/mod.rs`](../../crates/pointer-core/src/agents/explore/mod.rs)）：
+
+1. `prompts/role.md`
+2. `prompts/flow/router.md`, `standard.md`, `fast_narrow.md`, `fast_reachability.md`
+3. `prompts/scenarios/*`（7 个 playbook）
+4. `_shared/exploration/impact_scan.md`, `handoff_contract.md`, `trace_when.md`, `file_discipline.md`
+5. `prompts/deliverable.md`
+
+**Coder**（[`coder/mod.rs`](../../crates/pointer-core/src/agents/coder/mod.rs)）：
+
+1. `prompts/role.md`
+2. `prompts/flow/routine.md`（G1/G2/G3 + Orient/Change/Check/Deliver）
+3. `prompts/delegation.md`（含 handoff 合并摘要；**不** include 完整 `impact_scan.md`）
+4. `prompts/task_board.md`
+5. `prompts/scenarios/*`（5 个 playbook）
+
+切片之间以 `\n\n---\n\n` 连接（`join_agent_prompt_sections`）。维护索引：[`docs/agents/coder-explore-prompts.md`](../agents/coder-explore-prompts.md)。
 
 ---
 

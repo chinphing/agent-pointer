@@ -66,49 +66,40 @@ flowchart LR
 5. **单元测试**  
    [`agents/mod.rs` builtin 测试](../../crates/pointer-core/src/agents/mod.rs)、[`run_subagent.rs` 校验测试](../../crates/pointer-core/src/tools/run_subagent.rs) 覆盖 `explore` 注册与 `allowAgents` 校验。
 
-## 4. Explore 的 AGENT.md 内容要点（英文正文）
+## 4. Explore 提示词结构（重构后）
 
-与 [Cursor 文档](https://cursor.com/cn/docs/subagents) 中「search-agent」示例一致，正文应写明：
+正文不再集中在单文件 `AGENT.md`；运行时由 [`explore/mod.rs`](../../crates/pointer-core/src/agents/explore/mod.rs) **`composed_system_body()`** 拼接：
 
-- **使命**：只读探索仓库，返回 **高信号** 证据（路径 + 少量行号/片段），不做实现。
-- **工具习惯**：优先 `grep`/`glob`/`list` 再 `read`；大文件用 `lineStart`/`lineEnd`/`maxBytes`；批量 `paths` 读；
-  工具失败写入 **Open questions** / **Coverage**，不得静默忽略。
-- **追踪与卫生**：默认每个方向的 trace **≤10 hop**（任务可覆盖）；遇 **cycle** 显式标注；hop 标 **kind**（`prod` / `legacy` / `test` / …）与 **mechanism**（`call` / `import` / …）；**import ≠ call**；
-  使用/删除类任务区分 **Compile / Type reuse / Runtime call / Test-only** 四层；**Summary ⊆ Evidence**；
-  **敏感信息**仅 `REDACTED` + 位置指针；**inventory** 有默认剪枝并在 **Coverage** 留痕。
-- **完成判据**（呼应父级 [`instruction`](../../crates/pointer-core/src/tools/prompts/run_subagent.md)）。
-- **输出格式**：**Markdown** 交付（固定章节 + Evidence 微格式 + 负向 grep）；经 **`response` → `tool_args.text`**；父级读工具结果 **`content`**。文末 **Pattern examples** 仅展示 Markdown 正文（详见 `explore/AGENT.md`）。
+| 顺序 | 切片 |
+|------|------|
+| 1 | `prompts/role.md` |
+| 2 | `prompts/flow/router.md`, `standard.md`, `fast_narrow.md`, `fast_reachability.md` |
+| 3 | `prompts/scenarios/*.md` |
+| 4 | `_shared/exploration/impact_scan.md`, `handoff_contract.md`, `trace_when.md`, `file_discipline.md` |
+| 5 | `prompts/deliverable.md` |
 
-### 4.1 How to explore workdir（固定章节，防迷失）
+`AGENT.md` 仅保留 manifest + 短 mission；`COMMUNICATION.md` 只读约束。
 
-在 `AGENT.md` 正文中增加独立章节 **「How to explore workdir」**，用**有序步骤**写死探索流程（不写无意义的开发维护说明），目标与质量标准如下。
+**使命**：只读探索，返回 **高信号 Markdown**（Summary、Key files、Evidence、Coverage；Impact map 按需；**无**顶级 `## Forward trace` / `## Backward trace`）。
 
-**质量标准（自检清单）**
+**Execution paths**：可选 **`### Execution paths`** 子节，仅当 [`trace_when.md`](../../crates/pointer-core/src/agents/_shared/exploration/trace_when.md) 触发（含 **`production_debug`**）；hop 默认 **≤5**。
 
-- **全面、少遗漏**：在 `instruction` 范围内建待查清单，逐项用工具划掉；列出已搜索项与未覆盖盲区（若有）。
-- **结论必有证据与出处**：path + 行号或 grep 摘要；禁止无出处推断；不足则写入 **Open questions**。
-- **分层与可达性**：compile 依赖、类型复用、运行时调用、仅测试引用须分开报告；trace hop 需 call site 或已读函数体，不能仅凭 `use`/`pub mod`。
-- **调用链双向可追溯**：Backward（callee ← caller）与 Forward（entry → downstream）；输出中带路径、行号范围、**kind** 与 **mechanism**。
+**场景路由**：`instruction` 首行 **`Scenario: <id>`** → `prompts/scenarios/*.md` playbook。
 
-**建议流程骨架**
+维护索引：[`docs/agents/coder-explore-prompts.md`](../agents/coder-explore-prompts.md)。旧正文归档：`explore/author/legacy_agent.md`（不加载）。
 
-1. **Restate scope** — 含 Lead context 时区分待验证与父级已声称已读。
-2. **Bound workspace（若适用）** — 有边界清单时先定组件范围，再漫游。
-3. **Inventory** — `list`/`glob`；记录剪枝理由（含默认跳过的依赖/构建大目录，除非任务点名）。
-4. **Anchor** — `grep` 再 `read` 邻域；多命中时列出候选并说明取舍。
-5. **Trace backward** — 至 instruction 边界或 hop 上限 / cycle。
-6. **Trace forward** — 至关键行为或 I/O 边界，同上。
-7. **Cross-check** — 双向链汇合或解释矛盾。
-8. **Deliver** — 固定小节 + **Coverage**（含 negative searches）；推翻 Lead 事实时加 **Corrections to lead context**。
+### 4.1 ~~How to explore workdir~~（已移除）
+
+固定「How to explore workdir」章节与双向 trace 顶级标题已删除；流程见 **flow/** + **file_discipline.md** + **handoff_contract.md**。
 
 ### 4.2 是否「直接复用」通用智能体的标准流程？
 
-- 复用的是**方法论**，须**写进** `AGENT.md` 为可执行步骤；子 Agent 无父对话系统提示。
-- 须落地为 **`file` 顺序**与**输出字段**，否则易漂移。
+- 方法论在 **`_shared/exploration/`** 与 **flow/** 中各写一处；子 Agent 无父对话系统提示。
+- Coder 侧 **不** include 完整 impact 表 — 仅 **delegation.md** 中的 handoff 合并摘要。
 
 ## 5. Coder Agent 侧如何「使用」explore
 
-实现落点：[`coder/AGENT.md`](../../crates/pointer-core/src/agents/coder/AGENT.md) 中 **Delegating to the `explore` worker** 与 **`run_subagent`** 段；[`run_subagent.md`](../../crates/pointer-core/src/tools/prompts/run_subagent.md) 含 Lead context、**`explore` vs local reconnaissance** 与 **`run_subagent` 调用示例**；[`guides/pointer-run-subagent.md`](../guides/pointer-run-subagent.md) 含用户向设置与界限摘要。
+实现落点：[`coder/mod.rs`](../../crates/pointer-core/src/agents/coder/mod.rs) **`composed_system_body()`**（`prompts/delegation.md`、`prompts/scenarios/*`）；[`run_subagent.md`](../../crates/pointer-core/src/tools/prompts/run_subagent.md) 为 schema + 指针；[`guides/pointer-run-subagent.md`](../guides/pointer-run-subagent.md) 含用户向设置摘要。
 
 - **何时委派**：多轮仍无法收敛地图、跨目录侦察、`instruction` 可自描述。
 - **何时不委派**：单点修改、路径已明、完成标准写不清。

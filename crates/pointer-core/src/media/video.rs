@@ -36,20 +36,21 @@ pub fn remux_video_faststart(bytes: &[u8], file_name: &str) -> Vec<u8> {
         log::warn!("video faststart: tempfile write failed: {e}");
         return bytes.to_vec();
     }
-    let input_path = input.path().to_owned();
+    if let Err(e) = input.flush() {
+        log::warn!("video faststart: tempfile flush failed: {e}");
+        return bytes.to_vec();
+    }
+    // Close the handle before ffmpeg reads (required on Windows).
+    let input_path = input.into_temp_path();
 
-    let output = match tempfile::Builder::new()
-        .prefix("pointer-vid-remux-out-")
-        .suffix(suffix)
-        .tempfile()
-    {
-        Ok(f) => f,
+    let output_dir = match tempfile::tempdir() {
+        Ok(d) => d,
         Err(e) => {
-            log::warn!("video faststart: output tempfile failed: {e}");
+            log::warn!("video faststart: output tempdir failed: {e}");
             return bytes.to_vec();
         }
     };
-    let output_path = output.path().to_owned();
+    let output_path = output_dir.path().join(format!("out{suffix}"));
 
     let result = Command::new(&ffmpeg)
         .args([
@@ -205,4 +206,44 @@ fn probe_duration(ffprobe: &PathBuf, path: &Path) -> Result<f64> {
     text.trim()
         .parse::<f64>()
         .context("parse ffprobe duration")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remux_video_faststart_produces_valid_mp4_when_ffmpeg_available() {
+        let Some(ffmpeg) = crate::media::ffmpeg::resolve_ffmpeg() else {
+            return;
+        };
+
+        let input_path = std::env::temp_dir().join(format!(
+            "pointer_remux_test_in_{}.mp4",
+            std::process::id()
+        ));
+        let status = std::process::Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=64x64:d=1",
+                "-c:v",
+                "libx264",
+                "-y",
+                input_path.to_str().unwrap_or_default(),
+            ])
+            .status()
+            .expect("spawn ffmpeg");
+        assert!(status.success(), "ffmpeg test input generation failed");
+
+        let bytes = std::fs::read(&input_path).expect("read test input");
+        let remuxed = remux_video_faststart(&bytes, "test.mp4");
+        assert!(!remuxed.is_empty());
+        assert!(remuxed.windows(4).any(|w| w == b"ftyp"));
+        let _ = std::fs::remove_file(input_path);
+    }
 }

@@ -13,6 +13,14 @@ use crate::traits::OutboundMedia;
 
 const MAX_OUTBOUND_MEDIA: usize = 30 * 1024 * 1024;
 
+/// MP4/MOV containers benefit from `-movflags +faststart`; other video types are skipped.
+fn should_remux_for_im_preview(mime_type: &str, file_name: &str) -> bool {
+    let lower = file_name.to_ascii_lowercase();
+    matches!(mime_type, "video/mp4" | "video/quicktime")
+        || lower.ends_with(".mp4")
+        || lower.ends_with(".mov")
+}
+
 pub struct ResolvedOutboundMedia {
     pub media: OutboundMedia,
 }
@@ -80,7 +88,7 @@ pub fn resolve_outbound_media(raw: &str) -> Result<ResolvedOutboundMedia> {
     // AI-generated videos often have the moov atom at the end, causing IM platforms
     // (Feishu, etc.) to show "0s" duration in previews. Remux with +faststart to move
     // the moov atom to the beginning — a fast stream-copy, no re-encoding.
-    let bytes = if mime_type.starts_with("video/") {
+    let bytes = if should_remux_for_im_preview(&mime_type, &file_name) {
         remux_video_faststart(&bytes, &file_name)
     } else {
         bytes
@@ -146,5 +154,13 @@ mod tests {
         assert!(resolved.media.file_name.ends_with(".html"));
         assert_eq!(resolved.media.bytes, b"<html></html>");
         let _ = std::fs::remove_file(&file);
+    }
+
+    #[test]
+    fn should_remux_only_mp4_and_mov() {
+        assert!(should_remux_for_im_preview("video/mp4", "clip.mp4"));
+        assert!(should_remux_for_im_preview("video/quicktime", "clip.mov"));
+        assert!(!should_remux_for_im_preview("video/webm", "clip.webm"));
+        assert!(!should_remux_for_im_preview("image/png", "clip.png"));
     }
 }

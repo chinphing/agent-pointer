@@ -24,6 +24,6 @@ describe('taskBoardCollapsedLine', () => {
     expect(summary?.goal).toContain('打开微信')
     expect(summary?.currentStep).toBe('step two')
     expect(summary?.taskLine).toBe('step two')
-    expect(taskBoardCollapsedLine(doc('g', [{ id: '1', status: 'done' }]))).toBe('g · 1/1')
+    expect(taskBoardCollapsedLine(doc('g', [{ id: '1', title: 'step', status: 'done' }]))).toBe('g · 1/1')
   })
 })

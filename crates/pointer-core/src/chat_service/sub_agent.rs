@@ -94,11 +94,14 @@ pub(crate) async fn run_sub_agent(
                 } else {
                     "子 Agent 已停止"
                 };
-                let _ = stream.send(StreamEvent::UiToast {
-                    conversation_id: conversation_id.to_string(),
-                    message: toast_msg.to_string(),
-                    level: "warning".to_string(),
-                });
+                crate::stream_broadcast::publish_stream(
+                    &stream,
+                    StreamEvent::UiToast {
+                        conversation_id: conversation_id.to_string(),
+                        message: toast_msg.to_string(),
+                        level: "warning".to_string(),
+                    },
+                );
                 return Err(anyhow!("已停止生成"));
             }
             agent_round_lifecycle::LoopGuardOutcome::BudgetExhausted => {

@@ -80,11 +80,14 @@ fn now_ms() -> i64 {
 }
 
 fn emit_ui_toast(stream: &StreamTx, conversation_id: &str, message: &str, level: &str) {
-    let _ = stream.send(StreamEvent::UiToast {
-        conversation_id: conversation_id.to_string(),
-        message: message.to_string(),
-        level: level.to_string(),
-    });
+    crate::stream_broadcast::publish_stream(
+        stream,
+        StreamEvent::UiToast {
+            conversation_id: conversation_id.to_string(),
+            message: message.to_string(),
+            level: level.to_string(),
+        },
+    );
 }
 
 fn compression_start_toast(ui: &CompressionUiContext) -> String {
@@ -664,21 +667,27 @@ async fn compress_history_inner(
     match ui.scope {
         CompressionScope::Main if emit_compression_ui => {
             crate::conversation_transcript::sync_ordered(conversation_id, history);
-            let _ = stream.send(StreamEvent::ContextCompressionApplied {
-                conversation_id: conversation_id.to_string(),
-                excluded_message_ids,
-                insert_before_message_id,
-                summary_message: summary_msg,
-                compression,
-            });
+            crate::stream_broadcast::publish_stream(
+                stream,
+                StreamEvent::ContextCompressionApplied {
+                    conversation_id: conversation_id.to_string(),
+                    excluded_message_ids,
+                    insert_before_message_id,
+                    summary_message: summary_msg,
+                    compression,
+                },
+            );
         }
         CompressionScope::SubAgent => {
             if let Some(message_id) = ui.message_id.as_deref() {
-                let _ = stream.send(StreamEvent::ContextCompressed {
-                    conversation_id: conversation_id.to_string(),
-                    message_id: message_id.to_string(),
-                    compression,
-                });
+                crate::stream_broadcast::publish_stream(
+                    stream,
+                    StreamEvent::ContextCompressed {
+                        conversation_id: conversation_id.to_string(),
+                        message_id: message_id.to_string(),
+                        compression,
+                    },
+                );
             } else {
                 log::warn!(
                     "context_compress: sub_agent scope missing message_id conversation_id={}",

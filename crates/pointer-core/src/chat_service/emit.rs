@@ -1,5 +1,5 @@
 use crate::models::{AgentTrace, StreamEvent};
-use crate::stream_broadcast::broadcast_stream;
+use crate::stream_broadcast::publish_stream;
 use serde_json::Value;
 
 use super::StreamTx;
@@ -21,10 +21,7 @@ pub(crate) fn trace_id_opt(id: Option<&str>) -> Option<String> {
 }
 
 pub(crate) fn emit(tx: &StreamTx, ev: StreamEvent) {
-    broadcast_stream(&ev);
-    if tx.send(ev).is_err() {
-        log::warn!("stream event not delivered (frontend channel closed)");
-    }
+    publish_stream(tx, ev);
 }
 
 pub(crate) fn emit_agent_step(

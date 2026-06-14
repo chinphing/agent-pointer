@@ -324,18 +324,24 @@ pub fn maybe_trim_after_tool_pass(
         "任务板更新后已将较早 {} 条对话从上下文排除",
         stats.dropped_count
     );
-    let _ = hook.stream.send(StreamEvent::UiToast {
-        conversation_id: hook.conversation_id.to_string(),
-        message: toast,
-        level: "info".to_string(),
-    });
+    crate::stream_broadcast::publish_stream(
+        &hook.stream,
+        StreamEvent::UiToast {
+            conversation_id: hook.conversation_id.to_string(),
+            message: toast,
+            level: "info".to_string(),
+        },
+    );
 
     if hook.emit_trim_ui_event {
         crate::conversation_transcript::sync_ordered(hook.conversation_id, history);
-        let _ = hook.stream.send(StreamEvent::ContextTrimApplied {
-            conversation_id: hook.conversation_id.to_string(),
-            excluded_message_ids: stats.excluded_message_ids.clone(),
-        });
+        crate::stream_broadcast::publish_stream(
+            &hook.stream,
+            StreamEvent::ContextTrimApplied {
+                conversation_id: hook.conversation_id.to_string(),
+                excluded_message_ids: stats.excluded_message_ids.clone(),
+            },
+        );
     }
 }
 

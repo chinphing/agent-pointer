@@ -29,12 +29,15 @@ impl WebSearchStreamUi {
         if text.is_empty() {
             return;
         }
-        let _ = self.stream.send(StreamEvent::WebSearchOutputDelta {
-            message_id: self.message_id.clone(),
-            tool_call_id: self.tool_call_id.clone(),
-            text: text.to_string(),
-            trace_id: self.trace_id.clone(),
-        });
+        crate::stream_broadcast::publish_stream(
+            &self.stream,
+            StreamEvent::WebSearchOutputDelta {
+                message_id: self.message_id.clone(),
+                tool_call_id: self.tool_call_id.clone(),
+                text: text.to_string(),
+                trace_id: self.trace_id.clone(),
+            },
+        );
     }
 
     pub fn emit_sources_ready(&self, sources: &[WebSearchSource], search_count: u32) {
@@ -54,12 +57,15 @@ impl WebSearchStreamUi {
                 })
                 .collect()
         };
-        let _ = self.stream.send(StreamEvent::WebSearchSourcesReady {
-            message_id: self.message_id.clone(),
-            tool_call_id: self.tool_call_id.clone(),
-            sources: display_sources.iter().map(to_entry).collect(),
-            search_count,
-            trace_id: self.trace_id.clone(),
-        });
+        crate::stream_broadcast::publish_stream(
+            &self.stream,
+            StreamEvent::WebSearchSourcesReady {
+                message_id: self.message_id.clone(),
+                tool_call_id: self.tool_call_id.clone(),
+                sources: display_sources.iter().map(to_entry).collect(),
+                search_count,
+                trace_id: self.trace_id.clone(),
+            },
+        );
     }
 }

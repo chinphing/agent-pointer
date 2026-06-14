@@ -114,11 +114,14 @@ pub fn spawn_background_review(
         {
             Ok(summary) => {
                 if let Some(msg) = summary {
-                    let _ = stream.send(StreamEvent::UiToast {
-                        conversation_id: conversation_id.clone(),
-                        message: msg,
-                        level: "success".into(),
-                    });
+                    crate::stream_broadcast::publish_stream(
+                        &stream,
+                        StreamEvent::UiToast {
+                            conversation_id: conversation_id.clone(),
+                            message: msg,
+                            level: "success".into(),
+                        },
+                    );
                 }
             }
             Err(e) => {

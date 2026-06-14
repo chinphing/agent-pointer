@@ -3,7 +3,7 @@
 use parking_lot::Mutex;
 use std::sync::{Arc, OnceLock};
 
-use crate::models::StreamEvent;
+use crate::models::{ChatStreamSender, StreamEvent};
 
 type StreamSubscriber = Arc<dyn Fn(StreamEvent) + Send + Sync>;
 
@@ -20,5 +20,13 @@ pub fn subscribe_stream(handler: StreamSubscriber) {
 pub fn broadcast_stream(ev: &StreamEvent) {
     for sub in subscribers().lock().iter() {
         sub(ev.clone());
+    }
+}
+
+/// Deliver a stream event to UI subscribers and the per-run mpsc sink (web SSE forward).
+pub fn publish_stream(tx: &ChatStreamSender, ev: StreamEvent) {
+    broadcast_stream(&ev);
+    if tx.send(ev).is_err() {
+        log::warn!("stream event not delivered (stream receiver dropped)");
     }
 }

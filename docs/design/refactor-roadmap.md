@@ -77,10 +77,11 @@ chat_service/agent_tool_pass/
 
 **步骤**
 
-- [ ] 引入 `ToolPassContext`，收拢 `persist_transcript` 等参数
-- [ ] 将 `execute_tool_invocation` 改为 dispatch 表 / 分文件实现
-- [ ] 拆分 `record_tool_exec_outcome`
-- [ ] `cargo test -p pointer-core`
+- [x] 引入 `ToolPassContext`，收拢 `persist_transcript` 等参数（sub-agent 路径已用 `persist_transcript = sub.is_none()`）
+- [x] 将 `execute_tool_invocation` 改为 dispatch 表 / 分文件实现
+- [x] 拆分 `record_tool_exec_outcome` → `outcome.rs`
+- [x] 拆分 `run_approval_gate` → `approval.rs`
+- [x] `cargo check -p pointer-core` 通过
 
 ---
 
@@ -102,9 +103,9 @@ models/
 
 **步骤**
 
-- [ ] 先拆 `stream_event.rs` + `settings.rs`（只移动，不改名）
-- [ ] 再拆 `openai_convert.rs` + 测试模块
-- [ ] 确认 `pointer-core` 及 Tauri 边界编译通过
+- [x] 先拆 `stream_event.rs` + `settings.rs`（只移动，不改名）
+- [x] 再拆 `openai_convert.rs` + 测试模块
+- [x] 确认 `pointer-core` 及 Tauri 边界编译通过
 
 ---
 
@@ -161,5 +162,7 @@ models/
 | 日期 | 项 | 说明 |
 |------|-----|------|
 | 2026-06-14 | P0 v1 | `chat/streamHandlers/*` 拆分 `handleEventInner` |
+| 2026-06-14 | P1 v1 | `agent_tool_pass/` 模块拆分 + dispatch 路由 |
+| 2026-06-14 | P1 v2 | `models/` 拆分（message / conversation / settings / stream_event / openai_convert） |
 | 2026-06-14 | P0 v2 | taskBoard / terminalLive / desktopNotice 模块 + vitest |
 | 2026-06-14 | 文档 | 创建本路线图 |

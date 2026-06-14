@@ -7,429 +7,6 @@ use crate::agents::computer::tier::{
     DEFAULT_MODEL_PRIMARY, PRIMARY_INTERMEDIATE_THINKING_BUDGET,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Role {
-    System,
-    User,
-    Assistant,
-    Tool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolCall {
-    pub id: String,
-    pub name: String,
-    pub arguments: String,
-    pub status: String,
-    #[serde(default)]
-    pub result: Option<String>,
-    #[serde(default)]
-    pub error: Option<String>,
-    #[serde(default, rename = "durationMs")]
-    pub duration_ms: Option<u64>,
-    #[serde(default, rename = "riskLevel")]
-    pub risk_level: Option<String>,
-    /// UI-only Chinese label (not sent to the LLM).
-    #[serde(default, rename = "displayLabel", skip_serializing_if = "Option::is_none")]
-    pub display_label: Option<String>,
-    /// UI-only short parameter summary (not sent to the LLM).
-    #[serde(default, rename = "displaySummary", skip_serializing_if = "Option::is_none")]
-    pub display_summary: Option<String>,
-}
-
-/// Sub-agent collapsed-header counters (frontend-only; persisted with conversations).
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct SubAgentToolStats {
-    #[serde(default)]
-    pub search_count: u32,
-    #[serde(default)]
-    pub read_count: u32,
-    #[serde(default)]
-    pub write_count: u32,
-    #[serde(default)]
-    pub terminal_count: u32,
-    #[serde(default)]
-    pub web_search_count: u32,
-    #[serde(default)]
-    pub mouse_count: u32,
-    #[serde(default)]
-    pub input_count: u32,
-    #[serde(default)]
-    pub other_count: u32,
-}
-
-/// Sub-agent streaming UI state (tool calls, thoughts, collapsed summary); not sent to the LLM.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct SubAgentSessionUi {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thoughts: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub headline: Option<String>,
-    #[serde(default, rename = "toolNamePreview", skip_serializing_if = "Option::is_none")]
-    pub tool_name_preview: Option<String>,
-    #[serde(default, rename = "responseTextDraft", skip_serializing_if = "Option::is_none")]
-    pub response_text_draft: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reasoning: Option<String>,
-    #[serde(default, rename = "rawContent", skip_serializing_if = "Option::is_none")]
-    pub raw_content: Option<String>,
-    #[serde(default, rename = "contentStreaming")]
-    pub content_streaming: bool,
-    #[serde(default, rename = "toolCalls", skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<Vec<ToolCall>>,
-    #[serde(default)]
-    pub stats: SubAgentToolStats,
-    #[serde(default, rename = "summaryLine", skip_serializing_if = "Option::is_none")]
-    pub summary_line: Option<String>,
-    #[serde(default)]
-    pub collapsed: bool,
-    #[serde(default, rename = "userExpanded")]
-    pub user_expanded: bool,
-}
-
-/// Whether a delegated `computer` sub-task automates Pointer itself or external apps.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ComputerOperationTarget {
-    #[serde(rename = "self")]
-    SelfApp,
-    External,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentTrace {
-    pub id: String,
-    pub name: String,
-    pub role: String,
-    pub status: String,
-    #[serde(default)]
-    pub detail: Option<String>,
-    #[serde(default)]
-    pub content: Option<String>,
-    /// UI indentation: 0 = top-level (lead / supervisor), 1 = delegated sub-agent step.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub depth: Option<u32>,
-    /// Delegated sub-agent UI session (tool rows, stats, collapsed state).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session: Option<SubAgentSessionUi>,
-    /// Set on `run_subagent` → `computer` traces; controls dock-bar shrink in the desktop client.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "computerTarget")]
-    pub computer_target: Option<ComputerOperationTarget>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MessageUiBindings {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub task_board_anchor: Option<bool>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ExcludedReason {
-    ContextCompression,
-    TaskBoardTrim,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MessageContextState {
-    pub included: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub excluded_reason: Option<ExcludedReason>,
-}
-
-impl Default for MessageContextState {
-    fn default() -> Self {
-        Self {
-            included: true,
-            excluded_reason: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatMessage {
-    pub id: String,
-    pub role: Role,
-    #[serde(default)]
-    pub content: String,
-    pub status: String,
-    #[serde(rename = "createdAt")]
-    pub created_at: i64,
-    #[serde(default, rename = "toolCalls")]
-    pub tool_calls: Option<Vec<ToolCall>>,
-    #[serde(default, rename = "toolCallId")]
-    pub tool_call_id: Option<String>,
-    #[serde(default, rename = "errorMessage")]
-    pub error_message: Option<String>,
-    #[serde(default)]
-    pub reasoning: Option<String>,
-    /// User-visible reasoning summary from the model’s last structured turn (`thoughts` in JSON, or legacy XML).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thoughts: Option<String>,
-    /// Short title from the model’s last structured turn (`headline` in JSON, or legacy XML).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub headline: Option<String>,
-    #[serde(default, rename = "rawContent")]
-    pub raw_content: Option<String>,
-    #[serde(
-        default,
-        rename = "toolRawOutput",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub tool_raw_output: Option<String>,
-    #[serde(default, rename = "agentId")]
-    pub agent_id: Option<String>,
-    /// Runtime agent launch UUID (one per lead / sub-agent invocation).
-    #[serde(default, rename = "agentInstanceId", skip_serializing_if = "Option::is_none")]
-    pub agent_instance_id: Option<String>,
-    #[serde(default, rename = "agentName")]
-    pub agent_name: Option<String>,
-    #[serde(default, rename = "agentTrace")]
-    pub agent_trace: Option<Vec<AgentTrace>>,
-    /// PNG (or other) images as raw base64 payloads for vision APIs. Serialized for the UI only when
-    /// present; ephemeral computer screen inject uses this without persisting to conversation files.
-    #[serde(default, rename = "imagesBase64", skip_serializing_if = "Option::is_none")]
-    pub images_base64: Option<Vec<String>>,
-    /// Slot labels prepended in the API request immediately before each `images_base64` entry (same length).
-    #[serde(
-        default,
-        rename = "imageSlotLabels",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub image_slot_labels: Option<Vec<String>>,
-    /// Path relative to app `computer-captures/` for this turn’s annotated JPEG (lazy UI load); serialized when set.
-    #[serde(
-        default,
-        rename = "computerRoundScreenRelPath",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub computer_round_screen_rel_path: Option<String>,
-    /// UI mount hints (e.g. TaskBoard anchor); persisted with conversation.
-    #[serde(default, rename = "uiBindings", skip_serializing_if = "Option::is_none")]
-    pub ui_bindings: Option<MessageUiBindings>,
-    /// Whether this message is included in LLM context.
-    #[serde(default, rename = "contextState", skip_serializing_if = "Option::is_none")]
-    pub context_state: Option<MessageContextState>,
-    /// User-attached files/images (metadata persisted; base64 wire-only via `contentBase64`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub attachments: Option<Vec<MediaAttachment>>,
-}
-
-/// User message attachment (Composer / channels).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MediaAttachment {
-    pub id: String,
-    /// `image`, `document`, `audio`, `file`
-    pub kind: String,
-    #[serde(rename = "mimeType")]
-    pub mime_type: String,
-    #[serde(rename = "fileName")]
-    pub file_name: String,
-    #[serde(default, rename = "sizeBytes")]
-    pub size_bytes: u64,
-    #[serde(default, rename = "storageRelPath", skip_serializing_if = "Option::is_none")]
-    pub storage_rel_path: Option<String>,
-    /// Wire-only payload; stripped before conversation persist.
-    #[serde(default, rename = "contentBase64", skip_serializing_if = "Option::is_none")]
-    pub content_base64: Option<String>,
-    #[serde(default, rename = "derivedText", skip_serializing_if = "Option::is_none")]
-    pub derived_text: Option<String>,
-    /// Absolute local path for assistant reply `MEDIA:` preview in App UI.
-    #[serde(default, rename = "localAbsPath", skip_serializing_if = "Option::is_none")]
-    pub local_abs_path: Option<String>,
-}
-
-/// User-selected performance mode for image / audio / video understanding.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MediaUnderstandingModes {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub video: Option<String>,
-}
-
-/// Independent models for media understanding / generation (does not switch the primary chat model).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MediaModelOverrides {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image: Option<AgentModelRef>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub audio: Option<AgentModelRef>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub video: Option<AgentModelRef>,
-    /// Image generation tool (`image_generate`); defaults to Qwen Wan 2.7 or Doubao Seedream.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "imageGeneration")]
-    pub image_generation: Option<AgentModelRef>,
-    /// Video generation tool (`video_generate`); defaults to Qwen Wan 2.7 or Doubao Seedance 1.5.
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "videoGeneration")]
-    pub video_generation: Option<AgentModelRef>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Conversation {
-    pub id: String,
-    pub title: String,
-    #[serde(rename = "createdAt")]
-    pub created_at: i64,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: i64,
-    pub messages: Vec<ChatMessage>,
-    #[serde(default, rename = "skillIds")]
-    pub skill_ids: Vec<String>,
-    /// Cumulative tool rounds for **single-agent** replies in this conversation.
-    #[serde(default, rename = "toolRoundsUsed")]
-    pub tool_rounds_used: u32,
-    /// Cumulative tool rounds for **Supervisor** runs (all sub-agents) in this conversation.
-    #[serde(default, rename = "toolRoundsUsedSupervisor")]
-    pub tool_rounds_used_supervisor: u32,
-    /// Selected desktop monitor id for Computer agent (session UX). Empty/None = auto (monitor under cursor).
-    #[serde(
-        default,
-        rename = "computerMonitorId",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub computer_monitor_id: Option<String>,
-    /// Per-conversation workspace root for coder/file tools (session UI only).
-    #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
-    pub workspace_root: String,
-    /// True when the user explicitly picked `workspace_root` in the composer (not auto sandbox).
-    #[serde(default, rename = "workspaceUserSet", skip_serializing_if = "is_false_bool")]
-    pub workspace_user_set: bool,
-    /// User cleared workspace in composer; do not inherit another session's directory.
-    #[serde(
-        default,
-        rename = "workspaceInheritDisabled",
-        skip_serializing_if = "is_false_bool"
-    )]
-    pub workspace_inherit_disabled: bool,
-    /// Per-conversation lead worker when `agent_mode` is `single`.
-    #[serde(
-        default = "default_lead_agent_id",
-        rename = "leadAgentId",
-        skip_serializing_if = "is_default_session_lead_agent"
-    )]
-    pub lead_agent_id: String,
-    /// Per-conversation orchestration mode (`single` or `supervisor`).
-    #[serde(
-        default = "default_agent_mode",
-        rename = "agentMode",
-        skip_serializing_if = "is_default_session_agent_mode"
-    )]
-    pub agent_mode: String,
-}
-
-fn is_default_session_lead_agent(id: &str) -> bool {
-    id.trim().is_empty() || id.trim() == default_lead_agent_id()
-}
-
-fn is_default_session_agent_mode(mode: &str) -> bool {
-    mode.trim().is_empty() || mode.trim() == default_agent_mode()
-}
-
-fn is_false_bool(v: &bool) -> bool {
-    !*v
-}
-
-/// Conversation shell fields for P1 meta-only persistence (no messages).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConversationMeta {
-    pub id: String,
-    pub title: String,
-    #[serde(rename = "createdAt")]
-    pub created_at: i64,
-    #[serde(rename = "updatedAt")]
-    pub updated_at: i64,
-    #[serde(default, rename = "skillIds")]
-    pub skill_ids: Vec<String>,
-    #[serde(default, rename = "toolRoundsUsed")]
-    pub tool_rounds_used: u32,
-    #[serde(default, rename = "toolRoundsUsedSupervisor")]
-    pub tool_rounds_used_supervisor: u32,
-    #[serde(
-        default,
-        rename = "computerMonitorId",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub computer_monitor_id: Option<String>,
-    #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
-    pub workspace_root: String,
-    #[serde(default, rename = "workspaceUserSet", skip_serializing_if = "is_false_bool")]
-    pub workspace_user_set: bool,
-    #[serde(
-        default,
-        rename = "workspaceInheritDisabled",
-        skip_serializing_if = "is_false_bool"
-    )]
-    pub workspace_inherit_disabled: bool,
-    #[serde(
-        default = "default_lead_agent_id",
-        rename = "leadAgentId",
-        skip_serializing_if = "is_default_session_lead_agent"
-    )]
-    pub lead_agent_id: String,
-    #[serde(
-        default = "default_agent_mode",
-        rename = "agentMode",
-        skip_serializing_if = "is_default_session_agent_mode"
-    )]
-    pub agent_mode: String,
-}
-
-impl From<&Conversation> for ConversationMeta {
-    fn from(c: &Conversation) -> Self {
-        Self {
-            id: c.id.clone(),
-            title: c.title.clone(),
-            created_at: c.created_at,
-            updated_at: c.updated_at,
-            skill_ids: c.skill_ids.clone(),
-            tool_rounds_used: c.tool_rounds_used,
-            tool_rounds_used_supervisor: c.tool_rounds_used_supervisor,
-            computer_monitor_id: c.computer_monitor_id.clone(),
-            workspace_root: c.workspace_root.clone(),
-            workspace_user_set: c.workspace_user_set,
-            workspace_inherit_disabled: c.workspace_inherit_disabled,
-            lead_agent_id: c.lead_agent_id.clone(),
-            agent_mode: c.agent_mode.clone(),
-        }
-    }
-}
-
-/// Usable desktop rectangle excluding OS chrome (macOS Dock / menu bar, Windows taskbar).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub struct MonitorWorkArea {
-    pub left: i32,
-    pub top: i32,
-    pub width: i32,
-    pub height: i32,
-}
-
-/// Desktop monitor descriptor for Computer agent screen selection (UI).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ComputerMonitor {
-    /// Stable id derived from monitor bounds: `{left},{top},{width},{height}`.
-    pub id: String,
-    pub left: i32,
-    pub top: i32,
-    pub width: i32,
-    pub height: i32,
-    #[serde(default, rename = "isPrimary")]
-    pub is_primary: bool,
-    /// When set, window placement should use this instead of full `left`/`top`/`width`/`height`.
-    #[serde(default, rename = "workArea", skip_serializing_if = "Option::is_none")]
-    pub work_area: Option<MonitorWorkArea>,
-}
-
 /// Per-model overrides for runtime/API behavior. Unset fields inherit from the parent provider.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ModelRuntimeOverrides {
@@ -490,7 +67,110 @@ pub struct ProviderConfig {
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "reasoningEffort")]
     pub reasoning_effort: Option<String>,
 }
+/// Per-agent default LLM routing: explicit provider + model (no inferring provider from model id).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentModelRef {
+    #[serde(rename = "providerId")]
+    pub provider_id: String,
+    pub model: String,
+}
 
+impl AgentModelRef {
+    pub fn from_json_value_flexible(v: serde_json::Value) -> Option<Self> {
+        use serde_json::Value;
+        match v {
+            Value::String(s) => {
+                if s.trim().is_empty() {
+                    return None;
+                }
+                Some(Self {
+                    provider_id: String::new(),
+                    model: s,
+                })
+            }
+            Value::Object(map) => {
+                let pid = map
+                    .get("providerId")
+                    .or_else(|| map.get("provider_id"))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .trim();
+                let model = map.get("model").and_then(|x| x.as_str()).unwrap_or("").trim();
+                if model.is_empty() {
+                    return None;
+                }
+                Some(Self {
+                    provider_id: pid.to_string(),
+                    model: model.to_string(),
+                })
+            }
+            _ => None,
+        }
+    }
+
+    pub fn ensure_provider_or(&mut self, fallback_active_provider: &str) {
+        if self.provider_id.trim().is_empty() {
+            self.provider_id = fallback_active_provider.trim().to_string();
+        }
+    }
+}
+
+fn deserialize_agent_default_models<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<String, AgentModelRef>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw: HashMap<String, serde_json::Value> = HashMap::deserialize(deserializer)?;
+    Ok(raw
+        .into_iter()
+        .filter_map(|(k, v)| AgentModelRef::from_json_value_flexible(v).map(|r| (k, r)))
+        .collect())
+}
+
+fn serialize_agent_default_models<S>(
+    map: &HashMap<String, AgentModelRef>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeMap;
+    let mut m = serializer.serialize_map(Some(map.len()))?;
+    for (k, v) in map {
+        m.serialize_entry(k, v)?;
+    }
+    m.end()
+}
+/// User-selected performance mode for image / audio / video understanding.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaUnderstandingModes {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<String>,
+}
+
+/// Independent models for media understanding / generation (does not switch the primary chat model).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaModelOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<AgentModelRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<AgentModelRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<AgentModelRef>,
+    /// Image generation tool (`image_generate`); defaults to Qwen Wan 2.7 or Doubao Seedream.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "imageGeneration")]
+    pub image_generation: Option<AgentModelRef>,
+    /// Video generation tool (`video_generate`); defaults to Qwen Wan 2.7 or Doubao Seedance 1.5.
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "videoGeneration")]
+    pub video_generation: Option<AgentModelRef>,
+}
 /// Whether to persist/stream reasoning and send `reasoning_content` on the next request,
 /// for the **active** provider + **current** `settings.model`.
 pub fn effective_reasoning_in_messages(settings: &ModelSettings) -> bool {
@@ -516,7 +196,7 @@ pub const DEFAULT_MODEL_MAX_TOKENS: u32 = 2048;
 /// Qwen `thinking_budget` when deep thinking is enabled and no explicit budget is set.
 pub const DEFAULT_THINKING_BUDGET: u32 = 2048;
 
-fn active_provider_and_model<'a>(
+pub(crate) fn active_provider_and_model<'a>(
     settings: &'a ModelSettings,
 ) -> Option<(&'a ProviderConfig, &'a str)> {
     let provider = settings
@@ -882,6 +562,31 @@ pub fn absorb_legacy_extension_config(
     }
 }
 
+/// DashScope / 百炼 OpenAI 兼容接口：千问显式 Context Cache（`cache_control.type = ephemeral`）。
+/// 见 https://help.aliyun.com/zh/model-studio/context-cache
+pub fn qwen_explicit_system_cache_enabled(settings: &ModelSettings) -> bool {
+    let Some((provider, model)) = active_provider_and_model(settings) else {
+        return false;
+    };
+    if !provider_uses_dashscope_compatible_api(provider) {
+        return false;
+    }
+    qwen_model_supports_explicit_cache(model)
+}
+
+pub fn provider_uses_dashscope_compatible_api(provider: &ProviderConfig) -> bool {
+    if provider.id.eq_ignore_ascii_case("qwen") {
+        return true;
+    }
+    let url = provider.base_url.to_ascii_lowercase();
+    url.contains("dashscope.aliyuncs.com") || url.contains("dashscope-intl.aliyuncs.com")
+}
+
+fn qwen_model_supports_explicit_cache(model: &str) -> bool {
+    let m = model.trim().to_ascii_lowercase();
+    m.starts_with("qwen")
+}
+
 /// DashScope / DeepSeek：扩展参数写在请求体根级，不用 `extra_body` 包裹。
 pub fn chat_request_flattens_extra_body(settings: &ModelSettings) -> bool {
     let Some((provider, _)) = active_provider_and_model(settings) else {
@@ -918,82 +623,6 @@ pub fn flatten_chat_extra_body_on_wire(mut body: Value, settings: &ModelSettings
         map.entry(k).or_insert(v);
     }
     body
-}
-
-/// Per-agent default LLM routing: explicit provider + model (no inferring provider from model id).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentModelRef {
-    #[serde(rename = "providerId")]
-    pub provider_id: String,
-    pub model: String,
-}
-
-impl AgentModelRef {
-    pub fn from_json_value_flexible(v: serde_json::Value) -> Option<Self> {
-        use serde_json::Value;
-        match v {
-            Value::String(s) => {
-                if s.trim().is_empty() {
-                    return None;
-                }
-                Some(Self {
-                    provider_id: String::new(),
-                    model: s,
-                })
-            }
-            Value::Object(map) => {
-                let pid = map
-                    .get("providerId")
-                    .or_else(|| map.get("provider_id"))
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("")
-                    .trim();
-                let model = map.get("model").and_then(|x| x.as_str()).unwrap_or("").trim();
-                if model.is_empty() {
-                    return None;
-                }
-                Some(Self {
-                    provider_id: pid.to_string(),
-                    model: model.to_string(),
-                })
-            }
-            _ => None,
-        }
-    }
-
-    pub fn ensure_provider_or(&mut self, fallback_active_provider: &str) {
-        if self.provider_id.trim().is_empty() {
-            self.provider_id = fallback_active_provider.trim().to_string();
-        }
-    }
-}
-
-fn deserialize_agent_default_models<'de, D>(
-    deserializer: D,
-) -> Result<HashMap<String, AgentModelRef>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let raw: HashMap<String, serde_json::Value> = HashMap::deserialize(deserializer)?;
-    Ok(raw
-        .into_iter()
-        .filter_map(|(k, v)| AgentModelRef::from_json_value_flexible(v).map(|r| (k, r)))
-        .collect())
-}
-
-fn serialize_agent_default_models<S>(
-    map: &HashMap<String, AgentModelRef>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    use serde::ser::SerializeMap;
-    let mut m = serializer.serialize_map(Some(map.len()))?;
-    for (k, v) in map {
-        m.serialize_entry(k, v)?;
-    }
-    m.end()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1218,7 +847,7 @@ fn default_workspace_root() -> String {
     build_cfg_str!("WORKSPACE_ROOT", "")
 }
 
-fn default_lead_agent_id() -> String {
+pub(crate) fn default_lead_agent_id() -> String {
     build_cfg_str!("LEAD_AGENT_ID", "general")
 }
 
@@ -1241,7 +870,7 @@ fn default_tool_approval_mode() -> String {
     build_cfg_str!("TOOL_APPROVAL_MODE", "auto")
 }
 
-fn default_agent_mode() -> String {
+pub(crate) fn default_agent_mode() -> String {
     build_cfg_str!("AGENT_MODE", "single")
 }
 
@@ -2124,7 +1753,6 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         round_thinking_budget: None,
     }
 }
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillDef {
     pub id: String,
@@ -2170,1087 +1798,6 @@ pub struct SkillImportResult {
 pub struct ToolDef {
     pub name: String,
 }
-
-/// Annotated desktop screenshot for UI preview (same style as model vision inject).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ComputerAnnotatedPreview {
-    #[serde(rename = "imageBase64")]
-    pub image_base64: String,
-    /// `image/jpeg` or `image/png` for UI `data:` URLs.
-    #[serde(rename = "imageMime", default = "default_computer_preview_mime")]
-    pub image_mime: String,
-    pub caption: String,
-}
-
-pub fn default_computer_preview_mime() -> String {
-    "image/jpeg".to_string()
-}
-
-/// Chat attachment bytes for UI bubble reload.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatMediaPreview {
-    pub data_base64: String,
-    pub mime_type: String,
-    pub file_name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SendChatPayload {
-    #[serde(rename = "conversationId")]
-    pub conversation_id: String,
-    pub messages: Vec<ChatMessage>,
-    #[serde(default, rename = "enabledSkillIds")]
-    pub enabled_skill_ids: Vec<String>,
-    #[serde(default, rename = "agentMode")]
-    pub agent_mode: Option<String>,
-    /// Session cumulative tool rounds (single-agent mode) before this user message.
-    #[serde(default, rename = "toolRoundsUsed")]
-    pub tool_rounds_used: u32,
-    /// Session cumulative tool rounds (Supervisor / sub-agents) before this user message.
-    #[serde(default, rename = "toolRoundsUsedSupervisor")]
-    pub tool_rounds_used_supervisor: u32,
-    /// Workspace root for this conversation run (overrides global settings when non-empty).
-    #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
-    pub workspace_root: String,
-    /// Session lead worker override for this run (`single` mode).
-    #[serde(default, rename = "leadAgentId", skip_serializing_if = "Option::is_none")]
-    pub lead_agent_id: Option<String>,
-}
-
-/// Metadata emitted when context compression replaces older turns with a summary.
-#[derive(Debug, Clone, Serialize)]
-pub struct ContextCompressionInfo {
-    /// `budget` or `tool_limit`
-    pub reason: String,
-    #[serde(rename = "messagesBefore")]
-    pub messages_before: u32,
-    #[serde(rename = "messagesAfter")]
-    pub messages_after: u32,
-    #[serde(rename = "droppedCount")]
-    pub dropped_count: u32,
-    #[serde(rename = "keepRecentUserTurns")]
-    pub keep_recent_user_turns: u32,
-    /// `main` or `sub_agent`
-    pub scope: String,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "subAgentId")]
-    pub sub_agent_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "subAgentName")]
-    pub sub_agent_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "taskId")]
-    pub task_id: Option<String>,
-}
-
-/// Cited source entry for web-search stream UI events.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct WebSearchSourceEntry {
-    pub index: u32,
-    pub title: String,
-    pub url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub site_name: Option<String>,
-}
-
-/// Frontend stream event payload (mirrors src/types/chat.ts StreamEvent)
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum StreamEvent {
-    MessageStart {
-        #[serde(rename = "messageId")]
-        message_id: String,
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-    },
-    Delta {
-        #[serde(rename = "messageId")]
-        message_id: String,
-        text: String,
-    },
-    RawContentDelta {
-        #[serde(rename = "messageId")]
-        message_id: String,
-        text: String,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
-        trace_id: Option<String>,
-    },
-    ReasoningDelta {
-        #[serde(rename = "messageId")]
-        message_id: String,
-        text: String,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
-        trace_id: Option<String>,
-    },
-    /// Progressive `thoughts` / `headline` / `tool_name` / `response` body (`tool_args.text`) from partial JSON repair while streaming.
-    AssistantJsonPartial {
-        #[serde(rename = "messageId")]
-        message_id: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        thoughts: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        headline: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "toolName")]
-        tool_name: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "responseText")]
-        response_text: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
-        trace_id: Option<String>,
-    },
-    AgentStep {
-        #[serde(rename = "messageId")]
-        message_id: String,
-        #[serde(rename = "agent")]
-        agent: AgentTrace,
-    },
-    ToolCallStart {
-        #[serde(rename = "messageId")]
-        message_id: String,
-        #[serde(rename = "toolCall")]
-        tool_call: ToolCall,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
-        trace_id: Option<String>,
-    },
-    ToolCallArgsDelta {
-        #[serde(rename = "messageId")]
-        message_id: String,
-        #[serde(rename = "toolCallId")]
-        tool_call_id: String,
-        #[serde(rename = "argsDelta")]
-        args_delta: String,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
-        trace_id: Option<String>,
-    },
-    ToolCallStatus {
-        #[serde(rename = "messageId")]
-        message_id: String,
-        #[serde(rename = "toolCallId")]
-        tool_call_id: String,
-        status: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        result: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        error: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "durationMs")]
-        duration_ms: Option<u64>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "displayLabel")]
-        display_label: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "displaySummary")]
-        display_summary: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
-        trace_id: Option<String>,
-    },
-    TerminalOutputDelta {
-        #[serde(rename = "messageId")]
-        message_id: String,
-        #[serde(rename = "toolCallId")]
-        tool_call_id: String,
-        #[serde(rename = "output")]
-        output: String,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
-        trace_id: Option<String>,
-    },
-    WebSearchOutputDelta {
-        #[serde(rename = "messageId")]
-        message_id: String,
-        #[serde(rename = "toolCallId")]
-        tool_call_id: String,
-        text: String,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
-        trace_id: Option<String>,
-    },
-    WebSearchSourcesReady {
-        #[serde(rename = "messageId")]
-        message_id: String,
-        #[serde(rename = "toolCallId")]
-        tool_call_id: String,
-        sources: Vec<WebSearchSourceEntry>,
-        #[serde(rename = "searchCount")]
-        search_count: u32,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
-        trace_id: Option<String>,
-    },
-    MessageEnd {
-        #[serde(rename = "messageId")]
-        message_id: String,
-        /// 与持久化助手消息对齐的最终正文（已去掉 XML 工具块等）
-        #[serde(skip_serializing_if = "Option::is_none")]
-        content: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "rawContent")]
-        raw_content: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "toolRawOutput")]
-        tool_raw_output: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        thoughts: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        headline: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
-        trace_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        attachments: Option<Vec<MediaAttachment>>,
-    },
-    /// Synthetic user row so the model (and UI history) see recovery instructions mid-run.
-    InjectedUserMessage {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "messageId")]
-        message_id: String,
-        content: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        attachments: Option<Vec<MediaAttachment>>,
-    },
-    /// User message attachments processed (ASR, storage path, etc.).
-    UserMessageAttachmentsUpdated {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "messageId")]
-        message_id: String,
-        attachments: Vec<MediaAttachment>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        content: Option<String>,
-    },
-    /// IM `/new` or idle reset created a new desktop sidebar row for the same IM thread.
-    ImSessionForked {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "baseConversationId")]
-        base_conversation_id: String,
-        title: String,
-        #[serde(rename = "sessionEpoch")]
-        session_epoch: u32,
-        #[serde(rename = "leadAgentId")]
-        lead_agent_id: String,
-        #[serde(rename = "agentMode")]
-        agent_mode: String,
-    },
-    /// IM session agent / mode changed (mirror sidebar + Composer).
-    ImSessionAgentChanged {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "baseConversationId")]
-        base_conversation_id: String,
-        #[serde(rename = "leadAgentId")]
-        lead_agent_id: String,
-        #[serde(rename = "agentMode")]
-        agent_mode: String,
-    },
-    /// Short assistant-role line in the thread (e.g. desktop capture status); not from the model.
-    InjectedAssistantMessage {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "messageId")]
-        message_id: String,
-        content: String,
-    },
-    /// Replace `content` of an existing [`InjectedAssistantMessage`] with the same `message_id`.
-    InjectedAssistantMessageUpdate {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "messageId")]
-        message_id: String,
-        content: String,
-    },
-    Error {
-        #[serde(skip_serializing_if = "Option::is_none", rename = "messageId")]
-        message_id: Option<String>,
-        message: String,
-    },
-    Done {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "toolRoundsUsedTotal")]
-        tool_rounds_used_total: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "toolRoundsUsedSupervisorTotal")]
-        tool_rounds_used_supervisor_total: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none", rename = "maxToolRounds")]
-        max_tool_rounds: Option<u32>,
-    },
-    /// Task-board trim marked earlier messages excluded from LLM context (UI patch only).
-    ContextTrimApplied {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "excludedMessageIds")]
-        excluded_message_ids: Vec<String>,
-    },
-    /// Main-thread context compression: soft-exclude prefix + insert summary user row.
-    ContextCompressionApplied {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "excludedMessageIds")]
-        excluded_message_ids: Vec<String>,
-        #[serde(rename = "insertBeforeMessageId")]
-        insert_before_message_id: String,
-        #[serde(rename = "summaryMessage")]
-        summary_message: ChatMessage,
-        compression: ContextCompressionInfo,
-    },
-    /// Sub-agent local history was compressed; main thread messages are unchanged.
-    ContextCompressed {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "messageId")]
-        message_id: String,
-        compression: ContextCompressionInfo,
-    },
-    ToolRoundsExhausted {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "maxRounds")]
-        max_rounds: u32,
-        message: String,
-        #[serde(rename = "willRetryAfterCompress")]
-        will_retry_after_compress: bool,
-    },
-    /// Ephemeral UI hint only (not persisted, not sent to the model).
-    UiToast {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        message: String,
-        /// e.g. `success`, `error`, `warning`
-        level: String,
-    },
-    /// Annotated screen for a specific assistant message (this LLM round’s inject).
-    AssistantRoundScreen {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "messageId")]
-        message_id: String,
-        /// Path relative to `{data_dir}/PointerApp/computer-captures/` (annotated PNG).
-        #[serde(rename = "annotatedRelPath")]
-        annotated_rel_path: String,
-    },
-    /// Supervisor finished planning; UI may show a task checklist.
-    SupervisorPlan {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "messageId")]
-        message_id: String,
-        tasks: Vec<SupervisorPlanTask>,
-    },
-    /// Task board document changed (for chat UI panel).
-    TaskBoardUpdated {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "storeKey")]
-        store_key: String,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "anchorMessageId")]
-        anchor_message_id: Option<String>,
-        document: serde_json::Value,
-    },
-    /// Skill catalog changed (import / reload); UI should refresh the skill list.
-    SkillsUpdated {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "importedIds")]
-        imported_ids: Vec<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none", rename = "enabledIds")]
-        enabled_ids: Option<Vec<String>>,
-    },
-    /// Conversation workspace root changed mid-run (e.g. general → coder delegation).
-    WorkspaceUpdated {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "workspaceRoot")]
-        workspace_root: String,
-        #[serde(rename = "isEphemeralSandbox")]
-        is_ephemeral_sandbox: bool,
-    },
-    /// Sub-agent computer delegation blocked until the user picks a monitor.
-    ComputerMonitorPickRequired {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "messageId")]
-        message_id: String,
-        #[serde(rename = "toolCallId")]
-        tool_call_id: String,
-        monitors: Vec<ComputerMonitor>,
-    },
-    /// Monitor selection applied (auto single-monitor or user pick).
-    ComputerMonitorUpdated {
-        #[serde(rename = "conversationId")]
-        conversation_id: String,
-        #[serde(rename = "monitorId")]
-        monitor_id: Option<String>,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SupervisorPlanTask {
-    pub id: String,
-    pub title: String,
-    #[serde(rename = "agentId")]
-    pub agent_id: String,
-}
-
-/// Channel used to push [`StreamEvent`] updates to the Pointer UI (Tauri / web SSE).
-pub type ChatStreamSender = tokio::sync::mpsc::UnboundedSender<StreamEvent>;
-
-/// OpenAI-compatible request structures
-#[derive(Debug, Clone, Serialize)]
-pub struct OpenAIRequest<'a> {
-    pub model: &'a str,
-    pub messages: Vec<serde_json::Value>,
-    pub stream: bool,
-    pub temperature: f32,
-    pub max_tokens: u32,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub tools: Vec<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_choice: Option<&'a str>,
-}
-
-/// The UI stores tool output on `assistant.toolCalls[].result` and may omit `role: tool` rows.
-/// Before OpenAI-wire serialization we expand into canonical assistant + synthetic `role: tool`
-/// rows (one per call id), so native tool-calling providers receive complete context.
-fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMessage> {
-    let mut out: Vec<ChatMessage> = Vec::with_capacity(msgs.len());
-    let mut i = 0usize;
-    while i < msgs.len() {
-        let m = &msgs[i];
-        if matches!(m.role, Role::Assistant) {
-            if let Some(tcs) = &m.tool_calls {
-                let required: Vec<&ToolCall> = tcs.iter().filter(|t| !t.id.is_empty()).collect();
-                if !required.is_empty() {
-                    let mut j = i + 1;
-                    while j < msgs.len() && matches!(msgs[j].role, Role::Tool) {
-                        j += 1;
-                    }
-                    let following = &msgs[(i + 1)..j];
-                    let mut by_id: HashMap<String, String> = HashMap::new();
-                    for tm in following {
-                        if let Some(id) = &tm.tool_call_id {
-                            if !id.is_empty() {
-                                by_id.insert(id.clone(), tm.content.clone());
-                            }
-                        }
-                    }
-
-                    out.push(m.clone());
-                    for tc in required {
-                        if tool_registry_base_name(&tc.name) == "response" {
-                            continue;
-                        }
-                        let content = by_id
-                            .get(tc.id.as_str())
-                            .cloned()
-                            .unwrap_or_else(|| synthetic_tool_content_for_replay(tc));
-                        out.push(ChatMessage {
-                            id: format!("tool_{}", uuid::Uuid::new_v4().simple()),
-                            role: Role::Tool,
-                            content,
-                            status: "done".into(),
-                            created_at: m.created_at,
-                            tool_calls: None,
-                            tool_call_id: Some(tc.id.clone()),
-                            error_message: None,
-                            reasoning: None,
-                            thoughts: None,
-                            headline: None,
-                            raw_content: None,
-                            tool_raw_output: None,
-                            agent_id: None,
-                            agent_instance_id: None,
-                            agent_name: None,
-                            agent_trace: None,
-                            image_slot_labels: None,
-                            images_base64: None,
-                            computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-        attachments: None,
-            });
-                    }
-                    i = j;
-                    continue;
-                }
-            }
-        }
-        if matches!(m.role, Role::Tool) {
-            log::warn!(
-                "expand_tool_messages_for_openai_request: skipping orphan tool message id={} (no preceding assistant with tool_calls)",
-                m.id
-            );
-        } else {
-            out.push(m.clone());
-        }
-        i += 1;
-    }
-    out
-}
-
-fn tool_registry_base_name(name: &str) -> &str {
-    match name.trim().split_once(':') {
-        Some((base, rest)) if !base.is_empty() && !rest.trim().is_empty() => base.trim(),
-        _ => name.trim(),
-    }
-}
-
-fn synthetic_tool_content_for_replay(tc: &ToolCall) -> String {
-    if let Some(e) = &tc.error {
-        if !e.trim().is_empty() {
-            return format!("ERROR: {e}");
-        }
-    }
-    tc.result.clone().unwrap_or_else(|| {
-        "{\"warning\":\"tool output missing in stored message history\"}".to_string()
-    })
-}
-
-/// DashScope / 百炼 OpenAI 兼容接口：千问显式 Context Cache（`cache_control.type = ephemeral`）。
-/// 见 https://help.aliyun.com/zh/model-studio/context-cache
-pub fn qwen_explicit_system_cache_enabled(settings: &ModelSettings) -> bool {
-    let Some((provider, model)) = active_provider_and_model(settings) else {
-        return false;
-    };
-    if !provider_uses_dashscope_compatible_api(provider) {
-        return false;
-    }
-    qwen_model_supports_explicit_cache(model)
-}
-
-pub fn provider_uses_dashscope_compatible_api(provider: &ProviderConfig) -> bool {
-    if provider.id.eq_ignore_ascii_case("qwen") {
-        return true;
-    }
-    let url = provider.base_url.to_ascii_lowercase();
-    url.contains("dashscope.aliyuncs.com") || url.contains("dashscope-intl.aliyuncs.com")
-}
-
-fn qwen_model_supports_explicit_cache(model: &str) -> bool {
-    let m = model.trim().to_ascii_lowercase();
-    m.starts_with("qwen")
-}
-
-/// System prompt slices for `stream_chat`: **cacheable** (stable per session) vs **dynamic** (per round).
-#[derive(Debug, Clone, Default)]
-pub struct SystemPromptSections {
-    /// COMMUNICATION_PUBLIC, agent prompts, tool appendix — stable across tool rounds.
-    pub cacheable: Vec<String>,
-    /// Per-round slices only (e.g. `[TASK_BOARD]` from `before_main_llm_call` hooks).
-    pub dynamic: Vec<String>,
-}
-
-impl SystemPromptSections {
-    pub fn is_empty(&self) -> bool {
-        self.cacheable.is_empty() && self.dynamic.is_empty()
-    }
-
-    pub fn slice_count(&self) -> usize {
-        self.cacheable.len() + self.dynamic.len()
-    }
-
-    /// One-shot callers (`chat_once`) with no per-round dynamic tail.
-    pub fn all_cacheable(parts: Vec<String>) -> Self {
-        Self {
-            cacheable: parts,
-            dynamic: Vec::new(),
-        }
-    }
-}
-
-fn join_prompt_slices(slices: &[String]) -> String {
-    slices
-        .iter()
-        .map(|s| s.as_str())
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n")
-}
-
-/// Append HTTP `system` message(s) from [`SystemPromptSections`].
-///
-/// When `explicit_system_cache` is on and `cacheable` is non-empty, the cache marker sits on the
-/// **cacheable** block only; `dynamic` (typically `[TASK_BOARD]` only) follows as a second content part.
-fn push_openai_system_messages(
-    out: &mut Vec<serde_json::Value>,
-    sections: &SystemPromptSections,
-    explicit_system_cache: bool,
-) {
-    if sections.is_empty() {
-        return;
-    }
-    let cacheable_text = join_prompt_slices(&sections.cacheable);
-    let dynamic_text = join_prompt_slices(&sections.dynamic);
-
-    if explicit_system_cache && !cacheable_text.is_empty() {
-        let mut parts = vec![serde_json::json!({
-            "type": "text",
-            "text": cacheable_text,
-            "cache_control": { "type": "ephemeral" }
-        })];
-        if !dynamic_text.is_empty() {
-            parts.push(serde_json::json!({
-                "type": "text",
-                "text": dynamic_text
-            }));
-        }
-        out.push(serde_json::json!({
-            "role": "system",
-            "content": parts
-        }));
-        return;
-    }
-
-    let mut merged = sections.cacheable.clone();
-    merged.extend(sections.dynamic.clone());
-    let system_text = join_prompt_slices(&merged);
-    if !system_text.is_empty() {
-        out.push(serde_json::json!({
-            "role": "system",
-            "content": system_text
-        }));
-    }
-}
-
-fn flatten_user_images_to_text(m: &ChatMessage) -> String {
-    let mut content = m.content.clone();
-    let Some(imgs) = m.images_base64.as_ref() else {
-        return content;
-    };
-    if imgs.is_empty() {
-        return content;
-    }
-    let labels = m.image_slot_labels.as_deref();
-    for (i, _) in imgs.iter().enumerate() {
-        let lab = labels
-            .and_then(|labs| labs.get(i))
-            .filter(|s| !s.trim().is_empty())
-            .map(|s| s.as_str())
-            .unwrap_or("[image attachment]");
-        if !content.is_empty() {
-            content.push_str("\n\n");
-        }
-        content.push_str(lab);
-        content.push_str(" (image not inlined: primary model does not support vision)");
-    }
-    content
-}
-
-pub fn make_openai_messages(
-    msgs: &[ChatMessage],
-    system: &SystemPromptSections,
-    include_reasoning_in_api: bool,
-    explicit_system_cache: bool,
-    inline_vision: bool,
-) -> Vec<serde_json::Value> {
-    let included = crate::message_context::filter_context_messages(msgs);
-    let expanded = expand_tool_messages_for_openai_request(&included);
-    let mut out: Vec<serde_json::Value> = Vec::new();
-    push_openai_system_messages(&mut out, system, explicit_system_cache);
-    for m in &expanded {
-        match m.role {
-            Role::System => out.push(serde_json::json!({
-                "role": "system", "content": m.content
-            })),
-            Role::User => {
-                if let Some(ref imgs) = m.images_base64 {
-                    if !imgs.is_empty() && !inline_vision {
-                        log::warn!(
-                            "make_openai_messages: stripping {} inline image(s); model does not support vision",
-                            imgs.len()
-                        );
-                        out.push(serde_json::json!({
-                            "role": "user",
-                            "content": flatten_user_images_to_text(m)
-                        }));
-                        continue;
-                    }
-                    if !imgs.is_empty() {
-                        let mut parts: Vec<serde_json::Value> = Vec::new();
-                        if !m.content.trim().is_empty() {
-                            parts.push(serde_json::json!({
-                                "type": "text",
-                                "text": m.content
-                            }));
-                        }
-                        let labels = m.image_slot_labels.as_deref();
-                        if let Some(labs) = labels {
-                            if labs.len() != imgs.len() {
-                                log::warn!(
-                                    "user message image_slot_labels len {} != images_base64 len {}",
-                                    labs.len(),
-                                    imgs.len()
-                                );
-                            }
-                        }
-                        for (i, b64) in imgs.iter().enumerate() {
-                            if let Some(lab) = labels.and_then(|labs| labs.get(i)) {
-                                if !lab.trim().is_empty() {
-                                    parts.push(serde_json::json!({
-                                        "type": "text",
-                                        "text": format!("{lab}\n")
-                                    }));
-                                }
-                            }
-                            let mime = crate::agents::computer::vision::screen::image_data_url_mime_from_base64(b64);
-                            let url = format!("data:{mime};base64,{b64}");
-                            parts.push(serde_json::json!({
-                                "type": "image_url",
-                                "image_url": { "url": url }
-                            }));
-                        }
-                        out.push(serde_json::json!({
-                            "role": "user",
-                            "content": parts
-                        }));
-                        continue;
-                    }
-                }
-                out.push(serde_json::json!({
-                    "role": "user", "content": m.content
-                }));
-            }
-            Role::Assistant => {
-                let mut obj = serde_json::Map::new();
-                obj.insert("role".into(), "assistant".into());
-                obj.insert(
-                    "content".into(),
-                    serde_json::Value::String(m.content.clone()),
-                );
-                // DeepSeek 等「思考模式」在流式里下发 `reasoning_content`；下一轮请求必须原样带回，
-                // 否则 400 — 可由设置 `reasoningInMessages` 关闭（关闭后勿对该类模型开思考）。
-                if include_reasoning_in_api {
-                    if let Some(ref r) = m.reasoning {
-                        if !r.is_empty() {
-                            obj.insert(
-                                "reasoning_content".into(),
-                                serde_json::Value::String(r.clone()),
-                            );
-                        }
-                    }
-                }
-                if let Some(tcs) = &m.tool_calls {
-                    let tool_calls: Vec<serde_json::Value> = tcs
-                        .iter()
-                        .filter(|t| {
-                            !t.id.trim().is_empty()
-                                && !t.name.trim().is_empty()
-                                && tool_registry_base_name(&t.name) != "response"
-                        })
-                        .map(|t| {
-                            serde_json::json!({
-                                "id": t.id,
-                                "type": "function",
-                                "function": {
-                                    "name": t.name,
-                                    "arguments": t.arguments
-                                }
-                            })
-                        })
-                        .collect();
-                    if !tool_calls.is_empty() {
-                        obj.insert("tool_calls".into(), serde_json::Value::Array(tool_calls));
-                    }
-                }
-                out.push(serde_json::Value::Object(obj));
-            }
-            Role::Tool => out.push(serde_json::json!({
-                "role": "tool",
-                "tool_call_id": m.tool_call_id.clone().unwrap_or_default(),
-                "content": m.content
-            })),
-        }
-    }
-    out
-}
-
-#[cfg(test)]
-mod make_openai_messages_tests {
-    use super::*;
-
-    fn msg(role: Role) -> ChatMessage {
-        ChatMessage {
-            id: "m".into(),
-            role,
-            content: String::new(),
-            status: "done".into(),
-            created_at: 0,
-            tool_calls: None,
-            tool_call_id: None,
-            error_message: None,
-            reasoning: None,
-            thoughts: None,
-            headline: None,
-            raw_content: None,
-            tool_raw_output: None,
-            agent_id: None,
-            agent_instance_id: None,
-            agent_name: None,
-            agent_trace: None,
-            image_slot_labels: None,
-            images_base64: None,
-            computer_round_screen_rel_path: None,
-        ui_bindings: None,
-            context_state: None,
-        attachments: None,
-            }
-    }
-
-    #[test]
-    fn system_prompt_uses_ephemeral_cache_control_on_cacheable_only() {
-        let system = SystemPromptSections {
-            cacheable: vec!["static system".into()],
-            dynamic: vec!["task board".into()],
-        };
-        let out = make_openai_messages(&[], &system, false, true, false);
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0]["role"], "system");
-        let content = out[0]["content"].as_array().expect("multipart system");
-        assert_eq!(content.len(), 2);
-        assert_eq!(content[0]["type"], "text");
-        assert_eq!(content[0]["text"], "static system");
-        assert_eq!(content[0]["cache_control"]["type"], "ephemeral");
-        assert_eq!(content[1]["text"], "task board");
-        assert!(content[1].get("cache_control").is_none());
-    }
-
-    #[test]
-    fn system_prompt_plain_string_when_cache_disabled() {
-        let system = SystemPromptSections::all_cacheable(vec!["static system".into()]);
-        let out = make_openai_messages(&[], &system, false, false, false);
-        assert_eq!(out[0]["content"], "static system");
-    }
-
-    #[test]
-    fn user_message_with_images_uses_multipart_content() {
-        let mut u = msg(Role::User);
-        u.content = "see screen".into();
-        u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
-        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, true);
-        assert_eq!(out.len(), 1);
-        let content = out[0]["content"].as_array().expect("multipart content");
-        assert_eq!(content[0]["type"], "text");
-        assert_eq!(content[1]["type"], "image_url");
-        assert!(content[1]["image_url"]["url"]
-            .as_str()
-            .unwrap()
-            .starts_with("data:image/png;base64,"));
-    }
-
-    #[test]
-    fn user_message_without_vision_flattens_images_to_text() {
-        let mut u = msg(Role::User);
-        u.content = "what is this".into();
-        u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
-        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, false);
-        assert_eq!(out[0]["role"], "user");
-        let content = out[0]["content"].as_str().expect("text content");
-        assert!(content.contains("what is this"));
-        assert!(content.contains("does not support vision"));
-        assert!(out[0]["content"].as_array().is_none());
-    }
-
-    #[test]
-    fn user_message_interleaves_slot_label_before_each_image() {
-        let mut u = msg(Role::User);
-        u.content = "[CUR_SCREEN] preamble".into();
-        u.image_slot_labels = Some(vec!["[Screen after action]".into()]);
-        u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
-        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, true);
-        let content = out[0]["content"].as_array().expect("multipart content");
-        assert_eq!(content.len(), 3);
-        assert_eq!(content[0]["text"], "[CUR_SCREEN] preamble");
-        assert_eq!(content[1]["text"], "[Screen after action]\n");
-        assert_eq!(content[2]["type"], "image_url");
-    }
-
-    #[test]
-    fn assistant_includes_reasoning_content_when_present() {
-        let mut a = msg(Role::Assistant);
-        a.content = "answer".into();
-        a.reasoning = Some("step 1…".into());
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false, false);
-        assert_eq!(out[0]["role"], "assistant");
-        assert_eq!(out[0]["content"], "answer");
-        assert_eq!(out[0]["reasoning_content"], "step 1…");
-    }
-
-    #[test]
-    fn assistant_omits_reasoning_content_when_disabled() {
-        let mut a = msg(Role::Assistant);
-        a.content = "answer".into();
-        a.reasoning = Some("hidden".into());
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false);
-        assert!(out[0].as_object().unwrap().get("reasoning_content").is_none());
-    }
-
-    #[test]
-    fn assistant_then_user_json_per_computer_style() {
-        let mut a = msg(Role::Assistant);
-        a.content = "x".into();
-        a.tool_calls = Some(vec![ToolCall {
-            id: "call_abc".into(),
-            name: "f".into(),
-            arguments: "{}".into(),
-            status: "pending".into(),
-            result: None,
-            error: None,
-            duration_ms: None,
-            risk_level: None,
-            display_label: None,
-            display_summary: None,
-        }]);
-        let mut t = msg(Role::Tool);
-        t.tool_call_id = Some("call_abc".into());
-        t.content = "{}".into();
-
-        let out = make_openai_messages(&[a, t], &SystemPromptSections::default(), true, false, false);
-        assert_eq!(out.len(), 2, "assistant + tool");
-        assert_eq!(out[0]["role"], "assistant");
-        assert!(out[0].as_object().unwrap().get("tool_calls").is_some());
-        assert_eq!(out[0]["content"], "x");
-        assert_eq!(out[1]["role"], "tool");
-        assert_eq!(out[1]["tool_call_id"], "call_abc");
-        assert_eq!(out[1]["content"], "{}");
-    }
-
-    #[test]
-    fn synthesizes_inline_tool_as_tool_message_after_expand() {
-        let mut a = msg(Role::Assistant);
-        a.content = "calling".into();
-        a.tool_calls = Some(vec![ToolCall {
-            id: "call_inline".into(),
-            name: "read".into(),
-            arguments: "{}".into(),
-            status: "success".into(),
-            result: Some("file body".into()),
-            error: None,
-            duration_ms: None,
-            risk_level: None,
-            display_label: None,
-            display_summary: None,
-        }]);
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false, false);
-        assert_eq!(out.len(), 2);
-        assert_eq!(out[0]["role"], "assistant");
-        assert_eq!(out[0]["content"], "calling");
-        assert_eq!(out[1]["role"], "tool");
-        assert_eq!(out[1]["tool_call_id"], "call_inline");
-        assert_eq!(out[1]["content"], "file body");
-    }
-
-    #[test]
-    fn excluded_messages_omitted_from_openai_request() {
-        let mut excluded = msg(Role::User);
-        excluded.content = "old turn".into();
-        excluded.context_state = Some(MessageContextState {
-            included: false,
-            excluded_reason: Some(ExcludedReason::ContextCompression),
-        });
-        let mut included = msg(Role::User);
-        included.content = "recent turn".into();
-        let out = make_openai_messages(
-            &[excluded, included],
-            &SystemPromptSections::default(),
-            false,
-            false,
-            false,
-        );
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0]["content"], "recent turn");
-    }
-
-    #[test]
-    fn assistant_prefers_raw_content_on_wire() {
-        let mut a = msg(Role::Assistant);
-        a.content = "visible".into();
-        a.raw_content = Some("<response><tool_name>x</tool_name></response>".into());
-        a.tool_calls = Some(vec![ToolCall {
-            id: "c1".into(),
-            name: "wait".into(),
-            arguments: "{}".into(),
-            status: "success".into(),
-            result: Some("done".into()),
-            error: None,
-            duration_ms: None,
-            risk_level: None,
-            display_label: None,
-            display_summary: None,
-        }]);
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false);
-        assert_eq!(out[0]["content"], "visible");
-        assert!(out[0].as_object().unwrap().get("tool_calls").is_some());
-    }
-
-    #[test]
-    fn response_tool_has_no_user_tool_result_message() {
-        let mut a = msg(Role::Assistant);
-        a.content = "".into();
-        a.raw_content = Some("<response><tool_name>response</tool_name></response>".into());
-        a.tool_calls = Some(vec![ToolCall {
-            id: "c_resp".into(),
-            name: "response".into(),
-            arguments: r#"{"text":"Hi"}"#.into(),
-            status: "success".into(),
-            result: None,
-            error: None,
-            duration_ms: None,
-            risk_level: None,
-            display_label: None,
-            display_summary: None,
-        }]);
-
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false);
-        assert_eq!(out.len(), 1, "assistant only");
-        assert_eq!(out[0]["role"], "assistant");
-        assert_eq!(out[0]["content"], "");
-        assert!(out[0].as_object().unwrap().get("tool_calls").is_none());
-    }
-
-    #[test]
-    fn orphan_tool_message_skipped_on_wire() {
-        let mut assistant = msg(Role::Assistant);
-        assistant.content = "done".into();
-        assistant.tool_calls = Some(vec![ToolCall {
-            id: "call_ok".into(),
-            name: "terminal".into(),
-            arguments: "{}".into(),
-            status: "success".into(),
-            result: Some("ok".into()),
-            error: None,
-            duration_ms: None,
-            risk_level: None,
-            display_label: None,
-            display_summary: None,
-        }]);
-        let mut orphan = msg(Role::Tool);
-        orphan.id = "tool_orphan".into();
-        orphan.content = "stale db tail".into();
-        orphan.tool_call_id = Some("call_orphan".into());
-
-        let out = make_openai_messages(
-            &[assistant.clone(), orphan],
-            &SystemPromptSections::default(),
-            false,
-            false,
-            false,
-        );
-        assert_eq!(out.len(), 2, "assistant + synthesized tool from inline result");
-        assert_eq!(out[0]["role"], "assistant");
-        assert_eq!(out[1]["role"], "tool");
-        assert_eq!(out[1]["tool_call_id"], "call_ok");
-    }
-
-    #[test]
-    fn orphan_tool_after_user_skipped_on_wire() {
-        let user = msg(Role::User);
-        let mut orphan = msg(Role::Tool);
-        orphan.id = "tool_orphan".into();
-        orphan.content = "orphan".into();
-        orphan.tool_call_id = Some("call_orphan".into());
-
-        let out = make_openai_messages(
-            &[user, orphan],
-            &SystemPromptSections::default(),
-            false,
-            false,
-            false,
-        );
-        assert_eq!(out.len(), 1, "user only; orphan tool dropped");
-        assert_eq!(out[0]["role"], "user");
-    }
-}
-
-pub type ToolMap = HashMap<String, ToolDef>;
 
 #[cfg(test)]
 mod qwen_explicit_cache_tests {
@@ -3505,82 +2052,5 @@ mod effective_extra_body_tests {
             o.get("thinking_budget"),
             Some(&Value::Number(100.into()))
         );
-    }
-
-    #[test]
-    fn agent_trace_session_round_trips_in_conversation_json() {
-        let trace = AgentTrace {
-            id: "task-1:computer".into(),
-            name: "电脑操控".into(),
-            role: "worker".into(),
-            status: "completed".into(),
-            detail: None,
-            content: None,
-            depth: Some(1),
-            computer_target: Some(ComputerOperationTarget::External),
-            session: Some(SubAgentSessionUi {
-                thoughts: Some("done".into()),
-                stats: SubAgentToolStats {
-                    mouse_count: 2,
-                    input_count: 1,
-                    other_count: 3,
-                    ..Default::default()
-                },
-                summary_line: Some("电脑操控 · 已完成 · 鼠标 2 次 · 输入 1 次 · 其他 3 次".into()),
-                collapsed: true,
-                ..Default::default()
-            }),
-        };
-        let conv = Conversation {
-            id: "c1".into(),
-            title: "t".into(),
-            created_at: 1,
-            updated_at: 1,
-            messages: vec![ChatMessage {
-                id: "m1".into(),
-                role: Role::Assistant,
-                content: String::new(),
-                status: "done".into(),
-                created_at: 1,
-                tool_calls: None,
-                tool_call_id: None,
-                error_message: None,
-                reasoning: None,
-                thoughts: None,
-                headline: None,
-                raw_content: None,
-                tool_raw_output: None,
-                agent_id: None,
-                agent_instance_id: None,
-                agent_name: None,
-                agent_trace: Some(vec![trace]),
-                images_base64: None,
-                image_slot_labels: None,
-                computer_round_screen_rel_path: None,
-                ui_bindings: None,
-                context_state: None,
-        attachments: None,
-            }],
-            skill_ids: vec![],
-            tool_rounds_used: 0,
-            tool_rounds_used_supervisor: 0,
-            computer_monitor_id: None,
-            workspace_root: String::new(),
-            workspace_user_set: false,
-            workspace_inherit_disabled: false,
-            lead_agent_id: default_lead_agent_id(),
-            agent_mode: default_agent_mode(),
-        };
-        let json = serde_json::to_string(&conv).expect("serialize");
-        let back: Conversation = serde_json::from_str(&json).expect("deserialize");
-        let session = back.messages[0]
-            .agent_trace
-            .as_ref()
-            .and_then(|t| t.first())
-            .and_then(|t| t.session.as_ref())
-            .expect("session persisted");
-        assert_eq!(session.stats.mouse_count, 2);
-        assert_eq!(session.stats.input_count, 1);
-        assert_eq!(session.collapsed, true);
     }
 }

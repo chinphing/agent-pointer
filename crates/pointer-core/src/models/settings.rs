@@ -375,6 +375,7 @@ pub fn default_qwen_provider_models() -> Vec<String> {
         "qwen3.6-27b".into(),
         "qwen3.6-flash".into(),
         "qwen3-asr-flash".into(),
+        "fun-asr".into(),
         "wan2.7-image-pro".into(),
         "qwen-image-2.0-pro".into(),
         "happyhorse-1.0-t2v".into(),
@@ -1497,11 +1498,11 @@ fn default_media_mode_llm() -> HashMap<String, HashMap<String, ComputerTierLlmCo
     );
     audio.insert(
         "standard".into(),
-        mode_llm_entry("qwen", "qwen3-asr-flash", 2048),
+        mode_llm_entry("qwen", "fun-asr", 2048),
     );
     audio.insert(
         "expert".into(),
-        mode_llm_entry("qwen", "qwen3-asr-flash", 8192),
+        mode_llm_entry("qwen", "fun-asr", 8192),
     );
 
     let mut video = HashMap::new();

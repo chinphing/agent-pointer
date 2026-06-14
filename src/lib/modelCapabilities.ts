@@ -149,7 +149,8 @@ export const QWEN_VIDEO_GENERATION_MODELS = [
 
 /** Qwen speech-to-text models for media understanding (audio). */
 export const QWEN_AUDIO_TRANSCRIPTION_MODELS = [
-  'qwen3-asr-flash'
+  'qwen3-asr-flash',
+  'fun-asr'
 ] as const
 
 export const QWEN_GENERATION_MODELS = [

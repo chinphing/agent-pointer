@@ -150,14 +150,21 @@ function createSettingsDialogForm(deps: {
 
   function mediaModeLlm(kind: MediaDebugKind, mode: PerformanceModeKey): ComputerTierLlmConfig {
   const m = s.platformSettings.mediaModeLlm?.[kind]?.[mode]
-  return (
-    m ?? {
+  if (m) return m
+  if (kind === 'audio') {
+    return {
       providerId: 'qwen',
-      model: mode === 'fast' ? 'qwen3.5-flash' : mode === 'expert' ? 'qwen3.6-plus' : 'qwen3.5-plus',
+      model: mode === 'fast' ? 'qwen3-asr-flash' : 'fun-asr',
       enableThinking: true,
       thinkingBudget: mode === 'expert' ? 8192 : 2048
     }
-  )
+  }
+  return {
+    providerId: 'qwen',
+    model: mode === 'fast' ? 'qwen3.5-flash' : mode === 'expert' ? 'qwen3.6-plus' : 'qwen3.5-plus',
+    enableThinking: true,
+    thinkingBudget: mode === 'expert' ? 8192 : 2048
+  }
   }
 
   const qwenModelOptions = computed(() => {

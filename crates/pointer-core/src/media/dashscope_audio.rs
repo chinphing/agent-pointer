@@ -266,6 +266,11 @@ mod tests {
     }
 
     #[test]
+    fn fun_asr_model_kept() {
+        assert_eq!(dashscope_audio_model_id("fun-asr"), "fun-asr");
+    }
+
+    #[test]
     fn asr_model_kept() {
         assert_eq!(dashscope_audio_model_id("qwen3-asr-flash"), "qwen3-asr-flash");
     }

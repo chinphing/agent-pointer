@@ -48,7 +48,6 @@ pub struct SupervisorLoopContext<'a> {
     pub tool_budget: &'a mut SessionToolBudget,
     pub llm_stats: &'a mut ConversationLlmStats,
     pub run_id: &'a str,
-    pub reasoning_in_messages: bool,
 }
 
 /// Nested `run_subagent` delegation from a tool pass.

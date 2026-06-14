@@ -279,7 +279,6 @@ pub(super) async fn run_chat_inner(
             tool_budget: &mut tool_budget,
             llm_stats: &mut llm_token_session.stats,
             run_id,
-            reasoning_in_messages: effective_reasoning_in_messages(&settings),
         };
         let r = super::supervisor::run_supervisor_chat(&mut sup_ctx).await;
         tool_budget.sync_out(ctx.consumed_supervisor);

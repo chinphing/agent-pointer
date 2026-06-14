@@ -1,7 +1,7 @@
 use super::path::{
-    path_display_abs, resolve_existing_read_path, resolve_within_workspace_root,
+    path_display_abs, resolve_existing_read_path,
 };
-use super::{json_str, MAX_LIST_ENTRIES, MAX_WALK_DEPTH};
+use super::{MAX_LIST_ENTRIES, MAX_WALK_DEPTH};
 use anyhow::{anyhow, Result};
 use std::fs;
 use std::path::Path;

@@ -7,7 +7,6 @@ use crate::models::{ChatMessage, ModelSettings, SystemPromptSections};
 use tokio_util::sync::CancellationToken;
 
 use super::session::{SessionRefs, SessionRefsArc};
-use super::super::app_state::AppState;
 use super::super::session_budget::SessionToolBudget;
 use super::super::StreamTx;
 use crate::provider::OpenAIProvider;
@@ -37,10 +36,6 @@ pub struct LeadStreamRoundContext<'a> {
 impl<'a> LeadStreamRoundContext<'a> {
     pub fn stream(&self) -> &StreamTx {
         self.session.stream
-    }
-
-    pub fn state(&self) -> &AppState {
-        self.session.state.as_ref()
     }
 
     pub fn conversation_id(&self) -> &str {

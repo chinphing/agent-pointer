@@ -22,13 +22,4 @@ pub struct SessionRefsArc<'a> {
     pub cancel: CancellationToken,
 }
 
-impl<'a> SessionRefsArc<'a> {
-    pub fn as_refs(&'a self) -> SessionRefs<'a> {
-        SessionRefs {
-            stream: self.stream,
-            state: self.state.as_ref(),
-            conversation_id: self.conversation_id,
-            cancel: &self.cancel,
-        }
-    }
-}
+

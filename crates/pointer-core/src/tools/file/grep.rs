@@ -1,6 +1,6 @@
 use super::path::{
     build_glob_set, deduplicate_globs, expand_file_types, path_display_abs,
-    path_error_with_hints, resolve_existing_read_path, resolve_within_workspace_root, SKIP_EXT,
+    path_error_with_hints, resolve_existing_read_path, SKIP_EXT,
 };
 use super::{CONTEXT_LINES, MAX_GREP_FILE_BYTES, MAX_GREP_RESULTS, MAX_WALK_DEPTH};
 use anyhow::{anyhow, Result};
@@ -12,7 +12,6 @@ use grep_searcher::{
     BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkFinish, SinkMatch,
 };
 use ignore::WalkBuilder;
-use std::cell::RefCell;
 use std::io;
 
 fn should_skip_grep(path: &Path) -> bool {

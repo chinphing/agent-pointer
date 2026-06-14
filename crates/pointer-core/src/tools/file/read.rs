@@ -4,7 +4,6 @@ use super::{
 };
 use super::path::{
     path_display_abs, path_display_for_read_request, resolve_accessible_path,
-    resolve_existing_read_path,
 };
 use anyhow::{anyhow, Result};
 use std::fs;

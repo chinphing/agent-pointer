@@ -1,7 +1,6 @@
 use super::list::list_entry_type_allowed;
 use super::path::{
-    build_glob_set, expand_file_types, path_display_abs, resolve_existing_read_path,
-    resolve_within_workspace_root,
+    path_display_abs, resolve_existing_read_path,
 };
 use super::{MAX_GLOB_RESULTS, MAX_WALK_DEPTH};
 use anyhow::{anyhow, Result};

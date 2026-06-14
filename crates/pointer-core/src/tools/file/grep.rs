@@ -1,3 +1,4 @@
+use super::json_str;
 use super::path::{
     build_glob_set, deduplicate_globs, expand_file_types, path_display_abs,
     path_error_with_hints, resolve_existing_read_path, SKIP_EXT,
@@ -237,19 +238,22 @@ pub(crate) fn execute_file_grep_payload(args: &serde_json::Value, root: &Path) -
         }
     }
 
-    let path_arg = args.get("path").and_then(|v| v.as_str()).unwrap_or("").trim();
+    let path_arg = json_str(args, "path", "path")
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            anyhow!(
+                "缺少 path：file_grep 必须指定搜索范围（已存在的文件或目录），例如 src/ 或 crates/foo/src/lib.rs；\
+                 仅在需要全仓搜索时显式传 path: \".\""
+            )
+        })?;
 
     enum GrepScope {
         Walk { start: PathBuf, max_depth: usize },
         SingleFile { file: PathBuf },
     }
 
-    let scope = if path_arg.is_empty() {
-        GrepScope::Walk {
-            start: root.to_path_buf(),
-            max_depth,
-        }
-    } else {
+    let scope = {
         let p = resolve_existing_read_path(&root, path_arg, "grep")?;
         if p.is_dir() {
             GrepScope::Walk {

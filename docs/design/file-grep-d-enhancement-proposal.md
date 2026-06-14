@@ -42,6 +42,7 @@
 **上限与兼容**
 
 - `pattern` 长度、 `maxResults`、`maxDepth`、`contextLines` 等 **保持现有 clamp**；若放宽单文件字节上限，见 §6。  
+- **`path` 必填**（2026-06 已落地）：缺省不再从 workspace 根全盘 walk；仅当显式传 `path: "."` 时允许全仓搜索。  
 - 响应 JSON 结构不变（`results` / `truncated` / `count`），必要时可增加 **`filesSkipped`**（因超 2MiB、二进制、glob 排除等计数）便于可观测性（可选，P1）。
 
 ---

@@ -50,7 +50,7 @@ The host shows the user **only** assistant message **`content`**. Reasoning is i
 
 When the user asks for a **plan**, **design**, **方案**, or **how the UI should behave**:
 
-1. **Orient** — locate the feature with **`file_grep`** / **`file_read`** or **`explore`**.
+1. **Orient** — locate the feature with **`file_grep`** (scoped **`path`**) / **`file_read`** or **`explore`**.
 2. **Anchor** — cite existing events, stores, and UI patterns in the repo.
 3. **Deliver a phased plan** in assistant **`content`**. Stop after the plan unless the user asks to **implement**.
 

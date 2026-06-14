@@ -551,6 +551,16 @@ mod tests {
     }
 
     #[test]
+    fn file_grep_missing_path_rejected() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path();
+        fs::write(root.join("x.txt"), "a\n").unwrap();
+        let args = json!({"pattern": "a", "maxResults": 20});
+        let err = execute_file_grep_payload(&args, root).unwrap_err();
+        assert!(err.to_string().contains("缺少 path"), "{}", err);
+    }
+
+    #[test]
     fn file_grep_include_hidden() {
         let tmp = tempfile::tempdir().expect("tmp");
         let root = tmp.path();
@@ -558,12 +568,17 @@ mod tests {
         fs::create_dir(root.join(".hidden_dir")).unwrap();
         fs::write(root.join(".hidden_dir").join("file.txt"), "secret\n").unwrap();
         // by default, hidden files are skipped
-        let args_default = json!({"pattern": "secret", "maxResults": 20});
+        let args_default = json!({"pattern": "secret", "path": ".", "maxResults": 20});
         let out = execute_file_grep_payload(&args_default, root).expect("grep");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["count"], 0, "hidden should be skipped by default");
         // includeHidden: true should find
-        let args_include = json!({"pattern": "secret", "includeHidden": true, "maxResults": 20});
+        let args_include = json!({
+            "pattern": "secret",
+            "path": ".",
+            "includeHidden": true,
+            "maxResults": 20
+        });
         let out2 = execute_file_grep_payload(&args_include, root).expect("grep");
         let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
         assert_eq!(v2["count"], 1, "includeHidden should include hidden");
@@ -575,7 +590,7 @@ mod tests {
         let root = tmp.path();
         fs::write(root.join("f.txt"), "x.y)\n").unwrap();
         // regex would treat '.' as any char and ')' as literal (needs escape). But with fixedString it's literal.
-        let args = json!({"pattern": "x.y)", "fixedString": true, "maxResults": 20});
+        let args = json!({"pattern": "x.y)", "path": "f.txt", "fixedString": true, "maxResults": 20});
         let out = execute_file_grep_payload(&args, root).expect("grep");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["count"], 1, "fixedString should match literal");
@@ -587,12 +602,12 @@ mod tests {
         let root = tmp.path();
         fs::write(root.join("case.txt"), "Hello World\n").unwrap();
         // default case sensitive should not match lowercase
-        let args_sensitive = json!({"pattern": "hello", "maxResults": 20});
+        let args_sensitive = json!({"pattern": "hello", "path": "case.txt", "maxResults": 20});
         let out1 = execute_file_grep_payload(&args_sensitive, root).expect("grep");
         let v1: serde_json::Value = serde_json::from_str(&out1).unwrap();
         assert_eq!(v1["count"], 0, "case sensitive should not match lowercase pattern if text is uppercase");
         // ignoreCase: true should match
-        let args_ignore = json!({"pattern": "hello", "ignoreCase": true, "maxResults": 20});
+        let args_ignore = json!({"pattern": "hello", "path": "case.txt", "ignoreCase": true, "maxResults": 20});
         let out2 = execute_file_grep_payload(&args_ignore, root).expect("grep");
         let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
         assert_eq!(v2["count"], 1, "ignoreCase should match");
@@ -605,7 +620,7 @@ mod tests {
         fs::write(root.join("a.rs"), "rust\n").unwrap();
         fs::write(root.join("a.py"), "python\n").unwrap();
         // fileTypes ["rust"] should only scan .rs files and not .py
-        let args = json!({"pattern": "rust|python", "fileTypes": ["rust"], "maxResults": 20});
+        let args = json!({"pattern": "rust|python", "path": ".", "fileTypes": ["rust"], "maxResults": 20});
         let out = execute_file_grep_payload(&args, root).expect("grep");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         let results = v["results"].as_array().unwrap();
@@ -621,7 +636,7 @@ mod tests {
         let root = tmp.path();
         fs::write(root.join("a.rs"), "rust\n").unwrap();
         fs::write(root.join("a.py"), "python\n").unwrap();
-        let args = json!({"pattern": "rust|python", "fileTypes": ["rs"], "maxResults": 20});
+        let args = json!({"pattern": "rust|python", "path": ".", "fileTypes": ["rs"], "maxResults": 20});
         let out = execute_file_grep_payload(&args, root).expect("grep");
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         let results = v["results"].as_array().unwrap();
@@ -637,13 +652,13 @@ mod tests {
         fs::write(root.join("main.cpp"), "int main() {}\n").unwrap();
         fs::write(root.join("readme.md"), "key: val\n").unwrap();
 
-        let args_yaml = json!({"pattern": "key:", "fileTypes": ["yml"], "maxResults": 20});
+        let args_yaml = json!({"pattern": "key:", "path": ".", "fileTypes": ["yml"], "maxResults": 20});
         let out_yaml = execute_file_grep_payload(&args_yaml, root).expect("grep yaml");
         let v_yaml: serde_json::Value = serde_json::from_str(&out_yaml).unwrap();
         assert_eq!(v_yaml["count"], 1);
         assert!(v_yaml["results"][0]["path"].as_str().unwrap().ends_with("cfg.yml"));
 
-        let args_cpp = json!({"pattern": "main", "fileTypes": ["c++"], "maxResults": 20});
+        let args_cpp = json!({"pattern": "main", "path": ".", "fileTypes": ["c++"], "maxResults": 20});
         let out_cpp = execute_file_grep_payload(&args_cpp, root).expect("grep cpp");
         let v_cpp: serde_json::Value = serde_json::from_str(&out_cpp).unwrap();
         assert_eq!(v_cpp["count"], 1);
@@ -659,12 +674,22 @@ mod tests {
         fs::write(root.join("src").join("lib.rs"), "code\n").unwrap();
         fs::write(root.join("test").join("test.rs"), "code\n").unwrap();
         // include glob: src/**/*
-        let args_inc = json!({"pattern": "code", "includeGlobs": ["src/**/*"], "maxResults": 20});
+        let args_inc = json!({
+            "pattern": "code",
+            "path": ".",
+            "includeGlobs": ["src/**/*"],
+            "maxResults": 20
+        });
         let out1 = execute_file_grep_payload(&args_inc, root).expect("grep");
         let v1: serde_json::Value = serde_json::from_str(&out1).unwrap();
         assert_eq!(v1["count"], 1, "includeGlobs should filter");
         // exclude glob: test/**/*
-        let args_exc = json!({"pattern": "code", "excludeGlobs": ["test/**/*"], "maxResults": 20});
+        let args_exc = json!({
+            "pattern": "code",
+            "path": ".",
+            "excludeGlobs": ["test/**/*"],
+            "maxResults": 20
+        });
         let out2 = execute_file_grep_payload(&args_exc, root).expect("grep");
         let v2: serde_json::Value = serde_json::from_str(&out2).unwrap();
         assert_eq!(v2["count"], 1, "excludeGlobs should filter");

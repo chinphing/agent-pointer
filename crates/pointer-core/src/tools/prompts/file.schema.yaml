@@ -107,7 +107,7 @@ file_grep:
       type: boolean
     includeHidden:
       type: boolean
-  required: [pattern]
+  required: [pattern, path]
   additionalProperties: true
 
 file_list:

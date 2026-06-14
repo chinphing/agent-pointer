@@ -22,7 +22,7 @@ exhausted and the gap is **external** and needs **live** web evidence.
 
 **Returned paths:** Successful **`file`** tool JSON that names a location on disk (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**) uses **absolute** paths (OS-canonical when available). Reuse them as **`path`** on later **`file`** calls; **`file_write`** / **`file_edit`** accept absolute **`path`** only when it still lies under the workspace root.
 
-**Reading discipline:** locate with **`file_grep`** / **`file_glob`** / **`file_list`** before wide **`file_read`**; use **line ranges** and **small `paths` batches**; treat reads as **evidence**, not bulk copy-paste; admit **partial** reads when caps apply. **Parallelize** independent **`file_*`** calls in one turn when the host allows.
+**Reading discipline:** locate with **`file_grep`** (always pass **`path`** — a file or directory under the workspace root; never **`pattern`** alone) / **`file_glob`** / **`file_list`** before wide **`file_read`**; use **line ranges** and **small `paths` batches**; treat reads as **evidence**, not bulk copy-paste; admit **partial** reads when caps apply. **Parallelize** independent **`file_*`** calls in one turn when the host allows.
 
 For **read-only** exploration (`file_read`, `file_glob`, `file_grep`, `file_list`), you may use **absolute paths** when the user explicitly asks to reference another project or tree outside the workspace—do not refuse solely because paths are outside the workspace.
 
@@ -69,7 +69,7 @@ Call **`read_lints`** in a **separate** tool turn **after** you complete a **log
 
 ## Git (via `terminal`)
 
-**How:** Start from the **workspace root** in **Session context (runtime)**. Run **`git -C "<workspace_root>" rev-parse --show-toplevel`** to get **`TOP`**; use only the **printed** path in later **`git -C "$TOP" …`** commands. For a **verified** file path from **`file`** tools, you may **`rev-parse`** from that file's parent instead (see **Locate git roots**). **Never** `cd` to an absolute path you have not verified. Then **`blame` / `log` / `status` / `diff`** as needed. Flags: **`git <cmd> -h`**. Default **`file`** + tests + **`read_lints`**; no commit/push/PR unless asked.
+**How:** Start from the **workspace root** in **Session context (runtime)**. Run **`git rev-parse --show-toplevel`** with default cwd (or **`git -C "<that root>" …`**) to get **`TOP`**; use only the **printed** path in later **`git -C "$TOP" …`** commands. For a **verified** file path from **`file`** tools, you may **`rev-parse`** from that file's parent instead (see **Locate git roots**). **Never** `cd` to an absolute path you have not verified. Then **`blame` / `log` / `status` / `diff`** as needed. Flags: **`git <cmd> -h`**. Default **`file`** + tests + **`read_lints`**; no commit/push/PR unless asked.
 
 ---
 

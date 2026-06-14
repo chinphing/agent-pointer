@@ -11,7 +11,7 @@ Do **not** ask questions answerable with one **`file_grep`** / **`file_read`**.
 ### G2 — Breadth before big edits
 
 Before the first behavior-changing edit, ensure enough **breadth**:
-- **Narrow confirm:** path + symbol already known → at most **1 grep + 1 read**, then **Change**.
+- **Narrow confirm:** path + symbol already known → at most **1 grep** (with **`path`**) + **1 read**, then **Change**.
 - **Otherwise:** delegate to **`explore`** (see **Delegating to the `explore` worker**) or run a **lite** local grep/read pass.
 - Trigger explore when: cross-module change, wire/config/state change, or **≥3** **`file_*`** rounds without a concrete edit list.
 

@@ -63,17 +63,19 @@ pub(super) async fn run_single_agent_loop(
     }
 
     loop {
-        if cancel.is_cancelled() {
-            tool_budget.sync_out(consumed_single);
-            return Err(anyhow!("已停止生成"));
-        }
-
-        if tool_budget.remaining() == 0 {
-            tool_budget.sync_out(consumed_single);
-            return Err(anyhow!(
-                "本会话单智能体工具调用轮次已达上限（{}）。请新开对话。",
-                max_cap
-            ));
+        match super::agent_round_lifecycle::check_loop_guards(&cancel, tool_budget) {
+            super::agent_round_lifecycle::LoopGuardOutcome::Continue => {}
+            super::agent_round_lifecycle::LoopGuardOutcome::Cancelled => {
+                tool_budget.sync_out(consumed_single);
+                return Err(anyhow!("已停止生成"));
+            }
+            super::agent_round_lifecycle::LoopGuardOutcome::BudgetExhausted => {
+                tool_budget.sync_out(consumed_single);
+                return Err(anyhow!(
+                    "本会话单智能体工具调用轮次已达上限（{}）。请新开对话。",
+                    max_cap
+                ));
+            }
         }
 
         let assistant_id = new_id("msg");
@@ -176,48 +178,37 @@ pub(super) async fn run_single_agent_loop(
             &assistant_msg,
         );
 
-        if lead_profile == AgentProfile::Computer {
-            state.computer_state.on_assistant_round_complete(
-                conversation_id,
-                assistant_msg.thoughts.as_deref(),
-                assistant_msg.tool_calls.as_deref(),
-            );
-
-            // Check whether the tier runtime signals that the task is exhausted.
-            if state
-                .computer_state
-                .should_give_up(conversation_id)
-            {
-                tool_budget.sync_out(consumed_single);
-                return Err(anyhow!(
-                    "当前任务已尽力但仍无法完成（重复操作达到 {} 次），请提供进一步指导。",
-                    crate::agents::computer::tier::GIVE_UP_THRESHOLD
-                ));
-            }
+        if let Err(err) = super::agent_round_lifecycle::computer_round_complete_or_give_up(
+            state.as_ref(),
+            conversation_id,
+            lead_profile.clone(),
+            assistant_msg.thoughts.as_deref(),
+            assistant_msg.tool_calls.as_deref(),
+            false,
+        ) {
+            tool_budget.sync_out(consumed_single);
+            return Err(err);
         }
 
-        let post_action = if buf.final_tool_calls.is_empty() {
-            super::single_agent_post_stream::decide_when_no_tool_calls(
-                &stream,
-                &state,
-                history,
-                settings,
-                provider,
-                conversation_id,
-                &cancel,
-                tool_budget,
-                consumed_single,
-                max_cap,
-                lead_scope.clone(),
-            )
-            .await?
-        } else {
-            super::single_agent_post_stream::decide_when_tool_calls_present(
-                state.tools.as_ref(),
-                &buf.final_tool_calls,
-            )
-            .await?
-        };
+        let budget_scope =
+            super::agent_post_stream::ToolBudgetExhaustionScope::lead_single(max_cap, lead_scope.clone());
+        let post_action = super::agent_round_lifecycle::resolve_post_assistant_action(
+            &stream,
+            state.as_ref(),
+            history,
+            settings,
+            provider,
+            conversation_id,
+            &cancel,
+            tool_budget,
+            Some(consumed_single),
+            max_cap,
+            &budget_scope,
+            state.tools.as_ref(),
+            &buf.final_tool_calls,
+            "lead",
+        )
+        .await?;
 
         match post_action {
             super::single_agent_post_stream::PostAssistantTurnAction::FinishRun => {
@@ -281,20 +272,18 @@ pub(super) async fn run_single_agent_loop(
             }
             super::single_agent_tools::ToolPassResult::RanTools => {}
         }
-        tool_budget.record_tool_cycle();
-        tool_budget.sync_out(consumed_single);
-        super::single_agent_post_stream::bail_on_tool_budget_exhausted(
+        super::agent_round_lifecycle::finish_tool_round_cycle(
             &stream,
-            &state,
+            state.as_ref(),
             history,
             settings,
             provider,
             conversation_id,
             &cancel,
             tool_budget,
-            consumed_single,
+            Some(consumed_single),
             max_cap,
-            lead_scope,
+            &budget_scope,
         )
         .await?;
     }

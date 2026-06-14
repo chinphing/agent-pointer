@@ -10,10 +10,10 @@ use crate::models::{effective_reasoning_in_messages, AgentTrace, ChatMessage, Ro
 use crate::provider::OpenAIProvider;
 
 use super::agent_post_stream::{
-    bail_on_tool_budget_exhausted, build_sub_assistant_message_after_stream,
-    decide_when_no_tool_calls, decide_when_tool_calls_present, push_sub_assistant_turn,
-    sub_agent_run_result, PostAssistantTurnAction, ToolBudgetExhaustionScope,
+    build_sub_assistant_message_after_stream, push_sub_assistant_turn, sub_agent_run_result,
+    PostAssistantTurnAction, ToolBudgetExhaustionScope,
 };
+use super::agent_round_lifecycle;
 use super::agent_tool_pass::{
     run_agent_tool_pass, SubToolPassConfig, ToolInvocationStats, ToolPassResult,
 };
@@ -94,27 +94,29 @@ pub(crate) async fn run_sub_agent(
     );
 
     loop {
-        if cancel.is_cancelled() {
-            state.computer_state.mark_cancelled(conversation_id);
-            let toast_msg = if def.profile == AgentProfile::Computer {
-                "计算机操作已取消"
-            } else {
-                "子 Agent 已停止"
-            };
-            let _ = stream.send(StreamEvent::UiToast {
-                conversation_id: conversation_id.to_string(),
-                message: toast_msg.to_string(),
-                level: "warning".to_string(),
-            });
-            return Err(anyhow!("已停止生成"));
-        }
-
-        if sub_tool_budget.remaining() == 0 {
-            state.computer_state.mark_cancelled(conversation_id);
-            return Err(anyhow!(
-                "子 Agent 工具调用轮次已达上限（{}）。请新开对话或在设置中调高上限。",
-                max_cap
-            ));
+        match agent_round_lifecycle::check_loop_guards(&cancel, sub_tool_budget) {
+            agent_round_lifecycle::LoopGuardOutcome::Continue => {}
+            agent_round_lifecycle::LoopGuardOutcome::Cancelled => {
+                state.computer_state.mark_cancelled(conversation_id);
+                let toast_msg = if def.profile == AgentProfile::Computer {
+                    "计算机操作已取消"
+                } else {
+                    "子 Agent 已停止"
+                };
+                let _ = stream.send(StreamEvent::UiToast {
+                    conversation_id: conversation_id.to_string(),
+                    message: toast_msg.to_string(),
+                    level: "warning".to_string(),
+                });
+                return Err(anyhow!("已停止生成"));
+            }
+            agent_round_lifecycle::LoopGuardOutcome::BudgetExhausted => {
+                state.computer_state.mark_cancelled(conversation_id);
+                return Err(anyhow!(
+                    "子 Agent 工具调用轮次已达上限（{}）。请新开对话或在设置中调高上限。",
+                    max_cap
+                ));
+            }
         }
 
         let round_message_id = new_id("agent_msg");
@@ -196,45 +198,35 @@ pub(crate) async fn run_sub_agent(
         );
         push_sub_assistant_turn(&mut local_history, assistant_msg);
 
-        if def.profile == AgentProfile::Computer {
-            let last_msg = local_history.last();
-            state.computer_state.on_assistant_round_complete(
-                conversation_id,
-                last_msg.and_then(|m| m.thoughts.as_deref()),
-                last_msg.and_then(|m| m.tool_calls.as_deref()),
-            );
-            if state.computer_state.should_give_up(conversation_id) {
-                state.computer_state.mark_cancelled(conversation_id);
-                return Err(anyhow!(
-                    "当前任务已尽力但仍无法完成（重复操作达到 {} 次），请提供进一步指导。",
-                    crate::agents::computer::tier::GIVE_UP_THRESHOLD
-                ));
-            }
+        let last_msg = local_history.last();
+        if let Err(err) = agent_round_lifecycle::computer_round_complete_or_give_up(
+            state,
+            conversation_id,
+            def.profile.clone(),
+            last_msg.and_then(|m| m.thoughts.as_deref()),
+            last_msg.and_then(|m| m.tool_calls.as_deref()),
+            true,
+        ) {
+            return Err(err);
         }
 
-        let post_action = if buf.final_tool_calls.is_empty() {
-            decide_when_no_tool_calls(
-                stream,
-                state,
-                &mut local_history,
-                &sub_provider.settings,
-                &sub_provider,
-                conversation_id,
-                &cancel,
-                sub_tool_budget,
-                None,
-                max_cap,
-                &budget_scope,
-            )
-            .await?
-        } else {
-            decide_when_tool_calls_present(
-                state.tools.as_ref(),
-                &buf.final_tool_calls,
-                "sub-agent",
-            )
-            .await?
-        };
+        let post_action = agent_round_lifecycle::resolve_post_assistant_action(
+            stream,
+            state,
+            &mut local_history,
+            &sub_provider.settings,
+            &sub_provider,
+            conversation_id,
+            &cancel,
+            sub_tool_budget,
+            None,
+            max_cap,
+            &budget_scope,
+            state.tools.as_ref(),
+            &buf.final_tool_calls,
+            "sub-agent",
+        )
+        .await?;
 
         match post_action {
             PostAssistantTurnAction::FinishRun => {
@@ -327,8 +319,7 @@ pub(crate) async fn run_sub_agent(
             ToolPassResult::RanTools => {}
         }
 
-        sub_tool_budget.record_tool_cycle();
-        bail_on_tool_budget_exhausted(
+        agent_round_lifecycle::finish_tool_round_cycle(
             stream,
             state,
             &mut local_history,

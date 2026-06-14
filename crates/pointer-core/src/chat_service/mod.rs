@@ -3,11 +3,12 @@
 //! Small helpers live in sibling modules; entrypoint `session::run_chat`, orchestration `session_inner`,
 //! single-agent `single_agent` (+ `_prompt` / `_stream` / `_post_stream` / `_tools` thin wrappers),
 //! sub-agent `sub_agent` (+ `_prompt` / `_stream`), supervisor `supervisor` (+ `_plan` / `_synth`),
-//! shared `agent_stream_round` / `agent_post_stream` / `agent_tool_pass` / `run_subagent_delegation`.
+//! shared `agent_stream_round` / `agent_post_stream` / `agent_round_lifecycle` / `agent_tool_pass` / `run_subagent_delegation`.
 
 mod computer_monitor_pick;
 mod conversation_persist;
 mod agent_post_stream;
+mod agent_round_lifecycle;
 mod agent_stream_round;
 mod agent_tool_pass;
 mod agent_tool_allowlist;

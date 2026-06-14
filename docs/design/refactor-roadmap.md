@@ -117,9 +117,9 @@ models/
 
 **步骤**
 
-- [ ] 先提取 `path.rs`
-- [ ] 逐个迁移 `execute_*_payload`
-- [ ] 保持 `register_all` 对外签名不变
+- [x] 先提取 `path.rs`
+- [x] 逐个迁移 `execute_*_payload`
+- [x] 保持 `register_all` 对外签名不变
 
 ---
 
@@ -131,9 +131,9 @@ models/
 
 **步骤**
 
-- [ ] 梳理 lead / sub / supervisor 三处差异点
-- [ ] 提取共享 stream → tool_pass 骨架
-- [ ] 保留 sub-agent `local_history` + `persist_transcript` 语义
+- [x] 梳理 lead / sub / supervisor 三处差异点（见 `agent_round_lifecycle.rs` 模块注释）
+- [x] 提取共享 stream → tool_pass 骨架（`check_loop_guards` / `resolve_post_assistant_action` / `finish_tool_round_cycle`）
+- [x] 保留 sub-agent `local_history` + `persist_transcript` 语义
 
 ---
 
@@ -163,6 +163,7 @@ models/
 |------|-----|------|
 | 2026-06-14 | P0 v1 | `chat/streamHandlers/*` 拆分 `handleEventInner` |
 | 2026-06-14 | P1 v1 | `agent_tool_pass/` 模块拆分 + dispatch 路由 |
+| 2026-06-14 | P2 v1 | `tools/file/` 模块拆分 + `agent_round_lifecycle` 共享循环阶段 |
 | 2026-06-14 | P1 v2 | `models/` 拆分（message / conversation / settings / stream_event / openai_convert） |
 | 2026-06-14 | P0 v2 | taskBoard / terminalLive / desktopNotice 模块 + vitest |
 | 2026-06-14 | 文档 | 创建本路线图 |

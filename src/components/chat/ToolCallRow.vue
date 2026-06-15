@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { marked } from 'marked'
+import { parseMarkdown } from '../../lib/markdownConfig'
 import {
   Wrench,
   ChevronDown,
@@ -18,17 +18,7 @@ import { truncateToolSummary } from '../../lib/toolCallDisplay'
 import { openExternalUrl } from '../../lib/openExternalUrl'
 import { useMarkdownExternalLinks } from '../../composables/useMarkdownExternalLinks'
 
-marked.setOptions({ breaks: true, gfm: true })
 
-marked.use({
-  renderer: {
-    table({ header, rows }) {
-      const h = header.map(c => '<th>' + marked.parseInline(c.text) + '</th>').join('')
-      const body = rows.map(r => '<tr>' + r.map(c => '<td>' + marked.parseInline(c.text) + '</td>').join('') + '</tr>').join('')
-      return '<div class="table-wrapper"><table><thead><tr>' + h + '</tr></thead><tbody>' + body + '</tbody></table></div>'
-    }
-  }
-})
 
 const props = defineProps<{
   toolCall: ToolCall
@@ -158,7 +148,7 @@ const webSearchAnswerRef = ref<HTMLElement | null>(null)
 const webSearchAnswerHtml = computed(() => {
   const text = webSearchOutput.value
   if (!text.trim() || effectiveStatus.value !== 'success') return ''
-  return marked.parse(text.replace(/(\|[^\n]*\|\s*\n)(?=[^\s|])/g, '$1\n')) as string
+  return parseMarkdown(text)
 })
 
 useMarkdownExternalLinks(webSearchAnswerRef, () => webSearchOutput.value)

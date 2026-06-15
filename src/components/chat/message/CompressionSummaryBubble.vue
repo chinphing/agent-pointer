@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { marked } from 'marked'
+import { parseMarkdown } from '../../../lib/markdownConfig'
 import { Archive, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
 import { compressionSummaryBody } from '../../../lib/compressionMessage'
@@ -13,23 +13,9 @@ const props = defineProps<{ message: ChatMessage }>()
 const expanded = ref(false)
 const bodyRef = ref<HTMLElement | null>(null)
 
-marked.setOptions({ breaks: true, gfm: true })
-
-marked.use({
-  renderer: {
-    table({ header, rows }) {
-      const h = header.map(c => '<th>' + marked.parseInline(c.text) + '</th>').join('')
-      const body = rows.map(r => '<tr>' + r.map(c => '<td>' + marked.parseInline(c.text) + '</td>').join('') + '</tr>').join('')
-      return '<div class="table-wrapper"><table><thead><tr>' + h + '</tr></thead><tbody>' + body + '</tbody></table></div>'
-    }
-  }
-})
-
 const summaryBody = computed(() => compressionSummaryBody(props.message.content))
 
-const html = computed(() =>
-  summaryBody.value ? (marked.parse(summaryBody.value.replace(/(\|[^\n]*\|\s*\n)(?=[^\s|])/g, '$1\n')) as string) : ''
-)
+const html = computed(() => parseMarkdown(summaryBody.value))
 
 useMarkdownCodeCopy(bodyRef, () => summaryBody.value)
 useMarkdownExternalLinks(bodyRef, () => summaryBody.value)

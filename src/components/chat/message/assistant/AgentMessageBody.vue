@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
-import { marked } from 'marked'
+import { parseMarkdown } from '../../../../lib/markdownConfig'
 import type { MessageStatus, ToolCall, ChatMessage } from '../../../../types/chat'
 import { useMarkdownCodeCopy } from '../../../../composables/useMarkdownCodeCopy'
 import { useMarkdownExternalLinks } from '../../../../composables/useMarkdownExternalLinks'
@@ -44,18 +44,6 @@ const props = defineProps<{
 
 const bodyRef = ref<HTMLElement | null>(null)
 
-marked.setOptions({ breaks: true, gfm: true })
-
-marked.use({
-  renderer: {
-    table({ header, rows }) {
-      const h = header.map(c => '<th>' + marked.parseInline(c.text) + '</th>').join('')
-      const body = rows.map(r => '<tr>' + r.map(c => '<td>' + marked.parseInline(c.text) + '</td>').join('') + '</tr>').join('')
-      return '<div class="table-wrapper"><table><thead><tr>' + h + '</tr></thead><tbody>' + body + '</tbody></table></div>'
-    }
-  }
-})
-
 const isStreaming = computed(() => isMessageStreaming(props.body.status))
 
 const hideStreamingJsonEnvelopeMarkdown = computed(
@@ -93,15 +81,10 @@ const markdownSource = computed(() => {
     raw = props.body.responseTextDraft ?? ''
   else raw = props.body.content ?? ''
   raw = stripOutboundMediaMarkers(raw)
-  // Fix: ensure tables are terminated with blank line (GFM requires blank line after table)
-  return raw.replace(/(\|[^\n]*\|\s*\n)(?=[^\s|])/g, '$1\n')
+  return raw
 })
 
-const html = computed(() => {
-  const src = markdownSource.value
-  if (!src.trim()) return ''
-  return marked.parse(src) as string
-})
+const html = computed(() => parseMarkdown(markdownSource.value))
 
 const showMdBody = computed(() => !!html.value)
 

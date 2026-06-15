@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { marked } from 'marked'
+import { parseMarkdown } from '../../../lib/markdownConfig'
 import { Clipboard, FileText, FolderOpen, User } from 'lucide-vue-next'
 import type { ChatMessage } from '../../../types/chat'
 import type { RenderableAttachment } from '../../../lib/messageNormalizer'
@@ -25,23 +25,9 @@ const bodyRef = ref<HTMLElement | null>(null)
 const loadedPreviews = ref<Record<string, string>>({})
 const previewInflight = new Set<string>()
 
-marked.setOptions({ breaks: true, gfm: true })
-
-marked.use({
-  renderer: {
-    table({ header, rows }) {
-      const h = header.map(c => '<th>' + marked.parseInline(c.text) + '</th>').join('')
-      const body = rows.map(r => '<tr>' + r.map(c => '<td>' + marked.parseInline(c.text) + '</td>').join('') + '</tr>').join('')
-      return '<div class="table-wrapper"><table><thead><tr>' + h + '</tr></thead><tbody>' + body + '</tbody></table></div>'
-    }
-  }
-})
-
 const displayContent = computed(() => userMessageDisplayContent(props.message))
 
-const html = computed(() =>
-  displayContent.value ? (marked.parse(displayContent.value.replace(/(\|[^\n]*\|\s*\n)(?=[^\s|])/g, '$1\n')) as string) : ''
-)
+const html = computed(() => parseMarkdown(displayContent.value))
 
 const attachments = computed(() => attachmentsForMessageRender(props.message))
 

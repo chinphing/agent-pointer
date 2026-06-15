@@ -106,6 +106,7 @@ pub(super) async fn execute_tool_invocation(
             conversation_id,
             tool_id,
             args_value,
+            &provider.settings.workspace_root,
             lead.as_deref(),
             sub.as_deref(),
         ),

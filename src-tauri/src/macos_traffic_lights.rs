@@ -119,6 +119,7 @@ pub fn set_compact_surface(ns_window: *mut std::ffi::c_void, compact: bool) {
             window.setBackgroundColor(Some(&NSColor::clearColor()));
             window.setHasShadow(true);
             apply_content_corner_radius(window, COMPACT_CORNER_RADIUS);
+            disable_window_background_drag(ns_window);
         } else {
             apply_content_corner_radius(window, 0.0);
             window.setOpaque(true);
@@ -155,13 +156,22 @@ pub fn set_window_geometry(
     }
 }
 
-/// Re-enable overlay title-bar dragging after compact frameless mode.
+/// Disable webview background drag; chrome strips use `startDragging()` only.
 pub fn enable_window_dragging(ns_window: *mut std::ffi::c_void) {
+    set_window_background_movable(ns_window, false);
+}
+
+/// Frameless compact bar: same as full UI — no background drag.
+pub fn disable_window_background_drag(ns_window: *mut std::ffi::c_void) {
+    set_window_background_movable(ns_window, false);
+}
+
+fn set_window_background_movable(ns_window: *mut std::ffi::c_void, movable: bool) {
     // SAFETY: pointer from `WebviewWindow::ns_window()` on the main thread.
     unsafe {
         use objc2::msg_send;
         use objc2_app_kit::NSWindow;
         let window = &*(ns_window.cast::<NSWindow>());
-        let _: () = msg_send![window, setMovableByWindowBackground: true];
+        let _: () = msg_send![window, setMovableByWindowBackground: movable];
     }
 }

@@ -3,8 +3,15 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import './styles/globals.css'
 import { applyThemeBootstrap } from './lib/theme'
+import { isTauriRuntime } from './lib/runtime'
+import { installWindowContentDragGuard } from './lib/installWindowContentDragGuard'
 
 applyThemeBootstrap()
+
+if (isTauriRuntime()) {
+  document.documentElement.classList.add('tauri-app')
+  installWindowContentDragGuard()
+}
 
 const app = createApp(App)
 app.use(createPinia())

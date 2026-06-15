@@ -101,6 +101,7 @@ pub(crate) fn repair_macos_overlay_chrome(win: &tauri::WebviewWindow<tauri::Wry>
         if let Ok(ns_window) = win_inset.ns_window() {
             macos_traffic_lights::apply_overlay_titlebar(ns_window);
             macos_traffic_lights::set_traffic_lights_visible(ns_window, true);
+            macos_traffic_lights::enable_window_dragging(ns_window);
             apply_macos_traffic_light_inset(&win_inset, label);
         }
     }) {

@@ -149,16 +149,24 @@ flowchart TB
 
 ---
 
-## 6. 前端布局落点
+## 6. 前端布局与拖拽分区（独立策略）
 
-| 场景 | 组件 / 类 |
-|------|-----------|
-| 侧栏展开，右侧收起按钮 | `AppShell.vue` → `.sidebar-chrome` + `.mac-chrome-row` |
-| 侧栏收起，全宽顶栏 | `.collapsed-top-chrome` + `.traffic-light-inset` + `.mac-chrome-row` |
-| 拖拽区 | `data-tauri-drag-region` + `globals.css` `.titlebar-drag` |
-| Windows/Linux 控件 | 主区域顶栏 `WindowControls`（与 macOS 红绿灯无关） |
+各 UI 区域用 `<WindowDragRegion region="…">` 包裹；**策略集中在** `src/lib/windowDragRegions.ts`，改某一区只改对应条目，不要在 `AppShell` 里散落 `data-tauri-drag-region` / `onChromeMouseDown`。
 
-`useWindowChrome().macTrafficLightPadding` 仅在 `detectDesktopOs() === 'macos'` 时为 true，控制是否加 `traffic-light-inset` / `mac-chrome-row`。
+| region id | 场景 | 可拖窗口 | macOS native drag |
+|-----------|------|----------|-------------------|
+| `sidebar-top-chrome` | 侧栏展开顶栏 (A) | ✅ | ✅ |
+| `main-top-chrome` | 主区顶栏 (D) | ✅ | ❌（`startDragging`） |
+| `collapsed-top-chrome` | 收起全宽顶栏 (H) | ✅ | ✅ |
+| `sidebar-body` | 侧栏内容（搜索 + 列表 + 底栏） | ❌ | ❌ |
+| `chat-body` | 聊天正文 (E) | ❌ | ❌ |
+| `compact-bar-shell` / `compact-bar-status` | 紧凑浮条 | 壳可拖 / 文案不可拖 | 壳 ✅ |
+
+实现链：`WindowDragRegion.vue` → `useWindowDragRegion.ts` → `startDragging()`；macOS 原生 `setMovableByWindowBackground(false)`；正文拦截见 `installWindowContentDragGuard.ts`。
+
+布局 class（与拖拽无关）：`.traffic-light-inset`、`.mac-chrome-row`、`.sidebar-chrome`、`.collapsed-top-chrome`、`.main-top-chrome`。
+
+`useWindowChrome().macTrafficLightPadding` 仅在 macOS 为 true，控制 `traffic-light-inset` / `mac-chrome-row`。
 
 ---
 
@@ -172,8 +180,10 @@ flowchart TB
 | `src-tauri/src/window_chrome_commands.rs` | 紧凑 chrome 切换、`reapply_window_chrome` command、紧凑态标志 |
 | `src/composables/useWindowChrome.ts` | 最大化状态、macOS 防抖 reapply |
 | `src/composables/useComputerCompactWindow.ts` | 紧凑窗口几何与恢复顺序 |
-| `src/components/layout/AppShell.vue` | 顶栏结构与 class 绑定 |
-| `src/styles/globals.css` | `.traffic-light-inset`、`.mac-chrome-row`、拖拽样式 |
+| `src/lib/windowDragRegions.ts` | **各区域拖拽策略表（改拖拽先改此文件）** |
+| `src/components/layout/WindowDragRegion.vue` | 按 region 应用策略的包裹组件 |
+| `src/composables/useWindowDragRegion.ts` | 区域 `mousedown` / 双击最大化 |
+| `src/components/layout/AppShell.vue` | 顶栏与内容分区结构（无内联拖拽逻辑） |
 | `src/lib/tauri.ts` | `reapplyWindowChrome` / `setComputerCompactChrome` invoke |
 
 ---
@@ -200,6 +210,12 @@ flowchart TB
 
 7. **macOS 使用 `decorations: false` 作为主界面常态**  
    系统红绿灯会消失；macOS 必须 `decorations: true` + Overlay（见 `visual-theme.md`）。
+
+8. **在 `AppShell` 内联改 `data-tauri-drag-region` / `onChromeMouseDown`**  
+   应改 `windowDragRegions.ts` 中对应 region，并用 `WindowDragRegion` 包裹。
+
+9. **混用 `app-content-no-drag` 在 `<aside>` 根上包裹侧栏顶栏**  
+   与 `.window-drag-region--native` 同优先级时会盖掉侧栏顶栏 drag；正文 no-drag 只加在顶栏以下的内容区。
 
 ---
 

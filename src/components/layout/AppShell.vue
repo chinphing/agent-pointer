@@ -14,6 +14,7 @@ import { useChatStore } from '../../stores/chat'
 import { useWindowChrome } from '../../composables/useWindowChrome'
 import { useSidebarCollapse } from '../../composables/useSidebarCollapse'
 import WindowControls from './WindowControls.vue'
+import WindowDragRegion from './WindowDragRegion.vue'
 
 defineEmits<{ (e: 'open-settings'): void }>()
 
@@ -27,8 +28,7 @@ const {
   macTrafficLightPadding,
   minimize,
   toggleMaximize,
-  close: closeWindow,
-  startDrag
+  close: closeWindow
 } = useWindowChrome()
 
 /** Windows / Linux: min/max/close on main top-right (or collapsed top strip). */
@@ -41,19 +41,6 @@ const windowControlsOnCollapsedTop = computed(
 const windowControlsOnMainTop = computed(
   () => useMainAreaWindowControls.value && !sidebarCollapsed.value
 )
-
-function onChromeMouseDown(e: MouseEvent) {
-  if (e.button !== 0) return
-  const target = e.target as HTMLElement | null
-  if (target?.closest('button, a, input, textarea, select, [data-tauri-drag-region="false"]')) return
-  void startDrag()
-}
-
-function onChromeDoubleClick(e: MouseEvent) {
-  const target = e.target as HTMLElement | null
-  if (target?.closest('button, a, input, textarea, select, [data-tauri-drag-region="false"]')) return
-  void toggleMaximize()
-}
 
 const searchQuery = ref('')
 
@@ -69,21 +56,19 @@ const filteredConversations = computed(() => {
 
 <template>
   <div class="h-full w-full flex flex-col min-h-0">
-    <!-- 收起：全宽顶栏，展开/新建在红绿灯右侧 -->
-    <div
+    <!-- H: 收起全宽顶栏 -->
+    <WindowDragRegion
       v-if="sidebarCollapsed"
+      region="collapsed-top-chrome"
       class="collapsed-top-chrome hidden md:flex shrink-0 items-center gap-1 pr-2 select-none bg-transparent"
       :class="chromeEnabled && macTrafficLightPadding
         ? 'traffic-light-inset mac-chrome-row'
         : 'h-10 pl-2'"
-      @mousedown="chromeEnabled ? onChromeMouseDown : undefined"
-      @dblclick="chromeEnabled ? onChromeDoubleClick : undefined"
     >
       <button
         type="button"
         class="chrome-icon-btn shrink-0"
         title="展开侧栏"
-        data-tauri-drag-region="false"
         @click="toggleSidebar"
       >
         <PanelLeftOpen class="w-4 h-4" />
@@ -92,7 +77,6 @@ const filteredConversations = computed(() => {
         type="button"
         class="chrome-icon-btn shrink-0"
         title="新建会话"
-        data-tauri-drag-region="false"
         @click="chat.newConversation()"
       >
         <Plus class="w-4 h-4" />
@@ -100,7 +84,6 @@ const filteredConversations = computed(() => {
       <div
         v-if="chromeEnabled"
         class="flex-1 min-w-0 h-full"
-        data-tauri-drag-region
       />
       <WindowControls
         v-if="windowControlsOnCollapsedTop"
@@ -110,26 +93,24 @@ const filteredConversations = computed(() => {
         @maximize="toggleMaximize"
         @close="closeWindow"
       />
-    </div>
+    </WindowDragRegion>
 
     <div class="flex flex-1 min-h-0">
       <aside
         class="app-sidebar hidden md:flex shrink-0 flex-col border-r border-border bg-card transition-[width] duration-200 ease-out overflow-hidden"
         :class="sidebarCollapsed ? 'w-0 border-r-0' : 'w-[260px]'"
       >
-        <!-- 展开：侧栏顶栏（拖拽 + 右侧收起） -->
-        <div
+        <!-- A: 侧栏顶栏 -->
+        <WindowDragRegion
           v-if="!sidebarCollapsed"
+          region="sidebar-top-chrome"
           class="sidebar-chrome shrink-0 flex items-center gap-1 pr-2 select-none bg-transparent"
           :class="chromeEnabled && macTrafficLightPadding ? 'mac-chrome-row' : 'h-10'"
-          @mousedown="chromeEnabled ? onChromeMouseDown : undefined"
-          @dblclick="chromeEnabled ? onChromeDoubleClick : undefined"
         >
           <div
             v-if="chromeEnabled"
             class="sidebar-chrome-drag flex-1 min-w-0 h-full"
             :class="macTrafficLightPadding ? 'traffic-light-inset' : 'pl-2'"
-            data-tauri-drag-region
           />
           <div
             v-else
@@ -145,14 +126,18 @@ const filteredConversations = computed(() => {
             type="button"
             class="chrome-icon-btn shrink-0"
             title="收起侧栏"
-            data-tauri-drag-region="false"
             @click="toggleSidebar"
           >
             <PanelLeftClose class="w-4 h-4" />
           </button>
-        </div>
+        </WindowDragRegion>
 
-        <template v-if="!sidebarCollapsed">
+        <WindowDragRegion
+          v-if="!sidebarCollapsed"
+          region="sidebar-body"
+          class="flex flex-1 flex-col min-h-0 min-w-0"
+        >
+          <!-- B: 搜索区 -->
           <div class="px-3 py-2 shrink-0">
             <div class="flex items-center gap-2">
               <div class="flex-1 flex items-center gap-2 h-9 px-3 rounded-lg panel-elevated min-w-0">
@@ -174,6 +159,7 @@ const filteredConversations = computed(() => {
             </div>
           </div>
 
+          <!-- C: 会话列表 -->
           <div class="flex-1 overflow-y-auto px-2 pb-3 space-y-1 min-h-0">
             <div
               v-for="c in filteredConversations"
@@ -204,38 +190,29 @@ const filteredConversations = computed(() => {
               没有找到匹配的会话
             </div>
           </div>
-        </template>
 
-        <template v-else>
-          <div class="flex-1 min-h-0" />
-        </template>
-
-        <div
-          v-if="!sidebarCollapsed"
-          class="p-2 border-t border-border flex shrink-0 items-center gap-1"
-        >
-          <button
-            class="chrome-icon-btn"
-            title="设置"
-            @click="$emit('open-settings')"
-          >
-            <Settings class="w-4 h-4" />
-          </button>
-        </div>
+          <!-- F: 侧栏底栏 -->
+          <div class="p-2 border-t border-border flex shrink-0 items-center gap-1">
+            <button
+              class="chrome-icon-btn"
+              title="设置"
+              @click="$emit('open-settings')"
+            >
+              <Settings class="w-4 h-4" />
+            </button>
+          </div>
+        </WindowDragRegion>
       </aside>
 
       <div class="flex-1 min-w-0 flex flex-col">
-        <div
+        <!-- D: 主区顶栏 -->
+        <WindowDragRegion
           v-if="chromeEnabled && !sidebarCollapsed"
-          class="hidden md:flex shrink-0 items-stretch select-none"
+          region="main-top-chrome"
+          class="main-top-chrome hidden md:flex shrink-0 items-stretch select-none min-h-10"
           :class="macTrafficLightPadding ? 'mac-chrome-row' : 'h-10'"
-          @mousedown="onChromeMouseDown"
-          @dblclick="onChromeDoubleClick"
         >
-          <div
-            class="main-chrome-drag flex-1 min-w-0 h-full"
-            data-tauri-drag-region
-          />
+          <div class="main-chrome-drag flex-1 min-w-0 h-full min-h-10" />
           <WindowControls
             v-if="windowControlsOnMainTop"
             class="window-controls-win"
@@ -244,10 +221,12 @@ const filteredConversations = computed(() => {
             @maximize="toggleMaximize"
             @close="closeWindow"
           />
-        </div>
-        <main class="flex-1 min-h-0 flex flex-col">
+        </WindowDragRegion>
+
+        <!-- E: 聊天正文 -->
+        <WindowDragRegion region="chat-body" as="main" class="flex-1 min-h-0 flex flex-col">
           <slot />
-        </main>
+        </WindowDragRegion>
       </div>
     </div>
   </div>

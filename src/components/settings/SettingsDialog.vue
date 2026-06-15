@@ -227,7 +227,7 @@ async function saveFromFooter() {
         </aside>
 
         <!-- Main Content -->
-        <main class="flex-1 overflow-y-auto">
+        <main class="app-content-no-drag flex-1 overflow-y-auto" data-tauri-drag-region="false">
           <p
             v-if="platformReadOnly && activeSection !== 'account' && activeSection !== 'runtime'"
             class="mx-6 mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-muted"

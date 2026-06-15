@@ -5,6 +5,13 @@ import { isTauriRuntime } from '../lib/runtime'
 
 const MACOS_CHROME_REPAIR_DEBOUNCE_MS = 400
 
+let dragWindow: import('@tauri-apps/api/window').Window | null = null
+if (isTauriRuntime()) {
+  void import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+    dragWindow = getCurrentWindow()
+  })
+}
+
 export type { DesktopOs }
 
 /** Native traffic lights (macOS overlay); custom buttons on Windows/Linux. */
@@ -39,6 +46,7 @@ export function useWindowChrome() {
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window')
       const win = getCurrentWindow()
+      dragWindow = win
       maximized.value = await win.isMaximized()
       unlistenResize = await win.onResized(async () => {
         maximized.value = await win.isMaximized()
@@ -82,9 +90,27 @@ export function useWindowChrome() {
     await runWindowAction('close', () => getCurrentWindow().close())
   }
 
-  async function startDrag() {
-    const { getCurrentWindow } = await import('@tauri-apps/api/window')
-    await runWindowAction('startDragging', () => getCurrentWindow().startDragging())
+  /** Must run synchronously during mousedown (macOS rejects late async calls). */
+  function startDrag() {
+    if (!enabled) return
+    try {
+      if (dragWindow) {
+        void dragWindow.startDragging().catch(e => {
+          console.error('[window-chrome] startDragging failed', e)
+        })
+        return
+      }
+      void import('@tauri-apps/api/window')
+        .then(({ getCurrentWindow }) => {
+          dragWindow = getCurrentWindow()
+          return dragWindow.startDragging()
+        })
+        .catch(e => {
+          console.error('[window-chrome] startDragging failed', e)
+        })
+    } catch (e) {
+      console.error('[window-chrome] startDragging failed', e)
+    }
   }
 
   return {

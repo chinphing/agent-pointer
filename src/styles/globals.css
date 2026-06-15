@@ -84,13 +84,9 @@
   .glass-strong {
     @apply bg-[hsl(var(--card-elevated))] border border-border;
   }
-  .sidebar-chrome-drag,
-  .main-chrome-drag,
-  .titlebar,
-  .titlebar-drag,
-  .titlebar-brand {
-    -webkit-app-region: drag;
-    app-region: drag;
+  .app-content-no-drag {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
   }
   .traffic-light-inset {
     padding-left: 4.75rem; /* macOS overlay traffic lights */
@@ -356,3 +352,23 @@
 .md-body table { @apply my-3 border-collapse w-full table-auto; }
 .md-body th, .md-body td { @apply border border-border px-3 py-1.5 break-words; }
 .md-body .table-wrapper { @apply overflow-x-auto max-w-full; }
+
+/* Tauri: no webkit drag regions — window move only via startDragging() on .window-drag-region */
+html.tauri-app .window-no-drag-region,
+html.tauri-app .window-no-drag-region *,
+html.tauri-app [data-tauri-drag-region='false'],
+html.tauri-app [data-tauri-drag-region='false'] * {
+  -webkit-app-region: no-drag !important;
+  app-region: no-drag !important;
+}
+html.tauri-app .window-drag-region .chrome-icon-btn,
+html.tauri-app .window-drag-region button,
+html.tauri-app .window-drag-region a,
+html.tauri-app .window-drag-region input,
+html.tauri-app .window-drag-region textarea,
+html.tauri-app .window-drag-region select,
+html.tauri-app .window-controls,
+html.tauri-app .window-controls-btn {
+  -webkit-app-region: no-drag !important;
+  app-region: no-drag !important;
+}

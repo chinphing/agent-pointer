@@ -140,27 +140,6 @@ pub fn merge_platform_preferences(incoming: &ModelSettings, existing: &PlatformS
     next.computer_tier_llm = existing.computer_tier_llm.clone();
     // Per-agent/per-mode LLM config: start with existing then overlay incoming
     // on top so that incoming values always take priority.
-    log::info!(
-        "merge_platform_preferences: incoming.agent_mode_llm keys={:?} existing.agent_mode_llm keys={:?}",
-        incoming.agent_mode_llm.keys().collect::<Vec<_>>(),
-        existing.agent_mode_llm.keys().collect::<Vec<_>>()
-    );
-    for (agent_id, modes) in &incoming.agent_mode_llm {
-        for (mode, config) in modes {
-            log::info!(
-                "merge_platform_preferences: incoming agent={} mode={} model={}",
-                agent_id, mode, config.model
-            );
-        }
-    }
-    for (agent_id, modes) in &existing.agent_mode_llm {
-        for (mode, config) in modes {
-            log::info!(
-                "merge_platform_preferences: existing agent={} mode={} model={}",
-                agent_id, mode, config.model
-            );
-        }
-    }
     {
         let mut merged = existing.agent_mode_llm.clone();
         for (agent_id, modes) in &next.agent_mode_llm {

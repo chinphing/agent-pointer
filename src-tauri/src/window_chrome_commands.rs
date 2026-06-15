@@ -80,7 +80,7 @@ pub async fn begin_computer_compact_window(window: WebviewWindow) -> Result<(), 
     };
     saved.maximized = maximized;
 
-    log::info!(
+    log::debug!(
         "begin_computer_compact_window: saved logical_inner={}x{} logical_pos=({},{}) maximized={}",
         saved.logical_inner_width,
         saved.logical_inner_height,
@@ -107,7 +107,7 @@ pub async fn restore_computer_compact_window(window: WebviewWindow) -> Result<()
         .take()
         .ok_or_else(|| "restore_computer_compact_window: no saved window state".to_string())?;
 
-    log::info!(
+    log::debug!(
         "restore_computer_compact_window: target logical_inner={}x{} logical_pos=({},{}) maximized={}",
         saved.logical_inner_width,
         saved.logical_inner_height,
@@ -124,7 +124,7 @@ pub async fn restore_computer_compact_window(window: WebviewWindow) -> Result<()
     #[cfg(not(target_os = "macos"))]
     restore_compact_window_other(&window, &saved).await?;
 
-    log::info!(
+    log::debug!(
         "restore_computer_compact_window: done outer={:?} inner={:?}",
         window.outer_size(),
         window.inner_size()
@@ -383,7 +383,7 @@ pub async fn place_computer_compact_window(
         apply_logical_position(&window, x, y)?;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         apply_logical_position(&window, x, y)?;
-        log::info!(
+        log::debug!(
             "computer compact window placed (linux): logical={width}x{height} at ({x},{y}) scale={scale}"
         );
     }
@@ -408,7 +408,7 @@ pub async fn place_computer_compact_window(
             .set_position(Position::Physical(PhysicalPosition::new(x, y)))
             .map_err(|e| format!("set_position: {e}"))?;
 
-        log::info!(
+        log::debug!(
             "computer compact window placed: logical={width}x{height} physical=({x},{y}) scale={scale}"
         );
     }

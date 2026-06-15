@@ -46,6 +46,16 @@ const bodyRef = ref<HTMLElement | null>(null)
 
 marked.setOptions({ breaks: true, gfm: true })
 
+marked.use({
+  renderer: {
+    table({ header, rows }) {
+      const h = header.map(c => '<th>' + marked.parseInline(c.text) + '</th>').join('')
+      const body = rows.map(r => '<tr>' + r.map(c => '<td>' + marked.parseInline(c.text) + '</td>').join('') + '</tr>').join('')
+      return '<div class="table-wrapper"><table><thead><tr>' + h + '</tr></thead><tbody>' + body + '</tbody></table></div>'
+    }
+  }
+})
+
 const isStreaming = computed(() => isMessageStreaming(props.body.status))
 
 const hideStreamingJsonEnvelopeMarkdown = computed(
@@ -82,7 +92,9 @@ const markdownSource = computed(() => {
   else if (hideStreamingJsonEnvelopeMarkdown.value || isStreamingResponseDraft.value)
     raw = props.body.responseTextDraft ?? ''
   else raw = props.body.content ?? ''
-  return stripOutboundMediaMarkers(raw)
+  raw = stripOutboundMediaMarkers(raw)
+  // Fix: ensure tables are terminated with blank line (GFM requires blank line after table)
+  return raw.replace(/(\|[^\n]*\|\s*\n)(?=[^\s|])/g, '$1\n')
 })
 
 const html = computed(() => {

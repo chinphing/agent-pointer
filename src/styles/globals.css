@@ -353,5 +353,6 @@
   margin-bottom: 0 !important;
 }
 .md-body a { color: hsl(var(--accent)); @apply underline underline-offset-2 cursor-pointer; }
-.md-body table { @apply my-3 border-collapse overflow-x-auto block max-w-full; }
-.md-body th, .md-body td { @apply border border-border px-3 py-1.5; }
+.md-body table { @apply my-3 border-collapse w-full table-auto; }
+.md-body th, .md-body td { @apply border border-border px-3 py-1.5 break-words; }
+.md-body .table-wrapper { @apply overflow-x-auto max-w-full; }

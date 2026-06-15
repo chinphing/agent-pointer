@@ -113,12 +113,15 @@ function createSettingsDialogForm(deps: {
   }
 
   function patchAgentModeLlm(agentId: string, mode: PerformanceModeKey, patch: Partial<ComputerTierLlmConfig>) {
+  const before = s.platformSettings.agentModeLlm?.[agentId]?.[mode]?.model ?? '(none)'
   const next = { ...(s.platformSettings.agentModeLlm ?? {}) }
   const agentMap = { ...(next[agentId] ?? {}) }
   const prev = agentMap[mode] ?? agentModeLlm(agentId, mode)
   agentMap[mode] = { ...prev, ...patch }
   next[agentId] = agentMap
   s.platformSettings.agentModeLlm = next
+  const after = s.platformSettings.agentModeLlm?.[agentId]?.[mode]?.model ?? '(none)'
+  console.log('[form] patchAgentModeLlm done', agentId, mode, `before=${before} after=${after}`)
   }
 
   function agentModeLlm(agentId: string, mode: PerformanceModeKey): ComputerTierLlmConfig {
@@ -205,6 +208,7 @@ function createSettingsDialogForm(deps: {
   const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
   const computerHumanLike = ref(false)
   const computerAutoCompact = ref(true)
+  const userCodingRules = ref('')
   const computerInitialTier = ref<ComputerInitialTier>('intermediate')
   const computerAnnotatedScreenViewEnabled = ref(false)
   const captchaSliderOffsetPx = ref(0)
@@ -398,6 +402,7 @@ function createSettingsDialogForm(deps: {
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true
   computerAutoCompact.value = s.userSettings.computerAutoCompact !== false
+  userCodingRules.value = s.userSettings.userCodingRules ?? ''
   computerInitialTier.value = s.settings.computerInitialTier ?? 'intermediate'
   computerAnnotatedScreenViewEnabled.value = s.settings.computerAnnotatedScreenViewEnabled === true
   captchaSliderOffsetPx.value = Number(s.settings.captchaSliderOffsetPx ?? 0) || 0
@@ -534,11 +539,11 @@ function createSettingsDialogForm(deps: {
   }
 
   function selectAgentModeModel(agentId: string, mode: PerformanceModeKey, model: string) {
+  console.log('[form] selectAgentModeModel', agentId, mode, model)
   const item = s.allModels.find(m => m.model === model)
-  patchAgentModeLlm(agentId, mode, {
-    model,
-    providerId: item?.providerId ?? agentModeLlm(agentId, mode).providerId
-  })
+  const providerId = item?.providerId ?? agentModeLlm(agentId, mode).providerId
+  console.log('[form] patchAgentModeLlm with', { agentId, mode, model, providerId })
+  patchAgentModeLlm(agentId, mode, { model, providerId })
   }
 
   function selectMediaModeModel(kind: MediaDebugKind, mode: PerformanceModeKey, model: string) {
@@ -661,6 +666,7 @@ function createSettingsDialogForm(deps: {
   function getAssistantSavePayload() {
   return {
     computerAutoCompact: computerAutoCompact.value,
+    userCodingRules: userCodingRules.value.trim(),
     toolApprovalMode: toolApprovalMode.value,
     computerHumanLike: computerHumanLike.value,
     computerInitialTier: computerInitialTier.value,
@@ -676,6 +682,12 @@ function createSettingsDialogForm(deps: {
   }
 
   function getDebugSessionSavePayload() {
+  console.log('[form] getDebugSessionSavePayload: platformSettings.agentModeLlm keys=', Object.keys(s.platformSettings.agentModeLlm ?? {}))
+  for (const [aid, modes] of Object.entries(s.platformSettings.agentModeLlm ?? {})) {
+    for (const [m, cfg] of Object.entries(modes)) {
+      console.log('[form] savePayload agentModeLlm', aid, m, (cfg as ComputerTierLlmConfig).model)
+    }
+  }
   return {
     agentMode: agentMode.value,
     leadAgentId: agentMode.value === 'supervisor' ? '' : leadAgentId.value,
@@ -726,6 +738,7 @@ function createSettingsDialogForm(deps: {
     agentTaskBoardHistoryTrim,
     computerHumanLike,
     computerAutoCompact,
+    userCodingRules,
     computerInitialTier,
     computerAnnotatedScreenViewEnabled,
     captchaSliderOffsetPx,

@@ -1,0 +1,26 @@
+## Scope gate (before Change)
+
+Default product policy for **scope creep** — bundling **related** work the user did **not** request.
+
+Higher-priority layers (**conversation**, **`[USER RULES]`**, future **`[PROJECT RULES]`** / **`[SESSION SCOPE]`**) override this section when they conflict. See **Instruction priority** in general rules.
+
+### Scope contract (mandatory before first edit)
+
+Before the **first** behavior-changing **`file_edit`** / **`file_write`**, fix internally (complex tasks: **`task_board`** Implement **`plan`**):
+
+1. **Success looks like** — one observable outcome the user can verify.
+2. **In scope** — layers, files, and behavior you **will** change this turn.
+3. **Out of scope** — related gaps you **will not** change this turn.
+
+If (1)–(3) need product guesses → **G1** in **Routine workflow** **before** editing.
+
+**Hard rule:** every edit must trace to **In scope**. **Related ≠ requested.**
+
+### Mid-task and discipline
+
+- Related gap found → finish **In scope** only; **Optional follow-up** in **Deliver** (no bundled code).
+- Gap **blocks** in-scope success → **G1** once; edit only what the user confirms.
+- **One hypothesis** per coherent edit batch; **no drive-by** refactors or parity sweeps.
+- Diff grows beyond **In scope** → pause, revert out-of-scope edits, or re-contract (G1).
+
+Full delegation tables and explore handoff rules: **Delegating to the `explore` worker**.

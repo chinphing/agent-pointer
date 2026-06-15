@@ -122,7 +122,10 @@ async function saveFromFooter() {
       await channelPanelRef.value?.save()
     } else if (activeSection.value === 'assistant') {
       const payload = getAssistantSavePayload()
-      await s.saveUser({ computerAutoCompact: payload.computerAutoCompact })
+      await s.saveUser({
+        computerAutoCompact: payload.computerAutoCompact,
+        userCodingRules: payload.userCodingRules
+      })
       await s.saveAgentPreferences({ ...payload, theme: s.settings.theme })
     } else {
       if (providerPanelRef.value?.hasUnsavedEdits() && !providerPanelRef.value.flushEditingProviderToStore()) {

@@ -29,6 +29,7 @@
 | | 4 | **工具系统附录** | `generate_tools_system_appendix` | 工具集不变则固定；同一 `ToolEntry::doc_source`（提示词 `.md` 路径）只输出一次 |
 | | 5 | **`[Environment]`**（OS、locale、**日历日期**） | `push_env_to_cacheable` | 按自然日变，**非每轮** |
 | | 6 | **`[MEMORY]` / `[USER PROFILE]`**（跨会话 frozen snapshot） | `memory::push_memory_to_cacheable` | 会话内冻结；**压缩成功后 reload** |
+| | 7 | **`[USER RULES]`**（用户编码偏好，`userCodingRules`） | `user_rules::push_user_coding_rules_to_cacheable` | 用户改 settings 后下一会话生效 |
 | **dynamic** | 6 | **`[LOCKED GOAL]`**（Computer 有锁时） | `before_main_llm_call` 钩子 → `system_prompts_dynamic` | **每轮可能变** |
 
 **组装时机**

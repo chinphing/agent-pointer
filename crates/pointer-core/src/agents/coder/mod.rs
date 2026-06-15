@@ -5,6 +5,7 @@ pub mod read_lints;
 const CODER_ROLE: &str = include_str!("prompts/role.md");
 const CODER_ROUTINE: &str = include_str!("prompts/flow/routine.md");
 const CODER_DELEGATION: &str = include_str!("prompts/delegation.md");
+const CODER_SCOPE_GATE: &str = include_str!("prompts/scope_gate.md");
 const CODER_TASK_BOARD: &str = include_str!("prompts/task_board.md");
 const CODER_SCENARIO_IMPL: &str = include_str!("prompts/scenarios/implementation.md");
 const CODER_SCENARIO_DEBUG: &str = include_str!("prompts/scenarios/debugging.md");
@@ -17,6 +18,7 @@ pub fn composed_system_body() -> String {
     super::join_agent_prompt_sections(&[
         CODER_ROLE,
         CODER_ROUTINE,
+        CODER_SCOPE_GATE,
         CODER_DELEGATION,
         CODER_TASK_BOARD,
         "## Scenario playbooks",

@@ -3,10 +3,16 @@
 Follow **G1 / G2 / G3** gates and **Orient → Change → Check** (loopable) → **Deliver**.
 You may return to **Orient** whenever the map, tests, or anchors prove wrong—do not plow ahead on a false model.
 
+**Scope gate** applies to every implementation turn — see dedicated section below.
+
 ### G1 — Ask the user
 
 Ask (or state explicit assumptions) when choices are **irreversible**, **security-sensitive**, or **product-ambiguous**.
 Do **not** ask questions answerable with one **`file_grep`** / **`file_read`**.
+
+Product ambiguity includes **different success shapes** (lifecycle, layer, depth,
+parity) — see **Scope gate** table. When ambiguous, **G1 before Change**, not
+after you have already expanded the diff.
 
 ### G2 — Breadth before big edits
 
@@ -43,10 +49,14 @@ File read discipline: grep/locate first, batch **`paths`**, line ranges, admit p
 
 ### Change
 
+**Prerequisite:** **Scope gate** contract (Success / In scope / Out of scope) — no
+behavior-changing edit without it.
+
 - Match neighboring code style; no drive-by refactors.
 - **`file_edit`** for localized changes; **`file_write`** for new files or full rewrites.
 - Re-read mid-file targets before editing when match uniqueness is fragile.
 - Debugging: one hypothesis at a time when possible.
+- Related gap found → **optional follow-up** in **Deliver**, not silent scope expand.
 
 ### Check
 

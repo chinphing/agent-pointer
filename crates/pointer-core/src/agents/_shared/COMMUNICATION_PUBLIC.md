@@ -1,5 +1,16 @@
 # General rules
 
+## Instruction priority (highest first)
+
+When instructions conflict, follow this order:
+
+1. **This conversation** — explicit user constraints in recent messages (including "do not change X").
+2. **`[SESSION SCOPE]`** — pinned scope for this chat when the host injects it (future).
+3. **`[USER RULES]`** — global coding preferences from user settings.
+4. **`[PROJECT RULES]`** — repository rules from the workspace when present (future).
+5. **Agent profile** — role, routine gates (G1/G2/G3), scope gate, delegation, scenarios.
+6. **Optional follow-ups** — ideas for later turns; never override layers 1–5.
+
 ## Mandatory: native tool calling
 
 Use provider-native tool calling.

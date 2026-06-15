@@ -1271,6 +1271,19 @@ mod builtin_agent_tests {
     }
 
     #[test]
+    fn communication_public_includes_instruction_priority() {
+        let s = rendered_communication_public_inject().expect("public comm");
+        assert!(
+            s.contains("Instruction priority"),
+            "COMMUNICATION_PUBLIC should define instruction priority stack"
+        );
+        assert!(
+            s.contains("[USER RULES]"),
+            "COMMUNICATION_PUBLIC priority stack should mention USER RULES"
+        );
+    }
+
+    #[test]
     fn coder_builtin_composed_prompt_anchors() {
         let raw = include_str!("coder/AGENT.md");
         let comm = include_str!("coder/COMMUNICATION.md");
@@ -1287,6 +1300,14 @@ mod builtin_agent_tests {
         assert!(
             prompt.contains("G3"),
             "coder should include G3 gate"
+        );
+        assert!(
+            prompt.contains("Scope gate"),
+            "coder should include scope gate section"
+        );
+        assert!(
+            prompt.contains("Related ≠ requested"),
+            "coder should include related-vs-requested rule"
         );
         assert!(
             prompt.contains("When to delegate"),

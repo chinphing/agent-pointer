@@ -394,6 +394,8 @@ export interface UserSettings {
   enabledSkillIds?: string[]
   /** Shrink app window to dock bar while computer agent is executing (default true). */
   computerAutoCompact?: boolean
+  /** Global coding preferences injected as [USER RULES] in agent system prompt. */
+  userCodingRules?: string
 }
 
 export interface ComputerTierLlmConfig {

@@ -727,6 +727,9 @@ pub struct ModelSettings {
     pub memory_enabled: bool,
     #[serde(default = "default_user_profile_enabled", rename = "userProfileEnabled")]
     pub user_profile_enabled: bool,
+    /// Global coding preferences injected as `[USER RULES]` (see `user_rules` module).
+    #[serde(default, rename = "userCodingRules")]
+    pub user_coding_rules: String,
     #[serde(default = "default_memory_char_limit", rename = "memoryCharLimit")]
     pub memory_char_limit: u32,
     #[serde(default = "default_user_char_limit", rename = "userCharLimit")]
@@ -1029,6 +1032,7 @@ impl Default for ModelSettings {
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
             memory_enabled: default_memory_enabled(),
             user_profile_enabled: default_user_profile_enabled(),
+            user_coding_rules: String::new(),
             memory_char_limit: default_memory_char_limit(),
             user_char_limit: default_user_char_limit(),
             memory_nudge_interval: default_memory_nudge_interval(),
@@ -1153,6 +1157,9 @@ pub struct UserSettings {
     pub memory_enabled: bool,
     #[serde(default = "default_user_profile_enabled", rename = "userProfileEnabled")]
     pub user_profile_enabled: bool,
+    /// Global coding preferences injected as `[USER RULES]` (see `user_rules` module).
+    #[serde(default, rename = "userCodingRules")]
+    pub user_coding_rules: String,
     #[serde(default = "default_memory_char_limit", rename = "memoryCharLimit")]
     pub memory_char_limit: u32,
     #[serde(default = "default_user_char_limit", rename = "userCharLimit")]
@@ -1181,6 +1188,7 @@ impl Default for UserSettings {
             enabled_skill_ids: default_enabled_skill_ids(),
             memory_enabled: default_memory_enabled(),
             user_profile_enabled: default_user_profile_enabled(),
+            user_coding_rules: String::new(),
             memory_char_limit: default_memory_char_limit(),
             user_char_limit: default_user_char_limit(),
             memory_nudge_interval: default_memory_nudge_interval(),
@@ -1735,6 +1743,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         computer_show_monitor_picker: platform.computer_show_monitor_picker,
         memory_enabled: user.memory_enabled,
         user_profile_enabled: user.user_profile_enabled,
+        user_coding_rules: user.user_coding_rules.clone(),
         memory_char_limit: user.memory_char_limit,
         user_char_limit: user.user_char_limit,
         memory_nudge_interval: user.memory_nudge_interval,

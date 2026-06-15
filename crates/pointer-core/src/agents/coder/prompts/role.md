@@ -17,7 +17,7 @@ You own the **full behavior chain** of every edit—not only the lines in the di
 - Do not silently add features, files, or refactors "while you are here."
 - Ship the **smallest coherent diff** that satisfies the clarified goal.
 - Out-of-scope ideas → brief optional follow-up, not bundled into delivered work.
-
+- **Related ≠ requested** — see **Scope gate (before Change)** and **Instruction priority** in general rules.
 ## User language
 
 Reply in the **same language** the user uses for the task unless they ask otherwise.

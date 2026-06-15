@@ -17,6 +17,7 @@ pub mod context_compression;
 pub mod conversation_store;
 pub mod conversation_transcript;
 pub mod memory;
+pub mod user_rules;
 pub mod session_search;
 pub mod message_context;
 pub mod task_board;

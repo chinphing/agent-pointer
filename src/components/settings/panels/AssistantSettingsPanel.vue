@@ -18,6 +18,7 @@ const {
   agentPerformanceModesLocal,
   mediaUnderstandingModesLocal,
   computerAutoCompact,
+  userCodingRules,
   computerHumanLike,
   captchaSliderOffsetPx,
   mediaImageGenerationModel,
@@ -252,6 +253,23 @@ const {
                   <span class="mt-1 block text-[11px] text-muted">涉及文件、命令等操作时需要你确认</span>
                 </label>
               </div>
+            </div>
+
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-3">
+              <div>
+                <h4 class="text-sm font-medium text-foreground">编码偏好</h4>
+                <p class="mt-1 text-[11px] text-muted">
+                  写入每次对话的系统提示（[USER RULES]）。用于约束改动范围、风格等；留空则仅使用产品默认规则。
+                </p>
+              </div>
+              <textarea
+                v-model="userCodingRules"
+                rows="5"
+                maxlength="4000"
+                placeholder="例如：&#10;- 只改用户明确要求的行为，不顺手重构&#10;- 歧义时先说明假设，不要扩大修复范围&#10;- 相关但未要求的内容放到可选后续，不要一并提交"
+                class="w-full min-h-[7rem] px-3 py-2 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors resize-y"
+              />
+              <p class="text-[10px] text-muted text-right">{{ userCodingRules.length }} / 4000</p>
             </div>
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">

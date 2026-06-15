@@ -19,7 +19,8 @@ Initialize when expected scope is **≥2 files** or **cross-module**. If scope e
 ### Recommended rows (3–6)
 
 1. **Recon** — explore delegation or lite grep; **`validate_results`** = explore Summary one-liner + key paths (not full handoff).
-2. **Implement** — actual edits; **`done`** needs diff scope note.
+2. **Implement** — actual edits; **`done`** needs diff scope note and must match
+   **In scope** from **Scope gate** (no bundled follow-ups).
 3. **Unit tests** — command + pass/fail.
 4. **(Optional) Integration** — cross-module or CI-sensitive only.
 5. **(Optional) Deliver prep** — audit passed; often same turn as finalize.

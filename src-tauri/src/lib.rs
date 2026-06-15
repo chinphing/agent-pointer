@@ -400,6 +400,8 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             macos_permission_commands::dismiss_macos_permission_drag_guide,
             window_chrome_commands::set_computer_compact_chrome,
+            window_chrome_commands::begin_computer_compact_window,
+            window_chrome_commands::restore_computer_compact_window,
             window_chrome_commands::reapply_window_chrome,
             window_chrome_commands::place_computer_compact_window,
         ])

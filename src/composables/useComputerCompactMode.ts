@@ -87,12 +87,13 @@ export function useComputerCompactMode() {
 
   watch(generating, (g, wasGenerating) => {
     if (g) return
-    userExpandedOverride.value = false
     stoppedHint.value = false
     if (stoppedTimer) {
       clearTimeout(stoppedTimer)
       stoppedTimer = undefined
     }
+    // Manual expand override applies only for the current generation turn.
+    userExpandedOverride.value = false
     if (wasGenerating && isCompact.value) {
       void applyCompact(false)
     }

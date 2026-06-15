@@ -83,6 +83,8 @@ export interface RuntimeApi {
   checkMediaDeps(): Promise<MediaDepsStatus>
   listComputerMonitors(): Promise<ComputerMonitor[]>
   setComputerCompactChrome(compact: boolean): Promise<void>
+  beginComputerCompactWindow(): Promise<void>
+  restoreComputerCompactWindowNative(): Promise<void>
   placeComputerCompactWindow(width: number, height: number, margin: number): Promise<void>
   reapplyWindowChrome(): Promise<void>
   setComputerConversationMonitor(conversationId: string, monitorId: string | null): Promise<void>
@@ -140,6 +142,8 @@ export const openChatMedia = api.openChatMedia
 export const readLocalFileForAttachment = api.readLocalFileForAttachment
 export const listComputerMonitors = api.listComputerMonitors
 export const setComputerCompactChrome = api.setComputerCompactChrome
+export const beginComputerCompactWindow = api.beginComputerCompactWindow
+export const restoreComputerCompactWindowNative = api.restoreComputerCompactWindowNative
 export const placeComputerCompactWindow = api.placeComputerCompactWindow
 export const reapplyWindowChrome = api.reapplyWindowChrome
 export const setComputerConversationMonitor = api.setComputerConversationMonitor

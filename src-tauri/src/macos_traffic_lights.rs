@@ -124,6 +124,44 @@ pub fn set_compact_surface(ns_window: *mut std::ffi::c_void, compact: bool) {
             window.setOpaque(true);
             window.setBackgroundColor(None);
             window.setHasShadow(true);
+            enable_window_dragging(ns_window);
         }
+    }
+}
+
+/// Apply saved inner size + outer top-left on the main thread (Tauri `set_size` is async on macOS).
+pub fn set_window_geometry(
+    ns_window: *mut std::ffi::c_void,
+    logical_inner_w: f64,
+    logical_inner_h: f64,
+    logical_outer_x: f64,
+    logical_outer_y: f64,
+) {
+    // SAFETY: pointer from `WebviewWindow::ns_window()` on the main thread.
+    unsafe {
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::{NSWindow, NSScreen};
+        use objc2_foundation::{NSPoint, NSSize};
+
+        let window = &*(ns_window.cast::<NSWindow>());
+        window.setContentSize(NSSize::new(logical_inner_w, logical_inner_h));
+
+        let screen_h = MainThreadMarker::new()
+            .and_then(|mtm| NSScreen::mainScreen(mtm))
+            .map(|s| s.frame().size.height)
+            .unwrap_or(0.0);
+        let point = NSPoint::new(logical_outer_x, screen_h - logical_outer_y);
+        window.setFrameTopLeftPoint(point);
+    }
+}
+
+/// Re-enable overlay title-bar dragging after compact frameless mode.
+pub fn enable_window_dragging(ns_window: *mut std::ffi::c_void) {
+    // SAFETY: pointer from `WebviewWindow::ns_window()` on the main thread.
+    unsafe {
+        use objc2::msg_send;
+        use objc2_app_kit::NSWindow;
+        let window = &*(ns_window.cast::<NSWindow>());
+        let _: () = msg_send![window, setMovableByWindowBackground: true];
     }
 }

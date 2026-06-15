@@ -133,11 +133,15 @@ flowchart TB
 | 阶段 | macOS 行为 |
 |------|------------|
 | 进入紧凑 | `decorations: false`，隐藏红绿灯，`set_compact_surface(true)` |
-| 退出紧凑 | **先**恢复窗口几何（size/position/maximize），**再** `set_computer_compact_chrome(false)`，**最后** macOS 延迟 250ms + `reapplyWindowChrome()` |
+| 退出紧凑 | **macOS**：先 `set_computer_compact_chrome(false)` + reapply，再 `setSize`/`setPosition`（用 **inner** 尺寸，与 Tauri `set_size` 一致），最后再 reapply；最大化在 chrome 恢复后 `maximize()`。**其他平台**：先几何，再 chrome |
 
-**恢复顺序很重要**（`useComputerCompactWindow.ts` 注释）：
+**恢复顺序**（`useComputerCompactWindow.ts`）：
 
-> resize/maximize 若在 reapply 之后发生，会冲掉 overlay title bar。
+- 保存 **logical innerSize** + **logical outerPosition** + maximized（收缩前在 Rust 侧换算，避免恢复时再除 scale）。
+- **macOS**：chrome 恢复 → 主线程同步 `setContentSize` + `setFrameTopLeftPoint`（Tauri `set_size` 在 macOS 走 GCD 异步，易与 reapply 竞态）→ reapply → 再主线程补一次几何 → `setMovableByWindowBackground(true)`。
+- **Win/Linux**：几何 → chrome → reapply。
+
+> 在 `decorations: false` 的紧凑态下 `setSize` 会按无标题栏布局计算，恢复后再开 overlay 会导致客户区尺寸和拖拽区错位。
 
 紧凑态标志 `COMPUTER_COMPACT_CHROME`（`AtomicBool`）在 Rust 侧阻止 resize/focus repair **以及** `schedule_macos_overlay_chrome_pass` 延迟任务误显示红绿灯；`place_computer_compact_window` 在 macOS 定位后会再次隐藏红绿灯（resize 可能重置 NSWindow 按钮可见性）。
 
@@ -179,19 +183,22 @@ flowchart TB
 1. **只在 `tauri.macos.conf.json` 改 `trafficLightPosition`**  
    运行时恢复/resize 后仍以 `macos_traffic_lights.rs` 的 `INSET_*` 为准，两处必须同步。
 
-2. **紧凑模式恢复时先 reapply 再 setSize/maximize**  
-   会导致 overlay 被后续几何操作打掉；保持「几何 → chrome → 延迟 reapply」顺序。
+2. **macOS 紧凑恢复时在 `decorations: false` 下 `setSize`，或保存 outerSize 却用 `setSize`（inner）恢复**  
+   客户区尺寸会偏差，overlay 拖拽区也会失效；macOS 应先恢复 chrome，再用 inner 尺寸设几何，最后 reapply。
 
-3. **resize 时只改 CSS、不调 repair**  
+3. **非 macOS 紧凑恢复时先 reapply 再 setSize/maximize**  
+   会冲掉 overlay title bar；Win/Linux 仍保持「几何 → chrome」。
+
+4. **resize 时只改 CSS、不调 repair**  
    间歇性错位多来自原生 title bar frame 未更新，不是单纯前端行高问题。
 
-4. **去掉延迟 pass（50/200/500ms）**  
+5. **去掉延迟 pass（50/200/500ms）**  
    启动与恢复后短窗口内仍可能对不齐；这些延迟是刻意保留的。
 
-5. **紧凑态未设 `COMPUTER_COMPACT_CHROME` 就监听 resize repair**  
+6. **紧凑态未设 `COMPUTER_COMPACT_CHROME` 就监听 resize repair**  
    会在无框窗口上尝试显示红绿灯。
 
-6. **macOS 使用 `decorations: false` 作为主界面常态**  
+7. **macOS 使用 `decorations: false` 作为主界面常态**  
    系统红绿灯会消失；macOS 必须 `decorations: true` + Overlay（见 `visual-theme.md`）。
 
 ---

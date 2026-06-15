@@ -1,16 +1,28 @@
 //! Window chrome toggles for computer compact dock bar mode.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 use tauri::{
-    LogicalSize, PhysicalPosition, Position, Size, WebviewWindow, window::Color,
+    LogicalPosition, LogicalSize, PhysicalPosition, Position, Size, WebviewWindow, window::Color,
 };
-#[cfg(target_os = "linux")]
-use tauri::LogicalPosition;
 
 const TRANSPARENT: Color = Color(0, 0, 0, 0);
+const RESTORE_MIN_WIDTH: f64 = 960.0;
+const RESTORE_MIN_HEIGHT: f64 = 640.0;
 
 static COMPUTER_COMPACT_CHROME: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Debug)]
+struct SavedCompactWindowState {
+    logical_inner_width: f64,
+    logical_inner_height: f64,
+    logical_outer_x: f64,
+    logical_outer_y: f64,
+    maximized: bool,
+}
+
+static SAVED_COMPACT_WINDOW: Mutex<Option<SavedCompactWindowState>> = Mutex::new(None);
 
 /// Whether the main window is in computer compact dock mode (skip traffic-light repair).
 pub fn is_computer_compact_chrome_active() -> bool {
@@ -27,6 +39,210 @@ pub fn set_computer_compact_chrome(window: WebviewWindow, compact: bool) -> Resu
         restore_full_window_chrome(&window)?;
         log::debug!("computer compact chrome: full UI chrome restored");
     }
+    Ok(())
+}
+
+/// Capture pre-compact geometry (logical inner + outer top-left) before compact chrome.
+fn capture_window_geometry(window: &WebviewWindow) -> Result<SavedCompactWindowState, String> {
+    let scale = window
+        .scale_factor()
+        .map_err(|e| format!("scale_factor: {e}"))?
+        .max(1.0);
+    let inner = window.inner_size().map_err(|e| format!("inner_size: {e}"))?;
+    let pos = window
+        .outer_position()
+        .map_err(|e| format!("outer_position: {e}"))?;
+    Ok(SavedCompactWindowState {
+        logical_inner_width: inner.width as f64 / scale,
+        logical_inner_height: inner.height as f64 / scale,
+        logical_outer_x: pos.x as f64 / scale,
+        logical_outer_y: pos.y as f64 / scale,
+        maximized: false,
+    })
+}
+
+/// Capture pre-compact geometry in Rust, then enter compact chrome (call before `place_computer_compact_window`).
+#[tauri::command]
+pub async fn begin_computer_compact_window(window: WebviewWindow) -> Result<(), String> {
+    if SAVED_COMPACT_WINDOW.lock().unwrap().is_some() {
+        log::warn!("begin_computer_compact_window: overwriting existing saved state");
+    }
+
+    let maximized = window.is_maximized().map_err(|e| format!("is_maximized: {e}"))?;
+    let mut saved = if maximized {
+        window
+            .unmaximize()
+            .map_err(|e| format!("unmaximize: {e}"))?;
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        capture_window_geometry(&window)?
+    } else {
+        capture_window_geometry(&window)?
+    };
+    saved.maximized = maximized;
+
+    log::info!(
+        "begin_computer_compact_window: saved logical_inner={}x{} logical_pos=({},{}) maximized={}",
+        saved.logical_inner_width,
+        saved.logical_inner_height,
+        saved.logical_outer_x,
+        saved.logical_outer_y,
+        saved.maximized
+    );
+
+    *SAVED_COMPACT_WINDOW.lock().unwrap() = Some(saved);
+    COMPUTER_COMPACT_CHROME.store(true, Ordering::Relaxed);
+    window
+        .set_min_size(Some(Size::Logical(LogicalSize::new(280.0, 48.0))))
+        .map_err(|e| format!("set_min_size: {e}"))?;
+    apply_compact_chrome(&window)?;
+    Ok(())
+}
+
+/// Restore pre-compact geometry and full window chrome (macOS: single coordinated path).
+#[tauri::command]
+pub async fn restore_computer_compact_window(window: WebviewWindow) -> Result<(), String> {
+    let saved = SAVED_COMPACT_WINDOW
+        .lock()
+        .unwrap()
+        .take()
+        .ok_or_else(|| "restore_computer_compact_window: no saved window state".to_string())?;
+
+    log::info!(
+        "restore_computer_compact_window: target logical_inner={}x{} logical_pos=({},{}) maximized={}",
+        saved.logical_inner_width,
+        saved.logical_inner_height,
+        saved.logical_outer_x,
+        saved.logical_outer_y,
+        saved.maximized
+    );
+
+    COMPUTER_COMPACT_CHROME.store(false, Ordering::Relaxed);
+
+    #[cfg(target_os = "macos")]
+    restore_compact_window_macos(&window, &saved).await?;
+
+    #[cfg(not(target_os = "macos"))]
+    restore_compact_window_other(&window, &saved).await?;
+
+    log::info!(
+        "restore_computer_compact_window: done outer={:?} inner={:?}",
+        window.outer_size(),
+        window.inner_size()
+    );
+    Ok(())
+}
+
+async fn apply_saved_geometry(
+    window: &WebviewWindow,
+    saved: &SavedCompactWindowState,
+) -> Result<(), String> {
+    if saved.maximized {
+        window
+            .maximize()
+            .map_err(|e| format!("maximize: {e}"))?;
+        return Ok(());
+    }
+
+    window
+        .set_size(Size::Logical(LogicalSize::new(
+            saved.logical_inner_width,
+            saved.logical_inner_height,
+        )))
+        .map_err(|e| format!("set_size: {e}"))?;
+    tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+    window
+        .set_position(Position::Logical(LogicalPosition::new(
+            saved.logical_outer_x,
+            saved.logical_outer_y,
+        )))
+        .map_err(|e| format!("set_position: {e}"))?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn apply_saved_geometry_on_main_thread(
+    window: &WebviewWindow,
+    saved: &SavedCompactWindowState,
+) -> Result<(), String> {
+    if saved.maximized {
+        return Ok(());
+    }
+    let win = window.clone();
+    let saved = saved.clone();
+    window
+        .run_on_main_thread(move || {
+            if let Ok(ns_window) = win.ns_window() {
+                crate::macos_traffic_lights::set_window_geometry(
+                    ns_window,
+                    saved.logical_inner_width,
+                    saved.logical_inner_height,
+                    saved.logical_outer_x,
+                    saved.logical_outer_y,
+                );
+            }
+        })
+        .map_err(|e| format!("run_on_main_thread(geometry): {e}"))
+}
+
+#[cfg(target_os = "macos")]
+async fn restore_compact_window_macos(
+    window: &WebviewWindow,
+    saved: &SavedCompactWindowState,
+) -> Result<(), String> {
+    restore_full_window_chrome(window)?;
+    set_window_and_webview_background(window, None)?;
+    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+
+    window
+        .set_min_size(Some(Size::Logical(LogicalSize::new(
+            RESTORE_MIN_WIDTH,
+            RESTORE_MIN_HEIGHT,
+        ))))
+        .map_err(|e| format!("set_min_size: {e}"))?;
+
+    apply_saved_geometry_on_main_thread(window, saved)?;
+    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+    crate::reapply_macos_window_chrome(window);
+    tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+    crate::repair_macos_overlay_chrome(window, "compact-restore");
+
+    if saved.maximized {
+        window
+            .maximize()
+            .map_err(|e| format!("maximize: {e}"))?;
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        crate::repair_macos_overlay_chrome(window, "compact-restore-maximized");
+    } else {
+        // Chrome repair can reset frame; re-apply saved geometry on the main thread.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        apply_saved_geometry_on_main_thread(window, saved)?;
+    }
+
+    let win_drag = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        if let Ok(ns_window) = win_drag.ns_window() {
+            crate::macos_traffic_lights::enable_window_dragging(ns_window);
+        }
+    });
+
+    let _ = window.set_focus();
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn restore_compact_window_other(
+    window: &WebviewWindow,
+    saved: &SavedCompactWindowState,
+) -> Result<(), String> {
+    window
+        .set_min_size(Some(Size::Logical(LogicalSize::new(
+            RESTORE_MIN_WIDTH,
+            RESTORE_MIN_HEIGHT,
+        ))))
+        .map_err(|e| format!("set_min_size: {e}"))?;
+    apply_saved_geometry(window, saved).await?;
+    restore_full_window_chrome(window)?;
+    set_window_and_webview_background(window, None)?;
     Ok(())
 }
 

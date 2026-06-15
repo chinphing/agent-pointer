@@ -540,17 +540,29 @@ impl ComputerState {
     }
 
     /// Capture the display under the cursor, call the annotation service, and refresh state for this session.
-    pub async fn capture_and_annotate(&self, conversation_id: &str) -> anyhow::Result<ScreenCaptureResult> {
+    ///
+    /// Returns the capture result and an optional refreshed monitor id when a stale selection was recovered.
+    pub async fn capture_and_annotate(
+        &self,
+        conversation_id: &str,
+    ) -> anyhow::Result<(ScreenCaptureResult, Option<String>)> {
         let t_total = Instant::now();
 
         let t = Instant::now();
         let monitor_id = self.selected_monitor_id_for_conversation(conversation_id);
-        let shot = tokio::task::spawn_blocking(move || match monitor_id.as_deref() {
-            Some(id) => screen::screenshot_monitor_by_id(id),
-            None => screen::screenshot_current_monitor(),
+        let plan = tokio::task::spawn_blocking(move || {
+            screen::screenshot_for_selection(monitor_id.as_deref())
         })
         .await
         .map_err(|e| anyhow::anyhow!("screenshot task join: {e}"))??;
+        let shot = plan.packet;
+        if let Some(ref new_id) = plan.refreshed_monitor_id {
+            self.set_conversation_monitor(conversation_id, Some(new_id.clone()));
+            log::info!(
+                "capture_and_annotate: monitor id refreshed conversation_id={conversation_id} new_id={new_id} kind={:?}",
+                plan.resolve_kind
+            );
+        }
         let screen_ms = t.elapsed().as_secs_f64() * 1000.0;
 
         let out = self
@@ -570,7 +582,7 @@ impl ComputerState {
             t_total.elapsed().as_secs_f64() * 1000.0
         );
 
-        Ok(out)
+        Ok((out, plan.refreshed_monitor_id))
     }
 
     /// Latest annotated screenshot (PNG bytes already shown to the model) for the given conversation, if any.

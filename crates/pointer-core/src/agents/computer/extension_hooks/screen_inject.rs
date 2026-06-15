@@ -244,7 +244,13 @@ impl MessageLoopPromptsAfterHook for ComputerScreenInject {
         );
 
         match ctx.computer_state.capture_and_annotate(ctx.conversation_id).await {
-            Ok(cap) => {
+            Ok((cap, refreshed_monitor_id)) => {
+                if let (Some(tx), Some(new_id)) = (ctx.stream, refreshed_monitor_id.as_ref()) {
+                    let _ = tx.send(StreamEvent::ComputerMonitorUpdated {
+                        conversation_id: ctx.conversation_id.to_string(),
+                        monitor_id: Some(new_id.clone()),
+                    });
+                }
                 let dump_prefix = ctx
                     .round_screen_dump_prefix
                     .as_deref()

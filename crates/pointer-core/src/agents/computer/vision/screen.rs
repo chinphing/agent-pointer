@@ -74,7 +74,116 @@ impl MonitorInfo {
     }
 }
 
-/// List all monitors for UI selection (stable ids based on bounds).
+/// Prefix for OS-stable monitor ids from [`xcap::Monitor::id`] (survives resolution / scaling changes).
+pub const XCAP_MONITOR_ID_PREFIX: &str = "xcap:";
+
+/// How a stored monitor id was resolved for capture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MonitorResolveKind {
+    /// `xcap:{id}` exact match.
+    XcapId,
+    /// Legacy `{left},{top},{width},{height}` exact match.
+    LegacyBoundsExact,
+    /// Legacy id matched same `(left, top)` after resolution / scaling change.
+    LegacyBoundsOrigin,
+    /// Auto mode: monitor under cursor.
+    Cursor,
+    /// Stale id: fell back to primary display.
+    FallbackPrimary,
+    /// Stale id: fell back to monitor under cursor.
+    FallbackCursor,
+}
+
+/// Result of [`screenshot_for_selection`]: capture bytes plus optional refreshed monitor id.
+#[derive(Debug, Clone)]
+pub struct MonitorCapturePlan {
+    pub packet: ScreenshotPacket,
+    /// When set, persist this id (replaces a stale legacy or fuzzy-matched id).
+    pub refreshed_monitor_id: Option<String>,
+    pub resolve_kind: MonitorResolveKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StoredMonitorId {
+    Xcap(u32),
+    LegacyBounds,
+}
+
+/// Build the id shown in the monitor picker and stored on conversations.
+pub fn monitor_list_id(m: &Monitor) -> Result<String> {
+    let id = m.id().map_err(|e| anyhow!("monitor id: {}", e))?;
+    Ok(format!("{XCAP_MONITOR_ID_PREFIX}{id}"))
+}
+
+fn parse_stored_monitor_id(stored_id: &str) -> StoredMonitorId {
+    if let Some(rest) = stored_id.strip_prefix(XCAP_MONITOR_ID_PREFIX) {
+        if let Ok(n) = rest.parse::<u32>() {
+            return StoredMonitorId::Xcap(n);
+        }
+    }
+    StoredMonitorId::LegacyBounds
+}
+
+fn legacy_origin_from_id(stored_id: &str) -> Option<(i32, i32)> {
+    let mut parts = stored_id.split(',');
+    let left: i32 = parts.next()?.parse().ok()?;
+    let top: i32 = parts.next()?.parse().ok()?;
+    // Require four comma-separated numbers so we do not treat `xcap:1` as legacy.
+    let _w: i32 = parts.next()?.parse().ok()?;
+    let _h: i32 = parts.next()?.parse().ok()?;
+    Some((left, top))
+}
+
+fn monitor_matches_stored_id(m: &Monitor, info: &MonitorInfo, stored_id: &str) -> Option<MonitorResolveKind> {
+    match parse_stored_monitor_id(stored_id) {
+        StoredMonitorId::Xcap(n) => {
+            let xid = m.id().ok()?;
+            (xid == n).then_some(MonitorResolveKind::XcapId)
+        }
+        StoredMonitorId::LegacyBounds => {
+            if info.stable_id() == stored_id {
+                return Some(MonitorResolveKind::LegacyBoundsExact);
+            }
+            let (ol, ot) = legacy_origin_from_id(stored_id)?;
+            (info.left == ol && info.top == ot).then_some(MonitorResolveKind::LegacyBoundsOrigin)
+        }
+    }
+}
+
+fn list_monitor_pairs() -> Result<Vec<(Monitor, MonitorInfo)>> {
+    let monitors = Monitor::all().map_err(|e| anyhow!("list monitors: {}", e))?;
+    let mut out = Vec::with_capacity(monitors.len());
+    for m in monitors {
+        let info = monitor_info_from_xcap(&m)?;
+        out.push((m, info));
+    }
+    Ok(out)
+}
+
+fn find_monitor_by_stored_id(stored_id: &str) -> Result<(Monitor, MonitorInfo, MonitorResolveKind)> {
+    for (m, info) in list_monitor_pairs()? {
+        if let Some(kind) = monitor_matches_stored_id(&m, &info, stored_id) {
+            return Ok((m, info, kind));
+        }
+    }
+    Err(anyhow!("monitor not found for id={}", stored_id))
+}
+
+fn find_primary_monitor() -> Result<(Monitor, MonitorInfo)> {
+    let pairs = list_monitor_pairs()?;
+    let mut first: Option<(Monitor, MonitorInfo)> = None;
+    for (m, info) in pairs {
+        if m.is_primary().unwrap_or(false) {
+            return Ok((m, info));
+        }
+        if first.is_none() {
+            first = Some((m, info));
+        }
+    }
+    first.ok_or_else(|| anyhow!("no displays found"))
+}
+
+/// List all monitors for UI selection (`xcap:{id}` ids).
 pub fn list_monitors() -> Result<Vec<ComputerMonitor>> {
     let monitors = Monitor::all().map_err(|e| anyhow!("list monitors: {}", e))?;
     let mut out: Vec<ComputerMonitor> = Vec::with_capacity(monitors.len());
@@ -82,7 +191,7 @@ pub fn list_monitors() -> Result<Vec<ComputerMonitor>> {
         let info = monitor_info_from_xcap(&m)?;
         let is_primary = m.is_primary().unwrap_or(false);
         out.push(ComputerMonitor {
-            id: info.stable_id(),
+            id: monitor_list_id(&m)?,
             left: info.left,
             top: info.top,
             width: info.width,
@@ -94,34 +203,16 @@ pub fn list_monitors() -> Result<Vec<ComputerMonitor>> {
     Ok(out)
 }
 
-/// Capture a screenshot of a specific monitor (by stable id). Returns logical geometry and JPEG bytes.
-pub fn screenshot_monitor_by_id(monitor_id: &str) -> Result<ScreenshotPacket> {
+fn screenshot_from_monitor(
+    monitor: &Monitor,
+    info: MonitorInfo,
+    global_pointer: (i32, i32),
+    log_label: &str,
+) -> Result<ScreenshotPacket> {
     let t_total = Instant::now();
 
     let t = Instant::now();
-    let (cx, cy) = cursor_position()
-        .or_else(|e| {
-            log::debug!("cursor position unavailable ({}), using primary monitor center", e);
-            primary_monitor_center()
-        })?;
-    let global_pointer = (cx, cy);
-
-    let monitors = Monitor::all().map_err(|e| anyhow!("list monitors: {}", e))?;
-    let mut picked: Option<(Monitor, MonitorInfo, bool)> = None;
-    for m in monitors {
-        let info = monitor_info_from_xcap(&m)?;
-        if info.stable_id() == monitor_id {
-            let is_primary = m.is_primary().unwrap_or(false);
-            picked = Some((m, info, is_primary));
-            break;
-        }
-    }
-    let (monitor, info, _is_primary) = picked
-        .ok_or_else(|| anyhow!("monitor not found for id={}", monitor_id))?;
-    let setup_ms = t.elapsed().as_secs_f64() * 1000.0;
-
-    let t = Instant::now();
-    let rgba_raw = capture_monitor_rgba(&monitor)?;
+    let rgba_raw = capture_monitor_rgba(monitor)?;
     let capture_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     let logical_w = info.width.max(1) as u32;
@@ -129,7 +220,7 @@ pub fn screenshot_monitor_by_id(monitor_id: &str) -> Result<ScreenshotPacket> {
     let physical = (rgba_raw.width(), rgba_raw.height());
 
     let t = Instant::now();
-    let rgba = resample_capture_to_logical(rgba_raw, logical_w, logical_h, "screenshot_monitor_by_id");
+    let rgba = resample_capture_to_logical(rgba_raw, logical_w, logical_h, log_label);
     let resample_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     let capture_px = (rgba.width(), rgba.height());
@@ -146,8 +237,7 @@ pub fn screenshot_monitor_by_id(monitor_id: &str) -> Result<ScreenshotPacket> {
         String::new()
     };
     log::info!(
-        "screenshot_monitor_by_id: cursor+monitor {:.1}ms, xcap_capture {:.1}ms, resample {:.1}ms, jpeg_encode q{} {:.1}ms, total {:.1}ms ({}x{} px logical{})",
-        setup_ms,
+        "{log_label}: xcap_capture {:.1}ms, resample {:.1}ms, jpeg_encode q{} {:.1}ms, total {:.1}ms ({}x{} px logical{})",
         capture_ms,
         resample_ms,
         SCREENSHOT_JPEG_QUALITY,
@@ -164,6 +254,90 @@ pub fn screenshot_monitor_by_id(monitor_id: &str) -> Result<ScreenshotPacket> {
         global_pointer,
         global_caret,
     })
+}
+
+fn global_pointer_for_capture() -> Result<(i32, i32)> {
+    cursor_position().or_else(|e| {
+        log::debug!("cursor position unavailable ({}), using primary monitor center", e);
+        primary_monitor_center()
+    })
+}
+
+/// Capture using a stored monitor id, with stale-id recovery.
+///
+/// `stored_id = None` follows the cursor. Legacy bounds ids match exactly or by `(left, top)` only.
+/// When the id is missing entirely, falls back to primary then cursor and returns a refreshed `xcap:{id}`.
+pub fn screenshot_for_selection(stored_id: Option<&str>) -> Result<MonitorCapturePlan> {
+    let global_pointer = global_pointer_for_capture()?;
+
+    match stored_id {
+        None => {
+            let (monitor, info) = MonitorSelector::at_global_point(global_pointer.0, global_pointer.1)?;
+            let packet = screenshot_from_monitor(&monitor, info, global_pointer, "screenshot_current_monitor")?;
+            Ok(MonitorCapturePlan {
+                packet,
+                refreshed_monitor_id: None,
+                resolve_kind: MonitorResolveKind::Cursor,
+            })
+        }
+        Some(id) => match find_monitor_by_stored_id(id) {
+            Ok((monitor, info, kind)) => {
+                let needs_refresh = !matches!(
+                    kind,
+                    MonitorResolveKind::XcapId | MonitorResolveKind::LegacyBoundsExact
+                );
+                let refreshed_monitor_id = needs_refresh.then(|| monitor_list_id(&monitor)).transpose()?;
+                if let Some(ref new_id) = refreshed_monitor_id {
+                    log::info!(
+                        "screenshot_for_selection: refreshed monitor id {id} -> {new_id} ({kind:?})"
+                    );
+                }
+                let packet =
+                    screenshot_from_monitor(&monitor, info, global_pointer, "screenshot_monitor_by_id")?;
+                Ok(MonitorCapturePlan {
+                    packet,
+                    refreshed_monitor_id,
+                    resolve_kind: kind,
+                })
+            }
+            Err(e) => {
+                log::warn!(
+                    "screenshot_for_selection: stored monitor id stale ({id}): {:#}; trying primary then cursor",
+                    e
+                );
+                if let Ok((monitor, info)) = find_primary_monitor() {
+                    let new_id = monitor_list_id(&monitor)?;
+                    log::info!(
+                        "screenshot_for_selection: fallback primary display, refreshed id {id} -> {new_id}"
+                    );
+                    let packet =
+                        screenshot_from_monitor(&monitor, info, global_pointer, "screenshot_monitor_primary_fallback")?;
+                    return Ok(MonitorCapturePlan {
+                        packet,
+                        refreshed_monitor_id: Some(new_id),
+                        resolve_kind: MonitorResolveKind::FallbackPrimary,
+                    });
+                }
+                let (monitor, info) = MonitorSelector::at_global_point(global_pointer.0, global_pointer.1)?;
+                let new_id = monitor_list_id(&monitor)?;
+                log::info!(
+                    "screenshot_for_selection: fallback cursor display, refreshed id {id} -> {new_id}"
+                );
+                let packet =
+                    screenshot_from_monitor(&monitor, info, global_pointer, "screenshot_monitor_cursor_fallback")?;
+                Ok(MonitorCapturePlan {
+                    packet,
+                    refreshed_monitor_id: Some(new_id),
+                    resolve_kind: MonitorResolveKind::FallbackCursor,
+                })
+            }
+        },
+    }
+}
+
+/// Capture a specific monitor (by stored id). Uses [`screenshot_for_selection`] (includes stale-id recovery).
+pub fn screenshot_monitor_by_id(monitor_id: &str) -> Result<ScreenshotPacket> {
+    Ok(screenshot_for_selection(Some(monitor_id))?.packet)
 }
 
 /// Capture a screenshot of the monitor that contains the current mouse cursor.
@@ -185,63 +359,7 @@ pub fn screenshot_monitor_by_id(monitor_id: &str) -> Result<ScreenshotPacket> {
 /// # Errors
 /// Returns an error if no display is available or capture/encoding fails.
 pub fn screenshot_current_monitor() -> Result<ScreenshotPacket> {
-    let t_total = Instant::now();
-
-    let t = Instant::now();
-    let (cx, cy) = cursor_position()
-        .or_else(|e| {
-            log::debug!("cursor position unavailable ({}), using primary monitor center", e);
-            primary_monitor_center()
-        })?;
-    let global_pointer = (cx, cy);
-
-    let (monitor, info) = MonitorSelector::at_global_point(cx, cy)?;
-    let setup_ms = t.elapsed().as_secs_f64() * 1000.0;
-
-    let t = Instant::now();
-    let rgba_raw = capture_monitor_rgba(&monitor)?;
-    let capture_ms = t.elapsed().as_secs_f64() * 1000.0;
-
-    let logical_w = info.width.max(1) as u32;
-    let logical_h = info.height.max(1) as u32;
-    let physical = (rgba_raw.width(), rgba_raw.height());
-
-    let t = Instant::now();
-    let rgba = resample_capture_to_logical(rgba_raw, logical_w, logical_h, "screenshot_current_monitor");
-    let resample_ms = t.elapsed().as_secs_f64() * 1000.0;
-
-    let capture_px = (rgba.width(), rgba.height());
-
-    let t = Instant::now();
-    let jpeg = rgba_to_jpeg(rgba, SCREENSHOT_JPEG_QUALITY)?;
-    let encode_ms = t.elapsed().as_secs_f64() * 1000.0;
-
-    let global_caret = try_global_focus_caret_hint();
-
-    let size_note = if physical.0 != logical_w || physical.1 != logical_h {
-        format!(", from {}x{} physical", physical.0, physical.1)
-    } else {
-        String::new()
-    };
-    log::info!(
-        "screenshot_current_monitor: cursor+monitor {:.1}ms, xcap_capture {:.1}ms, resample {:.1}ms, jpeg_encode q{} {:.1}ms, total {:.1}ms ({}x{} px logical{})",
-        setup_ms,
-        capture_ms,
-        resample_ms,
-        SCREENSHOT_JPEG_QUALITY,
-        encode_ms,
-        t_total.elapsed().as_secs_f64() * 1000.0,
-        capture_px.0,
-        capture_px.1,
-        size_note
-    );
-    Ok(ScreenshotPacket {
-        jpeg,
-        monitor: info,
-        capture_px,
-        global_pointer,
-        global_caret,
-    })
+    Ok(screenshot_for_selection(None)?.packet)
 }
 
 /// OS framebuffer capture for one monitor via xcap.
@@ -442,5 +560,32 @@ mod tests {
         use base64::{engine::general_purpose::STANDARD, Engine as _};
         let decoded = STANDARD.decode(&encoded).unwrap();
         assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn legacy_origin_parses_bounds_id() {
+        assert_eq!(legacy_origin_from_id("0,0,1512,950"), Some((0, 0)));
+        assert_eq!(legacy_origin_from_id("1512,0,1920,1080"), Some((1512, 0)));
+        assert!(legacy_origin_from_id("xcap:1").is_none());
+        assert!(legacy_origin_from_id("0,0").is_none());
+    }
+
+    #[test]
+    fn parse_stored_monitor_id_recognizes_xcap_and_legacy() {
+        assert_eq!(parse_stored_monitor_id("xcap:3"), StoredMonitorId::Xcap(3));
+        assert_eq!(
+            parse_stored_monitor_id("0,0,1512,950"),
+            StoredMonitorId::LegacyBounds
+        );
+    }
+
+    #[test]
+    fn legacy_bounds_origin_matches_same_top_left() {
+        let info = MonitorInfo::new(0, 0, 1728, 1117);
+        assert_eq!(info.stable_id(), "0,0,1728,1117");
+        assert_ne!(info.stable_id(), "0,0,1512,950");
+        let (ol, ot) = legacy_origin_from_id("0,0,1512,950").unwrap();
+        assert_eq!(info.left, ol);
+        assert_eq!(info.top, ot);
     }
 }

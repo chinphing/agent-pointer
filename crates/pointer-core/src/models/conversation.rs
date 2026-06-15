@@ -144,7 +144,7 @@ pub struct MonitorWorkArea {
 /// Desktop monitor descriptor for Computer agent screen selection (UI).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComputerMonitor {
-    /// Stable id derived from monitor bounds: `{left},{top},{width},{height}`.
+    /// Stable id for picker + persistence. New ids use `xcap:{os_id}`; legacy `{left},{top},{width},{height}` still accepted.
     pub id: String,
     pub left: i32,
     pub top: i32,

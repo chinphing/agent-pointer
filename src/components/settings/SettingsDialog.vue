@@ -81,7 +81,7 @@ const showFooterSave = computed(() => {
   return (
     activeSection.value === 'assistant' ||
     activeSection.value === 'channels' ||
-    (s.canEditPlatform && debugSectionIds.has(activeSection.value))
+    debugSectionIds.has(activeSection.value)
   )
 })
 const footerSaveLabel = computed(() =>
@@ -106,7 +106,6 @@ function onDialogBackdropClick() {
 async function saveFromFooter() {
   saving.value = true
   try {
-    await s.saveUser({ theme: s.settings.theme })
     if (activeSection.value === 'provider') {
       if (providerPanelRef.value?.hasUnsavedEdits() && !providerPanelRef.value.flushEditingProviderToStore()) {
         return
@@ -122,11 +121,11 @@ async function saveFromFooter() {
       await channelPanelRef.value?.save()
     } else if (activeSection.value === 'assistant') {
       const payload = getAssistantSavePayload()
+      await s.saveAgentPreferences({ ...payload, theme: s.settings.theme })
       await s.saveUser({
         computerAutoCompact: payload.computerAutoCompact,
         userCodingRules: payload.userCodingRules
       })
-      await s.saveAgentPreferences({ ...payload, theme: s.settings.theme })
     } else {
       if (providerPanelRef.value?.hasUnsavedEdits() && !providerPanelRef.value.flushEditingProviderToStore()) {
         activeSection.value = 'provider'
@@ -137,6 +136,7 @@ async function saveFromFooter() {
         theme: s.settings.theme
       })
     }
+    await s.saveUser({ theme: s.settings.theme })
     emit('close')
   } finally {
     saving.value = false

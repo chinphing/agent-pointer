@@ -113,7 +113,6 @@ function mediaDebugModelOptions(kind: (typeof MEDIA_DEBUG_KINDS)[number]) {
                     <div
                       v-if="isModeAgent(w.id) && showDebugMenus"
                       class="col-span-full mt-3 rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3"
-                      :class="platformReadOnly ? 'opacity-60 pointer-events-none' : ''"
                     >
                       <div class="flex items-center justify-between gap-2">
                         <h4 class="text-xs font-medium text-foreground">各模式对应模型（调试）</h4>
@@ -156,7 +155,6 @@ function mediaDebugModelOptions(kind: (typeof MEDIA_DEBUG_KINDS)[number]) {
                     <div
                       v-if="w.id === 'computer'"
                       class="col-span-full mt-3 rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3"
-                      :class="platformReadOnly ? 'opacity-60 pointer-events-none' : ''"
                     >
                       <div class="flex items-center justify-between gap-2">
                         <h4 class="text-xs font-medium text-foreground">电脑操控各模式对应模型（调试）</h4>
@@ -203,7 +201,6 @@ function mediaDebugModelOptions(kind: (typeof MEDIA_DEBUG_KINDS)[number]) {
               <div
                 v-if="showDebugMenus"
                 class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-4 space-y-3"
-                :class="platformReadOnly ? 'opacity-60 pointer-events-none' : ''"
               >
                 <div class="flex items-center justify-between gap-2">
                   <h4 class="text-xs font-medium text-foreground">多媒体理解各模式对应模型（调试）</h4>

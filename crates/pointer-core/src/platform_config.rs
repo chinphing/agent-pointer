@@ -129,8 +129,8 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         agent_performance_modes: s.agent_performance_modes.clone(),
         media_understanding_modes: s.media_understanding_modes.clone(),
         computer_tier_llm: PlatformSettings::default().computer_tier_llm,
-        agent_mode_llm: PlatformSettings::default().agent_mode_llm,
-        media_mode_llm: PlatformSettings::default().media_mode_llm,
+        agent_mode_llm: s.agent_mode_llm.clone(),
+        media_mode_llm: s.media_mode_llm.clone(),
     }
 }
 
@@ -138,8 +138,49 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
 pub fn merge_platform_preferences(incoming: &ModelSettings, existing: &PlatformSettings) -> PlatformSettings {
     let mut next = platform_settings_from_model_settings(incoming);
     next.computer_tier_llm = existing.computer_tier_llm.clone();
-    next.agent_mode_llm = existing.agent_mode_llm.clone();
-    next.media_mode_llm = existing.media_mode_llm.clone();
+    // Per-agent/per-mode LLM config: start with existing then overlay incoming
+    // on top so that incoming values always take priority.
+    log::info!(
+        "merge_platform_preferences: incoming.agent_mode_llm keys={:?} existing.agent_mode_llm keys={:?}",
+        incoming.agent_mode_llm.keys().collect::<Vec<_>>(),
+        existing.agent_mode_llm.keys().collect::<Vec<_>>()
+    );
+    for (agent_id, modes) in &incoming.agent_mode_llm {
+        for (mode, config) in modes {
+            log::info!(
+                "merge_platform_preferences: incoming agent={} mode={} model={}",
+                agent_id, mode, config.model
+            );
+        }
+    }
+    for (agent_id, modes) in &existing.agent_mode_llm {
+        for (mode, config) in modes {
+            log::info!(
+                "merge_platform_preferences: existing agent={} mode={} model={}",
+                agent_id, mode, config.model
+            );
+        }
+    }
+    {
+        let mut merged = existing.agent_mode_llm.clone();
+        for (agent_id, modes) in &next.agent_mode_llm {
+            let agent_entry = merged.entry(agent_id.clone()).or_default();
+            for (mode, config) in modes {
+                agent_entry.insert(mode.clone(), config.clone());
+            }
+        }
+        next.agent_mode_llm = merged;
+    }
+    {
+        let mut merged = existing.media_mode_llm.clone();
+        for (kind, modes) in &next.media_mode_llm {
+            let kind_entry = merged.entry(kind.clone()).or_default();
+            for (mode, config) in modes {
+                kind_entry.insert(mode.clone(), config.clone());
+            }
+        }
+        next.media_mode_llm = merged;
+    }
     next.providers = filter_openrouter_providers(next.providers);
     let preserved_keys: HashMap<String, String> = existing
         .providers

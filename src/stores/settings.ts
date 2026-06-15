@@ -443,6 +443,8 @@ export const useSettingsStore = defineStore('settings', () => {
     }
     if (Object.keys(patch).length === 0) return
     const merged: ModelSettings = { ...settings.value, ...patch }
+    console.log('[settings] saveSession patch.agentModeLlm:', JSON.stringify(patch.agentModeLlm))
+    console.log('[settings] saveSession merged.agentModeLlm:', JSON.stringify(merged.agentModeLlm))
     merged.agentDefaultModels = normalizeAgentDefaultModels(
       merged.agentDefaultModels as Record<string, unknown>,
       merged.activeProviderId
@@ -478,14 +480,27 @@ export const useSettingsStore = defineStore('settings', () => {
 
   async function save(patch: Partial<ModelSettings> & Pick<Partial<PlatformSettings>, 'computerTierLlm' | 'agentModeLlm' | 'mediaModeLlm'>) {
     const { computerTierLlm, agentModeLlm, mediaModeLlm, ...sessionPatch } = patch
+    const platformPatch: Partial<PlatformSettings> = {}
     if (computerTierLlm !== undefined && canEditPlatform.value) {
-      await savePlatform({ computerTierLlm })
+      platformPatch.computerTierLlm = computerTierLlm
     }
     if (agentModeLlm !== undefined && canEditPlatform.value) {
-      await savePlatform({ agentModeLlm })
+      platformPatch.agentModeLlm = agentModeLlm
     }
     if (mediaModeLlm !== undefined && canEditPlatform.value) {
-      await savePlatform({ mediaModeLlm })
+      platformPatch.mediaModeLlm = mediaModeLlm
+    }
+    // Per-mode models always go through sessionPatch too, so they are
+    // preserved even when savePlatform fails (e.g. web runtime where
+    // platform settings are read-only) or when canEditPlatform is false.
+    if (agentModeLlm !== undefined) (sessionPatch as any).agentModeLlm = agentModeLlm
+    if (mediaModeLlm !== undefined) (sessionPatch as any).mediaModeLlm = mediaModeLlm
+    if (Object.keys(platformPatch).length > 0) {
+      try {
+        await savePlatform(platformPatch)
+      } catch (e) {
+        console.warn('[settings] savePlatform failed, per-mode models already in session', e)
+      }
     }
     if (Object.keys(sessionPatch).length > 0) {
       await saveSession(sessionPatch)

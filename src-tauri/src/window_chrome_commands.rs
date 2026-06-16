@@ -3,9 +3,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-use tauri::{
-    LogicalPosition, LogicalSize, PhysicalPosition, Position, Size, WebviewWindow, window::Color,
-};
+use tauri::{LogicalSize, Position, Size, WebviewWindow, window::Color};
+#[cfg(not(target_os = "macos"))]
+use tauri::LogicalPosition;
+#[cfg(not(target_os = "linux"))]
+use tauri::PhysicalPosition;
 
 const TRANSPARENT: Color = Color(0, 0, 0, 0);
 const RESTORE_MIN_WIDTH: f64 = 960.0;
@@ -25,6 +27,7 @@ struct SavedCompactWindowState {
 static SAVED_COMPACT_WINDOW: Mutex<Option<SavedCompactWindowState>> = Mutex::new(None);
 
 /// Whether the main window is in computer compact dock mode (skip traffic-light repair).
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub fn is_computer_compact_chrome_active() -> bool {
     COMPUTER_COMPACT_CHROME.load(Ordering::Relaxed)
 }
@@ -132,6 +135,7 @@ pub async fn restore_computer_compact_window(window: WebviewWindow) -> Result<()
     Ok(())
 }
 
+#[cfg(not(target_os = "macos"))]
 async fn apply_saved_geometry(
     window: &WebviewWindow,
     saved: &SavedCompactWindowState,

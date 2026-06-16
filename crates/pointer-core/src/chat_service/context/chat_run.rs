@@ -4,7 +4,6 @@ use crate::models::ChatMessage;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-use super::session::SessionRefsArc;
 use super::super::app_state::AppState;
 use super::super::StreamTx;
 
@@ -28,15 +27,4 @@ pub struct ChatRunContext<'a> {
     pub consumed_single: &'a mut u32,
     pub consumed_supervisor: &'a mut u32,
     pub cancel: CancellationToken,
-}
-
-impl<'a> ChatRunContext<'a> {
-    pub fn session_arc(&'a self) -> SessionRefsArc<'a> {
-        SessionRefsArc {
-            stream: &self.stream,
-            state: self.state.clone(),
-            conversation_id: self.conversation_id,
-            cancel: self.cancel.clone(),
-        }
-    }
 }

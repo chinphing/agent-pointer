@@ -106,23 +106,26 @@ const toastClass = computed(() => {
 
           <div
             class="flex w-full flex-col"
-            :class="experienceSectionExpanded ? 'min-h-[clamp(8rem,calc(50vh-4.5rem),16rem)] pt-8' : 'pt-6'"
+            :class="experienceSectionExpanded ? 'min-h-[clamp(8rem,calc(50vh-4.5rem),16rem)] pt-12' : 'pt-10'"
           >
-            <ExperienceHotPreview />
-
-            <button
-              type="button"
-              class="mb-3 inline-flex w-auto cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
-              :aria-expanded="experienceSectionExpanded"
-              @click="experienceSectionExpanded = !experienceSectionExpanded"
-            >
-              <span class="text-xs font-medium text-muted">更多经验</span>
-              <ChevronDown
-                class="h-3.5 w-3.5 shrink-0 text-muted transition-transform duration-200"
-                :class="experienceSectionExpanded ? 'rotate-180' : ''"
-                aria-hidden="true"
-              />
-            </button>
+            <div class="mb-3 flex items-center gap-2">
+              <div class="min-w-0 flex-1">
+                <ExperienceHotPreview />
+              </div>
+              <button
+                type="button"
+                class="inline-flex shrink-0 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+                :aria-expanded="experienceSectionExpanded"
+                @click="experienceSectionExpanded = !experienceSectionExpanded"
+              >
+                <span class="text-xs font-medium text-muted">更多经验</span>
+                <ChevronDown
+                  class="h-3.5 w-3.5 shrink-0 text-muted transition-transform duration-200"
+                  :class="experienceSectionExpanded ? 'rotate-180' : ''"
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
 
             <Transition name="experience-section-expand">
               <div v-if="experienceSectionExpanded" class="w-full">

@@ -58,7 +58,7 @@ async function onSelect(item: ExperienceListItem) {
 </script>
 
 <template>
-  <div v-if="visible" class="mb-4 flex flex-wrap gap-2">
+  <div v-if="visible" class="flex flex-wrap gap-2">
     <span
       v-for="item in items"
       :key="item.id"

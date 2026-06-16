@@ -4,7 +4,11 @@ use crate::media::retry::{
     auto_ffmpeg_video_retry_plan, content_has_media_block_for_file, detect_media_retry_plan,
     message_indices_for_retry, replace_media_injection, should_retry_attachment, MediaRetryPlan,
 };
-use crate::media::path_hint::append_attachment_paths;
+use crate::media::path_hint::append_recovery_paths;
+use crate::media::filename::{
+    is_text_like_filename, looks_like_utf8_text_content, normalize_inbound_filename,
+    RecoveryPathMode,
+};
 use crate::media::store::{read_media_bytes, save_attachment_bytes};
 use crate::media::token::MediaTokenContext;
 use crate::media::understand::{
@@ -20,8 +24,16 @@ pub const INLINE_IMAGE_MAX_BYTES: usize = 2 * 1024 * 1024;
 pub const HARD_IMAGE_MAX_BYTES: usize = 6 * 1024 * 1024;
 const MAX_DOCUMENT_TEXT_BYTES: usize = 256 * 1024;
 
-fn with_saved_paths(att: &MediaAttachment, block: impl Into<String>) -> String {
-    append_attachment_paths(&block.into(), att.storage_rel_path.as_deref())
+fn inject_extracted_block(block: impl Into<String>) -> String {
+    block.into()
+}
+
+fn inject_recovery_block(
+    att: &MediaAttachment,
+    block: impl Into<String>,
+    mode: RecoveryPathMode,
+) -> String {
+    append_recovery_paths(&block.into(), att.storage_rel_path.as_deref(), mode)
 }
 
 fn is_image_mime(mime: &str) -> bool {
@@ -103,7 +115,43 @@ fn extract_document_text(bytes: &[u8], file_name: &str) -> Result<String> {
         );
     }
     let slice = &bytes[..bytes.len().min(MAX_DOCUMENT_TEXT_BYTES)];
-    String::from_utf8(slice.to_vec()).context("document is not valid UTF-8 text")
+    let text = String::from_utf8(slice.to_vec()).context("document is not valid UTF-8 text")?;
+    if !looks_like_utf8_text_content(&text) {
+        anyhow::bail!("document does not look like printable UTF-8 text: {file_name}");
+    }
+    Ok(text)
+}
+
+fn try_extract_sniffed_text(bytes: &[u8], file_name: &str) -> Option<String> {
+    if !is_text_like_filename(file_name) {
+        return None;
+    }
+    match extract_document_text(bytes, file_name) {
+        Ok(text) => {
+            log::info!(
+                "media: extracted UTF-8 text from {} via text-like extension sniff",
+                file_name
+            );
+            Some(text)
+        }
+        Err(e) => {
+            log::warn!(
+                "media: text extension sniff failed for {}: {:#}",
+                file_name,
+                e
+            );
+            None
+        }
+    }
+}
+
+fn log_docx_extracted_from_legacy_doc_extension(file_name: &str) {
+    let lower = file_name.to_ascii_lowercase();
+    if lower.ends_with(".doc") && !lower.ends_with(".docx") {
+        log::info!(
+            "media: extracted docx content from {file_name} (OOXML payload with legacy .doc extension)"
+        );
+    }
 }
 
 async fn process_pdf_attachment(
@@ -118,8 +166,7 @@ async fn process_pdf_attachment(
         att.derived_text = Some(text.clone());
         return Ok((
             None,
-            Some(with_saved_paths(
-                att,
+            Some(inject_extracted_block(
                 format!("[PDF: {}]\n```\n{}\n```", att.file_name, text),
             )),
         ));
@@ -154,10 +201,10 @@ async fn process_pdf_attachment(
                     att.derived_text = Some(desc.clone());
                     Ok((
                         None,
-                        Some(with_saved_paths(
-                            att,
-                            format!("[PDF (scanned): {}]\n{}", att.file_name, desc),
-                        )),
+                        Some(inject_extracted_block(format!(
+                            "[PDF (scanned): {}]\n{}",
+                            att.file_name, desc
+                        ))),
                     ))
                 }
                 Err(e) => {
@@ -170,7 +217,7 @@ async fn process_pdf_attachment(
                         None,
                         Some(crate::media::deps_hint::pdf_processing_failed_hint(
                             &att.file_name,
-                            &format!("扫描页理解失败：{e}"),
+                            &format!("Scanned page understanding failed: {e}"),
                             att.storage_rel_path.as_deref(),
                         )),
                     ))
@@ -187,7 +234,7 @@ async fn process_pdf_attachment(
                 None,
                 Some(crate::media::deps_hint::pdf_processing_failed_hint(
                     &att.file_name,
-                    &format!("无法提取文本或内嵌页图：{e}"),
+                    &format!("Could not extract text or embedded page images: {e}"),
                     att.storage_rel_path.as_deref(),
                 )),
             ))
@@ -235,6 +282,8 @@ async fn process_attachment_with_bytes(
     att.content_base64 = None;
     att.size_bytes = bytes.len() as u64;
 
+    att.file_name = normalize_inbound_filename(&att.file_name);
+
     let mime = att.mime_type.clone();
     if is_image_mime(&mime) || att.kind == "image" {
         let image_mime = if is_image_mime(&mime) {
@@ -256,12 +305,13 @@ async fn process_attachment_with_bytes(
             );
             return Ok((
                 None,
-                Some(with_saved_paths(
+                Some(inject_recovery_block(
                     att,
                     format!(
-                        "[Image: {}] 超过 {limit_mb} MB 上限，未送入模型。请压缩后重发。",
+                        "[Image: {}] Exceeds {limit_mb} MB limit; not sent to the model. Ask the user to compress and resend.",
                         att.file_name
                     ),
+                    RecoveryPathMode::Binary,
                 )),
             ));
         }
@@ -291,10 +341,10 @@ async fn process_attachment_with_bytes(
                 att.derived_text = Some(desc.clone());
                 return Ok((
                     None,
-                    Some(with_saved_paths(
-                        att,
-                        format!("[Image: {}]\n{}", att.file_name, desc),
-                    )),
+                    Some(inject_extracted_block(format!(
+                        "[Image: {}]\n{}",
+                        att.file_name, desc
+                    ))),
                 ));
             }
             Err(e) => {
@@ -320,10 +370,10 @@ async fn process_attachment_with_bytes(
             att.content_base64 = None;
             return Ok((
                 None,
-                Some(with_saved_paths(
-                    att,
-                    format!("[Audio: {}]\n{}", att.file_name, existing),
-                )),
+                Some(inject_extracted_block(format!(
+                    "[Audio: {}]\n{}",
+                    att.file_name, existing
+                ))),
             ));
         }
         let storage_ctx = crate::media::audio::AudioStorageContext {
@@ -397,10 +447,10 @@ async fn process_attachment_with_bytes(
                 att.derived_text = Some(transcript.clone());
                 return Ok((
                     None,
-                    Some(with_saved_paths(
-                        att,
-                        format!("[Audio: {}]\n{}", att.file_name, transcript),
-                    )),
+                    Some(inject_extracted_block(format!(
+                        "[Audio: {}]\n{}",
+                        att.file_name, transcript
+                    ))),
                 ));
             }
             Err(e) => {
@@ -428,13 +478,14 @@ async fn process_attachment_with_bytes(
         if crate::media::office::is_docx(&mime, &att.file_name, &bytes) {
             match crate::media::office::extract_docx_text(&bytes, &att.file_name) {
                 Ok(text) => {
+                    log_docx_extracted_from_legacy_doc_extension(&att.file_name);
                     att.derived_text = Some(text.clone());
                     return Ok((
                         None,
-                        Some(with_saved_paths(
-                            att,
-                            format!("[File: {}]\n```\n{}\n```", att.file_name, text),
-                        )),
+                        Some(inject_extracted_block(format!(
+                            "[File: {}]\n```\n{}\n```",
+                            att.file_name, text
+                        ))),
                     ));
                 }
                 Err(e) => {
@@ -447,7 +498,7 @@ async fn process_attachment_with_bytes(
                         None,
                         Some(crate::media::deps_hint::attachment_processing_failed_hint(
                             &att.file_name,
-                            &format!("Word 文档解析失败：{e}"),
+                            &format!("Word document parse failed: {e}"),
                             att.storage_rel_path.as_deref(),
                         )),
                     ));
@@ -460,10 +511,10 @@ async fn process_attachment_with_bytes(
                     att.derived_text = Some(text.clone());
                     return Ok((
                         None,
-                        Some(with_saved_paths(
-                            att,
-                            format!("[File: {}]\n```\n{}\n```", att.file_name, text),
-                        )),
+                        Some(inject_extracted_block(format!(
+                            "[File: {}]\n```\n{}\n```",
+                            att.file_name, text
+                        ))),
                     ));
                 }
                 Err(e) => {
@@ -476,7 +527,7 @@ async fn process_attachment_with_bytes(
                         None,
                         Some(crate::media::deps_hint::attachment_processing_failed_hint(
                             &att.file_name,
-                            &format!("Excel 表格解析失败：{e}"),
+                            &format!("Excel spreadsheet parse failed: {e}"),
                             att.storage_rel_path.as_deref(),
                         )),
                     ));
@@ -488,10 +539,20 @@ async fn process_attachment_with_bytes(
             att.derived_text = Some(text.clone());
             return Ok((
                 None,
-                Some(with_saved_paths(
-                    att,
-                    format!("[File: {}]\n```\n{}\n```", att.file_name, text),
-                )),
+                Some(inject_extracted_block(format!(
+                    "[File: {}]\n```\n{}\n```",
+                    att.file_name, text
+                ))),
+            ));
+        }
+        if let Some(text) = try_extract_sniffed_text(&bytes, &att.file_name) {
+            att.derived_text = Some(text.clone());
+            return Ok((
+                None,
+                Some(inject_extracted_block(format!(
+                    "[File: {}]\n```\n{}\n```",
+                    att.file_name, text
+                ))),
             ));
         }
         return Ok((
@@ -540,10 +601,10 @@ async fn process_attachment_with_bytes(
                         att.derived_text = Some(desc.clone());
                         return Ok((
                             None,
-                            Some(with_saved_paths(
-                                att,
-                                format!("[Video: {}]\n{}", att.file_name, desc),
-                            )),
+                            Some(inject_extracted_block(format!(
+                                "[Video: {}]\n{}",
+                                att.file_name, desc
+                            ))),
                         ));
                     }
                     Err(e) => {
@@ -556,7 +617,7 @@ async fn process_attachment_with_bytes(
                             None,
                             Some(crate::media::deps_hint::attachment_processing_failed_hint(
                                 &att.file_name,
-                                &format!("视频理解失败：{e}"),
+                                &format!("Video understanding failed: {e}"),
                                 att.storage_rel_path.as_deref(),
                             )),
                         ));
@@ -783,6 +844,7 @@ pub async fn apply_media_to_history(
         let mut content_replacements: Vec<(String, String)> = Vec::new();
 
         for att in attachments.iter_mut() {
+            att.file_name = normalize_inbound_filename(&att.file_name);
             if att.content_base64.is_none() {
                 if let Some(ref text) = att.derived_text {
                     let label = if att.kind == "audio" || is_audio_mime(&att.mime_type) {
@@ -792,10 +854,7 @@ pub async fn apply_media_to_history(
                     } else {
                         "Attachment"
                     };
-                    let block = with_saved_paths(
-                        att,
-                        format!("[{label}: {}]\n{}", att.file_name, text),
-                    );
+                    let block = inject_extracted_block(format!("[{label}: {}]\n{}", att.file_name, text));
                     if content_has_media_block_for_file(&msg.content, &att.file_name) {
                         content_replacements.push((att.file_name.clone(), block));
                     } else {

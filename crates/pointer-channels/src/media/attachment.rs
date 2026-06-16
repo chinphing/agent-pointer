@@ -1,6 +1,8 @@
 use base64::Engine;
 use pointer_core::models::MediaAttachment;
 
+use pointer_core::media::normalize_inbound_filename;
+
 use crate::adapters::feishu::auth::{guess_mime_from_name, kind_from_mime};
 
 pub struct DownloadedMedia {
@@ -114,8 +116,9 @@ pub fn finalize_downloaded(
     kind_hint: Option<&str>,
 ) -> DownloadedMedia {
     if let Some(name) = file_name.filter(|s| !s.trim().is_empty()) {
-        downloaded.file_name = name;
+        downloaded.file_name = normalize_inbound_filename(name.trim());
     }
+    downloaded.file_name = normalize_inbound_filename(&downloaded.file_name);
     if downloaded.mime_type == "application/octet-stream" {
         if let Some(m) = guess_mime_from_bytes(&downloaded.bytes) {
             downloaded.mime_type = m.into();

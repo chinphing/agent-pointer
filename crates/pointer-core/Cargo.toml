@@ -30,6 +30,7 @@ base64 = "0.22"
 xcap = { version = "0.9", features = ["wgc"] }
 
 tokio-util = "0.7"
+urlencoding = "2"
 uuid = { version = "1", features = ["v4", "v5"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 pdf-extract = "0.7"

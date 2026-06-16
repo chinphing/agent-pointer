@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::ffmpeg::{probe_ffmpeg_tools, FfmpegToolStatus};
-use super::path_hint::append_attachment_paths;
+use super::filename::recovery_mode_for_filename;
+use super::path_hint::append_recovery_paths;
 
 pub const MEDIA_DEPS_MARKER: &str = "<!-- pointer-media-deps -->";
 pub const UNSUPPORTED_ATTACHMENT_MARKER: &str = "<!-- pointer-unsupported-attachment -->";
@@ -10,21 +11,28 @@ pub const MEDIA_PROCESSING_FAILED_MARKER: &str = "<!-- pointer-media-processing-
 fn skill_recovery_block(marker: &str) -> String {
     format!(
         "{marker}\n\
-若用户希望处理该附件，请先征得同意，按以下**优先级**执行（勿跳步；具体 skill/工具由你根据文件名、MIME 与「可用 Skills」索引自行判断）：\n\
-**① 已安装/已启用的 Skill**\n\
-- 查阅「可用 Skills」索引，判断是否有技能可处理该附件；有则 skill_read 并按技能正文执行（用下方 Saved attachment 的 Local path 配合 file_read）\n\
-- 已有匹配技能时**禁止** npx skills find\n\
-**② 查找并安装 Skill（无匹配时）**\n\
-- skill_read(find-skills)，按需搜索并安装合适技能\n\
-**③ 写代码 / 临时脚本（最后手段）**\n\
-- 仅当 ①② 均不可行：terminal 一次性脚本或 run_subagent(coder)\n\
-无需重发文件，可说「重试上一条附件」或由技能/工具直接给出结果。\n\
-IM 渠道需回 Pointer 客户端继续。"
+If the user wants this attachment processed, ask for consent first, then follow this priority \
+(do not skip steps; pick skills/tools from the filename, MIME, and Available Skills index):\n\
+**1. Installed / enabled Skills**\n\
+- Check the Available Skills index for a skill that handles this attachment; if found, skill_read \
+and follow it (use the Saved attachment Local path below)\n\
+- When a matching skill exists, do **not** run npx skills find\n\
+**2. Find and install a Skill (when none match)**\n\
+- skill_read(find-skills), search and install a suitable skill as needed\n\
+**3. Code / one-off script (last resort)**\n\
+- Only if 1 and 2 are unavailable: terminal one-off script or run_subagent(coder)\n\
+The user does not need to resend the file; they can say \"retry last attachment\" or you can \
+finish via skill/tool.\n\
+For IM channel sessions, the user may need to continue in the Pointer desktop client."
     )
 }
 
-fn with_paths(block: String, storage_rel_path: Option<&str>) -> String {
-    append_attachment_paths(&block, storage_rel_path)
+fn with_recovery_paths(block: String, file_name: &str, storage_rel_path: Option<&str>) -> String {
+    append_recovery_paths(
+        &block,
+        storage_rel_path,
+        recovery_mode_for_filename(file_name),
+    )
 }
 
 pub fn unsupported_attachment_hint(
@@ -32,11 +40,12 @@ pub fn unsupported_attachment_hint(
     mime: &str,
     storage_rel_path: Option<&str>,
 ) -> String {
-    with_paths(
+    with_recovery_paths(
         format!(
-            "[Attachment: {file_name}] 无法直接解析（类型 {mime}；未送入模型）。\n\n{}",
+            "[Attachment: {file_name}] Could not parse directly (type {mime}; not sent to the model).\n\n{}",
             skill_recovery_block(UNSUPPORTED_ATTACHMENT_MARKER)
         ),
+        file_name,
         storage_rel_path,
     )
 }
@@ -46,11 +55,12 @@ pub fn attachment_processing_failed_hint(
     err: &str,
     storage_rel_path: Option<&str>,
 ) -> String {
-    with_paths(
+    with_recovery_paths(
         format!(
-            "[Attachment: {file_name}] 处理失败：{err}\n\n{}",
+            "[Attachment: {file_name}] Processing failed: {err}\n\n{}",
             skill_recovery_block(MEDIA_PROCESSING_FAILED_MARKER)
         ),
+        file_name,
         storage_rel_path,
     )
 }
@@ -60,11 +70,12 @@ pub fn audio_transcription_failed_hint(
     err: &str,
     storage_rel_path: Option<&str>,
 ) -> String {
-    with_paths(
+    with_recovery_paths(
         format!(
-            "[Audio: {file_name}] 转写失败：{err}\n\n{}",
+            "[Audio: {file_name}] Transcription failed: {err}\n\n{}",
             skill_recovery_block(MEDIA_PROCESSING_FAILED_MARKER)
         ),
+        file_name,
         storage_rel_path,
     )
 }
@@ -74,11 +85,12 @@ pub fn pdf_processing_failed_hint(
     detail: &str,
     storage_rel_path: Option<&str>,
 ) -> String {
-    with_paths(
+    with_recovery_paths(
         format!(
             "[PDF: {file_name}] {detail}\n\n{}",
             skill_recovery_block(MEDIA_PROCESSING_FAILED_MARKER)
         ),
+        file_name,
         storage_rel_path,
     )
 }
@@ -88,11 +100,12 @@ pub fn image_understanding_failed_hint(
     err: &str,
     storage_rel_path: Option<&str>,
 ) -> String {
-    with_paths(
+    with_recovery_paths(
         format!(
-            "[Image: {file_name}] 理解失败：{err}\n\n{}",
+            "[Image: {file_name}] Understanding failed: {err}\n\n{}",
             skill_recovery_block(MEDIA_PROCESSING_FAILED_MARKER)
         ),
+        file_name,
         storage_rel_path,
     )
 }
@@ -124,18 +137,20 @@ impl MediaDepsStatus {
 }
 
 pub fn video_ffmpeg_missing(file_name: &str, storage_rel_path: Option<&str>) -> String {
-    with_paths(
+    with_recovery_paths(
         format!(
-            "[Video: {file_name}] 无法处理：本机未检测到可用的 ffmpeg/ffprobe。\n\n\
+            "[Video: {file_name}] Cannot process: ffmpeg/ffprobe not available on this machine.\n\n\
 {MEDIA_DEPS_MARKER}\n\
-若用户希望处理 IM 视频，请先征得同意，然后：\n\
-1. 调用 skill_read，skill_id=dev-env-setup\n\
-2. 读取 references/ffmpeg.md 中对应操作系统章节\n\
-3. 用 terminal 执行安装命令并验证：ffmpeg -version && ffprobe -version\n\
-4. 安装成功后无需重发视频，请用户说「重试上一条视频」；ffmpeg 就绪后也可能自动重试\n\
-IM 渠道会话中若用户不在 Pointer 客户端，回复简短说明：\
-请在 Pointer 客户端中说「帮我安装 ffmpeg」。"
+If the user wants IM video processed, ask for consent, then:\n\
+1. skill_read with skill_id=dev-env-setup\n\
+2. Read the OS chapter in references/ffmpeg.md\n\
+3. Run install commands via terminal and verify: ffmpeg -version && ffprobe -version\n\
+4. After install, the user need not resend the video; ask them to say \"retry last video\" \
+(auto-retry may also run once ffmpeg is ready)\n\
+If the user is not in the Pointer desktop client on an IM channel, reply briefly that they \
+should open Pointer and ask to install ffmpeg."
         ),
+        file_name,
         storage_rel_path,
     )
 }
@@ -145,18 +160,22 @@ pub fn video_frame_extraction_failed(
     err: &str,
     storage_rel_path: Option<&str>,
 ) -> String {
-    with_paths(
+    with_recovery_paths(
         format!(
-            "[Video: {file_name}] ffmpeg 已安装，但未能从该视频提取画面帧：{err}\n\n\
-说明：设置页显示「已就绪」仅表示 ffmpeg/ffprobe 可执行；单个视频仍可能因编码、文件损坏或格式不兼容而失败。\n\
-请让用户说「重试上一条视频」、换用常见格式（如 H.264 MP4），无需重发文件。不要建议安装 ffmpeg。"
+            "[Video: {file_name}] ffmpeg is installed but frame extraction failed: {err}\n\n\
+Note: settings \"ready\" only means ffmpeg/ffprobe run; a single file may still fail due to \
+codec, corruption, or format.\n\
+Ask the user to say \"retry last video\" or use a common format (e.g. H.264 MP4); no need to \
+resend. Do not suggest installing ffmpeg."
         ),
+        file_name,
         storage_rel_path,
     )
 }
 
 pub fn im_user_hint_for_ffmpeg() -> &'static str {
-    "处理视频需要在本机安装 ffmpeg。请在 Pointer 客户端打开对话并说「帮我安装 ffmpeg」。"
+    "Video processing requires ffmpeg on this machine. Open the conversation in the Pointer \
+desktop client and ask to install ffmpeg."
 }
 
 #[cfg(test)]
@@ -168,12 +187,18 @@ mod tests {
         let hint =
             unsupported_attachment_hint("report.docx", "application/octet-stream", None);
         assert!(hint.contains(UNSUPPORTED_ATTACHMENT_MARKER));
-        assert!(hint.contains("可用 Skills"));
-        assert!(hint.contains("禁止"));
+        assert!(hint.contains("Available Skills"));
+        assert!(hint.contains("do **not** run npx skills find"));
         assert!(hint.contains("find-skills"));
         assert!(!hint.contains("excel-handler"));
-        let pos_installed = hint.find("已安装").unwrap_or(0);
+        let pos_installed = hint.find("Installed / enabled Skills").unwrap_or(0);
         let pos_find = hint.find("find-skills").unwrap_or(0);
         assert!(pos_installed < pos_find);
+    }
+
+    #[test]
+    fn unsupported_hint_does_not_suggest_file_read_for_binary() {
+        let hint = unsupported_attachment_hint("paper.doc", "application/msword", None);
+        assert!(!hint.contains("file_read"));
     }
 }

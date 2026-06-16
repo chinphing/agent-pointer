@@ -219,16 +219,15 @@ fn parse_content_disposition_filename(value: &str) -> Option<String> {
                 .split_once("''")
                 .map(|(_, n)| n)
                 .unwrap_or(encoded);
-            return Some(
-                urlencoding::decode(name)
-                    .map(|s| s.into_owned())
-                    .unwrap_or_else(|_| name.to_string()),
-            );
+            let decoded = urlencoding::decode(name)
+                .map(|s| s.into_owned())
+                .unwrap_or_else(|_| name.to_string());
+            return Some(pointer_core::media::normalize_inbound_filename(&decoded));
         }
         if let Some(rest) = part.strip_prefix("filename=") {
             let name = rest.trim().trim_matches('"');
             if !name.is_empty() {
-                return Some(name.to_string());
+                return Some(pointer_core::media::normalize_inbound_filename(name));
             }
         }
     }

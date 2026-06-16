@@ -7,6 +7,7 @@ use crate::http_client::HttpClient;
 use crate::media::attachment::{enforce_max_bytes, DownloadedMedia};
 use crate::media::audio_normalize::normalize_channel_audio_download;
 use crate::traits::InboundMediaRef;
+use pointer_core::media::merge_inbound_filename;
 
 pub const WECOM_AGENT_MEDIA_PREFIX: &str = "agent-media:";
 
@@ -46,11 +47,7 @@ pub async fn download_inbound_ref(
         )
     })?;
     enforce_max_bytes(&bytes, "wecom media")?;
-    let file_name = media_ref
-        .file_name
-        .clone()
-        .filter(|s| !s.trim().is_empty())
-        .or(download_name)
+    let file_name = merge_inbound_filename(media_ref.file_name.clone(), download_name)
         .unwrap_or_else(|| format!("wecom-{}.bin", uuid::Uuid::new_v4()));
     Ok(normalize_channel_audio_download(
         DownloadedMedia {
@@ -86,11 +83,7 @@ async fn download_agent_media_ref(
     );
     let (bytes, content_type, download_name) = http.get_bytes(&url, &[]).await?;
     enforce_max_bytes(&bytes, "wecom agent media")?;
-    let file_name = media_ref
-        .file_name
-        .clone()
-        .filter(|s| !s.trim().is_empty())
-        .or(download_name)
+    let file_name = merge_inbound_filename(media_ref.file_name.clone(), download_name)
         .unwrap_or_else(|| format!("wecom-{media_id}.bin"));
     Ok(normalize_channel_audio_download(
         DownloadedMedia {

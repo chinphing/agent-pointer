@@ -1,5 +1,6 @@
 use crate::session::build_conversation_key;
 use crate::traits::{InboundMediaRef, InboundMessage, InboundReplyContext};
+use pointer_core::media::normalize_inbound_filename;
 use serde_json::Value;
 
 struct ParsedContent {
@@ -57,7 +58,7 @@ fn object_file_name(obj: &Value) -> Option<String> {
                 .and_then(|v| v.as_str())
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
+                .map(|s| normalize_inbound_filename(s))
         })
 }
 

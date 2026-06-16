@@ -6,6 +6,7 @@ pub mod outbound_reply;
 pub mod reply_attachments;
 pub mod capabilities;
 pub mod deps_hint;
+pub mod filename;
 pub mod path_hint;
 pub mod retry;
 pub mod ffmpeg;
@@ -24,7 +25,14 @@ pub use access::is_user_filesystem_path;
 pub use outbound_reply::{
     im_outbound_reply_source, reply_media_source, split_reply_media, strip_outbound_media_markers,
 };
-pub use path_hint::{append_attachment_paths, attachment_path_lines, MEDIA_URI_SCHEME};
+pub use path_hint::{
+    append_attachment_paths, append_recovery_paths, attachment_path_lines,
+    attachment_recovery_path_lines, MEDIA_URI_SCHEME,
+};
+pub use filename::{
+    merge_inbound_filename, normalize_inbound_filename, recovery_mode_for_filename,
+    RecoveryPathMode,
+};
 pub use reply_attachments::attachments_from_reply_paths;
 pub use store::{
     media_abs_path, read_chat_media_preview, read_media_bytes, read_media_ref_preview,

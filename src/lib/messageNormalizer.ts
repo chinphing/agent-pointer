@@ -88,12 +88,22 @@ function kindFromFileName(fileName: string): MediaAttachmentKind {
   return 'file'
 }
 
+function normalizeDisplayFileName(fileName: string): string {
+  const trimmed = fileName.trim()
+  if (!trimmed.includes('%')) return trimmed
+  try {
+    return decodeURIComponent(trimmed.replace(/\+/g, ' '))
+  } catch {
+    return trimmed
+  }
+}
+
 function renderableFromMediaAttachment(att: MediaAttachment): RenderableAttachment {
   const mediaRef = att.localAbsPath ?? att.storageRelPath
   return {
     id: att.id,
     kind: att.kind,
-    fileName: att.fileName,
+    fileName: normalizeDisplayFileName(att.fileName),
     mimeType: att.mimeType,
     storageRelPath: att.storageRelPath,
     localAbsPath: att.localAbsPath,
@@ -107,7 +117,7 @@ function renderableFromMediaAttachment(att: MediaAttachment): RenderableAttachme
 export function stripSavedAttachmentHints(content: string): string {
   return content
     .replace(
-      /Saved attachment:\s*\n- URI:\s*[^\n]+(?:\n- Local path:\s*[^\n]+)?(?:\n- Read with file_read[^\n]*)?/gi,
+      /Saved attachment:\s*\n- URI:\s*[^\n]+(?:\n- Local path:\s*[^\n]+)?(?:\n[^\n]*(?:file_read|Skill|terminal)[^\n]*)?/gi,
       ''
     )
     .replace(/\n{3,}/g, '\n\n')

@@ -4630,6 +4630,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "toml 0.8.2",
+ "urlencoding",
  "uuid",
  "walkdir",
  "windows 0.62.2",

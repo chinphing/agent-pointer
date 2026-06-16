@@ -5,6 +5,8 @@ use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::{DynamicImage, ExtendedColorType};
 use std::io::Cursor;
+#[cfg(windows)]
+use std::any::Any;
 #[cfg(target_os = "macos")]
 use std::process::Command;
 use std::time::Instant;
@@ -378,7 +380,6 @@ fn capture_monitor_rgba(monitor: &Monitor) -> Result<image::RgbaImage> {
 
 #[cfg(windows)]
 fn capture_monitor_rgba_windows(monitor: &Monitor) -> Result<image::RgbaImage> {
-    use std::any::Any;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     let wgc = catch_unwind(AssertUnwindSafe(|| monitor.capture_image()));

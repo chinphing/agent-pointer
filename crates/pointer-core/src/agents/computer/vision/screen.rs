@@ -362,11 +362,72 @@ pub fn screenshot_current_monitor() -> Result<ScreenshotPacket> {
     Ok(screenshot_for_selection(None)?.packet)
 }
 
-/// OS framebuffer capture for one monitor via xcap.
+/// OS framebuffer capture for one monitor via xcap (Windows WGC when available; GDI fallback).
 fn capture_monitor_rgba(monitor: &Monitor) -> Result<image::RgbaImage> {
-    monitor
-        .capture_image()
-        .map_err(|e| anyhow!("screen capture failed: {e}"))
+    #[cfg(windows)]
+    {
+        capture_monitor_rgba_windows(monitor)
+    }
+    #[cfg(not(windows))]
+    {
+        monitor
+            .capture_image()
+            .map_err(|e| anyhow!("screen capture failed: {e}"))
+    }
+}
+
+#[cfg(windows)]
+fn capture_monitor_rgba_windows(monitor: &Monitor) -> Result<image::RgbaImage> {
+    use std::any::Any;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+
+    let wgc = catch_unwind(AssertUnwindSafe(|| monitor.capture_image()));
+    match wgc {
+        Ok(Ok(img)) => Ok(img),
+        Ok(Err(e)) => {
+            log::warn!("screen capture (WGC) failed: {e}; trying GDI fallback");
+            capture_monitor_gdi_fallback(monitor, &e.to_string())
+        }
+        Err(payload) => {
+            let msg = panic_payload_message(payload);
+            log::warn!("screen capture (WGC) panicked: {msg}; trying GDI fallback");
+            capture_monitor_gdi_fallback(monitor, &msg)
+        }
+    }
+}
+
+#[cfg(windows)]
+fn panic_payload_message(payload: Box<dyn Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic".into()
+    }
+}
+
+#[cfg(windows)]
+fn capture_monitor_gdi_fallback(monitor: &Monitor, wgc_reason: &str) -> Result<image::RgbaImage> {
+    let x = monitor.x().map_err(|e| anyhow!("monitor x: {e}"))?;
+    let y = monitor.y().map_err(|e| anyhow!("monitor y: {e}"))?;
+    let width = monitor.width().map_err(|e| anyhow!("monitor width: {e}"))?.max(1) as i32;
+    let height = monitor.height().map_err(|e| anyhow!("monitor height: {e}"))?.max(1) as i32;
+
+    super::windows_gdi::capture_monitor_region(x, y, width, height).map_err(|e| {
+        if wgc_reason.contains("D3D11")
+            || wgc_reason.contains("0x8007000E")
+            || wgc_reason.to_ascii_lowercase().contains("outofmemory")
+            || wgc_reason.contains("内存资源不足")
+        {
+            anyhow!(
+                "screen capture failed: GPU/D3D11 unavailable ({wgc_reason}); GDI fallback also failed: {e}. \
+                 Close other GPU-heavy apps or retry outside RDP/VM if possible."
+            )
+        } else {
+            anyhow!("screen capture failed (WGC: {wgc_reason}; GDI: {e})")
+        }
+    })
 }
 
 fn resample_capture_to_logical(

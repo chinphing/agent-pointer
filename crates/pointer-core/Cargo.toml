@@ -64,6 +64,11 @@ toml = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Same Quartz coordinate space as xcap (`CGDisplayBounds` / `CGGetDisplaysWithPoint`). Enigo's macOS

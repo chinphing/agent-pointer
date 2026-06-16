@@ -293,6 +293,8 @@ sudo apt-get install -y \
 - `libxdo-dev`：电脑操控 agent（`enigo`）链接 `libxdo`；缺了会报 **`unable to find library -lxdo`**
 - Wayland 下截图/输入能力因 compositor 而异，复杂场景建议 X11 会话验证
 
+**Windows Computer 截图**：默认走 xcap WGC（D3D11）。在 RDP、虚拟机或 GPU 内存不足（`E_OUTOFMEMORY` / `0x8007000E`）时 WGC 可能 panic；`pointer-core` 会捕获后自动回退 GDI BitBlt（`vision/windows_gdi.rs`）。若两者均失败，请关闭占 GPU 的程序或在本机桌面（非远程会话）重试。
+
 **Fedora / RHEL** 等发行版需自行对照安装 WebKitGTK 4.1、ayatana-appindicator、librsvg 等同名开发包；本文以 Ubuntu 为准。
 
 ### 安装 Node.js 与 Rust（若系统未带）

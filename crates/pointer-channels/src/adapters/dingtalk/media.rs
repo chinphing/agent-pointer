@@ -43,12 +43,13 @@ pub async fn download_inbound_ref(
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .context("dingtalk downloadUrl missing")?;
-    let (bytes, content_type) = http.get_bytes(download_url, &[]).await?;
+    let (bytes, content_type, download_name) = http.get_bytes(download_url, &[]).await?;
     enforce_max_bytes(&bytes, "dingtalk media")?;
     let file_name = media_ref
         .file_name
         .clone()
         .filter(|s| !s.trim().is_empty())
+        .or(download_name)
         .unwrap_or_else(|| format!("dingtalk-{}.bin", uuid::Uuid::new_v4()));
     let mime_type = content_type
         .or_else(|| media_ref.mime_type.clone())

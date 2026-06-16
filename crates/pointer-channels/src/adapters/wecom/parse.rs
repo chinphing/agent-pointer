@@ -49,6 +49,18 @@ pub fn parse_ws_inbound(body: &Value, account_id: &str, req_id: &str) -> Option<
     })
 }
 
+fn object_file_name(obj: &Value) -> Option<String> {
+    ["file_name", "filename", "name"]
+        .iter()
+        .find_map(|key| {
+            obj.get(*key)
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+        })
+}
+
 fn parse_message_content(body: &Value, msgtype: &str) -> Option<ParsedContent> {
     match msgtype {
         "text" => {
@@ -77,7 +89,7 @@ fn parse_message_content(body: &Value, msgtype: &str) -> Option<ParsedContent> {
         }
         "image" => {
             let image = body.get("image")?;
-            let attachments = media_ref_from_url(image, "image", image.get("filename").and_then(|v| v.as_str().map(|s| s.to_string())))
+            let attachments = media_ref_from_url(image, "image", object_file_name(image))
                 .into_iter()
                 .collect();
             Some(ParsedContent {
@@ -87,7 +99,7 @@ fn parse_message_content(body: &Value, msgtype: &str) -> Option<ParsedContent> {
         }
         "file" => {
             let file = body.get("file")?;
-            let file_name = file.get("filename").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let file_name = object_file_name(file);
             let attachments = media_ref_from_url(file, "document", file_name)
                 .into_iter()
                 .collect();
@@ -98,7 +110,7 @@ fn parse_message_content(body: &Value, msgtype: &str) -> Option<ParsedContent> {
         }
         "video" => {
             let video = body.get("video")?;
-            let file_name = video.get("filename").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let file_name = object_file_name(video);
             let attachments = media_ref_from_url(video, "video", file_name)
                 .into_iter()
                 .collect();
@@ -137,11 +149,29 @@ fn parse_mixed(body: &Value) -> Option<ParsedContent> {
             }
             "file" => {
                 if let Some(att) = item.get("file").and_then(|f| {
-                    media_ref_from_url(
-                        f,
-                        "document",
-                        f.get("filename").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    )
+                    media_ref_from_url(f, "document", object_file_name(f))
+                }) {
+                    attachments.push(att);
+                }
+            }
+            "voice" => {
+                if let Some(voice) = item.get("voice") {
+                    let text = voice
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim();
+                    if !text.is_empty() {
+                        text_parts.push(text.to_string());
+                    }
+                    if let Some(att) = media_ref_from_url(voice, "audio", None) {
+                        attachments.push(att);
+                    }
+                }
+            }
+            "video" => {
+                if let Some(att) = item.get("video").and_then(|v| {
+                    media_ref_from_url(v, "video", object_file_name(v))
                 }) {
                     attachments.push(att);
                 }

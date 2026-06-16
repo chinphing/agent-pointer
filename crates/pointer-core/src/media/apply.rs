@@ -425,13 +425,81 @@ async fn process_attachment_with_bytes(
         if mime == "application/pdf" || att.file_name.to_ascii_lowercase().ends_with(".pdf") {
             return process_pdf_attachment(settings, att, &bytes, api_key, token_ctx, cancel).await;
         }
-        let text = extract_document_text(&bytes, &att.file_name)?;
-        att.derived_text = Some(text.clone());
+        if crate::media::office::is_docx(&mime, &att.file_name, &bytes) {
+            match crate::media::office::extract_docx_text(&bytes, &att.file_name) {
+                Ok(text) => {
+                    att.derived_text = Some(text.clone());
+                    return Ok((
+                        None,
+                        Some(with_saved_paths(
+                            att,
+                            format!("[File: {}]\n```\n{}\n```", att.file_name, text),
+                        )),
+                    ));
+                }
+                Err(e) => {
+                    log::warn!(
+                        "media: docx extract failed for {}: {:#}",
+                        att.file_name,
+                        e
+                    );
+                    return Ok((
+                        None,
+                        Some(crate::media::deps_hint::attachment_processing_failed_hint(
+                            &att.file_name,
+                            &format!("Word 文档解析失败：{e}"),
+                            att.storage_rel_path.as_deref(),
+                        )),
+                    ));
+                }
+            }
+        }
+        if crate::media::office::is_xlsx(&mime, &att.file_name, &bytes) {
+            match crate::media::office::extract_xlsx_text(&bytes, &att.file_name) {
+                Ok(text) => {
+                    att.derived_text = Some(text.clone());
+                    return Ok((
+                        None,
+                        Some(with_saved_paths(
+                            att,
+                            format!("[File: {}]\n```\n{}\n```", att.file_name, text),
+                        )),
+                    ));
+                }
+                Err(e) => {
+                    log::warn!(
+                        "media: xlsx extract failed for {}: {:#}",
+                        att.file_name,
+                        e
+                    );
+                    return Ok((
+                        None,
+                        Some(crate::media::deps_hint::attachment_processing_failed_hint(
+                            &att.file_name,
+                            &format!("Excel 表格解析失败：{e}"),
+                            att.storage_rel_path.as_deref(),
+                        )),
+                    ));
+                }
+            }
+        }
+        if is_text_document_mime(&mime) {
+            let text = extract_document_text(&bytes, &att.file_name)?;
+            att.derived_text = Some(text.clone());
+            return Ok((
+                None,
+                Some(with_saved_paths(
+                    att,
+                    format!("[File: {}]\n```\n{}\n```", att.file_name, text),
+                )),
+            ));
+        }
         return Ok((
             None,
-            Some(with_saved_paths(
-                att,
-                format!("[File: {}]\n```\n{}\n```", att.file_name, text),
+            Some(crate::media::deps_hint::unsupported_attachment_hint(
+                &att.file_name,
+                &mime,
+                att.storage_rel_path.as_deref(),
             )),
         ));
     }

@@ -4,8 +4,11 @@ use serde_json::Value;
 use crate::crypto::{wecom_decrypt, wecom_msg_signature};
 use crate::session::build_conversation_key;
 use crate::traits::{
-    ChannelWebhookAdapter, InboundMessage, InboundReplyContext, WebhookContext, WebhookResponse,
+    ChannelWebhookAdapter, InboundMediaRef, InboundMessage, InboundReplyContext, WebhookContext,
+    WebhookResponse,
 };
+
+use super::media::WECOM_AGENT_MEDIA_PREFIX;
 
 pub struct WeComWebhook;
 
@@ -85,19 +88,41 @@ fn parse_query(query: &str, key: &str) -> String {
         .unwrap_or_default()
 }
 
+struct ParsedWebhookContent {
+    text: String,
+    attachments: Vec<InboundMediaRef>,
+}
+
+fn strip_cdata(value: &str) -> String {
+    let v = value.trim();
+    if let Some(inner) = v
+        .strip_prefix("<![CDATA[")
+        .and_then(|s| s.strip_suffix("]]>"))
+    {
+        inner.to_string()
+    } else {
+        v.to_string()
+    }
+}
+
 fn parse_wecom_xml(xml: &str, account_id: &str) -> Option<InboundMessage> {
     let get_tag = |tag: &str| -> Option<String> {
         let open = format!("<{tag}>");
         let close = format!("</{tag}>");
         let start = xml.find(&open)? + open.len();
         let end = xml.find(&close)?;
-        Some(xml[start..end].to_string())
+        let value = strip_cdata(xml[start..end].trim());
+        if value.is_empty() {
+            None
+        } else {
+            Some(value)
+        }
     };
     let msg_type = get_tag("MsgType")?;
-    if msg_type != "text" {
+    let parsed = parse_wecom_xml_content(&msg_type, &get_tag)?;
+    if parsed.text.trim().is_empty() && parsed.attachments.is_empty() {
         return None;
     }
-    let content = get_tag("Content")?;
     let from = get_tag("FromUserName")?;
     let msg_id = get_tag("MsgId").unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let chat_id = get_tag("ChatId").unwrap_or_else(|| from.clone());
@@ -110,7 +135,7 @@ fn parse_wecom_xml(xml: &str, account_id: &str) -> Option<InboundMessage> {
         conversation_key: build_conversation_key("wecom", &chat_id, is_group),
         sender_id: from,
         sender_name: None,
-        text: content,
+        text: parsed.text,
         is_group,
         mentioned_bot: true,
         reply_context: Some(InboundReplyContext {
@@ -120,6 +145,112 @@ fn parse_wecom_xml(xml: &str, account_id: &str) -> Option<InboundMessage> {
             context_token: None,
             wecom_req_id: None,
         }),
-        attachments: vec![],
+        attachments: parsed.attachments,
     })
+}
+
+fn parse_wecom_xml_content(
+    msg_type: &str,
+    get_tag: &dyn Fn(&str) -> Option<String>,
+) -> Option<ParsedWebhookContent> {
+    match msg_type {
+        "text" => {
+            let text = get_tag("Content")?;
+            Some(ParsedWebhookContent {
+                text,
+                attachments: vec![],
+            })
+        }
+        "image" => {
+            let media_id = get_tag("MediaId")?;
+            let file_name = get_tag("PicUrl").map(|_| "image.jpg".into());
+            Some(ParsedWebhookContent {
+                text: String::new(),
+                attachments: vec![agent_media_ref("image", &media_id, file_name, None)],
+            })
+        }
+        "voice" => {
+            let text = get_tag("Recognition").unwrap_or_default();
+            let mut attachments = Vec::new();
+            if let Some(media_id) = get_tag("MediaId") {
+                attachments.push(agent_media_ref(
+                    "audio",
+                    &media_id,
+                    Some("voice.amr".into()),
+                    Some("audio/amr".into()),
+                ));
+            }
+            Some(ParsedWebhookContent { text, attachments })
+        }
+        "video" => {
+            let media_id = get_tag("MediaId")?;
+            Some(ParsedWebhookContent {
+                text: String::new(),
+                attachments: vec![agent_media_ref(
+                    "video",
+                    &media_id,
+                    Some("video.mp4".into()),
+                    Some("video/mp4".into()),
+                )],
+            })
+        }
+        "file" => {
+            let media_id = get_tag("MediaId")?;
+            let file_name = get_tag("FileName").or_else(|| get_tag("Title"));
+            Some(ParsedWebhookContent {
+                text: String::new(),
+                attachments: vec![agent_media_ref("document", &media_id, file_name, None)],
+            })
+        }
+        _ => None,
+    }
+}
+
+fn agent_media_ref(
+    kind: &str,
+    media_id: &str,
+    file_name: Option<String>,
+    mime_type: Option<String>,
+) -> InboundMediaRef {
+    InboundMediaRef {
+        kind: kind.into(),
+        mime_type,
+        file_name,
+        feishu_image_key: None,
+        feishu_file_key: None,
+        feishu_resource_type: None,
+        wecom_download_url: Some(format!("{WECOM_AGENT_MEDIA_PREFIX}{media_id}")),
+        wecom_aes_key: None,
+        dingtalk_download_code: None,
+        weixin_encrypt_query_param: None,
+        weixin_aes_key: None,
+        weixin_image_aeskey_hex: None,
+        weixin_voice_encode_type: None,
+        weixin_voice_sample_rate: None,
+        weixin_voice_asr_text: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_agent_image_xml() {
+        let xml = r#"<xml>
+<ToUserName><![CDATA[corp]]></ToUserName>
+<FromUserName><![CDATA[user1]]></FromUserName>
+<MsgType><![CDATA[image]]></MsgType>
+<MediaId><![CDATA[MEDIA_ID]]></MediaId>
+<PicUrl><![CDATA[http://example.com/a.jpg]]></PicUrl>
+<MsgId>123</MsgId>
+</xml>"#;
+        let msg = parse_wecom_xml(xml, "default").expect("parse");
+        assert_eq!(msg.attachments.len(), 1);
+        assert_eq!(msg.attachments[0].kind, "image");
+        assert!(msg.attachments[0]
+            .wecom_download_url
+            .as_deref()
+            .is_some_and(|u| u.contains("MEDIA_ID")));
+    }
 }

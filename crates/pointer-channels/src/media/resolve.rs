@@ -41,11 +41,12 @@ pub async fn resolve_feishu_attachments(
 
 pub async fn resolve_wecom_attachments(
     http: &HttpClient,
+    account: &ChannelAccountConfig,
     msg: &InboundMessage,
 ) -> Vec<MediaAttachment> {
     let mut out = Vec::new();
     for media_ref in &msg.attachments {
-        match wecom_media::download_inbound_ref(http, media_ref).await {
+        match wecom_media::download_inbound_ref(http, Some(account), media_ref).await {
             Ok(downloaded) => {
                 log::info!(
                     "wecom media downloaded message={} kind={} bytes={}",
@@ -135,7 +136,7 @@ pub async fn resolve_inbound_attachments(
 ) -> Result<Vec<MediaAttachment>> {
     match msg.channel.as_str() {
         "feishu" => Ok(resolve_feishu_attachments(http, account, msg).await),
-        "wecom" => Ok(resolve_wecom_attachments(http, msg).await),
+        "wecom" => Ok(resolve_wecom_attachments(http, account, msg).await),
         "dingtalk" => Ok(resolve_dingtalk_attachments(http, account, msg).await),
         "weixin" => Ok(resolve_weixin_attachments(http, msg).await),
         _ => Ok(vec![]),

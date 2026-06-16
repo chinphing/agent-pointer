@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-use super::cdn_upload::{file_item_json, image_item_json, upload_weixin_media};
+use super::cdn_upload::{file_item_json, image_item_json, upload_weixin_media, video_item_json};
 use super::ilink_client::{ILinkClient, WeixinCredentials};
 use crate::credentials::load_encrypted_json;
 use crate::traits::{ChannelOutboundAdapter, OutboundContext, OutboundMedia};
@@ -41,7 +41,12 @@ impl ChannelOutboundAdapter for WeixinOutbound {
             .reply_context
             .as_ref()
             .and_then(|r| r.context_token.as_deref())
-            .ok_or_else(|| anyhow::anyhow!("weixin send media requires context_token"))?;
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "weixin send media requires context_token (send a user message first to refresh session)"
+                )
+            })?;
 
         let uploaded = upload_weixin_media(
             &client,
@@ -61,6 +66,8 @@ impl ChannelOutboundAdapter for WeixinOutbound {
         }
         if media.is_image() {
             items.push(image_item_json(&uploaded));
+        } else if media.is_video() {
+            items.push(video_item_json(&uploaded, &media.file_name));
         } else {
             items.push(file_item_json(&uploaded, &media.file_name));
         }

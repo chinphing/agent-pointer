@@ -8,6 +8,10 @@ struct ParsedContent {
 }
 
 pub fn parse_inbound(event: &Value, account_id: &str) -> Option<InboundMessage> {
+    if is_dingtalk_self_message(event) {
+        log::debug!("dingtalk inbound drop self-sent message");
+        return None;
+    }
     let msgtype = event.get("msgtype").and_then(|v| v.as_str()).unwrap_or("");
     let parsed = parse_message_content(event, msgtype)?;
     if parsed.text.trim().is_empty() && parsed.attachments.is_empty() {
@@ -260,4 +264,41 @@ fn file_name_from(event: &Value, msgtype: &str) -> Option<String> {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
         })
+}
+
+fn is_dingtalk_self_message(event: &Value) -> bool {
+    let sender_id = event
+        .get("senderId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    if sender_id.is_empty() {
+        return false;
+    }
+    if event
+        .get("chatbotUserId")
+        .and_then(|v| v.as_str())
+        .is_some_and(|bot_id| !bot_id.is_empty() && bot_id == sender_id)
+    {
+        return true;
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn drops_robot_self_message() {
+        assert!(is_dingtalk_self_message(&json!({
+            "senderId": "bot123",
+            "chatbotUserId": "bot123",
+        })));
+        assert!(!is_dingtalk_self_message(&json!({
+            "senderId": "user123",
+            "chatbotUserId": "bot123",
+        })));
+    }
 }

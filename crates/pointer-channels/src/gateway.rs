@@ -1,6 +1,7 @@
 use anyhow::Result;
 use parking_lot::RwLock;
 use pointer_core::chat_service::AppState;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
@@ -20,6 +21,8 @@ pub struct ChannelGateway {
     pub pairing: PairingStore,
     pub dedup: DedupStore,
     core: Arc<AppState>,
+    /// Latest Weixin `context_token` per (account_id, sender_id) for outbound replies.
+    weixin_context_tokens: RwLock<HashMap<String, HashMap<String, String>>>,
 }
 
 impl ChannelGateway {
@@ -32,6 +35,7 @@ impl ChannelGateway {
             pairing: PairingStore::new(),
             dedup: DedupStore::new(),
             core,
+            weixin_context_tokens: RwLock::new(HashMap::new()),
         })
     }
 
@@ -165,6 +169,9 @@ impl ChannelGateway {
             .registry
             .get(&msg.channel)
             .ok_or_else(|| anyhow::anyhow!("plugin missing"))?;
+
+        let mut msg = msg;
+        self.enrich_weixin_reply_context(&mut msg);
 
         let conv_id = conversation_id(&msg);
         if is_abort_command(&msg.text) {
@@ -323,6 +330,45 @@ impl ChannelGateway {
         }
         if started == 0 {
             log::info!("dingtalk stream monitor: no websocket accounts to start");
+        }
+    }
+
+    fn enrich_weixin_reply_context(&self, msg: &mut InboundMessage) {
+        if msg.channel != "weixin" {
+            return;
+        }
+        if let Some(token) = msg
+            .reply_context
+            .as_ref()
+            .and_then(|r| r.context_token.as_deref())
+            .filter(|s| !s.trim().is_empty())
+        {
+            self.weixin_context_tokens
+                .write()
+                .entry(msg.account_id.clone())
+                .or_default()
+                .insert(msg.sender_id.clone(), token.to_string());
+            return;
+        }
+        let stored = self
+            .weixin_context_tokens
+            .read()
+            .get(&msg.account_id)
+            .and_then(|m| m.get(&msg.sender_id).cloned());
+        let Some(token) = stored else {
+            return;
+        };
+        match msg.reply_context.as_mut() {
+            Some(ctx) => ctx.context_token = Some(token),
+            None => {
+                msg.reply_context = Some(crate::traits::InboundReplyContext {
+                    session_webhook: None,
+                    chat_id: None,
+                    open_id: Some(msg.sender_id.clone()),
+                    context_token: Some(token),
+                    wecom_req_id: None,
+                });
+            }
         }
     }
 }

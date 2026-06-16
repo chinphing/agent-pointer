@@ -176,6 +176,105 @@ impl DingTalkOutbound {
         let resp = self.http.post_json(url, &headers, body).await?;
         check_openapi_response(&resp, "robot proactive file")
     }
+
+    async fn post_proactive_message(
+        &self,
+        ctx: &OutboundContext,
+        account: &crate::config::ChannelAccountConfig,
+        msg_key: &str,
+        msg_param: Value,
+        step: &str,
+    ) -> anyhow::Result<()> {
+        let client_id = account.client_id.as_str();
+        let client_secret = account.client_secret.as_str();
+        let robot_code = client_id.trim();
+        if robot_code.is_empty() {
+            anyhow::bail!("dingtalk account missing clientId (robotCode)");
+        }
+        let is_group = is_group_conversation_key(&ctx.conversation_key);
+        let (url, body) = if is_group {
+            let open_conversation_id = ctx
+                .reply_context
+                .as_ref()
+                .and_then(|r| r.chat_id.as_deref())
+                .ok_or_else(|| anyhow::anyhow!("dingtalk proactive message missing openConversationId"))?;
+            (
+                "https://api.dingtalk.com/v1.0/robot/groupMessages/send",
+                json!({
+                    "robotCode": robot_code,
+                    "openConversationId": open_conversation_id,
+                    "msgKey": msg_key,
+                    "msgParam": msg_param.to_string(),
+                }),
+            )
+        } else {
+            let user_id = ctx.recipient_id.trim();
+            if user_id.is_empty() {
+                anyhow::bail!("dingtalk proactive message missing userIds");
+            }
+            (
+                "https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend",
+                json!({
+                    "robotCode": robot_code,
+                    "userIds": [user_id],
+                    "msgKey": msg_key,
+                    "msgParam": msg_param.to_string(),
+                }),
+            )
+        };
+        let token = access_token(&self.http, client_id, client_secret).await?;
+        match self.post_proactive_file_with_token(&token, url, &body).await {
+            Ok(()) => {}
+            Err(e) if crate::token_cache::is_dingtalk_invalid_token_error(&e) => {
+                log::warn!(
+                    "dingtalk token rejected on proactive {step}; refreshing and retrying once"
+                );
+                invalidate_access_token(&self.http, client_id);
+                let token = access_token(&self.http, client_id, client_secret).await?;
+                self.post_proactive_file_with_token(&token, url, &body)
+                    .await?;
+            }
+            Err(e) => return Err(e),
+        }
+        log::info!(
+            "dingtalk proactive {step} ok account={} group={is_group}",
+            ctx.account_id
+        );
+        Ok(())
+    }
+
+    async fn send_proactive_markdown(
+        &self,
+        ctx: &OutboundContext,
+        account: &crate::config::ChannelAccountConfig,
+        text: &str,
+    ) -> anyhow::Result<()> {
+        let title = dingtalk_markdown_title(text);
+        self.post_proactive_message(
+            ctx,
+            account,
+            "sampleMarkdown",
+            json!({ "title": title, "text": text }),
+            "markdown",
+        )
+        .await
+    }
+
+    async fn send_proactive_image(
+        &self,
+        ctx: &OutboundContext,
+        account: &crate::config::ChannelAccountConfig,
+        media_id: &str,
+    ) -> anyhow::Result<()> {
+        self.post_proactive_message(
+            ctx,
+            account,
+            "sampleImage",
+            json!({ "mediaId": media_id }),
+            "image",
+        )
+        .await
+    }
 }
 
 #[async_trait]
@@ -185,18 +284,28 @@ impl ChannelOutboundAdapter for DingTalkOutbound {
     }
 
     async fn send_text(&self, ctx: OutboundContext, text: &str) -> anyhow::Result<()> {
-        let url = self.session_webhook(&ctx).await?;
-        let body = json!({
-            "msgtype": "markdown",
-            "markdown": {
-                "title": dingtalk_markdown_title(text),
-                "text": text
-            }
-        });
-        self.post_session_webhook(&url, &body, "sessionWebhook markdown")
-            .await?;
-        log::info!("dingtalk outbound markdown account={}", ctx.account_id);
-        Ok(())
+        let cfg = crate::config::load_channels_config()?;
+        let account = cfg
+            .account("dingtalk", &ctx.account_id)
+            .ok_or_else(|| anyhow::anyhow!("dingtalk account missing"))?;
+        if let Ok(url) = self.session_webhook(&ctx).await {
+            let body = json!({
+                "msgtype": "markdown",
+                "markdown": {
+                    "title": dingtalk_markdown_title(text),
+                    "text": text
+                }
+            });
+            self.post_session_webhook(&url, &body, "sessionWebhook markdown")
+                .await?;
+            log::info!("dingtalk outbound markdown account={}", ctx.account_id);
+            return Ok(());
+        }
+        log::warn!(
+            "dingtalk outbound missing sessionWebhook account={}; using proactive API",
+            ctx.account_id
+        );
+        self.send_proactive_markdown(&ctx, account, text).await
     }
 
     async fn send_media(
@@ -211,27 +320,33 @@ impl ChannelOutboundAdapter for DingTalkOutbound {
             .ok_or_else(|| anyhow::anyhow!("dingtalk account missing"))?;
 
         if let Some(text) = caption.filter(|s| !s.trim().is_empty()) {
-            let url = self.session_webhook(&ctx).await?;
-            let body = json!({
-                "msgtype": "markdown",
-                "markdown": {
-                    "title": dingtalk_markdown_title(text),
-                    "text": text
-                }
-            });
-            self.post_session_webhook(&url, &body, "sessionWebhook markdown caption")
-                .await?;
+            if let Ok(url) = self.session_webhook(&ctx).await {
+                let body = json!({
+                    "msgtype": "markdown",
+                    "markdown": {
+                        "title": dingtalk_markdown_title(text),
+                        "text": text
+                    }
+                });
+                self.post_session_webhook(&url, &body, "sessionWebhook markdown caption")
+                    .await?;
+            } else {
+                self.send_proactive_markdown(&ctx, account, text).await?;
+            }
         }
 
         let (media_id, upload_name) = self.upload_media(account, &media).await?;
         if media.is_image() {
-            let url = self.session_webhook(&ctx).await?;
-            let body = json!({
-                "msgtype": "image",
-                "image": { "media_id": media_id }
-            });
-            self.post_session_webhook(&url, &body, "sessionWebhook image")
-                .await?;
+            if let Ok(url) = self.session_webhook(&ctx).await {
+                let body = json!({
+                    "msgtype": "image",
+                    "image": { "media_id": media_id }
+                });
+                self.post_session_webhook(&url, &body, "sessionWebhook image")
+                    .await?;
+            } else {
+                self.send_proactive_image(&ctx, account, &media_id).await?;
+            }
         } else {
             self.send_proactive_file(&ctx, account, &media_id, &upload_name)
                 .await?;

@@ -93,7 +93,7 @@ impl HttpClient {
         &self,
         url: &str,
         headers: &[(&str, &str)],
-    ) -> Result<(Vec<u8>, Option<String>)> {
+    ) -> Result<(Vec<u8>, Option<String>, Option<String>)> {
         let mut req = self.inner.get(url);
         for (k, v) in headers {
             req = req.header(*k, *v);
@@ -105,6 +105,11 @@ impl HttpClient {
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .map(|s| s.split(';').next().unwrap_or(s).trim().to_string());
+        let download_name = resp
+            .headers()
+            .get(reqwest::header::CONTENT_DISPOSITION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(parse_content_disposition_filename);
         let body = resp.bytes().await.context("http get bytes body")?;
         if !status.is_success() {
             let preview = String::from_utf8_lossy(&body[..body.len().min(512)]);
@@ -112,7 +117,7 @@ impl HttpClient {
                 "GET {url} failed {status}: {preview}"
             ));
         }
-        Ok((body.to_vec(), content_type))
+        Ok((body.to_vec(), content_type, download_name))
     }
 
     pub async fn post_json(&self, url: &str, headers: &[(&str, &str)], body: &Value) -> Result<Value> {
@@ -206,9 +211,46 @@ impl Default for HttpClient {
     }
 }
 
+fn parse_content_disposition_filename(value: &str) -> Option<String> {
+    for part in value.split(';').map(str::trim) {
+        if let Some(rest) = part.strip_prefix("filename*=") {
+            let encoded = rest.trim().trim_matches('"');
+            let name = encoded
+                .split_once("''")
+                .map(|(_, n)| n)
+                .unwrap_or(encoded);
+            return Some(
+                urlencoding::decode(name)
+                    .map(|s| s.into_owned())
+                    .unwrap_or_else(|_| name.to_string()),
+            );
+        }
+        if let Some(rest) = part.strip_prefix("filename=") {
+            let name = rest.trim().trim_matches('"');
+            if !name.is_empty() {
+                return Some(name.to_string());
+            }
+        }
+    }
+    None
+}
+
 fn unix_secs_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_content_disposition_filename;
+
+    #[test]
+    fn parses_filename_from_content_disposition() {
+        assert_eq!(
+            parse_content_disposition_filename(r#"attachment; filename="report.docx""#),
+            Some("report.docx".into())
+        );
+    }
 }

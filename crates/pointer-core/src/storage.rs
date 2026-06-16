@@ -74,6 +74,26 @@ pub fn app_data_dir() -> Result<PathBuf> {
     data_dir()
 }
 
+/// Flatten a conversation id into a single cross-platform directory name.
+///
+/// IM ids contain `:` (e.g. `wecom:default:wecom:dm:chat:sender`); Windows rejects `:` in paths.
+pub fn sanitize_storage_dir_segment(id: &str) -> String {
+    let mut out: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    while out.contains("__") {
+        out = out.replace("__", "_");
+    }
+    out.trim_matches('_').to_string()
+}
+
 /// User-managed environment variables for terminal subprocesses (`{app_data_dir}/.env`).
 pub fn user_env_file_path() -> Result<PathBuf> {
     Ok(data_dir()?.join(".env"))

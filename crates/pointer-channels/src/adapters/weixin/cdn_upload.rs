@@ -8,6 +8,7 @@ use super::ilink_client::ILinkClient;
 use crate::crypto::{aes128_ecb_encrypt, md5_hex};
 
 const MEDIA_IMAGE: u64 = 1;
+const MEDIA_VIDEO: u64 = 2;
 const MEDIA_FILE: u64 = 3;
 
 pub struct UploadedWeixinMedia {
@@ -32,11 +33,15 @@ pub async fn upload_weixin_media(
 ) -> Result<UploadedWeixinMedia> {
     let media_type = if mime_type.starts_with("image/") {
         MEDIA_IMAGE
+    } else if mime_type.starts_with("video/") {
+        MEDIA_VIDEO
     } else {
         MEDIA_FILE
     };
     let label = if media_type == MEDIA_IMAGE {
         "image"
+    } else if media_type == MEDIA_VIDEO {
+        "video"
     } else {
         "file"
     };
@@ -118,6 +123,22 @@ pub fn image_item_json(uploaded: &UploadedWeixinMedia) -> Value {
 
 fn bytes_to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+pub fn video_item_json(uploaded: &UploadedWeixinMedia, file_name: &str) -> Value {
+    json!({
+        "type": 5,
+        "video_item": {
+            "media": {
+                "encrypt_query_param": uploaded.encrypt_query_param,
+                "aes_key": uploaded.aes_key_b64,
+                "encrypt_type": 1
+            },
+            "file_name": file_name,
+            "md5": uploaded.file_md5,
+            "len": uploaded.file_size.to_string()
+        }
+    })
 }
 
 pub fn file_item_json(uploaded: &UploadedWeixinMedia, file_name: &str) -> Value {

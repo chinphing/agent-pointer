@@ -164,18 +164,20 @@ fn parse_file_content(message_type: &str, content_raw: &str) -> Option<ParsedCon
     let file_key = normalize_feishu_key(content.get("file_key").and_then(|v| v.as_str())?)?;
     let kind = match message_type {
         "audio" => "audio",
+        "sticker" => "image",
         "file" => "document",
         _ => "file",
+    };
+    let mime_type = match message_type {
+        "audio" => Some("audio/ogg".into()),
+        "sticker" => Some("image/webp".into()),
+        _ => None,
     };
     Some(ParsedContent {
         text: String::new(),
         attachments: vec![InboundMediaRef {
             kind: kind.into(),
-            mime_type: if message_type == "audio" {
-                Some("audio/ogg".into())
-            } else {
-                None
-            },
+            mime_type,
             file_name: content
                 .get("file_name")
                 .and_then(|v| v.as_str())

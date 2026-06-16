@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-use crate::storage::app_data_dir;
+use crate::storage::{app_data_dir, sanitize_storage_dir_segment};
 
 pub const GENERATED_MEDIA_DIR: &str = "generated-media";
 
@@ -18,12 +18,12 @@ pub fn save_generated_bytes(
     bytes: &[u8],
     file_name: &str,
 ) -> Result<PathBuf> {
-    let conv = conversation_id.trim();
+    let conv = sanitize_storage_dir_segment(conversation_id.trim());
     if conv.is_empty() {
         anyhow::bail!("conversation_id required to save generated media");
     }
-    let dir = generated_media_root()?.join(conv);
-    fs::create_dir_all(&dir).context("create generated-media dir")?;
+    let dir = generated_media_root()?.join(&conv);
+    fs::create_dir_all(&dir).context("媒体目录创建失败")?;
     let ext = Path::new(file_name)
         .extension()
         .and_then(|e| e.to_str())

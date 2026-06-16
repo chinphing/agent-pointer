@@ -9,6 +9,7 @@ pub mod deps_hint;
 pub mod path_hint;
 pub mod retry;
 pub mod ffmpeg;
+pub mod office;
 pub mod pdf;
 pub mod store;
 pub mod token;

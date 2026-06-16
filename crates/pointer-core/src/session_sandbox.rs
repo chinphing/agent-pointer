@@ -22,7 +22,7 @@ impl SessionSandbox {
     /// not exist on disk yet).
     pub fn path(conversation_id: &str) -> Result<PathBuf> {
         let base = crate::storage::app_data_dir()?.join(SANDBOXES_DIR);
-        let cid = sanitize_id(conversation_id);
+        let cid = crate::storage::sanitize_storage_dir_segment(conversation_id);
         Ok(base.join(cid))
     }
 
@@ -84,27 +84,6 @@ impl SessionSandbox {
     }
 }
 
-/// Flatten a conversation id into a single cross-platform directory name.
-///
-/// IM ids contain `:` (e.g. `dingtalk:default:dingtalk:dm:cid:sender@s1`); on macOS
-/// Finder displays `:` as `/`, which looks like nested folders. Windows rejects `:`.
-fn sanitize_id(id: &str) -> String {
-    let mut out: String = id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    while out.contains("__") {
-        out = out.replace("__", "_");
-    }
-    out.trim_matches('_').to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,14 +117,14 @@ mod tests {
 
     #[test]
     fn sanitize_removes_separators() {
-        let safe = sanitize_id("conv/../foo\\bar\0baz");
+        let safe = crate::storage::sanitize_storage_dir_segment("conv/../foo\\bar\0baz");
         assert_eq!(safe, "conv_foo_bar_baz");
     }
 
     #[test]
     fn sanitize_im_conversation_id_is_flat() {
         let id = "dingtalk:default:dingtalk:dm:cidXuzjtFpqURa0N4CrrYrb9ZeeMktGbZLsHrJqwRGRyD8=:01263708524221016@s1";
-        let safe = sanitize_id(id);
+        let safe = crate::storage::sanitize_storage_dir_segment(id);
         assert!(!safe.contains(':'));
         assert!(!safe.contains('@'));
         assert!(!safe.contains('/'));

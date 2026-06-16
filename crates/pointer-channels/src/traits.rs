@@ -185,6 +185,10 @@ impl OutboundMedia {
     pub fn is_image(&self) -> bool {
         self.mime_type.starts_with("image/")
     }
+
+    pub fn is_video(&self) -> bool {
+        self.mime_type.starts_with("video/")
+    }
 }
 
 #[async_trait::async_trait]

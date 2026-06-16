@@ -67,7 +67,7 @@ pub async fn download_cdn_bytes(http: &HttpClient, encrypt_query_param: &str) ->
         "{WEIXIN_CDN_BASE}/download?encrypted_query_param={}",
         urlencoding::encode(param)
     );
-    let (bytes, _) = http.get_bytes(&url, &[]).await?;
+    let (bytes, _, _) = http.get_bytes(&url, &[]).await?;
     Ok(bytes)
 }
 

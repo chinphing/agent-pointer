@@ -48,6 +48,17 @@ pub fn guess_mime_from_bytes(bytes: &[u8]) -> Option<&'static str> {
     if bytes.len() >= 4 && &bytes[0..4] == b"%PDF" {
         return Some("application/pdf");
     }
+    if bytes.len() >= 4 && bytes[0..2] == *b"PK" {
+        if zip_contains_entry(bytes, "word/document.xml") {
+            return Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        }
+        if zip_contains_entry(bytes, "xl/workbook.xml") {
+            return Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        }
+        if zip_contains_entry(bytes, "ppt/presentation.xml") {
+            return Some("application/vnd.openxmlformats-officedocument.presentationml.presentation");
+        }
+    }
     if bytes.len() >= 12
         && (bytes[4..8] == *b"ftyp"
             && (bytes[8..12] == *b"isom" || bytes[8..12] == *b"mp41" || bytes[8..12] == *b"avc1"))
@@ -71,6 +82,12 @@ fn extension_for_mime(mime: &str) -> &'static str {
         "image/webp" => "webp",
         "image/heic" => "heic",
         "application/pdf" => "pdf",
+        "application/msword" => "doc",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => "docx",
+        "application/vnd.ms-excel" => "xls",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => "xlsx",
+        "application/vnd.ms-powerpoint" => "ppt",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation" => "pptx",
         "video/mp4" => "mp4",
         "audio/mpeg" => "mp3",
         "audio/wav" => "wav",
@@ -113,14 +130,22 @@ pub fn finalize_downloaded(
     } else if ext == "bin" {
         if let Some(hint) = kind_hint {
             let hinted = match hint {
-                "image" => "image/jpeg",
-                "video" => "video/mp4",
-                "audio" => "audio/mpeg",
-                _ => "",
+                "image" => Some("image/jpeg".to_string()),
+                "video" => Some("video/mp4".to_string()),
+                "audio" => Some("audio/mpeg".to_string()),
+                "document" => {
+                    let from_name = guess_mime_from_name(&downloaded.file_name);
+                    if from_name != "application/octet-stream" {
+                        Some(from_name)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
             };
-            if !hinted.is_empty() {
-                downloaded.mime_type = hinted.into();
-                let hinted_ext = extension_for_mime(hinted);
+            if let Some(hinted) = hinted {
+                downloaded.mime_type = hinted;
+                let hinted_ext = extension_for_mime(&downloaded.mime_type);
                 if downloaded.file_name.to_ascii_lowercase().ends_with(".bin") {
                     downloaded.file_name =
                         replace_bin_extension(&downloaded.file_name, hinted_ext);
@@ -129,6 +154,15 @@ pub fn finalize_downloaded(
         }
     }
     downloaded
+}
+
+fn zip_contains_entry(bytes: &[u8], entry: &str) -> bool {
+    use std::io::Cursor;
+    let Ok(mut zip) = zip::ZipArchive::new(Cursor::new(bytes)) else {
+        return false;
+    };
+    let found = zip.by_name(entry).is_ok();
+    found
 }
 
 #[cfg(test)]
@@ -161,6 +195,44 @@ mod tests {
         );
         assert_eq!(out.mime_type, "image/jpeg");
         assert!(out.file_name.ends_with(".jpg"));
+    }
+
+    #[test]
+    fn finalize_wecom_docx_bin_renamed() {
+        use std::io::Cursor;
+        use std::io::Write;
+        use zip::write::SimpleFileOptions;
+        use zip::ZipWriter;
+
+        let mut buf = Vec::new();
+        {
+            let mut zip = ZipWriter::new(Cursor::new(&mut buf));
+            zip.start_file(
+                "word/document.xml",
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
+            )
+            .unwrap();
+            zip.write_all(
+                br#"<w:document><w:body><w:p><w:r><w:t>Hello docx</w:t></w:r></w:p></w:body></w:document>"#,
+            )
+            .unwrap();
+            zip.finish().unwrap();
+        }
+
+        let out = finalize_downloaded(
+            DownloadedMedia {
+                bytes: buf,
+                mime_type: "application/octet-stream".into(),
+                file_name: "wecom-test.bin".into(),
+            },
+            None,
+            Some("document"),
+        );
+        assert_eq!(
+            out.mime_type,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        );
+        assert!(out.file_name.ends_with(".docx"));
     }
 }
 

@@ -104,7 +104,7 @@ async fn download_image(
     media_ref: &InboundMediaRef,
 ) -> Result<DownloadedMedia> {
     let url = format!("https://open.feishu.cn/open-apis/im/v1/images/{image_key}");
-    let (bytes, content_type) = http.get_bytes(&url, headers).await?;
+    let (bytes, content_type, download_name) = http.get_bytes(&url, headers).await?;
     if bytes.len() > FEISHU_MEDIA_MAX_BYTES {
         anyhow::bail!(
             "feishu image exceeds {} MB",
@@ -115,6 +115,7 @@ async fn download_image(
         .file_name
         .clone()
         .filter(|s| !s.trim().is_empty())
+        .or(download_name)
         .unwrap_or_else(|| format!("{image_key}.jpg"));
     let mime_type = content_type
         .or_else(|| media_ref.mime_type.clone())
@@ -137,7 +138,7 @@ async fn download_message_resource(
     let url = format!(
         "https://open.feishu.cn/open-apis/im/v1/messages/{message_id}/resources/{file_key}?type={resource_type}"
     );
-    let (bytes, content_type) = http.get_bytes(&url, headers).await?;
+    let (bytes, content_type, download_name) = http.get_bytes(&url, headers).await?;
     if bytes.len() > FEISHU_MEDIA_MAX_BYTES {
         anyhow::bail!(
             "feishu resource exceeds {} MB",
@@ -148,6 +149,7 @@ async fn download_message_resource(
         .file_name
         .clone()
         .filter(|s| !s.trim().is_empty())
+        .or(download_name)
         .unwrap_or_else(|| format!("{file_key}.bin"));
     let mime_type = content_type
         .or_else(|| media_ref.mime_type.clone())

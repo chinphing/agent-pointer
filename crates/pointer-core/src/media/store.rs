@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::models::ChatMediaPreview;
-use crate::storage::app_data_dir;
+use crate::storage::{app_data_dir, sanitize_storage_dir_segment};
 
 use super::access::{
     assert_app_media_preview_allowed, is_user_filesystem_path, normalize_user_path,
@@ -32,13 +32,13 @@ pub fn save_attachment_bytes(
     bytes: &[u8],
     file_name: &str,
 ) -> Result<String> {
-    let conv = conversation_id.trim();
+    let conv = sanitize_storage_dir_segment(conversation_id.trim());
     let id = attachment_id.trim();
     if conv.is_empty() || id.is_empty() {
         anyhow::bail!("conversation_id and attachment_id required");
     }
-    let dir = conversation_media_root()?.join(conv);
-    fs::create_dir_all(&dir).context("create conversation-media dir")?;
+    let dir = conversation_media_root()?.join(&conv);
+    fs::create_dir_all(&dir).context("媒体目录创建失败")?;
     let ext = Path::new(file_name)
         .extension()
         .and_then(|e| e.to_str())

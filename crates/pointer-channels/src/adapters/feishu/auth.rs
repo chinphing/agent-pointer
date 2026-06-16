@@ -110,6 +110,24 @@ pub fn guess_mime_from_name(file_name: &str) -> String {
     if lower.ends_with(".md") {
         return "text/markdown".into();
     }
+    if lower.ends_with(".doc") {
+        return "application/msword".into();
+    }
+    if lower.ends_with(".docx") {
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document".into();
+    }
+    if lower.ends_with(".xls") {
+        return "application/vnd.ms-excel".into();
+    }
+    if lower.ends_with(".xlsx") {
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".into();
+    }
+    if lower.ends_with(".ppt") {
+        return "application/vnd.ms-powerpoint".into();
+    }
+    if lower.ends_with(".pptx") {
+        return "application/vnd.openxmlformats-officedocument.presentationml.presentation".into();
+    }
     "application/octet-stream".into()
 }
 
@@ -149,6 +167,15 @@ pub fn kind_from_mime(mime: &str, fallback_kind: &str) -> String {
         return "video".into();
     }
     if m.starts_with("text/") || m == "application/pdf" || m == "application/json" {
+        return "document".into();
+    }
+    if m == "application/msword"
+        || m == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        || m == "application/vnd.ms-excel"
+        || m == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        || m == "application/vnd.ms-powerpoint"
+        || m == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    {
         return "document".into();
     }
     fallback_kind.to_string()

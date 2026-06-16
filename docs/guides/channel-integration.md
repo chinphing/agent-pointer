@@ -143,7 +143,7 @@ MEDIA:/absolute/path/to/report.pdf
 | 钉钉 | sessionWebhook markdown | media/upload + image | media/upload + file |
 | 企微 WSS | 流式 / markdown | WS 分片上传 + image/file 消息 | 同上 |
 | 企微 Agent HTTP | text | media/upload + message/send | 同上 |
-| 微信 iLink | text item | CDN 加密上传 + image_item | CDN 加密上传 + file_item |
+| 微信 iLink | text item | CDN 加密上传 + image_item | CDN 加密上传 + file_item / video_item |
 
 单文件上限 30 MB。若路径无法解析或上传失败，会记录错误日志，文本回复仍会发送。
 
@@ -156,7 +156,7 @@ MEDIA:/absolute/path/to/report.pdf
 | 飞书 | 会（`sender_type` 为 `app` / `bot`） | `feishu/parse.rs` 丢弃自消息 |
 | 微信 iLink | 一般不会（`message_type=2` 为 BOT） | 仅接受 `message_type=1`；额外丢弃 `*@im.bot` 发送方 |
 | 企微 WSS | 不会（文档：`aibot_send_msg` 不触发回调） | 仅处理 `aibot_msg_callback` 用户消息 |
-| 钉钉 Stream | 一般不会（topic 为用户 → 机器人） | 依赖平台语义；无额外字段可稳定识别自消息 |
+| 钉钉 Stream | 一般不会（topic 为用户 → 机器人） | `senderId == chatbotUserId` 时丢弃自消息 |
 
 ### 出站回复（对齐 OpenClaw）
 

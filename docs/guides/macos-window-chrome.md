@@ -162,7 +162,7 @@ flowchart TB
 | `chat-body` | 聊天正文 (E) | ❌ | ❌ |
 | `compact-bar-shell` / `compact-bar-status` | 紧凑浮条 | 壳可拖 / 文案不可拖 | 壳 ✅ |
 
-实现链：`WindowDragRegion.vue` → `useWindowDragRegion.ts` → `startDragging()`；macOS 原生 `setMovableByWindowBackground(false)`；正文拦截见 `installWindowContentDragGuard.ts`。
+实现链：`WindowDragRegion.vue` → `useWindowDragRegion.ts` → `startDragging()`；macOS 原生 `setMovableByWindowBackground(false)` + CSS `no-drag` 保证正文不拖窗，**不要**在正文 `mousedown` 上 `preventDefault()`（会阻断文本选中）。
 
 布局 class（与拖拽无关）：`.traffic-light-inset`、`.mac-chrome-row`、`.sidebar-chrome`、`.collapsed-top-chrome`、`.main-top-chrome`。
 

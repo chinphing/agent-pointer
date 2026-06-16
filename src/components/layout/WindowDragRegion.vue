@@ -32,14 +32,9 @@ const regionAttrs = computed(() => {
 })
 
 function onRegionMouseDown(e: MouseEvent) {
+  if (!policy.value.draggable) return
   const target = e.target as HTMLElement | null
   if (target?.closest(WINDOW_DRAG_INTERACTIVE_SELECTOR)) return
-
-  if (!policy.value.draggable) {
-    e.preventDefault()
-    e.stopPropagation()
-    return
-  }
   onMouseDown(e, policy.value)
 }
 

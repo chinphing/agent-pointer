@@ -15,6 +15,9 @@ input_index:
       type: boolean
     auto_enter:
       type: boolean
+    use_clipboard:
+      type: boolean
+      description: Default true. Writes text to clipboard and pastes via Cmd+V/Ctrl+V, bypassing IME. Set false to fall back to character-by-character keyboard events (enigo.text).
     wait:
       type: number
       minimum: 1
@@ -42,6 +45,9 @@ input_at:
       type: boolean
     auto_enter:
       type: boolean
+    use_clipboard:
+      type: boolean
+      description: Default true. Writes text to clipboard and pastes via Cmd+V/Ctrl+V, bypassing IME. Set false to fall back to character-by-character keyboard events (enigo.text).
     wait:
       type: number
       minimum: 1
@@ -66,6 +72,9 @@ input_focused:
       type: boolean
     auto_enter:
       type: boolean
+    use_clipboard:
+      type: boolean
+      description: Default true. Writes text to clipboard and pastes via Cmd+V/Ctrl+V, bypassing IME. Set false to fall back to character-by-character keyboard events (enigo.text).
     wait:
       type: number
       minimum: 1

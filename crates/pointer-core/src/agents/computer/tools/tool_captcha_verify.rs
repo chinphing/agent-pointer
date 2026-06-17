@@ -65,7 +65,7 @@ impl CaptchaVerifyTool {
             resolve_index_pixels(&vision, index_input_area)?
         };
         self.run_desktop_action(move |executor| {
-            executor.type_text_at_with_options(input_pos.0, input_pos.1, &answer, true, false, true)
+            executor.type_text_at_with_options(input_pos.0, input_pos.1, &answer, true, false, true, false)
         })?;
         Ok(format!(
             "Goal: {goal}. Type action attempted (cleared first). This is not a success signal. Verify CAPTCHA pass/fail on next screenshot."

@@ -48,6 +48,12 @@ turn to type the same field. Put **`text`**, **`clear_first`**, and
   On terminal / PowerShell input, set **`true`** so the command runs after
   typing. If the tool used **`auto_enter=true`**, do **not** press Enter
   again — use **`wait`** when the UI still looks unchanged.
+- **`use_clipboard`** (default **`true`**): writes **`text`** to the system
+  clipboard and simulates **Paste** (`Cmd+V` / `Ctrl+V`) instead of typing
+  character-by-character. Bypasses IME (Chinese / Japanese / Korean input
+  methods). Saves and restores the user's clipboard content.
+  Set **`false`** to fall back to `enigo.text()` for cases where clipboard
+  paste is not suitable (e.g. terminal TUI apps that don't handle paste).
 - **`wait`**: optional delay (1–5 s) after typing completes. Omit when the
   screen already shows the expected result.
   Heuristic:

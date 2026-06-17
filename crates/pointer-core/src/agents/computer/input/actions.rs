@@ -105,6 +105,12 @@ pub trait ActionBackend: Send + Sync {
     /// * `text` - The text to type.
     fn type_text(&self, text: &str) -> Result<ActionResult>;
 
+    /// Type text by clipboard write + paste (bypasses IME).
+    /// Default impl falls back to type_text.
+    fn type_text_via_clipboard(&self, text: &str) -> Result<ActionResult> {
+        self.type_text(text)
+    }
+
     /// Execute a hotkey combination.
     ///
     /// # Arguments
@@ -398,7 +404,7 @@ impl ActionExecutor {
     ///
     /// Sequence: move → click → type.
     pub fn type_text_at(&self, x: i32, y: i32, text: &str) -> Result<ActionResult> {
-        self.type_text_at_with_options(x, y, text, false, false, false)
+        self.type_text_at_with_options(x, y, text, false, false, false, false)
     }
 
     /// Select-all hotkey for the current OS (Cmd+A / Ctrl+A).
@@ -419,6 +425,7 @@ impl ActionExecutor {
         clear_first: bool,
         auto_enter: bool,
         human_like: bool,
+        use_clipboard: bool,
     ) -> Result<ActionResult> {
         self.click_at(x, y, human_like)?;
         composite_step_gap();
@@ -426,7 +433,11 @@ impl ActionExecutor {
             self.hotkey_select_all()?;
             composite_step_gap();
         }
-        self.backend.type_text(text)?;
+        if use_clipboard {
+            self.backend.type_text_via_clipboard(text)?;
+        } else {
+            self.backend.type_text(text)?;
+        }
         if auto_enter {
             self.hotkey(&["return"])?;
         }
@@ -439,12 +450,17 @@ impl ActionExecutor {
         text: &str,
         clear_first: bool,
         auto_enter: bool,
+        use_clipboard: bool,
     ) -> Result<ActionResult> {
         if clear_first {
             self.hotkey_select_all()?;
             composite_step_gap();
         }
-        self.backend.type_text(text)?;
+        if use_clipboard {
+            self.backend.type_text_via_clipboard(text)?;
+        } else {
+            self.backend.type_text(text)?;
+        }
         if auto_enter {
             self.hotkey(&["return"])?;
         }
@@ -534,6 +550,11 @@ mod tests {
         fn type_text(&self, text: &str) -> Result<ActionResult> {
             self.record(format!("type_text({})", text));
             Ok(ActionResult::success("typed"))
+        }
+
+        fn type_text_via_clipboard(&self, text: &str) -> Result<ActionResult> {
+            self.record(format!("type_text_via_clipboard({})", text));
+            Ok(ActionResult::success("pasted via clipboard"))
         }
 
         fn hotkey(&self, keys: &[&str]) -> Result<ActionResult> {

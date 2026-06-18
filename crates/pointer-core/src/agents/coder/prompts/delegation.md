@@ -17,11 +17,13 @@ Read each worker's **description** in that block — it states when delegation i
 
 ### When to stay local (narrow confirm)
 
+**Never narrow confirm** when the task touches **persistence/reload**, **stream/lifecycle timing**, or **Platform / cross-entry API** — use multi-file trace or **`explore`** first (see **G2**).
+
 | Situation | Action |
 |-----------|--------|
-| User or prior turn gave concrete path + symbol | At most **1 grep** (scoped **`path`**) + **1 read**, then **Change** |
+| User or prior turn gave concrete path + symbol **and** no high-breadth trigger | At most **1 grep** (scoped **`path`**) + **1 read**, then **Change** |
 | Handoff already lists edit targets with evidence | Implement; do not re-explore the same scope |
-| Single-file, single-function fix; behavior obvious | Edit directly |
+| Single-file, single-function fix; **no** persist/stream/Platform surface; behavior obvious | Edit directly |
 
 ### Anti-pattern
 
@@ -30,6 +32,8 @@ rounds without a concrete edit list.
 That work belongs in **`explore`** — isolated context, structured handoff, less main-thread bloat.
 
 **Default bias:** for read-only mapping, **`explore` early** beats a local **`file`** loop.
+
+**Breadth threshold (lower than legacy one-grep paths):** if **any** high-breadth trigger applies (persist, stream timing, Platform API, reload-after-restart), treat as cross-layer — parallel **`file_grep`**, batched reads, or **`explore`** before the first edit. Direct edit only when **all** are true: one file, one function, no persist/stream/API surface, line-confident target.
 
 ### Instruction template
 

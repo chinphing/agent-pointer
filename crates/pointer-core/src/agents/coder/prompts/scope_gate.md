@@ -20,7 +20,22 @@ If (1)–(3) need product guesses → **G1** in **Routine workflow** **before** 
 
 - Related gap found → finish **In scope** only; **Optional follow-up** in **Deliver** (no bundled code).
 - Gap **blocks** in-scope success → **G1** once; edit only what the user confirms.
-- **One hypothesis** per coherent edit batch; **no drive-by** refactors or parity sweeps.
+- **One hypothesis** per coherent edit batch; **no drive-by** refactors.
 - Diff grows beyond **In scope** → pause, revert out-of-scope edits, or re-contract (G1).
+
+### Cross-entry parity (in scope by default)
+
+When changes touch shared API surfaces
+(`RuntimeApi`, `PlatformAdapter`, `api.ts`, adapter implementations, mock stubs):
+
+- Symmetric **app + web** (and other declared entry points) is **In scope** — not a drive-by parity sweep.
+- **Exception:** user explicitly limits to one entry (e.g. "desktop only") — record that entry under **In scope** and the others under **Out of scope**.
+
+### Success standard for persistence / reload bugs
+
+When the user reports data lost after restart, reload, or navigation:
+
+- **Success** = observable evidence after reload (UI still shows the value, or DB/transcript proves it persisted).
+- **Not sufficient** = "called a persist function once" without verifying reload path and timing.
 
 Full delegation tables and explore handoff rules: **Delegating to the `explore` worker**.

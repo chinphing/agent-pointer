@@ -152,6 +152,16 @@ pub fn app_access_host_pass_summary(tool_name: &str, text: &str) -> String {
     }
 }
 
+/// Map a launched app's main window to a capture monitor id, when detectable.
+pub fn monitor_id_for_launched_app(args: &Value) -> Option<String> {
+    let app = args
+        .get("app")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    crate::platform::app_access::monitor_id_for_launched_app(app)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

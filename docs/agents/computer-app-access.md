@@ -76,3 +76,12 @@ Firefox -- firefox [last-used=2026-06-10]
 - **macOS:** Accessibility (list + launch/activate)
 - **Windows:** Logged-in desktop session
 - **Linux (X11):** Logged-in desktop session; `wmctrl` and `gtk-launch` for list/activate/launch. **Wayland:** `wmctrl` is limited or unavailable; list/activate may miss windows or fail — full DE-specific activation is not implemented.
+
+## Capture monitor (`computerAutoSwitchMonitor`)
+
+User setting in **设置 → 智能体 → 电脑操控选项**:
+
+| 值 | 行为 |
+|----|------|
+| **开启（默认）** | 多屏时不弹选择框，默认主屏；`launch_app` 或鼠标/键盘等桌面操作成功后，若前台/目标应用窗口在另一块屏，自动切换截屏目标（macOS：`CGWindowList` + `CGDisplayBounds` → `xcap:{displayId}`；Windows：`GetForegroundWindow` / `GetWindowRect` → `monitor_id_at_global_point`；Linux X11：`wmctrl` 活跃窗口 → `monitor_id_at_global_point`） |
+| **关闭** | 多屏时按系统「显示器排列」方位手动点选屏幕；不随应用窗口自动切换 |

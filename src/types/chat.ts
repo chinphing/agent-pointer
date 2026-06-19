@@ -435,6 +435,8 @@ export interface PlatformSettings {
   agentTaskBoardHistoryTrim?: Record<string, boolean>
   computerHumanLike?: boolean
   computerInitialTier?: ComputerInitialTier
+  /** Auto-select primary monitor and follow launch_app window; when false, manual spatial picker */
+  computerAutoSwitchMonitor?: boolean
   /** Show annotated screenshot preview on Computer Use assistant messages */
   computerAnnotatedScreenViewEnabled?: boolean
   /** Pixel offset added to final slider CAPTCHA drag point */
@@ -499,6 +501,8 @@ export interface ModelSettings {
   computerHumanLike?: boolean
   /** Computer agent: starting tier for new conversations */
   computerInitialTier?: ComputerInitialTier
+  /** Auto-select primary monitor and follow launch_app window */
+  computerAutoSwitchMonitor?: boolean
   /** Show annotated screenshot preview on Computer Use assistant messages */
   computerAnnotatedScreenViewEnabled?: boolean
   captchaSliderOffsetPx?: number

@@ -204,6 +204,7 @@ function createSettingsDialogForm(deps: {
   const taskBoardShowChildBoards = ref(false)
   const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
   const computerHumanLike = ref(false)
+  const computerAutoSwitchMonitor = ref(true)
   const computerAutoCompact = ref(true)
   const userCodingRules = ref('')
   const computerInitialTier = ref<ComputerInitialTier>('intermediate')
@@ -398,6 +399,7 @@ function createSettingsDialogForm(deps: {
   taskBoardShowChildBoards.value = s.settings.taskBoardShowChildBoards === true
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true
+  computerAutoSwitchMonitor.value = s.settings.computerAutoSwitchMonitor !== false
   computerAutoCompact.value = s.userSettings.computerAutoCompact !== false
   userCodingRules.value = s.userSettings.userCodingRules ?? ''
   computerInitialTier.value = s.settings.computerInitialTier ?? 'intermediate'
@@ -666,6 +668,7 @@ function createSettingsDialogForm(deps: {
     userCodingRules: userCodingRules.value.trim(),
     toolApprovalMode: toolApprovalMode.value,
     computerHumanLike: computerHumanLike.value,
+    computerAutoSwitchMonitor: computerAutoSwitchMonitor.value,
     computerInitialTier: computerInitialTier.value,
     captchaSliderOffsetPx: Number(captchaSliderOffsetPx.value) || 0,
     contextCompressionEnabled: contextCompressionEnabled.value,
@@ -728,6 +731,7 @@ function createSettingsDialogForm(deps: {
     taskBoardShowChildBoards,
     agentTaskBoardHistoryTrim,
     computerHumanLike,
+    computerAutoSwitchMonitor,
     computerAutoCompact,
     userCodingRules,
     computerInitialTier,

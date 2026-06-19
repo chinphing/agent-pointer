@@ -73,6 +73,16 @@ pub(super) async fn record_tool_exec_outcome(
                 args_for_desktop_log,
                 &out,
             );
+            let settings = ctx.session.state.effective_settings();
+            super::super::computer_monitor_follow::maybe_auto_switch_capture_monitor_after_tool(
+                ctx.session.stream,
+                ctx.session.state,
+                &settings,
+                conversation_id,
+                tool_id,
+                ok,
+                args_for_desktop_log,
+            );
             super::super::util::push_tool_result(
                 ctx.transcript.history,
                 conversation_id,

@@ -13,9 +13,11 @@ mod macos;
 mod linux;
 #[cfg(windows)]
 mod windows;
+mod window_monitor;
 
 pub use listed_app::{ListedApp, render_list};
 pub use types::{AppOpenOptions, AppOpenResult, ListAppsOptions};
+pub use window_monitor::{monitor_id_for_frontmost_app, monitor_id_for_launched_app, window_center_for_app};
 
 /// List apps visible to the agent (Codex catalog).
 /// Default: running apps plus 14-day recent usage; set `include_all` for the full installed catalog.

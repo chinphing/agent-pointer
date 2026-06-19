@@ -21,6 +21,7 @@ const {
   userCodingRules,
   computerHumanLike,
   captchaSliderOffsetPx,
+  computerAutoSwitchMonitor,
   mediaImageGenerationModel,
   mediaVideoGenerationModel,
   selectMediaModelWithProvider,
@@ -175,6 +176,27 @@ const {
                         class="sr-only peer"
                         :checked="computerHumanLike"
                         @change="computerHumanLike = ($event.target as HTMLInputElement).checked"
+                      />
+                      <div class="settings-toggle-track" />
+                    </label>
+                  </div>
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="text-[12px] text-foreground whitespace-nowrap">自动切换屏幕</span>
+                    <button
+                      type="button"
+                      class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
+                      title="开启：默认主屏，launch_app 后跟随应用窗口；关闭：手动按桌面布局选择屏幕"
+                      aria-label="自动切换屏幕说明"
+                      @click.stop
+                    >
+                      <Info class="w-3.5 h-3.5 pointer-events-none" />
+                    </button>
+                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        class="sr-only peer"
+                        :checked="computerAutoSwitchMonitor"
+                        @change="computerAutoSwitchMonitor = ($event.target as HTMLInputElement).checked"
                       />
                       <div class="settings-toggle-track" />
                     </label>

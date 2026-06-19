@@ -281,3 +281,105 @@ fn wm_window_state(app: &str) -> Option<LaunchVerifyOutcome> {
         frontmost: active,
     })
 }
+
+/// Minimum width/height for wmctrl window geometry to count as user-visible.
+const MIN_WM_WINDOW_DIMENSION: i32 = 50;
+
+fn wmctrl_geometry_listing() -> Option<String> {
+    let output = Command::new("wmctrl").args(["-lG"]).output().ok()?;
+    if !output.status.success() {
+        log::warn!("auto monitor switch Linux: wmctrl -lG failed");
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn window_center_from_wmctrl_lg_parts(parts: &[&str]) -> Option<(i32, i32)> {
+    if parts.len() < 7 {
+        return None;
+    }
+    let x: i32 = parts[2].parse().ok()?;
+    let y: i32 = parts[3].parse().ok()?;
+    let w: i32 = parts[4].parse().ok()?;
+    let h: i32 = parts[5].parse().ok()?;
+    if w < MIN_WM_WINDOW_DIMENSION || h < MIN_WM_WINDOW_DIMENSION {
+        return None;
+    }
+    Some((x + w / 2, y + h / 2))
+}
+
+fn wmctrl_active_window_id() -> Option<String> {
+    let output = Command::new("wmctrl").args(["-l"]).output().ok()?;
+    if !output.status.success() {
+        log::warn!("auto monitor switch Linux: wmctrl -l failed (Wayland or wmctrl missing?)");
+        return None;
+    }
+    let listing = String::from_utf8_lossy(&output.stdout);
+    for line in listing.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 2 && parts[1] == "*" {
+            return Some(parts[0].to_string());
+        }
+    }
+    None
+}
+
+fn window_center_for_wmctrl_id(win_id: &str) -> Option<(i32, i32)> {
+    let listing = wmctrl_geometry_listing()?;
+    for line in listing.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.first()? != &win_id {
+            continue;
+        }
+        return window_center_from_wmctrl_lg_parts(&parts);
+    }
+    None
+}
+
+/// Capture monitor id for the active (focused) window when wmctrl is available (X11).
+pub fn monitor_id_for_frontmost_app() -> Option<String> {
+    let win_id = wmctrl_active_window_id()?;
+    let (x, y) = window_center_for_wmctrl_id(&win_id)?;
+    let monitor_id = crate::agents::computer::screen::monitor_id_at_global_point(x, y).ok()?;
+    log::info!(
+        "auto monitor switch Linux: active window {win_id} center=({x},{y}) -> monitor={monitor_id}"
+    );
+    Some(monitor_id)
+}
+
+/// Global screen center of the app's window when wmctrl is available.
+pub fn window_center_for_app(app: &str) -> Option<(i32, i32)> {
+    let needle = app.trim().to_ascii_lowercase();
+    if needle.is_empty() {
+        return None;
+    }
+    let listing = wmctrl_geometry_listing()?;
+    for line in listing.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        let title = parts.get(7..)?.join(" ").to_ascii_lowercase();
+        if !title.contains(&needle) {
+            continue;
+        }
+        if let Some(center) = window_center_from_wmctrl_lg_parts(&parts) {
+            return Some(center);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wmctrl_lg_parts_center() {
+        let parts = ["0x1", "0", "100", "200", "800", "600", "host", "Title"];
+        assert_eq!(window_center_from_wmctrl_lg_parts(&parts), Some((500, 500)));
+    }
+
+    #[test]
+    fn wmctrl_lg_parts_skips_tiny_window() {
+        let parts = ["0x1", "0", "0", "0", "10", "10", "host", "Title"];
+        assert_eq!(window_center_from_wmctrl_lg_parts(&parts), None);
+    }
+}

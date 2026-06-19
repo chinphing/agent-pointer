@@ -7,6 +7,7 @@
 
 mod context;
 mod computer_monitor_pick;
+mod computer_monitor_follow;
 mod conversation_persist;
 mod agent_post_stream;
 mod agent_round_lifecycle;

@@ -205,6 +205,34 @@ pub fn list_monitors() -> Result<Vec<ComputerMonitor>> {
     Ok(out)
 }
 
+/// Stable id of the primary display, or the first listed display.
+pub fn primary_monitor_id() -> Result<String> {
+    let monitors = list_monitors()?;
+    monitors
+        .iter()
+        .find(|m| m.is_primary)
+        .or(monitors.first())
+        .map(|m| m.id.clone())
+        .ok_or_else(|| anyhow!("no displays found"))
+}
+
+/// Map a global screen point to the containing monitor id (`xcap:{id}`).
+pub fn monitor_id_at_global_point(x: i32, y: i32) -> Result<String> {
+    if let Ok(m) = Monitor::from_point(x, y) {
+        if let Ok(id) = monitor_list_id(&m) {
+            return Ok(id);
+        }
+    }
+    let monitors = list_monitors()?;
+    for m in &monitors {
+        let info = MonitorInfo::new(m.left, m.top, m.width, m.height);
+        if info.contains(x, y) {
+            return Ok(m.id.clone());
+        }
+    }
+    Err(anyhow!("no monitor contains point ({x}, {y})"))
+}
+
 fn screenshot_from_monitor(
     monitor: &Monitor,
     info: MonitorInfo,

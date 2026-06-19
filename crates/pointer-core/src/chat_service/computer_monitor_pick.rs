@@ -1,6 +1,5 @@
 //! Block **`run_subagent` → computer** until the user picks a monitor (same rules as Computer lead send).
 
-use crate::agents::agent_ui::resolve_agent_ui;
 use crate::agents::computer::screen;
 use crate::models::StreamEvent;
 use anyhow::{anyhow, Result};
@@ -8,6 +7,9 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use super::app_state::AppState;
+use super::computer_monitor_follow::{
+    computer_monitor_manual_pick_required, ensure_primary_monitor_when_auto,
+};
 use super::emit::emit;
 use super::StreamTx;
 
@@ -16,14 +18,7 @@ pub fn computer_monitor_picker_enabled(
     state: &AppState,
     settings: &crate::models::ModelSettings,
 ) -> bool {
-    if !settings.computer_show_monitor_picker {
-        return false;
-    }
-    let Some(exec) = state.agents.get("computer") else {
-        return false;
-    };
-    let def = exec.def();
-    resolve_agent_ui(&def).show_computer_monitor_picker
+    computer_monitor_manual_pick_required(state, settings)
 }
 
 /// Resolve monitor for a computer sub-agent; may block on UI pick.
@@ -36,6 +31,16 @@ pub async fn ensure_computer_monitor_for_subagent(
     tool_call_id: &str,
     cancel: &CancellationToken,
 ) -> Result<()> {
+    if settings.computer_auto_switch_monitor {
+        ensure_primary_monitor_when_auto(stream, state, settings, conversation_id)?;
+        if state
+            .computer_state
+            .is_monitor_selection_done(conversation_id)
+        {
+            return Ok(());
+        }
+    }
+
     if !computer_monitor_picker_enabled(state, settings) {
         log::info!(
             "computer_monitor_pick: skipped (picker disabled) conversation_id={conversation_id}"
@@ -124,6 +129,14 @@ mod tests {
         let state = AppState::new();
         let mut settings = state.effective_settings();
         settings.computer_show_monitor_picker = false;
+        assert!(!computer_monitor_picker_enabled(&state, &settings));
+    }
+
+    #[test]
+    fn picker_disabled_when_auto_switch_on() {
+        let state = AppState::new();
+        let mut settings = state.effective_settings();
+        settings.computer_auto_switch_monitor = true;
         assert!(!computer_monitor_picker_enabled(&state, &settings));
     }
 }

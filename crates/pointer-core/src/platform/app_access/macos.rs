@@ -649,6 +649,73 @@ fn strip_app_suffix(name: &str) -> String {
     name.strip_suffix(".app").unwrap_or(name).to_string()
 }
 
+/// Resolve the capture monitor id for a launched app (macOS: CGDisplayBounds in quartz space).
+pub fn monitor_id_for_launched_app(app: &str) -> Option<String> {
+    let pid = crate::platform::run_synthetic_input(|| {
+        running_app_pid(app).or_else(|| {
+            use objc2_app_kit::NSWorkspace;
+            NSWorkspace::sharedWorkspace()
+                .frontmostApplication()
+                .map(|app| app.processIdentifier())
+        })
+    })?;
+    macos_window::monitor_id_for_pid(pid).or_else(|| {
+        log::warn!("launch_app macOS: monitor id unavailable for app={app} pid={pid}");
+        None
+    })
+}
+
+/// Capture monitor id for the frontmost app's largest visible window.
+pub fn monitor_id_for_frontmost_app() -> Option<String> {
+    let pid = crate::platform::run_synthetic_input(|| {
+        use objc2_app_kit::NSWorkspace;
+        NSWorkspace::sharedWorkspace()
+            .frontmostApplication()
+            .map(|app| app.processIdentifier())
+    })?;
+    macos_window::monitor_id_for_pid(pid)
+}
+
+/// Global screen center of the app's largest visible window (top-left origin).
+pub fn window_center_for_app(app: &str) -> Option<(i32, i32)> {
+    crate::platform::run_synthetic_input(|| window_center_for_app_on_main(app))
+}
+
+fn window_center_for_app_on_main(app: &str) -> Option<(i32, i32)> {
+    running_app_pid(app)
+        .and_then(|pid| macos_window::primary_window_center_top_left_for_pid(pid))
+        .or_else(|| {
+            log::info!("launch_app macOS: falling back to frontmost window center for app={app}");
+            macos_window::frontmost_window_center_top_left()
+        })
+}
+
+fn running_app_pid(app: &str) -> Option<i32> {
+    use objc2_app_kit::{NSApplicationActivationPolicy, NSWorkspace};
+
+    let workspace = NSWorkspace::sharedWorkspace();
+    let apps = workspace.runningApplications();
+    let count = apps.count();
+    for i in 0..count {
+        let running = apps.objectAtIndex(i);
+        if running.isTerminated() {
+            continue;
+        }
+        if running.activationPolicy() != NSApplicationActivationPolicy::Regular {
+            continue;
+        }
+        let localized = running.localizedName().map(|s| s.to_string());
+        let bundle = running
+            .bundleIdentifier()
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        if app_identifier_matches(app, localized.as_deref(), Some(bundle.as_str())) {
+            return Some(running.processIdentifier());
+        }
+    }
+    None
+}
+
 fn application_url_for_bundle(bundle: &str) -> Option<PathBuf> {
     use objc2_app_kit::NSWorkspace;
     use objc2_foundation::NSString;

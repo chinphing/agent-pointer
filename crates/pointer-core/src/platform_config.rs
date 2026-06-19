@@ -123,6 +123,7 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         dati_author: s.dati_author.clone(),
         captcha_slider_offset_px: s.captcha_slider_offset_px,
         computer_show_monitor_picker: s.computer_show_monitor_picker,
+        computer_auto_switch_monitor: s.computer_auto_switch_monitor,
         agent_ui_overrides: s.agent_ui_overrides.clone(),
         web_search_model: s.web_search_model.clone(),
         media_model_overrides: s.media_model_overrides.clone(),

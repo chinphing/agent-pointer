@@ -39,6 +39,7 @@ import {
 } from '../../lib/attachmentPayloadStore'
 import type { MacosComputerPermissionsStatus } from '../../types/macosPermissions'
 import ComputerScreenPickerModal from './ComputerScreenPickerModal.vue'
+import { primaryComputerMonitor } from '../../lib/computerMonitorLayout'
 import AttachmentChip from './AttachmentChip.vue'
 import MacosComputerPermissionsModal from './MacosComputerPermissionsModal.vue'
 
@@ -120,6 +121,10 @@ function isLeadAgentSelected(agentId: string): boolean {
 
 const showComputerMonitorPicker = computed(
   () => sessionAgentMode.value === 'single' && leadUi.value.showComputerMonitorPicker
+)
+
+const computerAutoSwitchMonitor = computed(
+  () => settings.settings.computerAutoSwitchMonitor !== false
 )
 
 const isMacDesktop = computed(
@@ -421,7 +426,11 @@ async function sendWithOptionalComputerScreenPick() {
       screenPickerMonitors.value = monitors
       screenPickerLoading.value = false
 
-      if (!conv.computerMonitorId) {
+      if (computerAutoSwitchMonitor.value) {
+        const primary = primaryComputerMonitor(monitors)
+        if (primary) conv.computerMonitorId = primary.id
+        await setComputerConversationMonitor(conv.id, conv.computerMonitorId || null)
+      } else if (!conv.computerMonitorId) {
         if (monitors.length > 1) {
           pendingSendText.value = v
           showScreenPicker.value = true
@@ -430,9 +439,10 @@ async function sendWithOptionalComputerScreenPick() {
         if (monitors.length === 1) {
           conv.computerMonitorId = monitors[0].id
         }
+        await setComputerConversationMonitor(conv.id, conv.computerMonitorId || null)
+      } else {
+        await setComputerConversationMonitor(conv.id, conv.computerMonitorId)
       }
-
-      await setComputerConversationMonitor(conv.id, conv.computerMonitorId || null)
     } catch (e: any) {
       screenPickerLoading.value = false
       screenPickerError.value = String(e?.message || e)
@@ -496,6 +506,21 @@ async function beginSubagentMonitorPickFlow(req: ComputerMonitorPickRequest) {
       showScreenPicker.value = true
     }
     return
+  }
+
+  if (computerAutoSwitchMonitor.value) {
+    const primary = primaryComputerMonitor(req.monitors)
+    if (primary) {
+      conv.computerMonitorId = primary.id
+      try {
+        await setComputerConversationMonitor(conv.id, primary.id)
+        await confirmComputerMonitorPick(req.conversationId)
+        chat.clearComputerMonitorPickRequest()
+      } catch (e: unknown) {
+        screenPickerError.value = String((e as { message?: string })?.message || e)
+      }
+      return
+    }
   }
 
   screenPickerError.value = null

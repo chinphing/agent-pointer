@@ -305,6 +305,51 @@ pub(crate) fn wait_for_launch_verification(
         .unwrap_or_else(LaunchVerifyOutcome::not_found)
 }
 
+/// Global screen center of a visible window (top-left origin).
+pub fn window_center_for_hwnd(hwnd: windows::Win32::Foundation::HWND) -> Option<(i32, i32)> {
+    use std::mem::MaybeUninit;
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+
+    if hwnd.0 == 0 {
+        return None;
+    }
+    let mut rect = MaybeUninit::<RECT>::uninit();
+    unsafe {
+        GetWindowRect(hwnd, rect.as_mut_ptr()).ok()?;
+        let rect = rect.assume_init();
+        let w = rect.right - rect.left;
+        let h = rect.bottom - rect.top;
+        if w <= 0 || h <= 0 {
+            return None;
+        }
+        Some(((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2))
+    }
+}
+
+/// Capture monitor id for the foreground app's window center.
+pub fn monitor_id_for_frontmost_app() -> Option<String> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, IsWindowVisible};
+
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.0 == 0 || !unsafe { IsWindowVisible(hwnd).as_bool() } {
+        log::warn!("auto monitor switch Windows: no visible foreground window");
+        return None;
+    }
+    let (x, y) = window_center_for_hwnd(hwnd)?;
+    let monitor_id = crate::agents::computer::screen::monitor_id_at_global_point(x, y).ok()?;
+    log::info!(
+        "auto monitor switch Windows: foreground window center=({x},{y}) -> monitor={monitor_id}"
+    );
+    Some(monitor_id)
+}
+
+/// Global screen center of the app's visible window (top-left origin).
+pub fn window_center_for_app(app: &str) -> Option<(i32, i32)> {
+    let hwnd = windows_activate::hwnd_for_verify(app).ok()??;
+    window_center_for_hwnd(hwnd)
+}
+
 fn window_state_for_app(app: &str) -> Result<Option<LaunchVerifyOutcome>> {
     if let Some(hwnd) = windows_activate::hwnd_for_verify(app)? {
         use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;

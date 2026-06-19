@@ -723,6 +723,9 @@ pub struct ModelSettings {
     /// When true, Composer shows the monitor picker for the computer agent.
     #[serde(default = "default_computer_show_monitor_picker", rename = "computerShowMonitorPicker")]
     pub computer_show_monitor_picker: bool,
+    /// When true, skip manual monitor picker (default primary) and follow app window monitor after launch_app.
+    #[serde(default = "default_computer_auto_switch_monitor", rename = "computerAutoSwitchMonitor")]
+    pub computer_auto_switch_monitor: bool,
     #[serde(default = "default_memory_enabled", rename = "memoryEnabled")]
     pub memory_enabled: bool,
     #[serde(default = "default_user_profile_enabled", rename = "userProfileEnabled")]
@@ -927,6 +930,10 @@ fn default_computer_show_monitor_picker() -> bool {
     build_cfg_bool!("COMPUTER_SHOW_MONITOR_PICKER", true)
 }
 
+fn default_computer_auto_switch_monitor() -> bool {
+    true
+}
+
 fn default_dati_api_url() -> String {
     build_cfg_str!("DATI_API_URL", "")
 }
@@ -1030,6 +1037,7 @@ impl Default for ModelSettings {
             dati_author: default_dati_author(),
             captcha_slider_offset_px: default_captcha_slider_offset_px(),
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
+            computer_auto_switch_monitor: default_computer_auto_switch_monitor(),
             memory_enabled: default_memory_enabled(),
             user_profile_enabled: default_user_profile_enabled(),
             user_coding_rules: String::new(),
@@ -1283,6 +1291,8 @@ pub struct PlatformSettings {
     pub captcha_slider_offset_px: i32,
     #[serde(default = "default_computer_show_monitor_picker", rename = "computerShowMonitorPicker")]
     pub computer_show_monitor_picker: bool,
+    #[serde(default = "default_computer_auto_switch_monitor", rename = "computerAutoSwitchMonitor")]
+    pub computer_auto_switch_monitor: bool,
     #[serde(default, rename = "agentUiOverrides")]
     pub agent_ui_overrides: HashMap<String, crate::agents::AgentUiConfig>,
     /// Model id for DashScope web search tool calls (empty = default `qwen3-max`).
@@ -1367,6 +1377,8 @@ pub struct PersistedLocalPlatformSettings {
     pub workspace_root: String,
     #[serde(default = "default_captcha_slider_offset_px", rename = "captchaSliderOffsetPx")]
     pub captcha_slider_offset_px: i32,
+    #[serde(default = "default_computer_auto_switch_monitor", rename = "computerAutoSwitchMonitor")]
+    pub computer_auto_switch_monitor: bool,
     #[serde(default, rename = "mediaModelOverrides")]
     pub media_model_overrides: MediaModelOverrides,
     #[serde(default, rename = "agentPerformanceModes")]
@@ -1391,6 +1403,7 @@ impl PersistedLocalPlatformSettings {
             lead_agent_id: platform.lead_agent_id.clone(),
             workspace_root: platform.workspace_root.clone(),
             captcha_slider_offset_px: platform.captcha_slider_offset_px,
+            computer_auto_switch_monitor: platform.computer_auto_switch_monitor,
             media_model_overrides: platform.media_model_overrides.clone(),
             agent_performance_modes: platform.agent_performance_modes.clone(),
             media_understanding_modes: platform.media_understanding_modes.clone(),
@@ -1426,6 +1439,7 @@ impl PersistedLocalPlatformSettings {
         };
         platform.workspace_root = self.workspace_root.clone();
         platform.captcha_slider_offset_px = self.captcha_slider_offset_px;
+        platform.computer_auto_switch_monitor = self.computer_auto_switch_monitor;
         platform.media_model_overrides = self.media_model_overrides.clone();
         platform.agent_performance_modes = self.agent_performance_modes.clone();
         platform.media_understanding_modes = self.media_understanding_modes.clone();
@@ -1681,6 +1695,7 @@ impl Default for PlatformSettings {
             dati_author: default_dati_author(),
             captcha_slider_offset_px: default_captcha_slider_offset_px(),
             computer_show_monitor_picker: default_computer_show_monitor_picker(),
+            computer_auto_switch_monitor: default_computer_auto_switch_monitor(),
             agent_ui_overrides: HashMap::new(),
             web_search_model: default_web_search_model_setting(),
             media_model_overrides: default_media_generation_overrides(),
@@ -1741,6 +1756,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         dati_author: platform.dati_author.clone(),
         captcha_slider_offset_px: platform.captcha_slider_offset_px,
         computer_show_monitor_picker: platform.computer_show_monitor_picker,
+        computer_auto_switch_monitor: platform.computer_auto_switch_monitor,
         memory_enabled: user.memory_enabled,
         user_profile_enabled: user.user_profile_enabled,
         user_coding_rules: user.user_coding_rules.clone(),

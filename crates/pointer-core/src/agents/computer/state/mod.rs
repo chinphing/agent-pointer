@@ -394,14 +394,27 @@ impl ComputerState {
     pub fn set_conversation_monitor(&self, conversation_id: &str, monitor_id: Option<String>) {
         let session = self.get_or_create_session(conversation_id);
         let mut s = session.lock().unwrap();
-        s.selected_monitor = monitor_id;
+        let prev = s.selected_monitor.clone();
+        s.selected_monitor = monitor_id.clone();
         s.monitor_selection_done = true;
+        if prev.as_deref() != monitor_id.as_deref() {
+            log::info!(
+                "computer monitor: conversation_id={conversation_id} {} -> {}",
+                prev.as_deref().unwrap_or("(none)"),
+                monitor_id.as_deref().unwrap_or("(auto/cursor)")
+            );
+        }
     }
 
     pub fn is_monitor_selection_done(&self, conversation_id: &str) -> bool {
         let session = self.get_or_create_session(conversation_id);
         let done = session.lock().unwrap().monitor_selection_done;
         done
+    }
+
+    /// Current capture monitor id for a conversation (`None` = follow cursor).
+    pub fn conversation_monitor_id(&self, conversation_id: &str) -> Option<String> {
+        self.selected_monitor_id_for_conversation(conversation_id)
     }
 
     fn selected_monitor_id_for_conversation(&self, conversation_id: &str) -> Option<String> {
@@ -550,6 +563,10 @@ impl ComputerState {
 
         let t = Instant::now();
         let monitor_id = self.selected_monitor_id_for_conversation(conversation_id);
+        log::info!(
+            "capture_and_annotate: using monitor_id={} conversation_id={conversation_id}",
+            monitor_id.as_deref().unwrap_or("(cursor/auto)")
+        );
         let plan = tokio::task::spawn_blocking(move || {
             screen::screenshot_for_selection(monitor_id.as_deref())
         })

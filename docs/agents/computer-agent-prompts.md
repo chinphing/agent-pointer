@@ -101,6 +101,8 @@ OS 片段：`prompts/os/{macos,windows,linux}.md`，三档共用。
 
 工具正文：`tools/prompts/mouse.md`、`composite_action.md`、`modified_click.md`（按 **method** 后缀路由，不再拆分 `mouse_index` 等独立工具 id）。组装：`generate_tools_system_appendix`。
 
+应用列表/启动：`tools/prompts/list_apps.md`、`launch_app.md`；跨平台实现见 [`computer-app-access.md`](computer-app-access.md)。
+
 ## Advanced 七阶段
 
 `prompts/tiers/advanced/communication.md`：证明式七阶段、坐标 `*_at`、reference index R 仅作锚点。Primary 为 hybrid（index + coordinate），Intermediate 维持 index-only。

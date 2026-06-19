@@ -43,7 +43,14 @@ pub(super) async fn record_tool_exec_outcome(
                 );
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             }
-            let preview = truncate_str(&out, 800);
+            let preview = if tool_id == "list_apps" {
+                truncate_str(&out, 12_000)
+            } else {
+                truncate_str(&out, 800)
+            };
+            let display = state.tools.format_display(&tc.name, args_for_desktop_log);
+            let (display_label, display_summary) =
+                super::super::util::tool_display_stream_fields(&display);
             emit(
                 stream,
                 StreamEvent::ToolCallStatus {
@@ -53,8 +60,8 @@ pub(super) async fn record_tool_exec_outcome(
                     result: Some(preview),
                     error: err_note,
                     duration_ms: Some(duration),
-                    display_label: None,
-                    display_summary: None,
+                    display_label,
+                    display_summary,
                     trace_id: trace_id_opt(trace_id),
                 },
             );

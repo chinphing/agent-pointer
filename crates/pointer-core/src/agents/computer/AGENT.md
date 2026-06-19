@@ -1,7 +1,7 @@
 ---
 id: computer
 name: computer-use
-description: "Vision-driven desktop agent: understands screenshots and drives mouse/keyboard."
+description: "Vision-driven desktop agent: screenshots, mouse/keyboard, and app tools. Prefer launch_app over Spotlight/launcher UI to open or switch installed apps."
 role: worker
 profile: computer
 enabled: true
@@ -12,6 +12,8 @@ toolNames:
   - modified_click
   - wait
   - clipboard
+  - list_apps
+  - launch_app
   - action_verify
   - task_board
   - captcha_verify
@@ -23,6 +25,8 @@ accessPolicy:
     - modified_click
     - wait
     - clipboard
+    - list_apps
+    - launch_app
     - action_verify
     - task_board
     - captcha_verify

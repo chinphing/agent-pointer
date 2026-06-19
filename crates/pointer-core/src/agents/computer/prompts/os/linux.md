@@ -46,9 +46,18 @@ For app-local shortcuts, follow the visible in-app hint when present.
 
 ### Opening applications
 
-Launcher behavior varies; use the pattern that matches the current desktop UI.
+**Default — open, switch, or bring an installed app to the foreground**
 
-1. **Application search (try first on many desktops)**
+1. **`launch_app`** when the app name or desktop entry id is known (from the user, task, or prior **`list_apps`**).
+2. **`list_apps`** first only when the identifier is uncertain — then **`launch_app`** with the name from a line.
+3. **`wait`** if the window is still loading.
+
+Use these app tools even when the user names the app and it is not on screen.
+Do **not** use the application search overlay, menu, or panel for that case while **`launch_app`** can target the app.
+
+**Fallback only** when **`launch_app`** fails (permission denied, app not found, or tool error):
+
+1. **Application search**
    - Press `super` (Windows logo key) → type the app name → Enter.
    - Works on GNOME, KDE, and others with a unified search overlay.
 

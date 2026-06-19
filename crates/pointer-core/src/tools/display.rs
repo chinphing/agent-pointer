@@ -409,6 +409,17 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             let action = if method.is_empty() { str_field(args, &["action", "method"]).unwrap_or_default() } else { method.clone() };
             (format!("验证码 · {}", captcha_action_label(action.as_str())), computer_action_summary(args))
         }
+        "list_apps" => (
+            "列出应用".to_string(),
+            str_field(args, &["goal"]).map(|s| truncate(&s, SUMMARY_MAX)).unwrap_or_default(),
+        ),
+        "launch_app" => (
+            "启动应用".to_string(),
+            str_field(args, &["app"])
+                .map(|s| truncate(&s, SUMMARY_MAX))
+                .or_else(|| str_field(args, &["goal"]).map(|s| truncate(&s, SUMMARY_MAX)))
+                .unwrap_or_default(),
+        ),
         "response" => ("回复用户".to_string(), String::new()),
         _ => if !method.is_empty() { (format!("{base} · {method}"), String::new()) } else { (raw_name.to_string(), String::new()) }
     };
@@ -533,5 +544,22 @@ mod tests {
         );
         assert!(d.label.contains("鼠标"));
         assert!(d.summary.contains("Save"));
+    }
+
+    #[test]
+    fn launch_app_label_and_app_summary() {
+        let d = default_display(
+            "launch_app",
+            &json!({"goal": "打开微信", "app": "WeChat", "action": "启动微信"}),
+        );
+        assert_eq!(d.label, "启动应用");
+        assert_eq!(d.summary, "WeChat");
+    }
+
+    #[test]
+    fn list_apps_label_and_goal_summary() {
+        let d = default_display("list_apps", &json!({"goal": "查找微信"}));
+        assert_eq!(d.label, "列出应用");
+        assert_eq!(d.summary, "查找微信");
     }
 }

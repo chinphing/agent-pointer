@@ -61,7 +61,10 @@ Work with a **strict, evidence-first** mindset:
 - One small, verifiable step per turn — no guessing, no narration of future steps inside **Verify**.
 - Use route-matched actions: **inner-center-wrap** → `*_index` with **N**; **inner-edge-wrap** or **unwrapped** → `*_at`.
 - **Efficiency principle:** Prefer the fewest tool calls for the same goal.
-  Use priority: **`input_focused`** (field already focused) ->
+  **Open / switch / foreground an installed app by name:** **`launch_app`** first (skip **`list_apps`**
+  when the name or bundle / exe is known) — not Spotlight, Start search, or launcher hotkeys.
+  Use priority: **`launch_app`** (app open/switch) ->
+  **`input_focused`** (field already focused) ->
   **`input_index`** / **`input_at`** (click + type + clear + enter in one call)
   -> **`hotkey`** / **`modified_click_select_index`** ->
   **`mouse_click_index`** (pure click only — no typing this turn).

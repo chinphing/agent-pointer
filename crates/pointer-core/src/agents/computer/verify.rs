@@ -72,6 +72,37 @@ impl VerifyHintGenerator {
             action_name
         )
     }
+
+    /// Generate a verification hint after list_apps.
+    pub fn list_apps_hint(&self, count: usize, include_all: bool) -> String {
+        if include_all {
+            format!(
+                "Listed {count} app(s) (full installed catalog). \
+                 Pick the target identifier from the lines above, then call launch_app."
+            )
+        } else {
+            format!(
+                "Listed {count} app(s) (running + 14-day recent). \
+                 Pick the target from the lines above, then call launch_app. \
+                 If the target is missing, retry list_apps once with include_all: true — \
+                 do not set include_all on the first call."
+            )
+        }
+    }
+
+    /// Generate a verification hint after launch_app.
+    pub fn launch_app_hint(&self, app: &str, success: bool, action: &str) -> String {
+        if success {
+            format!(
+                "launch_app {action} for \"{app}\" reported success with host verification."
+            )
+        } else {
+            format!(
+                "launch_app {action} for \"{app}\" failed host verification. \
+                 Do not assume the app opened — retry launch_app, call list_apps, or use a UI fallback."
+            )
+        }
+    }
 }
 
 impl Default for VerifyHintGenerator {

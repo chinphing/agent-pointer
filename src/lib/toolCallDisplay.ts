@@ -1,6 +1,47 @@
 import type { ToolCall } from '../types/chat'
 import { taskBoardPatchSummaryFromArgs, toolCallBaseName } from './messageTooling'
 
+function strField(args: Record<string, unknown>, keys: string[]): string {
+  for (const k of keys) {
+    const v = args[k]
+    if (typeof v === 'string' && v.trim()) return v.trim()
+  }
+  return ''
+}
+
+function parseToolArgs(argumentsJson: string | undefined): Record<string, unknown> {
+  if (!argumentsJson?.trim()) return {}
+  try {
+    const parsed = JSON.parse(argumentsJson)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {}
+  } catch {
+    return {}
+  }
+}
+
+/** Client fallback when backend display fields are missing (e.g. reloaded history). */
+export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summary: string } {
+  const base = toolCallBaseName(tc.name)
+  const args = parseToolArgs(tc.arguments)
+
+  if (base === 'launch_app') {
+    return {
+      label: '启动应用',
+      summary: truncateToolSummary(strField(args, ['app']) || strField(args, ['goal']))
+    }
+  }
+  if (base === 'list_apps') {
+    return {
+      label: '列出应用',
+      summary: truncateToolSummary(strField(args, ['goal']))
+    }
+  }
+
+  return { label: tc.displayLabel?.trim() || tc.name, summary: '' }
+}
+
 export type ToolSummaryIcon = 'explore' | 'search' | 'terminal' | 'edit'
 
 function resolveMethod(name: string, argumentsJson?: string): string {
@@ -286,8 +327,9 @@ function toolInProgress(status: ToolCall['status']): boolean {
 
 /** One-line tool status for compact dock bar (aligns with ToolCallRow label + summary + outcome). */
 export function compactToolCallStatusLine(tc: ToolCall): string {
-  const label = tc.displayLabel?.trim() || tc.name
-  let summary = tc.displaySummary?.trim()
+  const resolved = resolveToolDisplayForCall(tc)
+  const label = tc.displayLabel?.trim() || resolved.label
+  let summary = tc.displaySummary?.trim() || resolved.summary
   if (!summary) {
     summary = taskBoardPatchSummaryFromArgs(tc.arguments)?.trim() ?? ''
   }

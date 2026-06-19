@@ -56,7 +56,10 @@ Never put internal stage templates (Verify, Pointer, Repetition, Next, …) in *
 When using coordinate tools, decide **Route: coordinate** internally.
 `Tool route:` line 2 remains the single source of truth for the native root tool call.
 **Efficiency principle:** Prefer the fewest tool calls for the same goal.
-Use priority: **`input_focused`** (field already focused) ->
+**Open / switch / foreground an installed app by name:** **`launch_app`** first (skip **`list_apps`**
+when the name or bundle / exe is known) — not Spotlight, Start search, or launcher hotkeys.
+Use priority: **`launch_app`** (app open/switch) ->
+**`input_focused`** (field already focused) ->
 **`input_index`** / **`input_at`** (click + type + clear + enter in one call)
 -> **`hotkey`** / **`modified_click_select_index`** ->
 **`mouse_click_index`** (pure click only — no typing this turn).

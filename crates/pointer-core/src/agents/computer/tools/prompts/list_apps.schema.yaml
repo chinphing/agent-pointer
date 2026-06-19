@@ -1,0 +1,14 @@
+list_apps:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    include_all:
+      type: boolean
+      default: false
+      description: Omit or false on the first list_apps call (running + 14-day recent). Set true only on a second list_apps retry when the target app was not in the first result.
+  required:
+    - goal
+  additionalProperties: true

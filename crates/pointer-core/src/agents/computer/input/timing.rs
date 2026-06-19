@@ -86,6 +86,8 @@ pub const DESKTOP_VISION_LOG_TOOL_IDS: &[&str] = &[
     "modified_click",
     "wait",
     "clipboard",
+    "list_apps",
+    "launch_app",
 ];
 
 /// Tools that actually drive or schedule desktop interaction; **`wait` excluded** — it already blocks and
@@ -96,6 +98,7 @@ pub const DESKTOP_POST_DELAY_TOOL_IDS: &[&str] = &[
     "input",
     "modified_click",
     "captcha_verify",
+    "launch_app",
 ];
 
 /// Map flat registry ids (e.g. `mouse_click_index`) to session-bound desktop tool families.

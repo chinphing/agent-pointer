@@ -12,6 +12,7 @@ mod tool_hotkey;
 mod tool_modified_click;
 mod tool_mouse;
 mod tool_action_verify;
+pub(crate) mod tool_app_access;
 mod tool_wait;
 
 use crate::agents::computer::tool_names::ACTION_VERIFY;
@@ -349,6 +350,56 @@ pub fn register_all(reg: &ToolRegistry, state: Arc<ComputerState>) {
                     .with_schema(schema),
             );
         }
+    }
+
+    // ── list_apps / launch_app (Codex Computer Use aligned) ───────────────
+    {
+        const LIST_APPS_DOC_SOURCE: &str = "agents/computer/tools/prompts/list_apps.md";
+        const LAUNCH_APP_DOC_SOURCE: &str = "agents/computer/tools/prompts/launch_app.md";
+        const LIST_APPS_SCHEMA_YAML: &str = include_str!("prompts/list_apps.schema.yaml");
+        const LAUNCH_APP_SCHEMA_YAML: &str = include_str!("prompts/launch_app.schema.yaml");
+        let list_schema = load_tools_from_schema_yaml(LIST_APPS_SCHEMA_YAML)
+            .expect("list_apps.schema.yaml must be valid")
+            .into_iter()
+            .next()
+            .expect("list_apps.schema.yaml missing list_apps entry")
+            .1;
+        let launch_schema = load_tools_from_schema_yaml(LAUNCH_APP_SCHEMA_YAML)
+            .expect("launch_app.schema.yaml must be valid")
+            .into_iter()
+            .next()
+            .expect("launch_app.schema.yaml missing launch_app entry")
+            .1;
+
+        let list_doc = include_str!("prompts/list_apps.md").trim();
+        reg.register(
+            ToolEntry::new(
+                "list_apps",
+                LIST_APPS_DOC_SOURCE,
+                "low",
+                false,
+                list_doc,
+                Arc::new(move |args| {
+                    tool_app_access::AppAccessTool::new().execute_list_apps(&args)
+                }),
+            )
+            .with_schema(list_schema),
+        );
+
+        let launch_doc = include_str!("prompts/launch_app.md").trim();
+        reg.register(
+            ToolEntry::new(
+                "launch_app",
+                LAUNCH_APP_DOC_SOURCE,
+                "low",
+                false,
+                launch_doc,
+                Arc::new(move |args| {
+                    tool_app_access::AppAccessTool::new().execute_launch_app(&args)
+                }),
+            )
+            .with_schema(launch_schema),
+        );
     }
 
     // ── action_verify (sidecar flat) ─────────────────────────────────────

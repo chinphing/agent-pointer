@@ -66,15 +66,22 @@ toml = "0.8"
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
 windows = { version = "0.62", features = [
-    "Win32_Foundation",
-    "Win32_Graphics_Gdi",
-    "Win32_UI_WindowsAndMessaging",
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_System_Threading",
+  "Win32_System_Diagnostics_ToolHelp",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Same Quartz coordinate space as xcap (`CGDisplayBounds` / `CGGetDisplaysWithPoint`). Enigo's macOS
 # `location()` mixes NSEvent points with the main display's physical pixel height and can miss every display.
+core-foundation = "0.9"
 core-graphics = "0.23"
 # Enigo uses TIS / event APIs that must run on the main thread; dispatch tool work there from Tokio workers.
 dispatch = "0.2"
 libc = "0.2"
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplication"] }

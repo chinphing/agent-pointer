@@ -46,11 +46,19 @@ Use `option` only when the UI names Option. Use `ctrl` only when the UI names Co
 
 ### Opening applications
 
-Prefer the fastest visible path; use **hotkey** for launcher shortcuts when reliable.
+**Default — open, switch, or bring an installed app to the foreground**
 
-1. **Spotlight (default for “open app X” by name)**
+1. **`launch_app`** when the app name or bundle id is known (from the user, task, or prior **`list_apps`**).
+2. **`list_apps`** first only when the identifier is uncertain — then **`launch_app`** with the name or bundle from a line.
+3. **`wait`** if the window is still loading.
+
+Use these app tools even when the user names the app (e.g. “open WeChat”) and the app is not on screen.
+Do **not** use Spotlight, Dock clicks, or Finder for that case while **`launch_app`** can target the app.
+
+**Fallback only** when **`launch_app`** fails (permission denied, app not found, or tool error):
+
+1. **Spotlight**
    - `command+space` → type the app name → Enter.
-   - Fastest when the user names an app or file and it is installed.
 
 2. **Finder / Applications**
    - Open Finder → sidebar **Applications**, or
@@ -66,7 +74,7 @@ Prefer the fastest visible path; use **hotkey** for launcher shortcuts when reli
 
 5. **Browser**
    - If a browser window is already on screen, use it first.
-   - Otherwise open via Spotlight (e.g. Safari, Chrome, Firefox).
+   - Otherwise prefer **`launch_app`** (e.g. Safari, Chrome, Firefox); Spotlight only if that fails.
 
 6. **Missing or not found**
    - After reasonable tries (Spotlight, Applications, Dock, desktop),

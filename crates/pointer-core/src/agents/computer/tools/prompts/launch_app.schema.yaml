@@ -1,0 +1,17 @@
+launch_app:
+  type: object
+  properties:
+    goal:
+      type: string
+    action:
+      type: string
+    app:
+      type: string
+    activate_only:
+      type: boolean
+    new_instance:
+      type: boolean
+  required:
+    - goal
+    - app
+  additionalProperties: true

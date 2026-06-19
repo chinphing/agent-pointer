@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCall } from '../types/chat'
-import { compactToolCallStatusLine, latestToolCallForCompactStatus } from './toolCallDisplay'
+import { compactToolCallStatusLine, latestToolCallForCompactStatus, resolveToolDisplayForCall } from './toolCallDisplay'
 
 function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'>): ToolCall {
   return {
@@ -44,5 +44,18 @@ describe('compactToolCallStatusLine', () => {
     ]
     expect(latestToolCallForCompactStatus(calls)?.displayLabel).toBe('等待')
     expect(latestToolCallForCompactStatus([calls[0]])?.displayLabel).toBe('鼠标')
+  })
+
+  it('falls back display for launch_app without backend labels', () => {
+    const d = resolveToolDisplayForCall(
+      tc({
+        id: '3',
+        name: 'launch_app',
+        status: 'success',
+        arguments: JSON.stringify({ goal: '打开微信', app: 'WeChat' })
+      })
+    )
+    expect(d.label).toBe('启动应用')
+    expect(d.summary).toBe('WeChat')
   })
 })

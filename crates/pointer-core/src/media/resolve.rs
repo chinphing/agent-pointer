@@ -1,0 +1,100 @@
+//! Unified local media path resolution under [`crate::storage::app_data_dir`].
+//!
+//! Conversation attachment rel paths (`{conv}/{id}_{name}`) always resolve via
+//! [`super::store::media_abs_path`] — never via process `cwd`.
+
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
+
+use crate::storage::app_data_dir;
+
+use super::access::{is_user_filesystem_path, normalize_user_path, path_has_traversal};
+use super::store::{media_abs_path, CONVERSATION_MEDIA_DIR};
+
+/// True for persisted attachment rel paths (not user absolute/`~/` paths).
+pub fn is_storage_rel_path(raw: &str) -> bool {
+    let rel = raw.trim().trim_start_matches('/');
+    !rel.is_empty()
+        && !is_user_filesystem_path(rel)
+        && !path_has_traversal(rel)
+        && rel.contains('/')
+}
+
+/// Resolve a local media path to an existing file or directory.
+///
+/// Order: storage rel → user path → explicit `./`/`../` workspace rel → `{app_data}/…`.
+/// Does **not** fall back to `cwd` for storage rel paths.
+pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("empty media path");
+    }
+    if path_has_traversal(trimmed) {
+        anyhow::bail!("media path traversal not allowed: {trimmed}");
+    }
+
+    if is_storage_rel_path(trimmed) {
+        let path = media_abs_path(trimmed.trim_start_matches('/'))
+            .with_context(|| format!("resolve storage rel path {trimmed}"))?;
+        if path.is_file() || path.is_dir() {
+            return Ok(path);
+        }
+        anyhow::bail!("media file not found under app data: {}", path.display());
+    }
+
+    if is_user_filesystem_path(trimmed) {
+        let path = normalize_user_path(trimmed)?;
+        if path.is_file() || path.is_dir() {
+            return Ok(path);
+        }
+        anyhow::bail!("media file not found: {trimmed}");
+    }
+
+    if trimmed.starts_with("./") || trimmed.starts_with("../") {
+        let path = normalize_user_path(trimmed)?;
+        if path.is_file() || path.is_dir() {
+            return Ok(path);
+        }
+        anyhow::bail!("media file not found: {trimmed}");
+    }
+
+    if let Ok(data_dir) = app_data_dir() {
+        let under_data = data_dir.join(trimmed.trim_start_matches('/'));
+        if under_data.is_file() || under_data.is_dir() {
+            return Ok(under_data);
+        }
+        let under_media = data_dir
+            .join(CONVERSATION_MEDIA_DIR)
+            .join(trimmed.trim_start_matches('/'));
+        if under_media.is_file() || under_media.is_dir() {
+            return Ok(under_media);
+        }
+    }
+
+    anyhow::bail!("media file not found: {trimmed}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn storage_rel_is_not_user_path() {
+        assert!(is_storage_rel_path(
+            "weixin_default_weixin_dm_o9cq80w5c6zrEn3gvKlFfwKNhdco_im_wechat_s1/abc_video.mp4"
+        ));
+        assert!(!is_user_filesystem_path(
+            "weixin_default_weixin_dm_o9cq80w5c6zrEn3gvKlFfwKNhdco_im_wechat_s1/abc_video.mp4"
+        ));
+    }
+
+    #[test]
+    fn normalize_user_path_does_not_join_cwd_for_storage_rel() {
+        let raw = "conv_folder/attachment_id_file.mp4";
+        let path = normalize_user_path(raw).expect("normalize");
+        assert_eq!(path, Path::new(raw));
+        assert!(!path.is_absolute());
+    }
+}

@@ -13,7 +13,8 @@ import { useMarkdownExternalLinks } from '../../../composables/useMarkdownExtern
 import { isUsableAttachmentPreviewUrl } from '../../../lib/attachmentSupport'
 import { attachmentsForMessageRender } from '../../../lib/messageNormalizer'
 import { previewChatMedia, revealInFinder } from '../../../lib/api'
-import { videoPreviewUrlFromStorage } from '../../../lib/chatMediaPreview'
+import { prefetchAttachmentAbsPaths, resolveAttachmentAbsPath } from '../../../lib/attachmentLocalPath'
+import { resolveVideoPreviewUrl } from '../../../lib/chatMediaPreview'
 import {
   isOpenableFileAttachment,
   openAttachmentWithSystemDefault
@@ -24,6 +25,7 @@ const props = defineProps<{ message: ChatMessage }>()
 
 const bodyRef = ref<HTMLElement | null>(null)
 const loadedPreviews = ref<Record<string, string>>({})
+const resolvedAbsPaths = ref<Record<string, string>>({})
 const previewInflight = new Set<string>()
 
 const displayContent = computed(() => userMessageDisplayContent(props.message))
@@ -35,41 +37,42 @@ const attachments = computed(() => attachmentsForMessageRender(props.message))
 useMarkdownCodeCopy(bodyRef, () => props.message.content)
 useMarkdownExternalLinks(bodyRef, () => props.message.content)
 
-async function ensureMediaPreview(attId: string, kind: string, storageRelPath?: string) {
-  if (!storageRelPath || loadedPreviews.value[attId] || previewInflight.has(attId)) return
-  previewInflight.add(attId)
+async function ensureMediaPreview(att: RenderableAttachment) {
+  if (loadedPreviews.value[att.id] || previewInflight.has(att.id)) return
+  previewInflight.add(att.id)
   try {
-    if (kind === 'video') {
-      const streamUrl = await videoPreviewUrlFromStorage(storageRelPath)
+    if (att.kind === 'video') {
+      const streamUrl = await resolveVideoPreviewUrl(att)
       if (streamUrl) {
-        loadedPreviews.value = { ...loadedPreviews.value, [attId]: streamUrl }
+        loadedPreviews.value = { ...loadedPreviews.value, [att.id]: streamUrl }
         return
       }
     }
-    const preview = await previewChatMedia(storageRelPath)
+    if (!att.storageRelPath) return
+    const preview = await previewChatMedia(att.storageRelPath)
     const mime = preview.mimeType || 'application/octet-stream'
     loadedPreviews.value = {
       ...loadedPreviews.value,
-      [attId]: `data:${mime};base64,${preview.dataBase64}`
+      [att.id]: `data:${mime};base64,${preview.dataBase64}`
     }
   } catch (e) {
     console.warn('previewChatMedia failed', e)
   } finally {
-    previewInflight.delete(attId)
+    previewInflight.delete(att.id)
   }
 }
 
-function mediaSrc(att: { id: string; previewUrl?: string; storageRelPath?: string }): string | null {
+function mediaSrc(att: { id: string; previewUrl?: string }): string | null {
   if (isUsableAttachmentPreviewUrl(att.previewUrl)) return att.previewUrl!.trim()
   return loadedPreviews.value[att.id] ?? null
 }
 
 function filePath(att: RenderableAttachment): string | undefined {
-  return att.localAbsPath ?? att.mediaRef
+  return resolvedAbsPaths.value[att.id] ?? att.localAbsPath
 }
 
 async function copyFilePath(att: RenderableAttachment) {
-  const path = filePath(att)
+  const path = filePath(att) ?? (await resolveAttachmentAbsPath(att))
   if (!path) return
   try {
     await navigator.clipboard.writeText(path)
@@ -79,7 +82,7 @@ async function copyFilePath(att: RenderableAttachment) {
 }
 
 async function onRevealInFinder(att: RenderableAttachment) {
-  const path = filePath(att)
+  const path = filePath(att) ?? (await resolveAttachmentAbsPath(att))
   if (!path) return
   try {
     await revealInFinder(path)
@@ -100,10 +103,11 @@ watch(
   attachments,
   list => {
     for (const att of list) {
-      if (att.storageRelPath) {
-        void ensureMediaPreview(att.id, att.kind, att.storageRelPath)
-      }
+      void ensureMediaPreview(att)
     }
+    void prefetchAttachmentAbsPaths(list).then(map => {
+      resolvedAbsPaths.value = map
+    })
   },
   { immediate: true }
 )
@@ -176,7 +180,7 @@ watch(
             </div>
             <!-- 操作按钮悬浮层 -->
             <div
-              v-if="filePath(att) && (att.kind === 'image' || att.kind === 'video')"
+              v-if="(filePath(att) || att.storageRelPath) && (att.kind === 'image' || att.kind === 'video')"
               class="absolute top-2 right-2 hidden group-hover/media-attachment:flex gap-1 bg-background/80 backdrop-blur-sm rounded-lg p-1 shadow border border-border"
             >
               <button

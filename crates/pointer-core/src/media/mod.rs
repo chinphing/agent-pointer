@@ -10,6 +10,7 @@ pub mod oss;
 pub mod outbound_reply;
 pub mod media_ref;
 pub mod reply_attachments;
+pub mod resolve;
 pub mod capabilities;
 pub mod deps_hint;
 pub mod filename;
@@ -55,6 +56,7 @@ pub use manifest::{
     USER_ATTACHMENTS_MARKER,
 };
 pub use media_ref::{read_media_ref_bytes, resolve_media_ref};
+pub use resolve::{is_storage_rel_path, resolve_local_media_path};
 pub use path_hint::{
     append_attachment_paths, append_recovery_paths, attachment_path_lines,
     attachment_recovery_path_lines, MEDIA_URI_SCHEME,

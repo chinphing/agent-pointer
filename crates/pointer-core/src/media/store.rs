@@ -7,11 +7,11 @@ use crate::models::ChatMediaPreview;
 use crate::storage::{app_data_dir, sanitize_storage_dir_segment};
 
 use super::access::{
-    assert_app_media_preview_allowed, is_user_filesystem_path, normalize_user_path,
-    path_has_traversal,
+    assert_app_media_preview_allowed, is_user_filesystem_path, path_has_traversal,
 };
 use super::filename::safe_attachment_basename;
 use super::path_hint::MEDIA_URI_SCHEME;
+use super::resolve::resolve_local_media_path;
 
 pub const CONVERSATION_MEDIA_DIR: &str = "conversation-media";
 
@@ -161,39 +161,9 @@ pub fn read_media_ref_preview(media_ref: &str) -> Result<ChatMediaPreview> {
         anyhow::bail!("media path traversal not allowed: {rel}");
     }
 
-    let path = resolve_filesystem_ref(rel)?;
+    let path = resolve_local_media_path(rel)?;
     assert_app_media_preview_allowed(&path)?;
     read_file_preview(&path)
-}
-
-fn resolve_filesystem_ref(raw: &str) -> Result<PathBuf> {
-    let path = normalize_user_path(raw)?;
-    if path.is_absolute() && path.is_file() {
-        return Ok(path);
-    }
-    if path.is_file() {
-        return Ok(path);
-    }
-
-    if let Ok(data_dir) = app_data_dir() {
-        let under_data = data_dir.join(raw.trim_start_matches('/'));
-        if under_data.is_file() {
-            return Ok(under_data);
-        }
-        let under_media = data_dir.join(CONVERSATION_MEDIA_DIR).join(raw.trim_start_matches('/'));
-        if under_media.is_file() {
-            return Ok(under_media);
-        }
-    }
-
-    if let Ok(cwd) = std::env::current_dir() {
-        let under_cwd = cwd.join(raw);
-        if under_cwd.is_file() {
-            return Ok(under_cwd);
-        }
-    }
-
-    anyhow::bail!("media file not found: {raw}")
 }
 
 fn read_file_preview(path: &Path) -> Result<ChatMediaPreview> {

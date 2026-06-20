@@ -96,7 +96,7 @@ pub fn normalize_user_path(raw: &str) -> Result<PathBuf> {
     if path.is_absolute() {
         return Ok(path);
     }
-    if trimmed.starts_with("./") || trimmed.starts_with("../") || trimmed.contains('/') {
+    if trimmed.starts_with("./") || trimmed.starts_with("../") {
         return Ok(std::env::current_dir()?.join(trimmed));
     }
     Ok(path)

@@ -3,7 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { FileText, Image as ImageIcon, Mic, Video, X } from 'lucide-vue-next'
 import type { ComposerAttachment } from '../../types/chat'
 import { getComposerAttachmentPreviewUrl } from '../../lib/attachmentPayloadStore'
-import { videoPreviewUrlFromLocalPath, videoPreviewUrlFromStorage } from '../../lib/chatMediaPreview'
+import { videoPreviewUrlFromLocalPath, resolveVideoPreviewUrl } from '../../lib/chatMediaPreview'
 
 const props = defineProps<{
   attachment: ComposerAttachment
@@ -20,9 +20,7 @@ async function refreshVideoPreview() {
   if (att.kind !== 'video') return
   if (resolvedPreview.value) return
   const url =
-    (att.storageRelPath
-      ? await videoPreviewUrlFromStorage(att.storageRelPath)
-      : null) ??
+    (await resolveVideoPreviewUrl(att)) ??
     (att.localSourcePath ? await videoPreviewUrlFromLocalPath(att.localSourcePath) : null)
   if (url) resolvedPreview.value = url
 }

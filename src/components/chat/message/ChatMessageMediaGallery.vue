@@ -5,7 +5,8 @@ import type { RenderableAttachment } from '../../../lib/messageNormalizer'
 import ChatAudioPlayer from './ChatAudioPlayer.vue'
 import ChatAudioTranscript from './ChatAudioTranscript.vue'
 import { previewChatMedia, previewMediaRef, revealInFinder } from '../../../lib/api'
-import { videoPreviewUrlFromStorage } from '../../../lib/chatMediaPreview'
+import { prefetchAttachmentAbsPaths, resolveAttachmentAbsPath } from '../../../lib/attachmentLocalPath'
+import { resolveVideoPreviewUrl } from '../../../lib/chatMediaPreview'
 import { isUsableAttachmentPreviewUrl } from '../../../lib/attachmentSupport'
 import {
   isOpenableFileAttachment,
@@ -19,26 +20,29 @@ const props = defineProps<{
 }>()
 
 const loadedPreviews = ref<Record<string, string>>({})
+const resolvedAbsPaths = ref<Record<string, string>>({})
 const previewInflight = new Set<string>()
 
 async function ensureMediaPreview(att: RenderableAttachment) {
   if (loadedPreviews.value[att.id] || previewInflight.has(att.id)) return
   previewInflight.add(att.id)
   try {
-    if (att.kind === 'video' && att.storageRelPath) {
-      const streamUrl = await videoPreviewUrlFromStorage(att.storageRelPath)
+    if (att.kind === 'video') {
+      const streamUrl = await resolveVideoPreviewUrl(att)
       if (streamUrl) {
         loadedPreviews.value = { ...loadedPreviews.value, [att.id]: streamUrl }
         return
       }
     }
     let preview
-    if (att.mediaRef) {
+    if (att.mediaRef && !att.storageRelPath) {
       preview = await previewMediaRef(att.mediaRef)
     } else if (att.localAbsPath) {
       preview = await previewMediaRef(att.localAbsPath)
     } else if (att.storageRelPath) {
       preview = await previewChatMedia(att.storageRelPath)
+    } else if (att.mediaRef) {
+      preview = await previewMediaRef(att.mediaRef)
     } else {
       return
     }
@@ -63,11 +67,11 @@ function mediaSrc(att: RenderableAttachment): string | null {
 }
 
 function filePath(att: RenderableAttachment): string | undefined {
-  return att.localAbsPath ?? att.mediaRef
+  return resolvedAbsPaths.value[att.id] ?? att.localAbsPath
 }
 
 async function copyFilePath(att: RenderableAttachment) {
-  const path = filePath(att)
+  const path = filePath(att) ?? (await resolveAttachmentAbsPath(att))
   if (!path) return
   try {
     await navigator.clipboard.writeText(path)
@@ -77,7 +81,7 @@ async function copyFilePath(att: RenderableAttachment) {
 }
 
 async function onRevealInFinder(att: RenderableAttachment) {
-  const path = filePath(att)
+  const path = filePath(att) ?? (await resolveAttachmentAbsPath(att))
   if (!path) return
   try {
     await revealInFinder(path)
@@ -102,6 +106,9 @@ watch(
   () => props.attachments,
   list => {
     for (const att of list) void ensureMediaPreview(att)
+    void prefetchAttachmentAbsPaths(list).then(map => {
+      resolvedAbsPaths.value = map
+    })
   },
   { immediate: true, deep: true }
 )
@@ -162,7 +169,7 @@ watch(
         </div>
         <!-- 操作按钮悬浮层 -->
         <div
-          v-if="filePath(att) && (att.kind === 'image' || att.kind === 'video')"
+          v-if="(filePath(att) || att.storageRelPath) && (att.kind === 'image' || att.kind === 'video')"
           class="absolute top-2 right-2 hidden group-hover/media-attachment:flex gap-1 bg-background/80 backdrop-blur-sm rounded-lg p-1 shadow border border-border"
         >
           <button

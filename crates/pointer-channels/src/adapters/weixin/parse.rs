@@ -163,12 +163,20 @@ fn parse_item(item: &Value, text_parts: &mut Vec<String>, attachments: &mut Vec<
         }
         Some(ITEM_VIDEO) => {
             if let Some(video) = item.get("video_item") {
+                let name = video
+                    .get("file_name")
+                    .or_else(|| video.get("filename"))
+                    .and_then(|v| v.as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("weixin-video-{}.mp4", uuid::Uuid::new_v4()));
                 if let Some(att) = media_ref_from_cdn(
                     "video",
                     video.get("media"),
                     None,
                     Some("video/mp4"),
-                    Some(format!("weixin-video-{}.mp4", uuid::Uuid::new_v4())),
+                    Some(name),
                 ) {
                     attachments.push(att);
                 }
@@ -335,6 +343,34 @@ mod tests {
         assert_eq!(inbound.text, "");
         assert_eq!(inbound.attachments.len(), 1);
         assert_eq!(inbound.attachments[0].kind, "image");
+    }
+
+    #[test]
+    fn parse_video_attachment_uses_file_name() {
+        let mut tokens = HashMap::new();
+        let inbound = parse_weixin_message(
+            &json!({
+                "message_id": "vid1",
+                "from_user_id": "user@im.wechat",
+                "message_type": 1,
+                "item_list": [{
+                    "type": 5,
+                    "video_item": {
+                        "file_name": "宝宝日常.mp4",
+                        "media": {
+                            "encrypt_query_param": "AAFFc8c2PXQ5mKPw7rbcH7S1EA=",
+                            "aes_key": "ABEiM0RVZneImaq7zN3u/w=="
+                        }
+                    }
+                }]
+            }),
+            "default",
+            &mut tokens,
+        )
+        .expect("parse");
+        assert_eq!(inbound.attachments.len(), 1);
+        assert_eq!(inbound.attachments[0].kind, "video");
+        assert_eq!(inbound.attachments[0].file_name.as_deref(), Some("宝宝日常.mp4"));
     }
 
     #[test]

@@ -131,9 +131,18 @@ pub fn default_runtime_log_filter() -> &'static str {
 
 /// 桌面端：与 [`crate::storage::app_data_dir`] 一致的数据目录下的 `logs`。
 pub fn desktop_log_dir() -> PathBuf {
+    use crate::storage::{APP_DATA_SUBDIR, APP_DATA_SUBDIR_DEV};
+
     crate::storage::app_data_dir()
         .map(|d| d.join("logs"))
-        .unwrap_or_else(|_| std::env::temp_dir().join("PointerApp").join("logs"))
+        .unwrap_or_else(|_| {
+            let sub = if cfg!(debug_assertions) {
+                APP_DATA_SUBDIR_DEV
+            } else {
+                APP_DATA_SUBDIR
+            };
+            std::env::temp_dir().join(sub).join("logs")
+        })
 }
 
 /// 在 `log_dir` 下写入 `pointer_*.log`（按日轮转，保留 7 个文件），并 **`duplicate` 到 stderr**。

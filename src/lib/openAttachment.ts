@@ -1,17 +1,7 @@
 import type { RenderableAttachment } from './messageNormalizer'
+import { isUserFilesystemPath } from './attachmentLocalPath'
 import { openPathWithDefaultApp, openChatMedia } from './api'
 import { isTauriRuntime } from './runtime'
-
-function isUserFilesystemPath(path: string): boolean {
-  const t = path.trim()
-  return (
-    t === '~' ||
-    t.startsWith('~/') ||
-    t.startsWith('~\\') ||
-    path.startsWith('/') ||
-    /^[A-Za-z]:[\\/]/.test(path)
-  )
-}
 
 export function isOpenableFileAttachment(kind: string): boolean {
   return kind === 'document' || kind === 'file'

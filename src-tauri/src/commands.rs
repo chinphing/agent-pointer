@@ -275,10 +275,12 @@ pub fn get_chat_media_local_path(storage_rel_path: String) -> Result<String, Str
 /// Reveal a local file in Finder (macOS) or file manager (other platforms).
 #[tauri::command]
 pub fn reveal_in_finder(path: String) -> Result<(), String> {
+    let path_buf = resolve_reveal_path(&path).map_err(|e| e.to_string())?;
+    let display = path_buf.display().to_string();
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .args(["-R", &path])
+            .args(["-R", &display])
             .spawn()
             .map_err(|e| format!("打开 Finder 失败: {e}"))?;
         return Ok(());
@@ -286,7 +288,7 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")
-            .args(["/select,", &path])
+            .args(["/select,", &display])
             .spawn()
             .map_err(|e| format!("打开文件管理器失败: {e}"))?;
         return Ok(());
@@ -295,10 +297,10 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
     {
         // Try common file managers
         for (cmd, args) in &[
-            ("xdg-open", vec![std::path::Path::new(&path).parent().unwrap_or(std::path::Path::new("/")).to_string_lossy().to_string()]),
-            ("nautilus", vec![path.clone()]),
-            ("dolphin", vec![format!("--select={path}")]),
-            ("nemo", vec![path.clone()]),
+            ("xdg-open", vec![path_buf.parent().unwrap_or(std::path::Path::new("/")).to_string_lossy().to_string()]),
+            ("nautilus", vec![display.clone()]),
+            ("dolphin", vec![format!("--select={display}")]),
+            ("nemo", vec![display.clone()]),
         ] {
             if std::process::Command::new(cmd).args(args).spawn().is_ok() {
                 return Ok(());
@@ -310,6 +312,10 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
     {
         Err("当前平台不支持")
     }
+}
+
+fn resolve_reveal_path(raw: &str) -> Result<std::path::PathBuf, String> {
+    pointer_core::media::resolve_local_media_path(raw).map_err(|e| e.to_string())
 }
 
 const MAX_LOCAL_ATTACHMENT_BYTES: u64 = 30 * 1024 * 1024;

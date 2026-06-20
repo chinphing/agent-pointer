@@ -106,6 +106,8 @@ npm run tauri dev
 
 Release 构建（`tauri:build` 产物）始终使用 **`PointerApp`**，除非设置了上述环境变量。
 
+**附件与本地媒体路径：** 统一经 `pointer_core::media::resolve_local_media_path` 解析。持久化附件的 `storageRelPath`（形如 `{conv}/{id}_{fileName}`）只会在 `{app_data}/conversation-media/` 下查找，**不会**相对进程 `cwd`（如 `src-tauri/`）解析，避免 dev 与数据目录错位。
+
 ### Web 端
 
 Web 端复用同一套 Vue 界面，后端复用 `crates/pointer-core`，由 `server` crate 提供 HTTP/SSE API。

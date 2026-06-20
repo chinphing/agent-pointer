@@ -4,11 +4,8 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
-use crate::storage::app_data_dir;
-
-use super::access::{is_user_filesystem_path, normalize_user_path, path_has_traversal};
 use super::path_hint::MEDIA_URI_SCHEME;
-use super::store::{media_abs_path, CONVERSATION_MEDIA_DIR};
+use super::resolve::resolve_local_media_path;
 
 /// Resolve a media reference to an on-disk file path.
 pub fn resolve_media_ref(raw: &str) -> Result<PathBuf> {
@@ -22,51 +19,7 @@ pub fn resolve_media_ref(raw: &str) -> Result<PathBuf> {
         .map(str::trim)
         .unwrap_or(trimmed);
 
-    if !is_user_filesystem_path(rel) && rel.contains('/') {
-        let path = media_abs_path(rel)?;
-        if path.is_file() || path.is_dir() {
-            return Ok(path);
-        }
-        anyhow::bail!("media path not found: {trimmed}");
-    }
-
-    if path_has_traversal(rel) {
-        anyhow::bail!("media path traversal not allowed: {rel}");
-    }
-
-    resolve_filesystem_ref(rel)
-}
-
-fn resolve_filesystem_ref(raw: &str) -> Result<PathBuf> {
-    let path = normalize_user_path(raw)?;
-    if path.is_absolute() && (path.is_file() || path.is_dir()) {
-        return Ok(path);
-    }
-    if path.is_file() || path.is_dir() {
-        return Ok(path);
-    }
-
-    if let Ok(data_dir) = app_data_dir() {
-        let under_data = data_dir.join(raw.trim_start_matches('/'));
-        if under_data.is_file() || under_data.is_dir() {
-            return Ok(under_data);
-        }
-        let under_media = data_dir
-            .join(CONVERSATION_MEDIA_DIR)
-            .join(raw.trim_start_matches('/'));
-        if under_media.is_file() || under_media.is_dir() {
-            return Ok(under_media);
-        }
-    }
-
-    if let Ok(cwd) = std::env::current_dir() {
-        let under_cwd = cwd.join(raw);
-        if under_cwd.is_file() || under_cwd.is_dir() {
-            return Ok(under_cwd);
-        }
-    }
-
-    anyhow::bail!("media path not found: {raw}")
+    resolve_local_media_path(rel).with_context(|| format!("resolve media ref {trimmed}"))
 }
 
 /// True when `raw` resolves to an existing directory.

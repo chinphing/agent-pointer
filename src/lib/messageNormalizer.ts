@@ -12,6 +12,7 @@ export interface RenderableAttachment {
   previewUrl?: string
   storageRelPath?: string
   localAbsPath?: string
+  remoteUrl?: string
   /** Resolved preview key: storageRelPath or localAbsPath or pointer-media ref. */
   mediaRef?: string
   /** ASR / document extraction cached on attachment. */
@@ -107,6 +108,7 @@ function renderableFromMediaAttachment(att: MediaAttachment): RenderableAttachme
     mimeType: att.mimeType,
     storageRelPath: att.storageRelPath,
     localAbsPath: att.localAbsPath,
+    remoteUrl: att.remoteUrl,
     mediaRef,
     previewUrl: attachmentPreviewUrl(att),
     derivedText: att.derivedText

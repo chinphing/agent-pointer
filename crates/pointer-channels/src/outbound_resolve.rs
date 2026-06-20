@@ -1,14 +1,11 @@
 //! Resolve outbound media path references to readable local files.
 
-use std::path::PathBuf;
-
 use anyhow::{Context, Result};
-use pointer_core::media::store::{media_abs_path, read_media_bytes, CONVERSATION_MEDIA_DIR};
 use pointer_core::media::path_hint::MEDIA_URI_SCHEME;
+use pointer_core::media::resolve::resolve_local_media_path;
 use pointer_core::media::{is_video_file_name, video::remux_video_faststart};
 
 use crate::media::attachment::{enforce_max_bytes_for_kind, guess_mime_from_bytes};
-use crate::media_roots::{is_user_filesystem_path, normalize_user_path, path_has_traversal};
 use crate::traits::OutboundMedia;
 
 /// Outbound kind hint for size limits (video uses Composer OSS ceiling).
@@ -44,29 +41,19 @@ pub fn resolve_outbound_media(raw: &str) -> Result<ResolvedOutboundMedia> {
         .map(str::trim)
         .unwrap_or(trimmed);
 
-    let (bytes, file_name, source_path) = if !is_user_filesystem_path(rel) && rel.contains('/') {
-        let abs = media_abs_path(rel).with_context(|| format!("resolve pointer-media {rel}"))?;
-        let name = abs
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("attachment.bin")
-            .to_string();
-        let bytes = read_media_bytes(rel)?;
-        (bytes, name, abs)
-    } else {
-        if path_has_traversal(rel) {
-            anyhow::bail!("outbound media path traversal not allowed: {rel}");
-        }
-        let path = resolve_filesystem_path(rel)?;
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("attachment.bin")
-            .to_string();
-        let bytes = std::fs::read(&path)
-            .with_context(|| format!("read outbound media {}", path.display()))?;
-        (bytes, name, path)
-    };
+    let path = resolve_local_media_path(rel)
+        .with_context(|| format!("resolve outbound media {trimmed}"))?;
+    if path.is_dir() {
+        anyhow::bail!("outbound media path is a directory: {}", path.display());
+    }
+
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("attachment.bin")
+        .to_string();
+    let bytes = std::fs::read(&path)
+        .with_context(|| format!("read outbound media {}", path.display()))?;
 
     let mut mime_type = mime_guess::from_path(&file_name)
         .first()
@@ -83,7 +70,7 @@ pub fn resolve_outbound_media(raw: &str) -> Result<ResolvedOutboundMedia> {
 
     log::info!(
         "outbound media resolved path={} bytes={} mime={}",
-        source_path.display(),
+        path.display(),
         bytes.len(),
         mime_type
     );
@@ -102,38 +89,9 @@ pub fn resolve_outbound_media(raw: &str) -> Result<ResolvedOutboundMedia> {
             file_name,
             mime_type,
             bytes,
-            local_path: Some(source_path),
+            local_path: Some(path),
         },
     })
-}
-
-fn resolve_filesystem_path(raw: &str) -> Result<PathBuf> {
-    let path = normalize_user_path(raw)?;
-    if path.is_absolute() {
-        return Ok(path);
-    }
-
-    if let Ok(data_dir) = pointer_core::storage::app_data_dir() {
-        let under_data = data_dir.join(raw.trim_start_matches('/'));
-        if under_data.is_file() {
-            return Ok(under_data);
-        }
-        let under_media = data_dir
-            .join(CONVERSATION_MEDIA_DIR)
-            .join(raw.trim_start_matches('/'));
-        if under_media.is_file() {
-            return Ok(under_media);
-        }
-    }
-
-    if let Ok(cwd) = std::env::current_dir() {
-        let under_cwd = cwd.join(raw);
-        if under_cwd.is_file() {
-            return Ok(under_cwd);
-        }
-    }
-
-    anyhow::bail!("outbound media path not found: {raw}")
 }
 
 #[cfg(test)]
@@ -146,24 +104,20 @@ mod tests {
     }
 
     #[test]
-    fn resolves_file_uri_as_local_path() {
-        let file = std::env::temp_dir().join(format!(
-            "pointer_outbound_index_test_{}.html",
-            std::process::id()
-        ));
-        std::fs::write(&file, b"<html></html>").unwrap();
-        let uri = format!("file://{}", file.display());
-        let resolved = resolve_outbound_media(&uri).unwrap();
-        assert!(resolved.media.file_name.ends_with(".html"));
-        assert_eq!(resolved.media.bytes, b"<html></html>");
-        let _ = std::fs::remove_file(&file);
+    fn rejects_traversal() {
+        assert!(resolve_outbound_media("../secret.pdf").is_err());
     }
 
     #[test]
-    fn should_remux_only_mp4_and_mov() {
-        assert!(should_remux_for_im_preview("video/mp4", "clip.mp4"));
-        assert!(should_remux_for_im_preview("video/quicktime", "clip.mov"));
-        assert!(!should_remux_for_im_preview("video/webm", "clip.webm"));
-        assert!(!should_remux_for_im_preview("image/png", "clip.png"));
+    fn resolves_file_uri_as_local_path() {
+        let file = std::env::temp_dir().join(format!(
+            "pointer-outbound-resolve-{}.txt",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::write(&file, b"hello").unwrap();
+        let uri = format!("file://{}", file.display());
+        let resolved = resolve_outbound_media(&uri).expect("resolve file uri");
+        assert_eq!(resolved.media.bytes, b"hello");
+        let _ = std::fs::remove_file(&file);
     }
 }

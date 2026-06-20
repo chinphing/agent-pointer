@@ -12,6 +12,7 @@ resources:
   - references/general-software.md
   - references/chocolatey-windows.md
   - references/ffmpeg.md
+  - references/office-python.md
   - references/node-js.md
   - references/python.md
   - references/java.md

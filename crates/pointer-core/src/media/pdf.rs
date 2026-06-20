@@ -24,6 +24,45 @@ pub fn is_pdf_text_sufficient(text: &str) -> bool {
 pub fn extract_pdf_text(bytes: &[u8], file_name: &str) -> Result<String> {
     let text = pdf_extract::extract_text_from_mem(bytes)
         .with_context(|| format!("pdf extract failed for {file_name}"))?;
+    trim_and_validate_pdf_text(&text, file_name)
+}
+
+/// Extract PDF text in approximate natural reading order (per-page, Y-desc then X-asc).
+pub fn extract_pdf_text_sorted(bytes: &[u8], file_name: &str) -> Result<String> {
+    let doc = Document::load_mem(bytes).with_context(|| format!("load pdf {file_name}"))?;
+    let mut pages: Vec<_> = doc.get_pages().into_iter().collect();
+    pages.sort_by_key(|(num, _)| *num);
+
+    let mut page_texts: Vec<String> = Vec::new();
+    for (page_num, page_id) in pages {
+        let content = doc
+            .get_and_decode_page_content(page_id)
+            .with_context(|| format!("decode page {page_num} in {file_name}"))?;
+        let spans = extract_text_spans_from_content(&content);
+        if spans.is_empty() {
+            continue;
+        }
+        let sorted = sort_spans_reading_order(spans);
+        let joined: String = sorted
+            .into_iter()
+            .map(|(_, _, s)| s)
+            .collect::<Vec<_>>()
+            .join(" ");
+        let trimmed = joined.split_whitespace().collect::<Vec<_>>().join(" ");
+        if !trimmed.is_empty() {
+            page_texts.push(trimmed);
+        }
+    }
+
+    if page_texts.is_empty() {
+        return extract_pdf_text(bytes, file_name);
+    }
+
+    let combined = page_texts.join("\n\n");
+    trim_and_validate_pdf_text(&combined, file_name)
+}
+
+fn trim_and_validate_pdf_text(text: &str, file_name: &str) -> Result<String> {
     let trimmed = text.trim();
     let char_count = trimmed.chars().count();
     if char_count < MIN_PDF_TEXT_CHARS {
@@ -41,6 +80,99 @@ pub fn extract_pdf_text(bytes: &[u8], file_name: &str) -> Result<String> {
         Ok(trimmed.to_string())
     }
 }
+
+#[derive(Clone)]
+struct TextSpan {
+    x: f64,
+    y: f64,
+    text: String,
+}
+
+fn object_as_f64(obj: &lopdf::Object) -> Option<f64> {
+    obj.as_f32().ok().map(f64::from).or_else(|| obj.as_i64().ok().map(|n| n as f64))
+}
+
+fn object_as_string(obj: &lopdf::Object) -> Option<String> {
+    obj.as_str()
+        .ok()
+        .map(|b| String::from_utf8_lossy(b).into_owned())
+}
+
+fn extract_text_spans_from_content(content: &lopdf::content::Content) -> Vec<TextSpan> {
+    use lopdf::content::Operation;
+    let mut spans = Vec::new();
+    let mut tx = 0.0f64;
+    let mut ty = 0.0f64;
+    for op in &content.operations {
+        match op {
+            Operation { operator, operands } if operator == "Td" || operator == "TD" => {
+                if operands.len() >= 2 {
+                    if let (Some(x), Some(y)) =
+                        (object_as_f64(&operands[0]), object_as_f64(&operands[1]))
+                    {
+                        tx += x;
+                        ty += y;
+                    }
+                }
+            }
+            Operation { operator, operands } if operator == "Tm" => {
+                if operands.len() >= 6 {
+                    if let (Some(x), Some(y)) =
+                        (object_as_f64(&operands[4]), object_as_f64(&operands[5]))
+                    {
+                        tx = x;
+                        ty = y;
+                    }
+                }
+            }
+            Operation { operator, operands }
+                if operator == "Tj" || operator == "'" || operator == "\"" =>
+            {
+                if let Some(s) = operands.first().and_then(object_as_string) {
+                    if !s.is_empty() {
+                        spans.push(TextSpan {
+                            x: tx,
+                            y: ty,
+                            text: s,
+                        });
+                    }
+                }
+            }
+            Operation { operator, operands } if operator == "TJ" => {
+                if let Some(arr) = operands.first().and_then(|o| o.as_array().ok()) {
+                    for item in arr {
+                        if let Some(s) = object_as_string(item) {
+                            if !s.is_empty() {
+                                spans.push(TextSpan {
+                                    x: tx,
+                                    y: ty,
+                                    text: s,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    spans
+}
+
+fn sort_spans_reading_order(spans: Vec<TextSpan>) -> Vec<(f64, f64, String)> {
+    let mut sorted: Vec<(f64, f64, String)> = spans
+        .into_iter()
+        .map(|s| (s.x, s.y, s.text))
+        .collect();
+    sorted.sort_by(|a, b| {
+        b.1
+            .partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+    });
+    sorted
+}
+
 
 /// Extract embedded page raster images (typical scanned PDFs) and return base64 JPEGs.
 /// Pure Rust via `lopdf` + `image`; no system poppler/ghostscript.

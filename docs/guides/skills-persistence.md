@@ -66,7 +66,17 @@
 
 ## 内置技能
 
-仓库 `skills/` 随应用打包；启动时同步到 **`{data_dir}/PointerApp/skills/`** 并登记 manifest。默认启用见 `DEFAULT_ENABLED_SKILL_IDS`。
+仓库 `skills/` 随应用打包；启动时同步到 **`{data_dir}/PointerApp/skills/`** 并登记 manifest。
+
+**默认启用**：`DEFAULT_ENABLED_SKILL_IDS` = 全部内置 skill（与 `skills/` 目录一致）。新用户默认全开；老用户在启动加载技能列表时会自动补全尚未启用的 `provenance=system` 技能。
+
+**Office 技能（docx / xlsx / pptx）** 直接来自上游
+[anthropics/skills](https://github.com/anthropics/skills)（含 `SKILL.md` 与 `scripts/`），
+不要在本仓库手写精简版。更新时运行：
+
+```bash
+./scripts/sync-anthropic-office-skills.sh
+```
 
 ## 实现入口
 

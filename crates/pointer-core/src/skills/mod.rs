@@ -4,9 +4,19 @@ pub mod external;
 pub mod external_probe;
 pub mod provenance;
 
-/// Bundled skills enabled for new users when lead agent is `general`.
-pub const DEFAULT_ENABLED_SKILL_IDS: &[&str] =
-    &["find-skills", "dev-env-setup", "skill-creator", "pointer-manager"];
+/// Bundled skills shipped under repository `skills/`. Keep in sync with frontend `DEFAULT_ENABLED_SKILL_IDS`.
+pub const BUNDLED_SKILL_IDS: &[&str] = &[
+    "find-skills",
+    "dev-env-setup",
+    "skill-creator",
+    "pointer-manager",
+    "docx",
+    "xlsx",
+    "pptx",
+];
+
+/// Default enabled set for new users — all bundled system skills.
+pub const DEFAULT_ENABLED_SKILL_IDS: &[&str] = BUNDLED_SKILL_IDS;
 
 use crate::models::{SkillDef, SkillImportResult};
 use anyhow::{anyhow, Result};
@@ -191,6 +201,8 @@ fn safe_resource_join(root: &Path, rel: &Path) -> Result<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::Path;
 
     #[test]
     fn is_skill_manifest_path_matches_skill_md() {
@@ -198,6 +210,27 @@ mod tests {
         assert!(external::is_skill_manifest_path("skill.md"));
         assert!(external::is_skill_manifest_path("./SKILL.md"));
         assert!(!external::is_skill_manifest_path("references/guide.md"));
+    }
+
+    #[test]
+    fn default_enabled_includes_all_repo_bundled_skills() {
+        let skills_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../skills");
+        let mut dirs: Vec<String> = fs::read_dir(&skills_dir)
+            .expect("skills dir")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .filter_map(|p| p.file_name().and_then(|n| n.to_str()).map(str::to_string))
+            .filter(|name| !name.starts_with('.'))
+            .collect();
+        dirs.sort();
+        let mut expected: Vec<String> = BUNDLED_SKILL_IDS.iter().map(|s| (*s).to_string()).collect();
+        expected.sort();
+        assert_eq!(
+            dirs, expected,
+            "update BUNDLED_SKILL_IDS and frontend DEFAULT_ENABLED_SKILL_IDS when adding skills/"
+        );
+        assert_eq!(DEFAULT_ENABLED_SKILL_IDS, BUNDLED_SKILL_IDS);
     }
 }
 

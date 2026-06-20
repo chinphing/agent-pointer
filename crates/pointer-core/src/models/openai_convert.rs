@@ -200,13 +200,12 @@ fn push_openai_system_messages(
     }
 }
 
-fn flatten_user_images_to_text(m: &ChatMessage) -> String {
-    let mut content = m.content.clone();
+fn append_stripped_user_images_note(m: &ChatMessage, content: &mut String) -> String {
     let Some(imgs) = m.images_base64.as_ref() else {
-        return content;
+        return content.clone();
     };
     if imgs.is_empty() {
-        return content;
+        return content.clone();
     }
     let labels = m.image_slot_labels.as_deref();
     for (i, _) in imgs.iter().enumerate() {
@@ -221,7 +220,7 @@ fn flatten_user_images_to_text(m: &ChatMessage) -> String {
         content.push_str(lab);
         content.push_str(" (image not inlined: primary model does not support vision)");
     }
-    content
+    content.clone()
 }
 
 pub fn make_openai_messages(
@@ -241,24 +240,30 @@ pub fn make_openai_messages(
                 "role": "system", "content": m.content
             })),
             Role::User => {
+                let api_content = crate::media::append_user_attachments_api_context(
+                    &m.content,
+                    m.attachments.as_deref().unwrap_or(&[]),
+                );
                 if let Some(ref imgs) = m.images_base64 {
                     if !imgs.is_empty() && !inline_vision {
                         log::warn!(
                             "make_openai_messages: stripping {} inline image(s); model does not support vision",
                             imgs.len()
                         );
+                        let mut flat = api_content.clone();
+                        flat = append_stripped_user_images_note(m, &mut flat);
                         out.push(serde_json::json!({
                             "role": "user",
-                            "content": flatten_user_images_to_text(m)
+                            "content": flat
                         }));
                         continue;
                     }
                     if !imgs.is_empty() {
                         let mut parts: Vec<serde_json::Value> = Vec::new();
-                        if !m.content.trim().is_empty() {
+                        if !api_content.trim().is_empty() {
                             parts.push(serde_json::json!({
                                 "type": "text",
-                                "text": m.content
+                                "text": api_content
                             }));
                         }
                         let labels = m.image_slot_labels.as_deref();
@@ -295,7 +300,7 @@ pub fn make_openai_messages(
                     }
                 }
                 out.push(serde_json::json!({
-                    "role": "user", "content": m.content
+                    "role": "user", "content": api_content
                 }));
             }
             Role::Assistant => {

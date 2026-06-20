@@ -84,13 +84,7 @@ pub fn to_media_attachment(
     kind_hint: &str,
 ) -> MediaAttachment {
     let mut att = crate::media::attachment::to_media_attachment(downloaded, kind_hint);
-    if let Some(asr) = media_ref
-        .weixin_voice_asr_text
-        .as_ref()
-        .filter(|s| !s.trim().is_empty())
-    {
-        att.derived_text = Some(asr.clone());
-    }
+    let _ = &media_ref.weixin_voice_asr_text;
     att
 }
 

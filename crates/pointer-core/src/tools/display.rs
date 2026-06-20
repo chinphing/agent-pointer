@@ -399,6 +399,10 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             )
         }
         "web_search" => { let q = str_field(args, &["query"]).unwrap_or_default(); ("联网搜索".to_string(), truncate(&q, SUMMARY_MAX)) }
+        "media_understand" => {
+            let goal = str_field(args, &["goal", "question"]).unwrap_or_default();
+            ("媒体理解".to_string(), truncate(&goal, SUMMARY_MAX))
+        }
         "run_subagent" => ("委派子任务".to_string(), str_field(args, &["title", "goal", "agentId"]).map(|s| truncate(&s, SUMMARY_MAX)).unwrap_or_default()),
         "read_lints" => ("代码检查".to_string(), file_summary(args, "read")),
         n if n.starts_with("task_board") => {
@@ -519,6 +523,20 @@ mod tests {
         let d = default_display("terminal", &json!({"command": "npm test"}));
         assert_eq!(d.label, "终端命令");
         assert_eq!(d.summary, "npm test");
+    }
+
+    #[test]
+    fn media_understand_summary_uses_goal() {
+        let d = default_display(
+            "media_understand",
+            &json!({
+                "ref": "pointer-media://c/a.pdf",
+                "mode": "pdf",
+                "goal": "总结合同中的违约责任条款"
+            }),
+        );
+        assert_eq!(d.label, "媒体理解");
+        assert_eq!(d.summary, "总结合同中的违约责任条款");
     }
 
     #[test]

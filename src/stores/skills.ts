@@ -24,6 +24,25 @@ export const useSkillsStore = defineStore('skills', () => {
         : [...DEFAULT_ENABLED_SKILL_IDS]
   }
 
+  /** Ensure every system-bundled skill is enabled (e.g. after app adds new built-ins). */
+  async function ensureSystemSkillsEnabled() {
+    const systemIds = skills.value
+      .filter(s => s.provenance === 'system')
+      .map(s => s.id)
+    if (systemIds.length === 0) return
+    const merged = [...enabledIds.value]
+    let changed = false
+    for (const id of systemIds) {
+      if (!merged.includes(id)) {
+        merged.push(id)
+        changed = true
+      }
+    }
+    if (!changed) return
+    enabledIds.value = merged
+    await persistEnabledIds()
+  }
+
   async function persistEnabledIds() {
     await useSettingsStore().saveUser({ enabledSkillIds: [...enabledIds.value] })
   }
@@ -31,6 +50,7 @@ export const useSkillsStore = defineStore('skills', () => {
   async function load(options?: { rescan?: boolean }) {
     try {
       skills.value = options?.rescan ? await reloadSkillMeta() : await listSkills()
+      await ensureSystemSkillsEnabled()
     } catch (e) {
       console.error('skills.load failed', e)
       skills.value = []
@@ -72,6 +92,7 @@ export const useSkillsStore = defineStore('skills', () => {
     isEnabled,
     setEnabledIds,
     initEnabledFromUserSettings,
+    ensureSystemSkillsEnabled,
     persistEnabledIds
   }
 

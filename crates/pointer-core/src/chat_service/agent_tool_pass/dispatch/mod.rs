@@ -77,6 +77,20 @@ pub(super) async fn execute_tool_invocation(
             )
             .await
         }
+        "media_understand" => {
+            media::dispatch_media_understand(
+                stream,
+                provider,
+                conversation_id,
+                message_id,
+                tc,
+                args_value,
+                cancel,
+                lead.as_ref().map(|l| l.run_id),
+                sub.as_ref().map(|s| s.instance_scope.run_id.as_str()),
+            )
+            .await
+        }
         "run_subagent" if lead.is_some() || sub.is_some() => {
             subagent::dispatch_run_subagent(
                 stream,

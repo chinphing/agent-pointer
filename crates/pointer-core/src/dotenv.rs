@@ -47,14 +47,21 @@ pub fn merged_env_from_files(env_files: &[PathBuf]) -> HashMap<String, String> {
 
 /// Full child environment for the `terminal` tool: Pointer process env + `.env` overlays.
 ///
-/// Matches non-elevated `Command::env_clear()` + explicit vars and elevated host injection.
+/// Platform API keys and other sensitive variables are stripped so Skill scripts cannot
+/// read them via `printenv`.
 pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String, String> {
-    let mut env: HashMap<String, String> = std::env::vars().collect();
+    let mut env: HashMap<String, String> = std::env::vars()
+        .filter(|(k, _)| !is_sensitive_env_key(k))
+        .collect();
     for path in env_files {
         match std::fs::read(path) {
             Ok(bytes) => {
                 info!("dotenv: loaded {}", path.display());
                 for (k, v) in parse_dotenv_bytes(&bytes) {
+                    if is_sensitive_env_key(&k) {
+                        warn!("dotenv: skipping sensitive key from {}: {k}", path.display());
+                        continue;
+                    }
                     let applied = env_value_for_child(&k, &v);
                     env.insert(k, applied);
                 }
@@ -68,6 +75,24 @@ pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String
         }
     }
     env
+}
+
+/// Keys withheld from terminal child processes (substring match, case-insensitive).
+pub fn is_sensitive_env_key(key: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        "API_KEY",
+        "APIKEY",
+        "SECRET",
+        "TOKEN",
+        "PASSWORD",
+        "PRIVATE_KEY",
+        "ACCESS_KEY",
+        "DASHSCOPE",
+        "OPENAI",
+        "ANTHROPIC",
+    ];
+    let upper = key.trim().to_ascii_uppercase();
+    MARKERS.iter().any(|m| upper.contains(m))
 }
 
 /// Load one or more `.env` files (in order) and apply them to a child `Command`.
@@ -385,5 +410,13 @@ mod tests {
     fn parse_env_file_args_empty_when_omitted() {
         let args = serde_json::json!({ "command": "echo hi" });
         assert!(parse_env_file_args(&args).is_empty());
+    }
+
+    #[test]
+    fn sensitive_env_keys_filtered() {
+        assert!(is_sensitive_env_key("OPENAI_API_KEY"));
+        assert!(is_sensitive_env_key("DASHSCOPE_API_KEY"));
+        assert!(!is_sensitive_env_key("PATH"));
+        assert!(!is_sensitive_env_key("HOME"));
     }
 }

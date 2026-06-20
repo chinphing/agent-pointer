@@ -1,6 +1,6 @@
 # 多媒体支持设计方案
 
-> 参考 OpenClaw 双管线架构（输入 wire / 显示 normalize）。主会话模型不强制切换，按能力分支 inline 或 media-understanding 理解后注入文本。
+> 按需理解：上传仅落盘；模型通过 API 清单感知附件；Agent 显式调用 `media_understand` 或 Office Skill。
 
 ---
 
@@ -8,8 +8,10 @@
 
 - Composer 支持图片、文档、音频、视频附件（视频单文件上限 30 MB，与 IM 入站一致）
 - 主模型保持用户所选 agent 模型不变
-- Vision 主模型：图片 inline 发给 LLM
-- 非 Vision 主模型：独立 `imageModel` 理解图片，描述文本注入 user message
+- **上传不自动理解**：`apply_media_to_history` 仅落盘 + 写 `attachments`
+- **模型上下文**：`make_openai_messages` 追加 Markdown 清单（`fileName` + `ref` + `localPath`）
+- **按需理解**：`media_understand`（image/video qwen3.5-flash、audio qwen3-asr-flash、pdf 排序提取）
+- Office：docx/xlsx/pptx Skill + terminal（`localPath`）
 - App（Tauri）与 Web 端行为一致
 
 ---
@@ -20,18 +22,18 @@
 flowchart TD
     Composer[Composer] --> PayloadStore[attachmentPayloadStore]
     PayloadStore --> Send[sendChat messages + attachments]
-    Send --> Parse[parse_message_attachments]
-    Parse --> Branch{Primary vision?}
-    Branch -->|Yes| Inline[images_base64 inline]
-    Branch -->|No| ImageModel[imageModel describe]
-    ImageModel --> Inject[inject text into content]
-    Inline --> PrimaryLLM[Primary model unchanged]
-    Inject --> PrimaryLLM
-    PrimaryLLM --> MakeOpenAI[make_openai_messages]
+    Send --> Apply[apply_media_to_history 仅落盘]
+    Apply --> Attachments[attachments 元数据]
+    Attachments --> UI[UserMessageBubble 预览]
+    Attachments --> MakeOpenAI[make_openai_messages]
+    MakeOpenAI --> Manifest[API Markdown 清单]
+    Manifest --> Agent[主 Agent]
+    Agent -->|意图不明| Clarify[追问]
+    Agent -->|明确| MediaUnderstand[media_understand]
+    Agent -->|Office| OfficeSkill[docx/xlsx/pptx Skill]
 
     subgraph display [Display]
-        Optimistic[Optimistic preview] --> Normalizer[messageNormalizer]
-        Persisted[Persisted attachments] --> Normalizer
+        Persisted[Persisted attachments] --> Normalizer[messageNormalizer]
         Normalizer --> Bubble[UserMessageBubble]
     end
 ```
@@ -49,9 +51,9 @@ flowchart TD
 | `mimeType` | MIME |
 | `fileName` | 原始文件名 |
 | `sizeBytes` | 大小 |
-| `storageRelPath` | 相对 `conversation-media/{convId}/`；处理时注入 `pointer-media://` URI 与 **Local path** 供模型 `file_read`（对齐 OpenClaw `MediaPath` / `media://inbound/`） |
+| `storageRelPath` | 相对 `conversation-media/{convId}/`；UI 预览用；API 清单注入 `pointer-media://` + `localPath` |
 | `contentBase64` | **仅 wire**，持久化前剥离 |
-| `derivedText` | 文档提取或 imageModel 描述（可选缓存） |
+| `derivedText` | 可选缓存（`media_understand` 结果）；不写回 `msg.content` |
 
 Computer Agent 截图仍用 `imagesBase64` inject，与用户附件 `attachments` 分离。
 
@@ -84,8 +86,11 @@ mediaModelOverrides: {
 |------|------|------|
 | capabilities | `media/capabilities.rs` | `model_supports_vision`（千问=true、深度求索=false，按服务商固化） |
 | store | `media/store.rs` | 落盘、读取、media ticket 路径 |
-| apply | `media/apply.rs` | 编排理解、写 `images_base64` / 注入 text |
-| understand | `media/understand.rs` | imageModel 单次 vision 描述 |
+| apply | `media/apply.rs` | 仅落盘、清 wire base64 |
+| manifest | `media/manifest.rs` | API-only Markdown 附件清单 |
+| media_ref | `media/media_ref.rs` | `resolve_media_ref`（pointer-media / 绝对路径） |
+| understand | `media/understand.rs` | 按需理解 LLM 调用（供 `media_understand`） |
+| media_understand | `tools/media_understand.rs` | 宿主工具注册与 async dispatch |
 | media_generation | `media_generation/` | `image_generate` / `video_generate` 工具：DashScope Wan/Qwen-Image、Volcengine Seedream/Seedance |
 | media_generate | `tools/media_generate.rs` | 工具注册与 async dispatch |
 

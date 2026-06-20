@@ -2,6 +2,7 @@ pub mod builtin;
 pub mod display;
 pub mod file;
 pub mod media_generate;
+pub mod media_understand;
 pub mod run_subagent;
 pub mod skill;
 pub mod terminal;

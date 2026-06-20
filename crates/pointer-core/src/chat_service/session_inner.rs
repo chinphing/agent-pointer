@@ -188,7 +188,7 @@ pub(super) async fn run_chat_inner(
     {
         log::warn!("media: apply_media_to_history failed: {:#}", e);
     }
-    // apply_media sets storage_rel_path, derived_text (ASR), clears wire base64; upsert + notify UI.
+    // apply_media persists attachments and clears wire base64; upsert + notify UI.
     for msg in ctx.history.iter() {
         if matches!(msg.role, crate::models::Role::User)
             && msg.attachments.as_ref().is_some_and(|a| !a.is_empty())

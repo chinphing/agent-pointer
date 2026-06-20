@@ -7,8 +7,20 @@ use anyhow::{Context, Result};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-const DESCRIBE_PROMPT: &str = "Describe this image concisely for an assistant that cannot see it. \
-Focus on visible text, objects, layout, and anything relevant to a user question.";
+const DESCRIBE_PROMPT: &str = "Describe this image for an assistant that cannot see it. \
+Focus on visible text, objects, layout, and details relevant to the user's stated goal.";
+
+fn truncate_for_prompt(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let head: String = s.chars().take(max_chars).collect();
+    format!("{head}…")
+}
+
+fn user_content_with_goal(base: &str, goal: &str) -> String {
+    format!("{base}\n\nUser analysis goal:\n{goal}")
+}
 
 fn resolve_provider_api_key(settings: &ModelSettings, fallback_api_key: &str) -> String {
     let pid = settings.active_provider_id.trim();
@@ -27,6 +39,7 @@ pub async fn describe_image_with_model(
     api_key_fallback: &str,
     image_base64: &str,
     mime_type: &str,
+    goal: &str,
     token_ctx: &MediaTokenContext,
     cancel: &CancellationToken,
 ) -> Result<String> {
@@ -45,7 +58,7 @@ pub async fn describe_image_with_model(
     let user = ChatMessage {
         id: "media-describe".into(),
         role: Role::User,
-        content: "Describe the attached image.".into(),
+        content: user_content_with_goal("Describe the attached image.", goal).into(),
         status: "done".into(),
         created_at: 0,
         tool_calls: None,
@@ -95,7 +108,8 @@ pub async fn describe_image_with_model(
 }
 
 const TRANSCRIBE_PROMPT: &str = "Transcribe the attached audio to plain text. \
-Reply with the transcript only, no preamble.";
+Follow the user's stated goal (verbatim transcript vs summary vs key quotes). \
+Reply with the result only, no preamble.";
 
 pub async fn transcribe_audio_with_model(
     settings: &ModelSettings,
@@ -104,6 +118,7 @@ pub async fn transcribe_audio_with_model(
     audio_base64: &str,
     mime_type: &str,
     file_name: &str,
+    goal: &str,
     token_ctx: &MediaTokenContext,
     cancel: &CancellationToken,
 ) -> Result<String> {
@@ -167,7 +182,7 @@ pub async fn transcribe_audio_with_model(
                 },
                 {
                     "type": "text",
-                    "text": "Transcribe this audio."
+                    "text": user_content_with_goal("Transcribe this audio.", goal)
                 }
             ]
         }),
@@ -189,13 +204,16 @@ pub async fn transcribe_audio_with_model(
     Ok(text)
 }
 
-const PDF_OCR_PROMPT: &str = "Extract and summarize the content of this PDF from the attached page images. \
-Transcribe visible text accurately, preserve headings/lists/tables where possible, \
-and describe non-text visuals briefly. Be concise but complete.";
+const PDF_OCR_PROMPT: &str = "Extract and summarize PDF content from the attached page images. \
+Follow the user's stated goal for what to include, emphasize, or omit. \
+Transcribe visible text accurately; preserve headings/lists/tables where relevant.";
+
+const PDF_TEXT_GOAL_PROMPT: &str = "Analyze extracted document text according to the user's goal. \
+Answer the goal directly; quote short excerpts when helpful. \
+If the goal requests full transcription, reproduce text faithfully within length limits.";
 
 const VIDEO_DESCRIBE_PROMPT: &str = "Summarize this video from the attached still frames. \
-Describe the scene, actions, visible text, and anything relevant to a user question. \
-Be concise but complete.";
+Follow the user's stated goal for scene, actions, visible text, and key details.";
 
 pub async fn describe_pdf_pages_with_model(
     settings: &ModelSettings,
@@ -203,6 +221,7 @@ pub async fn describe_pdf_pages_with_model(
     api_key_fallback: &str,
     page_base64s: &[String],
     file_name: &str,
+    goal: &str,
     token_ctx: &MediaTokenContext,
     cancel: &CancellationToken,
 ) -> Result<String> {
@@ -224,10 +243,14 @@ pub async fn describe_pdf_pages_with_model(
     let user = ChatMessage {
         id: "media-pdf-describe".into(),
         role: Role::User,
-        content: format!(
-            "Extract content from the scanned PDF \"{file_name}\" using {} page image(s).",
-            page_base64s.len()
-        ),
+        content: user_content_with_goal(
+            &format!(
+                "Extract content from the scanned PDF \"{file_name}\" using {} page image(s).",
+                page_base64s.len()
+            ),
+            goal,
+        )
+        .into(),
         status: "done".into(),
         created_at: 0,
         tool_calls: None,
@@ -275,12 +298,89 @@ pub async fn describe_pdf_pages_with_model(
     Ok(text)
 }
 
+pub async fn focus_extracted_pdf_text_with_goal(
+    settings: &ModelSettings,
+    text_model: &AgentModelRef,
+    api_key_fallback: &str,
+    extracted_text: &str,
+    file_name: &str,
+    goal: &str,
+    token_ctx: &MediaTokenContext,
+    cancel: &CancellationToken,
+) -> Result<String> {
+    let mut text_settings = settings.clone();
+    if !text_model.provider_id.trim().is_empty() {
+        text_settings.active_provider_id = text_model.provider_id.trim().to_string();
+    }
+    if !text_model.model.trim().is_empty() {
+        text_settings.model = text_model.model.trim().to_string();
+    }
+    let api_key = resolve_provider_api_key(&text_settings, api_key_fallback);
+    if api_key.is_empty() {
+        anyhow::bail!("no API key for pdf text understanding model");
+    }
+    let provider = OpenAIProvider::new(text_settings, api_key);
+    let truncated = truncate_for_prompt(extracted_text, 120_000);
+    let user = ChatMessage {
+        id: "media-pdf-text-goal".into(),
+        role: Role::User,
+        content: format!(
+            "Document: \"{file_name}\"\n\nUser analysis goal:\n{goal}\n\n---\n\nExtracted text:\n{truncated}"
+        ),
+        status: "done".into(),
+        created_at: 0,
+        tool_calls: None,
+        tool_call_id: None,
+        error_message: None,
+        reasoning: None,
+        thoughts: None,
+        headline: None,
+        raw_content: None,
+        tool_raw_output: None,
+        agent_id: None,
+        agent_instance_id: None,
+        agent_name: None,
+        agent_trace: None,
+        images_base64: None,
+        image_slot_labels: None,
+        computer_round_screen_rel_path: None,
+        ui_bindings: None,
+        context_state: None,
+        attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
+    };
+    let system = crate::models::SystemPromptSections::all_cacheable(vec![
+        PDF_TEXT_GOAL_PROMPT.to_string(),
+    ]);
+    let out = provider
+        .chat_once(
+            &[user],
+            &system,
+            vec![],
+            cancel.clone(),
+            Some(4096),
+            Some("media_pdf_text_goal"),
+        )
+        .await
+        .context("pdf text goal understanding chat_once")?;
+    record_media_understand_usage(token_ctx, MediaUnderstandKind::Pdf, &out);
+    let text = out.text.trim().to_string();
+    if text.is_empty() {
+        anyhow::bail!("pdf text goal understanding returned empty content");
+    }
+    Ok(text)
+}
+
 pub async fn describe_video_with_model(
     settings: &ModelSettings,
     video_model: &AgentModelRef,
     api_key_fallback: &str,
     frame_base64s: &[String],
     file_name: &str,
+    goal: &str,
     token_ctx: &MediaTokenContext,
     cancel: &CancellationToken,
 ) -> Result<String> {
@@ -302,10 +402,14 @@ pub async fn describe_video_with_model(
     let user = ChatMessage {
         id: "media-video-describe".into(),
         role: Role::User,
-        content: format!(
-            "Summarize the video \"{file_name}\" from {} frame(s).",
-            frame_base64s.len()
-        ),
+        content: user_content_with_goal(
+            &format!(
+                "Summarize the video \"{file_name}\" from {} frame(s).",
+                frame_base64s.len()
+            ),
+            goal,
+        )
+        .into(),
         status: "done".into(),
         created_at: 0,
         tool_calls: None,

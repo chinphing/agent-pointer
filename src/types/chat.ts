@@ -31,12 +31,15 @@ export interface ToolCall {
 
 export const DEFAULT_LEAD_AGENT_ID = 'general'
 
-/** Bundled skills enabled for new users when lead agent is `general`. */
+/** Bundled skills enabled for new users when lead agent is `general`. Keep in sync with pointer-core `DEFAULT_ENABLED_SKILL_IDS`. */
 export const DEFAULT_ENABLED_SKILL_IDS = [
   'find-skills',
   'dev-env-setup',
   'skill-creator',
-  'pointer-manager'
+  'pointer-manager',
+  'docx',
+  'xlsx',
+  'pptx'
 ] as const
 
 export type AgentMode = 'single' | 'supervisor'

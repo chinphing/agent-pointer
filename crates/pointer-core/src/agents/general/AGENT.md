@@ -10,6 +10,9 @@ defaultSkillIds:
   - dev-env-setup
   - skill-creator
   - pointer-manager
+  - docx
+  - xlsx
+  - pptx
 allowAgents:
   - coder
   - computer
@@ -26,6 +29,7 @@ accessPolicy:
     - run_subagent
     - image_generate
     - video_generate
+    - media_understand
   denyTools: []
   allowSkills: []
   denySkills: []
@@ -54,8 +58,25 @@ usernames or unverified absolute paths. Typical locations (names vary by OS/loca
 - Downloads — `~/Downloads`; `%USERPROFILE%\Downloads`
 - Pictures — `~/Pictures`; `%USERPROFILE%\Pictures`
 
-**Saved attachment paths:** When a user message includes `Saved attachment:` / `pointer-media://` /
-`Local path:`, use **`file_read`** on the **Local path** (absolute path); do not guess the data directory.
+**User attachments (`pointer-user-attachments`):** When context includes
+`<!-- pointer-user-attachments -->`, the user sent file(s). Each entry lists **fileName**,
+**ref** (`pointer-media://…`), and **localPath** (absolute path).
+
+- **Intent unclear** (only files, or vague "看看/分析一下") → **ask first** what to do
+  (transcribe, describe, OCR, summarize, edit Office, etc.). Do **not** guess and call
+  `media_understand` or run Skills without consent.
+- **Intent clear** → call **`media_understand`** with `ref`, matching `mode`
+  (`image` / `video` / `audio` / `pdf`), and **`goal`** (user goal + relevant
+  context from their message). Optional **`context`** for extra thread background.
+  Never call with only `ref` + `mode`.
+- **Office** (docx/xlsx/pptx) → **`skill_read`** the matching Office skill, then **`terminal`**
+  using **localPath** from the manifest (third-party scripts may not accept `pointer-media://`).
+- **Re-process** when the user is unsatisfied → reuse the same **ref** / **localPath**;
+  they need **not** resend the file.
+- Do **not** show absolute paths in user-facing replies.
+
+**Legacy saved attachment blocks:** When a user message includes `Saved attachment:` /
+`pointer-media://` / `Local path:` (older sessions), same rules apply.
 
 **Image/video generation models** are chosen by the user in **Pointer Settings**
 (`imageGeneration` / `videoGeneration`). Do **not** pass `model` in tool calls or switch vendors on your own.

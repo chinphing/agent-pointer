@@ -1,16 +1,10 @@
 import type { AgentTrace, ChatMessage, SubAgentSessionUi, ToolCall } from '../types/chat'
-import {
-  emptySubAgentToolStats,
-  formatSubAgentSummaryLine,
-  incrementSubAgentToolStats,
-  subAgentIdFromTraceId,
-  subAgentStatusLabel
-} from './subAgentStats'
+import { incrementSubAgentToolStats } from './subAgentStats'
 import { toolCallBaseName } from './messageTooling'
 
 export function createEmptySubSession(): SubAgentSessionUi {
   return {
-    stats: emptySubAgentToolStats(),
+    stats: { searchCount: 0, readCount: 0 },
     collapsed: false,
     userExpanded: false,
     toolCalls: [],
@@ -20,12 +14,12 @@ export function createEmptySubSession(): SubAgentSessionUi {
 
 /** Whether the sub-agent frame should render collapsed (summary line only). */
 export function isSubTraceUiCollapsed(trace: AgentTrace): boolean {
-  const s = trace.session
-  if (s?.userExpanded) return false
-  if (s?.collapsed) return true
+  if (trace.userExpanded) return false
+  if (trace.collapsed) return true
   return trace.status === 'completed' || trace.status === 'failed'
 }
 
+/** Legacy: ensure nested session object for old persisted conversations. */
 export function ensureSubTraceSession(trace: AgentTrace): SubAgentSessionUi {
   if (!trace.session) trace.session = createEmptySubSession()
   return trace.session
@@ -46,7 +40,9 @@ export function ensureSubTrace(
       status: patch?.status ?? 'running',
       depth: patch?.depth ?? 1,
       detail: patch?.detail,
-      computerTarget: patch?.computerTarget
+      computerTarget: patch?.computerTarget,
+      collapsed: patch?.collapsed ?? false,
+      userExpanded: patch?.userExpanded ?? false
     }
     msg.agentTrace.push(trace)
   } else if (patch) {
@@ -56,22 +52,22 @@ export function ensureSubTrace(
       trace.session = prevSession
     }
   }
-  if (!trace.session) trace.session = createEmptySubSession()
   return trace
 }
 
 export function finalizeSubSession(trace: AgentTrace): void {
-  const session = trace.session
-  if (!session) return
-  session.contentStreaming = false
   if (trace.status === 'completed' || trace.status === 'failed') {
-    if (!session.userExpanded) session.collapsed = true
-    session.summaryLine = formatSubAgentSummaryLine(
-      trace.name,
-      trace.status,
-      session.stats,
-      subAgentIdFromTraceId(trace.id)
-    )
+    if (!trace.userExpanded) trace.collapsed = true
+  }
+}
+
+export function toggleSubTraceExpanded(trace: AgentTrace): void {
+  if (isSubTraceUiCollapsed(trace)) {
+    trace.userExpanded = true
+    trace.collapsed = false
+  } else {
+    trace.userExpanded = false
+    trace.collapsed = true
   }
 }
 
@@ -96,6 +92,7 @@ export function isSubResponseToolName(toolName: string | undefined): boolean {
   return !!preview && toolCallBaseName(preview) === 'response'
 }
 
+/** Legacy: visible activity from nested session (pre-scoped-message conversations). */
 export function subTraceHasVisibleActivity(trace: AgentTrace): boolean {
   const s = trace.session
   if (!s) return false
@@ -108,5 +105,12 @@ export function subTraceHasVisibleActivity(trace: AgentTrace): boolean {
 
 export function runningSubTraceSummaryLine(trace: AgentTrace): string {
   const label = trace.name.trim() || '子任务'
-  return `${label} · ${subAgentStatusLabel(trace.status)}…`
+  return `${label} · ${trace.status === 'running' ? '进行中' : trace.status}…`
+}
+
+export function migrateLegacyTraceUiState(trace: AgentTrace): void {
+  const session = trace.session
+  if (!session) return
+  if (session.userExpanded) trace.userExpanded = true
+  if (session.collapsed) trace.collapsed = true
 }

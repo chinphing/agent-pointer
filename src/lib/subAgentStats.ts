@@ -30,6 +30,8 @@ function desktopToolFamily(base: string): 'mouse' | 'input' | 'other' | null {
   if (base.startsWith('mouse_')) return 'mouse'
   if (base.startsWith('input_')) return 'input'
   if (
+    base === 'launch_app' ||
+    base === 'list_apps' ||
     base === 'hotkey' ||
     base === 'wait' ||
     base === 'action_verify' ||

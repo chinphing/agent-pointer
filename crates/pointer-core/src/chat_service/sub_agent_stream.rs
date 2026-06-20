@@ -76,6 +76,7 @@ pub(super) async fn run_sub_agent_stream_round(
         reasoning_in_messages,
         ContentDeltaMode::SubAgentTrace {
             trace_id: trace_id.clone(),
+            scoped_message_id: sub.round_message_id.to_string(),
         },
         &mut llm_recorder,
         stream,
@@ -122,6 +123,10 @@ pub(super) async fn run_sub_agent_stream_round(
                     ui_bindings: None,
                     context_state: None,
                     attachments: None,
+                    anchor_message_id: None,
+                    trace_id: None,
+                    task_id: None,
+                    spawn_depth: None,
                 });
                 if ctx.sub_tool_budget.is_exhausted() {
                     let hint = format!(

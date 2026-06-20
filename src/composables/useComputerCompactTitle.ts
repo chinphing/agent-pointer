@@ -3,6 +3,7 @@ import { storeToRefs } from 'pinia'
 import { useChatStore } from '../stores/chat'
 import { useSettingsStore } from '../stores/settings'
 import { activeComputerTrace, delegatedComputerSubTaskId, isComputerToolName } from '../lib/computerExecuting'
+import { latestSubAgentBodyModelFromScoped } from '../lib/subAgentMessages'
 import { taskBoardCompactSummary } from '../lib/taskBoardCollapsedLine'
 import { visibleToolCalls } from '../lib/messageTooling'
 import {
@@ -23,18 +24,56 @@ const COMPUTER_HIDE_TOOL_NAMES = [
   'action_verify'
 ]
 
-function visibleComputerToolCalls(message: ChatMessage | undefined): ToolCall[] {
+function visibleComputerToolCalls(
+  conv: ReturnType<typeof useChatStore>['current'],
+  message: ChatMessage | undefined
+): ToolCall[] {
   if (!message) return []
   const trace = activeComputerTrace(message)
+  if (trace && conv) {
+    const scoped = latestSubAgentBodyModelFromScoped(
+      conv.messages,
+      message.id,
+      trace.id,
+      trace.status
+    )
+    if (scoped?.toolCalls?.length) {
+      return visibleToolCalls(scoped.toolCalls, COMPUTER_HIDE_TOOL_NAMES, false, true).filter(tc =>
+        isComputerToolName(tc.name)
+      )
+    }
+  }
   const calls = trace?.session?.toolCalls ?? message.toolCalls ?? []
   return visibleToolCalls(calls, COMPUTER_HIDE_TOOL_NAMES, false, true).filter(tc =>
     isComputerToolName(tc.name)
   )
 }
 
-function streamBodyFromMessage(message: ChatMessage | undefined) {
+function streamBodyFromMessage(
+  conv: ReturnType<typeof useChatStore>['current'],
+  message: ChatMessage | undefined
+) {
   if (!message) return {}
   const trace = activeComputerTrace(message)
+  if (trace && conv) {
+    const scoped = latestSubAgentBodyModelFromScoped(
+      conv.messages,
+      message.id,
+      trace.id,
+      trace.status
+    )
+    if (scoped) {
+      return {
+        content: scoped.content,
+        rawContent: scoped.rawContent,
+        thoughts: scoped.thoughts,
+        toolNamePreview: scoped.toolNamePreview,
+        responseTextDraft: scoped.responseTextDraft,
+        reasoning: scoped.reasoning,
+        toolCalls: scoped.toolCalls
+      }
+    }
+  }
   if (trace?.session) {
     return {
       content: trace.session.responseTextDraft ?? trace.content,
@@ -73,10 +112,12 @@ export function useComputerCompactTitle(stoppedHint: Ref<boolean>) {
     if (!conv) return null
     const msg = activeMessage.value
     const msgId = activeGeneratingMessageId.value
-    const subTaskId = delegatedComputerSubTaskId(activeComputerTrace(msg))
+    const trace = activeComputerTrace(msg)
+    const subTaskId = delegatedComputerSubTaskId(trace)
+    const traceId = trace?.id
     const document =
-      chat.compactTaskBoardDocument(conv.id, msgId, subTaskId) ??
-      chat.compactTaskBoardDocument(conv.id, null, subTaskId)
+      chat.compactTaskBoardDocument(conv.id, msgId, subTaskId, traceId) ??
+      chat.compactTaskBoardDocument(conv.id, null, subTaskId, traceId)
     if (!document) return null
     return taskBoardCompactSummary(document)
   })
@@ -88,10 +129,11 @@ export function useComputerCompactTitle(stoppedHint: Ref<boolean>) {
     if (computerMonitorPickRequest.value) return '请选择操控屏幕…'
 
     const msg = activeMessage.value
-    const tool = latestToolCallForCompactStatus(visibleComputerToolCalls(msg))
+    const conv = chat.current
+    const tool = latestToolCallForCompactStatus(visibleComputerToolCalls(conv, msg))
     if (tool) return compactToolCallStatusLine(tool)
 
-    const body = streamBodyFromMessage(msg)
+    const body = streamBodyFromMessage(conv, msg)
     const preview = body.toolNamePreview?.trim()
     if (preview && isComputerToolName(preview)) return '执行中…'
 

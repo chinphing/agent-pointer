@@ -13,6 +13,7 @@ use super::content_extract::{extract_user_visible_content, reply_attachments_fro
 use super::context::PostAssistantContext;
 use super::emit::emit;
 use super::util::now_ms;
+use super::sub_message::SubMessageLinkage;
 use super::StreamTx;
 
 const CONSOLE_SEGMENT_MAX_CHARS: usize = 2000;
@@ -141,7 +142,11 @@ pub(super) fn build_final_reply_delivery_message(
         computer_round_screen_rel_path: None,
         ui_bindings: None,
         context_state: None,
-        attachments,
+        attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
     }
 }
 
@@ -197,6 +202,10 @@ pub(super) fn build_lead_assistant_message_after_stream(
         ui_bindings: None,
             context_state: None,
         attachments: reply_attachments_from_assistant_raw(raw_content_buf),
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
             }
 }
 
@@ -243,7 +252,45 @@ pub(super) fn build_sub_assistant_message_after_stream(
         ui_bindings: None,
             context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
             }
+}
+
+pub(super) fn commit_sub_assistant_turn(
+    stream: &StreamTx,
+    conversation_id: &str,
+    history: &mut Vec<ChatMessage>,
+    mut assistant_msg: ChatMessage,
+    linkage: &SubMessageLinkage,
+) {
+    log_reasoning_and_output_segments(
+        "sub",
+        &assistant_msg.id,
+        assistant_msg.reasoning.as_deref(),
+        assistant_msg.thoughts.as_deref(),
+        Some(assistant_msg.content.as_str()),
+        assistant_msg.tool_raw_output.as_deref(),
+    );
+    linkage.stamp(&mut assistant_msg);
+    history.push(assistant_msg.clone());
+    super::sub_message::persist_sub_message(conversation_id, linkage, &assistant_msg);
+    emit(
+        stream,
+        StreamEvent::MessageEnd {
+            message_id: linkage.anchor_message_id.clone(),
+            content: Some(assistant_msg.content.clone()),
+            raw_content: assistant_msg.raw_content.clone(),
+            tool_raw_output: assistant_msg.tool_raw_output.clone(),
+            thoughts: assistant_msg.thoughts.clone(),
+            headline: assistant_msg.headline.clone(),
+            trace_id: Some(linkage.trace_id.clone()),
+            scoped_message_id: Some(assistant_msg.id.clone()),
+            attachments: assistant_msg.attachments.clone(),
+        },
+    );
 }
 
 pub(super) fn commit_lead_assistant_turn(
@@ -273,21 +320,10 @@ pub(super) fn commit_lead_assistant_turn(
             thoughts: assistant_msg.thoughts.clone(),
             headline: assistant_msg.headline.clone(),
             trace_id: None,
+            scoped_message_id: None,
             attachments: assistant_msg.attachments.clone(),
         },
     );
-}
-
-pub(super) fn push_sub_assistant_turn(history: &mut Vec<ChatMessage>, assistant_msg: ChatMessage) {
-    log_reasoning_and_output_segments(
-        "sub",
-        &assistant_msg.id,
-        assistant_msg.reasoning.as_deref(),
-        assistant_msg.thoughts.as_deref(),
-        Some(assistant_msg.content.as_str()),
-        assistant_msg.tool_raw_output.as_deref(),
-    );
-    history.push(assistant_msg);
 }
 
 /// Empty tool batch: optional JSON format retry, or successful stop.

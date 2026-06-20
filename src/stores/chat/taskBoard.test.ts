@@ -8,6 +8,7 @@ import {
   resolveActiveParentBoardBinding,
   resolveChildTaskBoardDocument,
   resolveCompactTaskBoardDocument,
+  childBoardBindingForTrace,
   TASK_BOARD_MAIN_TURN_SEP,
   TASK_BOARD_SUB_SEP
 } from './taskBoard'
@@ -55,8 +56,8 @@ describe('taskBoard logic', () => {
     const entry = emptyTaskBoardEntry()
     applyTaskBoardDocumentToEntry(entry, 'conv1', 'conv1', doc('supervisor goal'), 'u1', [])
     const storeKey = childStoreKey('conv1', 'task_a')
-    applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('click button'), 'msg_lead', [])
-    const out = resolveCompactTaskBoardDocument(entry, 'msg_lead', 'task_a')
+    applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('click button'), 'task_a:computer', [])
+    const out = resolveCompactTaskBoardDocument(entry, 'msg_lead', 'task_a', 'task_a:computer')
     expect(out?.meta?.goal).toBe('click button')
   })
 
@@ -85,12 +86,29 @@ describe('taskBoard logic', () => {
     expect(binding?.isActive).toBe(true)
   })
 
-  it('resolveChildTaskBoardDocument respects message anchor', () => {
+  it('resolveChildTaskBoardDocument respects trace id anchor', () => {
     const entry = emptyTaskBoardEntry()
     const storeKey = childStoreKey('conv1', 'task_a')
-    applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('child'), 'msg_a', [])
-    expect(resolveChildTaskBoardDocument(entry, 'task_a', 'msg_a')?.meta?.goal).toBe('child')
-    expect(resolveChildTaskBoardDocument(entry, 'task_a', 'msg_other')).toBeNull()
+    applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('child'), 'task_a:computer', [])
+    expect(resolveChildTaskBoardDocument(entry, 'task_a', 'task_a:computer')?.meta?.goal).toBe('child')
+    expect(resolveChildTaskBoardDocument(entry, 'task_a', 'task_b:computer')).toBeNull()
+  })
+
+  it('resolveChildTaskBoardDocument falls back to legacy lead message anchor', () => {
+    const entry = emptyTaskBoardEntry()
+    const storeKey = childStoreKey('conv1', 'task_a')
+    applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('child'), 'lead_assistant', [])
+    expect(resolveChildTaskBoardDocument(entry, 'task_a', 'task_a:computer', 'lead_assistant')?.meta?.goal).toBe('child')
+    expect(resolveChildTaskBoardDocument(entry, 'task_a', 'task_a:computer', 'other_msg')).toBeNull()
+  })
+
+  it('resolveChildTaskBoardDocument hides child board bound to scoped id from trace lookup', () => {
+    const entry = emptyTaskBoardEntry()
+    const storeKey = childStoreKey('conv1', 'task_a')
+    applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('child'), 'scoped_round', [])
+    expect(resolveChildTaskBoardDocument(entry, 'task_a', 'task_a:computer', 'lead_assistant')).toBeNull()
+    applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('child'), 'task_a:computer', [])
+    expect(resolveChildTaskBoardDocument(entry, 'task_a', 'task_a:computer')?.meta?.goal).toBe('child')
   })
 
   it('stores child board under parent store key', () => {
@@ -103,11 +121,22 @@ describe('taskBoard logic', () => {
       'conv1',
       storeKey,
       doc('sub task'),
-      'msg_sub',
+      'task_a:computer',
       []
     )
     expect(storeKey).toContain(TASK_BOARD_SUB_SEP)
     expect(entry.childrenByParentStoreKey[parentKey]?.[taskId]?.meta?.goal).toBe('sub task')
-    expect(entry.childBindings[storeKey]).toBe('msg_sub')
+    expect(entry.childBindings[storeKey]).toBe('task_a:computer')
+  })
+
+  it('childBoardBindingForTrace returns child board above SubAgentFrame', () => {
+    const entry = emptyTaskBoardEntry()
+    const storeKey = childStoreKey('conv1', 'task_a')
+    applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('open wechat', 'active'), 'task_a:computer', [])
+    const binding = childBoardBindingForTrace(entry, 'task_a:computer', 'lead_msg')
+    expect(binding?.storeKey).toBe(storeKey)
+    expect(binding?.document.meta?.goal).toBe('open wechat')
+    expect(binding?.isActive).toBe(true)
+    expect(childBoardBindingForTrace(entry, 'task_b:computer', 'lead_msg')).toBeNull()
   })
 })

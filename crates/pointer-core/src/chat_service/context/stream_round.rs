@@ -59,6 +59,7 @@ pub struct SubStreamRoundRefs<'a> {
     pub def: &'a AgentDef,
     pub instance_scope: &'a AgentInstanceScope,
     pub message_id: &'a str,
+    pub round_message_id: &'a str,
     pub session_content: &'a mut String,
     pub local_history: &'a mut Vec<ChatMessage>,
     pub llm_stats: &'a mut ConversationLlmStats,

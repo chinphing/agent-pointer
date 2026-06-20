@@ -5,6 +5,7 @@ export const REASONING_DELTA_BATCH_MS = 200
 export type ReasoningDeltaApply = (
   messageId: string,
   traceId: string | undefined,
+  scopedMessageId: string | undefined,
   text: string
 ) => void
 
@@ -13,9 +14,12 @@ const timers = new Map<string, ReturnType<typeof setTimeout>>()
 
 let applyHandler: ReasoningDeltaApply | null = null
 
-function bufferKey(messageId: string, traceId?: string): string {
+function bufferKey(messageId: string, traceId?: string, scopedMessageId?: string): string {
   const tid = traceId?.trim()
-  return tid ? `${messageId}\0${tid}` : messageId
+  const sid = scopedMessageId?.trim()
+  if (sid) return `${messageId}\0${tid ?? ''}\0${sid}`
+  if (tid) return `${messageId}\0${tid}`
+  return messageId
 }
 
 export function setReasoningDeltaApplyHandler(handler: ReasoningDeltaApply | null): void {
@@ -26,10 +30,11 @@ export function enqueueReasoningDelta(
   messageId: string,
   text: string,
   traceId?: string,
+  scopedMessageId?: string,
   batchMs: number = REASONING_DELTA_BATCH_MS
 ): void {
   if (!text) return
-  const key = bufferKey(messageId, traceId)
+  const key = bufferKey(messageId, traceId, scopedMessageId)
   pending.set(key, (pending.get(key) ?? '') + text)
   if (timers.has(key)) return
   timers.set(
@@ -53,12 +58,11 @@ function flushReasoningDeltaKey(key: string): void {
     console.warn('[reasoningDeltaBatch] flush skipped: no apply handler registered')
     return
   }
-  const sep = key.indexOf('\0')
-  if (sep >= 0) {
-    applyHandler(key.slice(0, sep), key.slice(sep + 1), batch)
-  } else {
-    applyHandler(key, undefined, batch)
-  }
+  const parts = key.split('\0')
+  const messageId = parts[0]
+  const traceId = parts[1] || undefined
+  const scopedMessageId = parts[2] || undefined
+  applyHandler(messageId, traceId, scopedMessageId, batch)
 }
 
 /** Flush pending reasoning for one message (all traces) or entire buffer. */
@@ -66,8 +70,7 @@ export function flushReasoningDeltaBuffer(messageId?: string): void {
   const keys = [...pending.keys(), ...timers.keys()]
   for (const key of keys) {
     if (messageId != null) {
-      const sep = key.indexOf('\0')
-      const mid = sep >= 0 ? key.slice(0, sep) : key
+      const mid = key.split('\0')[0]
       if (mid !== messageId) continue
     }
     flushReasoningDeltaKey(key)

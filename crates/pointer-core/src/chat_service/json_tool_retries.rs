@@ -51,6 +51,10 @@ pub(crate) fn push_injected_format_retry_turn(
         ui_bindings: None,
         context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
     });
     super::conversation_persist::upsert_message(
         conversation_id,

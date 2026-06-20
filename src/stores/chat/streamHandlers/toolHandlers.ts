@@ -1,4 +1,5 @@
-import { ensureSubTrace, recordSubToolSuccess } from '../../../lib/subAgentSession'
+import { resolveStreamWriteMessage } from '../../../lib/subAgentMessages'
+import { ensureSubTrace, ensureSubTraceSession, recordSubToolSuccess } from '../../../lib/subAgentSession'
 import type { StreamEvent, TaskBoardDocument, ToolCall } from '../../../types/chat'
 import type { StreamHandlerContext } from './types'
 
@@ -21,39 +22,67 @@ type TerminalOutputDelta = Extract<StreamEvent, { kind: 'terminal_output_delta' 
 type WebSearchOutputDelta = Extract<StreamEvent, { kind: 'web_search_output_delta' }>
 type WebSearchSourcesReady = Extract<StreamEvent, { kind: 'web_search_sources_ready' }>
 
+function findToolCallOnMessage(msg: { toolCalls?: ToolCall[] }, toolCallId: string): ToolCall | undefined {
+  return msg.toolCalls?.find(t => t.id === toolCallId)
+}
+
 export function handleToolCallStart(ctx: StreamHandlerContext, e: ToolCallStart) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
+  const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
+  if (target) {
+    target.toolCalls = upsertToolCall(target.toolCalls, e.toolCall)
+    target.contentStreaming = true
+    target.status = 'streaming'
+    return
+  }
   if (e.traceId?.trim()) {
     const trace = ensureSubTrace(r.msg, e.traceId.trim())
-    const session = trace.session!
+    const session = ensureSubTraceSession(trace)
     session.toolCalls = upsertToolCall(session.toolCalls, e.toolCall)
     session.contentStreaming = true
-  } else {
-    r.msg.status = 'streaming'
-    r.msg.toolCalls = upsertToolCall(r.msg.toolCalls, e.toolCall)
+    return
   }
+  r.msg.status = 'streaming'
+  r.msg.toolCalls = upsertToolCall(r.msg.toolCalls, e.toolCall)
 }
 
 export function handleToolCallArgsDelta(ctx: StreamHandlerContext, e: ToolCallArgsDelta) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
+  const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
+  if (target) {
+    const tc = findToolCallOnMessage(target, e.toolCallId)
+    if (tc) tc.arguments += e.argsDelta
+    return
+  }
   if (e.traceId?.trim()) {
     const trace = ensureSubTrace(r.msg, e.traceId.trim())
     const tc = trace.session?.toolCalls?.find(t => t.id === e.toolCallId)
     if (tc) tc.arguments += e.argsDelta
-  } else {
-    const tc = r.msg.toolCalls?.find(t => t.id === e.toolCallId)
-    if (tc) tc.arguments += e.argsDelta
+    return
   }
+  const tc = findToolCallOnMessage(r.msg, e.toolCallId)
+  if (tc) tc.arguments += e.argsDelta
 }
 
 export function handleToolCallStatus(ctx: StreamHandlerContext, e: ToolCallStatus) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
-  if (e.traceId?.trim()) {
+  const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
+  if (target) {
+    const tc = findToolCallOnMessage(target, e.toolCallId)
+    if (tc) {
+      tc.status = e.status
+      if (e.result !== undefined) tc.result = e.result
+      if (e.error !== undefined) tc.error = e.error
+      if (e.durationMs !== undefined) tc.durationMs = e.durationMs
+      if (e.displayLabel !== undefined) tc.displayLabel = e.displayLabel
+      if (e.displaySummary !== undefined) tc.displaySummary = e.displaySummary
+    }
+  } else if (e.traceId?.trim()) {
     const trace = ensureSubTrace(r.msg, e.traceId.trim())
-    const session = trace.session!
+    const session = ensureSubTraceSession(trace)
     const tc = session.toolCalls?.find(t => t.id === e.toolCallId)
     if (tc) {
       tc.status = e.status
@@ -65,7 +94,7 @@ export function handleToolCallStatus(ctx: StreamHandlerContext, e: ToolCallStatu
       if (e.status === 'success') recordSubToolSuccess(session, tc.name, tc.arguments)
     }
   } else {
-    const tc = r.msg.toolCalls?.find(t => t.id === e.toolCallId)
+    const tc = findToolCallOnMessage(r.msg, e.toolCallId)
     if (tc) {
       tc.status = e.status
       if (e.result !== undefined) tc.result = e.result
@@ -75,47 +104,69 @@ export function handleToolCallStatus(ctx: StreamHandlerContext, e: ToolCallStatu
       if (e.displaySummary !== undefined) tc.displaySummary = e.displaySummary
     }
   }
-  ctx.handleTerminalToolCallStatus(e.messageId, e.toolCallId, e.status, e.traceId)
+  ctx.handleTerminalToolCallStatus(
+    e.messageId,
+    e.toolCallId,
+    e.status,
+    e.traceId,
+    e.scopedMessageId
+  )
 }
 
 export function handleTerminalOutputDelta(ctx: StreamHandlerContext, e: TerminalOutputDelta) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
-  if (e.traceId?.trim()) {
+  const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
+  if (target) {
+    const tc = findToolCallOnMessage(target, e.toolCallId)
+    if (tc) tc.terminalOutput = (tc.terminalOutput || '') + e.output
+  } else if (e.traceId?.trim()) {
     const trace = ensureSubTrace(r.msg, e.traceId.trim())
     const tc = trace.session?.toolCalls?.find(t => t.id === e.toolCallId)
     if (tc) tc.terminalOutput = (tc.terminalOutput || '') + e.output
   } else {
-    const tc = r.msg.toolCalls?.find(t => t.id === e.toolCallId)
+    const tc = findToolCallOnMessage(r.msg, e.toolCallId)
     if (tc) tc.terminalOutput = (tc.terminalOutput || '') + e.output
   }
-  ctx.syncTerminalLivePopupOutput(e.messageId, e.toolCallId, e.traceId)
+  ctx.syncTerminalLivePopupOutput(e.messageId, e.toolCallId, e.traceId, e.scopedMessageId)
 }
 
 export function handleWebSearchOutputDelta(ctx: StreamHandlerContext, e: WebSearchOutputDelta) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
+  const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
+  if (target) {
+    const tc = findToolCallOnMessage(target, e.toolCallId)
+    if (tc) tc.webSearchOutput = (tc.webSearchOutput || '') + e.text
+    return
+  }
   if (e.traceId?.trim()) {
     const trace = ensureSubTrace(r.msg, e.traceId.trim())
     const tc = trace.session?.toolCalls?.find(t => t.id === e.toolCallId)
     if (tc) tc.webSearchOutput = (tc.webSearchOutput || '') + e.text
-  } else {
-    const tc = r.msg.toolCalls?.find(t => t.id === e.toolCallId)
-    if (tc) tc.webSearchOutput = (tc.webSearchOutput || '') + e.text
+    return
   }
+  const tc = findToolCallOnMessage(r.msg, e.toolCallId)
+  if (tc) tc.webSearchOutput = (tc.webSearchOutput || '') + e.text
 }
 
 export function handleWebSearchSourcesReady(ctx: StreamHandlerContext, e: WebSearchSourcesReady) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
+  const target = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
+  if (target) {
+    const tc = findToolCallOnMessage(target, e.toolCallId)
+    if (tc) tc.webSearchSources = e.sources
+    return
+  }
   if (e.traceId?.trim()) {
     const trace = ensureSubTrace(r.msg, e.traceId.trim())
     const tc = trace.session?.toolCalls?.find(t => t.id === e.toolCallId)
     if (tc) tc.webSearchSources = e.sources
-  } else {
-    const tc = r.msg.toolCalls?.find(t => t.id === e.toolCallId)
-    if (tc) tc.webSearchSources = e.sources
+    return
   }
+  const tc = findToolCallOnMessage(r.msg, e.toolCallId)
+  if (tc) tc.webSearchSources = e.sources
 }
 
 export function handleTaskBoardUpdated(ctx: StreamHandlerContext, e: Extract<StreamEvent, { kind: 'task_board_updated' }>) {

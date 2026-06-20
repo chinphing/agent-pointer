@@ -429,6 +429,10 @@ fn new_summary_user_message(body: String) -> ChatMessage {
         ui_bindings: None,
             context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
             }
 }
 
@@ -535,6 +539,10 @@ async fn compress_history_inner(
         ui_bindings: None,
             context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
             };
 
     let max_tok = settings.context_summary_max_tokens.max(128);
@@ -788,6 +796,10 @@ mod tests {
         ui_bindings: None,
             context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
             }
     }
 

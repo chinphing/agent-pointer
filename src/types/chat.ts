@@ -123,7 +123,11 @@ export interface AgentTrace {
   content?: string
   /** 0 = 顶格（主编排），1 = 委托子 Agent；缺省时 UI 对首条顶格、其余一级缩进 */
   depth?: number
+  /** Legacy nested UI session; superseded by scoped child `ChatMessage` rows. Read-only for old data. */
   session?: SubAgentSessionUi
+  /** Collapsed summary header (persisted index UI). */
+  collapsed?: boolean
+  userExpanded?: boolean
   /** `run_subagent` → computer: task goal targets Pointer itself (`self`) or other apps (`external`). */
   computerTarget?: ComputerOperationTarget
 }
@@ -267,6 +271,12 @@ export interface ChatMessage {
   /** Whether this message participates in LLM context. */
   contextState?: MessageContextState
   attachments?: MediaAttachment[]
+  /** Parent lead assistant message id (scoped sub-agent transcript rows). */
+  anchorMessageId?: string
+  /** Stable sub-task trace id (`{taskId}:{agentId}`). */
+  traceId?: string
+  taskId?: string
+  spawnDepth?: number
 }
 
 export interface Conversation {
@@ -614,19 +624,68 @@ export interface ContextCompressionInfo {
 
 export type StreamEvent =
   | { kind: 'message_start'; messageId: string; conversationId: string }
+  | {
+      kind: 'sub_message_start'
+      conversationId: string
+      anchorMessageId: string
+      scopedMessageId: string
+      traceId: string
+      taskId: string
+      spawnDepth: number
+    }
   | { kind: 'delta'; messageId: string; text: string }
-  | { kind: 'raw_content_delta'; messageId: string; text: string; traceId?: string }
-  | { kind: 'reasoning_delta'; messageId: string; text: string; traceId?: string }
+  | { kind: 'raw_content_delta'; messageId: string; text: string; traceId?: string; scopedMessageId?: string }
+  | { kind: 'reasoning_delta'; messageId: string; text: string; traceId?: string; scopedMessageId?: string }
   /** 正文里 XML 工具块尚未闭合时，已能读出的子标签（流式更新）。 */
-  | { kind: 'assistant_json_partial'; messageId: string; thoughts?: string; headline?: string; toolName?: string; responseText?: string; traceId?: string }
+  | {
+      kind: 'assistant_json_partial'
+      messageId: string
+      thoughts?: string
+      headline?: string
+      toolName?: string
+      responseText?: string
+      traceId?: string
+      scopedMessageId?: string
+    }
   | { kind: 'agent_step'; messageId: string; agent: AgentTrace }
-  | { kind: 'tool_call_start'; messageId: string; toolCall: ToolCall; traceId?: string }
-  | { kind: 'tool_call_args_delta'; messageId: string; toolCallId: string; argsDelta: string; traceId?: string }
-  | { kind: 'tool_call_status'; messageId: string; toolCallId: string; status: ToolCall['status']; result?: string; error?: string; durationMs?: number; displayLabel?: string; displaySummary?: string; traceId?: string }
-  | { kind: 'terminal_output_delta'; messageId: string; toolCallId: string; output: string; traceId?: string }
-  | { kind: 'web_search_output_delta'; messageId: string; toolCallId: string; text: string; traceId?: string }
-  | { kind: 'web_search_sources_ready'; messageId: string; toolCallId: string; sources: WebSearchSourceEntry[]; searchCount: number; traceId?: string }
-  | { kind: 'message_end'; messageId: string; content?: string; rawContent?: string; toolRawOutput?: string; thoughts?: string; headline?: string; traceId?: string; attachments?: MediaAttachment[] }
+  | { kind: 'tool_call_start'; messageId: string; toolCall: ToolCall; traceId?: string; scopedMessageId?: string }
+  | { kind: 'tool_call_args_delta'; messageId: string; toolCallId: string; argsDelta: string; traceId?: string; scopedMessageId?: string }
+  | {
+      kind: 'tool_call_status'
+      messageId: string
+      toolCallId: string
+      status: ToolCall['status']
+      result?: string
+      error?: string
+      durationMs?: number
+      displayLabel?: string
+      displaySummary?: string
+      traceId?: string
+      scopedMessageId?: string
+    }
+  | { kind: 'terminal_output_delta'; messageId: string; toolCallId: string; output: string; traceId?: string; scopedMessageId?: string }
+  | { kind: 'web_search_output_delta'; messageId: string; toolCallId: string; text: string; traceId?: string; scopedMessageId?: string }
+  | {
+      kind: 'web_search_sources_ready'
+      messageId: string
+      toolCallId: string
+      sources: WebSearchSourceEntry[]
+      searchCount: number
+      traceId?: string
+      scopedMessageId?: string
+    }
+  | {
+      kind: 'message_end'
+      messageId: string
+      content?: string
+      rawContent?: string
+      toolRawOutput?: string
+      thoughts?: string
+      headline?: string
+      traceId?: string
+      scopedMessageId?: string
+      attachments?: MediaAttachment[]
+    }
   | {
       kind: 'injected_user_message'
       conversationId: string

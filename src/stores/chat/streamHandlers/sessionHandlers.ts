@@ -279,6 +279,7 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
     if (e.toolRoundsUsedSupervisorTotal != null) {
       conv.toolRoundsUsedSupervisor = e.toolRoundsUsedSupervisorTotal
     }
+    ctx.persistAppend(convId)
   }
   ctx.persistMeta()
 }

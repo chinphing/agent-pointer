@@ -7,10 +7,10 @@ use crate::agents::{AgentProfile, AgentRunResult};
 use crate::models::{effective_reasoning_in_messages, ChatMessage, Role, StreamEvent};
 
 use super::agent_post_stream::{
-    build_sub_assistant_message_after_stream, push_sub_assistant_turn, sub_agent_run_result,
+    build_sub_assistant_message_after_stream, commit_sub_assistant_turn, sub_agent_run_result,
     PostAssistantTurnAction,
 };
-use super::context::{PostAssistantContext, ToolBudgetExhaustionScope};
+use super::context::{PostAssistantContext, ToolBudgetExhaustionScope, TranscriptPersist};
 use super::agent_round_lifecycle;
 use super::agent_tool_pass::{
     run_agent_tool_pass, SubToolPassConfig, ToolInvocationStats, ToolPassResult,
@@ -20,6 +20,7 @@ use super::emit::{agent_trace_step_id, emit, trace_id_opt};
 use super::session_model::sub_agent_provider;
 use super::sub_agent_prompt::{init_sub_agent_session, prepare_sub_agent_round_prompts};
 use super::sub_agent_stream::{run_sub_agent_stream_round, SubAgentStreamOutcome};
+use super::sub_message::SubMessageLinkage;
 use super::util::new_id;
 
 /// Final handoff for `run_subagent`: prefer the latest assistant turn (final Markdown digest),
@@ -54,6 +55,7 @@ pub(crate) async fn run_sub_agent(
             state,
             &sub_provider,
             conversation_id,
+            message_id,
             parent_task_board_store_key,
             task,
             ctx.enabled_skill_ids,
@@ -70,6 +72,12 @@ pub(crate) async fn run_sub_agent(
     let tool_approval_mode = session.tool_approval_mode;
     let mut local_history = session.local_history;
     let spawn_depth = session.spawn_depth;
+    let sub_linkage = SubMessageLinkage {
+        anchor_message_id: message_id.to_string(),
+        trace_id: agent_trace_step_id(&task.id, &def.id),
+        task_id: task.id.clone(),
+        spawn_depth,
+    };
     let max_cap = ctx.sub_tool_budget.cap();
     let tools_appendix_enabled = !tools_system_appendix.is_empty();
     let native_tools = state.tools.openai_tools(&allowed_tools);
@@ -118,6 +126,48 @@ pub(crate) async fn run_sub_agent(
         }
 
         let round_message_id = new_id("agent_msg");
+        let round_placeholder = ChatMessage {
+            id: round_message_id.clone(),
+            role: Role::Assistant,
+            content: String::new(),
+            status: "streaming".into(),
+            created_at: super::util::now_ms(),
+            tool_calls: None,
+            tool_call_id: None,
+            error_message: None,
+            reasoning: None,
+            thoughts: None,
+            headline: None,
+            raw_content: None,
+            tool_raw_output: None,
+            agent_id: Some(def.id.clone()),
+            agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
+            agent_name: None,
+            agent_trace: None,
+            image_slot_labels: None,
+            images_base64: None,
+            computer_round_screen_rel_path: None,
+            ui_bindings: None,
+            context_state: None,
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
+        };
+        super::sub_message::persist_sub_message(conversation_id, &sub_linkage, &round_placeholder);
+        emit(
+            stream,
+            StreamEvent::SubMessageStart {
+                conversation_id: conversation_id.to_string(),
+                anchor_message_id: sub_linkage.anchor_message_id.clone(),
+                scoped_message_id: round_message_id.clone(),
+                trace_id: sub_linkage.trace_id.clone(),
+                task_id: sub_linkage.task_id.clone(),
+                spawn_depth: sub_linkage.spawn_depth,
+            },
+        );
+
         let round_prompts = prepare_sub_agent_round_prompts(super::context::SubAgentPromptContext {
             session: super::context::SessionRefs {
                 stream,
@@ -158,6 +208,7 @@ pub(crate) async fn run_sub_agent(
             def: &def,
             instance_scope: &instance_scope,
             message_id,
+            round_message_id: &round_message_id,
             session_content: &mut content,
             local_history: &mut local_history,
             llm_stats: ctx.llm_stats,
@@ -190,7 +241,8 @@ pub(crate) async fn run_sub_agent(
                 tool_raw_output: None,
                 thoughts: None,
                 headline: None,
-                trace_id: trace_id_opt(Some(&agent_trace_step_id(&task.id, &def.id))),
+                trace_id: trace_id_opt(Some(&sub_linkage.trace_id)),
+                scoped_message_id: trace_id_opt(Some(&round_message_id)),
                 attachments: None,
             },
         );
@@ -210,7 +262,13 @@ pub(crate) async fn run_sub_agent(
             Some(instance_scope.agent_instance_id.clone()),
             state,
         );
-        push_sub_assistant_turn(&mut local_history, assistant_msg);
+        commit_sub_assistant_turn(
+            stream,
+            conversation_id,
+            &mut local_history,
+            assistant_msg,
+            &sub_linkage,
+        );
 
         let last_msg = local_history.last();
         if let Err(err) = agent_round_lifecycle::computer_round_complete_or_give_up(
@@ -258,7 +316,7 @@ pub(crate) async fn run_sub_agent(
                         &stream,
                         conversation_id,
                         &sub_task_board_key,
-                        Some(message_id.to_string()),
+                        Some(sub_linkage.trace_id.clone()),
                         doc.to_value(),
                     );
                 }
@@ -283,8 +341,9 @@ pub(crate) async fn run_sub_agent(
             accumulated_content: content.clone(),
             accumulated_reasoning: reasoning.clone(),
             reasoning_in_messages,
-            trace_id: agent_trace_step_id(&task.id, &def.id),
+            trace_id: sub_linkage.trace_id.clone(),
             spawn_depth,
+            scoped_message_id: round_message_id.clone(),
         };
         let mut stats = ToolInvocationStats::Conversation(ctx.llm_stats);
         let anchor_message_id =
@@ -308,8 +367,8 @@ pub(crate) async fn run_sub_agent(
                 transcript: super::context::TranscriptRefs {
                     history: &mut local_history,
                 },
-                persist: super::context::TranscriptPersist::LocalOnly,
-                message_id: message_id.to_string(),
+                persist: TranscriptPersist::SubLinked(sub_linkage.clone()),
+                message_id: round_message_id.clone(),
                 task_board_store_key: &sub_task_board_key,
                 tool_approval_mode: &tool_approval_mode,
                 tool_budget: ctx.sub_tool_budget,
@@ -396,6 +455,10 @@ mod handoff_tests {
             ui_bindings: None,
             context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
         }
     }
 

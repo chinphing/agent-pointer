@@ -74,6 +74,7 @@ pub(super) enum ContentDeltaMode<'a> {
     /// Sub-agent under supervisor / `run_subagent`: UI routed by `trace_id` (no trace.content streaming).
     SubAgentTrace {
         trace_id: String,
+        scoped_message_id: String,
     },
 }
 
@@ -88,9 +89,12 @@ pub(super) async fn drain_provider_events(
     buffers: &mut StreamRoundBuffers,
     cancel: CancellationToken,
 ) {
-    let sub_trace_id = match &content_mode {
-        ContentDeltaMode::LeadMessage { .. } => None,
-        ContentDeltaMode::SubAgentTrace { trace_id } => Some(trace_id.as_str()),
+    let (sub_trace_id, sub_scoped_message_id) = match &content_mode {
+        ContentDeltaMode::LeadMessage { .. } => (None, None),
+        ContentDeltaMode::SubAgentTrace {
+            trace_id,
+            scoped_message_id,
+        } => (Some(trace_id.as_str()), Some(scoped_message_id.as_str())),
     };
     let mut streamed_tool_call_ids: HashSet<String> = HashSet::new();
 
@@ -113,6 +117,7 @@ pub(super) async fn drain_provider_events(
                                 message_id: message_id.clone(),
                                 text: delta.clone(),
                                 trace_id: None,
+                                scoped_message_id: None,
                             },
                         );
                         emit(
@@ -123,13 +128,17 @@ pub(super) async fn drain_provider_events(
                             },
                         );
                     }
-                    ContentDeltaMode::SubAgentTrace { trace_id } => {
+                    ContentDeltaMode::SubAgentTrace {
+                        trace_id,
+                        scoped_message_id,
+                    } => {
                         emit(
                             stream,
                             StreamEvent::RawContentDelta {
                                 message_id: message_id.to_string(),
                                 text: delta,
                                 trace_id: trace_id_opt(Some(trace_id.as_str())),
+                                scoped_message_id: trace_id_opt(Some(scoped_message_id.as_str())),
                             },
                         );
                     }
@@ -145,6 +154,7 @@ pub(super) async fn drain_provider_events(
                         message_id: message_id.to_string(),
                         text: delta,
                         trace_id: trace_id_opt(sub_trace_id),
+                        scoped_message_id: trace_id_opt(sub_scoped_message_id),
                     },
                 );
             }
@@ -184,6 +194,7 @@ pub(super) async fn drain_provider_events(
                             display_summary,
                         },
                         trace_id: trace_id_opt(sub_trace_id),
+                        scoped_message_id: trace_id_opt(sub_scoped_message_id),
                     },
                 );
             }
@@ -197,6 +208,7 @@ pub(super) async fn drain_provider_events(
                         tool_call_id,
                         args_delta: args,
                         trace_id: trace_id_opt(sub_trace_id),
+                        scoped_message_id: trace_id_opt(sub_scoped_message_id),
                     },
                 );
             }
@@ -208,6 +220,7 @@ pub(super) async fn drain_provider_events(
                     &tool_calls,
                     &mut streamed_tool_call_ids,
                     sub_trace_id,
+                    sub_scoped_message_id,
                 );
             }
             ProviderEvent::AssistantJsonPartial {
@@ -225,6 +238,7 @@ pub(super) async fn drain_provider_events(
                         tool_name,
                         response_text,
                         trace_id: trace_id_opt(sub_trace_id),
+                        scoped_message_id: trace_id_opt(sub_scoped_message_id),
                     },
                 );
             }
@@ -249,6 +263,7 @@ pub(super) async fn drain_provider_events(
                     &tool_calls,
                     &mut streamed_tool_call_ids,
                     sub_trace_id,
+                    sub_scoped_message_id,
                 );
                 buffers.final_tool_calls = tool_calls;
             }
@@ -263,6 +278,7 @@ fn emit_deduped_tool_starts(
     tool_calls: &[ToolCall],
     streamed_ids: &mut HashSet<String>,
     trace_id: Option<&str>,
+    scoped_message_id: Option<&str>,
 ) {
     for tc in tool_calls {
         if streamed_ids.insert(tc.id.clone()) {
@@ -290,6 +306,7 @@ fn emit_deduped_tool_starts(
                     message_id: message_id.to_string(),
                     tool_call: t,
                     trace_id: trace_id_opt(trace_id),
+                    scoped_message_id: trace_id_opt(scoped_message_id),
                 },
             );
         }

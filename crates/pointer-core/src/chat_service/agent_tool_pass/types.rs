@@ -59,6 +59,7 @@ pub struct SubToolPassConfig<'a> {
     pub reasoning_in_messages: bool,
     pub trace_id: String,
     pub spawn_depth: u32,
+    pub scoped_message_id: String,
 }
 
 pub(super) type ToolExecResult = Result<(String, bool, Option<String>), anyhow::Error>;

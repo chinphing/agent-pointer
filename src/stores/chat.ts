@@ -22,6 +22,7 @@ import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 import { GENERAL_AGENT_ID } from '../lib/agentUi'
 import { getTaskBoardSnapshot } from '../lib/api'
 import { subTaskIdFromTraceId } from '../lib/subAgentStats'
+import { resolveStreamWriteMessage, rehydrateAgentTracesFromScopedMessages, scopedMessagesForTrace } from '../lib/subAgentMessages'
 import { stripWireAttachmentFields } from '../lib/messageNormalizer'
 import {
   clearReasoningDeltaBuffer,
@@ -55,7 +56,7 @@ import {
 } from '../lib/assistantMessageKind'
 import {
   ensureSubTrace,
-  finalizeSubSession
+  migrateLegacyTraceUiState
 } from '../lib/subAgentSession'
 import { useSkillsStore } from './skills'
 import { useSettingsStore } from './settings'
@@ -77,15 +78,38 @@ function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Con
   }))
 }
 
+/** Desktop shell with default title and no messages (duplicate-prone if we always insert new rows). */
+function isBlankDesktopConversation(conv: Conversation): boolean {
+  if (isImConversation(conv.id)) return false
+  if (conv.title !== '新会话') return false
+  const visible = conv.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
+  return visible.length === 0
+}
+
+function pruneDuplicateBlankConversations(list: Conversation[]): {
+  list: Conversation[]
+  changed: boolean
+} {
+  const blanks = list.filter(isBlankDesktopConversation)
+  if (blanks.length <= 1) return { list, changed: false }
+  const keepId = blanks[0]!.id
+  return {
+    list: list.filter(c => !isBlankDesktopConversation(c) || c.id === keepId),
+    changed: true
+  }
+}
+
 function normalizeSubAgentTraces(conversations: Conversation[]) {
   for (const conv of conversations) {
+    rehydrateAgentTracesFromScopedMessages(conv)
     for (const msg of conv.messages) {
       for (const trace of msg.agentTrace ?? []) {
         if ((trace.depth ?? 0) === 0) continue
+        migrateLegacyTraceUiState(trace)
         const terminal = trace.status === 'completed' || trace.status === 'failed'
-        if (!terminal || !trace.session || trace.session.userExpanded) continue
-        trace.session.collapsed = true
-        finalizeSubSession(trace)
+        if (terminal && !trace.userExpanded) {
+          trace.collapsed = true
+        }
       }
     }
   }
@@ -288,19 +312,19 @@ export const useChatStore = defineStore('chat', () => {
         if ((trace.depth ?? 0) === 0) continue
         const taskId = subTaskIdFromTraceId(trace.id)
         if (!taskId) continue
-        jobs.push(refreshTaskBoard(conversationId, taskId, msg.id))
+        jobs.push(refreshTaskBoard(conversationId, taskId, trace.id))
       }
     }
     await Promise.all(jobs)
   }
 
-  /** Child task board for a sub-agent trace (not gated by debug settings). */
+  /** Child task board for a delegated trace (`{taskId}:{agentId}`). */
   function lookupChildTaskBoard(
     convId: string | null,
-    taskId: string,
-    messageId?: string
+    traceId: string,
+    legacyLeadMessageId?: string | null
   ): TaskBoardDocument | null {
-    return taskBoardMgr.lookupChildTaskBoard(convId, taskId, messageId)
+    return taskBoardMgr.lookupChildTaskBoard(convId, traceId, legacyLeadMessageId)
   }
 
   function ensureImConversation(conversationId: string, title?: string) {
@@ -338,7 +362,9 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function init() {
-    const list = await loadConversations().catch(() => [])
+    let list = await loadConversations().catch(() => [])
+    const pruned = pruneDuplicateBlankConversations(list)
+    list = pruned.list
     normalizeInterruptedAssistantStatuses(list)
     normalizeSubAgentTraces(list)
     for (const conv of list) {
@@ -351,7 +377,7 @@ export const useChatStore = defineStore('chat', () => {
       conv.messages = dedupeImInboundUserMessages(conv.id, conv.messages)
     }
     conversations.value = stripEphemeralDesktopNoticesForDisk(list)
-    if (imTitlesUpdated) persistMeta()
+    if (imTitlesUpdated || pruned.changed) persistMeta()
     if (list.length === 0) newConversation()
     else {
       currentId.value = list[0].id
@@ -404,6 +430,19 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function newConversation(): Conversation {
+    const existingBlank = conversations.value.find(isBlankDesktopConversation)
+    if (existingBlank) {
+      existingBlank.updatedAt = Date.now()
+      conversations.value = [
+        existingBlank,
+        ...conversations.value.filter(c => c.id !== existingBlank.id)
+      ]
+      flushActiveComposerDraft()
+      currentId.value = existingBlank.id
+      loadActiveComposerDraft(existingBlank.id)
+      persistMeta()
+      return existingBlank
+    }
     // Inherit workspaceRoot from the last active conversation.
     const lastWorkspace = conversations.value.length > 0
       ? (conversations.value[0].workspaceRoot ?? '')
@@ -502,11 +541,21 @@ export const useChatStore = defineStore('chat', () => {
   function resolveToolCall(
     messageId: string,
     toolCallId: string,
-    traceId?: string
+    traceId?: string,
+    scopedMessageId?: string
   ): ToolCall | null {
     const r = findMessage(messageId)
     if (!r) return null
+    const scopedTarget = resolveStreamWriteMessage(r.conv, r.msg, traceId, scopedMessageId)
+    if (scopedTarget) {
+      return scopedTarget.toolCalls?.find(t => t.id === toolCallId) ?? null
+    }
     if (traceId?.trim()) {
+      const scoped = scopedMessagesForTrace(r.conv.messages, r.msg.id, traceId.trim())
+      for (let i = scoped.length - 1; i >= 0; i--) {
+        const tc = scoped[i].toolCalls?.find(t => t.id === toolCallId)
+        if (tc) return tc
+      }
       const trace = ensureSubTrace(r.msg, traceId.trim())
       return trace.session?.toolCalls?.find(t => t.id === toolCallId) ?? null
     }
@@ -521,20 +570,30 @@ export const useChatStore = defineStore('chat', () => {
   function applyReasoningDeltaBatch(
     messageId: string,
     traceId: string | undefined,
+    scopedMessageId: string | undefined,
     text: string
   ) {
     const r = findMessage(messageId)
     if (!r) return
+    const target = resolveStreamWriteMessage(r.conv, r.msg, traceId, scopedMessageId)
+    if (target) {
+      target.reasoning = (target.reasoning || '') + text
+      target.contentStreaming = true
+      target.status = 'streaming'
+      return
+    }
     if (traceId?.trim()) {
       const trace = ensureSubTrace(r.msg, traceId.trim())
-      const session = trace.session!
-      session.reasoning = (session.reasoning || '') + text
-      session.contentStreaming = true
-    } else {
-      r.msg.reasoning = (r.msg.reasoning || '') + text
-      r.msg.status = 'streaming'
-      r.msg.contentStreaming = true
+      const session = trace.session
+      if (session) {
+        session.reasoning = (session.reasoning || '') + text
+        session.contentStreaming = true
+      }
+      return
     }
+    r.msg.reasoning = (r.msg.reasoning || '') + text
+    r.msg.status = 'streaming'
+    r.msg.contentStreaming = true
   }
 
   setReasoningDeltaApplyHandler(applyReasoningDeltaBatch)
@@ -558,6 +617,7 @@ export const useChatStore = defineStore('chat', () => {
     activeParentBoardBinding,
     compactTaskBoardDocument,
     parentBoardsBoundToMessage,
+    childBoardBindingForTrace,
     taskBoardForConversation,
     childBoardsForParent
   } = taskBoardMgr
@@ -861,7 +921,7 @@ export const useChatStore = defineStore('chat', () => {
     init, newConversation, selectConversation, deleteConversation,
     sendUserMessage, stop, abortTerminalOnly, approve,
     refreshTaskBoard, refreshSubAgentTaskBoards, taskBoardForConversation, activeParentBoardDocument, activeParentBoardBinding, compactTaskBoardDocument, parentBoardsBoundToMessage,
-    childBoardsForParent, lookupChildTaskBoard,
+    childBoardBindingForTrace, childBoardsForParent, lookupChildTaskBoard,
     setConversationWorkspace, setConversationAgent,
     effectiveConversationLeadAgentId, effectiveConversationAgentMode,
     showUiToast,

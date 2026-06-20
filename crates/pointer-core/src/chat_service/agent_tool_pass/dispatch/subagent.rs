@@ -13,6 +13,7 @@ pub(super) async fn dispatch_run_subagent(
     args_value: serde_json::Value,
     cancel: &tokio_util::sync::CancellationToken,
     stats: &mut ToolInvocationStats<'_>,
+    anchor_history: &mut Vec<crate::models::ChatMessage>,
     lead: Option<&mut LeadToolPassConfig<'_>>,
     sub: Option<&mut SubToolPassConfig<'_>>,
 ) -> ToolExecResult {
@@ -39,6 +40,7 @@ pub(super) async fn dispatch_run_subagent(
             tool_call_id: &tc.id,
             args_value,
             parent_spawn_depth: 0,
+            history: Some(anchor_history),
         };
         return super::super::super::run_subagent_delegation::run_subagent_delegation(&mut deleg)
             .await;
@@ -63,6 +65,7 @@ pub(super) async fn dispatch_run_subagent(
             tool_call_id: &tc.id,
             args_value,
             parent_spawn_depth: sub_cfg.spawn_depth,
+            history: None,
         };
         return super::super::super::run_subagent_delegation::run_subagent_delegation(&mut deleg)
             .await;

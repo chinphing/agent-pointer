@@ -61,6 +61,6 @@ describe('toolHandlers', () => {
       result: 'ok'
     })
     expect(conv.messages[0].toolCalls?.[0].status).toBe('success')
-    expect(handleTerminalToolCallStatus).toHaveBeenCalledWith('a1', 'tc1', 'success', undefined)
+    expect(handleTerminalToolCallStatus).toHaveBeenCalledWith('a1', 'tc1', 'success', undefined, undefined)
   })
 })

@@ -20,6 +20,29 @@
 | `context` | ✗ | Lead 已验证事实、依赖摘要、路径、语言等 |
 | `title` / `taskId` / `workspaceRoot` / `computerTarget` | ✗ | 与现语义相同 |
 
+#### Goal 编写规范（Lead / Supervisor）
+
+| worker | `goal` 写什么 | 不要写什么 |
+|--------|---------------|------------|
+| **explore** | 首行 `Scenario: <id>` + 范围 + 完成标准 | 长证据、重复 grep 结果（放 `context`） |
+| **computer** | 简短**结果** + **可见完成标准**；`computerTarget` 按需 | 步骤 1/2/3、点击路径、快捷键、工具名（**how** 归 worker） |
+| **coder** | 仓库侧结果 + 验收（测试/行为） | 长篇读文件脚本（交给 explore） |
+
+- 协议上 **`goal` 里写编号步骤不会报错**，宿主原样注入子 agent；但默认 **how** 归 worker，Lead 不应擅自写操作剧本。
+- **用户明确要求某种做法时**：**`goal`** 仍写结果 + 完成标准；用户的步骤/路径/工具/范围限制放进 **`context`**，标题 **`User-required approach:`**（忠实转述，不添步骤）。worker 在可行时优先尝试；失败或与策略冲突则在 handoff 说明。
+- **`context`**：已验证路径、错误原文、用户约束、前序 handoff 摘要。
+- 示例（computer，`external`）：
+
+```json
+{
+  "agentId": "computer",
+  "goal": "在本机打开微信，确认主窗口已出现。handoff：微信已打开。",
+  "computerTarget": "external"
+}
+```
+
+提示词落地：`tools/prompts/run_subagent.md`、`agents/general/AGENT.md`、`agents/supervisor/AGENT.md`；computer worker 的 delegatable `description` 亦提示 outcome-only goal。
+
 ### 1.2 `AgentTask`（Supervisor 同形）
 
 ```rust
@@ -144,6 +167,22 @@ You are sub-agent depth {d}/{max}. …
 
 ## 4. UI / Trace
 
+### 4.1 子消息持久化（已实现）
+
+子 agent 多轮 assistant / tool 与 lead 同级写入 `messages` 表，通过 linkage 关联：
+
+| 字段 | 说明 |
+|------|------|
+| `anchorMessageId` | 父 lead assistant 消息 id |
+| `traceId` | `{taskId}:{agentId}`，对应 `agentTrace.id` |
+| `taskId` | supervisor / run_subagent 任务 id |
+| `spawnDepth` | 嵌套深度 |
+| `contextState.included` | 默认 `false`，不进 lead LLM 上下文 |
+
+**`agentTrace` 退化方案**：仅存索引（`id`、`status`、`detail`、`depth`、`collapsed`、`userExpanded`）；详细执行过程从 scoped 子消息读取。`session` 字段仅兼容旧数据。
+
+**恢复**：`init_sub_agent_session` 从 DB 加载同 `anchorMessageId` + `traceId` 的 scoped transcript 重建 `local_history`（P1 续跑）。
+
 | 项 | 改动 |
 |----|------|
 | `AgentTrace.depth` | 现为固定 `1`；改为实际 `spawn_depth`（1、2、3…） |
@@ -161,7 +200,7 @@ You are sub-agent depth {d}/{max}. …
 
 | 文件 | 要点 |
 |------|------|
-| `tools/prompts/run_subagent.md` | `goal`/`context`；深度限制说明；删除 instruction |
+| `tools/prompts/run_subagent.md` | `goal`/`context`；深度限制；**Goal authoring**（explore / computer / coder）；删除 instruction |
 | `agents/coder/prompts/delegation.md` | Goal/Context 模板；何时子 coder 可再委派 explore |
 | `agents/supervisor/AGENT.md` | `goal` + `context`；深度默认 1 |
 | `agents/explore/AGENT.md` | 明确 leaf（无 allowAgents） |

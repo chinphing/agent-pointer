@@ -56,6 +56,7 @@ pub(crate) struct WebSearchDispatchContext<'a> {
     pub invoke: WebSearchInvokeContext<'a>,
     pub token_sink: WebSearchTokenSink<'a>,
     pub trace_id: Option<String>,
+    pub scoped_message_id: Option<String>,
 }
 
 /// Execute `web_search` (Tool or ResearchSubAgent mode) and record tokens.
@@ -68,6 +69,7 @@ pub(crate) async fn dispatch(ctx: WebSearchDispatchContext<'_>) -> Result<WebSea
         message_id: ctx.message_id.clone(),
         tool_call_id: ctx.tool_call_id.clone(),
         trace_id: ctx.trace_id.clone(),
+        scoped_message_id: ctx.scoped_message_id.clone(),
         citation_base_index,
     };
 

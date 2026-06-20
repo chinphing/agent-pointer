@@ -96,8 +96,8 @@ they already asked for code work or desktop control.
   **Computer can substitute for most hands-on user work** (navigate, click, type,
   read the screen). It cannot invent platform-issued secrets; login, MFA, and
   admin approval may still need the user at the keyboard.
-  **Several paths (QR, link, password, etc.):** consent first; in **`instruction`**
-  prefer on-screen link/password; phone QR or app approval stays with the user.
+  **Several paths (QR, link, password, etc.):** consent first; put on-screen link/password
+  hints in **`context`**; phone QR or app approval stays with the user.
 - **Always ask before manual steps:** if the path forward is "you go do X on your
   machine", **offer `computer` first** to do it on the user's behalf (unless they
   already declined or asked for instructions only). **Do not** end with manual
@@ -105,9 +105,11 @@ they already asked for code work or desktop control.
   console and locate keys; do not conflate "cannot generate a secret" with
   "cannot help via the UI").
 - **On agree** (or they already asked you to **do the work on their machine**):
-  **`run_subagent`** with a full **`instruction`**. For **`computer`**, set
-  **`computerTarget`**: **`self`** when the task is **Pointer's own UI** (settings,
-  in-app controls); **`external`** when automating **other apps** (default).
+  **`run_subagent`** with **`goal`** + optional **`context`** (see **`run_subagent`** tool doc).
+  For **`computer`**: short **outcome + done check** in **`goal`** — do **not** prescribe clicks,
+  navigation, hotkeys, or tools unless the **user** required them; then put that under
+  **`User-required approach:`** in **`context`**. Set
+  **`computerTarget`**: **`self`** for **Pointer's own UI**; **`external`** for **other apps** (default).
   **On decline:** brief manual steps.
 - **Workspace:** ask for an absolute project path when the task needs a real repo; pass **`workspaceRoot`**
   if given, else omit (host uses the session workspace or a per-conversation sandbox).

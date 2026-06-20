@@ -20,6 +20,8 @@ use super::sub_agent_task_prompt::{
 };
 use crate::task_board::sub_agent_hint::sub_agent_task_board_init_hint;
 use crate::task_board::sub_agent_task_board_store_key;
+use super::emit::agent_trace_step_id;
+use super::sub_message::{load_scoped_transcript, persist_sub_message, SubMessageLinkage};
 use super::util::{new_id, now_ms};
 
 pub(super) struct SubAgentSession {
@@ -47,6 +49,7 @@ pub(super) fn init_sub_agent_session(
     state: &AppState,
     provider: &OpenAIProvider,
     conversation_id: &str,
+    anchor_message_id: &str,
     parent_task_board_store_key: &str,
     task: &AgentTask,
     enabled_skill_ids: &[String],
@@ -144,31 +147,60 @@ pub(super) fn init_sub_agent_session(
             &allowed_tools,
         );
     let tool_approval_mode = state.effective_settings().tool_approval_mode;
-    let local_history = vec![ChatMessage {
-        id: new_id("sub_task"),
-        role: Role::User,
-        content: build_subagent_initial_user_message(),
-        status: "done".into(),
-        created_at: now_ms(),
-        tool_calls: None,
-        tool_call_id: None,
-        error_message: None,
-        reasoning: None,
-        thoughts: None,
-        headline: None,
-        raw_content: None,
-        tool_raw_output: None,
-        agent_id: None,
-        agent_instance_id: None,
-        agent_name: None,
-        agent_trace: None,
-        image_slot_labels: None,
-        images_base64: None,
-        computer_round_screen_rel_path: None,
-        ui_bindings: None,
-        context_state: None,
-        attachments: None,
-    }];
+    let linkage = SubMessageLinkage {
+        anchor_message_id: anchor_message_id.to_string(),
+        trace_id: agent_trace_step_id(&task.id, &task.agent_id),
+        task_id: task.id.clone(),
+        spawn_depth,
+    };
+    let local_history = match load_scoped_transcript(conversation_id, &linkage) {
+        Ok(rows) if !rows.is_empty() => {
+            log::info!(
+                "sub_agent: resumed scoped transcript conversation_id={} trace_id={} messages={}",
+                conversation_id,
+                linkage.trace_id,
+                rows.len()
+            );
+            rows
+        }
+        _ => {
+            let stub = ChatMessage {
+                id: new_id("sub_task"),
+                role: Role::User,
+                content: build_subagent_initial_user_message(),
+                status: "done".into(),
+                created_at: now_ms(),
+                tool_calls: None,
+                tool_call_id: None,
+                error_message: None,
+                reasoning: None,
+                thoughts: None,
+                headline: None,
+                raw_content: None,
+                tool_raw_output: None,
+                agent_id: None,
+                agent_instance_id: None,
+                agent_name: None,
+                agent_trace: None,
+                image_slot_labels: None,
+                images_base64: None,
+                computer_round_screen_rel_path: None,
+                ui_bindings: None,
+                context_state: None,
+                attachments: None,
+                anchor_message_id: None,
+                trace_id: None,
+                task_id: None,
+                spawn_depth: None,
+            };
+            persist_sub_message(conversation_id, &linkage, &stub);
+            vec![{
+                let mut stamped = stub;
+                linkage.stamp(&mut stamped);
+                stamped
+            }]
+        }
+    };
 
     Ok(SubAgentSession {
         def,

@@ -225,6 +225,10 @@ async fn run_background_review(
             ui_bindings: None,
             context_state: None,
             attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
         });
 
         for tc in &out.tool_calls {
@@ -292,6 +296,10 @@ async fn run_background_review(
                 ui_bindings: None,
                 context_state: None,
                 attachments: None,
+                anchor_message_id: None,
+                trace_id: None,
+                task_id: None,
+                spawn_depth: None,
             });
         }
     }
@@ -425,6 +433,10 @@ fn review_user_message(kind: ReviewKind, enabled_skill_ids: &[String]) -> ChatMe
         ui_bindings: None,
         context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
     }
 }
 
@@ -489,6 +501,10 @@ mod tests {
             ui_bindings: None,
             context_state: None,
             attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
         }
     }
 

@@ -50,12 +50,14 @@ export interface StreamHandlerContext {
     messageId: string,
     toolCallId: string,
     status: ToolCall['status'],
-    traceId?: string
+    traceId?: string,
+    scopedMessageId?: string
   ): void
   syncTerminalLivePopupOutput(
     messageId: string,
     toolCallId: string,
-    traceId?: string
+    traceId?: string,
+    scopedMessageId?: string
   ): void
 
   scheduleDesktopNoticeRemoval(conversationId: string, messageId: string): void

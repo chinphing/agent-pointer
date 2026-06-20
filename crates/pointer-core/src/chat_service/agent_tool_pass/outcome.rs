@@ -16,7 +16,11 @@ pub(super) async fn record_tool_exec_outcome(
     duration: u64,
     trace_id: Option<&str>,
 ) {
-    let persist_transcript = ctx.persist_transcript();
+    let persist = &ctx.persist;
+    let scoped_message_id = ctx
+        .sub
+        .as_ref()
+        .map(|s| s.scoped_message_id.as_str());
     let conversation_id = ctx.session.conversation_id;
     let message_id = ctx.message_id.as_str();
     let stream = ctx.session.stream;
@@ -51,18 +55,31 @@ pub(super) async fn record_tool_exec_outcome(
             let display = state.tools.format_display(&tc.name, args_for_desktop_log);
             let (display_label, display_summary) =
                 super::super::util::tool_display_stream_fields(&display);
+            let status = if ok { "success" } else { "failed" };
+            super::super::util::patch_assistant_tool_call_outcome(
+                ctx.transcript.history,
+                message_id,
+                &tc.id,
+                status,
+                Some(preview.as_str()),
+                err_note.as_deref(),
+                Some(duration),
+                display_label.as_deref(),
+                display_summary.as_deref(),
+            );
             emit(
                 stream,
                 StreamEvent::ToolCallStatus {
                     message_id: message_id.to_string(),
                     tool_call_id: tc.id.clone(),
-                    status: if ok { "success".into() } else { "failed".into() },
+                    status: status.into(),
                     result: Some(preview),
                     error: err_note,
                     duration_ms: Some(duration),
                     display_label,
                     display_summary,
                     trace_id: trace_id_opt(trace_id),
+                    scoped_message_id: trace_id_opt(scoped_message_id),
                 },
             );
             append_assistant_tool_raw_output(
@@ -73,6 +90,14 @@ pub(super) async fn record_tool_exec_outcome(
                 args_for_desktop_log,
                 &out,
             );
+            if let super::super::context::TranscriptPersist::SubLinked(linkage) = persist {
+                super::super::sub_message::persist_scoped_assistant_snapshot(
+                    conversation_id,
+                    linkage,
+                    ctx.transcript.history,
+                    message_id,
+                );
+            }
             let settings = ctx.session.state.effective_settings();
             super::super::computer_monitor_follow::maybe_auto_switch_capture_monitor_after_tool(
                 ctx.session.stream,
@@ -89,7 +114,7 @@ pub(super) async fn record_tool_exec_outcome(
                 message_id,
                 &tc.id,
                 &out,
-                persist_transcript,
+                persist,
             );
         }
         Err(e) => {
@@ -113,7 +138,19 @@ pub(super) async fn record_tool_exec_outcome(
                     display_label: None,
                     display_summary: None,
                     trace_id: trace_id_opt(trace_id),
+                    scoped_message_id: trace_id_opt(scoped_message_id),
                 },
+            );
+            super::super::util::patch_assistant_tool_call_outcome(
+                ctx.transcript.history,
+                message_id,
+                &tc.id,
+                "failed",
+                None,
+                Some(err.as_str()),
+                Some(duration),
+                None,
+                None,
             );
             let error_out = format!("ERROR: {err}");
             append_assistant_tool_raw_output(
@@ -124,13 +161,21 @@ pub(super) async fn record_tool_exec_outcome(
                 args_for_desktop_log,
                 &error_out,
             );
+            if let super::super::context::TranscriptPersist::SubLinked(linkage) = persist {
+                super::super::sub_message::persist_scoped_assistant_snapshot(
+                    conversation_id,
+                    linkage,
+                    ctx.transcript.history,
+                    message_id,
+                );
+            }
             super::super::util::push_tool_result(
                 ctx.transcript.history,
                 conversation_id,
                 message_id,
                 &tc.id,
                 &error_out,
-                persist_transcript,
+                persist,
             );
         }
     }

@@ -200,6 +200,9 @@ pub fn message_index_content(msg: &ChatMessage) -> String {
 
 pub fn conversation_preview(messages: &[ChatMessage]) -> String {
     for msg in messages {
+        if crate::models::is_scoped_sub_message(msg) {
+            continue;
+        }
         if matches!(msg.role, Role::User) {
             let t = msg.content.trim();
             if !t.is_empty() {
@@ -208,6 +211,9 @@ pub fn conversation_preview(messages: &[ChatMessage]) -> String {
         }
     }
     for msg in messages {
+        if crate::models::is_scoped_sub_message(msg) {
+            continue;
+        }
         if matches!(msg.role, Role::Assistant) {
             let t = msg.content.trim();
             if !t.is_empty() {
@@ -299,5 +305,9 @@ pub fn msg(id: &str, role: Role, content: &str, created_at: i64) -> ChatMessage 
         ui_bindings: None,
         context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
     }
 }

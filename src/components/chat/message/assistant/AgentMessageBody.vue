@@ -75,6 +75,11 @@ const replyMediaAttachments = computed(() =>
 )
 
 const markdownSource = computed(() => {
+  if (props.hideResponse) {
+    const draft = props.body.responseTextDraft?.trim()
+    if (draft && isContentStreaming.value) return stripOutboundMediaMarkers(draft)
+    return ''
+  }
   let raw = ''
   if (showMainMarkdownBody.value) raw = props.body.content ?? ''
   else if (hideStreamingJsonEnvelopeMarkdown.value || isStreamingResponseDraft.value)

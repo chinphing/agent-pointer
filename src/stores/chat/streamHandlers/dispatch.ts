@@ -5,6 +5,7 @@ import {
   handleContextCompressionApplied,
   handleContextTrimApplied
 } from './contextHandlers'
+import { handleSubMessageStart } from './subMessageHandlers'
 import {
   handleAssistantJsonPartial,
   handleDelta,
@@ -57,6 +58,9 @@ export function dispatchStreamEvent(ctx: StreamHandlerContext, e: StreamEvent): 
       break
     case 'tool_rounds_exhausted':
       handleToolRoundsExhausted(ctx, e)
+      break
+    case 'sub_message_start':
+      handleSubMessageStart(ctx, e)
       break
     case 'message_start':
       handleMessageStart(ctx, e)

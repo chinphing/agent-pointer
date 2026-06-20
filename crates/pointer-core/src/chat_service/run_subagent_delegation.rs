@@ -13,6 +13,22 @@ use super::emit::{agent_trace_step_id, emit, emit_agent_step};
 use super::session_budget::SessionToolBudget;
 use super::util::{new_id, truncate_str};
 
+fn emit_subagent_trace_step(
+    stream: &super::StreamTx,
+    ctx: &mut super::context::SubagentDelegationContext<'_>,
+    agent: AgentTrace,
+) {
+    emit_agent_step(stream, ctx.message_id, ctx.agent_trace, agent);
+    if let Some(history) = ctx.history.as_deref_mut() {
+        super::sub_message::sync_anchor_agent_trace_index(
+            ctx.session.conversation_id,
+            history,
+            ctx.message_id,
+            ctx.agent_trace,
+        );
+    }
+}
+
 pub(super) async fn run_subagent_delegation(
     ctx: &mut super::context::SubagentDelegationContext<'_>,
 ) -> Result<(String, bool, Option<String>), anyhow::Error> {
@@ -159,11 +175,13 @@ pub(super) async fn run_subagent_delegation(
                             depth: Some(child_spawn_depth),
                             session: None,
                             computer_target,
+                        collapsed: false,
+                        user_expanded: false,
+
                         };
-                    emit_agent_step(
+                    emit_subagent_trace_step(
                         stream,
-                        message_id,
-                        ctx.agent_trace,
+                        ctx,
                         make_trace("running", Some(detail)),
                     );
                     let sub_cap = provider
@@ -205,10 +223,9 @@ pub(super) async fn run_subagent_delegation(
                                 log::warn!("run_subagent result serialize failed: {e}");
                                 r#"{"error":"serialize_failed"}"#.to_string()
                             });
-                            emit_agent_step(
+                            emit_subagent_trace_step(
                                 stream,
-                                message_id,
-                                ctx.agent_trace,
+                                ctx,
                                 make_trace(
                                     "completed",
                                     Some(truncate_str(&result.content, 160)),
@@ -221,10 +238,9 @@ pub(super) async fn run_subagent_delegation(
                                 "run_subagent failed conversation_id={}: {e:#}",
                                 conversation_id
                             );
-                            emit_agent_step(
+                            emit_subagent_trace_step(
                                 stream,
-                                message_id,
-                                ctx.agent_trace,
+                                ctx,
                                 make_trace("failed", Some(e.to_string())),
                             );
                             Ok((format!("ERROR: {e}"), false, None))

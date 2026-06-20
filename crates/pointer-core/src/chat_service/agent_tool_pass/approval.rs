@@ -27,6 +27,11 @@ pub(super) async fn run_approval_gate(
         return Ok(true);
     }
 
+    let scoped_message_id = ctx
+        .sub
+        .as_ref()
+        .map(|s| s.scoped_message_id.as_str());
+
     emit(
         ctx.session.stream,
         StreamEvent::ToolCallStatus {
@@ -39,6 +44,7 @@ pub(super) async fn run_approval_gate(
             display_label: None,
             display_summary: None,
             trace_id: trace_id_opt(trace_id),
+            scoped_message_id: trace_id_opt(scoped_message_id),
         },
     );
     let (atx, arx) = oneshot::channel::<bool>();
@@ -70,6 +76,7 @@ pub(super) async fn run_approval_gate(
             display_label: None,
             display_summary: None,
             trace_id: trace_id_opt(trace_id),
+            scoped_message_id: trace_id_opt(scoped_message_id),
         },
     );
     super::super::util::push_tool_result(
@@ -78,7 +85,7 @@ pub(super) async fn run_approval_gate(
         &ctx.message_id,
         &tc.id,
         &err,
-        ctx.persist_transcript(),
+        &ctx.persist,
     );
     Ok(false)
 }

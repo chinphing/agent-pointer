@@ -43,6 +43,7 @@ pub(super) async fn dispatch_web_search(
     };
     let agent_id = sub.as_ref().map(|s| s.def.id.as_str()).or(lead_agent_id);
     let trace_id = sub.as_ref().map(|s| s.trace_id.clone());
+    let scoped_message_id = sub.as_ref().map(|s| s.scoped_message_id.clone());
     dispatch_to_tool_json_async(WebSearchDispatchContext {
         settings: &provider.settings,
         agent_id,
@@ -56,6 +57,7 @@ pub(super) async fn dispatch_web_search(
         invoke,
         token_sink,
         trace_id,
+        scoped_message_id,
     })
     .await
 }

@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
-import type { ChatMessage, ToolCall } from '../../../../types/chat'
+import type { AgentTrace, ChatMessage, ToolCall } from '../../../../types/chat'
 import { useSettingsStore } from '../../../../stores/settings'
 import { useChatStore } from '../../../../stores/chat'
 import { shouldShowSubAgentTrace, uiForSubAgentFrame } from '../../../../lib/agentUi'
 import { useAgentsCatalog, uiForMessageAgent } from '../../../../composables/useAgentUi'
 import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
 import { subTracesForMessage } from '../../../../lib/subAgentSession'
-import { subTaskIdFromTraceId } from '../../../../lib/subAgentStats'
+import { isTaskBoardTerminal } from '../../../../stores/chat/taskBoard'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import SubAgentFrame from './SubAgentFrame.vue'
 import ModelThoughtPanels from './ModelThoughtPanels.vue'
+import TaskBoardPanel from '../../TaskBoardPanel.vue'
 
 const props = defineProps<{
   message: ChatMessage
@@ -53,14 +54,32 @@ function subTraceUi(trace: (typeof subTraces.value)[number]) {
 const thoughtsDebugEnabled = computed(() => false)
 
 const chatStore = useChatStore()
-const { generating, activeGeneratingMessageId } = storeToRefs(chatStore)
+const { generating, activeGeneratingMessageId, taskBoards } = storeToRefs(chatStore)
 
-function childTaskBoardForTrace(traceId: string) {
-  const convId = chatStore.currentId
-  if (!convId) return null
-  const taskId = subTaskIdFromTraceId(traceId)
-  if (!taskId) return null
-  return chatStore.lookupChildTaskBoard(convId, taskId, props.message.id)
+const conversationMessages = computed(() => chatStore.current?.messages ?? [])
+
+const childBoardByTraceId = computed(() => {
+  void taskBoards.value
+  const out = new Map<
+    string,
+    { storeKey: string; document: import('../../../../types/chat').TaskBoardDocument; isActive: boolean }
+  >()
+  for (const trace of subTraces.value) {
+    const binding = chatStore.childBoardBindingForTrace(
+      chatStore.currentId,
+      trace.id,
+      props.message.id
+    )
+    if (binding) out.set(trace.id, binding)
+  }
+  return out
+})
+
+function childBoardStickyClass(trace: AgentTrace): string {
+  const doc = childBoardByTraceId.value.get(trace.id)?.document
+  return isTaskBoardTerminal(doc?.meta?.status)
+    ? ''
+    : 'sticky top-0 z-20 bg-background/95 backdrop-blur-sm'
 }
 
 const isActiveGenerationMessage = computed(
@@ -119,19 +138,35 @@ const showSupervisorPlan = computed(
       :trailing-tool-groups="trailingToolGroups"
     />
 
-    <SubAgentFrame
+    <template
       v-for="trace in subTraces"
-      v-show="showSubAgentTrace"
       :key="trace.id"
-      :trace="trace"
-      :message-ui="subTraceUi(trace)"
-      :created-at="message.createdAt"
-      :thoughts-debug-enabled="thoughtsDebugEnabled"
-      :generating="generating"
-      :is-active-generation-message="isActiveGenerationMessage"
-      :show-message-actions="showMessageActions"
-      :child-task-board-document="childTaskBoardForTrace(trace.id)"
-    />
+    >
+      <div
+        v-if="childBoardByTraceId.get(trace.id)"
+        v-show="showSubAgentTrace"
+        class="task-board-sticky mb-1 flex justify-start py-1"
+        :class="childBoardStickyClass(trace)"
+      >
+        <TaskBoardPanel
+          :document="childBoardByTraceId.get(trace.id)!.document"
+          :is-active="childBoardByTraceId.get(trace.id)!.isActive"
+        />
+      </div>
+
+      <SubAgentFrame
+        v-show="showSubAgentTrace"
+        :trace="trace"
+        :anchor-message-id="message.id"
+        :messages="conversationMessages"
+        :message-ui="subTraceUi(trace)"
+        :created-at="message.createdAt"
+        :thoughts-debug-enabled="thoughtsDebugEnabled"
+        :generating="generating"
+        :is-active-generation-message="isActiveGenerationMessage"
+        :show-message-actions="showMessageActions"
+      />
+    </template>
 
   </div>
 </template>

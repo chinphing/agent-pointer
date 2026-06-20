@@ -11,6 +11,7 @@ pub struct WebSearchStreamUi {
     pub message_id: String,
     pub tool_call_id: String,
     pub trace_id: Option<String>,
+    pub scoped_message_id: Option<String>,
     /// Added to streamed source indices so UI matches multi-search global numbering.
     pub citation_base_index: u32,
 }
@@ -36,6 +37,7 @@ impl WebSearchStreamUi {
                 tool_call_id: self.tool_call_id.clone(),
                 text: text.to_string(),
                 trace_id: self.trace_id.clone(),
+                scoped_message_id: self.scoped_message_id.clone(),
             },
         );
     }
@@ -65,6 +67,7 @@ impl WebSearchStreamUi {
                 sources: display_sources.iter().map(to_entry).collect(),
                 search_count,
                 trace_id: self.trace_id.clone(),
+                scoped_message_id: self.scoped_message_id.clone(),
             },
         );
     }

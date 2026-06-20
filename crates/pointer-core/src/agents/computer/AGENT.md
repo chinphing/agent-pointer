@@ -1,7 +1,7 @@
 ---
 id: computer
 name: computer-use
-description: "Vision-driven desktop agent: screenshots, mouse/keyboard, and app tools. Prefer launch_app over Spotlight/launcher UI to open or switch installed apps."
+description: "Vision-driven desktop agent: screenshots, mouse/keyboard, and app tools. Delegated goals should state outcome + done check only; worker chooses how to act on screen."
 role: worker
 profile: computer
 enabled: true

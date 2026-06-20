@@ -17,6 +17,7 @@ import {
 } from '../../lib/assistantMessageKind'
 import { findLastRealUserMessage } from '../../lib/messageContext'
 import { isToolRunContinuityGlue, shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
+import { isScopedSubMessage } from '../../lib/subAgentMessages'
 
 const chat = useChatStore()
 const settings = useSettingsStore()
@@ -101,6 +102,7 @@ function shouldShowThreadGlue(message: ChatMessage): boolean {
 }
 
 const flatMessages = computed<FlatEntry[]>(() => {
+  void chat.taskBoards
   const msgs = chat.current?.messages ?? []
   const entries: FlatEntry[] = []
   const convId = chat.currentId
@@ -134,6 +136,7 @@ const flatMessages = computed<FlatEntry[]>(() => {
   }
 
   for (const message of msgs) {
+    if (isScopedSubMessage(message)) continue
     if (isEphemeralDesktopNoticeMessage(message)) {
       flushToolRun()
       entries.push({ type: 'message', message })

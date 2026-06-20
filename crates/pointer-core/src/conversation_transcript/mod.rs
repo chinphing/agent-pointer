@@ -339,6 +339,10 @@ mod tests {
             ui_bindings: None,
             context_state: None,
             attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
         }
     }
 
@@ -369,6 +373,10 @@ mod tests {
                 ui_bindings: None,
                 context_state: None,
                 attachments: None,
+                anchor_message_id: None,
+                trace_id: None,
+                task_id: None,
+                spawn_depth: None,
             },
             assistant_with_call("a1", "call_a"),
         ];
@@ -405,6 +413,10 @@ mod tests {
                 ui_bindings: None,
                 context_state: None,
                 attachments: None,
+                anchor_message_id: None,
+                trace_id: None,
+                task_id: None,
+                spawn_depth: None,
             },
             reconcile::tool_result_message("call_orphan", "stale"),
         ];

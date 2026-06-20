@@ -62,6 +62,9 @@ pub(crate) async fn run_supervisor_chat(
             depth: Some(0),
             session: None,
             computer_target: None,
+        collapsed: false,
+        user_expanded: false,
+
         },
     );
 
@@ -177,6 +180,8 @@ pub(crate) async fn run_supervisor_chat(
                 content: Some(String::new()),
                 depth: Some(1),
                 session: None,
+                collapsed: false,
+                user_expanded: false,
                 computer_target,
             },
         );
@@ -313,6 +318,9 @@ pub(crate) async fn run_supervisor_chat(
                         depth: Some(1),
                         session: None,
                         computer_target,
+                    collapsed: false,
+                    user_expanded: false,
+
                     },
                 );
                 results.push(result);
@@ -353,6 +361,9 @@ pub(crate) async fn run_supervisor_chat(
                         depth: Some(1),
                         session: None,
                         computer_target,
+                    collapsed: false,
+                    user_expanded: false,
+
                     },
                 );
             }
@@ -373,6 +384,9 @@ pub(crate) async fn run_supervisor_chat(
             depth: Some(0),
             session: None,
             computer_target: None,
+        collapsed: false,
+        user_expanded: false,
+
         },
     );
 
@@ -422,6 +436,10 @@ pub(crate) async fn run_supervisor_chat(
         ui_bindings: None,
         context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
     };
     ctx.history.push(final_msg.clone());
     super::conversation_persist::upsert_message(conversation_id, &final_msg);
@@ -435,6 +453,7 @@ pub(crate) async fn run_supervisor_chat(
             thoughts: None,
             headline: None,
             trace_id: None,
+            scoped_message_id: None,
             attachments: None,
         },
     );

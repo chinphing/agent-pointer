@@ -1,48 +1,44 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ChevronDown, ChevronRight, Code } from 'lucide-vue-next'
-import type { AgentTrace, TaskBoardDocument } from '../../../../types/chat'
+import type { AgentTrace, ChatMessage } from '../../../../types/chat'
 import { traceAgentLabel, type ResolvedAgentUi } from '../../../../lib/agentUi'
 import {
-  emptySubAgentToolStats,
   formatSubAgentSummaryLine,
   subAgentIdFromTraceId,
   subAgentStatusLabel
 } from '../../../../lib/subAgentStats'
 import {
+  buildSubAgentBodyModelsFromScoped,
+  buildToolRawArgsFromMessages,
+  computeSubAgentStatsFromMessages,
+  latestSubAgentBodyModelFromScoped,
+  scopedAssistantMessagesForTrace,
+  scopedMessagesForTrace,
+  subTraceHasVisibleActivityFromMessages
+} from '../../../../lib/subAgentMessages'
+import {
   subTraceHasVisibleActivity,
   isSubTraceUiCollapsed,
-  ensureSubTraceSession
+  toggleSubTraceExpanded
 } from '../../../../lib/subAgentSession'
+import { thinkingLabel, streamedCharCountFromBody } from '../../../../lib/thinkingIndicator'
 import { useSettingsStore } from '../../../../stores/settings'
 import { useAgentsCatalog } from '../../../../composables/useAgentUi'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import RawWirePanel from './RawWirePanel.vue'
-import TaskBoardPanel from '../../TaskBoardPanel.vue'
-import { hasTaskBoardContent } from '../../../../lib/taskBoard'
-import { toolCallBaseName } from '../../../../lib/messageTooling'
 
 const props = defineProps<{
   trace: AgentTrace
+  anchorMessageId: string
+  messages: ChatMessage[]
   messageUi: ResolvedAgentUi
   createdAt: number
   thoughtsDebugEnabled?: boolean
   generating: boolean
   isActiveGenerationMessage: boolean
   showMessageActions?: boolean
-  childTaskBoardDocument?: TaskBoardDocument | null
 }>()
-
-const childBoard = computed(() =>
-  props.childTaskBoardDocument && hasTaskBoardContent(props.childTaskBoardDocument)
-    ? props.childTaskBoardDocument
-    : null
-)
-
-const childBoardActive = computed(() => {
-  const status = (childBoard.value?.meta?.status ?? '').trim()
-  return status !== 'completed' && status !== 'failed'
-})
 
 const settingsStore = useSettingsStore()
 const agentsCatalog = useAgentsCatalog()
@@ -51,77 +47,159 @@ const traceLabel = computed(() =>
 )
 const rawContentViewEnabled = computed(() => settingsStore.settings.rawContentViewEnabled === true)
 
-const session = computed(() => props.trace.session)
+const scopedMessages = computed(() =>
+  scopedAssistantMessagesForTrace(props.messages, props.anchorMessageId, props.trace.id)
+)
+
+const scopedTraceMessages = computed(() =>
+  scopedMessagesForTrace(props.messages, props.anchorMessageId, props.trace.id)
+)
+
+const legacySession = computed(() => props.trace.session)
 
 const isRunning = computed(() => props.trace.status === 'running')
 
 const collapsed = computed(() => isSubTraceUiCollapsed(props.trace))
 
+const hasVisibleActivity = computed(() => {
+  if (scopedMessages.value.length > 0) {
+    return subTraceHasVisibleActivityFromMessages(scopedMessages.value)
+  }
+  return subTraceHasVisibleActivity(props.trace)
+})
+
+const latestStreamBody = computed((): AgentMessageBodyModel | null => {
+  const scoped = latestSubAgentBodyModelFromScoped(
+    props.messages,
+    props.anchorMessageId,
+    props.trace.id,
+    props.trace.status
+  )
+  if (scoped) return scoped
+  const s = legacySession.value
+  if (!s) return null
+  return {
+    thoughts: s.thoughts,
+    toolNamePreview: s.toolNamePreview,
+    responseTextDraft: s.responseTextDraft,
+    reasoning: s.reasoning,
+    rawContent: s.rawContent,
+    content: undefined,
+    contentStreaming: s.contentStreaming === true,
+    toolCalls: s.toolCalls,
+    status: props.trace.status === 'failed' ? 'error' : isRunning.value ? 'streaming' : 'done',
+    createdAt: props.createdAt
+  }
+})
+
+function scopedHasInProgressTools(messages: ChatMessage[]): boolean {
+  for (const msg of messages.filter(m => m.role === 'assistant')) {
+    for (const tc of msg.toolCalls ?? []) {
+      if (tc.status === 'running' || tc.status === 'pending' || tc.status === 'pending_approval') {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+const showThinkingInSummary = computed(() => {
+  if (!isRunning.value) return false
+  if (scopedHasInProgressTools(scopedTraceMessages.value)) return false
+  const body = latestStreamBody.value
+  if (body?.toolNamePreview?.trim()) return false
+  if ((body?.toolCalls?.length ?? 0) > 0) return false
+  const streaming =
+    body?.status === 'streaming'
+    || body?.contentStreaming === true
+  if (streaming) return true
+  return props.generating && props.isActiveGenerationMessage
+})
+
 const summaryLine = computed(() => {
-  if (isRunning.value && !subTraceHasVisibleActivity(props.trace)) {
+  if (showThinkingInSummary.value) {
+    const chars = latestStreamBody.value ? streamedCharCountFromBody(latestStreamBody.value) : 0
+    return `${traceLabel.value} · ${thinkingLabel(chars)}`
+  }
+  if (isRunning.value && !hasVisibleActivity.value) {
     return `${traceLabel.value} · ${subAgentStatusLabel(props.trace.status)}…`
   }
+  const stats =
+    scopedTraceMessages.value.length > 0
+      ? computeSubAgentStatsFromMessages(scopedTraceMessages.value)
+      : (legacySession.value?.stats ?? { searchCount: 0, readCount: 0 })
   return formatSubAgentSummaryLine(
     traceLabel.value,
     props.trace.status,
-    session.value?.stats ?? emptySubAgentToolStats(),
+    stats,
     subAgentIdFromTraceId(props.trace.id)
   )
 })
 
-const bodyModel = computed((): AgentMessageBodyModel => {
-  const s = session.value
-  return {
-    thoughts: s?.thoughts,
-    toolNamePreview: s?.toolNamePreview,
-    responseTextDraft: s?.responseTextDraft,
-    reasoning: s?.reasoning,
-    rawContent: s?.rawContent,
-    content: undefined,
-    contentStreaming: s?.contentStreaming === true,
-    toolCalls: s?.toolCalls,
-    status: props.trace.status === 'failed' ? 'error' : isRunning.value ? 'streaming' : 'done',
-    createdAt: props.createdAt,
-    errorMessage: props.trace.status === 'failed' ? props.trace.detail : undefined
-  }
+const bodyModels = computed((): AgentMessageBodyModel[] => {
+  const scoped = buildSubAgentBodyModelsFromScoped(
+    props.messages,
+    props.anchorMessageId,
+    props.trace.id,
+    props.trace.status
+  )
+  if (scoped.length > 0) return scoped
+  const s = legacySession.value
+  if (!s) return []
+  return [
+    {
+      thoughts: s.thoughts,
+      toolNamePreview: s.toolNamePreview,
+      responseTextDraft: s.responseTextDraft,
+      reasoning: s.reasoning,
+      rawContent: s.rawContent,
+      content: undefined,
+      contentStreaming: s.contentStreaming === true,
+      toolCalls: s.toolCalls,
+      status: props.trace.status === 'failed' ? 'error' : isRunning.value ? 'streaming' : 'done',
+      createdAt: props.createdAt,
+      errorMessage: props.trace.status === 'failed' ? props.trace.detail : undefined
+    }
+  ]
 })
 
 const subFrameActive = computed(
   () => props.generating && props.isActiveGenerationMessage && isRunning.value
 )
 
-function formatToolArgs(raw: string | undefined): string {
-  const text = (raw ?? '').trim()
-  if (!text) return '(empty)'
-  try {
-    const parsed = JSON.parse(text)
-    return JSON.stringify(parsed, null, 2)
-  } catch {
-    return text
+const activeBodyIndex = computed(() => Math.max(0, bodyModels.value.length - 1))
+
+const toolRawArgs = computed(() => {
+  if (scopedMessages.value.length > 0) {
+    return buildToolRawArgsFromMessages(scopedMessages.value)
   }
-}
-
-function buildSessionToolRawArgs() {
-  const calls = session.value?.toolCalls
+  const calls = legacySession.value?.toolCalls
   if (!calls?.length) return ''
-  return calls
-    .filter(tc => toolCallBaseName(tc.name) !== 'response')
-    .map(tc => {
-      const args = formatToolArgs(tc.arguments)
-      return `[tool:${tc.name} id:${tc.id}]\n${args}`
-    })
-    .join('\n\n')
-}
-
-const toolRawArgs = computed(() => buildSessionToolRawArgs())
+  return buildToolRawArgsFromMessages([{ id: '', role: 'assistant', content: '', status: 'done', createdAt: 0, toolCalls: calls }])
+})
 
 const hasRawWire = computed(() => {
   if (!rawContentViewEnabled.value) return false
-  const s = session.value
+  if (scopedMessages.value.length > 0) {
+    const reasoning = scopedMessages.value.some(m => (m.reasoning?.trim() ?? '').length > 0)
+    const raw = scopedMessages.value.some(m => (m.rawContent?.trim() ?? '').length > 0)
+    return reasoning || raw || toolRawArgs.value.trim().length > 0
+  }
+  const s = legacySession.value
   const reasoning = s?.reasoning?.trim() ?? ''
   const raw = s?.rawContent?.trim() ?? ''
   return reasoning.length > 0 || raw.length > 0 || toolRawArgs.value.trim().length > 0
 })
+
+const rawWireReasoning = computed(() =>
+  scopedMessages.value.map(m => m.reasoning?.trim()).filter(Boolean).join('\n\n')
+    || legacySession.value?.reasoning
+)
+
+const rawWireContent = computed(() =>
+  scopedMessages.value.map(m => m.rawContent?.trim()).filter(Boolean).join('\n\n')
+    || legacySession.value?.rawContent
+)
 
 const showRawWire = ref(false)
 
@@ -130,14 +208,7 @@ watch(rawContentViewEnabled, on => {
 })
 
 function toggleExpanded() {
-  const s = ensureSubTraceSession(props.trace)
-  if (isSubTraceUiCollapsed(props.trace)) {
-    s.userExpanded = true
-    s.collapsed = false
-  } else {
-    s.userExpanded = false
-    s.collapsed = true
-  }
+  toggleSubTraceExpanded(props.trace)
 }
 </script>
 
@@ -183,26 +254,21 @@ function toggleExpanded() {
       </div>
 
       <AgentMessageBody
-        :body="bodyModel"
+        v-for="(body, index) in bodyModels"
+        :key="`${trace.id}-${index}`"
+        :body="body"
         :message-ui="messageUi"
         hide-response
         hide-copy
         :thoughts-debug-enabled="thoughtsDebugEnabled"
         :generating="generating"
-        :is-active-generation-message="subFrameActive"
-      />
-
-      <TaskBoardPanel
-        v-if="childBoard"
-        class="mt-2"
-        :document="childBoard"
-        :is-active="childBoardActive"
+        :is-active-generation-message="subFrameActive && index === activeBodyIndex"
       />
 
       <RawWirePanel
         v-if="showRawWire && hasRawWire"
-        :reasoning="session?.reasoning"
-        :raw-content="session?.rawContent"
+        :reasoning="rawWireReasoning"
+        :raw-content="rawWireContent"
         :tool-raw-args="toolRawArgs"
         @close="showRawWire = false"
       />

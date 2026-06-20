@@ -41,6 +41,10 @@ pub fn tool_result_message(tool_call_id: &str, content: &str) -> ChatMessage {
         ui_bindings: None,
         context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
     }
 }
 

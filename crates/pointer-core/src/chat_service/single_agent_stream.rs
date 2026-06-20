@@ -100,6 +100,7 @@ pub(super) async fn run_provider_stream_round(
                         thoughts: None,
                         headline: None,
                         trace_id: None,
+                        scoped_message_id: None,
                         attachments: None,
                     },
                 );
@@ -159,6 +160,7 @@ pub(super) async fn run_provider_stream_round(
                     thoughts: None,
                     headline: None,
                     trace_id: None,
+                    scoped_message_id: None,
                     attachments: None,
                 },
             );

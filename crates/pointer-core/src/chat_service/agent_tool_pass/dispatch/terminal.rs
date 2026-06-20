@@ -54,6 +54,7 @@ pub(super) async fn run_terminal_tool(
     args_value: serde_json::Value,
     cancel: &CancellationToken,
     trace_id: Option<String>,
+    scoped_message_id: Option<String>,
     session_workspace: String,
 ) -> ToolExecResult {
     let session_workspace = resolve_terminal_session_workspace(conversation_id, session_workspace);
@@ -75,6 +76,7 @@ pub(super) async fn run_terminal_tool(
     let tc_id_for_stream = tc.id.clone();
     let stream_for_terminal = stream.clone();
     let trace_id_for_terminal = trace_id_opt(trace_id.as_deref());
+    let scoped_message_id_for_terminal = trace_id_opt(scoped_message_id.as_deref());
     let join = tokio::task::spawn_blocking(move || {
         let _workspace_guard = ConversationWorkspaceGuard::enter(session_workspace.clone());
         run_terminal_command_streaming(
@@ -86,6 +88,7 @@ pub(super) async fn run_terminal_tool(
                     tool_call_id: tc_id_for_stream.clone(),
                     output: output.to_string(),
                     trace_id: trace_id_for_terminal.clone(),
+                    scoped_message_id: scoped_message_id_for_terminal.clone(),
                 });
             },
             Some(cancel_terminal),

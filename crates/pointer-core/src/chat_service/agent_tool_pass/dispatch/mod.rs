@@ -22,7 +22,7 @@ pub(super) async fn execute_tool_invocation(
     conversation_id: &str,
     parent_task_board_store_key: &str,
     message_id: &str,
-    history: &[crate::models::ChatMessage],
+    history: &mut Vec<crate::models::ChatMessage>,
     tc: &ToolCall,
     tool_id: &str,
     args_value: serde_json::Value,
@@ -42,6 +42,7 @@ pub(super) async fn execute_tool_invocation(
                 args_value,
                 cancel,
                 sub.as_ref().map(|s| s.trace_id.clone()),
+                sub.as_ref().map(|s| s.scoped_message_id.clone()),
                 provider.settings.workspace_root.clone(),
             )
             .await
@@ -88,6 +89,7 @@ pub(super) async fn execute_tool_invocation(
                 args_value,
                 cancel,
                 stats,
+                history,
                 lead,
                 sub,
             )

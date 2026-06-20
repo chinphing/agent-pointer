@@ -2,6 +2,7 @@ import type { Ref } from 'vue'
 import type { ChatMessage, TaskBoardDocument } from '../../types/chat'
 import { findLastRealUserMessage } from '../../lib/messageContext'
 import { hasTaskBoardContent } from '../../lib/taskBoard'
+import { subTaskIdFromTraceId } from '../../lib/subAgentStats'
 
 export const TASK_BOARD_SUB_SEP = '\u{1f}ptr_sub_agent\u{1f}'
 export const TASK_BOARD_MAIN_TURN_SEP = '\u{1f}ptr_main_turn\u{1f}'
@@ -10,7 +11,7 @@ const TASK_BOARD_DEBOUNCE_MS = 300
 export interface ConversationTaskBoardState {
   parentByStoreKey: Record<string, TaskBoardDocument>
   parentBindings: Record<string, string>
-  /** Child store key → lead assistant message id. */
+  /** Child store key → sub-agent trace id (`{taskId}:{agentId}`). */
   childBindings: Record<string, string>
   activeParentStoreKey: string | null
   childrenByParentStoreKey: Record<string, Record<string, TaskBoardDocument>>
@@ -122,12 +123,18 @@ export interface TaskBoardManager {
   compactTaskBoardDocument(
     convId: string | null,
     messageId: string | null | undefined,
-    computerSubTaskId?: string | null
+    computerSubTaskId?: string | null,
+    computerTraceId?: string | null
   ): TaskBoardDocument | null
   parentBoardsBoundToMessage(
     convId: string | null,
     messageId: string
   ): Array<{ storeKey: string; document: TaskBoardDocument; isActive: boolean }>
+  childBoardBindingForTrace(
+    convId: string | null,
+    traceId: string,
+    legacyLeadMessageId?: string | null
+  ): { storeKey: string; document: TaskBoardDocument; isActive: boolean } | null
   taskBoardForConversation(convId: string | null): ConversationTaskBoardState | null
   childBoardsForParent(
     convId: string | null,
@@ -135,8 +142,8 @@ export interface TaskBoardManager {
   ): Record<string, TaskBoardDocument>
   lookupChildTaskBoard(
     convId: string | null,
-    taskId: string,
-    messageId?: string
+    traceId: string,
+    legacyLeadMessageId?: string | null
   ): TaskBoardDocument | null
 }
 
@@ -196,25 +203,71 @@ export function resolveActiveParentBoardBinding(
   }
 }
 
-/** Child board for a sub-agent trace (anchor is usually the lead assistant message id). */
+/** Child board for a sub-agent trace (anchor is trace id; optional legacy lead message id). */
 export function resolveChildTaskBoardDocument(
   entry: ConversationTaskBoardState | null | undefined,
   taskId: string,
-  messageId?: string | null
+  traceId?: string | null,
+  legacyLeadMessageId?: string | null
 ): TaskBoardDocument | null {
   if (!entry || !taskId.trim()) return null
   const tid = taskId.trim()
   for (const [parentStoreKey, group] of Object.entries(entry.childrenByParentStoreKey)) {
     const document = group[tid]
     if (!document || !hasTaskBoardContent(document)) continue
-    if (messageId?.trim()) {
-      const storeKey = childStoreKey(parentStoreKey, tid)
-      const bound = entry.childBindings?.[storeKey]
-      if (bound && bound !== messageId.trim()) continue
+    const storeKey = childStoreKey(parentStoreKey, tid)
+    const bound = entry.childBindings?.[storeKey]
+    if (bound) {
+      const trace = traceId?.trim()
+      const legacy = legacyLeadMessageId?.trim()
+      const matches =
+        (!!trace && bound === trace)
+        || (!!legacy && bound === legacy)
+      if (!matches) continue
     }
     return document
   }
   return null
+}
+
+function childStoreKeyForTask(
+  entry: ConversationTaskBoardState,
+  taskId: string
+): string | null {
+  const tid = taskId.trim()
+  if (!tid) return null
+  for (const [parentStoreKey, group] of Object.entries(entry.childrenByParentStoreKey)) {
+    const document = group[tid]
+    if (document && hasTaskBoardContent(document)) {
+      return childStoreKey(parentStoreKey, tid)
+    }
+  }
+  return null
+}
+
+/** Child task board binding for one delegated trace (MessageList / SubAgentFrame UI). */
+export function childBoardBindingForTrace(
+  entry: ConversationTaskBoardState | null | undefined,
+  traceId: string,
+  legacyLeadMessageId?: string | null
+): { storeKey: string; document: TaskBoardDocument; isActive: boolean } | null {
+  if (!entry || !traceId.trim()) return null
+  const taskId = subTaskIdFromTraceId(traceId)
+  if (!taskId) return null
+  const document = resolveChildTaskBoardDocument(
+    entry,
+    taskId,
+    traceId.trim(),
+    legacyLeadMessageId
+  )
+  if (!document) return null
+  const storeKey = childStoreKeyForTask(entry, taskId)
+  if (!storeKey) return null
+  return {
+    storeKey,
+    document,
+    isActive: !isTaskBoardTerminal(document.meta?.status)
+  }
 }
 
 /**
@@ -226,13 +279,19 @@ export function resolveCompactTaskBoardDocument(
   entry: ConversationTaskBoardState | null | undefined,
   messageId: string | null | undefined,
   /** Supervisor sub-task id only (not lead trace id `computer`). */
-  computerSubTaskId?: string | null
+  computerSubTaskId?: string | null,
+  /** Full delegated trace id (`{taskId}:{agentId}`) when known. */
+  computerTraceId?: string | null
 ): TaskBoardDocument | null {
   if (!entry) return null
   const mid = messageId?.trim() || null
   const subTaskId = computerSubTaskId?.trim()
-  const child =
-    subTaskId && mid ? resolveChildTaskBoardDocument(entry, subTaskId, mid) : null
+  const traceId = computerTraceId?.trim()
+  const child = traceId
+    ? resolveChildTaskBoardDocument(entry, subTaskIdFromTraceId(traceId), traceId, mid)
+    : subTaskId && mid
+      ? resolveChildTaskBoardDocument(entry, subTaskId, null, mid)
+      : null
   const parent = resolveActiveParentBoardDocument(entry, mid)
   if (child && !isTaskBoardTerminal(child.meta?.status)) return child
   if (parent) return parent
@@ -329,13 +388,15 @@ export function createTaskBoardManager(deps: {
   function compactTaskBoardDocument(
     convId: string | null,
     messageId: string | null | undefined,
-    computerSubTaskId?: string | null
+    computerSubTaskId?: string | null,
+    computerTraceId?: string | null
   ) {
     if (!convId) return null
     return resolveCompactTaskBoardDocument(
       deps.taskBoards.value[convId],
       messageId,
-      computerSubTaskId
+      computerSubTaskId,
+      computerTraceId
     )
   }
 
@@ -357,6 +418,19 @@ export function createTaskBoardManager(deps: {
     return list
   }
 
+  function childBoardBindingForTraceForConv(
+    convId: string | null,
+    traceId: string,
+    legacyLeadMessageId?: string | null
+  ) {
+    if (!convId) return null
+    return childBoardBindingForTrace(
+      deps.taskBoards.value[convId],
+      traceId,
+      legacyLeadMessageId
+    )
+  }
+
   function taskBoardForConversation(convId: string | null): ConversationTaskBoardState | null {
     if (!convId) return null
     return deps.taskBoards.value[convId] ?? null
@@ -371,11 +445,15 @@ export function createTaskBoardManager(deps: {
 
   function lookupChildTaskBoard(
     convId: string | null,
-    taskId: string,
-    messageId?: string
+    traceId: string,
+    legacyLeadMessageId?: string | null
   ): TaskBoardDocument | null {
-    if (!convId || !taskId.trim()) return null
-    return resolveChildTaskBoardDocument(deps.taskBoards.value[convId], taskId, messageId)
+    if (!convId || !traceId.trim()) return null
+    return childBoardBindingForTrace(
+      deps.taskBoards.value[convId],
+      traceId,
+      legacyLeadMessageId
+    )?.document ?? null
   }
 
   return {
@@ -385,6 +463,7 @@ export function createTaskBoardManager(deps: {
     activeParentBoardBinding,
     compactTaskBoardDocument,
     parentBoardsBoundToMessage,
+    childBoardBindingForTrace: childBoardBindingForTraceForConv,
     taskBoardForConversation,
     childBoardsForParent,
     lookupChildTaskBoard

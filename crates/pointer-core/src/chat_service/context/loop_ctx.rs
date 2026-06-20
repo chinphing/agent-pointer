@@ -68,4 +68,6 @@ pub struct SubagentDelegationContext<'a> {
     pub args_value: serde_json::Value,
     /// Depth of the agent issuing `run_subagent` (lead = 0).
     pub parent_spawn_depth: u32,
+    /// Lead transcript buffer; used to persist `agent_trace` on the anchor assistant row.
+    pub history: Option<&'a mut Vec<ChatMessage>>,
 }

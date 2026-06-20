@@ -56,10 +56,71 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 - **`coder`:** optional **`workspaceRoot`** when user gives a project path; else omit (host sandbox).
 - **`computer`:** optional **`computerTarget`** — `self` for Pointer UI, `external` for other apps (default inferred from task).
 
+**Goal authoring (all workers)**
+
+- **`goal`** = **what to achieve** + **how you know it is done** — not a UI playbook.
+- Put verified paths, errors, and prior digests in **`context`**, not in **`goal`**.
+- Numbered steps in **`goal`** are accepted but **discouraged** — the worker owns **how**; micro-playbooks waste context and can conflict with worker rules.
+
+**When the user explicitly requires an approach**
+
+- Default shape unchanged: **`goal`** = outcome + done check; worker chooses **how**.
+- Put the user's required method, steps, tools, or scope limits in **`context`**, labeled **`User-required approach:`** (quote or faithful paraphrase — do not invent extra steps).
+- Do **not** move user-required steps into **`goal`** just because they were numbered — keep **what** in **`goal`**, **how** in **`context`**.
+- If the user gave **only** a procedure with no clear outcome, infer a short done check for **`goal`** and keep their procedure under **`User-required approach:`**.
+- The worker tries the user-required approach when feasible; if it fails or conflicts with worker policy, it reports what was tried in handoff — you may retry or explain to the user.
+
+**`explore` goals**
+
+- First line: **`Scenario: <id>`** (playbook id from explore metadata).
+- Then scope + completion criteria in plain language.
+
+**`computer` goals**
+
+- State the **outcome** (e.g. app open, form submitted, setting changed) and **done check** (what must be visible).
+- Do **not** prescribe **how** — no navigation paths, click sequences, hotkeys, or tool names; the worker chooses actions from the screen and its own rules.
+- Login, MFA, QR, or admin approval: note in **`context`** if the user must act; **`goal`** stays the target state after that.
+
+**`coder` goals**
+
+- Repo outcome + acceptance (tests, files touched, behavior) — not a long file-read script.
+- Optional **`workspaceRoot`** when the user gave a project path.
+
+**Examples (`computer`)**
+
+Good:
+
+```json
+{
+  "agentId": "computer",
+  "goal": "Open WeChat and confirm the main chat window is visible. Hand off: WeChat is open.",
+  "computerTarget": "external"
+}
+```
+
+Bad (micro-playbook — prescribes **how** instead of **what**):
+
+```json
+{
+  "goal": "Step 1: find and open the app. Step 2: click inside the window. Step 3: verify it loaded."
+}
+```
+
+User required a specific path — put it in **`context`**, not **`goal`**:
+
+```json
+{
+  "agentId": "computer",
+  "goal": "Open WeChat and confirm the main chat window is visible. Hand off: WeChat is open.",
+  "context": "User-required approach: open WeChat exactly as the user described in chat (see steps they gave).",
+  "computerTarget": "external"
+}
+```
+
 #### Parameters
 
 - **`agentId`** (required) — Worker id from the **delegatable sub-agents** metadata block.
-- **`goal`** (required) — Actionable target + completion criteria (short; no long evidence dumps).
+- **`goal`** (required) — Outcome + completion criteria (short). No unsolicited step lists — user-required **how** goes in **`context`**.
 - **`context`** (optional) — Trusted facts: paths, errors, language, prior task digests.
 - **`title`** (optional) — Short label for traces.
 - **`taskId`** (optional) — Stable id for sidecar state.

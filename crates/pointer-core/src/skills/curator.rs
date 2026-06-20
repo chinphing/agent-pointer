@@ -186,6 +186,10 @@ pub async fn run_llm_curator(
             ui_bindings: None,
             context_state: None,
             attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
         });
 
         for tc in &out.tool_calls {
@@ -230,6 +234,10 @@ pub async fn run_llm_curator(
                 ui_bindings: None,
                 context_state: None,
                 attachments: None,
+                anchor_message_id: None,
+                trace_id: None,
+                task_id: None,
+                spawn_depth: None,
             });
         }
     }
@@ -289,6 +297,10 @@ fn curator_user_message(catalog: &str) -> ChatMessage {
         ui_bindings: None,
         context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
     }
 }
 

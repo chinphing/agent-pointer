@@ -9,10 +9,12 @@ describe('sessionHandlers', () => {
     conv.toolRoundsUsed = 2
     const clearRunState = vi.fn()
     const persistMeta = vi.fn()
+    const persistAppend = vi.fn()
     const ctx = createMockStreamHandlerContext([conv], {
       currentId: ref('conv1'),
       clearRunState,
-      persistMeta
+      persistMeta,
+      persistAppend
     })
 
     handleDone(ctx, {
@@ -22,6 +24,7 @@ describe('sessionHandlers', () => {
     })
     expect(clearRunState).toHaveBeenCalledWith('conv1')
     expect(conv.toolRoundsUsed).toBe(5)
+    expect(persistAppend).toHaveBeenCalledWith('conv1')
     expect(persistMeta).toHaveBeenCalledOnce()
   })
 

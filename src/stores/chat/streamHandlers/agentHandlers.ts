@@ -15,8 +15,6 @@ export function handleAgentStep(ctx: StreamHandlerContext, e: AgentStep) {
     r.msg.status = 'streaming'
     if (e.agent.status === 'completed' || e.agent.status === 'failed') {
       finalizeSubSession(trace)
-    } else if (trace.session) {
-      trace.session.contentStreaming = true
     }
     r.conv.updatedAt = Date.now()
   } else {

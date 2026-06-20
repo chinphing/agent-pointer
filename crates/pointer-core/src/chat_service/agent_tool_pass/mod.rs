@@ -22,15 +22,34 @@ use anyhow::{anyhow, Result};
 use std::time::Instant;
 
 use super::emit::{emit, emit_task_board_updated, trace_id_opt};
+use super::context::TranscriptPersist;
 use super::util::{patch_assistant_tool_call_display, tool_display_stream_fields};
 
 use approval::run_approval_gate;
 use dispatch::execute_tool_invocation;
 use outcome::record_tool_exec_outcome;
 
+/// Sub-agent trace id (`{taskId}:{agentId}`) for child task-board UI binding — not lead message id.
+fn task_board_emit_anchor(ctx: &ToolPassContext<'_>) -> Option<String> {
+    if crate::task_board::is_child_store_key(ctx.task_board_store_key) {
+        if let TranscriptPersist::SubLinked(linkage) = &ctx.persist {
+            return Some(linkage.trace_id.clone());
+        }
+    }
+    ctx.session.state.get_main_task_board_anchor(
+        ctx.session.conversation_id,
+        ctx.task_board_store_key,
+    )
+}
+
 pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result<ToolPassResult> {
     let sub_trace_id = pass.ctx.sub.as_ref().map(|s| s.trace_id.clone());
-    let persist_transcript = pass.ctx.persist_transcript();
+    let sub_scoped_id = pass
+        .ctx
+        .sub
+        .as_ref()
+        .map(|s| s.scoped_message_id.clone());
+    let _persist_transcript = pass.ctx.persist_transcript();
     let mut any_executed = false;
     let mut task_board_succeeded = false;
     let mut final_reply_output: Option<String> = None;
@@ -64,6 +83,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                 &pass.ctx.message_id,
                 tc,
                 sub_trace_id.as_deref(),
+                sub_scoped_id.as_deref(),
                 "工具名为空：请检查 <tool_name>（例如 mouse_click_index、input、response）。",
             );
             super::util::push_tool_result(
@@ -72,7 +92,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                 &pass.ctx.message_id,
                 &tc.id,
                 "ERROR: 工具名为空：请检查 <tool_name>（例如 mouse_click_index、input、response）。",
-                persist_transcript,
+                &pass.ctx.persist,
             );
             any_executed = true;
             continue;
@@ -86,6 +106,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                     &pass.ctx.message_id,
                     tc,
                     sub_trace_id.as_deref(),
+                    sub_scoped_id.as_deref(),
                     &err,
                 );
                 super::util::push_tool_result(
@@ -94,7 +115,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                     &pass.ctx.message_id,
                     &tc.id,
                     &format!("ERROR: {err}"),
-                    persist_transcript,
+                    &pass.ctx.persist,
                 );
                 any_executed = true;
                 continue;
@@ -123,6 +144,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
             &tool_id,
             &args_value,
             sub_trace_id.as_deref(),
+            sub_scoped_id.as_deref(),
         );
         pass.ctx.stats.record_tool_invocation();
         let started = Instant::now();
@@ -180,20 +202,11 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                 .state
                 .task_board_store
                 .document(pass.ctx.task_board_store_key);
-            let anchor_message_id =
-                if crate::task_board::is_child_store_key(pass.ctx.task_board_store_key) {
-                    Some(pass.ctx.message_id.clone())
-                } else {
-                    pass.ctx.session.state.get_main_task_board_anchor(
-                        pass.ctx.session.conversation_id,
-                        pass.ctx.task_board_store_key,
-                    )
-                };
             emit_task_board_updated(
                 pass.ctx.session.stream,
                 pass.ctx.session.conversation_id,
                 pass.ctx.task_board_store_key,
-                anchor_message_id,
+                task_board_emit_anchor(&pass.ctx),
                 doc.to_value(),
             );
         }
@@ -204,7 +217,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
         maybe_trim_after_tool_pass(pass.ctx.transcript.history, hook, task_board_succeeded);
     }
 
-    if persist_transcript {
+    if pass.ctx.persist.flush_tool_pass_history() {
         crate::conversation_transcript::flush_after_tool_pass(
             pass.ctx.session.conversation_id,
             pass.ctx.transcript.history,
@@ -240,6 +253,7 @@ fn emit_tool_failed(
     message_id: &str,
     tc: &ToolCall,
     trace_id: Option<&str>,
+    scoped_message_id: Option<&str>,
     err: &str,
 ) {
     emit(
@@ -254,6 +268,7 @@ fn emit_tool_failed(
             display_label: None,
             display_summary: None,
             trace_id: trace_id_opt(trace_id),
+            scoped_message_id: trace_id_opt(scoped_message_id),
         },
     );
 }
@@ -267,6 +282,7 @@ fn emit_tool_running(
     tool_id: &str,
     args_value: &serde_json::Value,
     trace_id: Option<&str>,
+    scoped_message_id: Option<&str>,
 ) {
     let display = state.tools.format_display(&tc.name, args_value);
     patch_assistant_tool_call_display(history, message_id, &tc.id, &display);
@@ -283,6 +299,7 @@ fn emit_tool_running(
             display_label,
             display_summary,
             trace_id: trace_id_opt(trace_id),
+            scoped_message_id: trace_id_opt(scoped_message_id),
         },
     );
     if tool_id.starts_with("captcha_verify_") {
@@ -298,6 +315,7 @@ fn emit_tool_running(
                 display_label: None,
                 display_summary: Some("识别中...".into()),
                 trace_id: trace_id_opt(trace_id),
+                scoped_message_id: trace_id_opt(scoped_message_id),
             },
         );
     }

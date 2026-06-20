@@ -77,6 +77,10 @@ fn expand_tool_messages_for_openai_request(msgs: &[ChatMessage]) -> Vec<ChatMess
         ui_bindings: None,
             context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
             });
                     }
                     i = j;
@@ -378,6 +382,10 @@ mod make_openai_messages_tests {
         ui_bindings: None,
             context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
             }
     }
 

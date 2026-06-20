@@ -66,6 +66,10 @@ pub async fn describe_image_with_model(
         ui_bindings: None,
         context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
     };
     let system = crate::models::SystemPromptSections::all_cacheable(vec![
         DESCRIBE_PROMPT.to_string(),
@@ -244,6 +248,10 @@ pub async fn describe_pdf_pages_with_model(
         ui_bindings: None,
         context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
     };
     let system = crate::models::SystemPromptSections::all_cacheable(vec![
         PDF_OCR_PROMPT.to_string(),
@@ -318,6 +326,10 @@ pub async fn describe_video_with_model(
         ui_bindings: None,
         context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
     };
     let system = crate::models::SystemPromptSections::all_cacheable(vec![
         VIDEO_DESCRIBE_PROMPT.to_string(),

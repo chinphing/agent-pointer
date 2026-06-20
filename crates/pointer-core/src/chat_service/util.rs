@@ -1,4 +1,7 @@
 use crate::models::{ChatMessage, Role};
+
+use super::context::TranscriptPersist;
+use super::sub_message::{self};
 use crate::tools::ToolDisplay;
 
 pub(crate) fn now_ms() -> i64 {
@@ -36,13 +39,7 @@ pub(crate) fn patch_assistant_tool_call_display(
     tool_call_id: &str,
     display: &ToolDisplay,
 ) {
-    let Some(msg) = history.iter_mut().find(|m| m.id == message_id) else {
-        return;
-    };
-    let Some(tcs) = msg.tool_calls.as_mut() else {
-        return;
-    };
-    let Some(tc) = tcs.iter_mut().find(|t| t.id == tool_call_id) else {
+    let Some(tc) = find_assistant_tool_call_mut(history, message_id, tool_call_id) else {
         return;
     };
     tc.display_label = Some(display.label.clone());
@@ -53,29 +50,71 @@ pub(crate) fn patch_assistant_tool_call_display(
     };
 }
 
+pub(crate) fn patch_assistant_tool_call_outcome(
+    history: &mut [ChatMessage],
+    message_id: &str,
+    tool_call_id: &str,
+    status: &str,
+    result: Option<&str>,
+    error: Option<&str>,
+    duration_ms: Option<u64>,
+    display_label: Option<&str>,
+    display_summary: Option<&str>,
+) -> bool {
+    let Some(tc) = find_assistant_tool_call_mut(history, message_id, tool_call_id) else {
+        return false;
+    };
+    tc.status = status.to_string();
+    tc.result = result.map(str::to_string);
+    tc.error = error.map(str::to_string);
+    tc.duration_ms = duration_ms;
+    if let Some(label) = display_label {
+        tc.display_label = Some(label.to_string());
+    }
+    if let Some(summary) = display_summary {
+        tc.display_summary = Some(summary.to_string());
+    }
+    true
+}
+
+fn find_assistant_tool_call_mut<'a>(
+    history: &'a mut [ChatMessage],
+    message_id: &str,
+    tool_call_id: &str,
+) -> Option<&'a mut crate::models::ToolCall> {
+    let msg = history.iter_mut().find(|m| m.id == message_id)?;
+    let tcs = msg.tool_calls.as_mut()?;
+    tcs.iter_mut().find(|t| t.id == tool_call_id)
+}
+
 pub(crate) fn push_tool_result(
     history: &mut Vec<ChatMessage>,
     conversation_id: &str,
     hint_message_id: &str,
     tool_call_id: &str,
     content: &str,
-    persist_transcript: bool,
+    persist: &TranscriptPersist,
 ) {
-    if persist_transcript {
-        crate::conversation_transcript::record_tool_result(
-            conversation_id,
-            history,
-            hint_message_id,
-            tool_call_id,
-            content,
-        );
-    } else {
-        crate::conversation_transcript::insert_tool_result_in_history(
-            history,
-            hint_message_id,
-            tool_call_id,
-            content,
-        );
+    match persist {
+        TranscriptPersist::Main => {
+            crate::conversation_transcript::record_tool_result(
+                conversation_id,
+                history,
+                hint_message_id,
+                tool_call_id,
+                content,
+            );
+        }
+        TranscriptPersist::SubLinked(linkage) => {
+            sub_message::push_sub_tool_result(
+                history,
+                conversation_id,
+                hint_message_id,
+                tool_call_id,
+                content,
+                linkage,
+            );
+        }
     }
 }
 

@@ -6,6 +6,9 @@ use crate::task_board::history_trim::TRIM_PLACEHOLDER_PREFIX;
 
 /// Whether this message participates in LLM context (default true when unset).
 pub fn is_context_included(m: &ChatMessage) -> bool {
+    if crate::models::is_scoped_sub_message(m) {
+        return false;
+    }
     m.context_state
         .as_ref()
         .map(|s| s.included)
@@ -137,6 +140,10 @@ mod tests {
             ui_bindings: None,
             context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
             tool_raw_output: None,
         }
     }

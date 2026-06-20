@@ -595,6 +595,10 @@ mod tests {
                 ui_bindings: None,
                 context_state: None,
                 attachments: None,
+                anchor_message_id: None,
+                trace_id: None,
+                task_id: None,
+                spawn_depth: None,
             },
             ChatMessage {
                 id: "2".into(),
@@ -620,6 +624,10 @@ mod tests {
                 ui_bindings: None,
                 context_state: None,
                 attachments: None,
+                anchor_message_id: None,
+                trace_id: None,
+                task_id: None,
+                spawn_depth: None,
             },
         ];
         assert_eq!(count_real_user_turns(&history), 1);

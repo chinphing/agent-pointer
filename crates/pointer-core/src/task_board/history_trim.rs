@@ -389,6 +389,10 @@ mod tests {
             ui_bindings: None,
             context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
             tool_raw_output: None,
         }
     }
@@ -417,6 +421,10 @@ mod tests {
             ui_bindings: None,
             context_state: None,
         attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
             tool_raw_output: None,
         }
     }

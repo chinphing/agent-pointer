@@ -38,9 +38,15 @@ export interface TerminalLiveManager {
     messageId: string,
     toolCallId: string,
     status: ToolCall['status'],
-    traceId?: string
+    traceId?: string,
+    scopedMessageId?: string
   ): void
-  syncPopupOutput(messageId: string, toolCallId: string, traceId?: string): void
+  syncPopupOutput(
+    messageId: string,
+    toolCallId: string,
+    traceId?: string,
+    scopedMessageId?: string
+  ): void
 }
 
 export function createTerminalLiveManager(deps: {
@@ -48,7 +54,8 @@ export function createTerminalLiveManager(deps: {
   resolveToolCall: (
     messageId: string,
     toolCallId: string,
-    traceId?: string
+    traceId?: string,
+    scopedMessageId?: string
   ) => ToolCall | null
   delayMs?: number
 }): TerminalLiveManager {
@@ -67,7 +74,12 @@ export function createTerminalLiveManager(deps: {
     if (track) track.dismissed = true
   }
 
-  function tryShowPopup(messageId: string, toolCallId: string, traceId?: string) {
+  function tryShowPopup(
+    messageId: string,
+    toolCallId: string,
+    traceId?: string,
+    scopedMessageId?: string
+  ) {
     if (!track || track.dismissed || !track.delayElapsed) return
     if (terminalLiveKey(messageId, toolCallId, traceId) !== terminalLiveKey(
       track.messageId,
@@ -77,7 +89,7 @@ export function createTerminalLiveManager(deps: {
       return
     }
     if (deps.popup.value) return
-    const current = deps.resolveToolCall(messageId, toolCallId, traceId)
+    const current = deps.resolveToolCall(messageId, toolCallId, traceId, scopedMessageId)
     if (!current || current.status !== 'running') return
     if (!hasTerminalLiveOutput(current.terminalOutput)) return
     deps.popup.value = {
@@ -89,10 +101,15 @@ export function createTerminalLiveManager(deps: {
     }
   }
 
-  function syncPopupOutput(messageId: string, toolCallId: string, traceId?: string) {
+  function syncPopupOutput(
+    messageId: string,
+    toolCallId: string,
+    traceId?: string,
+    scopedMessageId?: string
+  ) {
     const popup = deps.popup.value
     if (!popup) {
-      tryShowPopup(messageId, toolCallId, traceId)
+      tryShowPopup(messageId, toolCallId, traceId, scopedMessageId)
       return
     }
     if (terminalLiveKey(messageId, toolCallId, traceId) !== terminalLiveKey(
@@ -102,13 +119,18 @@ export function createTerminalLiveManager(deps: {
     )) {
       return
     }
-    const tc = deps.resolveToolCall(messageId, toolCallId, traceId)
+    const tc = deps.resolveToolCall(messageId, toolCallId, traceId, scopedMessageId)
     if (!tc) return
     deps.popup.value = { ...popup, output: tc.terminalOutput ?? '' }
   }
 
-  function beginTrack(messageId: string, toolCallId: string, traceId?: string) {
-    const tc = deps.resolveToolCall(messageId, toolCallId, traceId)
+  function beginTrack(
+    messageId: string,
+    toolCallId: string,
+    traceId?: string,
+    scopedMessageId?: string
+  ) {
+    const tc = deps.resolveToolCall(messageId, toolCallId, traceId, scopedMessageId)
     if (!tc || toolCallBaseName(tc.name) !== 'terminal') return
 
     const key = terminalLiveKey(messageId, toolCallId, traceId)
@@ -139,7 +161,7 @@ export function createTerminalLiveManager(deps: {
       }
       if (track.dismissed) return
       track.delayElapsed = true
-      tryShowPopup(messageId, toolCallId, traceId)
+      tryShowPopup(messageId, toolCallId, traceId, scopedMessageId)
     }, delayMs)
   }
 
@@ -159,12 +181,13 @@ export function createTerminalLiveManager(deps: {
     messageId: string,
     toolCallId: string,
     status: ToolCall['status'],
-    traceId?: string
+    traceId?: string,
+    scopedMessageId?: string
   ) {
-    const tc = deps.resolveToolCall(messageId, toolCallId, traceId)
+    const tc = deps.resolveToolCall(messageId, toolCallId, traceId, scopedMessageId)
     if (!tc || toolCallBaseName(tc.name) !== 'terminal') return
     if (status === 'running') {
-      beginTrack(messageId, toolCallId, traceId)
+      beginTrack(messageId, toolCallId, traceId, scopedMessageId)
       return
     }
     if (status === 'success' || status === 'failed' || status === 'rejected') {

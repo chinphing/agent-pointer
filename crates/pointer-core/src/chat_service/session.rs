@@ -35,6 +35,8 @@ pub async fn run_chat(
         tool_rounds_used_supervisor_start,
     );
 
+    super::sub_message::strip_scoped_from_lead_history(&mut history);
+
     state.touch_activity();
 
     let cancel = CancellationToken::new();
@@ -160,21 +162,15 @@ pub async fn run_chat(
             doc.to_value(),
         );
     }
-    let done_conversation_id = conversation_id.clone();
-    if stream
-        .send(StreamEvent::Done {
+    emit(
+        &stream,
+        StreamEvent::Done {
             conversation_id,
             tool_rounds_used_total: Some(single_total),
             tool_rounds_used_supervisor_total: Some(supervisor_total),
             max_tool_rounds: Some(max_tr),
-        })
-        .is_err()
-    {
-        log::warn!(
-            "run_chat: StreamEvent::Done not delivered (stream receiver dropped) conversation_id={}",
-            done_conversation_id
-        );
-    }
+        },
+    );
     log::info!(
         "run_chat finished after Done emit final_result_is_ok={}",
         result.is_ok(),

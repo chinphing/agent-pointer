@@ -105,9 +105,14 @@ pub struct AgentTrace {
     /// UI indentation: 0 = top-level (lead / supervisor), 1 = delegated sub-agent step.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub depth: Option<u32>,
-    /// Delegated sub-agent UI session (tool rows, stats, collapsed state).
+    /// Legacy nested UI session; superseded by scoped child `ChatMessage` rows. Read-only for old data.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<SubAgentSessionUi>,
+    /// Collapsed summary header (persisted index UI).
+    #[serde(default)]
+    pub collapsed: bool,
+    #[serde(default, rename = "userExpanded")]
+    pub user_expanded: bool,
     /// Set on `run_subagent` → `computer` traces; controls dock-bar shrink in the desktop client.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "computerTarget")]
     pub computer_target: Option<ComputerOperationTarget>,
@@ -142,6 +147,13 @@ impl Default for MessageContextState {
             excluded_reason: None,
         }
     }
+}
+
+/// Whether this row belongs to a delegated sub-agent transcript (not lead timeline / context).
+pub fn is_scoped_sub_message(msg: &ChatMessage) -> bool {
+    msg.anchor_message_id
+        .as_ref()
+        .is_some_and(|s| !s.trim().is_empty())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,6 +223,16 @@ pub struct ChatMessage {
     /// User-attached files/images (metadata persisted; base64 wire-only via `contentBase64`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachments: Option<Vec<MediaAttachment>>,
+    /// Parent lead assistant message id (scoped sub-agent transcript rows).
+    #[serde(default, rename = "anchorMessageId", skip_serializing_if = "Option::is_none")]
+    pub anchor_message_id: Option<String>,
+    /// Stable sub-task trace id (`{taskId}:{agentId}`).
+    #[serde(default, rename = "traceId", skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    #[serde(default, rename = "taskId", skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, rename = "spawnDepth", skip_serializing_if = "Option::is_none")]
+    pub spawn_depth: Option<u32>,
 }
 
 /// User message attachment (Composer / channels).

@@ -262,6 +262,8 @@ mod tests {
             content_base64: None,
             derived_text: None,
             local_abs_path: None,
+            remote_url: None,
+            oss_object_key: None,
         };
         assert!(attachment_retryable(&att));
         att.derived_text = Some("ok".into());

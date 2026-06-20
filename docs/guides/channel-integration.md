@@ -145,7 +145,7 @@ MEDIA:/absolute/path/to/report.pdf
 | 企微 Agent HTTP | text | media/upload + message/send | 同上 |
 | 微信 iLink | text item | CDN 加密上传 + image_item | CDN 加密上传 + file_item / video_item |
 
-单文件上限 30 MB。若路径无法解析或上传失败，会记录错误日志，文本回复仍会发送。
+单文件上限：非视频 **30 MB**；**视频**与 Composer OSS 一致（**5 GB** 硬上限，**>500 MB** 自动压缩后上传）。若路径无法解析或上传失败，会记录错误日志，文本回复仍会发送。
 
 ### 入站自消息过滤（避免多跑一轮）
 

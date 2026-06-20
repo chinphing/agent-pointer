@@ -68,9 +68,16 @@ usernames or unverified absolute paths. Typical locations (names vary by OS/loca
 - **Intent clear** → call **`media_understand`** with `ref`, matching `mode`
   (`image` / `video` / `audio` / `pdf`), and **`goal`** (user goal + relevant
   context from their message). Optional **`context`** for extra thread background.
-  Never call with only `ref` + `mode`.
+  **Speech / audio in a video file** → **`mode=audio`** only (host extracts the track;
+  **`mode=video`** sees frames, not sound). **Both speech and visuals** → **`audio`**
+  then **`video`**, same **ref**, merge in reply. Never call with only `ref` + `mode`.
 - **Office** (docx/xlsx/pptx) → **`skill_read`** the matching Office skill, then **`terminal`**
   using **localPath** from the manifest (third-party scripts may not accept `pointer-media://`).
+- **Large PDF** → put page range in **`pageStart`/`pageEnd`** only when the user explicitly
+  asked; otherwise host defaults to pages 1–10. Split into multiple calls if >10 pages.
+- **Large video** → set **`timeStartSec`/`timeEndSec`** only when the user explicitly
+  asked; otherwise host defaults to first segment at **1 fps** (max **200** frames).
+  Split across calls when needed.
 - **Re-process** when the user is unsatisfied → reuse the same **ref** / **localPath**;
   they need **not** resend the file.
 - Do **not** show absolute paths in user-facing replies.

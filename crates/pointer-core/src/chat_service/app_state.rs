@@ -14,7 +14,8 @@ use crate::models::{
 };
 use crate::platform_auth::{PlatformLoginCredentials, SharedPlatformAuth};
 use crate::platform_config::{
-    apply_login_llm_credentials, apply_login_llm_provider_api_keys, finalize_merged_settings,
+    apply_login_llm_credentials, apply_login_llm_provider_api_keys, apply_login_media_oss,
+    finalize_merged_settings,
     merge_platform_preferences, persist_local_platform_settings, PlatformConfigManager,
     SharedPlatformConfig,
 };
@@ -252,6 +253,9 @@ impl AppState {
             creds.api_key.as_deref(),
             creds.llm_provider.as_deref(),
         );
+        if let Some(media) = creds.media_oss.as_ref() {
+            apply_login_media_oss(&mut platform, Some(media));
+        }
     }
 
     pub fn cancel(&self, conversation_id: &str) {

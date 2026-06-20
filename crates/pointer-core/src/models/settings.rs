@@ -776,6 +776,8 @@ pub struct ModelSettings {
     /// Debug: media kind → performance mode → LLM profile.
     #[serde(default, rename = "mediaModeLlm")]
     pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
+    #[serde(default, rename = "mediaOss")]
+    pub media_oss: MediaOssConfig,
     /// Per-request override (e.g. computer tier); not persisted.
     #[serde(skip)]
     pub round_enable_thinking: Option<bool>,
@@ -1065,6 +1067,7 @@ impl Default for ModelSettings {
             media_understanding_modes: MediaUnderstandingModes::default(),
             agent_mode_llm: default_agent_mode_llm(),
             media_mode_llm: default_media_mode_llm(),
+            media_oss: MediaOssConfig::default(),
             round_enable_thinking: None,
             round_thinking_budget: None,
         }
@@ -1159,6 +1162,70 @@ fn default_computer_auto_compact() -> bool {
     true
 }
 
+fn default_media_oss_key_prefix() -> String {
+    "pointer-media-attachments/".to_string()
+}
+
+fn default_media_oss_presign_expires_sec() -> u32 {
+    604_800 // 7 days (Aliyun OSS V4 presigned URL max)
+}
+
+fn default_media_oss_delete_after_use() -> bool {
+    true
+}
+
+/// Aliyun OSS settings for large `media_understand` video uploads (HTTP `video_url` to DashScope).
+/// API: PutObject + V4 presigned GET — see Aliyun OSS developer reference.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MediaOssConfig {
+    #[serde(default, rename = "enabled")]
+    pub enabled: bool,
+    #[serde(default, rename = "bucket")]
+    pub bucket: String,
+    /// Region id, e.g. `cn-hangzhou` (not `oss-cn-hangzhou`).
+    #[serde(default, rename = "region")]
+    pub region: String,
+    /// Optional custom endpoint, e.g. `https://oss-cn-hangzhou.aliyuncs.com`.
+    #[serde(default, rename = "endpoint")]
+    pub endpoint: String,
+    #[serde(default, rename = "accessKeyId")]
+    pub access_key_id: String,
+    #[serde(default, rename = "accessKeySecret")]
+    pub access_key_secret: String,
+    #[serde(default = "default_media_oss_key_prefix", rename = "keyPrefix")]
+    pub key_prefix: String,
+    #[serde(
+        default = "default_media_oss_presign_expires_sec",
+        rename = "presignExpiresSec"
+    )]
+    pub presign_expires_sec: u32,
+    #[serde(default = "default_media_oss_delete_after_use", rename = "deleteAfterUse")]
+    pub delete_after_use: bool,
+}
+
+impl Default for MediaOssConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bucket: String::new(),
+            region: String::new(),
+            endpoint: String::new(),
+            access_key_id: String::new(),
+            access_key_secret: String::new(),
+            key_prefix: default_media_oss_key_prefix(),
+            presign_expires_sec: default_media_oss_presign_expires_sec(),
+            delete_after_use: default_media_oss_delete_after_use(),
+        }
+    }
+}
+
+impl MediaOssConfig {
+    /// Whether OSS upload is enabled and minimally configured (credentials may come from env).
+    pub fn wants_upload(&self) -> bool {
+        self.enabled && !self.bucket.trim().is_empty() && !self.region.trim().is_empty()
+    }
+}
+
 /// Persisted user preferences (theme, optional UI cache).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
@@ -1194,6 +1261,8 @@ pub struct UserSettings {
     pub curator_interval_days: u32,
     #[serde(default = "default_computer_auto_compact", rename = "computerAutoCompact")]
     pub computer_auto_compact: bool,
+    #[serde(default, rename = "mediaOss")]
+    pub media_oss: MediaOssConfig,
 }
 
 impl Default for UserSettings {
@@ -1214,6 +1283,7 @@ impl Default for UserSettings {
             curator_idle_hours: default_curator_idle_hours(),
             curator_interval_days: default_curator_interval_days(),
             computer_auto_compact: default_computer_auto_compact(),
+            media_oss: MediaOssConfig::default(),
         }
     }
 }
@@ -1320,6 +1390,9 @@ pub struct PlatformSettings {
     pub agent_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
     #[serde(default = "default_media_mode_llm", rename = "mediaModeLlm")]
     pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
+    /// Session-only media OSS credentials from platform login (not persisted locally).
+    #[serde(default, rename = "mediaOss")]
+    pub media_oss: MediaOssConfig,
 }
 
 /// Provider entries we do not ship or persist (legacy / third-party).
@@ -1719,6 +1792,7 @@ impl Default for PlatformSettings {
             computer_tier_llm: default_computer_tier_llm(),
             agent_mode_llm: default_agent_mode_llm(),
             media_mode_llm: default_media_mode_llm(),
+            media_oss: MediaOssConfig::default(),
         }
     }
 }
@@ -1792,6 +1866,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         media_understanding_modes: platform.media_understanding_modes.clone(),
         agent_mode_llm: platform.agent_mode_llm.clone(),
         media_mode_llm: platform.media_mode_llm.clone(),
+        media_oss: platform.media_oss.clone(),
         round_enable_thinking: None,
         round_thinking_budget: None,
     }

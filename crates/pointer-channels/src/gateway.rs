@@ -27,6 +27,7 @@ pub struct ChannelGateway {
 
 impl ChannelGateway {
     pub fn new(core: Arc<AppState>, registry: ChannelRegistry) -> Result<Self> {
+        pointer_core::tls::ensure_rustls_crypto_provider();
         let config = load_channels_config().unwrap_or_default();
         Ok(Self {
             registry,

@@ -78,6 +78,7 @@ export interface RuntimeApi {
   previewComputerAnnotatedScreen(conversationId: string): Promise<ComputerAnnotatedPreview>
   previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview>
   previewChatMedia(storageRelPath: string): Promise<ChatMediaPreview>
+  getChatMediaLocalPath?(storageRelPath: string): Promise<string>
   previewMediaRef(mediaRef: string): Promise<ChatMediaPreview>
   saveChatAttachment(payload: SaveChatAttachmentPayload): Promise<string>
   checkMediaDeps(): Promise<MediaDepsStatus>
@@ -133,6 +134,7 @@ export const getTaskBoardSnapshot = api.getTaskBoardSnapshot
 export const previewComputerAnnotatedScreen = api.previewComputerAnnotatedScreen
 export const previewComputerRoundScreen = api.previewComputerRoundScreen
 export const previewChatMedia = api.previewChatMedia
+export const getChatMediaLocalPath = api.getChatMediaLocalPath
 export const previewMediaRef = api.previewMediaRef
 export const saveChatAttachment = api.saveChatAttachment
 export const checkMediaDeps = api.checkMediaDeps

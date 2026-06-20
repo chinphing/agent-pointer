@@ -184,7 +184,7 @@ pub fn upsert_conversation(conn: &Connection, conv: &Conversation, replace_messa
 }
 
 pub fn message_index_content(msg: &ChatMessage) -> String {
-    match msg.role {
+    let base = match msg.role {
         Role::System => String::new(),
         Role::User | Role::Assistant => msg.content.trim().to_string(),
         Role::Tool => {
@@ -195,7 +195,33 @@ pub fn message_index_content(msg: &ChatMessage) -> String {
                 format!("[tool] {c}")
             }
         }
+    };
+    append_attachment_index_suffix(base, msg)
+}
+
+fn append_attachment_index_suffix(mut base: String, msg: &ChatMessage) -> String {
+    let Some(atts) = msg.attachments.as_ref() else {
+        return base;
+    };
+    for att in atts {
+        let name = att.file_name.trim();
+        let kind = att.kind.trim();
+        if kind.is_empty() && name.is_empty() {
+            continue;
+        }
+        let token = if name.is_empty() {
+            format!("[attachment {kind}]")
+        } else {
+            format!("[attachment {kind} {name}]")
+        };
+        if base.is_empty() {
+            base = token;
+        } else {
+            base.push(' ');
+            base.push_str(&token);
+        }
     }
+    base
 }
 
 pub fn conversation_preview(messages: &[ChatMessage]) -> String {
@@ -254,6 +280,34 @@ pub fn delete_conversations_not_in(conn: &Connection, ids: &[String]) -> Result<
         ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
     conn.execute(&sql, params.as_slice())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod message_index_tests {
+    use super::*;
+    use crate::models::{MediaAttachment, Role};
+
+    #[test]
+    fn index_includes_attachment_tokens_when_content_empty() {
+        let mut msg = msg("m1", Role::User, "", 0);
+        msg.attachments = Some(vec![MediaAttachment {
+            id: "a1".into(),
+            kind: "image".into(),
+            mime_type: "image/jpeg".into(),
+            file_name: "id-card.jpg".into(),
+            size_bytes: 1,
+            storage_rel_path: None,
+            content_base64: None,
+            derived_text: None,
+            local_abs_path: None,
+            remote_url: None,
+            oss_object_key: None,
+        }]);
+        assert_eq!(
+            message_index_content(&msg),
+            "[attachment image id-card.jpg]"
+        );
+    }
 }
 
 #[cfg(test)]

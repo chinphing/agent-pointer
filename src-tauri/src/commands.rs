@@ -13,7 +13,7 @@ use base64::Engine;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc;
 
 pub const STREAM_EVENT: &str = "chat://stream";
@@ -262,6 +262,16 @@ pub fn preview_chat_media(storage_rel_path: String) -> Result<ChatMediaPreview, 
     pointer_core::media::read_chat_media_preview(&storage_rel_path).map_err(|e| e.to_string())
 }
 
+/// Absolute path for a saved conversation-media file (for desktop video preview via convertFileSrc).
+#[tauri::command]
+pub fn get_chat_media_local_path(storage_rel_path: String) -> Result<String, String> {
+    let path = pointer_core::media::media_abs_path(&storage_rel_path).map_err(|e| e.to_string())?;
+    if !path.is_file() {
+        return Err(format!("媒体文件不存在: {}", path.display()));
+    }
+    Ok(path.to_string_lossy().to_string())
+}
+
 /// Reveal a local file in Finder (macOS) or file manager (other platforms).
 #[tauri::command]
 pub fn reveal_in_finder(path: String) -> Result<(), String> {
@@ -303,6 +313,14 @@ pub fn reveal_in_finder(path: String) -> Result<(), String> {
 }
 
 const MAX_LOCAL_ATTACHMENT_BYTES: u64 = 30 * 1024 * 1024;
+
+fn max_attachment_bytes(file_name: &str) -> u64 {
+    if pointer_core::media::is_video_file_name(file_name) {
+        pointer_core::media::MAX_VIDEO_BYTES as u64
+    } else {
+        MAX_LOCAL_ATTACHMENT_BYTES
+    }
+}
 
 #[derive(serde::Serialize)]
 pub struct LocalFileAttachmentPayload {
@@ -390,6 +408,221 @@ pub fn open_chat_media(storage_rel_path: String) -> Result<(), String> {
     open_path_with_system_default(&path)
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoOssUploadResult {
+    pub remote_url: String,
+    pub oss_object_key: String,
+    pub storage_rel_path: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaOssUploadStatus {
+    pub configured: bool,
+    pub message: Option<String>,
+}
+
+/// Whether the backend can upload Composer videos to OSS (same check as upload commands).
+#[tauri::command]
+pub fn get_media_oss_upload_status(state: State<'_, Arc<AppState>>) -> MediaOssUploadStatus {
+    use pointer_core::media::resolve_media_oss_config;
+
+    let settings = state.effective_settings_view().merged;
+    if resolve_media_oss_config(&settings.media_oss).is_some() {
+        return MediaOssUploadStatus {
+            configured: true,
+            message: None,
+        };
+    }
+    MediaOssUploadStatus {
+        configured: false,
+        message: Some(
+            "视频上传需要平台 OSS 配置，请登录 Pointer 账户或联系管理员在官网配置 OSS".into(),
+        ),
+    }
+}
+
+/// Upload a Composer video attachment to OSS (path-based; emits progress events).
+#[tauri::command]
+pub async fn upload_composer_video_to_oss(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+    attachment_id: String,
+    path: String,
+    file_name: String,
+    mime_type: String,
+    compress: bool,
+) -> Result<VideoOssUploadResult, String> {
+    use pointer_core::media::{resolve_media_oss_config, upload_composer_video_from_path};
+    use serde_json::json;
+
+    log::info!(
+        "upload_composer_video_to_oss: attachment={attachment_id} path={path} file={file_name} compress={compress}"
+    );
+    let settings = state.effective_settings_view().merged;
+    if resolve_media_oss_config(&settings.media_oss).is_none() {
+        log::warn!(
+            "upload_composer_video_to_oss: rejected attachment={attachment_id} — OSS not configured"
+        );
+        return Err(
+            "OSS 未配置，请登录 Pointer 账户或联系管理员在官网配置 OSS".into(),
+        );
+    }
+    let path_buf = pointer_core::media::access::normalize_user_path(&path).map_err(|e| {
+        log::warn!("upload_composer_video_to_oss: invalid path {path}: {e}");
+        e.to_string()
+    })?;
+    if !path_buf.is_file() {
+        log::warn!(
+            "upload_composer_video_to_oss: file missing attachment={attachment_id} path={}",
+            path_buf.display()
+        );
+        return Err(format!("文件不存在: {}", path_buf.display()));
+    }
+    let last_pct = std::sync::Arc::new(std::sync::Mutex::new(0u32));
+    let aid = attachment_id.clone();
+    let app_handle = app.clone();
+    let on_progress: std::sync::Arc<dyn Fn(u64, u64) + Send + Sync> =
+        std::sync::Arc::new(move |loaded: u64, total: u64| {
+            let pct = if total == 0 {
+                0
+            } else {
+                ((loaded.saturating_mul(100)) / total).min(100) as u32
+            };
+            let mut last = last_pct.lock().expect("progress mutex");
+            if pct != *last {
+                *last = pct;
+                let _ = app_handle.emit(
+                    "composer-video-oss-progress",
+                    json!({
+                        "attachmentId": aid,
+                        "loaded": loaded,
+                        "total": total,
+                        "percent": pct,
+                    }),
+                );
+            }
+        });
+    let result = upload_composer_video_from_path(
+        &settings.media_oss,
+        &attachment_id,
+        &path_buf,
+        &file_name,
+        &mime_type,
+        compress,
+        Some(conversation_id.trim()).filter(|c| !c.is_empty()),
+        on_progress,
+    )
+    .await
+    .map_err(format_video_oss_upload_error)?;
+    Ok(VideoOssUploadResult {
+        remote_url: result.remote_url,
+        oss_object_key: result.object_key,
+        storage_rel_path: result.storage_rel_path,
+    })
+}
+
+fn format_video_oss_upload_error(e: impl std::fmt::Display) -> String {
+    let msg = e.to_string();
+    if msg.contains("NoSuchBucket") {
+        return format!(
+            "OSS Bucket 不存在，请在阿里云创建对应 Bucket 或将 Endpoint 配置为「https://<bucket>.oss-<region>.aliyuncs.com」格式。详情：{msg}"
+        );
+    }
+    if msg.contains("InvalidAccessKeyId") || msg.contains("SignatureDoesNotMatch") {
+        return format!("OSS 凭据无效，请检查官网 OSS 配置中的 AccessKey。详情：{msg}");
+    }
+    if msg.to_ascii_lowercase().contains("timeout") || msg.contains("timed out") {
+        return format!("视频上传超时，请检查网络后重试。详情：{msg}");
+    }
+    msg
+}
+
+/// Upload Composer video bytes to OSS (web file picker on desktop).
+#[tauri::command]
+pub async fn upload_composer_video_bytes_to_oss(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+    attachment_id: String,
+    file_name: String,
+    mime_type: String,
+    bytes: Vec<u8>,
+    compress: bool,
+) -> Result<VideoOssUploadResult, String> {
+    use pointer_core::media::{resolve_media_oss_config, upload_composer_video_bytes};
+    use serde_json::json;
+
+    log::info!(
+        "upload_composer_video_bytes_to_oss: attachment={attachment_id} file={file_name} bytes={} compress={compress}",
+        bytes.len()
+    );
+    let settings = state.effective_settings_view().merged;
+    if resolve_media_oss_config(&settings.media_oss).is_none() {
+        log::warn!(
+            "upload_composer_video_bytes_to_oss: rejected attachment={attachment_id} — OSS not configured"
+        );
+        return Err(
+            "OSS 未配置，请登录 Pointer 账户或联系管理员在官网配置 OSS".into(),
+        );
+    }
+    let last_pct = std::sync::Arc::new(std::sync::Mutex::new(0u32));
+    let aid = attachment_id.clone();
+    let app_handle = app.clone();
+    let on_progress: std::sync::Arc<dyn Fn(u64, u64) + Send + Sync> =
+        std::sync::Arc::new(move |loaded: u64, total: u64| {
+            let pct = if total == 0 {
+                0
+            } else {
+                ((loaded.saturating_mul(100)) / total).min(100) as u32
+            };
+            let mut last = last_pct.lock().expect("progress mutex");
+            if pct != *last {
+                *last = pct;
+                let _ = app_handle.emit(
+                    "composer-video-oss-progress",
+                    json!({
+                        "attachmentId": aid,
+                        "loaded": loaded,
+                        "total": total,
+                        "percent": pct,
+                    }),
+                );
+            }
+        });
+    let result = upload_composer_video_bytes(
+        &settings.media_oss,
+        &attachment_id,
+        &bytes,
+        &file_name,
+        &mime_type,
+        compress,
+        Some(conversation_id.trim()).filter(|c| !c.is_empty()),
+        0,
+        on_progress,
+    )
+    .await
+    .map_err(format_video_oss_upload_error)?;
+    Ok(VideoOssUploadResult {
+        remote_url: result.remote_url,
+        oss_object_key: result.object_key,
+        storage_rel_path: result.storage_rel_path,
+    })
+}
+
+/// Read a user-selected local file for composer attachment upload (any directory).
+#[tauri::command]
+pub fn get_local_file_size(path: String) -> Result<u64, String> {
+    let path_buf = pointer_core::media::access::normalize_user_path(&path).map_err(|e| e.to_string())?;
+    if !path_buf.is_file() {
+        return Err(format!("文件不存在: {}", path_buf.display()));
+    }
+    let meta = fs::metadata(&path_buf).map_err(|e| format!("读取文件信息失败: {e}"))?;
+    Ok(meta.len())
+}
+
 /// Read a user-selected local file for composer attachment upload (any directory).
 #[tauri::command]
 pub fn read_local_file_for_attachment(path: String) -> Result<LocalFileAttachmentPayload, String> {
@@ -398,17 +631,23 @@ pub fn read_local_file_for_attachment(path: String) -> Result<LocalFileAttachmen
         return Err(format!("文件不存在: {}", path_buf.display()));
     }
     let meta = fs::metadata(&path_buf).map_err(|e| format!("读取文件信息失败: {e}"))?;
-    if meta.len() > MAX_LOCAL_ATTACHMENT_BYTES {
-        let limit_mb = MAX_LOCAL_ATTACHMENT_BYTES / (1024 * 1024);
-        return Err(format!("文件超过 {limit_mb} MB 上限"));
-    }
-    let bytes = fs::read(&path_buf).map_err(|e| format!("读取文件失败: {e}"))?;
     let file_name = path_buf
         .file_name()
         .and_then(|n| n.to_str())
         .filter(|s| !s.is_empty())
         .unwrap_or("attachment")
         .to_string();
+    if pointer_core::media::is_video_file_name(&file_name) {
+        return Err(
+            "视频请通过 OSS 上传：使用文件选择后自动上传，勿直接读取整文件到内存".into(),
+        );
+    }
+    let limit = max_attachment_bytes(&file_name);
+    if meta.len() > limit {
+        let limit_mb = limit / (1024 * 1024);
+        return Err(format!("文件超过 {limit_mb} MB 上限"));
+    }
+    let bytes = fs::read(&path_buf).map_err(|e| format!("读取文件失败: {e}"))?;
     let mime_type = mime_from_file_name(&file_name);
     let content_base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(LocalFileAttachmentPayload {

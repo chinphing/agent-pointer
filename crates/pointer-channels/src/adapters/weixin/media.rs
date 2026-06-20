@@ -4,7 +4,7 @@ use super::cdn::{download_and_decrypt, WEIXIN_CDN_BASE};
 use super::silk::normalize_weixin_voice_bytes;
 use crate::adapters::feishu::auth::guess_mime_from_name;
 use crate::http_client::HttpClient;
-use crate::media::attachment::{enforce_max_bytes, finalize_downloaded, DownloadedMedia};
+use crate::media::attachment::{enforce_max_bytes_for_kind, finalize_downloaded, DownloadedMedia};
 use crate::traits::InboundMediaRef;
 use pointer_core::models::MediaAttachment;
 
@@ -24,13 +24,22 @@ pub async fn download_inbound_ref(
         media_ref.weixin_image_aeskey_hex.as_deref(),
     )
     .await?;
-    enforce_max_bytes(&bytes, "weixin media")?;
-
     let file_name = media_ref
         .file_name
         .clone()
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| format!("weixin-{}.bin", uuid::Uuid::new_v4()));
+    let mime_hint = media_ref
+        .mime_type
+        .clone()
+        .unwrap_or_else(|| guess_mime_from_name(&file_name));
+    enforce_max_bytes_for_kind(
+        &bytes,
+        "weixin media",
+        &media_ref.kind,
+        &file_name,
+        &mime_hint,
+    )?;
 
     if media_ref.kind == "audio" {
         match normalize_weixin_voice_bytes(
@@ -83,7 +92,7 @@ pub fn to_media_attachment(
     media_ref: &InboundMediaRef,
     kind_hint: &str,
 ) -> MediaAttachment {
-    let mut att = crate::media::attachment::to_media_attachment(downloaded, kind_hint);
+    let att = crate::media::attachment::to_media_attachment(downloaded, kind_hint);
     let _ = &media_ref.weixin_voice_asr_text;
     att
 }

@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { onMounted, ref, watch } from 'vue'
 import { FileText, Image as ImageIcon, Mic, Video, X } from 'lucide-vue-next'
 import type { ComposerAttachment } from '../../types/chat'
 import { getComposerAttachmentPreviewUrl } from '../../lib/attachmentPayloadStore'
+import { videoPreviewUrlFromLocalPath, videoPreviewUrlFromStorage } from '../../lib/chatMediaPreview'
 
-defineProps<{
+const props = defineProps<{
   attachment: ComposerAttachment
 }>()
 
@@ -11,48 +13,114 @@ defineEmits<{
   remove: []
 }>()
 
+const resolvedPreview = ref<string | null>(getComposerAttachmentPreviewUrl(props.attachment))
+
+async function refreshVideoPreview() {
+  const att = props.attachment
+  if (att.kind !== 'video') return
+  if (resolvedPreview.value) return
+  const url =
+    (att.storageRelPath
+      ? await videoPreviewUrlFromStorage(att.storageRelPath)
+      : null) ??
+    (att.localSourcePath ? await videoPreviewUrlFromLocalPath(att.localSourcePath) : null)
+  if (url) resolvedPreview.value = url
+}
+
+onMounted(() => {
+  void refreshVideoPreview()
+})
+
+watch(
+  () => [props.attachment.storageRelPath, props.attachment.previewUrl, props.attachment.localSourcePath],
+  () => {
+    resolvedPreview.value = getComposerAttachmentPreviewUrl(props.attachment)
+    void refreshVideoPreview()
+  }
+)
+
 function previewUrl(att: ComposerAttachment): string | null {
-  return getComposerAttachmentPreviewUrl(att)
+  return resolvedPreview.value ?? getComposerAttachmentPreviewUrl(att)
+}
+
+function uploadLabel(att: ComposerAttachment): string | null {
+  if (att.kind !== 'video') return null
+  if (att.uploadState === 'compressing') return '压缩中…'
+  if (att.uploadState === 'uploading' || att.uploadState === 'pending') {
+    const pct = att.uploadProgress ?? 0
+    return `上传中 ${pct}%`
+  }
+  if (att.uploadState === 'error') return att.uploadError || '上传失败'
+  if (att.uploadState === 'done' || att.remoteUrl) return '已上传'
+  return '等待上传'
 }
 </script>
 
 <template>
   <div
-    class="inline-flex max-w-[200px] items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-2 py-1 text-xs text-foreground"
+    class="inline-flex max-w-[220px] flex-col gap-1 rounded-lg border border-border bg-muted/40 px-2 py-1 text-xs text-foreground"
+    :class="attachment.kind === 'video' && previewUrl(attachment) ? 'max-w-[240px]' : ''"
   >
-    <img
-      v-if="attachment.kind === 'image' && previewUrl(attachment)"
-      :src="previewUrl(attachment)!"
-      :alt="attachment.fileName"
-      class="h-8 w-8 shrink-0 rounded object-cover"
-    />
-    <ImageIcon
-      v-else-if="attachment.kind === 'image'"
-      class="h-4 w-4 shrink-0 text-muted"
-    />
-    <Mic v-else-if="attachment.kind === 'audio'" class="h-4 w-4 shrink-0 text-muted" />
-    <video
-      v-else-if="attachment.kind === 'video' && previewUrl(attachment)"
-      :src="previewUrl(attachment)!"
-      muted
-      playsinline
-      preload="metadata"
-      class="h-8 w-8 shrink-0 rounded object-cover"
-    />
-    <Video v-else-if="attachment.kind === 'video'" class="h-4 w-4 shrink-0 text-muted" />
-    <FileText v-else class="h-4 w-4 shrink-0 text-muted" />
-    <span
-      v-if="attachment.kind !== 'audio'"
-      class="min-w-0 truncate"
-      :title="attachment.fileName"
-    >{{ attachment.fileName }}</span>
-    <button
-      type="button"
-      class="shrink-0 rounded p-0.5 text-muted hover:bg-muted hover:text-foreground"
-      aria-label="移除附件"
-      @click="$emit('remove')"
+    <div class="inline-flex items-center gap-1.5">
+      <img
+        v-if="attachment.kind === 'image' && previewUrl(attachment)"
+        :src="previewUrl(attachment)!"
+        :alt="attachment.fileName"
+        class="h-8 w-8 shrink-0 rounded object-cover"
+      />
+      <ImageIcon
+        v-else-if="attachment.kind === 'image'"
+        class="h-4 w-4 shrink-0 text-muted"
+      />
+      <Mic v-else-if="attachment.kind === 'audio'" class="h-4 w-4 shrink-0 text-muted" />
+      <div
+        v-else-if="attachment.kind === 'video' && previewUrl(attachment)"
+        class="w-full max-w-[200px]"
+      >
+        <video
+          :src="previewUrl(attachment)!"
+          controls
+          muted
+          playsinline
+          preload="metadata"
+          class="w-full max-h-28 rounded object-contain"
+        />
+      </div>
+      <Video v-else-if="attachment.kind === 'video'" class="h-4 w-4 shrink-0 text-muted" />
+      <FileText v-else class="h-4 w-4 shrink-0 text-muted" />
+      <span
+        v-if="attachment.kind !== 'audio'"
+        class="min-w-0 truncate"
+        :title="attachment.fileName"
+      >{{ attachment.fileName }}</span>
+      <button
+        type="button"
+        class="shrink-0 rounded p-0.5 text-muted hover:bg-muted hover:text-foreground"
+        aria-label="移除附件"
+        @click="$emit('remove')"
+      >
+        <X class="h-3.5 w-3.5" />
+      </button>
+    </div>
+    <div
+      v-if="attachment.kind === 'video' && uploadLabel(attachment)"
+      class="w-full"
     >
-      <X class="h-3.5 w-3.5" />
-    </button>
+      <div
+        v-if="attachment.uploadState === 'compressing' || attachment.uploadState === 'uploading' || attachment.uploadState === 'pending'"
+        class="h-1 w-full overflow-hidden rounded bg-muted"
+      >
+        <div
+          class="h-full bg-primary transition-all duration-200"
+          :style="{ width: `${attachment.uploadProgress ?? 0}%` }"
+        />
+      </div>
+      <p
+        class="truncate text-[10px]"
+        :class="attachment.uploadState === 'error' ? 'text-red-500' : 'text-muted'"
+      >
+        {{ uploadLabel(attachment) }}
+      </p>
+    </div>
   </div>
 </template>

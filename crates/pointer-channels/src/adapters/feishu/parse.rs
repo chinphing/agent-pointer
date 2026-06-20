@@ -296,7 +296,6 @@ fn parse_post_content(content_raw: &str) -> Option<ParsedContent> {
                             weixin_voice_sample_rate: None,
                             weixin_voice_asr_text: None,
                         });
-                        line.push_str("![image]");
                     }
                 }
                 "media" => {
@@ -325,7 +324,6 @@ fn parse_post_content(content_raw: &str) -> Option<ParsedContent> {
                             weixin_voice_sample_rate: None,
                             weixin_voice_asr_text: None,
                         });
-                        line.push_str("[media]");
                     }
                 }
                 "br" => line.push('\n'),

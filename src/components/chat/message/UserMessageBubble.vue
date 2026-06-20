@@ -13,6 +13,7 @@ import { useMarkdownExternalLinks } from '../../../composables/useMarkdownExtern
 import { isUsableAttachmentPreviewUrl } from '../../../lib/attachmentSupport'
 import { attachmentsForMessageRender } from '../../../lib/messageNormalizer'
 import { previewChatMedia, revealInFinder } from '../../../lib/api'
+import { videoPreviewUrlFromStorage } from '../../../lib/chatMediaPreview'
 import {
   isOpenableFileAttachment,
   openAttachmentWithSystemDefault
@@ -34,10 +35,17 @@ const attachments = computed(() => attachmentsForMessageRender(props.message))
 useMarkdownCodeCopy(bodyRef, () => props.message.content)
 useMarkdownExternalLinks(bodyRef, () => props.message.content)
 
-async function ensureMediaPreview(attId: string, storageRelPath?: string) {
+async function ensureMediaPreview(attId: string, kind: string, storageRelPath?: string) {
   if (!storageRelPath || loadedPreviews.value[attId] || previewInflight.has(attId)) return
   previewInflight.add(attId)
   try {
+    if (kind === 'video') {
+      const streamUrl = await videoPreviewUrlFromStorage(storageRelPath)
+      if (streamUrl) {
+        loadedPreviews.value = { ...loadedPreviews.value, [attId]: streamUrl }
+        return
+      }
+    }
     const preview = await previewChatMedia(storageRelPath)
     const mime = preview.mimeType || 'application/octet-stream'
     loadedPreviews.value = {
@@ -93,7 +101,7 @@ watch(
   list => {
     for (const att of list) {
       if (att.storageRelPath) {
-        void ensureMediaPreview(att.id, att.storageRelPath)
+        void ensureMediaPreview(att.id, att.kind, att.storageRelPath)
       }
     }
   },

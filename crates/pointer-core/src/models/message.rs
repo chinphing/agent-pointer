@@ -258,6 +258,12 @@ pub struct MediaAttachment {
     /// Absolute local path for assistant reply `MEDIA:` preview in App UI.
     #[serde(default, rename = "localAbsPath", skip_serializing_if = "Option::is_none")]
     pub local_abs_path: Option<String>,
+    /// OSS HTTPS URL for video attachments (Composer upload).
+    #[serde(default, rename = "remoteUrl", skip_serializing_if = "Option::is_none")]
+    pub remote_url: Option<String>,
+    /// OSS object key for re-signing or cleanup (optional).
+    #[serde(default, rename = "ossObjectKey", skip_serializing_if = "Option::is_none")]
+    pub oss_object_key: Option<String>,
 }
 
 /// Annotated desktop screenshot for UI preview (same style as model vision inject).

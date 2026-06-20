@@ -4,6 +4,8 @@ use anyhow::{Context, Result};
 use std::io::Write;
 use std::process::Command;
 
+use super::video::is_video_file_name;
+
 pub struct PreparedAudio {
     pub bytes: Vec<u8>,
     pub mime_type: String,
@@ -65,6 +67,86 @@ fn wav_output_name(file_name: &str) -> String {
     } else {
         format!("{stem}.wav")
     }
+}
+
+/// True when bytes should be treated as a video container for ASR (extract audio track first).
+pub fn is_video_source_for_asr(mime_type: &str, file_name: &str) -> bool {
+    let mime = mime_type.trim().to_ascii_lowercase();
+    mime.starts_with("video/") || is_video_file_name(file_name)
+}
+
+fn video_input_suffix(file_name: &str) -> &'static str {
+    let lower = file_name.to_ascii_lowercase();
+    if lower.ends_with(".mov") {
+        ".mov"
+    } else if lower.ends_with(".webm") {
+        ".webm"
+    } else if lower.ends_with(".mkv") {
+        ".mkv"
+    } else if lower.ends_with(".avi") {
+        ".avi"
+    } else if lower.ends_with(".mpeg") || lower.ends_with(".mpg") {
+        ".mpeg"
+    } else {
+        ".mp4"
+    }
+}
+
+/// Extract the audio track from a video file to 16 kHz mono WAV for ASR.
+pub fn extract_audio_from_video_to_wav(bytes: &[u8], file_name: &str) -> Result<Vec<u8>> {
+    let ffmpeg = crate::media::ffmpeg::resolve_ffmpeg().context("ffmpeg not found")?;
+    let suffix = video_input_suffix(file_name);
+    let mut input = tempfile::Builder::new()
+        .prefix("pointer-vid-aud-")
+        .suffix(suffix)
+        .tempfile()
+        .context("video audio temp input")?;
+    input.write_all(bytes).context("write video temp input")?;
+    let input_path = input.path();
+
+    let output = tempfile::Builder::new()
+        .suffix(".wav")
+        .tempfile()
+        .context("video audio temp output")?;
+    let out_path = output.path();
+
+    let output = Command::new(&ffmpeg)
+        .args([
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-i",
+            input_path.to_str().unwrap_or_default(),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-y",
+            out_path.to_str().unwrap_or_default(),
+        ])
+        .output()
+        .context("ffmpeg extract video audio")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        anyhow::bail!(
+            "ffmpeg extract audio from video failed for {file_name}: {}",
+            if detail.is_empty() {
+                "no stderr"
+            } else {
+                detail
+            }
+        );
+    }
+
+    let wav = std::fs::read(out_path).context("read extracted video audio wav")?;
+    if wav.is_empty() {
+        anyhow::bail!("ffmpeg produced empty wav from video {file_name}");
+    }
+    Ok(wav)
 }
 
 pub fn transcode_audio_to_wav(bytes: &[u8], file_name: &str) -> Result<Vec<u8>> {
@@ -157,6 +239,28 @@ pub fn prepare_audio_bytes_for_asr_cached(
                 });
             }
         }
+    }
+
+    if is_video_source_for_asr(mime_type, file_name) {
+        if !crate::media::ffmpeg::ffmpeg_available() {
+            anyhow::bail!(
+                "video speech transcription requires ffmpeg to extract the audio track from {file_name}"
+            );
+        }
+        log::info!(
+            "media: extracting audio track from video {file_name} (mime={mime_type}) for ASR"
+        );
+        let wav = extract_audio_from_video_to_wav(bytes, file_name)?;
+        let prepared = PreparedAudio {
+            bytes: wav,
+            mime_type: "audio/wav".into(),
+            file_name: wav_output_name(file_name),
+            wire_format: "wav".into(),
+        };
+        if let Some(ctx) = storage {
+            persist_playable_wav(ctx, &prepared);
+        }
+        return Ok(prepared);
     }
 
     let needs_transcode =
@@ -323,6 +427,12 @@ mod tests {
     #[test]
     fn wav_skips_transcode() {
         assert!(!needs_audio_transcode("audio/wav", "clip.wav"));
+    }
+
+    #[test]
+    fn video_mp4_is_audio_source_for_asr() {
+        assert!(is_video_source_for_asr("video/mp4", "demo.mp4"));
+        assert!(!is_video_source_for_asr("audio/wav", "clip.wav"));
     }
 
     #[test]

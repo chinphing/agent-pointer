@@ -199,9 +199,14 @@ export interface MediaAttachment {
   /** Wire-only; stripped before disk persist. */
   contentBase64?: string
   derivedText?: string
+  /** OSS HTTPS URL (video attachments uploaded at compose time). */
+  remoteUrl?: string
+  ossObjectKey?: string
   /** UI-only; stripped before disk persist. */
   previewUrl?: string
 }
+
+export type VideoUploadState = 'pending' | 'compressing' | 'uploading' | 'done' | 'error'
 
 export interface MediaModelOverrides {
   image?: AgentModelRef
@@ -228,6 +233,11 @@ export interface MediaDepsStatus {
 /** Pending composer attachment (metadata + optional preview URL). */
 export interface ComposerAttachment extends MediaAttachment {
   previewUrl?: string
+  /** Absolute source path while OSS upload runs (desktop file picker). */
+  localSourcePath?: string
+  uploadState?: VideoUploadState
+  uploadProgress?: number
+  uploadError?: string
 }
 
 /** In-memory composer draft (text + pending attachments); not persisted to disk. */
@@ -409,6 +419,23 @@ export interface UserSettings {
   computerAutoCompact?: boolean
   /** Global coding preferences injected as [USER RULES] in agent system prompt. */
   userCodingRules?: string
+  /** Aliyun OSS for large video understanding (HTTP video_url to DashScope). */
+  mediaOss?: MediaOssConfig
+}
+
+/** Aliyun OSS — large video temp upload for native DashScope `video_url`. */
+export interface MediaOssConfig {
+  enabled?: boolean
+  bucket?: string
+  /** Region id, e.g. `cn-hangzhou`. */
+  region?: string
+  /** Optional endpoint, e.g. `https://oss-cn-hangzhou.aliyuncs.com`. */
+  endpoint?: string
+  accessKeyId?: string
+  accessKeySecret?: string
+  keyPrefix?: string
+  presignExpiresSec?: number
+  deleteAfterUse?: boolean
 }
 
 export interface ComputerTierLlmConfig {
@@ -530,6 +557,7 @@ export interface ModelSettings {
   mediaUnderstandingModes?: MediaUnderstandingModes
   agentModeLlm?: AgentModeLlmMap
   mediaModeLlm?: MediaModeLlmMap
+  mediaOss?: MediaOssConfig
 }
 
 export interface SkillDef {

@@ -789,7 +789,8 @@ export const useChatStore = defineStore('chat', () => {
     }
     const wireAttachments = []
     for (const a of attachments) {
-      const contentBase64 = getComposerAttachmentContentBase64(a) ?? undefined
+      const isOssVideo = a.kind === 'video' && !!a.remoteUrl?.trim()
+      const contentBase64 = isOssVideo ? undefined : getComposerAttachmentContentBase64(a) ?? undefined
       const previewUrl = getComposerAttachmentDataUrl(a) ?? undefined
       let storageRelPath = a.storageRelPath
       if (contentBase64 && !storageRelPath) {
@@ -804,12 +805,14 @@ export const useChatStore = defineStore('chat', () => {
           console.warn('[chat] saveChatAttachment failed', e)
         }
       }
-      const { previewUrl: _p, contentBase64: _c, ...rest } = a
+      const { previewUrl: _p, contentBase64: _c, uploadState: _u, uploadProgress: _up, uploadError: _ue, localSourcePath: _lp, ...rest } = a
       wireAttachments.push({
         ...rest,
         ...(contentBase64 ? { contentBase64 } : {}),
         ...(previewUrl ? { previewUrl } : {}),
-        ...(storageRelPath ? { storageRelPath } : {})
+        ...(storageRelPath ? { storageRelPath } : {}),
+        ...(a.remoteUrl ? { remoteUrl: a.remoteUrl } : {}),
+        ...(a.ossObjectKey ? { ossObjectKey: a.ossObjectKey } : {})
       })
     }
     const userMsg: ChatMessage = {

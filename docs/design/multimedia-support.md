@@ -6,7 +6,7 @@
 
 ## 1. 目标
 
-- Composer 支持图片、文档、音频、视频附件（视频单文件上限 30 MB，与 IM 入站一致）
+- Composer 支持图片、文档、音频、视频附件（**视频** OSS 上限 **5 GB**；**>500 MB** 需用户确认后压缩；IM 入站视频同策略但 **>500 MB 自动压缩**；非视频 IM 媒体 **30 MB**）
 - 主模型保持用户所选 agent 模型不变
 - **上传不自动理解**：`apply_media_to_history` 仅落盘 + 写 `attachments`
 - **模型上下文**：`make_openai_messages` 追加 Markdown 清单（`fileName` + `ref` + `localPath`）
@@ -123,8 +123,69 @@ mediaModelOverrides: {
 | 文档文本提取上限 | 256 KiB |
 | 扫描 PDF 页图 OCR 上限 | 10 页 / 单页 6 MB（纯 Rust `lopdf` 提取嵌入图，无 poppler/ghostscript） |
 | PDF 文本 OCR 回退阈值 | 抽取文本 &lt; 48 字符时视为无效（页码/水印），走页图 OCR |
-| 单视频 Composer 上限 | 30 MB |
+| 单视频 Composer 上限 | **100 MB** |
 | Composer video | 允许（需本机 ffmpeg 方可理解） |
+
+### 6.1 大文件与复杂附件场景
+
+上传一律**完整落盘**；理解阶段有硬上限。清单含 `sizeBytes`，Agent 应结合 `goal` / `context` 做**分片、指定范围、或换工具**。
+
+#### 超大 PDF
+
+| 阶段 | 行为 |
+|------|------|
+| 默认范围 | 用户**未明确要求页码**时，仅处理 **第 1–10 页**；工具结果含 scope 说明 |
+| 用户指定页码 | Agent 传 **`pageStart` / `pageEnd`**（1-based，含首尾）；未指定则不传 |
+| 单次上限 | 每 call 最多 **10 页**；更多页码须**多次** `media_understand` |
+| 文本型 PDF | 按页提取 → 最多 **256 KiB** → goal 聚焦（约 12 万字符送模型） |
+| 扫描/图片型 PDF | 范围内嵌入图 OCR，单页 JPEG ≤ **6 MB** |
+
+**Agent 策略**
+
+- 用户说「第 45–60 页」→ `pageStart=45`, `pageEnd=60`（若 >10 页则拆成多次 call）。
+- 用户只说「总结这份 PDF」→ 不传页码参数，默认 1–10 页；结果里告知用户范围。
+- 全书摘要：说明默认仅前 10 页；可分批或让用户指定页码。
+
+#### 超大视频
+
+| 阶段 | 行为 |
+|------|------|
+| 上传 | Composer 默认 **OSS**（`remoteUrl`）；**>500 MB** 弹窗确认后压缩至 ≤500 MB 再上传；IM 入站**视频**同 OSS 路径，**>500 MB 自动压缩**；非视频 IM **≤ 30 MB** |
+| 理解主路径 | DashScope **`video_url`** + **`fps`**，输入为 **`remoteUrl`**（HTTPS OSS URL） |
+| 回退 | 无 `remoteUrl` 或原生 API 失败 → ffmpeg 抽 JPEG 帧 + vision |
+| 工具结果 | scope 含时间窗、总时长、输入模式（native / ffmpeg fallback） |
+
+**Agent 策略**
+
+- 用户说「前 2 分钟」→ 在 **goal** 写明时间段；必要时配合 `timeStartSec`/`timeEndSec`（主要作用于回退抽帧路径）。
+- 用户只说「总结这个视频」→ **goal** 概括需求即可；主路径送整段 `remoteUrl`。
+- 全文转写 → 提音轨 + `mode=audio`。
+
+#### 多 Sheet Excel（.xlsx）
+
+走 **`xlsx` Skill** + `terminal` + **`localPath`**（与 `media_understand` 无关，见 Office 架构）。
+
+#### 图片目录（多图）
+
+| 阶段 | 行为 |
+|------|------|
+| ref | **`mode=image`** 时 **ref** 可为本地目录路径 |
+| 列举 | 仅**当前目录**（非递归）；png/jpg/jpeg/gif/webp/bmp/heic/heif；按文件名排序 |
+| 默认 | 用户未指定范围 → **第 1–200 张** |
+| 用户指定 | **`imageStart` / `imageEnd`**（1-based 序号） |
+| 单次上限 | **200 张**；更多须多次 call |
+| 工具结果 | scope 含本次序号范围、**目录内总张数**、拆分指引 |
+
+---
+
+| 类型 | 建议 |
+|------|------|
+| **大图片** | 自动缩放到 ≤ **6 MB** JPEG 再 vision |
+| **长音频** | ASR 模型有上下文上限；超长录音在 `goal` 中说明「只要结论/某段」；必要时分段转写 |
+| **docx / pptx** | **docx** / **pptx** Skill，不用 `media_understand` |
+| **zip / 二进制** | 不支持内联；`skill_read` 或追问用户要提取什么 |
+| **多附件** | 每个文件单独 `goal`；按用户点名顺序处理，避免一次工具塞多个 ref |
+| **超大附件已落盘但理解失败** | 工具结果会含截断/页数说明；向用户解释限制并给出替代（指定范围、拆文件、用 Skill） |
 
 ---
 
@@ -207,7 +268,7 @@ mediaModelOverrides: {
 | 范围 | 做 | 不做 |
 |------|-----|------|
 | 入站 | 飞书 / 企微 / 钉钉 / **微信个人号** WS 图片、文件、语音、视频 | — |
-| Composer | 支持 video 上传（30 MB） | — |
+| Composer | 支持 video 上传（**100 MB**） | — |
 | ffmpeg | 系统安装，**不打包**进安装包 | 内置 sidecar |
 | 出站 IM | 仍只发文本 | 回复图片/文件 |
 
@@ -255,7 +316,11 @@ dispatch 下载后转为 `MediaAttachment`，与 Composer 一致。
 | `media` / `video` | file_key | 同上；502 时 fallback `type=media` |
 | `post` | 富文本 + 内嵌 img/media | 逐项 resource 下载 |
 
-单文件上限：**30 MB**（与 OpenClaw 默认一致）。
+Composer 视频在添加附件时**默认上传 OSS**（不走 Base64 传输）；上传完成前 Composer **禁止发送**。`attachments` 写入 `remoteUrl` / `ossObjectKey`，API 清单对视频注入 `remoteUrl`。超过 **500 MB** 不能直接上传：弹窗确认后 Pointer 压缩到 500 MB 以下再上传（帧率/分辨率可能降低）；取消则不添加附件。OSS PutObject 单次上限约 5 GB。
+
+`media_understand` 理解视频时优先使用 `remoteUrl` 送入 DashScope `video_url`；失败或无 `remoteUrl` 时回退 ffmpeg 抽帧。
+
+IM 入站**视频**大小策略与 Composer OSS 一致（上限 **5 GB**；**>500 MB** 自动压缩后上传）。非视频 IM 媒体仍为 **30 MB**。**入站视频**在 `apply_media_to_history` 中与 Composer 共用 OSS 上传（`remoteUrl`）；OSS 未配置或上传失败时仍用本地文件 + ffmpeg 回退。
 
 ### 10.4a 微信个人号（iLink Bot）
 

@@ -163,7 +163,6 @@ fn parse_rich_text(event: &Value) -> Option<ParsedContent> {
                             .map(|s| s.to_string()),
                         Some("image/jpeg".into()),
                     ));
-                    text_parts.push("[image]".into());
                 }
             }
             "video" => {
@@ -176,7 +175,6 @@ fn parse_rich_text(event: &Value) -> Option<ParsedContent> {
                             .map(|s| s.to_string()),
                         Some("video/mp4".into()),
                     ));
-                    text_parts.push("[video]".into());
                 }
             }
             "file" => {
@@ -189,7 +187,6 @@ fn parse_rich_text(event: &Value) -> Option<ParsedContent> {
                             .map(|s| s.to_string()),
                         None,
                     ));
-                    text_parts.push("[file]".into());
                 }
             }
             _ => {}

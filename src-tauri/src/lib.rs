@@ -222,6 +222,7 @@ fn configure_macos_window_chrome(app: &tauri::App) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     pointer_core::logging::init_backtrace_defaults();
+    pointer_core::tls::ensure_rustls_crypto_provider();
 
     // 发布版默认不含 `pointer_core::provider=debug`；调试模式或 dev 构建见 `logging::default_runtime_log_filter`。
     let default_log_filter = pointer_core::logging::default_runtime_log_filter();
@@ -351,13 +352,18 @@ pub fn run() {
             commands::preview_computer_annotated_screen,
             commands::preview_computer_round_screen,
             commands::preview_chat_media,
+            commands::get_chat_media_local_path,
             commands::preview_media_ref,
             commands::save_chat_attachment,
             commands::check_media_deps,
             commands::reveal_in_finder,
             commands::open_path_with_default_app,
             commands::open_chat_media,
+            commands::get_media_oss_upload_status,
+            commands::upload_composer_video_to_oss,
+            commands::upload_composer_video_bytes_to_oss,
             commands::read_local_file_for_attachment,
+            commands::get_local_file_size,
             commands::list_computer_monitors,
             commands::set_computer_conversation_monitor,
             commands::confirm_computer_monitor_pick,

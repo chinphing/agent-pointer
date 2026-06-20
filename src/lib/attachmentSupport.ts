@@ -9,8 +9,8 @@ export function isUsableAttachmentPreviewUrl(url: string | undefined | null): bo
   return u.startsWith('data:') || u.startsWith('http://') || u.startsWith('https://')
 }
 
-/** Align with IM inbound media cap (30 MB). */
-export const COMPOSER_VIDEO_MAX_BYTES = 30 * 1024 * 1024
+/** Align with host `COMPOSER_VIDEO_ADVISORY_BYTES` — compress via code after user confirms. */
+export const COMPOSER_VIDEO_ADVISORY_BYTES = 500 * 1024 * 1024
 
 export function isSupportedChatAttachmentMimeType(mimeType: string | null | undefined): boolean {
   return typeof mimeType === 'string' && mimeType.trim().length > 0
@@ -24,9 +24,7 @@ export function isVideoAttachmentFile(file: Pick<File, 'name' | 'type'>): boolea
 
 export function isSupportedChatAttachmentFile(file: Pick<File, 'name' | 'size' | 'type'>): boolean {
   const name = file.name.trim()
-  if (!name) return false
-  if (isVideoAttachmentFile(file) && file.size > COMPOSER_VIDEO_MAX_BYTES) return false
-  return true
+  return !!name
 }
 
 export function mediaKindFromFile(
@@ -53,9 +51,23 @@ export function dataUrlToBase64(dataUrl: string): string {
   return dataUrl.slice(comma + 1).trim()
 }
 
-export function composerVideoSizeError(file: Pick<File, 'name' | 'size' | 'type'>): string | null {
-  if (!isVideoAttachmentFile(file)) return null
-  if (file.size <= COMPOSER_VIDEO_MAX_BYTES) return null
-  const limitMb = COMPOSER_VIDEO_MAX_BYTES / (1024 * 1024)
-  return `视频 ${file.name} 超过 ${limitMb} MB 上限`
+export function isLargeComposerVideo(sizeBytes: number): boolean {
+  return sizeBytes > COMPOSER_VIDEO_ADVISORY_BYTES
+}
+
+/** Confirm dialog when video exceeds advisory size — user must agree before code compress + upload. */
+export function composerVideoCompressConfirmMessage(fileName: string, sizeBytes: number): string {
+  const limitMb = COMPOSER_VIDEO_ADVISORY_BYTES / (1024 * 1024)
+  const sizeMb = (sizeBytes / (1024 * 1024)).toFixed(1)
+  return (
+    `视频「${fileName}」约 ${sizeMb} MB。\n\n` +
+    `超过 ${limitMb} MB 不能直接上传。Pointer 将启用压缩，把视频压缩到 ${limitMb} MB 以下后再上传；` +
+    '视频的帧率和分辨率可能会降低。\n\n' +
+    '是否继续？'
+  )
+}
+
+/** Composer hint while compressing and uploading a large video. */
+export function composerVideoCompressHint(fileName: string): string {
+  return `正在压缩并上传「${fileName}」…`
 }

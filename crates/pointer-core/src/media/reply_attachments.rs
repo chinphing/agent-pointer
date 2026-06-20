@@ -43,6 +43,8 @@ fn attachment_from_media_ref(raw: &str) -> Option<MediaAttachment> {
         content_base64: None,
         derived_text: None,
         local_abs_path,
+        remote_url: None,
+        oss_object_key: None,
     })
 }
 

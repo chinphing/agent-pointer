@@ -58,6 +58,18 @@ pub struct PlatformLoginCredentials {
     pub llm_provider: Option<String>,
     #[serde(default)]
     pub provider_api_keys: HashMap<String, String>,
+    #[serde(default, rename = "mediaOss", alias = "media_oss")]
+    pub media_oss: Option<PlatformMediaOssCredentials>,
+}
+
+/// OSS credentials from platform login (endpoint + AccessKey only).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PlatformMediaOssCredentials {
+    pub endpoint: String,
+    #[serde(default, rename = "accessKeyId", alias = "access_key_id")]
+    pub access_key_id: String,
+    #[serde(default, rename = "accessKeySecret", alias = "access_key_secret")]
+    pub access_key_secret: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -176,6 +188,70 @@ impl PlatformAuthManager {
         if let Some(rt) = refresh {
             let _ = tauri_fire_and_forget_revoke(rt);
         }
+    }
+
+    fn sanitize_media_oss(
+        media: Option<PlatformMediaOssCredentials>,
+    ) -> Option<PlatformMediaOssCredentials> {
+        media.filter(|m| {
+            !m.endpoint.trim().is_empty()
+                && !m.access_key_id.trim().is_empty()
+                && !m.access_key_secret.trim().is_empty()
+        })
+    }
+
+    fn credentials_have_payload(creds: &PlatformLoginCredentials) -> bool {
+        creds.api_key.as_ref().is_some_and(|k| !k.trim().is_empty())
+            || !creds.provider_api_keys.is_empty()
+            || creds.media_oss.is_some()
+    }
+
+    fn merge_login_credentials(
+        primary: PlatformLoginCredentials,
+        overlay: Option<PlatformLoginCredentials>,
+    ) -> PlatformLoginCredentials {
+        let Some(overlay) = overlay else {
+            return primary;
+        };
+        PlatformLoginCredentials {
+            api_key: overlay
+                .api_key
+                .filter(|k| !k.trim().is_empty())
+                .or(primary.api_key),
+            llm_provider: overlay
+                .llm_provider
+                .filter(|p| !p.trim().is_empty())
+                .or(primary.llm_provider),
+            provider_api_keys: if overlay.provider_api_keys.is_empty() {
+                primary.provider_api_keys
+            } else {
+                overlay.provider_api_keys
+            },
+            media_oss: overlay.media_oss.or(primary.media_oss),
+        }
+    }
+
+    fn credentials_from_partner_response(
+        parsed: PartnerLlmCredentialResponse,
+    ) -> Option<PlatformLoginCredentials> {
+        let media_oss = Self::sanitize_media_oss(parsed.media_oss);
+        if parsed.ok {
+            return Some(PlatformLoginCredentials {
+                api_key: parsed.api_key.filter(|k| !k.trim().is_empty()),
+                llm_provider: parsed.llm_provider.filter(|p| !p.trim().is_empty()),
+                provider_api_keys: parsed.provider_api_keys,
+                media_oss,
+            });
+        }
+        if media_oss.is_some() {
+            return Some(PlatformLoginCredentials {
+                api_key: None,
+                llm_provider: None,
+                provider_api_keys: HashMap::new(),
+                media_oss,
+            });
+        }
+        None
     }
 
     fn valid_session_if_fresh(&self) -> Option<(PlatformSession, PlatformLoginCredentials)> {
@@ -334,7 +410,15 @@ impl PlatformAuthManager {
 
     pub async fn load_persisted_session(&self) -> Result<Option<PlatformLoginCredentials>> {
         match self.refresh_if_needed().await {
-            Ok(Some((_session, creds))) => Ok(Some(creds)),
+            Ok(Some((_session, token_creds))) => {
+                let fetched = self.fetch_llm_credentials().await?;
+                let merged = Self::merge_login_credentials(token_creds, fetched);
+                if Self::credentials_have_payload(&merged) {
+                    Ok(Some(merged))
+                } else {
+                    Ok(None)
+                }
+            }
             Ok(None) => Ok(None),
             Err(e) => {
                 log::warn!("platform_auth: startup refresh failed: {e}");
@@ -386,6 +470,7 @@ impl PlatformAuthManager {
             api_key: parsed.api_key.filter(|k| !k.trim().is_empty()),
             llm_provider: parsed.llm_provider.filter(|p| !p.trim().is_empty()),
             provider_api_keys: parsed.provider_api_keys,
+            media_oss: Self::sanitize_media_oss(parsed.media_oss),
         };
         Ok((session, creds))
     }
@@ -501,7 +586,7 @@ impl PlatformAuthManager {
             return Err(anyhow!("token_quota_exhausted"));
         }
         if !parsed.ok {
-            return Ok(None);
+            return Ok(Self::credentials_from_partner_response(parsed));
         }
         if parsed.included_tokens.is_some() || parsed.consumed_tokens.is_some() {
             let mut guard = self.inner.write();
@@ -519,11 +604,7 @@ impl PlatformAuthManager {
                 parsed.consumed_tokens
             );
         }
-        Ok(Some(PlatformLoginCredentials {
-            api_key: parsed.api_key.filter(|k| !k.trim().is_empty()),
-            llm_provider: parsed.llm_provider.filter(|p| !p.trim().is_empty()),
-            provider_api_keys: parsed.provider_api_keys,
-        }))
+        Ok(Self::credentials_from_partner_response(parsed))
     }
 
     /// Refresh partner LLM credentials; block when platform reports quota exhausted.
@@ -573,6 +654,8 @@ struct AppTokenResponse {
     llm_provider: Option<String>,
     #[serde(default)]
     provider_api_keys: HashMap<String, String>,
+    #[serde(default, rename = "mediaOss", alias = "media_oss")]
+    media_oss: Option<PlatformMediaOssCredentials>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -615,6 +698,8 @@ struct PartnerLlmCredentialResponse {
     included_tokens: Option<u64>,
     #[serde(default, rename = "consumed_tokens")]
     consumed_tokens: Option<u64>,
+    #[serde(default, rename = "mediaOss", alias = "media_oss")]
+    media_oss: Option<PlatformMediaOssCredentials>,
 }
 
 /// 从首选端口起扫描，绑定第一个可用的 127.0.0.1 端口。

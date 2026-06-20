@@ -109,6 +109,25 @@ fn extension_lower(file_name: &str) -> Option<String> {
         .map(|e| e.to_ascii_lowercase())
 }
 
+/// Safe attachment basename for disk paths and OSS object names (preserves Unicode).
+pub fn safe_attachment_basename(file_name: &str) -> String {
+    let base = normalize_inbound_filename(file_name);
+    if base.is_empty() {
+        return String::new();
+    }
+    let sanitized: String = base
+        .chars()
+        .filter(|&ch| !ch.is_control() && !matches!(ch, '/' | '\\'))
+        .map(|ch| if ch == ' ' { '_' } else { ch })
+        .collect();
+    let trimmed = sanitized.trim();
+    if trimmed.is_empty() || trimmed == "." || trimmed == ".." {
+        String::new()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 pub fn looks_like_utf8_text_content(text: &str) -> bool {
     if text.trim().is_empty() {
         return false;
@@ -154,6 +173,22 @@ mod tests {
         let merged = merge_inbound_filename(hint, cd).unwrap();
         assert!(merged.contains('完'));
         assert!(!merged.contains('%'));
+    }
+
+    #[test]
+    fn safe_attachment_basename_preserves_chinese() {
+        assert_eq!(
+            safe_attachment_basename("像素蛋糕完整示例-0513.mp4"),
+            "像素蛋糕完整示例-0513.mp4"
+        );
+    }
+
+    #[test]
+    fn safe_attachment_basename_strips_path_and_spaces() {
+        assert_eq!(
+            safe_attachment_basename("../../evil clip.mp4"),
+            "evil_clip.mp4"
+        );
     }
 
     #[test]

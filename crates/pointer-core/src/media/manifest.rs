@@ -1,6 +1,7 @@
 //! API-only user attachment manifest for LLM context (not persisted in `msg.content`).
 
 use crate::models::MediaAttachment;
+use serde_json::{json, Value};
 
 use super::path_hint::MEDIA_URI_SCHEME;
 use super::store::media_abs_path;
@@ -8,11 +9,114 @@ use super::store::media_abs_path;
 pub const USER_ATTACHMENTS_MARKER: &str = "<!-- pointer-user-attachments -->";
 pub const ATTACHMENT_NEEDS_INTENT_MARKER: &str = "<!-- pointer-attachment-needs-intent -->";
 
-fn attachment_ref_uri(storage_rel_path: &str) -> String {
-    format!("{MEDIA_URI_SCHEME}{}", storage_rel_path.trim().trim_start_matches('/'))
+pub fn attachment_ref_uri(storage_rel_path: &str) -> String {
+    format!(
+        "{MEDIA_URI_SCHEME}{}",
+        storage_rel_path.trim().trim_start_matches('/')
+    )
 }
 
-fn format_attachment_entry(index: usize, att: &MediaAttachment, persist_failed: bool) -> String {
+pub fn attachment_has_local(att: &MediaAttachment) -> bool {
+    att.storage_rel_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_some()
+}
+
+pub fn attachment_has_remote(att: &MediaAttachment) -> bool {
+    att.remote_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_some()
+}
+
+fn attachment_has_wire(att: &MediaAttachment) -> bool {
+    att.content_base64
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_some()
+}
+
+/// True when the attachment has no resolvable local path, remote URL, or wire bytes.
+pub fn attachment_persist_failed(att: &MediaAttachment) -> bool {
+    !attachment_has_local(att) && !attachment_has_remote(att) && !attachment_has_wire(att)
+}
+
+pub fn attachment_local_abs_path(att: &MediaAttachment) -> Option<String> {
+    if let Some(rel) = att
+        .storage_rel_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return media_abs_path(rel)
+            .ok()
+            .map(|p| p.display().to_string())
+            .filter(|s| !s.is_empty());
+    }
+    att.local_abs_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+/// JSON attachment summary for tools (`session_search`, etc.) — same fields as the API manifest.
+pub fn attachment_summary_json(att: &MediaAttachment) -> Value {
+    let mut obj = json!({
+        "id": att.id,
+        "kind": att.kind,
+        "fileName": att.file_name,
+        "mimeType": att.mime_type,
+        "sizeBytes": att.size_bytes,
+    });
+    if attachment_persist_failed(att) {
+        obj["status"] = json!("failed");
+        obj["error"] = json!("attachment not saved");
+        return obj;
+    }
+    if let Some(rel) = att
+        .storage_rel_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        obj["storageRelPath"] = json!(rel);
+        obj["ref"] = json!(attachment_ref_uri(rel));
+    }
+    if let Some(path) = attachment_local_abs_path(att) {
+        obj["localPath"] = json!(path);
+    }
+    if attachment_has_remote(att) {
+        obj["remoteUrl"] = json!(att.remote_url.as_deref().unwrap_or("").trim());
+    }
+    if let Some(key) = att
+        .oss_object_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        obj["ossObjectKey"] = json!(key);
+    }
+    if let Some(text) = att
+        .derived_text
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        obj["derivedText"] = json!(text);
+    }
+    obj
+}
+
+pub fn attachment_summaries_json(atts: &[MediaAttachment]) -> Vec<Value> {
+    atts.iter().map(attachment_summary_json).collect()
+}
+
+fn format_attachment_entry(index: usize, att: &MediaAttachment) -> String {
     let file_name = att.file_name.trim();
     let kind = att.kind.trim();
     let mime = att.mime_type.trim();
@@ -22,33 +126,38 @@ fn format_attachment_entry(index: usize, att: &MediaAttachment, persist_failed: 
         format!("{index}. **{file_name}** ({kind}, {mime})")
     };
 
-    if persist_failed
-        || att
-            .storage_rel_path
-            .as_deref()
-            .unwrap_or("")
-            .trim()
-            .is_empty()
-    {
+    let has_remote = attachment_has_remote(att);
+    let has_local = attachment_has_local(att);
+
+    if attachment_persist_failed(att) {
         return format!("{header}\n   - status: failed\n   - error: attachment not saved");
     }
 
-    let rel = att.storage_rel_path.as_deref().unwrap_or("").trim();
-    let ref_uri = attachment_ref_uri(rel);
-    let local_path = media_abs_path(rel)
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|e| {
-            log::warn!("media manifest: resolve local path for {rel}: {e:#}");
-            String::new()
-        });
-
-    if local_path.is_empty() {
-        format!("{header}\n   - ref: {ref_uri}")
+    let size_line = if att.size_bytes > 0 {
+        format!("   - sizeBytes: {}\n", att.size_bytes)
     } else {
-        format!(
-            "{header}\n   - ref: {ref_uri}\n   - localPath: {local_path}"
-        )
+        String::new()
+    };
+
+    let mut lines = vec![header];
+    if has_remote && kind == "video" {
+        let url = att.remote_url.as_deref().unwrap_or("").trim();
+        lines.push(format!("{size_line}   - remoteUrl: {url}"));
     }
+    if has_local {
+        let rel = att.storage_rel_path.as_deref().unwrap_or("").trim();
+        let ref_uri = attachment_ref_uri(rel);
+        if let Some(local_path) = attachment_local_abs_path(att) {
+            lines.push(format!(
+                "{size_line}   - ref: {ref_uri}\n   - localPath: {local_path}"
+            ));
+        } else {
+            lines.push(format!("{size_line}   - ref: {ref_uri}"));
+        }
+    } else if !has_remote || kind != "video" {
+        lines.push(size_line.trim_end().to_string());
+    }
+    lines.join("\n")
 }
 
 /// Markdown block listing user attachments for the model (API request only).
@@ -58,19 +167,7 @@ pub fn format_user_attachments_api_manifest(attachments: &[MediaAttachment]) -> 
     }
     let mut lines = vec![USER_ATTACHMENTS_MARKER.to_string()];
     for (i, att) in attachments.iter().enumerate() {
-        let failed = att
-            .storage_rel_path
-            .as_deref()
-            .unwrap_or("")
-            .trim()
-            .is_empty()
-            && att
-                .content_base64
-                .as_deref()
-                .unwrap_or("")
-                .trim()
-                .is_empty();
-        lines.push(format_attachment_entry(i + 1, att, failed));
+        lines.push(format_attachment_entry(i + 1, att));
     }
     lines.join("\n")
 }
@@ -110,12 +207,34 @@ mod tests {
             content_base64: None,
             derived_text: None,
             local_abs_path: None,
+            remote_url: None,
+            oss_object_key: None,
         };
         let m = format_user_attachments_api_manifest(&[att]);
         assert!(m.contains(USER_ATTACHMENTS_MARKER));
         assert!(m.contains("**photo.png**"));
         assert!(m.contains("pointer-media://conv/a1.png"));
         assert!(m.contains("localPath:"));
+        assert!(m.contains("sizeBytes: 100"));
+    }
+
+    #[test]
+    fn manifest_includes_video_remote_url() {
+        let att = MediaAttachment {
+            id: "v1".into(),
+            kind: "video".into(),
+            mime_type: "video/mp4".into(),
+            file_name: "clip.mp4".into(),
+            size_bytes: 1_000_000,
+            storage_rel_path: Some("conv/v1".into()),
+            content_base64: None,
+            derived_text: None,
+            local_abs_path: None,
+            remote_url: Some("https://bucket.oss-cn-hangzhou.aliyuncs.com/a/clip.mp4".into()),
+            oss_object_key: Some("pointer-media-attachments/v1/clip.mp4".into()),
+        };
+        let m = format_user_attachments_api_manifest(&[att]);
+        assert!(m.contains("remoteUrl: https://"));
     }
 
     #[test]
@@ -130,8 +249,34 @@ mod tests {
             content_base64: None,
             derived_text: None,
             local_abs_path: None,
+            remote_url: None,
+            oss_object_key: None,
         };
         let out = append_user_attachments_api_context("", &[att]);
         assert!(out.contains(ATTACHMENT_NEEDS_INTENT_MARKER));
+    }
+
+    #[test]
+    fn summary_json_matches_manifest_fields() {
+        let att = MediaAttachment {
+            id: "id1".into(),
+            kind: "image".into(),
+            mime_type: "image/png".into(),
+            file_name: "photo.png".into(),
+            size_bytes: 100,
+            storage_rel_path: Some("conv/a1.png".into()),
+            content_base64: None,
+            derived_text: None,
+            local_abs_path: None,
+            remote_url: None,
+            oss_object_key: None,
+        };
+        let j = attachment_summary_json(&att);
+        assert_eq!(j["fileName"], "photo.png");
+        assert!(j["ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("pointer-media://"));
+        assert!(j.get("localPath").is_some());
     }
 }

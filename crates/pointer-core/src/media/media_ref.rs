@@ -24,10 +24,10 @@ pub fn resolve_media_ref(raw: &str) -> Result<PathBuf> {
 
     if !is_user_filesystem_path(rel) && rel.contains('/') {
         let path = media_abs_path(rel)?;
-        if path.is_file() {
+        if path.is_file() || path.is_dir() {
             return Ok(path);
         }
-        anyhow::bail!("media file not found: {trimmed}");
+        anyhow::bail!("media path not found: {trimmed}");
     }
 
     if path_has_traversal(rel) {
@@ -39,39 +39,49 @@ pub fn resolve_media_ref(raw: &str) -> Result<PathBuf> {
 
 fn resolve_filesystem_ref(raw: &str) -> Result<PathBuf> {
     let path = normalize_user_path(raw)?;
-    if path.is_absolute() && path.is_file() {
+    if path.is_absolute() && (path.is_file() || path.is_dir()) {
         return Ok(path);
     }
-    if path.is_file() {
+    if path.is_file() || path.is_dir() {
         return Ok(path);
     }
 
     if let Ok(data_dir) = app_data_dir() {
         let under_data = data_dir.join(raw.trim_start_matches('/'));
-        if under_data.is_file() {
+        if under_data.is_file() || under_data.is_dir() {
             return Ok(under_data);
         }
         let under_media = data_dir
             .join(CONVERSATION_MEDIA_DIR)
             .join(raw.trim_start_matches('/'));
-        if under_media.is_file() {
+        if under_media.is_file() || under_media.is_dir() {
             return Ok(under_media);
         }
     }
 
     if let Ok(cwd) = std::env::current_dir() {
         let under_cwd = cwd.join(raw);
-        if under_cwd.is_file() {
+        if under_cwd.is_file() || under_cwd.is_dir() {
             return Ok(under_cwd);
         }
     }
 
-    anyhow::bail!("media file not found: {raw}")
+    anyhow::bail!("media path not found: {raw}")
 }
 
-/// Read raw bytes for a resolved media reference.
+/// True when `raw` resolves to an existing directory.
+pub fn media_ref_is_directory(raw: &str) -> Result<bool> {
+    Ok(resolve_media_ref(raw)?.is_dir())
+}
+
+/// Read raw bytes for a resolved media reference (files only).
 pub fn read_media_ref_bytes(raw: &str) -> Result<Vec<u8>> {
     let path = resolve_media_ref(raw)?;
+    if path.is_dir() {
+        anyhow::bail!(
+            "media ref is a directory; use media_understand mode=image with imageStart/imageEnd"
+        );
+    }
     std::fs::read(&path).with_context(|| format!("read media file {}", path.display()))
 }
 

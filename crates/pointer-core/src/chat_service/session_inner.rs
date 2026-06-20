@@ -123,8 +123,13 @@ pub(super) async fn run_chat_inner(
     // Restore from auth.dat / refresh near-expiry tokens before gating chat.
     match state.platform_auth.refresh_if_needed().await {
         Ok(Some((_session, creds))) => {
-            if creds.api_key.is_some() || !creds.provider_api_keys.is_empty() {
+            if creds.api_key.is_some()
+                || !creds.provider_api_keys.is_empty()
+                || creds.media_oss.is_some()
+            {
                 state.apply_login_credentials(&creds);
+            } else if let Ok(Some(fetched)) = state.platform_auth.fetch_llm_credentials().await {
+                state.apply_login_credentials(&fetched);
             }
         }
         Ok(None) => {}

@@ -10,6 +10,7 @@ use super::access::{
     assert_app_media_preview_allowed, is_user_filesystem_path, normalize_user_path,
     path_has_traversal,
 };
+use super::filename::safe_attachment_basename;
 use super::path_hint::MEDIA_URI_SCHEME;
 
 pub const CONVERSATION_MEDIA_DIR: &str = "conversation-media";
@@ -39,14 +40,31 @@ pub fn save_attachment_bytes(
     }
     let dir = conversation_media_root()?.join(&conv);
     fs::create_dir_all(&dir).context("媒体目录创建失败")?;
-    let ext = Path::new(file_name)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| format!(".{e}"))
-        .unwrap_or_default();
-    let file_path = dir.join(format!("{id}{ext}"));
+    let safe_name = safe_attachment_basename(file_name);
+    let file_path = if safe_name.is_empty() {
+        let ext = Path::new(file_name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| format!(".{e}"))
+            .unwrap_or_default();
+        dir.join(format!("{id}{ext}"))
+    } else {
+        dir.join(format!("{id}_{safe_name}"))
+    };
     fs::write(&file_path, bytes).context("write attachment file")?;
-    Ok(format!("{conv}/{id}{ext}"))
+    let rel = conversation_media_abs_to_rel(&file_path).unwrap_or_else(|| {
+        if safe_name.is_empty() {
+            let ext = Path::new(file_name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| format!(".{e}"))
+                .unwrap_or_default();
+            format!("{conv}/{id}{ext}")
+        } else {
+            format!("{conv}/{id}_{safe_name}")
+        }
+    });
+    Ok(rel)
 }
 
 pub fn read_media_bytes(storage_rel_path: &str) -> Result<Vec<u8>> {

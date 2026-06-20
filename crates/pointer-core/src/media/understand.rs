@@ -10,6 +10,10 @@ use tokio_util::sync::CancellationToken;
 const DESCRIBE_PROMPT: &str = "Describe this image for an assistant that cannot see it. \
 Focus on visible text, objects, layout, and details relevant to the user's stated goal.";
 
+const MULTI_IMAGE_DESCRIBE_PROMPT: &str = "Describe the attached images for an assistant that cannot see them. \
+Each image may have a label with its file name. \
+Follow the user's stated goal; compare or summarize across images when relevant.";
+
 fn truncate_for_prompt(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
         return s.to_string();
@@ -104,6 +108,100 @@ pub async fn describe_image_with_model(
         anyhow::bail!("image understanding returned empty content");
     }
     let _ = mime_type;
+    Ok(text)
+}
+
+pub async fn describe_images_with_model(
+    settings: &ModelSettings,
+    image_model: &AgentModelRef,
+    api_key_fallback: &str,
+    images_base64: &[String],
+    labels: &[String],
+    dir_display: &str,
+    goal: &str,
+    token_ctx: &MediaTokenContext,
+    cancel: &CancellationToken,
+) -> Result<String> {
+    if images_base64.is_empty() {
+        anyhow::bail!("no images to describe");
+    }
+    let mut image_settings = settings.clone();
+    if !image_model.provider_id.trim().is_empty() {
+        image_settings.active_provider_id = image_model.provider_id.trim().to_string();
+    }
+    if !image_model.model.trim().is_empty() {
+        image_settings.model = image_model.model.trim().to_string();
+    }
+    let api_key = resolve_provider_api_key(&image_settings, api_key_fallback);
+    if api_key.is_empty() {
+        anyhow::bail!("no API key for image understanding model");
+    }
+    let provider = OpenAIProvider::new(image_settings, api_key);
+    let slot_labels = if labels.len() == images_base64.len() {
+        Some(labels.to_vec())
+    } else {
+        log::warn!(
+            "image dir labels len {} != images len {}",
+            labels.len(),
+            images_base64.len()
+        );
+        None
+    };
+    let user = ChatMessage {
+        id: "media-images-describe".into(),
+        role: Role::User,
+        content: user_content_with_goal(
+            &format!(
+                "Describe {} image(s) from directory \"{dir_display}\".",
+                images_base64.len()
+            ),
+            goal,
+        )
+        .into(),
+        status: "done".into(),
+        created_at: 0,
+        tool_calls: None,
+        tool_call_id: None,
+        error_message: None,
+        reasoning: None,
+        thoughts: None,
+        headline: None,
+        raw_content: None,
+        tool_raw_output: None,
+        agent_id: None,
+        agent_instance_id: None,
+        agent_name: None,
+        agent_trace: None,
+        images_base64: Some(images_base64.to_vec()),
+        image_slot_labels: slot_labels,
+        computer_round_screen_rel_path: None,
+        ui_bindings: None,
+        context_state: None,
+        attachments: None,
+        anchor_message_id: None,
+        trace_id: None,
+        task_id: None,
+        spawn_depth: None,
+    };
+    let system = crate::models::SystemPromptSections::all_cacheable(vec![
+        MULTI_IMAGE_DESCRIBE_PROMPT.to_string(),
+    ]);
+    let out = provider
+        .chat_once(
+            &[user],
+            &system,
+            vec![],
+            cancel.clone(),
+            Some(4096),
+            Some("media_image_dir_understand"),
+        )
+        .await
+        .context("image directory understanding chat_once")?;
+    record_media_understand_usage(token_ctx, MediaUnderstandKind::Image, &out);
+    let text = out.text.trim().to_string();
+    if text.is_empty() {
+        anyhow::bail!("image directory understanding returned empty content");
+    }
     Ok(text)
 }
 

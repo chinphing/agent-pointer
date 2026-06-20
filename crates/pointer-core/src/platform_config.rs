@@ -7,9 +7,13 @@ use std::sync::{Arc, OnceLock};
 use crate::models::{
     ensure_agent_model_refs_have_provider, ensure_provider_generation_defaults,
     ensure_provider_model_capability_defaults, filter_openrouter_providers, merge_user_platform,
-    ModelSettings, PlatformSettings, ProviderConfig, UserSettings,
+    MediaOssConfig, ModelSettings, PlatformSettings, ProviderConfig, UserSettings,
 };
+use crate::platform_auth::PlatformMediaOssCredentials;
 use crate::storage;
+
+pub const DEFAULT_PLATFORM_MEDIA_OSS_BUCKET: &str = "pointer-app-media";
+pub const DEFAULT_PLATFORM_MEDIA_OSS_REGION: &str = "cn-hangzhou";
 
 static GLOBAL_PLATFORM_CONFIG: OnceLock<SharedPlatformConfig> = OnceLock::new();
 
@@ -133,6 +137,7 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         computer_tier_llm: PlatformSettings::default().computer_tier_llm,
         agent_mode_llm: s.agent_mode_llm.clone(),
         media_mode_llm: s.media_mode_llm.clone(),
+        media_oss: s.media_oss.clone(),
     }
 }
 
@@ -237,6 +242,75 @@ pub fn apply_login_llm_provider_api_keys(
             log::warn!("platform_config: provider id {pid} not found in platform config");
         }
     }
+}
+
+fn parse_oss_region_from_endpoint(endpoint: &str) -> Option<String> {
+    let lower = endpoint.trim().to_ascii_lowercase();
+    let needle = "oss-";
+    let Some(start) = lower.find(needle) else {
+        return None;
+    };
+    let rest = &lower[start + needle.len()..];
+    let end = rest.find(".aliyuncs.com")?;
+    let region = rest[..end].trim();
+    if region.is_empty() {
+        None
+    } else {
+        Some(region.to_string())
+    }
+}
+
+/// `https://my-bucket.oss-cn-hangzhou.aliyuncs.com` → `my-bucket`
+fn parse_oss_bucket_from_endpoint(endpoint: &str) -> Option<String> {
+    let mut host = endpoint.trim();
+    if let Some(rest) = host.strip_prefix("https://") {
+        host = rest;
+    } else if let Some(rest) = host.strip_prefix("http://") {
+        host = rest;
+    }
+    let host = host.split('/').next().unwrap_or(host);
+    let marker = ".oss-";
+    let idx = host.find(marker)?;
+    let bucket = host[..idx].trim();
+    if bucket.is_empty() {
+        None
+    } else {
+        Some(bucket.to_string())
+    }
+}
+
+/// Inject OAuth-issued media OSS credentials into in-memory platform settings.
+pub fn apply_login_media_oss(
+    platform: &mut PlatformSettings,
+    media: Option<&PlatformMediaOssCredentials>,
+) {
+    let Some(raw) = media else {
+        platform.media_oss = MediaOssConfig::default();
+        return;
+    };
+    let endpoint = raw.endpoint.trim();
+    let access_key_id = raw.access_key_id.trim();
+    let access_key_secret = raw.access_key_secret.trim();
+    if endpoint.is_empty() || access_key_id.is_empty() || access_key_secret.is_empty() {
+        platform.media_oss = MediaOssConfig::default();
+        log::info!("platform_config: login token has no usable media_oss; cleared");
+        return;
+    }
+    let region = parse_oss_region_from_endpoint(endpoint).unwrap_or_else(|| {
+        DEFAULT_PLATFORM_MEDIA_OSS_REGION.to_string()
+    });
+    let bucket = parse_oss_bucket_from_endpoint(endpoint)
+        .unwrap_or_else(|| DEFAULT_PLATFORM_MEDIA_OSS_BUCKET.to_string());
+    platform.media_oss = MediaOssConfig {
+        enabled: true,
+        bucket,
+        region,
+        endpoint: endpoint.to_string(),
+        access_key_id: access_key_id.to_string(),
+        access_key_secret: access_key_secret.to_string(),
+        ..MediaOssConfig::default()
+    };
+    log::info!("platform_config: injected media_oss from platform login");
 }
 
 fn resolve_llm_provider_id(llm_provider: Option<&str>, providers: &[ProviderConfig]) -> Option<String> {

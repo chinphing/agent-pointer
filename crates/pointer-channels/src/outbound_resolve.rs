@@ -5,13 +5,21 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use pointer_core::media::store::{media_abs_path, read_media_bytes, CONVERSATION_MEDIA_DIR};
 use pointer_core::media::path_hint::MEDIA_URI_SCHEME;
-use pointer_core::media::video::remux_video_faststart;
+use pointer_core::media::{is_video_file_name, video::remux_video_faststart};
 
-use crate::media::attachment::{enforce_max_bytes, guess_mime_from_bytes};
+use crate::media::attachment::{enforce_max_bytes_for_kind, guess_mime_from_bytes};
 use crate::media_roots::{is_user_filesystem_path, normalize_user_path, path_has_traversal};
 use crate::traits::OutboundMedia;
 
-const MAX_OUTBOUND_MEDIA: usize = 30 * 1024 * 1024;
+/// Outbound kind hint for size limits (video uses Composer OSS ceiling).
+fn outbound_media_kind(mime_type: &str, file_name: &str) -> &'static str {
+    let mime = mime_type.trim().to_ascii_lowercase();
+    if mime.starts_with("video/") || is_video_file_name(file_name) {
+        "video"
+    } else {
+        "file"
+    }
+}
 
 /// MP4/MOV containers benefit from `-movflags +faststart`; other video types are skipped.
 fn should_remux_for_im_preview(mime_type: &str, file_name: &str) -> bool {
@@ -60,14 +68,6 @@ pub fn resolve_outbound_media(raw: &str) -> Result<ResolvedOutboundMedia> {
         (bytes, name, path)
     };
 
-    enforce_max_bytes(&bytes, "outbound media")?;
-    if bytes.len() > MAX_OUTBOUND_MEDIA {
-        anyhow::bail!(
-            "outbound media exceeds {} MB",
-            MAX_OUTBOUND_MEDIA / (1024 * 1024)
-        );
-    }
-
     let mut mime_type = mime_guess::from_path(&file_name)
         .first()
         .map(|m| m.essence_str().to_string())
@@ -77,6 +77,9 @@ pub fn resolve_outbound_media(raw: &str) -> Result<ResolvedOutboundMedia> {
             mime_type = m.into();
         }
     }
+
+    let kind = outbound_media_kind(&mime_type, &file_name);
+    enforce_max_bytes_for_kind(&bytes, "outbound media", kind, &file_name, &mime_type)?;
 
     log::info!(
         "outbound media resolved path={} bytes={} mime={}",

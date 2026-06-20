@@ -64,6 +64,11 @@ keep internal stage templates out of **`content`**.
   calling `media_understand` or Office Skills. When calling `media_understand`, always
   pass **`goal`** (and optional **`context`**) describing what they want — not only
   `ref` and `mode`. Match **fileName** when they refer to a specific file.
+  PDF: default pages 1–10 unless the user named pages — then set **`pageStart`/`pageEnd`**.
+  Image folder: **`ref`** may be a directory; default images 1–200; use **`imageStart`/`imageEnd`**
+  when the user named a range.
+  Video: set **`timeStartSec`/`timeEndSec`** only when the user named a segment;
+  default is first segment at **1 frame/second** (max **200** frames per call).
 
 - **User-visible language (mandatory):** Match the language of the user's **latest**
   real message for all user-facing text: assistant **`content`**, clarify questions,

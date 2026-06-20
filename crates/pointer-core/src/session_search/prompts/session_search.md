@@ -39,3 +39,13 @@ FTS5 SYNTAX
   Short Chinese queries like `认证` or `天氣` work directly without quotes.
 
 Also accepts `session_id` as an alias for `conversation_id`.
+
+MESSAGE FIELDS
+
+  Each message in discovery / scroll / read results includes:
+  - id, role, content, timestamp
+  - attachments (optional): summary list when the stored message had files
+    (id, kind, fileName, mimeType, sizeBytes, ref, localPath, storageRelPath,
+    remoteUrl for video, derivedText when cached). Wire payloads like
+    contentBase64 are never returned.
+  Use attachments[].ref with media_understand when revisiting old media.

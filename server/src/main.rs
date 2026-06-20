@@ -1,5 +1,5 @@
 use axum::{
-    extract::{DefaultBodyLimit, Path, Query, State},
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::{header, HeaderValue, StatusCode, Uri},
     response::sse::{Event, KeepAlive, Sse},
     response::{IntoResponse, Response},
@@ -80,6 +80,7 @@ async fn main() -> anyhow::Result<()> {
         pointer_core::logging::init_stderr_only_logging(DEFAULT_LOG_FILTER);
         pointer_core::logging::install_panic_hook();
     }
+    pointer_core::tls::ensure_rustls_crypto_provider();
 
     let core = Arc::new(AppState::new());
     core.start_background_tasks();
@@ -166,6 +167,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/chat/media-preview", get(preview_chat_media))
         .route("/api/chat/media-ref-preview", get(preview_media_ref))
         .route("/api/chat/save-attachment", post(save_chat_attachment))
+        .route("/api/chat/upload-video-oss", post(upload_composer_video_oss))
         .route("/api/media/deps", get(check_media_deps))
         .route("/api/chat", post(send_chat))
         .route("/api/chat/:conversation_id/cancel", post(cancel_chat))
@@ -473,6 +475,130 @@ async fn save_chat_attachment(
     )
     .map_err(ApiError::from)?;
     Ok(Json(SaveChatAttachmentResponse { storage_rel_path }))
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UploadVideoOssResponse {
+    remote_url: String,
+    oss_object_key: String,
+    storage_rel_path: Option<String>,
+}
+
+async fn upload_composer_video_oss(
+    State(state): State<ServerState>,
+    mut multipart: Multipart,
+) -> Result<Json<UploadVideoOssResponse>, ApiError> {
+    let mut conversation_id = String::new();
+    let mut attachment_id = String::new();
+    let mut file_name = String::new();
+    let mut mime_type = String::from("video/mp4");
+    let mut file_bytes: Option<Vec<u8>> = None;
+    let mut compress = false;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError(anyhow::anyhow!("multipart: {e}")))?
+    {
+        match field.name() {
+            Some("conversationId") => {
+                conversation_id = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError(anyhow::anyhow!("conversationId: {e}")))?
+                    .trim()
+                    .to_string();
+            }
+            Some("attachmentId") => {
+                attachment_id = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError(anyhow::anyhow!("attachmentId: {e}")))?
+                    .trim()
+                    .to_string();
+            }
+            Some("fileName") => {
+                file_name = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError(anyhow::anyhow!("fileName: {e}")))?
+                    .trim()
+                    .to_string();
+            }
+            Some("mimeType") => {
+                let t = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError(anyhow::anyhow!("mimeType: {e}")))?
+                    .trim()
+                    .to_string();
+                if !t.is_empty() {
+                    mime_type = t;
+                }
+            }
+            Some("compress") => {
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError(anyhow::anyhow!("compress: {e}")))?
+                    .trim()
+                    .to_ascii_lowercase();
+                compress = matches!(v.as_str(), "1" | "true" | "yes");
+            }
+            Some("file") => {
+                file_bytes = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|e| ApiError(anyhow::anyhow!("file bytes: {e}")))?
+                        .to_vec(),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    if attachment_id.is_empty() || file_name.is_empty() {
+        return Err(ApiError(anyhow::anyhow!("attachmentId and fileName required")));
+    }
+    let bytes = file_bytes.ok_or_else(|| ApiError(anyhow::anyhow!("file field required")))?;
+    let settings = state.core.effective_settings();
+    let last_pct = std::sync::Arc::new(std::sync::Mutex::new(0u32));
+    let attachment_id_log = attachment_id.clone();
+    let on_progress: std::sync::Arc<dyn Fn(u64, u64) + Send + Sync> =
+        std::sync::Arc::new(move |loaded, total| {
+            let pct = if total == 0 {
+                0
+            } else {
+                ((loaded.saturating_mul(100)) / total).min(100) as u32
+            };
+            let mut last = last_pct.lock().expect("progress mutex");
+            if pct != *last {
+                *last = pct;
+                log::info!(
+                    "upload-video-oss {attachment_id_log}: {pct}% ({loaded}/{total})"
+                );
+            }
+        });
+    let result = pointer_core::media::upload_composer_video_bytes(
+        &settings.media_oss,
+        &attachment_id,
+        &bytes,
+        &file_name,
+        &mime_type,
+        compress,
+        Some(conversation_id.trim()).filter(|c| !c.is_empty()),
+        0,
+        on_progress,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    Ok(Json(UploadVideoOssResponse {
+        remote_url: result.remote_url,
+        oss_object_key: result.object_key,
+        storage_rel_path: result.storage_rel_path,
+    }))
 }
 
 async fn check_media_deps() -> Json<pointer_core::media::MediaDepsStatus> {

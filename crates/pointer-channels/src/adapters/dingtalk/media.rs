@@ -4,7 +4,7 @@ use super::auth::access_token;
 use crate::adapters::feishu::auth::guess_mime_from_name;
 use crate::config::ChannelAccountConfig;
 use crate::http_client::HttpClient;
-use crate::media::attachment::{enforce_max_bytes, DownloadedMedia};
+use crate::media::attachment::{enforce_max_bytes_for_kind, DownloadedMedia};
 use crate::media::audio_normalize::normalize_channel_audio_download;
 use crate::traits::InboundMediaRef;
 use serde_json::json;
@@ -44,7 +44,6 @@ pub async fn download_inbound_ref(
         .filter(|s| !s.is_empty())
         .context("dingtalk downloadUrl missing")?;
     let (bytes, content_type, download_name) = http.get_bytes(download_url, &[]).await?;
-    enforce_max_bytes(&bytes, "dingtalk media")?;
     let file_name = media_ref
         .file_name
         .clone()
@@ -54,6 +53,13 @@ pub async fn download_inbound_ref(
     let mime_type = content_type
         .or_else(|| media_ref.mime_type.clone())
         .unwrap_or_else(|| guess_mime_from_name(&file_name));
+    enforce_max_bytes_for_kind(
+        &bytes,
+        "dingtalk media",
+        &media_ref.kind,
+        &file_name,
+        &mime_type,
+    )?;
     Ok(normalize_channel_audio_download(
         DownloadedMedia {
             bytes,

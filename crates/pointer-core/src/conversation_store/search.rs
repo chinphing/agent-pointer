@@ -5,6 +5,9 @@ use chrono::{DateTime, Local, TimeZone, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 
+use crate::media::manifest::attachment_summaries_json;
+use crate::models::ChatMessage;
+
 use super::db::DbHandle;
 
 const DEFAULT_WINDOW: i64 = 5;
@@ -405,7 +408,7 @@ fn load_window(
     let messages_after = end - anchor_pos;
 
     let mut stmt = conn.prepare(
-        "SELECT message_id, role, content, created_at_ms
+        "SELECT message_id, role, content, created_at_ms, payload
          FROM messages
          WHERE conversation_id = ?1 AND position BETWEEN ?2 AND ?3
          ORDER BY position ASC",
@@ -421,22 +424,17 @@ fn load_window(
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
             row.get::<_, i64>(3)?,
+            row.get::<_, String>(4)?,
         ))
     })?;
 
     let mut messages = Vec::new();
     for row in rows {
-        let (id, role, content, ts) = row?;
-        let mut entry = json!({
-            "id": id,
-            "role": role,
-            "content": content,
-            "timestamp": format_timestamp_ms(ts),
-        });
-        if id == anchor_message_id {
-            entry["anchor"] = json!(true);
-        }
-        messages.push(entry);
+        let (id, role, content, ts, payload) = row?;
+        let is_anchor = id == anchor_message_id;
+        messages.push(session_search_message_json(
+            id, role, content, ts, &payload, is_anchor,
+        ));
     }
 
     Ok(WindowView {
@@ -449,7 +447,7 @@ fn load_window(
 fn load_bookends(conn: &Connection, conversation_id: &str, start: bool) -> Result<Vec<Value>> {
     let order = if start { "ASC" } else { "DESC" };
     let sql = format!(
-        "SELECT message_id, role, content, created_at_ms
+        "SELECT message_id, role, content, created_at_ms, payload
          FROM messages
          WHERE conversation_id = ?1 AND role IN ('user', 'assistant')
          ORDER BY position {order}
@@ -457,16 +455,18 @@ fn load_bookends(conn: &Connection, conversation_id: &str, start: bool) -> Resul
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params![conversation_id, BOOKEND_COUNT], |row| {
-        Ok(json!({
-            "id": row.get::<_, String>(0)?,
-            "role": row.get::<_, String>(1)?,
-            "content": row.get::<_, String>(2)?,
-            "timestamp": format_timestamp_ms(row.get::<_, i64>(3)?),
-        }))
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)?,
+            row.get::<_, String>(4)?,
+        ))
     })?;
     let mut out = Vec::new();
     for row in rows {
-        out.push(row?);
+        let (id, role, content, ts, payload) = row?;
+        out.push(session_search_message_json(id, role, content, ts, &payload, false));
     }
     if !start {
         out.reverse();
@@ -476,24 +476,54 @@ fn load_bookends(conn: &Connection, conversation_id: &str, start: bool) -> Resul
 
 fn load_all_messages(conn: &Connection, conversation_id: &str) -> Result<Vec<Value>> {
     let mut stmt = conn.prepare(
-        "SELECT message_id, role, content, created_at_ms
+        "SELECT message_id, role, content, created_at_ms, payload
          FROM messages
          WHERE conversation_id = ?1
          ORDER BY position ASC",
     )?;
     let rows = stmt.query_map(params![conversation_id], |row| {
-        Ok(json!({
-            "id": row.get::<_, String>(0)?,
-            "role": row.get::<_, String>(1)?,
-            "content": row.get::<_, String>(2)?,
-            "timestamp": format_timestamp_ms(row.get::<_, i64>(3)?),
-        }))
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)?,
+            row.get::<_, String>(4)?,
+        ))
     })?;
     let mut out = Vec::new();
     for row in rows {
-        out.push(row?);
+        let (id, role, content, ts, payload) = row?;
+        out.push(session_search_message_json(id, role, content, ts, &payload, false));
     }
     Ok(out)
+}
+
+fn session_search_message_json(
+    id: String,
+    role: String,
+    content: String,
+    created_at_ms: i64,
+    payload: &str,
+    anchor: bool,
+) -> Value {
+    let mut display_content = content;
+    let mut entry = json!({
+        "id": id,
+        "role": role,
+        "content": &display_content,
+        "timestamp": format_timestamp_ms(created_at_ms),
+    });
+    if let Ok(msg) = serde_json::from_str::<ChatMessage>(payload) {
+        display_content = msg.content;
+        entry["content"] = json!(display_content);
+        if let Some(atts) = msg.attachments.filter(|a| !a.is_empty()) {
+            entry["attachments"] = json!(attachment_summaries_json(&atts));
+        }
+    }
+    if anchor {
+        entry["anchor"] = json!(true);
+    }
+    entry
 }
 
 fn build_fts_query(raw: &str) -> String {

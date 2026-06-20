@@ -343,7 +343,9 @@ pub fn load_user_settings() -> Result<UserSettings> {
         return Ok(UserSettings::default());
     }
     let raw = fs::read_to_string(&path)?;
-    Ok(serde_json::from_str(&raw).unwrap_or_default())
+    let mut user: UserSettings = serde_json::from_str(&raw).unwrap_or_default();
+    user.media_oss = Default::default();
+    Ok(user)
 }
 
 fn write_user_settings_file(user: &UserSettings) -> Result<()> {
@@ -353,7 +355,9 @@ fn write_user_settings_file(user: &UserSettings) -> Result<()> {
 
 pub fn save_user_settings(user: &UserSettings) -> Result<()> {
     ensure_legacy_settings_migrated();
-    write_user_settings_file(user)
+    let mut to_save = user.clone();
+    to_save.media_oss = Default::default();
+    write_user_settings_file(&to_save)
 }
 
 /// Desktop-only persisted agent preferences (智能体 section).

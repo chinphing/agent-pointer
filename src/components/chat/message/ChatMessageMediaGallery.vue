@@ -5,6 +5,7 @@ import type { RenderableAttachment } from '../../../lib/messageNormalizer'
 import ChatAudioPlayer from './ChatAudioPlayer.vue'
 import ChatAudioTranscript from './ChatAudioTranscript.vue'
 import { previewChatMedia, previewMediaRef, revealInFinder } from '../../../lib/api'
+import { videoPreviewUrlFromStorage } from '../../../lib/chatMediaPreview'
 import { isUsableAttachmentPreviewUrl } from '../../../lib/attachmentSupport'
 import {
   isOpenableFileAttachment,
@@ -24,6 +25,13 @@ async function ensureMediaPreview(att: RenderableAttachment) {
   if (loadedPreviews.value[att.id] || previewInflight.has(att.id)) return
   previewInflight.add(att.id)
   try {
+    if (att.kind === 'video' && att.storageRelPath) {
+      const streamUrl = await videoPreviewUrlFromStorage(att.storageRelPath)
+      if (streamUrl) {
+        loadedPreviews.value = { ...loadedPreviews.value, [att.id]: streamUrl }
+        return
+      }
+    }
     let preview
     if (att.mediaRef) {
       preview = await previewMediaRef(att.mediaRef)

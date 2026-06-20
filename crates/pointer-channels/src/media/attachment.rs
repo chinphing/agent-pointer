@@ -24,6 +24,8 @@ pub fn to_media_attachment(downloaded: DownloadedMedia, kind_hint: &str) -> Medi
         content_base64: Some(b64),
         derived_text: None,
         local_abs_path: None,
+        remote_url: None,
+        oss_object_key: None,
     }
 }
 
@@ -237,16 +239,56 @@ mod tests {
         );
         assert!(out.file_name.ends_with(".docx"));
     }
+
+    #[test]
+    fn video_max_matches_composer_oss_ceiling() {
+        assert_eq!(
+            channel_media_max_bytes("video", "clip.mp4", "video/mp4"),
+            pointer_core::media::MAX_VIDEO_BYTES
+        );
+    }
+
+    #[test]
+    fn non_video_max_stays_30mb() {
+        assert_eq!(
+            channel_media_max_bytes("image", "a.jpg", "image/jpeg"),
+            CHANNEL_MEDIA_MAX_BYTES
+        );
+    }
 }
 
 pub const CHANNEL_MEDIA_MAX_BYTES: usize = 30 * 1024 * 1024;
 
-pub fn enforce_max_bytes(bytes: &[u8], label: &str) -> anyhow::Result<()> {
-    if bytes.len() > CHANNEL_MEDIA_MAX_BYTES {
-        anyhow::bail!(
-            "{label} exceeds {} MB",
-            CHANNEL_MEDIA_MAX_BYTES / (1024 * 1024)
-        );
+/// Max bytes for one inbound/outbound channel attachment (aligned with Composer video OSS).
+pub fn channel_media_max_bytes(kind: &str, file_name: &str, mime_type: &str) -> usize {
+    let k = kind.trim().to_ascii_lowercase();
+    let mime = mime_type.trim().to_ascii_lowercase();
+    if k == "video" || mime.starts_with("video/") || pointer_core::media::is_video_file_name(file_name) {
+        pointer_core::media::MAX_VIDEO_BYTES
+    } else {
+        CHANNEL_MEDIA_MAX_BYTES
+    }
+}
+
+pub fn enforce_max_bytes_for_kind(
+    bytes: &[u8],
+    label: &str,
+    kind: &str,
+    file_name: &str,
+    mime_type: &str,
+) -> anyhow::Result<()> {
+    let max = channel_media_max_bytes(kind, file_name, mime_type);
+    if bytes.len() > max {
+        let limit = if max >= 1024 * 1024 * 1024 {
+            format!("{:.0} GB", max as f64 / (1024.0 * 1024.0 * 1024.0))
+        } else {
+            format!("{} MB", max / (1024 * 1024))
+        };
+        anyhow::bail!("{label} exceeds {limit}");
     }
     Ok(())
+}
+
+pub fn enforce_max_bytes(bytes: &[u8], label: &str) -> anyhow::Result<()> {
+    enforce_max_bytes_for_kind(bytes, label, "file", "", "")
 }

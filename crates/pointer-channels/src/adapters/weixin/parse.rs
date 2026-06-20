@@ -111,9 +111,6 @@ fn parse_item(item: &Value, text_parts: &mut Vec<String>, attachments: &mut Vec<
                     None,
                 ) {
                     attachments.push(att);
-                    if text_parts.last().map(|s| s.as_str()) != Some("[image]") {
-                        text_parts.push("[image]".into());
-                    }
                 }
             }
         }
@@ -161,7 +158,6 @@ fn parse_item(item: &Value, text_parts: &mut Vec<String>, attachments: &mut Vec<
                     .map(|s| s.to_string());
                 if let Some(att) = media_ref_from_cdn("document", file.get("media"), None, None, name) {
                     attachments.push(att);
-                    text_parts.push("[file]".into());
                 }
             }
         }
@@ -175,7 +171,6 @@ fn parse_item(item: &Value, text_parts: &mut Vec<String>, attachments: &mut Vec<
                     Some(format!("weixin-video-{}.mp4", uuid::Uuid::new_v4())),
                 ) {
                     attachments.push(att);
-                    text_parts.push("[video]".into());
                 }
             }
         }
@@ -337,6 +332,7 @@ mod tests {
             &mut tokens,
         )
         .expect("parse");
+        assert_eq!(inbound.text, "");
         assert_eq!(inbound.attachments.len(), 1);
         assert_eq!(inbound.attachments[0].kind, "image");
     }

@@ -50,6 +50,8 @@ sha2 = "0.10"
 aes-gcm = "0.10"
 hkdf = "0.12"
 machine-uid = "0.5"
+ossify = "0.4.2"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 [dev-dependencies]
 anyhow = "1"

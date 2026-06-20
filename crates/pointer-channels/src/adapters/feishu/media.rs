@@ -5,12 +5,10 @@ use super::auth::{
 };
 use crate::config::ChannelAccountConfig;
 use crate::http_client::HttpClient;
-use crate::media::attachment::DownloadedMedia;
+use crate::media::attachment::{enforce_max_bytes_for_kind, DownloadedMedia};
 use crate::media::audio_normalize::normalize_channel_audio_download;
 use crate::traits::InboundMediaRef;
 use pointer_core::models::MediaAttachment;
-
-pub const FEISHU_MEDIA_MAX_BYTES: usize = 30 * 1024 * 1024;
 
 pub async fn download_inbound_ref(
     http: &HttpClient,
@@ -105,12 +103,6 @@ async fn download_image(
 ) -> Result<DownloadedMedia> {
     let url = format!("https://open.feishu.cn/open-apis/im/v1/images/{image_key}");
     let (bytes, content_type, download_name) = http.get_bytes(&url, headers).await?;
-    if bytes.len() > FEISHU_MEDIA_MAX_BYTES {
-        anyhow::bail!(
-            "feishu image exceeds {} MB",
-            FEISHU_MEDIA_MAX_BYTES / (1024 * 1024)
-        );
-    }
     let file_name = media_ref
         .file_name
         .clone()
@@ -120,6 +112,13 @@ async fn download_image(
     let mime_type = content_type
         .or_else(|| media_ref.mime_type.clone())
         .unwrap_or_else(|| guess_mime_from_name(&file_name));
+    enforce_max_bytes_for_kind(
+        &bytes,
+        "feishu image",
+        &media_ref.kind,
+        &file_name,
+        &mime_type,
+    )?;
     Ok(DownloadedMedia {
         bytes,
         mime_type,
@@ -139,12 +138,6 @@ async fn download_message_resource(
         "https://open.feishu.cn/open-apis/im/v1/messages/{message_id}/resources/{file_key}?type={resource_type}"
     );
     let (bytes, content_type, download_name) = http.get_bytes(&url, headers).await?;
-    if bytes.len() > FEISHU_MEDIA_MAX_BYTES {
-        anyhow::bail!(
-            "feishu resource exceeds {} MB",
-            FEISHU_MEDIA_MAX_BYTES / (1024 * 1024)
-        );
-    }
     let file_name = media_ref
         .file_name
         .clone()
@@ -154,6 +147,13 @@ async fn download_message_resource(
     let mime_type = content_type
         .or_else(|| media_ref.mime_type.clone())
         .unwrap_or_else(|| guess_mime_from_name(&file_name));
+    enforce_max_bytes_for_kind(
+        &bytes,
+        "feishu resource",
+        &media_ref.kind,
+        &file_name,
+        &mime_type,
+    )?;
     Ok(DownloadedMedia {
         bytes,
         mime_type,

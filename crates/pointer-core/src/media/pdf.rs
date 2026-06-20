@@ -6,10 +6,14 @@ use lopdf::{Document, xobject::PdfImage};
 use std::io::Cursor;
 
 const MAX_PDF_TEXT_BYTES: usize = 256 * 1024;
+/// Max PDF pages processed per `media_understand` call (text or OCR).
+pub const MAX_PDF_PAGES_PER_CALL: usize = 10;
+/// Default page window when the user does not specify `pageStart` / `pageEnd`.
+pub const DEFAULT_PDF_PAGE_END: usize = 10;
 /// Below this char count, extracted text is treated as noise (page numbers, watermarks) and OCR fallback runs.
 pub const MIN_PDF_TEXT_CHARS: usize = 48;
-/// Max PDF pages sent to the image understanding model (scanned / image-only PDFs).
-pub const MAX_PDF_OCR_PAGES: usize = 10;
+/// Legacy alias — same as per-call page cap.
+pub const MAX_PDF_OCR_PAGES: usize = MAX_PDF_PAGES_PER_CALL;
 const MIN_PDF_IMAGE_DIMENSION: i64 = 64;
 const MAX_PDF_IMAGE_BYTES: usize = 6 * 1024 * 1024;
 
@@ -27,14 +31,111 @@ pub fn extract_pdf_text(bytes: &[u8], file_name: &str) -> Result<String> {
     trim_and_validate_pdf_text(&text, file_name)
 }
 
+pub fn pdf_page_count(bytes: &[u8], file_name: &str) -> Result<usize> {
+    let doc = Document::load_mem(bytes).with_context(|| format!("load pdf {file_name}"))?;
+    Ok(doc.get_pages().len())
+}
+
+/// 1-based inclusive page range for PDF extraction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PdfPageRange {
+    pub start: usize,
+    pub end: usize,
+    pub user_specified: bool,
+}
+
+impl PdfPageRange {
+    pub fn page_count(&self) -> usize {
+        self.end.saturating_sub(self.start).saturating_add(1)
+    }
+
+    pub fn normalize(total_pages: usize, start: usize, end: usize) -> Result<Self> {
+        if total_pages == 0 {
+            anyhow::bail!("pdf has no pages");
+        }
+        if start == 0 || end == 0 {
+            anyhow::bail!("pageStart and pageEnd are 1-based and must be >= 1");
+        }
+        if start > end {
+            anyhow::bail!("pageStart ({start}) must be <= pageEnd ({end})");
+        }
+        if end > total_pages {
+            anyhow::bail!(
+                "pageEnd ({end}) exceeds document page count ({total_pages})"
+            );
+        }
+        Ok(Self {
+            start,
+            end,
+            user_specified: true,
+        })
+    }
+
+    pub fn default_first_window(total_pages: usize) -> Result<Self> {
+        if total_pages == 0 {
+            anyhow::bail!("pdf has no pages");
+        }
+        Ok(Self {
+            start: 1,
+            end: total_pages.min(DEFAULT_PDF_PAGE_END),
+            user_specified: false,
+        })
+    }
+
+    pub fn ensure_within_per_call_limit(&self) -> Result<()> {
+        let count = self.page_count();
+        if count > MAX_PDF_PAGES_PER_CALL {
+            anyhow::bail!(
+                "requested {count} pages ({}-{}); max {MAX_PDF_PAGES_PER_CALL} per call — split into multiple media_understand calls with different pageStart/pageEnd",
+                self.start,
+                self.end
+            );
+        }
+        Ok(())
+    }
+}
+
+pub fn format_pdf_scope_notice(range: &PdfPageRange, total_pages: usize) -> String {
+    let scope = if range.start == range.end {
+        format!("page {}", range.start)
+    } else {
+        format!("pages {}-{}", range.start, range.end)
+    };
+    if range.user_specified {
+        format!(
+            "[PDF scope: {scope} of {total_pages} total pages — extracted as requested.]"
+        )
+    } else {
+        format!(
+            "[PDF scope: {scope} of {total_pages} total pages — user did not specify pages; only the first {} pages were processed. Call again with pageStart/pageEnd when they need other pages, or split into batches of at most {MAX_PDF_PAGES_PER_CALL} pages.]"
+            ,
+            range.end
+        )
+    }
+}
+
 /// Extract PDF text in approximate natural reading order (per-page, Y-desc then X-asc).
 pub fn extract_pdf_text_sorted(bytes: &[u8], file_name: &str) -> Result<String> {
+    let total = pdf_page_count(bytes, file_name)?;
+    let range = PdfPageRange::default_first_window(total)?;
+    extract_pdf_text_sorted_range(bytes, file_name, &range)
+}
+
+pub fn extract_pdf_text_sorted_range(
+    bytes: &[u8],
+    file_name: &str,
+    range: &PdfPageRange,
+) -> Result<String> {
     let doc = Document::load_mem(bytes).with_context(|| format!("load pdf {file_name}"))?;
     let mut pages: Vec<_> = doc.get_pages().into_iter().collect();
     pages.sort_by_key(|(num, _)| *num);
 
     let mut page_texts: Vec<String> = Vec::new();
-    for (page_num, page_id) in pages {
+    for (ordinal, (page_num, page_id)) in pages.into_iter().enumerate() {
+        let page_index = ordinal + 1;
+        if page_index < range.start || page_index > range.end {
+            continue;
+        }
         let content = doc
             .get_and_decode_page_content(page_id)
             .with_context(|| format!("decode page {page_num} in {file_name}"))?;
@@ -50,16 +151,23 @@ pub fn extract_pdf_text_sorted(bytes: &[u8], file_name: &str) -> Result<String> 
             .join(" ");
         let trimmed = joined.split_whitespace().collect::<Vec<_>>().join(" ");
         if !trimmed.is_empty() {
-            page_texts.push(trimmed);
+            page_texts.push(format!("--- Page {page_index} ---\n{trimmed}"));
         }
     }
 
     if page_texts.is_empty() {
-        return extract_pdf_text(bytes, file_name);
+        return extract_pdf_text_range(bytes, file_name, range);
     }
 
     let combined = page_texts.join("\n\n");
     trim_and_validate_pdf_text(&combined, file_name)
+}
+
+fn extract_pdf_text_range(bytes: &[u8], file_name: &str, _range: &PdfPageRange) -> Result<String> {
+    let text = pdf_extract::extract_text_from_mem(bytes)
+        .with_context(|| format!("pdf extract failed for {file_name}"))?;
+    // pdf-extract does not expose per-page boundaries reliably; scope notice still applies.
+    trim_and_validate_pdf_text(&text, file_name)
 }
 
 fn trim_and_validate_pdf_text(text: &str, file_name: &str) -> Result<String> {
@@ -177,21 +285,37 @@ fn sort_spans_reading_order(spans: Vec<TextSpan>) -> Vec<(f64, f64, String)> {
 /// Extract embedded page raster images (typical scanned PDFs) and return base64 JPEGs.
 /// Pure Rust via `lopdf` + `image`; no system poppler/ghostscript.
 pub fn extract_pdf_page_images_base64(bytes: &[u8], file_name: &str) -> Result<Vec<String>> {
+    let total = pdf_page_count(bytes, file_name)?;
+    let range = PdfPageRange::default_first_window(total)?;
+    extract_pdf_page_images_base64_range(bytes, file_name, &range)
+}
+
+pub fn extract_pdf_page_images_base64_range(
+    bytes: &[u8],
+    file_name: &str,
+    range: &PdfPageRange,
+) -> Result<Vec<String>> {
     let doc = Document::load_mem(bytes).with_context(|| format!("load pdf {file_name}"))?;
     let mut pages: Vec<_> = doc.get_pages().into_iter().collect();
     pages.sort_by_key(|(num, _)| *num);
 
     let mut frames = Vec::new();
-    for (page_idx, (_, page_id)) in pages.into_iter().enumerate() {
-        if frames.len() >= MAX_PDF_OCR_PAGES {
+    for (ordinal, (_, page_id)) in pages.into_iter().enumerate() {
+        let page_index = ordinal + 1;
+        if page_index < range.start || page_index > range.end {
+            continue;
+        }
+        if frames.len() >= MAX_PDF_PAGES_PER_CALL {
             log::info!(
-                "pdf {file_name}: reached max OCR pages ({MAX_PDF_OCR_PAGES}); skipping remaining pages"
+                "pdf {file_name}: reached max OCR pages ({MAX_PDF_PAGES_PER_CALL}) in range {}-{}",
+                range.start,
+                range.end
             );
             break;
         }
         let images = doc
             .get_page_images(page_id)
-            .with_context(|| format!("read page {} images in {file_name}", page_idx + 1))?;
+            .with_context(|| format!("read page {page_index} images in {file_name}"))?;
         let Some(img) = select_largest_page_image(&images) else {
             continue;
         };
@@ -199,22 +323,19 @@ pub fn extract_pdf_page_images_base64(bytes: &[u8], file_name: &str) -> Result<V
             Ok(jpeg) => {
                 if jpeg.is_empty() {
                     log::warn!(
-                        "pdf {file_name} page {}: decoded empty jpeg",
-                        page_idx + 1
+                        "pdf {file_name} page {page_index}: decoded empty jpeg"
                     );
                     continue;
                 }
                 if jpeg.len() > MAX_PDF_IMAGE_BYTES {
                     log::warn!(
-                        "pdf {file_name} page {}: image {} bytes exceeds limit; skipping",
-                        page_idx + 1,
+                        "pdf {file_name} page {page_index}: image {} bytes exceeds limit; skipping",
                         jpeg.len()
                     );
                     continue;
                 }
                 log::info!(
-                    "pdf {file_name} page {}: extracted raster {}x{} ({} bytes jpeg)",
-                    page_idx + 1,
+                    "pdf {file_name} page {page_index}: extracted raster {}x{} ({} bytes jpeg)",
                     img.width,
                     img.height,
                     jpeg.len()
@@ -223,8 +344,7 @@ pub fn extract_pdf_page_images_base64(bytes: &[u8], file_name: &str) -> Result<V
             }
             Err(e) => {
                 log::warn!(
-                    "pdf {file_name} page {}: raster decode failed: {:#}",
-                    page_idx + 1,
+                    "pdf {file_name} page {page_index}: raster decode failed: {:#}",
                     e
                 );
             }
@@ -232,7 +352,7 @@ pub fn extract_pdf_page_images_base64(bytes: &[u8], file_name: &str) -> Result<V
     }
 
     if frames.is_empty() {
-        anyhow::bail!("pdf contains no decodable embedded page images");
+        anyhow::bail!("pdf contains no decodable embedded page images in pages {}-{}", range.start, range.end);
     }
     Ok(frames)
 }
@@ -460,6 +580,28 @@ fn encode_rgb_jpeg(rgb: &[u8], width: u32, height: u32) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pdf_scope_notice_default_vs_user() {
+        use super::{format_pdf_scope_notice, PdfPageRange};
+        let default = PdfPageRange {
+            start: 1,
+            end: 10,
+            user_specified: false,
+        };
+        let notice = format_pdf_scope_notice(&default, 50);
+        assert!(notice.contains("did not specify pages"));
+        assert!(notice.contains("1-10"));
+
+        let user = PdfPageRange {
+            start: 5,
+            end: 7,
+            user_specified: true,
+        };
+        let notice = format_pdf_scope_notice(&user, 50);
+        assert!(notice.contains("as requested"));
+        assert!(notice.contains("5-7"));
+    }
 
     #[test]
     fn pdf_text_threshold() {

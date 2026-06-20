@@ -19,6 +19,7 @@ import {
   confirmComputerMonitorPick,
   cancelComputerMonitorPick
 } from '../../lib/api'
+import { getLocalFileSize } from '../../lib/tauri'
 import { detectDesktopOs } from '../../lib/desktopOs'
 import {
   clearMacosComputerPermissionsUserAck,
@@ -27,9 +28,12 @@ import {
 import { isTauriRuntime } from '../../lib/runtime'
 import {
   CHAT_ATTACHMENT_ACCEPT,
-  composerVideoSizeError,
+  composerVideoCompressConfirmMessage,
+  composerVideoCompressHint,
   dataUrlToBase64,
+  isLargeComposerVideo,
   isSupportedChatAttachmentFile,
+  isVideoAttachmentFile,
   mediaKindFromFile
 } from '../../lib/attachmentSupport'
 import {
@@ -37,6 +41,8 @@ import {
   registerComposerAttachmentPayload,
   releaseComposerAttachment
 } from '../../lib/attachmentPayloadStore'
+import { isMediaOssConfigured, uploadComposerVideoToOss, formatVideoOssInvokeError, getMediaOssUploadStatus } from '../../lib/videoOssUpload'
+import { videoPreviewUrlFromLocalPath, videoPreviewUrlFromStorage } from '../../lib/chatMediaPreview'
 import type { MacosComputerPermissionsStatus } from '../../types/macosPermissions'
 import ComputerScreenPickerModal from './ComputerScreenPickerModal.vue'
 import { primaryComputerMonitor } from '../../lib/computerMonitorLayout'
@@ -165,14 +171,26 @@ const workspaceNeedsAttention = computed(() => {
   return !p || isEphemeralWorkspacePath(p)
 })
 
-const canSend = computed(
-  () =>
-    (composerText.value.trim().length > 0 || composerAttachments.value.length > 0) &&
+const canSend = computed(() => {
+  const attachments = composerAttachments.value
+  const videoBlocked = attachments.some(
+    a =>
+      a.kind === 'video' &&
+      (a.uploadState === 'compressing' ||
+        a.uploadState === 'uploading' ||
+        a.uploadState === 'pending' ||
+        a.uploadState === 'error' ||
+        !a.remoteUrl?.trim())
+  )
+  return (
+    (composerText.value.trim().length > 0 || attachments.length > 0) &&
     !generating.value &&
     !needsPlatformLogin.value &&
     !tokenQuotaBlocked.value &&
-    settings.settings.hasKey
-)
+    settings.settings.hasKey &&
+    !videoBlocked
+  )
+})
 
 async function onPlatformLogin() {
   try {
@@ -282,6 +300,146 @@ function pushComposerAttachment(
   )
 }
 
+function updateComposerAttachment(id: string, patch: Partial<ComposerAttachment>) {
+  composerAttachments.value = composerAttachments.value.map(a =>
+    a.id === id ? { ...a, ...patch } : a
+  )
+}
+
+async function resolveComposerVideoPreviewUrl(
+  storageRelPath?: string,
+  localSourcePath?: string
+): Promise<string | undefined> {
+  if (storageRelPath?.trim()) {
+    const fromStorage = await videoPreviewUrlFromStorage(storageRelPath)
+    if (fromStorage) return fromStorage
+  }
+  if (localSourcePath?.trim()) {
+    const fromLocal = await videoPreviewUrlFromLocalPath(localSourcePath)
+    if (fromLocal) return fromLocal
+  }
+  return undefined
+}
+
+async function startVideoOssUpload(
+  attachment: ComposerAttachment,
+  file: File,
+  localPath: string | undefined,
+  compress: boolean
+) {
+  updateComposerAttachment(attachment.id, {
+    uploadState: compress ? 'compressing' : 'uploading',
+    uploadProgress: 0,
+    uploadError: undefined
+  })
+  try {
+    const result = await uploadComposerVideoToOss(
+      attachment.id,
+      file,
+      localPath,
+      progress => {
+        updateComposerAttachment(attachment.id, {
+          uploadProgress: progress.percent,
+          uploadState: 'uploading'
+        })
+      },
+      { compress, conversationId: chat.current?.id }
+    )
+    const previewUrl = await resolveComposerVideoPreviewUrl(
+      result.storageRelPath,
+      localPath
+    )
+    updateComposerAttachment(attachment.id, {
+      remoteUrl: result.remoteUrl,
+      ossObjectKey: result.ossObjectKey,
+      storageRelPath: result.storageRelPath,
+      ...(previewUrl ? { previewUrl } : {}),
+      uploadState: 'done',
+      uploadProgress: 100,
+      uploadError: undefined
+    })
+  } catch (err) {
+    const message = formatVideoOssInvokeError(err)
+    console.error('video OSS upload failed', err)
+    updateComposerAttachment(attachment.id, {
+      uploadState: 'error',
+      uploadError: message
+    })
+    attachmentHint.value = message
+  }
+}
+
+async function ensureVideoOssReady(): Promise<string | null> {
+  if (isTauriRuntime()) {
+    await settings.load()
+    const status = await getMediaOssUploadStatus()
+    if (!status.configured) {
+      return status.message ?? '视频上传需要平台 OSS 配置，请登录 Pointer 账户或联系管理员在官网配置 OSS'
+    }
+    return null
+  }
+  if (!isMediaOssConfigured(settings.settings)) {
+    return '视频上传需要平台 OSS 配置，请登录 Pointer 账户或联系管理员在官网配置 OSS'
+  }
+  return null
+}
+
+async function addVideoAttachment(file: File, localPath?: string) {
+  const ossBlock = await ensureVideoOssReady()
+  if (ossBlock) {
+    attachmentHint.value = ossBlock
+    return
+  }
+  const fileName = file.name?.trim() || localPath?.split(/[/\\]/).pop() || 'video.mp4'
+  let sizeBytes = file.size
+  if (sizeBytes <= 0 && localPath?.trim() && isTauriRuntime()) {
+    try {
+      sizeBytes = await getLocalFileSize(localPath)
+    } catch (err) {
+      console.warn('video attachment: stat local file failed', err)
+    }
+  }
+
+  let compress = false
+  if (isLargeComposerVideo(sizeBytes)) {
+    const confirmed = window.confirm(composerVideoCompressConfirmMessage(fileName, sizeBytes))
+    if (!confirmed) {
+      attachmentHint.value = null
+      return
+    }
+    compress = true
+    attachmentHint.value = composerVideoCompressHint(fileName)
+  } else {
+    attachmentHint.value = null
+  }
+
+  const attachment: ComposerAttachment = {
+    id: uid(),
+    kind: 'video',
+    mimeType: file.type || 'video/mp4',
+    fileName,
+    sizeBytes,
+    uploadState: 'pending',
+    uploadProgress: 0,
+    ...(localPath?.trim() ? { localSourcePath: localPath.trim() } : {})
+  }
+  const previewUrl =
+    (await resolveComposerVideoPreviewUrl(undefined, localPath)) ??
+    (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function' && file.size > 0
+      ? URL.createObjectURL(file)
+      : undefined)
+  composerAttachments.value.push({
+    ...attachment,
+    ...(previewUrl ? { previewUrl } : {})
+  })
+  await startVideoOssUpload(
+    attachment,
+    file.size > 0 ? file : new File([], fileName),
+    localPath,
+    compress
+  )
+}
+
 async function addAttachmentFile(file: File) {
   attachmentHint.value = null
   if (!isSupportedChatAttachmentFile(file)) {
@@ -289,9 +447,12 @@ async function addAttachmentFile(file: File) {
     console.warn('unsupported attachment', file.name, file.type)
     return
   }
-  const videoSizeError = composerVideoSizeError(file)
-  if (videoSizeError) {
-    attachmentHint.value = videoSizeError
+  if (isVideoAttachmentFile(file)) {
+    if (isTauriRuntime()) {
+      attachmentHint.value = '请使用附件按钮（回形针）选择视频文件'
+      return
+    }
+    await addVideoAttachment(file)
     return
   }
   const dataUrl = await readFileAsDataUrl(file)
@@ -306,19 +467,25 @@ async function addAttachmentFile(file: File) {
 
 async function addAttachmentFromLocalPath(path: string) {
   attachmentHint.value = null
+  const name = path.split(/[/\\]/).pop() || 'attachment'
+  const fileLike = { name, type: '', size: 0 }
+  if (!isSupportedChatAttachmentFile(fileLike)) {
+    attachmentHint.value = `无法添加附件：${name}`
+    return
+  }
+  if (isVideoAttachmentFile(fileLike)) {
+    const placeholder = new File([], name)
+    await addVideoAttachment(placeholder, path)
+    return
+  }
   const payload = await readLocalFileForAttachment(path)
-  const fileLike = {
+  const loaded = {
     name: payload.fileName,
     type: payload.mimeType,
     size: payload.sizeBytes
   }
-  if (!isSupportedChatAttachmentFile(fileLike)) {
+  if (!isSupportedChatAttachmentFile(loaded)) {
     attachmentHint.value = `无法添加附件：${payload.fileName}`
-    return
-  }
-  const videoSizeError = composerVideoSizeError(fileLike)
-  if (videoSizeError) {
-    attachmentHint.value = videoSizeError
     return
   }
   const mime = payload.mimeType || 'application/octet-stream'
@@ -327,7 +494,7 @@ async function addAttachmentFromLocalPath(path: string) {
   const file = new File([blob], payload.fileName, { type: mime })
   const dataUrl = `data:${mime};base64,${payload.contentBase64}`
   pushComposerAttachment(file, dataUrl, payload.contentBase64, {
-    kind: mediaKindFromFile(fileLike),
+    kind: mediaKindFromFile(loaded),
     mimeType: mime,
     fileName: payload.fileName,
     sizeBytes: payload.sizeBytes
@@ -364,8 +531,7 @@ async function openAttachmentPicker() {
           await addAttachmentFromLocalPath(path)
         } catch (err) {
           console.error('attachment from path failed', path, err)
-          attachmentHint.value =
-            err instanceof Error ? err.message : `无法读取文件：${path}`
+          attachmentHint.value = formatVideoOssInvokeError(err) || `无法读取文件：${path}`
         }
       }
       return

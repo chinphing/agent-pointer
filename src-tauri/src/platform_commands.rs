@@ -1,4 +1,5 @@
 use pointer_core::platform_auth::{run_platform_login_flow, PlatformSessionView};
+use pointer_core::platform_config::apply_login_media_oss;
 use pointer_core::token_usage_store;
 use pointer_core::chat_service::AppState;
 use std::sync::Arc;
@@ -27,13 +28,13 @@ pub fn cancel_platform_login(state: State<'_, Arc<AppState>>) {
 
 #[tauri::command]
 pub async fn refresh_platform_session(state: State<'_, Arc<AppState>>) -> Result<PlatformSessionView, String> {
-    let refreshed = state
+    state
         .platform_auth
         .refresh_if_needed()
         .await
         .map_err(|e| e.to_string())?;
-    if let Some((_session, creds)) = refreshed {
-        if creds.api_key.is_some() || !creds.provider_api_keys.is_empty() {
+    if state.platform_auth.session_view().logged_in {
+        if let Ok(Some(creds)) = state.platform_auth.fetch_llm_credentials().await {
             state.apply_login_credentials(&creds);
         }
     }
@@ -43,6 +44,8 @@ pub async fn refresh_platform_session(state: State<'_, Arc<AppState>>) -> Result
 #[tauri::command]
 pub async fn logout_platform(state: State<'_, Arc<AppState>>) -> Result<(), String> {
     state.platform_auth.clear_session();
+    let mut platform = state.platform_config.write();
+    apply_login_media_oss(&mut platform, None);
     Ok(())
 }
 

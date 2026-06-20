@@ -144,6 +144,10 @@ export async function previewChatMedia(storageRelPath: string): Promise<ChatMedi
   return await invoke<ChatMediaPreview>('preview_chat_media', { storageRelPath })
 }
 
+export async function getChatMediaLocalPath(storageRelPath: string): Promise<string> {
+  return await invoke<string>('get_chat_media_local_path', { storageRelPath })
+}
+
 export async function previewMediaRef(mediaRef: string): Promise<ChatMediaPreview> {
   return await invoke<ChatMediaPreview>('preview_media_ref', { mediaRef })
 }
@@ -266,6 +270,10 @@ export async function openPathWithDefaultApp(path: string): Promise<void> {
 
 export async function openChatMedia(storageRelPath: string): Promise<void> {
   await invoke('open_chat_media', { storageRelPath })
+}
+
+export async function getLocalFileSize(path: string): Promise<number> {
+  return await invoke<number>('get_local_file_size', { path })
 }
 
 export async function readLocalFileForAttachment(

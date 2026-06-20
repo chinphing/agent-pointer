@@ -86,22 +86,34 @@ pub(super) async fn run_chat_inner(
     let workspace_root = req.workspace_root.clone();
     let run_id = req.run_id.as_str();
     let cancel = ctx.cancel.clone();
-    // Resolve effective workspace: payload → last-active conversation → session sandbox.
-    let mut effective_workspace = if workspace_root.trim().is_empty() {
-        resolve_effective_workspace(conversation_id, &state).unwrap_or_else(|e| {
+    // Resolve effective workspace. When the user cleared the composer, always resolve to
+    // session sandbox even if a stale non-empty workspaceRoot was still in the payload.
+    let payload_workspace = workspace_root.trim();
+    let mut effective_workspace = if req.workspace_inherit_disabled == Some(true) {
+        resolve_effective_workspace(conversation_id, Some(true)).unwrap_or_else(|e| {
+            log::warn!("session workspace resolution failed: {e:#}; using empty");
+            String::new()
+        })
+    } else if payload_workspace.is_empty() {
+        resolve_effective_workspace(conversation_id, req.workspace_inherit_disabled).unwrap_or_else(|e| {
             log::warn!("session workspace resolution failed: {e:#}; using empty");
             String::new()
         })
     } else {
-        workspace_root.trim().to_string()
+        payload_workspace.to_string()
     };
 
     effective_workspace =
         ensure_session_sandbox_at_run_start(conversation_id, &effective_workspace)?;
 
     let _workspace_guard = ConversationWorkspaceGuard::enter(effective_workspace.clone());
-    if effective_workspace.trim() != workspace_root.trim() {
-        let is_ephemeral = workspace_root.trim().is_empty()
+    let ui_workspace_before = if req.workspace_inherit_disabled == Some(true) {
+        ""
+    } else {
+        payload_workspace
+    };
+    if effective_workspace.trim() != ui_workspace_before.trim() {
+        let is_ephemeral = ui_workspace_before.trim().is_empty()
             && (crate::session_sandbox::SessionSandbox::is_path_for(
                 conversation_id,
                 Path::new(effective_workspace.trim()),
@@ -368,7 +380,7 @@ pub(super) async fn run_chat_inner(
 /// conversation's project directory.
 fn resolve_effective_workspace(
     conversation_id: &str,
-    _state: &AppState,
+    inherit_disabled_override: Option<bool>,
 ) -> Result<String> {
     if crate::channel_outbound::is_im_conversation(conversation_id) {
         let sandbox = crate::session_sandbox::SessionSandbox::path(conversation_id)
@@ -381,7 +393,9 @@ fn resolve_effective_workspace(
         return Ok(sandbox);
     }
 
-    if workspace_inherit_disabled(conversation_id) {
+    let inherit_disabled = inherit_disabled_override
+        .unwrap_or_else(|| workspace_inherit_disabled(conversation_id));
+    if inherit_disabled {
         let sandbox = crate::session_sandbox::SessionSandbox::path(conversation_id)
             .map(|p| p.display().to_string())?;
         log::info!(

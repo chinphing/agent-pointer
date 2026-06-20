@@ -23,6 +23,7 @@ pub async fn run_chat(
     tool_rounds_used_single_start: u32,
     tool_rounds_used_supervisor_start: u32,
     workspace_root: String,
+    workspace_inherit_disabled: Option<bool>,
 ) -> Result<()> {
     log::info!(
         "run_chat start conversation_id={} incoming_history_messages={} enabled_skill_ids={} request_agent_mode={:?} lead_agent_id_override={:?} tool_rounds_used_single_start={} tool_rounds_used_supervisor_start={}",
@@ -69,6 +70,7 @@ pub async fn run_chat(
         tool_rounds_used_single_start,
         tool_rounds_used_supervisor_start,
         workspace_root,
+        workspace_inherit_disabled,
         run_id: run_id.clone(),
     };
     let mut run_ctx = super::context::ChatRunContext {

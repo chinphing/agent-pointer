@@ -64,7 +64,7 @@ export function handleWorkspaceUpdated(ctx: StreamHandlerContext, e: WorkspaceUp
       conv.workspaceRoot = e.workspaceRoot
       if (e.isEphemeralSandbox) {
         conv.workspaceUserSet = false
-        conv.workspaceInheritDisabled = false
+        conv.workspaceInheritDisabled = true
       }
       conv.updatedAt = Date.now()
       ctx.persistMeta()

@@ -10,6 +10,11 @@ pub(crate) fn is_recoverable_provider_stream_error(err: &anyhow::Error) -> bool 
         || s.contains("broken pipe")
         || s.contains("incomplete message")
         || s.contains("body completed")
+        || s.contains("http 429")
+        || s.contains("http 500")
+        || s.contains("http 502")
+        || s.contains("http 503")
+        || s.contains("http 504")
 }
 
 pub(crate) fn provider_stream_recoverable_retry_message(err: &anyhow::Error, max_tokens: u32) -> String {

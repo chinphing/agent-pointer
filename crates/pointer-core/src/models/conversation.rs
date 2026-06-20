@@ -174,6 +174,9 @@ pub struct SendChatPayload {
     /// Workspace root for this conversation run (overrides global settings when non-empty).
     #[serde(default, rename = "workspaceRoot", skip_serializing_if = "String::is_empty")]
     pub workspace_root: String,
+    /// When true, do not inherit another conversation's workspace (user cleared composer).
+    #[serde(default, rename = "workspaceInheritDisabled", skip_serializing_if = "Option::is_none")]
+    pub workspace_inherit_disabled: Option<bool>,
     /// Session lead worker override for this run (`single` mode).
     #[serde(default, rename = "leadAgentId", skip_serializing_if = "Option::is_none")]
     pub lead_agent_id: Option<String>,

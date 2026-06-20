@@ -11,6 +11,209 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+const LLM_HTTP_MAX_ATTEMPTS: u32 = 6;
+/// OpenAI / Anthropic 429 responses may include Retry-After (seconds) or retry-after-ms.
+const LLM_RATE_LIMIT_HEADER_MAX_SECS: f64 = 120.0;
+/// DashScope 百炼官方示例: base_delay=1, max_delay=60, wait_random_exponential(min=1, max=60).
+const LLM_RATE_LIMIT_BACKOFF_INITIAL_SECS: f64 = 1.0;
+const LLM_RATE_LIMIT_BACKOFF_MAX_SECS: f64 = 60.0;
+const LLM_TRANSIENT_BACKOFF_INITIAL_MS: u64 = 500;
+const LLM_TRANSIENT_BACKOFF_MAX_MS: u64 = 8_000;
+const LLM_CHAT_BASE_TIMEOUT_SECS: u64 = 180;
+/// DashScope burst throttling: server-side queue (3–120s per 百炼文档).
+const DASHSCOPE_WAIT_TIMEOUT_SECS: u64 = 30;
+
+fn is_dashscope_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.contains("dashscope.aliyuncs.com") || lower.contains("dashscope-intl.aliyuncs.com")
+}
+
+fn llm_http_timeout_secs(url: &str, stream: bool, base_secs: u64) -> u64 {
+    if !is_dashscope_url(url) {
+        return base_secs;
+    }
+    if stream {
+        // 流式：客户端超时需大于 Wait-Timeout（首个 chunk 前可能排队）。
+        base_secs.max(DASHSCOPE_WAIT_TIMEOUT_SECS.saturating_add(1))
+    } else {
+        // 非流式：超时 = 基础超时 + Wait-Timeout。
+        base_secs.saturating_add(DASHSCOPE_WAIT_TIMEOUT_SECS)
+    }
+}
+
+fn build_llm_http_client(url: &str, stream: bool, base_timeout_secs: u64) -> Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .timeout(Duration::from_secs(llm_http_timeout_secs(
+            url,
+            stream,
+            base_timeout_secs,
+        )))
+        .build()?)
+}
+
+fn is_retryable_llm_http_status(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || status == reqwest::StatusCode::REQUEST_TIMEOUT
+        || status.is_server_error()
+}
+
+fn is_rate_limit_status(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::TOO_MANY_REQUESTS
+}
+
+fn is_retryable_llm_transport_error(err: &reqwest::Error) -> bool {
+    err.is_timeout() || err.is_connect() || err.is_request() || err.is_body()
+}
+
+/// Parse `Retry-After` / `retry-after-ms` per OpenAI & Anthropic rate-limit guidance.
+fn parse_retry_after_secs(headers: &reqwest::header::HeaderMap) -> Option<f64> {
+    if let Some(raw) = headers.get("retry-after-ms").and_then(|v| v.to_str().ok()) {
+        if let Ok(ms) = raw.trim().parse::<f64>() {
+            if ms > 0.0 {
+                return Some(ms / 1000.0);
+            }
+        }
+    }
+    let raw = headers.get("retry-after").and_then(|v| v.to_str().ok())?;
+    let trimmed = raw.trim();
+    if let Ok(secs) = trimmed.parse::<f64>() {
+        if secs > 0.0 {
+            return Some(secs);
+        }
+    }
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc2822(trimmed) {
+        let wait = dt.timestamp() as f64 - chrono::Utc::now().timestamp() as f64;
+        if wait > 0.0 {
+            return Some(wait);
+        }
+    }
+    None
+}
+
+fn retry_jitter_ms(base_ms: u64) -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let n = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0) as u64;
+    // 75%–100% of base (OpenAI cookbook: add random jitter to backoff).
+    let jitter_num = 750 + (n % 251);
+    base_ms.saturating_mul(jitter_num) / 1000
+}
+
+fn llm_rate_limit_additive_jitter_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let n = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0) as u64;
+    // 百炼原生示例: sleep_time = backoff + random.uniform(0, 1)
+    n % 1001
+}
+
+fn llm_rate_limit_backoff_ms(attempt: u32, headers: &reqwest::header::HeaderMap) -> u64 {
+    if let Some(secs) = parse_retry_after_secs(headers) {
+        let capped = secs.min(LLM_RATE_LIMIT_HEADER_MAX_SECS);
+        return (capped * 1000.0).ceil() as u64;
+    }
+    let exp = LLM_RATE_LIMIT_BACKOFF_INITIAL_SECS
+        * 2f64.powi(attempt.saturating_sub(1) as i32);
+    let secs = exp.min(LLM_RATE_LIMIT_BACKOFF_MAX_SECS);
+    (secs * 1000.0).ceil() as u64 + llm_rate_limit_additive_jitter_ms()
+}
+
+fn llm_transient_backoff_ms(attempt: u32) -> u64 {
+    let exp = LLM_TRANSIENT_BACKOFF_INITIAL_MS
+        .saturating_mul(1u64 << attempt.saturating_sub(1).min(4));
+    let base = exp.min(LLM_TRANSIENT_BACKOFF_MAX_MS);
+    retry_jitter_ms(base)
+}
+
+fn llm_retry_delay_ms(
+    attempt: u32,
+    status: reqwest::StatusCode,
+    headers: &reqwest::header::HeaderMap,
+) -> u64 {
+    if is_rate_limit_status(status) {
+        llm_rate_limit_backoff_ms(attempt, headers)
+    } else {
+        llm_transient_backoff_ms(attempt)
+    }
+}
+
+async fn llm_http_sleep(delay_ms: u64, cancel: &CancellationToken) -> Result<()> {
+    tokio::select! {
+        _ = cancel.cancelled() => Err(anyhow!("cancelled")),
+        _ = tokio::time::sleep(Duration::from_millis(delay_ms)) => Ok(()),
+    }
+}
+
+async fn post_chat_with_retry(
+    client: &reqwest::Client,
+    url: &str,
+    api_key: &str,
+    wire_body: &Value,
+    cancel: &CancellationToken,
+    operation: &str,
+) -> Result<reqwest::Response> {
+    for attempt in 1..=LLM_HTTP_MAX_ATTEMPTS {
+        let mut req = client.post(url).bearer_auth(api_key).json(wire_body);
+        if is_dashscope_url(url) {
+            req = req.header(
+                "X-DashScope-Wait-Timeout",
+                DASHSCOPE_WAIT_TIMEOUT_SECS.to_string(),
+            );
+        }
+        let send_result = tokio::select! {
+            _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
+            r = req.send() => r,
+        };
+        match send_result {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    return Ok(resp);
+                }
+                let status = resp.status();
+                let retryable = is_retryable_llm_http_status(status);
+                let headers = resp.headers().clone();
+                let body_preview = resp.text().await.unwrap_or_default();
+                if !retryable || attempt >= LLM_HTTP_MAX_ATTEMPTS {
+                    return Err(anyhow!(
+                        "HTTP {}: {}",
+                        status,
+                        truncate(&body_preview, 400)
+                    ));
+                }
+                let delay_ms = llm_retry_delay_ms(attempt, status, &headers);
+                log::warn!(
+                    "{operation}: HTTP {status} attempt {attempt}/{LLM_HTTP_MAX_ATTEMPTS}, \
+                     retrying after {delay_ms}ms{}",
+                    if is_rate_limit_status(status) {
+                        parse_retry_after_secs(&headers)
+                            .map(|s| format!(" (Retry-After={s:.3}s)"))
+                            .unwrap_or_default()
+                    } else {
+                        String::new()
+                    }
+                );
+                llm_http_sleep(delay_ms, cancel).await?;
+            }
+            Err(err)
+                if attempt < LLM_HTTP_MAX_ATTEMPTS && is_retryable_llm_transport_error(&err) =>
+            {
+                let delay_ms = llm_transient_backoff_ms(attempt);
+                log::warn!(
+                    "{operation}: transport error attempt {attempt}/{LLM_HTTP_MAX_ATTEMPTS}: {err:#}, \
+                     retrying after {delay_ms}ms"
+                );
+                llm_http_sleep(delay_ms, cancel).await?;
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+    Err(anyhow!("LLM HTTP request failed after {LLM_HTTP_MAX_ATTEMPTS} attempts"))
+}
+
 #[derive(Debug, Clone)]
 pub enum ProviderEvent {
     ContentDelta(String),
@@ -279,20 +482,9 @@ impl OpenAIProvider {
             "stream": false,
             "max_tokens": 4
         });
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(20))
-            .build()?;
-        let resp = client
-            .post(&url)
-            .bearer_auth(&self.api_key)
-            .json(&body)
-            .send()
-            .await?;
-        if !resp.status().is_success() {
-            let s = resp.status();
-            let t = resp.text().await.unwrap_or_default();
-            return Err(anyhow!("HTTP {}: {}", s, truncate(&t, 200)));
-        }
+        let client = build_llm_http_client(&url, false, 20)?;
+        let cancel = CancellationToken::new();
+        let _resp = post_chat_with_retry(&client, &url, &self.api_key, &body, &cancel, "test").await?;
         Ok(start.elapsed().as_millis())
     }
 
@@ -366,22 +558,16 @@ impl OpenAIProvider {
             &url,
             &wire_body,
         );
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(180))
-            .build()?;
-        let resp = tokio::select! {
-            _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
-            r = client
-                .post(&url)
-                .bearer_auth(&self.api_key)
-                .json(&wire_body)
-                .send() => r?,
-        };
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
-        }
+        let client = build_llm_http_client(&url, false, LLM_CHAT_BASE_TIMEOUT_SECS)?;
+        let resp = post_chat_with_retry(
+            &client,
+            &url,
+            &self.api_key,
+            &wire_body,
+            &cancel,
+            "chat_once",
+        )
+        .await?;
         let parsed: ChatOnceApiResponse = resp.json().await?;
         let message = parsed
             .choices
@@ -448,22 +634,16 @@ impl OpenAIProvider {
         };
         let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
         let wire_body = chat_request_wire_json(&req, &self.settings);
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(180))
-            .build()?;
-        let resp = tokio::select! {
-            _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
-            r = client
-                .post(&url)
-                .bearer_auth(&self.api_key)
-                .json(&wire_body)
-                .send() => r?,
-        };
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
-        }
+        let client = build_llm_http_client(&url, false, LLM_CHAT_BASE_TIMEOUT_SECS)?;
+        let resp = post_chat_with_retry(
+            &client,
+            &url,
+            &self.api_key,
+            &wire_body,
+            &cancel,
+            "chat_once_wire",
+        )
+        .await?;
         let parsed: ChatOnceApiResponse = resp.json().await?;
         let message = parsed
             .choices
@@ -565,19 +745,17 @@ impl OpenAIProvider {
             &url,
             &wire_body,
         );
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(180))
-            .build()?;
-
+        let client = build_llm_http_client(&url, true, LLM_CHAT_BASE_TIMEOUT_SECS)?;
         let t_http = Instant::now();
-        let resp = tokio::select! {
-            _ = cancel.cancelled() => return Err(anyhow!("cancelled")),
-            r = client
-                .post(&url)
-                .bearer_auth(&self.api_key)
-                .json(&wire_body)
-                .send() => r?,
-        };
+        let resp = post_chat_with_retry(
+            &client,
+            &url,
+            &self.api_key,
+            &wire_body,
+            &cancel,
+            "stream_chat",
+        )
+        .await?;
         let http_until_headers_ms = t_http.elapsed().as_millis();
         if crate::logging::internal_runtime_log_enabled() {
             log::debug!(
@@ -589,12 +767,6 @@ impl OpenAIProvider {
                 dump_label,
                 stream_t0.elapsed().as_millis()
             );
-        }
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(anyhow!("HTTP {}: {}", status, truncate(&text, 400)));
         }
 
         let mut content_buf = String::new();
@@ -862,6 +1034,91 @@ fn rand_id() -> String {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     format!("{:x}", n)
+}
+
+#[cfg(test)]
+mod llm_http_retry_tests {
+    use super::*;
+    use reqwest::header::{HeaderMap, HeaderValue};
+
+    #[test]
+    fn retryable_http_statuses_include_rate_limit_and_server_errors() {
+        assert!(is_retryable_llm_http_status(
+            reqwest::StatusCode::TOO_MANY_REQUESTS
+        ));
+        assert!(is_retryable_llm_http_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(is_retryable_llm_http_status(reqwest::StatusCode::BAD_GATEWAY));
+        assert!(!is_retryable_llm_http_status(reqwest::StatusCode::BAD_REQUEST));
+        assert!(!is_retryable_llm_http_status(reqwest::StatusCode::UNAUTHORIZED));
+    }
+
+    #[test]
+    fn parse_retry_after_ms_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert("retry-after-ms", HeaderValue::from_static("2500"));
+        let secs = parse_retry_after_secs(&headers).expect("retry-after-ms");
+        assert!((secs - 2.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parse_retry_after_seconds_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert("retry-after", HeaderValue::from_static("30"));
+        let secs = parse_retry_after_secs(&headers).expect("retry-after");
+        assert!((secs - 30.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn rate_limit_backoff_honors_retry_after_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert("retry-after", HeaderValue::from_static("45"));
+        let delay = llm_rate_limit_backoff_ms(1, &headers);
+        assert_eq!(delay, 45_000, "Retry-After should be honored exactly");
+    }
+
+    #[test]
+    fn rate_limit_backoff_without_header_matches_dashscope_example() {
+        let headers = HeaderMap::new();
+        let first = llm_rate_limit_backoff_ms(1, &headers);
+        let second = llm_rate_limit_backoff_ms(2, &headers);
+        assert!(first >= 1_000 && first <= 2_000, "first backoff ~1s+jitter, got {first}");
+        assert!(second >= 2_000 && second <= 3_000, "second backoff ~2s+jitter, got {second}");
+    }
+
+    #[test]
+    fn dashscope_url_detection_and_timeout() {
+        assert!(is_dashscope_url(
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+        ));
+        assert!(is_dashscope_url(
+            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions"
+        ));
+        assert!(!is_dashscope_url("https://api.openai.com/v1/chat/completions"));
+        assert_eq!(
+            llm_http_timeout_secs(
+                "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                false,
+                LLM_CHAT_BASE_TIMEOUT_SECS
+            ),
+            LLM_CHAT_BASE_TIMEOUT_SECS + DASHSCOPE_WAIT_TIMEOUT_SECS
+        );
+        assert_eq!(
+            llm_http_timeout_secs(
+                "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                true,
+                LLM_CHAT_BASE_TIMEOUT_SECS
+            ),
+            LLM_CHAT_BASE_TIMEOUT_SECS
+        );
+    }
+
+    #[test]
+    fn transient_backoff_stays_shorter_than_rate_limit_default() {
+        let headers = HeaderMap::new();
+        let rate = llm_rate_limit_backoff_ms(1, &headers);
+        let transient = llm_transient_backoff_ms(1);
+        assert!(transient < rate, "transient={transient} rate={rate}");
+    }
 }
 
 #[cfg(test)]

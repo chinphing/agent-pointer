@@ -155,7 +155,7 @@ const workspaceDirName = computed(() => {
 
 const workspaceTooltip = computed(() => {
   const p = chat.current?.workspaceRoot?.trim()
-  if (!p) return '未设置时将自动创建临时工作目录'
+  if (!p) return '留空时将继承上一会话工作目录；清除后发送则使用临时目录'
   if (isEphemeralWorkspacePath(p)) return `临时工作目录：${p}`
   return p
 })
@@ -967,7 +967,7 @@ onUnmounted(() => {
                 ref="workspaceInputRef"
                 :value="chat.current?.workspaceRoot ?? ''"
                 type="text"
-                placeholder="项目目录（可选，留空则自动创建临时目录）"
+                placeholder="项目目录（留空继承上一会话；清除后发送用临时目录）"
                 class="composer-workspace-input"
                 :title="workspaceTooltip"
                 @input="onWorkspaceInput"

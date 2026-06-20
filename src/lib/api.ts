@@ -48,6 +48,8 @@ export interface SendChatPayload {
   toolRoundsUsedSupervisor?: number
   /** Per-conversation workspace root for this run. */
   workspaceRoot?: string
+  /** When true, backend uses session sandbox instead of inheriting another conversation's workspace. */
+  workspaceInheritDisabled?: boolean
   /** Session lead worker for this run (`single` mode). */
   leadAgentId?: string
 }

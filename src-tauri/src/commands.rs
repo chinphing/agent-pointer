@@ -41,6 +41,7 @@ pub async fn send_chat(
             payload.tool_rounds_used,
             payload.tool_rounds_used_supervisor,
             payload.workspace_root,
+            payload.workspace_inherit_disabled,
         )
         .await;
     });

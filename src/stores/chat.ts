@@ -411,11 +411,19 @@ export const useChatStore = defineStore('chat', () => {
   function persistMeta() {
     if (saveTimer) window.clearTimeout(saveTimer)
     saveTimer = window.setTimeout(() => {
-      const metas = JSON.parse(
-        JSON.stringify(conversations.value.map(toConversationMeta))
-      ) as ConversationMeta[]
-      saveConversationMeta(metas).catch(e => console.error('save meta error', e))
+      void flushPersistMeta()
     }, 400)
+  }
+
+  async function flushPersistMeta() {
+    if (saveTimer) {
+      window.clearTimeout(saveTimer)
+      saveTimer = null
+    }
+    const metas = JSON.parse(
+      JSON.stringify(conversations.value.map(toConversationMeta))
+    ) as ConversationMeta[]
+    await saveConversationMeta(metas).catch(e => console.error('save meta error', e))
   }
 
   /** P0: append client-held messages missing from DB (never deletes tool rows). */
@@ -443,10 +451,8 @@ export const useChatStore = defineStore('chat', () => {
       persistMeta()
       return existingBlank
     }
-    // Inherit workspaceRoot from the last active conversation.
-    const lastWorkspace = conversations.value.length > 0
-      ? (conversations.value[0].workspaceRoot ?? '')
-      : '';
+    // New sessions start with an empty workspace; backend inherits from the last active
+    // conversation on first send unless the user clears the picker (inherit disabled).
     const c: Conversation = {
       id: uid(),
       title: '新会话',
@@ -456,7 +462,9 @@ export const useChatStore = defineStore('chat', () => {
       skillIds: [],
       toolRoundsUsed: 0,
       toolRoundsUsedSupervisor: 0,
-      workspaceRoot: lastWorkspace,
+      workspaceRoot: '',
+      workspaceUserSet: false,
+      workspaceInheritDisabled: false,
       leadAgentId: DEFAULT_LEAD_AGENT_ID,
       agentMode: 'single'
     }
@@ -826,7 +834,7 @@ export const useChatStore = defineStore('chat', () => {
     }
     conv.updatedAt = Date.now()
     patchRunState(conv.id, { generating: true, activeMessageId: null })
-    persistMeta()
+    await flushPersistMeta()
 
     await refreshTaskBoard(conv.id)
 
@@ -838,7 +846,8 @@ export const useChatStore = defineStore('chat', () => {
       leadAgentId: effectiveConversationLeadAgentId(conv),
       toolRoundsUsed: conv.toolRoundsUsed ?? 0,
       toolRoundsUsedSupervisor: conv.toolRoundsUsedSupervisor ?? 0,
-      workspaceRoot: conv.workspaceRoot ?? ''
+      workspaceRoot: conv.workspaceInheritDisabled ? '' : (conv.workspaceRoot ?? '').trim(),
+      ...(conv.workspaceInheritDisabled ? { workspaceInheritDisabled: true } : {})
     }).catch(err => {
       clearRunState(conv.id)
       console.error('sendChat error', err)
@@ -900,7 +909,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!current.value) newConversation()
     if (!current.value) return
     const trimmed = root.trim()
-    current.value.workspaceRoot = root
+    current.value.workspaceRoot = trimmed
     if (trimmed.length > 0) {
       current.value.workspaceUserSet = true
       current.value.workspaceInheritDisabled = false

@@ -31,6 +31,7 @@ export interface SendChatPayload {
   toolRoundsUsed?: number
   toolRoundsUsedSupervisor?: number
   workspaceRoot?: string
+  workspaceInheritDisabled?: boolean
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

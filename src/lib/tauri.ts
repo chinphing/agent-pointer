@@ -31,6 +31,7 @@ export interface SendChatPayload {
   toolRoundsUsed?: number
   toolRoundsUsedSupervisor?: number
   workspaceRoot?: string
+  workspaceInheritDisabled?: boolean
   leadAgentId?: string
 }
 

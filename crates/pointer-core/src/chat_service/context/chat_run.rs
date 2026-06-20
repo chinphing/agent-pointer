@@ -14,6 +14,8 @@ pub struct ChatRunRequest {
     pub tool_rounds_used_single_start: u32,
     pub tool_rounds_used_supervisor_start: u32,
     pub workspace_root: String,
+    /// Frontend override; when `Some(true)` skip inheriting another conversation's workspace.
+    pub workspace_inherit_disabled: Option<bool>,
     pub run_id: String,
 }
 

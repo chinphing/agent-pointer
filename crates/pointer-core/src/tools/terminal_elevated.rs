@@ -40,6 +40,16 @@ pub fn terminal_requests_elevation(args: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
+/// Build child environment for elevated runs: refresh registry/login PATH first, then snapshot.
+///
+/// Matches non-elevated `terminal` ordering so `env.json` / Unix `env.sh` include the latest PATH.
+pub(crate) fn build_elevated_child_environment(
+    env_paths: &[PathBuf],
+) -> HashMap<String, String> {
+    crate::shell_env::refresh_process_path_from_registry();
+    build_terminal_child_environment(env_paths)
+}
+
 pub fn run_terminal_command_elevated(
     args: serde_json::Value,
     session_workspace: String,
@@ -77,11 +87,9 @@ pub fn run_terminal_command_elevated(
 
     let env_file_paths = resolve_terminal_env_files(&args, Some(cwd.as_path()))?;
     let env_paths: Vec<PathBuf> = env_file_paths.iter().map(PathBuf::from).collect();
-    let env = build_terminal_child_environment(&env_paths);
+    let env = build_elevated_child_environment(&env_paths);
 
     on_output("[elevated] 提权执行中。请在应用内确认后，在系统权限对话框中授予管理员权限。\n");
-
-    crate::shell_env::refresh_process_path_from_registry();
 
     let started = Instant::now();
     let inner = run_elevated_platform(command, Some(cwd.as_path()), &env, wall_cap_ms, &on_output)?;
@@ -632,5 +640,31 @@ mod tests {
         assert_eq!(strip_redundant_sudo("sudo apt update"), "apt update");
         assert_eq!(strip_redundant_sudo("sudo sudo ls"), "ls");
         assert_eq!(strip_redundant_sudo("ls -la"), "ls -la");
+    }
+
+    #[test]
+    fn build_elevated_child_environment_path_matches_process_after_refresh() {
+        std::env::set_var("PATH", "/pointer/elevated-path-test");
+
+        // Snapshot before refresh freezes PATH even if the process env moves afterward.
+        let stale_snapshot = build_terminal_child_environment(&[]);
+        std::env::set_var("PATH", "/pointer/elevated-path-test;/registry/added");
+        assert_eq!(
+            stale_snapshot.get("PATH").map(String::as_str),
+            Some("/pointer/elevated-path-test")
+        );
+
+        let env = build_elevated_child_environment(&[]);
+        let process_path = std::env::var("PATH")
+            .or_else(|_| std::env::var("Path"))
+            .unwrap_or_default();
+        let child_path = env
+            .get("PATH")
+            .or_else(|| env.get("Path"))
+            .expect("PATH in elevated child env");
+        assert_eq!(
+            child_path, &process_path,
+            "elevated env PATH must match process PATH after refresh+snapshot"
+        );
     }
 }

@@ -46,7 +46,7 @@ pub fn sync_parent_board_from_supervisor_plan(
         } else {
             task.title.trim().to_string()
         };
-        let validate_requirement = validate_hint_from_instruction(&task.instruction);
+        let validate_requirement = validate_hint_from_goal(&task.goal);
         if let Some(idx) = doc.board.iter().position(|i| i.id == id) {
             let row = &mut doc.board[idx];
             row.title = title;
@@ -78,8 +78,8 @@ pub fn sync_parent_board_from_supervisor_plan(
     stats
 }
 
-fn validate_hint_from_instruction(instruction: &str) -> Option<String> {
-    let line = instruction
+fn validate_hint_from_goal(goal: &str) -> Option<String> {
+    let line = goal
         .lines()
         .map(str::trim)
         .find(|l| !l.is_empty())?;
@@ -105,14 +105,16 @@ mod tests {
                 id: "task_1".into(),
                 agent_id: "coder".into(),
                 title: "Implement".into(),
-                instruction: "Run cargo test".into(),
+                goal: "Run cargo test".into(),
+                context: String::new(),
                 depends_on: vec![],
             },
             AgentTask {
                 id: "task_2".into(),
                 agent_id: "coder".into(),
                 title: "Review".into(),
-                instruction: "Check diff".into(),
+                goal: "Check diff".into(),
+                context: String::new(),
                 depends_on: vec!["task_1".into()],
             },
         ];

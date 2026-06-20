@@ -34,6 +34,7 @@ const {
   TEAM_MODE_UI_ENABLED,
   supervisorAgent,
   maxSubAgentToolRounds,
+  maxSubAgentSpawnDepth,
   isLeadWorkerSelected,
   isLeadAgentSelectable,
   selectLeadWorker
@@ -296,6 +297,18 @@ function mediaDebugModelOptions(kind: (typeof MEDIA_DEBUG_KINDS)[number]) {
                   type="number"
                   min="1"
                   max="10000"
+                  step="1"
+                  class="w-full max-w-xs h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
+                />
+              </div>
+              <div>
+                <label class="block text-[12px] text-muted mb-1.5">子 Agent 最大嵌套深度</label>
+                <p class="text-[11px] text-muted mb-1.5">1 = 仅主 agent 可委派；2 = 子 agent 可再委派一层（默认）。</p>
+                <input
+                  v-model.number="maxSubAgentSpawnDepth"
+                  type="number"
+                  min="1"
+                  max="8"
                   step="1"
                   class="w-full max-w-xs h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors"
                 />

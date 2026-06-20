@@ -22,6 +22,17 @@ allowAgents:
 | 键 | 类型 | 说明 |
 |----|------|------|
 | `maxSubAgentToolRounds` | `number` | **每一次** `run_sub_agent` 内部工具循环的轮次上限，与主会话的 `maxToolRounds` 独立。 |
+| `maxSubAgentSpawnDepth` | `number` | 嵌套 `run_subagent` 最大深度（默认 **2**：主 agent + 一层子委派）。 |
+
+## `run_subagent` 参数
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `agentId` | ✓ | worker id（须在 lead 的 `allowAgents` 中） |
+| `goal` | ✓ | 子任务目标 + 完成标准 |
+| `context` | ✗ | 已验证事实、路径、依赖摘要等 |
+
+任务由宿主写入子 agent **system**（**Assigned task**）；首条 user 为短 stub，不重复 goal。
 
 ## `general` 委派 `coder` / `computer`（兜底 + 需同意）
 
@@ -47,12 +58,12 @@ general 无 Composer 工作区选择器。委派 **coder** 前应在对话中询
 ## 行为摘要
 
 - **`run_subagent` 返回值**：子 Agent 的侦察交付物为 **Markdown**（在工具结果的 **`content`** 字符串中）。`taskId` / `agentId` 等为元数据。子会话内仍按宿主约定使用 **JSON tool envelope**；**`content` 内不是 JSON 报告**。
-- 子 Agent **禁止**再次调用 `run_subagent`（`allowed_tools` 剔除 + 运行时硬拒绝）。
+- 嵌套委派：深度由 **`maxSubAgentSpawnDepth`** 控制（默认 2）。达最大深度的子 agent 为 leaf，无 `run_subagent` 工具。
 - Supervisor 模式下，每执行一个子任务消耗外层一轮子任务预算，且该子任务自带内层 `SessionToolBudget`。
 
 ## 内置 worker `explore`
 
 - **用途**：只读代码库侦察（`file` 的 list / glob / grep / read），产出结构化摘要供主会话 **coder** 继续 Plan / Implement；不写文件、不跑 shell、不跑 `read_lints`。
-- **与主线程摸底的界限**：coder 在 **Routine workflow** 第 2 步用 `file` 收证据直到能改代码/跑测试即可；**explore** 用于「多轮 `file` 会撑爆主对话」或需要 **instruction 里写死完成形态**（如双向 trace、coverage）的审计式摸底。细则见 coder 提示中的 **Delegating to the `explore` worker**（`crates/pointer-core/src/agents/coder/AGENT.md`）。
+- **与主线程摸底的界限**：coder 在 **Routine workflow** 第 2 步用 `file` 收证据直到能改代码/跑测试即可；**explore** 用于「多轮 `file` 会撑爆主对话」或需要在 **`goal`** 里写死完成形态（如双向 trace、coverage）的审计式摸底。细则见 coder 提示中的 **Delegating to the `explore` worker**（`crates/pointer-core/src/agents/coder/AGENT.md`）。
 - **启用**：在 Lead Agent 的 **`AGENT.md`** 中将 **`explore`** 写入 **`allowAgents`**；未列入则 **`run_subagent`** 目标校验失败。内置 **coder** 已默认配置。
-- **提示词**：策略见 `crates/pointer-core/src/agents/explore/AGENT.md`；主 Agent 应在 **`instruction`** 中写清目标、范围、完成标准，并建议附带 **Lead context**（主线程已验证事实），避免子会话重复搜索。
+- **提示词**：策略见 `crates/pointer-core/src/agents/explore/AGENT.md`；主 Agent 用 **`goal`** + **`context`** 写清目标、范围、完成标准与已验证事实。

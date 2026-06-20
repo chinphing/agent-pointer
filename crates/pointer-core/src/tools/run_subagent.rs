@@ -28,23 +28,52 @@ pub fn register_all(reg: &ToolRegistry) {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunSubagentArgs {
     pub agent_id: String,
-    pub instruction: String,
+    pub goal: String,
+    pub context: String,
     pub title: String,
     pub task_id: String,
     pub workspace_root: Option<String>,
     pub computer_target: Option<ComputerOperationTarget>,
 }
 
+/// Child depth after delegating from `parent_spawn_depth` (lead = 0).
+pub fn child_spawn_depth(parent_spawn_depth: u32) -> u32 {
+    parent_spawn_depth.saturating_add(1)
+}
+
+/// Reject when the child would exceed `max_spawn_depth` (floor 1).
+pub fn validate_spawn_depth(parent_spawn_depth: u32, max_spawn_depth: u32) -> Result<u32, String> {
+    let max = max_spawn_depth.max(1);
+    if parent_spawn_depth >= max {
+        return Err(format!(
+            "spawn depth limit: parent is at depth {parent_spawn_depth}, maxSubAgentSpawnDepth={max}"
+        ));
+    }
+    let child = child_spawn_depth(parent_spawn_depth);
+    if child > max {
+        return Err(format!(
+            "spawn depth limit: child would be at depth {child}, maxSubAgentSpawnDepth={max}"
+        ));
+    }
+    Ok(child)
+}
+
+/// Whether an agent at `spawn_depth` may call `run_subagent` again.
+pub fn can_spawn_subagents(spawn_depth: u32, max_spawn_depth: u32) -> bool {
+    spawn_depth < max_spawn_depth.max(1)
+}
+
 /// Resolve whether a delegated computer task operates Pointer itself or external apps.
 pub fn resolve_computer_operation_target(
-    instruction: &str,
+    goal: &str,
+    context: &str,
     title: &str,
     explicit: Option<ComputerOperationTarget>,
 ) -> ComputerOperationTarget {
     if let Some(target) = explicit {
         return target;
     }
-    let blob = format!("{title}\n{instruction}").to_lowercase();
+    let blob = format!("{title}\n{goal}\n{context}").to_lowercase();
     const SELF_MARKERS: &[&str] = &[
         "pointer 设置",
         "pointer设置",
@@ -89,12 +118,18 @@ pub fn parse_run_subagent_args(args: &Value) -> Result<RunSubagentArgs, String> 
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "missing or empty agentId".to_string())?;
-    let instruction = args
-        .get("instruction")
+    let goal = args
+        .get("goal")
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| "missing or empty instruction".to_string())?;
+        .ok_or_else(|| "missing or empty goal".to_string())?;
+    let context = args
+        .get("context")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
     let title = args
         .get("title")
         .and_then(|v| v.as_str())
@@ -116,7 +151,8 @@ pub fn parse_run_subagent_args(args: &Value) -> Result<RunSubagentArgs, String> 
     let computer_target = parse_computer_target(args);
     Ok(RunSubagentArgs {
         agent_id: agent_id.to_string(),
-        instruction: instruction.to_string(),
+        goal: goal.to_string(),
+        context,
         title,
         task_id,
         workspace_root,
@@ -136,13 +172,13 @@ pub fn validate_run_subagent_target(
     }
     if allow_agents.is_empty() {
         return Err(
-            "allowAgents is empty on the lead agent; add worker ids to its AGENT.md frontmatter before using run_subagent"
+            "allowAgents is empty on the current agent; add worker ids to its AGENT.md frontmatter before using run_subagent"
                 .into(),
         );
     }
     if allow_agents.binary_search_by(|probe| probe.as_str().cmp(aid)).is_err() {
         return Err(format!(
-            "agentId `{aid}` is not listed in the lead agent allowAgents (AGENT.md frontmatter)"
+            "agentId `{aid}` is not listed in the current agent allowAgents (AGENT.md frontmatter)"
         ));
     }
     let exec = registry
@@ -169,27 +205,44 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn parse_requires_agent_id_and_instruction() {
+    fn parse_requires_agent_id_and_goal() {
         assert!(parse_run_subagent_args(&json!({})).is_err());
         assert!(parse_run_subagent_args(&json!({"agentId": "coder"})).is_err());
+        assert!(parse_run_subagent_args(&json!({
+            "agentId": "coder",
+            "instruction": "legacy"
+        }))
+        .is_err());
         let ok = parse_run_subagent_args(&json!({
             "agentId": "coder",
-            "instruction": "Do the thing"
+            "goal": "Do the thing"
         }));
         assert!(ok.is_ok());
         let parsed = ok.unwrap();
         assert_eq!(parsed.agent_id, "coder");
-        assert_eq!(parsed.instruction, "Do the thing");
+        assert_eq!(parsed.goal, "Do the thing");
+        assert!(parsed.context.is_empty());
         assert!(parsed.title.is_empty());
         assert!(parsed.task_id.is_empty());
         assert!(parsed.workspace_root.is_none());
     }
 
     #[test]
+    fn parse_accepts_context() {
+        let parsed = parse_run_subagent_args(&json!({
+            "agentId": "explore",
+            "goal": "Scenario: spec_map\nMap auth.",
+            "context": "Lead context:\n- grep done"
+        }))
+        .unwrap();
+        assert!(parsed.context.contains("grep done"));
+    }
+
+    #[test]
     fn parse_accepts_computer_target() {
         let parsed = parse_run_subagent_args(&json!({
             "agentId": "computer",
-            "instruction": "Open settings",
+            "goal": "Open settings",
             "computerTarget": "self"
         }))
         .unwrap();
@@ -200,9 +253,23 @@ mod tests {
     }
 
     #[test]
+    fn validate_spawn_depth_default_max_two() {
+        assert_eq!(validate_spawn_depth(0, 2).unwrap(), 1);
+        assert_eq!(validate_spawn_depth(1, 2).unwrap(), 2);
+        assert!(validate_spawn_depth(2, 2).is_err());
+    }
+
+    #[test]
+    fn can_spawn_subagents_at_depth_one_when_max_two() {
+        assert!(can_spawn_subagents(1, 2));
+        assert!(!can_spawn_subagents(2, 2));
+    }
+
+    #[test]
     fn resolve_computer_target_prefers_explicit() {
         let t = resolve_computer_operation_target(
             "操作 Chrome 浏览器",
+            "",
             "外部任务",
             Some(crate::models::ComputerOperationTarget::SelfApp),
         );
@@ -213,6 +280,7 @@ mod tests {
     fn resolve_computer_target_infers_pointer_settings() {
         let t = resolve_computer_operation_target(
             "在 Pointer 设置页打开技能管理并启用 find-skills",
+            "",
             "配置技能",
             None,
         );
@@ -223,6 +291,7 @@ mod tests {
     fn resolve_computer_target_defaults_external() {
         let t = resolve_computer_operation_target(
             "在 Chrome 中填写注册表单",
+            "",
             "注册账号",
             None,
         );
@@ -233,7 +302,7 @@ mod tests {
     fn parse_accepts_workspace_root() {
         let parsed = parse_run_subagent_args(&json!({
             "agentId": "coder",
-            "instruction": "Fix tests",
+            "goal": "Fix tests",
             "workspaceRoot": "/tmp/my-project"
         }))
         .unwrap();

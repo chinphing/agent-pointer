@@ -1,6 +1,6 @@
 ## Scenario router
 
-Read the first line of **`instruction`**: **`Scenario: <id>`** or **`Scenario: <primary>+<modifier>`**.
+Read the first line of **`goal`** (system **Assigned task**): **`Scenario: <id>`** or **`Scenario: <primary>+<modifier>`**.
 
 Pick the matching playbook under **Scenario playbooks** below. If absent, use **standard** flow.
 

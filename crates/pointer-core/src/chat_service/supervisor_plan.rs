@@ -162,7 +162,8 @@ pub(super) fn fallback_agent_tasks(
         id: "task_1".into(),
         agent_id,
         title: "Handle user request".into(),
-        instruction: latest,
+        goal: latest,
+        context: String::new(),
         depends_on: Vec::new(),
     }]
     .into_iter()
@@ -185,7 +186,7 @@ pub(crate) async fn plan_agent_tasks(
     let workers = state.agents.enabled_workers();
     let roster = agent_roster(&workers);
     let prompt = format!(
-        "{}\n\nYou are the Supervisor. Decompose the user's latest request into at most {} sub-agent tasks.\n\nPlanning rules: `coder` and `computer` are **fallback** workers — assign them only when the user's latest message clearly needs repo engineering or desktop automation. Prefer `general` for Q&A, summarization, and tasks without an explicit code or UI-control ask. Use `coder` for a single-repo task only when implementation, debugging, or tests are clearly required; use `computer` only for explicit desktop UI work. Split tasks only when an independent reviewer pass or a clearly separate subtask is needed. If multiple tasks have ordering, set `dependsOn` to an array of prerequisite task ids.\n\nAvailable agents:\n{}\n\nReturn **only** a JSON array (no Markdown). Element shape: {{\"id\":\"task_1\",\"agentId\":\"coder\",\"title\":\"short title\",\"instruction\":\"full instructions for that agent\",\"dependsOn\":[]}}. `agentId` must be from the list above. Use `general` for general Q&A; assign `coder` or `computer` only when the user request unambiguously needs them.",
+        "{}\n\nYou are the Supervisor. Decompose the user's latest request into at most {} sub-agent tasks.\n\nPlanning rules: `coder` and `computer` are **fallback** workers — assign them only when the user's latest message clearly needs repo engineering or desktop automation. Prefer `general` for Q&A, summarization, and tasks without an explicit code or UI-control ask. Use `coder` for a single-repo task only when implementation, debugging, or tests are clearly required; use `computer` only for explicit desktop UI work. Split tasks only when an independent reviewer pass or a clearly separate subtask is needed. If multiple tasks have ordering, set `dependsOn` to an array of prerequisite task ids.\n\nAvailable agents:\n{}\n\nReturn **only** a JSON array (no Markdown). Element shape: {{\"id\":\"task_1\",\"agentId\":\"coder\",\"title\":\"short title\",\"goal\":\"actionable goal and completion criteria\",\"context\":\"optional trusted facts\",\"dependsOn\":[]}}. `agentId` must be from the list above. Use `general` for general Q&A; assign `coder` or `computer` only when the user request unambiguously needs them.",
         env_context,
         limits.max_sub_agents,
         roster

@@ -5,4 +5,4 @@
 3. Fill handoff sections per **Handoff contract** and **Impact scan** when behavior change applies.
 4. **Coverage** lists skips and negative greps.
 
-Stop when the instruction's completion criteria are met—not when every subsection is filled with "none found" prose.
+Stop when the goal's completion criteria are met—not when every subsection is filled with "none found" prose.

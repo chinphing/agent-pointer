@@ -17,6 +17,7 @@ const SUPPORTED_PLATFORM_KEYS: &[(&str, &str)] = &[
     ("context_summary_max_tokens", "CONTEXT_SUMMARY_MAX_TOKENS"),
     ("max_tool_rounds", "MAX_TOOL_ROUNDS"),
     ("max_sub_agent_tool_rounds", "MAX_SUB_AGENT_TOOL_ROUNDS"),
+    ("max_sub_agent_spawn_depth", "MAX_SUB_AGENT_SPAWN_DEPTH"),
     ("raw_content_view_enabled", "RAW_CONTENT_VIEW_ENABLED"),
     ("debug_dump_llm_prompts", "DEBUG_DUMP_LLM_PROMPTS"),
     ("debug_menus_enabled", "DEBUG_MENUS_ENABLED"),

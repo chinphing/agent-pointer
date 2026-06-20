@@ -27,7 +27,7 @@ Include **`## Impact map`** with subsections as needed (omit empty):
 
 **Optional:** **`### Execution paths`** — see **Execution paths (when mandatory)** rules.
 
-### Lead context (parent should paste in `instruction`)
+### Lead context (parent should paste in `context`)
 
 Optional headings: **Lead context (trusted)** / **Already checked** / **Still unknown**.
 

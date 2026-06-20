@@ -146,8 +146,8 @@ Supervisor 模式下，规划器根据**主会话** `history` 生成多个 `Agen
 ### 5.1 子 Agent 的「对话上下文」——**独立 mini 会话**
 
 - 子 Agent **不使用**主会话的 `history` 作为模型输入。
-- 初始 `local_history` **只有一条** `User` 消息：`content = task.instruction`（Supervisor 下发的子任务全文）。
-- 若任务带 `dependsOn`，实现上会把依赖任务的输出摘要**前缀**拼进 `instruction`（`[Prior task outputs]` / `[Current task]`），仍是一条 user 消息，**不是**完整主聊天 transcript。
+- 初始 `local_history` **只有一条**短 stub `User` 消息；**`goal`** / **`context`** 由宿主写入 system dynamic（**Assigned task**）。
+- 若任务带 `dependsOn`，实现上会把依赖任务的输出摘要写入 **`context`**（`[Prior task outputs]`），**不**拼进 `goal`。
 - 子 Agent 自己的多轮工具循环里，只在 `local_history` 上累加本轮 assistant、tool 等，与主 `history` **隔离**。
 
 系统 prompt 侧子 Agent 与主轮同构：**cacheable** 由共享函数 `push_agent_role_cacheable_prompts` 组装（`COMMUNICATION_PUBLIC` + Computer **tier** 切片，或非 Computer 的 `system_prompt`），再追加 **sub_agent_header**（Computer 仅短交接说明，不含烘焙 `agent.system_prompt()`）、skills、工具附录、Environment；task board 由末尾 user 注入提供（有内容时）。

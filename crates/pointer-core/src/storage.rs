@@ -202,6 +202,8 @@ struct StoredSettings {
     max_tool_rounds: u32,
     #[serde(default = "default_max_tool_rounds", rename = "maxSubAgentToolRounds")]
     max_sub_agent_tool_rounds: u32,
+    #[serde(default = "default_max_sub_agent_spawn_depth", rename = "maxSubAgentSpawnDepth")]
+    max_sub_agent_spawn_depth: u32,
     #[serde(default = "default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
     raw_content_view_enabled: bool,
     #[serde(default = "default_debug_dump_llm_prompts", rename = "debugDumpLlmPrompts")]
@@ -253,6 +255,10 @@ fn default_context_summary_max_tokens() -> u32 {
 
 fn default_max_tool_rounds() -> u32 {
     100
+}
+
+fn default_max_sub_agent_spawn_depth() -> u32 {
+    2
 }
 
 fn default_raw_content_view_enabled() -> bool {
@@ -504,6 +510,7 @@ fn stored_settings_to_platform(stored: &StoredSettings) -> PlatformSettings {
         context_summary_max_tokens: stored.context_summary_max_tokens,
         max_tool_rounds: stored.max_tool_rounds,
         max_sub_agent_tool_rounds: stored.max_sub_agent_tool_rounds,
+        max_sub_agent_spawn_depth: stored.max_sub_agent_spawn_depth,
         raw_content_view_enabled: stored.raw_content_view_enabled,
         debug_dump_llm_prompts: stored.debug_dump_llm_prompts,
         debug_menus_enabled: stored.debug_menus_enabled,
@@ -629,6 +636,7 @@ impl Default for StoredSettings {
             context_summary_max_tokens: s.context_summary_max_tokens,
             max_tool_rounds: s.max_tool_rounds,
             max_sub_agent_tool_rounds: s.max_sub_agent_tool_rounds,
+            max_sub_agent_spawn_depth: s.max_sub_agent_spawn_depth,
             raw_content_view_enabled: s.raw_content_view_enabled,
             debug_dump_llm_prompts: s.debug_dump_llm_prompts,
             debug_menus_enabled: s.debug_menus_enabled,

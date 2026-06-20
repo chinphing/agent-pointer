@@ -8,12 +8,12 @@
 
 | Cursor 概念 | pointer-app 对应 |
 |------------|------------------|
-| 独立上下文窗口 | [`run_sub_agent`](../../crates/pointer-core/src/chat_service/sub_agent.rs) 仅构造 `local_history`：单条 user = `instruction`，无主线程历史（与 [`run_subagent.md`](../../crates/pointer-core/src/tools/prompts/run_subagent.md) 一致）。 |
+| 独立上下文窗口 | [`run_sub_agent`](../../crates/pointer-core/src/chat_service/sub_agent.rs) 构造隔离 `local_history`（stub user）+ system **Assigned task**；无主线程历史。 |
 | 中间过程噪声隔离在子会话 | 子 Agent 内工具往返留在子循环；父线程收到序列化 [`AgentRunResult`](../../crates/pointer-core/src/agents/mod.rs)（元数据 + **`content`**：**Markdown** 侦察摘要）。 |
 | Explore：搜索与分析代码库 | 子 worker 专注 `file:list` / `file:grep` / `file:glob` / `file:read`（只读），产出 **Markdown** 结构化结论（路径、符号、数据流）。 |
 | 子代理默认更快模型（成本/速度） | 当前子调用复用同一 `OpenAIProvider`（`prov.stream_chat`），**未**按 Agent 切换模型；若要对齐官方「更快模型」，需后续在 `AgentDef.config` 或设置中增加「子 Agent 覆盖模型」并在 `run_sub_agent` 构造 provider 时应用（可选阶段）。 |
 | 自定义子代理 `readonly: true` | 本仓库工具粒度为**工具名**（[`resolve_agent_tools`](../../crates/pointer-core/src/chat_service/agent_tool_allowlist.rs)），`file` 单工具包含读写方法；只读采用 **提示词约束 + 线程上下文内硬拒绝**（见 §3.4）。 |
-| 不可嵌套委派 | 已实现：`allowed_tools` 剔除 `run_subagent`，子循环内硬拒绝（[`agent_tool_pass.rs`](../../crates/pointer-core/src/chat_service/agent_tool_pass.rs) 子 Agent 工具分支）；Lead 侧 `run_subagent` 委派见 [`run_subagent_delegation.rs`](../../crates/pointer-core/src/chat_service/run_subagent_delegation.rs)。 |
+| 不可嵌套委派 | 已改为深度门控：默认 `maxSubAgentSpawnDepth=2`；见 [`subagent-goal-context-and-nesting.md`](../design/subagent-goal-context-and-nesting.md)。 |
 
 主循环与子循环对多工具调用均为 **顺序** `for` 执行（非并行），与文档中「并行起多个子代理」相比，当前产品语义更接近 **阻塞式 handoff**；多区域探索可通过 **多次 `run_subagent` 调用**（多轮或多工具批次内顺序执行）达成，每次子上下文仍隔离。
 

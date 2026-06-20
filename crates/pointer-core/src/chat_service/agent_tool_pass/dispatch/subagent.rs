@@ -38,6 +38,7 @@ pub(super) async fn dispatch_run_subagent(
             llm_stats,
             tool_call_id: &tc.id,
             args_value,
+            parent_spawn_depth: 0,
         };
         return super::super::super::run_subagent_delegation::run_subagent_delegation(&mut deleg)
             .await;
@@ -61,6 +62,7 @@ pub(super) async fn dispatch_run_subagent(
             llm_stats,
             tool_call_id: &tc.id,
             args_value,
+            parent_spawn_depth: sub_cfg.spawn_depth,
         };
         return super::super::super::run_subagent_delegation::run_subagent_delegation(&mut deleg)
             .await;

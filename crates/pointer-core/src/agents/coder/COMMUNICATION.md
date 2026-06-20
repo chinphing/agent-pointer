@@ -208,7 +208,8 @@ For repository mapping, prefer early **`explore`** delegation—see **Delegating
     "arguments": {
       "agentId": "explore",
       "title": "Map call chain and impact",
-      "instruction": "Scenario: cross_module_change\nGoal: map where feature flag X is defined, wired, and consumed.\nScope: workspace root only.\nCompletion criteria: Summary, Key files, Impact map (References+Readers+Surfaces), Evidence, Coverage.\nLead context (trusted):\n- GREPPED pattern=feature_flag_x hits=3 under src/"
+      "goal": "Scenario: cross_module_change\nMap where feature flag X is defined, wired, and consumed.\nCompletion criteria: Summary, Key files, Impact map (References+Readers+Surfaces), Evidence, Coverage.",
+      "context": "Lead context (trusted):\n- GREPPED pattern=feature_flag_x hits=3 under src/"
     }
   }
 }

@@ -31,4 +31,6 @@ pub struct SubAgentPromptContext<'a> {
     pub def: &'a AgentDef,
     pub workspace_root: &'a str,
     pub user_dynamic_inject_enabled: bool,
+    pub task_dynamic_blocks: &'a [String],
+    pub spawn_depth: u32,
 }

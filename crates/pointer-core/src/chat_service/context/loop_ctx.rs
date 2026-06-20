@@ -37,6 +37,9 @@ pub struct SubAgentLoopContext<'a> {
     pub sub_tool_budget: &'a mut SessionToolBudget,
     pub llm_stats: &'a mut ConversationLlmStats,
     pub run_id: &'a str,
+    /// Depth of this sub-agent run (lead's first child = 1).
+    pub spawn_depth: u32,
+    pub max_spawn_depth: u32,
 }
 
 /// Supervisor orchestration loop.
@@ -63,4 +66,6 @@ pub struct SubagentDelegationContext<'a> {
     pub llm_stats: &'a mut ConversationLlmStats,
     pub tool_call_id: &'a str,
     pub args_value: serde_json::Value,
+    /// Depth of the agent issuing `run_subagent` (lead = 0).
+    pub parent_spawn_depth: u32,
 }

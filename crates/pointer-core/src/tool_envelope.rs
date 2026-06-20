@@ -32,7 +32,8 @@ fn preserve_raw_string_arg(key: &str) -> bool {
             | "new_string"
             | "text"
             | "command"
-            | "instruction"
+            | "goal"
+            | "context"
             | "message"
             | "pattern"
     )

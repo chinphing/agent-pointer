@@ -199,6 +199,7 @@ function createSettingsDialogForm(deps: {
   const contextSummaryMaxTokens = ref(2048)
   const maxToolRounds = ref(100)
   const maxSubAgentToolRounds = ref(100)
+  const maxSubAgentSpawnDepth = ref(2)
   const rawContentViewEnabled = ref(false)
   const debugDumpLlmPrompts = ref(false)
   const taskBoardShowChildBoards = ref(false)
@@ -394,6 +395,7 @@ function createSettingsDialogForm(deps: {
   contextSummaryMaxTokens.value = s.settings.contextSummaryMaxTokens ?? 2048
   maxToolRounds.value = s.settings.maxToolRounds ?? 100
   maxSubAgentToolRounds.value = s.settings.maxSubAgentToolRounds ?? s.settings.maxToolRounds ?? 100
+  maxSubAgentSpawnDepth.value = s.settings.maxSubAgentSpawnDepth ?? 2
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled === true
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
   taskBoardShowChildBoards.value = s.settings.taskBoardShowChildBoards === true
@@ -686,6 +688,7 @@ function createSettingsDialogForm(deps: {
     agentMode: agentMode.value,
     leadAgentId: agentMode.value === 'supervisor' ? '' : leadAgentId.value,
     maxSubAgentToolRounds: Number(maxSubAgentToolRounds.value),
+    maxSubAgentSpawnDepth: Number(maxSubAgentSpawnDepth.value),
     rawContentViewEnabled: rawContentViewEnabled.value,
     debugDumpLlmPrompts: debugDumpLlmPrompts.value,
     debugMenusEnabled: debugMenusEnabled.value,
@@ -726,6 +729,7 @@ function createSettingsDialogForm(deps: {
     contextSummaryMaxTokens,
     maxToolRounds,
     maxSubAgentToolRounds,
+    maxSubAgentSpawnDepth,
     rawContentViewEnabled,
     debugDumpLlmPrompts,
     taskBoardShowChildBoards,

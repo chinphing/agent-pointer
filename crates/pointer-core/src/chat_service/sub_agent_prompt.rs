@@ -7,12 +7,17 @@ use crate::agents::{
 use crate::extensions::{BeforeMainLlmCallContext, MessageLoopPromptsAfterContext};
 use crate::models::{ChatMessage, Role, SystemPromptSections};
 use crate::provider::OpenAIProvider;
+use crate::tools::run_subagent::can_spawn_subagents;
 use anyhow::{anyhow, Result};
 use std::time::Instant;
 
 use super::agent_tool_allowlist::resolve_agent_tools;
 use super::app_state::AppState;
 use super::prompts::{push_agent_role_cacheable_prompts, push_env_to_cacheable};
+use super::sub_agent_task_prompt::{
+    build_subagent_initial_user_message, build_subagent_spawn_depth_block,
+    build_subagent_task_system_blocks,
+};
 use crate::task_board::sub_agent_hint::sub_agent_task_board_init_hint;
 use crate::task_board::sub_agent_task_board_store_key;
 use super::util::{new_id, now_ms};
@@ -22,12 +27,15 @@ pub(super) struct SubAgentSession {
     /// Sub-agent-only cacheable slices (handoff header, delegatable agents, skills, task-board hint).
     /// Role/tier prompts are assembled per round via [`push_agent_role_cacheable_prompts`].
     pub session_extras: Vec<String>,
+    /// Assigned task + spawn depth blocks (merged into system dynamic each round).
+    pub task_dynamic_blocks: Vec<String>,
     pub tools_system_appendix: String,
     pub allowed_tools: Vec<String>,
     pub allow_agents: Vec<String>,
     pub sub_task_board_key: String,
     pub tool_approval_mode: String,
     pub local_history: Vec<ChatMessage>,
+    pub spawn_depth: u32,
 }
 
 pub(super) struct SubAgentRoundPrompts {
@@ -42,6 +50,8 @@ pub(super) fn init_sub_agent_session(
     parent_task_board_store_key: &str,
     task: &AgentTask,
     enabled_skill_ids: &[String],
+    spawn_depth: u32,
+    max_spawn_depth: u32,
 ) -> Result<SubAgentSession> {
     let agent = state
         .agents
@@ -51,8 +61,14 @@ pub(super) fn init_sub_agent_session(
     let def = agent.def().clone();
     let _ = enabled_skill_ids;
     let (skill_prompts, session_tools) = state.skills.progressive_context(&[]);
-    let allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
+    let mut allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
     let allow_agents = normalize_allow_agents(&def.allow_agents);
+    let max_spawn_depth = max_spawn_depth.max(1);
+    let spawn_can_delegate =
+        can_spawn_subagents(spawn_depth, max_spawn_depth) && !allow_agents.is_empty();
+    if !spawn_can_delegate {
+        allowed_tools.retain(|t| t != "run_subagent");
+    }
     let sub_task_board_key =
         sub_agent_task_board_store_key(parent_task_board_store_key, task.id.trim());
     let session_vars = SessionInjectVars {
@@ -63,29 +79,38 @@ pub(super) fn init_sub_agent_session(
     } else {
         allowed_tools.join(", ")
     };
+    let handoff_footer = "Finish by writing your full handoff directly in assistant Markdown content \
+        (conclusions, evidence, traces, open questions). When no further tool calls are required, \
+        the run ends and the parent reads the final assistant content from **`run_subagent`** result field **`content`**.";
     let sub_agent_header = if def.profile == AgentProfile::Computer {
         format!(
-            "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\nComplete only the subtask delivered in the next user message from the Supervisor. That message is task instructions (it may include a digest of prior task outputs) and does **not** include the main chat history. Finish by writing your full handoff directly in assistant Markdown content (conclusions, evidence, traces, open questions). When no further tool calls are required, the run ends and the lead reads the final assistant content from **`run_subagent`** result field **`content`**.\nAllowed tools: {}",
+            "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\n\
+             Your assigned task is in the system prompt under **Assigned task** (not main chat history). \
+             {}\nAllowed tools: {}",
             def.name,
             def.id,
             def.profile,
             def.description,
+            handoff_footer,
             allowed_tools_line,
         )
     } else {
         let expanded_role = expand_agent_prompt_placeholders(&agent.system_prompt(), &session_vars);
         format!(
-            "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\nComplete only the subtask delivered in the next user message from the Supervisor. That message is task instructions (it may include a digest of prior task outputs) and does **not** include the main chat history. Finish by writing your full handoff directly in assistant Markdown content (conclusions, evidence, traces, open questions). When no further tool calls are required, the run ends and the lead reads the final assistant content from **`run_subagent`** result field **`content`**.\nAllowed tools: {}",
+            "Sub-agent: {} ({})\nprofile: {:?}\ndescription: {}\n\n{}\n\n\
+             Your assigned task is in the system prompt under **Assigned task** (not main chat history). \
+             {}\nAllowed tools: {}",
             def.name,
             def.id,
             def.profile,
             def.description,
             expanded_role,
+            handoff_footer,
             allowed_tools_line,
         )
     };
     let mut session_extras = vec![sub_agent_header];
-    if allowed_tools.iter().any(|t| t == "run_subagent") {
+    if spawn_can_delegate && allowed_tools.iter().any(|t| t == "run_subagent") {
         if let Some(block) = delegatable_sub_agents_system_block(&state.agents, &allow_agents) {
             session_extras.push(block);
         }
@@ -102,6 +127,17 @@ pub(super) fn init_sub_agent_session(
         session_extras.push(hint);
     }
 
+    let mut task_dynamic_blocks = build_subagent_task_system_blocks(
+        &task.goal,
+        &task.context,
+        provider.settings.workspace_root.as_str(),
+    );
+    task_dynamic_blocks.push(build_subagent_spawn_depth_block(
+        spawn_depth,
+        max_spawn_depth,
+        spawn_can_delegate && allowed_tools.iter().any(|t| t == "run_subagent"),
+    ));
+
     let tools_system_appendix =
         crate::tools_system_appendix::generate_tools_system_appendix(
             &state.tools,
@@ -111,7 +147,7 @@ pub(super) fn init_sub_agent_session(
     let local_history = vec![ChatMessage {
         id: new_id("sub_task"),
         role: Role::User,
-        content: task.instruction.clone(),
+        content: build_subagent_initial_user_message(),
         status: "done".into(),
         created_at: now_ms(),
         tool_calls: None,
@@ -130,19 +166,21 @@ pub(super) fn init_sub_agent_session(
         images_base64: None,
         computer_round_screen_rel_path: None,
         ui_bindings: None,
-            context_state: None,
+        context_state: None,
         attachments: None,
-            }];
+    }];
 
     Ok(SubAgentSession {
         def,
         session_extras,
+        task_dynamic_blocks,
         tools_system_appendix,
         allowed_tools,
         allow_agents,
         sub_task_board_key,
         tool_approval_mode,
         local_history,
+        spawn_depth,
     })
 }
 
@@ -157,6 +195,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
     let round_message_id = ctx.round_message_id;
     let local_history = ctx.local_history;
     let session_extras = ctx.session_extras;
+    let task_dynamic_blocks = ctx.task_dynamic_blocks;
     let tools_system_appendix = ctx.tools_system_appendix;
     let sub_task_board_key = ctx.sub_task_board_key;
     let def = ctx.def;
@@ -206,7 +245,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
     let assemble_system_prompts_ms = t.elapsed().as_millis();
 
     let t = Instant::now();
-    let mut dynamic = Vec::new();
+    let mut dynamic = task_dynamic_blocks.to_vec();
     let mut before_llm_ctx = BeforeMainLlmCallContext {
         computer_state: state.computer_state.as_ref(),
         lead_agent_profile: def.profile.clone(),
@@ -236,10 +275,11 @@ pub(super) async fn prepare_sub_agent_round_prompts(
     }
     let before_main_llm_tail_ms = t.elapsed().as_millis();
     log::info!(
-        "run_chat supervisor_sub_agent pre_stream_chat conversation_id={} task_id={} message_id={} local_history_messages={} clone_ms={} message_loop_prompts_after_ms={} assemble_system_prompts_ms={} before_main_llm_tail_ms={} pre_stream_total_ms={}",
+        "run_chat supervisor_sub_agent pre_stream_chat conversation_id={} task_id={} message_id={} spawn_depth={} local_history_messages={} clone_ms={} message_loop_prompts_after_ms={} assemble_system_prompts_ms={} before_main_llm_tail_ms={} pre_stream_total_ms={}",
         conversation_id,
         task_id,
         message_id,
+        ctx.spawn_depth,
         local_history.len(),
         clone_ms,
         message_loop_prompts_after_ms,

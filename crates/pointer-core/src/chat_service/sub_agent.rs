@@ -57,15 +57,19 @@ pub(crate) async fn run_sub_agent(
             parent_task_board_store_key,
             task,
             ctx.enabled_skill_ids,
+            ctx.spawn_depth,
+            ctx.max_spawn_depth,
         )?;
     let def = session.def;
     let session_extras = session.session_extras;
+    let task_dynamic_blocks = session.task_dynamic_blocks;
     let tools_system_appendix = session.tools_system_appendix;
     let allowed_tools = session.allowed_tools;
     let allow_agents = session.allow_agents;
     let sub_task_board_key = session.sub_task_board_key;
     let tool_approval_mode = session.tool_approval_mode;
     let mut local_history = session.local_history;
+    let spawn_depth = session.spawn_depth;
     let max_cap = ctx.sub_tool_budget.cap();
     let tools_appendix_enabled = !tools_system_appendix.is_empty();
     let native_tools = state.tools.openai_tools(&allowed_tools);
@@ -126,11 +130,13 @@ pub(crate) async fn run_sub_agent(
             round_message_id: &round_message_id,
             local_history: &local_history,
             session_extras: &session_extras,
+            task_dynamic_blocks: &task_dynamic_blocks,
             tools_system_appendix: &tools_system_appendix,
             sub_task_board_key: &sub_task_board_key,
             def: &def,
             workspace_root: sub_provider.settings.workspace_root.as_str(),
             user_dynamic_inject_enabled: sub_provider.settings.user_dynamic_inject_enabled,
+            spawn_depth,
         })
         .await?;
 
@@ -278,6 +284,7 @@ pub(crate) async fn run_sub_agent(
             accumulated_reasoning: reasoning.clone(),
             reasoning_in_messages,
             trace_id: agent_trace_step_id(&task.id, &def.id),
+            spawn_depth,
         };
         let mut stats = ToolInvocationStats::Conversation(ctx.llm_stats);
         let anchor_message_id =

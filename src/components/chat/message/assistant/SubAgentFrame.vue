@@ -145,6 +145,7 @@ function toggleExpanded() {
   <div
     class="rounded-xl border-2 border-accent/25 bg-accent-muted/10 my-2 overflow-hidden"
     :class="collapsed ? 'py-2 px-3' : 'p-3'"
+    :style="{ marginLeft: `${Math.max(0, (trace.depth ?? 1) - 1) * 12}px` }"
   >
     <button
       v-if="collapsed"

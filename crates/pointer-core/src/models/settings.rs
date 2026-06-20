@@ -672,6 +672,9 @@ pub struct ModelSettings {
     /// Max tool-call rounds **inside** each `run_sub_agent` run (separate from the lead conversation pool).
     #[serde(default = "default_max_tool_rounds", rename = "maxSubAgentToolRounds")]
     pub max_sub_agent_tool_rounds: u32,
+    /// Max nesting depth for `run_subagent` (1 = lead only; 2 = one nested level).
+    #[serde(default = "default_max_sub_agent_spawn_depth", rename = "maxSubAgentSpawnDepth")]
+    pub max_sub_agent_spawn_depth: u32,
     /// When true, chat UI shows the assistant “原始输出” inspector (code icon); includes wire text and API reasoning for debug, not inline in the bubble.
     #[serde(default = "default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
     pub raw_content_view_enabled: bool,
@@ -902,6 +905,10 @@ fn default_max_tool_rounds() -> u32 {
     build_cfg_u32!("MAX_TOOL_ROUNDS", 100)
 }
 
+fn default_max_sub_agent_spawn_depth() -> u32 {
+    build_cfg_u32!("MAX_SUB_AGENT_SPAWN_DEPTH", 2)
+}
+
 fn default_raw_content_view_enabled() -> bool {
     build_cfg_bool!("RAW_CONTENT_VIEW_ENABLED", false)
 }
@@ -1021,6 +1028,7 @@ impl Default for ModelSettings {
             context_summary_max_tokens: default_context_summary_max_tokens(),
             max_tool_rounds: default_max_tool_rounds(),
             max_sub_agent_tool_rounds: default_max_tool_rounds(),
+            max_sub_agent_spawn_depth: default_max_sub_agent_spawn_depth(),
             raw_content_view_enabled: default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             debug_menus_enabled: default_debug_menus_enabled(),
@@ -1256,6 +1264,8 @@ pub struct PlatformSettings {
     pub max_tool_rounds: u32,
     #[serde(default = "platform_default_max_tool_rounds", rename = "maxSubAgentToolRounds")]
     pub max_sub_agent_tool_rounds: u32,
+    #[serde(default = "platform_default_max_sub_agent_spawn_depth", rename = "maxSubAgentSpawnDepth")]
+    pub max_sub_agent_spawn_depth: u32,
     #[serde(default = "platform_default_raw_content_view_enabled", rename = "rawContentViewEnabled")]
     pub raw_content_view_enabled: bool,
     #[serde(default = "default_debug_dump_llm_prompts", rename = "debugDumpLlmPrompts")]
@@ -1606,6 +1616,10 @@ fn platform_default_max_tool_rounds() -> u32 {
     200
 }
 
+fn platform_default_max_sub_agent_spawn_depth() -> u32 {
+    2
+}
+
 fn platform_default_raw_content_view_enabled() -> bool {
     false
 }
@@ -1679,6 +1693,7 @@ impl Default for PlatformSettings {
             context_summary_max_tokens: platform_default_context_summary_max_tokens(),
             max_tool_rounds: platform_default_max_tool_rounds(),
             max_sub_agent_tool_rounds: platform_default_max_tool_rounds(),
+            max_sub_agent_spawn_depth: platform_default_max_sub_agent_spawn_depth(),
             raw_content_view_enabled: platform_default_raw_content_view_enabled(),
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             debug_menus_enabled: default_debug_menus_enabled(),
@@ -1740,6 +1755,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         context_summary_max_tokens: platform.context_summary_max_tokens,
         max_tool_rounds: platform.max_tool_rounds,
         max_sub_agent_tool_rounds: platform.max_sub_agent_tool_rounds,
+        max_sub_agent_spawn_depth: platform.max_sub_agent_spawn_depth,
         raw_content_view_enabled: platform.raw_content_view_enabled,
         debug_dump_llm_prompts: platform.debug_dump_llm_prompts,
         debug_menus_enabled: platform.debug_menus_enabled,

@@ -399,7 +399,7 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
             )
         }
         "web_search" => { let q = str_field(args, &["query"]).unwrap_or_default(); ("联网搜索".to_string(), truncate(&q, SUMMARY_MAX)) }
-        "run_subagent" => ("委派子任务".to_string(), str_field(args, &["title", "agentId"]).map(|s| truncate(&s, SUMMARY_MAX)).unwrap_or_default()),
+        "run_subagent" => ("委派子任务".to_string(), str_field(args, &["title", "goal", "agentId"]).map(|s| truncate(&s, SUMMARY_MAX)).unwrap_or_default()),
         "read_lints" => ("代码检查".to_string(), file_summary(args, "read")),
         n if n.starts_with("task_board") => {
             let m = if method.is_empty() { "patch" } else { method.as_str() };

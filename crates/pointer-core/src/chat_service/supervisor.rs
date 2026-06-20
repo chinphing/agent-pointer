@@ -109,7 +109,7 @@ pub(crate) async fn run_supervisor_chat(
         .map(|t| SupervisorPlanTask {
             id: t.id.clone(),
             title: if t.title.trim().is_empty() {
-                truncate_str(&t.instruction, 120)
+                truncate_str(&t.goal, 120)
             } else {
                 t.title.trim().to_string()
             },
@@ -154,7 +154,8 @@ pub(crate) async fn run_supervisor_chat(
         let def = agent.def();
         let computer_target = (def.id == "computer").then(|| {
             crate::tools::run_subagent::resolve_computer_operation_target(
-                &task.instruction,
+                &task.goal,
+                &task.context,
                 &task.title,
                 None,
             )
@@ -169,7 +170,7 @@ pub(crate) async fn run_supervisor_chat(
                 role: def.role.clone(),
                 status: "running".into(),
                 detail: Some(if task.title.is_empty() {
-                    task.instruction.clone()
+                    task.goal.clone()
                 } else {
                     task.title.clone()
                 }),
@@ -198,7 +199,7 @@ pub(crate) async fn run_supervisor_chat(
             },
             status: ItemStatus::Pending,
             depends_on: task.depends_on.clone(),
-            validate_requirement: Some(truncate_str(&task.instruction, 160)),
+            validate_requirement: Some(truncate_str(&task.goal, 160)),
             ..BoardItem::default()
         };
         let child_was_empty = state
@@ -234,7 +235,7 @@ pub(crate) async fn run_supervisor_chat(
 
         let mut task_run = task.clone();
         if !task.depends_on.is_empty() {
-            let mut pre = String::from("\n\n[Prior task outputs]\n");
+            let mut pre = String::from("[Prior task outputs]\n");
             for d in &task.depends_on {
                 if let Some(r) = results_by_id.get(d) {
                     pre.push_str(&format!(
@@ -244,10 +245,15 @@ pub(crate) async fn run_supervisor_chat(
                     ));
                 }
             }
-            task_run.instruction = format!("{pre}\n\n[Current task]\n{}", task.instruction);
+            if !task_run.context.trim().is_empty() {
+                task_run.context = format!("{}\n\n{}", pre.trim_end(), task_run.context.trim());
+            } else {
+                task_run.context = pre;
+            }
         }
 
         let sub_cap = provider.settings.max_sub_agent_tool_rounds.clamp(1, 10_000);
+        let max_spawn_depth = provider.settings.max_sub_agent_spawn_depth.max(1);
         let mut sub_budget = SessionToolBudget::new(sub_cap, 0);
         let mut sub_ctx = super::context::SubAgentLoopContext {
             session: super::context::SessionRefs {
@@ -265,6 +271,8 @@ pub(crate) async fn run_supervisor_chat(
             sub_tool_budget: &mut sub_budget,
             llm_stats: ctx.llm_stats,
             run_id,
+            spawn_depth: 1,
+            max_spawn_depth,
         };
         match super::sub_agent::run_sub_agent(&mut sub_ctx).await
         {

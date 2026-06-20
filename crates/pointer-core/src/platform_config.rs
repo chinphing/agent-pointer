@@ -107,6 +107,7 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         context_summary_max_tokens: s.context_summary_max_tokens,
         max_tool_rounds: s.max_tool_rounds,
         max_sub_agent_tool_rounds: s.max_sub_agent_tool_rounds,
+        max_sub_agent_spawn_depth: s.max_sub_agent_spawn_depth,
         raw_content_view_enabled: s.raw_content_view_enabled,
         debug_dump_llm_prompts: s.debug_dump_llm_prompts,
         debug_menus_enabled: s.debug_menus_enabled,

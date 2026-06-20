@@ -4,7 +4,9 @@ schema:
   properties:
     agentId:
       type: string
-    instruction:
+    goal:
+      type: string
+    context:
       type: string
     title:
       type: string
@@ -19,7 +21,7 @@ schema:
         - external
   required:
     - agentId
-    - instruction
+    - goal
   additionalProperties: true
 ---
 
@@ -27,15 +29,16 @@ schema:
 
 Hand off a **self-contained sub-task** to another **worker** agent.
 
-**What the lead receives**
+**What the parent receives**
 
 - **`content`** — **Markdown** string: the worker’s full report (final assistant message text). Merge into your internal plan; do **not** paste full handoff to the user.
 - Sibling fields (ids, names, optional **`reasoning`**) are metadata; the reconnaissance body is **`content`**.
 
 **Rules**
 
-- **`instruction`** must stand alone — the worker does **not** see the main chat.
-- Workers **cannot** call **`run_subagent`** again (no nested delegation).
+- **`goal`** must stand alone — the worker does **not** see the main chat.
+- Put verified paths, prior grep results, and dependency summaries in **`context`** (optional).
+- Nested delegation is allowed up to **`maxSubAgentSpawnDepth`** (default 2). At max depth, workers are leaves.
 - Workers finish with **Markdown** in final assistant **`content`** (no tools on that turn).
 - Optional **`taskId`** stays stable across repeated handoffs to the same logical task.
 
@@ -43,7 +46,8 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 
 - When to delegate vs stay local: **Delegating to the `explore` worker** and **G2** in primary instructions.
 - Worker's **description** in **delegatable sub-agents** metadata — read before calling.
-- **`instruction`** first line: **`Scenario: <id>`**; include goal, scope, completion criteria, and **Lead context (trusted)** / **Already checked** / **Still unknown**.
+- **`goal`** first line: **`Scenario: <id>`**; include scope and completion criteria.
+- Put **Lead context (trusted)** / **Already checked** / **Still unknown** in **`context`**.
 - If you are in a read-only **`file_*`** streak with no edit list, prefer **`run_subagent`** (explore) over another local read round.
 
 **`coder` / `computer` (general lead only)**
@@ -55,7 +59,8 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 #### Parameters
 
 - **`agentId`** (required) — Worker id from the **delegatable sub-agents** metadata block.
-- **`instruction`** (required) — Full task: goal, scope, **completion criteria**, ordered user steps when given, and Lead context for explore.
+- **`goal`** (required) — Actionable target + completion criteria (short; no long evidence dumps).
+- **`context`** (optional) — Trusted facts: paths, errors, language, prior task digests.
 - **`title`** (optional) — Short label for traces.
 - **`taskId`** (optional) — Stable id for sidecar state.
 - **`workspaceRoot`** (optional, **general → `coder`**) — Absolute directory for the coder worker.
@@ -63,6 +68,6 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 
 **Handoff flow**
 
-1. Provide `agentId`, `instruction`, optional `title` / `taskId`.
+1. Provide `agentId`, `goal`, optional `context` / `title` / `taskId`.
 2. Worker explores with native tool calls, then writes Markdown as final **`content`**.
 3. Parent reads **`content`** only.

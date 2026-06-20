@@ -31,6 +31,7 @@ mod single_agent_tools;
 mod sub_agent;
 mod sub_agent_prompt;
 mod sub_agent_stream;
+mod sub_agent_task_prompt;
 mod supervisor;
 mod supervisor_plan;
 mod supervisor_synth;

@@ -282,7 +282,9 @@ pub struct AgentTask {
     pub agent_id: String,
     #[serde(default)]
     pub title: String,
-    pub instruction: String,
+    pub goal: String,
+    #[serde(default)]
+    pub context: String,
     #[serde(default, rename = "dependsOn")]
     pub depends_on: Vec<String>,
 }

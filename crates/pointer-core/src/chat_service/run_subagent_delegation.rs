@@ -3,7 +3,9 @@
 use crate::agents::agent_ui::agent_display_label;
 use crate::agents::AgentTask;
 use crate::models::{AgentTrace, StreamEvent};
-use crate::tools::run_subagent::resolve_computer_operation_target;
+use crate::tools::run_subagent::{
+    resolve_computer_operation_target, validate_spawn_depth,
+};
 use crate::provider::OpenAIProvider;
 use anyhow::Result;
 
@@ -26,10 +28,16 @@ pub(super) async fn run_subagent_delegation(
     let allow_agents = ctx.allow_agents;
     let enabled_skill_ids = ctx.enabled_skill_ids;
     let cancel = ctx.session.cancel;
+    let max_spawn_depth = provider.settings.max_sub_agent_spawn_depth.max(1);
     let parsed = crate::tools::run_subagent::parse_run_subagent_args(&args_value);
     match parsed {
         Err(msg) => Ok((format!("ERROR: {msg}"), false, Some(msg))),
         Ok(parsed) => {
+            let child_spawn_depth = match validate_spawn_depth(ctx.parent_spawn_depth, max_spawn_depth)
+            {
+                Ok(d) => d,
+                Err(msg) => return Ok((format!("ERROR: {msg}"), false, Some(msg))),
+            };
             let agent_id = parsed.agent_id;
             match crate::tools::run_subagent::validate_run_subagent_target(
                 &state.agents,
@@ -107,15 +115,17 @@ pub(super) async fn run_subagent_delegation(
                         } else {
                             parsed.title
                         },
-                        instruction: parsed.instruction,
+                        goal: parsed.goal,
+                        context: parsed.context,
                         depends_on: vec![],
                     };
                     log::info!(
-                        "run_subagent start conversation_id={} message_id={} sub_agent={} task_id={}",
+                        "run_subagent start conversation_id={} message_id={} sub_agent={} task_id={} spawn_depth={}",
                         conversation_id,
                         message_id,
                         def.id,
-                        task.id
+                        task.id,
+                        child_spawn_depth
                     );
                     let detail = if task.title.len() > 200 {
                         format!("{}…", &task.title[..200])
@@ -124,7 +134,8 @@ pub(super) async fn run_subagent_delegation(
                     };
                     let computer_target = (def.id == "computer").then(|| {
                         resolve_computer_operation_target(
-                            &task.instruction,
+                            &task.goal,
+                            &task.context,
                             &task.title,
                             parsed.computer_target,
                         )
@@ -145,7 +156,7 @@ pub(super) async fn run_subagent_delegation(
                             status: status.into(),
                             detail,
                             content: None,
-                            depth: Some(1),
+                            depth: Some(child_spawn_depth),
                             session: None,
                             computer_target,
                         };
@@ -176,16 +187,19 @@ pub(super) async fn run_subagent_delegation(
                         sub_tool_budget: &mut sub_budget,
                         llm_stats: ctx.llm_stats,
                         run_id,
+                        spawn_depth: child_spawn_depth,
+                        max_spawn_depth,
                     };
                     match Box::pin(super::sub_agent::run_sub_agent(&mut sub_ctx))
                     .await
                     {
                         Ok(result) => {
                             log::info!(
-                                "run_subagent completed conversation_id={} sub_agent={} task_id={}",
+                                "run_subagent completed conversation_id={} sub_agent={} task_id={} spawn_depth={}",
                                 conversation_id,
                                 result.agent_id,
-                                result.task_id
+                                result.task_id,
+                                child_spawn_depth
                             );
                             let json = serde_json::to_string(&result).unwrap_or_else(|e| {
                                 log::warn!("run_subagent result serialize failed: {e}");

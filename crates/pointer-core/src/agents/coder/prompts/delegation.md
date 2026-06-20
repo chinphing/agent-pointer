@@ -35,13 +35,11 @@ That work belongs in **`explore`** — isolated context, structured handoff, les
 
 **Breadth threshold (lower than legacy one-grep paths):** if **any** high-breadth trigger applies (persist, stream timing, Platform API, reload-after-restart), treat as cross-layer — parallel **`file_grep`**, batched reads, or **`explore`** before the first edit. Direct edit only when **all** are true: one file, one function, no persist/stream/API surface, line-confident target.
 
-### Instruction template
+### Goal / context template
 
-First line: **`Scenario: <id>`** (see **Scenario playbooks** below).
+**`goal`** (required) — first line **`Scenario: <id>`** when using explore playbooks; include scope and completion criteria.
 
-Include:
-- **Goal**, **scope**, **completion criteria** (Summary, Key files, Evidence, Coverage; Impact map when cross-module).
-- **Lead context (trusted)** / **Already checked** / **Still unknown** — verified paths, **negative greps**, partial reads, **`Assumptions (unverified)`**.
+**`context`** (optional) — **Lead context (trusted)** / **Already checked** / **Still unknown**; verified paths, **negative greps**, partial reads.
 
 Do **not** ask explore to repeat greps listed under **Already checked**.
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { SlidersHorizontal, Bug, X, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, Database, MessageSquare, UserCircle } from 'lucide-vue-next'
+import { SlidersHorizontal, Bug, X, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, Database, MessageSquare, UserCircle, Cloud } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
@@ -11,6 +11,7 @@ import AssistantSettingsPanel from './panels/AssistantSettingsPanel.vue'
 import GenerationSettingsPanel from './panels/GenerationSettingsPanel.vue'
 import AgentSettingsPanel from './panels/AgentSettingsPanel.vue'
 import AccountSettingsPanel from './panels/AccountSettingsPanel.vue'
+import CloudSettingsPanel from './panels/CloudSettingsPanel.vue'
 import RuntimeSettingsPanel from './panels/RuntimeSettingsPanel.vue'
 
 const emit = defineEmits<{
@@ -71,13 +72,14 @@ const sections = computed(() => {
   if (!isTauriRuntime()) return merged
   return [
     { id: 'account', label: '平台账户', desc: '登录与凭据', icon: UserCircle },
+    { id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud },
     ...merged
   ]
 })
 
 const isPersistedSection = computed(() => persistedSectionIds.has(activeSection.value))
 const showFooterSave = computed(() => {
-  if (activeSection.value === 'account' || activeSection.value === 'runtime') return false
+  if (activeSection.value === 'account' || activeSection.value === 'runtime' || activeSection.value === 'cloud') return false
   return (
     activeSection.value === 'assistant' ||
     activeSection.value === 'channels' ||
@@ -256,6 +258,10 @@ async function saveFromFooter() {
           <!-- ==================== Platform account (desktop) ==================== -->
           <section v-else-if="activeSection === 'account'" class="p-6 space-y-5">
             <AccountSettingsPanel :form="form" />
+          </section>
+
+          <section v-else-if="activeSection === 'cloud'" class="p-6 space-y-5">
+            <CloudSettingsPanel :form="form" />
           </section>
 
           <!-- ==================== Runtime Section ==================== -->

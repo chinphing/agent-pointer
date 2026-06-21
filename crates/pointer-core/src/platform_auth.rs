@@ -168,10 +168,18 @@ impl PlatformAuthManager {
     }
 
     pub fn set_session(&self, session: PlatformSession) {
-        if let Err(e) = storage::save_platform_refresh_token(&session.refresh_token) {
-            log::warn!("platform_auth: save refresh to auth.dat failed: {e}");
+        if !session.refresh_token.trim().is_empty() {
+            if let Err(e) = storage::save_platform_refresh_token(&session.refresh_token) {
+                log::warn!("platform_auth: save refresh to auth.dat failed: {e}");
+            }
         }
         *self.inner.write() = Some(session);
+    }
+
+    /// Partner OAuth exchange on cloud agent instances (no refresh token, not persisted).
+    pub fn set_partner_session(&self, session: PlatformSession) {
+        *self.inner.write() = Some(session);
+        log::info!("platform_auth: partner session applied (cloud agent)");
     }
 
     pub fn clear_session(&self) {
@@ -185,7 +193,7 @@ impl PlatformAuthManager {
         if let Err(e) = storage::clear_platform_refresh_token() {
             log::warn!("platform_auth: clear auth.dat failed: {e}");
         }
-        if let Some(rt) = refresh {
+        if let Some(rt) = refresh.filter(|s| !s.trim().is_empty()) {
             let _ = tauri_fire_and_forget_revoke(rt);
         }
     }

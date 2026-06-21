@@ -2,7 +2,7 @@ use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::{header, HeaderValue, StatusCode, Uri},
     response::sse::{Event, KeepAlive, Sse},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post, put},
     Json, Router,
 };
@@ -23,6 +23,7 @@ use pointer_core::{
         ModelSettings, PlatformSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent,
         ToolDef, UserSettings,
     },
+    platform_auth::PlatformSessionView,
     provider::OpenAIProvider,
     storage,
 };
@@ -119,6 +120,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/api/health", get(|| async { "ok" }))
+        .route("/api/platform/session", get(get_platform_session))
         .route("/api/settings", get(get_settings).put(update_settings))
         .route("/api/agent-settings", put(update_agent_settings))
         .route("/api/user-settings", put(update_user_settings))
@@ -895,7 +897,17 @@ fn maybe_with_static_files(api: Router<ServerState>, static_dir: Option<PathBuf>
 
 static WEB_DIST: OnceLock<PathBuf> = OnceLock::new();
 
-async fn spa_fallback(uri: Uri) -> Result<Response, StatusCode> {
+async fn get_platform_session(State(state): State<ServerState>) -> Json<PlatformSessionView> {
+    Json(state.core.platform_auth.session_view())
+}
+
+async fn spa_fallback(
+    State(state): State<ServerState>,
+    uri: Uri,
+) -> Result<Response, StatusCode> {
+    if let Some(resp) = try_cloud_oauth_exchange(&state, &uri).await {
+        return Ok(resp);
+    }
     let root = WEB_DIST.get().ok_or(StatusCode::NOT_FOUND)?;
     let rel = uri.path().trim_start_matches('/');
     let candidate = if rel.is_empty() {
@@ -907,6 +919,73 @@ async fn spa_fallback(uri: Uri) -> Result<Response, StatusCode> {
         return serve_static_file(&candidate).await;
     }
     serve_static_file(&root.join("index.html")).await
+}
+
+async fn try_cloud_oauth_exchange(state: &ServerState, uri: &Uri) -> Option<Response> {
+    let query = uri.query()?;
+    let code = form_query_param(query, "code")?;
+    let oauth_state = form_query_param(query, "state")?;
+    if !pointer_core::cloud_agent_auth::is_cloud_auth_configured() {
+        log::warn!("cloud oauth: OPENPOINTER_API_BASE not configured");
+        return Some(Redirect::temporary("/?cloud_auth_error=not_configured").into_response());
+    }
+    match pointer_core::cloud_agent_auth::exchange_agent_oauth_code(&code, &oauth_state).await {
+        Ok((session, creds)) => {
+            state.core.platform_auth.set_partner_session(session);
+            state.core.apply_login_credentials(&creds);
+            log::info!("cloud oauth: exchange succeeded, redirecting to /");
+            Some(Redirect::temporary("/").into_response())
+        }
+        Err(e) => {
+            log::warn!("cloud oauth: exchange failed: {e:#}");
+            Some(Redirect::temporary("/?cloud_auth_error=1").into_response())
+        }
+    }
+}
+
+fn form_query_param(query: &str, key: &str) -> Option<String> {
+    for (k, v) in form_urlencoded_parse(query) {
+        if k == key {
+            let trimmed = v.trim().to_string();
+            if !trimmed.is_empty() {
+                return Some(trimmed);
+            }
+        }
+    }
+    None
+}
+
+fn form_urlencoded_parse(query: &str) -> Vec<(String, String)> {
+    query
+        .split('&')
+        .filter_map(|pair| {
+            let mut parts = pair.splitn(2, '=');
+            let k = parts.next()?.trim();
+            if k.is_empty() {
+                return None;
+            }
+            let v = parts.next().unwrap_or("").trim();
+            Some((percent_decode(k), percent_decode(v)))
+        })
+        .collect()
+}
+
+fn percent_decode(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(v) = u8::from_str_radix(&input[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 async fn serve_static_file(path: &std::path::Path) -> Result<Response, StatusCode> {

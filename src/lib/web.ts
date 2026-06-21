@@ -315,7 +315,7 @@ export interface PlatformSessionView {
 }
 
 export async function getPlatformSession(): Promise<PlatformSessionView> {
-  return { logged_in: false }
+  return await request<PlatformSessionView>('/api/platform/session')
 }
 
 export async function openPlatformLogin(): Promise<void> {

@@ -9,6 +9,8 @@ mod macos_permission_commands;
 mod macos_traffic_lights;
 mod platform_commands;
 mod popup_windows;
+mod cloud_webview;
+mod cloud_commands;
 mod window_chrome_commands;
 
 use pointer_channels::adapters::register_builtin_channels;
@@ -396,6 +398,20 @@ pub fn run() {
             platform_commands::flush_platform_token_usage,
             platform_commands::load_platform_session_persisted,
             platform_commands::load_platform_session_from_keyring,
+            cloud_commands::get_cloud_platform_me,
+            cloud_commands::list_cloud_shop_regions,
+            cloud_commands::get_cloud_shop_pricing,
+            cloud_commands::preview_cloud_shop,
+            cloud_commands::purchase_cloud_agent,
+            cloud_commands::list_cloud_agents,
+            cloud_commands::get_cloud_agent,
+            cloud_commands::renew_cloud_agent,
+            cloud_commands::release_cloud_agent,
+            cloud_commands::create_cloud_agent_oauth_code,
+            cloud_commands::open_cloud_agent,
+            cloud_commands::focus_cloud_agent,
+            cloud_commands::close_cloud_agent,
+            cloud_commands::is_cloud_agent_window_open,
             #[cfg(target_os = "macos")]
             macos_permission_commands::register_macos_screen_recording_access,
             #[cfg(target_os = "macos")]

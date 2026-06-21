@@ -7,6 +7,8 @@ pub mod dotenv;
 pub mod conversation_snapshot;
 pub mod env_prompt;
 pub mod platform;
+pub mod cloud_agent_auth;
+pub mod platform_agents;
 pub mod platform_auth;
 pub mod platform_endpoints;
 pub mod experiences;

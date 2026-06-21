@@ -120,7 +120,7 @@ describe('rehydrateAgentTracesFromScopedMessages', () => {
         createdAt: 3,
         anchorMessageId: 'lead',
         traceId: 't:computer',
-        toolCalls: [{ id: 'call_1', name: 'launch_app', arguments: '{}', status: 'success' }]
+        toolCalls: [{ id: 'call_1', name: 'launch_app', arguments: '{}', status: 'success' as const }]
       },
       {
         id: 'a2',
@@ -150,7 +150,7 @@ describe('rehydrateAgentTracesFromScopedMessages', () => {
         createdAt: 1,
         anchorMessageId: 'lead',
         traceId: 't:computer',
-        toolCalls: [{ id: 'call_1', name: 'launch_app', arguments: '{}', status: 'pending' }]
+        toolCalls: [{ id: 'call_1', name: 'launch_app', arguments: '{}', status: 'pending' as const }]
       },
       {
         id: 'tool1',

@@ -50,6 +50,35 @@ pub fn upsert_meta(meta: &ConversationMeta) {
     }
 }
 
+/// Persist an auto-created session sandbox path so later chat runs reuse it.
+pub fn patch_ephemeral_workspace(conversation_id: &str, workspace_root: &str) {
+    let trimmed = workspace_root.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let Some(store) = store() else {
+        return;
+    };
+    let Ok(list) = store.load_all() else {
+        return;
+    };
+    let Some(conv) = list.into_iter().find(|c| c.id == conversation_id) else {
+        log::warn!(
+            "conversation_persist: patch_ephemeral_workspace missing conversation_id={conversation_id}"
+        );
+        return;
+    };
+    if conv.workspace_root.trim() == trimmed {
+        return;
+    }
+    let mut meta = ConversationMeta::from(&conv);
+    meta.workspace_root = trimmed.to_string();
+    meta.workspace_user_set = false;
+    meta.workspace_inherit_disabled = true;
+    meta.updated_at = chrono::Utc::now().timestamp_millis();
+    upsert_meta(&meta);
+}
+
 pub fn patch_tool_rounds(
     conversation_id: &str,
     tool_rounds_used: u32,

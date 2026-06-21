@@ -83,8 +83,8 @@ async fn main() -> anyhow::Result<()> {
         pointer_core::logging::init_stderr_only_logging(DEFAULT_LOG_FILTER);
         pointer_core::logging::install_panic_hook();
     }
-    if let Some(path) = loaded_config {
-        log::info!("pointer-server: config file {}", path.display());
+    if let Some(result) = loaded_config {
+        log::info!("pointer-server: config file {}", result.path.display());
     }
     pointer_core::tls::ensure_rustls_crypto_provider();
 
@@ -228,6 +228,7 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = std::env::var("POINTER_SERVER_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8787".into())
         .parse()?;
+    log::info!("pointer-server: bind address {addr} (POINTER_SERVER_ADDR)");
     if static_dir.is_some() {
         println!("Pointer web server listening on http://{addr} (API + static UI)");
     } else {

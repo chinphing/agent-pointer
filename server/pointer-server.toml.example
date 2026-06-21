@@ -1,5 +1,5 @@
-# Copy to pointer-server.toml beside pointer-server.exe (or set POINTER_SERVER_CONFIG).
-# OS environment variables override these values (e.g. NSSM AppEnvironmentExtra).
+# Copy to pointer-server.toml beside pointer-server.exe (NOT pointer-server.toml.example).
+# OS environment variables override file values (remove NSSM AppEnvironmentExtra if duplicated).
 
 [server]
 addr = "0.0.0.0:8787"

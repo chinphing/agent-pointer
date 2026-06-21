@@ -43,10 +43,19 @@ struct ServerConfigToml {
     env: HashMap<String, String>,
 }
 
+/// Result of loading server config from disk.
+#[derive(Debug, Clone)]
+pub struct ServerConfigLoadResult {
+    pub path: PathBuf,
+    pub applied: Vec<(String, String)>,
+    pub skipped_env: Vec<String>,
+}
+
 /// Load server config from disk and apply unset environment variables.
-/// Returns the path that was loaded, if any.
-pub fn load_server_config() -> Result<Option<PathBuf>> {
+/// Returns details when a file was loaded.
+pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
     let Some(path) = resolve_config_path()? else {
+        eprintln!("pointer-server: no config file found (checked exe dir and cwd for pointer-server.toml/.env)");
         return Ok(None);
     };
     let base_dir = path
@@ -63,20 +72,33 @@ pub fn load_server_config() -> Result<Option<PathBuf>> {
     } else {
         parse_toml_file(&path, &base_dir)?
     };
-    let applied = apply_config_pairs(&pairs);
-    if applied > 0 {
-        eprintln!(
-            "pointer-server: loaded {} variable(s) from {}",
-            applied,
-            path.display()
-        );
-    } else {
-        eprintln!(
-            "pointer-server: config file present but no new variables applied ({})",
-            path.display()
-        );
+    let (applied, skipped_env) = apply_config_pairs(&pairs);
+    eprintln!("pointer-server: config file {}", path.display());
+    if applied.is_empty() && skipped_env.is_empty() {
+        eprintln!("pointer-server: config file has no recognized keys");
     }
-    Ok(Some(path))
+    for (key, value) in &applied {
+        if key == "OPENPOINTER_OAUTH_CLIENT_SECRET" {
+            eprintln!("pointer-server: applied {key}=<redacted>");
+        } else {
+            eprintln!("pointer-server: applied {key}={value}");
+        }
+    }
+    for key in &skipped_env {
+        let current = std::env::var(key).unwrap_or_default();
+        if key == "OPENPOINTER_OAUTH_CLIENT_SECRET" {
+            eprintln!("pointer-server: skipped {key} (environment already set, value redacted)");
+        } else {
+            eprintln!("pointer-server: skipped {key} (environment already set to {current})");
+        }
+    }
+    let effective_addr = std::env::var("POINTER_SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".into());
+    eprintln!("pointer-server: effective POINTER_SERVER_ADDR={effective_addr}");
+    Ok(Some(ServerConfigLoadResult {
+        path,
+        applied,
+        skipped_env,
+    }))
 }
 
 fn resolve_config_path() -> Result<Option<PathBuf>> {
@@ -217,10 +239,12 @@ fn resolve_config_path_value(value: &str, base_dir: &Path, resolve_relative: boo
     base_dir.join(path).to_string_lossy().into_owned()
 }
 
-fn apply_config_pairs(pairs: &[(String, String)]) -> usize {
-    let mut applied = 0usize;
+fn apply_config_pairs(pairs: &[(String, String)]) -> (Vec<(String, String)>, Vec<String>) {
+    let mut applied = Vec::new();
+    let mut skipped_env = Vec::new();
     for (key, value) in pairs {
         if std::env::var(key).is_ok() {
+            skipped_env.push(key.clone());
             continue;
         }
         if value.is_empty() {
@@ -228,9 +252,9 @@ fn apply_config_pairs(pairs: &[(String, String)]) -> usize {
         }
         // SAFETY: called once at process startup before other threads read these vars.
         unsafe { std::env::set_var(key, value) };
-        applied += 1;
+        applied.push((key.clone(), value.clone()));
     }
-    applied
+    (applied, skipped_env)
 }
 
 #[cfg(test)]
@@ -284,8 +308,10 @@ POINTER_WEB_SEARCH_MODEL = "gpt-4o-mini"
         let _guard = env_guard();
         let key = "POINTER_SERVER_CONFIG_TEST_ONLY";
         std::env::set_var(key, "from_env");
-        let applied = apply_config_pairs(&[(key.to_string(), "from_file".to_string())]);
-        assert_eq!(applied, 0);
+        let (applied, skipped) =
+            apply_config_pairs(&[(key.to_string(), "from_file".to_string())]);
+        assert!(applied.is_empty());
+        assert_eq!(skipped, vec![key.to_string()]);
         assert_eq!(std::env::var(key).unwrap(), "from_env");
         std::env::remove_var(key);
     }
@@ -295,8 +321,10 @@ POINTER_WEB_SEARCH_MODEL = "gpt-4o-mini"
         let _guard = env_guard();
         let key = "POINTER_SERVER_CONFIG_TEST_ONLY";
         std::env::remove_var(key);
-        let applied = apply_config_pairs(&[(key.to_string(), "from_file".to_string())]);
-        assert_eq!(applied, 1);
+        let (applied, skipped) =
+            apply_config_pairs(&[(key.to_string(), "from_file".to_string())]);
+        assert_eq!(applied.len(), 1);
+        assert!(skipped.is_empty());
         assert_eq!(std::env::var(key).unwrap(), "from_file");
         std::env::remove_var(key);
     }

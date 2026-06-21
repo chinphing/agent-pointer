@@ -72,10 +72,9 @@ pub fn launch_app(app: &str, options: AppOpenOptions) -> Result<AppOpenResult> {
 
 fn running_process_apps() -> Result<Vec<ListedApp>> {
     use std::collections::HashMap;
-    use windows::Win32::Foundation::{BOOL, HWND, LPARAM};
-    use windows::Win32::UI::WindowsAndMessaging::{
-        EnumWindows, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
-    };
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{HWND, LPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::EnumWindows;
 
     struct Ctx {
         by_pid: HashMap<u32, ListedApp>,
@@ -89,7 +88,7 @@ fn running_process_apps() -> Result<Vec<ListedApp>> {
         use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible};
 
         let ctx = unsafe { &mut *(lparam.0 as *mut Ctx) };
-        if hwnd.0 == 0 || !IsWindowVisible(hwnd).as_bool() {
+        if hwnd.is_invalid() || !IsWindowVisible(hwnd).as_bool() {
             return BOOL(1);
         }
         let mut buf = [0u16; 512];
@@ -176,7 +175,7 @@ fn focus_window(hwnd: windows::Win32::Foundation::HWND) -> Result<()> {
         ShowWindow(hwnd, SW_RESTORE);
         BringWindowToTop(hwnd);
         keybd_event(VK_MENU.0 as u8, 0, KEYEVENTF_KEYUP, 0);
-        SetForegroundWindow(hwnd)?;
+        let _ = SetForegroundWindow(hwnd);
     }
     Ok(())
 }
@@ -311,7 +310,7 @@ pub fn window_center_for_hwnd(hwnd: windows::Win32::Foundation::HWND) -> Option<
     use windows::Win32::Foundation::RECT;
     use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
 
-    if hwnd.0 == 0 {
+    if hwnd.is_invalid() {
         return None;
     }
     let mut rect = MaybeUninit::<RECT>::uninit();
@@ -332,7 +331,7 @@ pub fn monitor_id_for_frontmost_app() -> Option<String> {
     use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, IsWindowVisible};
 
     let hwnd = unsafe { GetForegroundWindow() };
-    if hwnd.0 == 0 || !unsafe { IsWindowVisible(hwnd).as_bool() } {
+    if hwnd.is_invalid() || !unsafe { IsWindowVisible(hwnd).as_bool() } {
         log::warn!("auto monitor switch Windows: no visible foreground window");
         return None;
     }

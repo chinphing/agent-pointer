@@ -1,6 +1,6 @@
 //! Recent and tray-only Windows apps (UserAssist + process snapshot), aligned with macOS list_apps.
 
-use super::listed_app::{compare_listed_apps, recent_usage_cutoff_days, ListedApp};
+use super::super::listed_app::{compare_listed_apps, recent_usage_cutoff_days, ListedApp};
 use anyhow::Result;
 use chrono::{NaiveDate, TimeZone, Utc};
 use std::collections::HashMap;

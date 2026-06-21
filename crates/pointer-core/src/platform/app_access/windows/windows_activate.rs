@@ -4,7 +4,8 @@ use super::windows_recent::{self, find_running_pid_for_app, process_image_path_f
 use anyhow::Result;
 use std::thread;
 use std::time::Duration;
-use windows::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
+use windows::core::BOOL;
+use windows::Win32::Foundation::{HWND, LPARAM, RECT};
 
 const TRAY_RELAUNCH_SETTLE_MS: u64 = 800;
 
@@ -73,13 +74,13 @@ fn find_window_for_app(app: &str, visible_only: bool) -> Result<Option<HWND>> {
         };
 
         let ctx = unsafe { &mut *(lparam.0 as *mut FindCtx) };
-        if hwnd.0 == 0 {
+        if hwnd.is_invalid() {
             return BOOL(1);
         }
-        if unsafe { GetWindow(hwnd, GW_OWNER) }.0 != 0 {
+        if !unsafe { GetWindow(hwnd, GW_OWNER) }.is_invalid() {
             return BOOL(1);
         }
-        if ctx.visible_only && !IsWindowVisible(hwnd).as_bool() {
+        if ctx.visible_only && !unsafe { IsWindowVisible(hwnd).as_bool() } {
             return BOOL(1);
         }
 
@@ -97,7 +98,7 @@ fn find_window_for_app(app: &str, visible_only: bool) -> Result<Option<HWND>> {
             String::new()
         };
 
-        let exe = super::windows::process_name_for_pid(pid).unwrap_or_default();
+        let exe = super::process_name_for_pid(pid).unwrap_or_default();
         let title_match = !title.is_empty() && title.contains(&ctx.needle);
         let exe_match = windows_recent::app_matches_identifier(&ctx.needle, &exe);
         if !title_match && !exe_match {
@@ -151,13 +152,13 @@ fn find_top_level_window_for_pid(target_pid: u32, visible_only: bool) -> Option<
         };
 
         let ctx = unsafe { &mut *(lparam.0 as *mut FindCtx) };
-        if hwnd.0 == 0 {
+        if hwnd.is_invalid() {
             return BOOL(1);
         }
-        if unsafe { GetWindow(hwnd, GW_OWNER) }.0 != 0 {
+        if !unsafe { GetWindow(hwnd, GW_OWNER) }.is_invalid() {
             return BOOL(1);
         }
-        if ctx.visible_only && !IsWindowVisible(hwnd).as_bool() {
+        if ctx.visible_only && !unsafe { IsWindowVisible(hwnd).as_bool() } {
             return BOOL(1);
         }
 

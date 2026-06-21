@@ -207,5 +207,8 @@ export function formatApiError(e: unknown): string {
   if (msg.includes('platform_login_required') || msg.includes('请先登录')) {
     return '请先登录 Pointer 平台账户'
   }
+  if (msg.includes('Invalid token') || msg.includes('invalid_refresh_token')) {
+    return '平台登录已失效，请在「平台账户」重新登录后再试'
+  }
   return msg
 }

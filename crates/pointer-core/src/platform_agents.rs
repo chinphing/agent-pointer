@@ -173,7 +173,7 @@ pub struct ShopPreviewRequest {
 }
 
 pub async fn fetch_platform_me(auth: &PlatformAuthManager) -> Result<PlatformMe> {
-    let url = format!("{}/api/me", api_base());
+    let url = format!("{}/auth/me", api_base());
     let client = http_client()?;
     let token = bearer(auth).await?;
     let resp = client
@@ -185,7 +185,7 @@ pub async fn fetch_platform_me(auth: &PlatformAuthManager) -> Result<PlatformMe>
     if !resp.status().is_success() {
         return Err(parse_error(resp).await);
     }
-    resp.json().await.context("parse /api/me")
+    resp.json().await.context("parse /auth/me")
 }
 
 pub async fn list_shop_regions(auth: &PlatformAuthManager) -> Result<Vec<ShopRegion>> {

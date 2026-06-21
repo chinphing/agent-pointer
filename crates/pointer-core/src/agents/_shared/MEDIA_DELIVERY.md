@@ -27,4 +27,4 @@ On success the host **ends the turn** and delivers output automatically (inline 
 
 ### Terminal-produced files
 
-When **terminal** (or build/export scripts) writes a file the user should receive — HTML app, PDF, zip, image, video, etc. — add short prose if needed, then `MEDIA:<absolute-path-from-terminal-output>`. Prefer delivery over telling the user to run a local server or open a `file://` URL themselves.
+When **terminal** (or build/export scripts) writes a file the user should receive — HTML app, PDF, zip, image, video, etc. — write under the **workspace root** unless the user named another path; add short prose if needed, then `MEDIA:<absolute-path>`.

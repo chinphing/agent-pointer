@@ -1283,6 +1283,14 @@ mod builtin_agent_tests {
             s.contains("[USER RULES]"),
             "COMMUNICATION_PUBLIC priority stack should mention USER RULES"
         );
+        assert!(
+            s.contains("Workspace = this chat's scratch dir"),
+            "COMMUNICATION_PUBLIC should define workspace purpose"
+        );
+        assert!(
+            s.contains("MEDIA:"),
+            "COMMUNICATION_PUBLIC should mention MEDIA delivery for workspace artifacts"
+        );
     }
 
     #[test]

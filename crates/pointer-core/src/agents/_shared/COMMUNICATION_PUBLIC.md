@@ -87,6 +87,10 @@ keep internal stage templates out of **`content`**.
 
 **Workspace root** (absolute path from app settings): `{{workspace_root}}`
 
+- **Workspace = this chat's scratch dir** (session sandbox if none picked). Write
+  outputs here — not Desktop/Downloads unless the user asked.
+- Deliver files with `MEDIA:<absolute-path>` (see **Delivering local files in chat**).
+
 ## App data directory
 
 Application-managed persistence (settings, conversations, logs, and other runtime

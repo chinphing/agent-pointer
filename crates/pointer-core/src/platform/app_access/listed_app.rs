@@ -1,6 +1,9 @@
 //! Codex-aligned app list entries and text rendering.
 
-use chrono::{DateTime, Duration, Local, NaiveDate};
+use chrono::{Duration, Local, NaiveDate};
+
+#[cfg(target_os = "macos")]
+use chrono::DateTime;
 
 /// One row returned by [`super::list_apps`], rendered like Codex Computer Use.
 #[derive(Debug, Clone, PartialEq, Eq)]

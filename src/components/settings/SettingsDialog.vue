@@ -63,8 +63,6 @@ const {
 const providerPanelRef = ref<InstanceType<typeof ProviderSettingsPanel> | null>(null)
 const channelPanelRef = ref<InstanceType<typeof ChannelSettingsPanel> | null>(null)
 
-const platformReadOnly = computed(() => !s.canEditPlatform)
-
 const sections = computed(() => {
   const merged = showDebugMenus.value
     ? [...alwaysSections, ...debugSections]
@@ -230,12 +228,6 @@ async function saveFromFooter() {
 
         <!-- Main Content -->
         <main class="app-content-no-drag flex-1 overflow-y-auto" data-tauri-drag-region="false">
-          <p
-            v-if="platformReadOnly && activeSection !== 'account' && activeSection !== 'runtime'"
-            class="mx-6 mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-muted"
-          >
-            仅平台管理员可修改平台配置；重启后恢复默认。登录后 API 密钥由平台自动注入。
-          </p>
           <!-- ==================== Assistant Section ==================== -->
           <section v-if="activeSection === 'assistant'" class="p-6 space-y-5">
             <AssistantSettingsPanel :form="form" />

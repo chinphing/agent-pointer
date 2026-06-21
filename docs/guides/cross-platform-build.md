@@ -439,7 +439,7 @@ npm run server:start    # 或 ./target/release/pointer-server
 addr = "0.0.0.0:8787"
 static_dir = "dist"          # 相对路径相对于配置文件所在目录
 log_dir = "logs"
-app_data_dir = "data"
+# 数据目录默认与桌面客户端相同（release: PointerApp，debug: PointerAppDev），无需配置
 
 [openpointer]
 api_base = "https://api.openpointer.cn"

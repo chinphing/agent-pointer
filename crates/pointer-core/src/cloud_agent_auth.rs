@@ -77,7 +77,15 @@ pub async fn exchange_agent_oauth_code(code: &str, state: &str) -> Result<(Platf
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
         let detail = parse_api_detail(&text).unwrap_or_else(|| format!("HTTP {status}"));
-        log::warn!("cloud_agent_auth: exchange failed: {detail}");
+        if detail.contains("invalid_client_secret") {
+            log::warn!(
+                "cloud_agent_auth: exchange failed: {detail} — set OPENPOINTER_OAUTH_CLIENT_SECRET \
+                 (pointer-server.toml [openpointer] oauth_client_secret) to the same value as \
+                 API env THIRD_PARTY_OAUTH_EXCHANGE_SECRET; this is not JWT_SECRET"
+            );
+        } else {
+            log::warn!("cloud_agent_auth: exchange failed: {detail}");
+        }
         return Err(anyhow!(detail));
     }
     let parsed: OAuthCodeExchangeResponse =

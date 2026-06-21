@@ -5,10 +5,13 @@
 addr = "0.0.0.0:8787"
 static_dir = "dist"
 log_dir = "logs"
-app_data_dir = "data"
+# Data dir: omit to use the same default as the desktop client
+# ({data_dir}/PointerApp release, PointerAppDev debug). Override only if needed:
+# app_data_dir = "/absolute/path"
 
 [openpointer]
 api_base = "https://api.openpointer.cn"
+# Must match pointer-official API env THIRD_PARTY_OAUTH_EXCHANGE_SECRET (NOT JWT_SECRET).
 oauth_client_secret = "replace-me"
 
 # Optional: any additional env vars (KEY=VALUE)

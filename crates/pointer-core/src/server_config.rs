@@ -21,6 +21,8 @@ struct ServerSection {
     static_dir: String,
     #[serde(default)]
     log_dir: String,
+    /// Optional override for `POINTER_APP_DATA_DIR`. When empty, pointer-core uses
+    /// the same default as the desktop client (`{data_dir}/PointerApp` or `PointerAppDev`).
     #[serde(default)]
     app_data_dir: String,
 }

@@ -173,3 +173,14 @@ pub fn save_computer_capture_debug(
     );
     Some(rel)
 }
+
+/// On-demand desktop JPEG for web/API (no SOM annotation).
+pub fn capture_manual_desktop_snapshot() -> anyhow::Result<ComputerAnnotatedPreview> {
+    let packet = screen::screenshot_current_monitor()
+        .context("manual desktop snapshot capture failed")?;
+    Ok(ComputerAnnotatedPreview {
+        image_base64: screen::encode_image_to_base64(&packet.jpeg),
+        image_mime: "image/jpeg".into(),
+        caption: "当前桌面".into(),
+    })
+}

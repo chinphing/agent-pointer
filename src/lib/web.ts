@@ -219,8 +219,27 @@ export async function openPathWithDefaultApp(_path: string): Promise<void> {
   throw new Error('openPathWithDefaultApp is not supported in web runtime')
 }
 
-export async function openChatMedia(_storageRelPath: string): Promise<void> {
-  throw new Error('openChatMedia is not supported in web runtime')
+export async function openChatMedia(storageRelPath: string, fileName?: string): Promise<void> {
+  const url = chatMediaDownloadUrl(storageRelPath)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName?.trim() || 'attachment'
+  anchor.rel = 'noopener'
+  anchor.click()
+}
+
+export function chatMediaDownloadUrl(storageRelPath: string): string {
+  const q = encodeURIComponent(storageRelPath.trim())
+  return `${WEB_API_BASE}/api/chat/media-download?storageRelPath=${q}`
+}
+
+export function chatMediaStreamUrl(storageRelPath: string): string {
+  const q = encodeURIComponent(storageRelPath.trim())
+  return `${WEB_API_BASE}/api/chat/media-stream?storageRelPath=${q}`
+}
+
+export async function captureManualDesktopSnapshot(): Promise<ComputerAnnotatedPreview> {
+  return await request<ComputerAnnotatedPreview>('/api/computer/manual-snapshot', { method: 'POST' })
 }
 
 export async function readLocalFileForAttachment(_path: string): Promise<import('./api').LocalFileAttachmentPayload> {

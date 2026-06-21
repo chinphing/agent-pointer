@@ -17,7 +17,9 @@
 | 项 | 说明 |
 |----|------|
 | 监听 | `POINTER_SERVER_ADDR=0.0.0.0:${AGENT_PORT}`（与平台 ECS profile 一致） |
-| 健康检查 | `GET /api/health` 返回 2xx；平台配置 `AGENT_HEALTH_PATH=/api/health` |
+| 健康检查 | `GET /api/health` 返回 2xx；就绪探测另可请求 `GET /api/ready`（需静态 UI 已挂载） |
+| `AGENT_HEALTH_PATH` | 平台 Worker 探活路径，生产设为 `/api/health` |
+| ALB | 与 ECS 同 VPC；Worker 为每 agent 创建 Server Group + Host 规则，`console_url` 为 `https://agent-{id}.readflowai.com/`（泛域名 `*.readflowai.com` → ALB） |
 | `OPENPOINTER_API_BASE` | 平台 API 根地址 |
 | `OPENPOINTER_OAUTH_CLIENT_SECRET` | 与平台一致的换码密钥 |
 
@@ -43,6 +45,11 @@ WebView → 云实例 ?code= → 云 pointer-server 换码 → partner JWT + LLM
 4. 「打开」换码成功，云窗口可发消息
 5. 关闭云窗口后本地主窗口正常
 6. 续费 / 释放 API 行为符合预期
+
+## Web 端能力（pointer-server 同源）
+
+- **附件**：`GET /api/chat/media-download` / `media-stream` 下载与 inline 预览
+- **查看桌面**：侧栏「查看桌面」按钮 → `POST /api/computer/manual-snapshot`（捕获 pointer-server 所在主机屏幕）
 
 ## 第二期（未实现）
 

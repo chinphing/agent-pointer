@@ -123,6 +123,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/api/health", get(|| async { "ok" }))
+        .route("/api/ready", get(api_ready))
         .route("/api/platform/session", get(get_platform_session))
         .route("/api/settings", get(get_settings).put(update_settings))
         .route("/api/agent-settings", put(update_agent_settings))
@@ -146,6 +147,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/computer/round-screen-preview",
             get(preview_computer_round_screen),
         )
+        .route("/api/computer/manual-snapshot", post(manual_computer_snapshot))
         .route("/api/computer/monitors", get(list_computer_monitors))
         .route("/api/computer/monitor", post(set_computer_conversation_monitor))
         .route(
@@ -170,6 +172,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/experiences/search", get(search_experiences))
         .route("/api/experiences/:slug", get(get_experience_detail))
         .route("/api/chat/media-preview", get(preview_chat_media))
+        .route("/api/chat/media-download", get(download_chat_media))
+        .route("/api/chat/media-stream", get(stream_chat_media))
         .route("/api/chat/media-ref-preview", get(preview_media_ref))
         .route("/api/chat/save-attachment", post(save_chat_attachment))
         .route("/api/chat/upload-video-oss", post(upload_composer_video_oss))
@@ -422,6 +426,20 @@ async fn preview_computer_round_screen(
     ))
 }
 
+async fn manual_computer_snapshot() -> Result<Json<ComputerAnnotatedPreview>, ApiError> {
+    Ok(Json(
+        capture_debug::capture_manual_desktop_snapshot().map_err(ApiError::from)?,
+    ))
+}
+
+async fn api_ready() -> Result<&'static str, StatusCode> {
+    if WEB_DIST.get().is_some() {
+        Ok("ok")
+    } else {
+        Err(StatusCode::SERVICE_UNAVAILABLE)
+    }
+}
+
 #[derive(Deserialize)]
 struct ChatMediaQuery {
     #[serde(rename = "storageRelPath")]
@@ -448,6 +466,51 @@ async fn preview_media_ref(
     Ok(Json(
         pointer_core::media::read_media_ref_preview(&q.media_ref).map_err(ApiError::from)?,
     ))
+}
+
+fn attachment_content_disposition(file_name: &str, inline: bool) -> HeaderValue {
+    let kind = if inline { "inline" } else { "attachment" };
+    let safe: String = file_name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let fallback = if safe.is_empty() { "attachment".into() } else { safe };
+    HeaderValue::from_str(&format!("{kind}; filename=\"{fallback}\""))
+        .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
+}
+
+async fn download_chat_media(Query(q): Query<ChatMediaQuery>) -> Result<Response, ApiError> {
+    let (path, mime_type, file_name) =
+        pointer_core::media::chat_media_file_meta(&q.storage_rel_path).map_err(ApiError::from)?;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| ApiError(anyhow::anyhow!("read media: {e}")))?;
+    let mut response = Response::new(bytes.into());
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&mime_type).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    response
+        .headers_mut()
+        .insert(header::CONTENT_DISPOSITION, attachment_content_disposition(&file_name, false));
+    Ok(response)
+}
+
+async fn stream_chat_media(Query(q): Query<ChatMediaQuery>) -> Result<Response, ApiError> {
+    let (path, mime_type, file_name) =
+        pointer_core::media::chat_media_file_meta(&q.storage_rel_path).map_err(ApiError::from)?;
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|e| ApiError(anyhow::anyhow!("read media: {e}")))?;
+    let mut response = Response::new(bytes.into());
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&mime_type).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    response
+        .headers_mut()
+        .insert(header::CONTENT_DISPOSITION, attachment_content_disposition(&file_name, true));
+    Ok(response)
 }
 
 #[derive(Deserialize)]

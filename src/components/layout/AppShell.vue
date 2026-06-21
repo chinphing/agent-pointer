@@ -15,6 +15,8 @@ import { useWindowChrome } from '../../composables/useWindowChrome'
 import { useSidebarCollapse } from '../../composables/useSidebarCollapse'
 import WindowControls from './WindowControls.vue'
 import WindowDragRegion from './WindowDragRegion.vue'
+import DesktopSnapshotButton from './DesktopSnapshotButton.vue'
+import { isTauriRuntime } from '../../lib/runtime'
 
 defineEmits<{ (e: 'open-settings'): void }>()
 
@@ -193,6 +195,7 @@ const filteredConversations = computed(() => {
 
           <!-- F: 侧栏底栏 -->
           <div class="p-2 border-t border-border flex shrink-0 items-center gap-1">
+            <DesktopSnapshotButton v-if="!isTauriRuntime()" />
             <button
               class="chrome-icon-btn"
               title="设置"

@@ -72,6 +72,18 @@ pub fn read_media_bytes(storage_rel_path: &str) -> Result<Vec<u8>> {
     fs::read(&path).with_context(|| format!("read media file {}", path.display()))
 }
 
+/// Absolute path, MIME, and file name for HTTP download/stream handlers.
+pub fn chat_media_file_meta(storage_rel_path: &str) -> Result<(PathBuf, String, String)> {
+    let path = media_abs_path(storage_rel_path)?;
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("attachment")
+        .to_string();
+    let mime_type = mime_from_path(&path);
+    Ok((path, mime_type, file_name))
+}
+
 /// `{conv}/{id}.bin` -> `{conv}/{id}.wav` when the wav file already exists on disk.
 pub fn stored_wav_sibling_rel(storage_rel_path: &str) -> Option<String> {
     let rel = storage_rel_path.trim().trim_start_matches('/');

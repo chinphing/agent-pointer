@@ -173,7 +173,7 @@ fn run_elevated_platform(
     );
     let proc_args_ps = escape_powershell_single_quoted(&format!("/C {}", cmd_line));
     let work_dir_ps = escape_powershell_single_quoted(&work_dir.display().to_string());
-    let out_ps = escape_powershell_single_quoted(&out_path.display().to_string());
+    let _out_ps = escape_powershell_single_quoted(&out_path.display().to_string());
     let err_ps = escape_powershell_single_quoted(&err_path.display().to_string());
     let exit_ps = escape_powershell_single_quoted(&exit_path.display().to_string());
     let env_ps = escape_powershell_single_quoted(&env_path.display().to_string());

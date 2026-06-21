@@ -77,7 +77,10 @@ fn find_window_for_app(app: &str, visible_only: bool) -> Result<Option<HWND>> {
         if hwnd.is_invalid() {
             return BOOL(1);
         }
-        if !unsafe { GetWindow(hwnd, GW_OWNER) }.is_invalid() {
+        if unsafe { GetWindow(hwnd, GW_OWNER) }
+            .ok()
+            .is_some_and(|owner| !owner.is_invalid())
+        {
             return BOOL(1);
         }
         if ctx.visible_only && !unsafe { IsWindowVisible(hwnd).as_bool() } {
@@ -155,7 +158,10 @@ fn find_top_level_window_for_pid(target_pid: u32, visible_only: bool) -> Option<
         if hwnd.is_invalid() {
             return BOOL(1);
         }
-        if !unsafe { GetWindow(hwnd, GW_OWNER) }.is_invalid() {
+        if unsafe { GetWindow(hwnd, GW_OWNER) }
+            .ok()
+            .is_some_and(|owner| !owner.is_invalid())
+        {
             return BOOL(1);
         }
         if ctx.visible_only && !unsafe { IsWindowVisible(hwnd).as_bool() } {

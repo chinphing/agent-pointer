@@ -196,10 +196,7 @@ fn userassist_recent_apps(cutoff: NaiveDate) -> Result<Vec<ListedApp>> {
             continue;
         };
         for (encoded, value) in count_key.enum_values().filter_map(|v| v.ok()) {
-            let Ok(data) = value else {
-                continue;
-            };
-            let Some((uses, last_used)) = parse_userassist_value(&data) else {
+            let Some((uses, last_used)) = parse_userassist_value(&value.bytes) else {
                 continue;
             };
             if last_used < cutoff {
@@ -322,7 +319,6 @@ fn snapshot_running_exe_pids() -> Result<HashMap<String, u32>> {
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
         TH32CS_SNAPPROCESS,
     };
-    use windows::Win32::System::Threading::OpenProcess;
 
     let mut out = HashMap::new();
     unsafe {

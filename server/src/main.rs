@@ -257,7 +257,7 @@ async fn update_user_settings(
 }
 
 async fn update_platform_settings(
-    State(state): State<ServerState>,
+    State(_state): State<ServerState>,
     Json(_platform): Json<PlatformSettings>,
 ) -> Result<Json<EffectiveSettingsView>, ApiError> {
     Err(ApiError(anyhow::anyhow!(
@@ -288,7 +288,8 @@ async fn update_agent_settings(
 
 #[derive(Deserialize)]
 struct KeyPayload {
-    api_key: String,
+    #[serde(rename = "api_key")]
+    _api_key: String,
 }
 
 async fn set_api_key(Json(_payload): Json<KeyPayload>) -> Result<StatusCode, ApiError> {

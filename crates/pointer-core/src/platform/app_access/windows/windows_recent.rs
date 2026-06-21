@@ -18,6 +18,7 @@ const USERASSIST_GUIDS: &[&str] = &[
 ];
 
 /// Merge Start Menu installed catalog with running apps and UserAssist enrichment (14 days).
+/// Start Menu is always included so launch targets (e.g. `.lnk` shortcuts) appear on the first call.
 pub fn merge_list_catalog(
     visible_running: Vec<ListedApp>,
     cutoff: NaiveDate,
@@ -30,11 +31,9 @@ pub fn merge_list_catalog(
         .collect();
     let mut by_exe: HashMap<String, ListedApp> = HashMap::new();
 
-    if include_all {
-        for app in start_menu_installed_catalog()? {
-            let key = exe_key(&app.identifier);
-            by_exe.insert(key, app);
-        }
+    for app in start_menu_installed_catalog()? {
+        let key = exe_key(&app.identifier);
+        by_exe.entry(key).or_insert(app);
     }
 
     for app in visible_running {

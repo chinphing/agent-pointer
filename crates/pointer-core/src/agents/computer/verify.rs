@@ -82,9 +82,9 @@ impl VerifyHintGenerator {
             )
         } else {
             format!(
-                "Listed {count} app(s) (running + 14-day recent). \
+                "Listed {count} app(s) (running + 14-day recent; Windows also includes Start Menu). \
                  Pick the target from the lines above, then call launch_app. \
-                 If the target is missing, retry list_apps once with include_all: true — \
+                 If the target is missing on macOS/Linux, retry list_apps once with include_all: true — \
                  do not set include_all on the first call."
             )
         }

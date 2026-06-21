@@ -4,6 +4,7 @@ List the apps on this computer (Codex Computer Use compatible).
 
 **Default (omit `include_all`):** **currently running** apps plus apps **used in the last 14 days**
 (with usage frequency when available on macOS Spotlight and Windows UserAssist).
+On **Windows**, the Start Menu launch catalog (`.lnk` / `.exe` shortcuts) is included by default.
 
 **You** pick the target from the returned lines — there is no server-side name filter.
 
@@ -28,7 +29,8 @@ Set **`include_all`: true** only on a **second** `list_apps` call when **both** 
 1. You already called `list_apps` **without** `include_all` for this goal, **and**
 2. The target app identifier is **still not** in the returned lines.
 
-That retry returns the **full installed catalog** (Applications / Start Menu / `.desktop`).
+That retry returns the **full installed catalog** on macOS and Linux (Applications / `.desktop`).
+On Windows the Start Menu is already in the default list; retry only helps on macOS/Linux.
 
 **When to use `list_apps`**
 - Before **`launch_app`** when the exact app identifier is uncertain

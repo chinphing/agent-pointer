@@ -22,8 +22,7 @@ Implementation: `crates/pointer-core/src/platform/app_access/`.
 - Returns plain-text lines for the model (Codex format); no server-side name filter.
 - **macOS (`include_all: true`):** Catalog from `/Applications`, `/System/Applications`, `~/Applications`, and `/System/Library/CoreServices` via Spotlight `mdfind` plus filesystem `.app` scan. Metadata comes from `mdls` when available, otherwise `Info.plist` (some apps such as BaiduNetdisk are missing from Spotlight metadata). Background agents (`LSBackgroundOnly`, `LSUIElement`) are excluded.
 - **macOS (`include_all: false`):** Running user-facing apps plus Spotlight entries with `last-used` within 14 days.
-- **Windows (`include_all: true`):** Full Start Menu catalog (recursive `.lnk` and `.exe` under ProgramData and user Start Menu Programs), merged with visible running windows, tray-only processes, and UserAssist recent usage (14 days).
-- **Windows (`include_all: false`):** Running visible + tray-only apps plus UserAssist entries within 14 days.
+- **Windows (default and `include_all: true`):** Start Menu catalog (recursive `.lnk` and `.exe` under ProgramData and user Start Menu Programs), merged with visible running windows, tray-only processes, and UserAssist recent usage (14 days). `include_all` is a no-op on Windows; use it only for macOS/Linux full-catalog retries.
 - **Linux (`include_all: true`):** Full `.desktop` catalog from standard application directories, merged with `wmctrl` windows, tray-only `/proc` processes, and `recently-used.xbel` (14 days).
 - **Linux (`include_all: false`):** Running windows + tray-only processes plus XBEL entries within 14 days.
 

@@ -70,9 +70,7 @@ async fn main() -> anyhow::Result<()> {
 
     const DEFAULT_LOG_FILTER: &str =
         "warn,pointer_core=info,pointer_server=info,pointer_channels=info";
-    let log_dir: PathBuf = env::var("POINTER_SERVER_LOG_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| env::current_dir().unwrap_or_default().join("logs"));
+    let log_dir = pointer_core::logging::desktop_log_dir();
     if let Err(err) =
         pointer_core::logging::init_runtime_logging(&log_dir, DEFAULT_LOG_FILTER)
     {

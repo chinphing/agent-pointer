@@ -19,8 +19,6 @@ struct ServerSection {
     addr: String,
     #[serde(default)]
     static_dir: String,
-    #[serde(default)]
-    log_dir: String,
     /// Optional override for `POINTER_APP_DATA_DIR`. When empty, pointer-core uses
     /// the same default as the desktop client (`{data_dir}/PointerApp` or `PointerAppDev`).
     #[serde(default)]
@@ -168,13 +166,6 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
     );
     push_mapped(
         &mut pairs,
-        "POINTER_SERVER_LOG_DIR",
-        &parsed.server.log_dir,
-        base_dir,
-        true,
-    );
-    push_mapped(
-        &mut pairs,
         "POINTER_APP_DATA_DIR",
         &parsed.server.app_data_dir,
         base_dir,
@@ -280,7 +271,6 @@ mod tests {
 [server]
 addr = "0.0.0.0:9999"
 static_dir = "dist"
-log_dir = "logs"
 
 [openpointer]
 api_base = "https://api.example.com"

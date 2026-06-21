@@ -407,7 +407,6 @@ npm run dev:web
 ```bash
 VITE_WEB_API_BASE=http://127.0.0.1:8787 npm run dev:web
 POINTER_SERVER_ADDR=0.0.0.0:8787 npm run server:dev
-POINTER_SERVER_LOG_DIR=/var/log/pointer npm run server:dev
 ```
 
 ### 生产构建（示意）
@@ -438,8 +437,7 @@ npm run server:start    # 或 ./target/release/pointer-server
 [server]
 addr = "0.0.0.0:8787"
 static_dir = "dist"          # 相对路径相对于配置文件所在目录
-log_dir = "logs"
-# 数据目录默认与桌面客户端相同（release: PointerApp，debug: PointerAppDev），无需配置
+# 数据目录与日志默认与桌面客户端相同（PointerApp/logs/，debug 为 PointerAppDev），无需配置
 
 [openpointer]
 api_base = "https://api.openpointer.cn"
@@ -453,7 +451,6 @@ oauth_client_secret = "your-secret"
 ```bash
 POINTER_SERVER_ADDR=0.0.0.0:8787 npm run server:start
 POINTER_SERVER_STATIC_DIR=/opt/pointer/dist npm run server:start
-POINTER_SERVER_LOG_DIR=/var/log/pointer npm run server:start
 ```
 
 Web 端不提供完整电脑操控；桌面能力（`invoke`、本地存储等）仅在 Tauri 内可用。

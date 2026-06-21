@@ -129,7 +129,7 @@ pub fn default_runtime_log_filter() -> &'static str {
     }
 }
 
-/// 桌面端：与 [`crate::storage::app_data_dir`] 一致的数据目录下的 `logs`。
+/// 桌面端与 pointer-server：与 [`crate::storage::app_data_dir`] 一致的数据目录下的 `logs`。
 pub fn desktop_log_dir() -> PathBuf {
     use crate::storage::{APP_DATA_SUBDIR, APP_DATA_SUBDIR_DEV};
 

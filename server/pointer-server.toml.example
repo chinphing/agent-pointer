@@ -4,9 +4,9 @@
 [server]
 addr = "0.0.0.0:8787"
 static_dir = "dist"
-log_dir = "logs"
-# Data dir: omit to use the same default as the desktop client
-# ({data_dir}/PointerApp release, PointerAppDev debug). Override only if needed:
+# Data dir and logs default to the same paths as the desktop client
+# ({data_dir}/PointerApp release, PointerAppDev debug; logs under …/logs/).
+# Override data dir only if needed:
 # app_data_dir = "/absolute/path"
 
 [openpointer]

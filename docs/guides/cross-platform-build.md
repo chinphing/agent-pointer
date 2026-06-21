@@ -431,6 +431,25 @@ npm run server:start    # 或 ./target/release/pointer-server
 
 `dist/` 查找顺序：`POINTER_SERVER_STATIC_DIR` → 当前目录 `dist/` → 可执行文件旁 `dist/` → `target/release/../../dist`。
 
+**配置文件（推荐 Windows / NSSM 部署）**：在 `pointer-server.exe` 同目录放置 `pointer-server.toml` 或 `pointer-server.env`，启动时自动加载；已存在的 OS 环境变量优先。示例见 `server/pointer-server.toml.example`。
+
+```toml
+# pointer-server.toml
+[server]
+addr = "0.0.0.0:8787"
+static_dir = "dist"          # 相对路径相对于配置文件所在目录
+log_dir = "logs"
+app_data_dir = "data"
+
+[openpointer]
+api_base = "https://api.openpointer.cn"
+oauth_client_secret = "your-secret"
+```
+
+也可使用 dotenv 格式 `pointer-server.env`，或 `POINTER_SERVER_CONFIG=C:\pointer\pointer-server.toml` 指定路径。
+
+仍支持环境变量覆盖（NSSM `AppEnvironmentExtra` 会覆盖文件中的同名项）：
+
 ```bash
 POINTER_SERVER_ADDR=0.0.0.0:8787 npm run server:start
 POINTER_SERVER_STATIC_DIR=/opt/pointer/dist npm run server:start

@@ -90,6 +90,7 @@ pub fn recent_usage_cutoff_days(days: i64) -> NaiveDate {
     today - Duration::days(days)
 }
 
+#[cfg(target_os = "macos")]
 pub fn parse_mdls_date(raw: &str) -> Option<NaiveDate> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {

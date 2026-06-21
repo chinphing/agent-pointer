@@ -172,8 +172,8 @@ fn focus_window(hwnd: windows::Win32::Foundation::HWND) -> Result<()> {
         BringWindowToTop, SetForegroundWindow, ShowWindow, SW_RESTORE,
     };
     unsafe {
-        ShowWindow(hwnd, SW_RESTORE);
-        BringWindowToTop(hwnd);
+        let _ = ShowWindow(hwnd, SW_RESTORE);
+        let _ = BringWindowToTop(hwnd);
         keybd_event(VK_MENU.0 as u8, 0, KEYEVENTF_KEYUP, 0);
         let _ = SetForegroundWindow(hwnd);
     }

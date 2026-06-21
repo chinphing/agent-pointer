@@ -1,0 +1,16 @@
+# Copy to pointer-server.toml beside pointer-server.exe (or set POINTER_SERVER_CONFIG).
+# OS environment variables override these values (e.g. NSSM AppEnvironmentExtra).
+
+[server]
+addr = "0.0.0.0:8787"
+static_dir = "dist"
+log_dir = "logs"
+app_data_dir = "data"
+
+[openpointer]
+api_base = "https://api.openpointer.cn"
+oauth_client_secret = "replace-me"
+
+# Optional: any additional env vars (KEY=VALUE)
+# [env]
+# POINTER_API_BASE = "https://api.openpointer.cn"

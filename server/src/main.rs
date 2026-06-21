@@ -66,6 +66,8 @@ pub(crate) struct ServerState {
 async fn main() -> anyhow::Result<()> {
     pointer_core::logging::init_backtrace_defaults();
 
+    let loaded_config = pointer_core::server_config::load_server_config()?;
+
     const DEFAULT_LOG_FILTER: &str =
         "warn,pointer_core=info,pointer_server=info,pointer_channels=info";
     let log_dir: PathBuf = env::var("POINTER_SERVER_LOG_DIR")
@@ -80,6 +82,9 @@ async fn main() -> anyhow::Result<()> {
         );
         pointer_core::logging::init_stderr_only_logging(DEFAULT_LOG_FILTER);
         pointer_core::logging::install_panic_hook();
+    }
+    if let Some(path) = loaded_config {
+        log::info!("pointer-server: config file {}", path.display());
     }
     pointer_core::tls::ensure_rustls_crypto_provider();
 

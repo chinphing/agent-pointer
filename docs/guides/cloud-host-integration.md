@@ -21,6 +21,8 @@
 | `OPENPOINTER_API_BASE` | 平台 API 根地址 |
 | `OPENPOINTER_OAUTH_CLIENT_SECRET` | 与平台一致的换码密钥 |
 
+Windows 部署可在 exe 同目录放 `pointer-server.toml`（见 `server/pointer-server.toml.example`），NSSM 只需注册 exe，不必再写 `AppEnvironmentExtra`。
+
 用户从桌面「打开」时，浏览器/WebView 访问带 `code` 的 URL；pointer-server 在 SPA fallback 中服务端换码（`POST /auth/oauth/exchange-code`），注入 LLM 凭证后 302 到 `/`。
 
 ## 认证链路

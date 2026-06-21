@@ -4,6 +4,7 @@ pub mod channel_outbound;
 pub mod chat_service;
 pub mod client_env;
 pub mod dotenv;
+pub mod server_config;
 pub mod conversation_snapshot;
 pub mod env_prompt;
 pub mod platform;

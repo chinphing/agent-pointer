@@ -19,6 +19,9 @@ use std::time::Duration;
 const QUERY_TIMEOUT_SECS: u64 = 60;
 const POLL_INTERVAL_SECS: u64 = 1;
 
+const CAPTCHA_POST_ACTION_HINT: &str = "Challenge done — click Confirm/Verify/Submit with mouse_* if shown; \
+no repeat captcha until new puzzle; verify after submit.";
+
 pub struct CaptchaVerifyTool {
     executor: Arc<Mutex<ActionExecutor>>,
     tier: ComputerTier,
@@ -68,7 +71,7 @@ impl CaptchaVerifyTool {
             executor.type_text_at_with_options(input_pos.0, input_pos.1, &answer, true, false, true, false)
         })?;
         Ok(format!(
-            "Goal: {goal}. Type action attempted (cleared first). This is not a success signal. Verify CAPTCHA pass/fail on next screenshot."
+            "Goal: {goal}. Type action attempted (cleared first). {CAPTCHA_POST_ACTION_HINT}"
         ))
     }
 
@@ -90,8 +93,7 @@ impl CaptchaVerifyTool {
             Ok(())
         })?;
         Ok(format!(
-            "Goal: {goal}. Click action attempted on {} point(s). This is not a success signal. Verify CAPTCHA pass/fail on next screenshot.",
-            point_count
+            "Goal: {goal}. Click action attempted on {point_count} point(s). {CAPTCHA_POST_ACTION_HINT}"
         ))
     }
 
@@ -142,8 +144,7 @@ impl CaptchaVerifyTool {
             .map(|i| format!(" using slider arrow index {i}"))
             .unwrap_or_default();
         Ok(format!(
-            "Goal: {goal}. Drag action attempted along {} point(s){handle_note}. This is not a success signal. Verify CAPTCHA pass/fail on next screenshot.",
-            point_count
+            "Goal: {goal}. Drag action attempted along {point_count} point(s){handle_note}. {CAPTCHA_POST_ACTION_HINT}"
         ))
     }
 

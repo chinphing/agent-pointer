@@ -1,31 +1,22 @@
 ### captcha_verify_type / captcha_verify_click / captcha_verify_drag
 
-Flat CAPTCHA tools — each tool name is the complete action. No `method` parameter.
+Flat CAPTCHA tools — tool name is the action. No `method`.
 
-Automate CAPTCHA using the current screenshot. Choose the right tool from what is visible on screen.
+Use on a **new or unsolved** challenge only. Do not screen-read first.
 
-Use it directly. When a CAPTCHA is visible, call the right variant in that turn. Do not call screen-reading tools first only to understand the challenge.
+Before calling, in reasoning: **Captcha Prompt Quote**, **Key Verb**, **Variant & why**.
 
-Before calling, analyze the prompt in reasoning and include:
-- Captcha Prompt Quote
-- Key Verb Identified
-- Selected Variant & Justification
+Verb → tool:
+- **`captcha_verify_drag`** — drag / slide / puzzle / move; slider or puzzle piece.
+- **`captcha_verify_click`** — click / select / choose / in order; targets inside the image.
+- **`captcha_verify_type`** — input / type / answer / fill; text field + question.
 
-Verb-to-tool mapping:
-- **`captcha_verify_drag`** — wording like drag, slide, puzzle, move; UI shows a slider, puzzle piece, or single drag control.
-- **`captcha_verify_click`** — wording like click, select, choose, check, click in order; targets are inside the CAPTCHA image, including tiles, icons, objects, visible characters, or Chinese text.
-- **`captcha_verify_type`** — wording like input, type, answer, fill; UI shows characters or a simple question plus a text input.
+Args: `goal`; `index_captcha_area` (whole CAPTCHA); `index_input_area` (type only); optional `remark`; drag: optional `is_slider`, `index_slider_arrow` / `index_slider_handle`.
 
-Parameters:
-- `goal` required.
-- `index_captcha_area` required: index of the entire CAPTCHA region, including instructions.
-- `index_input_area` required for `captcha_verify_type`: index of the answer input.
-- `remark` optional: short instruction text, e.g. `Select all images with traffic lights`.
-- `is_slider` optional for `captcha_verify_drag`: true for slider CAPTCHAs.
-- `index_slider_arrow` optional for `captcha_verify_drag` with `is_slider=true`: index of the real draggable slider arrow / handle. Alias: `index_slider_handle`.
+Run **Index parameters** chain per overlay arg before calling.
 
-For tools with overlay index args, run the **Index parameters** per-parameter chain in communication before calling — one **Parameter: `<arg_name>`** block per arg.
+Slider: crop via `index_captcha_area`; optional `index_slider_arrow` = real handle (often `→` lower-left of slide, same row as prompt).
 
-For slider CAPTCHAs, recognition still uses `index_captcha_area`. If `index_slider_arrow` is provided, drag starts from that arrow / handle and keeps the original relative offset. Before choosing it, judge the handle by relative position, shape, and color/style. A strong default cue is a right-pointing arrow near the lower-left of the sliding image on the same horizontal line as the CAPTCHA prompt text.
+**Two-phase:** (1) `captcha_verify_*` once — solve inside the image. (2) If a separate **Confirm / Verify / Submit** button exists, click with **`mouse_*`**, not captcha again. Panel may look unchanged until (2). **`action_verify`** after (2), or after (1) if no submit button (e.g. release-to-validate slider). Repeat captcha only on **new puzzle** or **failed retry**. In-challenge targets stay on captcha tools; submit button uses `mouse_*`.
 
-If the CAPTCHA is not visible yet, trigger it first and use a captcha_verify tool on the next turn. Do not downgrade a visible CAPTCHA challenge to plain mouse actions just because the prompt asks to click text inside the image.
+If CAPTCHA hidden, reveal with mouse first, then captcha on next turn.

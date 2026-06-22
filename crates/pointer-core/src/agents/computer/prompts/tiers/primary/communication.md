@@ -550,10 +550,9 @@ Treat a reference row as valid only when both hold:
 
 ### CAPTCHA routing rule (hard)
 
-- If a CAPTCHA challenge is visible, call `captcha_verify` in this turn.
-- This includes slider/jigsaw challenges with drag language.
-- Do not downgrade visible CAPTCHA work to `mouse_*` or `input_*`.
-- Use a mouse tool only to reveal CAPTCHA when it is not yet visible.
+- **New/unsolved challenge** → `captcha_verify_*` (not `mouse_*` / `input_*` for in-image targets).
+- **After captcha ran** on same puzzle → `mouse_*` for separate Confirm/Verify/Submit, then `action_verify`; **no second captcha** until new puzzle or failed retry.
+- Mouse only to **reveal** hidden CAPTCHA.
 
 Index tools: **`mouse_hover_index`**, **`mouse_click_index`**, **`mouse_double_click_index`**, **`input_index`**, **`mouse_drag_from_to_index`**, **`modified_click_select_index`**.
 

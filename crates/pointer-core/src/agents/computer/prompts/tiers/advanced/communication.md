@@ -465,14 +465,10 @@ Use **`index`** / **`indices`** / **`from_index`** / **`to_index`** only — ove
 **Route choice:** Prefer **`*_at`** when **Location** line **3** derives **`(x,y)`** from **Overlay reference bboxes**. Prefer **`*_index`** when the sub-target maps cleanly to one overlay digit **R** without coordinate arithmetic. **Forbidden:** mixing routes — e.g. **`click_index`** after **Location** fixed **`(x,y)`** (use **`click_at`** instead), or **`click_at`** with pixel-guess **(x,y)** without bbox lookup.
 
 **CAPTCHA routing (hard):**
-- If a CAPTCHA challenge is visible, call `captcha_verify` in this turn.
-- For slider/jigsaw challenges, use `captcha_verify` with `action="drag"`.
-- **`captcha_verify` exception:** overlay **`index_*`** args on this tool
-  (`index_captcha_area`, `index_input_area`, `index_slider_arrow`) are
-  **allowed** — they crop/anchor CAPTCHA regions, not canvas `*_index` clicks.
-- Do not downgrade visible CAPTCHA work to `mouse_*` / `input_*`.
-- Use a mouse tool only to reveal CAPTCHA when the challenge is not visible.
-CAPTCHA tool: **`captcha_verify`**.
+- **New/unsolved** → `captcha_verify_*`; overlay `index_*` on captcha tools is allowed (crop/anchor, not canvas clicks).
+- **Same puzzle after captcha** → `mouse_*` for Confirm/Verify/Submit, then `action_verify`; no repeat captcha until new puzzle or failed retry.
+- In-image targets stay on captcha tools; mouse only to reveal hidden CAPTCHA or submit.
+CAPTCHA tools: **`captcha_verify_type`**, **`captcha_verify_click`**, **`captcha_verify_drag`**.
 
 **Non-canvas / no overlay index or `(x,y)` pick:** **`input_focused`**, **`hotkey`**, **`wait`**, **`clipboard_read`** / **`clipboard_write`**.  
 **Scroll exception:** run **Scroll anchor check** (mouse tool doc) — **`mouse_scroll_index`** when pointer is **not** on target region; **`mouse_scroll_current`** only when pointer **is** on target region.

@@ -250,7 +250,7 @@ pub fn conversation_preview(messages: &[ChatMessage]) -> String {
     String::new()
 }
 
-fn truncate_chars(s: &str, max: usize) -> String {
+pub(crate) fn truncate_chars(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
     }

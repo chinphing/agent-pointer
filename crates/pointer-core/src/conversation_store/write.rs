@@ -238,6 +238,11 @@ pub fn flush_conversation_meta_in_conn(
         "UPDATE conversations SET message_count = ?2, preview = ?3 WHERE id = ?1",
         params![conversation_id, message_count as i64, preview],
     )?;
+    let trimmed = preview.trim();
+    if !trimmed.is_empty() {
+        let title = super::persist::truncate_chars(trimmed, 24);
+        patch_title_if_default_in_conn(conn, conversation_id, &title)?;
+    }
     Ok(())
 }
 
@@ -436,6 +441,20 @@ mod tests {
             loaded[0].messages[0].context_state.as_ref().map(|s| s.included),
             Some(false)
         );
+    }
+
+    #[test]
+    fn flush_meta_patches_default_title_from_preview() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut conv = sample_conv("c1", "新会话", "hello");
+        conv.title = "新会话".into();
+        store.save_all(&[conv.clone()]).unwrap();
+        store
+            .flush_conversation_meta("c1", 2, "hello from user")
+            .unwrap();
+        let loaded = store.load_all().unwrap();
+        assert_eq!(loaded[0].title, "hello from user");
     }
 
     #[test]

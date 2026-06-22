@@ -30,6 +30,11 @@ import {
   setReasoningDeltaApplyHandler
 } from '../lib/reasoningDeltaBatch'
 import { imConversationTitle, isImConversation } from '../lib/channel-labels'
+import {
+  DEFAULT_CONVERSATION_TITLE,
+  maybeUpdateConversationTitle,
+  normalizeDefaultConversationTitles
+} from '../lib/conversationTitle'
 import { dedupeImInboundUserMessages } from '../lib/imMessageDedupe'
 import {
   getComposerAttachmentContentBase64,
@@ -81,7 +86,7 @@ function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Con
 /** Desktop shell with default title and no messages (duplicate-prone if we always insert new rows). */
 function isBlankDesktopConversation(conv: Conversation): boolean {
   if (isImConversation(conv.id)) return false
-  if (conv.title !== '新会话') return false
+  if (conv.title !== DEFAULT_CONVERSATION_TITLE) return false
   const visible = conv.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
   return visible.length === 0
 }
@@ -348,19 +353,6 @@ export const useChatStore = defineStore('chat', () => {
     persistMeta()
   }
 
-  function normalizeImConversationTitles(list: Conversation[]): boolean {
-    let changed = false
-    for (const conv of list) {
-      if (conv.title !== '新会话' || !isImConversation(conv.id)) continue
-      const firstUser = conv.messages.find(m => m.role === 'user')
-      const title = imConversationTitle(conv.id, { firstUserText: firstUser?.content })
-      if (title === conv.title) continue
-      conv.title = title
-      changed = true
-    }
-    return changed
-  }
-
   async function init() {
     let list = await loadConversations().catch(() => [])
     const pruned = pruneDuplicateBlankConversations(list)
@@ -371,7 +363,7 @@ export const useChatStore = defineStore('chat', () => {
       if (!conv.leadAgentId?.trim()) conv.leadAgentId = DEFAULT_LEAD_AGENT_ID
       if (!conv.agentMode?.trim()) conv.agentMode = 'single'
     }
-    const imTitlesUpdated = normalizeImConversationTitles(list)
+    const imTitlesUpdated = normalizeDefaultConversationTitles(list)
     for (const conv of list) {
       if (!isImConversation(conv.id)) continue
       conv.messages = dedupeImInboundUserMessages(conv.id, conv.messages)
@@ -455,7 +447,7 @@ export const useChatStore = defineStore('chat', () => {
     // conversation on first send unless the user clears the picker (inherit disabled).
     const c: Conversation = {
       id: uid(),
-      title: '新会话',
+      title: DEFAULT_CONVERSATION_TITLE,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
@@ -829,6 +821,7 @@ export const useChatStore = defineStore('chat', () => {
       ...(wireAttachments.length ? { attachments: wireAttachments } : {})
     }
     conv.messages.push(userMsg)
+    maybeUpdateConversationTitle(conv)
     for (const att of attachments) {
       releaseComposerAttachment(att.id)
     }

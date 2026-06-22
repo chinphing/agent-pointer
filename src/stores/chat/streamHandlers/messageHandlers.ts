@@ -1,5 +1,5 @@
 import { enqueueReasoningDelta, flushReasoningDeltaBuffer } from '../../../lib/reasoningDeltaBatch'
-import { imConversationTitle, isImConversation } from '../../../lib/channel-labels'
+import { maybeUpdateConversationTitle } from '../../../lib/conversationTitle'
 import { stripOutboundMediaMarkers } from '../../../lib/outboundMedia'
 import { toolCallBaseName } from '../../../lib/messageTooling'
 import { resolveStreamWriteMessage } from '../../../lib/subAgentMessages'
@@ -142,6 +142,9 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
   flushReasoningDeltaBuffer(e.messageId)
   const r = ctx.findMessage(e.messageId)
   if (r) {
+    if (maybeUpdateConversationTitle(r.conv)) {
+      r.conv.updatedAt = Date.now()
+    }
     const scopedTarget = resolveStreamWriteMessage(r.conv, r.msg, e.traceId, e.scopedMessageId)
     if (scopedTarget) {
       scopedTarget.contentStreaming = false
@@ -181,16 +184,6 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
     delete r.msg.responseTextDraft
     if (e.thoughts != null && e.thoughts.trim() !== '') r.msg.thoughts = e.thoughts
     r.conv.updatedAt = Date.now()
-    if (r.conv.title === '新会话') {
-      const firstUser = r.conv.messages.find(m => m.role === 'user')
-      if (isImConversation(r.conv.id)) {
-        r.conv.title = imConversationTitle(r.conv.id, {
-          firstUserText: firstUser?.content
-        })
-      } else if (firstUser) {
-        r.conv.title = firstUser.content.slice(0, 24) || '新会话'
-      }
-    }
     ctx.scheduleMaybeFinishGenerating(r.conv.id, e.messageId)
   }
   ctx.persistMeta()

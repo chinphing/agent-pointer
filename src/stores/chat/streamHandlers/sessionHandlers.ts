@@ -1,4 +1,5 @@
 import { isImConversation } from '../../../lib/channel-labels'
+import { maybeUpdateConversationTitle } from '../../../lib/conversationTitle'
 import { dedupeImInboundUserMessages } from '../../../lib/imMessageDedupe'
 import {
   isDiscardableEmptyAssistant,
@@ -156,6 +157,7 @@ export function handleInjectedUserMessage(ctx: StreamHandlerContext, e: Injected
     })
   }
   conv.messages = dedupeImInboundUserMessages(e.conversationId, conv.messages)
+  maybeUpdateConversationTitle(conv)
   conv.updatedAt = Date.now()
 }
 

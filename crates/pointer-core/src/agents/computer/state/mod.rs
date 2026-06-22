@@ -530,13 +530,18 @@ impl ComputerState {
 
         let total_ms = t_total.elapsed().as_secs_f64() * 1000.0;
         log::info!(
-            "apply_screen_capture: tier={} annotate_http {:.1}ms, vision_state {:.1}ms, overlay {:.1}ms, total {:.1}ms ({} boxes)",
+            "apply_screen_capture: tier={} input={} annotate_png={} annotated_out={} | annotate_http {:.1}ms, vision_state {:.1}ms, overlay {:.1}ms, total {:.1}ms ({} boxes, {}x{} px)",
             tier.label(),
+            screen::format_data_size_bytes(screen_capture.len()),
+            screen::format_data_size_bytes(annotated_png.len()),
+            screen::format_data_size_bytes(pack.annotated_marked_jpeg.len()),
             annotate_ms,
             vision_ms,
             overlay_ms,
             total_ms,
-            boxes.len()
+            boxes.len(),
+            capture_px.0,
+            capture_px.1
         );
 
         Ok(ScreenCaptureResult {
@@ -594,7 +599,10 @@ impl ComputerState {
             .await?;
 
         log::info!(
-            "capture_and_annotate: screenshot {:.1}ms, total_with_pipeline {:.1}ms",
+            "capture_and_annotate: jpeg={} ({}x{} px) screenshot {:.1}ms, total_with_pipeline {:.1}ms",
+            screen::format_data_size_bytes(shot.jpeg.len()),
+            shot.capture_px.0,
+            shot.capture_px.1,
             screen_ms,
             t_total.elapsed().as_secs_f64() * 1000.0
         );

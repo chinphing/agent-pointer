@@ -7,6 +7,7 @@ use std::fmt;
 use std::io::Cursor;
 use std::time::{Duration, Instant};
 
+use super::screen;
 use crate::platform_endpoints;
 /// Default timeout for annotation requests in seconds.
 const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
@@ -221,6 +222,7 @@ impl AnnotateClient {
             scale_x,
             scale_y,
         } = prepare_png_for_annotation_upload(image_bytes, max_edge)?;
+        let upload_png_len = png_bytes.len();
         let prepare_ms = t.elapsed().as_secs_f64() * 1000.0;
 
         let t = Instant::now();
@@ -278,14 +280,17 @@ impl AnnotateClient {
         let decode_ms = t.elapsed().as_secs_f64() * 1000.0;
 
         log::info!(
-            "annotate_image: prepare_downscale {:.1}ms, build_multipart {:.1}ms, post+parse_json {:.1}ms, decode_boxes_png {:.1}ms, total {:.1}ms ({} boxes, max_edge={})",
+            "annotate_image: prepare_downscale {:.1}ms, build_multipart {:.1}ms, post+parse_json {:.1}ms, decode_boxes_png {:.1}ms, total {:.1}ms ({} boxes, max_edge={}, input={}, upload_png={}, output_png={})",
             prepare_ms,
             form_ms,
             http_ms,
             decode_ms,
             t_total.elapsed().as_secs_f64() * 1000.0,
             boxes.len(),
-            max_edge
+            max_edge,
+            screen::format_data_size_bytes(image_bytes.len()),
+            screen::format_data_size_bytes(upload_png_len),
+            screen::format_data_size_bytes(out_image.len())
         );
 
         Ok(AnnotateResponse {

@@ -267,7 +267,7 @@ fn screenshot_from_monitor(
         String::new()
     };
     log::info!(
-        "{log_label}: xcap_capture {:.1}ms, resample {:.1}ms, jpeg_encode q{} {:.1}ms, total {:.1}ms ({}x{} px logical{})",
+        "{log_label}: xcap_capture {:.1}ms, resample {:.1}ms, jpeg_encode q{} {:.1}ms, total {:.1}ms ({}x{} px logical{}, jpeg={})",
         capture_ms,
         resample_ms,
         SCREENSHOT_JPEG_QUALITY,
@@ -275,7 +275,8 @@ fn screenshot_from_monitor(
         t_total.elapsed().as_secs_f64() * 1000.0,
         capture_px.0,
         capture_px.1,
-        size_note
+        size_note,
+        format_data_size_bytes(jpeg.len())
     );
     Ok(ScreenshotPacket {
         jpeg,
@@ -623,6 +624,19 @@ pub fn image_data_url_mime_from_base64(b64: &str) -> &'static str {
 ///
 /// # Returns
 /// Base64-encoded string.
+/// Human-readable byte size for observability logs (e.g. `842.3KB`, `1.2MB`).
+pub fn format_data_size_bytes(len: usize) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * KB;
+    if len as f64 >= MB {
+        format!("{:.1}MB", len as f64 / MB)
+    } else if len >= 1024 {
+        format!("{:.1}KB", len as f64 / KB)
+    } else {
+        format!("{len}B")
+    }
+}
+
 pub fn encode_image_to_base64(bytes: &[u8]) -> String {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     STANDARD.encode(bytes)

@@ -105,6 +105,12 @@ pub struct BoardMeta {
     pub parent_sub_task_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_store_key: Option<String>,
+    /// Resolved path from `work_items_source` on init (inject + audit).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_items_source_path: Option<String>,
+    /// Rows seeded on init (`work_items_source` or inline `work_items[]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_items_seeded_rows: Option<u32>,
 }
 
 impl Default for BoardMeta {
@@ -123,6 +129,8 @@ impl Default for BoardMeta {
             root_target: None,
             parent_sub_task_id: None,
             parent_store_key: None,
+            work_items_source_path: None,
+            work_items_seeded_rows: None,
         }
     }
 }

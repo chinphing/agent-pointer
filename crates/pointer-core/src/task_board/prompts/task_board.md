@@ -2,17 +2,25 @@
 
 Session-scoped working memory for multi-step execution.
 
-If work is multi-step, initialize early.
-Single-step work may skip the board.
+**Who creates the board**
+
+| Path | Who calls `task_board_init` |
+| --- | --- |
+| **Computer + host planner** (default) | Host planner before your first turn — **not you** |
+| **Computer without planner** / **Coder** | You, when multi-step and board is empty |
+
+Single-step work may skip the board on any path.
 
 ### Computer + host planner (execution only)
 
 When the host runs the task-board planner before your turn:
 
-- **Do not** call `task_board_init` — the planner already built the board.
+- **Do not** call `task_board_init` — the planner already built the board; the tool is not available to you.
 - Use **`task_board_patch`**, **`task_board_replace`** (item SOP only),
   **`work_item_delta` / `work_item_claim`** (when enabled), and **`task_board_finalize`**.
+- If `[TASK_BOARD]` looks empty, treat it as a planner/host issue — **still do not init**; patch or report in content.
 - Treat injected `[TASK_BOARD]` as source of truth.
+- **`## Task`** may include **`work_items_source`** (path + row count) after host/planner init — work_items already seeded; execute, do not re-import.
 
 Coder and other agents: unchanged — you may still init/replace yourself.
 
@@ -20,6 +28,7 @@ Coder and other agents: unchanged — you may still init/replace yourself.
 **Do not** pass a `method` field in arguments.
 
 - **`task_board_init`**: meta + `global_milestones`; Type2 also `item_milestones` + `work_items`.
+  *(Computer + planner: planner-only — not in your tool list.)*
 - **`task_board_replace`**: **only** full `item_milestones[]` (execution SOP refresh).
 - **`task_board_patch`**: one row update (see **Patch**).
 - **`task_board_prune`**: cancel pending rows (`ids`).
@@ -46,7 +55,8 @@ Row status:
 **Type 1** (no work_items): only `global_milestones[]` — 3–12 steps or user steps.
 
 **Type 2** (enumerated / dynamic work_items):
-- `global_milestones` = **计划 → 执行 → 交付** (`g_plan`, `g_exec`, `g_deliver`).
+- `global_milestones` = three fixed ids: `g_plan`, `g_exec`, `g_deliver`.
+  **`title`** = one-line phase summary (UI row label); not a 2-character fixed label.
 - `item_milestones` = reusable SOP template per work_item (no deliver step).
 - Delivery lives in **`g_deliver`**, not in item rows.
 
@@ -165,7 +175,8 @@ One `work_item_claim` or `work_item_delta` per patch while `g_exec` is active.
 
 ## Core rules
 
-- If `[TASK_BOARD]` is empty and task is multi-step, call `init`.
+- **Computer + planner:** never call `init` during execution — use **`task_board_patch`** / **`task_board_replace`** only.
+- **Coder / Computer without planner:** if `[TASK_BOARD]` is empty and work is multi-step, call **`task_board_init`**.
 - Patch every turn that completes one SOP step or one work_item.
 - Keep 3–12 global milestones for Type1; Type2 uses fixed three globals.
 - Cancel obsolete rows with **`task_board_prune`**.
@@ -206,8 +217,9 @@ When writing the **final summary** in assistant **`content`**:
 
 Computer (with `action_verify`):
 
-- Initialize when expected operation steps >3, or **>5** similar repetitive operations.
-- Type2: put enumeration in **`work_items`** on init, SOP in **`item_milestones`**.
+- **With host planner:** board already exists — execute with patch/replace; do not init.
+- **Without planner:** init when expected operation steps >3, or **>5** similar repetitive operations.
+- Type2: enumeration is seeded at planner init; SOP lives in **`item_milestones`**.
 - Cadence: `action_verify` → **`task_board_patch`** same turn when a step completes.
 
 Engineering profiles:
@@ -244,9 +256,9 @@ Engineering profiles:
   "work_item_mode": "enumerated",
   "expected_total": 10,
   "global_milestones": [
-    { "id": "g_plan", "title": "计划", "status": "done", "done_when": "SOP + 10 wi seeded" },
-    { "id": "g_exec", "title": "执行", "status": "in_progress", "done_when": "all wi terminal + result_summary" },
-    { "id": "g_deliver", "title": "交付", "status": "pending", "delivery_format": "xlsx", "done_when": "export + MEDIA" }
+    { "id": "g_plan", "title": "Seed SOP and 10 work_items from source", "status": "done", "done_when": "SOP + 10 wi seeded" },
+    { "id": "g_exec", "title": "Run UI flow for every work_item", "status": "in_progress", "done_when": "all wi terminal + result_summary" },
+    { "id": "g_deliver", "title": "Export results and attach MEDIA", "status": "pending", "delivery_format": "xlsx", "done_when": "export + MEDIA" }
   ],
   "item_milestones": [
     { "id": "m1", "title": "确认登录", "status": "pending", "done_when": "logged in" },

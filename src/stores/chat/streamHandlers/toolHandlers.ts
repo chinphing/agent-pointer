@@ -171,7 +171,7 @@ export function handleWebSearchSourcesReady(ctx: StreamHandlerContext, e: WebSea
 
 export function handleTaskBoardUpdated(ctx: StreamHandlerContext, e: Extract<StreamEvent, { kind: 'task_board_updated' }>) {
   if (!e.conversationId) return
-  ctx.applyTaskBoardDocumentDebounced(
+  ctx.applyTaskBoardDocument(
     e.conversationId,
     e.storeKey,
     e.document as TaskBoardDocument,

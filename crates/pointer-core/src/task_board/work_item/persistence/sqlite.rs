@@ -64,6 +64,7 @@ impl WorkItemSqlite {
                 "ALTER TABLE work_items RENAME COLUMN campaign_id TO store_id",
                 [],
             )?;
+            log::info!("work_items: migrated legacy column campaign_id → store_id");
             cols = conn
                 .prepare("PRAGMA table_info(work_items)")?
                 .query_map([], |row| row.get::<_, String>(1))?

@@ -203,8 +203,8 @@ function createSettingsDialogForm(deps: {
   const rawContentViewEnabled = ref(false)
   const debugDumpLlmPrompts = ref(false)
   const taskBoardShowChildBoards = ref(false)
-  const taskBoardWorkItemsEnabled = ref(false)
-  const taskBoardPlannerEnabled = ref(false)
+  const taskBoardWorkItemsEnabled = ref(true)
+  const taskBoardPlannerEnabled = ref(true)
   const taskBoardComputerNoExecInit = ref(true)
   const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
   const computerHumanLike = ref(false)
@@ -402,8 +402,8 @@ function createSettingsDialogForm(deps: {
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled === true
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
   taskBoardShowChildBoards.value = s.settings.taskBoardShowChildBoards === true
-  taskBoardWorkItemsEnabled.value = s.settings.taskBoardWorkItemsEnabled === true
-  taskBoardPlannerEnabled.value = s.settings.taskBoardPlannerEnabled === true
+  taskBoardWorkItemsEnabled.value = s.settings.taskBoardWorkItemsEnabled !== false
+  taskBoardPlannerEnabled.value = s.settings.taskBoardPlannerEnabled !== false
   taskBoardComputerNoExecInit.value = s.settings.taskBoardComputerNoExecInit !== false
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true

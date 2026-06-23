@@ -55,6 +55,7 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 - Fallback delegates — prefer direct answers, **`skill_*`**, **`web_search`** first.
 - **`coder`:** optional **`workspaceRoot`** when user gives a project path; else omit (host sandbox).
 - **`computer`:** optional **`computerTarget`** — `self` for Pointer UI, `external` for other apps (default inferred from task).
+- **List files (Type2):** put the file **`localPath`** or **`pointer-media://…`** ref in **`context`** — the worker planner uses it for **`work_items_source`** on init.
 
 **Goal authoring (all workers)**
 

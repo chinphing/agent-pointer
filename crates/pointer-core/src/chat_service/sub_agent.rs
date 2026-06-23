@@ -122,17 +122,40 @@ pub(crate) async fn run_sub_agent(
                 stream,
                 context: crate::task_board::planner::PlannerContext::SubAgent {
                     anchor_message_id: message_id.to_string(),
+                    trace_id: sub_linkage.trace_id.clone(),
                 },
                 system_dynamic: &planner_system_dynamic,
             },
         )
         .await;
+        if matches!(
+            planner_outcome,
+            PlannerRunOutcome::Planned { .. }
+        ) {
+            let doc = state.task_board_store.document(&sub_task_board_key);
+            if !doc.board_is_empty() {
+                super::emit::emit_task_board_updated(
+                    stream,
+                    conversation_id,
+                    &sub_task_board_key,
+                    Some(sub_linkage.trace_id.clone()),
+                    doc.to_value(),
+                );
+            }
+        }
     }
 
     // Set thread-local for this sub-agent's tool calls; restore parent on exit.
     let _agent_guard = crate::tools::file::AgentWorkspaceGuard::enter(
         &sub_provider.settings.workspace_root,
     );
+
+    let work_items_enabled = sub_provider.settings.task_board_work_items_enabled;
+    let b42_enforced =
+        work_items_enabled && def.profile == AgentProfile::Computer;
+    let computer_no_exec_init = sub_provider.settings.task_board_computer_no_exec_init
+        && sub_provider.settings.task_board_planner_enabled
+        && def.profile == AgentProfile::Computer;
 
     loop {
         match agent_round_lifecycle::check_loop_guards(&cancel, ctx.sub_tool_budget) {
@@ -416,9 +439,9 @@ pub(crate) async fn run_sub_agent(
                 stats: &mut stats,
                 lead: None,
                 sub: Some(sub_cfg),
-                task_board_work_items_enabled: false,
-                task_board_b42_enforced: false,
-                task_board_computer_no_exec_init: false,
+                task_board_work_items_enabled: work_items_enabled,
+                task_board_b42_enforced: b42_enforced,
+                task_board_computer_no_exec_init: computer_no_exec_init,
                 workspace_root: &sub_provider.settings.workspace_root,
             },
             final_tool_calls: &buf.final_tool_calls,

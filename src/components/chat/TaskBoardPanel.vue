@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { LayoutList, CheckCircle2, Circle, Loader2, XCircle, Ban } from 'lucide-vue-next'
 import type { TaskBoardDocument, TaskBoardItem } from '../../types/chat'
-import { hasTaskBoardContent } from '../../lib/taskBoard'
+import { hasTaskBoardContent, taskBoardGlobalMilestones, taskBoardHasWorkItems, taskBoardItemMilestones, taskBoardMilestoneProgress } from '../../lib/taskBoard'
+import { milestoneTitle } from '../../lib/taskBoardDisplay'
 import WorkItemsBatchList from './WorkItemsBatchList.vue'
 
 const props = defineProps<{
@@ -16,7 +17,9 @@ const props = defineProps<{
 
 const goal = computed(() => props.document?.meta?.goal?.trim() ?? '')
 const metaStatus = computed(() => props.document?.meta?.status ?? 'running')
-const items = computed(() => props.document?.board ?? [])
+const items = computed(() => taskBoardGlobalMilestones(props.document))
+const itemMilestones = computed(() => taskBoardItemMilestones(props.document))
+const milestoneProgress = computed(() => taskBoardMilestoneProgress(props.document))
 
 const wiEnabled = computed(() => props.workItemsEnabled === true && !!props.conversationId?.trim())
 
@@ -24,7 +27,21 @@ const wiBatches = computed(() =>
   items.value.filter(row => hasWorkItemsBatch(row))
 )
 
+const showWorkItemsPanel = computed(
+  () => wiEnabled.value && (taskBoardHasWorkItems(props.document) || wiBatches.value.length > 0)
+)
+
 const openBatchId = ref<string | null>(null)
+
+watch(
+  () => props.document?.meta?.work_items_seeded_rows,
+  seeded => {
+    if (typeof seeded === 'number' && seeded > 0 && openBatchId.value == null) {
+      openBatchId.value = '__store__'
+    }
+  },
+  { immediate: true }
+)
 
 const childBoardsWithContent = computed(() => {
   if (!props.isActive) return {}
@@ -33,10 +50,6 @@ const childBoardsWithContent = computed(() => {
     Object.entries(src).filter(([, doc]) => hasTaskBoardContent(doc))
   )
 })
-
-const doneCount = computed(() =>
-  items.value.filter(i => i.status === 'done').length
-)
 
 function hasWorkItemsBatch(row: TaskBoardItem): boolean {
   return (
@@ -75,19 +88,8 @@ function statusClass(status: string): string {
   }
 }
 
-function rowLabel(item: {
-  id: string
-  title?: string
-  validate_results?: string[] | null
-}): string {
-  const title = item.title?.trim()
-  if (title) return title
-  const results = item.validate_results ?? []
-  const last = results[results.length - 1]?.trim()
-  if (last) {
-    return last.length > 48 ? `${last.slice(0, 48)}…` : last
-  }
-  return `#${item.id}`
+function rowLabel(item: TaskBoardItem): string {
+  return milestoneTitle(item)
 }
 
 function onBatchOpen(batchId: string, open: boolean) {
@@ -108,7 +110,7 @@ function onBatchOpen(batchId: string, open: boolean) {
       <span class="text-[13px] font-medium text-foreground truncate flex-1">
         {{ goal || '任务板' }}
       </span>
-      <span class="text-[11px] text-muted shrink-0">{{ doneCount }}/{{ items.length }}</span>
+      <span class="text-[11px] text-muted shrink-0 tabular-nums">{{ milestoneProgress }}</span>
       <span
         v-if="isActive"
         class="text-[10px] px-1.5 py-0.5 rounded bg-success/10 text-success shrink-0"
@@ -117,21 +119,44 @@ function onBatchOpen(batchId: string, open: boolean) {
       </span>
       <span class="text-[10px] px-1.5 py-0.5 rounded bg-accent-muted text-accent shrink-0">{{ metaStatus }}</span>
     </summary>
-    <div class="border-t border-border px-3 py-2 space-y-0.5 max-h-48 overflow-y-auto">
+    <div class="border-t border-border px-3 py-2 space-y-1 max-h-48 overflow-y-auto">
       <div
         v-for="item in items"
         :key="item.id"
-        class="flex items-center gap-2 text-[12px] py-1 min-h-[1.5rem]"
+        class="flex items-start gap-2 text-[12px] py-1 min-h-[1.5rem]"
       >
-        <component :is="statusIcon(item.status)" class="w-3.5 h-3.5 shrink-0" :class="statusClass(item.status)" />
-        <span class="text-foreground truncate flex-1">{{ rowLabel(item) }}</span>
+        <component :is="statusIcon(item.status)" class="w-3.5 h-3.5 shrink-0 mt-0.5" :class="statusClass(item.status)" />
+        <div class="min-w-0 flex-1 text-foreground leading-snug break-words">{{ rowLabel(item) }}</div>
       </div>
       <div v-if="!items.length" class="text-[11px] text-muted py-2">暂无里程碑</div>
+      <template v-if="itemMilestones.length">
+        <div class="text-[10px] text-muted pt-1 pb-0.5">条目 SOP</div>
+        <div
+          v-for="item in itemMilestones"
+          :key="`item-${item.id}`"
+          class="flex items-start gap-2 text-[11px] py-0.5 min-h-[1.25rem] pl-2"
+        >
+          <component :is="statusIcon(item.status)" class="w-3 h-3 shrink-0 mt-0.5" :class="statusClass(item.status)" />
+          <div class="min-w-0 flex-1 leading-snug break-words text-foreground">{{ rowLabel(item) }}</div>
+        </div>
+      </template>
     </div>
     <div
-      v-if="wiEnabled && wiBatches.length && conversationId"
+      v-if="showWorkItemsPanel && conversationId"
       class="border-t border-border px-3 py-2 space-y-1 max-h-56 overflow-y-auto bg-accent-muted/10"
     >
+      <WorkItemsBatchList
+        v-if="taskBoardHasWorkItems(document)"
+        :key="`wi-store-${taskId ?? 'main'}`"
+        :conversation-id="conversationId"
+        :task-id="taskId"
+        batch-id=""
+        :batch-title="goal || '工作项'"
+        :enabled="wiEnabled"
+        :refresh-key="`${metaStatus}:${document?.meta?.work_items_seeded_rows ?? 0}`"
+        :open="openBatchId === '__store__'"
+        @update:open="(v) => onBatchOpen('__store__', v)"
+      />
       <WorkItemsBatchList
         v-for="batch in wiBatches"
         :key="batch.id"
@@ -152,12 +177,12 @@ function onBatchOpen(batchId: string, open: boolean) {
     >
       <div class="text-[11px] text-muted mb-1">子任务 {{ taskIdKey }}</div>
       <div
-        v-for="row in child.board"
+        v-for="row in taskBoardGlobalMilestones(child)"
         :key="row.id"
-        class="flex items-center gap-2 text-[11px] py-0.5 min-h-[1.25rem]"
+        class="flex items-start gap-2 text-[11px] py-0.5 min-h-[1.25rem]"
       >
-        <component :is="statusIcon(row.status)" class="w-3 h-3 shrink-0" :class="statusClass(row.status)" />
-        <span class="truncate text-foreground flex-1">{{ rowLabel(row) }}</span>
+        <component :is="statusIcon(row.status)" class="w-3 h-3 shrink-0 mt-0.5" :class="statusClass(row.status)" />
+        <div class="min-w-0 flex-1 leading-snug break-words text-foreground">{{ rowLabel(row) }}</div>
       </div>
     </div>
   </details>

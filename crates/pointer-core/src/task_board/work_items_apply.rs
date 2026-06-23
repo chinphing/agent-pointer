@@ -3,7 +3,8 @@
 use super::args::work_item_mode_from_args;
 use super::model::{BoardDocument, BoardItem, BoardMeta, WorkItemMode, MAX_BOARD_ROWS};
 use super::work_item::{
-    claim_from_value, delta_from_value, drafts_from_source_value, WorkItemStore, MAX_INLINE_SEED,
+    claim_from_value, delta_from_value, drafts_from_source_value, work_items_source_path_from_value,
+    WorkItemStore, MAX_INLINE_SEED,
 };
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -48,15 +49,69 @@ pub fn apply_meta_work_item_mode(doc: &mut BoardDocument, args: &Value) {
     }
 }
 
+fn args_has_work_items_source(args: &Value) -> bool {
+    args.get("work_items_source")
+        .is_some_and(|v| !v.is_null())
+}
+
+fn args_has_inline_work_items(args: &Value) -> bool {
+    args.get("work_items")
+        .and_then(|v| v.as_array())
+        .is_some_and(|a| !a.is_empty())
+}
+
+/// Reject incompatible Type2 work_item_mode / seed combinations on init.
+pub fn validate_work_item_init(
+    args: &Value,
+    doc: &BoardDocument,
+    work_items_enabled: bool,
+) -> Result<()> {
+    let mode = doc.meta.work_item_mode;
+    let has_source = args_has_work_items_source(args);
+    let has_inline = args_has_inline_work_items(args);
+
+    if has_source && mode != Some(WorkItemMode::Enumerated) {
+        return Err(anyhow!(
+            "work_items: work_items_source requires work_item_mode enumerated (known list from file)"
+        ));
+    }
+
+    if let Some(WorkItemMode::Dynamic) = mode {
+        if has_source {
+            return Err(anyhow!("work_items: dynamic mode cannot use work_items_source"));
+        }
+        if has_inline {
+            return Err(anyhow!(
+                "work_items: dynamic mode cannot use inline work_items[] seed"
+            ));
+        }
+        if work_items_enabled && doc.meta.dynamic_quota.unwrap_or(0) == 0 {
+            return Err(anyhow!("work_items: dynamic mode requires dynamic_quota"));
+        }
+    }
+
+    if let Some(WorkItemMode::Enumerated) = mode {
+        if work_items_enabled && !has_source && !has_inline {
+            return Err(anyhow!(
+                "work_items: enumerated mode requires work_items_source or work_items[] on init"
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 /// Seed work_items on **init only** from top-level `work_items` / `work_items_source`.
 pub fn seed_work_items_on_init(
     store_key: &str,
-    doc: &BoardDocument,
+    doc: &mut BoardDocument,
     args: &Value,
     work_items: &WorkItemStore,
     work_items_enabled: bool,
     workspace_root: &str,
 ) -> Result<u32> {
+    doc.meta.work_items_source_path = None;
+    doc.meta.work_items_seeded_rows = None;
     if !work_items_enabled {
         return Ok(0);
     }
@@ -65,8 +120,16 @@ pub fn seed_work_items_on_init(
     }
     work_items.replace_store(store_key)?;
     if let Some(source) = args.get("work_items_source") {
+        let resolved = work_items_source_path_from_value(source, workspace_root)?;
         let drafts = drafts_from_source_value(source, workspace_root)?;
         let outcome = work_items.seed_bulk(store_key, drafts)?;
+        doc.meta.work_items_source_path = Some(resolved.display().to_string());
+        doc.meta.work_items_seeded_rows = Some(outcome.seeded);
+        log::info!(
+            "work_items: seeded from source path={} rows={}",
+            resolved.display(),
+            outcome.seeded
+        );
         return Ok(outcome.seeded);
     }
     let Some(arr) = args.get("work_items").and_then(|v| v.as_array()) else {
@@ -78,6 +141,9 @@ pub fn seed_work_items_on_init(
         ));
     }
     let outcome = work_items.seed_from_values(store_key, arr)?;
+    if outcome.seeded > 0 {
+        doc.meta.work_items_seeded_rows = Some(outcome.seeded);
+    }
     Ok(outcome.seeded)
 }
 
@@ -298,4 +364,64 @@ pub fn milestone_done_has_work_item_evidence(
 ) -> bool {
     work_items.store_has_done(store_key)
         || work_items.store_stats(store_key).is_batch_terminal()
+}
+
+#[cfg(test)]
+mod init_validation_tests {
+    use super::*;
+    use crate::task_board::model::{BoardDocument, WorkItemMode};
+    use serde_json::json;
+
+    fn doc_with_mode(mode: WorkItemMode) -> BoardDocument {
+        let mut doc = BoardDocument::empty_for_store_key("k");
+        doc.meta.work_item_mode = Some(mode);
+        doc
+    }
+
+    #[test]
+    fn rejects_dynamic_with_work_items_source() {
+        let mut doc = doc_with_mode(WorkItemMode::Dynamic);
+        doc.meta.dynamic_quota = Some(50);
+        let args = json!({
+            "work_item_mode": "dynamic",
+            "dynamic_quota": 50,
+            "work_items_source": "/tmp/list.xlsx"
+        });
+        apply_meta_work_item_mode(&mut doc, &args);
+        let err = validate_work_item_init(&args, &doc, true).unwrap_err();
+        assert!(err.to_string().contains("work_items_source"));
+    }
+
+    #[test]
+    fn rejects_enumerated_without_seed() {
+        let mut doc = doc_with_mode(WorkItemMode::Enumerated);
+        let args = json!({ "work_item_mode": "enumerated", "expected_total": 10 });
+        apply_meta_work_item_mode(&mut doc, &args);
+        let err = validate_work_item_init(&args, &doc, true).unwrap_err();
+        assert!(err.to_string().contains("requires work_items_source"));
+    }
+
+    #[test]
+    fn accepts_enumerated_with_source_path() {
+        let mut doc = doc_with_mode(WorkItemMode::Enumerated);
+        let args = json!({
+            "work_item_mode": "enumerated",
+            "expected_total": 10,
+            "work_items_source": "/tmp/list.xlsx"
+        });
+        apply_meta_work_item_mode(&mut doc, &args);
+        validate_work_item_init(&args, &doc, true).expect("ok");
+    }
+
+    #[test]
+    fn rejects_source_without_enumerated_mode() {
+        let doc = BoardDocument::empty_for_store_key("k");
+        let args = json!({
+            "work_item_mode": "dynamic",
+            "dynamic_quota": 50,
+            "work_items_source": "/tmp/list.xlsx"
+        });
+        let err = validate_work_item_init(&args, &doc, true).unwrap_err();
+        assert!(err.to_string().contains("requires work_item_mode enumerated"));
+    }
 }

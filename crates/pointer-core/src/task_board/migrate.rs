@@ -7,6 +7,11 @@ use serde_json::Value;
 
 const V3_VERSION: u32 = 3;
 
+/// True when persisted JSON should be rewritten as v4 after in-memory migration.
+pub fn stored_needs_v4_upgrade(raw: &Value) -> bool {
+    raw.get("version").and_then(|v| v.as_u64()).unwrap_or(0) as u32 == V3_VERSION
+}
+
 pub fn normalize_stored_value(store_key: &str, raw: Value) -> BoardDocument {
     let version = raw.get("version").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
     if version == V3_VERSION {

@@ -134,6 +134,7 @@ they already asked for code work or desktop control.
   "cannot help via the UI").
 - **On agree** (or they already asked you to **do the work on their machine**):
   **`run_subagent`** with **`goal`** + optional **`context`** (see **`run_subagent`** tool doc).
+  For Type2 list files, put **`localPath`** or media ref in **`context`** so the worker planner can set **`work_items_source`**.
   For **`computer`**: short **outcome + done check** in **`goal`** — do **not** prescribe clicks,
   navigation, hotkeys, or tools unless the **user** required them; then put that under
   **`User-required approach:`** in **`context`**. Set

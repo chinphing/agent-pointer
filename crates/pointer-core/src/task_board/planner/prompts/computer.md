@@ -13,10 +13,25 @@ You do **not** replace during planning.
 
 - **Type 0 — single step**: one action, no board needed. Exit without tools.
 - **Type 1 — multi-step SOP**: 3–20 rows in **`global_milestones`** only (no work_items).
-- **Type 2 — enumerated / dynamic work**:
-  - **`global_milestones`**: fixed three rows — `g_plan`, `g_exec`, `g_deliver`.
-  - **`item_milestones`**: reusable per-item SOP template (`{city}` placeholders).
-  - **`work_items[]`** or **`work_items_source`** on init (≤50 inline).
+- **Type 2 — work queue** (pick **enumerated** or **dynamic** — see below):
+  - **`global_milestones`**: fixed ids — `g_plan`, `g_exec`, `g_deliver`.
+    Write a one-line **`title`** per row (phase summary for UI).
+    Do not use fixed 2-character titles like "Plan" / "Exec" alone.
+    Set **`done_when`** for acceptance criteria (separate from title).
+  - **`item_milestones`**: reusable per-item SOP; **`title`** = step summary.
+
+### Type 2 — enumerated vs dynamic (decision tree)
+
+| Situation | `work_item_mode` | Seed on init | Count field |
+| --- | --- | --- | --- |
+| Known complete list (file or inline rows) | **`enumerated`** | **`work_items_source`** string path **or** `work_items[]` | **`expected_total`** |
+| Quota fixed, targets chosen at runtime (e.g. greet next 50 matches) | **`dynamic`** | **none** — rows created via execution **`work_item_claim`** | **`dynamic_quota`** |
+
+**Hard rules**
+
+- **`work_items_source` → always `enumerated`**. Never pair a file path with `dynamic`.
+- **`dynamic` → never** pass `work_items_source` or `work_items[]`.
+- Excel/CSV attachment with N rows → **`enumerated`** + `work_items_source` + `expected_total: N`.
 
 ## Rules
 
@@ -44,3 +59,6 @@ When **Assigned task** appears in system dynamic above, that block is the worker
 (not main chat history). User history may be a short stub only.
 
 Prefer **Assigned task** + **Lead context** for planning; use `session_search` only if needed.
+
+**Type2 file list (enumerated only):** Set **`work_items_source`** to the list file —
+**`localPath`** string or **`pointer-media://…`** ref from Lead context / attachment manifest.

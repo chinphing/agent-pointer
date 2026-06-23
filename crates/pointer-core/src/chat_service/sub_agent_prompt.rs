@@ -72,6 +72,12 @@ pub(super) fn init_sub_agent_session(
     if !spawn_can_delegate {
         allowed_tools.retain(|t| t != "run_subagent");
     }
+    if def.profile == AgentProfile::Computer
+        && provider.settings.task_board_computer_no_exec_init
+        && provider.settings.task_board_planner_enabled
+    {
+        allowed_tools.retain(|t| t != "task_board_init");
+    }
     let sub_task_board_key =
         sub_agent_task_board_store_key(parent_task_board_store_key, task.id.trim());
     let session_vars = SessionInjectVars {
@@ -119,15 +125,20 @@ pub(super) fn init_sub_agent_session(
         }
     }
     session_extras.extend(skill_prompts);
-    if let Some(hint) =
-        sub_agent_task_board_init_hint(&state.task_board_store, &sub_task_board_key, &allowed_tools)
-    {
-        crate::task_board::observability::log_sub_agent_init_hint(
-            conversation_id,
-            task.id.trim(),
-            &def.id,
-        );
-        session_extras.push(hint);
+    let planner_handles_init = def.profile == AgentProfile::Computer
+        && provider.settings.task_board_computer_no_exec_init
+        && provider.settings.task_board_planner_enabled;
+    if !planner_handles_init {
+        if let Some(hint) =
+            sub_agent_task_board_init_hint(&state.task_board_store, &sub_task_board_key, &allowed_tools)
+        {
+            crate::task_board::observability::log_sub_agent_init_hint(
+                conversation_id,
+                task.id.trim(),
+                &def.id,
+            );
+            session_extras.push(hint);
+        }
     }
 
     let mut task_dynamic_blocks = build_subagent_task_system_blocks(

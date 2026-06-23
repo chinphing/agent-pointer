@@ -808,6 +808,9 @@ export interface TaskBoardItem {
   depends_on?: string[]
   retry_count?: number
   plan?: string
+  done_when?: string
+  remark?: string
+  constraint?: string
   /** Milestone position, e.g. `3/10` or `batch 2/4`. Legacy boards may still send `checkpoint`. */
   progress?: string
   checkpoint?: string
@@ -834,11 +837,23 @@ export interface TaskBoardDocument {
     status: string
     max_depth?: number
     expected_total?: number
+    done_when?: string
+    constraint?: string
+    context?: string
+    work_item_mode?: 'enumerated' | 'dynamic'
+    dynamic_quota?: number
+    work_items_source_path?: string
+    work_items_seeded_rows?: number
     scope?: 'parent' | 'child'
     root_target?: string
     parent_sub_task_id?: string
     parent_store_key?: string
   }
   global_context?: TaskBoardGlobalContext
-  board: TaskBoardItem[]
+  /** v4 global milestone rows (`g_plan` / `g_exec` / Type1 steps). */
+  global_milestones?: TaskBoardItem[]
+  /** v4 reusable per-item SOP template. */
+  item_milestones?: TaskBoardItem[]
+  /** Legacy v3 alias of `global_milestones`. */
+  board?: TaskBoardItem[]
 }

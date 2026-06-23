@@ -47,11 +47,31 @@ pub fn openai_tools() -> Vec<Value> {
                     "type": "object",
                     "properties": {
                         "goal": { "type": "string" },
-                        "global_context": {},
-                        "items": {
-                            "description": "Milestone rows (max 20). Optional work_items[] per row."
+                        "context": { "type": "string" },
+                        "constraint": { "type": "string" },
+                        "done_when": { "type": "string" },
+                        "global_milestones": {
+                            "description": "Task-level rows. Type2: g_plan, g_exec, g_deliver."
                         },
-                        "expected_total": { "type": "integer", "minimum": 1 }
+                        "item_milestones": {
+                            "description": "Per-work-item SOP template (Type2)."
+                        },
+                        "work_item_mode": {
+                            "type": "string",
+                            "enum": ["enumerated", "dynamic"]
+                        },
+                        "expected_total": { "type": "integer", "minimum": 1 },
+                        "dynamic_quota": { "type": "integer", "minimum": 1 },
+                        "work_items_source": {
+                            "type": "string",
+                            "description": "Path or media ref to seed work_items (Type2): localPath, pointer-media://…, or storage rel — same as attachment refs."
+                        },
+                        "work_items": {
+                            "description": "Inline work item drafts (Type2 enumerated init)."
+                        },
+                        "items": {
+                            "description": "Legacy alias for global_milestones (max 20 rows)."
+                        }
                     },
                     "required": ["goal"]
                 }

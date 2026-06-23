@@ -6,11 +6,13 @@ pub mod export_tool;
 pub mod import;
 pub mod model;
 pub mod persistence;
+pub mod rehydrate;
 pub mod store;
 
 pub use api::{list_work_items_json, work_item_stats_json};
 pub use export::{export_work_items, ExportOutcome, ExportRequest};
-pub use import::drafts_from_source_value;
+pub use import::{drafts_from_resolved_path, drafts_from_source_value, work_items_source_path_from_value};
+pub use rehydrate::try_rehydrate_work_items_if_empty;
 pub use model::{
     BatchStats, StoreStats, SeedOutcome, WorkItem, WorkItemDraft, WorkItemStatus,
     MAX_INLINE_SEED,

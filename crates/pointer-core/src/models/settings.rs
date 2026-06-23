@@ -691,10 +691,16 @@ pub struct ModelSettings {
     )]
     pub task_board_show_child_boards: bool,
     /// When true, Computer task board uses external work_items.db (delta/claim/inject window).
-    #[serde(default, rename = "taskBoardWorkItemsEnabled")]
+    #[serde(
+        default = "default_task_board_work_items_enabled",
+        rename = "taskBoardWorkItemsEnabled"
+    )]
     pub task_board_work_items_enabled: bool,
     /// When true, run task-board planner loop before Computer execution each user turn.
-    #[serde(default, rename = "taskBoardPlannerEnabled")]
+    #[serde(
+        default = "default_task_board_planner_enabled",
+        rename = "taskBoardPlannerEnabled"
+    )]
     pub task_board_planner_enabled: bool,
     /// When true (with planner), execution Agent cannot call task_board_init/replace.
     #[serde(default = "default_task_board_computer_no_exec_init", rename = "taskBoardComputerNoExecInit")]
@@ -936,6 +942,14 @@ fn default_task_board_show_child_boards() -> bool {
     false
 }
 
+fn default_task_board_work_items_enabled() -> bool {
+    true
+}
+
+fn default_task_board_planner_enabled() -> bool {
+    true
+}
+
 fn default_task_board_computer_no_exec_init() -> bool {
     true
 }
@@ -1048,8 +1062,8 @@ impl Default for ModelSettings {
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             debug_menus_enabled: default_debug_menus_enabled(),
             task_board_show_child_boards: default_task_board_show_child_boards(),
-            task_board_work_items_enabled: false,
-            task_board_planner_enabled: false,
+            task_board_work_items_enabled: default_task_board_work_items_enabled(),
+            task_board_planner_enabled: default_task_board_planner_enabled(),
             task_board_computer_no_exec_init: true,
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: HashMap::new(),
@@ -1363,9 +1377,15 @@ pub struct PlatformSettings {
         rename = "taskBoardShowChildBoards"
     )]
     pub task_board_show_child_boards: bool,
-    #[serde(default, rename = "taskBoardWorkItemsEnabled")]
+    #[serde(
+        default = "default_task_board_work_items_enabled",
+        rename = "taskBoardWorkItemsEnabled"
+    )]
     pub task_board_work_items_enabled: bool,
-    #[serde(default, rename = "taskBoardPlannerEnabled")]
+    #[serde(
+        default = "default_task_board_planner_enabled",
+        rename = "taskBoardPlannerEnabled"
+    )]
     pub task_board_planner_enabled: bool,
     #[serde(default = "default_task_board_computer_no_exec_init", rename = "taskBoardComputerNoExecInit")]
     pub task_board_computer_no_exec_init: bool,
@@ -1793,8 +1813,8 @@ impl Default for PlatformSettings {
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             debug_menus_enabled: default_debug_menus_enabled(),
             task_board_show_child_boards: default_task_board_show_child_boards(),
-            task_board_work_items_enabled: false,
-            task_board_planner_enabled: false,
+            task_board_work_items_enabled: default_task_board_work_items_enabled(),
+            task_board_planner_enabled: default_task_board_planner_enabled(),
             task_board_computer_no_exec_init: true,
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: default_platform_agent_models(),

@@ -9,7 +9,7 @@ Lifecycle: `docs/taskboard-lifecycle-and-fields.md`.
 |-------|------|-------|
 | `version` | number | `4` (v3 migrates on load) |
 | `task_id` | string | `tb_{store_key}` |
-| `meta` | object | `goal`, `context`, `constraint`, `done_when`, `work_item_mode`, `dynamic_quota`, `expected_total`, … |
+| `meta` | object | `goal`, `context`, `constraint`, `done_when`, `work_item_mode`, `dynamic_quota`, `expected_total`, `work_items_source_path`, `work_items_seeded_rows`, … |
 | `global_context` | object | `key_findings[]`, `artifacts` |
 | `global_milestones` | array | Task-level rows (serde alias `board`) |
 | `item_milestones` | array | Type2 per-item SOP template only |
@@ -51,7 +51,9 @@ Lifecycle: `docs/taskboard-lifecycle-and-fields.md`.
 
 Stored in `work_items.db` keyed by `store_id` (= conversation store key). No `batch_id`.
 
-Inline seed on init: top-level `work_items[]` (≤50 inline); larger lists via `work_items_source`.
+Inline seed on init: top-level `work_items[]` or file-backed `work_items_source` — both are enumerated.
+
+Inject **`## Task`** shows `work_items_source: <path> (<n> rows seeded)` when init used a file; inline-only shows `work_items_seeded: <n> (inline on init)`.
 
 ## Host-injected helper args (not model-authored)
 

@@ -123,6 +123,7 @@ pub(super) async fn run_subagent_delegation(
                     }
                     let sub_provider =
                         OpenAIProvider::new(sub_settings, provider.api_key.clone());
+                    let context = parsed.context.trim().to_string();
                     let task = AgentTask {
                         id: tid,
                         agent_id: agent_id.clone(),
@@ -132,7 +133,7 @@ pub(super) async fn run_subagent_delegation(
                             parsed.title
                         },
                         goal: parsed.goal,
-                        context: parsed.context,
+                        context,
                         depends_on: vec![],
                     };
                     log::info!(

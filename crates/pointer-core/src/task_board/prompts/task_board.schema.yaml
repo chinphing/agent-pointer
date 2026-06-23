@@ -20,9 +20,12 @@ task_board_init:
       description: >
         Per-work-item SOP template (Type2 only). Use {field} placeholders.
     work_items:
-      description: Inline work item drafts (Type2 init, max 50).
+      description: Inline work item drafts (Type2 enumerated init).
     work_items_source:
       type: string
+      description: >
+        Path or media ref to seed work_items from CSV/JSONL/XLSX (Type2).
+        Accepts localPath, pointer-media://…, or storage rel (same as general agent media).
     work_item_mode:
       type: string
       enum: [enumerated, dynamic]

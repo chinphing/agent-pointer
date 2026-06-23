@@ -145,11 +145,44 @@ pub fn markdown_runtime_block_for_inject(
 
     if doc.has_work_items() {
         if let Some(store) = work_items {
+            append_work_items_mismatch_note(&mut lines, doc, store_key, store);
             append_work_items_section(&mut lines, store_key, store);
         }
     }
 
     lines.join("\n")
+}
+
+fn work_items_store_mismatch(
+    doc: &BoardDocument,
+    store: &WorkItemStore,
+    store_key: &str,
+) -> bool {
+    if !doc.has_work_items() {
+        return false;
+    }
+    let meta_rows = doc.meta.work_items_seeded_rows.unwrap_or(0);
+    meta_rows > 0 && store.store_total(store_key) == 0
+}
+
+fn append_work_items_mismatch_note(
+    lines: &mut Vec<String>,
+    doc: &BoardDocument,
+    store_key: &str,
+    store: &WorkItemStore,
+) {
+    if !work_items_store_mismatch(doc, store, store_key) {
+        return;
+    }
+    let meta_rows = doc.meta.work_items_seeded_rows.unwrap_or(0);
+    lines.push(String::new());
+    lines.push("## Work items host note".to_string());
+    lines.push(format!(
+        "- WARNING: meta reports {meta_rows} seeded row(s) but work_items DB has 0 loaded."
+    ));
+    lines.push(
+        "- Do NOT call task_board_init to re-seed. Host restores rows on read; use task_board_patch and work_item_delta.".to_string(),
+    );
 }
 
 fn append_task_section(lines: &mut Vec<String>, doc: &BoardDocument) {
@@ -183,6 +216,22 @@ fn append_task_section(lines: &mut Vec<String>, doc: &BoardDocument) {
     }
     if let Some(n) = doc.meta.expected_total {
         lines.push(format!("- expected_total: {n}"));
+    }
+    if let Some(path) = doc
+        .meta
+        .work_items_source_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let rows = doc
+            .meta
+            .work_items_seeded_rows
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "n/a".into());
+        lines.push(format!("- work_items_source: {path} ({rows} rows seeded)"));
+    } else if let Some(n) = doc.meta.work_items_seeded_rows {
+        lines.push(format!("- work_items_seeded: {n} (inline on init)"));
     }
 }
 
@@ -607,6 +656,36 @@ mod inject_format_tests {
             },
         ];
         doc
+    }
+
+    #[test]
+    fn inject_task_shows_work_items_source_meta() {
+        let mut doc = sample_doc();
+        doc.meta.work_item_mode = Some(WorkItemMode::Enumerated);
+        doc.meta.expected_total = Some(10);
+        doc.meta.work_items_source_path = Some("/tmp/campaign.xlsx".into());
+        doc.meta.work_items_seeded_rows = Some(10);
+        let block = markdown_runtime_block_for_inject(&doc, "conv-test", None);
+        assert!(block.contains("- work_items_source: /tmp/campaign.xlsx (10 rows seeded)"));
+    }
+
+    #[test]
+    fn inject_warns_when_meta_seeded_but_db_empty() {
+        use crate::task_board::TaskBoardStore;
+
+        let mut doc = sample_doc();
+        doc.meta.work_item_mode = Some(WorkItemMode::Enumerated);
+        doc.meta.work_items_seeded_rows = Some(127);
+        doc.meta.work_items_source_path = Some("/tmp/cities.xlsx".into());
+        let store = TaskBoardStore::new();
+        let block = markdown_runtime_block_for_inject(
+            &doc,
+            "conv-mismatch",
+            Some(store.work_items.as_ref()),
+        );
+        assert!(block.contains("## Work items host note"));
+        assert!(block.contains("127 seeded row(s) but work_items DB has 0"));
+        assert!(block.contains("Do NOT call task_board_init"));
     }
 
     #[test]

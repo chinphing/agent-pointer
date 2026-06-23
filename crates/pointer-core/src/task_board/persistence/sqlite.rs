@@ -1,6 +1,6 @@
 //! SQLite persistence for task boards.
 
-use super::super::migrate::normalize_stored_value;
+use super::super::migrate::{normalize_stored_value, stored_needs_v4_upgrade};
 use super::super::model::BoardDocument;
 use anyhow::{Context, Result};
 use parking_lot::Mutex;
@@ -37,17 +37,35 @@ impl TaskBoardSqlite {
     }
 
     pub fn load(&self, store_key: &str) -> Result<Option<BoardDocument>> {
-        let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT document FROM task_boards WHERE store_key = ?1",
-        )?;
-        let mut rows = stmt.query(params![store_key])?;
-        if let Some(row) = rows.next()? {
-            let text: String = row.get(0)?;
-            let v: serde_json::Value = serde_json::from_str(&text)?;
-            return Ok(Some(normalize_stored_value(store_key, v)));
+        let loaded = {
+            let conn = self.conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT document FROM task_boards WHERE store_key = ?1",
+            )?;
+            let mut rows = stmt.query(params![store_key])?;
+            if let Some(row) = rows.next()? {
+                let text: String = row.get(0)?;
+                let v: serde_json::Value = serde_json::from_str(&text)?;
+                let needs_upgrade = stored_needs_v4_upgrade(&v);
+                let doc = normalize_stored_value(store_key, v);
+                Some((doc, needs_upgrade))
+            } else {
+                None
+            }
+        };
+        let Some((doc, needs_upgrade)) = loaded else {
+            return Ok(None);
+        };
+        if needs_upgrade {
+            if let Err(e) = self.save(store_key, &doc) {
+                log::warn!(
+                    "task_board: failed to persist v4 upgrade store_key={store_key}: {e}"
+                );
+            } else {
+                log::info!("task_board: persisted v4 upgrade store_key={store_key}");
+            }
         }
-        Ok(None)
+        Ok(Some(doc))
     }
 
     pub fn save(&self, store_key: &str, doc: &BoardDocument) -> Result<()> {

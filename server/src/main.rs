@@ -364,6 +364,36 @@ async fn list_agents(State(state): State<ServerState>) -> Result<Json<Vec<AgentD
     Ok(Json(state.core.agents.list()))
 }
 
+fn resolve_work_items_store_key(
+    core: &AppState,
+    conversation_id: &str,
+    task_id: Option<&str>,
+    rehydrate: bool,
+) -> String {
+    use pointer_core::task_board::resolve_store_key_for_read;
+    use pointer_core::task_board::work_item::try_rehydrate_work_items_if_empty;
+    let parent_key = core
+        .get_active_main_task_board_key(conversation_id)
+        .unwrap_or_else(|| conversation_id.to_string());
+    let store_key = resolve_store_key_for_read(
+        core.task_board_store.as_ref(),
+        core.task_board_store.work_items.as_ref(),
+        conversation_id,
+        task_id,
+        &parent_key,
+    );
+    if rehydrate {
+        if let Err(e) = try_rehydrate_work_items_if_empty(
+            core.task_board_store.as_ref(),
+            core.task_board_store.work_items.as_ref(),
+            &store_key,
+        ) {
+            log::warn!("work_items: rehydrate failed store_key={store_key}: {e}");
+        }
+    }
+    store_key
+}
+
 #[derive(Deserialize)]
 struct TaskBoardSnapshotQuery {
     #[serde(rename = "conversationId")]
@@ -376,11 +406,18 @@ async fn get_task_board_snapshot(
     Query(q): Query<TaskBoardSnapshotQuery>,
     State(state): State<ServerState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    use pointer_core::task_board::sub_agent_task_board_store_key;
-    let store_key = match q.task_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(tid) => sub_agent_task_board_store_key(&q.conversation_id, tid),
-        None => q.conversation_id.clone(),
-    };
+    use pointer_core::task_board::resolve_store_key_for_read;
+    let parent_key = state
+        .core
+        .get_active_main_task_board_key(&q.conversation_id)
+        .unwrap_or_else(|| q.conversation_id.clone());
+    let store_key = resolve_store_key_for_read(
+        state.core.task_board_store.as_ref(),
+        state.core.task_board_store.work_items.as_ref(),
+        &q.conversation_id,
+        q.task_id.as_deref(),
+        &parent_key,
+    );
     Ok(Json(
         state
             .core
@@ -408,12 +445,13 @@ async fn list_work_items(
     Query(q): Query<WorkItemsQuery>,
     State(state): State<ServerState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    use pointer_core::task_board::sub_agent_task_board_store_key;
     use pointer_core::task_board::work_item::list_work_items_json;
-    let store_key = match q.task_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(tid) => sub_agent_task_board_store_key(&q.conversation_id, tid),
-        None => q.conversation_id.clone(),
-    };
+    let store_key = resolve_work_items_store_key(
+        state.core.as_ref(),
+        &q.conversation_id,
+        q.task_id.as_deref(),
+        true,
+    );
     let batch = q.batch_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
     Ok(Json(list_work_items_json(
         state.core.task_board_store.work_items.as_ref(),
@@ -428,12 +466,13 @@ async fn work_item_stats(
     Query(q): Query<WorkItemsQuery>,
     State(state): State<ServerState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    use pointer_core::task_board::sub_agent_task_board_store_key;
     use pointer_core::task_board::work_item::work_item_stats_json;
-    let store_key = match q.task_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(tid) => sub_agent_task_board_store_key(&q.conversation_id, tid),
-        None => q.conversation_id.clone(),
-    };
+    let store_key = resolve_work_items_store_key(
+        state.core.as_ref(),
+        &q.conversation_id,
+        q.task_id.as_deref(),
+        true,
+    );
     let batch = q.batch_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
     Ok(Json(work_item_stats_json(
         state.core.task_board_store.work_items.as_ref(),

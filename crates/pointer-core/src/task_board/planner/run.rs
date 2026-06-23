@@ -3,6 +3,7 @@
 use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::AgentProfile;
 use crate::chat_service::{emit_task_board_updated, AppState, StreamTx};
+use crate::task_board::anchor_message_id_from_main_turn_key;
 use crate::llm_token_stats::{model_name_for_usage_report, ConversationLlmStats};
 use crate::models::{ChatMessage, ModelSettings};
 use crate::provider::OpenAIProvider;
@@ -39,8 +40,38 @@ pub enum PlannedMethod {
 pub enum PlannerContext {
     MainTurn,
     SubAgent {
+        /// Lead assistant message id (legacy UI binding fallback).
         anchor_message_id: String,
+        /// Sub-agent trace id (`{taskId}:{agentId}`) for TaskBoardPanel binding.
+        trace_id: String,
     },
+}
+
+/// Stream anchor for `task_board_updated` — matches execution tool-pass binding.
+pub fn planner_task_board_emit_anchor(
+    context: &PlannerContext,
+    state: &AppState,
+    conversation_id: &str,
+    store_key: &str,
+) -> Option<String> {
+    match context {
+        PlannerContext::SubAgent { trace_id, anchor_message_id } => {
+            let trace = trace_id.trim();
+            if !trace.is_empty() {
+                Some(trace.to_string())
+            } else {
+                let lead = anchor_message_id.trim();
+                if lead.is_empty() {
+                    None
+                } else {
+                    Some(lead.to_string())
+                }
+            }
+        }
+        PlannerContext::MainTurn => state
+            .get_main_task_board_anchor(conversation_id, store_key)
+            .or_else(|| anchor_message_id_from_main_turn_key(store_key)),
+    }
 }
 
 pub struct PlannerRunInput<'a> {
@@ -174,9 +205,12 @@ pub async fn run_planner_loop(input: PlannerRunInput<'_>) -> PlannerRunOutcome {
                 Ok(result) => {
                     if let Some(method) = result.planned {
                         last_planned = Some((method, result.board_len));
-                        let anchor = input
-                            .state
-                            .get_main_task_board_anchor(input.conversation_id, input.store_key);
+                        let anchor = planner_task_board_emit_anchor(
+                            &input.context,
+                            input.state,
+                            input.conversation_id,
+                            input.store_key,
+                        );
                         emit_task_board_updated(
                             input.stream,
                             input.conversation_id,
@@ -219,6 +253,24 @@ pub async fn run_planner_loop(input: PlannerRunInput<'_>) -> PlannerRunOutcome {
             log::info!("task_board_obs: planner outcome=skipped reason={reason}");
             PlannerRunOutcome::Skipped { reason }
         }
+    }
+}
+
+#[cfg(test)]
+mod anchor_tests {
+    use super::*;
+
+    #[test]
+    fn sub_agent_emit_anchor_prefers_trace_id() {
+        let ctx = PlannerContext::SubAgent {
+            anchor_message_id: "lead-msg".into(),
+            trace_id: "task_a:computer".into(),
+        };
+        let anchor = match &ctx {
+            PlannerContext::SubAgent { trace_id, .. } => Some(trace_id.clone()),
+            PlannerContext::MainTurn => None,
+        };
+        assert_eq!(anchor.as_deref(), Some("task_a:computer"));
     }
 }
 

@@ -30,9 +30,9 @@ allowAgents:
 |------|------|------|
 | `agentId` | ✓ | worker id（须在 lead 的 `allowAgents` 中） |
 | `goal` | ✓ | 子任务目标 + 完成标准 |
-| `context` | ✗ | 已验证事实、路径、依赖摘要等 |
+| `context` | ✗ | 已验证事实、路径、依赖摘要等（含列表文件的 `localPath` / media ref） |
 
-任务由宿主写入子 agent **system**（**Assigned task**）；首条 user 为短 stub，不重复 goal。
+任务由宿主写入子 agent **system**（**Assigned task**）；首条 user 为短 stub，不重复 goal。列表文件路径写在 **`context`**，由 worker planner 在 **`task_board_init`** 时填入 **`work_items_source`**。
 
 ## `general` 委派 `coder` / `computer`（兜底 + 需同意）
 

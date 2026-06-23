@@ -21,7 +21,7 @@ use super::work_items_apply::{
     maybe_auto_complete_g_exec, milestone_done_has_work_item_evidence, patch_rejects_g_deliver_when_blocked,
     patch_rejects_g_exec_done_when_not_met, patch_rejects_v3_delta_fields, reset_item_milestones,
     seed_work_items_on_init, validate_board_row_count, validate_expected_total_after_seed,
-    work_items_enabled_from_args, workspace_root_from_args,
+    validate_work_item_init, work_items_enabled_from_args, workspace_root_from_args,
 };
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
@@ -223,6 +223,7 @@ fn apply_init(
         }
         validate_board_row_count(doc.item_milestones.len(), "init")?;
     }
+    validate_work_item_init(args, doc, work_items_enabled)?;
     let seeded = seed_work_items_on_init(
         store_key,
         doc,

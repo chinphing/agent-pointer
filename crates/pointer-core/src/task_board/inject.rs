@@ -16,6 +16,8 @@ pub fn inject_host_task_board_conversation_id(
     conversation_id: &str,
     task_board_store_key: &str,
     history: &[ChatMessage],
+    work_items_enabled: bool,
+    b42_enforced: bool,
 ) -> Value {
     let is_task_board = is_task_board_tool_name(tool_id);
     let requires_injection = is_task_board
@@ -52,6 +54,14 @@ pub fn inject_host_task_board_conversation_id(
             "_recent_verify_report".to_string(),
             Value::Bool(history_has_recent_verify_report(history)),
         );
+        map.insert(
+            "_task_board_work_items_enabled".to_string(),
+            Value::Bool(work_items_enabled),
+        );
+        map.insert(
+            "_task_board_b42_enforced".to_string(),
+            Value::Bool(b42_enforced),
+        );
     }
     Value::Object(map)
 }
@@ -68,6 +78,8 @@ mod tests {
             "conv-abc",
             "conv-abc::tb",
             &[],
+            false,
+            false,
         );
         assert_eq!(
             out.get("_conversation_id").and_then(|v| v.as_str()),
@@ -83,10 +95,29 @@ mod tests {
             "conv-abc",
             "conv-abc::tb",
             &[],
+            false,
+            false,
         );
         assert_eq!(
             out.get("_conversation_id").and_then(|v| v.as_str()),
             Some("conv-abc")
+        );
+    }
+
+    #[test]
+    fn task_board_inject_sets_work_items_flags() {
+        let out = inject_host_task_board_conversation_id(
+            "task_board_patch",
+            serde_json::json!({"id": "a", "status": "done"}),
+            "conv-abc",
+            "conv-abc",
+            &[],
+            true,
+            true,
+        );
+        assert_eq!(
+            out.get("_task_board_work_items_enabled").and_then(|v| v.as_bool()),
+            Some(true)
         );
     }
 
@@ -98,6 +129,8 @@ mod tests {
             "conv-abc",
             "conv-abc::tb",
             &[],
+            false,
+            false,
         );
         assert_eq!(
             out.get("_conversation_id").and_then(|v| v.as_str()),
@@ -114,6 +147,8 @@ mod tests {
             "conv-abc",
             "conv-abc::tb",
             &[],
+            false,
+            false,
         );
         assert_eq!(out, args);
     }

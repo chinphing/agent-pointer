@@ -5,10 +5,17 @@ use super::coordination::parent_child::{assert_child_may_mutate, parent_store_ke
 use super::model::{
     BoardDocument, BoardItem, BoardScope, GlobalContext, ItemStatus, MetaStatus,
 };
-use super::row_patch::{compact_row_after_done, merge_row_patch_with_warnings};
+use super::row_patch::{compact_row_after_done, merge_row_patch_with_warnings, merge_row_patch_with_warnings_b42};
 use super::state_machine::{
     bump_step_count, count_incomplete, dependencies_satisfied, mark_ready_pending_rows,
     validate_item_transition,
+};
+use super::work_item::WorkItemStore;
+use super::work_items_apply::{
+    apply_work_item_patch_fields, b42_enforced_from_args, derive_row_progress,
+    milestone_done_has_work_item_evidence, patch_rejects_v3_delta_fields,
+    seed_work_items_on_init_replace, validate_board_row_count, validate_expected_total_after_seed,
+    work_items_enabled_from_args,
 };
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
@@ -28,12 +35,14 @@ pub fn apply_method(
     doc: &mut BoardDocument,
     method: &str,
     args: &Value,
+    work_items: &WorkItemStore,
 ) -> Result<ApplyOutcome> {
     assert_child_may_mutate(store_key, doc, method)?;
     let method = method.trim().to_ascii_lowercase();
+    let work_items_enabled = work_items_enabled_from_args(args);
     let (body, reflection_required) = match method.as_str() {
         "init" => {
-            apply_init(store_key, doc, args)?;
+            let seeded = apply_init(store_key, doc, args, work_items, work_items_enabled)?;
             let mut body = json!({
                 "ok": true,
                 "method": "init",
@@ -42,18 +51,22 @@ pub fn apply_method(
             if !doc.meta.goal.is_empty() {
                 body["goal"] = json!(doc.meta.goal);
             }
+            if seeded > 0 {
+                body["work_items_seeded"] = json!(seeded);
+            }
             (body, false)
         }
         "replace" => {
-            apply_replace(doc, args)?;
-            (
-                json!({
-                    "ok": true,
-                    "method": "replace",
-                    "board_len": doc.board.len(),
-                }),
-                false,
-            )
+            let seeded = apply_replace(store_key, doc, args, work_items, work_items_enabled)?;
+            let mut body = json!({
+                "ok": true,
+                "method": "replace",
+                "board_len": doc.board.len(),
+            });
+            if seeded > 0 {
+                body["work_items_seeded"] = json!(seeded);
+            }
+            (body, false)
         }
         "patch" | "" => {
             if doc.board_is_empty() {
@@ -70,7 +83,8 @@ pub fn apply_method(
                     reflection_required: false,
                 });
             }
-            let (refl, warnings, patched) = apply_patch(doc, args)?;
+            let (refl, warnings, patched) =
+                apply_patch(store_key, doc, args, work_items, work_items_enabled)?;
             let mut body = json!({
                 "ok": true,
                 "method": "patch",
@@ -131,7 +145,13 @@ fn row_status_entry(item: &BoardItem) -> Value {
     })
 }
 
-fn apply_init(store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<()> {
+fn apply_init(
+    store_key: &str,
+    doc: &mut BoardDocument,
+    args: &Value,
+    work_items: &WorkItemStore,
+    work_items_enabled: bool,
+) -> Result<u32> {
     if let Some(goal) = goal_from_args(args) {
         doc.meta.goal = goal;
     }
@@ -171,12 +191,29 @@ fn apply_init(store_key: &str, doc: &mut BoardDocument, args: &Value) -> Result<
                 doc.board.push(item);
             }
         }
-        validate_expected_total_row_count(doc.meta.expected_total, doc.board.len(), "init")?;
+        validate_board_row_count(doc.board.len(), "init")?;
     }
-    Ok(())
+    let seeded = seed_work_items_on_init_replace(
+        store_key,
+        doc,
+        &rows,
+        work_items,
+        work_items_enabled,
+    )?;
+    if work_items_enabled && seeded > 0 && doc.meta.expected_total.is_none() {
+        doc.meta.expected_total = Some(seeded);
+    }
+    validate_expected_total_after_seed(doc, work_items, store_key, "init")?;
+    Ok(seeded)
 }
 
-fn apply_replace(doc: &mut BoardDocument, args: &Value) -> Result<()> {
+fn apply_replace(
+    store_key: &str,
+    doc: &mut BoardDocument,
+    args: &Value,
+    work_items: &WorkItemStore,
+    work_items_enabled: bool,
+) -> Result<u32> {
     let rows = board_rows_from_args(args);
     doc.board.clear();
     for v in &rows {
@@ -185,29 +222,27 @@ fn apply_replace(doc: &mut BoardDocument, args: &Value) -> Result<()> {
         }
     }
     if !doc.board.is_empty() {
-        validate_expected_total_row_count(doc.meta.expected_total, doc.board.len(), "replace")?;
+        validate_board_row_count(doc.board.len(), "replace")?;
     }
-    Ok(())
+    let seeded = seed_work_items_on_init_replace(
+        store_key,
+        doc,
+        &rows,
+        work_items,
+        work_items_enabled,
+    )?;
+    validate_expected_total_after_seed(doc, work_items, store_key, "replace")?;
+    Ok(seeded)
 }
 
-fn validate_expected_total_row_count(
-    expected_total: Option<u32>,
-    actual_rows: usize,
-    method: &str,
-) -> Result<()> {
-    let Some(expected_total) = expected_total else {
-        return Ok(());
-    };
-    let expected_total = expected_total as usize;
-    if actual_rows == expected_total {
-        return Ok(());
-    }
-    Err(anyhow!(
-        "task_board:{method} expected exactly {expected_total} item(s), got {actual_rows}"
-    ))
-}
-
-fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value>, Vec<Value>)> {
+fn apply_patch(
+    store_key: &str,
+    doc: &mut BoardDocument,
+    args: &Value,
+    work_items: &WorkItemStore,
+    work_items_enabled: bool,
+) -> Result<(bool, Vec<Value>, Vec<Value>)> {
+    let b42 = b42_enforced_from_args(args);
     let recent_action = args
         .get("_recent_action_tools")
         .and_then(|v| v.as_bool())
@@ -239,9 +274,20 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value
         };
         if let Some(idx) = doc.board.iter().position(|e| e.id == id) {
             let prev = doc.board[idx].clone();
-            let merged = merge_row_patch_with_warnings(&prev, v);
+            patch_rejects_v3_delta_fields(v, &prev, b42)?;
+            apply_work_item_patch_fields(
+                store_key,
+                &prev,
+                v,
+                work_items,
+                work_items_enabled,
+            )?;
+            let merged = merge_row_patch_with_warnings_b42(&prev, v, b42 && prev.has_work_items());
             let mut incoming = merged.row;
             warnings.extend(merged.warnings);
+            if let Some(progress) = derive_row_progress(store_key, &incoming, work_items) {
+                incoming.progress = Some(progress);
+            }
             validate_item_transition(prev.status, incoming.status)?;
             if matches!(incoming.status, ItemStatus::InProgress | ItemStatus::Done) {
                 if !dependencies_satisfied(doc, &incoming) {
@@ -265,9 +311,11 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value
                 reflection = true;
             }
             maybe_warn_done_without_evidence(
+                store_key,
                 &prev,
                 &incoming,
                 recent_action,
+                work_items,
                 &mut reflection,
                 &mut warnings,
             );
@@ -306,16 +354,12 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value
                 }
                 bump_step_count(&mut doc.meta)?;
             }
-            let empty_prev = BoardItem {
-                id: incoming.id.clone(),
-                title: incoming.title.clone(),
-                status: ItemStatus::Pending,
-                ..BoardItem::default()
-            };
             maybe_warn_done_without_evidence(
+                store_key,
                 &empty_prev,
                 &incoming,
                 recent_action,
+                work_items,
                 &mut reflection,
                 &mut warnings,
             );
@@ -338,16 +382,22 @@ fn apply_patch(doc: &mut BoardDocument, args: &Value) -> Result<(bool, Vec<Value
 }
 
 fn maybe_warn_done_without_evidence(
+    store_key: &str,
     prev: &BoardItem,
     incoming: &BoardItem,
     recent_action: bool,
+    work_items: &WorkItemStore,
     reflection: &mut bool,
     warnings: &mut Vec<Value>,
 ) {
     if incoming.status != ItemStatus::Done || prev.status == ItemStatus::Done {
         return;
     }
-    if incoming.has_validate_evidence() || prev.has_validate_evidence() || recent_action {
+    if incoming.has_validate_evidence()
+        || prev.has_validate_evidence()
+        || recent_action
+        || milestone_done_has_work_item_evidence(store_key, incoming, work_items)
+    {
         return;
     }
     *reflection = true;

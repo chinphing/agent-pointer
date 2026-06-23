@@ -97,10 +97,19 @@ impl AppState {
 
         let tools = Arc::new(ToolRegistry::new());
         let task_board_store = match crate::task_board::open_default_persistence() {
-            Some(db) => Arc::new(crate::task_board::TaskBoardStore::with_persistence(db)),
+            Some(db) => {
+                let wi_store = std::sync::Arc::new(crate::task_board::WorkItemStore::new());
+                if let Some(wi_db) = crate::task_board::open_default_work_item_persistence() {
+                    wi_store.set_persistence(Some(wi_db));
+                }
+                std::sync::Arc::new(crate::task_board::TaskBoardStore::with_persistence_and_work_items(
+                    db,
+                    wi_store,
+                ))
+            }
             None => {
                 log::warn!("task_board: sqlite persistence unavailable; in-memory only");
-                Arc::new(crate::task_board::TaskBoardStore::new())
+                std::sync::Arc::new(crate::task_board::TaskBoardStore::new())
             }
         };
         let memory_store = match crate::memory::MemoryStore::open_default() {

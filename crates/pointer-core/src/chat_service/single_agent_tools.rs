@@ -44,6 +44,9 @@ pub(super) async fn run_single_agent_tool_pass(
         conversation_id: req.session.conversation_id,
         cancel: req.session.cancel,
     };
+    let work_items_enabled = req.settings.task_board_work_items_enabled;
+    let b42_enforced = work_items_enabled
+        && req.file_tool_lead_for_invoke == crate::agents::AgentProfile::Computer;
     let pass = ToolPassRequest {
         ctx: ToolPassContext {
             session,
@@ -67,6 +70,8 @@ pub(super) async fn run_single_agent_tool_pass(
                 lead_agent_id: req.lead_agent_id,
             }),
             sub: None,
+            task_board_work_items_enabled: work_items_enabled,
+            task_board_b42_enforced: b42_enforced,
         },
         final_tool_calls: req.final_tool_calls,
         trim_hook: Some(trim_hook),

@@ -515,7 +515,7 @@ mod apply_tests {
     fn init_accepts_full_rows_for_explicit_total_goal() {
         let store = TaskBoardStore::new();
         let key = "conv-explicit-total-ok";
-        let items: Vec<_> = (1..=21)
+        let items: Vec<_> = (1..=20)
             .map(|i| json!({"id": format!("c{i}"), "title": format!("组合{i}"), "status": "pending"}))
             .collect();
         store
@@ -523,15 +523,15 @@ mod apply_tests {
                 key,
                 "init",
                 &json!({
-                    "goal": "测试7种验证码类型×3种交互形式共21种组合",
-                    "expected_total": 21,
+                    "goal": "Matrix milestone coverage",
+                    "expected_total": 20,
                     "items": items
                 }),
             )
             .expect("init");
         let doc = store.document(key);
-        assert_eq!(doc.board.len(), 21);
-        assert_eq!(doc.meta.expected_total, Some(21));
+        assert_eq!(doc.board.len(), 20);
+        assert_eq!(doc.meta.expected_total, Some(20));
     }
 }
 
@@ -571,5 +571,147 @@ mod sqlite_tests {
         let doc = store2.document("conv-persist");
         assert_eq!(doc.board.len(), 1);
         assert_eq!(doc.board[0].id, "m1");
+    }
+}
+
+#[cfg(test)]
+mod work_items_tests {
+    use crate::task_board::store::TaskBoardStore;
+    use serde_json::json;
+
+    fn wi_args(extra: serde_json::Value) -> serde_json::Value {
+        let mut base = json!({
+            "_task_board_work_items_enabled": true,
+            "_task_board_b42_enforced": true,
+        });
+        if let Some(obj) = extra.as_object() {
+            for (k, v) in obj {
+                base[k] = v.clone();
+            }
+        }
+        base
+    }
+
+    #[test]
+    fn init_seeds_work_items_and_patch_delta_updates_progress() {
+        let store = TaskBoardStore::new();
+        let key = "conv-wi-p1";
+        store
+            .apply(
+                key,
+                "init",
+                &wi_args(json!({
+                    "goal": "Open apps",
+                    "expected_total": 3,
+                    "items": [{
+                        "id": "batch_apps",
+                        "title": "Open apps",
+                        "status": "pending",
+                        "work_item_mode": "enumerated",
+                        "work_items": [
+                            {"title": "App1"},
+                            {"title": "App2"},
+                            {"title": "App3"}
+                        ]
+                    }]
+                })),
+            )
+            .expect("init");
+        assert_eq!(store.work_items.count_campaign(key), 3);
+
+        let wi_id = store
+            .work_items
+            .inject_window(key, "batch_apps")
+            .first()
+            .expect("wi")
+            .id
+            .clone();
+        store
+            .apply(
+                key,
+                "patch",
+                &wi_args(json!({
+                    "id": "batch_apps",
+                    "status": "in_progress",
+                    "work_item_delta": {
+                        "id": wi_id,
+                        "status": "done",
+                        "result_summary": "opened"
+                    }
+                })),
+            )
+            .expect("patch");
+        let doc = store.document(key);
+        assert_eq!(
+            doc.board[0].progress.as_deref(),
+            Some("1/3 done")
+        );
+    }
+
+    #[test]
+    fn b42_rejects_validate_result_delta_on_work_item_row() {
+        let store = TaskBoardStore::new();
+        let key = "conv-b42";
+        store
+            .apply(
+                key,
+                "init",
+                &wi_args(json!({
+                    "items": [{
+                        "id": "batch",
+                        "title": "Batch",
+                        "status": "pending",
+                        "work_item_mode": "enumerated",
+                        "work_items": [{"title": "A"}]
+                    }]
+                })),
+            )
+            .expect("init");
+        let err = store
+            .apply(
+                key,
+                "patch",
+                &wi_args(json!({
+                    "id": "batch",
+                    "status": "in_progress",
+                    "validate_result_delta": "bad"
+                })),
+            )
+            .expect_err("reject");
+        assert!(err.to_string().contains("work_item_delta"));
+    }
+
+    #[test]
+    fn inject_window_stable_for_large_seed() {
+        let store = TaskBoardStore::new();
+        let key = "conv-big-inject";
+        let items: Vec<serde_json::Value> = (1..=50)
+            .map(|i| json!({"title": format!("item {i}")}))
+            .collect();
+        store
+            .apply(
+                key,
+                "init",
+                &wi_args(json!({
+                    "expected_total": 50,
+                    "items": [{
+                        "id": "batch",
+                        "title": "Batch",
+                        "status": "in_progress",
+                        "work_item_mode": "enumerated",
+                        "work_items": items
+                    }]
+                })),
+            )
+            .expect("init");
+        let block = crate::task_board::snapshot::markdown_runtime_block_for_inject(
+            &store.document(key),
+            key,
+            Some(store.work_items.as_ref()),
+        );
+        assert!(block.contains("## Current task work_items"));
+        assert!(block.contains("progress: 0/50 done"));
+        assert!(block.contains("more items in DB"));
+        assert!(block.len() < 8000);
     }
 }

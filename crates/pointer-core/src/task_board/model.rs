@@ -5,8 +5,25 @@ use serde_json::{json, Value};
 
 pub const BOARD_VERSION: u32 = 3;
 pub const DEFAULT_MAX_STEPS: u32 = 50;
+pub const MAX_BOARD_ROWS: usize = 20;
 pub const RESULT_SNIPPET_MAX_CHARS: usize = 800;
 pub const RESULTS_MAX_ENTRIES: usize = 48;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkItemMode {
+    Enumerated,
+    Dynamic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryFormat {
+    Xlsx,
+    Csv,
+    Txt,
+    Jsonl,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -158,6 +175,12 @@ pub struct BoardItem {
     pub extract_results: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_item_mode: Option<WorkItemMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_quota: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_format: Option<DeliveryFormat>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -192,6 +215,22 @@ impl BoardDocument {
 }
 
 impl BoardItem {
+    pub fn has_work_items(&self) -> bool {
+        self.work_item_mode.is_some() || self.dynamic_quota.is_some()
+    }
+
+    pub fn is_delivery_milestone(&self) -> bool {
+        self.delivery_format.is_some() && !self.has_work_items()
+    }
+
+    pub fn is_dynamic_work_items(&self) -> bool {
+        self.work_item_mode == Some(WorkItemMode::Dynamic) || self.dynamic_quota.is_some()
+    }
+
+    pub fn is_enumerated_work_items(&self) -> bool {
+        self.work_item_mode == Some(WorkItemMode::Enumerated)
+    }
+
     pub fn has_validate_evidence(&self) -> bool {
         self.validate_results.iter().any(|s| !s.trim().is_empty())
     }
@@ -249,6 +288,28 @@ impl BoardItem {
             .and_then(|x| x.as_str())
             .map(str::to_string);
 
+        let work_item_mode = v
+            .get("work_item_mode")
+            .and_then(|x| x.as_str())
+            .and_then(|s| match s.trim().to_ascii_lowercase().as_str() {
+                "enumerated" => Some(WorkItemMode::Enumerated),
+                "dynamic" => Some(WorkItemMode::Dynamic),
+                _ => None,
+            });
+        let dynamic_quota = v
+            .get("dynamic_quota")
+            .and_then(value_to_u32_loose);
+        let delivery_format = v
+            .get("delivery_format")
+            .and_then(|x| x.as_str())
+            .and_then(|s| match s.trim().to_ascii_lowercase().as_str() {
+                "xlsx" => Some(DeliveryFormat::Xlsx),
+                "csv" => Some(DeliveryFormat::Csv),
+                "txt" => Some(DeliveryFormat::Txt),
+                "jsonl" => Some(DeliveryFormat::Jsonl),
+                _ => None,
+            });
+
         Some(Self {
             id,
             title,
@@ -262,7 +323,21 @@ impl BoardItem {
             extract_requirement: str_field(v, "extract_requirement"),
             extract_results: string_array_field(v, "extract_results"),
             blocked_by,
+            work_item_mode,
+            dynamic_quota,
+            delivery_format,
         })
+    }
+}
+
+fn value_to_u32_loose(v: &Value) -> Option<u32> {
+    match v {
+        Value::Number(n) => n
+            .as_u64()
+            .or_else(|| n.as_i64().and_then(|i| u64::try_from(i).ok()))
+            .map(|u| u as u32),
+        Value::String(s) => s.trim().parse::<u32>().ok(),
+        _ => None,
     }
 }
 

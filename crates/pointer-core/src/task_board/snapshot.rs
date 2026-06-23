@@ -2,6 +2,8 @@
 
 use super::model::{BoardDocument, BoardItem, ItemStatus};
 use super::state_machine::dependencies_satisfied;
+use super::work_item::model::{WorkItemStatus, RESULT_SUMMARY_INJECT_MAX};
+use super::work_item::WorkItemStore;
 
 const RESULT_SNIPPET_INJECT_MAX: usize = 120;
 const READY_HINT_COUNT: usize = 2;
@@ -40,7 +42,11 @@ pub fn format_parent_tunnel_block(parent: &BoardDocument, sub_task_id: &str) -> 
     lines.join("\n")
 }
 
-pub fn markdown_runtime_block_for_inject(doc: &BoardDocument) -> String {
+pub fn markdown_runtime_block_for_inject(
+    doc: &BoardDocument,
+    store_key: &str,
+    work_items: Option<&WorkItemStore>,
+) -> String {
     let mut lines: Vec<String> = Vec::new();
     lines.push("[TASK_BOARD]".to_string());
     lines.push(String::new());
@@ -96,7 +102,11 @@ pub fn markdown_runtime_block_for_inject(doc: &BoardDocument) -> String {
     lines.push(progress.to_string());
 
     if let Some(item) = current_task_item(doc) {
-        if matches!(
+        if item.has_work_items() {
+            if let Some(store) = work_items {
+                append_work_items_section(&mut lines, store_key, store, item);
+            }
+        } else if matches!(
             item.status,
             ItemStatus::InProgress | ItemStatus::Ready | ItemStatus::Pending
         ) {
@@ -126,6 +136,70 @@ pub fn markdown_runtime_block_for_inject(doc: &BoardDocument) -> String {
     }
 
     lines.join("\n")
+}
+
+fn append_work_items_section(
+    lines: &mut Vec<String>,
+    store_key: &str,
+    work_items: &WorkItemStore,
+    item: &BoardItem,
+) {
+    let stats = work_items.batch_stats(store_key, &item.id);
+    let total_in_db = work_items.batch_total(store_key, &item.id);
+    lines.push(String::new());
+    lines.push("## Current task work_items".to_string());
+    if item.is_dynamic_work_items() {
+        let quota = item.dynamic_quota.unwrap_or(0);
+        lines.push(format!(
+            "progress: {}/{} claimed ({} done, {} failed)",
+            stats.done + stats.in_progress,
+            quota,
+            stats.done,
+            stats.failed
+        ));
+    } else {
+        lines.push(format!("progress: {}", stats.progress_label()));
+    }
+    if total_in_db > stats.total {
+        lines.push(format!("note: {total_in_db} rows in store"));
+    }
+    let window = work_items.inject_window(store_key, &item.id);
+    for wi in &window {
+        let summary = wi
+            .result_json
+            .as_deref()
+            .and_then(|j| super::work_item::model::result_summary_from_json(j))
+            .unwrap_or_default();
+        let summary = if summary.chars().count() > RESULT_SUMMARY_INJECT_MAX {
+            let c: String = summary.chars().take(RESULT_SUMMARY_INJECT_MAX).collect();
+            format!("{c}…")
+        } else {
+            summary
+        };
+        if summary.is_empty() {
+            lines.push(format!(
+                "- {} · {} · {}",
+                wi.id,
+                wi.title,
+                wi.status.as_str()
+            ));
+        } else {
+            lines.push(format!(
+                "- {} · {} · {} · {}",
+                wi.id,
+                wi.title,
+                wi.status.as_str(),
+                summary
+            ));
+        }
+        if wi.status == WorkItemStatus::InProgress {
+            lines.push(format!("[WORK_ITEM_FOCUS] id={} title={}", wi.id, wi.title));
+        }
+    }
+    let hidden = total_in_db.saturating_sub(window.len() as u32);
+    if hidden > 0 {
+        lines.push(format!("… {hidden} more items in DB, not injected"));
+    }
 }
 
 fn truncate_field(text: Option<&str>, max: usize) -> String {
@@ -443,7 +517,7 @@ mod inject_format_tests {
 
     #[test]
     fn inject_has_plan_and_validate_delta_sections() {
-        let block = markdown_runtime_block_for_inject(&sample_doc());
+        let block = markdown_runtime_block_for_inject(&sample_doc(), "conv-test", None);
         assert!(block.contains("## Current task plan"));
         assert!(block.contains("## Current task validate_result_delta"));
         assert!(!block.contains("## Current task validate_results"));
@@ -452,7 +526,7 @@ mod inject_format_tests {
 
     #[test]
     fn inject_current_task_shows_requirement() {
-        let block = markdown_runtime_block_for_inject(&sample_doc());
+        let block = markdown_runtime_block_for_inject(&sample_doc(), "conv-test", None);
         let section = block
             .split("## Current task plan")
             .next()
@@ -463,7 +537,7 @@ mod inject_format_tests {
 
     #[test]
     fn inject_all_tasks_includes_requirement_for_pending_and_in_progress() {
-        let block = markdown_runtime_block_for_inject(&sample_doc());
+        let block = markdown_runtime_block_for_inject(&sample_doc(), "conv-test", None);
         assert!(block.contains("- m1: Explore | done"));
         assert!(block.contains("  validate_results: grep done"));
         assert!(block.contains(
@@ -486,7 +560,7 @@ mod inject_format_tests {
                 .collect(),
             ..BoardItem::default()
         }];
-        let block = markdown_runtime_block_for_inject(&doc);
+        let block = markdown_runtime_block_for_inject(&doc, "conv-test", None);
         assert!(block.contains("## Current task validate_result_delta"));
         assert!(!block.contains("## Current task validate_results"));
         assert!(block.contains("- 8/10: step 8"));
@@ -506,7 +580,7 @@ mod inject_format_tests {
             ],
             ..BoardItem::default()
         }];
-        let block = markdown_runtime_block_for_inject(&doc);
+        let block = markdown_runtime_block_for_inject(&doc, "conv-test", None);
         assert!(block.contains("- 8: 13289012347 | done"));
         assert!(block.contains("  validate_results: 1/3: pending"));
         assert!(block.contains("  validate_results: 手机号 13289012347 - 账号存在 (小景家)"));

@@ -81,6 +81,22 @@ fn merge_full_results_on_done(
 }
 
 pub fn merge_row_patch_with_warnings(prev: &BoardItem, patch_v: &Value) -> RowPatchMerge {
+    merge_row_patch_with_warnings_inner(prev, patch_v, false)
+}
+
+pub fn merge_row_patch_with_warnings_b42(
+    prev: &BoardItem,
+    patch_v: &Value,
+    skip_v3_result_fields: bool,
+) -> RowPatchMerge {
+    merge_row_patch_with_warnings_inner(prev, patch_v, skip_v3_result_fields)
+}
+
+fn merge_row_patch_with_warnings_inner(
+    prev: &BoardItem,
+    patch_v: &Value,
+    skip_v3_result_fields: bool,
+) -> RowPatchMerge {
     let mut row = prev.clone();
 
     if let Some(s) = patch_v.get("status").and_then(|x| x.as_str()) {
@@ -115,8 +131,10 @@ pub fn merge_row_patch_with_warnings(prev: &BoardItem, patch_v: &Value) -> RowPa
     if let Some(s) = str_field(patch_v, "plan") {
         row.plan = Some(s);
     }
-    if let Some(s) = str_field(patch_v, "progress").or_else(|| str_field(patch_v, "checkpoint")) {
-        row.progress = Some(s);
+    if !skip_v3_result_fields {
+        if let Some(s) = str_field(patch_v, "progress").or_else(|| str_field(patch_v, "checkpoint")) {
+            row.progress = Some(s);
+        }
     }
     if let Some(s) = str_field(patch_v, "validate_requirement") {
         row.validate_requirement = Some(s);
@@ -141,43 +159,45 @@ pub fn merge_row_patch_with_warnings(prev: &BoardItem, patch_v: &Value) -> RowPa
         log::warn!("task_board: patch row {} missing required status", row.id);
     }
 
-    row.validate_results = merge_delta_field(
-        &prev.validate_results,
-        patch_v,
-        "validate_result_delta",
-        &["validate_results"],
-        &mut warnings,
-        &row.id,
-        "validate_results_use_delta_field",
-    );
-    row.validate_results = merge_full_results_on_done(
-        &row.validate_results,
-        patch_v,
-        "validate_results",
-        row.status,
-        &mut warnings,
-        &row.id,
-        "validate_results_only_when_done",
-    );
+    if !skip_v3_result_fields {
+        row.validate_results = merge_delta_field(
+            &prev.validate_results,
+            patch_v,
+            "validate_result_delta",
+            &["validate_results"],
+            &mut warnings,
+            &row.id,
+            "validate_results_use_delta_field",
+        );
+        row.validate_results = merge_full_results_on_done(
+            &row.validate_results,
+            patch_v,
+            "validate_results",
+            row.status,
+            &mut warnings,
+            &row.id,
+            "validate_results_only_when_done",
+        );
 
-    row.extract_results = merge_delta_field(
-        &prev.extract_results,
-        patch_v,
-        "extract_result_delta",
-        &["extract_results"],
-        &mut warnings,
-        &row.id,
-        "extract_results_use_delta_field",
-    );
-    row.extract_results = merge_full_results_on_done(
-        &row.extract_results,
-        patch_v,
-        "extract_results",
-        row.status,
-        &mut warnings,
-        &row.id,
-        "extract_results_only_when_done",
-    );
+        row.extract_results = merge_delta_field(
+            &prev.extract_results,
+            patch_v,
+            "extract_result_delta",
+            &["extract_results"],
+            &mut warnings,
+            &row.id,
+            "extract_results_use_delta_field",
+        );
+        row.extract_results = merge_full_results_on_done(
+            &row.extract_results,
+            patch_v,
+            "extract_results",
+            row.status,
+            &mut warnings,
+            &row.id,
+            "extract_results_only_when_done",
+        );
+    }
 
     RowPatchMerge { row, warnings }
 }

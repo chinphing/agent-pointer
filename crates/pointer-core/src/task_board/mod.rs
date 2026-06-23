@@ -20,6 +20,8 @@ pub mod state_machine;
 pub mod store;
 pub mod sub_agent_hint;
 pub mod tool;
+pub mod work_item;
+pub mod work_items_apply;
 
 pub use checkpoint::{is_task_board_tool_name, task_board_call_is_checkpoint};
 pub use coordination::{
@@ -40,10 +42,11 @@ pub use history_trim::{
 pub use evidence::history_has_recent_action_tools;
 pub use finalize::maybe_auto_finalize_if_complete;
 pub use inject::inject_host_task_board_conversation_id;
-pub use model::{BoardDocument, BoardItem, ItemStatus, MetaStatus};
+pub use model::{BoardDocument, BoardItem, DeliveryFormat, ItemStatus, MetaStatus, WorkItemMode};
 pub use persistence::TaskBoardSqlite;
 pub use store::TaskBoardStore;
 pub use tool::register as register_task_board_tool;
+pub use work_item::WorkItemStore;
 
 #[cfg(test)]
 mod tests;
@@ -53,4 +56,9 @@ pub fn open_default_persistence() -> Option<std::sync::Arc<TaskBoardSqlite>> {
     let dir = crate::storage::app_data_dir().ok()?;
     let path = dir.join("task_boards.db");
     TaskBoardSqlite::open(path).ok()
+}
+
+/// Open SQLite persistence for work items when app data dir is available.
+pub fn open_default_work_item_persistence() -> Option<std::sync::Arc<work_item::WorkItemSqlite>> {
+    work_item::open_default_persistence()
 }

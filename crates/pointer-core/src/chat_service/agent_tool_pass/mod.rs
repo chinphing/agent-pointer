@@ -75,6 +75,8 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
             pass.ctx.session.conversation_id,
             pass.ctx.task_board_store_key,
             pass.ctx.transcript.history,
+            pass.ctx.task_board_work_items_enabled,
+            pass.ctx.task_board_b42_enforced,
         );
 
         if tool_id.is_empty() {

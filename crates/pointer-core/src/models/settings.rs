@@ -690,6 +690,9 @@ pub struct ModelSettings {
         rename = "taskBoardShowChildBoards"
     )]
     pub task_board_show_child_boards: bool,
+    /// When true, Computer task board uses external work_items.db (delta/claim/inject window).
+    #[serde(default, rename = "taskBoardWorkItemsEnabled")]
+    pub task_board_work_items_enabled: bool,
     /// Migration flag: append task board runtime markdown as the last user message each round.
     #[serde(default = "default_user_dynamic_inject_enabled", rename = "userDynamicInjectEnabled")]
     pub user_dynamic_inject_enabled: bool,
@@ -1035,6 +1038,7 @@ impl Default for ModelSettings {
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             debug_menus_enabled: default_debug_menus_enabled(),
             task_board_show_child_boards: default_task_board_show_child_boards(),
+            task_board_work_items_enabled: false,
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: HashMap::new(),
             agent_task_board_history_trim: HashMap::new(),
@@ -1347,6 +1351,8 @@ pub struct PlatformSettings {
         rename = "taskBoardShowChildBoards"
     )]
     pub task_board_show_child_boards: bool,
+    #[serde(default, rename = "taskBoardWorkItemsEnabled")]
+    pub task_board_work_items_enabled: bool,
     #[serde(default = "default_user_dynamic_inject_enabled", rename = "userDynamicInjectEnabled")]
     pub user_dynamic_inject_enabled: bool,
     #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
@@ -1771,6 +1777,7 @@ impl Default for PlatformSettings {
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             debug_menus_enabled: default_debug_menus_enabled(),
             task_board_show_child_boards: default_task_board_show_child_boards(),
+            task_board_work_items_enabled: false,
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: default_platform_agent_models(),
             agent_task_board_history_trim: HashMap::new(),
@@ -1834,6 +1841,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         debug_dump_llm_prompts: platform.debug_dump_llm_prompts,
         debug_menus_enabled: platform.debug_menus_enabled,
         task_board_show_child_boards: platform.task_board_show_child_boards,
+        task_board_work_items_enabled: platform.task_board_work_items_enabled,
         user_dynamic_inject_enabled: platform.user_dynamic_inject_enabled,
         agent_default_models: platform.agent_default_models.clone(),
         agent_task_board_history_trim: platform.agent_task_board_history_trim.clone(),

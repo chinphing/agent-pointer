@@ -78,6 +78,8 @@ pub struct ToolPassContext<'a> {
     pub stats: &'a mut ToolInvocationStats<'a>,
     pub lead: Option<LeadToolPassConfig<'a>>,
     pub sub: Option<SubToolPassConfig<'a>>,
+    pub task_board_work_items_enabled: bool,
+    pub task_board_b42_enforced: bool,
 }
 
 impl<'a> ToolPassContext<'a> {

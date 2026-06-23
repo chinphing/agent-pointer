@@ -251,3 +251,52 @@ Examples use **`function.name`** + **`function.arguments`** only (no `method`, n
   }
 }
 ```
+
+## Computer + work_items (when enabled)
+
+When a milestone has **`work_item_mode`**, use the **unified execution patch** below instead of `progress` / `validate_result_delta` / `validate_results`.
+
+**Enumerated** (`work_item_mode: enumerated`):
+
+- Init may inline **`work_items[]`** (≤200) on the milestone; host stores rows in **`work_items.db`**.
+- Each patch: **`status`** + optional **`work_item_delta`** for **one** atomic row.
+
+```json
+{
+  "items": [{
+    "id": "batch_apps",
+    "status": "in_progress",
+    "work_item_delta": {
+      "id": "wi_conv_000003",
+      "status": "done",
+      "result_summary": "WeChat: main window visible"
+    }
+  }]
+}
+```
+
+**Dynamic** (`work_item_mode: dynamic`, **`dynamic_quota`** required):
+
+- Claim then delta: **`work_item_claim`** (creates row) → later **`work_item_delta`** (done/failed).
+
+```json
+{
+  "items": [{
+    "id": "quota_greet",
+    "status": "in_progress",
+    "work_item_claim": {
+      "target_key": "linkedin:ACoA…",
+      "title": "张三 · 某公司",
+      "status": "in_progress"
+    }
+  }]
+}
+```
+
+**1f milestones** (no `work_item_mode`): patch **`status` only**; step detail stays in actions / dialogue.
+
+**Inject**: `[TASK_BOARD]` shows a **window** of recent work_items + `N/M done`; full list is not in prompt.
+
+**Do not** send `progress`, `validate_result_delta`, or `validate_results` on work_item milestones when this mode is active.
+
+**User file delivery** (xlsx/csv): final **`deliver_*` milestone** + host export (P3); not per-item `MEDIA`.

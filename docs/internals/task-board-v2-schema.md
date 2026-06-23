@@ -36,10 +36,21 @@ Lifecycle: `docs/taskboard-lifecycle-and-fields.md`.
 
 ### Coverage contract (`expected_total`)
 
-- Use `expected_total` for exhaustive matrix/combinational tasks.
+- Use `expected_total` for exhaustive matrix/combinational tasks **or** enumerated work_item atomic counts.
 - Set it in `task_board:init` (or `meta.expected_total`).
-- When set, `init`/`replace` requires row count to match it exactly.
+- When **no** milestone has `work_item_mode` / `dynamic_quota`: `init`/`replace` requires row count to match `expected_total` exactly (matrix milestones).
+- When any milestone uses **work_items**: `expected_total` is the **atomic item count** in `work_items.db` (may differ from `board.len()`).
 - `patch` is still incremental row updates.
+
+## Work item fields (board row)
+
+| Field | Notes |
+|-------|-------|
+| `work_item_mode` | `enumerated` \| `dynamic` |
+| `dynamic_quota` | dynamic mode cap |
+| `delivery_format` | `xlsx` \| `csv` \| `txt` \| `jsonl` (delivery milestone; P3 export) |
+
+Inline seed on init: `work_items[]` on enumerated milestone (≤200); stored in `work_items.db`, not board JSON.
 
 ## Host-injected helper args (not model-authored)
 

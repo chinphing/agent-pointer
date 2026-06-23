@@ -33,7 +33,11 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
         let has_board_content =
             !terminal_board && (!doc.meta.goal.trim().is_empty() || !doc.board.is_empty());
         let board_block = if has_board_content {
-            Some(markdown_runtime_block_for_inject(&doc))
+            Some(markdown_runtime_block_for_inject(
+                &doc,
+                ctx.task_board_store_key,
+                Some(ctx.task_board_store.work_items.as_ref()),
+            ))
         } else if ctx.task_board_store_key == ctx.conversation_id {
             main_agent_task_board_init_hint(
                 ctx.task_board_store.as_ref(),

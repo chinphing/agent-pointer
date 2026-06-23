@@ -342,6 +342,7 @@ pub(super) async fn run_chat_inner(
             run_id,
             stream: &stream,
             context: crate::task_board::planner::PlannerContext::MainTurn,
+            system_dynamic: &[],
         },
     )
     .await;

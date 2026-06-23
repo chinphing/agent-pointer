@@ -34,5 +34,7 @@ Decide whether the user needs a structured task board, and if so, create or repl
 
 ## Sub-delegation note
 
-History may be short (goal + context + attachments). Prefer attachment hints;
-use session_search only if needed.
+When **Assigned task** appears in system dynamic above, that block is the worker goal
+(not main chat history). User history may be a short stub only.
+
+Prefer **Assigned task** + **Lead context** for planning; use `session_search` only if needed.

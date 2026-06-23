@@ -34,4 +34,5 @@ pub struct SubAgentPromptContext<'a> {
     pub user_dynamic_inject_enabled: bool,
     pub task_dynamic_blocks: &'a [String],
     pub spawn_depth: u32,
+    pub planner_outcome: crate::task_board::PlannerRunOutcome,
 }

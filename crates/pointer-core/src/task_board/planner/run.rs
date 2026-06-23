@@ -57,6 +57,8 @@ pub struct PlannerRunInput<'a> {
     pub run_id: &'a str,
     pub stream: &'a StreamTx,
     pub context: PlannerContext,
+    /// Sub-agent delegated task system dynamic (empty for main-turn planner).
+    pub system_dynamic: &'a [String],
 }
 
 pub async fn run_planner_loop(input: PlannerRunInput<'_>) -> PlannerRunOutcome {
@@ -79,6 +81,7 @@ pub async fn run_planner_loop(input: PlannerRunInput<'_>) -> PlannerRunOutcome {
         work_items: Some(store.work_items.as_ref()),
         workspace_root: &input.settings.workspace_root,
         today_line: &today_line,
+        system_dynamic: input.system_dynamic,
     });
     let planner_provider = planner_provider(input.provider, input.lead_agent_id);
     let native_tools = openai_tools();
@@ -348,6 +351,7 @@ mod tests {
             run_id: "run_planner_test",
             stream: &stream,
             context: PlannerContext::MainTurn,
+            system_dynamic: &[],
         })
         .await
     }
@@ -374,6 +378,7 @@ mod tests {
             run_id: "run",
             stream: &stream,
             context: PlannerContext::MainTurn,
+            system_dynamic: &[],
         })
         .await;
         assert_eq!(outcome, PlannerRunOutcome::NotApplicable);
@@ -447,6 +452,7 @@ mod tests {
             run_id: "run_planned",
             stream: &stream,
             context: PlannerContext::MainTurn,
+            system_dynamic: &[],
         })
         .await;
         assert_eq!(

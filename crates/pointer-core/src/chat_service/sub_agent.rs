@@ -16,9 +16,11 @@ use super::agent_tool_pass::{
     run_agent_tool_pass, SubToolPassConfig, ToolInvocationStats, ToolPassResult,
 };
 use crate::task_board::TaskBoardTrimHook;
+use crate::task_board::planner::PlannerRunOutcome;
 use super::emit::{agent_trace_step_id, emit, trace_id_opt};
 use super::session_model::sub_agent_provider;
 use super::sub_agent_prompt::{init_sub_agent_session, prepare_sub_agent_round_prompts};
+use super::sub_agent_task_prompt::push_sub_agent_task_system_dynamic;
 use super::sub_agent_stream::{run_sub_agent_stream_round, SubAgentStreamOutcome};
 use super::sub_message::SubMessageLinkage;
 use super::util::new_id;
@@ -91,8 +93,20 @@ pub(crate) async fn run_sub_agent(
             .reset_for_new_user_guidance(conversation_id);
     }
 
+    let mut planner_outcome = PlannerRunOutcome::NotApplicable;
+    let mut planner_system_dynamic = Vec::new();
+    if def.profile == AgentProfile::Computer {
+        push_sub_agent_task_system_dynamic(
+            &mut planner_system_dynamic,
+            &task_dynamic_blocks,
+            state.task_board_store.as_ref(),
+            &sub_task_board_key,
+            task.id.trim(),
+        );
+    }
+
     if def.profile == AgentProfile::Computer && sub_provider.settings.task_board_planner_enabled {
-        let _planner_outcome = crate::task_board::planner::run_planner_loop(
+        planner_outcome = crate::task_board::planner::run_planner_loop(
             crate::task_board::planner::PlannerRunInput {
                 state,
                 provider: &sub_provider,
@@ -109,6 +123,7 @@ pub(crate) async fn run_sub_agent(
                 context: crate::task_board::planner::PlannerContext::SubAgent {
                     anchor_message_id: message_id.to_string(),
                 },
+                system_dynamic: &planner_system_dynamic,
             },
         )
         .await;
@@ -210,6 +225,7 @@ pub(crate) async fn run_sub_agent(
             workspace_root: sub_provider.settings.workspace_root.as_str(),
             user_dynamic_inject_enabled: sub_provider.settings.user_dynamic_inject_enabled,
             spawn_depth,
+            planner_outcome: planner_outcome.clone(),
         })
         .await?;
 

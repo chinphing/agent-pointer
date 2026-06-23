@@ -1,5 +1,7 @@
 //! Host-assembled sub-agent task blocks (`goal` / `context` in system; stub user turn).
 
+use crate::task_board::TaskBoardStore;
+
 /// System dynamic blocks for the delegated task (not repeated in the first user message).
 pub fn build_subagent_task_system_blocks(goal: &str, context: &str, workspace_root: &str) -> Vec<String> {
     let mut blocks = Vec::new();
@@ -54,6 +56,20 @@ pub fn build_subagent_initial_user_message() -> String {
         .to_string()
 }
 
+/// Task-related system **dynamic** slices shared by sub-agent execution and pre-run planner.
+pub(crate) fn push_sub_agent_task_system_dynamic(
+    dynamic: &mut Vec<String>,
+    task_dynamic_blocks: &[String],
+    store: &TaskBoardStore,
+    child_store_key: &str,
+    sub_task_id: &str,
+) {
+    dynamic.extend(task_dynamic_blocks.iter().cloned());
+    if let Some(parent_block) = store.parent_tunnel_for_child(child_store_key, sub_task_id) {
+        dynamic.push(parent_block);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,5 +106,29 @@ mod tests {
     fn leaf_block_denies_spawn() {
         let b = build_subagent_spawn_depth_block(2, 2, false);
         assert!(b.contains("cannot call"));
+    }
+
+    #[test]
+    fn push_task_system_dynamic_includes_blocks_and_parent_tunnel() {
+        use crate::task_board::{sub_agent_task_board_store_key, TaskBoardStore};
+
+        let store = TaskBoardStore::new();
+        store
+            .apply(
+                "parent",
+                "init",
+                &serde_json::json!({
+                    "goal": "parent goal",
+                    "items": [{"id": "m1", "title": "Batch", "status": "pending"}]
+                }),
+            )
+            .expect("parent init");
+        let child_key = sub_agent_task_board_store_key("parent", "sub1");
+        let blocks = build_subagent_task_system_blocks("open ten apps", "ctx", "/ws");
+        let mut dynamic = Vec::new();
+        push_sub_agent_task_system_dynamic(&mut dynamic, &blocks, &store, &child_key, "sub1");
+        assert!(dynamic.iter().any(|b| b.contains("Assigned task")));
+        assert!(dynamic.iter().any(|b| b.contains("open ten apps")));
+        assert!(dynamic.iter().any(|b| b.contains("[TASK_BOARD_PARENT]")));
     }
 }

@@ -16,6 +16,8 @@ pub struct PlannerSystemInput<'a> {
     pub work_items: Option<&'a WorkItemStore>,
     pub workspace_root: &'a str,
     pub today_line: &'a str,
+    /// Sub-agent delegated task blocks (`## Assigned task`, spawn depth, …) — execution-aligned.
+    pub system_dynamic: &'a [String],
 }
 
 pub fn build_planner_system(input: PlannerSystemInput<'_>) -> SystemPromptSections {
@@ -35,7 +37,10 @@ pub fn build_planner_system(input: PlannerSystemInput<'_>) -> SystemPromptSectio
     let body = format!(
         "{COMPUTER_MD}\n\n{board_block}\n\n{env}\n\n{tools_doc}"
     );
-    SystemPromptSections::all_cacheable(vec![body])
+    SystemPromptSections {
+        cacheable: vec![body],
+        dynamic: input.system_dynamic.to_vec(),
+    }
 }
 
 #[cfg(test)]
@@ -54,6 +59,7 @@ mod tests {
             work_items: Some(store.work_items.as_ref()),
             workspace_root: "/tmp/ws",
             today_line: "[Environment] Today is Monday, 2026-01-01.",
+            system_dynamic: &[],
         });
         let body = sections.cacheable.join("\n\n");
         assert!(body.contains("(empty — no goal or milestones yet)"));
@@ -84,10 +90,29 @@ mod tests {
             work_items: Some(store.work_items.as_ref()),
             workspace_root: "",
             today_line: "[Environment] Today is Tuesday.",
+            system_dynamic: &[],
         });
         let body = sections.cacheable.join("\n\n");
         assert!(body.contains("[CURRENT_TASK_BOARD]"));
         assert!(body.contains("open apps"));
         assert!(!body.contains("(empty — no goal or milestones yet)"));
+    }
+
+    #[test]
+    fn sub_agent_task_blocks_go_in_system_dynamic() {
+        let doc = BoardDocument::empty_for_store_key("child");
+        let store = TaskBoardStore::new();
+        let dynamic = vec!["## Assigned task\n\n```\nopen ten apps\n```".to_string()];
+        let sections = build_planner_system(PlannerSystemInput {
+            doc: &doc,
+            store_key: "child",
+            work_items: Some(store.work_items.as_ref()),
+            workspace_root: "/ws",
+            today_line: "[Environment] Today is Wednesday.",
+            system_dynamic: &dynamic,
+        });
+        assert!(sections.cacheable.iter().any(|s| s.contains("Task Board Planner")));
+        assert_eq!(sections.dynamic.len(), 1);
+        assert!(sections.dynamic[0].contains("open ten apps"));
     }
 }

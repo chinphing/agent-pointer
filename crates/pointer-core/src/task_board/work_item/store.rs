@@ -1,9 +1,9 @@
 //! In-memory work item store with optional SQLite write-through.
 
 use super::model::{
-    draft_from_value, merge_result_summary, now_ms, payload_with_target_key, target_key_from_payload,
-    BatchStats, SeedOutcome, StoreStats, WorkItem, WorkItemDraft, WorkItemStatus, MAX_INLINE_SEED,
-    work_item_id,
+    draft_from_value, merge_result_summary, now_ms, parse_work_item_seq_ref,
+    payload_with_target_key, target_key_from_payload, work_item_id, BatchStats, SeedOutcome,
+    StoreStats, WorkItem, WorkItemDraft, WorkItemStatus, MAX_INLINE_SEED,
 };
 use super::persistence::WorkItemSqlite;
 use anyhow::{anyhow, Result};
@@ -169,9 +169,12 @@ impl WorkItemStore {
 
     pub fn apply_delta(&self, store_id: &str, delta: WorkItemDelta) -> Result<WorkItem> {
         let mut map = self.store_map(store_id);
+        let lookup = delta.id.clone();
+        let resolved_key = Self::resolve_item_key(&map, &lookup)
+            .ok_or_else(|| anyhow!("work_item_not_found: {lookup}"))?;
         let item = map
-            .get_mut(&delta.id)
-            .ok_or_else(|| anyhow!("work_item_not_found: {}", delta.id))?;
+            .get_mut(&resolved_key)
+            .ok_or_else(|| anyhow!("work_item_not_found: {lookup}"))?;
         let now = now_ms();
         item.status = delta.status;
         item.updated_at_ms = now;
@@ -193,14 +196,29 @@ impl WorkItemStore {
         if let Some(ref e) = delta.error_message {
             item.error_message = Some(e.clone());
         }
+        let canonical_id = work_item_id(store_id, item.seq);
+        if item.id != canonical_id {
+            item.id = canonical_id;
+        }
         let out = item.clone();
-        self.inner
-            .write()
-            .entry(store_id.to_string())
-            .or_default()
-            .insert(out.id.clone(), out.clone());
+        let mut store = self.inner.write();
+        let entry = store.entry(store_id.to_string()).or_default();
+        if resolved_key != out.id {
+            entry.remove(&resolved_key);
+        }
+        entry.insert(out.id.clone(), out.clone());
         self.persist_item(&out);
         Ok(out)
+    }
+
+    fn resolve_item_key(map: &HashMap<String, WorkItem>, delta_id: &str) -> Option<String> {
+        if map.contains_key(delta_id) {
+            return Some(delta_id.to_string());
+        }
+        let seq = parse_work_item_seq_ref(delta_id)?;
+        map.iter()
+            .find(|(_, item)| item.seq == seq)
+            .map(|(k, _)| k.clone())
     }
 
     pub fn claim(
@@ -518,7 +536,11 @@ impl Default for WorkItemStore {
 }
 
 pub fn delta_from_value(v: &Value) -> Option<WorkItemDelta> {
-    let id = v.get("id")?.as_str()?.trim().to_string();
+    let id = match v.get("id")? {
+        Value::Number(n) => n.as_i64()?.to_string(),
+        Value::String(s) => s.trim().to_string(),
+        _ => return None,
+    };
     if id.is_empty() {
         return None;
     }
@@ -613,6 +635,71 @@ mod tests {
         let stats = store.store_stats(key);
         assert_eq!(stats.done, 1);
         assert_eq!(stats.total, 3);
+    }
+
+    #[test]
+    fn apply_delta_accepts_numeric_id_and_json_integer() {
+        let store = WorkItemStore::new();
+        let key = "conv-num";
+        store
+            .seed_from_values(key, &[json!({"title": "A"}), json!({"title": "B"})])
+            .expect("seed");
+        store
+            .apply_delta(
+                key,
+                WorkItemDelta {
+                    id: "1".into(),
+                    status: WorkItemStatus::Done,
+                    result_summary: Some("ok".into()),
+                    result_ref: None,
+                    error_message: None,
+                },
+            )
+            .expect("by string seq");
+        assert_eq!(store.store_stats(key).done, 1);
+
+        let delta = delta_from_value(&json!({
+            "id": 2,
+            "status": "done",
+            "result_summary": "also ok"
+        }))
+        .expect("parse int id");
+        store.apply_delta(key, delta).expect("by json int");
+        assert_eq!(store.store_stats(key).done, 2);
+    }
+
+    #[test]
+    fn apply_delta_resolves_legacy_wi_prefix_id() {
+        let store = WorkItemStore::new();
+        let key = "conv-legacy";
+        store
+            .seed_from_values(key, &[json!({"title": "City"})])
+            .expect("seed");
+        let mut map = store.store_map(key);
+        let legacy_key = map.keys().next().unwrap().clone();
+        // Simulate pre-migration row still keyed by legacy id in memory.
+        let mut item = map.remove(&legacy_key).unwrap();
+        item.id = format!("wi_{key}_{:06}", item.seq);
+        map.insert(item.id.clone(), item);
+        store.inner.write().insert(key.to_string(), map);
+
+        store
+            .apply_delta(
+                key,
+                WorkItemDelta {
+                    id: "1".into(),
+                    status: WorkItemStatus::Done,
+                    result_summary: Some("legacy path".into()),
+                    result_ref: None,
+                    error_message: None,
+                },
+            )
+            .expect("legacy resolve");
+        assert_eq!(store.store_stats(key).done, 1);
+        assert_eq!(
+            store.store_map(key).get("1").expect("canonical id").status,
+            WorkItemStatus::Done
+        );
     }
 
     #[test]

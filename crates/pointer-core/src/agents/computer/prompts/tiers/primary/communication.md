@@ -15,7 +15,8 @@ in assistant message text.
 - Report: `action_verify` with native args (when reporting a prior step)
 - On **`action_result=pass` only**: include **`step_summary`** — one line toward the **user task** (see `action_verify` tool doc); omit on fail/pending/n/a
 - Action: one root desktop tool with route-matched args — **unless** clarification turn (below)
-- Board (optional): `task_board` tools per tool doc
+- **Type2 board:** when inject shows Item milestones / `[WORK_ITEM_FOCUS]`, **`task_board_patch` same turn** after each completed SOP step or terminal work_item
+- Other board updates: `task_board` tools per tool doc
 - **`content`:** brief line at **key milestones** only (see below)
 Do **not** write tool names or args in assistant message text.
 
@@ -616,7 +617,8 @@ Three turn shapes — pick **one** per round:
 **1. Action turn (default)**
 - **`action_verify` first** only when the newest history row shows **`verify: verifying`** (except first board-init round).
 - One root desktop tool with route-matched args.
-- Optional **`task_board`** per tool doc.
+- **Type2 board:** when inject shows Item milestones / `[WORK_ITEM_FOCUS]`, **`task_board_patch` same turn** after each completed SOP step or terminal work_item (`work_item_delta.id` from `[WORK_ITEM_FOCUS]` only).
+- Other board updates: per **`task_board`** tool doc.
 - **`content`:** brief line at **key milestones** only; else empty OK.
 
 **2. Clarification turn (user must reply)**

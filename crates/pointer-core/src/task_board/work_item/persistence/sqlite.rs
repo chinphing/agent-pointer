@@ -22,8 +22,8 @@ impl WorkItemSqlite {
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              CREATE TABLE IF NOT EXISTS work_items (
-               id              TEXT PRIMARY KEY NOT NULL,
                store_id        TEXT NOT NULL,
+               id              TEXT NOT NULL,
                seq             INTEGER NOT NULL,
                status          TEXT NOT NULL,
                title           TEXT NOT NULL,
@@ -37,7 +37,8 @@ impl WorkItemSqlite {
                created_at_ms   INTEGER NOT NULL,
                updated_at_ms   INTEGER NOT NULL,
                started_at_ms   INTEGER,
-               finished_at_ms  INTEGER
+               finished_at_ms  INTEGER,
+               PRIMARY KEY (store_id, id)
              );
              CREATE INDEX IF NOT EXISTS idx_work_items_store_status
                ON work_items (store_id, status, seq);
@@ -48,6 +49,7 @@ impl WorkItemSqlite {
                WHERE json_extract(payload_json, '$.target_key') IS NOT NULL;",
         )?;
         Self::migrate_legacy_columns(&conn)?;
+        Self::migrate_numeric_ids(&conn)?;
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
         }))
@@ -78,6 +80,66 @@ impl WorkItemSqlite {
         Ok(())
     }
 
+    /// Rebuild legacy global `id` PK rows to per-store numeric ids (`id` = seq string).
+    fn migrate_numeric_ids(conn: &Connection) -> Result<()> {
+        let version: i32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version >= 2 {
+            return Ok(());
+        }
+        let ddl: String = conn.query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='work_items'",
+            [],
+            |r| r.get(0),
+        )?;
+        if ddl.contains("PRIMARY KEY (store_id, id)") {
+            conn.execute("PRAGMA user_version = 2", [])?;
+            return Ok(());
+        }
+        log::info!("work_items: migrating to store-scoped numeric ids");
+        conn.execute_batch(
+            "CREATE TABLE work_items_numeric (
+               store_id        TEXT NOT NULL,
+               id              TEXT NOT NULL,
+               seq             INTEGER NOT NULL,
+               status          TEXT NOT NULL,
+               title           TEXT NOT NULL,
+               payload_json    TEXT NOT NULL DEFAULT '{}',
+               depends_on      TEXT NOT NULL DEFAULT '[]',
+               retry_count     INTEGER NOT NULL DEFAULT 0,
+               max_retries     INTEGER NOT NULL DEFAULT 2,
+               result_ref      TEXT,
+               result_json     TEXT,
+               error_message   TEXT,
+               created_at_ms   INTEGER NOT NULL,
+               updated_at_ms   INTEGER NOT NULL,
+               started_at_ms   INTEGER,
+               finished_at_ms  INTEGER,
+               PRIMARY KEY (store_id, id)
+             );
+             INSERT INTO work_items_numeric (
+               store_id, id, seq, status, title, payload_json, depends_on,
+               retry_count, max_retries, result_ref, result_json, error_message,
+               created_at_ms, updated_at_ms, started_at_ms, finished_at_ms
+             )
+             SELECT
+               store_id, CAST(seq AS TEXT), seq, status, title, payload_json, depends_on,
+               retry_count, max_retries, result_ref, result_json, error_message,
+               created_at_ms, updated_at_ms, started_at_ms, finished_at_ms
+             FROM work_items;
+             DROP TABLE work_items;
+             ALTER TABLE work_items_numeric RENAME TO work_items;
+             CREATE INDEX IF NOT EXISTS idx_work_items_store_status
+               ON work_items (store_id, status, seq);
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_store_seq
+               ON work_items (store_id, seq);
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_store_target_key
+               ON work_items (store_id, json_extract(payload_json, '$.target_key'))
+               WHERE json_extract(payload_json, '$.target_key') IS NOT NULL;",
+        )?;
+        conn.execute("PRAGMA user_version = 2", [])?;
+        Ok(())
+    }
+
     pub fn upsert(&self, item: &WorkItem) -> Result<()> {
         let conn = self.conn.lock();
         conn.execute(
@@ -86,7 +148,7 @@ impl WorkItemSqlite {
                retry_count, max_retries, result_ref, result_json, error_message,
                created_at_ms, updated_at_ms, started_at_ms, finished_at_ms
              ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
-             ON CONFLICT(id) DO UPDATE SET
+             ON CONFLICT(store_id, id) DO UPDATE SET
                status = excluded.status,
                title = excluded.title,
                payload_json = excluded.payload_json,
@@ -98,8 +160,8 @@ impl WorkItemSqlite {
                started_at_ms = excluded.started_at_ms,
                finished_at_ms = excluded.finished_at_ms",
             params![
-                item.id,
                 item.store_id,
+                item.id,
                 item.seq,
                 item.status.as_str(),
                 item.title,

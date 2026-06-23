@@ -31,7 +31,7 @@ You do **not** replace during planning.
 
 - **`work_items_source` → always `enumerated`**. Never pair a file path with `dynamic`.
 - **`dynamic` → never** pass `work_items_source` or `work_items[]`.
-- Excel/CSV attachment with N rows → **`enumerated`** + `work_items_source` + `expected_total: N`.
+- Tabular attachment (CSV/XLSX) with N rows → **`enumerated`** + `work_items_source` + `expected_total: N`.
 
 ## Rules
 

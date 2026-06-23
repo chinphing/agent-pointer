@@ -45,7 +45,7 @@ Host rejects: `dynamic` + file path, or `enumerated` without seed.
   - **`localPath`** absolute path from Lead context
   - **`pointer-media://…`** media ref from attachment manifest
   - Storage-relative path under conversation media
-- Example: `"/Users/me/data/cities.xlsx"` or `pointer-media://conv-id/att_id_file.xlsx`
+- Example: `"/Users/me/data/batch_list.xlsx"` or `pointer-media://conv-id/att_id_file.xlsx`
 - Do not pass `{ "format": "xlsx" }` without `path` / `ref`.
 
 **Optional meta**
@@ -59,22 +59,22 @@ Host rejects: `dynamic` + file path, or `enumerated` without seed.
 
 ---
 
-### Example — Type 2 enumerated (Excel city list)
+### Example — Type 2 enumerated (attached row list)
 
 ```json
 {
-  "goal": "Add each city from the attached list as a work address in BOSS",
+  "goal": "Process every row in the attached source list through the target workflow",
   "work_item_mode": "enumerated",
-  "expected_total": 127,
-  "work_items_source": "/path/to/cities.xlsx",
+  "expected_total": 42,
+  "work_items_source": "/path/to/batch_list.xlsx",
   "global_milestones": [
-    { "id": "g_plan", "title": "Load city list and confirm login", "status": "pending", "done_when": "127 rows seeded; BOSS form open" },
-    { "id": "g_exec", "title": "Add each city as work address", "status": "pending", "done_when": "all work_items terminal with result_summary" },
-    { "id": "g_deliver", "title": "Verify completion", "status": "pending", "delivery_format": "xlsx", "done_when": "export attached" }
+    { "id": "g_plan", "title": "Load source list and open target UI", "status": "pending", "done_when": "all rows seeded; workflow entry point ready" },
+    { "id": "g_exec", "title": "Run per-row workflow for each work_item", "status": "pending", "done_when": "all work_items terminal with result_summary" },
+    { "id": "g_deliver", "title": "Verify completion and export", "status": "pending", "delivery_format": "xlsx", "done_when": "export attached" }
   ],
   "item_milestones": [
-    { "id": "m1", "title": "Open address field", "status": "pending", "done_when": "address input focused" },
-    { "id": "m2", "title": "Enter city and save", "status": "pending", "plan": "Type {city} → select → save", "done_when": "{city} saved" }
+    { "id": "m1", "title": "Open row form", "status": "pending", "done_when": "form ready for row data" },
+    { "id": "m2", "title": "Apply row fields and save", "status": "pending", "plan": "Fill from {title} payload → confirm → save", "done_when": "{title} saved successfully" }
   ]
 }
 ```

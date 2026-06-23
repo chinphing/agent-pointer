@@ -344,14 +344,11 @@ mod tests {
     fn normalize_patch_coerces_string_work_item_delta() {
         let args = serde_json::json!({
             "milestones": "[{\"id\":\"m6\",\"status\":\"done\"}]",
-            "work_item_delta": "{\"id\":\"wi_x\",\"status\":\"done\",\"result_summary\":\"ok\"}"
+            "work_item_delta": "{\"id\":1,\"status\":\"done\",\"result_summary\":\"ok\"}"
         });
         let norm = normalize_patch_args(args);
         assert!(norm.get("work_item_delta").unwrap().is_object());
-        assert_eq!(
-            norm["work_item_delta"]["id"].as_str(),
-            Some("wi_x")
-        );
+        assert_eq!(norm["work_item_delta"]["id"].as_i64(), Some(1));
         assert!(milestone_patch_rows_from_args(&norm).is_some());
     }
 

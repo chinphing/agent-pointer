@@ -71,10 +71,16 @@ task_board_patch:
         type: object
     work_item_delta:
       type: object
-      description: One work_item update object (not a string). Host also accepts a JSON string for compatibility.
+      description: >
+        One work_item update object (not a string). id must match [WORK_ITEM_FOCUS] verbatim (integer seq).
+        Host also accepts a JSON string for compatibility.
       properties:
         id:
-          type: string
+          oneOf:
+            - type: integer
+              description: Auto-assigned seq within the current store (preferred).
+            - type: string
+              description: Same seq as decimal string; legacy long ids still accepted.
         status:
           type: string
           enum: [pending, in_progress, done, failed, cancelled]

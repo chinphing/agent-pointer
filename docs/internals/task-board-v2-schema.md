@@ -51,6 +51,8 @@ Lifecycle: `docs/taskboard-lifecycle-and-fields.md`.
 
 Stored in `work_items.db` keyed by `store_id` (= conversation store key). No `batch_id`.
 
+Each row gets an auto **numeric id** equal to its `seq` within the store (`1`, `2`, …). Patch with `"id": 1` or `"id": "1"`.
+
 Inline seed on init: top-level `work_items[]` or file-backed `work_items_source` — both are enumerated.
 
 Inject **`## Task`** shows `work_items_source: <path> (<n> rows seeded)` when init used a file; inline-only shows `work_items_seeded: <n> (inline on init)`.

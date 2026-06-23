@@ -121,8 +121,21 @@ pub struct SeedOutcome {
     pub seeded: u32,
 }
 
-pub fn work_item_id(store_id: &str, seq: i64) -> String {
-    format!("wi_{store_id}_{seq:06}")
+/// Per-store numeric id assigned automatically at seed (`seq` as decimal string).
+pub fn work_item_id(_store_id: &str, seq: i64) -> String {
+    seq.to_string()
+}
+
+/// Parse model-facing work_item id: plain integer or legacy `wi_*_{seq}` suffix.
+pub fn parse_work_item_seq_ref(id: &str) -> Option<i64> {
+    let t = id.trim();
+    if t.is_empty() {
+        return None;
+    }
+    if let Ok(n) = t.parse::<i64>() {
+        return Some(n);
+    }
+    t.rsplit('_').next()?.parse().ok()
 }
 
 pub fn now_ms() -> i64 {
@@ -211,4 +224,21 @@ pub fn draft_from_value(v: &Value) -> Option<WorkItemDraft> {
         payload,
         target_key,
     })
+}
+
+#[cfg(test)]
+mod work_item_id_tests {
+    use super::{parse_work_item_seq_ref, work_item_id};
+
+    #[test]
+    fn work_item_id_is_decimal_seq() {
+        assert_eq!(work_item_id("any-store-key", 127), "127");
+        assert_eq!(work_item_id("any-store-key", 1), "1");
+    }
+
+    #[test]
+    fn parse_seq_ref_accepts_integer_and_legacy_suffix() {
+        assert_eq!(parse_work_item_seq_ref("42"), Some(42));
+        assert_eq!(parse_work_item_seq_ref("wi_store_000042"), Some(42));
+    }
 }

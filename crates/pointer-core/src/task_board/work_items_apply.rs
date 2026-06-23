@@ -2,7 +2,7 @@
 
 use super::model::{BoardDocument, BoardItem, MAX_BOARD_ROWS};
 use super::work_item::{
-    claim_from_value, delta_from_value, WorkItemStore, MAX_INLINE_SEED,
+    claim_from_value, delta_from_value, drafts_from_source_value, WorkItemStore, MAX_INLINE_SEED,
 };
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -17,6 +17,14 @@ pub fn b42_enforced_from_args(args: &Value) -> bool {
     args.get("_task_board_b42_enforced")
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
+}
+
+pub fn workspace_root_from_args(args: &Value) -> &str {
+    args.get("_workspace_root")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("")
 }
 
 pub fn doc_has_work_item_milestones(doc: &BoardDocument) -> bool {
@@ -38,6 +46,7 @@ pub fn seed_work_items_on_init_replace(
     row_values: &[Value],
     work_items: &WorkItemStore,
     work_items_enabled: bool,
+    workspace_root: &str,
 ) -> Result<u32> {
     if !work_items_enabled {
         return Ok(0);
@@ -48,6 +57,12 @@ pub fn seed_work_items_on_init_replace(
         let Some(item) = BoardItem::from_value(row_v) else {
             continue;
         };
+        if let Some(source) = row_v.get("work_items_source") {
+            let drafts = drafts_from_source_value(source, workspace_root)?;
+            let outcome = work_items.seed_batch_bulk(store_key, &item.id, drafts)?;
+            total_seeded += outcome.seeded;
+            continue;
+        }
         if !item.is_enumerated_work_items() {
             continue;
         }

@@ -66,6 +66,35 @@ pub fn inject_host_task_board_conversation_id(
     Value::Object(map)
 }
 
+pub fn inject_work_items_tool_host(
+    tool_id: &str,
+    args: Value,
+    store_key: &str,
+    workspace_root: &str,
+    work_items_enabled: bool,
+) -> Value {
+    if tool_id != "work_items_export" && !is_task_board_tool_name(tool_id) {
+        return args;
+    }
+    let mut map = match args {
+        Value::Object(m) => m,
+        _ => serde_json::Map::new(),
+    };
+    if tool_id == "work_items_export" {
+        map.insert(
+            "_conversation_id".to_string(),
+            Value::String(store_key.to_string()),
+        );
+    }
+    if work_items_enabled {
+        map.insert(
+            "_workspace_root".to_string(),
+            Value::String(workspace_root.trim().to_string()),
+        );
+    }
+    Value::Object(map)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

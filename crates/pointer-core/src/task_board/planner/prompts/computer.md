@@ -19,6 +19,7 @@ Decide whether the user needs a structured task board, and if so, create or repl
 - Call **`task_board_init`** OR **`task_board_replace` at most once** per run.
 - After a successful init/replace, **stop calling tools** on the next round.
 - Max **20** board rows.
+- When board has work-item batches and user needs a results file, add a **final** `deliver_*` milestone with `delivery_format` (default **xlsx**).
 - Do not plan UI clicks — execution Agent handles that.
 
 ## Board state (read-only above)

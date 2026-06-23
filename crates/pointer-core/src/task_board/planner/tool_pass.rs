@@ -118,6 +118,7 @@ async fn dispatch_task_board(
     let mut bound = args.clone();
     bound["_conversation_id"] = json!(input.store_key);
     bound["_task_board_work_items_enabled"] = json!(input.work_items_enabled);
+    bound["_workspace_root"] = json!(input.settings.workspace_root);
     let (body, _reflection) = input.store.apply(input.store_key, method, &bound)?;
     let board_len = body
         .get("board_len")

@@ -76,6 +76,7 @@ pub(super) async fn run_single_agent_tool_pass(
             task_board_work_items_enabled: work_items_enabled,
             task_board_b42_enforced: b42_enforced,
             task_board_computer_no_exec_init: computer_no_exec_init,
+            workspace_root: &req.settings.workspace_root,
         },
         final_tool_calls: req.final_tool_calls,
         trim_hook: Some(trim_hook),

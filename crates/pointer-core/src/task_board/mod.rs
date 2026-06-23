@@ -42,7 +42,7 @@ pub use history_trim::{
 };
 pub use evidence::history_has_recent_action_tools;
 pub use finalize::maybe_auto_finalize_if_complete;
-pub use inject::inject_host_task_board_conversation_id;
+pub use inject::{inject_host_task_board_conversation_id, inject_work_items_tool_host};
 pub use model::{BoardDocument, BoardItem, DeliveryFormat, ItemStatus, MetaStatus, WorkItemMode};
 pub use persistence::TaskBoardSqlite;
 pub use planner::{PlannerRunOutcome, PlannedMethod};

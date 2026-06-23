@@ -91,6 +91,29 @@ pub(crate) async fn run_sub_agent(
             .reset_for_new_user_guidance(conversation_id);
     }
 
+    if def.profile == AgentProfile::Computer && sub_provider.settings.task_board_planner_enabled {
+        let _planner_outcome = crate::task_board::planner::run_planner_loop(
+            crate::task_board::planner::PlannerRunInput {
+                state,
+                provider: &sub_provider,
+                settings: &sub_provider.settings,
+                main_history: &local_history,
+                conversation_id,
+                store_key: &sub_task_board_key,
+                lead_agent_id: &def.id,
+                lead_profile: def.profile.clone(),
+                cancel: &cancel,
+                llm_stats: ctx.llm_stats,
+                run_id,
+                stream,
+                context: crate::task_board::planner::PlannerContext::SubAgent {
+                    anchor_message_id: message_id.to_string(),
+                },
+            },
+        )
+        .await;
+    }
+
     // Set thread-local for this sub-agent's tool calls; restore parent on exit.
     let _agent_guard = crate::tools::file::AgentWorkspaceGuard::enter(
         &sub_provider.settings.workspace_root,
@@ -380,6 +403,7 @@ pub(crate) async fn run_sub_agent(
                 task_board_work_items_enabled: false,
                 task_board_b42_enforced: false,
                 task_board_computer_no_exec_init: false,
+                workspace_root: &sub_provider.settings.workspace_root,
             },
             final_tool_calls: &buf.final_tool_calls,
             trim_hook: Some(trim_hook),

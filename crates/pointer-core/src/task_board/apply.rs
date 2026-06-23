@@ -15,7 +15,7 @@ use super::work_items_apply::{
     apply_work_item_patch_fields, b42_enforced_from_args, derive_row_progress,
     milestone_done_has_work_item_evidence, patch_rejects_v3_delta_fields,
     seed_work_items_on_init_replace, validate_board_row_count, validate_expected_total_after_seed,
-    work_items_enabled_from_args,
+    work_items_enabled_from_args, workspace_root_from_args,
 };
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
@@ -199,6 +199,7 @@ fn apply_init(
         &rows,
         work_items,
         work_items_enabled,
+        workspace_root_from_args(args),
     )?;
     if work_items_enabled && seeded > 0 && doc.meta.expected_total.is_none() {
         doc.meta.expected_total = Some(seeded);
@@ -230,6 +231,7 @@ fn apply_replace(
         &rows,
         work_items,
         work_items_enabled,
+        workspace_root_from_args(args),
     )?;
     validate_expected_total_after_seed(doc, work_items, store_key, "replace")?;
     Ok(seeded)

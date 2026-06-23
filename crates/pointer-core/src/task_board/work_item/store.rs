@@ -376,6 +376,86 @@ impl WorkItemStore {
     pub fn count_campaign(&self, campaign_id: &str) -> u32 {
         self.campaign_stats(campaign_id).total
     }
+
+    pub fn items_in_batch(&self, campaign_id: &str, batch_id: &str) -> Vec<WorkItem> {
+        let map = self.campaign_map(campaign_id);
+        let mut items: Vec<WorkItem> = map
+            .into_values()
+            .filter(|i| i.batch_id == batch_id)
+            .collect();
+        items.sort_by_key(|i| i.seq);
+        items
+    }
+
+    pub fn list_batch(
+        &self,
+        campaign_id: &str,
+        batch_id: Option<&str>,
+        offset: u32,
+        limit: u32,
+    ) -> (Vec<WorkItem>, u32) {
+        let map = self.campaign_map(campaign_id);
+        let mut items: Vec<WorkItem> = map
+            .into_values()
+            .filter(|i| batch_id.map(|b| i.batch_id == b).unwrap_or(true))
+            .collect();
+        items.sort_by_key(|i| i.seq);
+        let total = items.len() as u32;
+        let start = offset.min(total) as usize;
+        let end = offset.saturating_add(limit).min(total) as usize;
+        (items[start..end].to_vec(), total)
+    }
+
+    pub fn seed_batch_bulk(
+        &self,
+        campaign_id: &str,
+        batch_id: &str,
+        drafts: Vec<WorkItemDraft>,
+    ) -> Result<SeedOutcome> {
+        if drafts.len() > 50_000 {
+            return Err(anyhow!("work_items: bulk seed exceeds 50000 rows"));
+        }
+        let now = now_ms();
+        let mut seeded = 0u32;
+        for draft in drafts {
+            let payload = payload_with_target_key(draft.payload, draft.target_key.clone());
+            let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into());
+            if let Some(ref key) = draft.target_key {
+                if self.target_key_exists(campaign_id, key)? {
+                    return Err(anyhow!("duplicate_target_key: {key}"));
+                }
+            }
+            let seq = self.next_seq(campaign_id);
+            let id = work_item_id(campaign_id, seq);
+            let item = WorkItem {
+                id,
+                campaign_id: campaign_id.to_string(),
+                batch_id: batch_id.to_string(),
+                seq,
+                status: WorkItemStatus::Pending,
+                title: draft.title,
+                payload_json,
+                retry_count: 0,
+                max_retries: 2,
+                result_ref: None,
+                result_json: None,
+                error_message: None,
+                created_at_ms: now,
+                updated_at_ms: now,
+                started_at_ms: None,
+                finished_at_ms: None,
+            };
+            self.insert_item(campaign_id, item);
+            seeded += 1;
+        }
+        log::info!(
+            "work_items: bulk seeded campaign_id={campaign_id} batch_id={batch_id} count={seeded}"
+        );
+        Ok(SeedOutcome {
+            seeded,
+            batch_id: batch_id.to_string(),
+        })
+    }
 }
 
 impl Default for WorkItemStore {

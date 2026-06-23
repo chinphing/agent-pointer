@@ -229,8 +229,9 @@ pub fn make_openai_messages(
     include_reasoning_in_api: bool,
     explicit_system_cache: bool,
     inline_vision: bool,
+    history_scope: crate::message_context::LlmHistoryScope,
 ) -> Vec<serde_json::Value> {
-    let included = crate::message_context::filter_context_messages(msgs);
+    let included = crate::message_context::filter_messages_for_llm_scope(msgs, history_scope);
     let expanded = expand_tool_messages_for_openai_request(&included);
     let mut out: Vec<serde_json::Value> = Vec::new();
     push_openai_system_messages(&mut out, system, explicit_system_cache);
@@ -360,7 +361,11 @@ pub fn make_openai_messages(
 #[cfg(test)]
 mod make_openai_messages_tests {
     use super::*;
+    use crate::message_context::LlmHistoryScope;
     use crate::models::{ExcludedReason, MessageContextState};
+
+    const LEAD: LlmHistoryScope = LlmHistoryScope::Lead;
+    const SUB_LOOP: LlmHistoryScope = LlmHistoryScope::SubAgentLoop;
 
     fn msg(role: Role) -> ChatMessage {
         ChatMessage {
@@ -400,7 +405,7 @@ mod make_openai_messages_tests {
             cacheable: vec!["static system".into()],
             dynamic: vec!["task board".into()],
         };
-        let out = make_openai_messages(&[], &system, false, true, false);
+        let out = make_openai_messages(&[], &system, false, true, false, LEAD);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0]["role"], "system");
         let content = out[0]["content"].as_array().expect("multipart system");
@@ -415,7 +420,7 @@ mod make_openai_messages_tests {
     #[test]
     fn system_prompt_plain_string_when_cache_disabled() {
         let system = SystemPromptSections::all_cacheable(vec!["static system".into()]);
-        let out = make_openai_messages(&[], &system, false, false, false);
+        let out = make_openai_messages(&[], &system, false, false, false, LEAD);
         assert_eq!(out[0]["content"], "static system");
     }
 
@@ -424,7 +429,7 @@ mod make_openai_messages_tests {
         let mut u = msg(Role::User);
         u.content = "see screen".into();
         u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
-        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, true);
+        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, true, LEAD);
         assert_eq!(out.len(), 1);
         let content = out[0]["content"].as_array().expect("multipart content");
         assert_eq!(content[0]["type"], "text");
@@ -440,7 +445,7 @@ mod make_openai_messages_tests {
         let mut u = msg(Role::User);
         u.content = "what is this".into();
         u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
-        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, false);
+        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, false, LEAD);
         assert_eq!(out[0]["role"], "user");
         let content = out[0]["content"].as_str().expect("text content");
         assert!(content.contains("what is this"));
@@ -454,7 +459,7 @@ mod make_openai_messages_tests {
         u.content = "[CUR_SCREEN] preamble".into();
         u.image_slot_labels = Some(vec!["[Screen after action]".into()]);
         u.images_base64 = Some(vec!["iVBORw0KGgo=".into()]);
-        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, true);
+        let out = make_openai_messages(&[u], &SystemPromptSections::default(), false, false, true, LEAD);
         let content = out[0]["content"].as_array().expect("multipart content");
         assert_eq!(content.len(), 3);
         assert_eq!(content[0]["text"], "[CUR_SCREEN] preamble");
@@ -467,7 +472,7 @@ mod make_openai_messages_tests {
         let mut a = msg(Role::Assistant);
         a.content = "answer".into();
         a.reasoning = Some("step 1…".into());
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false, false);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false, false, LEAD);
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "answer");
         assert_eq!(out[0]["reasoning_content"], "step 1…");
@@ -478,7 +483,7 @@ mod make_openai_messages_tests {
         let mut a = msg(Role::Assistant);
         a.content = "answer".into();
         a.reasoning = Some("hidden".into());
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false, LEAD);
         assert!(out[0].as_object().unwrap().get("reasoning_content").is_none());
     }
 
@@ -502,7 +507,7 @@ mod make_openai_messages_tests {
         t.tool_call_id = Some("call_abc".into());
         t.content = "{}".into();
 
-        let out = make_openai_messages(&[a, t], &SystemPromptSections::default(), true, false, false);
+        let out = make_openai_messages(&[a, t], &SystemPromptSections::default(), true, false, false, LEAD);
         assert_eq!(out.len(), 2, "assistant + tool");
         assert_eq!(out[0]["role"], "assistant");
         assert!(out[0].as_object().unwrap().get("tool_calls").is_some());
@@ -528,7 +533,7 @@ mod make_openai_messages_tests {
             display_label: None,
             display_summary: None,
         }]);
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false, false);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), true, false, false, LEAD);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "calling");
@@ -553,6 +558,7 @@ mod make_openai_messages_tests {
             false,
             false,
             false,
+            LEAD,
         );
         assert_eq!(out.len(), 1);
         assert_eq!(out[0]["content"], "recent turn");
@@ -575,7 +581,7 @@ mod make_openai_messages_tests {
             display_label: None,
             display_summary: None,
         }]);
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false, LEAD);
         assert_eq!(out[0]["content"], "visible");
         assert!(out[0].as_object().unwrap().get("tool_calls").is_some());
     }
@@ -598,7 +604,7 @@ mod make_openai_messages_tests {
             display_summary: None,
         }]);
 
-        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false, LEAD);
         assert_eq!(out.len(), 1, "assistant only");
         assert_eq!(out[0]["role"], "assistant");
         assert_eq!(out[0]["content"], "");
@@ -632,6 +638,7 @@ mod make_openai_messages_tests {
             false,
             false,
             false,
+            LEAD,
         );
         assert_eq!(out.len(), 2, "assistant + synthesized tool from inline result");
         assert_eq!(out[0]["role"], "assistant");
@@ -653,9 +660,59 @@ mod make_openai_messages_tests {
             false,
             false,
             false,
+            LEAD,
         );
         assert_eq!(out.len(), 1, "user only; orphan tool dropped");
         assert_eq!(out[0]["role"], "user");
+    }
+
+    #[test]
+    fn sub_agent_loop_scope_keeps_stamped_assistant_tool_on_wire() {
+        let mut assistant = msg(Role::Assistant);
+        assistant.content = "click save".into();
+        assistant.anchor_message_id = Some("lead_anchor".into());
+        assistant.context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: None,
+        });
+        assistant.tool_calls = Some(vec![ToolCall {
+            id: "call_save".into(),
+            name: "mouse_click_index".into(),
+            arguments: "{}".into(),
+            status: "success".into(),
+            result: Some("ok".into()),
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+            display_label: None,
+            display_summary: None,
+        }]);
+        let mut tool = msg(Role::Tool);
+        tool.tool_call_id = Some("call_save".into());
+        tool.content = "ok".into();
+
+        let lead = make_openai_messages(
+            &[assistant.clone(), tool.clone()],
+            &SystemPromptSections::default(),
+            false,
+            false,
+            false,
+            LEAD,
+        );
+        assert_eq!(lead.len(), 0, "lead scope: assistant excluded, orphan tool dropped on wire");
+
+        let sub = make_openai_messages(
+            &[assistant, tool],
+            &SystemPromptSections::default(),
+            false,
+            false,
+            false,
+            SUB_LOOP,
+        );
+        assert_eq!(sub.len(), 2, "sub loop keeps assistant + tool");
+        assert_eq!(sub[0]["role"], "assistant");
+        assert_eq!(sub[1]["role"], "tool");
+        assert_eq!(sub[1]["tool_call_id"], "call_save");
     }
 }
 

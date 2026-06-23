@@ -100,6 +100,9 @@ Never batch multiple rows or multiple work_items in one patch.
 
 **Do not** send both `global_milestones` and `milestones` in the same patch.
 
+Pass **JSON objects and arrays** in tool arguments — do **not** stringify
+`milestones`, `work_item_delta`, or `work_item_claim` (host tolerates strings but objects are required for reliable parsing).
+
 ### Type 1 — advance a global step
 
 ```json

@@ -3,8 +3,8 @@
 use super::args::{
     constraint_from_args, context_from_args, done_when_from_args,
     expected_total_from_args, global_patch_rows_from_args, global_rows_from_args, goal_from_args,
-    item_milestones_from_args, milestone_patch_rows_from_args, prune_ids_from_args,
-    replace_has_forbidden_scope,
+    item_milestones_from_args, milestone_patch_rows_from_args, normalize_patch_args,
+    prune_ids_from_args, replace_has_forbidden_scope,
 };
 use super::coordination::parent_child::{assert_child_may_mutate, parent_store_key_from_child};
 use super::model::{
@@ -89,8 +89,9 @@ pub fn apply_method(
                     reflection_required: false,
                 });
             }
+            let patch_args = normalize_patch_args(args.clone());
             let (refl, warnings, patched) =
-                apply_patch(store_key, doc, args, work_items, work_items_enabled)?;
+                apply_patch(store_key, doc, &patch_args, work_items, work_items_enabled)?;
             let mut body = json!({
                 "ok": true,
                 "method": "patch",

@@ -205,11 +205,7 @@ pub(super) fn init_sub_agent_session(
                 spawn_depth: None,
             };
             persist_sub_message(conversation_id, &linkage, &stub);
-            vec![{
-                let mut stamped = stub;
-                linkage.stamp(&mut stamped);
-                stamped
-            }]
+            vec![stub]
         }
     };
 

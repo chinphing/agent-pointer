@@ -13,12 +13,15 @@ task_board_init:
     done_when:
       type: string
     global_milestones:
-      description: >
-        Task-level milestone array (or JSON string).
-        Type1: 3-12 steps. Type2: g_plan, g_exec, g_deliver.
+      type: array
+      description: Exactly one global row object in an array (or JSON string of array).
+      items:
+        type: object
     item_milestones:
-      description: >
-        Per-work-item SOP template (Type2 only). Use {field} placeholders.
+      type: array
+      description: Per-work-item SOP template array (Type2 only).
+      items:
+        type: object
     work_items:
       description: Inline work item drafts (Type2 enumerated init).
     work_items_source:
@@ -57,11 +60,48 @@ task_board_patch:
   type: object
   properties:
     global_milestones:
-      description: Exactly one global row (mutually exclusive with milestones).
+      type: array
+      description: Exactly one global row object in an array (or JSON string of array).
+      items:
+        type: object
     milestones:
-      description: Exactly one item_milestone row (Type2, mutually exclusive with global_milestones).
-    work_item_delta: {}
-    work_item_claim: {}
+      type: array
+      description: Exactly one item_milestone row object in an array (or JSON string of array).
+      items:
+        type: object
+    work_item_delta:
+      type: object
+      description: One work_item update object (not a string). Host also accepts a JSON string for compatibility.
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [pending, in_progress, done, failed, cancelled]
+        result_summary:
+          type: string
+        result_ref:
+          type: string
+        error_message:
+          type: string
+      required: [id]
+      additionalProperties: false
+    work_item_claim:
+      type: object
+      description: Dynamic mode — claim one runtime target (object, not a string).
+      properties:
+        target_key:
+          type: string
+        title:
+          type: string
+        payload:
+          type: object
+          description: Optional key-value fields for the claimed target.
+          additionalProperties: true
+        status:
+          type: string
+      required: [target_key]
+      additionalProperties: true
     items:
       description: Legacy flat row (id + status); prefer global_milestones or milestones.
     item_id:

@@ -48,12 +48,49 @@ fn array_from_key(args: &Value, key: &str) -> Option<Vec<Value>> {
     if let Some(arr) = raw.as_array() {
         return Some(arr.clone());
     }
+    if let Some(obj) = coerce_json_string_value(raw) {
+        return obj.as_array().cloned();
+    }
+    None
+}
+
+/// Accept a JSON object or a stringified JSON object (same tolerance as `milestones[]`).
+fn object_from_key(args: &Value, key: &str) -> Option<Value> {
+    let raw = args.get(key)?;
+    if raw.is_object() {
+        return Some(raw.clone());
+    }
+    coerce_json_string_value(raw).filter(|v| v.is_object())
+}
+
+fn coerce_json_string_value(raw: &Value) -> Option<Value> {
     if let Some(s) = raw.as_str() {
         if let Ok(v) = serde_json::from_str::<Value>(s) {
-            return v.as_array().cloned();
+            return Some(v);
         }
     }
     None
+}
+
+/// Coerce stringified `work_item_delta` / `work_item_claim` on patch args before apply.
+pub fn normalize_patch_args(mut args: Value) -> Value {
+    if let Value::Object(ref mut map) = args {
+        for key in ["work_item_delta", "work_item_claim"] {
+            let Some(raw) = map.get(key) else {
+                continue;
+            };
+            if raw.is_object() {
+                continue;
+            }
+            let Some(v) = coerce_json_string_value(raw) else {
+                continue;
+            };
+            if v.is_object() {
+                map.insert(key.to_string(), v);
+            }
+        }
+    }
+    args
 }
 
 pub fn items_array_from_args(args: &Value) -> Option<Vec<Value>> {
@@ -301,5 +338,26 @@ mod tests {
         });
         assert!(milestone_patch_rows_from_args(&args).is_some());
         assert!(global_patch_rows_from_args(&args).is_none());
+    }
+
+    #[test]
+    fn normalize_patch_coerces_string_work_item_delta() {
+        let args = serde_json::json!({
+            "milestones": "[{\"id\":\"m6\",\"status\":\"done\"}]",
+            "work_item_delta": "{\"id\":\"wi_x\",\"status\":\"done\",\"result_summary\":\"ok\"}"
+        });
+        let norm = normalize_patch_args(args);
+        assert!(norm.get("work_item_delta").unwrap().is_object());
+        assert_eq!(
+            norm["work_item_delta"]["id"].as_str(),
+            Some("wi_x")
+        );
+        assert!(milestone_patch_rows_from_args(&norm).is_some());
+    }
+
+    #[test]
+    fn object_from_key_rejects_non_object_string() {
+        let args = serde_json::json!({ "work_item_delta": "[1,2]" });
+        assert!(object_from_key(&args, "work_item_delta").is_none());
     }
 }

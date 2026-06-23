@@ -263,7 +263,7 @@ pub(super) fn commit_sub_assistant_turn(
     stream: &StreamTx,
     conversation_id: &str,
     history: &mut Vec<ChatMessage>,
-    mut assistant_msg: ChatMessage,
+    assistant_msg: ChatMessage,
     linkage: &SubMessageLinkage,
 ) {
     log_reasoning_and_output_segments(
@@ -274,7 +274,6 @@ pub(super) fn commit_sub_assistant_turn(
         Some(assistant_msg.content.as_str()),
         assistant_msg.tool_raw_output.as_deref(),
     );
-    linkage.stamp(&mut assistant_msg);
     history.push(assistant_msg.clone());
     super::sub_message::persist_sub_message(conversation_id, linkage, &assistant_msg);
     emit(

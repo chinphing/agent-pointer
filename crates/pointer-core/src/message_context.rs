@@ -4,6 +4,16 @@ use crate::context_compression::{SUMMARY_PREFIX_BUDGET, SUMMARY_PREFIX_TOOL_LIMI
 use crate::models::{ChatMessage, ExcludedReason, MessageContextState, ModelSettings, Role};
 use crate::task_board::history_trim::TRIM_PLACEHOLDER_PREFIX;
 
+/// Which transcript filter applies when building provider HTTP messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LlmHistoryScope {
+    /// Lead agent loop: scoped sub-agent rows never enter parent LLM context.
+    #[default]
+    Lead,
+    /// Sub-agent loop: full assistant + tool chain in `local_history`; ignore scoped linkage.
+    SubAgentLoop,
+}
+
 /// Whether this message participates in LLM context (default true when unset).
 pub fn is_context_included(m: &ChatMessage) -> bool {
     if crate::models::is_scoped_sub_message(m) {
@@ -13,6 +23,16 @@ pub fn is_context_included(m: &ChatMessage) -> bool {
         .as_ref()
         .map(|s| s.included)
         .unwrap_or(true)
+}
+
+/// Sub-agent loop inclusion: honor real exclusions (compression/trim), not scoped linkage stamps.
+pub fn is_sub_agent_loop_included(m: &ChatMessage) -> bool {
+    if let Some(state) = m.context_state.as_ref() {
+        if !state.included {
+            return state.excluded_reason.is_none();
+        }
+    }
+    true
 }
 
 pub fn mark_excluded(m: &mut ChatMessage, reason: ExcludedReason) {
@@ -27,6 +47,30 @@ pub fn filter_context_messages(msgs: &[ChatMessage]) -> Vec<ChatMessage> {
         .filter(|m| is_context_included(m))
         .cloned()
         .collect()
+}
+
+pub fn filter_sub_agent_loop_messages(msgs: &[ChatMessage]) -> Vec<ChatMessage> {
+    msgs.iter()
+        .filter(|m| is_sub_agent_loop_included(m))
+        .cloned()
+        .collect()
+}
+
+pub fn filter_messages_for_llm_scope(
+    msgs: &[ChatMessage],
+    scope: LlmHistoryScope,
+) -> Vec<ChatMessage> {
+    match scope {
+        LlmHistoryScope::Lead => filter_context_messages(msgs),
+        LlmHistoryScope::SubAgentLoop => filter_sub_agent_loop_messages(msgs),
+    }
+}
+
+fn is_included_for_llm_scope(m: &ChatMessage, scope: LlmHistoryScope) -> bool {
+    match scope {
+        LlmHistoryScope::Lead => is_context_included(m),
+        LlmHistoryScope::SubAgentLoop => is_sub_agent_loop_included(m),
+    }
 }
 
 /// Count messages that still participate in LLM context (`included` default true).
@@ -62,13 +106,14 @@ pub fn try_log_context_excluded_messages(
     msgs: &[ChatMessage],
     phase: &str,
     label: Option<&str>,
+    scope: LlmHistoryScope,
 ) {
     if !crate::llm_prompt_dump::should_dump(settings) {
         return;
     }
     let lines: Vec<String> = msgs
         .iter()
-        .filter(|m| !is_context_included(m))
+        .filter(|m| !is_included_for_llm_scope(m, scope))
         .map(excluded_message_log_line)
         .collect();
     if lines.is_empty() {
@@ -165,5 +210,49 @@ mod tests {
         let msgs = vec![old, u("a"), u("b"), u("c")];
         assert_eq!(find_split_at_user_boundary(&msgs, 1), 3);
         assert_eq!(find_split_at_user_boundary(&msgs, 2), 2);
+    }
+
+    #[test]
+    fn sub_agent_loop_keeps_stamped_assistant_tool_pair() {
+        let mut assistant = u("plan");
+        assistant.role = Role::Assistant;
+        assistant.anchor_message_id = Some("lead_anchor".into());
+        assistant.context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: None,
+        });
+        assistant.tool_calls = Some(vec![crate::models::ToolCall {
+            id: "call_1".into(),
+            name: "terminal".into(),
+            arguments: "{}".into(),
+            status: "success".into(),
+            result: None,
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+            display_label: None,
+            display_summary: None,
+        }]);
+        let mut tool = u("ok");
+        tool.role = Role::Tool;
+        tool.tool_call_id = Some("call_1".into());
+        let msgs = vec![assistant.clone(), tool.clone()];
+        assert_eq!(filter_context_messages(&msgs).len(), 1, "lead keeps orphan tool only");
+        let kept = filter_sub_agent_loop_messages(&msgs);
+        assert_eq!(kept.len(), 2);
+        assert_eq!(filter_messages_for_llm_scope(&msgs, LlmHistoryScope::Lead).len(), 1);
+        assert_eq!(
+            filter_messages_for_llm_scope(&msgs, LlmHistoryScope::SubAgentLoop).len(),
+            2
+        );
+    }
+
+    #[test]
+    fn sub_agent_loop_still_honors_compression_exclusion() {
+        let mut excluded = u("old");
+        excluded.anchor_message_id = Some("lead_anchor".into());
+        mark_excluded(&mut excluded, ExcludedReason::ContextCompression);
+        let kept = filter_sub_agent_loop_messages(&[excluded]);
+        assert!(kept.is_empty());
     }
 }

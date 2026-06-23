@@ -516,6 +516,7 @@ impl OpenAIProvider {
             messages,
             "chat_once",
             dump_label,
+            crate::message_context::LlmHistoryScope::Lead,
         );
         let openai_msgs = crate::models::make_openai_messages(
             messages,
@@ -523,6 +524,7 @@ impl OpenAIProvider {
             crate::models::effective_reasoning_in_messages(&self.settings),
             crate::models::qwen_explicit_system_cache_enabled(&self.settings),
             crate::media::model_supports_vision(&self.settings),
+            crate::message_context::LlmHistoryScope::Lead,
         );
         let max_tok = max_tokens_override.unwrap_or(crate::models::effective_max_tokens(&self.settings));
         let extra_body = crate::models::effective_chat_extra_body(&self.settings);
@@ -674,6 +676,7 @@ impl OpenAIProvider {
         tx: mpsc::Sender<ProviderEvent>,
         cancel: CancellationToken,
         dump_label: Option<&str>,
+        history_scope: crate::message_context::LlmHistoryScope,
     ) -> Result<()> {
         let stream_t0 = Instant::now();
         let base_url = self
@@ -696,6 +699,7 @@ impl OpenAIProvider {
             messages,
             "stream_chat",
             dump_label,
+            history_scope,
         );
         let openai_msgs = crate::models::make_openai_messages(
             messages,
@@ -703,6 +707,7 @@ impl OpenAIProvider {
             crate::models::effective_reasoning_in_messages(&self.settings),
             crate::models::qwen_explicit_system_cache_enabled(&self.settings),
             crate::media::model_supports_vision(&self.settings),
+            history_scope,
         );
         let build_openai_messages_ms = t_build.elapsed().as_millis();
         let api_message_count = openai_msgs.len();

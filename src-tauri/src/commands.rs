@@ -233,6 +233,66 @@ pub fn get_task_board_snapshot(
     Ok(state.task_board_store.document(&store_key).to_value())
 }
 
+#[tauri::command]
+pub fn list_work_items(
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+    task_id: Option<String>,
+    batch_id: Option<String>,
+    offset: Option<u32>,
+    limit: Option<u32>,
+) -> Result<serde_json::Value, String> {
+    use pointer_core::task_board::sub_agent_task_board_store_key;
+    use pointer_core::task_board::work_item::list_work_items_json;
+    let store_key = match task_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(tid) => {
+            let parent = state
+                .get_active_main_task_board_key(&conversation_id)
+                .unwrap_or_else(|| conversation_id.clone());
+            sub_agent_task_board_store_key(&parent, tid)
+        }
+        None => state
+            .get_active_main_task_board_key(&conversation_id)
+            .unwrap_or_else(|| conversation_id.clone()),
+    };
+    let batch = batch_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    Ok(list_work_items_json(
+        state.task_board_store.work_items.as_ref(),
+        &store_key,
+        batch,
+        offset.unwrap_or(0),
+        limit.unwrap_or(50),
+    ))
+}
+
+#[tauri::command]
+pub fn work_item_stats(
+    state: State<'_, Arc<AppState>>,
+    conversation_id: String,
+    task_id: Option<String>,
+    batch_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    use pointer_core::task_board::sub_agent_task_board_store_key;
+    use pointer_core::task_board::work_item::work_item_stats_json;
+    let store_key = match task_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(tid) => {
+            let parent = state
+                .get_active_main_task_board_key(&conversation_id)
+                .unwrap_or_else(|| conversation_id.clone());
+            sub_agent_task_board_store_key(&parent, tid)
+        }
+        None => state
+            .get_active_main_task_board_key(&conversation_id)
+            .unwrap_or_else(|| conversation_id.clone()),
+    };
+    let batch = batch_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    Ok(work_item_stats_json(
+        state.task_board_store.work_items.as_ref(),
+        &store_key,
+        batch,
+    ))
+}
+
 /// Returns the last annotated PNG from [`capture_and_annotate`] for a conversation.
 #[tauri::command]
 pub fn preview_computer_annotated_screen(

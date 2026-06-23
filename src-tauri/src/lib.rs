@@ -351,6 +351,8 @@ pub fn run() {
             commands::list_tools,
             commands::list_agents,
             commands::get_task_board_snapshot,
+            commands::list_work_items,
+            commands::work_item_stats,
             commands::preview_computer_annotated_screen,
             commands::preview_computer_round_screen,
             commands::preview_chat_media,

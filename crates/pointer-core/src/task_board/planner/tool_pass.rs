@@ -113,7 +113,7 @@ async fn dispatch_task_board(
         return Ok(PlannerToolOutcome {
             tool_result: "ERROR: board already exists — use task_board_replace to replan.".into(),
             planned: None,
-            board_len: doc.board.len(),
+            board_len: doc.global_milestones.len(),
         });
     }
     let mut bound = args.clone();
@@ -297,7 +297,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_board_replace_plans_and_replaces_board() {
+    async fn task_board_replace_plans_and_replaces_item_milestones() {
         let store = Arc::new(TaskBoardStore::new());
         let key = "conv-replace";
         store
@@ -305,8 +305,14 @@ mod tests {
                 key,
                 "init",
                 &json!({
-                    "goal": "old",
-                    "items": [{"id": "a", "title": "A", "status": "pending"}]
+                    "goal": "campaign",
+                    "work_item_mode": "enumerated",
+                    "global_milestones": [
+                        {"id": "g_exec", "title": "Exec", "status": "in_progress"}
+                    ],
+                    "item_milestones": [
+                        {"id": "m1", "title": "A", "status": "pending"}
+                    ]
                 }),
             )
             .expect("init");
@@ -317,10 +323,9 @@ mod tests {
         let tc = planner_tool_call(
             "task_board_replace",
             json!({
-                "goal": "new goal",
-                "items": [
-                    {"id": "b", "title": "B", "status": "pending"},
-                    {"id": "c", "title": "C", "status": "pending"}
+                "item_milestones": [
+                    {"id": "m1", "title": "B", "status": "pending"},
+                    {"id": "m2", "title": "C", "status": "pending"}
                 ]
             }),
         );
@@ -328,11 +333,11 @@ mod tests {
             .await
             .expect("replace");
         assert_eq!(out.planned, Some(PlannedMethod::Replace));
-        assert_eq!(out.board_len, 2);
         let doc = store.document(key);
-        assert_eq!(doc.meta.goal, "old");
-        assert_eq!(doc.board[0].id, "b");
-        assert_eq!(doc.board[1].id, "c");
+        assert_eq!(doc.item_milestones.len(), 2);
+        assert_eq!(doc.item_milestones[0].id, "m1");
+        assert_eq!(doc.item_milestones[1].id, "m2");
+        assert_eq!(doc.global_milestones[0].id, "g_exec");
     }
 
     #[tokio::test]

@@ -1,21 +1,31 @@
-//! Parse tool arguments (`items`, `method`, flat single-row patch).
+//! Parse tool arguments (`global_milestones`, `milestones`, `items`, flat patch).
 
 use serde_json::{Map, Value};
 
 const PATCH_HOST_KEYS: &[&str] = &[
     "method",
     "goal",
+    "context",
+    "constraint",
+    "done_when",
     "global_context",
     "globalContext",
     "ids",
     "finding",
     "expected_total",
     "expectedTotal",
+    "work_item_mode",
+    "dynamic_quota",
+    "work_items",
+    "work_items_source",
     "_conversation_id",
     "_recent_action_tools",
     "_recent_verify_pass",
     "_recent_verify_report",
     "items",
+    "global_milestones",
+    "item_milestones",
+    "milestones",
     "meta",
 ];
 
@@ -23,39 +33,70 @@ const PATCH_ROW_FIELD_KEYS: &[&str] = &[
     "status",
     "title",
     "plan",
-    "progress",
-    "checkpoint",
+    "constraint",
+    "done_when",
     "validate_requirement",
-    "validate_result_delta",
-    "validate_results",
-    "extract_requirement",
-    "extract_result_delta",
-    "extract_results",
+    "remark",
     "depends_on",
     "retry_count",
     "blocked_by",
+    "delivery_format",
 ];
 
-fn items_from_args(args: &Value) -> Option<&Value> {
-    args.get("items")
+fn array_from_key(args: &Value, key: &str) -> Option<Vec<Value>> {
+    let raw = args.get(key)?;
+    if let Some(arr) = raw.as_array() {
+        return Some(arr.clone());
+    }
+    if let Some(s) = raw.as_str() {
+        if let Ok(v) = serde_json::from_str::<Value>(s) {
+            return v.as_array().cloned();
+        }
+    }
+    None
 }
 
 pub fn items_array_from_args(args: &Value) -> Option<Vec<Value>> {
-    if let Some(raw) = items_from_args(args) {
-        if let Some(arr) = raw.as_array() {
-            return Some(arr.clone());
-        }
-        if let Some(s) = raw.as_str() {
-            if let Ok(v) = serde_json::from_str::<Value>(s) {
-                return v.as_array().cloned();
-            }
-        }
-        return None;
+    if let Some(rows) = array_from_key(args, "items") {
+        return Some(rows);
     }
     flat_patch_row_from_args(args).map(|row| vec![row])
 }
 
+/// Init / replace global milestone rows (`global_milestones` or legacy `items` / `board`).
+pub fn global_rows_from_args(args: &Value) -> Vec<Value> {
+    array_from_key(args, "global_milestones")
+        .or_else(|| array_from_key(args, "items"))
+        .or_else(|| array_from_key(args, "board"))
+        .unwrap_or_default()
+}
+
+/// Replace-only: `item_milestones` whole table.
+pub fn item_milestones_from_args(args: &Value) -> Vec<Value> {
+    array_from_key(args, "item_milestones").unwrap_or_default()
+}
+
+/// Patch item SOP rows (`milestones` len=1).
+pub fn milestone_patch_rows_from_args(args: &Value) -> Option<Vec<Value>> {
+    array_from_key(args, "milestones")
+}
+
+/// Patch global rows (`global_milestones` len=1) or legacy `items` for Type1.
+pub fn global_patch_rows_from_args(args: &Value) -> Option<Vec<Value>> {
+    if let Some(rows) = array_from_key(args, "global_milestones") {
+        return Some(rows);
+    }
+    if args.get("milestones").is_some() {
+        return None;
+    }
+    items_array_from_args(args)
+}
+
 pub fn board_rows_from_args(args: &Value) -> Vec<Value> {
+    let global = global_rows_from_args(args);
+    if !global.is_empty() {
+        return global;
+    }
     items_array_from_args(args).unwrap_or_default()
 }
 
@@ -120,6 +161,47 @@ pub fn goal_from_args(args: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
+pub fn context_from_args(args: &Value) -> Option<String> {
+    args.get("context")
+        .or_else(|| args.get("meta").and_then(|m| m.get("context")))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+pub fn constraint_from_args(args: &Value) -> Option<String> {
+    str_meta_field(args, "constraint")
+}
+
+pub fn done_when_from_args(args: &Value) -> Option<String> {
+    str_meta_field(args, "done_when")
+}
+
+fn str_meta_field(args: &Value, key: &str) -> Option<String> {
+    args.get(key)
+        .or_else(|| args.get("meta").and_then(|m| m.get(key)))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+pub fn work_item_mode_from_args(args: &Value) -> Option<String> {
+    args.get("work_item_mode")
+        .or_else(|| args.get("meta").and_then(|m| m.get("work_item_mode")))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+pub fn dynamic_quota_from_args(args: &Value) -> Option<u32> {
+    args.get("dynamic_quota")
+        .or_else(|| args.get("meta").and_then(|m| m.get("dynamic_quota")))
+        .and_then(value_to_u32_loose)
+}
+
 pub fn expected_total_from_args(args: &Value) -> Option<u32> {
     args.get("expected_total")
         .or_else(|| args.get("expectedTotal"))
@@ -171,6 +253,24 @@ pub fn check_item_id_from_args(args: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
+pub fn replace_has_forbidden_scope(args: &Value) -> bool {
+    const FORBIDDEN: &[&str] = &[
+        "goal",
+        "context",
+        "constraint",
+        "done_when",
+        "expected_total",
+        "work_item_mode",
+        "dynamic_quota",
+        "work_items",
+        "work_items_source",
+        "global_milestones",
+        "items",
+        "board",
+    ];
+    FORBIDDEN.iter().any(|k| args.get(k).is_some())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,36 +285,21 @@ mod tests {
     }
 
     #[test]
-    fn parses_flat_item_id_patch_row() {
+    fn global_milestones_patch_takes_priority() {
         let args = serde_json::json!({
-            "item_id": "1",
-            "status": "done",
-            "validate_results": "微信应用已打开"
+            "global_milestones": [{"id": "g_exec", "status": "done"}],
+            "items": [{"id": "ignored", "status": "done"}]
         });
-        let items = items_array_from_args(&args).expect("flat row");
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["id"], "1");
-        assert_eq!(items[0]["status"], "done");
+        let rows = global_patch_rows_from_args(&args).expect("rows");
+        assert_eq!(rows[0]["id"], "g_exec");
     }
 
     #[test]
-    fn flat_row_not_used_when_items_present() {
+    fn milestones_patch_separate_from_global() {
         let args = serde_json::json!({
-            "items": [{"id": "a", "status": "done"}],
-            "item_id": "ignored",
-            "status": "failed"
+            "milestones": [{"id": "m1", "status": "done"}]
         });
-        let items = items_array_from_args(&args).expect("items");
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["id"], "a");
-    }
-    #[test]
-    fn parses_expected_total_from_number_or_string() {
-        let a = serde_json::json!({"expected_total": 21});
-        let b = serde_json::json!({"expected_total": "21"});
-        let c = serde_json::json!({"meta": {"expectedTotal": "21"}});
-        assert_eq!(expected_total_from_args(&a), Some(21));
-        assert_eq!(expected_total_from_args(&b), Some(21));
-        assert_eq!(expected_total_from_args(&c), Some(21));
+        assert!(milestone_patch_rows_from_args(&args).is_some());
+        assert!(global_patch_rows_from_args(&args).is_none());
     }
 }

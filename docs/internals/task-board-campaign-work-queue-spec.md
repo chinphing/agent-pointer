@@ -1,11 +1,16 @@
-# Task Board Campaign + Work Queue — Technical Spec (v1)
+# Task Board Campaign + Work Queue — Technical Spec (v1 design notes)
+
+> **v4 runtime (2026):** Implemented behavior follows **[Task Board v4](task-board-v2-schema.md)**.
+> When reading this doc, map: `board[]` → `global_milestones[]`; `campaign_id` → `store_id`; no `batch_id`;
+> row evidence → `remark` / `work_item.result_summary`; delivery at **`g_deliver`** + **`work_items_export`**.
+> Sections below retain v1 campaign-runner design for historical context; cross-check against v4 schema before coding.
 
 Maintainer spec for long-running Computer tasks (days, 100–10,000 atomic units).
-Builds on task board v3; does **not** replace milestone semantics.
+Builds on task board **v4**; does **not** replace milestone semantics.
 
 Related:
 
-- [`task-board-v2-schema.md`](task-board-v2-schema.md)
+- [`task-board-v2-schema.md`](task-board-v2-schema.md) — **authoritative v4 schema**
 - [`task-board-parent-child-coordination.md`](task-board-parent-child-coordination.md)
 - [`../taskboard-lifecycle-and-fields.md`](../taskboard-lifecycle-and-fields.md)
 
@@ -13,13 +18,13 @@ Related:
 
 ## 1. Problem statement
 
-| Constraint | Current v3 | Target |
-|------------|------------|--------|
-| Board rows in prompt | All tasks listed | ≤ 15 lines (working set) |
-| Atomic subtasks | Batched into 3–8 milestones | 100–10,000 in DB, not in board |
+| Constraint | Pre-v4 | v4 target |
+|------------|--------|-----------|
+| Board rows in prompt | All tasks listed | `## Global milestones` + current row + conditional Item blocks |
+| Atomic subtasks | Batched into 3–8 milestones | 100–10,000 in DB (`store_id`), not in board JSON |
 | Session length | Single tool-loop run | Slice per run; resume next day |
-| Evidence | `validate_results[]` on row | Row summary + per-item artifact |
-| Scheduling | LLM-driven patch cadence | Host `CampaignRunner` dequeue loop |
+| Evidence | `validate_results[]` on row | `remark` on row + `work_item.result_summary` |
+| Scheduling | LLM-driven patch cadence | Host dequeue + `work_item_delta` / optional CampaignRunner |
 
 **Non-goals (v1):**
 
@@ -27,7 +32,7 @@ Related:
 - Temporal / external workflow engine
 - Replacing Supervisor team mode
 - Auto-planner that bulk-seeds 10k **enumerated** rows without user/host/file input
-- Using work_items for every task (see §3.5 — small jobs stay v3 board-only)
+- Using work_items for every task (see §3.5 — small jobs stay Type1 `global_milestones` only)
 
 ---
 
@@ -40,9 +45,11 @@ Campaign (meta + stats + checkpoint)
   │
   ├─ work_items table     ← atomic units (1000+)
   │
-  └─ board[] (3–8 rows)   ← current wave milestones only
+  └─ global_milestones[] (Type1 or g_plan/g_exec/g_deliver)   ← task-level rows
          │
-         └─ child boards (optional) ← local_* for one milestone
+         ├─ item_milestones[] (Type2 SOP template)
+         │
+         └─ child boards (optional) ← local_* for one subtask
 ```
 
 ```text
@@ -67,7 +74,7 @@ Campaign (meta + stats + checkpoint)
 1. Board = cockpit; work queue = database.
 2. LLM executes **one wave / few items**; host remembers cursor.
 3. Prompt injects **working set** only.
-4. Final delivery aggregates from `work_items` + board `validate_results`.
+4. Final delivery aggregates from `work_items` + board `remark` / `g_deliver`.
 
 **Two campaign modes (§3.3):**
 

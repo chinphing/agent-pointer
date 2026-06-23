@@ -32,7 +32,7 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
         let doc = ctx.task_board_store.document(ctx.task_board_store_key);
         let terminal_board = matches!(doc.meta.status, MetaStatus::Completed | MetaStatus::Failed);
         let has_board_content =
-            !terminal_board && (!doc.meta.goal.trim().is_empty() || !doc.board.is_empty());
+            !terminal_board && (!doc.meta.goal.trim().is_empty() || !doc.global_milestones.is_empty());
         let board_block = if has_board_content {
             Some(markdown_runtime_block_for_inject(
                 &doc,

@@ -164,10 +164,10 @@ This section keeps **JSON examples** only.
     "name": "task_board_init",
     "arguments": {
       "goal": "Fix null handling in parser",
-      "items": [
-        { "id": "m1", "title": "Recon", "status": "done", "plan": "explore handoff merged", "validate_results": "explore: single_module_fix; Key files: parser.rs" },
-        { "id": "m2", "title": "Implement fix", "status": "in_progress", "plan": "patch parser null path", "validate_requirement": "file edit parser.rs + callers if needed" },
-        { "id": "m3", "title": "Unit tests", "status": "pending", "plan": "run unit tests", "validate_requirement": "cargo test -p my-crate parser::" }
+      "global_milestones": [
+        { "id": "m1", "title": "Recon", "status": "done", "plan": "explore handoff merged", "remark": "explore: single_module_fix; Key files: parser.rs" },
+        { "id": "m2", "title": "Implement fix", "status": "in_progress", "plan": "patch parser null path", "done_when": "file edit parser.rs + callers if needed" },
+        { "id": "m3", "title": "Unit tests", "status": "pending", "plan": "run unit tests", "done_when": "cargo test -p my-crate parser::" }
       ]
     }
   }
@@ -181,11 +181,11 @@ This section keeps **JSON examples** only.
   "function": {
     "name": "task_board_patch",
     "arguments": {
-      "items": [
+      "global_milestones": [
         {
           "id": "m3",
           "status": "done",
-          "validate_results": "- cargo test -p my-crate parser:: — 12 passed"
+          "remark": "cargo test -p my-crate parser:: — 12 passed"
         }
       ]
     }
@@ -219,7 +219,7 @@ For repository mapping, prefer early **`explore`** delegation—see **Delegating
 
 ## Definition of done (`task_board` and delivery)
 
-- Mark a step **`done`** only when **repeatable `validate_results` evidence** exists.
+- Mark a step **`done`** only when **repeatable evidence** exists in **`remark`** (command output, explore summary, or test pass).
 - Do **not** mark **`done`** on “I edited it” alone.
 - Do **not** **`finalize`** without **internal Responsibility audit** when executable logic changed.
 - If evidence is impossible, note risk in **Deliver** instead of pretending certainty.

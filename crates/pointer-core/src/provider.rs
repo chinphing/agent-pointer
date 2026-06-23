@@ -294,9 +294,9 @@ fn chat_request_wire_json(req: &ChatRequest<'_>, settings: &ModelSettings) -> Va
 
 #[derive(Deserialize, Debug, Clone)]
 struct StreamUsage {
-    #[serde(default)]
+    #[serde(default, alias = "input_tokens")]
     prompt_tokens: Option<u32>,
-    #[serde(default)]
+    #[serde(default, alias = "output_tokens")]
     completion_tokens: Option<u32>,
     #[serde(default)]
     total_tokens: Option<u32>,
@@ -1118,6 +1118,19 @@ mod llm_http_retry_tests {
         let rate = llm_rate_limit_backoff_ms(1, &headers);
         let transient = llm_transient_backoff_ms(1);
         assert!(transient < rate, "transient={transient} rate={rate}");
+    }
+
+    #[test]
+    fn snapshot_from_dashscope_input_output_tokens() {
+        let u: StreamUsage = serde_json::from_value(serde_json::json!({
+            "input_tokens": 1200,
+            "output_tokens": 340
+        }))
+        .expect("deserialize");
+        let snap = snapshot_from_stream_usage(&u);
+        assert_eq!(snap.prompt_tokens, 1200);
+        assert_eq!(snap.completion_tokens, 340);
+        assert_eq!(snap.total_tokens, 1540);
     }
 }
 

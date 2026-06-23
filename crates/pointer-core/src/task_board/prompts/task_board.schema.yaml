@@ -1,21 +1,40 @@
-# task_board.schema.yaml — 独立工具 schema（不含 method 枚举）
-# 提示词正文仍留在 task_board.md 中共享。
+# task_board.schema.yaml — flat tool argument shapes (v4)
+# Narrative guidance lives in task_board.md.
 
 task_board_init:
   type: object
   properties:
     goal:
       type: string
-    global_context: {}
-    items:
+    context:
+      type: string
+    constraint:
+      type: string
+    done_when:
+      type: string
+    global_milestones:
       description: >
-        Milestone array (or JSON string of that array).
-        Use field name items only. Each element needs id, title, status.
-        Optional v3 fields: plan, progress, validate_requirement,
-        validate_result_delta, extract_requirement, extract_result_delta.
+        Task-level milestone array (or JSON string).
+        Type1: 3-12 steps. Type2: g_plan, g_exec, g_deliver.
+    item_milestones:
+      description: >
+        Per-work-item SOP template (Type2 only). Use {field} placeholders.
+    work_items:
+      description: Inline work item drafts (Type2 init, max 50).
+    work_items_source:
+      type: string
+    work_item_mode:
+      type: string
+      enum: [enumerated, dynamic]
     expected_total:
       type: integer
       minimum: 1
+    dynamic_quota:
+      type: integer
+      minimum: 1
+    global_context: {}
+    items:
+      description: Legacy alias for global_milestones.
     _conversation_id:
       type: string
   required: [goal]
@@ -24,26 +43,24 @@ task_board_init:
 task_board_replace:
   type: object
   properties:
-    goal:
-      type: string
-    global_context: {}
-    items: {}
-    expected_total:
-      type: integer
-      minimum: 1
+    item_milestones:
+      description: Full item SOP template array (execution only).
     _conversation_id:
       type: string
-  required: [items]
-  additionalProperties: true
+  required: [item_milestones]
+  additionalProperties: false
 
 task_board_patch:
   type: object
   properties:
+    global_milestones:
+      description: Exactly one global row (mutually exclusive with milestones).
+    milestones:
+      description: Exactly one item_milestone row (Type2, mutually exclusive with global_milestones).
+    work_item_delta: {}
+    work_item_claim: {}
     items:
-      description: >
-        One row object with required id and status. Optional progress,
-        validate_result_delta, extract_result_delta — omit optional fields
-        not changed on this call (do not send empty placeholders).
+      description: Legacy flat row (id + status); prefer global_milestones or milestones.
     item_id:
       type: string
     _conversation_id:

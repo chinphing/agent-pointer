@@ -1,6 +1,6 @@
 //! Export work_items to xlsx / csv / txt / jsonl under workspace.
 
-use super::model::{WorkItem, WorkItemStatus};
+use super::model::WorkItem;
 use super::store::WorkItemStore;
 use crate::task_board::model::{BoardDocument, ItemStatus};
 use anyhow::{anyhow, Context, Result};
@@ -14,8 +14,7 @@ const DEFAULT_COLUMNS: &[&str] = &["seq", "id", "title", "status", "result_summa
 
 #[derive(Debug, Clone)]
 pub struct ExportRequest {
-    pub campaign_id: String,
-    pub batch_ids: Vec<String>,
+    pub store_id: String,
     pub format: String,
     pub output_path: Option<String>,
     pub columns: Vec<String>,
@@ -36,31 +35,19 @@ pub fn export_work_items(
     workspace_root: &str,
     req: ExportRequest,
 ) -> Result<ExportOutcome> {
-    let batch_ids = if req.batch_ids.is_empty() {
-        doc.board
-            .iter()
-            .filter(|r| r.has_work_items())
-            .map(|r| r.id.clone())
-            .collect()
-    } else {
-        req.batch_ids.clone()
-    };
-    if batch_ids.is_empty() {
-        return Err(anyhow!("work_items_export: no work-item batches on board"));
+    if !doc.has_work_items() {
+        return Err(anyhow!("work_items_export: board has no work_items"));
     }
-    validate_delivery_prerequisites(doc, &batch_ids)?;
+    validate_delivery_prerequisites(doc)?;
 
-    let mut items: Vec<WorkItem> = Vec::new();
-    for batch_id in &batch_ids {
-        items.extend(store.items_in_batch(&req.campaign_id, batch_id));
-    }
+    let mut items = store.items_in_store(&req.store_id);
     items.sort_by_key(|i| i.seq);
     if items.is_empty() {
         return Err(anyhow!("work_items_export: no work_items rows in store"));
     }
 
     let format = normalize_format(&req.format);
-    let path = resolve_output_path(workspace_root, &req.campaign_id, format, req.output_path.as_deref())?;
+    let path = resolve_output_path(workspace_root, &req.store_id, format, req.output_path.as_deref())?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("mkdir {}", parent.display()))?;
     }
@@ -77,8 +64,8 @@ pub fn export_work_items(
         other => return Err(anyhow!("work_items_export: unsupported format {other}")),
     };
     log::info!(
-        "work_items: export campaign_id={} path={} format={} rows={} bytes={bytes}",
-        req.campaign_id,
+        "work_items: export store_id={} path={} format={} rows={} bytes={bytes}",
+        req.store_id,
         path.display(),
         format,
         items.len()
@@ -103,7 +90,7 @@ fn normalize_format(raw: &str) -> &'static str {
 
 fn resolve_output_path(
     workspace_root: &str,
-    campaign_id: &str,
+    store_id: &str,
     format: &str,
     override_path: Option<&str>,
 ) -> Result<PathBuf> {
@@ -123,20 +110,18 @@ fn resolve_output_path(
     }
     Ok(Path::new(workspace_root.trim())
         .join("exports")
-        .join(format!("{campaign_id}_results.{format}")))
+        .join(format!("{store_id}_results.{format}")))
 }
 
-fn validate_delivery_prerequisites(doc: &BoardDocument, batch_ids: &[String]) -> Result<()> {
-    for batch_id in batch_ids {
-        let Some(row) = doc.board.iter().find(|r| r.id == *batch_id) else {
-            return Err(anyhow!("work_items_export: batch {batch_id} not on board"));
-        };
-        if !matches!(row.status, ItemStatus::Done | ItemStatus::Failed | ItemStatus::Cancelled) {
-            return Err(anyhow!(
-                "work_items_export: batch {batch_id} not terminal (status={:?})",
-                row.status
-            ));
-        }
+fn validate_delivery_prerequisites(doc: &BoardDocument) -> Result<()> {
+    let g_exec_done = doc
+        .global_milestones
+        .iter()
+        .find(|r| r.id == "g_exec")
+        .map(|r| matches!(r.status, ItemStatus::Done | ItemStatus::Failed | ItemStatus::Cancelled))
+        .unwrap_or(false);
+    if !g_exec_done {
+        return Err(anyhow!("work_items_export: g_exec not terminal"));
     }
     Ok(())
 }
@@ -156,7 +141,7 @@ fn cell_value(item: &WorkItem, col: &str) -> String {
         "title" => item.title.clone(),
         "status" => item.status.as_str().to_string(),
         "result_summary" => result_summary(item),
-        "batch_id" => item.batch_id.clone(),
+        "store_id" => item.store_id.clone(),
         other => {
             if let Ok(v) = serde_json::from_str::<Value>(&item.payload_json) {
                 v.get(other)
@@ -210,7 +195,7 @@ fn write_jsonl(path: &Path, items: &[WorkItem]) -> Result<u64> {
         let line = serde_json::json!({
             "seq": item.seq,
             "id": item.id,
-            "batch_id": item.batch_id,
+            "store_id": item.store_id,
             "title": item.title,
             "status": item.status.as_str(),
             "result_summary": result_summary(item),

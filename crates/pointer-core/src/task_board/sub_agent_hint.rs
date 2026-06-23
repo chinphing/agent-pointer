@@ -7,13 +7,11 @@ const HINT_BLOCK: &str = "\
 [TASK_BOARD_HINT]
 Your local task board is empty.
 For multi-step subtasks, call **`task_board_init`** early.
-Use 3-6 **local_*** steps for normal work.
+Use 3-6 **local_*** steps in **`global_milestones`** for normal work.
 For each active step, keep:
 - `plan`: how to execute;
-- `progress`: position within the step (`N/M` or batch label; update each substantive step);
-- `validate_requirement`: milestone outcome acceptance criteria;
-- `validate_result_delta`: append one outcome line per step; full `validate_results` only when `done`.
-For extraction: `extract_result_delta` while working; full `extract_results` on `done`.
+- `done_when`: milestone outcome acceptance criteria;
+- `remark`: short outcome note when marking `done`.
 Single-step subtasks may skip the board.
 Read **[TASK_BOARD_PARENT]** for the parent goal and milestone; do not patch parent rows.
 ";
@@ -49,21 +47,18 @@ fn main_agent_task_board_hint(profile: &AgentProfile) -> Option<String> {
         String::new()
     };
     let profile_rows = if matches!(profile, AgentProfile::Coder) {
-        "Use **3-6** milestones in **`items`** when initialized, including **Recon**, **Implement**, and **Unit tests**.
-Each milestone: `plan`, `validate_requirement`, append `validate_result_delta` when evidence exists.
+        "Use **3-6** milestones in **`global_milestones`** when initialized, including **Recon**, **Implement**, and **Unit tests**.
+Each milestone: `plan`, `done_when`; optional `remark` when marking `done`.
 "
     } else if matches!(profile, AgentProfile::Computer) {
-        "Use **3-6** milestones for normal GUI work.
-If the task has **more than 5** similar repetitive steps (enumerated targets or cycles):
-- split into **batched milestones** by range or phase, not one row for the full enumeration;
-- put the full enumeration in **`plan`** or **`extract_results`** once;
-- **during work:** after each verified step, `task_board_patch` the **current** row — set **`progress=N/M`** (replace) and **one** `validate_result_delta` line (`#N label: outcome`, numbers aligned with **`plan`** / **`extract_results`**);
-- when a batch is complete, a **separate** patch sets **only that row** to **`done`** (one `done` per patch);
-- **never** save all `done` rows for one patch at the end.
+        "Use **3-6** milestones for normal GUI work (Type1).
+For enumerated work (>5 similar items), use Type2: `g_plan`/`g_exec`/`g_deliver` + `item_milestones` + `work_items` on init.
+During `g_exec`: patch **`milestones`** for SOP steps and **`work_item_delta`** when a row completes.
+When inject shows `exec_met: true`, patch `g_exec` to `done`, then handle `g_deliver` + export.
 Set **`expected_total`** when the exhaustive count is known.
 "
     } else {
-        "Use **3-6** concise milestones in **`items`** for normal multi-step work.
+        "Use **3-6** concise milestones in **`global_milestones`** for normal multi-step work.
 "
     };
     Some(format!(
@@ -72,7 +67,7 @@ Your task board is empty.
 {gate}
 If gate is met, initialize with **`task_board_init`**.
 {profile_rows}For exhaustive matrix/combinational goals, keep grouped milestones by interaction form (never one milestone for all atomic cases).
-Patch progress during execution (each step), not only at final delivery.
+Patch each substantive step during execution, not only at final delivery.
 When all milestones are `done` or `cancelled`, call `finalize` before final delivery.
 {verify_order}User delivery goes in assistant **content**, not board prose fields.
 Keep board text compact."
@@ -107,7 +102,7 @@ pub fn main_agent_task_board_init_hint(
         return None;
     }
     let doc = store.document(store_key);
-    if !doc.board.is_empty() || !doc.meta.goal.is_empty() {
+    if !doc.global_milestones.is_empty() || !doc.meta.goal.is_empty() {
         return None;
     }
     main_agent_task_board_hint(profile)

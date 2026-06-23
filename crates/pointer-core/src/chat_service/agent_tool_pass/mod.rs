@@ -107,10 +107,8 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
             continue;
         }
 
-        if pass.ctx.task_board_computer_no_exec_init
-            && (tool_id == "task_board_init" || tool_id == "task_board_replace")
-        {
-            let err = "task_board init/replace is handled by the host planner; use task_board_patch during execution.";
+        if pass.ctx.task_board_computer_no_exec_init && tool_id == "task_board_init" {
+            let err = "task_board init is handled by the host planner; use task_board_patch or task_board_replace during execution.";
             emit_tool_failed(
                 pass.ctx.session.stream,
                 &pass.ctx.message_id,

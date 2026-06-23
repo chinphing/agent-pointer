@@ -108,7 +108,7 @@ impl TaskBoardStore {
         crate::task_board::observability::log_store_apply(
             store_key,
             &method,
-            doc.board.len(),
+            doc.global_milestones.len(),
             outcome.reflection_required,
         );
         let body = outcome.body;
@@ -172,7 +172,7 @@ impl TaskBoardStore {
             if !b.is_empty() {
                 crate::task_board::observability::log_snapshot_injected(
                     store_key,
-                    doc.board.len(),
+                    doc.global_milestones.len(),
                     !doc.meta.goal.is_empty(),
                 );
             }

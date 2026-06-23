@@ -21,7 +21,7 @@ pub struct PlannerSystemInput<'a> {
 }
 
 pub fn build_planner_system(input: PlannerSystemInput<'_>) -> SystemPromptSections {
-    let board_block = if input.doc.meta.goal.trim().is_empty() && input.doc.board.is_empty() {
+    let board_block = if input.doc.meta.goal.trim().is_empty() && input.doc.global_milestones.is_empty() {
         "[CURRENT_TASK_BOARD]\n(empty — no goal or milestones yet)".to_string()
     } else {
         markdown_runtime_block_for_inject(input.doc, input.store_key, input.work_items)

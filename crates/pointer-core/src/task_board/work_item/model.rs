@@ -59,8 +59,8 @@ pub struct WorkItemDraft {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkItem {
     pub id: String,
-    pub campaign_id: String,
-    pub batch_id: String,
+    #[serde(alias = "campaign_id")]
+    pub store_id: String,
     pub seq: i64,
     pub status: WorkItemStatus,
     pub title: String,
@@ -109,7 +109,7 @@ impl BatchStats {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct CampaignStats {
+pub struct StoreStats {
     pub total: u32,
     pub done: u32,
     pub failed: u32,
@@ -119,11 +119,10 @@ pub struct CampaignStats {
 #[derive(Debug, Clone, Default)]
 pub struct SeedOutcome {
     pub seeded: u32,
-    pub batch_id: String,
 }
 
-pub fn work_item_id(campaign_id: &str, seq: i64) -> String {
-    format!("wi_{campaign_id}_{seq:06}")
+pub fn work_item_id(store_id: &str, seq: i64) -> String {
+    format!("wi_{store_id}_{seq:06}")
 }
 
 pub fn now_ms() -> i64 {

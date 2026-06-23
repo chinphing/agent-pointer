@@ -1,4 +1,4 @@
-//! Trim-trigger detection for task_board history soft-exclude.
+//! Trim-trigger detection for task_board history soft-exclude (v4).
 
 use super::args::board_rows_from_args;
 use super::tool::resolve_method_for_call;
@@ -25,35 +25,19 @@ fn non_empty_field(item: &Value, key: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn patch_has_nonempty_result_field(item: &Value, keys: &[&str]) -> bool {
-    keys.iter().any(|key| {
-        match item.get(*key) {
-            Some(Value::String(s)) => !s.trim().is_empty(),
-            Some(Value::Array(arr)) => arr.iter().any(|e| {
-                e.as_str()
-                    .map(|s| !s.trim().is_empty())
-                    .unwrap_or(false)
-            }),
-            _ => false,
-        }
-    })
-}
-
-fn patch_has_validate_results(args: &Value) -> bool {
+fn patch_has_remark(args: &Value) -> bool {
     board_rows_from_args(args)
         .iter()
-        .any(|item| patch_has_nonempty_result_field(item, &["validate_result_delta", "validate_results"]))
+        .any(|item| non_empty_field(item, "remark"))
 }
 
-fn patch_updates_progress(args: &Value) -> bool {
-    board_rows_from_args(args).iter().any(|item| {
-        non_empty_field(item, "progress") || non_empty_field(item, "checkpoint")
-    })
+fn patch_has_work_item_delta(args: &Value) -> bool {
+    args.get("work_item_delta").is_some()
 }
 
-/// Patch that records substantive milestone progress (evidence, position, or completion).
+/// Patch that records substantive milestone progress (completion, remark, or work_item).
 fn patch_has_substantive_progress(args: &Value) -> bool {
-    patch_marks_done(args) || patch_has_validate_results(args) || patch_updates_progress(args)
+    patch_marks_done(args) || patch_has_remark(args) || patch_has_work_item_delta(args)
 }
 
 /// Whether a successful `task_board` call should trigger history trim.

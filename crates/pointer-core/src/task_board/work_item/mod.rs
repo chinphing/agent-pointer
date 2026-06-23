@@ -12,7 +12,7 @@ pub use api::{list_work_items_json, work_item_stats_json};
 pub use export::{export_work_items, ExportOutcome, ExportRequest};
 pub use import::drafts_from_source_value;
 pub use model::{
-    BatchStats, CampaignStats, SeedOutcome, WorkItem, WorkItemDraft, WorkItemStatus,
+    BatchStats, StoreStats, SeedOutcome, WorkItem, WorkItemDraft, WorkItemStatus,
     MAX_INLINE_SEED,
 };
 pub use persistence::WorkItemSqlite;

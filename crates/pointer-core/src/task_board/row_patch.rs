@@ -1,10 +1,6 @@
-//! Merge a patch JSON row into a stored [`BoardItem`] (v3 semantics).
+//! Merge a patch JSON row into a stored [`BoardItem`] (v4).
 
 use super::model::{str_field, BoardItem, ItemStatus, RESULT_SNIPPET_MAX_CHARS};
-use super::results_append::{
-    append_results_incremental, append_warning_to_json, replace_results_from_value,
-    AppendWarning,
-};
 use serde_json::Value;
 
 pub struct RowPatchMerge {
@@ -16,93 +12,52 @@ pub fn merge_row_patch(prev: &BoardItem, patch_v: &Value) -> BoardItem {
     merge_row_patch_with_warnings(prev, patch_v).row
 }
 
-fn push_warning(warnings: &mut Vec<serde_json::Value>, w: &AppendWarning, item_id: &str) {
-    warnings.push(append_warning_to_json(w, item_id));
-}
+pub fn merge_row_patch_with_warnings(prev: &BoardItem, patch_v: &Value) -> RowPatchMerge {
+    let mut row = prev.clone();
+    let mut warnings = Vec::new();
 
-fn push_warning_code(warnings: &mut Vec<serde_json::Value>, code: &'static str, item_id: &str) {
-    push_warning(
-        warnings,
-        &AppendWarning {
-            code,
-            item_id: None,
-        },
-        item_id,
-    );
-}
-
-fn merge_delta_field(
-    prev: &[String],
-    patch_v: &Value,
-    delta_key: &str,
-    deprecated_keys: &[&str],
-    warnings: &mut Vec<serde_json::Value>,
-    item_id: &str,
-    warn_code: &'static str,
-) -> Vec<String> {
-    for key in deprecated_keys {
-        if patch_v.get(key).is_some() {
-            push_warning_code(warnings, warn_code, item_id);
+    for deprecated in [
+        "progress",
+        "checkpoint",
+        "validate_result_delta",
+        "validate_results",
+        "extract_requirement",
+        "extract_result_delta",
+        "extract_results",
+        "work_item_mode",
+        "dynamic_quota",
+    ] {
+        if patch_v.get(deprecated).is_some() {
+            warnings.push(serde_json::json!({
+                "code": "v3_field_rejected",
+                "field": deprecated,
+                "item_id": row.id,
+            }));
             log::warn!(
-                "task_board: patch row {item_id} sent internal field {key}; use {delta_key}"
+                "task_board: patch row {} sent deprecated field {deprecated}",
+                row.id
             );
         }
     }
-    let Some(val) = patch_v.get(delta_key) else {
-        return prev.to_vec();
-    };
-    let (list, wrn) = append_results_incremental(prev, Some(val));
-    for w in wrn {
-        push_warning(warnings, &w, item_id);
-    }
-    list
-}
-
-fn merge_full_results_on_done(
-    prev: &[String],
-    patch_v: &Value,
-    full_key: &str,
-    row_status: ItemStatus,
-    warnings: &mut Vec<serde_json::Value>,
-    item_id: &str,
-    not_done_code: &'static str,
-) -> Vec<String> {
-    if patch_v.get(full_key).is_none() {
-        return prev.to_vec();
-    }
-    if row_status != ItemStatus::Done {
-        push_warning_code(warnings, not_done_code, item_id);
-        log::warn!(
-            "task_board: patch row {item_id} ignored {full_key} until status is done"
-        );
-        return prev.to_vec();
-    }
-    replace_results_from_value(patch_v.get(full_key))
-}
-
-pub fn merge_row_patch_with_warnings(prev: &BoardItem, patch_v: &Value) -> RowPatchMerge {
-    merge_row_patch_with_warnings_inner(prev, patch_v, false)
-}
-
-pub fn merge_row_patch_with_warnings_b42(
-    prev: &BoardItem,
-    patch_v: &Value,
-    skip_v3_result_fields: bool,
-) -> RowPatchMerge {
-    merge_row_patch_with_warnings_inner(prev, patch_v, skip_v3_result_fields)
-}
-
-fn merge_row_patch_with_warnings_inner(
-    prev: &BoardItem,
-    patch_v: &Value,
-    skip_v3_result_fields: bool,
-) -> RowPatchMerge {
-    let mut row = prev.clone();
 
     if let Some(s) = patch_v.get("status").and_then(|x| x.as_str()) {
         if let Some(st) = ItemStatus::from_str_loose(s) {
             row.status = st;
         }
+    }
+
+    if patch_v
+        .get("status")
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
+        warnings.push(serde_json::json!({
+            "code": "patch_status_required",
+            "item_id": row.id,
+        }));
+        log::warn!("task_board: patch row {} missing required status", row.id);
     }
 
     if let Some(t) = patch_v
@@ -131,72 +86,18 @@ fn merge_row_patch_with_warnings_inner(
     if let Some(s) = str_field(patch_v, "plan") {
         row.plan = Some(s);
     }
-    if !skip_v3_result_fields {
-        if let Some(s) = str_field(patch_v, "progress").or_else(|| str_field(patch_v, "checkpoint")) {
-            row.progress = Some(s);
-        }
+    if let Some(s) = str_field(patch_v, "constraint") {
+        row.constraint = Some(s);
     }
-    if let Some(s) = str_field(patch_v, "validate_requirement") {
-        row.validate_requirement = Some(s);
+    if let Some(s) = str_field(patch_v, "done_when").or_else(|| str_field(patch_v, "validate_requirement"))
+    {
+        row.done_when = Some(s);
     }
-    if let Some(s) = str_field(patch_v, "extract_requirement") {
-        row.extract_requirement = Some(s);
+    if let Some(s) = str_field(patch_v, "remark") {
+        row.remark = Some(s);
     }
     if let Some(s) = str_field(patch_v, "blocked_by") {
         row.blocked_by = Some(s);
-    }
-
-    let mut warnings = Vec::new();
-
-    if patch_v
-        .get("status")
-        .and_then(|x| x.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .is_none()
-    {
-        push_warning_code(&mut warnings, "patch_status_required", &row.id);
-        log::warn!("task_board: patch row {} missing required status", row.id);
-    }
-
-    if !skip_v3_result_fields {
-        row.validate_results = merge_delta_field(
-            &prev.validate_results,
-            patch_v,
-            "validate_result_delta",
-            &["validate_results"],
-            &mut warnings,
-            &row.id,
-            "validate_results_use_delta_field",
-        );
-        row.validate_results = merge_full_results_on_done(
-            &row.validate_results,
-            patch_v,
-            "validate_results",
-            row.status,
-            &mut warnings,
-            &row.id,
-            "validate_results_only_when_done",
-        );
-
-        row.extract_results = merge_delta_field(
-            &prev.extract_results,
-            patch_v,
-            "extract_result_delta",
-            &["extract_results"],
-            &mut warnings,
-            &row.id,
-            "extract_results_use_delta_field",
-        );
-        row.extract_results = merge_full_results_on_done(
-            &row.extract_results,
-            patch_v,
-            "extract_results",
-            row.status,
-            &mut warnings,
-            &row.id,
-            "extract_results_only_when_done",
-        );
     }
 
     RowPatchMerge { row, warnings }
@@ -207,10 +108,10 @@ pub fn compact_row_after_done(prev: &BoardItem, row: &mut BoardItem) {
         return;
     }
     row.plan = None;
-    for entry in row.validate_results.iter_mut() {
-        if entry.chars().count() > RESULT_SNIPPET_MAX_CHARS {
-            let compact: String = entry.chars().take(RESULT_SNIPPET_MAX_CHARS).collect();
-            *entry = format!("{compact}…");
+    if let Some(ref mut remark) = row.remark {
+        if remark.chars().count() > RESULT_SNIPPET_MAX_CHARS {
+            let compact: String = remark.chars().take(RESULT_SNIPPET_MAX_CHARS).collect();
+            *remark = format!("{compact}…");
         }
     }
 }

@@ -26,18 +26,18 @@ mod apply_tests {
         });
         store.apply(key, "patch", &args).expect("patch");
         let doc = store.document(key);
-        assert_eq!(doc.board.len(), 1);
-        assert_eq!(doc.board[0].id, "a");
+        assert_eq!(doc.global_milestones.len(), 1);
+        assert_eq!(doc.global_milestones[0].id, "a");
     }
 
     #[test]
-    fn non_v3_stored_value_returns_empty_board() {
+    fn legacy_array_migrates_to_global_milestones() {
         let raw = json!([
             {"id": "1", "title": "t", "status": "done"}
         ]);
         let doc = normalize_stored_value("k", raw);
-        assert_eq!(doc.version, 3);
-        assert!(doc.board.is_empty());
+        assert_eq!(doc.version, 4);
+        assert_eq!(doc.global_milestones.len(), 1);
     }
 
     #[test]
@@ -120,9 +120,9 @@ mod apply_tests {
             )
             .expect("patch 3");
         let doc = store.document(key);
-        assert_eq!(doc.board[0].status, ItemStatus::Done);
-        assert_eq!(doc.board[1].status, ItemStatus::Done);
-        assert_eq!(doc.board[2].status, ItemStatus::InProgress);
+        assert_eq!(doc.global_milestones[0].status, ItemStatus::Done);
+        assert_eq!(doc.global_milestones[1].status, ItemStatus::Done);
+        assert_eq!(doc.global_milestones[2].status, ItemStatus::InProgress);
     }
 
     #[test]
@@ -179,7 +179,7 @@ mod apply_tests {
         assert_eq!(body["reason"], "board_not_initialized");
         assert_eq!(body["patched"].as_array().map(|a| a.len()), Some(0));
         let doc = store.document(key);
-        assert!(doc.board.is_empty());
+        assert!(doc.global_milestones.is_empty());
         assert!(doc.meta.goal.is_empty());
     }
 
@@ -204,7 +204,7 @@ mod apply_tests {
             .apply(
                 key,
                 "patch",
-                &json!({"item_id": "1", "status": "done", "validate_results": "ok"}),
+                &json!({"item_id": "1", "status": "done", "remark": "ok"}),
             )
             .expect("patch");
         assert!(!reflection);
@@ -219,7 +219,7 @@ mod apply_tests {
     }
 
     #[test]
-    fn patch_preserves_plan_progress_requirement_when_omitted() {
+    fn patch_preserves_done_when_when_omitted() {
         let store = TaskBoardStore::new();
         let key = "conv-preserve";
         store
@@ -234,8 +234,7 @@ mod apply_tests {
                             "title": "A",
                             "status": "in_progress",
                             "plan": "detail text",
-                            "progress": "3/10",
-                            "validate_requirement": "run unit tests"
+                            "done_when": "run unit tests"
                         }
                     ]
                 }),
@@ -248,22 +247,21 @@ mod apply_tests {
                 &json!({
                     "item_id": "1",
                     "status": "done",
-                    "validate_results": "tests passed"
+                    "remark": "tests passed"
                 }),
             )
             .expect("patch");
         let doc = store.document(key);
-        assert_eq!(doc.board[0].plan, None);
-        assert_eq!(doc.board[0].progress.as_deref(), Some("3/10"));
+        assert_eq!(doc.global_milestones[0].plan, None);
         assert_eq!(
-            doc.board[0].validate_requirement.as_deref(),
+            doc.global_milestones[0].done_when.as_deref(),
             Some("run unit tests")
         );
-        assert_eq!(doc.board[0].validate_results.len(), 1);
+        assert_eq!(doc.global_milestones[0].remark.as_deref(), Some("tests passed"));
     }
 
     #[test]
-    fn validate_result_delta_append_on_patch() {
+    fn v3_validate_delta_emits_rejected_warning() {
         let store = TaskBoardStore::new();
         let key = "conv-append";
         store
@@ -276,22 +274,16 @@ mod apply_tests {
                 }),
             )
             .expect("init");
-        store
+        let (body, _) = store
             .apply(
                 key,
                 "patch",
-                &json!({"item_id": "1", "validate_result_delta": "first"}),
+                &json!({"items": [{"id": "1", "status": "in_progress", "validate_result_delta": "first"}]}),
             )
             .expect("p1");
-        store
-            .apply(
-                key,
-                "patch",
-                &json!({"item_id": "1", "validate_result_delta": "second"}),
-            )
-            .expect("p2");
-        let doc = store.document(key);
-        assert_eq!(doc.board[0].validate_results, vec!["first", "second"]);
+        assert!(body["warnings"].as_array().unwrap().iter().any(|w| {
+            w.get("code").and_then(|c| c.as_str()) == Some("v3_field_rejected")
+        }));
     }
 
     #[test]
@@ -312,7 +304,7 @@ mod apply_tests {
             .apply(
                 key,
                 "patch",
-                &json!({"item_id": "1", "validate_result_delta": "step ok"}),
+                &json!({"item_id": "1", "remark": "step ok"}),
             )
             .expect("patch");
         assert!(body["warnings"].as_array().unwrap().iter().any(|w| {
@@ -321,7 +313,7 @@ mod apply_tests {
     }
 
     #[test]
-    fn progress_replaces_on_patch() {
+    fn v3_progress_field_rejected_on_patch() {
         let store = TaskBoardStore::new();
         let key = "conv-progress";
         store
@@ -333,134 +325,20 @@ mod apply_tests {
                     "items": [{
                         "id": "1",
                         "title": "A",
-                        "status": "in_progress",
-                        "progress": "1/10"
+                        "status": "in_progress"
                     }]
                 }),
             )
             .expect("init");
-        store
+        let (body, _) = store
             .apply(
                 key,
                 "patch",
-                &json!({"item_id": "1", "progress": "7/10"}),
+                &json!({"item_id": "1", "status": "in_progress", "progress": "7/10"}),
             )
             .expect("patch");
-        let doc = store.document(key);
-        assert_eq!(doc.board[0].progress.as_deref(), Some("7/10"));
-    }
-
-    #[test]
-    fn validate_results_full_field_ignored_until_done() {
-        let store = TaskBoardStore::new();
-        let key = "conv-full-block";
-        store
-            .apply(
-                key,
-                "init",
-                &json!({
-                    "goal": "g",
-                    "items": [{"id": "1", "title": "A", "status": "in_progress"}]
-                }),
-            )
-            .expect("init");
-        store
-            .apply(
-                key,
-                "patch",
-                &json!({"item_id": "1", "validate_result_delta": "#1 ok"}),
-            )
-            .expect("d1");
-        let (body, _) = store
-            .apply(
-                key,
-                "patch",
-                &json!({
-                    "item_id": "1",
-                    "validate_results": "#1 ok\n#2 new"
-                }),
-            )
-            .expect("full");
-        let doc = store.document(key);
-        assert_eq!(doc.board[0].validate_results.len(), 1);
         assert!(body["warnings"].as_array().unwrap().iter().any(|w| {
-            w.get("code").and_then(|c| c.as_str()) == Some("validate_results_use_delta_field")
-        }));
-    }
-
-    #[test]
-    fn validate_results_replace_on_done_patch() {
-        let store = TaskBoardStore::new();
-        let key = "conv-done-full";
-        store
-            .apply(
-                key,
-                "init",
-                &json!({
-                    "goal": "g",
-                    "items": [{"id": "1", "title": "A", "status": "in_progress"}]
-                }),
-            )
-            .expect("init");
-        store
-            .apply(
-                key,
-                "patch",
-                &json!({"item_id": "1", "validate_result_delta": "#1 a"}),
-            )
-            .expect("d1");
-        store
-            .apply(
-                key,
-                "patch",
-                &json!({
-                    "item_id": "1",
-                    "status": "done",
-                    "validate_results": "#1 a\n#2 b"
-                }),
-            )
-            .expect("done");
-        let doc = store.document(key);
-        assert_eq!(doc.board[0].validate_results.len(), 2);
-        assert_eq!(doc.board[0].status, ItemStatus::Done);
-    }
-
-    #[test]
-    fn validate_result_delta_multiline_patch_dedupes_lines() {
-        let store = TaskBoardStore::new();
-        let key = "conv-dedup";
-        store
-            .apply(
-                key,
-                "init",
-                &json!({
-                    "goal": "g",
-                    "items": [{"id": "1", "title": "A", "status": "in_progress"}]
-                }),
-            )
-            .expect("init");
-        store
-            .apply(
-                key,
-                "patch",
-                &json!({"item_id": "1", "validate_result_delta": "1/10: a\n2/10: b"}),
-            )
-            .expect("p1");
-        let (body, _) = store
-            .apply(
-                key,
-                "patch",
-                &json!({"item_id": "1", "validate_result_delta": "1/10: a\n2/10: b\n3/10: c"}),
-            )
-            .expect("p2");
-        let doc = store.document(key);
-        assert_eq!(doc.board[0].validate_results.len(), 3);
-        assert!(doc.board[0].validate_results[2].contains("3/10"));
-        let warnings = body["warnings"].as_array().expect("warnings");
-        assert!(warnings.iter().any(|w| {
-            w.get("code")
-                .and_then(|c| c.as_str())
-                == Some("validate_results_partial_dedup")
+            w.get("code").and_then(|c| c.as_str()) == Some("v3_field_rejected")
         }));
     }
 
@@ -479,9 +357,9 @@ mod apply_tests {
             }]
         });
         let doc = normalize_stored_value("k", raw);
-        assert_eq!(doc.board.len(), 1);
-        assert_eq!(doc.board[0].plan.as_deref(), Some("plan here"));
-        assert_eq!(doc.board[0].validate_results, vec!["evidence"]);
+        assert_eq!(doc.global_milestones.len(), 1);
+        assert_eq!(doc.global_milestones[0].plan.as_deref(), Some("plan here"));
+        assert_eq!(doc.global_milestones[0].remark.as_deref(), Some("evidence"));
     }
 
     #[test]
@@ -530,7 +408,7 @@ mod apply_tests {
             )
             .expect("init");
         let doc = store.document(key);
-        assert_eq!(doc.board.len(), 20);
+        assert_eq!(doc.global_milestones.len(), 20);
         assert_eq!(doc.meta.expected_total, Some(20));
     }
 }
@@ -569,8 +447,8 @@ mod sqlite_tests {
         let store2 = TaskBoardStore::with_persistence(db);
         store2.ensure_loaded("conv-persist");
         let doc = store2.document("conv-persist");
-        assert_eq!(doc.board.len(), 1);
-        assert_eq!(doc.board[0].id, "m1");
+        assert_eq!(doc.global_milestones.len(), 1);
+        assert_eq!(doc.global_milestones[0].id, "m1");
     }
 }
 
@@ -602,18 +480,18 @@ mod work_items_tests {
                 "init",
                 &wi_args(json!({
                     "goal": "Open apps",
+                    "work_item_mode": "enumerated",
                     "expected_total": 3,
-                    "items": [{
-                        "id": "batch_apps",
+                    "global_milestones": [{
+                        "id": "g_exec",
                         "title": "Open apps",
-                        "status": "pending",
-                        "work_item_mode": "enumerated",
-                        "work_items": [
-                            {"title": "App1"},
-                            {"title": "App2"},
-                            {"title": "App3"}
-                        ]
-                    }]
+                        "status": "in_progress"
+                    }],
+                    "work_items": [
+                        {"title": "App1"},
+                        {"title": "App2"},
+                        {"title": "App3"}
+                    ]
                 })),
             )
             .expect("init");
@@ -621,7 +499,7 @@ mod work_items_tests {
 
         let wi_id = store
             .work_items
-            .inject_window(key, "batch_apps")
+            .inject_window(key)
             .first()
             .expect("wi")
             .id
@@ -631,8 +509,6 @@ mod work_items_tests {
                 key,
                 "patch",
                 &wi_args(json!({
-                    "id": "batch_apps",
-                    "status": "in_progress",
                     "work_item_delta": {
                         "id": wi_id,
                         "status": "done",
@@ -641,15 +517,11 @@ mod work_items_tests {
                 })),
             )
             .expect("patch");
-        let doc = store.document(key);
-        assert_eq!(
-            doc.board[0].progress.as_deref(),
-            Some("1/3 done")
-        );
+        assert_eq!(store.work_items.store_stats(key).done, 1);
     }
 
     #[test]
-    fn b42_rejects_validate_result_delta_on_work_item_row() {
+    fn v3_field_rejected_on_work_item_board_patch() {
         let store = TaskBoardStore::new();
         let key = "conv-b42";
         store
@@ -657,28 +529,32 @@ mod work_items_tests {
                 key,
                 "init",
                 &wi_args(json!({
-                    "items": [{
-                        "id": "batch",
+                    "work_item_mode": "enumerated",
+                    "global_milestones": [{
+                        "id": "g_exec",
                         "title": "Batch",
-                        "status": "pending",
-                        "work_item_mode": "enumerated",
-                        "work_items": [{"title": "A"}]
-                    }]
+                        "status": "in_progress"
+                    }],
+                    "work_items": [{"title": "A"}]
                 })),
             )
             .expect("init");
-        let err = store
+        let (body, _) = store
             .apply(
                 key,
                 "patch",
                 &wi_args(json!({
-                    "id": "batch",
-                    "status": "in_progress",
-                    "validate_result_delta": "bad"
+                    "global_milestones": [{
+                        "id": "g_exec",
+                        "status": "in_progress",
+                        "validate_result_delta": "bad"
+                    }]
                 })),
             )
-            .expect_err("reject");
-        assert!(err.to_string().contains("work_item_delta"));
+            .expect("patch");
+        assert!(body["warnings"].as_array().unwrap().iter().any(|w| {
+            w.get("code").and_then(|c| c.as_str()) == Some("v3_field_rejected")
+        }));
     }
 
     #[test]
@@ -693,14 +569,14 @@ mod work_items_tests {
                 key,
                 "init",
                 &wi_args(json!({
+                    "work_item_mode": "enumerated",
                     "expected_total": 50,
-                    "items": [{
-                        "id": "batch",
+                    "global_milestones": [{
+                        "id": "g_exec",
                         "title": "Batch",
-                        "status": "in_progress",
-                        "work_item_mode": "enumerated",
-                        "work_items": items
-                    }]
+                        "status": "in_progress"
+                    }],
+                    "work_items": items
                 })),
             )
             .expect("init");
@@ -709,9 +585,7 @@ mod work_items_tests {
             key,
             Some(store.work_items.as_ref()),
         );
-        assert!(block.contains("## Current task work_items"));
-        assert!(block.contains("progress: 0/50 done"));
-        assert!(block.contains("more items in DB"));
+        assert!(block.contains("## Work items"));
         assert!(block.len() < 8000);
     }
 }

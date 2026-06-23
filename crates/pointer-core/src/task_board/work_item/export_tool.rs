@@ -43,6 +43,9 @@ pub fn register(reg: &ToolRegistry, store: Arc<TaskBoardStore>) {
                     .collect()
             })
             .unwrap_or_default();
+        if !batch_ids.is_empty() {
+            log::warn!("work_items_export: batch_ids ignored in v4 (flat store queue)");
+        }
         let output_path = args
             .get("output_path")
             .and_then(|v| v.as_str())
@@ -62,8 +65,7 @@ pub fn register(reg: &ToolRegistry, store: Arc<TaskBoardStore>) {
             &doc,
             workspace,
             ExportRequest {
-                campaign_id: store_key.to_string(),
-                batch_ids,
+                store_id: store_key.to_string(),
                 format,
                 output_path,
                 columns,
@@ -84,11 +86,6 @@ pub fn register(reg: &ToolRegistry, store: Arc<TaskBoardStore>) {
         .with_schema(json!({
             "type": "object",
             "properties": {
-                "batch_ids": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "Work-item batch milestone ids; default all wi batches."
-                },
                 "format": {
                     "type": "string",
                     "enum": ["xlsx", "csv", "txt", "jsonl"],

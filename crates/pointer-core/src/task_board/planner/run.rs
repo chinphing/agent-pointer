@@ -126,6 +126,19 @@ pub async fn run_planner_loop(input: PlannerRunInput<'_>) -> PlannerRunOutcome {
             }
         };
         let model_name = model_name_for_usage_report(&out.model);
+        if let Some(u) = out.usage.as_ref() {
+            if u.total_tokens == 0 && u.prompt_tokens == 0 && u.completion_tokens == 0 {
+                log::warn!(
+                    "task_board_obs: planner_round={round} usage_all_zero model={}",
+                    out.model
+                );
+            }
+        } else {
+            log::warn!(
+                "task_board_obs: planner_round={round} usage_missing model={}",
+                out.model
+            );
+        }
         input
             .llm_stats
             .record_llm_round(&scope, out.usage.as_ref(), model_name);

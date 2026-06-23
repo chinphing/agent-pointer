@@ -568,27 +568,32 @@ mod tests {
     }
 
     #[test]
-    fn patch_trim_triggers_on_done_validate_results_or_progress() {
+    fn patch_trim_triggers_on_done_remark_or_work_item_delta() {
         let done = serde_json::json!({
             "items": [{ "id": "1", "status": "done" }]
         });
         assert!(task_board_call_is_checkpoint("task_board_patch", &done));
-        let evidence = serde_json::json!({
-            "items": [{
+        let remark = serde_json::json!({
+            "global_milestones": [{
                 "id": "1",
                 "status": "in_progress",
-                "validate_results": "微信: opened"
+                "remark": "微信: opened"
             }]
         });
-        assert!(task_board_call_is_checkpoint("task_board_patch", &evidence));
+        assert!(task_board_call_is_checkpoint("task_board_patch", &remark));
+        let wi = serde_json::json!({
+            "milestones": [{ "id": "m2", "status": "done" }],
+            "work_item_delta": { "id": "wi_x", "status": "done", "result_summary": "ok" }
+        });
+        assert!(task_board_call_is_checkpoint("task_board_patch", &wi));
         let progress = serde_json::json!({
             "items": [{ "id": "1", "progress": "3/10" }]
         });
-        assert!(task_board_call_is_checkpoint("task_board_patch", &progress));
-        let legacy_checkpoint = serde_json::json!({
-            "items": [{ "id": "1", "checkpoint": "3/10" }]
+        assert!(!task_board_call_is_checkpoint("task_board_patch", &progress));
+        let legacy_validate = serde_json::json!({
+            "items": [{ "id": "1", "validate_results": "legacy" }]
         });
-        assert!(task_board_call_is_checkpoint("task_board_patch", &legacy_checkpoint));
+        assert!(!task_board_call_is_checkpoint("task_board_patch", &legacy_validate));
     }
 
     #[test]

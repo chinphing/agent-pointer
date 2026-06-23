@@ -23,9 +23,8 @@ impl WorkItemSqlite {
             "PRAGMA journal_mode=WAL;
              CREATE TABLE IF NOT EXISTS work_items (
                id              TEXT PRIMARY KEY NOT NULL,
-               campaign_id     TEXT NOT NULL,
+               store_id        TEXT NOT NULL,
                seq             INTEGER NOT NULL,
-               batch_id        TEXT,
                status          TEXT NOT NULL,
                title           TEXT NOT NULL,
                payload_json    TEXT NOT NULL DEFAULT '{}',
@@ -40,29 +39,52 @@ impl WorkItemSqlite {
                started_at_ms   INTEGER,
                finished_at_ms  INTEGER
              );
-             CREATE INDEX IF NOT EXISTS idx_work_items_campaign_status
-               ON work_items (campaign_id, status, seq);
-             CREATE INDEX IF NOT EXISTS idx_work_items_campaign_batch
-               ON work_items (campaign_id, batch_id, seq);
-             CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_campaign_seq
-               ON work_items (campaign_id, seq);
-             CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_campaign_target_key
-               ON work_items (campaign_id, json_extract(payload_json, '$.target_key'))
+             CREATE INDEX IF NOT EXISTS idx_work_items_store_status
+               ON work_items (store_id, status, seq);
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_store_seq
+               ON work_items (store_id, seq);
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_store_target_key
+               ON work_items (store_id, json_extract(payload_json, '$.target_key'))
                WHERE json_extract(payload_json, '$.target_key') IS NOT NULL;",
         )?;
+        Self::migrate_legacy_columns(&conn)?;
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
         }))
+    }
+
+    fn migrate_legacy_columns(conn: &Connection) -> Result<()> {
+        let mut cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(work_items)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .collect();
+        if cols.iter().any(|c| c == "campaign_id") && !cols.iter().any(|c| c == "store_id") {
+            conn.execute(
+                "ALTER TABLE work_items RENAME COLUMN campaign_id TO store_id",
+                [],
+            )?;
+            cols = conn
+                .prepare("PRAGMA table_info(work_items)")?
+                .query_map([], |row| row.get::<_, String>(1))?
+                .filter_map(|r| r.ok())
+                .collect();
+        }
+        if cols.iter().any(|c| c == "batch_id") {
+            // batch_id is dropped from v4; legacy column left in place until table rebuild.
+            log::info!("work_items: legacy batch_id column present; ignored on read/write");
+        }
+        Ok(())
     }
 
     pub fn upsert(&self, item: &WorkItem) -> Result<()> {
         let conn = self.conn.lock();
         conn.execute(
             "INSERT INTO work_items (
-               id, campaign_id, seq, batch_id, status, title, payload_json,
+               id, store_id, seq, status, title, payload_json,
                retry_count, max_retries, result_ref, result_json, error_message,
                created_at_ms, updated_at_ms, started_at_ms, finished_at_ms
-             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
              ON CONFLICT(id) DO UPDATE SET
                status = excluded.status,
                title = excluded.title,
@@ -76,9 +98,8 @@ impl WorkItemSqlite {
                finished_at_ms = excluded.finished_at_ms",
             params![
                 item.id,
-                item.campaign_id,
+                item.store_id,
                 item.seq,
-                item.batch_id,
                 item.status.as_str(),
                 item.title,
                 item.payload_json,
@@ -96,43 +117,59 @@ impl WorkItemSqlite {
         Ok(())
     }
 
-    pub fn delete_campaign(&self, campaign_id: &str) -> Result<()> {
+    pub fn delete_store(&self, store_id: &str) -> Result<()> {
         let conn = self.conn.lock();
         conn.execute(
-            "DELETE FROM work_items WHERE campaign_id = ?1",
-            params![campaign_id],
+            "DELETE FROM work_items WHERE store_id = ?1",
+            params![store_id],
         )?;
         Ok(())
     }
 
-    pub fn load_campaign(&self, campaign_id: &str) -> Result<Vec<WorkItem>> {
+    pub fn load_store(&self, store_id: &str) -> Result<Vec<WorkItem>> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT id, campaign_id, seq, batch_id, status, title, payload_json,
-                    retry_count, max_retries, result_ref, result_json, error_message,
-                    created_at_ms, updated_at_ms, started_at_ms, finished_at_ms
-             FROM work_items WHERE campaign_id = ?1 ORDER BY seq ASC",
-        )?;
-        let rows = stmt.query_map(params![campaign_id], |row| {
-            let status_s: String = row.get(4)?;
+        let has_batch = Self::table_has_column(&conn, "batch_id")?;
+        let store_col = if Self::table_has_column(&conn, "store_id")? {
+            "store_id"
+        } else {
+            "campaign_id"
+        };
+        let sql = if has_batch {
+            format!(
+                "SELECT id, {store_col}, seq, batch_id, status, title, payload_json,
+                        retry_count, max_retries, result_ref, result_json, error_message,
+                        created_at_ms, updated_at_ms, started_at_ms, finished_at_ms
+                 FROM work_items WHERE {store_col} = ?1 ORDER BY seq ASC"
+            )
+        } else {
+            format!(
+                "SELECT id, {store_col}, seq, status, title, payload_json,
+                        retry_count, max_retries, result_ref, result_json, error_message,
+                        created_at_ms, updated_at_ms, started_at_ms, finished_at_ms
+                 FROM work_items WHERE {store_col} = ?1 ORDER BY seq ASC"
+            )
+        };
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![store_id], |row| {
+            let (status_idx, title_idx) = if has_batch { (4, 5) } else { (3, 4) };
+            let status_s: String = row.get(status_idx)?;
             Ok(WorkItem {
                 id: row.get(0)?,
-                campaign_id: row.get(1)?,
+                store_id: row.get(1)?,
                 seq: row.get(2)?,
-                batch_id: row.get(3)?,
                 status: WorkItemStatus::from_str_loose(&status_s)
                     .unwrap_or(WorkItemStatus::Pending),
-                title: row.get(5)?,
-                payload_json: row.get(6)?,
-                retry_count: row.get(7)?,
-                max_retries: row.get(8)?,
-                result_ref: row.get(9)?,
-                result_json: row.get(10)?,
-                error_message: row.get(11)?,
-                created_at_ms: row.get(12)?,
-                updated_at_ms: row.get(13)?,
-                started_at_ms: row.get(14)?,
-                finished_at_ms: row.get(15)?,
+                title: row.get(title_idx)?,
+                payload_json: row.get(title_idx + 1)?,
+                retry_count: row.get(title_idx + 2)?,
+                max_retries: row.get(title_idx + 3)?,
+                result_ref: row.get(title_idx + 4)?,
+                result_json: row.get(title_idx + 5)?,
+                error_message: row.get(title_idx + 6)?,
+                created_at_ms: row.get(title_idx + 7)?,
+                updated_at_ms: row.get(title_idx + 8)?,
+                started_at_ms: row.get(title_idx + 9)?,
+                finished_at_ms: row.get(title_idx + 10)?,
             })
         })?;
         let mut out = Vec::new();
@@ -142,14 +179,32 @@ impl WorkItemSqlite {
         Ok(out)
     }
 
-    pub fn target_key_exists(&self, campaign_id: &str, target_key: &str) -> Result<bool> {
+    fn table_has_column(conn: &Connection, name: &str) -> Result<bool> {
+        let mut stmt = conn.prepare("PRAGMA table_info(work_items)")?;
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let col: String = row.get(1)?;
+            if col == name {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    pub fn target_key_exists(&self, store_id: &str, target_key: &str) -> Result<bool> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
+        let col = if Self::table_has_column(&conn, "store_id")? {
+            "store_id"
+        } else {
+            "campaign_id"
+        };
+        let sql = format!(
             "SELECT 1 FROM work_items
-             WHERE campaign_id = ?1 AND json_extract(payload_json, '$.target_key') = ?2
-             LIMIT 1",
-        )?;
-        let mut rows = stmt.query(params![campaign_id, target_key])?;
+             WHERE {col} = ?1 AND json_extract(payload_json, '$.target_key') = ?2
+             LIMIT 1"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query(params![store_id, target_key])?;
         Ok(rows.next()?.is_some())
     }
 }

@@ -49,7 +49,7 @@ export function mapListResponse(raw: Record<string, unknown>): { items: WorkItem
     const r = row as Record<string, unknown>
     return {
       id: String(r.id ?? ''),
-      batchId: String(r.batch_id ?? ''),
+      batchId: String(r.store_id ?? r.batch_id ?? ''),
       seq: typeof r.seq === 'number' ? r.seq : 0,
       title: String(r.title ?? '').trim() || String(r.id ?? ''),
       status: String(r.status ?? 'pending'),

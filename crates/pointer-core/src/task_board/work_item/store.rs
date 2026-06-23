@@ -2,7 +2,7 @@
 
 use super::model::{
     draft_from_value, merge_result_summary, now_ms, payload_with_target_key, target_key_from_payload,
-    BatchStats, CampaignStats, SeedOutcome, WorkItem, WorkItemDraft, WorkItemStatus, MAX_INLINE_SEED,
+    BatchStats, SeedOutcome, StoreStats, WorkItem, WorkItemDraft, WorkItemStatus, MAX_INLINE_SEED,
     work_item_id,
 };
 use super::persistence::WorkItemSqlite;
@@ -54,31 +54,31 @@ impl WorkItemStore {
         *self.persistence.write() = db;
     }
 
-    fn ensure_loaded(&self, campaign_id: &str) {
-        if self.inner.read().contains_key(campaign_id) {
+    fn ensure_loaded(&self, store_id: &str) {
+        if self.inner.read().contains_key(store_id) {
             return;
         }
         if let Some(db) = self.persistence.read().clone() {
-            match db.load_campaign(campaign_id) {
+            match db.load_store(store_id) {
                 Ok(items) => {
                     let mut map = HashMap::new();
                     for item in items {
                         map.insert(item.id.clone(), item);
                     }
-                    self.inner.write().insert(campaign_id.to_string(), map);
+                    self.inner.write().insert(store_id.to_string(), map);
                 }
                 Err(e) => {
-                    log::warn!("work_items: load failed campaign_id={campaign_id}: {e}");
+                    log::warn!("work_items: load failed store_id={store_id}: {e}");
                 }
             }
         }
     }
 
-    fn campaign_map(&self, campaign_id: &str) -> HashMap<String, WorkItem> {
-        self.ensure_loaded(campaign_id);
+    fn store_map(&self, store_id: &str) -> HashMap<String, WorkItem> {
+        self.ensure_loaded(store_id);
         self.inner
             .read()
-            .get(campaign_id)
+            .get(store_id)
             .cloned()
             .unwrap_or_default()
     }
@@ -91,32 +91,31 @@ impl WorkItemStore {
         }
     }
 
-    fn insert_item(&self, campaign_id: &str, item: WorkItem) {
+    fn insert_item(&self, store_id: &str, item: WorkItem) {
         self.inner
             .write()
-            .entry(campaign_id.to_string())
+            .entry(store_id.to_string())
             .or_default()
             .insert(item.id.clone(), item.clone());
         self.persist_item(&item);
     }
 
-    fn next_seq(&self, campaign_id: &str) -> i64 {
-        let map = self.campaign_map(campaign_id);
+    fn next_seq(&self, store_id: &str) -> i64 {
+        let map = self.store_map(store_id);
         map.values().map(|i| i.seq).max().unwrap_or(0) + 1
     }
 
-    pub fn replace_campaign(&self, campaign_id: &str) -> Result<()> {
-        self.inner.write().remove(campaign_id);
+    pub fn replace_store(&self, store_id: &str) -> Result<()> {
+        self.inner.write().remove(store_id);
         if let Some(db) = self.persistence.read().clone() {
-            db.delete_campaign(campaign_id)?;
+            db.delete_store(store_id)?;
         }
         Ok(())
     }
 
-    pub fn seed_batch(
+    pub fn seed(
         &self,
-        campaign_id: &str,
-        batch_id: &str,
+        store_id: &str,
         drafts: Vec<WorkItemDraft>,
     ) -> Result<SeedOutcome> {
         if drafts.len() > MAX_INLINE_SEED {
@@ -130,16 +129,15 @@ impl WorkItemStore {
             let payload = payload_with_target_key(draft.payload, draft.target_key.clone());
             let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into());
             if let Some(ref key) = draft.target_key {
-                if self.target_key_exists(campaign_id, key)? {
+                if self.target_key_exists(store_id, key)? {
                     return Err(anyhow!("duplicate_target_key: {key}"));
                 }
             }
-            let seq = self.next_seq(campaign_id);
-            let id = work_item_id(campaign_id, seq);
+            let seq = self.next_seq(store_id);
+            let id = work_item_id(store_id, seq);
             let item = WorkItem {
                 id,
-                campaign_id: campaign_id.to_string(),
-                batch_id: batch_id.to_string(),
+                store_id: store_id.to_string(),
                 seq,
                 status: WorkItemStatus::Pending,
                 title: draft.title,
@@ -154,47 +152,26 @@ impl WorkItemStore {
                 started_at_ms: None,
                 finished_at_ms: None,
             };
-            self.insert_item(campaign_id, item);
+            self.insert_item(store_id, item);
             seeded += 1;
         }
-        log::info!(
-            "work_items: seeded campaign_id={campaign_id} batch_id={batch_id} count={seeded}"
-        );
-        Ok(SeedOutcome {
-            seeded,
-            batch_id: batch_id.to_string(),
-        })
+        log::info!("work_items: seeded store_id={store_id} count={seeded}");
+        Ok(SeedOutcome { seeded })
     }
 
-    pub fn seed_batch_from_values(
-        &self,
-        campaign_id: &str,
-        batch_id: &str,
-        values: &[Value],
-    ) -> Result<SeedOutcome> {
+    pub fn seed_from_values(&self, store_id: &str, values: &[Value]) -> Result<SeedOutcome> {
         let drafts: Vec<WorkItemDraft> = values.iter().filter_map(draft_from_value).collect();
         if drafts.is_empty() && !values.is_empty() {
             return Err(anyhow!("work_items: no valid work_items entries in seed"));
         }
-        self.seed_batch(campaign_id, batch_id, drafts)
+        self.seed(store_id, drafts)
     }
 
-    pub fn apply_delta(
-        &self,
-        campaign_id: &str,
-        batch_id: &str,
-        delta: WorkItemDelta,
-    ) -> Result<WorkItem> {
-        let mut map = self.campaign_map(campaign_id);
+    pub fn apply_delta(&self, store_id: &str, delta: WorkItemDelta) -> Result<WorkItem> {
+        let mut map = self.store_map(store_id);
         let item = map
             .get_mut(&delta.id)
             .ok_or_else(|| anyhow!("work_item_not_found: {}", delta.id))?;
-        if item.batch_id != batch_id {
-            return Err(anyhow!(
-                "work_item_not_found: {} not in batch {batch_id}",
-                delta.id
-            ));
-        }
         let now = now_ms();
         item.status = delta.status;
         item.updated_at_ms = now;
@@ -219,7 +196,7 @@ impl WorkItemStore {
         let out = item.clone();
         self.inner
             .write()
-            .entry(campaign_id.to_string())
+            .entry(store_id.to_string())
             .or_default()
             .insert(out.id.clone(), out.clone());
         self.persist_item(&out);
@@ -228,12 +205,11 @@ impl WorkItemStore {
 
     pub fn claim(
         &self,
-        campaign_id: &str,
-        batch_id: &str,
+        store_id: &str,
         claim: WorkItemClaim,
         quota: u32,
     ) -> Result<WorkItem> {
-        let stats = self.batch_stats(campaign_id, batch_id);
+        let stats = self.store_stats(store_id);
         let active = stats.done + stats.failed + stats.in_progress;
         if active >= quota {
             return Err(anyhow!("quota_exhausted"));
@@ -242,17 +218,16 @@ impl WorkItemStore {
         if key.is_empty() {
             return Err(anyhow!("work_items: claim requires target_key"));
         }
-        if self.target_key_exists(campaign_id, key)? {
+        if self.target_key_exists(store_id, key)? {
             return Err(anyhow!("duplicate_target_key: {key}"));
         }
         let now = now_ms();
-        let seq = self.next_seq(campaign_id);
-        let id = work_item_id(campaign_id, seq);
+        let seq = self.next_seq(store_id);
+        let id = work_item_id(store_id, seq);
         let payload = payload_with_target_key(claim.payload, Some(key.to_string()));
         let item = WorkItem {
             id,
-            campaign_id: campaign_id.to_string(),
-            batch_id: batch_id.to_string(),
+            store_id: store_id.to_string(),
             seq,
             status: claim.status,
             title: claim.title,
@@ -267,17 +242,17 @@ impl WorkItemStore {
             started_at_ms: Some(now),
             finished_at_ms: None,
         };
-        self.insert_item(campaign_id, item.clone());
+        self.insert_item(store_id, item.clone());
         log::info!(
-            "work_items: claim campaign_id={campaign_id} batch_id={batch_id} id={} target_key={key}",
+            "work_items: claim store_id={store_id} id={} target_key={key}",
             item.id
         );
         Ok(item)
     }
 
-    pub fn target_key_exists(&self, campaign_id: &str, target_key: &str) -> Result<bool> {
-        self.ensure_loaded(campaign_id);
-        if let Some(map) = self.inner.read().get(campaign_id) {
+    pub fn target_key_exists(&self, store_id: &str, target_key: &str) -> Result<bool> {
+        self.ensure_loaded(store_id);
+        if let Some(map) = self.inner.read().get(store_id) {
             for item in map.values() {
                 if target_key_from_payload(&item.payload_json).as_deref() == Some(target_key) {
                     return Ok(true);
@@ -285,15 +260,15 @@ impl WorkItemStore {
             }
         }
         if let Some(db) = self.persistence.read().clone() {
-            return db.target_key_exists(campaign_id, target_key);
+            return db.target_key_exists(store_id, target_key);
         }
         Ok(false)
     }
 
-    pub fn batch_stats(&self, campaign_id: &str, batch_id: &str) -> BatchStats {
-        let map = self.campaign_map(campaign_id);
+    pub fn store_stats(&self, store_id: &str) -> BatchStats {
+        let map = self.store_map(store_id);
         let mut stats = BatchStats::default();
-        for item in map.values().filter(|i| i.batch_id == batch_id) {
+        for item in map.values() {
             stats.total += 1;
             match item.status {
                 WorkItemStatus::Done => stats.done += 1,
@@ -306,9 +281,9 @@ impl WorkItemStore {
         stats
     }
 
-    pub fn campaign_stats(&self, campaign_id: &str) -> CampaignStats {
-        let map = self.campaign_map(campaign_id);
-        let mut stats = CampaignStats::default();
+    pub fn aggregate_stats(&self, store_id: &str) -> StoreStats {
+        let map = self.store_map(store_id);
+        let mut stats = StoreStats::default();
         for item in map.values() {
             stats.total += 1;
             match item.status {
@@ -321,28 +296,24 @@ impl WorkItemStore {
         stats
     }
 
-    pub fn batch_has_done(&self, campaign_id: &str, batch_id: &str) -> bool {
-        self.batch_stats(campaign_id, batch_id).done > 0
+    pub fn store_has_done(&self, store_id: &str) -> bool {
+        self.store_stats(store_id).done > 0
     }
 
-    pub fn inject_window(&self, campaign_id: &str, batch_id: &str) -> Vec<WorkItem> {
-        let map = self.campaign_map(campaign_id);
-        let mut batch_items: Vec<WorkItem> = map
-            .values()
-            .filter(|i| i.batch_id == batch_id)
-            .cloned()
-            .collect();
-        batch_items.sort_by_key(|i| i.seq);
+    pub fn inject_window(&self, store_id: &str) -> Vec<WorkItem> {
+        let map = self.store_map(store_id);
+        let mut items: Vec<WorkItem> = map.values().cloned().collect();
+        items.sort_by_key(|i| i.seq);
 
         let mut out = Vec::new();
-        for item in batch_items
+        for item in items
             .iter()
             .filter(|i| i.status == WorkItemStatus::InProgress)
             .take(WORK_ITEM_INJECT_IN_PROGRESS)
         {
             out.push(item.clone());
         }
-        let mut recent_done: Vec<WorkItem> = batch_items
+        let mut recent_done: Vec<WorkItem> = items
             .iter()
             .filter(|i| i.status == WorkItemStatus::Done)
             .cloned()
@@ -357,7 +328,7 @@ impl WorkItemStore {
                 out.push(item);
             }
         }
-        for item in batch_items
+        for item in items
             .iter()
             .filter(|i| matches!(i.status, WorkItemStatus::Pending | WorkItemStatus::Ready))
             .take(WORK_ITEM_INJECT_NEXT_READY)
@@ -369,36 +340,49 @@ impl WorkItemStore {
         out
     }
 
-    pub fn batch_total(&self, campaign_id: &str, batch_id: &str) -> u32 {
-        self.batch_stats(campaign_id, batch_id).total
+    pub fn store_total(&self, store_id: &str) -> u32 {
+        self.store_stats(store_id).total
     }
 
-    pub fn count_campaign(&self, campaign_id: &str) -> u32 {
-        self.campaign_stats(campaign_id).total
+    pub fn count_store(&self, store_id: &str) -> u32 {
+        self.aggregate_stats(store_id).total
     }
 
-    pub fn items_in_batch(&self, campaign_id: &str, batch_id: &str) -> Vec<WorkItem> {
-        let map = self.campaign_map(campaign_id);
-        let mut items: Vec<WorkItem> = map
-            .into_values()
-            .filter(|i| i.batch_id == batch_id)
-            .collect();
+    pub fn all_terminal_have_summary(&self, store_id: &str) -> bool {
+        let map = self.store_map(store_id);
+        for item in map.values() {
+            if !item.status.is_terminal() {
+                continue;
+            }
+            if item.status == WorkItemStatus::Cancelled {
+                continue;
+            }
+            let has = item
+                .result_json
+                .as_deref()
+                .and_then(super::model::result_summary_from_json)
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false);
+            if !has && item.status == WorkItemStatus::Done {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn items_in_store(&self, store_id: &str) -> Vec<WorkItem> {
+        let mut items: Vec<WorkItem> = self.store_map(store_id).into_values().collect();
         items.sort_by_key(|i| i.seq);
         items
     }
 
-    pub fn list_batch(
+    pub fn list_store(
         &self,
-        campaign_id: &str,
-        batch_id: Option<&str>,
+        store_id: &str,
         offset: u32,
         limit: u32,
     ) -> (Vec<WorkItem>, u32) {
-        let map = self.campaign_map(campaign_id);
-        let mut items: Vec<WorkItem> = map
-            .into_values()
-            .filter(|i| batch_id.map(|b| i.batch_id == b).unwrap_or(true))
-            .collect();
+        let mut items: Vec<WorkItem> = self.store_map(store_id).into_values().collect();
         items.sort_by_key(|i| i.seq);
         let total = items.len() as u32;
         let start = offset.min(total) as usize;
@@ -406,12 +390,7 @@ impl WorkItemStore {
         (items[start..end].to_vec(), total)
     }
 
-    pub fn seed_batch_bulk(
-        &self,
-        campaign_id: &str,
-        batch_id: &str,
-        drafts: Vec<WorkItemDraft>,
-    ) -> Result<SeedOutcome> {
+    pub fn seed_bulk(&self, store_id: &str, drafts: Vec<WorkItemDraft>) -> Result<SeedOutcome> {
         if drafts.len() > 50_000 {
             return Err(anyhow!("work_items: bulk seed exceeds 50000 rows"));
         }
@@ -421,16 +400,15 @@ impl WorkItemStore {
             let payload = payload_with_target_key(draft.payload, draft.target_key.clone());
             let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into());
             if let Some(ref key) = draft.target_key {
-                if self.target_key_exists(campaign_id, key)? {
+                if self.target_key_exists(store_id, key)? {
                     return Err(anyhow!("duplicate_target_key: {key}"));
                 }
             }
-            let seq = self.next_seq(campaign_id);
-            let id = work_item_id(campaign_id, seq);
+            let seq = self.next_seq(store_id);
+            let id = work_item_id(store_id, seq);
             let item = WorkItem {
                 id,
-                campaign_id: campaign_id.to_string(),
-                batch_id: batch_id.to_string(),
+                store_id: store_id.to_string(),
                 seq,
                 status: WorkItemStatus::Pending,
                 title: draft.title,
@@ -445,16 +423,88 @@ impl WorkItemStore {
                 started_at_ms: None,
                 finished_at_ms: None,
             };
-            self.insert_item(campaign_id, item);
+            self.insert_item(store_id, item);
             seeded += 1;
         }
-        log::info!(
-            "work_items: bulk seeded campaign_id={campaign_id} batch_id={batch_id} count={seeded}"
-        );
-        Ok(SeedOutcome {
-            seeded,
-            batch_id: batch_id.to_string(),
-        })
+        log::info!("work_items: bulk seeded store_id={store_id} count={seeded}");
+        Ok(SeedOutcome { seeded })
+    }
+
+    // --- v4 compatibility aliases (batch_id ignored) ---
+
+    pub fn replace_campaign(&self, store_id: &str) -> Result<()> {
+        self.replace_store(store_id)
+    }
+
+    pub fn seed_batch_from_values(
+        &self,
+        store_id: &str,
+        _batch_id: &str,
+        values: &[Value],
+    ) -> Result<SeedOutcome> {
+        self.seed_from_values(store_id, values)
+    }
+
+    pub fn seed_batch_bulk(
+        &self,
+        store_id: &str,
+        _batch_id: &str,
+        drafts: Vec<WorkItemDraft>,
+    ) -> Result<SeedOutcome> {
+        self.seed_bulk(store_id, drafts)
+    }
+
+    pub fn apply_delta_legacy(
+        &self,
+        store_id: &str,
+        _batch_id: &str,
+        delta: WorkItemDelta,
+    ) -> Result<WorkItem> {
+        self.apply_delta(store_id, delta)
+    }
+
+    pub fn claim_legacy(
+        &self,
+        store_id: &str,
+        _batch_id: &str,
+        claim: WorkItemClaim,
+        quota: u32,
+    ) -> Result<WorkItem> {
+        self.claim(store_id, claim, quota)
+    }
+
+    pub fn batch_stats(&self, store_id: &str, _batch_id: &str) -> BatchStats {
+        self.store_stats(store_id)
+    }
+
+    pub fn campaign_stats(&self, store_id: &str) -> StoreStats {
+        self.aggregate_stats(store_id)
+    }
+
+    pub fn batch_has_done(&self, store_id: &str, _batch_id: &str) -> bool {
+        self.store_has_done(store_id)
+    }
+
+    pub fn batch_total(&self, store_id: &str, _batch_id: &str) -> u32 {
+        self.store_total(store_id)
+    }
+
+    pub fn count_campaign(&self, store_id: &str) -> u32 {
+        self.count_store(store_id)
+    }
+
+    pub fn items_in_batch(&self, store_id: &str, _batch_id: &str) -> Vec<WorkItem> {
+        self.items_in_store(store_id)
+    }
+
+    pub fn list_batch(
+        &self,
+        store_id: &str,
+        _batch_id: Option<&str>,
+        offset: u32,
+        limit: u32,
+    ) -> (Vec<WorkItem>, u32) {
+        self.list_store(store_id, offset, limit)
     }
 }
 
@@ -533,9 +583,8 @@ mod tests {
         let store = WorkItemStore::new();
         let key = "conv-wi";
         store
-            .seed_batch_from_values(
+            .seed_from_values(
                 key,
-                "batch_a",
                 &[
                     json!({"title": "App1"}),
                     json!({"title": "App2"}),
@@ -543,16 +592,15 @@ mod tests {
                 ],
             )
             .expect("seed");
-        let stats = store.batch_stats(key, "batch_a");
+        let stats = store.store_stats(key);
         assert_eq!(stats.total, 3);
         assert_eq!(stats.done, 0);
 
-        let map = store.campaign_map(key);
+        let map = store.store_map(key);
         let first_id = map.values().next().expect("item").id.clone();
         store
             .apply_delta(
                 key,
-                "batch_a",
                 WorkItemDelta {
                     id: first_id.clone(),
                     status: WorkItemStatus::Done,
@@ -562,7 +610,7 @@ mod tests {
                 },
             )
             .expect("delta");
-        let stats = store.batch_stats(key, "batch_a");
+        let stats = store.store_stats(key);
         assert_eq!(stats.done, 1);
         assert_eq!(stats.total, 3);
     }
@@ -574,14 +622,11 @@ mod tests {
         let values: Vec<Value> = (1..=30)
             .map(|i| json!({"title": format!("item {i}")}))
             .collect();
-        store
-            .seed_batch_from_values(key, "batch", &values)
-            .expect("seed");
-        let map = store.campaign_map(key);
+        store.seed_from_values(key, &values).expect("seed");
+        let map = store.store_map(key);
         for (idx, item) in map.values().enumerate().take(10) {
             let _ = store.apply_delta(
                 key,
-                "batch",
                 WorkItemDelta {
                     id: item.id.clone(),
                     status: WorkItemStatus::Done,
@@ -591,7 +636,7 @@ mod tests {
                 },
             );
         }
-        let window = store.inject_window(key, "batch");
+        let window = store.inject_window(key);
         assert!(window.len() <= 6);
     }
 }

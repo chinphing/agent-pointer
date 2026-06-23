@@ -46,29 +46,29 @@ pub fn sync_parent_board_from_supervisor_plan(
         } else {
             task.title.trim().to_string()
         };
-        let validate_requirement = validate_hint_from_goal(&task.goal);
-        if let Some(idx) = doc.board.iter().position(|i| i.id == id) {
-            let row = &mut doc.board[idx];
+        let done_when = validate_hint_from_goal(&task.goal);
+        if let Some(idx) = doc.global_milestones.iter().position(|i| i.id == id) {
+            let row = &mut doc.global_milestones[idx];
             row.title = title;
             row.depends_on = task.depends_on.clone();
-            if row.validate_requirement.is_none() && validate_requirement.is_some() {
-                row.validate_requirement = validate_requirement;
+            if row.done_when.is_none() && done_when.is_some() {
+                row.done_when = done_when;
             }
             stats.milestones_updated += 1;
         } else {
-            doc.board.push(BoardItem {
+            doc.global_milestones.push(BoardItem {
                 id: id.to_string(),
                 title,
                 status: ItemStatus::Pending,
                 depends_on: task.depends_on.clone(),
-                validate_requirement,
+                done_when,
                 ..BoardItem::default()
             });
             stats.milestones_created += 1;
         }
     }
 
-    for row in &doc.board {
+    for row in &doc.global_milestones {
         if !plan_ids.contains(&row.id) {
             stats.orphan_milestone_ids.push(row.id.clone());
         }
@@ -123,7 +123,7 @@ mod tests {
         assert!(stats.goal_set);
         assert_eq!(stats.milestones_created, 2);
         let doc = store.document(key);
-        assert_eq!(doc.board.len(), 2);
-        assert_eq!(doc.board[1].depends_on, vec!["task_1"]);
+        assert_eq!(doc.global_milestones.len(), 2);
+        assert_eq!(doc.global_milestones[1].depends_on, vec!["task_1"]);
     }
 }

@@ -204,13 +204,13 @@ pub(crate) async fn run_supervisor_chat(
             },
             status: ItemStatus::Pending,
             depends_on: task.depends_on.clone(),
-            validate_requirement: Some(truncate_str(&task.goal, 160)),
+            done_when: Some(truncate_str(&task.goal, 160)),
             ..BoardItem::default()
         };
         let child_was_empty = state
             .task_board_store
             .document(&child_board_key)
-            .board
+            .global_milestones
             .is_empty();
         if let Err(err) = dispatch_to_child(
             &state.task_board_store,
@@ -225,7 +225,7 @@ pub(crate) async fn run_supervisor_chat(
                 && !state
                     .task_board_store
                     .document(&child_board_key)
-                    .board
+                    .global_milestones
                     .is_empty();
             observability::log_dispatch_child(conversation_id, task.id.trim(), child_seeded);
             let child_doc = state.task_board_store.document(&child_board_key);
@@ -284,7 +284,7 @@ pub(crate) async fn run_supervisor_chat(
             Ok(result) => {
                 ctx.tool_budget.record_tool_cycle();
                 let mut parent = state.task_board_store.document(parent_board_key);
-                if parent.board.iter().any(|i| i.id == task.id) {
+                if parent.global_milestones.iter().any(|i| i.id == task.id) {
                     if let Err(err) = report_child_status(
                         &mut parent,
                         task.id.trim(),
@@ -327,7 +327,7 @@ pub(crate) async fn run_supervisor_chat(
             }
             Err(err) => {
                 let mut parent = state.task_board_store.document(parent_board_key);
-                if parent.board.iter().any(|i| i.id == task.id) {
+                if parent.global_milestones.iter().any(|i| i.id == task.id) {
                     let note = err.to_string();
                     if let Err(rep) = report_child_status(
                         &mut parent,

@@ -10,7 +10,7 @@ pub enum DependencyCheck {
 }
 
 pub fn check_dependencies(doc: &BoardDocument, item_id: &str) -> DependencyCheck {
-    let Some(item) = doc.board.iter().find(|i| i.id == item_id) else {
+    let Some(item) = doc.global_milestones.iter().find(|i| i.id == item_id) else {
         return DependencyCheck::Blocked {
             reason: format!("unknown item_id {item_id}"),
         };
@@ -22,7 +22,7 @@ pub fn check_dependencies(doc: &BoardDocument, item_id: &str) -> DependencyCheck
             .depends_on
             .iter()
             .filter(|dep| {
-                !doc.board.iter().any(|row| {
+                !doc.global_milestones.iter().any(|row| {
                     row.id == **dep
                         && matches!(
                             row.status,

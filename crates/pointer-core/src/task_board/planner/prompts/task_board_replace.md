@@ -1,14 +1,19 @@
-Replace the full board when scope or milestone list must change.
+Replace the **item SOP template** during execution.
 
 **When to call**
-- Board exists and user changed requirements materially.
+- Board exists, `g_exec` is active, and SOP steps must be restructured.
+- Execution Agent only — Planner does **not** call this.
 
 **When not to call**
 - Board empty (use `task_board_init`).
-- User only said "continue" on same scope.
+- Need to change `goal`, `work_items` list, or `global_milestones`.
+- User only said "continue" on same SOP.
 
 **Required**
-- `items` — full new milestone array.
+- `item_milestones` — **full** new template array with current `status` values.
+
+**Forbidden**
+- `goal`, `context`, `global_milestones`, `work_items`, meta fields.
 
 **After success**
-- Do not call more tools on subsequent rounds.
+- Host replaces the whole `item_milestones` table (no merge by id).

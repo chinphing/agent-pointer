@@ -1,9 +1,9 @@
-//! Task board v3 document model.
+//! Task board v4 document model.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-pub const BOARD_VERSION: u32 = 3;
+pub const BOARD_VERSION: u32 = 4;
 pub const MAX_BOARD_ROWS: usize = 20;
 pub const RESULT_SNIPPET_MAX_CHARS: usize = 800;
 pub const RESULTS_MAX_ENTRIES: usize = 48;
@@ -82,11 +82,21 @@ pub struct BoardMeta {
     #[serde(default)]
     pub goal: String,
     #[serde(default)]
+    pub context: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constraint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub done_when: Option<String>,
+    #[serde(default)]
     pub status: MetaStatus,
     #[serde(default)]
     pub max_depth: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_total: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_item_mode: Option<WorkItemMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic_quota: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<BoardScope>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -101,9 +111,14 @@ impl Default for BoardMeta {
     fn default() -> Self {
         Self {
             goal: String::new(),
+            context: String::new(),
+            constraint: None,
+            done_when: None,
             status: MetaStatus::Running,
             max_depth: 0,
             expected_total: None,
+            work_item_mode: None,
+            dynamic_quota: None,
             scope: None,
             root_target: None,
             parent_sub_task_id: None,
@@ -137,6 +152,7 @@ pub struct GlobalContext {
     pub artifacts: Value,
 }
 
+/// Milestone row — shared by `global_milestones` and `item_milestones`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BoardItem {
     pub id: String,
@@ -148,26 +164,18 @@ pub struct BoardItem {
     pub retry_count: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub constraint: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        alias = "checkpoint"
+        alias = "validate_requirement"
     )]
-    pub progress: Option<String>,
+    pub done_when: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub validate_requirement: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub validate_results: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extract_requirement: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub extract_results: Vec<String>,
+    pub remark: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub blocked_by: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub work_item_mode: Option<WorkItemMode>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dynamic_quota: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivery_format: Option<DeliveryFormat>,
 }
@@ -179,8 +187,10 @@ pub struct BoardDocument {
     pub meta: BoardMeta,
     #[serde(default)]
     pub global_context: GlobalContext,
+    #[serde(default, rename = "global_milestones", alias = "board")]
+    pub global_milestones: Vec<BoardItem>,
     #[serde(default)]
-    pub board: Vec<BoardItem>,
+    pub item_milestones: Vec<BoardItem>,
 }
 
 impl BoardDocument {
@@ -190,7 +200,8 @@ impl BoardDocument {
             task_id: format!("tb_{store_key}"),
             meta: BoardMeta::default(),
             global_context: GlobalContext::default(),
-            board: Vec::new(),
+            global_milestones: Vec::new(),
+            item_milestones: Vec::new(),
         }
     }
 
@@ -199,43 +210,46 @@ impl BoardDocument {
     }
 
     pub fn board_is_empty(&self) -> bool {
-        self.board.is_empty() && self.meta.goal.is_empty()
+        self.global_milestones.is_empty() && self.meta.goal.is_empty()
+    }
+
+    pub fn has_work_items(&self) -> bool {
+        self.meta.work_item_mode.is_some()
+    }
+
+    pub fn is_enumerated_work_items(&self) -> bool {
+        self.meta.work_item_mode == Some(WorkItemMode::Enumerated)
+    }
+
+    pub fn is_dynamic_work_items(&self) -> bool {
+        self.meta.work_item_mode == Some(WorkItemMode::Dynamic)
     }
 }
 
 impl BoardItem {
-    pub fn has_work_items(&self) -> bool {
-        self.work_item_mode.is_some() || self.dynamic_quota.is_some()
-    }
-
     pub fn is_delivery_milestone(&self) -> bool {
-        self.delivery_format.is_some() && !self.has_work_items()
+        self.delivery_format.is_some()
     }
 
-    pub fn is_dynamic_work_items(&self) -> bool {
-        self.work_item_mode == Some(WorkItemMode::Dynamic) || self.dynamic_quota.is_some()
-    }
-
-    pub fn is_enumerated_work_items(&self) -> bool {
-        self.work_item_mode == Some(WorkItemMode::Enumerated)
+    pub fn has_done_when(&self) -> bool {
+        self.done_when
+            .as_ref()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
     }
 
     pub fn has_validate_evidence(&self) -> bool {
-        self.validate_results.iter().any(|s| !s.trim().is_empty())
+        self.remark
+            .as_ref()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
     }
 
-    pub fn last_validate_result_snippet(&self) -> Option<&str> {
-        self.validate_results
-            .iter()
-            .rev()
-            .find_map(|s| {
-                let t = s.trim();
-                if t.is_empty() {
-                    None
-                } else {
-                    Some(t)
-                }
-            })
+    pub fn last_remark_snippet(&self) -> Option<&str> {
+        self.remark
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
     }
 
     pub fn from_value(v: &Value) -> Option<Self> {
@@ -277,17 +291,13 @@ impl BoardItem {
             .and_then(|x| x.as_str())
             .map(str::to_string);
 
-        let work_item_mode = v
-            .get("work_item_mode")
-            .and_then(|x| x.as_str())
-            .and_then(|s| match s.trim().to_ascii_lowercase().as_str() {
-                "enumerated" => Some(WorkItemMode::Enumerated),
-                "dynamic" => Some(WorkItemMode::Dynamic),
-                _ => None,
-            });
-        let dynamic_quota = v
-            .get("dynamic_quota")
-            .and_then(value_to_u32_loose);
+        let done_when = str_field(v, "done_when").or_else(|| str_field(v, "validate_requirement"));
+
+        let remark = str_field(v, "remark").or_else(|| {
+            let results = string_array_field(v, "validate_results");
+            results.last().cloned()
+        });
+
         let delivery_format = v
             .get("delivery_format")
             .and_then(|x| x.as_str())
@@ -306,27 +316,12 @@ impl BoardItem {
             depends_on,
             retry_count,
             plan: str_field(v, "plan"),
-            progress: str_field(v, "progress").or_else(|| str_field(v, "checkpoint")),
-            validate_requirement: str_field(v, "validate_requirement"),
-            validate_results: string_array_field(v, "validate_results"),
-            extract_requirement: str_field(v, "extract_requirement"),
-            extract_results: string_array_field(v, "extract_results"),
+            constraint: str_field(v, "constraint"),
+            done_when,
+            remark,
             blocked_by,
-            work_item_mode,
-            dynamic_quota,
             delivery_format,
         })
-    }
-}
-
-fn value_to_u32_loose(v: &Value) -> Option<u32> {
-    match v {
-        Value::Number(n) => n
-            .as_u64()
-            .or_else(|| n.as_i64().and_then(|i| u64::try_from(i).ok()))
-            .map(|u| u as u32),
-        Value::String(s) => s.trim().parse::<u32>().ok(),
-        _ => None,
     }
 }
 
@@ -365,6 +360,12 @@ pub fn parse_string_array(val: &Value) -> Vec<String> {
     }
 }
 
+pub fn trim_results_list(list: &mut Vec<String>) {
+    while list.len() > RESULTS_MAX_ENTRIES {
+        list.remove(0);
+    }
+}
+
 pub fn push_snippet(list: &mut Vec<String>, text: &str) {
     let t = compact_snippet(text.trim());
     if t.is_empty() {
@@ -374,15 +375,6 @@ pub fn push_snippet(list: &mut Vec<String>, text: &str) {
     trim_results_list(list);
 }
 
-pub fn append_snippets_from_value(list: &mut Vec<String>, v: &Value, key: &str) {
-    let Some(val) = v.get(key) else {
-        return;
-    };
-    for s in parse_string_array(val) {
-        push_snippet(list, &s);
-    }
-}
-
 pub fn compact_snippet(text: &str) -> String {
     if text.chars().count() <= RESULT_SNIPPET_MAX_CHARS {
         return text.to_string();
@@ -390,10 +382,3 @@ pub fn compact_snippet(text: &str) -> String {
     let compact: String = text.chars().take(RESULT_SNIPPET_MAX_CHARS).collect();
     format!("{compact}…")
 }
-
-pub fn trim_results_list(list: &mut Vec<String>) {
-    while list.len() > RESULTS_MAX_ENTRIES {
-        list.remove(0);
-    }
-}
-

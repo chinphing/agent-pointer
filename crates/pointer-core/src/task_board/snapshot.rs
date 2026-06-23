@@ -334,8 +334,6 @@ fn compact_json(doc: &BoardDocument) -> String {
         serde_json::json!({
             "goal": doc.meta.goal,
             "status": doc.meta.status.as_str(),
-            "step_count": doc.meta.step_count,
-            "max_steps": doc.meta.max_steps,
             "scope": doc.meta.scope,
         }),
     );

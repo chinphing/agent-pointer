@@ -9,7 +9,7 @@ Lifecycle: `docs/taskboard-lifecycle-and-fields.md`.
 |-------|------|-------|
 | `version` | number | `3` only (non-v3 stored JSON is discarded) |
 | `task_id` | string | `tb_{store_key}` |
-| `meta` | object | `goal`, `status`, `step_count`, `max_steps`, optional `expected_total`, `scope`, `root_target`, `parent_sub_task_id` |
+| `meta` | object | `goal`, `status`, optional `expected_total`, `scope`, `root_target`, `parent_sub_task_id` |
 | `global_context` | object | `key_findings[]`, `artifacts` |
 | `board` | array | Milestone / local rows |
 

@@ -19,7 +19,7 @@ Coder and other agents: unchanged — you may still init/replace yourself.
 
 - **`task_board_init`**: set `goal`, optional `global_context`, and `items`.
 - **`task_board_replace`**: replace full board.
-- **`task_board_patch`**: merge one current row (**required** `status`; optional `progress`, deltas).
+- **`task_board_patch`**: merge one current row — **one atomic work item** per call (see below).
 - **`task_board_prune`**: cancel pending rows (`ids`).
 - **`task_board_finalize`**: mark board complete after all rows are terminal.
 - **`task_board_sync_finding`**: child board sync to parent findings.
@@ -55,33 +55,67 @@ User-facing delivery belongs in **assistant `content`**, not board row fields.
 Do not paste `action_verify` JSON into `validate_result_delta`.
 Summarize milestone outcome in one short **`validate_result_delta`** line (aligned with **`step_summary`** when both are used).
 
-## Patch cadence (delta fields)
+## Patch granularity (one atomic work item)
+
+Every **`task_board_patch`** records progress for **one atomic work item** inside the **current milestone** — not the whole board, not multiple milestones, not many items in one call.
+
+**Always:**
+
+- **One object** in **`items`** — the **current** milestone row from **`[TASK_BOARD]`**.
+- **One item outcome** per patch (see mode below).
+- Mark the milestone **`done`** in a **separate** patch after **all** items in that milestone are complete.
+
+### Mode A — host work_items injection
+
+Use when the current row has **`work_item_mode`** (`enumerated` or `dynamic`).
+
+- Host stores atomic rows in **`work_items.db`**; inject shows a **window** of ids + titles + status.
+- Each patch: **`status: in_progress`** (while working) + **one** of:
+  - **`work_item_delta`** — update **one** host id from inject (`wi_…`).
+  - **`work_item_claim`** — dynamic mode only; then a later patch uses **`work_item_delta`**.
+- **Do not** use **`progress`**, **`validate_result_delta`**, or **`validate_results`** on these rows.
+
+### Mode B — no work_items injection (milestone carries the item list)
+
+Use when the row has **no** **`work_item_mode`**, but the milestone clearly enumerates items (in **`plan`**, **`validate_requirement`**, or numbered scope in **`title`**).
+
+- The **full numbered list** lives in **`plan`** (or one-time **`extract_result_delta`**).
+- Each patch: **`status: in_progress`** + **one** **`validate_result_delta`** line for **one** numbered item (e.g. `#3 微信: opened`).
+- Optional **`progress`** = `N/M` for items completed in that milestone.
+- Mark milestone **`done`** only when **every** numbered item in **`plan`** / requirement has a matching delta line.
+
+Choose **Mode A or B** for a milestone — do not mix delta styles on the same row.
+
+## Patch cadence (Mode B delta fields)
 
 On **`task_board_patch`**, each **`items`** row must include **`id`** and **`status`** (current milestone state: usually **`in_progress`** while working, **`done`** when complete).
 
 **Optional** — **omit** when unchanged this call:
 
 - **`progress`** — **replace** when present.
-- **`validate_result_delta`** — append one new outcome line this turn.
+- **`validate_result_delta`** — append **one** new outcome line for **one** atomic item this turn.
 - **`extract_result_delta`** — append one new extract line this turn.
 
 Do **not** send empty strings or placeholders for unused optional fields.
 
-When a step advances: **`status: in_progress`** + **`progress`** + **one** `validate_result_delta` in the same patch.
+When one atomic item advances: **`status: in_progress`** + **one** `validate_result_delta` in the same patch (and **`progress`** when useful).
 
 Host dedupes duplicate delta lines (warnings: `validate_results_duplicate_*`, …).
 
 ## Core rules
 
 - If `[TASK_BOARD]` is empty and task is multi-step, call `init`.
-- **One milestone, many patches:** a large or long-running milestone is updated with **many** `patch` calls over time — each call refreshes **`progress`** (replace) and appends **one** `validate_result_delta`. Do not wait until the end to patch once.
-- **One row per call:** each `patch` has **one** object in **`items`**, and that row’s **`id`** must be the **current** task from **`[TASK_BOARD]`** (not other milestones).
-- Each turn that completes a step on the active row: `patch` in the **same turn** with **one** new `validate_result_delta` line.
-- Do **not** batch many rows to `done` in a single patch at the end.
-- Mark `done` only after outcome evidence exists (deltas and/or action tools); **at most one** row `done` per patch.
+- **Patch = one atomic item:** never batch multiple item outcomes or multiple milestones in one `patch`.
+- **One milestone, many patches:** a large milestone is updated with **many** `patch` calls — each records **one** item (Mode A or B above).
+- **One row per call:** each `patch` has **one** object in **`items`**, and that row’s **`id`** must be the **current** task from **`[TASK_BOARD]`**.
+- Each turn that completes **one** item on the active row: `patch` in the **same turn** with that item’s delta only.
+- Do **not** batch many items or rows to `done` in a single patch at the end.
+- Mark `done` only after every item in that milestone is recorded (Mode A: all work_items terminal; Mode B: all numbered deltas present).
+- **At most one** milestone `done` per patch.
 - Keep 3-12 milestones for most tasks.
 - Cancel obsolete rows with **`task_board_prune`** instead of ignoring them.
 - Finalize in the same turn as final user delivery.
+- Loop safety is enforced by **tool rounds** per user message — not by a board step cap.
 
 ## Parent / child scope
 
@@ -262,14 +296,14 @@ Examples use **`function.name`** + **`function.arguments`** only (no `method`, n
 }
 ```
 
-## Computer + work_items (when enabled)
+## Computer + work_items (Mode A, when enabled)
 
-When a milestone has **`work_item_mode`**, use the **unified execution patch** below instead of `progress` / `validate_result_delta` / `validate_results`.
+When a milestone has **`work_item_mode`**, follow **Mode A** above — **one `work_item_delta` or `work_item_claim` per patch**.
 
 **Enumerated** (`work_item_mode: enumerated`):
 
 - Init may inline **`work_items[]`** (≤200) on the milestone; host stores rows in **`work_items.db`**.
-- Each patch: **`status`** + optional **`work_item_delta`** for **one** atomic row.
+- Each patch: **`status: in_progress`** + **`work_item_delta`** for **one** atomic row.
 
 ```json
 {
@@ -287,7 +321,7 @@ When a milestone has **`work_item_mode`**, use the **unified execution patch** b
 
 **Dynamic** (`work_item_mode: dynamic`, **`dynamic_quota`** required):
 
-- Claim then delta: **`work_item_claim`** (creates row) → later **`work_item_delta`** (done/failed).
+- **One claim OR one delta per patch** — claim creates a row; a later patch closes it with delta.
 
 ```json
 {
@@ -303,10 +337,10 @@ When a milestone has **`work_item_mode`**, use the **unified execution patch** b
 }
 ```
 
-**1f milestones** (no `work_item_mode`): patch **`status` only**; step detail stays in actions / dialogue.
+**Milestones without `work_item_mode`:** use **Mode B** — numbered items in **`plan`** + **`validate_result_delta`**, one item per patch.
 
 **Inject**: `[TASK_BOARD]` shows a **window** of recent work_items + `N/M done`; full list is not in prompt.
 
-**Do not** send `progress`, `validate_result_delta`, or `validate_results` on work_item milestones when this mode is active.
+**Do not** send `progress`, `validate_result_delta`, or `validate_results` on **Mode A** rows.
 
 **User file delivery** (xlsx/csv): final **`deliver_*` milestone** + host export (P3); not per-item `MEDIA`.

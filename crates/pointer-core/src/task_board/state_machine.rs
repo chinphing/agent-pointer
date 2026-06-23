@@ -1,6 +1,6 @@
 //! Item and meta status transitions.
 
-use super::model::{BoardDocument, BoardItem, ItemStatus, MetaStatus};
+use super::model::{BoardDocument, BoardItem, ItemStatus};
 use anyhow::{anyhow, Result};
 
 pub fn validate_item_transition(from: ItemStatus, to: ItemStatus) -> Result<()> {
@@ -61,13 +61,4 @@ pub fn count_incomplete(doc: &BoardDocument) -> usize {
             )
         })
         .count()
-}
-
-pub fn bump_step_count(meta: &mut crate::task_board::model::BoardMeta) -> Result<()> {
-    meta.step_count = meta.step_count.saturating_add(1);
-    if meta.step_count > meta.max_steps {
-        meta.status = MetaStatus::Paused;
-        return Err(anyhow!("task_board: guardrail max_steps ({})", meta.max_steps));
-    }
-    Ok(())
 }

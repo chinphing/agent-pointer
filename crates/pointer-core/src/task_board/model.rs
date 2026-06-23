@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 pub const BOARD_VERSION: u32 = 3;
-pub const DEFAULT_MAX_STEPS: u32 = 50;
 pub const MAX_BOARD_ROWS: usize = 20;
 pub const RESULT_SNIPPET_MAX_CHARS: usize = 800;
 pub const RESULTS_MAX_ENTRIES: usize = 48;
@@ -85,10 +84,6 @@ pub struct BoardMeta {
     #[serde(default)]
     pub status: MetaStatus,
     #[serde(default)]
-    pub step_count: u32,
-    #[serde(default = "default_max_steps")]
-    pub max_steps: u32,
-    #[serde(default)]
     pub max_depth: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_total: Option<u32>,
@@ -102,17 +97,11 @@ pub struct BoardMeta {
     pub parent_store_key: Option<String>,
 }
 
-fn default_max_steps() -> u32 {
-    DEFAULT_MAX_STEPS
-}
-
 impl Default for BoardMeta {
     fn default() -> Self {
         Self {
             goal: String::new(),
             status: MetaStatus::Running,
-            step_count: 0,
-            max_steps: DEFAULT_MAX_STEPS,
             max_depth: 0,
             expected_total: None,
             scope: None,

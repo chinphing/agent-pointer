@@ -832,8 +832,6 @@ export interface TaskBoardDocument {
   meta: {
     goal: string
     status: string
-    step_count?: number
-    max_steps?: number
     max_depth?: number
     expected_total?: number
     scope?: 'parent' | 'child'

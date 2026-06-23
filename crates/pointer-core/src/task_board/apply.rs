@@ -7,8 +7,7 @@ use super::model::{
 };
 use super::row_patch::{compact_row_after_done, merge_row_patch_with_warnings, merge_row_patch_with_warnings_b42};
 use super::state_machine::{
-    bump_step_count, count_incomplete, dependencies_satisfied, mark_ready_pending_rows,
-    validate_item_transition,
+    count_incomplete, dependencies_satisfied, mark_ready_pending_rows, validate_item_transition,
 };
 use super::work_item::WorkItemStore;
 use super::work_items_apply::{
@@ -298,11 +297,6 @@ fn apply_patch(
                         incoming.id
                     ));
                 }
-                bump_step_count(&mut doc.meta)?;
-            }
-            if incoming.status == ItemStatus::InProgress && prev.status != ItemStatus::InProgress
-            {
-                bump_step_count(&mut doc.meta)?;
             }
             if incoming.retry_count >= 2
                 && matches!(
@@ -354,7 +348,6 @@ fn apply_patch(
                         incoming.id
                     ));
                 }
-                bump_step_count(&mut doc.meta)?;
             }
             maybe_warn_done_without_evidence(
                 store_key,

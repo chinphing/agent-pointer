@@ -1439,23 +1439,16 @@ UI (APP + WEB): unfinished campaign shows progress bar + **Continue** button →
 
 | Guardrail | v3 today | Campaign v1 |
 |-----------|----------|-------------|
-| `max_steps` | 50, all patches | Board patches only; `report_work_item` does not bump |
+| Tool rounds | per user message (settings) | same |
 | `expected_total` | init/replace row count | Must match `stats.total` after seed |
 | Board row count | prompt says 3–12 | Hard cap 15 on board; seed rejects |
 | Item retries | row `retry_count` | `work_items.retry_count` / `max_retries` |
 | Stall replan | manual replace | `stall_count >= 3` → host `replan.rs` |
 
-```rust
-fn bump_step_count_campaign(meta: &mut BoardMeta, method: &str) -> Result<()> {
-    match method {
-        "patch" | "replace" | "init" | "finalize" | "prune" => bump_step_count(meta),
-        "seed_work_items" | "report_work_item" | "init_campaign_quota" | "claim_work_slot" => Ok(()),
-        _ => bump_step_count(meta),
-    }
-}
-```
+Board **`max_steps` / `step_count`** removed — patch volume is bounded by **tool rounds** only.
+One **`task_board_patch`** = **one atomic work item** (see runtime prompt Mode A / B).
 
-Campaign-level `max_steps` default 5000 (configurable in `run_budget` / settings).
+Campaign **`MetaStatus::Paused`** remains for future run-budget / resume UX (not step-count).
 
 ---
 

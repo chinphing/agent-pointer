@@ -23,6 +23,7 @@ pub struct LeadAgentLoopContext<'a> {
     pub max_cap: u32,
     pub token_session: &'a mut ChatLlmTokenSession,
     pub reasoning_in_messages: bool,
+    pub planner_outcome: crate::task_board::PlannerRunOutcome,
 }
 
 /// Sub-agent run loop.

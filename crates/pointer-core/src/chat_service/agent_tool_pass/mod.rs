@@ -100,6 +100,30 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
             continue;
         }
 
+        if pass.ctx.task_board_computer_no_exec_init
+            && (tool_id == "task_board_init" || tool_id == "task_board_replace")
+        {
+            let err = "task_board init/replace is handled by the host planner; use task_board_patch during execution.";
+            emit_tool_failed(
+                pass.ctx.session.stream,
+                &pass.ctx.message_id,
+                tc,
+                sub_trace_id.as_deref(),
+                sub_scoped_id.as_deref(),
+                err,
+            );
+            super::util::push_tool_result(
+                pass.ctx.transcript.history,
+                pass.ctx.session.conversation_id,
+                &pass.ctx.message_id,
+                &tc.id,
+                &format!("ERROR: {err}"),
+                &pass.ctx.persist,
+            );
+            any_executed = true;
+            continue;
+        }
+
         if let Some(sub_cfg) = pass.ctx.sub.as_ref() {
             if !registry_tool_in_allow_list(sub_cfg.allowed_tools, &tool_id) {
                 let err = format!("Agent {} 不允许调用工具: {}", sub_cfg.def.id, tc.name);

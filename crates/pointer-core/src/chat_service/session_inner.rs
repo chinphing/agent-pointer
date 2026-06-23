@@ -321,6 +321,31 @@ pub(super) async fn run_chat_inner(
         ctx.history,
     );
 
+    let lead_profile = state
+        .agents
+        .get(&agent_plan.lead_agent_id)
+        .map(|a| a.def().profile.clone())
+        .unwrap_or(crate::agents::AgentProfile::General);
+
+    let planner_outcome = crate::task_board::planner::run_planner_loop(
+        crate::task_board::planner::PlannerRunInput {
+            state: state.as_ref(),
+            provider: &provider,
+            settings: &settings,
+            main_history: ctx.history,
+            conversation_id,
+            store_key: &main_task_board_store_key,
+            lead_agent_id: &agent_plan.lead_agent_id,
+            lead_profile: lead_profile.clone(),
+            cancel: &cancel,
+            llm_stats: &mut llm_token_session.stats,
+            run_id,
+            stream: &stream,
+            context: crate::task_board::planner::PlannerContext::MainTurn,
+        },
+    )
+    .await;
+
     let memory_due = crate::memory::memory_review_due_for(
         &settings,
         &agent_plan.allowed_tool_names,
@@ -346,6 +371,7 @@ pub(super) async fn run_chat_inner(
         max_cap,
         token_session: &mut llm_token_session,
         reasoning_in_messages,
+        planner_outcome,
     };
     super::single_agent::run_single_agent_loop(&mut lead_ctx).await?;
 

@@ -5,6 +5,16 @@ Session-scoped working memory for multi-step execution.
 If work is multi-step, initialize early.
 Single-step work may skip the board.
 
+### Computer + host planner (execution only)
+
+When the host runs the task-board planner before your turn:
+
+- **Do not** call `task_board_init` or `task_board_replace` — the planner already built the board.
+- Use **`task_board_patch`**, **`work_item_delta` / `work_item_claim`** (when enabled), and **`task_board_finalize`**.
+- Treat injected `[TASK_BOARD]` as source of truth.
+
+Coder and other agents: unchanged — you may still init/replace yourself.
+
 **Native flat tools** — call by tool name. **Do not** pass a `method` field in arguments; the host maps the tool name to the operation.
 
 - **`task_board_init`**: set `goal`, optional `global_context`, and `items`.

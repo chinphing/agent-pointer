@@ -248,6 +248,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
         task_board_store: state.task_board_store.clone(),
         task_board_store_key: sub_task_board_key,
         user_dynamic_inject_enabled,
+        planner_outcome: crate::task_board::PlannerRunOutcome::NotApplicable,
     };
     let t = Instant::now();
     state

@@ -42,3 +42,7 @@ On `patch` → `done`, the host injects `_recent_action_tools` plus verify signa
 
 - Parallel sub-agent scheduling
 - Pushing all `local_*` rows to the parent board
+
+## Campaign work_items + sub-agents (v1.1)
+
+When `work_queue_enabled` on the parent campaign, see [`task-board-campaign-work-queue-spec.md`](task-board-campaign-work-queue-spec.md) **§3.6**: single parent `campaign_id`, child claim/report via host Gateway (`gateway/work_item_child.rs`), extended `[TASK_BOARD_PARENT]` assignment fields.

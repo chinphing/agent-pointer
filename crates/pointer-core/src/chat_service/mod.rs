@@ -45,4 +45,6 @@ pub type StreamTx = crate::models::ChatStreamSender;
 
 pub use app_state::AppState;
 pub use session::run_chat;
+pub(crate) use emit::emit_task_board_updated;
+pub(crate) use session_model::resolve_provider_api_key;
 pub(crate) use session_model::prepare_session_llm_settings;

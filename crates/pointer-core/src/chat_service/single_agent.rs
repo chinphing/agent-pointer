@@ -69,7 +69,13 @@ pub(super) async fn run_single_agent_loop(
 
         let assistant_id = new_id("msg");
 
-        let effective_allowed = agent_plan.allowed_tool_names.clone();
+        let mut effective_allowed = agent_plan.allowed_tool_names.clone();
+        if lead_profile == AgentProfile::Computer
+            && settings.task_board_computer_no_exec_init
+            && settings.task_board_planner_enabled
+        {
+            effective_allowed.retain(|t| t != "task_board_init" && t != "task_board_replace");
+        }
         let tools_system_appendix =
             crate::tools_system_appendix::generate_tools_system_appendix(
                 &state.tools,
@@ -105,6 +111,7 @@ pub(super) async fn run_single_agent_loop(
                 lead_profile: lead_profile.clone(),
                 tools_system_appendix,
                 tools_appendix_enabled,
+                planner_outcome: ctx.planner_outcome.clone(),
             },
         )
         .await?;

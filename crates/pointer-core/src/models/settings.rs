@@ -693,6 +693,12 @@ pub struct ModelSettings {
     /// When true, Computer task board uses external work_items.db (delta/claim/inject window).
     #[serde(default, rename = "taskBoardWorkItemsEnabled")]
     pub task_board_work_items_enabled: bool,
+    /// When true, run task-board planner loop before Computer execution each user turn.
+    #[serde(default, rename = "taskBoardPlannerEnabled")]
+    pub task_board_planner_enabled: bool,
+    /// When true (with planner), execution Agent cannot call task_board_init/replace.
+    #[serde(default = "default_task_board_computer_no_exec_init", rename = "taskBoardComputerNoExecInit")]
+    pub task_board_computer_no_exec_init: bool,
     /// Migration flag: append task board runtime markdown as the last user message each round.
     #[serde(default = "default_user_dynamic_inject_enabled", rename = "userDynamicInjectEnabled")]
     pub user_dynamic_inject_enabled: bool,
@@ -930,6 +936,10 @@ fn default_task_board_show_child_boards() -> bool {
     false
 }
 
+fn default_task_board_computer_no_exec_init() -> bool {
+    true
+}
+
 fn default_user_dynamic_inject_enabled() -> bool {
     build_cfg_bool!("USER_DYNAMIC_INJECT_ENABLED", true)
 }
@@ -1039,6 +1049,8 @@ impl Default for ModelSettings {
             debug_menus_enabled: default_debug_menus_enabled(),
             task_board_show_child_boards: default_task_board_show_child_boards(),
             task_board_work_items_enabled: false,
+            task_board_planner_enabled: false,
+            task_board_computer_no_exec_init: true,
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: HashMap::new(),
             agent_task_board_history_trim: HashMap::new(),
@@ -1353,6 +1365,10 @@ pub struct PlatformSettings {
     pub task_board_show_child_boards: bool,
     #[serde(default, rename = "taskBoardWorkItemsEnabled")]
     pub task_board_work_items_enabled: bool,
+    #[serde(default, rename = "taskBoardPlannerEnabled")]
+    pub task_board_planner_enabled: bool,
+    #[serde(default = "default_task_board_computer_no_exec_init", rename = "taskBoardComputerNoExecInit")]
+    pub task_board_computer_no_exec_init: bool,
     #[serde(default = "default_user_dynamic_inject_enabled", rename = "userDynamicInjectEnabled")]
     pub user_dynamic_inject_enabled: bool,
     #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
@@ -1778,6 +1794,8 @@ impl Default for PlatformSettings {
             debug_menus_enabled: default_debug_menus_enabled(),
             task_board_show_child_boards: default_task_board_show_child_boards(),
             task_board_work_items_enabled: false,
+            task_board_planner_enabled: false,
+            task_board_computer_no_exec_init: true,
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: default_platform_agent_models(),
             agent_task_board_history_trim: HashMap::new(),
@@ -1842,6 +1860,8 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         debug_menus_enabled: platform.debug_menus_enabled,
         task_board_show_child_boards: platform.task_board_show_child_boards,
         task_board_work_items_enabled: platform.task_board_work_items_enabled,
+        task_board_planner_enabled: platform.task_board_planner_enabled,
+        task_board_computer_no_exec_init: platform.task_board_computer_no_exec_init,
         user_dynamic_inject_enabled: platform.user_dynamic_inject_enabled,
         agent_default_models: platform.agent_default_models.clone(),
         agent_task_board_history_trim: platform.agent_task_board_history_trim.clone(),

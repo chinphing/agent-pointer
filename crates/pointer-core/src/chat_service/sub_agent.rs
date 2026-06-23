@@ -379,6 +379,7 @@ pub(crate) async fn run_sub_agent(
                 sub: Some(sub_cfg),
                 task_board_work_items_enabled: false,
                 task_board_b42_enforced: false,
+                task_board_computer_no_exec_init: false,
             },
             final_tool_calls: &buf.final_tool_calls,
             trim_hook: Some(trim_hook),

@@ -28,6 +28,7 @@ pub struct PlannerToolPassInput<'a> {
     pub history: &'a [ChatMessage],
 }
 
+#[derive(Debug)]
 pub struct PlannerToolOutcome {
     pub tool_result: String,
     pub planned: Option<PlannedMethod>,
@@ -204,4 +205,159 @@ pub fn append_tool_result(history: &mut Vec<ChatMessage>, tool_call_id: &str, na
         spawn_depth: None,
     });
     let _ = name; // name kept for logging at call site
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{ModelSettings, ToolCall};
+    use crate::task_board::TaskBoardStore;
+    use serde_json::json;
+    use std::sync::Arc;
+    use tokio_util::sync::CancellationToken;
+
+    fn planner_tool_call(name: &str, args: serde_json::Value) -> ToolCall {
+        ToolCall {
+            id: "tc_test".into(),
+            name: name.into(),
+            arguments: args.to_string(),
+            status: "pending".into(),
+            result: None,
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+            display_label: None,
+            display_summary: None,
+        }
+    }
+
+    fn pass_input<'a>(
+        store: Arc<TaskBoardStore>,
+        store_key: &'a str,
+        settings: &'a ModelSettings,
+        llm_stats: &'a mut ConversationLlmStats,
+        cancel: &'a CancellationToken,
+    ) -> PlannerToolPassInput<'a> {
+        PlannerToolPassInput {
+            store,
+            store_key,
+            conversation_id: store_key,
+            settings,
+            cancel,
+            llm_stats,
+            run_id: "run_test",
+            work_items_enabled: false,
+            history: &[],
+        }
+    }
+
+    #[tokio::test]
+    async fn task_board_init_plans_on_empty_board() {
+        let store = Arc::new(TaskBoardStore::new());
+        let key = "conv-init";
+        let settings = ModelSettings::default();
+        let mut stats = ConversationLlmStats::default();
+        let cancel = CancellationToken::new();
+        let mut input = pass_input(store.clone(), key, &settings, &mut stats, &cancel);
+        let tc = planner_tool_call(
+            "task_board_init",
+            json!({
+                "goal": "campaign",
+                "items": [{"id": "s1", "title": "Step", "status": "pending"}]
+            }),
+        );
+        let out = dispatch_planner_tool(&mut input, &tc)
+            .await
+            .expect("init");
+        assert_eq!(out.planned, Some(PlannedMethod::Init));
+        assert_eq!(out.board_len, 1);
+        assert_eq!(store.document(key).meta.goal, "campaign");
+    }
+
+    #[tokio::test]
+    async fn task_board_init_rejects_when_board_exists() {
+        let store = Arc::new(TaskBoardStore::new());
+        let key = "conv-exists";
+        store
+            .apply(key, "init", &json!({ "goal": "g", "items": [] }))
+            .expect("seed");
+        let settings = ModelSettings::default();
+        let mut stats = ConversationLlmStats::default();
+        let cancel = CancellationToken::new();
+        let mut input = pass_input(store.clone(), key, &settings, &mut stats, &cancel);
+        let tc = planner_tool_call(
+            "task_board_init",
+            json!({ "goal": "new", "items": [] }),
+        );
+        let out = dispatch_planner_tool(&mut input, &tc)
+            .await
+            .expect("reject");
+        assert!(out.planned.is_none());
+        assert!(out.tool_result.contains("board already exists"));
+    }
+
+    #[tokio::test]
+    async fn task_board_replace_plans_and_replaces_board() {
+        let store = Arc::new(TaskBoardStore::new());
+        let key = "conv-replace";
+        store
+            .apply(
+                key,
+                "init",
+                &json!({
+                    "goal": "old",
+                    "items": [{"id": "a", "title": "A", "status": "pending"}]
+                }),
+            )
+            .expect("init");
+        let settings = ModelSettings::default();
+        let mut stats = ConversationLlmStats::default();
+        let cancel = CancellationToken::new();
+        let mut input = pass_input(store.clone(), key, &settings, &mut stats, &cancel);
+        let tc = planner_tool_call(
+            "task_board_replace",
+            json!({
+                "goal": "new goal",
+                "items": [
+                    {"id": "b", "title": "B", "status": "pending"},
+                    {"id": "c", "title": "C", "status": "pending"}
+                ]
+            }),
+        );
+        let out = dispatch_planner_tool(&mut input, &tc)
+            .await
+            .expect("replace");
+        assert_eq!(out.planned, Some(PlannedMethod::Replace));
+        assert_eq!(out.board_len, 2);
+        let doc = store.document(key);
+        assert_eq!(doc.meta.goal, "old");
+        assert_eq!(doc.board[0].id, "b");
+        assert_eq!(doc.board[1].id, "c");
+    }
+
+    #[tokio::test]
+    async fn unknown_tool_is_error() {
+        let store = Arc::new(TaskBoardStore::new());
+        let settings = ModelSettings::default();
+        let mut stats = ConversationLlmStats::default();
+        let cancel = CancellationToken::new();
+        let mut input = pass_input(store, "conv-unknown", &settings, &mut stats, &cancel);
+        let tc = planner_tool_call("not_a_planner_tool", json!({}));
+        let err = dispatch_planner_tool(&mut input, &tc).await;
+        assert!(err.is_err());
+        assert!(err.unwrap_err().to_string().contains("unknown tool"));
+    }
+
+    #[test]
+    fn append_helpers_extend_history_roles() {
+        let mut history = Vec::new();
+        let tc = planner_tool_call("task_board_init", json!({ "goal": "g" }));
+        append_assistant_tool_calls(&mut history, "planning", std::slice::from_ref(&tc));
+        append_tool_result(&mut history, &tc.id, &tc.name, "OK");
+        assert_eq!(history.len(), 2);
+        assert!(matches!(history[0].role, Role::Assistant));
+        assert!(history[0].tool_calls.is_some());
+        assert!(matches!(history[1].role, Role::Tool));
+        assert_eq!(history[1].tool_call_id.as_deref(), Some("tc_test"));
+    }
 }

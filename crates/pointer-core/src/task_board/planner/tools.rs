@@ -76,3 +76,31 @@ pub fn openai_tools() -> Vec<Value> {
         }),
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exposes_planner_native_tools() {
+        let tools = openai_tools();
+        assert_eq!(tools.len(), 4);
+        let names: Vec<&str> = tools
+            .iter()
+            .filter_map(|t| {
+                t.get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(|n| n.as_str())
+            })
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "web_search",
+                "session_search",
+                "task_board_init",
+                "task_board_replace"
+            ]
+        );
+    }
+}

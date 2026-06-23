@@ -66,3 +66,58 @@ pub fn planner_provider(parent: &OpenAIProvider, lead_agent_id: &str) -> OpenAIP
     );
     OpenAIProvider::new(settings, api_key)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mode_llm::PERFORMANCE_MODE_STANDARD;
+    use crate::models::{AgentModelRef, ComputerTierLlmConfig, ModelSettings};
+    use std::collections::HashMap;
+
+    #[test]
+    fn resolve_prefers_computer_standard_agent_mode_llm() {
+        let mut settings = ModelSettings::default();
+        settings.agent_mode_llm.insert(
+            "computer".into(),
+            HashMap::from([(
+                PERFORMANCE_MODE_STANDARD.into(),
+                ComputerTierLlmConfig {
+                    provider_id: "deepseek".into(),
+                    model: "deepseek-v4-pro".into(),
+                    enable_thinking: false,
+                    thinking_budget: Some(1024),
+                },
+            )]),
+        );
+        let cfg = resolve_planner_llm(&settings, "computer");
+        assert_eq!(cfg.provider_id, "deepseek");
+        assert_eq!(cfg.model, "deepseek-v4-pro");
+        assert!(!cfg.enable_thinking);
+        assert_eq!(cfg.thinking_budget, Some(1024));
+    }
+
+    #[test]
+    fn resolve_falls_back_to_computer_agent_default_model() {
+        let mut settings = ModelSettings::default();
+        settings.agent_default_models.insert(
+            "computer".into(),
+            AgentModelRef {
+                provider_id: "qwen".into(),
+                model: "qwen3.7-plus".into(),
+            },
+        );
+        let cfg = resolve_planner_llm(&settings, "computer");
+        assert_eq!(cfg.provider_id, "qwen");
+        assert_eq!(cfg.model, "qwen3.7-plus");
+        assert!(cfg.enable_thinking);
+    }
+
+    #[test]
+    fn resolve_falls_back_to_active_provider_and_default_intermediate_model() {
+        let mut settings = ModelSettings::default();
+        settings.active_provider_id = "qwen".into();
+        let cfg = resolve_planner_llm(&settings, "computer");
+        assert_eq!(cfg.provider_id, "qwen");
+        assert_eq!(cfg.model, DEFAULT_MODEL_INTERMEDIATE);
+    }
+}

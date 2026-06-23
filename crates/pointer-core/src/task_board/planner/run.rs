@@ -205,3 +205,260 @@ pub async fn run_planner_loop(input: PlannerRunInput<'_>) -> PlannerRunOutcome {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::AgentProfile;
+    use crate::chat_service::AppState;
+    use crate::llm_token_stats::ConversationLlmStats;
+    use crate::models::{ChatMessage, ModelSettings, ProviderConfig, Role};
+    use crate::provider::OpenAIProvider;
+    use serde_json::json;
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::mpsc;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn user_msg(content: &str) -> ChatMessage {
+        ChatMessage {
+            id: "u1".into(),
+            role: Role::User,
+            content: content.into(),
+            status: "done".into(),
+            created_at: 0,
+            tool_calls: None,
+            tool_call_id: None,
+            error_message: None,
+            reasoning: None,
+            thoughts: None,
+            headline: None,
+            raw_content: None,
+            tool_raw_output: None,
+            agent_id: None,
+            agent_instance_id: None,
+            agent_name: None,
+            agent_trace: None,
+            image_slot_labels: None,
+            images_base64: None,
+            computer_round_screen_rel_path: None,
+            ui_bindings: None,
+            context_state: None,
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
+        }
+    }
+
+    fn planner_settings(base_url: &str) -> ModelSettings {
+        ModelSettings {
+            providers: vec![ProviderConfig {
+                id: "qwen".into(),
+                name: "Qwen".into(),
+                base_url: base_url.into(),
+                api_key: "test-key".into(),
+                models: vec!["qwen3.5-plus".into()],
+                reasoning_in_messages: None,
+                temperature: None,
+                max_tokens: None,
+                model_configs: Default::default(),
+                enable_thinking: None,
+                thinking_budget: None,
+                reasoning_effort: None,
+            }],
+            active_provider_id: "qwen".into(),
+            model: "qwen3.5-plus".into(),
+            api_key: "test-key".into(),
+            task_board_planner_enabled: true,
+            ..Default::default()
+        }
+    }
+
+    async fn mount_chat_completions_mocks(server: &MockServer, init_then_done: bool) {
+        let done = ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": { "content": "planning complete" }
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        }));
+        if !init_then_done {
+            Mock::given(method("POST"))
+                .and(path("/chat/completions"))
+                .respond_with(done)
+                .mount(server)
+                .await;
+            return;
+        }
+        let init = ResponseTemplate::new(200).set_body_json(json!({
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call_init",
+                        "type": "function",
+                        "function": {
+                            "name": "task_board_init",
+                            "arguments": "{\"goal\":\"planner goal\",\"items\":[{\"id\":\"s1\",\"title\":\"Step\",\"status\":\"pending\"}]}"
+                        }
+                    }]
+                }
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+        }));
+        let call_count = Arc::new(Mutex::new(0usize));
+        let counter = call_count.clone();
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(move |_req: &wiremock::Request| {
+                let mut n = counter.lock().expect("mock counter lock");
+                *n += 1;
+                if *n == 1 {
+                    init.clone()
+                } else {
+                    done.clone()
+                }
+            })
+            .mount(server)
+            .await;
+    }
+
+    async fn run_with_mock(
+        settings: ModelSettings,
+        history: &[ChatMessage],
+        cancel: CancellationToken,
+    ) -> PlannerRunOutcome {
+        let state = Arc::new(AppState::new());
+        let provider = OpenAIProvider::new(settings.clone(), settings.api_key.clone());
+        let (stream, _rx) = mpsc::unbounded_channel();
+        let mut llm_stats = ConversationLlmStats::default();
+        let store_key = "conv-planner-loop";
+        run_planner_loop(PlannerRunInput {
+            state: state.as_ref(),
+            provider: &provider,
+            settings: &settings,
+            main_history: history,
+            conversation_id: store_key,
+            store_key,
+            lead_agent_id: "computer",
+            lead_profile: AgentProfile::Computer,
+            cancel: &cancel,
+            llm_stats: &mut llm_stats,
+            run_id: "run_planner_test",
+            stream: &stream,
+            context: PlannerContext::MainTurn,
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn not_applicable_for_non_computer_profile() {
+        let settings = planner_settings("http://unused");
+        let cancel = CancellationToken::new();
+        let state = Arc::new(AppState::new());
+        let provider = OpenAIProvider::new(settings.clone(), settings.api_key.clone());
+        let (stream, _rx) = mpsc::unbounded_channel();
+        let mut llm_stats = ConversationLlmStats::default();
+        let outcome = run_planner_loop(PlannerRunInput {
+            state: state.as_ref(),
+            provider: &provider,
+            settings: &settings,
+            main_history: &[user_msg("hello")],
+            conversation_id: "c1",
+            store_key: "c1",
+            lead_agent_id: "general",
+            lead_profile: AgentProfile::General,
+            cancel: &cancel,
+            llm_stats: &mut llm_stats,
+            run_id: "run",
+            stream: &stream,
+            context: PlannerContext::MainTurn,
+        })
+        .await;
+        assert_eq!(outcome, PlannerRunOutcome::NotApplicable);
+    }
+
+    #[tokio::test]
+    async fn not_applicable_when_planner_disabled() {
+        let mut settings = planner_settings("http://unused");
+        settings.task_board_planner_enabled = false;
+        let outcome = run_with_mock(settings, &[user_msg("hello")], CancellationToken::new()).await;
+        assert_eq!(outcome, PlannerRunOutcome::NotApplicable);
+    }
+
+    #[tokio::test]
+    async fn failed_when_cancelled_before_llm() {
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let outcome = run_with_mock(
+            planner_settings("http://unused"),
+            &[user_msg("hello")],
+            cancel,
+        )
+        .await;
+        assert_eq!(
+            outcome,
+            PlannerRunOutcome::Failed {
+                error: "cancelled".into()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn skipped_when_llm_returns_no_planning_tools() {
+        let server = MockServer::start().await;
+        mount_chat_completions_mocks(&server, false).await;
+        let outcome = run_with_mock(
+            planner_settings(&server.uri()),
+            &[user_msg("plan something")],
+            CancellationToken::new(),
+        )
+        .await;
+        assert_eq!(
+            outcome,
+            PlannerRunOutcome::Skipped {
+                reason: "no_init_or_replace".into()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn planned_when_init_tool_succeeds() {
+        let server = MockServer::start().await;
+        mount_chat_completions_mocks(&server, true).await;
+        let settings = planner_settings(&server.uri());
+        let store_key = format!("conv-planned-{}", uuid::Uuid::new_v4());
+        let state = Arc::new(AppState::new());
+        let provider = OpenAIProvider::new(settings.clone(), settings.api_key.clone());
+        let (stream, _rx) = mpsc::unbounded_channel();
+        let mut llm_stats = ConversationLlmStats::default();
+        let outcome = run_planner_loop(PlannerRunInput {
+            state: state.as_ref(),
+            provider: &provider,
+            settings: &settings,
+            main_history: &[user_msg("open ten apps")],
+            conversation_id: &store_key,
+            store_key: &store_key,
+            lead_agent_id: "computer",
+            lead_profile: AgentProfile::Computer,
+            cancel: &CancellationToken::new(),
+            llm_stats: &mut llm_stats,
+            run_id: "run_planned",
+            stream: &stream,
+            context: PlannerContext::MainTurn,
+        })
+        .await;
+        assert_eq!(
+            outcome,
+            PlannerRunOutcome::Planned {
+                method: PlannedMethod::Init,
+                board_len: 1,
+            }
+        );
+        assert_eq!(
+            state.task_board_store.document(&store_key).meta.goal,
+            "planner goal"
+        );
+    }
+}

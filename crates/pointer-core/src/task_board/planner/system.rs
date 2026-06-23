@@ -37,3 +37,57 @@ pub fn build_planner_system(input: PlannerSystemInput<'_>) -> SystemPromptSectio
     );
     SystemPromptSections::all_cacheable(vec![body])
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task_board::model::BoardDocument;
+    use crate::task_board::TaskBoardStore;
+
+    #[test]
+    fn empty_board_uses_placeholder_block() {
+        let doc = BoardDocument::empty_for_store_key("conv1");
+        let store = TaskBoardStore::new();
+        let sections = build_planner_system(PlannerSystemInput {
+            doc: &doc,
+            store_key: "conv1",
+            work_items: Some(store.work_items.as_ref()),
+            workspace_root: "/tmp/ws",
+            today_line: "[Environment] Today is Monday, 2026-01-01.",
+        });
+        let body = sections.cacheable.join("\n\n");
+        assert!(body.contains("(empty — no goal or milestones yet)"));
+        assert!(body.contains("workspace_root: /tmp/ws"));
+        assert!(body.contains("### task_board_init"));
+        assert!(body.contains("### task_board_replace"));
+        assert!(body.contains("### web_search"));
+    }
+
+    #[test]
+    fn populated_board_includes_runtime_block() {
+        let store = TaskBoardStore::new();
+        let key = "conv2";
+        store
+            .apply(
+                key,
+                "init",
+                &serde_json::json!({
+                    "goal": "open apps",
+                    "items": [{"id": "s1", "title": "Step", "status": "pending"}]
+                }),
+            )
+            .expect("init");
+        let doc = store.document(key);
+        let sections = build_planner_system(PlannerSystemInput {
+            doc: &doc,
+            store_key: key,
+            work_items: Some(store.work_items.as_ref()),
+            workspace_root: "",
+            today_line: "[Environment] Today is Tuesday.",
+        });
+        let body = sections.cacheable.join("\n\n");
+        assert!(body.contains("[CURRENT_TASK_BOARD]"));
+        assert!(body.contains("open apps"));
+        assert!(!body.contains("(empty — no goal or milestones yet)"));
+    }
+}

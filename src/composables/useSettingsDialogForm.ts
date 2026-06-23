@@ -203,6 +203,9 @@ function createSettingsDialogForm(deps: {
   const rawContentViewEnabled = ref(false)
   const debugDumpLlmPrompts = ref(false)
   const taskBoardShowChildBoards = ref(false)
+  const taskBoardWorkItemsEnabled = ref(false)
+  const taskBoardPlannerEnabled = ref(false)
+  const taskBoardComputerNoExecInit = ref(true)
   const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
   const computerHumanLike = ref(false)
   const computerAutoSwitchMonitor = ref(true)
@@ -399,6 +402,9 @@ function createSettingsDialogForm(deps: {
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled === true
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
   taskBoardShowChildBoards.value = s.settings.taskBoardShowChildBoards === true
+  taskBoardWorkItemsEnabled.value = s.settings.taskBoardWorkItemsEnabled === true
+  taskBoardPlannerEnabled.value = s.settings.taskBoardPlannerEnabled === true
+  taskBoardComputerNoExecInit.value = s.settings.taskBoardComputerNoExecInit !== false
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true
   computerAutoSwitchMonitor.value = s.settings.computerAutoSwitchMonitor !== false
@@ -693,6 +699,9 @@ function createSettingsDialogForm(deps: {
     debugDumpLlmPrompts: debugDumpLlmPrompts.value,
     debugMenusEnabled: debugMenusEnabled.value,
     taskBoardShowChildBoards: taskBoardShowChildBoards.value,
+    taskBoardWorkItemsEnabled: taskBoardWorkItemsEnabled.value,
+    taskBoardPlannerEnabled: taskBoardPlannerEnabled.value,
+    taskBoardComputerNoExecInit: taskBoardComputerNoExecInit.value,
     computerAnnotatedScreenViewEnabled: computerAnnotatedScreenViewEnabled.value,
     agentTaskBoardHistoryTrim: { ...agentTaskBoardHistoryTrim.value },
     agentUiOverrides: {
@@ -733,6 +742,9 @@ function createSettingsDialogForm(deps: {
     rawContentViewEnabled,
     debugDumpLlmPrompts,
     taskBoardShowChildBoards,
+    taskBoardWorkItemsEnabled,
+    taskBoardPlannerEnabled,
+    taskBoardComputerNoExecInit,
     agentTaskBoardHistoryTrim,
     computerHumanLike,
     computerAutoSwitchMonitor,

@@ -1,18 +1,30 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { LayoutList, CheckCircle2, Circle, Loader2, XCircle, Ban } from 'lucide-vue-next'
-import type { TaskBoardDocument } from '../../types/chat'
+import type { TaskBoardDocument, TaskBoardItem } from '../../types/chat'
 import { hasTaskBoardContent } from '../../lib/taskBoard'
+import WorkItemsBatchList from './WorkItemsBatchList.vue'
 
 const props = defineProps<{
   document: TaskBoardDocument | null
   isActive?: boolean
   childBoards?: Record<string, TaskBoardDocument>
+  conversationId?: string | null
+  taskId?: string
+  workItemsEnabled?: boolean
 }>()
 
 const goal = computed(() => props.document?.meta?.goal?.trim() ?? '')
 const metaStatus = computed(() => props.document?.meta?.status ?? 'running')
 const items = computed(() => props.document?.board ?? [])
+
+const wiEnabled = computed(() => props.workItemsEnabled === true && !!props.conversationId?.trim())
+
+const wiBatches = computed(() =>
+  items.value.filter(row => hasWorkItemsBatch(row))
+)
+
+const openBatchId = ref<string | null>(null)
 
 const childBoardsWithContent = computed(() => {
   if (!props.isActive) return {}
@@ -25,6 +37,23 @@ const childBoardsWithContent = computed(() => {
 const doneCount = computed(() =>
   items.value.filter(i => i.status === 'done').length
 )
+
+function hasWorkItemsBatch(row: TaskBoardItem): boolean {
+  return (
+    row.work_item_mode === 'enumerated'
+    || row.work_item_mode === 'dynamic'
+    || row.dynamic_quota != null
+  )
+}
+
+function batchRefreshKey(row: TaskBoardItem): string {
+  return `${row.id}:${row.status}:${row.progress ?? ''}`
+}
+
+function batchTitle(row: TaskBoardItem): string {
+  const t = row.title?.trim()
+  return t || row.id
+}
 
 function statusIcon(status: string) {
   switch (status) {
@@ -59,6 +88,10 @@ function rowLabel(item: {
     return last.length > 48 ? `${last.slice(0, 48)}…` : last
   }
   return `#${item.id}`
+}
+
+function onBatchOpen(batchId: string, open: boolean) {
+  openBatchId.value = open ? batchId : null
 }
 
 </script>
@@ -96,11 +129,28 @@ function rowLabel(item: {
       <div v-if="!items.length" class="text-[11px] text-muted py-2">暂无里程碑</div>
     </div>
     <div
-      v-for="(child, taskId) in childBoardsWithContent"
-      :key="taskId"
+      v-if="wiEnabled && wiBatches.length && conversationId"
+      class="border-t border-border px-3 py-2 space-y-1 max-h-56 overflow-y-auto bg-accent-muted/10"
+    >
+      <WorkItemsBatchList
+        v-for="batch in wiBatches"
+        :key="batch.id"
+        :conversation-id="conversationId"
+        :task-id="taskId"
+        :batch-id="batch.id"
+        :batch-title="batchTitle(batch)"
+        :enabled="wiEnabled"
+        :refresh-key="batchRefreshKey(batch)"
+        :open="openBatchId === batch.id"
+        @update:open="(v) => onBatchOpen(batch.id, v)"
+      />
+    </div>
+    <div
+      v-for="(child, taskIdKey) in childBoardsWithContent"
+      :key="taskIdKey"
       class="border-t border-border px-3 py-2 bg-accent-muted/20"
     >
-      <div class="text-[11px] text-muted mb-1">子任务 {{ taskId }}</div>
+      <div class="text-[11px] text-muted mb-1">子任务 {{ taskIdKey }}</div>
       <div
         v-for="row in child.board"
         :key="row.id"

@@ -47,6 +47,7 @@ pub mod stream_broadcast;
 pub mod tls;
 pub mod tools;
 pub mod tool_envelope;
+mod windows_shell_encoding;
 pub mod json_tool_caller;
 pub(crate) mod json_interior_quote_escape;
 pub mod tools_system_appendix;

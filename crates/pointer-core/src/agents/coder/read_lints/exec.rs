@@ -148,7 +148,8 @@ pub fn run_shell_capture(
 ) -> Result<CapturedOutput> {
     let mut cmd = if cfg!(windows) {
         let mut c = Command::new("cmd.exe");
-        c.args(["/C", shell_cmd]).current_dir(cwd);
+        c.args(["/C", &crate::windows_shell_encoding::prefix_cmd_utf8_codepage(shell_cmd)])
+            .current_dir(cwd);
         c
     } else {
         let mut c = Command::new("sh");

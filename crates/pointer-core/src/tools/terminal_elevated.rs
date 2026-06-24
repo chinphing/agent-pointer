@@ -166,8 +166,9 @@ fn run_elevated_platform(
     fs::write(&env_path, env_json)?;
 
     let command = strip_redundant_windows_elevation(command);
+    let command = crate::windows_shell_encoding::prefix_cmd_utf8_codepage(command);
     let cmd_line = format!(
-        "chcp 65001>nul & {command} > {} 2> {}",
+        "{command} > {} 2> {}",
         windows_cmd_quoted_path(&out_path),
         windows_cmd_quoted_path(&err_path),
     );
@@ -197,6 +198,7 @@ if ($null -eq $p) {{
     let job_script = format!(
         r#"$ErrorActionPreference = 'Continue'
 $utf8 = [System.Text.UTF8Encoding]::new($false)
+{utf8_setup}
 Set-Location -LiteralPath {work_dir_ps}
 $envMap = Get-Content -LiteralPath {env_ps} -Raw | ConvertFrom-Json
 foreach ($p in $envMap.PSObject.Properties) {{
@@ -214,7 +216,8 @@ try {{
   $code = 1
 }}
 Set-Content -LiteralPath {exit_ps} -Value $code -NoNewline -Encoding ascii
-"#
+"#,
+        utf8_setup = crate::windows_shell_encoding::POWERSHELL_UTF8_SETUP_BLOCK,
     );
     fs::write(&job_path, job_script)?;
 

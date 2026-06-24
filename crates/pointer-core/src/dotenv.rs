@@ -74,6 +74,8 @@ pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String
             }
         }
     }
+    #[cfg(windows)]
+    crate::windows_shell_encoding::apply_windows_utf8_child_env(&mut env);
     env
 }
 

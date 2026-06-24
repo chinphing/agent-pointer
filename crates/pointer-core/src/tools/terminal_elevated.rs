@@ -166,7 +166,7 @@ fn run_elevated_platform(
     fs::write(&env_path, env_json)?;
 
     let command = strip_redundant_windows_elevation(command);
-    let command = crate::windows_shell_encoding::prefix_cmd_utf8_codepage(command);
+    let command = crate::windows_shell_encoding::prefix_cmd_utf8_codepage(&command);
     let cmd_line = format!(
         "{command} > {} 2> {}",
         windows_cmd_quoted_path(&out_path),

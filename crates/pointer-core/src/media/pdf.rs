@@ -25,6 +25,44 @@ pub fn is_pdf_text_sufficient(text: &str) -> bool {
     pdf_text_char_count(text) >= MIN_PDF_TEXT_CHARS
 }
 
+/// Heuristic: lopdf reads raw PDF string bytes and often mojibakes CID / Identity-H fonts.
+pub fn is_pdf_text_plausible(text: &str) -> bool {
+    if !is_pdf_text_sufficient(text) {
+        return false;
+    }
+    pdf_readable_char_ratio(text) >= 0.55
+}
+
+fn pdf_readable_char_ratio(text: &str) -> f64 {
+    let trimmed = text.trim();
+    let total = trimmed.chars().count();
+    if total == 0 {
+        return 0.0;
+    }
+    let readable = trimmed
+        .chars()
+        .filter(|c| is_pdf_readable_char(*c))
+        .count();
+    readable as f64 / total as f64
+}
+
+fn is_pdf_readable_char(c: char) -> bool {
+    if c == '\u{FFFD}' {
+        return false;
+    }
+    if c.is_control() && !matches!(c, '\n' | '\r' | '\t') {
+        return false;
+    }
+    if c.is_alphanumeric() {
+        return true;
+    }
+    if ('\u{4e00}'..='\u{9fff}').contains(&c) {
+        return true;
+    }
+    const PUNCT: &str = "，。、；：？！（）《》—…·\"' .,-/\\@#%&*+=[]{}<>:;";
+    PUNCT.contains(c)
+}
+
 pub fn extract_pdf_text(bytes: &[u8], file_name: &str) -> Result<String> {
     let text = pdf_extract::extract_text_from_mem(bytes)
         .with_context(|| format!("pdf extract failed for {file_name}"))?;
@@ -160,7 +198,15 @@ pub fn extract_pdf_text_sorted_range(
     }
 
     let combined = page_texts.join("\n\n");
-    trim_and_validate_pdf_text(&combined, file_name)
+    if is_pdf_text_plausible(&combined) {
+        return trim_and_validate_pdf_text(&combined, file_name);
+    }
+    log::info!(
+        "pdf {file_name}: lopdf reading-order text failed plausibility (pages {}-{}); using pdf-extract",
+        range.start,
+        range.end
+    );
+    extract_pdf_text_range(bytes, file_name, range)
 }
 
 fn extract_pdf_text_range(bytes: &[u8], file_name: &str, _range: &PdfPageRange) -> Result<String> {
@@ -183,10 +229,21 @@ fn trim_and_validate_pdf_text(text: &str, file_name: &str) -> Result<String> {
             "pdf {file_name} text exceeds {} bytes; truncating",
             MAX_PDF_TEXT_BYTES
         );
-        Ok(trimmed[..MAX_PDF_TEXT_BYTES].to_string())
+        Ok(truncate_pdf_text_bytes(trimmed, MAX_PDF_TEXT_BYTES))
     } else {
         Ok(trimmed.to_string())
     }
+}
+
+fn truncate_pdf_text_bytes(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.to_string();
+    }
+    let mut end = max_bytes.min(text.len());
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_string()
 }
 
 #[derive(Clone)]
@@ -614,6 +671,31 @@ mod tests {
     fn jpeg_magic_detected() {
         assert!(looks_like_jpeg(&[0xFF, 0xD8, 0xFF, 0x00]));
         assert!(!looks_like_jpeg(&[0x89, 0x50]));
+    }
+
+    #[test]
+    fn pdf_text_plausibility_rejects_lopdf_cid_garbage() {
+        let garbled = format!(
+            "--- Page 1 ---\n{}",
+            "\u{10}\u{14}\u{FFFD}\u{15}\u{19}ABC\u{7}\u{3}".repeat(20)
+        );
+        assert!(is_pdf_text_sufficient(&garbled));
+        assert!(!is_pdf_text_plausible(&garbled));
+        let chinese = "上海市浦东新区人民法院民事调解书原告深圳灯火家园企业管理有限公司被告洪洁茹追偿权纠纷一案本院依法适用小额程序公开开庭进行了审理";
+        assert!(is_pdf_text_plausible(chinese));
+    }
+
+    #[test]
+    #[ignore = "local: Desktop mediation PDF"]
+    fn mediation_pdf_extraction_uses_pdf_extract() {
+        let path = "/Users/starliu/Desktop/786394_调解书.pdf";
+        let bytes = std::fs::read(path).expect("read pdf");
+        let file_name = "786394_调解书.pdf";
+        let total = pdf_page_count(&bytes, file_name).unwrap();
+        let range = PdfPageRange::default_first_window(total).unwrap();
+        let text = extract_pdf_text_sorted_range(&bytes, file_name, &range).unwrap();
+        assert!(text.contains("民事调解书"));
+        assert!(text.contains("上海市浦东新区人民法院"));
     }
 
     #[test]

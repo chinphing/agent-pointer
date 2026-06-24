@@ -2,12 +2,13 @@
 id: dev-env-setup
 name: dev-env-setup
 description: >-
-  Install system software and mainstream dev stacks (Node.js, Python, Java, Go, Rust, .NET, C/C++,
-  Kotlin, Swift, Git) and multimedia deps (ffmpeg) for China-friendly setups. On Windows, prefer
-  Chocolatey for all software installs. Per-topic guides live under references/; load on demand.
-  Use when the user asks to install software or dev environments, needs ffmpeg/ffprobe, or context
-  includes <!-- pointer-media-deps --> or video processing failed. Ask for consent before installing.
-  When matched, call skill_read first; use path references/ffmpeg.md for ffmpeg tasks.
+  Install system software and dev environments for China-friendly setups. Covers
+  listed stacks (Node.js, Python, Java, Go, Rust, .NET, C/C++, Kotlin, Swift, Git,
+  ffmpeg) and any other desktop/CLI software via references/general-software.md.
+  On Windows, listed stacks follow their per-topic references; for other software,
+  prefer Chocolatey. Per-topic guides under references/; load on demand. Use for any software install need — user request, missing CLI/tool,
+  build or run failure from absent deps, fresh OS setup, or <!-- pointer-media-deps --> /
+  video processing failed. Trusted dev packages; install directly when needed.
 resources:
   - references/general-software.md
   - references/chocolatey-windows.md
@@ -29,16 +30,17 @@ resources:
 
 ## 职责
 
-为国内用户提供**系统软件**与**主流开发语言**的一站式安装指导。
+为国内用户提供**系统软件**与**主流开发语言**的一站式安装指导；除下表专项外，**任意桌面/CLI 软件**走 **references/general-software.md**。
 **SKILL.md 本身不包含具体安装步骤**，详细指南在 `references/` 下独立文件。
 
 ## 触发条件
 
-用户表达以下意图时激活：
-- "安装 xx" / "帮我装 xx 软件" / "下载 xx"
-- "安装 xx 环境" / "配置开发环境"
-- "我想学 xx，先装什么"
-- 重装系统后要搭开发机
+以下任一情况即激活（**无需用户主动说「安装」**）：
+
+- 用户要求安装、下载、配置软件或开发环境
+- 当前任务需要某 CLI/运行时/工具，环境中尚未安装（如 `command not found`、缺少 `node`/`python`/`git` 等）
+- 构建、测试、运行因依赖缺失失败，需补装软件
+- 重装系统后搭建开发机
 - 国内镜像源、代理设置相关提问
 - 安装 ffmpeg / ffprobe、处理视频需要多媒体依赖
 - 上下文出现 `<!-- pointer-media-deps -->`、`pointer-media-deps` 或视频处理失败提示
@@ -49,13 +51,15 @@ resources:
 
 确定用户需要的**软件/语言/工具**、**操作系统**（macOS / Linux / Windows）和**用途**（日常办公 / Web 开发 / 数据分析 / 后端 / 系统编程等）。
 
-**安装前须征得用户同意**，说明将要执行的命令与影响（含 sudo / UAC / 管理员权限）。
+本 skill 覆盖的软件均为常见开发工具，**可直接安装**，无需额外征求同意；简要说明将安装什么即可。系统提权（sudo / UAC）仍由宿主按常规流程处理。
 
-**Windows 通则（最高优先级）：**
-在 Windows 上安装**任何软件**（含开发工具、浏览器、编辑器、数据库、实用工具等），**一律优先 Chocolatey**。
-流程：`choco search <关键词>` → `choco install <包名> -y`。
-系统未安装 Chocolatey 时，先按 **references/chocolatey-windows.md** 安装，再装目标软件。
-仅当 Chocolatey 无对应包、企业策略禁止、或专项指南明确禁用/指定其它方式时，才改用 winget 或官方安装包（见 **references/general-software.md**）。
+**Windows：**
+
+- **已列专项**（下表 Node.js、Python、Java 等）→ 按对应 **references/*.md** 安装，不以 Chocolatey 替代专项流程。
+- **其余软件**（浏览器、编辑器、数据库、实用工具等）→ **优先 Chocolatey**，见 **references/general-software.md**。
+  流程：`choco search <关键词>` → `choco install <包名> -y`。
+  系统未安装 Chocolatey 时，先按 **references/chocolatey-windows.md** 安装。
+  仅当 Chocolatey 无对应包、企业策略禁止、或指南明确指定其它方式时，才改用 winget 或官方安装包。
 
 **macOS / Linux 通则：**
 优先使用系统包管理器（Homebrew / apt / dnf / pacman），详见 **references/general-software.md**。

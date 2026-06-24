@@ -1,9 +1,18 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, toRef, watch } from 'vue'
 import { LayoutList, CheckCircle2, Circle, Loader2, XCircle, Ban } from 'lucide-vue-next'
 import type { TaskBoardDocument, TaskBoardItem } from '../../types/chat'
-import { hasTaskBoardContent, taskBoardGlobalMilestones, taskBoardHasWorkItems, taskBoardItemMilestones, taskBoardMilestoneProgress } from '../../lib/taskBoard'
+import {
+  hasTaskBoardContent,
+  taskBoardDocumentSyncKey,
+  taskBoardGlobalMilestones,
+  taskBoardHasWorkItems,
+  taskBoardMilestoneViewMode,
+  taskBoardVisibleMilestones,
+  taskBoardVisibleMilestoneProgress
+} from '../../lib/taskBoard'
 import { milestoneTitle } from '../../lib/taskBoardDisplay'
+import { useWorkItemsList } from '../../composables/useWorkItemsList'
 import WorkItemsBatchList from './WorkItemsBatchList.vue'
 
 const props = defineProps<{
@@ -17,14 +26,41 @@ const props = defineProps<{
 
 const goal = computed(() => props.document?.meta?.goal?.trim() ?? '')
 const metaStatus = computed(() => props.document?.meta?.status ?? 'running')
-const items = computed(() => taskBoardGlobalMilestones(props.document))
-const itemMilestones = computed(() => taskBoardItemMilestones(props.document))
-const milestoneProgress = computed(() => taskBoardMilestoneProgress(props.document))
+const viewMode = computed(() => taskBoardMilestoneViewMode(props.document))
+const visibleMilestones = computed(() => taskBoardVisibleMilestones(props.document))
+const documentSyncKey = computed(() => taskBoardDocumentSyncKey(props.document))
 
 const wiEnabled = computed(() => props.workItemsEnabled === true && !!props.conversationId?.trim())
+const showWorkItemStats = computed(
+  () => wiEnabled.value && viewMode.value === 'queue_exec' && taskBoardHasWorkItems(props.document)
+)
+
+const wiStoreList = useWorkItemsList({
+  conversationId: toRef(props, 'conversationId'),
+  taskId: toRef(props, 'taskId'),
+  batchId: ref(''),
+  enabled: showWorkItemStats,
+  refreshKey: documentSyncKey
+})
+
+watch(
+  () => [showWorkItemStats.value, documentSyncKey.value] as const,
+  ([enabled]) => {
+    if (enabled) void wiStoreList.loadStats()
+  },
+  { immediate: true }
+)
+
+const milestoneProgress = computed(() => {
+  if (showWorkItemStats.value && wiStoreList.stats.value) {
+    const s = wiStoreList.stats.value
+    return `${s.done + s.failed}/${s.total}`
+  }
+  return taskBoardVisibleMilestoneProgress(props.document)
+})
 
 const wiBatches = computed(() =>
-  items.value.filter(row => hasWorkItemsBatch(row))
+  taskBoardGlobalMilestones(props.document).filter(row => hasWorkItemsBatch(row))
 )
 
 const showWorkItemsPanel = computed(
@@ -60,7 +96,7 @@ function hasWorkItemsBatch(row: TaskBoardItem): boolean {
 }
 
 function batchRefreshKey(row: TaskBoardItem): string {
-  return `${row.id}:${row.status}:${row.progress ?? ''}`
+  return `${documentSyncKey.value}:${row.id}:${row.status}:${row.progress ?? ''}`
 }
 
 function batchTitle(row: TaskBoardItem): string {
@@ -121,25 +157,14 @@ function onBatchOpen(batchId: string, open: boolean) {
     </summary>
     <div class="border-t border-border px-3 py-2 space-y-1 max-h-48 overflow-y-auto">
       <div
-        v-for="item in items"
+        v-for="item in visibleMilestones"
         :key="item.id"
         class="flex items-start gap-2 text-[12px] py-1 min-h-[1.5rem]"
       >
         <component :is="statusIcon(item.status)" class="w-3.5 h-3.5 shrink-0 mt-0.5" :class="statusClass(item.status)" />
         <div class="min-w-0 flex-1 text-foreground leading-snug break-words">{{ rowLabel(item) }}</div>
       </div>
-      <div v-if="!items.length" class="text-[11px] text-muted py-2">暂无里程碑</div>
-      <template v-if="itemMilestones.length">
-        <div class="text-[10px] text-muted pt-1 pb-0.5">条目 SOP</div>
-        <div
-          v-for="item in itemMilestones"
-          :key="`item-${item.id}`"
-          class="flex items-start gap-2 text-[11px] py-0.5 min-h-[1.25rem] pl-2"
-        >
-          <component :is="statusIcon(item.status)" class="w-3 h-3 shrink-0 mt-0.5" :class="statusClass(item.status)" />
-          <div class="min-w-0 flex-1 leading-snug break-words text-foreground">{{ rowLabel(item) }}</div>
-        </div>
-      </template>
+      <div v-if="!visibleMilestones.length" class="text-[11px] text-muted py-2">暂无任务步骤</div>
     </div>
     <div
       v-if="showWorkItemsPanel && conversationId"
@@ -153,7 +178,7 @@ function onBatchOpen(batchId: string, open: boolean) {
         batch-id=""
         :batch-title="goal || '工作项'"
         :enabled="wiEnabled"
-        :refresh-key="`${metaStatus}:${document?.meta?.work_items_seeded_rows ?? 0}`"
+        :refresh-key="documentSyncKey"
         :open="openBatchId === '__store__'"
         @update:open="(v) => onBatchOpen('__store__', v)"
       />
@@ -177,7 +202,7 @@ function onBatchOpen(batchId: string, open: boolean) {
     >
       <div class="text-[11px] text-muted mb-1">子任务 {{ taskIdKey }}</div>
       <div
-        v-for="row in taskBoardGlobalMilestones(child)"
+        v-for="row in taskBoardVisibleMilestones(child)"
         :key="row.id"
         class="flex items-start gap-2 text-[11px] py-0.5 min-h-[1.25rem]"
       >

@@ -18,6 +18,60 @@ export function taskBoardItemMilestones(
   return doc.item_milestones ?? []
 }
 
+/** Mirrors host inject projection: step globals, queue item SOP, or deliver-only. */
+export type TaskBoardMilestoneViewMode = 'step' | 'queue_exec' | 'queue_deliver'
+
+export function taskBoardMilestoneViewMode(
+  doc: TaskBoardDocument | null | undefined
+): TaskBoardMilestoneViewMode {
+  if (!doc || !taskBoardHasWorkItems(doc)) return 'step'
+  const gExec = taskBoardGlobalMilestones(doc).find(r => r.id === 'g_exec')
+  if (gExec?.status === 'done') return 'queue_deliver'
+  return 'queue_exec'
+}
+
+/** Milestone rows shown in UI — same ladder as model inject, not raw globals + SOP. */
+export function taskBoardVisibleMilestones(
+  doc: TaskBoardDocument | null | undefined
+): TaskBoardItem[] {
+  if (!doc) return []
+  const mode = taskBoardMilestoneViewMode(doc)
+  if (mode === 'queue_exec') {
+    return taskBoardItemMilestones(doc).filter(r => !r.id.startsWith('deliver_'))
+  }
+  if (mode === 'queue_deliver') {
+    const deliver = taskBoardGlobalMilestones(doc).find(r => r.id === 'g_deliver')
+    return deliver ? [deliver] : []
+  }
+  return taskBoardGlobalMilestones(doc)
+}
+
+/** Done+failed / total for the visible milestone ladder. */
+export function taskBoardVisibleMilestoneProgress(
+  doc: TaskBoardDocument | null | undefined
+): string {
+  const rows = taskBoardVisibleMilestones(doc)
+  if (!rows.length) return '0/0'
+  const terminal = rows.filter(
+    i => i.status === 'done' || i.status === 'failed'
+  ).length
+  return `${terminal}/${rows.length}`
+}
+
+/** Stable key for refetching work_items stats after board patches. */
+export function taskBoardDocumentSyncKey(
+  doc: TaskBoardDocument | null | undefined
+): string {
+  if (!doc) return ''
+  const globals = taskBoardGlobalMilestones(doc)
+    .map(i => `${i.id}:${i.status}`)
+    .join('|')
+  const items = taskBoardItemMilestones(doc)
+    .map(i => `${i.id}:${i.status}`)
+    .join('|')
+  return `${doc.meta?.status ?? ''}:${globals}::${items}`
+}
+
 /** True when the board uses external work_items (v4 meta or legacy row flags). */
 export function taskBoardHasWorkItems(doc: TaskBoardDocument | null | undefined): boolean {
   if (!doc) return false
@@ -38,10 +92,7 @@ function hasWorkItemsBatch(row: TaskBoardItem): boolean {
 export function taskBoardMilestoneProgress(
   document: TaskBoardDocument | null | undefined
 ): string {
-  const items = taskBoardGlobalMilestones(document)
-  if (!items.length) return '0/0'
-  const done = items.filter(i => i.status === 'done').length
-  return `${done}/${items.length}`
+  return taskBoardVisibleMilestoneProgress(document)
 }
 
 /** True when the agent has initialized a task board (goal or milestones). */

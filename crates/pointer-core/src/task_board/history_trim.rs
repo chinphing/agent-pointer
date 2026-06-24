@@ -568,7 +568,7 @@ mod tests {
     }
 
     #[test]
-    fn patch_trim_triggers_on_done_remark_or_work_item_delta() {
+    fn patch_trim_triggers_on_done_remark_or_failed() {
         let done = serde_json::json!({
             "items": [{ "id": "1", "status": "done" }]
         });
@@ -581,11 +581,10 @@ mod tests {
             }]
         });
         assert!(task_board_call_is_checkpoint("task_board_patch", &remark));
-        let wi = serde_json::json!({
-            "milestones": [{ "id": "m2", "status": "done" }],
-            "work_item_delta": { "id": "wi_x", "status": "done", "result_summary": "ok" }
+        let failed = serde_json::json!({
+            "milestones": [{ "id": "m2", "status": "failed", "remark": "timeout" }]
         });
-        assert!(task_board_call_is_checkpoint("task_board_patch", &wi));
+        assert!(task_board_call_is_checkpoint("task_board_patch", &failed));
         let progress = serde_json::json!({
             "items": [{ "id": "1", "progress": "3/10" }]
         });

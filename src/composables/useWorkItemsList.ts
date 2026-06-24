@@ -146,8 +146,9 @@ export function useWorkItemsList(opts: {
   watch(
     () => [opts.refreshKey.value, opts.enabled.value] as const,
     () => {
+      if (!opts.enabled.value) return
+      void loadStats()
       if (expanded.value) {
-        void loadStats()
         void loadPage(offset.value)
       }
     }

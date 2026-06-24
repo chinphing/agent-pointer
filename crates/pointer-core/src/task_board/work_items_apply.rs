@@ -1,11 +1,13 @@
 //! Work item seeding and patch side-effects during task_board apply (v4).
 
-use super::args::work_item_mode_from_args;
+use super::args::{patch_work_item_id_from_args, work_item_mode_from_args};
 use super::model::{BoardDocument, BoardItem, BoardMeta, WorkItemMode, MAX_BOARD_ROWS};
+use super::model::ItemStatus;
 use super::work_item::{
-    claim_from_value, delta_from_value, drafts_from_source_value, work_items_source_path_from_value,
+    claim_from_value, drafts_from_source_value, work_items_source_path_from_value, WorkItemDelta,
     WorkItemStore, MAX_INLINE_SEED,
 };
+use super::work_item::model::WorkItemStatus;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
@@ -174,9 +176,53 @@ pub fn validate_expected_total_after_seed(
     Ok(())
 }
 
-pub fn apply_work_item_patch_fields(
+pub fn in_progress_work_item_id(store_key: &str, work_items: &WorkItemStore) -> Option<String> {
+    work_items
+        .inject_window(store_key)
+        .into_iter()
+        .find(|wi| wi.status == WorkItemStatus::InProgress)
+        .map(|wi| wi.id.clone())
+}
+
+/// When a work queue row is `in_progress`, milestone patches must name that row id.
+pub fn validate_patch_work_item_binding(
     store_key: &str,
     doc: &BoardDocument,
+    patch_v: &Value,
+    work_items: &WorkItemStore,
+    has_structured_milestone_patch: bool,
+) -> Result<()> {
+    if !doc.has_work_items() {
+        return Ok(());
+    }
+    if patch_v.get("work_item_claim").is_some() && !has_structured_milestone_patch {
+        return Ok(());
+    }
+    let expected = in_progress_work_item_id(store_key, work_items);
+    if expected.is_none() {
+        return Ok(());
+    }
+    if !has_structured_milestone_patch {
+        return Ok(());
+    }
+    let provided = patch_work_item_id_from_args(patch_v);
+    let Some(provided) = provided else {
+        return Err(anyhow!(
+            "work_items: patch requires work_item_id matching the current in_progress queue row"
+        ));
+    };
+    let exp = expected.as_ref().expect("checked above");
+    if provided != *exp {
+        return Err(anyhow!(
+            "work_items: work_item_id {provided} does not match in_progress item {exp}"
+        ));
+    }
+    Ok(())
+}
+
+pub fn apply_work_item_patch_fields(
+    store_key: &str,
+    doc: &mut BoardDocument,
     patch_v: &Value,
     work_items: &WorkItemStore,
     work_items_enabled: bool,
@@ -190,10 +236,13 @@ pub fn apply_work_item_patch_fields(
         return Ok(None);
     }
 
+    if patch_v.get("work_item_delta").is_some() {
+        return Err(anyhow!(
+            "work_items: work_item_delta removed; patch milestones (last row done/failed + remark)"
+        ));
+    }
+
     if doc.is_dynamic_work_items() {
-        if patch_v.get("work_item_delta").is_some() && patch_v.get("work_item_claim").is_some() {
-            return Err(anyhow!("work_items: use work_item_delta or work_item_claim, not both"));
-        }
         if let Some(claim_v) = patch_v.get("work_item_claim") {
             let claim = claim_from_value(claim_v)
                 .ok_or_else(|| anyhow!("work_items: invalid work_item_claim"))?;
@@ -202,6 +251,8 @@ pub fn apply_work_item_patch_fields(
                 return Err(anyhow!("work_items: dynamic mode missing dynamic_quota"));
             }
             let item = work_items.claim(store_key, claim, quota)?;
+            reset_item_milestones(doc);
+            ensure_single_item_milestone_in_progress(doc);
             return Ok(Some(format!("claimed {} ({})", item.id, item.title)));
         }
     } else if doc.is_enumerated_work_items() {
@@ -210,17 +261,206 @@ pub fn apply_work_item_patch_fields(
         }
     }
 
-    if let Some(delta_v) = patch_v.get("work_item_delta") {
-        if !doc.has_work_items() {
-            return Err(anyhow!("work_items: work_item_delta on board without work_item_mode"));
-        }
-        let delta = delta_from_value(delta_v)
-            .ok_or_else(|| anyhow!("work_items: invalid work_item_delta"))?;
-        work_items.apply_delta(store_key, delta)?;
+    if doc.has_work_items() {
+        let stats = work_items.store_stats(store_key);
+        return Ok(Some(stats.progress_label()));
     }
+    Ok(None)
+}
 
+/// After init seed: mark plan done, exec in progress, first queue row + first template step active.
+pub fn bootstrap_queue_after_init(
+    store_key: &str,
+    doc: &mut BoardDocument,
+    work_items: &WorkItemStore,
+    seeded: u32,
+) {
+    if seeded == 0 || !doc.has_work_items() {
+        return;
+    }
+    maybe_auto_global_queue_on_init(doc);
+    auto_start_enumerated_work_item_if_needed(store_key, work_items);
+    ensure_single_item_milestone_in_progress(doc);
+}
+
+pub fn maybe_auto_global_queue_on_init(doc: &mut BoardDocument) {
+    if !doc.has_work_items() {
+        return;
+    }
+    for row in &mut doc.global_milestones {
+        if row.id == "g_plan" && row.status != ItemStatus::Done {
+            row.status = ItemStatus::Done;
+        }
+        if row.id == "g_exec" && matches!(row.status, ItemStatus::Pending | ItemStatus::Ready) {
+            row.status = ItemStatus::InProgress;
+        }
+    }
+}
+
+pub fn is_last_item_milestone(doc: &BoardDocument, milestone_id: &str) -> bool {
+    let rows: Vec<&BoardItem> = doc
+        .item_milestones
+        .iter()
+        .filter(|r| !r.id.starts_with("deliver_"))
+        .collect();
+    rows.last().map(|r| r.id == milestone_id).unwrap_or(false)
+}
+
+pub fn handle_item_milestone_transition(
+    store_key: &str,
+    doc: &mut BoardDocument,
+    work_items: &WorkItemStore,
+    prev: &BoardItem,
+    incoming: &BoardItem,
+) {
+    if prev.status == incoming.status {
+        return;
+    }
+    let new_status = incoming.status;
+    if new_status == ItemStatus::Done && !is_last_item_milestone(doc, &incoming.id) {
+        advance_item_milestone_after(&mut doc.item_milestones, &incoming.id);
+        return;
+    }
+    if is_last_item_milestone(doc, &incoming.id)
+        && matches!(new_status, ItemStatus::Done | ItemStatus::Failed)
+    {
+        if let Err(e) = internal_close_focus_work_item(
+            store_key,
+            work_items,
+            new_status,
+            remark_text(incoming),
+        ) {
+            log::warn!("task_board: internal work_item close failed: {e}");
+        }
+        reset_item_milestones(doc);
+        if doc.is_enumerated_work_items() {
+            auto_start_enumerated_work_item_if_needed(store_key, work_items);
+        }
+        ensure_single_item_milestone_in_progress(doc);
+        maybe_auto_complete_g_exec(doc, work_items, store_key);
+    }
+}
+
+pub fn handle_global_milestone_transition(doc: &mut BoardDocument, prev: &BoardItem, incoming: &BoardItem) {
+    if prev.status == incoming.status || incoming.status != ItemStatus::Done {
+        return;
+    }
+    if doc.has_work_items() {
+        return;
+    }
+    advance_milestone_after(&mut doc.global_milestones, &incoming.id);
+}
+
+fn remark_text(item: &BoardItem) -> Option<String> {
+    item.remark
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+fn internal_close_focus_work_item(
+    store_key: &str,
+    work_items: &WorkItemStore,
+    terminal: ItemStatus,
+    remark: Option<String>,
+) -> Result<()> {
+    let focus = work_items
+        .inject_window(store_key)
+        .into_iter()
+        .find(|wi| wi.status == WorkItemStatus::InProgress);
+    let Some(focus) = focus else {
+        return Err(anyhow!("work_items: no in_progress row to close"));
+    };
+    let wi_status = match terminal {
+        ItemStatus::Done => WorkItemStatus::Done,
+        ItemStatus::Failed => WorkItemStatus::Failed,
+        _ => return Ok(()),
+    };
+    let delta = WorkItemDelta {
+        id: focus.id.clone(),
+        status: wi_status,
+        result_summary: if terminal == ItemStatus::Done {
+            remark.clone()
+        } else {
+            None
+        },
+        result_ref: None,
+        error_message: if terminal == ItemStatus::Failed {
+            remark.clone()
+        } else {
+            None
+        },
+    };
+    work_items.apply_delta(store_key, delta)?;
+    Ok(())
+}
+
+fn auto_start_enumerated_work_item_if_needed(store_key: &str, work_items: &WorkItemStore) {
     let stats = work_items.store_stats(store_key);
-    Ok(Some(stats.progress_label()))
+    if stats.in_progress > 0 {
+        return;
+    }
+    let items = work_items.items_in_store(store_key);
+    for item in items {
+        if matches!(item.status, WorkItemStatus::Pending) {
+            let delta = WorkItemDelta {
+                id: item.id.clone(),
+                status: WorkItemStatus::InProgress,
+                result_summary: None,
+                result_ref: None,
+                error_message: None,
+            };
+            if let Err(e) = work_items.apply_delta(store_key, delta) {
+                log::warn!("task_board: auto start work_item failed: {e}");
+            }
+            return;
+        }
+    }
+}
+
+fn ensure_single_item_milestone_in_progress(doc: &mut BoardDocument) {
+    if doc.item_milestones.is_empty() {
+        return;
+    }
+    let any_ip = doc
+        .item_milestones
+        .iter()
+        .any(|r| r.status == ItemStatus::InProgress);
+    if any_ip {
+        return;
+    }
+    for row in &mut doc.item_milestones {
+        if row.id.starts_with("deliver_") {
+            continue;
+        }
+        if matches!(row.status, ItemStatus::Pending | ItemStatus::Ready) {
+            row.status = ItemStatus::InProgress;
+            return;
+        }
+    }
+}
+
+fn advance_item_milestone_after(rows: &mut [BoardItem], after_id: &str) {
+    advance_milestone_after(rows, after_id);
+}
+
+fn advance_milestone_after(rows: &mut [BoardItem], after_id: &str) {
+    let pos = rows.iter().position(|r| r.id == after_id);
+    let Some(pos) = pos else {
+        return;
+    };
+    for row in rows.iter_mut() {
+        if row.status == ItemStatus::InProgress && row.id != after_id {
+            row.status = ItemStatus::Pending;
+        }
+    }
+    for row in rows.iter_mut().skip(pos + 1) {
+        if matches!(row.status, ItemStatus::Pending | ItemStatus::Ready) {
+            row.status = ItemStatus::InProgress;
+            return;
+        }
+    }
 }
 
 pub fn exec_met(doc: &BoardDocument, work_items: &WorkItemStore, store_key: &str) -> bool {

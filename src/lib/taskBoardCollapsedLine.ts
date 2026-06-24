@@ -1,5 +1,5 @@
 import type { TaskBoardDocument } from '../types/chat'
-import { taskBoardGlobalMilestones, taskBoardMilestoneProgress } from './taskBoard'
+import { taskBoardVisibleMilestones, taskBoardVisibleMilestoneProgress } from './taskBoard'
 import { milestoneTitle } from './taskBoardDisplay'
 
 export interface TaskBoardCompactSummary {
@@ -19,13 +19,15 @@ export interface TaskBoardCompactSummary {
 export function taskBoardCompactSummary(
   document: TaskBoardDocument | null | undefined
 ): TaskBoardCompactSummary | null {
-  const items = taskBoardGlobalMilestones(document)
+  const items = taskBoardVisibleMilestones(document)
   if (!items.length && !document?.meta?.goal?.trim()) return null
 
   const goal = document?.meta?.goal?.trim() || '任务板'
-  const doneCount = items.filter(i => i.status === 'done').length
+  const doneCount = items.filter(
+    i => i.status === 'done' || i.status === 'failed'
+  ).length
   const total = items.length
-  const progress = taskBoardMilestoneProgress(document)
+  const progress = taskBoardVisibleMilestoneProgress(document)
   const inProgress = items.find(i => i.status === 'in_progress')
   const currentStep = inProgress ? milestoneTitle(inProgress) : null
   const taskLine = currentStep ?? goal

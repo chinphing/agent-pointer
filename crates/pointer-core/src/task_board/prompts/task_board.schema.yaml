@@ -69,29 +69,11 @@ task_board_patch:
       description: Exactly one item_milestone row object in an array (or JSON string of array).
       items:
         type: object
-    work_item_delta:
-      type: object
+    work_item_id:
+      type: string
       description: >
-        One work_item update object (not a string). id must match [WORK_ITEM_FOCUS] verbatim (integer seq).
-        Host also accepts a JSON string for compatibility.
-      properties:
-        id:
-          oneOf:
-            - type: integer
-              description: Auto-assigned seq within the current store (preferred).
-            - type: string
-              description: Same seq as decimal string; legacy long ids still accepted.
-        status:
-          type: string
-          enum: [pending, in_progress, done, failed, cancelled]
-        result_summary:
-          type: string
-        result_ref:
-          type: string
-        error_message:
-          type: string
-      required: [id]
-      additionalProperties: false
+        Queue mode — required when a work_item is in_progress.
+        Must match [WORK_ITEM_FOCUS] id. Omit when queue is empty or all rows terminal.
     work_item_claim:
       type: object
       description: Dynamic mode — claim one runtime target (object, not a string).
@@ -112,6 +94,9 @@ task_board_patch:
       description: Legacy flat row (id + status); prefer global_milestones or milestones.
     item_id:
       type: string
+      description: >
+        Queue mode alias for work_item_id when milestones/global_milestones present.
+        Legacy Type1 flat patch — global milestone row id (no work_items).
     _conversation_id:
       type: string
   required: []

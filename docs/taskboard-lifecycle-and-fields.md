@@ -28,14 +28,14 @@ User delivery: assistant **`content`**, not board fields.
 
 ## Injection order (`[TASK_BOARD]`)
 
-1. **## Task** — meta + Type2 mode/total
-2. **## Global milestones**
-3. **## Current global_milestone**
-4. **## Current global_milestone plan** (separate section)
-5. **## Item milestones** + **## Current item_milestone** — only while `g_exec` is `in_progress`
-6. **## Work items** — window + `[WORK_ITEM_FOCUS]`
+One ladder per turn (host projection):
 
-While `g_exec` is `done` or `g_deliver` is active, Item blocks are omitted.
+1. **## Task** — meta
+2. **## All tasks (with status)** — global rows (step), item template rows (queue exec), or `g_deliver` only (queue deliver)
+3. **## Current task** (+ **## Current task plan** when plan exists); queue exec may show `exec_progress` / `exec_met`
+4. **## Work items** — window + `[WORK_ITEM_FOCUS]` (queue mode)
+
+See [`internals/task-board-unified-milestone-inject.md`](internals/task-board-unified-milestone-inject.md) for projection rules.
 
 **Final user summary:** derive tables and counts from injected **`remark`** on `done` rows and `result_summary` on terminal work_items — not from chat memory.
 

@@ -53,8 +53,8 @@ Each milestone: `plan`, `done_when`; optional `remark` when marking `done`.
     } else if matches!(profile, AgentProfile::Computer) {
         "Use **3-6** milestones for normal GUI work (Type1).
 For enumerated work (>5 similar items), use Type2: `g_plan`/`g_exec`/`g_deliver` + `item_milestones` + `work_items` on init.
-During `g_exec`: **`task_board_patch` every turn** that completes an item SOP step (`milestones`) or a queue row (`work_item_delta`).
-Copy `work_item_delta.id` verbatim from `[WORK_ITEM_FOCUS]` — never construct ids.
+During `g_exec`: **`task_board_patch` every turn** that completes a milestone step (`milestones` done/failed + remark on last row).
+Host advances the work queue — do not send `work_item_delta`.
 When inject shows `exec_met: true`, patch `g_exec` to `done`, then handle `g_deliver` + export.
 Set **`expected_total`** when the exhaustive count is known.
 "

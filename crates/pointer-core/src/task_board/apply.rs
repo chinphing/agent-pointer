@@ -17,9 +17,11 @@ use super::state_machine::{
 };
 use super::work_item::WorkItemStore;
 use super::work_items_apply::{
-    apply_meta_work_item_mode, apply_work_item_patch_fields,
-    maybe_auto_complete_g_exec, milestone_done_has_work_item_evidence, patch_rejects_g_deliver_when_blocked,
-    patch_rejects_g_exec_done_when_not_met, patch_rejects_v3_delta_fields, reset_item_milestones,
+    apply_meta_work_item_mode, apply_work_item_patch_fields, bootstrap_queue_after_init,
+    handle_global_milestone_transition, handle_item_milestone_transition,
+    milestone_done_has_work_item_evidence, patch_rejects_g_deliver_when_blocked,
+    validate_patch_work_item_binding,
+    patch_rejects_g_exec_done_when_not_met, patch_rejects_v3_delta_fields,
     seed_work_items_on_init, validate_board_row_count, validate_expected_total_after_seed,
     validate_work_item_init, work_items_enabled_from_args, workspace_root_from_args,
 };
@@ -237,6 +239,9 @@ fn apply_init(
         doc.meta.expected_total = Some(seeded);
     }
     validate_expected_total_after_seed(doc, work_items, store_key, "init")?;
+    if seeded > 0 {
+        bootstrap_queue_after_init(store_key, doc, work_items, seeded);
+    }
     Ok(seeded)
 }
 
@@ -292,6 +297,15 @@ fn apply_patch(
         ));
     }
 
+    let has_structured_milestone_patch = item_rows.is_some() || global_rows.is_some();
+    validate_patch_work_item_binding(
+        store_key,
+        doc,
+        args,
+        work_items,
+        has_structured_milestone_patch,
+    )?;
+
     let mut reflection = false;
     let mut warnings: Vec<Value> = Vec::new();
     let mut patched: Vec<Value> = Vec::new();
@@ -313,7 +327,8 @@ fn apply_patch(
     let global_snapshot = doc.global_milestones.clone();
     let has_work_items = doc.has_work_items();
     let global_len = doc.global_milestones.len();
-    let rows = if let Some(item_rows) = item_rows {
+    let patching_item_template = item_rows.is_some();
+    let transitions = if let Some(item_rows) = item_rows {
         patch_rows_on_slice(
             &mut doc.item_milestones,
             &item_rows,
@@ -348,17 +363,14 @@ fn apply_patch(
     } else {
         Vec::new()
     };
-    let _ = rows;
-
-    if args.get("work_item_delta").is_some() {
-        if let Some(delta_v) = args.get("work_item_delta") {
-            if let Some(status) = delta_v.get("status").and_then(|s| s.as_str()) {
-                if status == "done" || status == "failed" {
-                    reset_item_milestones(doc);
-                }
-            }
+    if patching_item_template {
+        for (prev, incoming) in transitions {
+            handle_item_milestone_transition(store_key, doc, work_items, &prev, &incoming);
         }
-        maybe_auto_complete_g_exec(doc, work_items, store_key);
+    } else if !has_work_items {
+        for (prev, incoming) in transitions {
+            handle_global_milestone_transition(doc, &prev, &incoming);
+        }
     }
 
     enforce_interim_drafts_budget(doc, &mut reflection, &mut warnings);
@@ -379,7 +391,8 @@ fn patch_rows_on_slice(
     reflection: &mut bool,
     warnings: &mut Vec<Value>,
     patched: &mut Vec<Value>,
-) -> Result<Vec<Value>> {
+) -> Result<Vec<(BoardItem, BoardItem)>> {
+    let mut transitions = Vec::new();
     for v in rows {
         let id = v
             .get("id")
@@ -448,8 +461,9 @@ fn patch_rows_on_slice(
             );
             maybe_warn_in_progress_without_plan(global_len, &prev, &incoming, warnings);
             compact_row_after_done(&prev, &mut incoming);
-            target[idx] = incoming;
+            target[idx] = incoming.clone();
             patched.push(row_status_entry(&target[idx]));
+            transitions.push((prev, incoming));
         } else {
             let Some(mut incoming) = BoardItem::from_value(v) else {
                 continue;
@@ -490,11 +504,12 @@ fn patch_rows_on_slice(
             );
             maybe_warn_in_progress_without_plan(global_len, &empty_prev, &incoming, warnings);
             compact_row_after_done(&empty_prev, &mut incoming);
-            target.push(incoming);
+            target.push(incoming.clone());
             patched.push(row_status_entry(target.last().expect("just pushed")));
+            transitions.push((empty_prev, incoming));
         }
     }
-    Ok(Vec::new())
+    Ok(transitions)
 }
 
 fn maybe_warn_done_without_evidence(

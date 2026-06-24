@@ -4,7 +4,9 @@ import {
   hasTaskBoardContent,
   taskBoardGlobalMilestones,
   taskBoardHasWorkItems,
-  taskBoardItemMilestones
+  taskBoardItemMilestones,
+  taskBoardMilestoneViewMode,
+  taskBoardVisibleMilestones
 } from './taskBoard'
 
 function v4Doc(): TaskBoardDocument {
@@ -60,5 +62,27 @@ describe('taskBoard helpers', () => {
     expect(taskBoardHasWorkItems(v4Doc())).toBe(true)
     expect(taskBoardItemMilestones(v4Doc())).toHaveLength(1)
     expect(hasTaskBoardContent(v4Doc())).toBe(true)
+  })
+
+  it('queue exec projects item milestones only', () => {
+    const doc = v4Doc()
+    doc.global_milestones = [
+      { id: 'g_plan', title: '计划', status: 'done' },
+      { id: 'g_exec', title: '执行', status: 'in_progress' },
+      { id: 'g_deliver', title: '交付', status: 'ready' }
+    ]
+    expect(taskBoardMilestoneViewMode(doc)).toBe('queue_exec')
+    expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual(['m1'])
+  })
+
+  it('deliver phase projects g_deliver only', () => {
+    const doc = v4Doc()
+    doc.global_milestones = [
+      { id: 'g_plan', title: '计划', status: 'done' },
+      { id: 'g_exec', title: '执行', status: 'done' },
+      { id: 'g_deliver', title: '交付', status: 'in_progress' }
+    ]
+    expect(taskBoardMilestoneViewMode(doc)).toBe('queue_deliver')
+    expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual(['g_deliver'])
   })
 })

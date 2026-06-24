@@ -50,6 +50,7 @@ impl WorkItemSqlite {
         )?;
         Self::migrate_legacy_columns(&conn)?;
         Self::migrate_numeric_ids(&conn)?;
+        Self::migrate_swapped_id_store_id(&conn)?;
         Ok(Arc::new(Self {
             conn: Mutex::new(conn),
         }))
@@ -140,6 +141,35 @@ impl WorkItemSqlite {
         Ok(())
     }
 
+    /// Fix rows where upsert bound `store_id`/`id` in reverse (id held store_key, store_id held seq).
+    fn migrate_swapped_id_store_id(conn: &Connection) -> Result<()> {
+        let version: i32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version >= 3 {
+            return Ok(());
+        }
+        let swapped: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM work_items
+             WHERE id LIKE '%ptr_main_turn%'
+               AND store_id GLOB '[0-9]*'",
+            [],
+            |r| r.get(0),
+        )?;
+        if swapped > 0 {
+            log::info!(
+                "work_items: migrating {swapped} row(s) with swapped id/store_id columns"
+            );
+            conn.execute_batch(
+                "UPDATE work_items
+                 SET store_id = id,
+                     id = CAST(seq AS TEXT)
+                 WHERE id LIKE '%ptr_main_turn%'
+                   AND store_id GLOB '[0-9]*';",
+            )?;
+        }
+        conn.execute("PRAGMA user_version = 3", [])?;
+        Ok(())
+    }
+
     pub fn upsert(&self, item: &WorkItem) -> Result<()> {
         let conn = self.conn.lock();
         conn.execute(
@@ -160,8 +190,8 @@ impl WorkItemSqlite {
                started_at_ms = excluded.started_at_ms,
                finished_at_ms = excluded.finished_at_ms",
             params![
-                item.store_id,
                 item.id,
+                item.store_id,
                 item.seq,
                 item.status.as_str(),
                 item.title,
@@ -238,6 +268,33 @@ impl WorkItemSqlite {
         let mut out = Vec::new();
         for r in rows {
             out.push(r?);
+        }
+        Ok(out)
+    }
+
+    /// Distinct `store_id` values that have at least one row (for cold-start key resolution).
+    pub fn list_store_ids_with_rows(&self, prefix: &str) -> Result<Vec<String>> {
+        let like = format!("{prefix}%");
+        let store_col = {
+            let conn = self.conn.lock();
+            if Self::table_has_column(&conn, "store_id")? {
+                "store_id"
+            } else {
+                "campaign_id"
+            }
+        };
+        let sql = format!(
+            "SELECT DISTINCT {store_col} FROM work_items WHERE {store_col} LIKE ?1 ORDER BY {store_col}"
+        );
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query(params![like])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            if !id.trim().is_empty() {
+                out.push(id);
+            }
         }
         Ok(out)
     }

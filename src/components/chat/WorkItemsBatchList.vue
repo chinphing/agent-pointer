@@ -108,9 +108,9 @@ function statusClass(status: string): string {
             class="w-3 h-3 shrink-0 mt-0.5"
             :class="statusClass(row.status)"
           />
-          <div class="min-w-0 flex-1">
-            <div class="text-foreground truncate">{{ row.title }}</div>
-            <div v-if="row.resultSummary" class="text-muted truncate">{{ row.resultSummary }}</div>
+          <div class="min-w-0 flex-1 truncate">
+            <span class="text-foreground">{{ row.title }}</span>
+            <span v-if="row.resultSummary" class="text-muted ml-2">{{ row.resultSummary }}</span>
           </div>
         </div>
         <div v-if="!items.length" class="text-[11px] text-muted py-1">暂无条目</div>

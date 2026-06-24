@@ -76,9 +76,9 @@ pub fn format_parent_tunnel_block_full(
                     focus.status.as_str()
                 ));
             }
-            if let Some(item) = current_item_milestone(parent) {
+            if let Some(item) = current_task_in_slice(&parent.item_milestones) {
                 lines.push(format!(
-                    "current_item_milestone: {} · {} · {}",
+                    "current_task: {} · {} · {}",
                     item.id,
                     item.title,
                     item.status.as_str()
@@ -108,49 +108,141 @@ pub fn markdown_runtime_block_for_inject(
     let mut lines: Vec<String> = Vec::new();
     lines.push("[TASK_BOARD]".to_string());
     lines.push(String::new());
+    let mode = milestone_inject_mode(doc, store_key, work_items);
     append_task_section(&mut lines, doc);
-    lines.push(String::new());
-    lines.push("## Global milestones".to_string());
-    if doc.global_milestones.is_empty() {
-        lines.push("- none".to_string());
-    } else {
-        for item in &doc.global_milestones {
-            lines.push(format_global_list_line(item));
-        }
-    }
 
-    if let Some(global) = current_global_milestone(doc) {
-        lines.push(String::new());
-        lines.push("## Current global_milestone".to_string());
-        append_current_row_bullets(&mut lines, global, doc, work_items, store_key);
-        if let Some(plan) = global.plan.as_deref().filter(|s| !s.trim().is_empty()) {
-            lines.push(String::new());
-            lines.push("## Current global_milestone plan".to_string());
-            lines.push(truncate_field(Some(plan), PLAN_INJECT_MAX));
+    match mode {
+        MilestoneInjectMode::Step => {
+            append_all_tasks_list(&mut lines, &doc.global_milestones);
+            if let Some(current) = current_task_in_slice(&doc.global_milestones) {
+                append_current_task_section(
+                    &mut lines,
+                    current,
+                    doc,
+                    store_key,
+                    work_items,
+                    false,
+                );
+            }
         }
-    }
-
-    if should_inject_item_blocks(doc) {
-        lines.push(String::new());
-        lines.push("## Item milestones".to_string());
-        for item in &doc.item_milestones {
-            lines.push(format_item_list_line(item));
+        MilestoneInjectMode::QueueExec => {
+            append_all_tasks_list(&mut lines, &doc.item_milestones);
+            if let Some(current) = current_task_in_slice(&doc.item_milestones) {
+                append_current_task_section(
+                    &mut lines,
+                    current,
+                    doc,
+                    store_key,
+                    work_items,
+                    true,
+                );
+            }
+            if doc.has_work_items() {
+                if let Some(store) = work_items {
+                    append_work_items_mismatch_note(&mut lines, doc, store_key, store);
+                    append_work_items_section(&mut lines, store_key, store);
+                }
+            }
         }
-        if let Some(item) = current_item_milestone(doc) {
-            lines.push(String::new());
-            lines.push("## Current item_milestone".to_string());
-            append_item_current(&mut lines, item, work_items, store_key);
-        }
-    }
-
-    if doc.has_work_items() {
-        if let Some(store) = work_items {
-            append_work_items_mismatch_note(&mut lines, doc, store_key, store);
-            append_work_items_section(&mut lines, store_key, store);
+        MilestoneInjectMode::QueueDeliver => {
+            let deliver: Vec<BoardItem> = doc
+                .global_milestones
+                .iter()
+                .filter(|r| r.id == "g_deliver")
+                .cloned()
+                .collect();
+            if deliver.is_empty() {
+                lines.push(String::new());
+                lines.push("## All tasks (with status)".to_string());
+                lines.push("- none".to_string());
+            } else {
+                append_all_tasks_list(&mut lines, &deliver);
+                append_current_task_section(
+                    &mut lines,
+                    &deliver[0],
+                    doc,
+                    store_key,
+                    work_items,
+                    false,
+                );
+            }
+            if doc.has_work_items() {
+                if let Some(store) = work_items {
+                    append_work_items_mismatch_note(&mut lines, doc, store_key, store);
+                    append_work_items_section(&mut lines, store_key, store);
+                }
+            }
         }
     }
 
     lines.join("\n")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MilestoneInjectMode {
+    Step,
+    QueueExec,
+    QueueDeliver,
+}
+
+fn milestone_inject_mode(
+    doc: &BoardDocument,
+    store_key: &str,
+    work_items: Option<&WorkItemStore>,
+) -> MilestoneInjectMode {
+    if !doc.has_work_items() {
+        return MilestoneInjectMode::Step;
+    }
+    if let Some(store) = work_items {
+        if exec_met(doc, store, store_key) {
+            return MilestoneInjectMode::QueueDeliver;
+        }
+    }
+    MilestoneInjectMode::QueueExec
+}
+
+fn append_all_tasks_list(lines: &mut Vec<String>, items: &[BoardItem]) {
+    lines.push(String::new());
+    lines.push("## All tasks (with status)".to_string());
+    if items.is_empty() {
+        lines.push("- none".to_string());
+    } else {
+        for item in items {
+            lines.push(format_item_list_line(item));
+        }
+    }
+}
+
+fn append_current_task_section(
+    lines: &mut Vec<String>,
+    item: &BoardItem,
+    doc: &BoardDocument,
+    store_key: &str,
+    work_items: Option<&WorkItemStore>,
+    resolve_work_item: bool,
+) {
+    lines.push(String::new());
+    lines.push("## Current task".to_string());
+    if resolve_work_item {
+        append_item_current(lines, item, work_items, store_key);
+    } else {
+        append_current_row_bullets(lines, item, doc, work_items, store_key);
+    }
+    let plan = item.plan.as_deref().filter(|s| !s.trim().is_empty());
+    if plan.is_some() {
+        lines.push(String::new());
+        lines.push("## Current task plan".to_string());
+        lines.push(truncate_field(plan, PLAN_INJECT_MAX));
+    }
+}
+
+fn current_task_in_slice(items: &[BoardItem]) -> Option<&BoardItem> {
+    items
+        .iter()
+        .find(|i| i.status == ItemStatus::InProgress)
+        .or_else(|| items.iter().find(|i| i.status == ItemStatus::Ready))
+        .or_else(|| items.iter().find(|i| i.status == ItemStatus::Pending))
+        .or_else(|| items.first())
 }
 
 fn work_items_store_mismatch(
@@ -181,7 +273,7 @@ fn append_work_items_mismatch_note(
         "- WARNING: meta reports {meta_rows} seeded row(s) but work_items DB has 0 loaded."
     ));
     lines.push(
-        "- Do NOT call task_board_init to re-seed. Host restores rows on read; use task_board_patch and work_item_delta.".to_string(),
+        "- Do NOT call task_board_init to re-seed. Host restores rows on read; use task_board_patch.".to_string(),
     );
 }
 
@@ -233,21 +325,6 @@ fn append_task_section(lines: &mut Vec<String>, doc: &BoardDocument) {
     } else if let Some(n) = doc.meta.work_items_seeded_rows {
         lines.push(format!("- work_items_seeded: {n} (inline on init)"));
     }
-}
-
-fn meta_or_na(s: Option<&str>) -> &str {
-    s.map(str::trim).filter(|t| !t.is_empty()).unwrap_or("n/a")
-}
-
-fn should_inject_item_blocks(doc: &BoardDocument) -> bool {
-    if !doc.has_work_items() || doc.item_milestones.is_empty() {
-        return false;
-    }
-    doc.global_milestones
-        .iter()
-        .find(|r| r.id == "g_exec")
-        .map(|r| r.status == ItemStatus::InProgress)
-        .unwrap_or(false)
 }
 
 fn append_current_row_bullets(
@@ -320,12 +397,6 @@ fn append_item_current(
                 lines.push(format!("- done_when_resolved: {resolved}"));
             }
         }
-        lines.push(format!(
-            "- focus: {} · title={} · payload={}",
-            focus.id,
-            focus.title,
-            focus_payload_summary(&focus)
-        ));
         let _ = store;
     }
 }
@@ -509,28 +580,8 @@ fn done_when_one_line(item: &BoardItem) -> &str {
         .unwrap_or("n/a")
 }
 
-fn current_global_milestone(doc: &BoardDocument) -> Option<&BoardItem> {
-    current_task_item(doc)
-}
-
-fn current_item_milestone(doc: &BoardDocument) -> Option<&BoardItem> {
-    doc.item_milestones
-        .iter()
-        .find(|i| i.status == ItemStatus::InProgress)
-        .or_else(|| doc.item_milestones.iter().find(|i| i.status == ItemStatus::Ready))
-        .or_else(|| doc.item_milestones.iter().find(|i| i.status == ItemStatus::Pending))
-        .or_else(|| doc.item_milestones.first())
-}
-
-fn current_task_item(doc: &BoardDocument) -> Option<&BoardItem> {
-    doc.global_milestones
-        .iter()
-        .find(|i| i.status == ItemStatus::InProgress)
-        .or_else(|| doc.global_milestones.iter().find(|i| i.status == ItemStatus::Ready))
-        .or_else(|| doc.global_milestones.iter().find(|i| i.status == ItemStatus::Pending))
-        .or_else(|| doc.global_milestones.iter().find(|i| i.status == ItemStatus::Failed))
-        .or_else(|| doc.global_milestones.iter().find(|i| i.status == ItemStatus::Done))
-        .or_else(|| doc.global_milestones.first())
+fn meta_or_na(s: Option<&str>) -> &str {
+    s.map(str::trim).filter(|t| !t.is_empty()).unwrap_or("n/a")
 }
 
 fn compact_json(doc: &BoardDocument) -> String {
@@ -689,13 +740,15 @@ mod inject_format_tests {
     }
 
     #[test]
-    fn inject_has_task_and_global_sections() {
+    fn inject_has_task_and_task_sections() {
         let block = markdown_runtime_block_for_inject(&sample_doc(), "conv-test", None);
         assert!(block.contains("## Task"));
-        assert!(block.contains("## Global milestones"));
-        assert!(block.contains("## Current global_milestone"));
-        assert!(block.contains("## Current global_milestone plan"));
-        assert!(!block.contains("## Global goals"));
+        assert!(block.contains("## All tasks (with status)"));
+        assert!(block.contains("## Current task"));
+        assert!(block.contains("## Current task plan"));
+        assert!(!block.contains("## Global milestones"));
+        assert!(!block.contains("## Item milestones"));
+        assert!(!block.contains("patch_layer"));
         assert!(!block.contains("validate_result_delta"));
     }
 

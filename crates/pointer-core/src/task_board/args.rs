@@ -26,8 +26,29 @@ const PATCH_HOST_KEYS: &[&str] = &[
     "global_milestones",
     "item_milestones",
     "milestones",
+    "work_item_id",
+    "work_item_claim",
     "meta",
 ];
+
+/// Work queue row id for patch binding (`work_item_id`, or `item_id` when patching milestones).
+pub fn patch_work_item_id_from_args(args: &Value) -> Option<String> {
+    let trim = |s: &str| {
+        let t = s.trim();
+        if t.is_empty() {
+            None
+        } else {
+            Some(t.to_string())
+        }
+    };
+    if let Some(id) = args.get("work_item_id").and_then(|v| v.as_str()).and_then(trim) {
+        return Some(id);
+    }
+    if args.get("milestones").is_some() || args.get("global_milestones").is_some() {
+        return args.get("item_id").and_then(|v| v.as_str()).and_then(trim);
+    }
+    None
+}
 
 const PATCH_ROW_FIELD_KEYS: &[&str] = &[
     "status",
@@ -72,10 +93,10 @@ fn coerce_json_string_value(raw: &Value) -> Option<Value> {
     None
 }
 
-/// Coerce stringified `work_item_delta` / `work_item_claim` on patch args before apply.
+/// Coerce stringified `work_item_claim` on patch args before apply.
 pub fn normalize_patch_args(mut args: Value) -> Value {
     if let Value::Object(ref mut map) = args {
-        for key in ["work_item_delta", "work_item_claim"] {
+        for key in ["work_item_claim"] {
             let Some(raw) = map.get(key) else {
                 continue;
             };
@@ -133,6 +154,9 @@ pub fn board_rows_from_args(args: &Value) -> Vec<Value> {
     let global = global_rows_from_args(args);
     if !global.is_empty() {
         return global;
+    }
+    if let Some(rows) = milestone_patch_rows_from_args(args) {
+        return rows;
     }
     items_array_from_args(args).unwrap_or_default()
 }
@@ -341,20 +365,18 @@ mod tests {
     }
 
     #[test]
-    fn normalize_patch_coerces_string_work_item_delta() {
+    fn normalize_patch_coerces_string_work_item_claim() {
         let args = serde_json::json!({
-            "milestones": "[{\"id\":\"m6\",\"status\":\"done\"}]",
-            "work_item_delta": "{\"id\":1,\"status\":\"done\",\"result_summary\":\"ok\"}"
+            "work_item_claim": "{\"target_key\":\"t1\",\"title\":\"T1\"}"
         });
         let norm = normalize_patch_args(args);
-        assert!(norm.get("work_item_delta").unwrap().is_object());
-        assert_eq!(norm["work_item_delta"]["id"].as_i64(), Some(1));
-        assert!(milestone_patch_rows_from_args(&norm).is_some());
+        assert!(norm.get("work_item_claim").unwrap().is_object());
+        assert_eq!(norm["work_item_claim"]["target_key"], "t1");
     }
 
     #[test]
     fn object_from_key_rejects_non_object_string() {
-        let args = serde_json::json!({ "work_item_delta": "[1,2]" });
-        assert!(object_from_key(&args, "work_item_delta").is_none());
+        let args = serde_json::json!({ "work_item_claim": "[1,2]" });
+        assert!(object_from_key(&args, "work_item_claim").is_none());
     }
 }

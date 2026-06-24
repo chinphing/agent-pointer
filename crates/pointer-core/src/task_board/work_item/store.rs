@@ -366,6 +366,43 @@ impl WorkItemStore {
         self.aggregate_stats(store_id).total
     }
 
+    /// Pick the store under `prefix` with the most terminal rows (done+failed), for cold-start reads.
+    pub fn best_store_key_with_items_under_prefix(&self, prefix: &str) -> Option<String> {
+        let prefix = prefix.trim();
+        if prefix.is_empty() {
+            return None;
+        }
+        let ids: Vec<String> = if let Some(db) = self.persistence.read().clone() {
+            db.list_store_ids_with_rows(prefix).unwrap_or_else(|e| {
+                log::warn!("work_items: list_store_ids_with_rows failed prefix={prefix}: {e}");
+                Vec::new()
+            })
+        } else {
+            self.inner
+                .read()
+                .keys()
+                .filter(|k| k.starts_with(prefix))
+                .cloned()
+                .collect()
+        };
+        let mut best: Option<(String, u32)> = None;
+        for id in ids {
+            let stats = self.store_stats(&id);
+            if stats.total == 0 {
+                continue;
+            }
+            let terminal = stats.done + stats.failed;
+            let replace = best
+                .as_ref()
+                .map(|(_, t)| terminal > *t)
+                .unwrap_or(true);
+            if replace {
+                best = Some((id.clone(), terminal));
+            }
+        }
+        best.map(|(id, _)| id)
+    }
+
     pub fn all_terminal_have_summary(&self, store_id: &str) -> bool {
         let map = self.store_map(store_id);
         for item in map.values() {

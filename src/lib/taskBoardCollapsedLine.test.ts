@@ -32,16 +32,36 @@ describe('taskBoardCollapsedLine', () => {
     const summary = taskBoardCompactSummary({
       version: 4,
       task_id: 'tb_v4',
-      meta: { goal: 'BOSS 批量', status: 'running' },
+      meta: { goal: 'BOSS 批量', status: 'running', work_item_mode: 'enumerated' },
       global_milestones: [
         { id: 'g_plan', title: '计划', status: 'done', done_when: '读取 Excel 并打开 BOSS' },
-        { id: 'g_exec', title: '执行', status: 'ready', done_when: '所有城市地址添加完成' },
+        { id: 'g_exec', title: '执行', status: 'in_progress', done_when: '所有城市地址添加完成' },
         { id: 'g_deliver', title: '交付', status: 'ready', done_when: '汇报最终结果' }
+      ],
+      item_milestones: [
+        { id: 'm1', title: '添加工作地址', status: 'in_progress' },
+        { id: 'm2', title: '确认保存', status: 'pending' }
       ]
     })
-    expect(summary?.taskLine).toBe('BOSS 批量')
-    expect(summary?.progress).toBe('1/3')
-    expect(summary?.fullLine).toBe('BOSS 批量')
-    expect(summary?.doneCount).toBe(1)
+    expect(summary?.taskLine).toBe('添加工作地址')
+    expect(summary?.progress).toBe('0/2')
+    expect(summary?.fullLine).toBe('添加工作地址')
+    expect(summary?.doneCount).toBe(0)
+  })
+
+  it('deliver phase shows g_deliver in compact summary', () => {
+    const summary = taskBoardCompactSummary({
+      version: 4,
+      task_id: 'tb_deliver',
+      meta: { goal: 'BOSS 批量', status: 'running', work_item_mode: 'enumerated' },
+      global_milestones: [
+        { id: 'g_plan', title: '计划', status: 'done' },
+        { id: 'g_exec', title: '执行', status: 'done' },
+        { id: 'g_deliver', title: '交付', status: 'in_progress' }
+      ],
+      item_milestones: [{ id: 'm1', title: 'SOP', status: 'pending' }]
+    })
+    expect(summary?.taskLine).toBe('交付')
+    expect(summary?.progress).toBe('0/1')
   })
 })

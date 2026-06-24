@@ -471,7 +471,7 @@ mod work_items_tests {
     }
 
     #[test]
-    fn init_seeds_work_items_and_patch_delta_updates_progress() {
+    fn init_seeds_work_items_and_milestone_patch_closes_row() {
         let store = TaskBoardStore::new();
         let key = "conv-wi-p1";
         store
@@ -482,11 +482,14 @@ mod work_items_tests {
                     "goal": "Open apps",
                     "work_item_mode": "enumerated",
                     "expected_total": 3,
-                    "global_milestones": [{
-                        "id": "g_exec",
-                        "title": "Open apps",
-                        "status": "in_progress"
-                    }],
+                    "global_milestones": [
+                        {"id": "g_plan", "title": "Plan", "status": "pending"},
+                        {"id": "g_exec", "title": "Exec", "status": "pending"},
+                        {"id": "g_deliver", "title": "Deliver", "status": "pending"}
+                    ],
+                    "item_milestones": [
+                        {"id": "m1", "title": "Open app", "status": "pending", "done_when": "app opened"}
+                    ],
                     "work_items": [
                         {"title": "App1"},
                         {"title": "App2"},
@@ -496,28 +499,52 @@ mod work_items_tests {
             )
             .expect("init");
         assert_eq!(store.work_items.count_campaign(key), 3);
+        assert_eq!(store.work_items.store_stats(key).in_progress, 1);
 
-        let wi_id = store
-            .work_items
-            .inject_window(key)
-            .first()
-            .expect("wi")
-            .id
-            .clone();
         store
             .apply(
                 key,
                 "patch",
                 &wi_args(json!({
-                    "work_item_delta": {
-                        "id": wi_id,
+                    "work_item_id": "1",
+                    "milestones": [{
+                        "id": "m1",
                         "status": "done",
-                        "result_summary": "opened"
-                    }
+                        "remark": "opened"
+                    }]
                 })),
             )
             .expect("patch");
         assert_eq!(store.work_items.store_stats(key).done, 1);
+        assert_eq!(store.work_items.store_stats(key).in_progress, 1);
+    }
+
+    #[test]
+    fn patch_rejects_work_item_delta() {
+        let store = TaskBoardStore::new();
+        let key = "conv-no-delta";
+        store
+            .apply(
+                key,
+                "init",
+                &wi_args(json!({
+                    "work_item_mode": "enumerated",
+                    "global_milestones": [{"id": "g_exec", "title": "Exec", "status": "in_progress"}],
+                    "item_milestones": [{"id": "m1", "title": "Step", "status": "in_progress"}],
+                    "work_items": [{"title": "A"}]
+                })),
+            )
+            .expect("init");
+        let err = store
+            .apply(
+                key,
+                "patch",
+                &wi_args(json!({
+                    "work_item_delta": {"id": "1", "status": "done", "result_summary": "x"}
+                })),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("work_item_delta removed"));
     }
 
     #[test]
@@ -544,6 +571,7 @@ mod work_items_tests {
                 key,
                 "patch",
                 &wi_args(json!({
+                    "work_item_id": "1",
                     "global_milestones": [{
                         "id": "g_exec",
                         "status": "in_progress",
@@ -587,5 +615,111 @@ mod work_items_tests {
         );
         assert!(block.contains("## Work items"));
         assert!(block.len() < 8000);
+    }
+
+    fn wi_init_minimal(store: &TaskBoardStore, key: &str) {
+        store
+            .apply(
+                key,
+                "init",
+                &wi_args(json!({
+                    "goal": "Batch",
+                    "work_item_mode": "enumerated",
+                    "expected_total": 2,
+                    "global_milestones": [
+                        {"id": "g_plan", "title": "Plan", "status": "pending"},
+                        {"id": "g_exec", "title": "Exec", "status": "pending"},
+                        {"id": "g_deliver", "title": "Deliver", "status": "pending"}
+                    ],
+                    "item_milestones": [
+                        {"id": "m1", "title": "Step", "status": "pending", "done_when": "done"}
+                    ],
+                    "work_items": [{"title": "A"}, {"title": "B"}]
+                })),
+            )
+            .expect("init");
+    }
+
+    #[test]
+    fn patch_requires_work_item_id_when_in_progress() {
+        let store = TaskBoardStore::new();
+        let key = "conv-wi-id-req";
+        wi_init_minimal(&store, key);
+        let err = store
+            .apply(
+                key,
+                "patch",
+                &wi_args(json!({
+                    "milestones": [{"id": "m1", "status": "done", "remark": "ok"}]
+                })),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("work_item_id"));
+    }
+
+    #[test]
+    fn patch_rejects_stale_work_item_id() {
+        let store = TaskBoardStore::new();
+        let key = "conv-wi-stale";
+        wi_init_minimal(&store, key);
+        store
+            .apply(
+                key,
+                "patch",
+                &wi_args(json!({
+                    "work_item_id": "1",
+                    "milestones": [{"id": "m1", "status": "done", "remark": "first"}]
+                })),
+            )
+            .expect("close first");
+        assert_eq!(store.work_items.store_stats(key).in_progress, 1);
+        let err = store
+            .apply(
+                key,
+                "patch",
+                &wi_args(json!({
+                    "work_item_id": "1",
+                    "milestones": [{"id": "m1", "status": "done", "remark": "stale"}]
+                })),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("does not match in_progress"));
+    }
+
+    #[test]
+    fn deliver_patch_ok_without_work_item_id_when_queue_finished() {
+        let store = TaskBoardStore::new();
+        let key = "conv-wi-deliver";
+        wi_init_minimal(&store, key);
+        store
+            .apply(
+                key,
+                "patch",
+                &wi_args(json!({
+                    "work_item_id": "1",
+                    "milestones": [{"id": "m1", "status": "done", "remark": "a"}]
+                })),
+            )
+            .expect("item 1");
+        store
+            .apply(
+                key,
+                "patch",
+                &wi_args(json!({
+                    "work_item_id": "2",
+                    "milestones": [{"id": "m1", "status": "done", "remark": "b"}]
+                })),
+            )
+            .expect("item 2");
+        assert_eq!(store.work_items.store_stats(key).in_progress, 0);
+        store
+            .apply(
+                key,
+                "patch",
+                &wi_args(json!({
+                    "global_milestones": [{"id": "g_deliver", "status": "in_progress"}]
+                })),
+            )
+            .expect("deliver without work_item_id");
     }
 }

@@ -9,15 +9,6 @@ pub fn is_task_board_tool_name(tool_id: &str) -> bool {
     n.starts_with("task_board")
 }
 
-fn patch_marks_done(args: &Value) -> bool {
-    board_rows_from_args(args).iter().any(|item| {
-        item.get("status")
-            .and_then(|v| v.as_str())
-            .map(|s| s.trim().eq_ignore_ascii_case("done"))
-            .unwrap_or(false)
-    })
-}
-
 fn non_empty_field(item: &Value, key: &str) -> bool {
     item.get(key)
         .and_then(|v| v.as_str())
@@ -31,13 +22,20 @@ fn patch_has_remark(args: &Value) -> bool {
         .any(|item| non_empty_field(item, "remark"))
 }
 
-fn patch_has_work_item_delta(args: &Value) -> bool {
-    args.get("work_item_delta").is_some()
+fn patch_marks_terminal_row(args: &Value) -> bool {
+    board_rows_from_args(args).iter().any(|item| {
+        item.get("status")
+            .and_then(|v| v.as_str())
+            .map(|s| {
+                s.trim().eq_ignore_ascii_case("done") || s.trim().eq_ignore_ascii_case("failed")
+            })
+            .unwrap_or(false)
+    })
 }
 
-/// Patch that records substantive milestone progress (completion, remark, or work_item).
+/// Patch that records substantive milestone progress (completion, remark, or terminal fail).
 fn patch_has_substantive_progress(args: &Value) -> bool {
-    patch_marks_done(args) || patch_has_remark(args) || patch_has_work_item_delta(args)
+    patch_marks_terminal_row(args) || patch_has_remark(args)
 }
 
 /// Whether a successful `task_board` call should trigger history trim.

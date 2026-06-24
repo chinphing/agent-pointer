@@ -2,6 +2,7 @@
 
 use super::import::drafts_from_resolved_path;
 use super::store::WorkItemStore;
+use crate::task_board::coordination::conversation_id_from_main_turn_key;
 use crate::task_board::store::TaskBoardStore;
 use anyhow::Result;
 use std::path::Path;
@@ -15,6 +16,15 @@ pub fn try_rehydrate_work_items_if_empty(
 ) -> Result<u32> {
     if work_items.count_store(store_key) > 0 {
         return Ok(0);
+    }
+    let conv_prefix = conversation_id_from_main_turn_key(store_key).unwrap_or_else(|| store_key.to_string());
+    if let Some(alt) = work_items.best_store_key_with_items_under_prefix(&conv_prefix) {
+        if alt != store_key {
+            log::warn!(
+                "work_items: rehydrate skipped store_id={store_key} — persisted rows exist under {alt}; use resolved store_key"
+            );
+            return Ok(0);
+        }
     }
     let doc = board_store.document(store_key);
     let expected = doc.meta.work_items_seeded_rows.unwrap_or(0);

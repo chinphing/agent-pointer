@@ -56,11 +56,23 @@ pub fn resolve_store_key_for_read(
     let parent = parent_store_key.trim();
     match task_id.map(str::trim).filter(|s| !s.is_empty()) {
         None => {
-            if parent.is_empty() {
+            let candidate = if parent.is_empty() {
                 conv.to_string()
             } else {
                 parent.to_string()
+            };
+            if work_items.count_store(&candidate) > 0 {
+                return candidate;
             }
+            if let Some(alt) = work_items.best_store_key_with_items_under_prefix(conv) {
+                if alt != candidate {
+                    log::info!(
+                        "task_board: resolve_store_key_for_read {candidate} -> {alt} (work_items under conversation prefix)"
+                    );
+                }
+                return alt;
+            }
+            candidate
         }
         Some(tid) => {
             let parent_key = if parent.is_empty() { conv } else { parent };
@@ -150,5 +162,49 @@ mod tests {
         );
         assert_eq!(resolved, real_child);
         assert_eq!(work_items.count_store(&resolved), 1);
+    }
+
+    #[test]
+    fn resolve_parent_falls_back_to_main_turn_work_items() {
+        let board_store = TaskBoardStore::new();
+        let work_items = board_store.work_items.as_ref();
+        let conv = "conv-1";
+        let real_parent = format!("{conv}\u{1f}ptr_main_turn\u{1f}msg-1");
+        let mut doc = BoardDocument::empty_for_store_key(&real_parent);
+        doc.meta.goal = "batch".into();
+        doc.meta.status = MetaStatus::Running;
+        doc.meta.work_item_mode = Some(crate::task_board::WorkItemMode::Enumerated);
+        board_store.save_document(&real_parent, doc);
+        work_items
+            .seed_bulk(
+                &real_parent,
+                vec![
+                    WorkItemDraft {
+                        title: "北京".into(),
+                        ..Default::default()
+                    },
+                    WorkItemDraft {
+                        title: "上海".into(),
+                        ..Default::default()
+                    },
+                ],
+            )
+            .expect("seed");
+        work_items
+            .apply_delta(
+                &real_parent,
+                crate::task_board::work_item::WorkItemDelta {
+                    id: "1".into(),
+                    status: crate::task_board::work_item::WorkItemStatus::Done,
+                    result_summary: Some("done".into()),
+                    result_ref: None,
+                    error_message: None,
+                },
+            )
+            .expect("done");
+
+        let resolved = resolve_store_key_for_read(&board_store, work_items, conv, None, conv);
+        assert_eq!(resolved, real_parent);
+        assert_eq!(work_items.store_stats(&resolved).done, 1);
     }
 }

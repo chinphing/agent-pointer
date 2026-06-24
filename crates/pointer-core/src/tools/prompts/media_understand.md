@@ -84,7 +84,8 @@ Understand image, video, audio, or PDF files on demand via host-managed models.
 
 ## Parameters
 
-- **ref** + **mode** — from the manifest, or a **local directory path** (image mode only).
+- **ref** + **mode** — from the manifest (`pointer-media://…`), or a **local directory path** (image mode only).
+  Prefer **`pointer-media://` refs** from the attachment manifest; absolute `localPath` also works.
 - **goal** (required) — user's analysis goal in their language.
 - **context** (optional) — extra thread background not already in **goal**.
 - **pageStart** / **pageEnd** (PDF) — only when the user explicitly asked for pages.
@@ -100,7 +101,7 @@ Understand image, video, audio, or PDF files on demand via host-managed models.
 - **audio**: ASR model. **Speech / transcript** from an audio **or video** attachment.
   Pass the same **ref** from the manifest; for video files the host **extracts the audio
   track** then runs ASR. **Does not see the picture.**
-- **pdf**: page-image vision (embedded raster or `pdftoppm` render → vision model). No direct text-layer extraction. For merge/split/forms/programmatic text, use the **pdf** skill.
+- **pdf**: **scanned-PDF fallback only** — Pdfium renders each page to JPEG, then vision model. Use the **pdf** skill + `terminal` first for text-native PDFs.
 
 ## Video attachments: vision vs speech
 
@@ -160,7 +161,9 @@ For long videos:
 
 ## PDF pages
 
-- **Default (user did not name pages):** host extracts **pages 1–10** only.
+- **Default:** Agent uses the **pdf** skill + `terminal` on **`localPath`** to extract text.
+- **`mode=pdf` here:** only when the pdf skill finds a **scanned** PDF (empty/garbled text).
+- **Default (user did not name pages):** host processes **pages 1–10** only.
 - **User named pages:** set **pageStart** / **pageEnd** to match their request.
 - **Max 10 pages per call** — for larger ranges, call multiple times with different windows.
 - Tool output includes a **scope notice** with processed pages and **total page count**.
@@ -183,8 +186,8 @@ For long videos:
 
 | Kind | Host limit | Agent strategy |
 |------|------------|----------------|
-| PDF (all types) | Page images → vision model; embedded raster or `pdftoppm` when needed | Split by **pageStart/pageEnd** |
-| PDF page images | 10 pages/call; 6 MB/page JPEG | Split batches; set pages only when user asked |
+| PDF (scanned fallback) | Pdfium page render → vision model | Use **pdf** skill first; split by **pageStart/pageEnd** |
+| PDF page images (`mode=pdf`) | 10 pages/call; 6 MB/page JPEG | Only after skill detects scan; split batches when user asked |
 | Video (DashScope) | Native **video_url** + **fps** via **`remoteUrl`** (HTTPS); full file | Segment focus in **goal**, not **timeStartSec** |
 | Video fallback | ffmpeg JPEG frames, max **200**/call; **timeStartSec** / **timeEndSec** apply | No `remoteUrl` or native API failure |
 | Video upload | OSS at attach; **>500 MB** → confirm then host compress to **≤500 MB**; **≤5 GB** PutObject ceiling | Cancel → no attach |

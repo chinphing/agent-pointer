@@ -10,16 +10,32 @@ license: Proprietary. LICENSE.txt has complete terms
 
 This guide covers essential PDF processing operations using Python libraries and command-line tools. For advanced features, JavaScript libraries, and detailed examples, see REFERENCE.md. If you need to fill out a PDF form, read FORMS.md and follow its instructions.
 
-## Pointer: PDF attachments (`media_understand`)
+## Pointer: reading attached PDFs
+
+**Default path — this skill first.** Do **not** call `media_understand` until you have tried text extraction here.
 
 When the user **attaches a PDF** and wants content read, summarized, or transcribed:
 
-1. Call **`media_understand`** with **`mode=pdf`**, the attachment **`ref`**, and a clear **`goal`**.
-2. The host **always** treats PDFs as page images (embedded scan raster or `pdftoppm` render) and runs a **vision model** — there is **no** direct text-layer extraction in `media_understand`.
-3. Use **`pageStart` / `pageEnd`** only when the user explicitly named pages (max **10** pages per call).
-4. Use **`localPath`** from the attachment manifest for skill scripts; use **`ref`** for `media_understand`.
+1. **`skill_read`** this skill, then **`terminal`** using **`localPath`** from the attachment manifest (not `pointer-media://`).
+2. Extract text with **pypdf**, **pdfplumber**, or **PyMuPDF** (see **Reading order (`sort`)** — default **no** sort).
+3. If extraction yields usable text, answer from that text (summarize, quote, table-parse, etc.) in your reply.
 
-Use this skill (Python/`terminal`) for merge, split, forms, creation, tables, and **programmatic text extraction** — not for the default “read this attachment” path.
+### When the PDF is scanned (then use `media_understand`)
+
+Call **`media_understand`** with **`mode=pdf`**, the attachment **`ref`**, and a clear **`goal`** **only after** this skill’s text extraction shows the file is **image-based / scanned**, for example:
+
+- Per-page text is **empty**, or only page numbers / watermarks (&lt; ~48 meaningful characters per page).
+- Text is **garbled** (CID mojibake, high replacement-char ratio) despite trying pdfplumber or PyMuPDF.
+- Full-page raster images dominate and text layer is absent on sampled pages.
+
+Then:
+
+1. Call **`media_understand`** with **`mode=pdf`**, **`ref`**, and **`goal`** (host: **Pdfium** renders each page to JPEG, then vision model).
+2. Use **`pageStart` / `pageEnd`** only when the user named pages (max **10** per call).
+
+Do **not** use local Tesseract/`pdf2image` for chat attachments when `media_understand` is available.
+
+For merge, split, forms, creation, and editing — stay on this skill (`terminal` + scripts); use **`media_understand`** only for **reading scanned** attachments.
 
 ## Reading order (`sort`) — Python text extraction
 
@@ -275,16 +291,16 @@ pdftk input.pdf rotate 1east output rotated.pdf
 
 ## Common Tasks
 
-### When Python text extraction fails or quality is poor
+### When text extraction shows a scanned PDF
 
-**Do not** fall back to local Tesseract/`pdf2image` for **user-attached PDFs** in chat.
+After this skill’s extraction is **empty or unusable** (see **Pointer: reading attached PDFs**), do **not** run local Tesseract/`pdf2image` for chat attachments.
 
 Instead:
 
-1. Call **`media_understand`** with **`mode=pdf`**, the attachment **`ref`**, and a **`goal`** that states what to extract (the host uses page-image vision).
+1. Call **`media_understand`** with **`mode=pdf`**, the attachment **`ref`**, and a **`goal`** that states what to extract.
 2. If pages are missing, split with **`pageStart` / `pageEnd`** (max 10 per call).
 
-Use the Tesseract example below only for **offline batch scripts** outside the attachment flow, or when the user explicitly wants a local OCR pipeline without the host vision model.
+Use the Tesseract example below only for **offline batch scripts** outside the attachment flow.
 
 ### Local OCR batch (offline scripts only)
 
@@ -351,10 +367,9 @@ with open("encrypted.pdf", "wb") as output:
 |------|-----------|--------------|
 | Merge PDFs | pypdf | `writer.add_page(page)` |
 | Split PDFs | pypdf | One page per file |
-| Extract text (scripts) | pdfplumber / pypdf | `page.extract_text()` — see **sort** section |
+| Extract text (attached PDF, text layer) | pdf skill + terminal | `localPath` + pypdf/pdfplumber |
 | Extract tables | pdfplumber | `page.extract_tables()` |
-| Read attached PDF in chat | host | **`media_understand` `mode=pdf`** |
-| OCR attached PDF in chat | host | **`media_understand` `mode=pdf`** (page-image vision) |
+| Read scanned attached PDF | host | **`media_understand` `mode=pdf`** (after skill detects scan) |
 | OCR offline batch | pytesseract | `convert_from_path` + Tesseract (scripts only) |
 | Create PDFs | reportlab | Canvas or Platypus |
 | Command line merge | qpdf | `qpdf --empty --pages ...` |

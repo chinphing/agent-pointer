@@ -10,8 +10,8 @@
 - 主模型保持用户所选 agent 模型不变
 - **上传不自动理解**：`apply_media_to_history` 仅落盘 + 写 `attachments`
 - **模型上下文**：`make_openai_messages` 追加 Markdown 清单（`fileName` + `ref` + `localPath`）
-- **按需理解**：`media_understand`（image/video qwen3.5-flash、audio qwen3-asr-flash、pdf 页图视觉）
-- Office / PDF 编辑：**docx** / **xlsx** / **pptx** / **pdf** Skill + terminal（`localPath`）
+- **按需理解**：`media_understand`（image/video/audio/pdf 扫描件回退）
+- Office / PDF：**docx** / **xlsx** / **pptx** / **pdf** Skill + terminal（`localPath`）；PDF 阅读优先 skill，扫描件才 `media_understand`
 - App（Tauri）与 Web 端行为一致
 
 ---
@@ -121,7 +121,7 @@ mediaModelOverrides: {
 | 单图 inline 上限 | 2 MB |
 | 单图硬上限 | 6 MB |
 | 文档文本提取上限 | 256 KiB |
-| PDF 页图理解 | 10 页 / call；单页 JPEG ≤ **6 MB**（内嵌栅格或 `pdftoppm` → 视觉模型） |
+| PDF 页图理解（扫描回退） | 10 页 / call；单页 JPEG ≤ **6 MB**（Pdfium 渲染 + `media_understand`） |
 | 单视频 Composer 上限 | **100 MB** |
 | Composer video | 允许（需本机 ffmpeg 方可理解） |
 
@@ -136,8 +136,8 @@ mediaModelOverrides: {
 | 默认范围 | 用户**未明确要求页码**时，仅处理 **第 1–10 页**；工具结果含 scope 说明 |
 | 用户指定页码 | Agent 传 **`pageStart` / `pageEnd`**（1-based，含首尾）；未指定则不传 |
 | 单次上限 | 每 call 最多 **10 页**；更多页码须**多次** `media_understand` |
-| 文本型 PDF | 页图渲染（内嵌栅格或 `pdftoppm`）→ 视觉模型 OCR；最多 **10 页**/call |
-| 扫描/图片型 PDF | 同上：内嵌 JPEG 或 `pdftoppm` → 视觉模型 |
+| 文本型 PDF | **pdf** Skill 抽文本（Python/`terminal`） |
+| 扫描/图片型 PDF | pdf Skill 判定无可用文本 → **`media_understand` `mode=pdf`**（Pdfium 逐页渲染 → 视觉模型） |
 
 **Agent 策略**
 
@@ -181,7 +181,7 @@ mediaModelOverrides: {
 |------|------|
 | **大图片** | 自动缩放到 ≤ **6 MB** JPEG 再 vision |
 | **长音频** | ASR 模型有上下文上限；超长录音在 `goal` 中说明「只要结论/某段」；必要时分段转写 |
-| **pdf** | **pdf** Skill（编辑/合并/表单/脚本抽文本）；**阅读附件**用 **`media_understand` `mode=pdf`** |
+| **pdf** | **pdf** Skill 优先（`terminal` + `localPath` 抽文本）；**扫描件**才 **`media_understand` `mode=pdf`** |
 | **docx / pptx** | **docx** / **pptx** Skill，不用 `media_understand` |
 | **zip / 二进制** | 不支持内联；`skill_read` 或追问用户要提取什么 |
 | **多附件** | 每个文件单独 `goal`；按用户点名顺序处理，避免一次工具塞多个 ref |
@@ -194,8 +194,8 @@ mediaModelOverrides: {
 - **P0（已完成）**：图片 + 文档、vision 分支、Composer UI、imageModel 默认
 - **P1（已完成）**：设置页 image/audio 理解模型、语音转写注入、audio bubble 播放
 - **P2（已完成）**：IM 渠道 inbound 媒体、PDF/视频理解、ffmpeg Skill 引导安装
-- **P2b'（已完成）**：PDF：`media_understand` 统一页图视觉路径（内嵌栅格 → 视觉模型；文本 PDF 回退 `pdftoppm` 渲染）
-- **P2b''（已完成）**：内置 **pdf** Skill（anthropics/skills）；脚本抽文本默认不 sort，用户要求时可启用；附件阅读走 `media_understand`
+- **P2b'（已完成）**：扫描 PDF：`media_understand` Pdfium 逐页渲染 → 视觉模型（无 poppler CLI 依赖）
+- **P2b''（已完成）**：内置 **pdf** Skill；附件阅读 **skill 优先**，扫描件回退 `media_understand`；脚本抽文本默认不 sort
 
 ---
 

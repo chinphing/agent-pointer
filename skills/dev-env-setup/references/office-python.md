@@ -29,7 +29,7 @@ loaded skill body asks for.
 - **pypdf**, **pdfplumber**, **reportlab** — merge/split/create/extract (see pdf skill)
 - **poppler-utils** (`pdftotext`, `pdftoppm`, `pdfimages`) — CLI extraction and render
 - **pymupdf** — optional; use `sort=True` only when the user asks for reading order
-- Host **`media_understand` `mode=pdf`** reads attachments via page-image vision (no Python needed for default read)
+- **`media_understand` `mode=pdf`** — scanned-PDF fallback (Pdfium in-process render); use **pdf** skill + `terminal` first
 
 ## Verify (examples)
 

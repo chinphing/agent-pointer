@@ -5,6 +5,7 @@ pub mod audio;
 pub mod dashscope_audio;
 pub mod dashscope_video;
 pub mod image_dir;
+pub mod jpeg_vision;
 pub mod manifest;
 pub mod oss;
 pub mod outbound_reply;
@@ -19,6 +20,7 @@ pub mod retry;
 pub mod ffmpeg;
 pub mod office;
 pub mod pdf;
+pub mod pdf_render;
 pub mod store;
 pub mod token;
 pub mod understand;
@@ -45,7 +47,8 @@ pub use pdf::{
 };
 pub use capabilities::model_supports_vision;
 pub use deps_hint::MediaDepsStatus;
-pub use ffmpeg::{ffmpeg_available, pdftoppm_available, probe_ffmpeg_tools, FfmpegToolProbe, FfmpegToolStatus};
+pub use ffmpeg::{ffmpeg_available, probe_ffmpeg_tools, FfmpegToolProbe, FfmpegToolStatus};
+pub use pdf_render::pdfium_render_available;
 pub use access::is_user_filesystem_path;
 pub use outbound_reply::{
     im_outbound_reply_source, reply_media_source, split_reply_media, strip_outbound_media_markers,

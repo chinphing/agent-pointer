@@ -66,18 +66,17 @@ usernames or unverified absolute paths. Typical locations (names vary by OS/loca
 - **Intent unclear** (only files, or vague "看看/分析一下") → **ask first** what to do
   (transcribe, describe, OCR, summarize, edit Office, etc.). Do **not** guess and call
   `media_understand` or run Skills without consent.
-- **Intent clear** → call **`media_understand`** with `ref`, matching `mode`
-  (`image` / `video` / `audio` / `pdf`), and **`goal`** (user goal + relevant
-  context from their message). Optional **`context`** for extra thread background.
+- **Intent clear** → for **image / video / audio** attachments, call **`media_understand`** with `ref`, matching `mode`, and **`goal`**. For **PDF** attachments, see the **PDF** bullet below — **not** `media_understand` first.
+  Optional **`context`** for extra thread background.
   **Speech / audio in a video file** → **`mode=audio`** only (host extracts the track;
   **`mode=video`** sees frames, not sound). **Both speech and visuals** → **`audio`**
   then **`video`**, same **ref**, merge in reply. Never call with only `ref` + `mode`.
 - **Office** (docx/xlsx/pptx) → **`skill_read`** the matching Office skill, then **`terminal`**
   using **localPath** from the manifest (third-party scripts may not accept `pointer-media://`).
-- **PDF attachments** → **`media_understand`** with **`mode=pdf`** (page-image vision; host renders
-  or extracts page images). For merge/split/forms/editing, **`skill_read`** the **pdf** skill, then
-  **`terminal`**. For programmatic text/table extraction with layout control, use the **pdf** skill
-  (Python); enable **sort** only when the user asks for reading order.
+- **PDF attachments** → **`skill_read`** the **pdf** skill first; extract text via **`terminal`**
+  and **`localPath`**. Only when extraction is **empty or unusable** (scanned/image PDF) →
+  **`media_understand`** with **`mode=pdf`**, **`ref`**, and **`goal`**. Merge/split/forms/editing
+  stay on the pdf skill. Enable **sort** only when the user asks for reading order.
 - **Large PDF** → put page range in **`pageStart`/`pageEnd`** only when the user explicitly
   asked; otherwise host defaults to pages 1–10. Split into multiple calls if >10 pages.
 - **Large video** → set **`timeStartSec`/`timeEndSec`** only when the user explicitly

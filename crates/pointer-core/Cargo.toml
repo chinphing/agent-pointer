@@ -51,6 +51,8 @@ hkdf = "0.12"
 machine-uid = "0.5"
 ossify = "0.4.2"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+pdfium-render = { version = "0.8.37", default-features = false, features = ["image_025", "pdfium_latest", "thread_safe"] }
+pdfium-auto = "0.3"
 
 [dev-dependencies]
 anyhow = "1"

@@ -588,7 +588,10 @@ qpdf --replace-input corrupted.pdf
 
 ### Text Extraction Issues
 
-For **attached PDFs** in Pointer chat, call **`media_understand`** with **`mode=pdf`** instead of local OCR fallbacks.
+For **attached PDFs** in Pointer chat:
+
+1. **`skill_read`** the **pdf** skill and extract via **`terminal`** + **`localPath`** first.
+2. If text is empty or unusable (scanned PDF), call **`media_understand`** with **`mode=pdf`** — do not use local Tesseract for attachments.
 
 For **offline scripts** when extraction returns garbage or empty text:
 

@@ -1,7 +1,7 @@
 //! Async execution for `media_understand`.
 
 use crate::chat_service::StreamTx;
-use crate::media::apply::HARD_IMAGE_MAX_BYTES;
+use crate::media::jpeg_vision::prepare_jpeg_for_vision;
 use crate::media::token::{MediaTokenContext, MediaUnderstandKind};
 use crate::media::{
     describe_image_with_model, describe_images_with_model, describe_pdf_pages_with_model,
@@ -77,30 +77,8 @@ fn mime_from_path(path: &Path) -> String {
 }
 
 fn maybe_downscale_image_jpeg(bytes: &[u8], file_name: &str) -> Result<(Vec<u8>, String)> {
-    if bytes.len() <= HARD_IMAGE_MAX_BYTES {
-        return Ok((bytes.to_vec(), mime_from_path(Path::new(file_name))));
-    }
-    let img = image::load_from_memory(bytes).context("decode image for resize")?;
-    let mut out = Vec::new();
-    let mut cursor = std::io::Cursor::new(&mut out);
-    let rgb = img.to_rgb8();
-    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 82);
-    encoder
-        .encode(
-            rgb.as_raw(),
-            rgb.width(),
-            rgb.height(),
-            image::ExtendedColorType::Rgb8,
-        )
-        .context("encode resized jpeg")?;
-    if out.len() > HARD_IMAGE_MAX_BYTES {
-        anyhow::bail!(
-            "image {} still exceeds {} bytes after resize",
-            file_name,
-            HARD_IMAGE_MAX_BYTES
-        );
-    }
-    Ok((out, "image/jpeg".into()))
+    let prepared = prepare_jpeg_for_vision(bytes, file_name)?;
+    Ok((prepared, "image/jpeg".into()))
 }
 
 async fn understand_image_file(
@@ -349,12 +327,20 @@ async fn understand_pdf(
 ) -> Result<String> {
     let notice = format_pdf_scope_notice(page_range, total_pages);
     log::info!(
-        "media_understand pdf {file_name}: page-image vision path pages {}-{}",
+        "media_understand pdf {file_name}: scanned PDF page-image vision (pages {}-{})",
         page_range.start,
         page_range.end
     );
-    let pages = extract_pdf_page_images_base64_range(bytes, file_name, page_range)
-        .context("pdf page images for vision")?;
+    // Pdfium init may download the native library via reqwest::blocking; must not run on tokio workers.
+    let pdf_bytes = bytes.to_vec();
+    let pdf_name = file_name.to_string();
+    let range = *page_range;
+    let pages = tokio::task::spawn_blocking(move || {
+        extract_pdf_page_images_base64_range(&pdf_bytes, &pdf_name, &range)
+    })
+    .await
+    .context("pdf page render task failed")?
+    .context("pdf page render (pdfium)")?;
     let image_model = resolve_media_mode_llm(settings, "image");
     let body = describe_pdf_pages_with_model(
         settings,
@@ -385,7 +371,14 @@ pub async fn dispatch_media_understand_async(
     let file_name = attachment
         .as_ref()
         .map(|a| a.file_name.clone())
-        .unwrap_or_else(|| "attachment".to_string());
+        .unwrap_or_else(|| {
+            std::path::Path::new(media_ref.trim())
+                .file_name()
+                .and_then(|s| s.to_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("attachment")
+                .to_string()
+        });
     let path = if mode == "video" && remote_url.is_some() {
         resolve_media_ref(&media_ref).unwrap_or_else(|_| std::path::PathBuf::from(&file_name))
     } else {

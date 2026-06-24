@@ -14,16 +14,19 @@ use super::store::{media_abs_path, CONVERSATION_MEDIA_DIR};
 
 /// True for persisted attachment rel paths (not user absolute/`~/` paths).
 pub fn is_storage_rel_path(raw: &str) -> bool {
-    let rel = raw.trim().trim_start_matches('/');
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || is_user_filesystem_path(trimmed) {
+        return false;
+    }
+    let rel = trimmed.trim_start_matches('/');
     !rel.is_empty()
-        && !is_user_filesystem_path(rel)
         && !path_has_traversal(rel)
         && rel.contains('/')
 }
 
 /// Resolve a local media path to an existing file or directory.
 ///
-/// Order: storage rel → user path → explicit `./`/`../` workspace rel → `{app_data}/…`.
+/// Order: user path → storage rel → explicit `./`/`../` workspace rel → `{app_data}/…`.
 /// Does **not** fall back to `cwd` for storage rel paths.
 pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
     let trimmed = raw.trim();
@@ -34,6 +37,14 @@ pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
         anyhow::bail!("media path traversal not allowed: {trimmed}");
     }
 
+    if is_user_filesystem_path(trimmed) {
+        let path = normalize_user_path(trimmed)?;
+        if path.is_file() || path.is_dir() {
+            return Ok(path);
+        }
+        anyhow::bail!("media file not found: {trimmed}");
+    }
+
     if is_storage_rel_path(trimmed) {
         let path = media_abs_path(trimmed.trim_start_matches('/'))
             .with_context(|| format!("resolve storage rel path {trimmed}"))?;
@@ -41,14 +52,6 @@ pub fn resolve_local_media_path(raw: &str) -> Result<PathBuf> {
             return Ok(path);
         }
         anyhow::bail!("media file not found under app data: {}", path.display());
-    }
-
-    if is_user_filesystem_path(trimmed) {
-        let path = normalize_user_path(trimmed)?;
-        if path.is_file() || path.is_dir() {
-            return Ok(path);
-        }
-        anyhow::bail!("media file not found: {trimmed}");
     }
 
     if trimmed.starts_with("./") || trimmed.starts_with("../") {
@@ -96,5 +99,12 @@ mod tests {
         let path = normalize_user_path(raw).expect("normalize");
         assert_eq!(path, Path::new(raw));
         assert!(!path.is_absolute());
+    }
+
+    #[test]
+    fn absolute_path_under_app_support_is_user_path_not_storage_rel() {
+        let raw = "/Users/me/Library/Application Support/PointerAppDev/conversation-media/conv/a.pdf";
+        assert!(is_user_filesystem_path(raw));
+        assert!(!is_storage_rel_path(raw));
     }
 }

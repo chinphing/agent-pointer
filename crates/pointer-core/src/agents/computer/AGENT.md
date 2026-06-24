@@ -46,7 +46,7 @@ ui:
   avatar: computer
 defaultSkillIds: []
 config:
-  annotateApiBase: "http://116.62.86.190"
+  annotateApiBase: "https://pointer-som.readflowai.com"
   computerAutoUpgrade: "true"
   computerInitialTier: "intermediate"
   computerModelPrimary: "qwen3.5-flash"

@@ -51,6 +51,26 @@ pub fn wrap_powershell_args_with_utf8(mut args: Vec<String>) -> Vec<String> {
     args
 }
 
+/// Append a byte chunk to `carry`, decode the longest valid UTF-8 prefix, leave suffix in `carry`.
+pub fn decode_utf8_stream(carry: &mut Vec<u8>, chunk: &[u8]) -> String {
+    carry.extend_from_slice(chunk);
+    let mut split = carry.len();
+    while split > 0 && std::str::from_utf8(&carry[..split]).is_err() {
+        split -= 1;
+    }
+    let decoded = String::from_utf8_lossy(&carry[..split]).to_string();
+    carry.drain(..split);
+    decoded
+}
+
+/// Flush any trailing bytes from a UTF-8 stream decoder.
+pub fn decode_utf8_finish(carry: &mut Vec<u8>) -> String {
+    if carry.is_empty() {
+        return String::new();
+    }
+    String::from_utf8_lossy(&std::mem::take(carry)).to_string()
+}
+
 /// Default UTF-8 env for terminal child processes on Windows.
 pub fn apply_windows_utf8_child_env(env: &mut HashMap<String, String>) {
     env.entry("PYTHONIOENCODING".into())
@@ -121,5 +141,21 @@ mod tests {
         let mut env = HashMap::from([("PYTHONIOENCODING".into(), "latin-1".into())]);
         apply_windows_utf8_child_env(&mut env);
         assert_eq!(env.get("PYTHONIOENCODING").map(String::as_str), Some("latin-1"));
+    }
+}
+
+#[cfg(test)]
+mod decode_tests {
+    use super::*;
+
+    #[test]
+    fn decode_utf8_stream_keeps_incomplete_suffix() {
+        let mut carry = Vec::new();
+        let part1 = decode_utf8_stream(&mut carry, b"\xE5");
+        assert!(part1.is_empty());
+        assert_eq!(carry, b"\xE5");
+        let part2 = decode_utf8_stream(&mut carry, b"\xA5\xBD");
+        assert_eq!(part2, "好");
+        assert!(carry.is_empty());
     }
 }

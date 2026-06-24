@@ -13,6 +13,7 @@ pub const BUNDLED_SKILL_IDS: &[&str] = &[
     "docx",
     "xlsx",
     "pptx",
+    "pdf",
 ];
 
 /// Default enabled set for new users — all bundled system skills.

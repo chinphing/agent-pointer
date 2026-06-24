@@ -6,8 +6,7 @@ use crate::media::token::{MediaTokenContext, MediaUnderstandKind};
 use crate::media::{
     describe_image_with_model, describe_images_with_model, describe_pdf_pages_with_model,
     describe_video_with_model, download_video_from_url, extract_pdf_page_images_base64_range,
-    extract_pdf_text_sorted_range, ffmpeg_available, extract_video_frame_base64s_with_range,
-    find_attachment_by_media_ref, focus_extracted_pdf_text_with_goal,
+    ffmpeg_available, extract_video_frame_base64s_with_range, find_attachment_by_media_ref,
     format_image_dir_scope_notice, format_pdf_scope_notice, format_video_scope_notice,
     list_image_files_in_dir, pdf_page_count, prepare_video_bytes_for_range, probe_video_duration,
     read_media_ref_bytes, resolve_media_ref, transcribe_audio_with_model, is_video_file_name,
@@ -349,28 +348,13 @@ async fn understand_pdf(
     cancel: &CancellationToken,
 ) -> Result<String> {
     let notice = format_pdf_scope_notice(page_range, total_pages);
-    let text_model = resolve_media_mode_llm(settings, "image");
-    if let Ok(text) = extract_pdf_text_sorted_range(bytes, file_name, page_range) {
-        let body = focus_extracted_pdf_text_with_goal(
-            settings,
-            &text_model,
-            api_key,
-            &text,
-            file_name,
-            goal,
-            token_ctx,
-            cancel,
-        )
-        .await?;
-        return Ok(prepend_scope_notice(&body, &notice));
-    }
     log::info!(
-        "media_understand pdf {file_name}: sorted text insufficient for pages {}-{}; OCR fallback",
+        "media_understand pdf {file_name}: page-image vision path pages {}-{}",
         page_range.start,
         page_range.end
     );
     let pages = extract_pdf_page_images_base64_range(bytes, file_name, page_range)
-        .context("pdf page raster")?;
+        .context("pdf page images for vision")?;
     let image_model = resolve_media_mode_llm(settings, "image");
     let body = describe_pdf_pages_with_model(
         settings,

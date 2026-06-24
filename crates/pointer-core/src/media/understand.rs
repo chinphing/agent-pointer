@@ -14,14 +14,6 @@ const MULTI_IMAGE_DESCRIBE_PROMPT: &str = "Describe the attached images for an a
 Each image may have a label with its file name. \
 Follow the user's stated goal; compare or summarize across images when relevant.";
 
-fn truncate_for_prompt(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        return s.to_string();
-    }
-    let head: String = s.chars().take(max_chars).collect();
-    format!("{head}…")
-}
-
 fn user_content_with_goal(base: &str, goal: &str) -> String {
     format!("{base}\n\nUser analysis goal:\n{goal}")
 }
@@ -306,10 +298,6 @@ const PDF_OCR_PROMPT: &str = "Extract and summarize PDF content from the attache
 Follow the user's stated goal for what to include, emphasize, or omit. \
 Transcribe visible text accurately; preserve headings/lists/tables where relevant.";
 
-const PDF_TEXT_GOAL_PROMPT: &str = "Analyze extracted document text according to the user's goal. \
-Answer the goal directly; quote short excerpts when helpful. \
-If the goal requests full transcription, reproduce text faithfully within length limits.";
-
 const VIDEO_DESCRIBE_PROMPT: &str = "Summarize this video from the attached still frames. \
 Follow the user's stated goal for scene, actions, visible text, and key details.";
 
@@ -392,82 +380,6 @@ pub async fn describe_pdf_pages_with_model(
     let text = out.text.trim().to_string();
     if text.is_empty() {
         anyhow::bail!("pdf image understanding returned empty content");
-    }
-    Ok(text)
-}
-
-pub async fn focus_extracted_pdf_text_with_goal(
-    settings: &ModelSettings,
-    text_model: &AgentModelRef,
-    api_key_fallback: &str,
-    extracted_text: &str,
-    file_name: &str,
-    goal: &str,
-    token_ctx: &MediaTokenContext,
-    cancel: &CancellationToken,
-) -> Result<String> {
-    let mut text_settings = settings.clone();
-    if !text_model.provider_id.trim().is_empty() {
-        text_settings.active_provider_id = text_model.provider_id.trim().to_string();
-    }
-    if !text_model.model.trim().is_empty() {
-        text_settings.model = text_model.model.trim().to_string();
-    }
-    let api_key = resolve_provider_api_key(&text_settings, api_key_fallback);
-    if api_key.is_empty() {
-        anyhow::bail!("no API key for pdf text understanding model");
-    }
-    let provider = OpenAIProvider::new(text_settings, api_key);
-    let truncated = truncate_for_prompt(extracted_text, 120_000);
-    let user = ChatMessage {
-        id: "media-pdf-text-goal".into(),
-        role: Role::User,
-        content: format!(
-            "Document: \"{file_name}\"\n\nUser analysis goal:\n{goal}\n\n---\n\nExtracted text:\n{truncated}"
-        ),
-        status: "done".into(),
-        created_at: 0,
-        tool_calls: None,
-        tool_call_id: None,
-        error_message: None,
-        reasoning: None,
-        thoughts: None,
-        headline: None,
-        raw_content: None,
-        tool_raw_output: None,
-        agent_id: None,
-        agent_instance_id: None,
-        agent_name: None,
-        agent_trace: None,
-        images_base64: None,
-        image_slot_labels: None,
-        computer_round_screen_rel_path: None,
-        ui_bindings: None,
-        context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-    };
-    let system = crate::models::SystemPromptSections::all_cacheable(vec![
-        PDF_TEXT_GOAL_PROMPT.to_string(),
-    ]);
-    let out = provider
-        .chat_once(
-            &[user],
-            &system,
-            vec![],
-            cancel.clone(),
-            Some(4096),
-            Some("media_pdf_text_goal"),
-        )
-        .await
-        .context("pdf text goal understanding chat_once")?;
-    record_media_understand_usage(token_ctx, MediaUnderstandKind::Pdf, &out);
-    let text = out.text.trim().to_string();
-    if text.is_empty() {
-        anyhow::bail!("pdf text goal understanding returned empty content");
     }
     Ok(text)
 }

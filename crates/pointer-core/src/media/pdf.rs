@@ -3,70 +3,34 @@ use base64::Engine;
 use image::codecs::jpeg::JpegEncoder;
 use image::ExtendedColorType;
 use lopdf::{Document, xobject::PdfImage};
-use std::io::Cursor;
+use std::io::{Cursor, Write};
+use std::process::Command;
 
-const MAX_PDF_TEXT_BYTES: usize = 256 * 1024;
-/// Max PDF pages processed per `media_understand` call (text or OCR).
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Max PDF pages processed per `media_understand` call (page-image vision).
 pub const MAX_PDF_PAGES_PER_CALL: usize = 10;
 /// Default page window when the user does not specify `pageStart` / `pageEnd`.
 pub const DEFAULT_PDF_PAGE_END: usize = 10;
-/// Below this char count, extracted text is treated as noise (page numbers, watermarks) and OCR fallback runs.
-pub const MIN_PDF_TEXT_CHARS: usize = 48;
 /// Legacy alias — same as per-call page cap.
 pub const MAX_PDF_OCR_PAGES: usize = MAX_PDF_PAGES_PER_CALL;
 const MIN_PDF_IMAGE_DIMENSION: i64 = 64;
 const MAX_PDF_IMAGE_BYTES: usize = 6 * 1024 * 1024;
+const PDF_RENDER_DPI: u32 = 150;
 
-pub fn pdf_text_char_count(text: &str) -> usize {
-    text.trim().chars().count()
-}
-
-pub fn is_pdf_text_sufficient(text: &str) -> bool {
-    pdf_text_char_count(text) >= MIN_PDF_TEXT_CHARS
-}
-
-/// Heuristic: lopdf reads raw PDF string bytes and often mojibakes CID / Identity-H fonts.
-pub fn is_pdf_text_plausible(text: &str) -> bool {
-    if !is_pdf_text_sufficient(text) {
-        return false;
+fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new(program);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        return cmd;
     }
-    pdf_readable_char_ratio(text) >= 0.55
-}
-
-fn pdf_readable_char_ratio(text: &str) -> f64 {
-    let trimmed = text.trim();
-    let total = trimmed.chars().count();
-    if total == 0 {
-        return 0.0;
-    }
-    let readable = trimmed
-        .chars()
-        .filter(|c| is_pdf_readable_char(*c))
-        .count();
-    readable as f64 / total as f64
-}
-
-fn is_pdf_readable_char(c: char) -> bool {
-    if c == '\u{FFFD}' {
-        return false;
-    }
-    if c.is_control() && !matches!(c, '\n' | '\r' | '\t') {
-        return false;
-    }
-    if c.is_alphanumeric() {
-        return true;
-    }
-    if ('\u{4e00}'..='\u{9fff}').contains(&c) {
-        return true;
-    }
-    const PUNCT: &str = "，。、；：？！（）《》—…·\"' .,-/\\@#%&*+=[]{}<>:;";
-    PUNCT.contains(c)
-}
-
-pub fn extract_pdf_text(bytes: &[u8], file_name: &str) -> Result<String> {
-    let text = pdf_extract::extract_text_from_mem(bytes)
-        .with_context(|| format!("pdf extract failed for {file_name}"))?;
-    trim_and_validate_pdf_text(&text, file_name)
+    #[cfg(not(windows))]
+    Command::new(program)
 }
 
 pub fn pdf_page_count(bytes: &[u8], file_name: &str) -> Result<usize> {
@@ -152,195 +116,8 @@ pub fn format_pdf_scope_notice(range: &PdfPageRange, total_pages: usize) -> Stri
     }
 }
 
-/// Extract PDF text in approximate natural reading order (per-page, Y-desc then X-asc).
-pub fn extract_pdf_text_sorted(bytes: &[u8], file_name: &str) -> Result<String> {
-    let total = pdf_page_count(bytes, file_name)?;
-    let range = PdfPageRange::default_first_window(total)?;
-    extract_pdf_text_sorted_range(bytes, file_name, &range)
-}
-
-pub fn extract_pdf_text_sorted_range(
-    bytes: &[u8],
-    file_name: &str,
-    range: &PdfPageRange,
-) -> Result<String> {
-    let doc = Document::load_mem(bytes).with_context(|| format!("load pdf {file_name}"))?;
-    let mut pages: Vec<_> = doc.get_pages().into_iter().collect();
-    pages.sort_by_key(|(num, _)| *num);
-
-    let mut page_texts: Vec<String> = Vec::new();
-    for (ordinal, (page_num, page_id)) in pages.into_iter().enumerate() {
-        let page_index = ordinal + 1;
-        if page_index < range.start || page_index > range.end {
-            continue;
-        }
-        let content = doc
-            .get_and_decode_page_content(page_id)
-            .with_context(|| format!("decode page {page_num} in {file_name}"))?;
-        let spans = extract_text_spans_from_content(&content);
-        if spans.is_empty() {
-            continue;
-        }
-        let sorted = sort_spans_reading_order(spans);
-        let joined: String = sorted
-            .into_iter()
-            .map(|(_, _, s)| s)
-            .collect::<Vec<_>>()
-            .join(" ");
-        let trimmed = joined.split_whitespace().collect::<Vec<_>>().join(" ");
-        if !trimmed.is_empty() {
-            page_texts.push(format!("--- Page {page_index} ---\n{trimmed}"));
-        }
-    }
-
-    if page_texts.is_empty() {
-        return extract_pdf_text_range(bytes, file_name, range);
-    }
-
-    let combined = page_texts.join("\n\n");
-    if is_pdf_text_plausible(&combined) {
-        return trim_and_validate_pdf_text(&combined, file_name);
-    }
-    log::info!(
-        "pdf {file_name}: lopdf reading-order text failed plausibility (pages {}-{}); using pdf-extract",
-        range.start,
-        range.end
-    );
-    extract_pdf_text_range(bytes, file_name, range)
-}
-
-fn extract_pdf_text_range(bytes: &[u8], file_name: &str, _range: &PdfPageRange) -> Result<String> {
-    let text = pdf_extract::extract_text_from_mem(bytes)
-        .with_context(|| format!("pdf extract failed for {file_name}"))?;
-    // pdf-extract does not expose per-page boundaries reliably; scope notice still applies.
-    trim_and_validate_pdf_text(&text, file_name)
-}
-
-fn trim_and_validate_pdf_text(text: &str, file_name: &str) -> Result<String> {
-    let trimmed = text.trim();
-    let char_count = trimmed.chars().count();
-    if char_count < MIN_PDF_TEXT_CHARS {
-        anyhow::bail!(
-            "pdf text below threshold: {char_count} chars (min {MIN_PDF_TEXT_CHARS})"
-        );
-    }
-    if trimmed.len() > MAX_PDF_TEXT_BYTES {
-        log::warn!(
-            "pdf {file_name} text exceeds {} bytes; truncating",
-            MAX_PDF_TEXT_BYTES
-        );
-        Ok(truncate_pdf_text_bytes(trimmed, MAX_PDF_TEXT_BYTES))
-    } else {
-        Ok(trimmed.to_string())
-    }
-}
-
-fn truncate_pdf_text_bytes(text: &str, max_bytes: usize) -> String {
-    if text.len() <= max_bytes {
-        return text.to_string();
-    }
-    let mut end = max_bytes.min(text.len());
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    text[..end].to_string()
-}
-
-#[derive(Clone)]
-struct TextSpan {
-    x: f64,
-    y: f64,
-    text: String,
-}
-
-fn object_as_f64(obj: &lopdf::Object) -> Option<f64> {
-    obj.as_f32().ok().map(f64::from).or_else(|| obj.as_i64().ok().map(|n| n as f64))
-}
-
-fn object_as_string(obj: &lopdf::Object) -> Option<String> {
-    obj.as_str()
-        .ok()
-        .map(|b| String::from_utf8_lossy(b).into_owned())
-}
-
-fn extract_text_spans_from_content(content: &lopdf::content::Content) -> Vec<TextSpan> {
-    use lopdf::content::Operation;
-    let mut spans = Vec::new();
-    let mut tx = 0.0f64;
-    let mut ty = 0.0f64;
-    for op in &content.operations {
-        match op {
-            Operation { operator, operands } if operator == "Td" || operator == "TD" => {
-                if operands.len() >= 2 {
-                    if let (Some(x), Some(y)) =
-                        (object_as_f64(&operands[0]), object_as_f64(&operands[1]))
-                    {
-                        tx += x;
-                        ty += y;
-                    }
-                }
-            }
-            Operation { operator, operands } if operator == "Tm" => {
-                if operands.len() >= 6 {
-                    if let (Some(x), Some(y)) =
-                        (object_as_f64(&operands[4]), object_as_f64(&operands[5]))
-                    {
-                        tx = x;
-                        ty = y;
-                    }
-                }
-            }
-            Operation { operator, operands }
-                if operator == "Tj" || operator == "'" || operator == "\"" =>
-            {
-                if let Some(s) = operands.first().and_then(object_as_string) {
-                    if !s.is_empty() {
-                        spans.push(TextSpan {
-                            x: tx,
-                            y: ty,
-                            text: s,
-                        });
-                    }
-                }
-            }
-            Operation { operator, operands } if operator == "TJ" => {
-                if let Some(arr) = operands.first().and_then(|o| o.as_array().ok()) {
-                    for item in arr {
-                        if let Some(s) = object_as_string(item) {
-                            if !s.is_empty() {
-                                spans.push(TextSpan {
-                                    x: tx,
-                                    y: ty,
-                                    text: s,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    spans
-}
-
-fn sort_spans_reading_order(spans: Vec<TextSpan>) -> Vec<(f64, f64, String)> {
-    let mut sorted: Vec<(f64, f64, String)> = spans
-        .into_iter()
-        .map(|s| (s.x, s.y, s.text))
-        .collect();
-    sorted.sort_by(|a, b| {
-        b.1
-            .partial_cmp(&a.1)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
-    });
-    sorted
-}
-
-
-/// Extract embedded page raster images (typical scanned PDFs) and return base64 JPEGs.
-/// Pure Rust via `lopdf` + `image`; no system poppler/ghostscript.
+/// Extract page images for vision understanding.
+/// Prefers embedded raster images (typical scans); falls back to `pdftoppm` rendering for text PDFs.
 pub fn extract_pdf_page_images_base64(bytes: &[u8], file_name: &str) -> Result<Vec<String>> {
     let total = pdf_page_count(bytes, file_name)?;
     let range = PdfPageRange::default_first_window(total)?;
@@ -408,8 +185,114 @@ pub fn extract_pdf_page_images_base64_range(
         }
     }
 
+    if !frames.is_empty() {
+        return Ok(frames);
+    }
+
+    log::info!(
+        "pdf {file_name}: no embedded page images in pages {}-{}; rendering with pdftoppm",
+        range.start,
+        range.end
+    );
+    render_pdf_pages_base64_with_pdftoppm(bytes, file_name, range)
+}
+
+fn render_pdf_pages_base64_with_pdftoppm(
+    bytes: &[u8],
+    file_name: &str,
+    range: &PdfPageRange,
+) -> Result<Vec<String>> {
+    let pdftoppm = crate::media::ffmpeg::resolve_pdftoppm().ok_or_else(|| {
+        anyhow::anyhow!(
+            "pdf pages {}-{} in {file_name}: no embedded images and pdftoppm (poppler-utils) not found — install poppler or use the pdf skill with Python",
+            range.start,
+            range.end
+        )
+    })?;
+
+    let mut pdf_file = tempfile::Builder::new()
+        .suffix(".pdf")
+        .tempfile()
+        .context("create temp pdf for pdftoppm")?;
+    pdf_file
+        .write_all(bytes)
+        .context("write temp pdf for pdftoppm")?;
+    pdf_file
+        .flush()
+        .context("flush temp pdf for pdftoppm")?;
+
+    let out_dir = tempfile::tempdir().context("temp dir for pdftoppm output")?;
+    let prefix = out_dir.path().join("page");
+    let prefix_str = prefix
+        .to_str()
+        .context("pdftoppm output prefix path")?;
+    let pdf_path = pdf_file.path().to_str().context("temp pdf path")?;
+
+    let first = range.start;
+    let last = range.end.min(first + MAX_PDF_PAGES_PER_CALL - 1);
+
+    let status = hidden_command(&pdftoppm)
+        .args([
+            "-jpeg",
+            "-jpegopt",
+            "quality=85",
+            "-r",
+            &PDF_RENDER_DPI.to_string(),
+            "-f",
+            &first.to_string(),
+            "-l",
+            &last.to_string(),
+            pdf_path,
+            prefix_str,
+        ])
+        .status()
+        .with_context(|| format!("run pdftoppm for {file_name}"))?;
+
+    if !status.success() {
+        anyhow::bail!("pdftoppm failed for {file_name} (pages {first}-{last})");
+    }
+
+    let mut jpeg_paths: Vec<std::path::PathBuf> = std::fs::read_dir(out_dir.path())
+        .with_context(|| format!("read pdftoppm output dir for {file_name}"))?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_file()
+                && p.extension()
+                    .is_some_and(|ext| ext == "jpg" || ext == "jpeg")
+        })
+        .collect();
+    jpeg_paths.sort();
+
+    let mut frames = Vec::new();
+    for jpeg_path in jpeg_paths {
+        if frames.len() >= MAX_PDF_PAGES_PER_CALL {
+            break;
+        }
+        let jpeg = std::fs::read(&jpeg_path)
+            .with_context(|| format!("read pdftoppm jpeg {:?}", jpeg_path))?;
+        if jpeg.is_empty() {
+            log::warn!("pdf {file_name}: pdftoppm produced empty jpeg at {:?}", jpeg_path);
+            continue;
+        }
+        if jpeg.len() > MAX_PDF_IMAGE_BYTES {
+            log::warn!(
+                "pdf {file_name}: rendered image {} bytes exceeds limit; skipping",
+                jpeg.len()
+            );
+            continue;
+        }
+        log::info!(
+            "pdf {file_name}: rendered with pdftoppm ({} bytes jpeg)",
+            jpeg.len()
+        );
+        frames.push(base64::engine::general_purpose::STANDARD.encode(jpeg));
+    }
+
     if frames.is_empty() {
-        anyhow::bail!("pdf contains no decodable embedded page images in pages {}-{}", range.start, range.end);
+        anyhow::bail!(
+            "pdftoppm produced no usable page images for {file_name} (pages {first}-{last})"
+        );
     }
     Ok(frames)
 }
@@ -661,41 +544,9 @@ mod tests {
     }
 
     #[test]
-    fn pdf_text_threshold() {
-        assert!(!is_pdf_text_sufficient(""));
-        assert!(!is_pdf_text_sufficient("1\n2\n3\npage 4"));
-        assert!(is_pdf_text_sufficient(&"a".repeat(MIN_PDF_TEXT_CHARS)));
-    }
-
-    #[test]
     fn jpeg_magic_detected() {
         assert!(looks_like_jpeg(&[0xFF, 0xD8, 0xFF, 0x00]));
         assert!(!looks_like_jpeg(&[0x89, 0x50]));
-    }
-
-    #[test]
-    fn pdf_text_plausibility_rejects_lopdf_cid_garbage() {
-        let garbled = format!(
-            "--- Page 1 ---\n{}",
-            "\u{10}\u{14}\u{FFFD}\u{15}\u{19}ABC\u{7}\u{3}".repeat(20)
-        );
-        assert!(is_pdf_text_sufficient(&garbled));
-        assert!(!is_pdf_text_plausible(&garbled));
-        let chinese = "上海市浦东新区人民法院民事调解书原告深圳灯火家园企业管理有限公司被告洪洁茹追偿权纠纷一案本院依法适用小额程序公开开庭进行了审理";
-        assert!(is_pdf_text_plausible(chinese));
-    }
-
-    #[test]
-    #[ignore = "local: Desktop mediation PDF"]
-    fn mediation_pdf_extraction_uses_pdf_extract() {
-        let path = "/Users/starliu/Desktop/786394_调解书.pdf";
-        let bytes = std::fs::read(path).expect("read pdf");
-        let file_name = "786394_调解书.pdf";
-        let total = pdf_page_count(&bytes, file_name).unwrap();
-        let range = PdfPageRange::default_first_window(total).unwrap();
-        let text = extract_pdf_text_sorted_range(&bytes, file_name, &range).unwrap();
-        assert!(text.contains("民事调解书"));
-        assert!(text.contains("上海市浦东新区人民法院"));
     }
 
     #[test]

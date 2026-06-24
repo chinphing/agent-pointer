@@ -13,6 +13,7 @@ defaultSkillIds:
   - docx
   - xlsx
   - pptx
+  - pdf
 allowAgents:
   - coder
   - computer
@@ -73,6 +74,10 @@ usernames or unverified absolute paths. Typical locations (names vary by OS/loca
   then **`video`**, same **ref**, merge in reply. Never call with only `ref` + `mode`.
 - **Office** (docx/xlsx/pptx) → **`skill_read`** the matching Office skill, then **`terminal`**
   using **localPath** from the manifest (third-party scripts may not accept `pointer-media://`).
+- **PDF attachments** → **`media_understand`** with **`mode=pdf`** (page-image vision; host renders
+  or extracts page images). For merge/split/forms/editing, **`skill_read`** the **pdf** skill, then
+  **`terminal`**. For programmatic text/table extraction with layout control, use the **pdf** skill
+  (Python); enable **sort** only when the user asks for reading order.
 - **Large PDF** → put page range in **`pageStart`/`pageEnd`** only when the user explicitly
   asked; otherwise host defaults to pages 1–10. Split into multiple calls if >10 pages.
 - **Large video** → set **`timeStartSec`/`timeEndSec`** only when the user explicitly

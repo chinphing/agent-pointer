@@ -32,6 +32,14 @@ pub fn resolve_ffprobe() -> Option<PathBuf> {
     resolve_tool("ffprobe")
 }
 
+pub fn resolve_pdftoppm() -> Option<PathBuf> {
+    resolve_tool("pdftoppm")
+}
+
+pub fn pdftoppm_available() -> bool {
+    resolve_pdftoppm().is_some()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FfmpegToolStatus {

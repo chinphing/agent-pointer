@@ -1,6 +1,6 @@
 # Office skill dependencies (anthropics/skills)
 
-Bundled **docx** / **xlsx** / **pptx** skills come from
+Bundled **docx** / **xlsx** / **pptx** / **pdf** skills come from
 [anthropics/skills](https://github.com/anthropics/skills) (MIT). Install only what the
 loaded skill body asks for.
 
@@ -23,6 +23,13 @@ loaded skill body asks for.
 - **markitdown** — `pip install "markitdown[pptx]"`
 - **Pillow** — thumbnail grids (`pip install Pillow`)
 - **pptxgenjs** — create from scratch (`npm install -g pptxgenjs`)
+
+## pdf
+
+- **pypdf**, **pdfplumber**, **reportlab** — merge/split/create/extract (see pdf skill)
+- **poppler-utils** (`pdftotext`, `pdftoppm`, `pdfimages`) — CLI extraction and render
+- **pymupdf** — optional; use `sort=True` only when the user asks for reading order
+- Host **`media_understand` `mode=pdf`** reads attachments via page-image vision (no Python needed for default read)
 
 ## Verify (examples)
 

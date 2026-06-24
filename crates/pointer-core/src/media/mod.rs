@@ -36,16 +36,16 @@ pub use apply::apply_media_to_history;
 pub use attachment_lookup::find_attachment_by_media_ref;
 pub use understand::{
     describe_image_with_model, describe_images_with_model, describe_pdf_pages_with_model,
-    describe_video_with_model, focus_extracted_pdf_text_with_goal, transcribe_audio_with_model,
+    describe_video_with_model, transcribe_audio_with_model,
 };
 pub use pdf::{
     extract_pdf_page_images_base64, extract_pdf_page_images_base64_range,
-    extract_pdf_text_sorted, extract_pdf_text_sorted_range, format_pdf_scope_notice,
-    pdf_page_count, PdfPageRange, DEFAULT_PDF_PAGE_END, MAX_PDF_PAGES_PER_CALL,
+    format_pdf_scope_notice, pdf_page_count, PdfPageRange, DEFAULT_PDF_PAGE_END,
+    MAX_PDF_PAGES_PER_CALL,
 };
 pub use capabilities::model_supports_vision;
 pub use deps_hint::MediaDepsStatus;
-pub use ffmpeg::{ffmpeg_available, probe_ffmpeg_tools, FfmpegToolProbe, FfmpegToolStatus};
+pub use ffmpeg::{ffmpeg_available, pdftoppm_available, probe_ffmpeg_tools, FfmpegToolProbe, FfmpegToolStatus};
 pub use access::is_user_filesystem_path;
 pub use outbound_reply::{
     im_outbound_reply_source, reply_media_source, split_reply_media, strip_outbound_media_markers,

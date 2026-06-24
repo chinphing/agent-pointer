@@ -100,7 +100,7 @@ Understand image, video, audio, or PDF files on demand via host-managed models.
 - **audio**: ASR model. **Speech / transcript** from an audio **or video** attachment.
   Pass the same **ref** from the manifest; for video files the host **extracts the audio
   track** then runs ASR. **Does not see the picture.**
-- **pdf**: sorted text extraction; scanned pages fall back to page-image OCR.
+- **pdf**: page-image vision (embedded raster or `pdftoppm` render → vision model). No direct text-layer extraction. For merge/split/forms/programmatic text, use the **pdf** skill.
 
 ## Video attachments: vision vs speech
 
@@ -183,8 +183,8 @@ For long videos:
 
 | Kind | Host limit | Agent strategy |
 |------|------------|----------------|
-| PDF text | ~256 KiB per call; ~120k chars in goal-focused pass | Split by **pageStart/pageEnd** |
-| PDF scan | 10 page images per call; 6 MB/page JPEG | Split batches; set pages only when user asked |
+| PDF (all types) | Page images → vision model; embedded raster or `pdftoppm` when needed | Split by **pageStart/pageEnd** |
+| PDF page images | 10 pages/call; 6 MB/page JPEG | Split batches; set pages only when user asked |
 | Video (DashScope) | Native **video_url** + **fps** via **`remoteUrl`** (HTTPS); full file | Segment focus in **goal**, not **timeStartSec** |
 | Video fallback | ffmpeg JPEG frames, max **200**/call; **timeStartSec** / **timeEndSec** apply | No `remoteUrl` or native API failure |
 | Video upload | OSS at attach; **>500 MB** → confirm then host compress to **≤500 MB**; **≤5 GB** PutObject ceiling | Cancel → no attach |

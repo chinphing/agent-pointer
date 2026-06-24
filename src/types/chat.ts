@@ -39,7 +39,8 @@ export const DEFAULT_ENABLED_SKILL_IDS = [
   'pointer-manager',
   'docx',
   'xlsx',
-  'pptx'
+  'pptx',
+  'pdf'
 ] as const
 
 export type AgentMode = 'single' | 'supervisor'

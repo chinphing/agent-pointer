@@ -8,7 +8,7 @@ use crate::dotenv::{
 };
 use anyhow::{anyhow, Result};
 use log::{info, warn};
-use std::io::{BufRead, BufReader, Read};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -341,25 +341,46 @@ struct TerminalPipeChunk {
     text: String,
 }
 
+struct TerminalPipeReaderState {
+    carry: Vec<u8>,
+}
+
+impl TerminalPipeReaderState {
+    fn push(&mut self, chunk: &[u8]) -> String {
+        crate::windows_shell_encoding::decode_utf8_stream(&mut self.carry, chunk)
+    }
+
+    fn finish(&mut self) -> String {
+        crate::windows_shell_encoding::decode_utf8_finish(&mut self.carry)
+    }
+}
+
 fn spawn_pipe_reader<R>(reader: R, pipe: TerminalPipe, tx: mpsc::Sender<TerminalPipeChunk>)
 where
     R: Read + Send + 'static,
 {
     thread::spawn(move || {
-        let mut reader = BufReader::new(reader);
-        let mut line = String::new();
+        let mut reader = reader;
+        let mut state = TerminalPipeReaderState { carry: Vec::new() };
+        let mut buf = [0u8; 8192];
         loop {
-            line.clear();
-            match reader.read_line(&mut line) {
+            match reader.read(&mut buf) {
                 Ok(0) => break,
-                Ok(_) => {
-                    let _ = tx.send(TerminalPipeChunk {
-                        pipe,
-                        text: line.clone(),
-                    });
+                Ok(n) => {
+                    let text = state.push(&buf[..n]);
+                    if !text.is_empty() {
+                        let _ = tx.send(TerminalPipeChunk { pipe, text });
+                    }
                 }
-                Err(_) => break,
+                Err(e) => {
+                    warn!("terminal: pipe read failed: {e}");
+                    break;
+                }
             }
+        }
+        let tail = state.finish();
+        if !tail.is_empty() {
+            let _ = tx.send(TerminalPipeChunk { pipe, text: tail });
         }
     });
 }

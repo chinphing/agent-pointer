@@ -70,7 +70,7 @@
 
 **默认启用**：`DEFAULT_ENABLED_SKILL_IDS` = 全部内置 skill（与 `skills/` 目录一致）。新用户默认全开；老用户在启动加载技能列表时会自动补全尚未启用的 `provenance=system` 技能。
 
-**Office 技能（docx / xlsx / pptx）** 直接来自上游
+**Office 技能（docx / xlsx / pptx / pdf）** 直接来自上游
 [anthropics/skills](https://github.com/anthropics/skills)（含 `SKILL.md` 与 `scripts/`），
 不要在本仓库手写精简版。更新时运行：
 

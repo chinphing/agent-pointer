@@ -1,14 +1,12 @@
 //! Linux application discovery and launch (Codex Computer Use aligned).
 
-mod linux_recent;
-
 use super::launch_verify::{self, LaunchVerifyKind, LaunchVerifyOutcome, LAUNCH_VERIFY_POLL_MS};
-use super::types::{AppOpenOptions, AppOpenResult};
-use anyhow::{anyhow, Result};
-use linux_recent::{
+use super::linux_recent::{
     find_desktop_id_for_app, find_running_pid_for_app, merge_list_catalog, process_exe_for_pid,
     recent_cutoff,
 };
+use super::types::{AppOpenOptions, AppOpenResult};
+use anyhow::{anyhow, Result};
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -98,7 +96,7 @@ fn wm_running_apps() -> Result<Vec<super::listed_app::ListedApp>> {
         if title.is_empty() {
             continue;
         }
-        let name = title.split(" - ").next_back().unwrap_or(&title).trim().to_string();
+        let name = title.rsplit(" - ").next().unwrap_or(&title).trim().to_string();
         let key = format!("{}:{:?}", name.to_ascii_lowercase(), pid);
         if !seen.insert(key) {
             continue;

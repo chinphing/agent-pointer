@@ -11,6 +11,8 @@ mod linux_xbel;
 mod macos;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "linux")]
+mod linux_recent;
 #[cfg(windows)]
 mod windows;
 mod window_monitor;

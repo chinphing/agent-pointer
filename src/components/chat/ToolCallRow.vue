@@ -48,11 +48,11 @@ const showStatusLabel = computed(
   () =>
     effectiveStatus.value === 'running'
     || effectiveStatus.value === 'pending_approval'
-    || effectiveStatus.value === 'failed'
     || effectiveStatus.value === 'rejected'
 )
 
 const showSuccessQuiet = computed(() => effectiveStatus.value === 'success')
+const showFailedQuiet = computed(() => effectiveStatus.value === 'failed')
 const showResults = computed(() => props.showToolCallResults === true)
 
 const terminalArgs = computed(() => {
@@ -216,7 +216,7 @@ const statusInfo = computed(() => {
     case 'pending_approval': return { label: '等待确认', color: 'text-warning' }
     case 'running': return { label: '执行中', color: 'text-accent' }
     case 'success': return { label: '成功', color: 'text-success' }
-    case 'failed': return { label: '失败', color: 'text-danger' }
+    case 'failed': return { label: '失败', color: 'text-muted/45' }
     case 'rejected': return { label: '已拒绝', color: 'text-slate-400' }
   }
   return { label: '', color: '' }
@@ -264,9 +264,10 @@ function openSourceUrl(url: string) {
         :class="statusInfo.color"
       >
         <Loader2 v-if="effectiveStatus === 'running'" class="w-2.5 h-2.5 animate-spin" />
-        <XCircle v-else-if="effectiveStatus === 'failed' || effectiveStatus === 'rejected'" class="w-2.5 h-2.5" />
+        <XCircle v-else-if="effectiveStatus === 'rejected'" class="w-2.5 h-2.5" />
         <span>{{ statusInfo.label }}</span>
       </span>
+      <span v-else-if="showFailedQuiet" class="shrink-0 text-[10px] text-muted/45">{{ statusInfo.label }}</span>
       <span v-else-if="showSuccessQuiet" class="shrink-0 text-muted/45">{{ statusInfo.label }}</span>
       <span v-if="toolCall.durationMs" class="shrink-0 text-[10px] text-muted/45 tabular-nums">{{ toolCall.durationMs }}ms</span>
       <component

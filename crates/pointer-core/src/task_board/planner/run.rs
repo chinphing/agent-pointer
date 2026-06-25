@@ -96,7 +96,7 @@ pub async fn run_planner_loop(input: PlannerRunInput<'_>) -> PlannerRunOutcome {
     if input.lead_profile != AgentProfile::Computer {
         return PlannerRunOutcome::NotApplicable;
     }
-    if !input.settings.task_board_planner_enabled {
+    if !input.settings.computer_standalone_planner_enabled {
         return PlannerRunOutcome::NotApplicable;
     }
 
@@ -117,7 +117,7 @@ pub async fn run_planner_loop(input: PlannerRunInput<'_>) -> PlannerRunOutcome {
     let planner_provider = planner_provider(input.provider, input.lead_agent_id);
     let native_tools = openai_tools();
     let scope = AgentInstanceScope::new(input.run_id, input.conversation_id, "task_board_planner");
-    let work_items_enabled = input.settings.task_board_work_items_enabled;
+    let work_items_enabled = input.settings.computer_standalone_planner_enabled;
 
     let mut history = planner_history;
     let mut round = 0u32;
@@ -339,7 +339,7 @@ mod tests {
             active_provider_id: "qwen".into(),
             model: "qwen3.5-plus".into(),
             api_key: "test-key".into(),
-            task_board_planner_enabled: true,
+            computer_standalone_planner_enabled: true,
             ..Default::default()
         }
     }
@@ -452,7 +452,7 @@ mod tests {
     #[tokio::test]
     async fn not_applicable_when_planner_disabled() {
         let mut settings = planner_settings("http://unused");
-        settings.task_board_planner_enabled = false;
+        settings.computer_standalone_planner_enabled = false;
         let outcome = run_with_mock(settings, &[user_msg("hello")], CancellationToken::new()).await;
         assert_eq!(outcome, PlannerRunOutcome::NotApplicable);
     }

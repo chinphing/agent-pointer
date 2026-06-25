@@ -71,8 +71,7 @@ pub(super) async fn run_single_agent_loop(
 
         let mut effective_allowed = agent_plan.allowed_tool_names.clone();
         if lead_profile == AgentProfile::Computer
-            && settings.task_board_computer_no_exec_init
-            && settings.task_board_planner_enabled
+            && settings.computer_standalone_planner_enabled
         {
             effective_allowed.retain(|t| t != "task_board_init" && t != "task_board_replace");
         }

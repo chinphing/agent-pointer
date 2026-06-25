@@ -203,9 +203,7 @@ function createSettingsDialogForm(deps: {
   const rawContentViewEnabled = ref(false)
   const debugDumpLlmPrompts = ref(false)
   const taskBoardShowChildBoards = ref(false)
-  const taskBoardWorkItemsEnabled = ref(true)
-  const taskBoardPlannerEnabled = ref(true)
-  const taskBoardComputerNoExecInit = ref(true)
+  const computerStandalonePlannerEnabled = ref(true)
   const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
   const computerHumanLike = ref(false)
   const computerAutoSwitchMonitor = ref(true)
@@ -402,9 +400,7 @@ function createSettingsDialogForm(deps: {
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled === true
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
   taskBoardShowChildBoards.value = s.settings.taskBoardShowChildBoards === true
-  taskBoardWorkItemsEnabled.value = s.settings.taskBoardWorkItemsEnabled !== false
-  taskBoardPlannerEnabled.value = s.settings.taskBoardPlannerEnabled !== false
-  taskBoardComputerNoExecInit.value = s.settings.taskBoardComputerNoExecInit !== false
+  computerStandalonePlannerEnabled.value = s.settings.computerStandalonePlannerEnabled !== false
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true
   computerAutoSwitchMonitor.value = s.settings.computerAutoSwitchMonitor !== false
@@ -676,6 +672,7 @@ function createSettingsDialogForm(deps: {
     userCodingRules: userCodingRules.value.trim(),
     toolApprovalMode: toolApprovalMode.value,
     computerHumanLike: computerHumanLike.value,
+    computerStandalonePlannerEnabled: computerStandalonePlannerEnabled.value,
     computerAutoSwitchMonitor: computerAutoSwitchMonitor.value,
     computerInitialTier: computerInitialTier.value,
     captchaSliderOffsetPx: Number(captchaSliderOffsetPx.value) || 0,
@@ -699,9 +696,6 @@ function createSettingsDialogForm(deps: {
     debugDumpLlmPrompts: debugDumpLlmPrompts.value,
     debugMenusEnabled: debugMenusEnabled.value,
     taskBoardShowChildBoards: taskBoardShowChildBoards.value,
-    taskBoardWorkItemsEnabled: taskBoardWorkItemsEnabled.value,
-    taskBoardPlannerEnabled: taskBoardPlannerEnabled.value,
-    taskBoardComputerNoExecInit: taskBoardComputerNoExecInit.value,
     computerAnnotatedScreenViewEnabled: computerAnnotatedScreenViewEnabled.value,
     agentTaskBoardHistoryTrim: { ...agentTaskBoardHistoryTrim.value },
     agentUiOverrides: {
@@ -742,9 +736,7 @@ function createSettingsDialogForm(deps: {
     rawContentViewEnabled,
     debugDumpLlmPrompts,
     taskBoardShowChildBoards,
-    taskBoardWorkItemsEnabled,
-    taskBoardPlannerEnabled,
-    taskBoardComputerNoExecInit,
+    computerStandalonePlannerEnabled,
     agentTaskBoardHistoryTrim,
     computerHumanLike,
     computerAutoSwitchMonitor,

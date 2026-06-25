@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
+import type { ComputerInitialTier } from '../../../types/chat'
 import { useSettingsStore } from '../../../stores/settings'
-import { Bot, CircleHelp, Info, Sparkles, Wrench } from 'lucide-vue-next'
+import { Bot, CircleHelp, Monitor, Sparkles, Wrench } from 'lucide-vue-next'
 
 const props = defineProps<{
   form: SettingsDialogForm
@@ -10,7 +11,6 @@ const props = defineProps<{
 const s = useSettingsStore()
 const {
   PERFORMANCE_MODE_HELP,
-  COMPUTER_INITIAL_TIER_OPTIONS,
   AGENT_MODE_USER_ROWS,
   MEDIA_MODE_USER_ROWS,
   PERFORMANCE_MODE_UI,
@@ -20,6 +20,7 @@ const {
   computerAutoCompact,
   userCodingRules,
   computerHumanLike,
+  computerStandalonePlannerEnabled,
   captchaSliderOffsetPx,
   computerAutoSwitchMonitor,
   mediaImageGenerationModel,
@@ -38,6 +39,12 @@ const {
   refreshMediaDeps,
   askAssistantInstallFfmpeg
 } = props.form
+
+const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: string }[] = [
+  { value: 'primary', label: '快速', desc: '轻量视觉，响应更快' },
+  { value: 'intermediate', label: '标准', desc: '速度与准确度平衡' },
+  { value: 'advanced', label: '专家', desc: '最强视觉，适合复杂界面' }
+]
 </script>
 
 <template>            <div>
@@ -69,28 +76,6 @@ const {
                   <h5 class="text-[12px] font-medium text-foreground flex items-center gap-1.5">
                     <Bot class="w-3.5 h-3.5 text-accent shrink-0" />智能体
                   </h5>
-                  <div
-                    class="flex flex-wrap items-center gap-x-4 gap-y-2"
-                    title="新会话开始时电脑操控使用的模式；会话中仍可能因验证失败自动升级"
-                  >
-                    <span class="text-[12px] text-foreground whitespace-nowrap shrink-0 w-20">电脑操控</span>
-                    <div class="inline-flex flex-wrap items-center gap-3 min-w-0">
-                      <label
-                        v-for="opt in COMPUTER_INITIAL_TIER_OPTIONS"
-                        :key="'computer-tier-' + opt.value"
-                        class="inline-flex items-center gap-1.5 cursor-pointer text-[11px] text-muted whitespace-nowrap"
-                      >
-                        <input
-                          type="radio"
-                          class="rounded-full border-border bg-card text-accent focus:ring-accent/40"
-                          name="computer-initial-tier"
-                          :checked="computerInitialTier === opt.value"
-                          @change="computerInitialTier = opt.value"
-                        />
-                        <span class="text-foreground whitespace-nowrap">{{ opt.label }}</span>
-                      </label>
-                    </div>
-                  </div>
                   <div
                     v-for="row in AGENT_MODE_USER_ROWS"
                     :key="'agent-mode-row-' + row.id"
@@ -144,72 +129,121 @@ const {
                   </div>
                 </div>
               </div>
-              <div class="pt-3 border-t border-border space-y-3">
-                <h5 class="text-[12px] font-medium text-foreground">电脑操控选项</h5>
-                <div class="grid grid-cols-3 gap-x-8 w-full">
-                  <div class="flex items-center gap-1.5 min-w-0">
-                    <span class="text-[12px] text-foreground whitespace-nowrap">执行时收缩为状态条</span>
-                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                      <input
-                        type="checkbox"
-                        class="sr-only peer"
-                        :checked="computerAutoCompact"
-                        @change="computerAutoCompact = ($event.target as HTMLInputElement).checked"
-                      />
-                      <div class="settings-toggle-track" />
-                    </label>
-                  </div>
-                  <div class="flex items-center gap-1.5 min-w-0">
-                    <span class="text-[12px] text-foreground whitespace-nowrap">人性化鼠标移动</span>
-                    <button
-                      type="button"
-                      class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
-                      title="启用后鼠标沿曲线移动并带微抖动；关闭时使用直线匀速移动（约 0.5–1.5 秒随机）"
-                      aria-label="人性化鼠标移动说明"
-                      @click.stop
-                    >
-                      <Info class="w-3.5 h-3.5 pointer-events-none" />
-                    </button>
-                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                      <input
-                        type="checkbox"
-                        class="sr-only peer"
-                        :checked="computerHumanLike"
-                        @change="computerHumanLike = ($event.target as HTMLInputElement).checked"
-                      />
-                      <div class="settings-toggle-track" />
-                    </label>
-                  </div>
-                  <div class="flex items-center gap-1.5 min-w-0">
-                    <span class="text-[12px] text-foreground whitespace-nowrap">自动切换屏幕</span>
-                    <button
-                      type="button"
-                      class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
-                      title="开启：默认主屏，launch_app 后跟随应用窗口；关闭：手动按桌面布局选择屏幕"
-                      aria-label="自动切换屏幕说明"
-                      @click.stop
-                    >
-                      <Info class="w-3.5 h-3.5 pointer-events-none" />
-                    </button>
-                    <label class="relative inline-flex items-center cursor-pointer shrink-0">
-                      <input
-                        type="checkbox"
-                        class="sr-only peer"
-                        :checked="computerAutoSwitchMonitor"
-                        @change="computerAutoSwitchMonitor = ($event.target as HTMLInputElement).checked"
-                      />
-                      <div class="settings-toggle-track" />
-                    </label>
-                  </div>
-                  <div class="flex items-center gap-1.5 min-w-0">
-                    <span class="text-[12px] text-foreground whitespace-nowrap">滑块终点偏移（px）</span>
+            </div>
+
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-5">
+              <div>
+                <h4 class="text-sm font-medium text-foreground flex items-center gap-2">
+                  <Monitor class="w-4 h-4 text-accent shrink-0" />电脑操控
+                </h4>
+                <p class="mt-1 text-[11px] text-muted">
+                  桌面自动化的起始视觉档位与操作行为；具体模型在调试模式中配置。
+                </p>
+              </div>
+
+              <div class="space-y-2.5">
+                <p class="text-[12px] font-medium text-foreground">起始模式</p>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <label
+                    v-for="opt in COMPUTER_TIER_CARDS"
+                    :key="'computer-tier-card-' + opt.value"
+                    class="rounded-xl border p-3 cursor-pointer transition-all"
+                    :class="
+                      computerInitialTier === opt.value
+                        ? 'border-accent/40 bg-accent/5'
+                        : 'border-border bg-card hover:border-border/80'
+                    "
+                  >
                     <input
-                      v-model.number="captchaSliderOffsetPx"
-                      type="number"
-                      step="1"
-                      class="w-16 h-8 rounded-lg border border-border bg-card px-2 text-[12px] text-right text-foreground outline-none focus:border-accent/50"
+                      v-model="computerInitialTier"
+                      type="radio"
+                      class="sr-only"
+                      name="computer-initial-tier"
+                      :value="opt.value"
                     />
+                    <span class="block text-sm font-medium text-foreground">{{ opt.label }}</span>
+                    <span class="mt-1 block text-[11px] text-muted leading-snug">{{ opt.desc }}</span>
+                  </label>
+                </div>
+                <p class="text-[10px] text-muted">仅影响新会话；验证失败时可能自动升档。</p>
+              </div>
+
+              <div class="border-t border-border pt-4 space-y-0 divide-y divide-border">
+                <div class="flex items-start justify-between gap-4 py-3 first:pt-0">
+                  <div class="min-w-0">
+                    <p class="text-[12px] font-medium text-foreground">执行时收缩为状态条</p>
+                    <p class="text-[11px] text-muted mt-0.5">运行中收起对话区域，保留进度提示</p>
                   </div>
+                  <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                    <input
+                      type="checkbox"
+                      class="sr-only peer"
+                      :checked="computerAutoCompact"
+                      @change="computerAutoCompact = ($event.target as HTMLInputElement).checked"
+                    />
+                    <div class="settings-toggle-track" />
+                  </label>
+                </div>
+
+                <div class="flex items-start justify-between gap-4 py-3">
+                  <div class="min-w-0">
+                    <p class="text-[12px] font-medium text-foreground">人性化鼠标移动</p>
+                    <p class="text-[11px] text-muted mt-0.5">曲线轨迹与微抖动；关闭时为直线匀速移动</p>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                    <input
+                      type="checkbox"
+                      class="sr-only peer"
+                      :checked="computerHumanLike"
+                      @change="computerHumanLike = ($event.target as HTMLInputElement).checked"
+                    />
+                    <div class="settings-toggle-track" />
+                  </label>
+                </div>
+
+                <div class="flex items-start justify-between gap-4 py-3">
+                  <div class="min-w-0">
+                    <p class="text-[12px] font-medium text-foreground">自动切换屏幕</p>
+                    <p class="text-[11px] text-muted mt-0.5">默认主屏，打开应用后跟随窗口所在显示器</p>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                    <input
+                      type="checkbox"
+                      class="sr-only peer"
+                      :checked="computerAutoSwitchMonitor"
+                      @change="computerAutoSwitchMonitor = ($event.target as HTMLInputElement).checked"
+                    />
+                    <div class="settings-toggle-track" />
+                  </label>
+                </div>
+
+                <div class="flex items-start justify-between gap-4 py-3">
+                  <div class="min-w-0">
+                    <p class="text-[12px] font-medium text-foreground">独立任务规划</p>
+                    <p class="text-[11px] text-muted mt-0.5">工作项队列、每轮先规划再执行，执行层不初始化任务板</p>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                    <input
+                      type="checkbox"
+                      class="sr-only peer"
+                      :checked="computerStandalonePlannerEnabled"
+                      @change="computerStandalonePlannerEnabled = ($event.target as HTMLInputElement).checked"
+                    />
+                    <div class="settings-toggle-track" />
+                  </label>
+                </div>
+
+                <div class="flex items-start justify-between gap-4 py-3">
+                  <div class="min-w-0">
+                    <p class="text-[12px] font-medium text-foreground">滑块验证偏移</p>
+                    <p class="text-[11px] text-muted mt-0.5">滑块验证码拖拽终点的像素微调</p>
+                  </div>
+                  <input
+                    v-model.number="captchaSliderOffsetPx"
+                    type="number"
+                    step="1"
+                    class="w-20 h-9 shrink-0 rounded-lg border border-border bg-card px-2 text-[12px] text-right text-foreground outline-none focus:border-accent/50 mt-0.5"
+                  />
                 </div>
               </div>
             </div>

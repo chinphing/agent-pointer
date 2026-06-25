@@ -472,12 +472,8 @@ export interface PlatformSettings {
   debugMenusEnabled?: boolean
   /** Debug: show child task boards under parent board panel. */
   taskBoardShowChildBoards?: boolean
-  /** External work_items.db for Computer campaign queues. */
-  taskBoardWorkItemsEnabled?: boolean
-  /** Run task-board planner loop before Computer execution each user turn. */
-  taskBoardPlannerEnabled?: boolean
-  /** When planner is on, Computer execution cannot call task_board_init/replace. */
-  taskBoardComputerNoExecInit?: boolean
+  /** Computer: independent planner (work_items queue + planner loop + exec cannot init board). */
+  computerStandalonePlannerEnabled?: boolean
   agentDefaultModels: Record<string, AgentModelRef>
   agentTaskBoardHistoryTrim?: Record<string, boolean>
   computerHumanLike?: boolean
@@ -541,12 +537,8 @@ export interface ModelSettings {
   debugMenusEnabled?: boolean
   /** Debug: show child task boards under parent board panel. */
   taskBoardShowChildBoards?: boolean
-  /** External work_items.db for Computer campaign queues. */
-  taskBoardWorkItemsEnabled?: boolean
-  /** Run task-board planner loop before Computer execution each user turn. */
-  taskBoardPlannerEnabled?: boolean
-  /** When planner is on, Computer execution cannot call task_board_init/replace. */
-  taskBoardComputerNoExecInit?: boolean
+  /** Computer: independent planner (work_items queue + planner loop + exec cannot init board). */
+  computerStandalonePlannerEnabled?: boolean
   /** agentId → 该 agent 的默认「服务商 + 模型」（显式存储，不从模型名反推服务商） */
   agentDefaultModels: Record<string, AgentModelRef>
   /** agentId → task_board 更新后是否硬截断较早对话（无 LLM 摘要） */

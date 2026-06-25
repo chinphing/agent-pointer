@@ -26,7 +26,7 @@ const scroller = ref<HTMLDivElement | null>(null)
 const showScrollButton = ref(false)
 
 const workItemsEnabled = computed(
-  () => settings.settings.taskBoardWorkItemsEnabled === true
+  () => settings.settings.computerStandalonePlannerEnabled === true
 )
 
 async function toBottom() {

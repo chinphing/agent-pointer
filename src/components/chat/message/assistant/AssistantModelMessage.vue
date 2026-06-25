@@ -55,7 +55,7 @@ function subTraceUi(trace: (typeof subTraces.value)[number]) {
 const thoughtsDebugEnabled = computed(() => false)
 
 const workItemsEnabled = computed(
-  () => settingsStore.settings.taskBoardWorkItemsEnabled === true
+  () => settingsStore.settings.computerStandalonePlannerEnabled === true
 )
 
 const chatStore = useChatStore()

@@ -73,8 +73,7 @@ pub(super) fn init_sub_agent_session(
         allowed_tools.retain(|t| t != "run_subagent");
     }
     if def.profile == AgentProfile::Computer
-        && provider.settings.task_board_computer_no_exec_init
-        && provider.settings.task_board_planner_enabled
+        && provider.settings.computer_standalone_planner_enabled
     {
         allowed_tools.retain(|t| t != "task_board_init");
     }
@@ -126,8 +125,7 @@ pub(super) fn init_sub_agent_session(
     }
     session_extras.extend(skill_prompts);
     let planner_handles_init = def.profile == AgentProfile::Computer
-        && provider.settings.task_board_computer_no_exec_init
-        && provider.settings.task_board_planner_enabled;
+        && provider.settings.computer_standalone_planner_enabled;
     if !planner_handles_init {
         if let Some(hint) =
             sub_agent_task_board_init_hint(&state.task_board_store, &sub_task_board_key, &allowed_tools)

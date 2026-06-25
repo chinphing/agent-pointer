@@ -105,7 +105,7 @@ pub(crate) async fn run_sub_agent(
         );
     }
 
-    if def.profile == AgentProfile::Computer && sub_provider.settings.task_board_planner_enabled {
+    if def.profile == AgentProfile::Computer && sub_provider.settings.computer_standalone_planner_enabled {
         planner_outcome = crate::task_board::planner::run_planner_loop(
             crate::task_board::planner::PlannerRunInput {
                 state,
@@ -150,12 +150,11 @@ pub(crate) async fn run_sub_agent(
         &sub_provider.settings.workspace_root,
     );
 
-    let work_items_enabled = sub_provider.settings.task_board_work_items_enabled;
-    let b42_enforced =
-        work_items_enabled && def.profile == AgentProfile::Computer;
-    let computer_no_exec_init = sub_provider.settings.task_board_computer_no_exec_init
-        && sub_provider.settings.task_board_planner_enabled
-        && def.profile == AgentProfile::Computer;
+    let planner_bundle =
+        def.profile == AgentProfile::Computer && sub_provider.settings.computer_standalone_planner_enabled;
+    let work_items_enabled = planner_bundle;
+    let b42_enforced = planner_bundle;
+    let computer_no_exec_init = planner_bundle;
 
     loop {
         match agent_round_lifecycle::check_loop_guards(&cancel, ctx.sub_tool_budget) {

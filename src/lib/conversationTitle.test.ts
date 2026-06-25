@@ -8,7 +8,6 @@ import type { Conversation } from '../types/chat'
 
 function conv(partial: Partial<Conversation> & Pick<Conversation, 'id'>): Conversation {
   return {
-    id: partial.id,
     title: partial.title ?? DEFAULT_CONVERSATION_TITLE,
     messages: partial.messages ?? [],
     createdAt: 0,

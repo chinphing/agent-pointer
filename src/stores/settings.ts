@@ -136,11 +136,14 @@ function migratePlannerSettingsFields(
     taskBoardComputerNoExecInit?: boolean
   }
 ): ModelSettings {
-  const raw = s as Record<string, unknown>
+  const raw = s as unknown as Record<string, unknown>
   if (raw.computerStandalonePlannerEnabled !== undefined) {
     const { taskBoardPlannerEnabled: _p, taskBoardWorkItemsEnabled: _w, taskBoardComputerNoExecInit: _n, ...rest } =
       raw
-    return { ...(rest as ModelSettings), computerStandalonePlannerEnabled: raw.computerStandalonePlannerEnabled !== false }
+    return {
+      ...(rest as unknown as ModelSettings),
+      computerStandalonePlannerEnabled: raw.computerStandalonePlannerEnabled !== false
+    }
   }
   const hasLegacy =
     'taskBoardPlannerEnabled' in raw ||
@@ -152,7 +155,7 @@ function migratePlannerSettingsFields(
       raw.taskBoardComputerNoExecInit !== false
     : true
   const { taskBoardPlannerEnabled: _p, taskBoardWorkItemsEnabled: _w, taskBoardComputerNoExecInit: _n, ...rest } = raw
-  return { ...(rest as ModelSettings), computerStandalonePlannerEnabled: enabled }
+  return { ...(rest as unknown as ModelSettings), computerStandalonePlannerEnabled: enabled }
 }
 
 function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSettings {

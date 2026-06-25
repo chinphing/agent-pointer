@@ -426,10 +426,21 @@ async fn preview_computer_round_screen(
     ))
 }
 
-async fn manual_computer_snapshot() -> Result<Json<ComputerAnnotatedPreview>, ApiError> {
-    Ok(Json(
-        capture_debug::capture_manual_desktop_snapshot().map_err(ApiError::from)?,
-    ))
+async fn manual_computer_snapshot() -> Result<Response, ApiError> {
+    let jpeg =
+        capture_debug::capture_manual_desktop_snapshot_jpeg().map_err(ApiError::from)?;
+    let mut response = Response::new(jpeg.into());
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("image/jpeg"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CONTENT_DISPOSITION, HeaderValue::from_static("inline"));
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
 }
 
 async fn api_ready() -> Result<&'static str, StatusCode> {

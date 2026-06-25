@@ -65,6 +65,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return await res.json()
 }
 
+async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  let res: Response
+  try {
+    res = await fetch(`${WEB_API_BASE}${path}`, {
+      ...init,
+      signal: init?.signal ?? controller.signal
+    })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new Error(
+        `请求超时（>${REQUEST_TIMEOUT_MS / 1000}s）：${WEB_API_BASE} 无响应。请确认已启动 pointer-server（默认 127.0.0.1:8787）或设置 VITE_WEB_API_BASE。`
+      )
+    }
+    throw e
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+
+  if (!res.ok) throw new Error(await res.text())
+  return await res.blob()
+}
+
 export async function sendChat(payload: SendChatPayload): Promise<void> {
   await request('/api/chat', { method: 'POST', body: JSON.stringify(payload) })
 }
@@ -238,8 +262,8 @@ export function chatMediaStreamUrl(storageRelPath: string): string {
   return `${WEB_API_BASE}/api/chat/media-stream?storageRelPath=${q}`
 }
 
-export async function captureManualDesktopSnapshot(): Promise<ComputerAnnotatedPreview> {
-  return await request<ComputerAnnotatedPreview>('/api/computer/manual-snapshot', { method: 'POST' })
+export async function captureManualDesktopSnapshot(): Promise<Blob> {
+  return await requestBlob('/api/computer/manual-snapshot', { method: 'POST' })
 }
 
 export async function readLocalFileForAttachment(_path: string): Promise<import('./api').LocalFileAttachmentPayload> {

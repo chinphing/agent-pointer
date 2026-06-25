@@ -1,28 +1,90 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onUnmounted, ref, watch } from 'vue'
 import { Monitor } from 'lucide-vue-next'
 import ScreenPreviewModal from '../chat/message/assistant/ScreenPreviewModal.vue'
 import { captureManualDesktopSnapshot } from '../../lib/web'
-import type { ComputerAnnotatedPreview } from '../../types/chat'
+
+const SNAPSHOT_REFRESH_MS = 5000
+const CAPTION = '当前桌面'
 
 const open = ref(false)
 const loading = ref(false)
-const preview = ref<ComputerAnnotatedPreview | null>(null)
+const imageUrl = ref<string | null>(null)
 const error = ref<string | null>(null)
 
-async function onClick() {
-  open.value = true
-  loading.value = true
-  preview.value = null
-  error.value = null
-  try {
-    preview.value = await captureManualDesktopSnapshot()
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : '截图失败'
-  } finally {
-    loading.value = false
+let refreshTimer: ReturnType<typeof setInterval> | null = null
+let refreshGen = 0
+let inFlight = false
+
+function revokeImageUrl() {
+  if (imageUrl.value?.startsWith('blob:')) {
+    URL.revokeObjectURL(imageUrl.value)
+  }
+  imageUrl.value = null
+}
+
+function stopRefresh() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
   }
 }
+
+function startRefresh() {
+  stopRefresh()
+  refreshTimer = setInterval(() => void refreshSnapshot(true), SNAPSHOT_REFRESH_MS)
+}
+
+async function refreshSnapshot(isBackground = false) {
+  if (inFlight) return
+  const gen = ++refreshGen
+  inFlight = true
+  if (!isBackground) {
+    loading.value = true
+    revokeImageUrl()
+    error.value = null
+  }
+  try {
+    const blob = await captureManualDesktopSnapshot()
+    if (gen !== refreshGen || !open.value) return
+    const url = URL.createObjectURL(blob)
+    revokeImageUrl()
+    imageUrl.value = url
+    error.value = null
+  } catch (e) {
+    if (gen !== refreshGen || !open.value) return
+    const msg = e instanceof Error ? e.message : '截图失败'
+    if (!isBackground || !imageUrl.value) {
+      error.value = msg
+    } else {
+      console.warn('[desktop snapshot] refresh failed:', msg)
+    }
+  } finally {
+    inFlight = false
+    if (!isBackground && gen === refreshGen) loading.value = false
+  }
+}
+
+function onClick() {
+  open.value = true
+}
+
+watch(open, v => {
+  if (v) {
+    void refreshSnapshot(false)
+    startRefresh()
+  } else {
+    refreshGen++
+    stopRefresh()
+    revokeImageUrl()
+  }
+})
+
+onUnmounted(() => {
+  refreshGen++
+  stopRefresh()
+  revokeImageUrl()
+})
 </script>
 
 <template>
@@ -37,7 +99,9 @@ async function onClick() {
   <ScreenPreviewModal
     v-model:open="open"
     :loading="loading"
-    :preview="preview"
+    :preview="null"
+    :image-src="imageUrl"
+    :caption="CAPTION"
     :error="error"
   />
 </template>

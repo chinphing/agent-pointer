@@ -1,15 +1,28 @@
 <script setup lang="ts">
-import { watch } from 'vue'
+import { computed, watch } from 'vue'
 import { Image, X } from 'lucide-vue-next'
 import type { ComputerAnnotatedPreview } from '../../../../types/chat'
 
 const open = defineModel<boolean>('open', { required: true })
 
-defineProps<{
+const props = defineProps<{
   loading: boolean
   preview: ComputerAnnotatedPreview | null
   error: string | null
+  /** Blob/object URL or other direct image src (web manual snapshot). */
+  imageSrc?: string | null
+  caption?: string | null
 }>()
+
+const displayCaption = computed(() => props.caption?.trim() || props.preview?.caption?.trim() || '')
+
+const displaySrc = computed(() => {
+  if (props.imageSrc) return props.imageSrc
+  if (props.preview) {
+    return `data:${props.preview.imageMime ?? 'image/jpeg'};base64,${props.preview.imageBase64}`
+  }
+  return null
+})
 
 function close() {
   open.value = false
@@ -48,8 +61,8 @@ watch(
           </div>
           <div class="min-w-0 flex-1 pr-8">
             <h2 class="text-sm font-semibold text-foreground">截图处理预览</h2>
-            <p v-if="preview?.caption" class="text-[11px] text-muted mt-0.5 leading-relaxed line-clamp-2">
-              {{ preview.caption }}
+            <p v-if="displayCaption" class="text-[11px] text-muted mt-0.5 leading-relaxed line-clamp-2">
+              {{ displayCaption }}
             </p>
           </div>
           <button
@@ -68,8 +81,8 @@ watch(
           </div>
           <div v-else-if="loading" class="text-sm text-muted">加载中…</div>
           <img
-            v-else-if="preview"
-            :src="`data:${preview.imageMime ?? 'image/jpeg'};base64,${preview.imageBase64}`"
+            v-else-if="displaySrc"
+            :src="displaySrc"
             alt="Annotated desktop"
             class="max-w-full h-auto rounded-xl border border-border shadow-lg"
           />

@@ -17,6 +17,7 @@ Web 端点击附件时，`openAttachmentWithSystemDefault` 对 `storageRelPath` 
 - UI：Web 模式下侧栏「查看桌面」按钮（`DesktopSnapshotButton.vue`）
 - 预览打开时每 **5 秒**自动刷新一次截图；关闭预览后停止刷新
 - 显示的是 **pointer-server 进程所在主机** 的桌面（云 ECS = 云桌面）
+- 预览图叠加 **合成鼠标指针** 与 **输入焦点 I-beam**（与 Computer Agent 视觉 overlay 一致；Linux 上焦点坐标可能不可用）
 
 ## ALB / 就绪（平台）
 

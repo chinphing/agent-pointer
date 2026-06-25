@@ -558,6 +558,25 @@ pub fn build_before_action_inject(
     })
 }
 
+/// Mark an unmarked capture JPEG with synthetic pointer and focus caret (no SOM annotation).
+pub fn mark_raw_jpeg_with_pointer_and_caret(
+    raw_jpeg_unmarked: &[u8],
+    monitor: &MonitorInfo,
+    global_pointer: (i32, i32),
+    global_caret: Option<(i32, i32)>,
+) -> Result<Vec<u8>> {
+    let mut raw_rgba = decode_jpeg_to_rgba(raw_jpeg_unmarked)?;
+    let (w, h) = (raw_rgba.width(), raw_rgba.height());
+    let (mx, my) = local_on_monitor(global_pointer.0, global_pointer.1, monitor);
+    let mouse = overlay_position_if_inside(mx, my, w, h);
+    let caret = global_caret.and_then(|(gx, gy)| {
+        let (lx, ly) = local_on_monitor(gx, gy, monitor);
+        overlay_position_if_inside(lx, ly, w, h)
+    });
+    apply_pointer_and_caret_overlays(&mut raw_rgba, caret, mouse);
+    screen::rgba_to_jpeg_bytes(raw_rgba, screen::SCREENSHOT_JPEG_QUALITY)
+}
+
 /// Back-compat helper: full-frame only (tests).
 pub fn build_before_action_raw_jpeg(
     prior_raw_jpeg_unmarked: &[u8],
@@ -596,6 +615,19 @@ mod tests {
         let c = pointer_cursor_rgba();
         assert_eq!(c.dimensions(), (POINTER_CURSOR_SIZE, POINTER_CURSOR_SIZE));
         assert!(c.get_pixel(3, 2)[3] > 200);
+    }
+
+    #[test]
+    fn mark_raw_jpeg_draws_pointer_and_caret() {
+        let monitor = MonitorInfo::new(0, 0, 64, 64);
+        let prior = RgbaImage::from_pixel(64, 64, Rgba([40, 80, 120, 255]));
+        let jpeg_prior = screen::rgba_to_jpeg_bytes(prior.clone(), screen::SCREENSHOT_JPEG_QUALITY).unwrap();
+        let out = mark_raw_jpeg_with_pointer_and_caret(&jpeg_prior, &monitor, (32, 32), Some((20, 40)))
+            .unwrap();
+        let marked = decode_jpeg_to_rgba(&out).unwrap();
+        let unmarked = decode_jpeg_to_rgba(&jpeg_prior).unwrap();
+        assert_ne!(marked.get_pixel(32, 32), unmarked.get_pixel(32, 32));
+        assert_ne!(marked.get_pixel(20, 40), unmarked.get_pixel(20, 40));
     }
 
     #[test]

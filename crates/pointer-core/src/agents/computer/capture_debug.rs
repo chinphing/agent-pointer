@@ -4,6 +4,7 @@
 use crate::agents::computer::state::ScreenCaptureResult;
 use crate::agents::computer::tier::ComputerTier;
 use crate::agents::computer::vision::screen;
+use crate::agents::computer::vision::screen_overlay;
 use crate::models::ComputerAnnotatedPreview;
 use anyhow::Context;
 use std::fs;
@@ -179,14 +180,22 @@ pub fn capture_manual_desktop_snapshot_jpeg() -> anyhow::Result<Vec<u8>> {
     let packet = screen::screenshot_current_monitor()
         .context("manual desktop snapshot capture failed")?;
     let raw_len = packet.jpeg.len();
-    let jpeg = crate::media::jpeg_vision::prepare_jpeg_for_manual_preview(&packet.jpeg)
+    let marked_jpeg = screen_overlay::mark_raw_jpeg_with_pointer_and_caret(
+        &packet.jpeg,
+        &packet.monitor,
+        packet.global_pointer,
+        packet.global_caret,
+    )
+    .context("manual desktop snapshot overlay failed")?;
+    let jpeg = crate::media::jpeg_vision::prepare_jpeg_for_manual_preview(&marked_jpeg)
         .context("manual desktop snapshot compress failed")?;
     log::info!(
-        "manual desktop snapshot: {}x{} px, jpeg {} -> {} (preview limits: long_edge<={}, max={})",
+        "manual desktop snapshot: {}x{} px, jpeg {} -> {} (marked {} bytes, preview limits: long_edge<={}, max={})",
         packet.capture_px.0,
         packet.capture_px.1,
         screen::format_data_size_bytes(raw_len),
         screen::format_data_size_bytes(jpeg.len()),
+        marked_jpeg.len(),
         crate::media::jpeg_vision::MANUAL_PREVIEW_MAX_LONG_EDGE,
         screen::format_data_size_bytes(crate::media::jpeg_vision::MANUAL_PREVIEW_JPEG_MAX_BYTES),
     );

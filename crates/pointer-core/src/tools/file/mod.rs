@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 pub use path::{
     resolve_accessible_path, resolve_tool_workspace_root, resolve_within_workspace_root,
-    workspace_root_from_override_or_settings,
+    resolve_writable_path, workspace_root_from_override_or_settings,
 };
 pub use path::{AgentWorkspaceGuard, ConversationWorkspaceGuard, set_runtime_workspace_root};
 
@@ -134,7 +134,7 @@ mod tests {
     use super::{
         execute_file_edit_payload, execute_file_glob_payload, execute_file_grep_payload,
         execute_file_list_payload, execute_file_read, execute_file_write_payload,
-        resolve_accessible_path, resolve_within_workspace_root,
+        resolve_accessible_path, resolve_within_workspace_root, resolve_writable_path,
     };
     use super::edit::try_unique_text_replace;
     use serde_json::json;
@@ -736,6 +736,53 @@ mod tests {
         let msg = err.to_string();
         assert!(
             msg.contains("工作区") || msg.contains("不在"),
+            "unexpected message: {msg}"
+        );
+    }
+
+    #[test]
+    fn writable_path_accepts_absolute_under_temp() {
+        let ws = tempfile::tempdir().expect("tmp");
+        let temp = std::env::temp_dir();
+        let dir = temp.join(format!(
+            "pointer-writable-test-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("out.txt");
+        fs::write(&target, "").unwrap();
+        let got = resolve_writable_path(ws.path(), target.to_str().unwrap()).expect("temp write");
+        assert_eq!(
+            got.canonicalize().unwrap(),
+            target.canonicalize().unwrap()
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn writable_path_accepts_tilde_home_file() {
+        let ws = tempfile::tempdir().expect("tmp");
+        let home = dirs::home_dir().expect("home");
+        let dir = home.join(format!(".pointer-writable-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("note.txt");
+        let tilde = format!("~/.pointer-writable-test-{}/note.txt", std::process::id());
+        let got = resolve_writable_path(ws.path(), &tilde).expect("home tilde write");
+        assert_eq!(got, target);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn writable_path_rejects_system_path_outside_roots() {
+        let ws = tempfile::tempdir().expect("tmp");
+        #[cfg(unix)]
+        let outside = "/etc/hosts";
+        #[cfg(windows)]
+        let outside = "C:\\Windows\\System32\\drivers\\etc\\hosts";
+        let err = resolve_writable_path(ws.path(), outside).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("写入") || msg.contains("允许"),
             "unexpected message: {msg}"
         );
     }

@@ -25,7 +25,7 @@ Independent file tools. Call them directly by their flat names:
 - **`file_grep`** — search file contents with a regex.
 - **`file_list`** — list directory entries.
 
-**Relative paths** resolve under the workspace root (`workspaceRoot` in settings, or the process working directory). Do not use `..` to escape the workspace on relative paths. **`file_write`** and **`file_edit`** accept **workspace-relative** paths **or** **absolute** paths that resolve **under the same workspace root** (prefix check after canonicalization); paths outside the workspace are rejected. These writes may require user approval. For **read-only** methods (**`file_read`**, **`file_glob`**, **`file_grep`**, **`file_list`**), you may also use **absolute** paths **outside** the workspace when the user asks. Paths starting with **`~`** are expanded to the session user's home directory.
+**Relative paths** resolve under the workspace root (`workspaceRoot` in settings, or the process working directory). Do not use `..` to escape the workspace on relative paths. **`file_write`** and **`file_edit`** accept **workspace-relative** paths **or** **absolute** paths (including **`~`**) that resolve **under an allowed write root**: workspace, user home, system temp (`TMPDIR` / OS temp), standard user data dirs (config / cache / desktop / documents / downloads), or Pointer app data. Paths outside those roots are rejected. These writes may require user approval. For **read-only** methods (**`file_read`**, **`file_glob`**, **`file_grep`**, **`file_list`**), you may also use **absolute** paths **outside** the workspace when the user asks. Paths starting with **`~`** are expanded to the session user's home directory.
 
 **Responses:** Whenever this tool returns a filesystem location (`path`, **`matches`**, **`root`**, **`directory`**, grep hit **`path`**, list entry **`path`**), the value is an **absolute** path. The OS may use a canonical form (e.g. resolved symlinks; on Windows, a `\\?\` prefix is normal).
 
@@ -38,7 +38,7 @@ Independent file tools. Call them directly by their flat names:
 | Method | Purpose |
 |--------|---------|
 | **`read`** | Read UTF-8 text via **`paths`** array. Response includes a **`files`** array. |
-| **`write`** | Create or overwrite a file; `path` is workspace-relative **or** absolute under the workspace. |
+| **`write`** | Create or overwrite a file; `path` is workspace-relative **or** absolute/`~` under allowed write roots (see above). |
 | **`edit`** | Replace one unique substring per file via **`edits`** only: a non-empty array (max **32**) of objects, each with **`path`** (alias **`file`**), **`oldString`** / **`old_string`**, **`newString`** / **`new_string`**. Single-file edits use **`edits`** with **one** object. Response includes **`files`**, **`successCount`**, **`failureCount`**, **`batchPartialFailure`**. |
 | **`glob`** | List paths matching a glob under the search root (workspace root or optional `base`). Default: **files only**; optional **directories** or **both**. |
 | **`grep`** | Search file contents with a regex (ripgrep-class stack: respects `.gitignore`, skips hidden paths by default, line-oriented matching). |

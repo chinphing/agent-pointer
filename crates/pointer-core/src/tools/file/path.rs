@@ -90,7 +90,7 @@ pub(crate) fn build_glob_set(globs: Option<&[String]>) -> Result<Option<globset:
 }
 
 /// Expand `~` / `~/…` to the session user's home directory.
-fn expand_user_path_for_file(user_path: &str) -> Result<String> {
+pub(crate) fn expand_user_path_for_file(user_path: &str) -> Result<String> {
     let s = normalize_user_fspath(user_path);
     if s.is_empty() {
         return Ok(String::new());
@@ -239,21 +239,72 @@ pub fn resolve_tool_workspace_root() -> Result<PathBuf> {
     std::env::current_dir().map_err(|e| anyhow!("无法获取当前目录: {e}"))
 }
 
-/// Resolve an **absolute** path for `file:write` / `file:edit`: must stay under canonical `root`.
-/// The target file (or missing parent dirs) may not exist yet; resolution walks up to an
-fn resolve_absolute_under_workspace(root: &Path, abs: &Path) -> Result<PathBuf> {
+fn push_writable_root(roots: &mut Vec<PathBuf>, path: PathBuf) {
+    if path.as_os_str().is_empty() {
+        return;
+    }
+    let canon = path.canonicalize().unwrap_or(path);
+    if roots.iter().any(|r| canon.starts_with(r)) {
+        return;
+    }
+    roots.retain(|r| !r.starts_with(&canon));
+    roots.push(canon);
+}
+
+/// Allowed write roots for `file_write` / `file_edit`: workspace, home, temp, and common user data dirs.
+pub fn writable_path_roots(workspace_root: &Path) -> Result<Vec<PathBuf>> {
+    let mut roots = Vec::new();
+    let ws = workspace_root
+        .canonicalize()
+        .map_err(|e| anyhow!("工作区根无效: {e}"))?;
+    push_writable_root(&mut roots, ws);
+
+    if let Some(home) = dirs::home_dir() {
+        push_writable_root(&mut roots, home);
+    }
+    push_writable_root(&mut roots, std::env::temp_dir());
+
+    for dir in [
+        dirs::data_dir(),
+        dirs::config_dir(),
+        dirs::cache_dir(),
+        dirs::desktop_dir(),
+        dirs::document_dir(),
+        dirs::download_dir(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        push_writable_root(&mut roots, dir);
+    }
+
+    if let Ok(app) = crate::storage::app_data_dir() {
+        push_writable_root(&mut roots, app);
+    }
+
+    if roots.is_empty() {
+        return Err(anyhow!("无法解析允许的写入目录"));
+    }
+    Ok(roots)
+}
+
+fn path_under_any_root(candidate: &Path, roots: &[PathBuf]) -> bool {
+    roots.iter().any(|root| candidate.starts_with(root))
+}
+
+fn resolve_absolute_under_roots(roots: &[PathBuf], abs: &Path) -> Result<PathBuf> {
     let abs_owned = abs.to_path_buf();
     let mut probe = abs_owned.clone();
     loop {
         if probe.as_os_str().is_empty() {
-            return Err(anyhow!("绝对路径不在工作区内"));
+            return Err(anyhow!("绝对路径不在允许的写入目录内"));
         }
         if probe.exists() {
             let base = probe
                 .canonicalize()
                 .map_err(|e| anyhow!("绝对路径无效: {e}"))?;
-            if !base.starts_with(root) {
-                return Err(anyhow!("绝对路径不在工作区内"));
+            if !path_under_any_root(&base, roots) {
+                return Err(anyhow!("绝对路径不在允许的写入目录内"));
             }
             let suffix = abs_owned
                 .strip_prefix(&probe)
@@ -271,17 +322,92 @@ fn resolve_absolute_under_workspace(root: &Path, abs: &Path) -> Result<PathBuf> 
             } else {
                 base.join(suffix)
             };
-            if !candidate.starts_with(root) {
-                return Err(anyhow!("路径不在工作区内"));
+            if !path_under_any_root(&candidate, roots) {
+                return Err(anyhow!("路径不在允许的写入目录内"));
             }
             return Ok(candidate);
         }
         if !probe.pop() {
             return Err(anyhow!(
-                "绝对路径不在工作区内（与工作区无共同已存在目录）"
+                "绝对路径不在允许的写入目录内（与已知目录无共同已存在路径）"
             ));
         }
     }
+}
+
+fn resolve_relative_under_workspace(root: &Path, user_path: &str) -> Result<PathBuf> {
+    let user_path = normalize_user_fspath(user_path);
+    if user_path.is_empty() {
+        return Err(anyhow!("路径不能为空"));
+    }
+    if user_path.contains('\0') {
+        return Err(anyhow!("路径含非法字符"));
+    }
+    let path = Path::new(user_path);
+    if path.is_absolute() {
+        return Err(anyhow!("相对路径含非法根组件"));
+    }
+    let mut acc = root.to_path_buf();
+    for c in path.components() {
+        match c {
+            Component::Prefix(_) | Component::RootDir => {
+                return Err(anyhow!("相对路径含非法根组件"));
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !acc.pop() {
+                    return Err(anyhow!("路径越出工作区"));
+                }
+                if !acc.starts_with(root) {
+                    return Err(anyhow!("路径越出工作区"));
+                }
+            }
+            Component::Normal(s) => acc.push(s),
+        }
+    }
+    if !acc.starts_with(root) {
+        return Err(anyhow!("路径不在工作区内"));
+    }
+    Ok(acc)
+}
+
+/// Resolve `user_path` for `file_write` / `file_edit`.
+///
+/// Relative paths stay workspace-relative. Absolute paths (including expanded `~`) may target
+/// workspace, user home, system temp, standard user data dirs, or Pointer app data.
+pub fn resolve_writable_path(workspace_root: &Path, user_path: &str) -> Result<PathBuf> {
+    let roots = writable_path_roots(workspace_root)?;
+    let workspace = roots
+        .first()
+        .ok_or_else(|| anyhow!("无法解析工作区根"))?
+        .clone();
+    let expanded = expand_user_path_for_file(user_path)?;
+    if expanded.is_empty() {
+        return Err(anyhow!("路径不能为空"));
+    }
+    if expanded.contains('\0') {
+        return Err(anyhow!("路径含非法字符"));
+    }
+    let path = Path::new(expanded.as_str());
+
+    let out = if path.is_absolute() {
+        resolve_absolute_under_roots(&roots, path)?
+    } else {
+        resolve_relative_under_workspace(&workspace, user_path)?
+    };
+
+    if !path_under_any_root(&out, &roots) {
+        return Err(anyhow!("路径不在允许的写入目录内"));
+    }
+    Ok(out)
+}
+
+/// Resolve an **absolute** path for `file:write` / `file:edit`: must stay under canonical `root`.
+/// The target file (or missing parent dirs) may not exist yet; resolution walks up to an
+fn resolve_absolute_under_workspace(root: &Path, abs: &Path) -> Result<PathBuf> {
+    resolve_absolute_under_roots(&[root
+        .canonicalize()
+        .map_err(|e| anyhow!("工作区根无效: {e}"))?], abs)
 }
 
 /// Resolve `user_path` (relative to root, or absolute but must stay under canonical `root`).

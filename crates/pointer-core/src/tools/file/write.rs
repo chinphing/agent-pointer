@@ -1,4 +1,4 @@
-use super::path::{path_display_abs, resolve_within_workspace_root};
+use super::path::{path_display_abs, resolve_writable_path};
 use anyhow::{anyhow, Result};
 use std::fs;
 use std::path::Path;
@@ -26,7 +26,7 @@ pub(crate) fn execute_file_write_payload(args: &serde_json::Value, root: &Path) 
         .ok_or_else(|| anyhow!("缺少 path"))?;
     let content = resolve_file_write_content(args.get("content"))?;
 
-    let full = resolve_within_workspace_root(root, path)?;
+    let full = resolve_writable_path(root, path)?;
     if let Some(parent) = full.parent() {
         fs::create_dir_all(parent).map_err(|e| anyhow!("创建目录失败: {e}"))?;
     }

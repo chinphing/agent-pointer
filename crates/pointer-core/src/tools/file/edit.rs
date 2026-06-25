@@ -1,5 +1,5 @@
 use super::{json_str, MAX_FILE_EDIT_BATCH};
-use super::path::{path_display_abs, resolve_within_workspace_root};
+use super::path::{path_display_abs, resolve_writable_path};
 use anyhow::{anyhow, Result};
 use log::{info, warn};
 use std::fs;
@@ -106,12 +106,12 @@ fn parse_file_edit_batch_entries(arr: &[serde_json::Value]) -> Result<Vec<(Strin
     Ok(out)
 }
 
-/// One `file:edit` replace. `path` is workspace-relative or absolute under the workspace. Returns resolved path on success.
+/// One `file:edit` replace. `path` is workspace-relative or absolute under allowed write roots.
 fn file_edit_apply_one(root: &Path, path: &str, old_s: &str, new_s: &str) -> Result<PathBuf> {
     if old_s.is_empty() {
         return Err(anyhow!("oldString 不能为空"));
     }
-    let full = resolve_within_workspace_root(root, path)?;
+    let full = resolve_writable_path(root, path)?;
     if !full.exists() {
         return Err(anyhow!("路径不存在: {}", full.display()));
     }
@@ -187,7 +187,7 @@ pub(crate) fn execute_file_edit_payload(args: &serde_json::Value, root: &Path) -
             Err(e) => {
                 failures += 1;
                 warn!("file:edit entry failed for {}: {}", path, e);
-                let disp = resolve_within_workspace_root(root, &path)
+                let disp = resolve_writable_path(root, &path)
                     .map(|p| path_display_abs(&p))
                     .unwrap_or_else(|_| path.clone());
                 files.push(serde_json::json!({

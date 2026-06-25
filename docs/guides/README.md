@@ -10,5 +10,6 @@
 | [coder-agent-offline-eval-setup.md](coder-agent-offline-eval-setup.md) | Coder 离线评测环境搭建 |
 | [skills-persistence.md](skills-persistence.md) | 技能启用状态全局持久化与 general 加载范围 |
 | [skills-compatibility.md](skills-compatibility.md) | Codex / Claude / Cursor SKILL.md 兼容与发现路径 |
+| [file-tool-write-scope.md](file-tool-write-scope.md) | `file_write` / `file_edit` 允许的写入目录 |
 
 [返回文档总索引](../README.md)

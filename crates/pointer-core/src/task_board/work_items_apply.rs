@@ -268,6 +268,26 @@ pub fn apply_work_item_patch_fields(
     Ok(None)
 }
 
+/// Mirror work_items store counters into board meta for immediate UI sync after patch.
+pub fn sync_work_items_meta_to_doc(
+    doc: &mut BoardDocument,
+    store_key: &str,
+    work_items: &WorkItemStore,
+) {
+    if !doc.has_work_items() {
+        doc.meta.work_items_done = None;
+        doc.meta.work_items_failed = None;
+        doc.meta.work_items_total = None;
+        doc.meta.work_items_in_progress = None;
+        return;
+    }
+    let stats = work_items.store_stats(store_key);
+    doc.meta.work_items_done = Some(stats.done);
+    doc.meta.work_items_failed = Some(stats.failed);
+    doc.meta.work_items_total = Some(stats.total);
+    doc.meta.work_items_in_progress = Some(stats.in_progress);
+}
+
 /// After init seed: mark plan done, exec in progress, first queue row + first template step active.
 pub fn bootstrap_queue_after_init(
     store_key: &str,
@@ -328,7 +348,7 @@ pub fn handle_item_milestone_transition(
             store_key,
             work_items,
             new_status,
-            remark_text(incoming),
+            remark_for_work_item_close(doc, incoming),
         ) {
             log::warn!("task_board: internal work_item close failed: {e}");
         }
@@ -357,6 +377,16 @@ fn remark_text(item: &BoardItem) -> Option<String> {
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
+}
+
+/// Prefer the closing milestone remark; fall back to any done SOP step remark in the batch.
+fn remark_for_work_item_close(doc: &BoardDocument, incoming: &BoardItem) -> Option<String> {
+    remark_text(incoming).or_else(|| {
+        doc.item_milestones
+            .iter()
+            .filter(|r| r.status == ItemStatus::Done)
+            .find_map(remark_text)
+    })
 }
 
 fn internal_close_focus_work_item(

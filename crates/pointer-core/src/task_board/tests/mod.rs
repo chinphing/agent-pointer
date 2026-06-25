@@ -517,6 +517,66 @@ mod work_items_tests {
             .expect("patch");
         assert_eq!(store.work_items.store_stats(key).done, 1);
         assert_eq!(store.work_items.store_stats(key).in_progress, 1);
+        let doc = store.document(key);
+        assert_eq!(doc.meta.work_items_done, Some(1));
+        assert_eq!(doc.meta.work_items_total, Some(3));
+    }
+
+    #[test]
+    fn patch_multi_milestone_close_uses_remark_from_non_last_step() {
+        let store = TaskBoardStore::new();
+        let key = "conv-wi-multi";
+        store
+            .apply(
+                key,
+                "init",
+                &wi_args(json!({
+                    "goal": "Batch",
+                    "work_item_mode": "enumerated",
+                    "expected_total": 2,
+                    "global_milestones": [
+                        {"id": "g_plan", "title": "Plan", "status": "pending"},
+                        {"id": "g_exec", "title": "Exec", "status": "pending"},
+                        {"id": "g_deliver", "title": "Deliver", "status": "pending"}
+                    ],
+                    "item_milestones": [
+                        {"id": "m1", "title": "Step1", "status": "pending"},
+                        {"id": "m2", "title": "Step2", "status": "pending"}
+                    ],
+                    "work_items": [
+                        {"title": "Row1"},
+                        {"title": "Row2"}
+                    ]
+                })),
+            )
+            .expect("init");
+        store
+            .apply(
+                key,
+                "patch",
+                &wi_args(json!({
+                    "work_item_id": "1",
+                    "milestones": [
+                        {"id": "m1", "status": "done", "remark": "addr ok"},
+                        {"id": "m2", "status": "done"}
+                    ]
+                })),
+            )
+            .expect("patch");
+        let item = store
+            .work_items
+            .items_in_store(key)
+            .into_iter()
+            .find(|wi| wi.id == "1")
+            .expect("item 1");
+        let summary = crate::task_board::work_item::model::result_summary_from_json(
+            item.result_json.as_deref().unwrap_or("{}"),
+        )
+        .unwrap_or_default();
+        assert!(summary.contains("addr ok"));
+        let doc = store.document(key);
+        assert_eq!(doc.meta.work_items_done, Some(1));
+        assert_eq!(doc.meta.work_items_in_progress, Some(1));
     }
 
     #[test]

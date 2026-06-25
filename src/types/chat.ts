@@ -177,7 +177,10 @@ export interface MessageUiBindings {
   taskBoardAnchor?: boolean
 }
 
-export type ExcludedReason = 'context_compression' | 'task_board_trim'
+export type ExcludedReason =
+  | 'context_compression'
+  | 'task_board_trim'
+  | 'planner_ui_shell'
 
 export interface MessageContextState {
   included: boolean
@@ -836,6 +839,10 @@ export interface TaskBoardDocument {
     dynamic_quota?: number
     work_items_source_path?: string
     work_items_seeded_rows?: number
+    work_items_done?: number
+    work_items_failed?: number
+    work_items_total?: number
+    work_items_in_progress?: number
     scope?: 'parent' | 'child'
     root_target?: string
     parent_sub_task_id?: string

@@ -1,5 +1,10 @@
 import type { TaskBoardDocument } from '../types/chat'
-import { taskBoardVisibleMilestones, taskBoardVisibleMilestoneProgress } from './taskBoard'
+import {
+  taskBoardHasWorkItems,
+  taskBoardVisibleMilestones,
+  taskBoardVisibleMilestoneProgress,
+  taskBoardWorkItemsProgress
+} from './taskBoard'
 import { milestoneTitle } from './taskBoardDisplay'
 
 export interface TaskBoardCompactSummary {
@@ -23,11 +28,22 @@ export function taskBoardCompactSummary(
   if (!items.length && !document?.meta?.goal?.trim()) return null
 
   const goal = document?.meta?.goal?.trim() || '任务板'
-  const doneCount = items.filter(
-    i => i.status === 'done' || i.status === 'failed'
-  ).length
-  const total = items.length
-  const progress = taskBoardVisibleMilestoneProgress(document)
+  const wiProgress =
+    taskBoardHasWorkItems(document) ? taskBoardWorkItemsProgress(document) : null
+  const progress = wiProgress ?? taskBoardVisibleMilestoneProgress(document)
+  let doneCount: number
+  let total: number
+  if (wiProgress && document?.meta) {
+    const done = document.meta.work_items_done ?? 0
+    const failed = document.meta.work_items_failed ?? 0
+    doneCount = done + failed
+    total = document.meta.work_items_total ?? 0
+  } else {
+    doneCount = items.filter(
+      i => i.status === 'done' || i.status === 'failed'
+    ).length
+    total = items.length
+  }
   const inProgress = items.find(i => i.status === 'in_progress')
   const currentStep = inProgress ? milestoneTitle(inProgress) : null
   const taskLine = currentStep ?? goal

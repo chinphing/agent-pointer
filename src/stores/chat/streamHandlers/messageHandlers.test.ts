@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { handleDelta, handleMessageStart } from './messageHandlers'
+import { handleAssistantJsonPartial, handleDelta, handleMessageStart } from './messageHandlers'
 import { createMockStreamHandlerContext, sampleAssistantMessage, sampleConversation } from './testUtils'
+import { PLANNER_PHASE_THOUGHTS } from '../../../lib/plannerPhase'
 
 describe('messageHandlers', () => {
   it('handleMessageStart appends streaming assistant row', () => {
@@ -42,5 +43,20 @@ describe('messageHandlers', () => {
       generating: true,
       activeMessageId: 'a1'
     })
+  })
+
+  it('handleAssistantJsonPartial clears thoughts on empty string', () => {
+    const conv = sampleConversation()
+    conv.messages.push({
+      ...sampleAssistantMessage('a1'),
+      thoughts: PLANNER_PHASE_THOUGHTS
+    })
+    const ctx = createMockStreamHandlerContext([conv])
+    handleAssistantJsonPartial(ctx, {
+      kind: 'assistant_json_partial',
+      messageId: 'a1',
+      thoughts: ''
+    })
+    expect(conv.messages[0].thoughts).toBeUndefined()
   })
 })

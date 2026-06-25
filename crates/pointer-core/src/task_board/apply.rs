@@ -242,6 +242,9 @@ fn apply_init(
     if seeded > 0 {
         bootstrap_queue_after_init(store_key, doc, work_items, seeded);
     }
+    if work_items_enabled && doc.has_work_items() {
+        super::work_items_apply::sync_work_items_meta_to_doc(doc, store_key, work_items);
+    }
     Ok(seeded)
 }
 
@@ -374,6 +377,9 @@ fn apply_patch(
     }
 
     enforce_interim_drafts_budget(doc, &mut reflection, &mut warnings);
+    if work_items_enabled && doc.has_work_items() {
+        super::work_items_apply::sync_work_items_meta_to_doc(doc, store_key, work_items);
+    }
     Ok((reflection, warnings, patched))
 }
 

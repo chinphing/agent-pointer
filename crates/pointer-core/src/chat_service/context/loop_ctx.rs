@@ -24,6 +24,8 @@ pub struct LeadAgentLoopContext<'a> {
     pub token_session: &'a mut ChatLlmTokenSession,
     pub reasoning_in_messages: bool,
     pub planner_outcome: crate::task_board::PlannerRunOutcome,
+    /// Lead assistant row created before planner (reuse first execution round).
+    pub initial_assistant_id: Option<String>,
 }
 
 /// Sub-agent run loop.

@@ -22,7 +22,10 @@ type TraceScopedEvent = {
 function applyAssistantJsonPartialToMessage(msg: ChatMessage, e: AssistantJsonPartial) {
   msg.contentStreaming = true
   msg.status = 'streaming'
-  if (e.thoughts != null && e.thoughts.trim() !== '') msg.thoughts = e.thoughts
+  if (e.thoughts != null) {
+    if (e.thoughts.trim() !== '') msg.thoughts = e.thoughts
+    else delete msg.thoughts
+  }
   if (e.toolName != null && e.toolName.trim() !== '') {
     msg.toolNamePreview = e.toolName
     if (e.toolName.trim() !== 'response') delete msg.responseTextDraft
@@ -39,7 +42,10 @@ function applyAssistantJsonPartialLegacySession(
   e: AssistantJsonPartial
 ) {
   session.contentStreaming = true
-  if (e.thoughts != null && e.thoughts.trim() !== '') session.thoughts = e.thoughts
+  if (e.thoughts != null) {
+    if (e.thoughts.trim() !== '') session.thoughts = e.thoughts
+    else delete session.thoughts
+  }
   if (e.toolName != null && e.toolName.trim() !== '') {
     session.toolNamePreview = e.toolName
     if (e.toolName.trim() !== 'response') delete session.responseTextDraft

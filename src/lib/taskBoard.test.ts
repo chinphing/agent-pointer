@@ -6,7 +6,8 @@ import {
   taskBoardHasWorkItems,
   taskBoardItemMilestones,
   taskBoardMilestoneViewMode,
-  taskBoardVisibleMilestones
+  taskBoardVisibleMilestones,
+  taskBoardWorkItemsProgress
 } from './taskBoard'
 
 function v4Doc(): TaskBoardDocument {
@@ -84,5 +85,13 @@ describe('taskBoard helpers', () => {
     ]
     expect(taskBoardMilestoneViewMode(doc)).toBe('queue_deliver')
     expect(taskBoardVisibleMilestones(doc).map(r => r.id)).toEqual(['g_deliver'])
+  })
+
+  it('taskBoardWorkItemsProgress reads meta snapshot', () => {
+    const doc = v4Doc()
+    doc.meta.work_items_done = 4
+    doc.meta.work_items_failed = 0
+    doc.meta.work_items_total = 10
+    expect(taskBoardWorkItemsProgress(doc)).toBe('4/10')
   })
 })

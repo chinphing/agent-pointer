@@ -82,6 +82,7 @@ fn excluded_reason_tag(reason: &ExcludedReason) -> &'static str {
     match reason {
         ExcludedReason::ContextCompression => "context_compression",
         ExcludedReason::TaskBoardTrim => "task_board_trim",
+        ExcludedReason::PlannerUiShell => "planner_ui_shell",
     }
 }
 

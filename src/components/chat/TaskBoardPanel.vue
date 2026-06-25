@@ -9,7 +9,8 @@ import {
   taskBoardHasWorkItems,
   taskBoardMilestoneViewMode,
   taskBoardVisibleMilestones,
-  taskBoardVisibleMilestoneProgress
+  taskBoardVisibleMilestoneProgress,
+  taskBoardWorkItemsProgress
 } from '../../lib/taskBoard'
 import { milestoneTitle } from '../../lib/taskBoardDisplay'
 import { useWorkItemsList } from '../../composables/useWorkItemsList'
@@ -52,6 +53,8 @@ watch(
 )
 
 const milestoneProgress = computed(() => {
+  const fromDoc = taskBoardWorkItemsProgress(props.document)
+  if (showWorkItemStats.value && fromDoc) return fromDoc
   if (showWorkItemStats.value && wiStoreList.stats.value) {
     const s = wiStoreList.stats.value
     return `${s.done + s.failed}/${s.total}`

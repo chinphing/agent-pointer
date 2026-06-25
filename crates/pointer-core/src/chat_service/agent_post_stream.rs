@@ -307,7 +307,11 @@ pub(super) fn commit_lead_assistant_turn(
         Some(assistant_msg.content.as_str()),
         assistant_msg.tool_raw_output.as_deref(),
     );
-    history.push(assistant_msg.clone());
+    if let Some(existing) = history.iter_mut().find(|m| m.id == assistant_id) {
+        *existing = assistant_msg.clone();
+    } else {
+        history.push(assistant_msg.clone());
+    }
     super::conversation_persist::upsert_message(conversation_id, assistant_msg);
     emit(
         stream,

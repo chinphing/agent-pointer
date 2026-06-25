@@ -106,12 +106,61 @@ pub(crate) async fn run_sub_agent(
     }
 
     if def.profile == AgentProfile::Computer && sub_provider.settings.computer_standalone_planner_enabled {
+        let planner_scoped_id = new_id("planner_msg");
+        let planner_placeholder = ChatMessage {
+            id: planner_scoped_id.clone(),
+            role: Role::Assistant,
+            content: String::new(),
+            status: "streaming".into(),
+            created_at: super::util::now_ms(),
+            tool_calls: None,
+            tool_call_id: None,
+            error_message: None,
+            reasoning: None,
+            thoughts: Some(crate::task_board::planner::PLANNER_PHASE_THOUGHTS.into()),
+            headline: None,
+            raw_content: None,
+            tool_raw_output: None,
+            agent_id: Some(def.id.clone()),
+            agent_instance_id: Some(instance_scope.agent_instance_id.clone()),
+            agent_name: None,
+            agent_trace: None,
+            image_slot_labels: None,
+            images_base64: None,
+            computer_round_screen_rel_path: None,
+            ui_bindings: None,
+            context_state: None,
+            attachments: None,
+            anchor_message_id: Some(sub_linkage.anchor_message_id.clone()),
+            trace_id: Some(sub_linkage.trace_id.clone()),
+            task_id: Some(sub_linkage.task_id.clone()),
+            spawn_depth: Some(sub_linkage.spawn_depth),
+        };
+        super::sub_message::persist_sub_message(conversation_id, &sub_linkage, &planner_placeholder);
+        emit(
+            stream,
+            StreamEvent::SubMessageStart {
+                conversation_id: conversation_id.to_string(),
+                anchor_message_id: sub_linkage.anchor_message_id.clone(),
+                scoped_message_id: planner_scoped_id.clone(),
+                trace_id: sub_linkage.trace_id.clone(),
+                task_id: sub_linkage.task_id.clone(),
+                spawn_depth: sub_linkage.spawn_depth,
+            },
+        );
+        let planner_ui = crate::task_board::planner::PlannerUiTarget {
+            stream,
+            state,
+            message_id,
+            trace_id: Some(sub_linkage.trace_id.as_str()),
+            scoped_message_id: Some(planner_scoped_id.as_str()),
+        };
         planner_outcome = crate::task_board::planner::run_planner_loop(
             crate::task_board::planner::PlannerRunInput {
                 state,
                 provider: &sub_provider,
                 settings: &sub_provider.settings,
-                main_history: &local_history,
+                main_history: &mut local_history,
                 conversation_id,
                 store_key: &sub_task_board_key,
                 lead_agent_id: &def.id,
@@ -125,6 +174,7 @@ pub(crate) async fn run_sub_agent(
                     trace_id: sub_linkage.trace_id.clone(),
                 },
                 system_dynamic: &planner_system_dynamic,
+                ui: Some(planner_ui),
             },
         )
         .await;

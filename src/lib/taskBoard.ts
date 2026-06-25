@@ -58,18 +58,36 @@ export function taskBoardVisibleMilestoneProgress(
   return `${terminal}/${rows.length}`
 }
 
+/** Done+failed / total work_items from document meta snapshot (post-patch). */
+export function taskBoardWorkItemsProgress(
+  doc: TaskBoardDocument | null | undefined
+): string | null {
+  if (!doc?.meta) return null
+  const done = doc.meta.work_items_done
+  const failed = doc.meta.work_items_failed ?? 0
+  const total = doc.meta.work_items_total
+  if (typeof done !== 'number' || typeof total !== 'number' || total <= 0) return null
+  return `${done + failed}/${total}`
+}
+
 /** Stable key for refetching work_items stats after board patches. */
 export function taskBoardDocumentSyncKey(
   doc: TaskBoardDocument | null | undefined
 ): string {
   if (!doc) return ''
+  const wi = [
+    doc.meta?.work_items_done ?? '',
+    doc.meta?.work_items_failed ?? '',
+    doc.meta?.work_items_total ?? '',
+    doc.meta?.work_items_in_progress ?? ''
+  ].join(':')
   const globals = taskBoardGlobalMilestones(doc)
     .map(i => `${i.id}:${i.status}`)
     .join('|')
   const items = taskBoardItemMilestones(doc)
     .map(i => `${i.id}:${i.status}`)
     .join('|')
-  return `${doc.meta?.status ?? ''}:${globals}::${items}`
+  return `${doc.meta?.status ?? ''}:${wi}:${globals}::${items}`
 }
 
 /** True when the board uses external work_items (v4 meta or legacy row flags). */

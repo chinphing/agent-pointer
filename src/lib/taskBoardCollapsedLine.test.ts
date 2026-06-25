@@ -49,6 +49,34 @@ describe('taskBoardCollapsedLine', () => {
     expect(summary?.doneCount).toBe(0)
   })
 
+  it('uses work_items meta progress when queue mode', () => {
+    const summary = taskBoardCompactSummary({
+      version: 4,
+      task_id: 'tb_wi',
+      meta: {
+        goal: 'BOSS 批量',
+        status: 'running',
+        work_item_mode: 'enumerated',
+        work_items_done: 4,
+        work_items_failed: 0,
+        work_items_total: 10
+      },
+      global_milestones: [
+        { id: 'g_plan', title: '计划', status: 'done' },
+        { id: 'g_exec', title: '执行', status: 'in_progress' },
+        { id: 'g_deliver', title: '交付', status: 'ready' }
+      ],
+      item_milestones: [
+        { id: 'm1', title: '添加工作地址', status: 'in_progress' },
+        { id: 'm2', title: '确认保存', status: 'pending' }
+      ]
+    })
+    expect(summary?.progress).toBe('4/10')
+    expect(summary?.doneCount).toBe(4)
+    expect(summary?.total).toBe(10)
+    expect(summary?.taskLine).toBe('添加工作地址')
+  })
+
   it('deliver phase shows g_deliver in compact summary', () => {
     const summary = taskBoardCompactSummary({
       version: 4,

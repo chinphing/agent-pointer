@@ -111,6 +111,15 @@ pub struct BoardMeta {
     /// Rows seeded on init (`work_items_source` or inline `work_items[]`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work_items_seeded_rows: Option<u32>,
+    /// Snapshot for UI sync after `task_board_patch` (not persisted semantics).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_items_done: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_items_failed: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_items_total: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_items_in_progress: Option<u32>,
 }
 
 impl Default for BoardMeta {
@@ -131,6 +140,10 @@ impl Default for BoardMeta {
             parent_store_key: None,
             work_items_source_path: None,
             work_items_seeded_rows: None,
+            work_items_done: None,
+            work_items_failed: None,
+            work_items_total: None,
+            work_items_in_progress: None,
         }
     }
 }

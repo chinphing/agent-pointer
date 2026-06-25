@@ -254,10 +254,8 @@ function openSourceUrl(url: string) {
       </span>
       <span
         v-else-if="toolCall.riskLevel === 'high'"
-        class="shrink-0 text-[10px] text-danger inline-flex items-center gap-0.5"
-      >
-        <ShieldAlert class="w-2.5 h-2.5" />高风险
-      </span>
+        class="shrink-0 text-[10px] text-muted/45"
+      >高风险</span>
       <span
         v-if="showStatusLabel"
         class="shrink-0 inline-flex items-center gap-0.5"

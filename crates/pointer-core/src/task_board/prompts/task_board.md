@@ -37,7 +37,6 @@ Coder and other agents: unchanged — you may still init/replace yourself.
 - **`task_board_check_deps`**: inspect dependency readiness for one row.
 
 Tool result is compact.
-Treat injected `[TASK_BOARD]` as source of truth.
 
 Row status:
 `pending`, `ready`, `in_progress`, `done`, `cancelled`, `failed`.
@@ -46,11 +45,11 @@ Row status:
 
 | Layer | Field | When |
 | --- | --- | --- |
-| Meta | `goal`, `context`, `constraint`, `done_when` | always on init |
+| Meta | `goal`, `context`, `constraints`, `done_when` | always on init |
 | Meta | `work_item_mode`, `expected_total`, `dynamic_quota` | Type2 only |
 | Task-level | `global_milestones[]` | Type1 full flow; Type2 fixed `g_plan` / `g_exec` / `g_deliver` |
 | Per-item SOP | `item_milestones[]` | Type2 only; template with `{field}` placeholders from work_item payload |
-| Queue | `work_items` (DB) | Type2; seed on **init** only |
+| Queue | `work_items` (DB) | Type2; seed on **init** only — `title` + `payload` only |
 
 **Type 1** (no work_items): only `global_milestones[]` — 3–12 steps or user steps.
 
@@ -60,17 +59,34 @@ Row status:
 - `item_milestones` = reusable SOP template per work_item (no deliver step).
 - Delivery lives in **`g_deliver`**, not in item rows.
 
-## Row fields
+## Field reference
 
-Each milestone row (`global_milestones` or `item_milestones`) may include:
+On init, copy user-stated norms into the matching meta or milestone field — do not drop them.
+Milestone **`rules`** on the board override external Skill defaults for this session.
 
-| Field | Patch | Content |
+### Meta fields
+
+Document-level (set on init):
+
+| Field | Put | Do not put |
 | --- | --- | --- |
-| `plan` | replace | How to execute (markdown). |
-| `constraint` | replace | Row-level constraint; may inherit `meta.constraint`. |
-| `done_when` | replace | Outcome acceptance criteria (markdown). |
-| `remark` | replace | Short outcome note when marking `done` (optional). |
-| `delivery_format` | replace | Only on `g_deliver` (`xlsx`, `csv`, …). |
+| **`goal`** | One-sentence task outcome | Steps, rules, acceptance detail |
+| **`context`** | Background facts (non-normative) | Rules, constraints, acceptance |
+| **`constraints`** | Task-wide iron laws (text; multiple bullet lines OK) | Per-step norms; procedure |
+| **`done_when`** | Whole-board success criteria | Single-step exit checks |
+
+### Milestone row fields
+
+Each row in `global_milestones[]` or `item_milestones[]`:
+
+| Field | Patch | Put | Do not put |
+| --- | --- | --- | --- |
+| **`rules`** | replace | User/session normative text for this step/phase; branch logic; field relations | Procedure steps; one-line completion checks |
+| **`constraints`** | replace | Must-not / must-always bullets; non-negotiable invariants (multi-line text OK) | Full algorithms (use `rules`); `done_when` text |
+| **`plan`** | replace | How to execute this step: tool order, inputs/outputs, placeholders | User rule bodies; acceptance criteria |
+| **`done_when`** | replace | Verifiable exit condition before marking `done` | Rule library; operation manual |
+| **`remark`** | replace | Short outcome note when marking `done` (optional) | — |
+| **`delivery_format`** | replace | Export format on `g_deliver` only (`xlsx`, `csv`, …) | — |
 
 **Removed in v4 (do not send):**
 `progress`, `validate_requirement`, `validate_results`, `validate_*_delta`,
@@ -202,7 +218,7 @@ Complete or fail the target via **`milestones`** on the last template row.
 
 ## Core rules
 
-- **Computer + planner:** never call `init` during execution — use **`task_board_patch`** / **`task_board_replace`** only.
+- **Computer + planner:** never call `init` during execution — patch/replace only (see above).
 - **Coder / Computer without planner:** if `[TASK_BOARD]` is empty and work is multi-step, call **`task_board_init`**.
 - **Queue mode:** patch **each** completed SOP step in the **same turn** as evidence (`milestones`).
 - Keep 3–12 global milestones for Type1; Type2 uses fixed three globals.
@@ -221,7 +237,7 @@ Complete or fail the target via **`milestones`** on the last template row.
 
 1. **## Task** — goal, meta, work_item hints
 2. **## All tasks (with status)** — one ladder only (global, item template, or `g_deliver`)
-3. **## Current task** (+ **## Current task plan** when plan exists)
+3. **## Current task** (+ **## Current task plan** / **## Current task rules** when present)
 4. **## Work items** — compact window + **`[WORK_ITEM_FOCUS]`** (queue mode)
 
 `plan_resolved` / `done_when_resolved` on **## Current task** when placeholders apply.
@@ -230,7 +246,6 @@ Complete or fail the target via **`milestones`** on the last template row.
 
 When writing the **final summary** in assistant **`content`**:
 
-- **Source of truth:** injected **`[TASK_BOARD]`** in this turn.
 - Read `remark` on **`done`** rows under **All tasks (with status)**.
 - For queue mode, read terminal summaries on **## Work items** rows.
 - Call **`finalize`** in the same turn as the final summary when every row is terminal.
@@ -239,32 +254,31 @@ When writing the **final summary** in assistant **`content`**:
 
 Computer (with `action_verify`):
 
-- **With host planner:** board already exists — execute with patch/replace; do not init.
 - **Without planner:** init when expected operation steps >3, or **>5** similar repetitive operations.
 - Type2: per-item SOP in **`item_milestones`**; patch **`milestones`** each step — host moves the queue.
 - **Queue cadence:** after evidence, **`task_board_patch`** with `milestones` (`done` or last-row `failed` + `remark`).
 
-Engineering profiles:
+## Init examples
 
-- Put acceptance criteria in **`done_when`**.
-- Put evidence in **`remark`** when marking a row `done`.
-
-## Init input
+Map user input to **Field reference** fields on init — do not drop stated rules, constraints, or acceptance criteria.
 
 **Type 1 example — `task_board_init`**
 
 ```json
 {
   "goal": "Ship feature X",
-  "context": "User needs login fix only",
-  "constraint": "crates/auth only",
-  "done_when": "tests pass + manual login OK",
+  "context": "Background facts only",
+  "constraints": "- Scope locked after init\n- Do not guess file paths",
+  "done_when": "All milestones terminal with evidence",
   "global_milestones": [
     {
       "id": "m1",
       "title": "Locate code",
       "status": "pending",
-      "done_when": "handler file identified"
+      "rules": "User-specified norms for this step (if any).",
+      "constraints": "- Read-only recon until m1 done",
+      "plan": "Search repo → open candidate files",
+      "done_when": "Handler file identified"
     }
   ]
 }
@@ -278,17 +292,30 @@ Engineering profiles:
   "work_item_mode": "enumerated",
   "expected_total": 10,
   "global_milestones": [
-    { "id": "g_plan", "title": "Seed SOP and work_items from source", "status": "done", "done_when": "SOP + all rows seeded" },
-    { "id": "g_exec", "title": "Run per-item flow for every work_item", "status": "in_progress", "done_when": "all rows terminal with result_summary" },
-    { "id": "g_deliver", "title": "Export results and attach MEDIA", "status": "pending", "delivery_format": "xlsx", "done_when": "export + MEDIA" }
+    { "id": "g_plan", "title": "Seed SOP and work_items", "status": "done", "done_when": "SOP + rows seeded" },
+    { "id": "g_exec", "title": "Run per-item flow", "status": "in_progress", "done_when": "all work_items terminal" },
+    { "id": "g_deliver", "title": "Export results", "status": "pending", "delivery_format": "xlsx", "done_when": "export attached" }
   ],
   "item_milestones": [
-    { "id": "m1", "title": "Open target form", "status": "pending", "done_when": "form ready for input" },
-    { "id": "m2", "title": "Apply row fields", "status": "pending", "plan": "Fill fields from {title} payload", "done_when": "fields match row data" },
-    { "id": "m3", "title": "Save and confirm", "status": "pending", "done_when": "save succeeded" }
+    {
+      "id": "m1",
+      "title": "Open target form",
+      "status": "pending",
+      "rules": "User norms for this SOP step (session binding).",
+      "constraints": "- Do not skip validation",
+      "plan": "Navigate → wait for form ready",
+      "done_when": "Form ready for row data"
+    },
+    {
+      "id": "m2",
+      "title": "Apply row fields",
+      "status": "pending",
+      "plan": "Fill from {title} payload → save",
+      "done_when": "Row saved successfully"
+    }
   ],
   "work_items": [
-    { "title": "Row A", "payload": { "title": "Row A" } }
+    { "title": "Row A", "payload": { "key": "A" } }
   ]
 }
 ```

@@ -29,7 +29,19 @@ Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdow
 
 ## 资源目录
 
-与 Codex / Claude 一致，支持同目录下的 `references/`、`scripts/`、`assets/` 等文件；通过 **`skill_read`**（带 `path`）按需读取（不自动执行脚本）。
+与 Codex / OpenClaw 一致，支持同目录下的 `references/`、`scripts/`、`assets/` 等文件；通过 **`skill_read`**（带 `path`）按需读取（不自动执行脚本）。
+
+## 运行时注入（OpenClaw 对齐）
+
+启用技能时，system 注入 **`<available_skills>`**  catalog，每个 skill 含：
+
+| 字段 | 含义 |
+| --- | --- |
+| `<name>` | skill id；**`skill_read`** 的 **`skill_id`** |
+| `<description>` | frontmatter 摘要 |
+| `<location>` | `SKILL.md` 路径（home / app data 展示为 `~/…`） |
+
+技能根目录 = **`dirname(<location>)`**。正文中的 `{baseDir}` 在 **`skill_read`** 加载时替换为绝对路径；`terminal` 跑脚本时使用绝对路径。
 
 ## 手动导入
 

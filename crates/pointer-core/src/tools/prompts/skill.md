@@ -20,11 +20,16 @@ Do not invent skill contents from memory — use the tools below.
 #### When to use
 
 **Priority for attachment / capability gaps:** (1) enabled skill from the
-**可用 Skills** index → (2) **`find-skills`** / install → (3) ad-hoc code last.
+**可用 Skills** / `<available_skills>` index → (2) **`find-skills`** / install → (3) ad-hoc code last.
 Never run `npx skills find` when an enabled skill already matches.
 
-- An enabled skill's `name` / `description` in your instructions clearly matches
-  the task → call **`skill_read`** with **`skill_id` only** (loads `SKILL.md`).
+Each enabled skill in `<available_skills>` includes **`<name>`** (use as **`skill_id`**
+in **`skill_read`**) and **`<location>`** (path to `SKILL.md`). The skill directory
+is the parent of `<location>`. Resolve `scripts/`, `references/`, `{baseDir}`, and
+other relative paths against that directory; pass **absolute paths** to **`terminal`**.
+
+- An enabled skill's `<description>` clearly matches the task → **`skill_read`**
+  with **`skill_id`** = `<name>` (loads `SKILL.md`).
 - The loaded skill body points at `references/`, `assets/`, or `scripts/` and
   the task needs that file → call **`skill_read`** with **`skill_id`** and **`path`**.
 - The user provides a skill package on disk → call **`skill_import`**.
@@ -68,7 +73,8 @@ Example:
 - Call when an enabled skill's `name` / `description` clearly matches the task.
 - Pass only enabled `skill_id` values.
 - **Instructions:** omit `path`, or pass `"SKILL.md"`.
-- **Resource file:** pass `path` relative to the skill directory, e.g. `references/api-guide.md`.
+- **Resource file:** pass `path` relative to the skill directory (parent of `<location>`), e.g. `references/api-guide.md`.
+- **Scripts:** after **`skill_read`**, run bundled scripts via **`terminal`** using absolute paths (`{baseDir}` in the skill body is expanded on load; otherwise use `dirname(<location>)` + relative path).
 - After loading instructions, follow the skill body to complete the work.
 - Do not reload the same skill unless its body is missing from context.
 - Resource reads return file content only; they do not execute scripts or binaries.

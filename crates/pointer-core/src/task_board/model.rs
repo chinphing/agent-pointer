@@ -83,8 +83,12 @@ pub struct BoardMeta {
     pub goal: String,
     #[serde(default)]
     pub context: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub constraint: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_constraints_opt"
+    )]
+    pub constraints: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub done_when: Option<String>,
     #[serde(default)]
@@ -127,7 +131,7 @@ impl Default for BoardMeta {
         Self {
             goal: String::new(),
             context: String::new(),
-            constraint: None,
+            constraints: None,
             done_when: None,
             status: MetaStatus::Running,
             max_depth: 0,
@@ -185,8 +189,15 @@ pub struct BoardItem {
     pub retry_count: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<String>,
+    /// User/session normative rules for this milestone (init copy; overrides Skill defaults).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub constraint: Option<String>,
+    pub rules: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_constraints_opt"
+    )]
+    pub constraints: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -337,13 +348,82 @@ impl BoardItem {
             depends_on,
             retry_count,
             plan: str_field(v, "plan"),
-            constraint: str_field(v, "constraint"),
+            rules: str_field(v, "rules"),
+            constraints: constraints_text_field(v, "constraints", "constraint"),
             done_when,
             remark,
             blocked_by,
             delivery_format,
         })
     }
+}
+
+/// Parse constraints text: prefer `plural` string; fall back to legacy singular `constraint`.
+/// Legacy JSON arrays are joined as bullet lines.
+pub fn constraints_text_field(v: &Value, plural: &str, singular: &str) -> Option<String> {
+    if let Some(val) = v.get(plural) {
+        if let Some(t) = constraints_text_from_value(val) {
+            return Some(t);
+        }
+    }
+    v.get(singular).and_then(constraints_text_from_value)
+}
+
+pub fn constraints_text_from_value(v: &Value) -> Option<String> {
+    match v {
+        Value::Null => None,
+        Value::String(s) => {
+            let t = s.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
+        }
+        Value::Array(arr) => {
+            let items: Vec<String> = arr
+                .iter()
+                .filter_map(|e| e.as_str())
+                .map(|s| compact_snippet(s.trim()))
+                .filter(|s| !s.is_empty())
+                .collect();
+            if items.is_empty() {
+                None
+            } else if items.len() == 1 {
+                Some(items.into_iter().next().unwrap())
+            } else {
+                Some(
+                    items
+                        .iter()
+                        .map(|s| format!("- {s}"))
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                )
+            }
+        }
+        _ => None,
+    }
+}
+
+fn deserialize_constraints_opt<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v = Value::deserialize(deserializer)?;
+    Ok(constraints_text_from_value(&v))
+}
+
+pub fn meta_from_value(v: &Value) -> BoardMeta {
+    let mut meta: BoardMeta = serde_json::from_value(v.clone()).unwrap_or_default();
+    if meta
+        .constraints
+        .as_ref()
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true)
+    {
+        meta.constraints = constraints_text_field(v, "constraints", "constraint");
+    }
+    meta
 }
 
 pub fn str_field(v: &Value, key: &str) -> Option<String> {
@@ -402,4 +482,63 @@ pub fn compact_snippet(text: &str) -> String {
     }
     let compact: String = text.chars().take(RESULT_SNIPPET_MAX_CHARS).collect();
     format!("{compact}…")
+}
+
+#[cfg(test)]
+mod field_tests {
+    use super::{constraints_text_field, BoardItem};
+    use serde_json::json;
+
+    #[test]
+    fn milestone_parses_rules_and_constraints_text() {
+        let v = json!({
+            "id": "m1",
+            "title": "Step",
+            "status": "pending",
+            "rules": "User normative text",
+            "constraints": "- iron law A\n- iron law B"
+        });
+        let item = BoardItem::from_value(&v).expect("item");
+        assert_eq!(item.rules.as_deref(), Some("User normative text"));
+        assert_eq!(
+            item.constraints.as_deref(),
+            Some("- iron law A\n- iron law B")
+        );
+    }
+
+    #[test]
+    fn milestone_legacy_singular_constraint_coerces() {
+        let v = json!({
+            "id": "m2",
+            "title": "Step",
+            "status": "pending",
+            "constraint": "legacy single"
+        });
+        let item = BoardItem::from_value(&v).expect("item");
+        assert_eq!(item.constraints.as_deref(), Some("legacy single"));
+    }
+
+    #[test]
+    fn constraints_text_field_joins_legacy_array() {
+        let v = json!({
+            "constraints": ["iron law A", "iron law B"],
+            "constraint": "ignored when array present"
+        });
+        assert_eq!(
+            constraints_text_field(&v, "constraints", "constraint").as_deref(),
+            Some("- iron law A\n- iron law B")
+        );
+    }
+
+    #[test]
+    fn constraints_text_field_prefers_string_over_singular() {
+        let v = json!({
+            "constraints": "primary text",
+            "constraint": "legacy singular"
+        });
+        assert_eq!(
+            constraints_text_field(&v, "constraints", "constraint").as_deref(),
+            Some("primary text")
+        );
+    }
 }

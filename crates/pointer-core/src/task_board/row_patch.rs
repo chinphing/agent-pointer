@@ -1,6 +1,6 @@
 //! Merge a patch JSON row into a stored [`BoardItem`] (v4).
 
-use super::model::{str_field, BoardItem, ItemStatus, RESULT_SNIPPET_MAX_CHARS};
+use super::model::{constraints_text_field, str_field, BoardItem, ItemStatus, RESULT_SNIPPET_MAX_CHARS};
 use serde_json::Value;
 
 pub struct RowPatchMerge {
@@ -86,8 +86,11 @@ pub fn merge_row_patch_with_warnings(prev: &BoardItem, patch_v: &Value) -> RowPa
     if let Some(s) = str_field(patch_v, "plan") {
         row.plan = Some(s);
     }
-    if let Some(s) = str_field(patch_v, "constraint") {
-        row.constraint = Some(s);
+    if let Some(s) = str_field(patch_v, "rules") {
+        row.rules = Some(s);
+    }
+    if patch_v.get("constraints").is_some() || patch_v.get("constraint").is_some() {
+        row.constraints = constraints_text_field(patch_v, "constraints", "constraint");
     }
     if let Some(s) = str_field(patch_v, "done_when").or_else(|| str_field(patch_v, "validate_requirement"))
     {

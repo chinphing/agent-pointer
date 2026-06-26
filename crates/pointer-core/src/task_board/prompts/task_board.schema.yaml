@@ -8,8 +8,9 @@ task_board_init:
       type: string
     context:
       type: string
-    constraint:
+    constraints:
       type: string
+      description: Task-level binding rules (short bullets; one or more lines).
     done_when:
       type: string
     global_milestones:
@@ -24,11 +25,15 @@ task_board_init:
             type: string
           status:
             type: string
+          rules:
+            type: string
+            description: User/session normative rules for this milestone (overrides Skill defaults).
+          constraints:
+            type: string
+            description: Short binding bullets (one or more lines).
           done_when:
             type: string
           plan:
-            type: string
-          constraint:
             type: string
           delivery_format:
             type: string
@@ -46,11 +51,15 @@ task_board_init:
             type: string
           status:
             type: string
+          rules:
+            type: string
+            description: User/session normative rules for this SOP step.
+          constraints:
+            type: string
+            description: Short binding bullets (one or more lines).
           done_when:
             type: string
           plan:
-            type: string
-          constraint:
             type: string
         required: [id, title, status]
         additionalProperties: true
@@ -110,6 +119,11 @@ task_board_replace:
             type: string
           status:
             type: string
+          rules:
+            type: string
+          constraints:
+            type: string
+            description: Short binding bullets (one or more lines).
           done_when:
             type: string
           plan:

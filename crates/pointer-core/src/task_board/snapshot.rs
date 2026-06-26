@@ -8,6 +8,7 @@ use super::work_items_apply::exec_met;
 use serde_json::Value;
 
 const PLAN_INJECT_MAX: usize = 2000;
+const RULES_INJECT_MAX: usize = 2000;
 const DONE_WHEN_INJECT_MAX: usize = 600;
 const READY_HINT_COUNT: usize = 2;
 const RESULT_SNIPPET_INJECT_MAX: usize = 120;
@@ -41,8 +42,8 @@ pub fn format_parent_tunnel_block_full(
     if !parent.meta.context.trim().is_empty() {
         lines.push(format!("context: {}", parent.meta.context.trim()));
     }
-    if let Some(c) = parent.meta.constraint.as_deref().filter(|s| !s.trim().is_empty()) {
-        lines.push(format!("constraint: {c}"));
+    if let Some(c) = parent.meta.constraints.as_deref().filter(|s| !s.trim().is_empty()) {
+        append_constraints_block(&mut lines, "constraints", c);
     }
     if let Some(dw) = parent.meta.done_when.as_deref().filter(|s| !s.trim().is_empty()) {
         lines.push(format!("done_when: {dw}"));
@@ -290,6 +291,12 @@ fn append_current_task_section(
         lines.push("## Current task plan".to_string());
         lines.push(truncate_field(plan, PLAN_INJECT_MAX));
     }
+    let rules = item.rules.as_deref().filter(|s| !s.trim().is_empty());
+    if rules.is_some() {
+        lines.push(String::new());
+        lines.push("## Current task rules".to_string());
+        lines.push(truncate_field(rules, RULES_INJECT_MAX));
+    }
 }
 
 fn current_task_in_slice(items: &[BoardItem]) -> Option<&BoardItem> {
@@ -345,10 +352,21 @@ fn append_task_section(lines: &mut Vec<String>, doc: &BoardDocument) {
     if !ctx.is_empty() {
         lines.push(format!("- context: {ctx}"));
     }
-    lines.push(format!(
-        "- constraint: {}",
-        meta_or_na(doc.meta.constraint.as_deref())
-    ));
+    if doc
+        .meta
+        .constraints
+        .as_deref()
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true)
+    {
+        lines.push("- constraints: n/a".to_string());
+    } else {
+        append_constraints_block(
+            lines,
+            "- constraints",
+            doc.meta.constraints.as_deref().unwrap_or(""),
+        );
+    }
     lines.push(format!(
         "- done_when: {}",
         meta_or_na(doc.meta.done_when.as_deref())
@@ -397,9 +415,7 @@ fn append_current_row_bullets(
         truncate_field(item.done_when.as_deref(), DONE_WHEN_INJECT_MAX)
     ));
     lines.push(format!("- status: {}", item.status.as_str()));
-    if let Some(c) = item.constraint.as_deref().filter(|s| !s.trim().is_empty()) {
-        lines.push(format!("- constraint: {c}"));
-    }
+    append_milestone_rules_and_constraints(lines, item);
     if !item.depends_on.is_empty() {
         lines.push(format!("- depends_on: {}", item.depends_on.join(", ")));
     }
@@ -430,6 +446,7 @@ fn append_item_current(
     lines.push(format!("- id: {}", item.id));
     lines.push(format!("- title: {}", item.title.trim()));
     lines.push(format!("- status: {}", item.status.as_str()));
+    append_milestone_rules_and_constraints(lines, item);
     if let Some(p) = item.plan.as_deref().filter(|s| !s.trim().is_empty()) {
         lines.push(format!("- plan: {}", truncate_field(Some(p), PLAN_INJECT_MAX)));
     }
@@ -468,6 +485,18 @@ fn focus_work_item<'a>(
         .find(|wi| wi.status == WorkItemStatus::InProgress)
 }
 
+fn append_work_item_focus_lines(lines: &mut Vec<String>, wi: &WorkItem) {
+    let payload_hint = focus_payload_summary(wi);
+    if payload_hint.is_empty() {
+        lines.push(format!("[WORK_ITEM_FOCUS] id={} title={}", wi.id, wi.title));
+    } else {
+        lines.push(format!(
+            "[WORK_ITEM_FOCUS] id={} title={} {}",
+            wi.id, wi.title, payload_hint
+        ));
+    }
+}
+
 fn focus_payload_summary(wi: &WorkItem) -> String {
     serde_json::from_str::<Value>(&wi.payload_json)
         .ok()
@@ -481,6 +510,30 @@ fn focus_payload_summary(wi: &WorkItem) -> String {
             })
         })
         .unwrap_or_default()
+}
+
+fn append_constraints_block(lines: &mut Vec<String>, label: &str, constraints: &str) {
+    let t = constraints.trim();
+    if t.is_empty() {
+        return;
+    }
+    if t.contains('\n') {
+        lines.push(format!("{label}:"));
+        for line in t.lines() {
+            let line = line.trim();
+            if !line.is_empty() {
+                lines.push(format!("  {line}"));
+            }
+        }
+    } else {
+        lines.push(format!("{label}: {t}"));
+    }
+}
+
+fn append_milestone_rules_and_constraints(lines: &mut Vec<String>, item: &BoardItem) {
+    if let Some(c) = item.constraints.as_deref().filter(|s| !s.trim().is_empty()) {
+        append_constraints_block(lines, "- constraints", c);
+    }
 }
 
 fn value_display(v: &Value) -> String {
@@ -543,18 +596,7 @@ fn append_work_items_section(
     for wi in &window {
         append_work_item_line(lines, wi);
         if wi.status == WorkItemStatus::InProgress {
-            let payload_hint = focus_payload_summary(wi);
-            if payload_hint.is_empty() {
-                lines.push(format!(
-                    "[WORK_ITEM_FOCUS] id={} title={}",
-                    wi.id, wi.title
-                ));
-            } else {
-                lines.push(format!(
-                    "[WORK_ITEM_FOCUS] id={} title={} {}",
-                    wi.id, wi.title, payload_hint
-                ));
-            }
+            append_work_item_focus_lines(lines, wi);
         }
     }
     let hidden = total_in_db.saturating_sub(window.len() as u32);
@@ -710,6 +752,13 @@ fn item_full(item: &BoardItem) -> serde_json::Value {
     if let Some(v) = item.plan.as_ref().filter(|s| !s.trim().is_empty()) {
         let compact = v.chars().take(280).collect::<String>();
         out.insert("plan".into(), compact.into());
+    }
+    if let Some(v) = item.rules.as_ref().filter(|s| !s.trim().is_empty()) {
+        let compact = v.chars().take(RULES_INJECT_MAX).collect::<String>();
+        out.insert("rules".into(), compact.into());
+    }
+    if let Some(v) = item.constraints.as_ref().filter(|s| !s.trim().is_empty()) {
+        out.insert("constraints".into(), v.clone().into());
     }
     if let Some(v) = item.blocked_by.as_ref().filter(|s| !s.trim().is_empty()) {
         out.insert("blocked_by".into(), v.clone().into());

@@ -1,7 +1,7 @@
 //! Apply task_board methods to a [`BoardDocument`].
 
 use super::args::{
-    constraint_from_args, context_from_args, done_when_from_args,
+    constraints_from_args, context_from_args, done_when_from_args,
     expected_total_from_args, global_rows_from_args, goal_from_args,
     item_milestones_from_args, normalize_patch_args, patch_work_item_direct_from_args,
     prune_ids_from_args, replace_has_forbidden_scope, unified_patch_rows_from_args,
@@ -163,8 +163,8 @@ fn apply_meta_fields(doc: &mut BoardDocument, args: &Value) {
     if let Some(ctx) = context_from_args(args) {
         doc.meta.context = ctx;
     }
-    if let Some(c) = constraint_from_args(args) {
-        doc.meta.constraint = Some(c);
+    if let Some(constraints) = constraints_from_args(args) {
+        doc.meta.constraints = Some(constraints);
     }
     if let Some(dw) = done_when_from_args(args) {
         doc.meta.done_when = Some(dw);

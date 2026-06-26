@@ -98,31 +98,7 @@ impl SkillRegistry {
         let selected: Vec<_> = ids.iter().filter_map(|id| g.get(id)).collect();
         let mut prompts = Vec::new();
         if !ids.is_empty() {
-            let mut index = String::from(
-                "可用 Skills（第一层：frontmatter 索引）。根据用户任务判断是否需要使用某个 Skill；需要时调用 **`skill_read`**（仅 `skill_id`）读取该 Skill 的完整 SKILL.md 正文。不要在未读取正文前假设详细步骤。\n",
-            );
-            for id in ids {
-                if let Some(s) = g.get(id) {
-                    index.push_str(&format!(
-                        "- id: {}\n  name: {}\n  description: {}\n",
-                        s.id, s.name, s.description
-                    ));
-                    if !s.tags.is_empty() {
-                        index.push_str(&format!("  tags: {}\n", s.tags.join(", ")));
-                    }
-                    if !s.resource_files.is_empty() {
-                        index.push_str(&format!(
-                            "  resources: {} 个，可按需通过 **skill_read**（带 `path`）读取\n",
-                            s.resource_files.len()
-                        ));
-                    }
-                } else {
-                    index.push_str(&format!(
-                        "- id: {id}\n  status: 未安装（`skill_read` 会失败；请重启应用同步内置技能，或用 skill_import 安装）\n"
-                    ));
-                }
-            }
-            prompts.push(index);
+            prompts.push(build_available_skills_prompt(&g, ids));
         }
 
         let mut tools = vec![
@@ -149,7 +125,7 @@ impl SkillRegistry {
     }
 
     fn load_instructions(&self, id: &str) -> Result<String> {
-        let (name, body, track_usage) = {
+        let (name, body, skill_dir, track_usage) = {
             let g = self.inner.read();
             let skill = g.get(id).ok_or_else(|| anyhow!("未找到 Skill: {id}"))?;
             let track = !skill.builtin
@@ -159,12 +135,17 @@ impl SkillRegistry {
             (
                 skill.name.clone(),
                 skill.system_prompt.clone(),
+                skill.source.clone(),
                 track,
             )
         };
         if track_usage {
             curator::record_skill_usage(id);
         }
+        let body = skill_dir
+            .as_deref()
+            .map(|dir| substitute_base_dir_in_skill_body(&body, Path::new(dir)))
+            .unwrap_or(body);
         Ok(format!("【Skill：{}】\n{}", name, body))
     }
 
@@ -199,6 +180,121 @@ fn safe_resource_join(root: &Path, rel: &Path) -> Result<std::path::PathBuf> {
     Ok(out)
 }
 
+/// Absolute path to a skill's `SKILL.md` manifest (when `source` is the skill root dir).
+pub fn skill_manifest_path(skill: &SkillDef) -> Option<PathBuf> {
+    let source = skill.source.as_deref()?.trim();
+    if source.is_empty() {
+        return None;
+    }
+    external::manifest_path_in_dir(Path::new(source))
+        .or_else(|| Some(Path::new(source).join("SKILL.md")))
+}
+
+fn resolve_compact_home_prefixes() -> Vec<PathBuf> {
+    let mut homes = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        homes.push(home);
+    }
+    if let Ok(app) = crate::storage::app_data_dir() {
+        homes.push(app);
+    }
+    homes.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
+    homes
+}
+
+/// Compact absolute paths for prompt injection (`~/…`), OpenClaw-aligned.
+pub fn compact_skill_location(path: &Path) -> String {
+    compact_skill_location_with_prefixes(path, &resolve_compact_home_prefixes())
+}
+
+fn compact_skill_location_with_prefixes(path: &Path, homes: &[PathBuf]) -> String {
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    for home in homes {
+        let home_str = home.to_string_lossy().replace('\\', "/");
+        let prefix = if home_str.ends_with('/') {
+            home_str
+        } else {
+            format!("{home_str}/")
+        };
+        if normalized.starts_with(&prefix) {
+            return format!("~/{}", normalized[prefix.len()..].trim_start_matches('/'));
+        }
+    }
+    normalized
+}
+
+fn escape_xml_attr(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn build_available_skills_prompt(
+    registry: &HashMap<String, SkillDef>,
+    ids: &[String],
+) -> String {
+    let mut lines = vec![
+        "可用 Skills（第一层：frontmatter 索引）。".to_string(),
+        "Before replying: scan <available_skills> entries.".to_string(),
+        "If a skill matches, call **`skill_read`** with **`skill_id`** equal to `<name>` (do not guess).".to_string(),
+        "When a skill references a relative path or `{baseDir}`, resolve it against the skill directory (parent of `<location>`) and use absolute paths in **`terminal`**.".to_string(),
+        String::new(),
+        "The following skills provide specialized instructions for specific tasks.".to_string(),
+        "Use **`skill_read`** to load instructions when a task matches `<description>`.".to_string(),
+        String::new(),
+        "<available_skills>".to_string(),
+    ];
+
+    let mut installed: Vec<_> = ids
+        .iter()
+        .filter_map(|id| registry.get(id).map(|s| (id.as_str(), s)))
+        .collect();
+    installed.sort_by(|a, b| a.1.name.cmp(&b.1.name));
+
+    for (_id, skill) in installed {
+        lines.push("  <skill>".to_string());
+        lines.push(format!("    <name>{}</name>", escape_xml_attr(&skill.name)));
+        lines.push(format!(
+            "    <description>{}</description>",
+            escape_xml_attr(&skill.description)
+        ));
+        if let Some(manifest) = skill_manifest_path(skill) {
+            let location = compact_skill_location(&manifest);
+            lines.push(format!(
+                "    <location>{}</location>",
+                escape_xml_attr(&location)
+            ));
+        } else {
+            log::warn!(
+                "skill_registry: skill {} missing source; omitting <location> from inject",
+                skill.id
+            );
+        }
+        lines.push("  </skill>".to_string());
+    }
+
+    for id in ids {
+        if !registry.contains_key(id) {
+            lines.push("  <skill>".to_string());
+            lines.push(format!("    <name>{}</name>", escape_xml_attr(id)));
+            lines.push(
+                "    <description>未安装 — skill_read 会失败；请 skill_import 或重启同步内置技能</description>".to_string(),
+            );
+            lines.push("  </skill>".to_string());
+        }
+    }
+
+    lines.push("</available_skills>".to_string());
+    lines.join("\n")
+}
+
+fn substitute_base_dir_in_skill_body(body: &str, skill_dir: &Path) -> String {
+    let base = skill_dir.to_string_lossy();
+    body.replace("{baseDir}", base.as_ref())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,6 +307,85 @@ mod tests {
         assert!(external::is_skill_manifest_path("skill.md"));
         assert!(external::is_skill_manifest_path("./SKILL.md"));
         assert!(!external::is_skill_manifest_path("references/guide.md"));
+    }
+
+    #[test]
+    fn compact_skill_location_replaces_home_prefix() {
+        let home = PathBuf::from("/Users/test");
+        let path = PathBuf::from("/Users/test/.pointer/skills/pdf/SKILL.md");
+        assert_eq!(
+            compact_skill_location_with_prefixes(&path, &[home]),
+            "~/.pointer/skills/pdf/SKILL.md"
+        );
+    }
+
+    #[test]
+    fn skill_manifest_path_joins_skill_md() {
+        let skill = SkillDef {
+            id: "pdf".into(),
+            name: "pdf".into(),
+            description: "d".into(),
+            tags: vec![],
+            system_prompt: String::new(),
+            tool_names: vec![],
+            scenario: String::new(),
+            builtin: false,
+            resource_files: vec![],
+            source: Some("/tmp/skills/pdf".into()),
+            provenance: "system".into(),
+            mutable: false,
+        };
+        assert_eq!(
+            skill_manifest_path(&skill).map(|p| p.to_string_lossy().into_owned()),
+            Some("/tmp/skills/pdf/SKILL.md".into())
+        );
+    }
+
+    #[test]
+    fn progressive_context_includes_openclaw_style_location() {
+        let reg = SkillRegistry::new();
+        reg.register(SkillDef {
+            id: "demo".into(),
+            name: "demo".into(),
+            description: "Demo skill".into(),
+            tags: vec![],
+            system_prompt: String::new(),
+            tool_names: vec![],
+            scenario: String::new(),
+            builtin: false,
+            resource_files: vec![],
+            source: Some("/tmp/demo-skill".into()),
+            provenance: "system".into(),
+            mutable: false,
+        });
+        let (prompts, tools) = reg.progressive_context(&["demo".into()]);
+        assert_eq!(tools.len(), 2);
+        let block = &prompts[0];
+        assert!(block.contains("<available_skills>"));
+        assert!(block.contains("<name>demo</name>"));
+        assert!(block.contains("<location>/tmp/demo-skill/SKILL.md</location>"));
+        assert!(block.contains("parent of `<location>`"));
+    }
+
+    #[test]
+    fn load_instructions_substitutes_base_dir_placeholder() {
+        let reg = SkillRegistry::new();
+        reg.register(SkillDef {
+            id: "vid".into(),
+            name: "vid".into(),
+            description: "d".into(),
+            tags: vec![],
+            system_prompt: "Run {baseDir}/scripts/frame.sh".into(),
+            tool_names: vec![],
+            scenario: String::new(),
+            builtin: false,
+            resource_files: vec![],
+            source: Some("/opt/skills/vid".into()),
+            provenance: "system".into(),
+            mutable: false,
+        });
+        let out = reg.read("vid", None).expect("read");
+        assert!(out.contains("/opt/skills/vid/scripts/frame.sh"));
     }
 
     #[test]

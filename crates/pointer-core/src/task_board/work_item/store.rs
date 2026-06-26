@@ -2,8 +2,8 @@
 
 use super::model::{
     draft_from_value, merge_result_summary, now_ms, parse_work_item_seq_ref,
-    payload_with_target_key, target_key_from_payload, work_item_id, BatchStats, SeedOutcome,
-    StoreStats, WorkItem, WorkItemDraft, WorkItemStatus, MAX_INLINE_SEED,
+    payload_with_target_key, target_key_from_payload, work_item_id,
+    BatchStats, SeedOutcome, StoreStats, WorkItem, WorkItemDraft, WorkItemStatus, MAX_INLINE_SEED,
 };
 use super::persistence::WorkItemSqlite;
 use anyhow::{anyhow, Result};

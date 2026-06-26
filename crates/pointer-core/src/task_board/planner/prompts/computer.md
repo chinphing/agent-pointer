@@ -18,7 +18,10 @@ You do **not** replace during planning.
     Write a one-line **`title`** per row (phase summary for UI).
     Do not use fixed 2-character titles like "Plan" / "Exec" alone.
     Set **`done_when`** for acceptance criteria (separate from title).
+    Set milestone **`rules`** / **`constraints`** when the user specifies step or phase norms.
   - **`item_milestones`**: reusable per-item SOP; **`title`** = step summary.
+    Copy user step rules into template row **`rules`**; iron laws into **`constraints`** (text).
+  - Document meta **`constraints`** / **`done_when`**: task-wide binding bullets and success criteria.
 
 ### Type 2 — enumerated vs dynamic (decision tree)
 

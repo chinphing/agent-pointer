@@ -1,13 +1,16 @@
 //! Parse tool arguments (`global_milestones`, `milestones`, `items`, flat patch).
 
 use anyhow::{anyhow, Result};
+use crate::task_board::model::constraints_text_field;
 use serde_json::{Map, Value};
 
 const PATCH_HOST_KEYS: &[&str] = &[
     "method",
     "goal",
     "context",
+    "constraints",
     "constraint",
+    "rules",
     "done_when",
     "global_context",
     "globalContext",
@@ -91,7 +94,9 @@ const PATCH_ROW_FIELD_KEYS: &[&str] = &[
     "status",
     "title",
     "plan",
+    "constraints",
     "constraint",
+    "rules",
     "done_when",
     "validate_requirement",
     "remark",
@@ -283,8 +288,16 @@ pub fn context_from_args(args: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
+pub fn constraints_from_args(args: &Value) -> Option<String> {
+    constraints_text_field(args, "constraints", "constraint").or_else(|| {
+        args.get("meta")
+            .and_then(|m| constraints_text_field(m, "constraints", "constraint"))
+    })
+}
+
+#[deprecated(note = "use constraints_from_args")]
 pub fn constraint_from_args(args: &Value) -> Option<String> {
-    str_meta_field(args, "constraint")
+    constraints_from_args(args)
 }
 
 pub fn done_when_from_args(args: &Value) -> Option<String> {
@@ -370,7 +383,8 @@ pub fn replace_has_forbidden_scope(args: &Value) -> bool {
     const FORBIDDEN: &[&str] = &[
         "goal",
         "context",
-        "constraint",
+        "constraints",
+        "rules",
         "done_when",
         "expected_total",
         "work_item_mode",

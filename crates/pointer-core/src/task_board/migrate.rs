@@ -1,7 +1,7 @@
 //! Load persisted task board JSON as v4 [`BoardDocument`].
 
 use super::model::{
-    BoardDocument, BoardItem, BoardMeta, WorkItemMode, BOARD_VERSION,
+    BoardDocument, BoardItem, BoardMeta, WorkItemMode, BOARD_VERSION, meta_from_value,
 };
 use serde_json::Value;
 
@@ -17,8 +17,12 @@ pub fn normalize_stored_value(store_key: &str, raw: Value) -> BoardDocument {
     if version == V3_VERSION {
         return migrate_v3_value(store_key, &raw);
     }
-    if let Ok(doc) = serde_json::from_value::<BoardDocument>(raw.clone()) {
+    if let Ok(mut doc) = serde_json::from_value::<BoardDocument>(raw.clone()) {
         if doc.version == BOARD_VERSION && !doc.task_id.is_empty() {
+            if let Some(meta_v) = raw.get("meta") {
+                doc.meta = meta_from_value(meta_v);
+            }
+            coalesce_milestone_constraints(&mut doc, &raw);
             return doc;
         }
         if doc.version != BOARD_VERSION {
@@ -57,9 +61,7 @@ pub fn migrate_v3_value(store_key: &str, raw: &Value) -> BoardDocument {
         .map(str::to_string)
         .unwrap_or_else(|| format!("tb_{store_key}"));
     if let Some(meta_v) = raw.get("meta") {
-        if let Ok(m) = serde_json::from_value::<BoardMeta>(meta_v.clone()) {
-            doc.meta = m;
-        }
+        doc.meta = meta_from_value(meta_v);
     }
     if let Some(gc) = raw.get("global_context") {
         if let Ok(g) = serde_json::from_value(gc.clone()) {
@@ -109,6 +111,39 @@ pub fn migrate_v3_value(store_key: &str, raw: &Value) -> BoardDocument {
     doc
 }
 
+fn coalesce_milestone_constraints(doc: &mut BoardDocument, raw: &Value) {
+    coalesce_slice_constraints(&mut doc.global_milestones, raw.get("global_milestones"));
+    coalesce_slice_constraints(&mut doc.item_milestones, raw.get("item_milestones"));
+    if doc.global_milestones.is_empty() {
+        coalesce_slice_constraints(&mut doc.global_milestones, raw.get("board"));
+    }
+}
+
+fn coalesce_slice_constraints(items: &mut [BoardItem], raw_rows: Option<&Value>) {
+    let Some(arr) = raw_rows.and_then(|v| v.as_array()) else {
+        return;
+    };
+    for item in items.iter_mut() {
+        if item
+            .constraints
+            .as_ref()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let Some(raw) = arr.iter().find(|v| {
+            v.get("id")
+                .and_then(|x| x.as_str())
+                .map(str::trim)
+                == Some(item.id.as_str())
+        }) else {
+            continue;
+        };
+        item.constraints = super::model::constraints_text_field(raw, "constraints", "constraint");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,5 +188,17 @@ mod tests {
         let raw = json!([{"id":"1","title":"t","status":"done"}]);
         let doc = normalize_stored_value("k", raw);
         assert_eq!(doc.global_milestones.len(), 1);
+    }
+
+    #[test]
+    fn stored_meta_legacy_constraint_coerces_to_constraints() {
+        let raw = json!({
+            "version": 4,
+            "task_id": "tb_k",
+            "meta": { "goal": "g", "constraint": "no guessing" },
+            "global_milestones": []
+        });
+        let doc = normalize_stored_value("k", raw);
+        assert_eq!(doc.meta.constraints.as_deref(), Some("no guessing"));
     }
 }

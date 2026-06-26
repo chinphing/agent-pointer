@@ -69,6 +69,7 @@ After the frontmatter, write the full Skill instructions. The body should includ
 4. Expected output format.
 5. Constraints, edge cases, and quality checks.
 6. References to files under `references/`, `assets/`, or `scripts/` only when those files are actually needed.
+7. For script invocations in the body, use **`{baseDir}/scripts/...`** (expanded on **`skill_read`**; catalog injects `<location>` for dirname resolution).
 
 ## Creation workflow
 

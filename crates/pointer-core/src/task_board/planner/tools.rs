@@ -2,6 +2,17 @@
 
 use serde_json::{json, Value};
 
+const TASK_BOARD_SCHEMA_YAML: &str = include_str!("../prompts/task_board.schema.yaml");
+
+fn task_board_tool_parameters(tool_name: &str) -> Value {
+    crate::tools::tool_doc::load_tools_from_schema_yaml(TASK_BOARD_SCHEMA_YAML)
+        .expect("task_board.schema.yaml must be valid")
+        .into_iter()
+        .find(|(name, _)| name == tool_name)
+        .map(|(_, schema)| schema)
+        .unwrap_or_else(|| json!({ "type": "object", "properties": {} }))
+}
+
 pub fn openai_tools() -> Vec<Value> {
     vec![
         json!({
@@ -43,55 +54,15 @@ pub fn openai_tools() -> Vec<Value> {
             "function": {
                 "name": "task_board_init",
                 "description": "Create a new task board when none exists.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "goal": { "type": "string" },
-                        "context": { "type": "string" },
-                        "constraint": { "type": "string" },
-                        "done_when": { "type": "string" },
-                        "global_milestones": {
-                            "description": "Task-level rows. Type2: g_plan, g_exec, g_deliver."
-                        },
-                        "item_milestones": {
-                            "description": "Per-work-item SOP template (Type2)."
-                        },
-                        "work_item_mode": {
-                            "type": "string",
-                            "enum": ["enumerated", "dynamic"]
-                        },
-                        "expected_total": { "type": "integer", "minimum": 1 },
-                        "dynamic_quota": { "type": "integer", "minimum": 1 },
-                        "work_items_source": {
-                            "type": "string",
-                            "description": "Path or media ref to seed work_items (Type2): localPath, pointer-media://…, or storage rel — same as attachment refs."
-                        },
-                        "work_items": {
-                            "description": "Inline work item drafts (Type2 enumerated init)."
-                        },
-                        "items": {
-                            "description": "Legacy alias for global_milestones (max 20 rows)."
-                        }
-                    },
-                    "required": ["goal"]
-                }
+                "parameters": task_board_tool_parameters("task_board_init")
             }
         }),
         json!({
             "type": "function",
             "function": {
                 "name": "task_board_replace",
-                "description": "Replace the full task board when scope changed.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "goal": { "type": "string" },
-                        "global_context": {},
-                        "items": {},
-                        "expected_total": { "type": "integer", "minimum": 1 }
-                    },
-                    "required": ["items"]
-                }
+                "description": "Replace item_milestones SOP template when execution needs a refresh.",
+                "parameters": task_board_tool_parameters("task_board_replace")
             }
         }),
     ]
@@ -122,5 +93,22 @@ mod tests {
                 "task_board_replace"
             ]
         );
+    }
+
+    #[test]
+    fn task_board_init_schema_declares_array_work_items() {
+        let params = task_board_tool_parameters("task_board_init");
+        let wi = params
+            .get("properties")
+            .and_then(|p| p.get("work_items"))
+            .expect("work_items property");
+        assert_eq!(wi.get("type"), Some(&json!("array")));
+        let items = wi.get("items").expect("work_items.items");
+        assert_eq!(items.get("type"), Some(&json!("object")));
+        let required = items
+            .get("required")
+            .and_then(|v| v.as_array())
+            .expect("work_items.items.required");
+        assert!(required.iter().any(|v| v == "title"));
     }
 }

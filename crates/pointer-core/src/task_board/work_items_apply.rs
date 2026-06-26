@@ -1,6 +1,8 @@
 //! Work item seeding and patch side-effects during task_board apply (v4).
 
-use super::args::{patch_work_item_id_from_args, work_item_mode_from_args};
+use super::args::{
+    inline_work_items_from_args, patch_work_item_id_from_args, work_item_mode_from_args,
+};
 use super::model::{BoardDocument, BoardItem, BoardMeta, WorkItemMode, MAX_BOARD_ROWS};
 use super::model::ItemStatus;
 use super::work_item::{
@@ -57,9 +59,7 @@ fn args_has_work_items_source(args: &Value) -> bool {
 }
 
 fn args_has_inline_work_items(args: &Value) -> bool {
-    args.get("work_items")
-        .and_then(|v| v.as_array())
-        .is_some_and(|a| !a.is_empty())
+    inline_work_items_from_args(args).is_some_and(|a| !a.is_empty())
 }
 
 /// Reject incompatible Type2 work_item_mode / seed combinations on init.
@@ -134,7 +134,7 @@ pub fn seed_work_items_on_init(
         );
         return Ok(outcome.seeded);
     }
-    let Some(arr) = args.get("work_items").and_then(|v| v.as_array()) else {
+    let Some(arr) = inline_work_items_from_args(args) else {
         return Ok(0);
     };
     if arr.len() > MAX_INLINE_SEED {
@@ -142,7 +142,7 @@ pub fn seed_work_items_on_init(
             "work_items: inline seed exceeds MAX_INLINE_SEED ({MAX_INLINE_SEED})"
         ));
     }
-    let outcome = work_items.seed_from_values(store_key, arr)?;
+    let outcome = work_items.seed_from_values(store_key, &arr)?;
     if outcome.seeded > 0 {
         doc.meta.work_items_seeded_rows = Some(outcome.seeded);
     }

@@ -747,6 +747,35 @@ mod work_items_tests {
     }
 
     #[test]
+    fn init_seeds_work_items_from_stringified_array() {
+        let store = TaskBoardStore::new();
+        let key = "conv-wi-string";
+        store
+            .apply(
+                key,
+                "init",
+                &wi_args(json!({
+                    "goal": "Batch cities",
+                    "work_item_mode": "enumerated",
+                    "expected_total": 2,
+                    "global_milestones": [
+                        {"id": "g_plan", "title": "Plan", "status": "pending"},
+                        {"id": "g_exec", "title": "Exec", "status": "pending"},
+                        {"id": "g_deliver", "title": "Deliver", "status": "pending"}
+                    ],
+                    "item_milestones": [
+                        {"id": "m1", "title": "Add", "status": "pending"}
+                    ],
+                    "work_items": "[{\"title\":\"北京\",\"payload\":{\"city\":\"北京\"}},{\"title\":\"上海\",\"payload\":{\"city\":\"上海\"}}]"
+                })),
+            )
+            .expect("init");
+        assert_eq!(store.work_items.count_campaign(key), 2);
+        let doc = store.document(key);
+        assert_eq!(doc.meta.work_items_total, Some(2));
+    }
+
+    #[test]
     fn deliver_patch_ok_without_work_item_id_when_queue_finished() {
         let store = TaskBoardStore::new();
         let key = "conv-wi-deliver";

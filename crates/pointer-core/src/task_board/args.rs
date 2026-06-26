@@ -134,6 +134,11 @@ pub fn item_milestones_from_args(args: &Value) -> Vec<Value> {
     array_from_key(args, "item_milestones").unwrap_or_default()
 }
 
+/// Init enumerated seed: inline `work_items[]` (array or stringified JSON array).
+pub fn inline_work_items_from_args(args: &Value) -> Option<Vec<Value>> {
+    array_from_key(args, "work_items")
+}
+
 /// Patch item SOP rows (`milestones` len=1).
 pub fn milestone_patch_rows_from_args(args: &Value) -> Option<Vec<Value>> {
     array_from_key(args, "milestones")
@@ -372,6 +377,16 @@ mod tests {
         let norm = normalize_patch_args(args);
         assert!(norm.get("work_item_claim").unwrap().is_object());
         assert_eq!(norm["work_item_claim"]["target_key"], "t1");
+    }
+
+    #[test]
+    fn inline_work_items_from_stringified_array() {
+        let args = serde_json::json!({
+            "work_items": "[{\"title\":\"北京\",\"payload\":{\"city\":\"北京\"}}]"
+        });
+        let rows = inline_work_items_from_args(&args).expect("work_items");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["title"], "北京");
     }
 
     #[test]

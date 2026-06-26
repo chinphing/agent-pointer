@@ -14,16 +14,61 @@ task_board_init:
       type: string
     global_milestones:
       type: array
-      description: Exactly one global row object in an array (or JSON string of array).
+      description: Task-level milestone rows (Type1 flow, or Type2 g_plan/g_exec/g_deliver).
       items:
         type: object
+        properties:
+          id:
+            type: string
+          title:
+            type: string
+          status:
+            type: string
+          done_when:
+            type: string
+          plan:
+            type: string
+          constraint:
+            type: string
+          delivery_format:
+            type: string
+        required: [id, title, status]
+        additionalProperties: true
     item_milestones:
       type: array
-      description: Per-work-item SOP template array (Type2 only).
+      description: Per-work-item SOP template rows (Type2 only).
       items:
         type: object
+        properties:
+          id:
+            type: string
+          title:
+            type: string
+          status:
+            type: string
+          done_when:
+            type: string
+          plan:
+            type: string
+          constraint:
+            type: string
+        required: [id, title, status]
+        additionalProperties: true
     work_items:
-      description: Inline work item drafts (Type2 enumerated init).
+      type: array
+      description: Inline work item drafts for enumerated Type2 init.
+      items:
+        type: object
+        properties:
+          title:
+            type: string
+          payload:
+            type: object
+            additionalProperties: true
+          target_key:
+            type: string
+        required: [title]
+        additionalProperties: true
     work_items_source:
       type: string
       description: >
@@ -40,7 +85,11 @@ task_board_init:
       minimum: 1
     global_context: {}
     items:
+      type: array
       description: Legacy alias for global_milestones.
+      items:
+        type: object
+        additionalProperties: true
     _conversation_id:
       type: string
   required: [goal]
@@ -50,7 +99,23 @@ task_board_replace:
   type: object
   properties:
     item_milestones:
-      description: Full item SOP template array (execution only).
+      type: array
+      description: Full item SOP template rows (execution only).
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+          title:
+            type: string
+          status:
+            type: string
+          done_when:
+            type: string
+          plan:
+            type: string
+        required: [id, title, status]
+        additionalProperties: true
     _conversation_id:
       type: string
   required: [item_milestones]
@@ -61,14 +126,16 @@ task_board_patch:
   properties:
     global_milestones:
       type: array
-      description: Exactly one global row object in an array (or JSON string of array).
+      description: Exactly one global row object in an array.
       items:
         type: object
+        additionalProperties: true
     milestones:
       type: array
-      description: Exactly one item_milestone row object in an array (or JSON string of array).
+      description: Exactly one item_milestone row object in an array.
       items:
         type: object
+        additionalProperties: true
     work_item_id:
       type: string
       description: >

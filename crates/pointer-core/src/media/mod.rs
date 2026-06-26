@@ -32,7 +32,7 @@ pub use oss::{
     upload_composer_video_from_path, upload_temp_video, ComposerVideoUploadResult, OssTempVideo,
 };
 pub use image_dir::{
-    format_image_dir_scope_notice, list_image_files_in_dir, ImageDirRange, DEFAULT_IMAGE_BATCH,
+    format_image_dir_scope_notice, format_multi_refs_scope_notice, list_image_files_in_dir, ImageDirRange, DEFAULT_IMAGE_BATCH,
     MAX_IMAGES_PER_CALL,
 };
 pub use apply::apply_media_to_history;

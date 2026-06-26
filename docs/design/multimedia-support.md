@@ -156,7 +156,7 @@ mediaModelOverrides: {
 
 **Agent 策略**
 
-- 用户说「前 2 分钟」→ 在 **goal** 写明时间段；必要时配合 `timeStartSec`/`timeEndSec`（主要作用于回退抽帧路径）。
+- 用户说「前 2 分钟」→ 在 **goal** 写明时间段；回退抽帧路径默认只处理首段，需多次 call 时在 **goal** 说明后续段落。
 - 用户只说「总结这个视频」→ **goal** 概括需求即可；主路径送整段 `remoteUrl`。
 - 全文转写 → 提音轨 + `mode=audio`。
 
@@ -168,10 +168,10 @@ mediaModelOverrides: {
 
 | 阶段 | 行为 |
 |------|------|
-| ref | **`mode=image`** 时 **ref** 可为本地目录路径 |
+| ref | **`mode=image`** 时 **refs** 单元素可为本地目录路径 |
 | 列举 | 仅**当前目录**（非递归）；png/jpg/jpeg/gif/webp/bmp/heic/heif；按文件名排序 |
 | 默认 | 用户未指定范围 → **第 1–200 张** |
-| 用户指定 | **`imageStart` / `imageEnd`**（1-based 序号） |
+| 用户指定 | **`pageStart` / `pageEnd`**（1-based 序号，与 PDF 共用参数名） |
 | 单次上限 | **200 张**；更多须多次 call |
 | 工具结果 | scope 含本次序号范围、**目录内总张数**、拆分指引 |
 
@@ -184,7 +184,7 @@ mediaModelOverrides: {
 | **pdf** | **pdf** Skill 优先（`terminal` + `localPath` 抽文本）；**扫描件**才 **`media_understand` `mode=pdf`** |
 | **docx / pptx** | **docx** / **pptx** Skill，不用 `media_understand` |
 | **zip / 二进制** | 不支持内联；`skill_read` 或追问用户要提取什么 |
-| **多附件** | 每个文件单独 `goal`；按用户点名顺序处理，避免一次工具塞多个 ref |
+| **多附件** | 统一 **refs** 数组；图片可多个，音视频/PDF 仅单元素 |
 | **超大附件已落盘但理解失败** | 工具结果会含截断/页数说明；向用户解释限制并给出替代（指定范围、拆文件、用 Skill） |
 
 ---

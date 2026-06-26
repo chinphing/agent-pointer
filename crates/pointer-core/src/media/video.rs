@@ -125,7 +125,7 @@ impl VideoTimeRange {
         let count = self.frame_count();
         if count > MAX_VISION_FRAMES_PER_CALL {
             anyhow::bail!(
-                "requested {count} frames ({:.1}s–{:.1}s at {} frame(s)/second); max {MAX_VISION_FRAMES_PER_CALL} per call — split into multiple media_understand calls with different timeStartSec/timeEndSec",
+                "requested {count} frames ({:.1}s–{:.1}s at {} frame(s)/second); max {MAX_VISION_FRAMES_PER_CALL} per call",
                 self.start_sec,
                 self.end_sec,
                 self.frames_per_second
@@ -160,7 +160,7 @@ pub fn format_video_scope_notice(
         )
     } else {
         format!(
-            "[Video scope: {scope} of {total:.1}s total — user did not specify a time window; only the first segment was processed ({sampling}). Call again with timeStartSec/timeEndSec for other segments, or split into batches of at most {MAX_VISION_FRAMES_PER_CALL} frames per call.]"
+            "[Video scope: {scope} of {total:.1}s total — only the first segment was processed ({sampling}). For other segments, describe the window in **goal** and call again, or split into batches of at most {MAX_VISION_FRAMES_PER_CALL} frames per call.]"
         )
     }
 }

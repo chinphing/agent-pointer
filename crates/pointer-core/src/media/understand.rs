@@ -109,7 +109,7 @@ pub async fn describe_images_with_model(
     api_key_fallback: &str,
     images_base64: &[String],
     labels: &[String],
-    dir_display: &str,
+    source_description: &str,
     goal: &str,
     token_ctx: &MediaTokenContext,
     cancel: &CancellationToken,
@@ -144,7 +144,7 @@ pub async fn describe_images_with_model(
         role: Role::User,
         content: user_content_with_goal(
             &format!(
-                "Describe {} image(s) from directory \"{dir_display}\".",
+                "Describe {} image(s) {source_description}.",
                 images_base64.len()
             ),
             goal,

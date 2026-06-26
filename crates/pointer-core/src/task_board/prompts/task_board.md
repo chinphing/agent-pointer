@@ -88,10 +88,6 @@ Each row in `global_milestones[]` or `item_milestones[]`:
 | **`remark`** | replace | Short outcome note when marking `done` (optional) | — |
 | **`delivery_format`** | replace | Export format on `g_deliver` only (`xlsx`, `csv`, …) | — |
 
-**Removed in v4 (do not send):**
-`progress`, `validate_requirement`, `validate_results`, `validate_*_delta`,
-`extract_*`, row-level `work_item_mode`.
-
 User-facing delivery belongs in **assistant `content`**, not board row fields.
 
 ## `action_verify` vs `done_when`

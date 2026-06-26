@@ -22,7 +22,7 @@ When the user **attaches a PDF** and wants content read, summarized, or transcri
 
 ### When the PDF is scanned (then use `media_understand`)
 
-Call **`media_understand`** with **`mode=pdf`**, the attachment **`ref`**, and a clear **`goal`** **only after** this skill’s text extraction shows the file is **image-based / scanned**, for example:
+Call **`media_understand`** with **`mode=pdf`**, **`refs`** (one attachment ref), and a clear **`goal`** **only after** this skill’s text extraction shows the file is **image-based / scanned**, for example:
 
 - Per-page text is **empty**, or only page numbers / watermarks (&lt; ~48 meaningful characters per page).
 - Text is **garbled** (CID mojibake, high replacement-char ratio) despite trying pdfplumber or PyMuPDF.
@@ -30,7 +30,7 @@ Call **`media_understand`** with **`mode=pdf`**, the attachment **`ref`**, and a
 
 Then:
 
-1. Call **`media_understand`** with **`mode=pdf`**, **`ref`**, and **`goal`** (host: **Pdfium** renders each page to JPEG, then vision model).
+1. Call **`media_understand`** with **`mode=pdf`**, **`refs`**, and **`goal`** (host: **Pdfium** renders each page to JPEG, then vision model).
 2. Use **`pageStart` / `pageEnd`** only when the user named pages (max **10** per call).
 
 Do **not** use local Tesseract/`pdf2image` for chat attachments when `media_understand` is available.
@@ -297,7 +297,7 @@ After this skill’s extraction is **empty or unusable** (see **Pointer: reading
 
 Instead:
 
-1. Call **`media_understand`** with **`mode=pdf`**, the attachment **`ref`**, and a **`goal`** that states what to extract.
+1. Call **`media_understand`** with **`mode=pdf`**, the attachment in **`refs`**, and a **`goal`** that states what to extract.
 2. If pages are missing, split with **`pageStart` / `pageEnd`** (max 10 per call).
 
 Use the Tesseract example below only for **offline batch scripts** outside the attachment flow.

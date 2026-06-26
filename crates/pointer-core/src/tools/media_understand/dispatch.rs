@@ -2,12 +2,12 @@
 
 use crate::chat_service::StreamTx;
 use crate::media::jpeg_vision::prepare_jpeg_for_vision;
-use crate::media::token::{MediaTokenContext, MediaUnderstandKind};
+use crate::media::token::{MediaTokenContext};
 use crate::media::{
     describe_image_with_model, describe_images_with_model, describe_pdf_pages_with_model,
     describe_video_with_model, download_video_from_url, extract_pdf_page_images_base64_range,
     ffmpeg_available, extract_video_frame_base64s_with_range, find_attachment_by_media_ref,
-    format_image_dir_scope_notice, format_pdf_scope_notice, format_video_scope_notice,
+    format_image_dir_scope_notice, format_multi_refs_scope_notice, format_pdf_scope_notice, format_video_scope_notice,
     list_image_files_in_dir, pdf_page_count, prepare_video_bytes_for_range, probe_video_duration,
     read_media_ref_bytes, resolve_media_ref, transcribe_audio_with_model, is_video_file_name,
 };
@@ -16,8 +16,9 @@ use crate::media::store::{conversation_media_abs_to_rel, parse_conversation_medi
 use crate::mode_llm::resolve_media_mode_llm;
 use crate::models::ModelSettings;
 use crate::tools::media_understand::{
-    format_goal_block, parse_context, parse_goal, parse_image_dir_range, parse_pdf_page_range,
-    parse_ref_and_mode, parse_video_time_range, prepend_scope_notice,
+    format_goal_block, parse_context, parse_goal, parse_image_dir_range, parse_mode,
+    parse_pdf_page_range, parse_refs, parse_single_media_ref, parse_video_time_range,
+    prepend_scope_notice,
 };
 use anyhow::{anyhow, Context, Result};
 use base64::Engine;
@@ -149,7 +150,7 @@ async fn understand_image_directory(
         api_key,
         &images_base64,
         &labels,
-        &dir.display().to_string(),
+        &format!("from directory \"{}\"", dir.display()),
         goal,
         token_ctx,
         cancel,
@@ -158,34 +159,82 @@ async fn understand_image_directory(
     Ok(prepend_scope_notice(&body, &notice))
 }
 
-async fn understand_image(
+async fn understand_image_refs(
     settings: &ModelSettings,
     api_key: &str,
-    path: &Path,
+    refs: &[String],
     goal: &str,
-    args: &Value,
     token_ctx: &MediaTokenContext,
     cancel: &CancellationToken,
 ) -> Result<String> {
-    if path.is_dir() {
-        return understand_image_directory(settings, api_key, path, goal, args, token_ctx, cancel).await;
+    if refs.is_empty() {
+        anyhow::bail!("no image refs to understand");
     }
-    let file_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("attachment")
-        .to_string();
-    let bytes = std::fs::read(path).with_context(|| format!("read image {}", path.display()))?;
-    understand_image_file(
+    if refs.len() == 1 {
+        let media_ref = &refs[0];
+        let path = resolve_media_ref(media_ref)
+            .with_context(|| format!("resolve media ref {media_ref}"))?;
+        if path.is_dir() {
+            anyhow::bail!(
+                "image ref is a directory; pass refs with one directory path and use pageStart/pageEnd"
+            );
+        }
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("attachment")
+            .to_string();
+        let bytes = read_media_ref_bytes(media_ref)
+            .with_context(|| format!("read media bytes for {media_ref}"))?;
+        return understand_image_file(
+            settings,
+            api_key,
+            &bytes,
+            &file_name,
+            goal,
+            token_ctx,
+            cancel,
+        )
+        .await;
+    }
+
+    let mut images_base64 = Vec::with_capacity(refs.len());
+    let mut labels = Vec::with_capacity(refs.len());
+    for media_ref in refs {
+        let path = resolve_media_ref(media_ref)
+            .with_context(|| format!("resolve media ref {media_ref}"))?;
+        if path.is_dir() {
+            anyhow::bail!(
+                "refs entry {media_ref} is a directory; pass one directory path in refs with pageStart/pageEnd"
+            );
+        }
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("attachment")
+            .to_string();
+        let bytes = read_media_ref_bytes(media_ref)
+            .with_context(|| format!("read media bytes for {media_ref}"))?;
+        let (prepared, _mime) = maybe_downscale_image_jpeg(&bytes, &file_name)?;
+        images_base64.push(base64::engine::general_purpose::STANDARD.encode(&prepared));
+        labels.push(file_name);
+    }
+
+    let notice = format_multi_refs_scope_notice(refs.len());
+    let image_model = resolve_media_mode_llm(settings, "image");
+    let body = describe_images_with_model(
         settings,
+        &image_model,
         api_key,
-        &bytes,
-        &file_name,
+        &images_base64,
+        &labels,
+        "from the attached batch",
         goal,
         token_ctx,
         cancel,
     )
-    .await
+    .await?;
+    Ok(prepend_scope_notice(&body, &notice))
 }
 
 async fn understand_audio(
@@ -359,11 +408,85 @@ async fn understand_pdf(
 pub async fn dispatch_media_understand_async(
     ctx: MediaUnderstandDispatchContext<'_>,
 ) -> Result<(String, bool, Option<String>)> {
-    let (media_ref, mode) = parse_ref_and_mode(&ctx.args)?;
+    let mode = parse_mode(&ctx.args)?;
     let goal = parse_goal(&ctx.args)?;
     let context = parse_context(&ctx.args);
     let goal_block = format_goal_block(&goal, context.as_deref());
-    let attachment = find_attachment_by_media_ref(ctx.conversation_id, &media_ref).ok().flatten();
+    let api_key = resolve_api_key(ctx.settings)?;
+    let token_ctx = MediaTokenContext {
+        run_id: ctx.run_id.to_string(),
+        conversation_id: ctx.conversation_id.to_string(),
+    };
+
+    let text = match mode.as_str() {
+        "image" => {
+            let refs = parse_refs(&ctx.args, "image")?;
+            if refs.len() == 1 {
+                let path = resolve_media_ref(&refs[0])
+                    .with_context(|| format!("resolve media ref {}", refs[0]))?;
+                if path.is_dir() {
+                    understand_image_directory(
+                        ctx.settings,
+                        &api_key,
+                        &path,
+                        &goal_block,
+                        &ctx.args,
+                        &token_ctx,
+                        &ctx.cancel,
+                    )
+                    .await?
+                } else {
+                    understand_image_refs(
+                        ctx.settings,
+                        &api_key,
+                        &refs,
+                        &goal_block,
+                        &token_ctx,
+                        &ctx.cancel,
+                    )
+                    .await?
+                }
+            } else {
+                understand_image_refs(
+                    ctx.settings,
+                    &api_key,
+                    &refs,
+                    &goal_block,
+                    &token_ctx,
+                    &ctx.cancel,
+                )
+                .await?
+            }
+        }
+        "audio" | "video" | "pdf" => {
+            let media_ref = parse_single_media_ref(&ctx.args, mode.as_str())?;
+            dispatch_single_ref_media(
+                ctx,
+                mode.as_str(),
+                &media_ref,
+                &goal_block,
+                &api_key,
+                &token_ctx,
+            )
+            .await?
+        }
+        other => return Err(anyhow!("unsupported media_understand mode: {other}")),
+    };
+
+    Ok((text, true, None))
+}
+
+async fn dispatch_single_ref_media(
+    ctx: MediaUnderstandDispatchContext<'_>,
+    mode: &str,
+    media_ref: &str,
+    goal_block: &str,
+    api_key: &str,
+    token_ctx: &MediaTokenContext,
+) -> Result<String> {
+    let attachment = find_attachment_by_media_ref(ctx.conversation_id, media_ref)
+        .ok()
+        .flatten();
     let remote_url = attachment
         .as_ref()
         .and_then(|a| a.remote_url.as_deref())
@@ -380,39 +503,20 @@ pub async fn dispatch_media_understand_async(
                 .to_string()
         });
     let path = if mode == "video" && remote_url.is_some() {
-        resolve_media_ref(&media_ref).unwrap_or_else(|_| std::path::PathBuf::from(&file_name))
+        resolve_media_ref(media_ref).unwrap_or_else(|_| std::path::PathBuf::from(&file_name))
     } else {
-        resolve_media_ref(&media_ref)
-            .with_context(|| format!("resolve media ref {media_ref}"))?
+        resolve_media_ref(media_ref).with_context(|| format!("resolve media ref {media_ref}"))?
     };
     let bytes = if path.is_file() {
         Some(
-            read_media_ref_bytes(&media_ref)
+            read_media_ref_bytes(media_ref)
                 .with_context(|| format!("read media bytes for {media_ref}"))?,
         )
     } else {
         None
     };
-    let api_key = resolve_api_key(ctx.settings)?;
-    let token_ctx = MediaTokenContext {
-        run_id: ctx.run_id.to_string(),
-        conversation_id: ctx.conversation_id.to_string(),
-    };
 
-    let text = match mode.as_str() {
-        "image" => {
-            let _ = MediaUnderstandKind::Image;
-            understand_image(
-                ctx.settings,
-                &api_key,
-                &path,
-                &goal_block,
-                &ctx.args,
-                &token_ctx,
-                &ctx.cancel,
-            )
-            .await?
-        }
+    match mode {
         "audio" => {
             let bytes = bytes.as_deref().ok_or_else(|| anyhow!("audio ref must be a file"))?;
             if attachment
@@ -426,15 +530,15 @@ pub async fn dispatch_media_understand_async(
             }
             understand_audio(
                 ctx.settings,
-                &api_key,
+                api_key,
                 &path,
                 bytes,
                 &file_name,
-                &goal_block,
-                &token_ctx,
+                goal_block,
+                token_ctx,
                 &ctx.cancel,
             )
-            .await?
+            .await
         }
         "video" => {
             if bytes.is_none() && remote_url.is_none() {
@@ -442,37 +546,35 @@ pub async fn dispatch_media_understand_async(
             }
             understand_video(
                 ctx.settings,
-                &api_key,
+                api_key,
                 bytes.as_deref(),
                 remote_url,
                 &file_name,
-                &goal_block,
+                goal_block,
                 &ctx.args,
-                &token_ctx,
+                token_ctx,
                 &ctx.cancel,
             )
-            .await?
+            .await
         }
         "pdf" => {
             let bytes = bytes.as_deref().ok_or_else(|| anyhow!("pdf ref must be a file"))?;
-            let total_pages = pdf_page_count(&bytes, &file_name)
+            let total_pages = pdf_page_count(bytes, &file_name)
                 .with_context(|| format!("read pdf page count for {file_name}"))?;
             let page_range = parse_pdf_page_range(&ctx.args, total_pages)?;
             understand_pdf(
                 ctx.settings,
-                &api_key,
-                &bytes,
+                api_key,
+                bytes,
                 &file_name,
-                &goal_block,
+                goal_block,
                 &page_range,
                 total_pages,
-                &token_ctx,
+                token_ctx,
                 &ctx.cancel,
             )
-            .await?
+            .await
         }
-        other => return Err(anyhow!("unsupported media_understand mode: {other}")),
-    };
-
-    Ok((text, true, None))
+        other => Err(anyhow!("unsupported media_understand mode: {other}")),
+    }
 }

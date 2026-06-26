@@ -530,7 +530,7 @@ mod tests {
         let d = default_display(
             "media_understand",
             &json!({
-                "ref": "pointer-media://c/a.pdf",
+                "refs": ["pointer-media://c/a.pdf"],
                 "mode": "pdf",
                 "goal": "总结合同中的违约责任条款"
             }),

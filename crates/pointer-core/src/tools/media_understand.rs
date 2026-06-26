@@ -11,14 +11,7 @@ use std::sync::Arc;
 
 const DOC: &str = include_str!("prompts/media_understand.md");
 
-pub fn parse_ref_and_mode(args: &Value) -> Result<(String, String)> {
-    let media_ref = args
-        .get("ref")
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .ok_or_else(|| anyhow!("missing or empty ref"))?;
+pub fn parse_mode(args: &Value) -> Result<String> {
     let mode = args
         .get("mode")
         .and_then(|v| v.as_str())
@@ -27,9 +20,64 @@ pub fn parse_ref_and_mode(args: &Value) -> Result<(String, String)> {
         .map(|s| s.to_ascii_lowercase())
         .ok_or_else(|| anyhow!("missing or empty mode"))?;
     match mode.as_str() {
-        "image" | "video" | "audio" | "pdf" => Ok((media_ref, mode)),
+        "image" | "video" | "audio" | "pdf" => Ok(mode),
         _ => Err(anyhow!("mode must be image, video, audio, or pdf")),
     }
+}
+
+pub fn parse_refs(args: &Value, mode: &str) -> Result<Vec<String>> {
+    use crate::media::image_dir::MAX_IMAGES_PER_CALL;
+
+    if args.get("ref").is_some() {
+        return Err(anyhow!(
+            "media_understand: parameter ref was removed; use refs (array). For {mode}, pass exactly one element."
+        ));
+    }
+
+    let refs: Vec<String> = match args.get("refs").and_then(|v| v.as_array()) {
+        Some(arr) => arr
+            .iter()
+            .filter_map(|v| {
+                v.as_str()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+            })
+            .collect(),
+        None => Vec::new(),
+    };
+    if refs.is_empty() {
+        anyhow::bail!("missing or empty refs");
+    }
+
+    match mode {
+        "image" => {
+            if refs.len() > MAX_IMAGES_PER_CALL {
+                anyhow::bail!(
+                    "requested {} images via refs; max {MAX_IMAGES_PER_CALL} per call — split into multiple media_understand calls",
+                    refs.len()
+                );
+            }
+            Ok(refs)
+        }
+        "audio" | "video" | "pdf" => {
+            if refs.len() > 1 {
+                anyhow::bail!(
+                    "mode={mode} accepts only one ref; pass refs with exactly one element (got {})",
+                    refs.len()
+                );
+            }
+            Ok(refs)
+        }
+        other => Err(anyhow!("unsupported media_understand mode: {other}")),
+    }
+}
+
+pub fn parse_single_media_ref(args: &Value, mode: &str) -> Result<String> {
+    parse_refs(args, mode)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow!("missing refs"))
 }
 
 pub fn parse_goal(args: &Value) -> Result<String> {
@@ -80,67 +128,26 @@ pub fn parse_pdf_page_range(args: &Value, total_pages: usize) -> Result<crate::m
     Ok(range)
 }
 
-/// Parse video time window and sampling. Default: first segment at 1 frame/second (max 200 frames).
-pub fn parse_video_time_range(args: &Value, duration_sec: f64) -> Result<crate::media::VideoTimeRange> {
+/// Default video window: first segment at 1 frame/second (max 200 frames).
+pub fn parse_video_time_range(_args: &Value, duration_sec: f64) -> Result<crate::media::VideoTimeRange> {
     use crate::media::video::{VideoTimeRange, DEFAULT_FRAMES_PER_SECOND};
 
-    let has_start = args.get("timeStartSec").is_some();
-    let has_end = args.get("timeEndSec").is_some();
-    let fps = args
-        .get("framesPerSecond")
-        .and_then(|v| v.as_f64())
-        .filter(|n| n.is_finite() && *n > 0.0)
-        .unwrap_or(DEFAULT_FRAMES_PER_SECOND);
-    let max_window = VideoTimeRange::max_window_sec_for_fps(fps);
-    let duration = duration_sec.max(0.0);
-
-    let range = match (has_start, has_end) {
-        (false, false) => VideoTimeRange::default_first_window(duration, fps)?,
-        (true, false) => {
-            let start = args
-                .get("timeStartSec")
-                .and_then(|v| v.as_f64())
-                .filter(|n| n.is_finite() && *n >= 0.0)
-                .unwrap_or(0.0);
-            let end = (start + max_window).min(duration);
-            VideoTimeRange::normalize(duration, start, end, fps)?
-        }
-        (false, true) => {
-            let end = args
-                .get("timeEndSec")
-                .and_then(|v| v.as_f64())
-                .filter(|n| n.is_finite() && *n >= 0.0)
-                .unwrap_or(duration);
-            VideoTimeRange::normalize(duration, 0.0, end, fps)?
-        }
-        (true, true) => {
-            let start = args
-                .get("timeStartSec")
-                .and_then(|v| v.as_f64())
-                .filter(|n| n.is_finite() && *n >= 0.0)
-                .unwrap_or(0.0);
-            let end = args
-                .get("timeEndSec")
-                .and_then(|v| v.as_f64())
-                .filter(|n| n.is_finite() && *n >= 0.0)
-                .unwrap_or(duration);
-            VideoTimeRange::normalize(duration, start, end, fps)?
-        }
-    };
+    let range = VideoTimeRange::default_first_window(duration_sec.max(0.0), DEFAULT_FRAMES_PER_SECOND)?;
     range.ensure_within_per_call_limit()?;
     Ok(range)
 }
 
-/// Parse 1-based image index range for directory refs. Default: images 1–200 when unspecified.
+/// Parse 1-based image index range for directory refs via **pageStart** / **pageEnd**.
+/// Default: images 1–200 when unspecified.
 pub fn parse_image_dir_range(args: &Value, total_images: usize) -> Result<crate::media::ImageDirRange> {
     use crate::media::image_dir::{ImageDirRange, DEFAULT_IMAGE_BATCH};
 
     let start = args
-        .get("imageStart")
+        .get("pageStart")
         .and_then(|v| v.as_u64())
         .map(|n| usize::try_from(n).unwrap_or(0));
     let end = args
-        .get("imageEnd")
+        .get("pageEnd")
         .and_then(|v| v.as_u64())
         .map(|n| usize::try_from(n).unwrap_or(0));
 
@@ -193,29 +200,34 @@ mod tests {
     fn doc_has_valid_schema_frontmatter() {
         let schema = json_schema_from_markdown(DOC).expect("media_understand.md schema");
         assert_eq!(schema["type"], "object");
-        assert!(schema["properties"]["ref"].is_object());
+        assert!(schema["properties"]["refs"].is_object());
         assert!(schema["properties"]["mode"].is_object());
         assert!(schema["properties"]["goal"].is_object());
-        assert!(schema["required"].as_array().unwrap().contains(&json!("goal")));
+        assert!(!schema["properties"].as_object().unwrap().contains_key("ref"));
+        assert!(!schema["properties"].as_object().unwrap().contains_key("imageStart"));
+        assert!(!schema["properties"].as_object().unwrap().contains_key("timeStartSec"));
+        let required = schema["required"].as_array().unwrap();
+        assert!(required.contains(&json!("goal")));
+        assert!(required.contains(&json!("mode")));
+        assert!(required.contains(&json!("refs")));
     }
 
     #[test]
-    fn parse_ref_and_mode_ok() {
+    fn parse_refs_image_single() {
         let args = json!({
-            "ref": "pointer-media://c/a.png",
+            "refs": ["pointer-media://c/a.png"],
             "mode": "image",
             "goal": "Describe visible UI elements"
         });
-        let (r, m) = parse_ref_and_mode(&args).unwrap();
-        assert_eq!(r, "pointer-media://c/a.png");
-        assert_eq!(m, "image");
+        let refs = parse_refs(&args, "image").unwrap();
+        assert_eq!(refs, vec!["pointer-media://c/a.png"]);
     }
 
     #[test]
     fn parse_goal_required() {
-        let args = json!({"ref": "x", "mode": "pdf"});
+        let args = json!({"refs": ["x"], "mode": "pdf"});
         assert!(parse_goal(&args).is_err());
-        let args = json!({"ref": "x", "mode": "pdf", "goal": "Summarize key terms"});
+        let args = json!({"refs": ["x"], "mode": "pdf", "goal": "Summarize key terms"});
         assert_eq!(parse_goal(&args).unwrap(), "Summarize key terms");
     }
 
@@ -227,14 +239,74 @@ mod tests {
     }
 
     #[test]
-    fn parse_ref_and_mode_rejects_bad_mode() {
-        let args = json!({"ref": "x", "mode": "zip"});
-        assert!(parse_ref_and_mode(&args).is_err());
+    fn parse_refs_image_multi() {
+        let args = json!({
+            "refs": [
+                "pointer-media://c/a.png",
+                "pointer-media://c/b.jpg"
+            ],
+            "mode": "image",
+            "goal": "Compare layouts"
+        });
+        let refs = parse_refs(&args, "image").unwrap();
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0], "pointer-media://c/a.png");
+    }
+
+    #[test]
+    fn parse_refs_rejects_legacy_ref_field() {
+        let args = json!({
+            "ref": "pointer-media://c/a.png",
+            "mode": "image",
+            "goal": "Describe"
+        });
+        assert!(parse_refs(&args, "image").is_err());
+    }
+
+    #[test]
+    fn parse_refs_image_rejects_too_many() {
+        let refs: Vec<String> = (0..201).map(|i| format!("pointer-media://c/{i}.png")).collect();
+        let args = json!({
+            "refs": refs,
+            "mode": "image",
+            "goal": "batch"
+        });
+        assert!(parse_refs(&args, "image").is_err());
+    }
+
+    #[test]
+    fn parse_refs_pdf_accepts_one() {
+        let args = json!({
+            "refs": ["pointer-media://c/a.pdf"],
+            "mode": "pdf",
+            "goal": "read"
+        });
+        assert_eq!(
+            parse_single_media_ref(&args, "pdf").unwrap(),
+            "pointer-media://c/a.pdf"
+        );
+    }
+
+    #[test]
+    fn parse_refs_pdf_rejects_multiple() {
+        let args = json!({
+            "refs": ["pointer-media://c/a.pdf", "pointer-media://c/b.pdf"],
+            "mode": "pdf",
+            "goal": "read"
+        });
+        let err = parse_refs(&args, "pdf").unwrap_err().to_string();
+        assert!(err.contains("only one ref"));
+    }
+
+    #[test]
+    fn parse_mode_rejects_bad_mode() {
+        let args = json!({"refs": ["x"], "mode": "zip", "goal": "x"});
+        assert!(parse_mode(&args).is_err());
     }
 
     #[test]
     fn parse_pdf_page_range_defaults_to_first_ten() {
-        let args = json!({"ref": "x", "mode": "pdf", "goal": "summarize"});
+        let args = json!({"refs": ["x"], "mode": "pdf", "goal": "summarize"});
         let range = parse_pdf_page_range(&args, 100).unwrap();
         assert_eq!(range.start, 1);
         assert_eq!(range.end, 10);
@@ -244,7 +316,7 @@ mod tests {
     #[test]
     fn parse_pdf_page_range_user_range() {
         let args = json!({
-            "ref": "x",
+            "refs": ["x"],
             "mode": "pdf",
             "goal": "read",
             "pageStart": 5,
@@ -259,7 +331,7 @@ mod tests {
     #[test]
     fn parse_pdf_page_range_rejects_too_many_pages() {
         let args = json!({
-            "ref": "x",
+            "refs": ["x"],
             "mode": "pdf",
             "goal": "read",
             "pageStart": 1,
@@ -270,7 +342,7 @@ mod tests {
 
     #[test]
     fn parse_video_time_range_defaults_first_segment_at_one_fps() {
-        let args = json!({"ref": "x", "mode": "video", "goal": "watch"});
+        let args = json!({"refs": ["x"], "mode": "video", "goal": "watch"});
         let range = parse_video_time_range(&args, 500.0).unwrap();
         assert_eq!(range.start_sec, 0.0);
         assert_eq!(range.end_sec, 200.0);
@@ -281,16 +353,16 @@ mod tests {
 
     #[test]
     fn parse_video_time_range_short_video_uses_full_duration() {
-        let args = json!({"ref": "x", "mode": "video", "goal": "watch"});
+        let args = json!({"refs": ["x"], "mode": "video", "goal": "watch"});
         let range = parse_video_time_range(&args, 30.0).unwrap();
         assert_eq!(range.end_sec, 30.0);
         assert_eq!(range.frame_count(), 30);
     }
 
     #[test]
-    fn parse_video_time_range_user_window() {
+    fn parse_video_time_range_ignores_legacy_time_params() {
         let args = json!({
-            "ref": "x",
+            "refs": ["x"],
             "mode": "video",
             "goal": "watch",
             "timeStartSec": 10.0,
@@ -298,29 +370,15 @@ mod tests {
             "framesPerSecond": 2.0
         });
         let range = parse_video_time_range(&args, 120.0).unwrap();
-        assert_eq!(range.start_sec, 10.0);
-        assert_eq!(range.end_sec, 20.0);
-        assert_eq!(range.frames_per_second, 2.0);
-        assert!(range.user_specified_time);
-        assert_eq!(range.frame_count(), 20);
-    }
-
-    #[test]
-    fn parse_video_time_range_rejects_too_many_frames() {
-        let args = json!({
-            "ref": "x",
-            "mode": "video",
-            "goal": "watch",
-            "timeStartSec": 0.0,
-            "timeEndSec": 300.0,
-            "framesPerSecond": 1.0
-        });
-        assert!(parse_video_time_range(&args, 300.0).is_err());
+        assert_eq!(range.start_sec, 0.0);
+        assert_eq!(range.end_sec, 120.0);
+        assert_eq!(range.frames_per_second, 1.0);
+        assert!(!range.user_specified_time);
     }
 
     #[test]
     fn parse_image_dir_range_defaults_first_batch() {
-        let args = json!({"ref": "/photos", "mode": "image", "goal": "describe"});
+        let args = json!({"refs": ["/photos"], "mode": "image", "goal": "describe"});
         let range = parse_image_dir_range(&args, 500).unwrap();
         assert_eq!(range.start, 1);
         assert_eq!(range.end, 200);
@@ -328,13 +386,28 @@ mod tests {
     }
 
     #[test]
-    fn parse_image_dir_range_rejects_too_many() {
+    fn parse_image_dir_range_user_page_window() {
         let args = json!({
-            "ref": "/photos",
+            "refs": ["/photos"],
             "mode": "image",
             "goal": "describe",
-            "imageStart": 1,
-            "imageEnd": 250
+            "pageStart": 5,
+            "pageEnd": 8
+        });
+        let range = parse_image_dir_range(&args, 50).unwrap();
+        assert_eq!(range.start, 5);
+        assert_eq!(range.end, 8);
+        assert!(range.user_specified);
+    }
+
+    #[test]
+    fn parse_image_dir_range_rejects_too_many() {
+        let args = json!({
+            "refs": ["/photos"],
+            "mode": "image",
+            "goal": "describe",
+            "pageStart": 1,
+            "pageEnd": 250
         });
         assert!(parse_image_dir_range(&args, 500).is_err());
     }

@@ -32,7 +32,7 @@ pub fn read_media_ref_bytes(raw: &str) -> Result<Vec<u8>> {
     let path = resolve_media_ref(raw)?;
     if path.is_dir() {
         anyhow::bail!(
-            "media ref is a directory; use media_understand mode=image with imageStart/imageEnd"
+            "media ref is a directory; use media_understand mode=image with refs containing one directory path and pageStart/pageEnd"
         );
     }
     std::fs::read(&path).with_context(|| format!("read media file {}", path.display()))

@@ -7,7 +7,7 @@ use super::video::MAX_VISION_FRAMES_PER_CALL;
 
 /// Max images processed per `media_understand` call (same cap as vision frame batch).
 pub const MAX_IMAGES_PER_CALL: usize = MAX_VISION_FRAMES_PER_CALL;
-/// Default batch size when the user does not specify `imageStart` / `imageEnd`.
+/// Default batch size when the user does not specify `pageStart` / `pageEnd`.
 pub const DEFAULT_IMAGE_BATCH: usize = MAX_IMAGES_PER_CALL;
 
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif"];
@@ -30,14 +30,14 @@ impl ImageDirRange {
             anyhow::bail!("image directory contains no supported image files");
         }
         if start == 0 || end == 0 {
-            anyhow::bail!("imageStart and imageEnd are 1-based and must be >= 1");
+            anyhow::bail!("pageStart and pageEnd are 1-based and must be >= 1");
         }
         if start > end {
-            anyhow::bail!("imageStart ({start}) must be <= imageEnd ({end})");
+            anyhow::bail!("pageStart ({start}) must be <= pageEnd ({end})");
         }
         if end > total_images {
             anyhow::bail!(
-                "imageEnd ({end}) exceeds image file count ({total_images})"
+                "pageEnd ({end}) exceeds image file count ({total_images})"
             );
         }
         Ok(Self {
@@ -62,7 +62,7 @@ impl ImageDirRange {
         let count = self.image_count();
         if count > MAX_IMAGES_PER_CALL {
             anyhow::bail!(
-                "requested {count} images ({}-{}); max {MAX_IMAGES_PER_CALL} per call — split into multiple media_understand calls with different imageStart/imageEnd",
+                "requested {count} images ({}-{}); max {MAX_IMAGES_PER_CALL} per call — split into multiple media_understand calls with different pageStart/pageEnd",
                 self.start,
                 self.end
             );
@@ -106,6 +106,12 @@ pub fn list_image_files_in_dir(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(files)
 }
 
+pub fn format_multi_refs_scope_notice(image_count: usize) -> String {
+    format!(
+        "[Image batch scope: {image_count} attachment ref(s) processed in one call (max {MAX_IMAGES_PER_CALL} per call).]"
+    )
+}
+
 pub fn format_image_dir_scope_notice(
     range: &ImageDirRange,
     total_images: usize,
@@ -122,7 +128,7 @@ pub fn format_image_dir_scope_notice(
         )
     } else {
         format!(
-            "[Image directory scope: {scope} of {total_images} total in \"{dir_display}\" — user did not specify an index range; only the first {} image(s) were processed. Call again with imageStart/imageEnd for other images, or split into batches of at most {MAX_IMAGES_PER_CALL} images per call.]",
+            "[Image directory scope: {scope} of {total_images} total in \"{dir_display}\" — user did not specify an index range; only the first {} image(s) were processed. Call again with pageStart/pageEnd for other images, or split into batches of at most {MAX_IMAGES_PER_CALL} images per call.]",
             range.end
         )
     }

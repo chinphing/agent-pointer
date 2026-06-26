@@ -2,12 +2,17 @@
 schema:
   type: object
   properties:
-    ref:
-      type: string
+    refs:
+      type: array
+      items:
+        type: string
+      minItems: 1
       description: >
-        Media reference: pointer-media:// URI, conversation-media relative path,
+        Media references: pointer-media:// URI, conversation-media relative path,
         or absolute local path from the user attachment manifest.
-        For mode=image, may also be a directory path containing image files.
+        **mode=image**: one or more refs (max 200 per call). A single ref may be
+        a directory path — use pageStart/pageEnd for folder batches.
+        **mode=video/audio/pdf**: exactly **one** ref in the array.
     mode:
       type: string
       enum:
@@ -23,7 +28,7 @@ schema:
       description: >
         Required. What the user wants from this file: analysis goal, focus, output shape,
         and relevant conversation context (language, scope, constraints).
-        Paraphrase from the user's latest message — do not call with only ref/mode.
+        Paraphrase from the user's latest message — do not call with only refs/mode.
     context:
       type: string
       description: >
@@ -33,48 +38,17 @@ schema:
       type: integer
       minimum: 1
       description: >
-        PDF only. 1-based first page to extract. Omit unless the user explicitly asked
-        for specific pages; host defaults to pages 1–10.
+        Optional 1-based start index. **mode=pdf**: first PDF page (default pages 1–10).
+        **mode=image** with a directory ref: first image by sorted file name (default 1–200).
+        Omit unless the user explicitly asked for a range.
     pageEnd:
       type: integer
       minimum: 1
       description: >
-        PDF only. 1-based last page (inclusive). Use with pageStart when the user
-        named a page range. Max 10 pages per call — split larger ranges across calls.
-    imageStart:
-      type: integer
-      minimum: 1
-      description: >
-        Image directory only. 1-based first image index (sorted by file name).
-        Omit unless the user explicitly asked for a range; host defaults to images 1–200.
-    imageEnd:
-      type: integer
-      minimum: 1
-      description: >
-        Image directory only. 1-based last image index (inclusive). Max 200 images
-        per call — split larger ranges across calls.
-    timeStartSec:
-      type: number
-      minimum: 0
-      description: >
-        Video only, ffmpeg fallback path. Start of the time window in seconds.
-        Omit on the native OSS **video_url** path — put segment focus in **goal** instead.
-        On fallback, omit unless the user explicitly asked for a segment; host defaults to
-        the first segment (up to 200s at 1 fps).
-    timeEndSec:
-      type: number
-      minimum: 0
-      description: >
-        Video only, ffmpeg fallback path. End of the time window in seconds.
-        Use with timeStartSec when the user named a segment. Max 200 frames per call.
-    framesPerSecond:
-      type: number
-      minimum: 0.1
-      description: >
-        Video only. Frames per second. On native OSS path, controls server-side sampling **fps**.
-        On ffmpeg fallback, sampling inside the time window. Omit for host default of 1 fps.
+        Optional 1-based end index (inclusive). **mode=pdf**: last PDF page (max 10 pages/call).
+        **mode=image** directory: last image index (max 200 images/call). Use with pageStart.
   required:
-    - ref
+    - refs
     - mode
     - goal
   additionalProperties: false
@@ -84,14 +58,20 @@ Understand image, video, audio, or PDF files on demand via host-managed models.
 
 ## Parameters
 
-- **ref** + **mode** — from the manifest (`pointer-media://…`), or a **local directory path** (image mode only).
+- **refs** + **mode** — from the manifest (`pointer-media://…`), or a **local directory path**
+  (image mode only, single-element **refs**).
   Prefer **`pointer-media://` refs** from the attachment manifest; absolute `localPath` also works.
 - **goal** (required) — user's analysis goal in their language.
 - **context** (optional) — extra thread background not already in **goal**.
-- **pageStart** / **pageEnd** (PDF) — only when the user explicitly asked for pages.
-- **imageStart** / **imageEnd** (image directory) — only when the user explicitly asked.
-- **timeStartSec** / **timeEndSec** / **framesPerSecond** (**video**, ffmpeg fallback only) —
-  only when the user explicitly asked for a segment or sampling rate on the frame path.
+- **pageStart** / **pageEnd** — **pdf**: page range; **image** directory: sorted image index range.
+  Omit unless the user explicitly asked; host applies mode-specific defaults.
+
+### refs count by mode
+
+| mode | refs |
+|------|------|
+| **image** | 1–200 refs; multi-ref for compare/batch in one call |
+| **video** / **audio** / **pdf** | **exactly one** ref (single-element array) |
 
 ## Modes
 
@@ -99,7 +79,7 @@ Understand image, video, audio, or PDF files on demand via host-managed models.
   on-screen text (host may use OSS `video_url` or ffmpeg frames).
   **Does not read the audio track** — no transcript, no spoken-word analysis.
 - **audio**: ASR model. **Speech / transcript** from an audio **or video** attachment.
-  Pass the same **ref** from the manifest; for video files the host **extracts the audio
+  Pass the attachment in **refs**; for video files the host **extracts the audio
   track** then runs ASR. **Does not see the picture.**
 - **pdf**: **scanned-PDF fallback only** — Pdfium renders each page to JPEG, then vision model. Use the **pdf** skill + `terminal` first for text-native PDFs.
 
@@ -110,7 +90,7 @@ Understand image, video, audio, or PDF files on demand via host-managed models.
 
 **audio** mode analyzes **sound only**. For a **video** ref the host runs this pipeline:
 
-1. Resolve the attachment from the manifest (**ref**) and read the **local file**.
+1. Resolve the attachment from the manifest (**refs[0]**) and read the **local file**.
 2. **Extract the audio track** from the video file (ffmpeg).
 3. Run speech-to-text (ASR).
 4. Return text shaped by **goal** (verbatim transcript, summary, speaker labels, etc.).
@@ -123,9 +103,9 @@ as soon as the attachment has a local path; you do **not** need to wait for OSS 
 
 | User wants | mode | workflow |
 |------------|------|----------|
-| What was said / transcript / 说了什么 / 逐字稿 / 语音转文字 | **audio** | One call on the video **ref**; uses **local file**, not OSS |
+| What was said / transcript / 说了什么 / 逐字稿 / 语音转文字 | **audio** | One call; **refs** with one video/audio ref; uses **local file**, not OSS |
 | Scenes / UI / demo steps / 画面 / 演示流程 | **video** | One call; wait for OSS **remoteUrl** when attached from Composer |
-| Both speech and visuals | **audio** + **video** | **Two calls**, same **ref**; merge in your reply |
+| Both speech and visuals | **audio** + **video** | **Two calls**, same ref in **refs**; merge in your reply |
 | On-screen text only (no speech needed) | **video** | Put OCR / UI focus in **goal** |
 
 ### Do not
@@ -144,20 +124,25 @@ When the user asks for both what is **said** and what is **shown**:
 
 For long videos:
 
-- **audio**: no time-window parameters — put segment focus in **goal**, or transcribe the
-  full attachment.
-- **video** (OSS native): put segment focus in **goal**; the host sends the full file.
-- **video** (ffmpeg fallback): split calls with **timeStartSec** / **timeEndSec** when the
-  user named a segment.
+- **audio**: put segment focus in **goal**, or transcribe the full attachment.
+- **video** (OSS native): put segment focus in **goal**; the host sends the full file at **1 fps**.
+- **video** (ffmpeg fallback): host processes the **first segment** (up to 200s at 1 fps); put later segments in **goal** and call again if needed.
 
 ## Image directory
 
-- **ref** may be a folder path (`localPath` or user path) when **mode=image**.
+- **refs** with one folder path when **mode=image**.
 - Lists **non-recursive** image files (png/jpg/jpeg/gif/webp/bmp/heic/heif), sorted by name.
 - **Default:** images **1–200** when the user did not name a range.
-- **User named a range:** set **imageStart** / **imageEnd** (1-based index).
+- **User named a range:** set **pageStart** / **pageEnd** (1-based index).
 - **Max 200 images per call** — split across multiple calls for larger folders.
 - Tool output includes a **scope notice** with index range and **total image count**.
+
+## Multiple image attachments
+
+- **mode=image** with **refs** (2+ elements): compare or summarize in one vision call.
+- **Max 200 refs per call** — same cap as image directory batches.
+- For unrelated images with different goals, prefer separate calls with one ref each.
+- Tool output includes a **scope notice** with the ref count processed.
 
 ## PDF pages
 
@@ -171,15 +156,12 @@ For long videos:
 ## Video sampling
 
 - **Primary (DashScope, `mode=video` only):** Composer videos use **`remoteUrl`**
-  (HTTPS OSS URL) → native **`video_url`** + **`fps`**. Sends the **full** video;
-  put time/segment focus in **goal** — **timeStartSec** / **timeEndSec** do **not**
-  trim the native path.
+  (HTTPS OSS URL) → native **`video_url`** at **1 fps**. Sends the **full** video;
+  put time/segment focus in **goal**.
 - **Upload:** wait for OSS upload to finish before **`mode=video`** on Composer attachments.
   **`mode=audio`** on the same video does **not** require OSS.
 - **Large files (>500 MB):** cannot upload directly; after user confirms, host compresses to **≤500 MB** then uploads (frame rate / resolution may drop).
-- **Fallback (`mode=video`):** no `remoteUrl` or native API failure → ffmpeg JPEG frames + vision model.
-- **Time window (`mode=video`, fallback only):** **timeStartSec** / **timeEndSec** / **framesPerSecond**
-  trim and sample frames on the ffmpeg path (see Parameters).
+- **Fallback (`mode=video`):** no `remoteUrl` or native API failure → ffmpeg JPEG frames + vision model (first **200s** at **1 fps** by default).
 - Tool output includes scope notice with window, **total duration**, and input mode.
 
 ## Other limits
@@ -188,13 +170,14 @@ For long videos:
 |------|------------|----------------|
 | PDF (scanned fallback) | Pdfium page render → vision model | Use **pdf** skill first; split by **pageStart/pageEnd** |
 | PDF page images (`mode=pdf`) | 10 pages/call; 6 MB/page JPEG | Only after skill detects scan; split batches when user asked |
-| Video (DashScope) | Native **video_url** + **fps** via **`remoteUrl`** (HTTPS); full file | Segment focus in **goal**, not **timeStartSec** |
-| Video fallback | ffmpeg JPEG frames, max **200**/call; **timeStartSec** / **timeEndSec** apply | No `remoteUrl` or native API failure |
+| Video (DashScope) | Native **video_url** at **1 fps** via **`remoteUrl`** (HTTPS); full file | Segment focus in **goal** |
+| Video fallback | ffmpeg JPEG frames, max **200**/call; first segment at **1 fps** | No `remoteUrl` or native API failure |
 | Video upload | OSS at attach; **>500 MB** → confirm then host compress to **≤500 MB**; **≤5 GB** PutObject ceiling | Cancel → no attach |
 | IM inbound video | Same OSS path; **>500 MB** auto-compress (no prompt); non-video IM media **30 MB** | OSS optional; local fallback |
-| Image (single file) | Resized to ≤6 MB | One file per call |
-| Image directory | Max **200** images/call; non-recursive | Split by **imageStart/imageEnd** |
-| Audio / video → speech | **mode=audio** on video **ref**; local file + ffmpeg extract | No **timeStartSec**; segment focus in **goal** |
+| Image (single file) | Resized to ≤6 MB | **refs** with one element |
+| Image (multi ref) | Max **200** refs/call | **refs** with 2+ elements |
+| Image directory | Max **200** images/call; non-recursive | **refs** with one folder + **pageStart/pageEnd** |
+| Audio / video → speech | **mode=audio** on video ref; local file + ffmpeg extract | **refs** with one element; segment focus in **goal** |
 
 Manifest includes **sizeBytes** — use it to warn when a file is large.
 
@@ -202,4 +185,4 @@ For third-party Skill scripts that need a filesystem path, use **localPath** fro
 
 Do **not** call when the user only sent attachments without stating what to do — ask first.
 
-Re-run with the same **ref** and updated parameters when the user wants a different scope.
+Re-run with the same **refs** and updated parameters when the user wants a different scope.

@@ -66,23 +66,22 @@ usernames or unverified absolute paths. Typical locations (names vary by OS/loca
 - **Intent unclear** (only files, or vague "看看/分析一下") → **ask first** what to do
   (transcribe, describe, OCR, summarize, edit Office, etc.). Do **not** guess and call
   `media_understand` or run Skills without consent.
-- **Intent clear** → for **image / video / audio** attachments, call **`media_understand`** with `ref`, matching `mode`, and **`goal`**. For **PDF** attachments, see the **PDF** bullet below — **not** `media_understand` first.
+- **Intent clear** → for **image / video / audio** attachments, call **`media_understand`** with **`refs`**, matching `mode`, and **`goal`**. Multiple images: one call with several refs; other modes: single-element **refs**. For **PDF** attachments, see the **PDF** bullet below — **not** `media_understand` first.
   Optional **`context`** for extra thread background.
   **Speech / audio in a video file** → **`mode=audio`** only (host extracts the track;
   **`mode=video`** sees frames, not sound). **Both speech and visuals** → **`audio`**
-  then **`video`**, same **ref**, merge in reply. Never call with only `ref` + `mode`.
+  then **`video`**, same ref in **refs**, merge in reply. Never call with only **refs** + `mode`.
 - **Office** (docx/xlsx/pptx) → **`skill_read`** the matching Office skill, then **`terminal`**
   using **localPath** from the manifest (third-party scripts may not accept `pointer-media://`).
 - **PDF attachments** → **`skill_read`** the **pdf** skill first; extract text via **`terminal`**
   and **`localPath`**. Only when extraction is **empty or unusable** (scanned/image PDF) →
-  **`media_understand`** with **`mode=pdf`**, **`ref`**, and **`goal`**. Merge/split/forms/editing
+  **`media_understand`** with **`mode=pdf`**, **`refs`** (one element), and **`goal`**. Merge/split/forms/editing
   stay on the pdf skill. Enable **sort** only when the user asks for reading order.
 - **Large PDF** → put page range in **`pageStart`/`pageEnd`** only when the user explicitly
   asked; otherwise host defaults to pages 1–10. Split into multiple calls if >10 pages.
-- **Large video** → set **`timeStartSec`/`timeEndSec`** only when the user explicitly
-  asked; otherwise host defaults to first segment at **1 fps** (max **200** frames).
+- **Large video** → put segment focus in **goal**; host defaults to **1 fps** (first **200s** on ffmpeg fallback).
   Split across calls when needed.
-- **Re-process** when the user is unsatisfied → reuse the same **ref** / **localPath**;
+- **Re-process** when the user is unsatisfied → reuse the same **refs** / **localPath**;
   they need **not** resend the file.
 - Do **not** show absolute paths in user-facing replies.
 

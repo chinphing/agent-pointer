@@ -360,6 +360,35 @@ pub fn save_user_settings(user: &UserSettings) -> Result<()> {
     write_user_settings_file(&to_save)
 }
 
+fn migrate_planner_settings_json(value: &mut serde_json::Value) {
+    let obj = match value.as_object_mut() {
+        Some(o) => o,
+        None => return,
+    };
+    if !obj.contains_key("computerStandalonePlannerEnabled") {
+        let p = obj
+            .get("taskBoardPlannerEnabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let w = obj
+            .get("taskBoardWorkItemsEnabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let n = obj
+            .get("taskBoardComputerNoExecInit")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let any_legacy = obj.contains_key("taskBoardPlannerEnabled")
+            || obj.contains_key("taskBoardWorkItemsEnabled")
+            || obj.contains_key("taskBoardComputerNoExecInit");
+        let enabled = if any_legacy { p && w && n } else { true };
+        obj.insert("computerStandalonePlannerEnabled".into(), json!(enabled));
+    }
+    obj.remove("taskBoardPlannerEnabled");
+    obj.remove("taskBoardWorkItemsEnabled");
+    obj.remove("taskBoardComputerNoExecInit");
+}
+
 /// Desktop-only persisted agent preferences (智能体 section).
 pub fn load_local_platform_settings() -> Result<Option<PlatformSettings>> {
     ensure_local_platform_imported()?;
@@ -369,14 +398,17 @@ pub fn load_local_platform_settings() -> Result<Option<PlatformSettings>> {
     }
     let raw = fs::read_to_string(&path)?;
     let contains_sensitive_dati = local_platform_contains_sensitive_dati_keys(&raw);
-    if let Ok(persisted) = serde_json::from_str::<PersistedLocalPlatformSettings>(&raw) {
-        if contains_sensitive_dati {
-            log::warn!(
-                "storage: local_platform_settings.json contains sensitive DaTi keys; rewriting sanitized file"
-            );
-            save_local_platform_settings(&persisted)?;
+    if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&raw) {
+        migrate_planner_settings_json(&mut value);
+        if let Ok(persisted) = serde_json::from_value::<PersistedLocalPlatformSettings>(value) {
+            if contains_sensitive_dati {
+                log::warn!(
+                    "storage: local_platform_settings.json contains sensitive DaTi keys; rewriting sanitized file"
+                );
+                save_local_platform_settings(&persisted)?;
+            }
+            return Ok(Some(persisted.into_platform()));
         }
-        return Ok(Some(persisted.into_platform()));
     }
     // Legacy file written as full PlatformSettings (may contain apiKey / debug fields).
     if let Ok(legacy) = serde_json::from_str::<PlatformSettings>(&raw) {

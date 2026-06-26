@@ -59,6 +59,7 @@ pub(super) async fn run_sub_agent_stream_round(
             tx,
             cancel_clone,
             Some(dump_lbl.as_str()),
+            crate::message_context::LlmHistoryScope::SubAgentLoop,
         )
         .await
     });

@@ -1,6 +1,8 @@
 //! Parent / child store key ACL.
 
 use crate::task_board::model::{BoardDocument, BoardScope};
+use crate::task_board::store::TaskBoardStore;
+use crate::task_board::work_item::WorkItemStore;
 use anyhow::{anyhow, Result};
 
 pub const SUB_AGENT_KEY_SEP: &str = "\u{1f}ptr_sub_agent\u{1f}";
@@ -27,6 +29,69 @@ pub fn is_child_store_key(store_key: &str) -> bool {
     store_key.contains(SUB_AGENT_KEY_SEP)
 }
 
+fn store_key_has_board_or_work_items(
+    board_store: &TaskBoardStore,
+    work_items: &WorkItemStore,
+    store_key: &str,
+) -> bool {
+    let doc = board_store.document(store_key);
+    if !doc.board_is_empty() || !doc.meta.goal.trim().is_empty() {
+        return true;
+    }
+    work_items.count_store(store_key) > 0
+}
+
+/// Resolve persisted store key for UI reads (snapshot, work_items list/stats).
+///
+/// After reload, `parent_store_key` from memory may not match the parent used at init;
+/// child boards fall back to suffix search under `conversation_id` (same as snapshot API).
+pub fn resolve_store_key_for_read(
+    board_store: &TaskBoardStore,
+    work_items: &WorkItemStore,
+    conversation_id: &str,
+    task_id: Option<&str>,
+    parent_store_key: &str,
+) -> String {
+    let conv = conversation_id.trim();
+    let parent = parent_store_key.trim();
+    match task_id.map(str::trim).filter(|s| !s.is_empty()) {
+        None => {
+            let candidate = if parent.is_empty() {
+                conv.to_string()
+            } else {
+                parent.to_string()
+            };
+            if work_items.count_store(&candidate) > 0 {
+                return candidate;
+            }
+            if let Some(alt) = work_items.best_store_key_with_items_under_prefix(conv) {
+                if alt != candidate {
+                    log::info!(
+                        "task_board: resolve_store_key_for_read {candidate} -> {alt} (work_items under conversation prefix)"
+                    );
+                }
+                return alt;
+            }
+            candidate
+        }
+        Some(tid) => {
+            let parent_key = if parent.is_empty() { conv } else { parent };
+            let preferred = sub_agent_task_board_store_key(parent_key, tid);
+            if store_key_has_board_or_work_items(board_store, work_items, &preferred) {
+                return preferred;
+            }
+            let suffix = format!("{SUB_AGENT_KEY_SEP}{tid}");
+            let matches: Vec<String> = board_store
+                .list_store_keys_by_prefix(conv)
+                .into_iter()
+                .filter(|k| k.ends_with(&suffix))
+                .filter(|k| store_key_has_board_or_work_items(board_store, work_items, k))
+                .collect();
+            matches.into_iter().next().unwrap_or(preferred)
+        }
+    }
+}
+
 /// Child boards may not replace/init parent milestones via mistaken scope; host binds `_conversation_id` to child key only.
 pub fn assert_child_may_mutate(store_key: &str, doc: &BoardDocument, method: &str) -> Result<()> {
     if !is_child_store_key(store_key) {
@@ -45,6 +110,9 @@ pub fn assert_child_may_mutate(store_key: &str, doc: &BoardDocument, method: &st
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::task_board::model::{BoardDocument, MetaStatus};
+    use crate::task_board::store::TaskBoardStore;
+    use crate::task_board::work_item::WorkItemDraft;
 
     #[test]
     fn parent_key_from_child() {
@@ -53,5 +121,90 @@ mod tests {
             parent_store_key_from_child(&k).as_deref(),
             Some("conv-1\u{1f}ptr_main_turn\u{1f}msg-1")
         );
+    }
+
+    #[test]
+    fn resolve_child_store_key_falls_back_when_parent_mismatch() {
+        let board_store = TaskBoardStore::new();
+        let work_items = board_store.work_items.as_ref();
+        let conv = "conv-1";
+        let real_parent = format!("{conv}\u{1f}ptr_main_turn\u{1f}msg-1");
+        let task_id = "task_a";
+        let real_child = sub_agent_task_board_store_key(&real_parent, task_id);
+        let mut doc = BoardDocument::empty_for_store_key(&real_child);
+        doc.meta.goal = "child goal".into();
+        doc.meta.status = MetaStatus::Running;
+        board_store.save_document(&real_child, doc);
+        work_items
+            .seed_bulk(
+                &real_child,
+                vec![WorkItemDraft {
+                    title: "City A".into(),
+                    ..Default::default()
+                }],
+            )
+            .expect("seed");
+
+        let wrong_parent = conv;
+        let preferred = sub_agent_task_board_store_key(wrong_parent, task_id);
+        assert!(!store_key_has_board_or_work_items(
+            &board_store,
+            work_items,
+            &preferred
+        ));
+
+        let resolved = resolve_store_key_for_read(
+            &board_store,
+            work_items,
+            conv,
+            Some(task_id),
+            wrong_parent,
+        );
+        assert_eq!(resolved, real_child);
+        assert_eq!(work_items.count_store(&resolved), 1);
+    }
+
+    #[test]
+    fn resolve_parent_falls_back_to_main_turn_work_items() {
+        let board_store = TaskBoardStore::new();
+        let work_items = board_store.work_items.as_ref();
+        let conv = "conv-1";
+        let real_parent = format!("{conv}\u{1f}ptr_main_turn\u{1f}msg-1");
+        let mut doc = BoardDocument::empty_for_store_key(&real_parent);
+        doc.meta.goal = "batch".into();
+        doc.meta.status = MetaStatus::Running;
+        doc.meta.work_item_mode = Some(crate::task_board::WorkItemMode::Enumerated);
+        board_store.save_document(&real_parent, doc);
+        work_items
+            .seed_bulk(
+                &real_parent,
+                vec![
+                    WorkItemDraft {
+                        title: "北京".into(),
+                        ..Default::default()
+                    },
+                    WorkItemDraft {
+                        title: "上海".into(),
+                        ..Default::default()
+                    },
+                ],
+            )
+            .expect("seed");
+        work_items
+            .apply_delta(
+                &real_parent,
+                crate::task_board::work_item::WorkItemDelta {
+                    id: "1".into(),
+                    status: crate::task_board::work_item::WorkItemStatus::Done,
+                    result_summary: Some("done".into()),
+                    result_ref: None,
+                    error_message: None,
+                },
+            )
+            .expect("done");
+
+        let resolved = resolve_store_key_for_read(&board_store, work_items, conv, None, conv);
+        assert_eq!(resolved, real_parent);
+        assert_eq!(work_items.store_stats(&resolved).done, 1);
     }
 }

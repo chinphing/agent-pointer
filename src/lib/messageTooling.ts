@@ -101,7 +101,7 @@ export function taskBoardToolSummary(result: string | undefined): string | null 
       board_len?: number
       patched?: Array<{ id?: string; status?: string }>
       summary?: { method?: string; count?: number }
-      document?: { board?: unknown[] }
+      document?: { board?: unknown[]; global_milestones?: unknown[] }
     }
     const patched = parsed.patched
     if (Array.isArray(patched) && patched.length === 1) {
@@ -114,7 +114,11 @@ export function taskBoardToolSummary(result: string | undefined): string | null 
     if (Array.isArray(patched) && patched.length > 1) {
       return `patch · ${patched.length} 行`
     }
-    const boardLen = parsed.board_len ?? parsed.document?.board?.length ?? parsed.summary?.count
+    const boardLen =
+      parsed.board_len
+      ?? parsed.document?.global_milestones?.length
+      ?? parsed.document?.board?.length
+      ?? parsed.summary?.count
     if (typeof boardLen === 'number') return `共 ${boardLen} 里程碑`
     const method = parsed.method ?? parsed.summary?.method ?? 'update'
     return `任务板 · ${method}`

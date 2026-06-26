@@ -178,7 +178,10 @@ export interface MessageUiBindings {
   taskBoardAnchor?: boolean
 }
 
-export type ExcludedReason = 'context_compression' | 'task_board_trim'
+export type ExcludedReason =
+  | 'context_compression'
+  | 'task_board_trim'
+  | 'planner_ui_shell'
 
 export interface MessageContextState {
   included: boolean
@@ -473,6 +476,8 @@ export interface PlatformSettings {
   debugMenusEnabled?: boolean
   /** Debug: show child task boards under parent board panel. */
   taskBoardShowChildBoards?: boolean
+  /** Computer: independent planner (work_items queue + planner loop + exec cannot init board). */
+  computerStandalonePlannerEnabled?: boolean
   agentDefaultModels: Record<string, AgentModelRef>
   agentTaskBoardHistoryTrim?: Record<string, boolean>
   computerHumanLike?: boolean
@@ -536,6 +541,8 @@ export interface ModelSettings {
   debugMenusEnabled?: boolean
   /** Debug: show child task boards under parent board panel. */
   taskBoardShowChildBoards?: boolean
+  /** Computer: independent planner (work_items queue + planner loop + exec cannot init board). */
+  computerStandalonePlannerEnabled?: boolean
   /** agentId → 该 agent 的默认「服务商 + 模型」（显式存储，不从模型名反推服务商） */
   agentDefaultModels: Record<string, AgentModelRef>
   /** agentId → task_board 更新后是否硬截断较早对话（无 LLM 摘要） */
@@ -797,6 +804,9 @@ export interface TaskBoardItem {
   depends_on?: string[]
   retry_count?: number
   plan?: string
+  done_when?: string
+  remark?: string
+  constraint?: string
   /** Milestone position, e.g. `3/10` or `batch 2/4`. Legacy boards may still send `checkpoint`. */
   progress?: string
   checkpoint?: string
@@ -805,6 +815,9 @@ export interface TaskBoardItem {
   extract_requirement?: string
   extract_results?: string[]
   blocked_by?: string
+  work_item_mode?: 'enumerated' | 'dynamic'
+  dynamic_quota?: number
+  delivery_format?: 'xlsx' | 'csv' | 'txt' | 'jsonl'
 }
 
 export interface TaskBoardGlobalContext {
@@ -818,15 +831,29 @@ export interface TaskBoardDocument {
   meta: {
     goal: string
     status: string
-    step_count?: number
-    max_steps?: number
     max_depth?: number
     expected_total?: number
+    done_when?: string
+    constraint?: string
+    context?: string
+    work_item_mode?: 'enumerated' | 'dynamic'
+    dynamic_quota?: number
+    work_items_source_path?: string
+    work_items_seeded_rows?: number
+    work_items_done?: number
+    work_items_failed?: number
+    work_items_total?: number
+    work_items_in_progress?: number
     scope?: 'parent' | 'child'
     root_target?: string
     parent_sub_task_id?: string
     parent_store_key?: string
   }
   global_context?: TaskBoardGlobalContext
-  board: TaskBoardItem[]
+  /** v4 global milestone rows (`g_plan` / `g_exec` / Type1 steps). */
+  global_milestones?: TaskBoardItem[]
+  /** v4 reusable per-item SOP template. */
+  item_milestones?: TaskBoardItem[]
+  /** Legacy v3 alias of `global_milestones`. */
+  board?: TaskBoardItem[]
 }

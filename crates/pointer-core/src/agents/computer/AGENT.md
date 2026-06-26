@@ -29,6 +29,7 @@ accessPolicy:
     - launch_app
     - action_verify
     - task_board
+    - work_items_export
     - captcha_verify
   denyTools: []
   allowSkills: []
@@ -47,6 +48,7 @@ defaultSkillIds: []
 config:
   annotateApiBase: "http://116.62.86.190"
   computerAutoUpgrade: "true"
+  computerStandalonePlanner: "true"
   computerInitialTier: "intermediate"
   computerModelPrimary: "qwen3.5-flash"
   computerModelIntermediate: "qwen3.5-plus"

@@ -1,4 +1,5 @@
 pub mod attachment_lookup;
+pub mod delegation;
 pub mod access;
 pub mod apply;
 pub mod audio;
@@ -36,6 +37,11 @@ pub use image_dir::{
 };
 pub use apply::apply_media_to_history;
 pub use attachment_lookup::find_attachment_by_media_ref;
+pub use delegation::{
+    collect_recent_user_attachments, format_delegation_attachments_block,
+    merge_attachments_into_context, parse_attachment_specs_from_args, resolve_attachment_specs,
+    AttachmentRefSpec,
+};
 pub use understand::{
     describe_image_with_model, describe_images_with_model, describe_pdf_pages_with_model,
     describe_video_with_model, transcribe_audio_with_model,

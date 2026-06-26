@@ -97,6 +97,7 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   debugDumpLlmPrompts: false,
   debugMenusEnabled: false,
   taskBoardShowChildBoards: false,
+  computerStandalonePlannerEnabled: true,
   agentDefaultModels: {},
   agentTaskBoardHistoryTrim: {},
   computerHumanLike: true,
@@ -128,10 +129,40 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   mediaUnderstandingModes: { image: 'fast', audio: 'fast', video: 'fast' }
 })
 
+function migratePlannerSettingsFields(
+  s: ModelSettings & {
+    taskBoardPlannerEnabled?: boolean
+    taskBoardWorkItemsEnabled?: boolean
+    taskBoardComputerNoExecInit?: boolean
+  }
+): ModelSettings {
+  const raw = s as unknown as Record<string, unknown>
+  if (raw.computerStandalonePlannerEnabled !== undefined) {
+    const { taskBoardPlannerEnabled: _p, taskBoardWorkItemsEnabled: _w, taskBoardComputerNoExecInit: _n, ...rest } =
+      raw
+    return {
+      ...(rest as unknown as ModelSettings),
+      computerStandalonePlannerEnabled: raw.computerStandalonePlannerEnabled !== false
+    }
+  }
+  const hasLegacy =
+    'taskBoardPlannerEnabled' in raw ||
+    'taskBoardWorkItemsEnabled' in raw ||
+    'taskBoardComputerNoExecInit' in raw
+  const enabled = hasLegacy
+    ? raw.taskBoardPlannerEnabled !== false &&
+      raw.taskBoardWorkItemsEnabled !== false &&
+      raw.taskBoardComputerNoExecInit !== false
+    : true
+  const { taskBoardPlannerEnabled: _p, taskBoardWorkItemsEnabled: _w, taskBoardComputerNoExecInit: _n, ...rest } = raw
+  return { ...(rest as unknown as ModelSettings), computerStandalonePlannerEnabled: enabled }
+}
+
 function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSettings {
-  const providersNorm = normalizeProviders(s.providers, undefined, globalGenFallbackFrom(s))
+  const migrated = migratePlannerSettingsFields(s)
+  const providersNorm = normalizeProviders(migrated.providers, undefined, globalGenFallbackFrom(migrated))
   return {
-    ...s,
+    ...migrated,
     providers: providersNorm,
     workspaceRoot: s.workspaceRoot ?? '',
     leadAgentId: (s.leadAgentId ?? '').trim() || DEFAULT_LEAD_AGENT_ID,
@@ -146,7 +177,8 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     rawContentViewEnabled: s.rawContentViewEnabled === true,
     debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
     debugMenusEnabled: s.debugMenusEnabled === true,
-    taskBoardShowChildBoards: s.taskBoardShowChildBoards === true,
+    taskBoardShowChildBoards: migrated.taskBoardShowChildBoards === true,
+    computerStandalonePlannerEnabled: migrated.computerStandalonePlannerEnabled !== false,
     agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
     agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
     computerHumanLike: s.computerHumanLike === true,

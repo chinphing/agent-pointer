@@ -57,6 +57,7 @@ pub(super) async fn run_provider_stream_round(
             tx,
             cancel_clone,
             Some(dump_lbl.as_str()),
+            crate::message_context::LlmHistoryScope::Lead,
         )
         .await
     });

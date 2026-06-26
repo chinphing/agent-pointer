@@ -16,7 +16,7 @@ use super::app_state::AppState;
 use super::prompts::{push_agent_role_cacheable_prompts, push_env_to_cacheable};
 use super::sub_agent_task_prompt::{
     build_subagent_initial_user_message, build_subagent_spawn_depth_block,
-    build_subagent_task_system_blocks,
+    build_subagent_task_system_blocks, push_sub_agent_task_system_dynamic,
 };
 use crate::task_board::sub_agent_hint::sub_agent_task_board_init_hint;
 use crate::task_board::sub_agent_task_board_store_key;
@@ -72,6 +72,11 @@ pub(super) fn init_sub_agent_session(
     if !spawn_can_delegate {
         allowed_tools.retain(|t| t != "run_subagent");
     }
+    if def.profile == AgentProfile::Computer
+        && provider.settings.computer_standalone_planner_enabled
+    {
+        allowed_tools.retain(|t| t != "task_board_init");
+    }
     let sub_task_board_key =
         sub_agent_task_board_store_key(parent_task_board_store_key, task.id.trim());
     let session_vars = SessionInjectVars {
@@ -119,15 +124,19 @@ pub(super) fn init_sub_agent_session(
         }
     }
     session_extras.extend(skill_prompts);
-    if let Some(hint) =
-        sub_agent_task_board_init_hint(&state.task_board_store, &sub_task_board_key, &allowed_tools)
-    {
-        crate::task_board::observability::log_sub_agent_init_hint(
-            conversation_id,
-            task.id.trim(),
-            &def.id,
-        );
-        session_extras.push(hint);
+    let planner_handles_init = def.profile == AgentProfile::Computer
+        && provider.settings.computer_standalone_planner_enabled;
+    if !planner_handles_init {
+        if let Some(hint) =
+            sub_agent_task_board_init_hint(&state.task_board_store, &sub_task_board_key, &allowed_tools)
+        {
+            crate::task_board::observability::log_sub_agent_init_hint(
+                conversation_id,
+                task.id.trim(),
+                &def.id,
+            );
+            session_extras.push(hint);
+        }
     }
 
     let mut task_dynamic_blocks = build_subagent_task_system_blocks(
@@ -194,11 +203,7 @@ pub(super) fn init_sub_agent_session(
                 spawn_depth: None,
             };
             persist_sub_message(conversation_id, &linkage, &stub);
-            vec![{
-                let mut stamped = stub;
-                linkage.stamp(&mut stamped);
-                stamped
-            }]
+            vec![stub]
         }
     };
 
@@ -248,6 +253,7 @@ pub(super) async fn prepare_sub_agent_round_prompts(
         task_board_store: state.task_board_store.clone(),
         task_board_store_key: sub_task_board_key,
         user_dynamic_inject_enabled,
+        planner_outcome: ctx.planner_outcome.clone(),
     };
     let t = Instant::now();
     state
@@ -277,7 +283,14 @@ pub(super) async fn prepare_sub_agent_round_prompts(
     let assemble_system_prompts_ms = t.elapsed().as_millis();
 
     let t = Instant::now();
-    let mut dynamic = task_dynamic_blocks.to_vec();
+    let mut dynamic = Vec::new();
+    push_sub_agent_task_system_dynamic(
+        &mut dynamic,
+        task_dynamic_blocks,
+        state.task_board_store.as_ref(),
+        sub_task_board_key,
+        task_id,
+    );
     let mut before_llm_ctx = BeforeMainLlmCallContext {
         computer_state: state.computer_state.as_ref(),
         lead_agent_profile: def.profile.clone(),
@@ -298,12 +311,6 @@ pub(super) async fn prepare_sub_agent_round_prompts(
             conversation_id,
             &def.profile,
         );
-    }
-    if let Some(parent_block) = state
-        .task_board_store
-        .parent_tunnel_for_child(sub_task_board_key, task_id)
-    {
-        dynamic.push(parent_block);
     }
     let before_main_llm_tail_ms = t.elapsed().as_millis();
     log::info!(

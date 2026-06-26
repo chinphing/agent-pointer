@@ -1,4 +1,4 @@
-# Task board schema (maintainer, v3)
+# Task board schema (maintainer, v4)
 
 Runtime prompts: `crates/pointer-core/src/task_board/prompts/task_board.md` (English).
 Lifecycle: `docs/taskboard-lifecycle-and-fields.md`.
@@ -7,69 +7,80 @@ Lifecycle: `docs/taskboard-lifecycle-and-fields.md`.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `version` | number | `3` only (non-v3 stored JSON is discarded) |
+| `version` | number | `4` (v3 migrates on load) |
 | `task_id` | string | `tb_{store_key}` |
-| `meta` | object | `goal`, `status`, `step_count`, `max_steps`, optional `expected_total`, `scope`, `root_target`, `parent_sub_task_id` |
+| `meta` | object | `goal`, `context`, `constraint`, `done_when`, `work_item_mode`, `dynamic_quota`, `expected_total`, `work_items_source_path`, `work_items_seeded_rows`, … |
 | `global_context` | object | `key_findings[]`, `artifacts` |
-| `board` | array | Milestone / local rows |
+| `global_milestones` | array | Task-level rows (serde alias `board`) |
+| `item_milestones` | array | Type2 per-item SOP template only |
 
-## Row
+## Milestone row (`global_milestones` / `item_milestones`)
 
 | Field | Required | Notes |
 |-------|----------|-------|
 | `id` | yes | Stable; child locals often `local_*` |
 | `title` | yes | |
 | `status` | yes | See prompt |
+| `plan` | no | Execution plan (markdown) |
+| `constraint` | no | Row-level; may inherit `meta.constraint` |
+| `done_when` | no | Outcome acceptance (was `validate_requirement`) |
+| `remark` | no | Short outcome note when `done` (was `validate_results`) |
 | `depends_on` | no | Prerequisite row ids |
-| `retry_count` | no | `>= 2` may set `reflection_required` in tool result |
-| `plan` | no | Execution plan (markdown); cleared on `done` |
-| `checkpoint` | no | Coarse position line |
-| `validate_requirement` | no | Milestone outcome acceptance criteria |
-| `validate_results` | no | Append-only evidence snippets (`string[]`) |
-| `extract_requirement` | no | Extraction spec (markdown) |
-| `extract_results` | no | Append-only extract snippets (`string[]`) |
+| `retry_count` | no | `>= 2` may set `reflection_required` |
 | `blocked_by` | no | Host-set dependency hint |
+| `delivery_format` | no | Only on `g_deliver` (`xlsx`, `csv`, …) |
+
+**Removed in v4:** `progress`, `checkpoint`, `validate_*`, `extract_*`, row-level `work_item_mode`.
 
 ## Methods
 
-`init`, `replace`, `patch`, `prune`, `finalize`, `sync_finding` (child → parent findings), `check_deps` (read-only).
+`init`, `replace` (item_milestones only), `patch`, `prune`, `finalize`, `sync_finding`, `check_deps`.
 
-### Coverage contract (`expected_total`)
+### Type 1 (no work_items)
 
-- Use `expected_total` for exhaustive matrix/combinational tasks.
-- Set it in `task_board:init` (or `meta.expected_total`).
-- When set, `init`/`replace` requires row count to match it exactly.
-- `patch` is still incremental row updates.
+- `init`: meta + `global_milestones[]`
+- `patch`: `global_milestones` len=1
+
+### Type 2 (work_items)
+
+- `init`: meta + fixed `g_plan`/`g_exec`/`g_deliver` + `item_milestones` + `work_items` seed
+- `replace`: **only** full `item_milestones[]`
+- `patch`: `milestones` len=1 (item SOP) or `global_milestones` len=1 (global phase); optional `work_item_delta`
+
+## Work items (flat per store)
+
+Stored in `work_items.db` keyed by `store_id` (= conversation store key). No `batch_id`.
+
+Each row gets an auto **numeric id** equal to its `seq` within the store (`1`, `2`, …). Patch with `"id": 1` or `"id": "1"`.
+
+Inline seed on init: top-level `work_items[]` or file-backed `work_items_source` — both are enumerated.
+
+Inject **`## Task`** shows `work_items_source: <path> (<n> rows seeded)` when init used a file; inline-only shows `work_items_seeded: <n> (inline on init)`.
 
 ## Host-injected helper args (not model-authored)
 
 - `_conversation_id`: trusted store-key binding.
-- `_recent_action_tools`: recent non-`task_board` action evidence.
-- `_recent_verify_report`: whether recent `verify:report` exists.
-- `_recent_verify_pass`: whether recent `verify:report` has `action_result=pass`.
+- `_recent_action_tools`, `_recent_verify_report`, `_recent_verify_pass`
 
-`patch` warnings are structured objects (for machine handling), e.g.
-`done_without_evidence`, `done_without_verify_pass`,
-`interim_drafts_budget_exceeded`.
+`patch` warnings: `in_progress_without_plan`, `done_without_action`, `g_exec_not_terminal`, `g_deliver_blocked`, `v3_field_rejected`.
 
 ## Tool result (compact JSON)
 
-Tool handlers return a **compact** body — not the full `document`.
-Authoritative board state for the model is injected as **`[TASK_BOARD]`** each round;
-UI reads **`task_board_updated`** + store.
+Authoritative state is injected as **`[TASK_BOARD]`** each round.
 
 | Method | Key fields |
 |--------|------------|
-| `patch` | `ok`, `method`, `board_len`, `patched[]` (`id`, `status`), `reflection_required`, optional `warnings[]` |
+| `patch` | `ok`, `method`, `board_len`, `patched[]`, `reflection_required`, optional `warnings[]` |
 | `init` | `ok`, `method`, `board_len`, optional `goal` |
-| `replace` / `prune` / `finalize` | `ok`, `method`, `board_len`; `prune` adds `cancelled[]`; `finalize` adds `meta_status` |
+| `replace` / `prune` / `finalize` | `ok`, `method`, `board_len` |
 | `check_deps` | `item_id`, `status`, optional `reason` |
 | `sync_finding` | `findings_count` |
 
 ## Storage
 
 - Memory: `TaskBoardStore`
-- SQLite: `{app_data}/task_boards.db`, table `task_boards(store_key, document, updated_at_ms)`
+- SQLite boards: `{app_data}/task_boards.db`, table `task_boards(store_key, document, updated_at_ms)`
+- SQLite work items: `{app_data}/work_items.db`, table `work_items` by `store_id`
 
 ## Code layout
 

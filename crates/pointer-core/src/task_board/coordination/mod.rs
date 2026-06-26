@@ -7,5 +7,6 @@ pub use main_turn::{
     is_main_turn_store_key, looks_like_resume_intent, main_turn_task_board_store_key,
 };
 pub use parent_child::{
-    is_child_store_key, parent_store_key_from_child, sub_agent_task_board_store_key,
+    is_child_store_key, parent_store_key_from_child, resolve_store_key_for_read,
+    sub_agent_task_board_store_key,
 };

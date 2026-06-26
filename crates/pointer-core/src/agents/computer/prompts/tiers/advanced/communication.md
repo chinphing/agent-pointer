@@ -14,7 +14,8 @@ in assistant message text.
 - Report: `action_verify` with native args **only when the newest history row shows `verify: verifying`**
 - On **`action_result=pass` only**: include **`step_summary`** — one line toward the **user task** (see `action_verify` tool doc); omit on fail/pending/n/a
 - Action: one root desktop tool — **unless** clarification turn (below)
-- Board (optional): `task_board` tools per tool doc
+- **Queue board:** when inject shows item rows under **All tasks** / **`[WORK_ITEM_FOCUS]`**, **`task_board_patch` same turn** (`milestones` only)
+- Board (Type1 or other): `task_board` tools per tool doc
 - **`content`:** brief line at **key milestones** only (see below)
 Do **not** write tool names or args in assistant message text.
 

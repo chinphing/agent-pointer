@@ -34,6 +34,12 @@ export interface StreamHandlerContext {
   hasInFlightToolCalls(msg: ChatMessage): boolean
   scheduleMaybeFinishGenerating(conversationId: string, messageId: string): void
 
+  applyTaskBoardDocument(
+    convId: string,
+    storeKey: string,
+    doc: TaskBoardDocument,
+    anchorMessageId?: string
+  ): void
   applyTaskBoardDocumentDebounced(
     convId: string,
     storeKey: string,

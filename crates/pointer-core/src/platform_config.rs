@@ -116,6 +116,7 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         debug_dump_llm_prompts: s.debug_dump_llm_prompts,
         debug_menus_enabled: s.debug_menus_enabled,
         task_board_show_child_boards: s.task_board_show_child_boards,
+        computer_standalone_planner_enabled: s.computer_standalone_planner_enabled,
         user_dynamic_inject_enabled: s.user_dynamic_inject_enabled,
         agent_default_models: s.agent_default_models.clone(),
         agent_task_board_history_trim: s.agent_task_board_history_trim.clone(),

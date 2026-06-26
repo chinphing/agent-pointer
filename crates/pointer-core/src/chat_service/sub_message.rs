@@ -26,6 +26,19 @@ impl SubMessageLinkage {
     }
 }
 
+/// Strip DB-only scoped linkage so sub-agent loop memory matches lead loop (unstamped rows).
+pub fn clear_scoped_linkage_for_loop(msg: &mut ChatMessage) {
+    msg.anchor_message_id = None;
+    msg.trace_id = None;
+    msg.task_id = None;
+    msg.spawn_depth = None;
+    if let Some(state) = msg.context_state.as_ref() {
+        if !state.included && state.excluded_reason.is_none() {
+            msg.context_state = None;
+        }
+    }
+}
+
 pub fn is_scoped_sub_message(msg: &ChatMessage) -> bool {
     crate::models::is_scoped_sub_message(msg)
 }
@@ -50,7 +63,13 @@ pub fn load_scoped_transcript(
 ) -> anyhow::Result<Vec<ChatMessage>> {
     let store = conversation_store::global_store()?;
     let all = store.load_messages(conversation_id)?;
-    Ok(filter_scoped_messages(&all, linkage))
+    Ok(filter_scoped_messages(&all, linkage)
+        .into_iter()
+        .map(|mut m| {
+            clear_scoped_linkage_for_loop(&mut m);
+            m
+        })
+        .collect())
 }
 
 pub fn persist_sub_message(conversation_id: &str, linkage: &SubMessageLinkage, msg: &ChatMessage) {
@@ -221,6 +240,33 @@ mod tests {
         );
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].id, "sub1");
+    }
+
+    #[test]
+    fn clear_scoped_linkage_restores_loop_inclusion() {
+        let mut msg = sample_msg("m1", Some("anchor"), Some("task:explore"));
+        let link = SubMessageLinkage {
+            anchor_message_id: "anchor".into(),
+            trace_id: "task:explore".into(),
+            task_id: "task".into(),
+            spawn_depth: 1,
+        };
+        link.stamp(&mut msg);
+        assert!(!crate::message_context::is_context_included(&msg));
+        clear_scoped_linkage_for_loop(&mut msg);
+        assert!(crate::message_context::is_context_included(&msg));
+        assert!(crate::message_context::is_sub_agent_loop_included(&msg));
+    }
+
+    #[test]
+    fn clear_scoped_linkage_keeps_compression_exclusion() {
+        let mut msg = sample_msg("m1", Some("anchor"), Some("task:explore"));
+        msg.context_state = Some(MessageContextState {
+            included: false,
+            excluded_reason: Some(crate::models::ExcludedReason::ContextCompression),
+        });
+        clear_scoped_linkage_for_loop(&mut msg);
+        assert!(!crate::message_context::is_sub_agent_loop_included(&msg));
     }
 
     #[test]

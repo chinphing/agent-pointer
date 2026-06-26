@@ -11,6 +11,7 @@ import {
   latestToolCallForCompactStatus
 } from '../lib/toolCallDisplay'
 import { thinkingLabel, streamedCharCountFromBody } from '../lib/thinkingIndicator'
+import { isPlannerPhaseThoughts, PLANNER_PHASE_THOUGHTS } from '../lib/plannerPhase'
 import type { ChatMessage, ToolCall } from '../types/chat'
 
 const COMPUTER_HIDE_TOOL_NAMES = [
@@ -23,6 +24,15 @@ const COMPUTER_HIDE_TOOL_NAMES = [
   'task_board_prune',
   'action_verify'
 ]
+
+function planningToolCalls(message: ChatMessage | undefined): ToolCall[] {
+  if (!message?.toolCalls?.length) return []
+  return visibleToolCalls(message.toolCalls, COMPUTER_HIDE_TOOL_NAMES, false, true)
+}
+
+function toolCallInProgress(status: ToolCall['status']): boolean {
+  return status === 'running' || status === 'pending' || status === 'pending_approval'
+}
 
 function visibleComputerToolCalls(
   conv: ReturnType<typeof useChatStore>['current'],
@@ -130,10 +140,25 @@ export function useComputerCompactTitle(stoppedHint: Ref<boolean>) {
 
     const msg = activeMessage.value
     const conv = chat.current
-    const tool = latestToolCallForCompactStatus(visibleComputerToolCalls(conv, msg))
-    if (tool) return compactToolCallStatusLine(tool)
-
     const body = streamBodyFromMessage(conv, msg)
+
+    const computerTool = latestToolCallForCompactStatus(visibleComputerToolCalls(conv, msg))
+    if (computerTool) return compactToolCallStatusLine(computerTool)
+
+    const plannerTool = latestToolCallForCompactStatus(planningToolCalls(msg))
+    if (plannerTool && toolCallInProgress(plannerTool.status)) {
+      return compactToolCallStatusLine(plannerTool)
+    }
+
+    if (isPlannerPhaseThoughts(body.thoughts)) {
+      if (plannerTool) return compactToolCallStatusLine(plannerTool)
+      return PLANNER_PHASE_THOUGHTS
+    }
+
+    if (plannerTool) return compactToolCallStatusLine(plannerTool)
+
+    if (planSummary.value) return '准备执行…'
+
     const preview = body.toolNamePreview?.trim()
     if (preview && isComputerToolName(preview)) return '执行中…'
 

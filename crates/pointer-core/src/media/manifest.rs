@@ -17,7 +17,16 @@ pub fn attachment_ref_uri(storage_rel_path: &str) -> String {
 }
 
 pub fn attachment_has_local(att: &MediaAttachment) -> bool {
-    att.storage_rel_path
+    if att
+        .storage_rel_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_some()
+    {
+        return true;
+    }
+    att.local_abs_path
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -145,13 +154,23 @@ fn format_attachment_entry(index: usize, att: &MediaAttachment) -> String {
         lines.push(format!("{size_line}   - remoteUrl: {url}"));
     }
     if has_local {
-        let rel = att.storage_rel_path.as_deref().unwrap_or("").trim();
-        let ref_uri = attachment_ref_uri(rel);
         if let Some(local_path) = attachment_local_abs_path(att) {
-            lines.push(format!(
-                "{size_line}   - ref: {ref_uri}\n   - localPath: {local_path}"
-            ));
-        } else {
+            let rel = att.storage_rel_path.as_deref().unwrap_or("").trim();
+            if rel.is_empty() {
+                lines.push(format!("{size_line}   - localPath: {local_path}"));
+            } else {
+                let ref_uri = attachment_ref_uri(rel);
+                lines.push(format!(
+                    "{size_line}   - ref: {ref_uri}\n   - localPath: {local_path}"
+                ));
+            }
+        } else if let Some(rel) = att
+            .storage_rel_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let ref_uri = attachment_ref_uri(rel);
             lines.push(format!("{size_line}   - ref: {ref_uri}"));
         }
     } else if !has_remote || kind != "video" {

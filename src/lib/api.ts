@@ -77,6 +77,14 @@ export interface RuntimeApi {
   listTools(): Promise<ToolDef[]>
   listAgents(): Promise<AgentDef[]>
   getTaskBoardSnapshot(conversationId: string, taskId?: string): Promise<import('../types/chat').TaskBoardDocument>
+  listWorkItems(
+    conversationId: string,
+    opts?: { taskId?: string; batchId?: string; offset?: number; limit?: number }
+  ): Promise<Record<string, unknown>>
+  getWorkItemStats(
+    conversationId: string,
+    opts?: { taskId?: string; batchId?: string }
+  ): Promise<Record<string, unknown>>
   previewComputerAnnotatedScreen(conversationId: string): Promise<ComputerAnnotatedPreview>
   previewComputerRoundScreen(relPath: string): Promise<ComputerAnnotatedPreview>
   previewChatMedia(storageRelPath: string): Promise<ChatMediaPreview>
@@ -133,6 +141,8 @@ export const dismissExternalSkillsPrompt = api.dismissExternalSkillsPrompt
 export const listTools = api.listTools
 export const listAgents = api.listAgents
 export const getTaskBoardSnapshot = api.getTaskBoardSnapshot
+export const listWorkItems = api.listWorkItems
+export const getWorkItemStats = api.getWorkItemStats
 export const previewComputerAnnotatedScreen = api.previewComputerAnnotatedScreen
 export const previewComputerRoundScreen = api.previewComputerRoundScreen
 export const previewChatMedia = api.previewChatMedia

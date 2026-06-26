@@ -22,8 +22,8 @@
 ## 工具：`task_board`
 
 - 注册名：`task_board`；行为通过 **`task_board:replace`** / **`task_board:patch`**（与 qualified `tool_name` 解析一致）。
-- 存储：`AppState` 上的 **`TaskBoardStore`**（`crates/pointer-core/src/task_board/`，内存 + SQLite `{app_data}/task_boards.db`，按 **存储键** 分区）。v2 文档见 [`task-board-v2-schema.md`](task-board-v2-schema.md)；父子协调见 [`task-board-parent-child-coordination.md`](task-board-parent-child-coordination.md)。
-- **主会话（单智能体 / Supervisor 主消息）**：存储键通常为 **`main_turn_task_board_store_key(conversation_id, anchor_user_message_id)`**（见 `session_inner`）；`task_board` 的 **`_conversation_id`** 写入该 **store key**（非裸 `conversation_id`）。每轮由 **`CommonUserDynamicInjectHook`** 在 `message_loop_prompts_after` 末尾追加 user 注入块（Markdown v3：`plan` / `progress` / `validate_*` 等，有 board 或 init hint 时）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
+- 存储：`AppState` 上的 **`TaskBoardStore`**（`crates/pointer-core/src/task_board/`，内存 + SQLite `{app_data}/task_boards.db`，按 **存储键** 分区）。v4 文档见 [`task-board-v2-schema.md`](task-board-v2-schema.md)；父子协调见 [`task-board-parent-child-coordination.md`](task-board-parent-child-coordination.md)。
+- **主会话（单智能体 / Supervisor 主消息）**：存储键通常为 **`main_turn_task_board_store_key(conversation_id, anchor_user_message_id)`**（见 `session_inner`）；`task_board` 的 **`_conversation_id`** 写入该 **store key**（非裸 `conversation_id`）。每轮由 **`CommonUserDynamicInjectHook`** 在 `message_loop_prompts_after` 末尾追加 user 注入块（Markdown v4：`## Task` / `## Global milestones` / `done_when` / `remark` 等，有 board 或 init hint 时）。见 **[`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)**。
 - **Supervisor 子 Agent**：与主会话 **隔离**。存储键为  
   **`{conversation_id}\x1fptr_sub_agent\x1f{supervisor_task_id}`**（实现见 `task_board::sub_agent_task_board_store_key`）。  
   子 Agent 的任务板摘要同样经公共 user 注入路径注入（store key 为 `sub_task_board_key`）；**`task_board`** 读写只针对该子任务键，**不会**看到或修改主会话任务板。
@@ -51,16 +51,15 @@
 - Supervisor 主流程本身不跑子 Agent 工具循环；子 Agent 各自按上表授权。
 - 子 Agent 的 **`task_board`** 与主会话 **分区存储**（见上文「Supervisor 子 Agent」）；若需要把主会话进度写进子任务，由 Supervisor 在 **`instruction`** 文本中自行摘要，而不是共享存储键。
 
-## 任务粒度与 v3 验收字段
+## 任务粒度与 v4 验收字段
 
-- 板上一行应对应 **可独立验收** 的里程碑；**`validate_requirement`** 写清里程碑 outcome 验收标准；证据 append 到 **`validate_results`**（markdown 片段）。
-- **`verify:report`** 仅用于 **单步** UI/操作校验，与板字段 **`validate_*`** 不同名、不同语义。
-- **`done`** 仅在有 **`validate_results`** 或近期 action tools 等证据后更新（宿主可 warn `done_without_evidence`）。
-- 对 computer 路径建议统一时序：首轮 `init` 可无 `verify:report`；其后 **`verify:report`（步）→ `task_board:patch`（里程碑 + append `validate_results`）**。
+- 板上一行应对应 **可独立验收** 的里程碑；**`done_when`** 写清 outcome 验收标准；完成时可选 **`remark`** 写证据摘要。
+- **`action_verify`** 仅用于 **单步** UI/操作校验，与板字段 **`done_when` / `remark`** 不同名、不同语义。
+- **`done`** 建议在有 **`remark`**、近期 action tools 或（Type2）`work_item_delta` + `result_summary` 后更新（宿主可 warn `done_without_action`）。
+- 对 computer 路径建议统一时序：首轮 `init` 可无 `action_verify`；其后 **`action_verify`（步）→ `task_board_patch`（里程碑）**。
 - 里程碑粒度建议（跨入口统一）：
   - **矩阵/组合类任务**：优先做 3–8 个分组里程碑，按交互形态/维度分组。
-  - **列表类任务**：过长或重复项按批次分组为 3–8 行。
-  - 列表类：完整编号目标清单放在 **`plan`** / **`extract_results`**；**`title`** / **`validate_requirement`** 写批次范围并带与清单一致的编号；**`validate_results`** 用「编号 + 标签」与 verify 对齐。
+  - **列表类任务（Type2）**：枚举清单在 **`work_items`** + **`item_milestones`** 模板；global 固定 `g_plan` / `g_exec` / `g_deliver`。
 
 ## 与压缩上下文的关系
 
@@ -70,14 +69,14 @@
 
 ## 内存预算与自动瘦身
 
-- 行状态首次进入 `done` 时，宿主会清空该行 **`plan`**（v3；里程碑证据在 **`validate_results`**）以减少后续 token 压力。
+- 行状态首次进入 `done` 时，宿主会清空该行 **`plan`**（v4；里程碑证据在 **`remark`**）以减少后续 token 压力。
 - 若 `global_context.artifacts.interim_drafts` 超过预算阈值，宿主会对超长草稿做截断并在 `warnings` 中返回 `interim_drafts_budget_exceeded`，同时设置 `reflection_required=true`，提示下一轮做摘要化整理。
 
 ## 灰度与观测建议
 
-- 阶段 A（提示词）：关注前 3 轮内 `task_board:init` 命中率、`verify:report -> task_board:patch` 时序合规率。
+- 阶段 A（提示词）：关注前 3 轮内 `task_board_init` 命中率、`action_verify -> task_board_patch` 时序合规率。
 - 阶段 B（主会话 hint）：观察 `main_agent_init_hint` 触发后初始化成功率、误触发率（单步任务）。
-- 阶段 C（软门禁增强）：跟踪 `done_without_evidence` / `done_without_verify_pass` 占比和 `reflection_required` 收敛速度。
+- 阶段 C（软门禁增强）：跟踪 `done_without_action` / `g_exec_not_terminal` 占比和 `reflection_required` 收敛速度。
 - Token 成本指标：单轮 prompt tokens、单任务累计 tokens、history trim 后回落幅度。
 - 双入口一致性：桌面端与 Web 端都应收到 `task_board_updated` 且面板状态一致。
 
@@ -85,11 +84,12 @@
 
 在 **`task_board`** 变更满足 **trim 触发** 条件且工具执行成功后，对已启用该能力的 Agent 可对会话 history 做 **soft-exclude**（`context_state.included = false`，`ExcludedReason::TaskBoardTrim`；**不**调用 LLM 摘要），与 [`context_compression`](../crates/pointer-core/src/context_compression.rs) 互补。实现：`task_board/history_trim.rs`，挂载：`agent_tool_pass.rs`。
 
-**Trim 触发条件（`task_board/checkpoint.rs`）：**
+**Trim 触发条件（`task_board/checkpoint.rs`，v4）：**
 
-- **`task_board:init` / `replace` / `finalize`** 成功 → 触发。
-- **`task_board:patch`** 成功 → 本批含实质进展：`status: done`、非空 **`validate_results`**、或 **`progress`** 更新（读路径兼容旧字段 `checkpoint`）。
-- 仅 **`in_progress`** 且无证据/进度 → 不触发。
+- **`task_board_init` / `replace` / `finalize`** 成功 → 触发。
+- **`task_board_patch`** 成功 → 本批含实质进展：行 `status: done`、非空 **`remark`**、或顶层 **`work_item_delta`**。
+- 仅 **`in_progress`** 且无 remark / work_item_delta → 不触发。
+- v3 字段（`progress`、`validate_results` 等）→ **不**触发。
 - 仍参与 LLM 上下文的消息数 **&lt; 10** → 不截断（`MIN_INCLUDED_MESSAGES_FOR_TRIM`）。
 
 | 机制 | 触发 | 处理方式 | 成本 |
@@ -108,11 +108,11 @@
 - **计划状态：** 每轮 **`CommonUserDynamicInjectHook`** 末尾注入 Markdown **`[TASK_BOARD]`**（见 [`llm-prompt-assembly-order.md`](llm-prompt-assembly-order.md)）；不依赖被 exclude 的旧 tool 正文。
 - **绑定：** main-turn store key 与 **anchor user message id** 见 `session_inner::choose_main_task_board_store_key`、`app_state::set_main_task_board_binding`。
 
-### `validate_results` 增量（宿主）与 Computer 分批 init（提示）
+### v4 patch 与 Computer Type2（提示）
 
-- **Patch 合并：** `task_board/results_append.rs` — 按行去重；多行块只 append 新行；单行 cumulative 扩展时替换上一条。`warnings[]` 码：`validate_results_duplicate_line`、`validate_results_partial_dedup`、`validate_results_cumulative_replaced` 等（`extract_results` 同理）。
-- **注入展示：** `snapshot.rs` 对 `validate_results` 按行去重后全量注入（Current task 与 All tasks 的 `done` 行）；`extract_results` 仍取 recent tail。
-- **Computer init（提示词，非强制拆板）：** 相似重复项 **>5** 时按 **3–6** 个 batched milestone 初始化（`task_board.md`、`sub_agent_hint.rs`）；完整列表放 `plan` / `extract_results`；每批结束 `status: done` 以触发 history trim。
+- **Type1 / coder：** patch **`global_milestones`**（len=1）；`done` 时写 **`remark`**。
+- **Type2：** patch **`milestones`**（item SOP）+ **`work_item_delta`**；交付在 **`g_deliver`** + **`work_items_export`**。
+- **Computer init（提示词）：** 枚举重复项 **>5** 用 Type2（`g_plan`/`g_exec`/`g_deliver` + `item_milestones` + `work_items`）；见 `task_board.md`、`sub_agent_hint.rs`。
 
 ### 与 LLM 压缩的执行顺序
 
@@ -141,8 +141,8 @@
 |------|------|
 | **同轮 tool loop 断裂** | trim 在 `agent_tool_pass` **工具批之后**执行；若只留 screen，会 exclude **本轮**紧随其后的 assistant、`tool` 结果。若同一轮继续 `stream_chat`，模型可能看不到刚执行的 verify/桌面工具输出。 |
 | **anchor 用户原文丢失** | 不保留绑定 user 行；长需求仅在 `meta.goal` 写得全时才安全。 |
-| **步级证据丢失** | 未 append 进 `validate_results` 的 `verify:report` / 工具原文在 trim 后不可恢复。 |
-| **checkpoint 过频** | 模型细粒度改 checkpoint → 频繁失忆；需防抖（仅值变化、可选要求已有 `plan` / `validate_results`）。 |
+| **步级证据丢失** | 未写入 `remark` / `work_item.result_summary` 的 `action_verify` / 工具原文在 trim 后不可恢复。 |
+| **checkpoint 过频（已废弃）** | v4 已移除 `checkpoint` / `progress` 触发；见 v4 trim 规则。 |
 | **screen 仍很大** | 只留一条 user 仍可能占满预算（多图 + Advanced 全表 bbox + tier history）。 |
 | **消息序列** | API 过滤后可能仅剩一条 user，需验证与多轮 tool 循环、Computer 展平逻辑的兼容性。 |
 
@@ -154,7 +154,7 @@
 
 ### 配套（若将来实现）
 
-- Computer 提示词：phase 结束必须 **更新 `checkpoint` + append `validate_results`**，再 patch。
+- Computer 提示词：SOP 步完成或 work_item 完成时 **patch `remark` / `work_item_delta`**，再视情况触发 trim。
 - `checkpoint.rs`：apply 后 diff `checkpoint`，而非仅解析 args。
 - 观测：`task_board_trim` 日志区分触发原因（`done` vs `checkpoint_changed`）、exclude 条数、下轮 prompt token。
 

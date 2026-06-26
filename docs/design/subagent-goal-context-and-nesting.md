@@ -290,7 +290,6 @@ You are sub-agent depth {d}/{max}. …
 - `instruction` 别名 / 迁移 shim
 - 并行 `tasks[]` 批量 spawn（Hermes batch 模式）
 - `maxChildrenPerAgent` / 单轮并发子 agent 上限（可后续加）
-- `attachments` 传文件
 - 子 agent 独立模型覆盖（仍为可选后续）
 
 ---

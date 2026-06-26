@@ -130,6 +130,8 @@ pub struct MessageUiBindings {
 pub enum ExcludedReason {
     ContextCompression,
     TaskBoardTrim,
+    /// Planner UI shell row: visible in transcript, omitted from lead LLM requests.
+    PlannerUiShell,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

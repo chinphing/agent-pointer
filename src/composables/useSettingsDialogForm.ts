@@ -203,6 +203,7 @@ function createSettingsDialogForm(deps: {
   const rawContentViewEnabled = ref(false)
   const debugDumpLlmPrompts = ref(false)
   const taskBoardShowChildBoards = ref(false)
+  const computerStandalonePlannerEnabled = ref(true)
   const agentTaskBoardHistoryTrim = ref<Record<string, boolean>>({})
   const computerHumanLike = ref(false)
   const computerAutoSwitchMonitor = ref(true)
@@ -399,6 +400,7 @@ function createSettingsDialogForm(deps: {
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled === true
   debugDumpLlmPrompts.value = s.settings.debugDumpLlmPrompts === true
   taskBoardShowChildBoards.value = s.settings.taskBoardShowChildBoards === true
+  computerStandalonePlannerEnabled.value = s.settings.computerStandalonePlannerEnabled !== false
   agentTaskBoardHistoryTrim.value = { ...(s.settings.agentTaskBoardHistoryTrim ?? {}) }
   computerHumanLike.value = s.settings.computerHumanLike === true
   computerAutoSwitchMonitor.value = s.settings.computerAutoSwitchMonitor !== false
@@ -670,6 +672,7 @@ function createSettingsDialogForm(deps: {
     userCodingRules: userCodingRules.value.trim(),
     toolApprovalMode: toolApprovalMode.value,
     computerHumanLike: computerHumanLike.value,
+    computerStandalonePlannerEnabled: computerStandalonePlannerEnabled.value,
     computerAutoSwitchMonitor: computerAutoSwitchMonitor.value,
     computerInitialTier: computerInitialTier.value,
     captchaSliderOffsetPx: Number(captchaSliderOffsetPx.value) || 0,
@@ -733,6 +736,7 @@ function createSettingsDialogForm(deps: {
     rawContentViewEnabled,
     debugDumpLlmPrompts,
     taskBoardShowChildBoards,
+    computerStandalonePlannerEnabled,
     agentTaskBoardHistoryTrim,
     computerHumanLike,
     computerAutoSwitchMonitor,

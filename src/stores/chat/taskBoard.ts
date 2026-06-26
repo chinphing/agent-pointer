@@ -101,6 +101,12 @@ export function applyTaskBoardDocumentToEntry(
 }
 
 export interface TaskBoardManager {
+  applyTaskBoardDocument(
+    convId: string,
+    storeKey: string,
+    doc: TaskBoardDocument,
+    anchorMessageId?: string
+  ): void
   applyTaskBoardDocumentDebounced(
     convId: string,
     storeKey: string,
@@ -457,6 +463,7 @@ export function createTaskBoardManager(deps: {
   }
 
   return {
+    applyTaskBoardDocument,
     applyTaskBoardDocumentDebounced,
     refreshTaskBoard,
     activeParentBoardDocument,

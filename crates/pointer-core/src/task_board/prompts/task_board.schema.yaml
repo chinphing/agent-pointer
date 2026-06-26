@@ -1,21 +1,95 @@
-# task_board.schema.yaml — 独立工具 schema（不含 method 枚举）
-# 提示词正文仍留在 task_board.md 中共享。
+# task_board.schema.yaml — flat tool argument shapes (v4)
+# Narrative guidance lives in task_board.md.
 
 task_board_init:
   type: object
   properties:
     goal:
       type: string
-    global_context: {}
-    items:
+    context:
+      type: string
+    constraint:
+      type: string
+    done_when:
+      type: string
+    global_milestones:
+      type: array
+      description: Task-level milestone rows (Type1 flow, or Type2 g_plan/g_exec/g_deliver).
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+          title:
+            type: string
+          status:
+            type: string
+          done_when:
+            type: string
+          plan:
+            type: string
+          constraint:
+            type: string
+          delivery_format:
+            type: string
+        required: [id, title, status]
+        additionalProperties: true
+    item_milestones:
+      type: array
+      description: Per-work-item SOP template rows (Type2 only).
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+          title:
+            type: string
+          status:
+            type: string
+          done_when:
+            type: string
+          plan:
+            type: string
+          constraint:
+            type: string
+        required: [id, title, status]
+        additionalProperties: true
+    work_items:
+      type: array
+      description: Inline work item drafts for enumerated Type2 init.
+      items:
+        type: object
+        properties:
+          title:
+            type: string
+          payload:
+            type: object
+            additionalProperties: true
+          target_key:
+            type: string
+        required: [title]
+        additionalProperties: true
+    work_items_source:
+      type: string
       description: >
-        Milestone array (or JSON string of that array).
-        Use field name items only. Each element needs id, title, status.
-        Optional v3 fields: plan, progress, validate_requirement,
-        validate_result_delta, extract_requirement, extract_result_delta.
+        Path or media ref to seed work_items from CSV/JSONL/XLSX (Type2).
+        Accepts localPath, pointer-media://…, or storage rel (same as general agent media).
+    work_item_mode:
+      type: string
+      enum: [enumerated, dynamic]
     expected_total:
       type: integer
       minimum: 1
+    dynamic_quota:
+      type: integer
+      minimum: 1
+    global_context: {}
+    items:
+      type: array
+      description: Legacy alias for global_milestones.
+      items:
+        type: object
+        additionalProperties: true
     _conversation_id:
       type: string
   required: [goal]
@@ -24,28 +98,90 @@ task_board_init:
 task_board_replace:
   type: object
   properties:
-    goal:
-      type: string
-    global_context: {}
-    items: {}
-    expected_total:
-      type: integer
-      minimum: 1
+    item_milestones:
+      type: array
+      description: Full item SOP template rows (execution only).
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+          title:
+            type: string
+          status:
+            type: string
+          done_when:
+            type: string
+          plan:
+            type: string
+        required: [id, title, status]
+        additionalProperties: true
     _conversation_id:
       type: string
-  required: [items]
-  additionalProperties: true
+  required: [item_milestones]
+  additionalProperties: false
 
 task_board_patch:
   type: object
   properties:
-    items:
+    milestones:
+      type: array
       description: >
-        One row object with required id and status. Optional progress,
-        validate_result_delta, extract_result_delta — omit optional fields
-        not changed on this call (do not send empty placeholders).
+        One visible milestone row from inject (step, queue SOP, or g_deliver).
+        Host routes by inject mode and row id — do not use global_milestones on patch.
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+          status:
+            type: string
+          remark:
+            type: string
+        required: [id, status]
+        additionalProperties: true
+    current_item:
+      type: object
+      description: >
+        Active work_item focus for queue exec patches. id must match [WORK_ITEM_FOCUS].
+        Include status done/failed to close the row without patching the last milestone.
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [pending, ready, in_progress, done, failed, cancelled]
+        result_summary:
+          type: string
+        result_ref:
+          type: string
+        error_message:
+          type: string
+      required: [id]
+      additionalProperties: true
+    work_item_claim:
+      type: object
+      description: Dynamic mode — claim one runtime target (object, not a string).
+      properties:
+        target_key:
+          type: string
+        title:
+          type: string
+        payload:
+          type: object
+          description: Optional key-value fields for the claimed target.
+          additionalProperties: true
+        status:
+          type: string
+      required: [target_key]
+      additionalProperties: true
+    items:
+      description: Legacy flat row (id + status); prefer global_milestones or milestones.
     item_id:
       type: string
+      description: >
+        Type1 flat patch — global milestone row id (no work_items).
+        Queue exec uses current_item.id instead.
     _conversation_id:
       type: string
   required: []

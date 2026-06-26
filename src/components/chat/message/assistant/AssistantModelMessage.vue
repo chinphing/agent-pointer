@@ -8,6 +8,7 @@ import { shouldShowSubAgentTrace, uiForSubAgentFrame } from '../../../../lib/age
 import { useAgentsCatalog, uiForMessageAgent } from '../../../../composables/useAgentUi'
 import { isMessageStreaming } from '../../../../lib/assistantMessageKind'
 import { subTracesForMessage } from '../../../../lib/subAgentSession'
+import { subTaskIdFromTraceId } from '../../../../lib/subAgentStats'
 import { isTaskBoardTerminal } from '../../../../stores/chat/taskBoard'
 import AgentMessageBody, { type AgentMessageBodyModel } from './AgentMessageBody.vue'
 import SubAgentFrame from './SubAgentFrame.vue'
@@ -52,6 +53,10 @@ function subTraceUi(trace: (typeof subTraces.value)[number]) {
 }
 
 const thoughtsDebugEnabled = computed(() => false)
+
+const workItemsEnabled = computed(
+  () => settingsStore.settings.computerStandalonePlannerEnabled === true
+)
 
 const chatStore = useChatStore()
 const { generating, activeGeneratingMessageId, taskBoards } = storeToRefs(chatStore)
@@ -151,6 +156,9 @@ const showSupervisorPlan = computed(
         <TaskBoardPanel
           :document="childBoardByTraceId.get(trace.id)!.document"
           :is-active="childBoardByTraceId.get(trace.id)!.isActive"
+          :conversation-id="chatStore.currentId"
+          :task-id="subTaskIdFromTraceId(trace.id)"
+          :work-items-enabled="workItemsEnabled"
         />
       </div>
 

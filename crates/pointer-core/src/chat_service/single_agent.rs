@@ -51,6 +51,8 @@ pub(super) async fn run_single_agent_loop(
             .reset_for_new_user_guidance(conversation_id);
     }
 
+    let mut reuse_initial_assistant = ctx.initial_assistant_id.take();
+
     loop {
         match super::agent_round_lifecycle::check_loop_guards(&cancel, ctx.tool_budget) {
             super::agent_round_lifecycle::LoopGuardOutcome::Continue => {}
@@ -67,9 +69,26 @@ pub(super) async fn run_single_agent_loop(
             }
         }
 
-        let assistant_id = new_id("msg");
+        let assistant_id = if let Some(id) = reuse_initial_assistant.take() {
+            id
+        } else {
+            let id = new_id("msg");
+            emit(
+                &stream,
+                StreamEvent::MessageStart {
+                    message_id: id.clone(),
+                    conversation_id: conversation_id.to_string(),
+                },
+            );
+            id
+        };
 
-        let effective_allowed = agent_plan.allowed_tool_names.clone();
+        let mut effective_allowed = agent_plan.allowed_tool_names.clone();
+        if lead_profile == AgentProfile::Computer
+            && settings.computer_standalone_planner_enabled
+        {
+            effective_allowed.retain(|t| t != "task_board_init" && t != "task_board_replace");
+        }
         let tools_system_appendix =
             crate::tools_system_appendix::generate_tools_system_appendix(
                 &state.tools,
@@ -78,14 +97,6 @@ pub(super) async fn run_single_agent_loop(
         let tools_appendix_enabled = !tools_system_appendix.is_empty();
         let native_tools = state.tools.openai_tools(&effective_allowed);
         let file_tool_lead_for_invoke = lead_profile.clone();
-
-        emit(
-            &stream,
-            StreamEvent::MessageStart {
-                message_id: assistant_id.clone(),
-                conversation_id: conversation_id.to_string(),
-            },
-        );
 
         let mut agent_trace = Vec::new();
 
@@ -105,6 +116,7 @@ pub(super) async fn run_single_agent_loop(
                 lead_profile: lead_profile.clone(),
                 tools_system_appendix,
                 tools_appendix_enabled,
+                planner_outcome: ctx.planner_outcome.clone(),
             },
         )
         .await?;

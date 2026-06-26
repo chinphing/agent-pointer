@@ -1,4 +1,6 @@
-# Taskboard Lifecycle And Fields (v3)
+# Taskboard Lifecycle And Fields (v4)
+
+Schema reference: [`internals/task-board-v2-schema.md`](internals/task-board-v2-schema.md).
 
 ## Field semantics
 
@@ -6,30 +8,36 @@
 | --- | --- | --- |
 | `status` | required | Current row state (`in_progress`, `done`, …). Every patch must include it. |
 | `plan` | replace | Execution plan (markdown). |
-| `progress` | replace | Position within milestone (`N/M`, batch label). Legacy `checkpoint` accepted on read. |
-| `validate_requirement` | replace | Milestone outcome acceptance criteria. |
-| `validate_result_delta` | append | One outcome line per patch while `in_progress`. |
-| `validate_results` | replace (`done` only) | Full outcome list when the row completes. |
-| `extract_requirement` | replace | Extraction spec (markdown). |
-| `extract_result_delta` | append | One extract line per patch while working. |
-| `extract_results` | replace (`done` only) | Full extract when the row completes. |
+| `constraint` | replace | Row-level constraint; may inherit `meta.constraint`. |
+| `done_when` | replace | Milestone outcome acceptance criteria. |
+| `remark` | replace | Short outcome note when marking `done` (optional while `in_progress`). |
+| `delivery_format` | replace | Only on `g_deliver` (`xlsx`, `csv`, …). |
+
+**Removed in v4:** `progress`, `checkpoint`, `validate_requirement`, `validate_results`, `validate_*_delta`, `extract_*`, row-level `work_item_mode`.
 
 User delivery: assistant **`content`**, not board fields.
 
-## Injection order (current task)
+## Document layers
 
-1. `plan`
-2. `progress` (replace on patch)
-3. `validate_requirement`
-4. While `in_progress` / `pending` / `ready`: **`validate_result_delta`** (recent tail only)
-5. When current row is `done`: **`validate_results`** (full list, deduped)
+| Layer | Field | Type1 | Type2 |
+| --- | --- | --- | --- |
+| Meta | `goal`, `context`, `constraint`, `done_when` | ✓ | ✓ |
+| Task-level | `global_milestones[]` | full flow | fixed `g_plan` / `g_exec` / `g_deliver` |
+| Per-item SOP | `item_milestones[]` | — | template with `{field}` placeholders |
+| Queue | `work_items` (DB) | — | flat per `store_id` |
 
-## Injection — all tasks list
+## Injection order (`[TASK_BOARD]`)
 
-- `pending` / `in_progress`: `validate_requirement` on the same line.
-- `done` / `cancelled` / `failed`: status line, then all deduped `validate_results` snippets on following lines (`  validate_results: …`).
+One ladder per turn (host projection):
 
-**Final user summary:** agents must derive delivery tables and counts from this injected list — especially **`validate_results`** on **`done`** rows — not from chat memory. Missing evidence → report unverified.
+1. **## Task** — meta
+2. **## All tasks (with status)** — global rows (step), item template rows (queue exec), or `g_deliver` only (queue deliver)
+3. **## Current task** (+ **## Current task plan** when plan exists); queue exec may show `exec_progress` / `exec_met`
+4. **## Work items** — window + `[WORK_ITEM_FOCUS]` (queue mode)
+
+See [`internals/task-board-unified-milestone-inject.md`](internals/task-board-unified-milestone-inject.md) for projection rules.
+
+**Final user summary:** derive tables and counts from injected **`remark`** on `done` rows and `result_summary` on terminal work_items — not from chat memory.
 
 ## Lifecycle binding rules
 
@@ -40,8 +48,9 @@ User delivery: assistant **`content`**, not board fields.
 
 ## History trim (maintainer)
 
-- **Current:** trim on `init` / `replace` / `finalize` or `patch` with a row `done`; Computer keeps anchor user + last 10 messages + latest live `[CUR_SCREEN]` (soft-exclude). Details: [`internals/agent-task-board-and-verification.md`](internals/agent-task-board-and-verification.md#task_board-触发的历史截断当前实现).
-- **Deferred:** trim on board row **`checkpoint` change**, keep only current-round screen inject — documented under **待实现** in the same file; not implemented (risk review pending).
+- **Trigger:** `init` / `replace` / `finalize`, or `patch` with substantive progress: row `done`, non-empty `remark`, or `work_item_delta`. Details: [`internals/agent-task-board-and-verification.md`](internals/agent-task-board-and-verification.md#task_board-触发的历史截断当前实现).
+- **Not a trigger:** `in_progress` only; v3 fields (`progress`, `validate_results`, …).
+- Computer keeps anchor user + last 10 messages + latest live `[CUR_SCREEN]`.
 
 Continuation rule:
 

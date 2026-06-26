@@ -33,18 +33,13 @@ const emit = defineEmits<{
       <WindowDragRegion region="compact-bar-status" class="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
         <div
           v-if="planSummary"
-          class="flex min-w-0 items-center gap-3"
+          class="flex min-w-0 items-center gap-2"
           :title="planLine ?? undefined"
         >
-          <div
-            class="flex shrink-0 items-center gap-1.5"
-            :aria-label="`进度 ${planSummary.progress}`"
-          >
-            <LayoutList class="w-3.5 h-3.5 shrink-0 text-accent" aria-hidden="true" />
-            <span class="text-[11px] font-medium leading-[1.25rem] tabular-nums text-muted">
-              {{ planSummary.progress }}
-            </span>
-          </div>
+          <LayoutList class="w-3.5 h-3.5 shrink-0 text-accent" aria-hidden="true" />
+          <span class="text-[11px] font-medium leading-[1.25rem] tabular-nums text-muted shrink-0">
+            {{ planSummary.progress }}
+          </span>
           <p class="min-w-0 flex-1 truncate text-[11px] leading-[1.25rem] text-muted">
             {{ planSummary.taskLine }}
           </p>

@@ -12,8 +12,8 @@ pub(super) use types::{
 
 use crate::models::{StreamEvent, ToolCall};
 use crate::task_board::{
-    inject_host_task_board_conversation_id, is_task_board_tool_name, maybe_trim_after_tool_pass,
-    task_board_call_is_checkpoint,
+    inject_host_task_board_conversation_id, inject_work_items_tool_host, is_task_board_tool_name,
+    maybe_trim_after_tool_pass, task_board_call_is_checkpoint,
 };
 use crate::tools::normalize_tool_invoke_name;
 use crate::tools::parse_tool_call_arguments;
@@ -75,6 +75,15 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
             pass.ctx.session.conversation_id,
             pass.ctx.task_board_store_key,
             pass.ctx.transcript.history,
+            pass.ctx.task_board_work_items_enabled,
+            pass.ctx.task_board_b42_enforced,
+        );
+        let args_value = inject_work_items_tool_host(
+            &tool_id,
+            args_value,
+            pass.ctx.task_board_store_key,
+            pass.ctx.workspace_root,
+            pass.ctx.task_board_work_items_enabled,
         );
 
         if tool_id.is_empty() {
@@ -92,6 +101,28 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                 &pass.ctx.message_id,
                 &tc.id,
                 "ERROR: 工具名为空：请检查 <tool_name>（例如 mouse_click_index、input、response）。",
+                &pass.ctx.persist,
+            );
+            any_executed = true;
+            continue;
+        }
+
+        if pass.ctx.task_board_computer_no_exec_init && tool_id == "task_board_init" {
+            let err = "task_board init is handled by the host planner; use task_board_patch or task_board_replace during execution.";
+            emit_tool_failed(
+                pass.ctx.session.stream,
+                &pass.ctx.message_id,
+                tc,
+                sub_trace_id.as_deref(),
+                sub_scoped_id.as_deref(),
+                err,
+            );
+            super::util::push_tool_result(
+                pass.ctx.transcript.history,
+                pass.ctx.session.conversation_id,
+                &pass.ctx.message_id,
+                &tc.id,
+                &format!("ERROR: {err}"),
                 &pass.ctx.persist,
             );
             any_executed = true;

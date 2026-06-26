@@ -5,9 +5,10 @@ use crate::extensions::{
     new_extension_message_id, now_ms, MessageLoopPromptsAfterContext, MessageLoopPromptsAfterHook,
 };
 use crate::models::{ChatMessage, Role};
-use crate::task_board::MetaStatus;
 use crate::task_board::snapshot::markdown_runtime_block_for_inject;
 use crate::task_board::sub_agent_hint::main_agent_task_board_init_hint;
+use crate::task_board::PlannerRunOutcome;
+use crate::task_board::MetaStatus;
 use anyhow::Result;
 use async_trait::async_trait;
 
@@ -31,10 +32,14 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
         let doc = ctx.task_board_store.document(ctx.task_board_store_key);
         let terminal_board = matches!(doc.meta.status, MetaStatus::Completed | MetaStatus::Failed);
         let has_board_content =
-            !terminal_board && (!doc.meta.goal.trim().is_empty() || !doc.board.is_empty());
+            !terminal_board && (!doc.meta.goal.trim().is_empty() || !doc.global_milestones.is_empty());
         let board_block = if has_board_content {
-            Some(markdown_runtime_block_for_inject(&doc))
-        } else if ctx.task_board_store_key == ctx.conversation_id {
+            Some(markdown_runtime_block_for_inject(
+                &doc,
+                ctx.task_board_store_key,
+                Some(ctx.task_board_store.work_items.as_ref()),
+            ))
+        } else if should_show_init_hint(ctx) {
             main_agent_task_board_init_hint(
                 ctx.task_board_store.as_ref(),
                 ctx.task_board_store_key,
@@ -103,5 +108,17 @@ impl MessageLoopPromptsAfterHook for CommonUserDynamicInjectHook {
             );
         }
         Ok(())
+    }
+}
+
+fn should_show_init_hint(ctx: &MessageLoopPromptsAfterContext<'_>) -> bool {
+    match ctx.lead_agent_profile {
+        AgentProfile::Coder => true,
+        AgentProfile::Computer => match &ctx.planner_outcome {
+            PlannerRunOutcome::Failed { .. } => true,
+            PlannerRunOutcome::NotApplicable => true,
+            PlannerRunOutcome::Skipped { .. } | PlannerRunOutcome::Planned { .. } => false,
+        },
+        _ => false,
     }
 }

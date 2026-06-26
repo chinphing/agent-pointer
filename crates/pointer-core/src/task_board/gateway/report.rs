@@ -1,6 +1,6 @@
 //! Child completion settlement on parent board.
 
-use super::super::model::{push_snippet, BoardDocument, ItemStatus};
+use super::super::model::{compact_snippet, BoardDocument, ItemStatus};
 use super::dependency::mark_ready_after_report;
 use anyhow::{anyhow, Result};
 
@@ -11,14 +11,14 @@ pub fn report_child_status(
     output: &str,
 ) -> Result<()> {
     let idx = parent
-        .board
+        .global_milestones
         .iter()
         .position(|i| i.id == sub_task_id)
         .ok_or_else(|| anyhow!("parent board missing milestone {sub_task_id}"))?;
-    let row = &mut parent.board[idx];
+    let row = &mut parent.global_milestones[idx];
     row.status = status;
     if !output.trim().is_empty() {
-        push_snippet(&mut row.validate_results, output);
+        row.remark = Some(compact_snippet(output.trim()));
     }
     mark_ready_after_report(parent);
     log::info!(

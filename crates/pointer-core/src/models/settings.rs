@@ -690,6 +690,12 @@ pub struct ModelSettings {
         rename = "taskBoardShowChildBoards"
     )]
     pub task_board_show_child_boards: bool,
+    /// Computer: independent planner bundle (work_items queue + planner loop + exec cannot init board).
+    #[serde(
+        default = "default_computer_standalone_planner_enabled",
+        rename = "computerStandalonePlannerEnabled"
+    )]
+    pub computer_standalone_planner_enabled: bool,
     /// Migration flag: append task board runtime markdown as the last user message each round.
     #[serde(default = "default_user_dynamic_inject_enabled", rename = "userDynamicInjectEnabled")]
     pub user_dynamic_inject_enabled: bool,
@@ -927,6 +933,10 @@ fn default_task_board_show_child_boards() -> bool {
     false
 }
 
+fn default_computer_standalone_planner_enabled() -> bool {
+    true
+}
+
 fn default_user_dynamic_inject_enabled() -> bool {
     build_cfg_bool!("USER_DYNAMIC_INJECT_ENABLED", true)
 }
@@ -1035,6 +1045,7 @@ impl Default for ModelSettings {
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             debug_menus_enabled: default_debug_menus_enabled(),
             task_board_show_child_boards: default_task_board_show_child_boards(),
+            computer_standalone_planner_enabled: default_computer_standalone_planner_enabled(),
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: HashMap::new(),
             agent_task_board_history_trim: HashMap::new(),
@@ -1347,6 +1358,11 @@ pub struct PlatformSettings {
         rename = "taskBoardShowChildBoards"
     )]
     pub task_board_show_child_boards: bool,
+    #[serde(
+        default = "default_computer_standalone_planner_enabled",
+        rename = "computerStandalonePlannerEnabled"
+    )]
+    pub computer_standalone_planner_enabled: bool,
     #[serde(default = "default_user_dynamic_inject_enabled", rename = "userDynamicInjectEnabled")]
     pub user_dynamic_inject_enabled: bool,
     #[serde(default, rename = "agentDefaultModels", deserialize_with = "deserialize_agent_default_models", serialize_with = "serialize_agent_default_models")]
@@ -1427,6 +1443,11 @@ pub struct PersistedLocalPlatformSettings {
     pub user_dynamic_inject_enabled: bool,
     #[serde(default = "default_computer_human_like", rename = "computerHumanLike")]
     pub computer_human_like: bool,
+    #[serde(
+        default = "default_computer_standalone_planner_enabled",
+        rename = "computerStandalonePlannerEnabled"
+    )]
+    pub computer_standalone_planner_enabled: bool,
     #[serde(default = "default_computer_initial_tier", rename = "computerInitialTier")]
     pub computer_initial_tier: String,
     #[serde(
@@ -1476,6 +1497,7 @@ impl PersistedLocalPlatformSettings {
             tool_approval_mode: platform.tool_approval_mode.clone(),
             user_dynamic_inject_enabled: platform.user_dynamic_inject_enabled,
             computer_human_like: platform.computer_human_like,
+            computer_standalone_planner_enabled: platform.computer_standalone_planner_enabled,
             computer_initial_tier: platform.computer_initial_tier.clone(),
             context_compression_enabled: platform.context_compression_enabled,
             context_budget_tokens: platform.context_budget_tokens,
@@ -1504,6 +1526,7 @@ impl PersistedLocalPlatformSettings {
         platform.tool_approval_mode = self.tool_approval_mode.clone();
         platform.user_dynamic_inject_enabled = self.user_dynamic_inject_enabled;
         platform.computer_human_like = self.computer_human_like;
+        platform.computer_standalone_planner_enabled = self.computer_standalone_planner_enabled;
         platform.computer_initial_tier = self.computer_initial_tier.clone();
         platform.context_compression_enabled = self.context_compression_enabled;
         platform.context_budget_tokens = self.context_budget_tokens;
@@ -1771,6 +1794,7 @@ impl Default for PlatformSettings {
             debug_dump_llm_prompts: default_debug_dump_llm_prompts(),
             debug_menus_enabled: default_debug_menus_enabled(),
             task_board_show_child_boards: default_task_board_show_child_boards(),
+            computer_standalone_planner_enabled: default_computer_standalone_planner_enabled(),
             user_dynamic_inject_enabled: default_user_dynamic_inject_enabled(),
             agent_default_models: default_platform_agent_models(),
             agent_task_board_history_trim: HashMap::new(),
@@ -1834,6 +1858,7 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         debug_dump_llm_prompts: platform.debug_dump_llm_prompts,
         debug_menus_enabled: platform.debug_menus_enabled,
         task_board_show_child_boards: platform.task_board_show_child_boards,
+        computer_standalone_planner_enabled: platform.computer_standalone_planner_enabled,
         user_dynamic_inject_enabled: platform.user_dynamic_inject_enabled,
         agent_default_models: platform.agent_default_models.clone(),
         agent_task_board_history_trim: platform.agent_task_board_history_trim.clone(),

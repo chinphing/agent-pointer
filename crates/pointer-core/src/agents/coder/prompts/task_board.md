@@ -2,7 +2,7 @@
 
 Multi-step work is tracked with **`task_board`**, not by pasting the full plan only into assistant text or reasoning.
 
-**User-visible replies** go in assistant **`content`**. **`task_board`** holds milestones.
+**User-visible replies** go in assistant **`content`**. **`task_board`** holds milestones in **`global_milestones`**.
 
 ### Complexity gate (align with Scenario)
 
@@ -18,23 +18,23 @@ Initialize when expected scope is **≥2 files** or **cross-module**. If scope e
 
 ### Recommended rows (3–6)
 
-1. **Recon** — explore delegation or lite grep; **`validate_results`** = explore Summary one-liner + key paths (not full handoff).
+1. **Recon** — explore delegation or lite grep; **`remark`** on `done` = explore Summary one-liner + key paths (not full handoff).
 2. **Implement** — actual edits; **`done`** needs diff scope note and must match
    **In scope** from **Scope gate** (no bundled follow-ups).
 3. **Unit tests** — command + pass/fail.
 4. **(Optional) Integration** — cross-module or CI-sensitive only.
 5. **(Optional) Deliver prep** — audit passed; often same turn as finalize.
 
-After explore returns: **`task_board_patch`** Recon → **`done`**, append delta e.g.
+After explore returns: **`task_board_patch`** Recon → **`done`**, with **`remark`** e.g.
 `explore: cross_module_change; Key files: a.rs, b.ts; Surfaces: client+server noted`.
 
 ### Patch discipline
 
-- Status changes → **`task_board_patch`** in the **same turn**.
+- Status changes → **`task_board_patch`** with **`global_milestones`** (one row) in the **same turn**.
 - Treat **`[TASK_BOARD]`** as authoritative snapshot.
-- **`validate_results`** append-only; **`done`** needs repeatable evidence (command output or explore summary)—not "looks good".
+- **`done`** needs repeatable evidence in **`remark`** (command output or explore summary)—not "looks good".
 - All rows **`done`** / **`cancelled`** → **`task_board_finalize`** + **Deliver** same turn.
 
-Each row keeps **`plan`**, **`progress`**, **`validate_requirement`**, **`validate_results`** (see **`task_board`** tool doc in **Tools**).
+Each row keeps **`plan`**, **`done_when`**, optional **`remark`** when `done` (see **`task_board`** tool doc in **Tools**).
 
 **Do not** paste explore **`## Impact map`** into board **`plan`** fields.

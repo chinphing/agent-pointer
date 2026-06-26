@@ -611,6 +611,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   const {
+    applyTaskBoardDocument,
     applyTaskBoardDocumentDebounced,
     refreshTaskBoard,
     activeParentBoardDocument,
@@ -732,6 +733,7 @@ export const useChatStore = defineStore('chat', () => {
       isConversationGenerating,
       hasInFlightToolCalls,
       scheduleMaybeFinishGenerating,
+      applyTaskBoardDocument,
       applyTaskBoardDocumentDebounced,
       refreshTaskBoard,
       handleTerminalToolCallStatus: terminalLive.handleToolCallStatus,

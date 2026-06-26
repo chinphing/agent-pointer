@@ -25,6 +25,10 @@ const agentsCatalog = useAgentsCatalog()
 const scroller = ref<HTMLDivElement | null>(null)
 const showScrollButton = ref(false)
 
+const workItemsEnabled = computed(
+  () => settings.settings.computerStandalonePlannerEnabled === true
+)
+
 async function toBottom() {
   await nextTick()
   const el = scroller.value
@@ -298,6 +302,8 @@ function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): st
             :document="entry.document"
             :is-active="entry.isActive"
             :child-boards="chat.childBoardsForParent(chat.currentId, entry.storeKey)"
+            :conversation-id="chat.currentId"
+            :work-items-enabled="workItemsEnabled"
           />
         </div>
       </template>

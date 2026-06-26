@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Cloud, Loader2, RefreshCw } from 'lucide-vue-next'
+import { Cloud, Loader2, RefreshCw, X, Minus, Plus, Sparkles } from 'lucide-vue-next'
 import { usePlatformAuthStore } from '../../../stores/platformAuth'
 import type { SettingsDialogForm } from '../../../composables/useSettingsDialogForm'
 import {
@@ -54,7 +54,11 @@ const purchaseYearlyQty = ref('1')
 const purchaseTierId = ref('')
 const purchasePricing = ref<ShopPricing | null>(null)
 const purchasePreview = ref<ShopPreviewResult | null>(null)
+const purchasePreviewLoading = ref(false)
 const purchaseSubmitting = ref(false)
+
+let purchasePreviewTimer: ReturnType<typeof setTimeout> | null = null
+let purchasePreviewSeq = 0
 
 const renewAgent = ref<CloudAgent | null>(null)
 const renewPreview = ref<ShopPreviewResult | null>(null)
@@ -66,6 +70,96 @@ const releaseSubmitting = ref(false)
 const openingAgentId = ref<string | null>(null)
 
 const loggedIn = computed(() => platformAuth.session.logged_in)
+
+const purchasePackageOptions = computed(() => {
+  const p = purchasePricing.value
+  return [
+    {
+      kind: 'hourly_trial' as PackageKind,
+      label: '试用',
+      price: p?.trial_hourly_rate_yuan,
+      unit: '元/小时',
+      note: p?.trial_hourly_public_note
+    },
+    {
+      kind: 'hourly_spot' as PackageKind,
+      label: '标准按时',
+      price: p?.hourly_rate_yuan,
+      unit: '元/小时',
+      note: p?.hourly_public_note
+    },
+    {
+      kind: 'monthly' as PackageKind,
+      label: '包月',
+      price: p?.monthly_yuan,
+      unit: '元/月',
+      note: undefined
+    },
+    {
+      kind: 'yearly' as PackageKind,
+      label: '包年',
+      price: p?.yearly_yuan,
+      unit: '元/年',
+      note: undefined
+    }
+  ]
+})
+
+const activePurchasePackageNote = computed(() => {
+  const opt = purchasePackageOptions.value.find(o => o.kind === purchaseTab.value)
+  return opt?.note?.trim() || ''
+})
+
+const purchaseDurationLabel = computed(() => {
+  if (purchaseTab.value === 'hourly_trial' || purchaseTab.value === 'hourly_spot') return '购买时长（小时）'
+  if (purchaseTab.value === 'monthly') return '购买时长（月）'
+  return '购买时长（年）'
+})
+
+const purchaseDurationValue = computed({
+  get() {
+    if (purchaseTab.value === 'monthly') return purchaseMonthlyQty.value
+    if (purchaseTab.value === 'yearly') return purchaseYearlyQty.value
+    return purchaseHours.value
+  },
+  set(v: string) {
+    if (purchaseTab.value === 'monthly') purchaseMonthlyQty.value = v
+    else if (purchaseTab.value === 'yearly') purchaseYearlyQty.value = v
+    else purchaseHours.value = v
+  }
+})
+
+function adjustPurchaseDuration(delta: number) {
+  const raw = parseInt(purchaseDurationValue.value, 10)
+  const next = Number.isFinite(raw) ? raw + delta : 1
+  purchaseDurationValue.value = String(Math.max(1, next))
+}
+
+function openPurchaseModal() {
+  purchaseOpen.value = true
+  purchasePreview.value = null
+  void loadPurchasePricing()
+  schedulePurchasePreview()
+}
+
+function closePurchaseModal() {
+  purchaseOpen.value = false
+  purchasePreview.value = null
+  purchasePreviewLoading.value = false
+  if (purchasePreviewTimer) {
+    clearTimeout(purchasePreviewTimer)
+    purchasePreviewTimer = null
+  }
+}
+
+function schedulePurchasePreview() {
+  if (!purchaseOpen.value) return
+  if (purchasePreviewTimer) clearTimeout(purchasePreviewTimer)
+  purchasePreviewTimer = setTimeout(() => {
+    purchasePreviewTimer = null
+    void runPurchasePreview()
+  }, 280)
+}
 
 async function refreshOpenWindowStates(list: CloudAgent[]) {
   const next: Record<string, boolean> = {}
@@ -153,6 +247,7 @@ async function loadPurchasePricing() {
     if (!purchaseTierId.value && tiers.length > 0) {
       purchaseTierId.value = tiers.find(t => t.is_default)?.id ?? tiers[0].id
     }
+    schedulePurchasePreview()
   } catch (e) {
     error.value = formatApiError(e)
   }
@@ -168,13 +263,26 @@ async function runPurchasePreview() {
     purchaseTierId.value
   )
   if (!body) {
-    error.value = '请填写有效的购买时长'
+    purchasePreview.value = null
+    purchasePreviewLoading.value = false
     return
   }
+  const seq = ++purchasePreviewSeq
+  purchasePreviewLoading.value = true
   try {
-    purchasePreview.value = await previewCloudShop(body)
+    const result = await previewCloudShop(body)
+    if (seq === purchasePreviewSeq) {
+      purchasePreview.value = result
+    }
   } catch (e) {
-    error.value = formatApiError(e)
+    if (seq === purchasePreviewSeq) {
+      purchasePreview.value = null
+      error.value = formatApiError(e)
+    }
+  } finally {
+    if (seq === purchasePreviewSeq) {
+      purchasePreviewLoading.value = false
+    }
   }
 }
 
@@ -193,7 +301,7 @@ async function confirmPurchase() {
   try {
     const result = await purchaseCloudAgent(body)
     me.value = { ...me.value!, balance_yuan: result.balance_yuan }
-    purchaseOpen.value = false
+    closePurchaseModal()
     statusFilter.value = 'running'
     await reloadAgents()
   } catch (e) {
@@ -237,6 +345,7 @@ async function onCloseWindow(agentId: string) {
 function startRenew(agent: CloudAgent) {
   renewAgent.value = agent
   renewPreview.value = null
+  void runRenewPreview()
 }
 
 async function runRenewPreview() {
@@ -308,6 +417,13 @@ watch(purchaseRegionId, () => {
   if (purchaseOpen.value) void loadPurchasePricing()
 })
 
+watch(
+  [purchaseTab, purchaseHours, purchaseMonthlyQty, purchaseYearlyQty, purchaseTierId],
+  () => {
+    if (purchaseOpen.value) schedulePurchasePreview()
+  }
+)
+
 watch(loggedIn, v => {
   if (v) void loadAll()
 })
@@ -363,9 +479,10 @@ onMounted(() => {
           </button>
           <button
             type="button"
-            class="h-8 px-3 rounded-lg bg-accent text-xs font-medium text-white hover:opacity-95 cursor-pointer"
-            @click="purchaseOpen = true"
+            class="h-8 px-3 rounded-lg bg-accent text-xs font-medium text-white hover:opacity-95 cursor-pointer inline-flex items-center gap-1.5"
+            @click="openPurchaseModal"
           >
+            <Sparkles class="w-3.5 h-3.5" />
             购买云主机
           </button>
         </div>
@@ -482,58 +599,168 @@ onMounted(() => {
     <!-- Purchase modal -->
     <div
       v-if="purchaseOpen"
-      class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-      @click.self="purchaseOpen = false"
+      class="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/55 backdrop-blur-[2px] p-3 sm:p-4"
+      @click.self="closePurchaseModal"
     >
-      <div class="w-full max-w-md rounded-xl border border-border bg-[hsl(var(--card))] p-5 space-y-4 shadow-xl">
-        <h4 class="text-sm font-semibold">购买云主机</h4>
-        <label class="block text-xs text-muted">
-          地域
-          <select v-model="purchaseRegionId" class="mt-1 w-full h-9 rounded-lg border border-border bg-transparent px-2 text-sm" @change="loadPurchasePricing">
-            <option v-for="r in regions" :key="r.id" :value="r.id">{{ r.name_zh }}</option>
-          </select>
-        </label>
-        <div class="flex flex-wrap gap-2">
+      <div
+        class="w-full max-w-lg rounded-2xl border border-border bg-[hsl(var(--card))] shadow-2xl overflow-hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cloud-purchase-title"
+      >
+        <div class="flex items-start justify-between gap-3 px-5 pt-5 pb-4 border-b border-border/70">
+          <div class="min-w-0">
+            <h4 id="cloud-purchase-title" class="text-base font-semibold text-foreground">购买云主机</h4>
+            <p class="mt-1 text-xs text-muted leading-relaxed">选择地域与套餐，确认扣款并创建实例</p>
+          </div>
           <button
-            v-for="tab in ([
-              ['hourly_trial', '试用'],
-              ['hourly_spot', '标准'],
-              ['monthly', '包月'],
-              ['yearly', '包年']
-            ] as const)"
-            :key="tab[0]"
             type="button"
-            class="h-7 px-3 rounded-full text-xs border cursor-pointer"
-            :class="purchaseTab === tab[0] ? 'border-accent bg-accent/10 text-accent' : 'border-border'"
-            @click="purchaseTab = tab[0]"
+            class="shrink-0 flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted hover:bg-hover hover:text-foreground transition-colors cursor-pointer"
+            aria-label="关闭"
+            @click="closePurchaseModal"
           >
-            {{ tab[1] }}
+            <X class="w-4 h-4" />
           </button>
         </div>
-        <label v-if="purchaseTab === 'hourly_trial' || purchaseTab === 'hourly_spot'" class="block text-xs text-muted">
-          小时数
-          <input v-model="purchaseHours" type="number" min="1" class="mt-1 w-full h-9 rounded-lg border border-border bg-transparent px-2 text-sm" />
-        </label>
-        <label v-else-if="purchaseTab === 'monthly'" class="block text-xs text-muted">
-          月数
-          <input v-model="purchaseMonthlyQty" type="number" min="1" class="mt-1 w-full h-9 rounded-lg border border-border bg-transparent px-2 text-sm" />
-        </label>
-        <label v-else class="block text-xs text-muted">
-          年数
-          <input v-model="purchaseYearlyQty" type="number" min="1" class="mt-1 w-full h-9 rounded-lg border border-border bg-transparent px-2 text-sm" />
-        </label>
-        <p v-if="purchasePreview" class="text-sm">
-          应付 <span class="font-semibold text-accent">{{ purchasePreview.paid_yuan }}</span> 元
-        </p>
-        <div class="flex justify-end gap-2">
-          <button type="button" class="h-8 px-3 rounded-lg border border-border text-xs hover:bg-hover" @click="purchaseOpen = false">取消</button>
-          <button type="button" class="h-8 px-3 rounded-lg border border-border text-xs hover:bg-hover" @click="runPurchasePreview">试算</button>
+
+        <div class="px-5 py-4 space-y-5 max-h-[min(70vh,560px)] overflow-y-auto">
+          <section class="space-y-2">
+            <p class="text-xs font-medium text-muted">部署地域</p>
+            <div
+              class="flex gap-1 rounded-xl bg-hover/50 p-1"
+              role="tablist"
+              aria-label="部署地域"
+            >
+              <button
+                v-for="r in regions"
+                :key="r.id"
+                type="button"
+                role="tab"
+                :aria-selected="purchaseRegionId === r.id"
+                class="min-w-0 flex-1 rounded-lg px-3 py-2 text-center text-sm transition-all cursor-pointer"
+                :class="
+                  purchaseRegionId === r.id
+                    ? 'bg-[hsl(var(--card-elevated))] font-medium text-foreground shadow-sm ring-1 ring-border/80'
+                    : 'text-muted hover:text-foreground hover:bg-hover/80'
+                "
+                @click="purchaseRegionId = r.id"
+              >
+                {{ r.name_zh }}
+              </button>
+            </div>
+          </section>
+
+          <section class="space-y-2">
+            <p class="text-xs font-medium text-muted">套餐类型</p>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                v-for="opt in purchasePackageOptions"
+                :key="opt.kind"
+                type="button"
+                class="rounded-xl border p-3 text-left transition-all cursor-pointer"
+                :class="
+                  purchaseTab === opt.kind
+                    ? 'border-accent/45 bg-accent/8 ring-1 ring-accent/25'
+                    : 'border-border bg-[hsl(var(--card-elevated))] hover:border-accent/25 hover:bg-hover/40'
+                "
+                @click="purchaseTab = opt.kind"
+              >
+                <span class="block text-sm font-medium text-foreground">{{ opt.label }}</span>
+                <span v-if="opt.price" class="mt-1 block text-xs tabular-nums text-accent">
+                  {{ opt.price }}
+                  <span class="text-muted font-normal">{{ opt.unit }}</span>
+                </span>
+                <span v-else class="mt-1 block text-xs text-muted">加载单价…</span>
+              </button>
+            </div>
+            <p
+              v-if="activePurchasePackageNote"
+              class="rounded-lg border border-border/70 bg-hover/30 px-3 py-2 text-[11px] leading-relaxed text-muted"
+            >
+              {{ activePurchasePackageNote }}
+            </p>
+          </section>
+
+          <section class="space-y-2">
+            <p class="text-xs font-medium text-muted">{{ purchaseDurationLabel }}</p>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted hover:bg-hover cursor-pointer disabled:opacity-40"
+                aria-label="减少"
+                @click="adjustPurchaseDuration(-1)"
+              >
+                <Minus class="w-4 h-4" />
+              </button>
+              <input
+                v-model="purchaseDurationValue"
+                type="number"
+                min="1"
+                class="h-9 w-full rounded-lg border border-border bg-[hsl(var(--card-elevated))] px-3 text-center text-sm tabular-nums text-foreground outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/15"
+              />
+              <button
+                type="button"
+                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-muted hover:bg-hover cursor-pointer"
+                aria-label="增加"
+                @click="adjustPurchaseDuration(1)"
+              >
+                <Plus class="w-4 h-4" />
+              </button>
+            </div>
+          </section>
+
+          <section
+            class="rounded-xl border px-4 py-3 transition-colors"
+            :class="
+              purchasePreview
+                ? 'border-accent/30 bg-accent/8'
+                : 'border-dashed border-border bg-hover/20'
+            "
+          >
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <p class="text-xs text-muted">应付金额</p>
+                <p
+                  v-if="purchasePreviewLoading"
+                  class="mt-1 text-sm text-muted inline-flex items-center gap-1.5"
+                >
+                  <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                  计算中…
+                </p>
+                <p v-else-if="purchasePreview" class="mt-0.5 text-2xl font-semibold tabular-nums text-accent">
+                  {{ purchasePreview.paid_yuan }}
+                  <span class="text-sm font-normal text-muted">元</span>
+                </p>
+                <p v-else class="mt-1 text-sm text-muted">填写有效时长后自动计算</p>
+              </div>
+              <div v-if="me && purchasePreview" class="text-right text-[11px] text-muted leading-relaxed">
+                <p>当前余额 {{ me.balance_yuan }} 元</p>
+              </div>
+            </div>
+            <p
+              v-if="purchasePreview && purchasePreview.discount_percent_applied > 0"
+              class="mt-2 text-[11px] text-muted"
+            >
+              已优惠 {{ purchasePreview.discount_yuan }} 元（{{ purchasePreview.discount_percent_applied }}%）
+            </p>
+          </section>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-end gap-2 px-5 py-4 border-t border-border/70 bg-[hsl(var(--card-elevated))]">
           <button
             type="button"
-            class="h-8 px-3 rounded-lg bg-accent text-xs font-medium text-white disabled:opacity-50"
-            :disabled="purchaseSubmitting || !purchasePreview"
+            class="h-9 px-4 rounded-lg border border-border text-xs text-muted hover:bg-hover cursor-pointer"
+            @click="closePurchaseModal"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="h-9 px-4 rounded-lg bg-accent text-xs font-medium text-white hover:opacity-95 disabled:opacity-50 cursor-pointer inline-flex items-center gap-1.5"
+            :disabled="purchaseSubmitting || purchasePreviewLoading || !purchasePreview"
             @click="confirmPurchase"
           >
+            <Loader2 v-if="purchaseSubmitting" class="w-3.5 h-3.5 animate-spin" />
             {{ purchaseSubmitting ? '提交中…' : '确认购买' }}
           </button>
         </div>
@@ -552,8 +779,12 @@ onMounted(() => {
         <p v-if="renewPreview" class="text-sm">应付 {{ renewPreview.paid_yuan }} 元</p>
         <div class="flex justify-end gap-2">
           <button type="button" class="h-8 px-3 rounded-lg border border-border text-xs" @click="renewAgent = null">取消</button>
-          <button type="button" class="h-8 px-3 rounded-lg border border-border text-xs" @click="runRenewPreview">试算</button>
-          <button type="button" class="h-8 px-3 rounded-lg bg-accent text-xs text-white disabled:opacity-50" :disabled="renewSubmitting" @click="confirmRenew">
+          <button
+            type="button"
+            class="h-8 px-3 rounded-lg bg-accent text-xs text-white disabled:opacity-50"
+            :disabled="renewSubmitting || !renewPreview"
+            @click="confirmRenew"
+          >
             {{ renewSubmitting ? '提交中…' : '确认续费' }}
           </button>
         </div>

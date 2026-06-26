@@ -44,6 +44,11 @@ pub(super) async fn run_single_agent_tool_pass(
         conversation_id: req.session.conversation_id,
         cancel: req.session.cancel,
     };
+    let planner_bundle = req.settings.computer_standalone_planner_enabled
+        && req.file_tool_lead_for_invoke == crate::agents::AgentProfile::Computer;
+    let work_items_enabled = planner_bundle;
+    let b42_enforced = planner_bundle;
+    let computer_no_exec_init = planner_bundle;
     let pass = ToolPassRequest {
         ctx: ToolPassContext {
             session,
@@ -67,6 +72,10 @@ pub(super) async fn run_single_agent_tool_pass(
                 lead_agent_id: req.lead_agent_id,
             }),
             sub: None,
+            task_board_work_items_enabled: work_items_enabled,
+            task_board_b42_enforced: b42_enforced,
+            task_board_computer_no_exec_init: computer_no_exec_init,
+            workspace_root: &req.settings.workspace_root,
         },
         final_tool_calls: req.final_tool_calls,
         trim_hook: Some(trim_hook),

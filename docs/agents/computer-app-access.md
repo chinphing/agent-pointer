@@ -35,6 +35,7 @@ Tray-only running apps (e.g. WeChat minimized to tray) appear in the list with `
 - **`new_instance: true`:** skip activation, start new instance (`open -n` on macOS).
 - **`activate_only: true`:** focus only; do not launch if not running.
 - **Windows tray-only:** tries visible window → hidden top-level window → relaunch same `.exe` to restore UI; launch fallback uses the running process image path when Start Menu lookup fails.
+- **Windows launch resolve:** `launch_app` recursively scans the same Start Menu catalog as `list_apps` (`.lnk` / `.exe` in subfolders), then `System32` for bare `.exe` names. Identifiers such as `chrome.exe` match shortcuts like `Google Chrome.lnk` when the display name contains the exe stem.
 - **Linux tray-only (X11):** tries `wmctrl` window focus → `gtk-launch` via matching `.desktop` entry → relaunch `/proc/PID/exe`. Verification treats a running pid without a wmctrl window as `running: true, frontmost: false`.
 - **macOS tray-only:** tries `NSWorkspace` activate → `open -a` restore when activation does not frontmost. Host verification requires the app to be **frontmost with an on-screen window** (layer 0, ≥50×50 px via `CGWindowList`); `NSWorkspace.frontmostApplication` alone is not enough — tray/hidden apps report `running: true, frontmost: false`.
 - **Launch verification (all platforms):** success requires `running && frontmost` after polling (4s launch / 2s activate). A pre-existing tray-only process no longer passes with `Verified:` in ~18ms.

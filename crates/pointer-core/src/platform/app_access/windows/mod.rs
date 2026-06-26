@@ -181,31 +181,28 @@ fn focus_window(hwnd: windows::Win32::Foundation::HWND) -> Result<()> {
 }
 
 fn resolve_launch_target(app: &str) -> Option<PathBuf> {
-    if app.contains('\\') || app.contains('/') || app.ends_with(".exe") {
-        let path = PathBuf::from(app);
-        if path.exists() {
+    let app_trim = app.trim();
+    let lower = app_trim.to_ascii_lowercase();
+    if app_trim.contains('\\') || app_trim.contains('/') || lower.ends_with(".exe") || lower.ends_with(".lnk") {
+        let path = PathBuf::from(app_trim);
+        if path.is_file() {
             return Some(path);
         }
     }
-    let lower = app.to_ascii_lowercase();
-    let with_ext = if lower.ends_with(".exe") {
-        lower.clone()
-    } else {
-        format!("{lower}.exe")
-    };
-    for root in start_menu_roots() {
-        let candidate = root.join(&with_ext);
-        if candidate.is_file() {
-            return Some(candidate);
+    if lower.ends_with(".exe") || !lower.ends_with(".lnk") {
+        let with_ext = if lower.ends_with(".exe") {
+            lower.clone()
+        } else {
+            format!("{lower}.exe")
+        };
+        if let Some(system32) = std::env::var_os("SystemRoot") {
+            let candidate = PathBuf::from(system32).join("System32").join(&with_ext);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
         }
     }
-    if let Some(system32) = std::env::var_os("SystemRoot") {
-        let candidate = PathBuf::from(system32).join("System32").join(&with_ext);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
+    windows_recent::resolve_start_menu_launch_path(app_trim)
 }
 
 pub(crate) fn start_menu_roots() -> Vec<PathBuf> {

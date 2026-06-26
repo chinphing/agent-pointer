@@ -120,16 +120,59 @@ pub fn merge_list_catalog(
     Ok(entries)
 }
 
+/// Start Menu shortcut with its on-disk path (for list + launch resolution).
+#[derive(Debug, Clone)]
+pub(crate) struct StartMenuLaunchEntry {
+    pub path: PathBuf,
+    pub name: String,
+    pub identifier: String,
+}
+
 /// Full Start Menu installed catalog (.lnk and .exe shortcuts).
 pub fn start_menu_installed_catalog() -> Result<Vec<ListedApp>> {
     let mut by_key: HashMap<String, ListedApp> = HashMap::new();
-    for root in super::start_menu_roots() {
-        walk_start_menu_dir(&root, &mut by_key)?;
+    for entry in collect_all_start_menu_launch_entries()? {
+        let key = exe_key(&entry.identifier);
+        let record = ListedApp {
+            name: entry.name,
+            identifier: entry.identifier,
+            running: false,
+            frontmost: false,
+            last_used: None,
+            uses: None,
+            window_title: None,
+            pid: None,
+        };
+        by_key.entry(key).or_insert(record);
     }
     Ok(by_key.into_values().collect())
 }
 
-fn walk_start_menu_dir(dir: &Path, by_key: &mut HashMap<String, ListedApp>) -> Result<()> {
+/// Resolve a launch path from the recursive Start Menu catalog (`.lnk` / `.exe`).
+pub fn resolve_start_menu_launch_path(app: &str) -> Option<PathBuf> {
+    let needle = app.trim();
+    if needle.is_empty() {
+        return None;
+    }
+    let entries = collect_all_start_menu_launch_entries().ok()?;
+    let picked = pick_best_launch_match(needle, &entries)?;
+    log::info!(
+        "resolve_start_menu_launch_path: app={needle} -> {} (identifier={})",
+        picked.path.display(),
+        picked.identifier
+    );
+    Some(picked.path)
+}
+
+fn collect_all_start_menu_launch_entries() -> Result<Vec<StartMenuLaunchEntry>> {
+    let mut out = Vec::new();
+    for root in super::start_menu_roots() {
+        collect_start_menu_launch_entries(&root, &mut out)?;
+    }
+    Ok(out)
+}
+
+fn collect_start_menu_launch_entries(dir: &Path, out: &mut Vec<StartMenuLaunchEntry>) -> Result<()> {
     if !dir.is_dir() {
         return Ok(());
     }
@@ -143,19 +186,64 @@ fn walk_start_menu_dir(dir: &Path, by_key: &mut HashMap<String, ListedApp>) -> R
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            walk_start_menu_dir(&path, by_key)?;
+            collect_start_menu_launch_entries(&path, out)?;
             continue;
         }
-        let Some(record) = start_menu_entry(&path) else {
+        let Some(record) = start_menu_launch_entry(&path) else {
             continue;
         };
-        let key = exe_key(&record.identifier);
-        by_key.entry(key).or_insert(record);
+        out.push(record);
     }
     Ok(())
 }
 
-fn start_menu_entry(path: &Path) -> Option<ListedApp> {
+fn pick_best_launch_match<'a>(
+    app: &str,
+    entries: &'a [StartMenuLaunchEntry],
+) -> Option<&'a StartMenuLaunchEntry> {
+    entries
+        .iter()
+        .filter_map(|entry| launch_match_score(app, entry).map(|score| (score, entry)))
+        .min_by_key(|(score, _)| *score)
+        .map(|(_, entry)| entry)
+}
+
+fn launch_match_score(app: &str, entry: &StartMenuLaunchEntry) -> Option<u8> {
+    if !entry.path.is_file() {
+        return None;
+    }
+    let key = normalize_app_key(app);
+    if key.is_empty() {
+        return None;
+    }
+    let id_key = normalize_app_key(&entry.identifier);
+    let name_key = normalize_app_key(&entry.name);
+    if entry.path.to_string_lossy().eq_ignore_ascii_case(app.trim()) {
+        return Some(0);
+    }
+    if id_key == key {
+        return Some(1);
+    }
+    if name_key == key {
+        return Some(2);
+    }
+    if app_matches_identifier(app, &entry.identifier) {
+        return Some(3);
+    }
+    if app_matches_identifier(app, &entry.name) {
+        return Some(4);
+    }
+    if entry.path.extension().and_then(|e| e.to_str()) == Some("exe") {
+        if let Some(file_name) = entry.path.file_name().and_then(|s| s.to_str()) {
+            if app_matches_identifier(app, file_name) {
+                return Some(5);
+            }
+        }
+    }
+    None
+}
+
+fn start_menu_launch_entry(path: &Path) -> Option<StartMenuLaunchEntry> {
     let ext = path.extension().and_then(|e| e.to_str())?.to_ascii_lowercase();
     if ext != "lnk" && ext != "exe" {
         return None;
@@ -169,15 +257,10 @@ fn start_menu_entry(path: &Path) -> Option<ListedApp> {
     } else {
         format!("{stem}.lnk")
     };
-    Some(ListedApp {
+    Some(StartMenuLaunchEntry {
+        path: path.to_path_buf(),
         name: stem.to_string(),
         identifier,
-        running: false,
-        frontmost: false,
-        last_used: None,
-        uses: None,
-        window_title: None,
-        pid: None,
     })
 }
 
@@ -480,5 +563,45 @@ mod tests {
         assert!(app_matches_identifier("WeChat.exe", "WeChat.exe"));
         assert!(app_matches_identifier("wechat", "WeChat.exe"));
         assert!(!app_matches_identifier("Chrome", "WeChat.exe"));
+    }
+
+    #[test]
+    fn launch_match_chrome_exe_to_google_chrome_lnk() {
+        let entries = vec![StartMenuLaunchEntry {
+            path: PathBuf::from(r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Google Chrome.lnk"),
+            name: "Google Chrome".into(),
+            identifier: "Google Chrome.lnk".into(),
+        }];
+        let picked = pick_best_launch_match("chrome.exe", &entries).expect("chrome.exe should match");
+        assert_eq!(picked.identifier, "Google Chrome.lnk");
+    }
+
+    #[test]
+    fn launch_match_prefers_exact_identifier() {
+        let entries = vec![
+            StartMenuLaunchEntry {
+                path: PathBuf::from(r"C:\Start Menu\Programs\Google Chrome.lnk"),
+                name: "Google Chrome".into(),
+                identifier: "Google Chrome.lnk".into(),
+            },
+            StartMenuLaunchEntry {
+                path: PathBuf::from(r"C:\Start Menu\Programs\Chrome Dev.lnk"),
+                name: "Chrome Dev".into(),
+                identifier: "Chrome Dev.lnk".into(),
+            },
+        ];
+        let picked = pick_best_launch_match("Google Chrome.lnk", &entries).expect("exact lnk id");
+        assert_eq!(picked.name, "Google Chrome");
+    }
+
+    #[test]
+    fn launch_match_display_name() {
+        let entries = vec![StartMenuLaunchEntry {
+            path: PathBuf::from(r"C:\Start Menu\Programs\Google Chrome.lnk"),
+            name: "Google Chrome".into(),
+            identifier: "Google Chrome.lnk".into(),
+        }];
+        let picked = pick_best_launch_match("Google Chrome", &entries).expect("display name");
+        assert_eq!(picked.identifier, "Google Chrome.lnk");
     }
 }

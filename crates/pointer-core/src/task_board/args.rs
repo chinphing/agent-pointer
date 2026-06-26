@@ -1,5 +1,6 @@
 //! Parse tool arguments (`global_milestones`, `milestones`, `items`, flat patch).
 
+use anyhow::{anyhow, Result};
 use serde_json::{Map, Value};
 
 const PATCH_HOST_KEYS: &[&str] = &[
@@ -26,26 +27,62 @@ const PATCH_HOST_KEYS: &[&str] = &[
     "global_milestones",
     "item_milestones",
     "milestones",
-    "work_item_id",
+    "current_item",
     "work_item_claim",
     "meta",
 ];
 
-/// Work queue row id for patch binding (`work_item_id`, or `item_id` when patching milestones).
-pub fn patch_work_item_id_from_args(args: &Value) -> Option<String> {
-    let trim = |s: &str| {
-        let t = s.trim();
-        if t.is_empty() {
-            None
-        } else {
-            Some(t.to_string())
-        }
-    };
-    if let Some(id) = args.get("work_item_id").and_then(|v| v.as_str()).and_then(trim) {
-        return Some(id);
+fn trim_id(s: &str) -> Option<String> {
+    let t = s.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t.to_string())
     }
-    if args.get("milestones").is_some() || args.get("global_milestones").is_some() {
-        return args.get("item_id").and_then(|v| v.as_str()).and_then(trim);
+}
+
+/// Patch args that were removed — reject instead of silently ignoring.
+const REMOVED_PATCH_KEYS: &[&str] = &[
+    "work_item_id",
+    "work_item_status",
+    "global_milestones",
+    "result_summary",
+    "error_message",
+];
+
+pub fn reject_removed_patch_fields(args: &Value) -> Result<()> {
+    let Some(obj) = args.as_object() else {
+        return Ok(());
+    };
+    for key in REMOVED_PATCH_KEYS {
+        if obj.contains_key(*key) {
+            return Err(anyhow!(
+                "task_board: patch field `{key}` removed; use `current_item` or `milestones`"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Active work_item focus on patch (`current_item` object).
+fn patch_work_item_scope(args: &Value) -> Option<Value> {
+    object_from_key(args, "current_item")
+}
+
+/// Work queue row id for patch binding (`current_item.id`).
+pub fn patch_work_item_id_from_args(args: &Value) -> Option<String> {
+    patch_work_item_scope(args)?
+        .get("id")
+        .and_then(|v| v.as_str())
+        .and_then(trim_id)
+}
+
+/// Direct work_item status transition on patch (without closing the last item milestone).
+pub fn patch_work_item_direct_from_args(args: &Value) -> Option<crate::task_board::work_item::WorkItemDelta> {
+    use crate::task_board::work_item::delta_from_value;
+    let scope = patch_work_item_scope(args)?;
+    if scope.get("status").is_some() {
+        return delta_from_value(&scope);
     }
     None
 }
@@ -139,12 +176,22 @@ pub fn inline_work_items_from_args(args: &Value) -> Option<Vec<Value>> {
     array_from_key(args, "work_items")
 }
 
+/// Unified patch rows — always use **`milestones`** at the tool surface.
+pub fn unified_patch_rows_from_args(args: &Value) -> Result<Option<Vec<Value>>> {
+    reject_removed_patch_fields(args)?;
+    if let Some(rows) = array_from_key(args, "milestones") {
+        return Ok(Some(rows));
+    }
+    Ok(items_array_from_args(args))
+}
+
 /// Patch item SOP rows (`milestones` len=1).
 pub fn milestone_patch_rows_from_args(args: &Value) -> Option<Vec<Value>> {
     array_from_key(args, "milestones")
 }
 
 /// Patch global rows (`global_milestones` len=1) or legacy `items` for Type1.
+#[deprecated(note = "use unified_patch_rows_from_args for patch")]
 pub fn global_patch_rows_from_args(args: &Value) -> Option<Vec<Value>> {
     if let Some(rows) = array_from_key(args, "global_milestones") {
         return Some(rows);
@@ -387,6 +434,40 @@ mod tests {
         let rows = inline_work_items_from_args(&args).expect("work_items");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["title"], "北京");
+    }
+
+    #[test]
+    fn patch_work_item_direct_from_current_item() {
+        let args = serde_json::json!({
+            "current_item": {
+                "id": "2",
+                "status": "failed",
+                "error_message": "timeout"
+            }
+        });
+        let delta = super::patch_work_item_direct_from_args(&args).expect("delta");
+        assert_eq!(delta.id, "2");
+        assert_eq!(delta.status.as_str(), "failed");
+        assert_eq!(delta.error_message.as_deref(), Some("timeout"));
+    }
+
+    #[test]
+    fn reject_removed_patch_fields_work_item_id() {
+        let args = serde_json::json!({
+            "work_item_id": "1",
+            "milestones": [{"id": "m1", "status": "done"}]
+        });
+        let err = super::reject_removed_patch_fields(&args).unwrap_err();
+        assert!(err.to_string().contains("work_item_id"));
+    }
+
+    #[test]
+    fn reject_removed_patch_fields_global_milestones() {
+        let args = serde_json::json!({
+            "global_milestones": [{"id": "m1", "status": "done"}]
+        });
+        let err = super::unified_patch_rows_from_args(&args).unwrap_err();
+        assert!(err.to_string().contains("global_milestones"));
     }
 
     #[test]

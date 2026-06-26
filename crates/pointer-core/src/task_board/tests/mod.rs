@@ -506,7 +506,7 @@ mod work_items_tests {
                 key,
                 "patch",
                 &wi_args(json!({
-                    "work_item_id": "1",
+                    "current_item": { "id": "1" },
                     "milestones": [{
                         "id": "m1",
                         "status": "done",
@@ -555,7 +555,7 @@ mod work_items_tests {
                 key,
                 "patch",
                 &wi_args(json!({
-                    "work_item_id": "1",
+                    "current_item": { "id": "1" },
                     "milestones": [
                         {"id": "m1", "status": "done", "remark": "addr ok"},
                         {"id": "m2", "status": "done"}
@@ -622,6 +622,11 @@ mod work_items_tests {
                         "title": "Batch",
                         "status": "in_progress"
                     }],
+                    "item_milestones": [{
+                        "id": "m1",
+                        "title": "Step",
+                        "status": "pending"
+                    }],
                     "work_items": [{"title": "A"}]
                 })),
             )
@@ -631,10 +636,11 @@ mod work_items_tests {
                 key,
                 "patch",
                 &wi_args(json!({
-                    "work_item_id": "1",
-                    "global_milestones": [{
-                        "id": "g_exec",
-                        "status": "in_progress",
+                    "current_item": { "id": "1" },
+                    "milestones": [{
+                        "id": "m1",
+                        "status": "done",
+                        "remark": "ok",
                         "validate_result_delta": "bad"
                     }]
                 })),
@@ -701,7 +707,7 @@ mod work_items_tests {
     }
 
     #[test]
-    fn patch_requires_work_item_id_when_in_progress() {
+    fn patch_requires_current_item_id_when_in_progress() {
         let store = TaskBoardStore::new();
         let key = "conv-wi-id-req";
         wi_init_minimal(&store, key);
@@ -714,11 +720,11 @@ mod work_items_tests {
                 })),
             )
             .unwrap_err();
-        assert!(err.to_string().contains("work_item_id"));
+        assert!(err.to_string().contains("current_item.id"));
     }
 
     #[test]
-    fn patch_rejects_stale_work_item_id() {
+    fn patch_rejects_stale_current_item_id() {
         let store = TaskBoardStore::new();
         let key = "conv-wi-stale";
         wi_init_minimal(&store, key);
@@ -727,7 +733,7 @@ mod work_items_tests {
                 key,
                 "patch",
                 &wi_args(json!({
-                    "work_item_id": "1",
+                    "current_item": { "id": "1" },
                     "milestones": [{"id": "m1", "status": "done", "remark": "first"}]
                 })),
             )
@@ -738,7 +744,7 @@ mod work_items_tests {
                 key,
                 "patch",
                 &wi_args(json!({
-                    "work_item_id": "1",
+                    "current_item": { "id": "1" },
                     "milestones": [{"id": "m1", "status": "done", "remark": "stale"}]
                 })),
             )
@@ -776,7 +782,66 @@ mod work_items_tests {
     }
 
     #[test]
-    fn deliver_patch_ok_without_work_item_id_when_queue_finished() {
+    fn patch_rejects_removed_work_item_id_field() {
+        let store = TaskBoardStore::new();
+        let key = "conv-wi-no-legacy";
+        wi_init_minimal(&store, key);
+        let err = store
+            .apply(
+                key,
+                "patch",
+                &wi_args(json!({
+                    "work_item_id": "1",
+                    "work_item_status": "done",
+                    "result_summary": "legacy ok"
+                })),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("work_item_id"));
+    }
+
+    #[test]
+    fn patch_rejects_global_milestones_on_patch() {
+        let store = TaskBoardStore::new();
+        let key = "conv-wi-no-gm-patch";
+        wi_init_minimal(&store, key);
+        let err = store
+            .apply(
+                key,
+                "patch",
+                &wi_args(json!({
+                    "current_item": { "id": "1" },
+                    "global_milestones": [{"id": "m1", "status": "done", "remark": "opened"}]
+                })),
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("global_milestones"));
+    }
+
+    #[test]
+    fn direct_current_item_status_advances_queue_without_milestone_patch() {
+        let store = TaskBoardStore::new();
+        let key = "conv-wi-direct";
+        wi_init_minimal(&store, key);
+        store
+            .apply(
+                key,
+                "patch",
+                &wi_args(json!({
+                    "current_item": {
+                        "id": "1",
+                        "status": "done",
+                        "result_summary": "北京 ok"
+                    }
+                })),
+            )
+            .expect("direct close");
+        assert_eq!(store.work_items.store_stats(key).done, 1);
+        assert_eq!(store.work_items.store_stats(key).in_progress, 1);
+    }
+
+    #[test]
+    fn deliver_patch_ok_without_current_item_when_queue_finished() {
         let store = TaskBoardStore::new();
         let key = "conv-wi-deliver";
         wi_init_minimal(&store, key);
@@ -785,7 +850,7 @@ mod work_items_tests {
                 key,
                 "patch",
                 &wi_args(json!({
-                    "work_item_id": "1",
+                    "current_item": { "id": "1" },
                     "milestones": [{"id": "m1", "status": "done", "remark": "a"}]
                 })),
             )
@@ -795,7 +860,7 @@ mod work_items_tests {
                 key,
                 "patch",
                 &wi_args(json!({
-                    "work_item_id": "2",
+                    "current_item": { "id": "2" },
                     "milestones": [{"id": "m1", "status": "done", "remark": "b"}]
                 })),
             )
@@ -806,9 +871,9 @@ mod work_items_tests {
                 key,
                 "patch",
                 &wi_args(json!({
-                    "global_milestones": [{"id": "g_deliver", "status": "in_progress"}]
+                    "milestones": [{"id": "g_deliver", "status": "in_progress"}]
                 })),
             )
-            .expect("deliver without work_item_id");
+            .expect("deliver without current_item");
     }
 }

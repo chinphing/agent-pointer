@@ -184,38 +184,86 @@ pub fn in_progress_work_item_id(store_key: &str, work_items: &WorkItemStore) -> 
         .map(|wi| wi.id.clone())
 }
 
-/// When a work queue row is `in_progress`, milestone patches must name that row id.
+/// When a work queue row is `in_progress`, milestone or direct work_item patches must name that row.
 pub fn validate_patch_work_item_binding(
     store_key: &str,
     doc: &BoardDocument,
     patch_v: &Value,
     work_items: &WorkItemStore,
-    has_structured_milestone_patch: bool,
+    requires_work_item_binding: bool,
 ) -> Result<()> {
     if !doc.has_work_items() {
         return Ok(());
     }
-    if patch_v.get("work_item_claim").is_some() && !has_structured_milestone_patch {
+    if patch_v.get("work_item_claim").is_some() && !requires_work_item_binding {
         return Ok(());
     }
     let expected = in_progress_work_item_id(store_key, work_items);
     if expected.is_none() {
         return Ok(());
     }
-    if !has_structured_milestone_patch {
+    if !requires_work_item_binding {
         return Ok(());
     }
     let provided = patch_work_item_id_from_args(patch_v);
     let Some(provided) = provided else {
         return Err(anyhow!(
-            "work_items: patch requires work_item_id matching the current in_progress queue row"
+            "work_items: patch requires current_item.id matching the current in_progress queue row"
         ));
     };
     let exp = expected.as_ref().expect("checked above");
     if provided != *exp {
         return Err(anyhow!(
-            "work_items: work_item_id {provided} does not match in_progress item {exp}"
+            "work_items: current_item.id {provided} does not match in_progress item {exp}"
         ));
+    }
+    Ok(())
+}
+
+/// Reset item SOP template and start the next enumerated row after a work_item reaches terminal.
+pub fn advance_queue_after_work_item_close(
+    store_key: &str,
+    doc: &mut BoardDocument,
+    work_items: &WorkItemStore,
+) {
+    reset_item_milestones(doc);
+    if doc.is_enumerated_work_items() {
+        auto_start_enumerated_work_item_if_needed(store_key, work_items);
+    }
+    ensure_single_item_milestone_in_progress(doc);
+    maybe_auto_complete_g_exec(doc, work_items, store_key);
+}
+
+/// Route 2: close the in_progress work_item via `current_item.status` (after milestone patch pass).
+pub fn maybe_apply_direct_work_item_status(
+    store_key: &str,
+    doc: &mut BoardDocument,
+    patch_v: &Value,
+    work_items: &WorkItemStore,
+    delta: WorkItemDelta,
+) -> Result<()> {
+    if !doc.has_work_items() {
+        return Ok(());
+    }
+    let expected = in_progress_work_item_id(store_key, work_items);
+    let Some(exp) = expected else {
+        log::info!("work_items: direct status patch skipped (no in_progress row)");
+        return Ok(());
+    };
+    let provided = patch_work_item_id_from_args(patch_v).unwrap_or_else(|| delta.id.clone());
+    if provided != exp {
+        return Err(anyhow!(
+            "work_items: current_item.id {provided} does not match in_progress item {exp}"
+        ));
+    }
+    work_items.apply_delta(store_key, delta.clone())?;
+    if delta.status.is_terminal() {
+        log::info!(
+            "work_items: direct close store_id={store_key} id={} status={}",
+            delta.id,
+            delta.status.as_str()
+        );
+        advance_queue_after_work_item_close(store_key, doc, work_items);
     }
     Ok(())
 }
@@ -352,12 +400,7 @@ pub fn handle_item_milestone_transition(
         ) {
             log::warn!("task_board: internal work_item close failed: {e}");
         }
-        reset_item_milestones(doc);
-        if doc.is_enumerated_work_items() {
-            auto_start_enumerated_work_item_if_needed(store_key, work_items);
-        }
-        ensure_single_item_milestone_in_progress(doc);
-        maybe_auto_complete_g_exec(doc, work_items, store_key);
+        advance_queue_after_work_item_close(store_key, doc, work_items);
     }
 }
 

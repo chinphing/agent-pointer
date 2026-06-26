@@ -2,10 +2,11 @@
 
 use super::args::{
     constraint_from_args, context_from_args, done_when_from_args,
-    expected_total_from_args, global_patch_rows_from_args, global_rows_from_args, goal_from_args,
-    item_milestones_from_args, milestone_patch_rows_from_args, normalize_patch_args,
-    prune_ids_from_args, replace_has_forbidden_scope,
+    expected_total_from_args, global_rows_from_args, goal_from_args,
+    item_milestones_from_args, normalize_patch_args, patch_work_item_direct_from_args,
+    prune_ids_from_args, replace_has_forbidden_scope, unified_patch_rows_from_args,
 };
+use super::snapshot::{unified_patch_target, UnifiedPatchTarget};
 use super::coordination::parent_child::{assert_child_may_mutate, parent_store_key_from_child};
 use super::model::{
     BoardDocument, BoardItem, BoardScope, GlobalContext, ItemStatus, MetaStatus,
@@ -19,6 +20,7 @@ use super::work_item::WorkItemStore;
 use super::work_items_apply::{
     apply_meta_work_item_mode, apply_work_item_patch_fields, bootstrap_queue_after_init,
     handle_global_milestone_transition, handle_item_milestone_transition,
+    maybe_apply_direct_work_item_status,
     milestone_done_has_work_item_evidence, patch_rejects_g_deliver_when_blocked,
     validate_patch_work_item_binding,
     patch_rejects_g_exec_done_when_not_met, patch_rejects_v3_delta_fields,
@@ -292,21 +294,17 @@ fn apply_patch(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let item_rows = milestone_patch_rows_from_args(args);
-    let global_rows = global_patch_rows_from_args(args);
-    if item_rows.is_some() && global_rows.is_some() {
-        return Err(anyhow!(
-            "task_board: patch cannot send both global_milestones and milestones"
-        ));
-    }
-
-    let has_structured_milestone_patch = item_rows.is_some() || global_rows.is_some();
+    let patch_rows = unified_patch_rows_from_args(args)?;
+    let has_milestone_patch = patch_rows.as_ref().is_some_and(|r| !r.is_empty());
+    let direct_work_item = patch_work_item_direct_from_args(args);
+    let requires_work_item_binding =
+        has_milestone_patch || direct_work_item.is_some();
     validate_patch_work_item_binding(
         store_key,
         doc,
         args,
         work_items,
-        has_structured_milestone_patch,
+        requires_work_item_binding,
     )?;
 
     let mut reflection = false;
@@ -330,39 +328,50 @@ fn apply_patch(
     let global_snapshot = doc.global_milestones.clone();
     let has_work_items = doc.has_work_items();
     let global_len = doc.global_milestones.len();
-    let patching_item_template = item_rows.is_some();
-    let transitions = if let Some(item_rows) = item_rows {
-        patch_rows_on_slice(
-            &mut doc.item_milestones,
-            &item_rows,
-            &global_snapshot,
-            has_work_items,
-            global_len,
-            store_key,
-            work_items,
-            recent_action,
-            recent_verify_report,
-            recent_verify_pass,
-            &mut reflection,
-            &mut warnings,
-            &mut patched,
-        )?
-    } else if let Some(global_rows) = global_rows {
-        patch_rows_on_slice(
-            &mut doc.global_milestones,
-            &global_rows,
-            &global_snapshot,
-            has_work_items,
-            global_len,
-            store_key,
-            work_items,
-            recent_action,
-            recent_verify_report,
-            recent_verify_pass,
-            &mut reflection,
-            &mut warnings,
-            &mut patched,
-        )?
+
+    let mut patching_item_template = false;
+    let transitions = if let Some(rows) = patch_rows {
+        let row_id = rows
+            .first()
+            .and_then(|v| v.get("id"))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow!("task_board: patch requires one milestone row with id"))?;
+        let target = unified_patch_target(doc, store_key, Some(work_items), row_id)?;
+        patching_item_template = target == UnifiedPatchTarget::ItemMilestones;
+        match target {
+            UnifiedPatchTarget::ItemMilestones => patch_rows_on_slice(
+                &mut doc.item_milestones,
+                &rows,
+                &global_snapshot,
+                has_work_items,
+                global_len,
+                store_key,
+                work_items,
+                recent_action,
+                recent_verify_report,
+                recent_verify_pass,
+                &mut reflection,
+                &mut warnings,
+                &mut patched,
+            )?,
+            UnifiedPatchTarget::GlobalMilestones => patch_rows_on_slice(
+                &mut doc.global_milestones,
+                &rows,
+                &global_snapshot,
+                has_work_items,
+                global_len,
+                store_key,
+                work_items,
+                recent_action,
+                recent_verify_report,
+                recent_verify_pass,
+                &mut reflection,
+                &mut warnings,
+                &mut patched,
+            )?,
+        }
     } else {
         Vec::new()
     };
@@ -373,6 +382,12 @@ fn apply_patch(
     } else if !has_work_items {
         for (prev, incoming) in transitions {
             handle_global_milestone_transition(doc, &prev, &incoming);
+        }
+    }
+
+    if work_items_enabled {
+        if let Some(delta) = direct_work_item {
+            maybe_apply_direct_work_item_status(store_key, doc, args, work_items, delta)?;
         }
     }
 

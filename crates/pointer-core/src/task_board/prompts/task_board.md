@@ -30,7 +30,7 @@ Coder and other agents: unchanged — you may still init/replace yourself.
 - **`task_board_init`**: meta + `global_milestones`; Type2 also `item_milestones` + `work_items`.
   *(Computer + planner: planner-only — not in your tool list.)*
 - **`task_board_replace`**: **only** full `item_milestones[]` (execution SOP refresh).
-- **`task_board_patch`**: one row update (see **Patch**).
+- **`task_board_patch`**: one row update via **`milestones`** — host routes to the visible inject ladder; see **Patch**.
 - **`task_board_prune`**: cancel pending rows (`ids`).
 - **`task_board_finalize`**: mark board complete after all rows are terminal.
 - **`task_board_sync_finding`**: child board sync to parent findings.
@@ -90,69 +90,100 @@ Do not paste `action_verify` JSON into `remark`.
 
 ## Patch
 
-Each call updates **one** row in the injected ladder (**## All tasks** / **## Current task**).
+Each call updates **one** row shown under **## All tasks** in inject.
 
-| Injected ladder | Parameter | Exactly one row |
+**Always use `milestones`** — one object in the array:
+
+```json
+{ "milestones": [{ "id": "…", "status": "…", "remark": "…" }] }
+```
+
+Host routes the row to the correct document slice (same projection as inject).
+You do **not** choose `global_milestones` vs `item_milestones` at patch time — only at **init**.
+
+| Inject shows | Example `id` | `current_item` |
 | --- | --- | --- |
-| Global rows (`g_plan`, `g_exec`, `g_deliver`, or step `m1`…) | `global_milestones` | `[{ id, status, … }]` |
-| Item template rows (`m1`, `m2`… in queue exec) | `milestones` | `[{ id, status, … }]` |
+| Step ladder (Type 1) | `m1`, `m2`, … | omit |
+| Item SOP template (Type 2 exec) | `m1`, `m2`, … | **`id` required** — copy from **`[WORK_ITEM_FOCUS]`** |
+| Deliver row only (Type 2) | `g_deliver` | omit |
 
-**Do not** send both `global_milestones` and `milestones` in the same patch.
-**Do not** send `work_item_delta` — removed; host advances the work queue when the **last** template row is `done` or `failed`.
+**Do not** send `work_item_delta` — host advances the work queue when the **last** template row is `done` / `failed`, **or** when you close the work_item directly (below).
 
-When a queue row is **`in_progress`**, every `milestones` / `global_milestones` patch must include **`work_item_id`** (or **`item_id`**) matching **`[WORK_ITEM_FOCUS]`** in inject. Wrong or missing id is rejected. Omit when there is no `in_progress` row (including after all items finish).
+When **`[WORK_ITEM_FOCUS]`** is present, include **`current_item.id`** matching that focus row.
+
+### `current_item` (queue exec)
+
+Optional on every queue patch. Wraps the active work_item row:
+
+| Field | Required | Purpose |
+| --- | --- | --- |
+| `id` | when `[WORK_ITEM_FOCUS]` present | Must match focus id |
+| `status` | Route 2 only | `done` or `failed` — direct close without last milestone |
+| `result_summary` | optional | Outcome note when `status: done` |
+| `error_message` | optional | Failure note when `status: failed` |
+
+### Two ways to advance the work_item queue
+
+**Route 1 — milestone (preferred when SOP steps were followed):**
+
+```json
+{
+  "current_item": { "id": "1" },
+  "milestones": [{ "id": "m3", "status": "done", "remark": "saved" }]
+}
+```
+
+Mark the **last** item SOP row `done` or `failed`. Host closes the work_item and starts the next row.
+
+**Route 2 — direct work_item status (when last SOP step was not patched):**
+
+```json
+{
+  "current_item": {
+    "id": "1",
+    "status": "done",
+    "result_summary": "北京地址已保存"
+  }
+}
+```
+
+Use **`status`: `done`** or **`failed`**. Host applies the same queue advance as Route 1 without requiring the last milestone row to be `done`.
 
 Pass **JSON objects and arrays** — do **not** stringify `milestones` or `work_item_claim`.
 
-### Queue execution cadence (mandatory)
+### Queue execution cadence (Type 2)
 
-When inject shows **item template** rows under **## All tasks** (queue exec, not deliver):
+When inject shows item SOP rows (`m1`, `m2`, …) — not `g_deliver`:
 
-**Same turn as evidence** — `task_board_patch` one row; host advances the pointer.
+**Same turn as evidence** — patch one row; host advances the pointer.
 
 | Event | Your patch |
 | --- | --- |
-| SOP step completed | `{ "work_item_id": "5", "milestones": [{ "id": "m2", "status": "done", "remark": "…" }] }` |
-| Last SOP step succeeded | same — `done` + `remark` on **last** template row; host closes work_item and starts next |
-| Last SOP step failed | `{ "work_item_id": "5", "milestones": [{ "id": "m3", "status": "failed", "remark": "error reason" }] }` |
-| Mid-step failed (retry) | `failed` on current row; retry with `in_progress` on same id |
+| SOP step completed | `{ "current_item": { "id": "1" }, "milestones": [{ "id": "m1", "status": "done", "remark": "…" }] }` |
+| Last SOP step succeeded | `done` + `remark` on **last** template row; host closes work_item and starts next |
+| Last SOP step failed | `{ "current_item": { "id": "1" }, "milestones": [{ "id": "m3", "status": "failed", "remark": "…" }] }` |
 
 Do **not** patch next row to `in_progress` — host advances after `done`.
-Do **not** patch `g_plan` / `g_exec` during queue execution — read **`exec_progress`** / **`exec_met`** on **## Current task**.
+Do **not** patch `g_plan` / `g_exec` during queue execution.
 
-### Step mode (global rows in **## All tasks**)
-
-```json
-{
-  "global_milestones": [{ "id": "m1", "status": "done", "remark": "root cause in auth/handler.rs" }]
-}
-```
-
-Host advances to the next global row after `done`.
-
-### Queue — SOP step
+### Deliver phase (`exec_met: true`)
 
 ```json
-{
-  "work_item_id": "5",
-  "milestones": [{ "id": "m2", "status": "done", "remark": "city=北京" }]
-}
-```
-
-### Queue — deliver phase (`exec_met: true` on **## Current task**)
-
-```json
-{
-  "global_milestones": [{ "id": "g_deliver", "status": "in_progress" }]
-}
+{ "milestones": [{ "id": "g_deliver", "status": "in_progress" }] }
 ```
 
 Then **`work_items_export`**, attach `MEDIA`, then:
 
 ```json
-{
-  "global_milestones": [{ "id": "g_deliver", "status": "done" }]
-}
+{ "milestones": [{ "id": "g_deliver", "status": "done" }] }
+```
+
+### Step mode (Type 1)
+
+When **`[WORK_ITEM_FOCUS]`** is absent:
+
+```json
+{ "milestones": [{ "id": "m1", "status": "done", "remark": "handler located" }] }
 ```
 
 ### Dynamic work_items
@@ -173,7 +204,7 @@ Complete or fail the target via **`milestones`** on the last template row.
 
 - **Computer + planner:** never call `init` during execution — use **`task_board_patch`** / **`task_board_replace`** only.
 - **Coder / Computer without planner:** if `[TASK_BOARD]` is empty and work is multi-step, call **`task_board_init`**.
-- **Queue mode:** patch **each** completed SOP step in the **same turn** as evidence (`milestones` only).
+- **Queue mode:** patch **each** completed SOP step in the **same turn** as evidence (`milestones`).
 - Keep 3–12 global milestones for Type1; Type2 uses fixed three globals.
 - Cancel obsolete rows with **`task_board_prune`**.
 - Finalize in the same turn as final user delivery.
@@ -261,6 +292,8 @@ Engineering profiles:
   ]
 }
 ```
+
+During execution: patch with **`milestones`** (+ **`current_item`** when `[WORK_ITEM_FOCUS]` is present).
 
 Legacy alias: `items` on init maps to `global_milestones`.
 

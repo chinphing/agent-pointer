@@ -179,13 +179,13 @@ pub fn markdown_runtime_block_for_inject(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MilestoneInjectMode {
+pub enum MilestoneInjectMode {
     Step,
     QueueExec,
     QueueDeliver,
 }
 
-fn milestone_inject_mode(
+pub fn milestone_inject_mode(
     doc: &BoardDocument,
     store_key: &str,
     work_items: Option<&WorkItemStore>,
@@ -199,6 +199,62 @@ fn milestone_inject_mode(
         }
     }
     MilestoneInjectMode::QueueExec
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnifiedPatchTarget {
+    GlobalMilestones,
+    ItemMilestones,
+}
+
+/// Route a unified `milestones` patch row to the document slice matching inject projection.
+pub fn unified_patch_target(
+    doc: &BoardDocument,
+    store_key: &str,
+    work_items: Option<&WorkItemStore>,
+    row_id: &str,
+) -> anyhow::Result<UnifiedPatchTarget> {
+    use anyhow::anyhow;
+    let id = row_id.trim();
+    if id.is_empty() {
+        return Err(anyhow!("task_board: patch row requires id"));
+    }
+    let mode = milestone_inject_mode(doc, store_key, work_items);
+    match mode {
+        MilestoneInjectMode::Step => {
+            if doc.global_milestones.iter().any(|r| r.id == id) {
+                return Ok(UnifiedPatchTarget::GlobalMilestones);
+            }
+            // Type1: allow appending new step rows via patch (legacy items[] upsert).
+            if !id.starts_with("g_") {
+                return Ok(UnifiedPatchTarget::GlobalMilestones);
+            }
+            Err(anyhow!(
+                "task_board: patch id {id} not in visible step ladder (global_milestones)"
+            ))
+        }
+        MilestoneInjectMode::QueueExec => {
+            if doc.item_milestones.iter().any(|r| r.id == id) {
+                return Ok(UnifiedPatchTarget::ItemMilestones);
+            }
+            if id.starts_with("g_") {
+                return Err(anyhow!(
+                    "task_board: do not patch {id} during queue exec — patch item SOP rows only"
+                ));
+            }
+            Err(anyhow!(
+                "task_board: patch id {id} not in visible queue SOP ladder (item_milestones)"
+            ))
+        }
+        MilestoneInjectMode::QueueDeliver => {
+            if id == "g_deliver" && doc.global_milestones.iter().any(|r| r.id == id) {
+                return Ok(UnifiedPatchTarget::GlobalMilestones);
+            }
+            Err(anyhow!(
+                "task_board: deliver phase — patch g_deliver only (via milestones)"
+            ))
+        }
+    }
 }
 
 fn append_all_tasks_list(lines: &mut Vec<String>, items: &[BoardItem]) {
@@ -775,5 +831,41 @@ mod inject_format_tests {
         vars.insert("city".into(), "深圳".into());
         let out = substitute_placeholders("切换至 {city} → 搜 Java", &vars);
         assert_eq!(out, "切换至 深圳 → 搜 Java");
+    }
+
+    #[test]
+    fn unified_patch_target_step_mode_uses_global() {
+        let mut doc = sample_doc();
+        doc.meta.work_item_mode = None;
+        let target = unified_patch_target(&doc, "conv-test", None, "m1").expect("target");
+        assert_eq!(target, UnifiedPatchTarget::GlobalMilestones);
+    }
+
+    #[test]
+    fn unified_patch_target_queue_exec_uses_item_template() {
+        let mut doc = BoardDocument::empty_for_store_key("conv-q");
+        doc.meta.work_item_mode = Some(WorkItemMode::Enumerated);
+        doc.global_milestones = vec![
+            BoardItem {
+                id: "g_exec".into(),
+                title: "Exec".into(),
+                status: ItemStatus::InProgress,
+                ..BoardItem::default()
+            },
+            BoardItem {
+                id: "g_deliver".into(),
+                title: "Deliver".into(),
+                status: ItemStatus::Pending,
+                ..BoardItem::default()
+            },
+        ];
+        doc.item_milestones = vec![BoardItem {
+            id: "m1".into(),
+            title: "Step".into(),
+            status: ItemStatus::InProgress,
+            ..BoardItem::default()
+        }];
+        let target = unified_patch_target(&doc, "conv-q", None, "m1").expect("target");
+        assert_eq!(target, UnifiedPatchTarget::ItemMilestones);
     }
 }

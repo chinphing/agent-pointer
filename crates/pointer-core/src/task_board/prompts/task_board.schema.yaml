@@ -124,23 +124,41 @@ task_board_replace:
 task_board_patch:
   type: object
   properties:
-    global_milestones:
-      type: array
-      description: Exactly one global row object in an array.
-      items:
-        type: object
-        additionalProperties: true
     milestones:
       type: array
-      description: Exactly one item_milestone row object in an array.
+      description: >
+        One visible milestone row from inject (step, queue SOP, or g_deliver).
+        Host routes by inject mode and row id — do not use global_milestones on patch.
       items:
         type: object
+        properties:
+          id:
+            type: string
+          status:
+            type: string
+          remark:
+            type: string
+        required: [id, status]
         additionalProperties: true
-    work_item_id:
-      type: string
+    current_item:
+      type: object
       description: >
-        Queue mode — required when a work_item is in_progress.
-        Must match [WORK_ITEM_FOCUS] id. Omit when queue is empty or all rows terminal.
+        Active work_item focus for queue exec patches. id must match [WORK_ITEM_FOCUS].
+        Include status done/failed to close the row without patching the last milestone.
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [pending, ready, in_progress, done, failed, cancelled]
+        result_summary:
+          type: string
+        result_ref:
+          type: string
+        error_message:
+          type: string
+      required: [id]
+      additionalProperties: true
     work_item_claim:
       type: object
       description: Dynamic mode — claim one runtime target (object, not a string).
@@ -162,8 +180,8 @@ task_board_patch:
     item_id:
       type: string
       description: >
-        Queue mode alias for work_item_id when milestones/global_milestones present.
-        Legacy Type1 flat patch — global milestone row id (no work_items).
+        Type1 flat patch — global milestone row id (no work_items).
+        Queue exec uses current_item.id instead.
     _conversation_id:
       type: string
   required: []

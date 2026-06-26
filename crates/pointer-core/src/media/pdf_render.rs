@@ -4,9 +4,11 @@
 //! Must run on a blocking thread when called from async code: first-time Pdfium setup
 //! may download the native library through `reqwest::blocking`, which panics on tokio workers.
 
-use crate::media::jpeg_vision::prepare_jpeg_for_vision;
+use crate::media::jpeg_vision::{prepare_dynamic_image_for_vision, VISION_IMAGE_MAX_LONG_EDGE};
 use crate::media::pdf::{PdfPageRange, MAX_PDF_IMAGE_BYTES, MAX_PDF_PAGES_PER_CALL, PDF_RENDER_DPI};
 use anyhow::{Context, Result};
+use base64::Engine as _;
+use image::GenericImageView;
 use pdfium_auto::bind_pdfium_silent;
 use pdfium_render::prelude::*;
 use std::cell::RefCell;
@@ -30,6 +32,19 @@ fn with_pdfium<R>(f: impl FnOnce(&Pdfium) -> Result<R>) -> Result<R> {
 
 pub fn pdfium_render_available() -> bool {
     with_pdfium(|_| Ok(())).is_ok()
+}
+
+/// Pdfium `scale_page_by_factor` for vision: cap pixel count at [`VISION_IMAGE_MAX_LONG_EDGE`]
+/// on the long side; never exceed [`PDF_RENDER_DPI`].
+pub fn pdf_render_scale_for_page(long_pts: f32) -> f32 {
+    let long_pts = long_pts.max(1.0);
+    let scale_dpi = PDF_RENDER_DPI as f32 / 72.0;
+    let long_px_at_dpi = long_pts * scale_dpi;
+    if long_px_at_dpi <= VISION_IMAGE_MAX_LONG_EDGE as f32 {
+        scale_dpi
+    } else {
+        VISION_IMAGE_MAX_LONG_EDGE as f32 / long_pts
+    }
 }
 
 /// Render each page in `range` to base64 JPEG for vision models.
@@ -58,7 +73,6 @@ fn render_with_engine(
 
     let first = range.start;
     let last = range.end.min(first + MAX_PDF_PAGES_PER_CALL - 1);
-    let scale = PDF_RENDER_DPI as f32 / 72.0;
     let mut frames = Vec::new();
 
     for page_index in first..=last {
@@ -77,6 +91,12 @@ fn render_with_engine(
             .get(pdfium_index)
             .with_context(|| format!("pdfium page {page_index} in {file_name}"))?;
 
+        let w_pts = page.width().value;
+        let h_pts = page.height().value;
+        let long_pts = w_pts.max(h_pts);
+        let scale = pdf_render_scale_for_page(long_pts);
+        let approx_long_px = (long_pts * scale).round() as u32;
+
         let config = PdfRenderConfig::new()
             .scale_page_by_factor(scale)
             .render_form_data(true);
@@ -86,9 +106,9 @@ fn render_with_engine(
             .with_context(|| format!("pdfium render page {page_index} in {file_name}"))?;
 
         let dynamic = bitmap.as_image();
-        let jpeg = encode_dynamic_image_jpeg(&dynamic)
-            .with_context(|| format!("encode jpeg page {page_index} in {file_name}"))?;
-        let jpeg = prepare_jpeg_for_vision(&jpeg, &format!("{file_name} page {page_index}"))
+        let (rw, rh) = dynamic.dimensions();
+        let label = format!("{file_name} page {page_index}");
+        let jpeg = prepare_dynamic_image_for_vision(dynamic, &label)
             .with_context(|| format!("prepare vision jpeg page {page_index} in {file_name}"))?;
 
         if jpeg.is_empty() {
@@ -104,13 +124,10 @@ fn render_with_engine(
         }
 
         log::info!(
-            "pdf {file_name} page {page_index}: pdfium render ({} bytes jpeg)",
+            "pdf {file_name} page {page_index}: pdfium render {rw}x{rh} (scale={scale:.3}, ~{approx_long_px}px long) -> {} bytes jpeg",
             jpeg.len()
         );
-        frames.push(base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            &jpeg,
-        ));
+        frames.push(base64::engine::general_purpose::STANDARD.encode(&jpeg));
     }
 
     if frames.is_empty() {
@@ -121,30 +138,29 @@ fn render_with_engine(
     Ok(frames)
 }
 
-fn encode_dynamic_image_jpeg(img: &image::DynamicImage) -> Result<Vec<u8>> {
-    use image::codecs::jpeg::JpegEncoder;
-    use image::ExtendedColorType;
-    use std::io::Cursor;
-
-    let rgb8 = img.to_rgb8();
-    let mut buf = Vec::new();
-    let mut cursor = Cursor::new(&mut buf);
-    let mut encoder = JpegEncoder::new_with_quality(&mut cursor, 85);
-    encoder
-        .encode(
-            rgb8.as_raw(),
-            rgb8.width(),
-            rgb8.height(),
-            ExtendedColorType::Rgb8,
-        )
-        .context("encode pdfium page as jpeg")?;
-    Ok(buf)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::media::pdf::PdfPageRange;
+
+    #[test]
+    fn pdf_render_scale_caps_oversized_scan_pages() {
+        let scale = pdf_render_scale_for_page(2480.0);
+        assert!((scale - 1400.0 / 2480.0).abs() < 0.001);
+        assert!((2480.0 * scale).round() as u32 <= VISION_IMAGE_MAX_LONG_EDGE);
+    }
+
+    #[test]
+    fn pdf_render_scale_uses_dpi_for_small_pages() {
+        let scale = pdf_render_scale_for_page(400.0);
+        assert!((scale - PDF_RENDER_DPI as f32 / 72.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn pdf_render_scale_clamps_a4_to_vision_long_edge() {
+        let scale = pdf_render_scale_for_page(841.9);
+        let long_px = 841.9 * scale;
+        assert!(long_px <= VISION_IMAGE_MAX_LONG_EDGE as f32 + 1.0);
+    }
 
     #[test]
     #[ignore = "requires pdfium download/cache"]
@@ -165,5 +181,31 @@ mod tests {
         let frames = render_pdf_pages_base64_range(&bytes, "调解书.pdf", &range).unwrap();
         assert_eq!(frames.len(), 1);
         assert!(frames[0].len() > 1000);
+    }
+
+    #[test]
+    #[ignore = "requires pdfium download/cache"]
+    fn pdfium_renders_oversized_scan_pdf_when_available() {
+        if !pdfium_render_available() {
+            return;
+        }
+        let path = "/Users/starliu/Desktop/案件材料/证据8：放款凭证.pdf";
+        if !std::path::Path::new(path).exists() {
+            return;
+        }
+        let bytes = std::fs::read(path).expect("read pdf");
+        let range = PdfPageRange {
+            start: 1,
+            end: 1,
+            user_specified: true,
+        };
+        let t0 = std::time::Instant::now();
+        let frames = render_pdf_pages_base64_range(&bytes, "证据8：放款凭证.pdf", &range).unwrap();
+        eprintln!("scan pdf render elapsed: {}ms", t0.elapsed().as_millis());
+        assert_eq!(frames.len(), 1);
+        let decoded = base64::engine::general_purpose::STANDARD.decode(&frames[0]).unwrap();
+        let img = image::load_from_memory(&decoded).unwrap();
+        assert!(img.width().max(img.height()) <= VISION_IMAGE_MAX_LONG_EDGE);
+        assert!(decoded.len() <= crate::media::jpeg_vision::VISION_JPEG_MAX_BYTES);
     }
 }

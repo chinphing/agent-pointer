@@ -1,16 +1,16 @@
 use anyhow::{anyhow, Result};
 #[cfg(not(target_os = "macos"))]
 use enigo::{Enigo, Mouse, Settings};
-use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
-use image::{DynamicImage, ExtendedColorType};
-use std::io::Cursor;
-#[cfg(windows)]
-use std::any::Any;
+use image::DynamicImage;
 #[cfg(target_os = "macos")]
 use std::process::Command;
+#[cfg(windows)]
+use std::any::Any;
 use std::time::Instant;
 use xcap::Monitor;
+
+use crate::media::jpeg_vision::prepare_screenshot_jpeg;
 
 use crate::models::ComputerMonitor;
 
@@ -256,7 +256,7 @@ fn screenshot_from_monitor(
     let capture_px = (rgba.width(), rgba.height());
 
     let t = Instant::now();
-    let jpeg = rgba_to_jpeg(rgba, SCREENSHOT_JPEG_QUALITY)?;
+    let jpeg = prepare_screenshot_jpeg(DynamicImage::ImageRgba8(rgba), log_label)?;
     let encode_ms = t.elapsed().as_secs_f64() * 1000.0;
 
     let global_caret = try_global_focus_caret_hint();
@@ -267,10 +267,9 @@ fn screenshot_from_monitor(
         String::new()
     };
     log::info!(
-        "{log_label}: xcap_capture {:.1}ms, resample {:.1}ms, jpeg_encode q{} {:.1}ms, total {:.1}ms ({}x{} px logical{}, jpeg={})",
+        "{log_label}: xcap_capture {:.1}ms, resample {:.1}ms, jpeg_cap {:.1}ms, total {:.1}ms ({}x{} px logical{}, jpeg={})",
         capture_ms,
         resample_ms,
-        SCREENSHOT_JPEG_QUALITY,
         encode_ms,
         t_total.elapsed().as_secs_f64() * 1000.0,
         capture_px.0,
@@ -481,9 +480,9 @@ fn resample_capture_to_logical(
     }
 }
 
-/// Encode logical RGBA to JPEG (overlay pipeline after pointer marks).
-pub fn rgba_to_jpeg_bytes(rgba: image::RgbaImage, quality: u8) -> Result<Vec<u8>> {
-    rgba_to_jpeg(rgba, quality)
+/// Encode logical RGBA to JPEG with vision byte cap; resolution unchanged (quality ladder only).
+pub fn rgba_to_jpeg_bytes(rgba: image::RgbaImage, _quality: u8) -> Result<Vec<u8>> {
+    prepare_screenshot_jpeg(DynamicImage::ImageRgba8(rgba), "screenshot")
 }
 
 /// Best-effort focused-control hint for drawing the I-beam overlay (Python `agents/computer/focus_position.py`).
@@ -580,21 +579,6 @@ fn monitor_info_from_xcap(m: &Monitor) -> Result<MonitorInfo> {
         m.width().map_err(|e| anyhow!("{}", e))? as i32,
         m.height().map_err(|e| anyhow!("{}", e))? as i32,
     ))
-}
-
-fn rgba_to_jpeg(rgba: image::RgbaImage, quality: u8) -> Result<Vec<u8>> {
-    let rgb = DynamicImage::ImageRgba8(rgba).into_rgb8();
-    let mut buf = Vec::new();
-    let mut cursor = Cursor::new(&mut buf);
-    let mut enc = JpegEncoder::new_with_quality(&mut cursor, quality);
-    enc.encode(
-        rgb.as_raw(),
-        rgb.width(),
-        rgb.height(),
-        ExtendedColorType::Rgb8,
-    )
-    .map_err(|e| anyhow!("JPEG encode failed: {}", e))?;
-    Ok(buf)
 }
 
 /// MIME type for OpenAI-style `data:` URLs from encoded image bytes.

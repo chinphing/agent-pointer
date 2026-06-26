@@ -118,7 +118,7 @@ mediaModelOverrides: {
 
 | 项 | 值 |
 |----|-----|
-| 单图 inline 上限 | 2 MB |
+| 单图 inline 上限 | 1 MB |
 | 单图硬上限 | 6 MB |
 | 文档文本提取上限 | 256 KiB |
 | PDF 页图理解（扫描回退） | 10 页 / call；单页 JPEG ≤ **6 MB**（Pdfium 渲染 + `media_understand`） |

@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use base64::Engine;
 use std::sync::Arc;
 
-pub const INLINE_IMAGE_MAX_BYTES: usize = 2 * 1024 * 1024;
+pub const INLINE_IMAGE_MAX_BYTES: usize = 1024 * 1024;
 pub const HARD_IMAGE_MAX_BYTES: usize = 6 * 1024 * 1024;
 
 fn load_attachment_bytes(att: &MediaAttachment) -> Result<Vec<u8>> {

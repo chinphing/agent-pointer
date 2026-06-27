@@ -1,31 +1,19 @@
 //! Dispatch planner tool calls (native only, no sidecar registry).
 
-use crate::agent_instance_scope::AgentInstanceScope;
-use crate::llm_token_stats::ConversationLlmStats;
 use crate::models::{ChatMessage, ModelSettings, Role, ToolCall};
 use crate::task_board::TaskBoardStore;
 use crate::tools::parse_tool_call_arguments;
-use crate::tools::web_search::{
-    dispatch_to_tool_json_async, WebSearchDispatchContext, WebSearchInvokeContext,
-    WebSearchTokenSink,
-};
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio_util::sync::CancellationToken;
 
 use super::PlannedMethod;
 
 pub struct PlannerToolPassInput<'a> {
     pub store: Arc<TaskBoardStore>,
     pub store_key: &'a str,
-    pub conversation_id: &'a str,
     pub settings: &'a ModelSettings,
-    pub cancel: &'a CancellationToken,
-    pub llm_stats: &'a mut ConversationLlmStats,
-    pub run_id: &'a str,
     pub work_items_enabled: bool,
-    pub history: &'a [ChatMessage],
 }
 
 #[derive(Debug)]
@@ -41,66 +29,10 @@ pub async fn dispatch_planner_tool(
 ) -> Result<PlannerToolOutcome> {
     let args = parse_tool_call_arguments(&tc.arguments);
     match tc.name.as_str() {
-        "web_search" => dispatch_web_search(input, &args, tc).await,
-        "session_search" => dispatch_session_search(input, &args),
         "task_board_init" => dispatch_task_board(input, "init", &args).await,
         "task_board_replace" => dispatch_task_board(input, "replace", &args).await,
         other => Err(anyhow!("planner: unknown tool {other}")),
     }
-}
-
-async fn dispatch_web_search(
-    input: &mut PlannerToolPassInput<'_>,
-    args: &Value,
-    tc: &ToolCall,
-) -> Result<PlannerToolOutcome> {
-    let scope = AgentInstanceScope::new(input.run_id, input.conversation_id, "task_board_planner");
-    let (stream, _rx) = tokio::sync::mpsc::unbounded_channel();
-    let ctx = WebSearchDispatchContext {
-        settings: input.settings,
-        agent_id: Some("computer"),
-        args: args.clone(),
-        cancel: input.cancel.clone(),
-        stream,
-        message_id: "planner_internal".into(),
-        tool_call_id: tc.id.clone(),
-        history: input.history,
-        exclude_message_id: "planner_internal",
-        invoke: WebSearchInvokeContext::Tool,
-        token_sink: WebSearchTokenSink::Sub {
-            stats: input.llm_stats,
-            scope: &scope,
-        },
-        trace_id: None,
-        scoped_message_id: None,
-    };
-    let (body, ok, err) = dispatch_to_tool_json_async(ctx).await?;
-    if !ok {
-        return Err(anyhow!(err.unwrap_or_else(|| "web_search failed".into())));
-    }
-    Ok(PlannerToolOutcome {
-        tool_result: body,
-        planned: None,
-        board_len: 0,
-    })
-}
-
-fn dispatch_session_search(
-    input: &PlannerToolPassInput<'_>,
-    args: &Value,
-) -> Result<PlannerToolOutcome> {
-    let mut bound = args.clone();
-    if bound.get("conversation_id").and_then(|v| v.as_str()).unwrap_or("").trim().is_empty() {
-        bound["conversation_id"] = json!(input.conversation_id);
-    }
-    let store = crate::conversation_store::global_store()
-        .map_err(|e| anyhow!("session_search: conversation store unavailable: {e}"))?;
-    let body = store.dispatch_search_tool(&bound)?;
-    Ok(PlannerToolOutcome {
-        tool_result: body,
-        planned: None,
-        board_len: 0,
-    })
 }
 
 async fn dispatch_task_board(
@@ -214,7 +146,6 @@ mod tests {
     use crate::task_board::TaskBoardStore;
     use serde_json::json;
     use std::sync::Arc;
-    use tokio_util::sync::CancellationToken;
 
     fn planner_tool_call(name: &str, args: serde_json::Value) -> ToolCall {
         ToolCall {
@@ -235,19 +166,12 @@ mod tests {
         store: Arc<TaskBoardStore>,
         store_key: &'a str,
         settings: &'a ModelSettings,
-        llm_stats: &'a mut ConversationLlmStats,
-        cancel: &'a CancellationToken,
     ) -> PlannerToolPassInput<'a> {
         PlannerToolPassInput {
             store,
             store_key,
-            conversation_id: store_key,
             settings,
-            cancel,
-            llm_stats,
-            run_id: "run_test",
             work_items_enabled: false,
-            history: &[],
         }
     }
 
@@ -256,9 +180,7 @@ mod tests {
         let store = Arc::new(TaskBoardStore::new());
         let key = "conv-init";
         let settings = ModelSettings::default();
-        let mut stats = ConversationLlmStats::default();
-        let cancel = CancellationToken::new();
-        let mut input = pass_input(store.clone(), key, &settings, &mut stats, &cancel);
+        let mut input = pass_input(store.clone(), key, &settings);
         let tc = planner_tool_call(
             "task_board_init",
             json!({
@@ -282,9 +204,7 @@ mod tests {
             .apply(key, "init", &json!({ "goal": "g", "items": [] }))
             .expect("seed");
         let settings = ModelSettings::default();
-        let mut stats = ConversationLlmStats::default();
-        let cancel = CancellationToken::new();
-        let mut input = pass_input(store.clone(), key, &settings, &mut stats, &cancel);
+        let mut input = pass_input(store.clone(), key, &settings);
         let tc = planner_tool_call(
             "task_board_init",
             json!({ "goal": "new", "items": [] }),
@@ -317,9 +237,7 @@ mod tests {
             )
             .expect("init");
         let settings = ModelSettings::default();
-        let mut stats = ConversationLlmStats::default();
-        let cancel = CancellationToken::new();
-        let mut input = pass_input(store.clone(), key, &settings, &mut stats, &cancel);
+        let mut input = pass_input(store.clone(), key, &settings);
         let tc = planner_tool_call(
             "task_board_replace",
             json!({
@@ -344,9 +262,7 @@ mod tests {
     async fn unknown_tool_is_error() {
         let store = Arc::new(TaskBoardStore::new());
         let settings = ModelSettings::default();
-        let mut stats = ConversationLlmStats::default();
-        let cancel = CancellationToken::new();
-        let mut input = pass_input(store, "conv-unknown", &settings, &mut stats, &cancel);
+        let mut input = pass_input(store, "conv-unknown", &settings);
         let tc = planner_tool_call("not_a_planner_tool", json!({}));
         let err = dispatch_planner_tool(&mut input, &tc).await;
         assert!(err.is_err());

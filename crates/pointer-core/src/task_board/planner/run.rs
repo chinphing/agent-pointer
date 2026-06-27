@@ -234,13 +234,8 @@ async fn run_planner_loop_body(input: &mut PlannerRunInput<'_>) -> PlannerRunOut
             let mut pass_input = PlannerToolPassInput {
                 store: store.clone(),
                 store_key: input.store_key,
-                conversation_id: input.conversation_id,
                 settings: input.settings,
-                cancel: input.cancel,
-                llm_stats: input.llm_stats,
-                run_id: input.run_id,
                 work_items_enabled,
-                history: &*input.main_history,
             };
             let dispatch_result = dispatch_planner_tool(&mut pass_input, tc).await;
             let duration_ms = tool_start.elapsed().as_millis() as u64;

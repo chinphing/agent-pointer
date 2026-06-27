@@ -38,7 +38,6 @@ You do **not** replace during planning.
 
 ## Rules
 
-- `web_search` and `session_search` are **optional** — use only when you lack facts.
 - Call **`task_board_init` at most once** per run.
 - After a successful init, **stop calling tools** on the next round.
 - Max **20** global rows (Type1); Type2 always **3** globals + 2–8 item template rows.
@@ -50,7 +49,7 @@ You do **not** replace during planning.
 
 | State | User message | Action |
 |-------|--------------|--------|
-| empty | new multi-step task | init (or search then init) |
+| empty | new multi-step task | init |
 | empty | single step / chat | no tool |
 | running | same scope | no tool |
 | running | changed scope | **no tool** (scope locked after init) |
@@ -61,7 +60,7 @@ You do **not** replace during planning.
 When **Assigned task** appears in system dynamic above, that block is the worker goal
 (not main chat history). User history may be a short stub only.
 
-Prefer **Assigned task** + **Lead context** for planning; use `session_search` only if needed.
+Prefer **Assigned task** + **Lead context** + chat history for planning.
 
 **Type2 file list (enumerated only):** Set **`work_items_source`** to the list file —
 **`localPath`** string or **`pointer-media://…`** ref from Lead context / attachment manifest.

@@ -5,8 +5,6 @@ use crate::task_board::snapshot::markdown_runtime_block_for_inject;
 use crate::task_board::{BoardDocument, WorkItemStore};
 
 const COMPUTER_MD: &str = include_str!("prompts/computer.md");
-const WEB_SEARCH_MD: &str = include_str!("prompts/web_search.md");
-const SESSION_SEARCH_MD: &str = include_str!("prompts/session_search.md");
 const TASK_BOARD_INIT_MD: &str = include_str!("prompts/task_board_init.md");
 const TASK_BOARD_REPLACE_MD: &str = include_str!("prompts/task_board_replace.md");
 
@@ -32,7 +30,7 @@ pub fn build_planner_system(input: PlannerSystemInput<'_>) -> SystemPromptSectio
         input.workspace_root.trim()
     );
     let tools_doc = format!(
-        "## Tools\n\n### web_search\n{WEB_SEARCH_MD}\n\n### session_search\n{SESSION_SEARCH_MD}\n\n### task_board_init\n{TASK_BOARD_INIT_MD}\n\n### task_board_replace\n{TASK_BOARD_REPLACE_MD}"
+        "## Tools\n\n### task_board_init\n{TASK_BOARD_INIT_MD}\n\n### task_board_replace\n{TASK_BOARD_REPLACE_MD}"
     );
     let body = format!(
         "{COMPUTER_MD}\n\n{board_block}\n\n{env}\n\n{tools_doc}"
@@ -66,7 +64,8 @@ mod tests {
         assert!(body.contains("workspace_root: /tmp/ws"));
         assert!(body.contains("### task_board_init"));
         assert!(body.contains("### task_board_replace"));
-        assert!(body.contains("### web_search"));
+        assert!(!body.contains("### session_search"));
+        assert!(!body.contains("### web_search"));
     }
 
     #[test]

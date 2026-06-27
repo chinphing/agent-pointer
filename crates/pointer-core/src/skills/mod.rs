@@ -157,15 +157,32 @@ impl SkillRegistry {
     fn read_resource(&self, id: &str, path: &str) -> Result<String> {
         let g = self.inner.read();
         let skill = g.get(id).ok_or_else(|| anyhow!("未找到 Skill: {id}"))?;
-        if !skill.resource_files.iter().any(|p| p == path) {
-            return Err(anyhow!("资源不在该 Skill 的可读取列表中: {path}"));
-        }
-        let Some(root) = &skill.source else {
+        let Some(root) = skill.source.as_deref() else {
             return Err(anyhow!("内置 Skill 没有关联资源目录"));
         };
-        let full_path = safe_resource_join(Path::new(root), Path::new(path))?;
-        Ok(fs::read_to_string(full_path)?)
+        let root = Path::new(root);
+        let full_path = safe_resource_join(root, Path::new(path))?;
+        ensure_within_skill_dir(&full_path, root)?;
+        if !full_path.is_file() {
+            return Err(anyhow!("Skill 资源不存在: {path}"));
+        }
+        fs::read_to_string(&full_path).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::InvalidData {
+                anyhow!("Skill 资源不是文本文件: {path}")
+            } else {
+                e.into()
+            }
+        })
     }
+}
+
+fn ensure_within_skill_dir(path: &Path, root: &Path) -> Result<()> {
+    let root_canon = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let path_canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if !path_canon.starts_with(&root_canon) {
+        return Err(anyhow!("非法资源路径: {}", path.display()));
+    }
+    Ok(())
 }
 
 fn safe_resource_join(root: &Path, rel: &Path) -> Result<std::path::PathBuf> {
@@ -365,6 +382,77 @@ mod tests {
         assert!(block.contains("<name>demo</name>"));
         assert!(block.contains("<location>/tmp/demo-skill/SKILL.md</location>"));
         assert!(block.contains("parent of `<location>`"));
+    }
+
+    #[test]
+    fn read_resource_reads_from_disk_without_cached_whitelist() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let skill_dir = dir.path().join("demo-skill");
+        fs::create_dir_all(skill_dir.join("references")).expect("mkdir");
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: demo-skill\ndescription: d\n---\nbody\n",
+        )
+        .expect("write manifest");
+        fs::write(
+            skill_dir.join("references/new.md"),
+            "fresh reference content",
+        )
+        .expect("write reference");
+
+        let reg = SkillRegistry::new();
+        reg.register(SkillDef {
+            id: "demo-skill".into(),
+            name: "demo-skill".into(),
+            description: "d".into(),
+            tags: vec![],
+            system_prompt: "body".into(),
+            tool_names: vec![],
+            scenario: String::new(),
+            builtin: false,
+            resource_files: vec![],
+            source: Some(skill_dir.to_string_lossy().into_owned()),
+            provenance: "user".into(),
+            mutable: true,
+        });
+
+        let out = reg
+            .read("demo-skill", Some("references/new.md"))
+            .expect("read resource");
+        assert!(out.contains("fresh reference content"));
+    }
+
+    #[test]
+    fn read_resource_rejects_path_outside_skill_dir() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let skill_dir = dir.path().join("demo-skill");
+        fs::create_dir_all(&skill_dir).expect("mkdir");
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: demo-skill\ndescription: d\n---\nbody\n",
+        )
+        .expect("write manifest");
+
+        let reg = SkillRegistry::new();
+        reg.register(SkillDef {
+            id: "demo-skill".into(),
+            name: "demo-skill".into(),
+            description: "d".into(),
+            tags: vec![],
+            system_prompt: "body".into(),
+            tool_names: vec![],
+            scenario: String::new(),
+            builtin: false,
+            resource_files: vec![],
+            source: Some(skill_dir.to_string_lossy().into_owned()),
+            provenance: "user".into(),
+            mutable: true,
+        });
+
+        let err = reg
+            .read("demo-skill", Some("../outside.md"))
+            .expect_err("traversal");
+        assert!(err.to_string().contains("非法"));
     }
 
     #[test]

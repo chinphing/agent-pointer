@@ -29,7 +29,9 @@ Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdow
 
 ## 资源目录
 
-与 Codex / OpenClaw 一致，支持同目录下的 `references/`、`scripts/`、`assets/` 等文件；通过 **`skill_read`**（带 `path`）按需读取（不自动执行脚本）。
+与 Codex / OpenClaw / Hermes 一致，支持同目录下的 `references/`、`scripts/`、`assets/` 等文件；通过 **`skill_read`**（带 `path`）按需读取（不自动执行脚本）。
+
+**`skill_read` 带 `path` 时实时读磁盘**（Hermes `skill_view(name, file_path)` 同型）：路径必须在 skill 根目录内（禁止 `..` 穿越），不要求事先出现在启动时扫描的 `resource_files` 索引里。Agent 用 `file_*` 新增 reference 后无需重启即可 `skill_read`。
 
 ## 运行时注入（OpenClaw 对齐）
 

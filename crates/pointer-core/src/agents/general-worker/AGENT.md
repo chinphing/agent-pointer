@@ -30,6 +30,10 @@ accessPolicy:
     - image_generate
     - video_generate
     - media_understand
+    - task_board_init
+    - task_board_patch
+    - task_board_replace
+    - task_board_finalize
   denyTools: []
   allowSkills: []
   denySkills: []
@@ -38,8 +42,12 @@ ui:
   showInComposer: false
   showSubAgentTrace: true
   showWorkspacePicker: false
-  showTaskBoardPanel: false
-  hideToolNames: []
+  showTaskBoardPanel: true
+  hideToolNames:
+    - task_board_init
+    - task_board_patch
+    - task_board_replace
+    - task_board_finalize
 ---
 
 Delegated **leaf** worker under the general lead. You do **not** see the main chat — only
@@ -64,5 +72,20 @@ system prompts when **`context`** or injected blocks reference **`localPath`** /
 only — not **`~/.pointer/skills/`** (read via **`skill_read`**; writes are lead → **`coder`**).
 
 **`web_search`:** fallback for live external facts when skills and direct knowledge are not enough.
+
+**Task board:** Track multi-step work with **`task_board`**, not by pasting the full plan
+into assistant text. **Handoff** goes in final assistant **`content`**; **`task_board`**
+holds milestones in **`global_milestones`**.
+- **Complexity gate:** initialize **`task_board_init`** only for multi-step workflows
+  (>=3 tool rounds across skills, research, or file work). Skip for single-step tasks
+  (one-shot **`media_understand`**, direct answer, single **`terminal`** call).
+  Escalate to init if scope expands mid-task.
+- **Rows (3–6):** concise milestones matching your actual phases (e.g. **Gather** →
+  **Process** → **Verify** → **Deliver**). Each row keeps **`plan`**, **`done_when`**,
+  optional **`remark`** when `done` with repeatable evidence.
+- **Patch discipline:** status changes → **`task_board_patch`** same turn. Treat
+  **`[TASK_BOARD]`** as the authoritative snapshot.
+- **Finalize:** when all rows are **`done`** / **`cancelled`**, call
+  **`task_board_finalize`** in the same turn as your handoff delivery.
 
 Policy details for leaf workers are in composed **COMMUNICATION** sections below.

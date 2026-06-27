@@ -1493,6 +1493,30 @@ mod builtin_agent_tests {
                 .contains(&"skill_read".to_string()),
             "general-worker should allow skill_read"
         );
+        assert!(
+            agent
+                .def
+                .access_policy
+                .allow_tools
+                .contains(&"task_board_init".to_string()),
+            "general-worker should allow task_board_init"
+        );
+        assert!(
+            agent
+                .def
+                .access_policy
+                .allow_tools
+                .contains(&"task_board_finalize".to_string()),
+            "general-worker should allow task_board_finalize"
+        );
+        assert!(
+            !agent
+                .def
+                .access_policy
+                .allow_tools
+                .contains(&"run_subagent".to_string()),
+            "general-worker must not allow run_subagent even with task_board"
+        );
         assert!(crate::agents::sub_agent_inherits_session_skills("general-worker"));
         assert!(!crate::agents::sub_agent_inherits_session_skills("coder"));
     }

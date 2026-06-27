@@ -66,7 +66,7 @@ Call **`media_understand`** with **`mode=pdf`**, **`refs`** (one attachment ref)
 Then:
 
 1. Call **`media_understand`** with **`mode=pdf`**, **`refs`**, and **`goal`** (host: **Pdfium** renders each page to JPEG, then vision model).
-2. Use **`pageStart` / `pageEnd`** only when the user named pages (max **10** per call).
+2. **`pageStart` / `pageEnd`:** per **`media_understand`** tool schema (max **10** pages/call).
 
 Do **not** use local Tesseract or other OCR CLIs for chat attachments when `media_understand` is available.
 
@@ -375,7 +375,7 @@ Form workflow details: **forms.md**.
 After PyMuPDF extraction is **empty or unusable** (see **Pointer: reading attached PDFs**):
 
 1. Call **`media_understand`** with **`mode=pdf`**, the attachment in **`refs`**, and a **`goal`**.
-2. Split with **`pageStart` / `pageEnd`** when needed (max **10** pages per call).
+2. **`pageStart` / `pageEnd`:** per **`media_understand`** tool schema (max **10** pages/call).
 
 ## Quick reference
 

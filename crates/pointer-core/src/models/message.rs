@@ -51,6 +51,10 @@ pub struct SubAgentToolStats {
     pub input_count: u32,
     #[serde(default)]
     pub other_count: u32,
+    #[serde(default)]
+    pub skill_count: u32,
+    #[serde(default)]
+    pub media_count: u32,
 }
 
 /// Sub-agent streaming UI state (tool calls, thoughts, collapsed summary); not sent to the LLM.

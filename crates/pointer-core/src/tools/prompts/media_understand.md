@@ -39,15 +39,15 @@ schema:
       type: integer
       minimum: 1
       description: >
-        Optional 1-based start index. **mode=pdf**: first PDF page (default pages 1–10).
-        **mode=image** with a directory ref: first image by sorted file name (default 1–200).
-        Omit unless the user explicitly asked for a range.
+        Optional 1-based start (PDF page or image-dir index). Omit with pageEnd unless
+        the user gave a **numeric** range — never guess page count; "所有页/全文" → omit
+        (host defaults, clamped to file length).
     pageEnd:
       type: integer
       minimum: 1
       description: >
-        Optional 1-based end index (inclusive). **mode=pdf**: last PDF page (max 10 pages/call).
-        **mode=image** directory: last image index (max 200 images/call). Use with pageStart.
+        Optional 1-based end (inclusive). Pair with pageStart only for numeric ranges.
+        PDF max 10 pages/call; image directory max 200/call.
   required:
     - refs
     - mode
@@ -64,8 +64,6 @@ Understand image, video, audio, or PDF files on demand via host-managed models.
   Image mode: one directory path allowed. Other modes: exactly one ref.
 - **goal** (required) — user's analysis goal in their language.
 - **context** (optional) — extra thread background not already in **goal**.
-- **pageStart** / **pageEnd** — **pdf**: page range; **image** directory: sorted image index range.
-  Omit unless the user explicitly asked; host applies mode-specific defaults.
 
 ### refs count by mode
 
@@ -133,8 +131,7 @@ For long videos:
 
 - **refs** with one folder path when **mode=image**.
 - Lists **non-recursive** image files (png/jpg/jpeg/gif/webp/bmp/heic/heif), sorted by name.
-- **Default:** images **1–200** when the user did not name a range.
-- **User named a range:** set **pageStart** / **pageEnd** (1-based index).
+- **Default:** images **1–200** when pageStart/pageEnd omitted.
 - **Max 200 images per call** — split across multiple calls for larger folders.
 - Tool output includes a **scope notice** with index range and **total image count**.
 
@@ -147,12 +144,9 @@ For long videos:
 
 ## PDF pages
 
-- **Default:** Agent uses the **pdf** skill + `terminal` on **`localPath`** to extract text.
-- **`mode=pdf` here:** only when the pdf skill finds a **scanned** PDF (empty/garbled text).
-- **Default (user did not name pages):** host processes **pages 1–10** only.
-- **User named pages:** set **pageStart** / **pageEnd** to match their request.
-- **Max 10 pages per call** — for larger ranges, call multiple times with different windows.
-- Tool output includes a **scope notice** with processed pages and **total page count**.
+- **Default:** use the **pdf** skill + `terminal` on **`localPath`** to extract text.
+- **`mode=pdf` here:** only when extraction is empty or unusable (scanned PDF).
+- **Max 10 pages per call** — split with pageStart/pageEnd when the user gave a numeric range beyond that.
 
 ## Video sampling
 

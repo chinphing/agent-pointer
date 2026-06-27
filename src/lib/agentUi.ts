@@ -50,6 +50,7 @@ function profileKey(profile: AgentProfile, id: string, role: string): string {
 
 const COMPOSER_LABELS: Record<string, string> = {
   general: '通用助手',
+  'general-worker': '通用执行',
   coder: '氛围编程',
   computer: '电脑操控',
   supervisor: '团队模式',

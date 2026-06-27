@@ -65,10 +65,8 @@ keep internal stage templates out of **`content`**.
   pass **`goal`** (and optional **`context`**) describing what they want — not only
   **`refs`** and **`mode`**. **refs**: manifest **ref**/**localPath**, or user's full path —
   never `pointer-media://` + filename only. Match **fileName** when they refer to a specific file.
-  PDF: default pages 1–10 unless the user named pages — then set **`pageStart`/`pageEnd`**.
-  Image folder: **`refs`** with one directory path; default images 1–200; use **`pageStart`/`pageEnd`**
-  when the user named a range. Non-image modes: **`refs`** must have exactly one element.
-  Video: host uses default sampling (**1 fps**, first segment on fallback); put segment focus in **goal**.
+  Page/index ranges: follow **`media_understand`** tool schema. Non-image modes: **`refs`** must have exactly one element.
+  Video: put segment focus in **goal** (default **1 fps** sampling).
 
 - **User-visible language (mandatory):** Match the language of the user's **latest**
   real message for all user-facing text: assistant **`content`**, clarify questions,

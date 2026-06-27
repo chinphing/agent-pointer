@@ -82,7 +82,7 @@ export interface AgentUiConfig {
 }
 
 export interface SubAgentToolStats {
-  /** file_grep / file_glob / file_list */
+  /** file_grep / file_glob / file_list / session_search / memory */
   searchCount: number
   /** file_read */
   readCount: number
@@ -92,6 +92,10 @@ export interface SubAgentToolStats {
   terminalCount?: number
   /** web_search */
   webSearchCount?: number
+  /** skill_read / skill_import */
+  skillCount?: number
+  /** media_understand / image_generate / video_generate */
+  mediaCount?: number
   /** Computer: mouse_* */
   mouseCount?: number
   /** Computer: input_* */

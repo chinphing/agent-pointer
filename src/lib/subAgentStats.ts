@@ -8,6 +8,8 @@ export function emptySubAgentToolStats(): SubAgentToolStats {
     writeCount: 0,
     terminalCount: 0,
     webSearchCount: 0,
+    skillCount: 0,
+    mediaCount: 0,
     mouseCount: 0,
     inputCount: 0,
     otherCount: 0
@@ -73,6 +75,18 @@ export function incrementSubAgentToolStats(
     }
     return
   }
+  if (base === 'skill_read' || base === 'skill_import') {
+    stats.skillCount = (stats.skillCount ?? 0) + 1
+    return
+  }
+  if (base === 'media_understand' || base === 'image_generate' || base === 'video_generate') {
+    stats.mediaCount = (stats.mediaCount ?? 0) + 1
+    return
+  }
+  if (base === 'session_search' || base === 'memory') {
+    stats.searchCount += 1
+    return
+  }
   if (base === 'terminal') {
     stats.terminalCount = (stats.terminalCount ?? 0) + 1
     return
@@ -116,6 +130,16 @@ function formatStatsForAgent(agentId: string, stats: SubAgentToolStats): string 
       statSeg('搜索', stats.searchCount),
       statSeg('读文件', stats.readCount),
       statSeg('终端', stats.terminalCount),
+      statSeg('编辑', stats.writeCount)
+    ])
+  }
+  if (id === 'general-worker' || id === 'general_worker') {
+    return joinStatSegments([
+      statSeg('终端', stats.terminalCount),
+      statSeg('技能', stats.skillCount),
+      statSeg('媒体', stats.mediaCount),
+      statSeg('搜索', stats.webSearchCount),
+      statSeg('读文件', stats.readCount),
       statSeg('编辑', stats.writeCount)
     ])
   }

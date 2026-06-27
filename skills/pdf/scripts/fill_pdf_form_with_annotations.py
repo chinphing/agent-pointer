@@ -1,107 +1,90 @@
 import json
 import sys
 
-from pypdf import PdfReader, PdfWriter
-from pypdf.annotations import FreeText
+import pymupdf
+
+from pdf_form_common import image_bbox_to_pymupdf, pdf_rect_to_pymupdf
 
 
+def _parse_color(hex_color: str) -> tuple[float, float, float]:
+    h = hex_color.lstrip("#")
+    if len(h) != 6:
+        return (0.0, 0.0, 0.0)
+    r = int(h[0:2], 16) / 255.0
+    g = int(h[2:4], 16) / 255.0
+    b = int(h[4:6], 16) / 255.0
+    return (r, g, b)
 
 
-def transform_from_image_coords(bbox, image_width, image_height, pdf_width, pdf_height):
-    x_scale = pdf_width / image_width
-    y_scale = pdf_height / image_height
-
-    left = bbox[0] * x_scale
-    right = bbox[2] * x_scale
-
-    top = pdf_height - (bbox[1] * y_scale)
-    bottom = pdf_height - (bbox[3] * y_scale)
-
-    return left, bottom, right, top
+def _font_name(name: str) -> str:
+    lower = (name or "helv").lower()
+    if lower in ("arial", "helvetica", "sans"):
+        return "helv"
+    if lower in ("times", "times new roman", "serif"):
+        return "times"
+    if lower in ("courier", "mono", "monospace"):
+        return "cour"
+    return "helv"
 
 
-def transform_from_pdf_coords(bbox, pdf_height):
-    left = bbox[0]
-    right = bbox[2]
-
-    pypdf_top = pdf_height - bbox[1]      
-    pypdf_bottom = pdf_height - bbox[3]   
-
-    return left, pypdf_bottom, right, pypdf_top
-
-
-def fill_pdf_form(input_pdf_path, fields_json_path, output_pdf_path):
-    
-    with open(fields_json_path, "r") as f:
+def fill_pdf_form(input_pdf_path: str, fields_json_path: str, output_pdf_path: str) -> None:
+    with open(fields_json_path, encoding="utf-8") as f:
         fields_data = json.load(f)
-    
-    reader = PdfReader(input_pdf_path)
-    writer = PdfWriter()
-    
-    writer.append(reader)
-    
-    pdf_dimensions = {}
-    for i, page in enumerate(reader.pages):
-        mediabox = page.mediabox
-        pdf_dimensions[i + 1] = [mediabox.width, mediabox.height]
-    
-    annotations = []
-    for field in fields_data["form_fields"]:
-        page_num = field["page_number"]
 
-        page_info = next(p for p in fields_data["pages"] if p["page_number"] == page_num)
-        pdf_width, pdf_height = pdf_dimensions[page_num]
-
-        if "pdf_width" in page_info:
-            transformed_entry_box = transform_from_pdf_coords(
-                field["entry_bounding_box"],
-                float(pdf_height)
+    doc = pymupdf.open(input_pdf_path)
+    count = 0
+    try:
+        for field in fields_data["form_fields"]:
+            page_num = field["page_number"]
+            page = doc[page_num - 1]
+            page_h = page.rect.height
+            page_info = next(
+                p for p in fields_data["pages"] if p["page_number"] == page_num
             )
-        else:
-            image_width = page_info["image_width"]
-            image_height = page_info["image_height"]
-            transformed_entry_box = transform_from_image_coords(
-                field["entry_bounding_box"],
-                image_width, image_height,
-                float(pdf_width), float(pdf_height)
-            )
-        
-        if "entry_text" not in field or "text" not in field["entry_text"]:
-            continue
-        entry_text = field["entry_text"]
-        text = entry_text["text"]
-        if not text:
-            continue
-        
-        font_name = entry_text.get("font", "Arial")
-        font_size = str(entry_text.get("font_size", 14)) + "pt"
-        font_color = entry_text.get("font_color", "000000")
 
-        annotation = FreeText(
-            text=text,
-            rect=transformed_entry_box,
-            font=font_name,
-            font_size=font_size,
-            font_color=font_color,
-            border_color=None,
-            background_color=None,
-        )
-        annotations.append(annotation)
-        writer.add_annotation(page_number=page_num - 1, annotation=annotation)
-        
-    with open(output_pdf_path, "wb") as output:
-        writer.write(output)
-    
+            bbox = field["entry_bounding_box"]
+            if "pdf_width" in page_info:
+                left, bottom, right, top = bbox[0], bbox[1], bbox[2], bbox[3]
+                rect = pdf_rect_to_pymupdf(left, bottom, right, top, page_h)
+            else:
+                rect = image_bbox_to_pymupdf(
+                    bbox,
+                    float(page_info["image_width"]),
+                    float(page_info["image_height"]),
+                    float(page.rect.width),
+                    page_h,
+                )
+
+            entry_text = field.get("entry_text") or {}
+            text = entry_text.get("text") or ""
+            if not text:
+                continue
+
+            font_size = float(entry_text.get("font_size", 14))
+            fontname = _font_name(entry_text.get("font", "Arial"))
+            text_color = _parse_color(entry_text.get("font_color", "000000"))
+
+            page.add_freetext_annot(
+                rect,
+                text,
+                fontsize=font_size,
+                fontname=fontname,
+                text_color=text_color,
+                fill_color=None,
+                border_color=None,
+            )
+            count += 1
+
+        doc.save(output_pdf_path)
+    finally:
+        doc.close()
+
     print(f"Successfully filled PDF form and saved to {output_pdf_path}")
-    print(f"Added {len(annotations)} text annotations")
+    print(f"Added {count} text annotations")
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
         print("Usage: fill_pdf_form_with_annotations.py [input pdf] [fields.json] [output pdf]")
         sys.exit(1)
-    input_pdf = sys.argv[1]
-    fields_json = sys.argv[2]
-    output_pdf = sys.argv[3]
-    
-    fill_pdf_form(input_pdf, fields_json, output_pdf)
+    fill_pdf_form(sys.argv[1], sys.argv[2], sys.argv[3])

@@ -76,7 +76,7 @@ usernames or unverified absolute paths. Typical locations (names vary by OS/loca
 - **PDF attachments** → **`skill_read`** the **pdf** skill first; extract text via **`terminal`**
   and **`localPath`**. Only when extraction is **empty or unusable** (scanned/image PDF) →
   **`media_understand`** with **`mode=pdf`**, **`refs`** (one element), and **`goal`**. Merge/split/forms/editing
-  stay on the pdf skill. Enable **sort** only when the user asks for reading order.
+  stay on the pdf skill (**PyMuPDF only**, **`sort=True`** by default). Missing Python/pip → **`skill_read`** **dev-env-setup**.
 - **Large PDF** → put page range in **`pageStart`/`pageEnd`** only when the user explicitly
   asked; otherwise host defaults to pages 1–10. Split into multiple calls if >10 pages.
 - **Large video** → put segment focus in **goal**; host defaults to **1 fps** (first **200s** on ffmpeg fallback).

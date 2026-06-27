@@ -23,4 +23,4 @@ while IFS= read -r line; do
   fi
 done < <(cd "$TMP" && git ls-files -s skills/docx skills/pptx skills/xlsx skills/pdf)
 echo "Synced docx, pptx, xlsx, pdf from anthropics/skills@main into $ROOT/skills/"
-echo "Note: skills/pdf/SKILL.md and skills/pdf/reference.md include Pointer-specific sections — merge after sync."
+echo "Note: skills/pdf/SKILL.md includes Pointer-specific sections — merge after sync."

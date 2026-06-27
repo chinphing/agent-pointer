@@ -6,7 +6,7 @@ loaded skill body asks for.
 
 ## Common
 
-- **Python 3.9+** — skill scripts under `scripts/`
+- **Python 3.12** preferred (3.9+ ok) — Office skill scripts
 - **LibreOffice** (`soffice`) — unpack/pack, PDF export, formula recalc (xlsx)
 
 ## docx
@@ -26,9 +26,7 @@ loaded skill body asks for.
 
 ## pdf
 
-- **pypdf**, **pdfplumber**, **reportlab** — merge/split/create/extract (see pdf skill)
-- **poppler-utils** (`pdftotext`, `pdftoppm`, `pdfimages`) — CLI extraction and render
-- **pymupdf** — optional; use `sort=True` only when the user asks for reading order
+- **pymupdf** — all PDF read/edit/merge/split/forms (see pdf skill); default **`sort=True`** for text
 - **`media_understand` `mode=pdf`** — scanned-PDF fallback (Pdfium in-process render); use **pdf** skill + `terminal` first
 
 ## Verify (examples)

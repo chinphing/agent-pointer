@@ -13,3 +13,5 @@ src-tauri/gen
 signing/macos/signing.env
 signing/macos/*.p12
 signing/macos/AuthKey_*.p8
+
+**/*/__pycache__

@@ -27,7 +27,7 @@ pub fn openai_tools() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "task_board_replace",
-                "description": "Replace item_milestones SOP template when execution needs a refresh.",
+                "description": "Replace item_milestones SOP template when board exists — update steps, rules, constraints, plan, or done_when on template rows.",
                 "parameters": task_board_tool_parameters("task_board_replace")
             }
         }),

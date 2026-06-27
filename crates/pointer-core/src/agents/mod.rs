@@ -97,6 +97,11 @@ const BUILTIN_AGENT_BUNDLES: &[BuiltinAgentBundle] = &[
         communication: include_str!("general/COMMUNICATION.md"),
     },
     BuiltinAgentBundle {
+        id: "general-worker",
+        manifest: include_str!("general-worker/AGENT.md"),
+        communication: include_str!("general-worker/COMMUNICATION.md"),
+    },
+    BuiltinAgentBundle {
         id: "supervisor",
         manifest: include_str!("supervisor/AGENT.md"),
         communication: include_str!("supervisor/COMMUNICATION.md"),
@@ -1010,6 +1015,11 @@ pub fn agent_supports_skills(agent: &AgentDef) -> bool {
     agent.id == DEFAULT_AGENT_ID
 }
 
+/// Sub-agents that inherit the lead's `enabled_skill_ids` (general lead only).
+pub fn sub_agent_inherits_session_skills(agent_id: &str) -> bool {
+    agent_id == "general-worker"
+}
+
 /// Session skills come **only** from the caller’s `enabled_skill_ids` when the lead agent is
 /// **general**. Manifest `defaultSkillIds` is metadata (e.g. UI hints / roster); it is not
 /// auto-merged into the session.
@@ -1419,6 +1429,14 @@ mod builtin_agent_tests {
         let comm = include_str!("general/COMMUNICATION.md");
         let agent = load_builtin_agent("general", raw, comm).expect("load builtin general");
         assert!(
+            agent
+                .def
+                .allow_agents
+                .binary_search(&"general-worker".to_string())
+                .is_ok(),
+            "general allowAgents should include general-worker"
+        );
+        assert!(
             agent.def.allow_agents.binary_search(&"coder".to_string()).is_ok(),
             "general allowAgents should include coder"
         );
@@ -1447,6 +1465,36 @@ mod builtin_agent_tests {
                 "general defaultSkillIds should include {skill}"
             );
         }
+    }
+
+    #[test]
+    fn general_worker_builtin_manifest_parses_and_loads() {
+        let raw = include_str!("general-worker/AGENT.md");
+        let comm = include_str!("general-worker/COMMUNICATION.md");
+        let agent = load_builtin_agent("general-worker", raw, comm).expect("load general-worker");
+        assert_eq!(agent.def.id, "general-worker");
+        assert_eq!(agent.def.profile, AgentProfile::General);
+        assert!(agent.def.allow_agents.is_empty());
+        assert_eq!(agent.def.ui.user_selectable, Some(false));
+        assert_eq!(agent.def.ui.show_in_composer, Some(false));
+        assert!(
+            !agent
+                .def
+                .access_policy
+                .allow_tools
+                .contains(&"run_subagent".to_string()),
+            "general-worker must not allow run_subagent"
+        );
+        assert!(
+            agent
+                .def
+                .access_policy
+                .allow_tools
+                .contains(&"skill_read".to_string()),
+            "general-worker should allow skill_read"
+        );
+        assert!(crate::agents::sub_agent_inherits_session_skills("general-worker"));
+        assert!(!crate::agents::sub_agent_inherits_session_skills("coder"));
     }
 
     #[test]

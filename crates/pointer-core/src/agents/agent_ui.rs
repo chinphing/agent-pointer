@@ -75,6 +75,7 @@ fn default_composer_label(profile: &AgentProfile, role: &str, id: &str) -> Strin
         "coder" => "氛围编程".into(),
         "computer" => "电脑操控".into(),
         "explore" => "代码探索".into(),
+        "general-worker" => "通用执行".into(),
         "research" => "深度研究".into(),
         _ => match profile {
             AgentProfile::Computer => "电脑操控".into(),

@@ -5,10 +5,10 @@ use crate::media::jpeg_vision::prepare_jpeg_for_vision;
 use crate::media::token::{MediaTokenContext};
 use crate::media::{
     describe_image_with_model, describe_images_with_model, describe_pdf_pages_with_model,
-    describe_video_with_model, download_video_from_url, extract_pdf_page_images_base64_range,
+    describe_video_with_model, download_video_from_url,
     ffmpeg_available, extract_video_frame_base64s_with_range, find_attachment_by_media_ref,
     format_image_dir_scope_notice, format_multi_refs_scope_notice, format_pdf_scope_notice, format_video_scope_notice,
-    list_image_files_in_dir, pdf_page_count, prepare_video_bytes_for_range, probe_video_duration,
+    list_image_files_in_dir, prepare_video_bytes_for_range, probe_video_duration,
     read_media_ref_bytes, resolve_media_ref, transcribe_audio_with_model, is_video_file_name,
 };
 use crate::media::audio::{prepare_audio_bytes_for_asr_cached, AudioStorageContext};
@@ -369,27 +369,32 @@ async fn understand_pdf(
     bytes: &[u8],
     file_name: &str,
     goal: &str,
-    page_range: &crate::media::PdfPageRange,
-    total_pages: usize,
+    page_args: serde_json::Value,
     token_ctx: &MediaTokenContext,
     cancel: &CancellationToken,
 ) -> Result<String> {
-    let notice = format_pdf_scope_notice(page_range, total_pages);
+    // Pdfium is a single process-wide engine; page count + render must run on one thread.
+    let pdf_bytes = bytes.to_vec();
+    let pdf_name = file_name.to_string();
+    let (pages, page_range, total_pages) = tokio::task::spawn_blocking(move || {
+        use crate::media::pdf::{extract_pdf_page_images_base64_range, pdf_page_count};
+
+        let total_pages = pdf_page_count(&pdf_bytes, &pdf_name)
+            .with_context(|| format!("read pdf page count for {pdf_name}"))?;
+        let page_range = parse_pdf_page_range(&page_args, total_pages)?;
+        let pages =
+            extract_pdf_page_images_base64_range(&pdf_bytes, &pdf_name, &page_range)?;
+        Ok::<_, anyhow::Error>((pages, page_range, total_pages))
+    })
+    .await
+    .context("pdf page render task failed")??;
+
+    let notice = format_pdf_scope_notice(&page_range, total_pages);
     log::info!(
         "media_understand pdf {file_name}: scanned PDF page-image vision (pages {}-{})",
         page_range.start,
         page_range.end
     );
-    // Pdfium init may download the native library via reqwest::blocking; must not run on tokio workers.
-    let pdf_bytes = bytes.to_vec();
-    let pdf_name = file_name.to_string();
-    let range = *page_range;
-    let pages = tokio::task::spawn_blocking(move || {
-        extract_pdf_page_images_base64_range(&pdf_bytes, &pdf_name, &range)
-    })
-    .await
-    .context("pdf page render task failed")?
-    .context("pdf page render (pdfium)")?;
     let image_model = resolve_media_mode_llm(settings, "image");
     let body = describe_pdf_pages_with_model(
         settings,
@@ -559,17 +564,13 @@ async fn dispatch_single_ref_media(
         }
         "pdf" => {
             let bytes = bytes.as_deref().ok_or_else(|| anyhow!("pdf ref must be a file"))?;
-            let total_pages = pdf_page_count(bytes, &file_name)
-                .with_context(|| format!("read pdf page count for {file_name}"))?;
-            let page_range = parse_pdf_page_range(&ctx.args, total_pages)?;
             understand_pdf(
                 ctx.settings,
                 api_key,
                 bytes,
                 &file_name,
                 goal_block,
-                &page_range,
-                total_pages,
+                ctx.args.clone(),
                 token_ctx,
                 &ctx.cancel,
             )

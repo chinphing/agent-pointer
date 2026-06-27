@@ -28,6 +28,30 @@ describe('sessionHandlers', () => {
     expect(persistMeta).toHaveBeenCalledOnce()
   })
 
+  it('handleDone clears only the finished conversation when another is still generating', () => {
+    const convA = sampleConversation('convA')
+    const convB = sampleConversation('convB')
+    const clearRunState = vi.fn()
+    const isConversationGenerating = vi.fn((id: string) => id === 'convB')
+    const ctx = createMockStreamHandlerContext([convA, convB], {
+      currentId: ref('convB'),
+      clearRunState,
+      isConversationGenerating,
+      persistMeta: vi.fn(),
+      persistAppend: vi.fn()
+    })
+
+    handleDone(ctx, {
+      kind: 'done',
+      conversationId: 'convA',
+      toolRoundsUsedTotal: 5
+    })
+
+    expect(clearRunState).toHaveBeenCalledTimes(1)
+    expect(clearRunState).toHaveBeenCalledWith('convA')
+    expect(clearRunState).not.toHaveBeenCalledWith('convB')
+  })
+
   it('handleStreamError sets assistant error row', () => {
     const conv = sampleConversation()
     const persistMeta = vi.fn()

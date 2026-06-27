@@ -267,10 +267,6 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
 export function handleDone(ctx: StreamHandlerContext, e: Done) {
   const convId = e.conversationId?.trim() || ctx.currentId.value?.trim() || ''
   if (convId) ctx.clearRunState(convId)
-  const cur = ctx.currentId.value?.trim()
-  if (cur && cur !== convId && ctx.isConversationGenerating(cur)) {
-    ctx.clearRunState(cur)
-  }
   flushReasoningDeltaBuffer()
   if (convId) ctx.ensureImConversation(convId)
   const conv = convId ? ctx.conversations.value.find(c => c.id === convId) : undefined

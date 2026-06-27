@@ -63,7 +63,8 @@ keep internal stage templates out of **`content`**.
   attached files. If they did not say what to do with them, **ask briefly** before
   calling `media_understand` or Office Skills. When calling `media_understand`, always
   pass **`goal`** (and optional **`context`**) describing what they want — not only
-  **`refs`** and **`mode`**. Match **fileName** when they refer to a specific file.
+  **`refs`** and **`mode`**. **refs**: manifest **ref**/**localPath**, or user's full path —
+  never `pointer-media://` + filename only. Match **fileName** when they refer to a specific file.
   PDF: default pages 1–10 unless the user named pages — then set **`pageStart`/`pageEnd`**.
   Image folder: **`refs`** with one directory path; default images 1–200; use **`pageStart`/`pageEnd`**
   when the user named a range. Non-image modes: **`refs`** must have exactly one element.

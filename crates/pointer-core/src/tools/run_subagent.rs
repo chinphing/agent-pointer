@@ -336,6 +336,19 @@ mod tests {
     }
 
     #[test]
+    fn validate_accepts_general_worker_for_general_lead() {
+        let reg = AgentRegistry::new();
+        register_builtin_agents(&reg);
+        let allow = vec![
+            "coder".to_string(),
+            "computer".to_string(),
+            "general-worker".to_string(),
+        ];
+        let d = validate_run_subagent_target(&reg, &allow, "general-worker").unwrap();
+        assert_eq!(d.id, "general-worker");
+    }
+
+    #[test]
     fn validate_accepts_explore_when_listed() {
         let reg = AgentRegistry::new();
         register_builtin_agents(&reg);

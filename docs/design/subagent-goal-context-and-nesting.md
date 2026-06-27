@@ -6,6 +6,20 @@
 
 1. **Instruct 协议**：`goal` + 可选 `context`（**不保留 `instruction`**），宿主组装 system/user（对齐 Hermes 分离 + OpenClaw 任务放 system）。
 2. **嵌套委派**：按 **spawn depth** 允许子 worker 再调 `run_subagent`，上限可配置（对齐 Hermes `max_spawn_depth` / OpenClaw `maxSpawnDepth`）。
+3. **`general-worker`**：general lead 的 **leaf 执行 worker**，用于长会话下的上下文隔离（见 §1.2）。
+
+---
+
+## 1.2 `general-worker`（general → 隔离执行）
+
+| 角色 | `general`（lead） | `general-worker`（sub） |
+|------|-------------------|-------------------------|
+| 对用户 | ✅ 最终回复、澄清 | ❌ 仅 handoff |
+| `run_subagent` | ✅ coder / computer / general-worker | ❌ leaf |
+| Skills | lead `enabledSkillIds` | **继承** lead 同一套 |
+| 典型用途 | 编排、路由 | 多 skill 步骤、research、附件流水线 |
+
+Lead 调用：`run_subagent(agentId="general-worker", goal=…, context=…)`。Repo / skill 写入 / 桌面仍直接委派 **coder** / **computer**。
 
 ---
 

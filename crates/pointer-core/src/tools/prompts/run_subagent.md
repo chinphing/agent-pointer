@@ -52,7 +52,7 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 
 **`coder` (general lead only)**
 
-- Fallback delegate for **non-skill** work — prefer direct answers, **`skill_*`**, **`web_search`** first.
+- Fallback delegate for **non-skill** repo work — prefer direct answers, **`skill_*`**, **`web_search`** first.
 - **User Skill files (`~/.pointer/skills/`):** **delegate immediately** on any **write**
   (create / update / packaging — **any size**). Do **not** use **`file_write`** /
   **`file_edit`** on skill paths yourself — **`run_subagent(agentId="coder")`**.
@@ -61,6 +61,14 @@ Hand off a **self-contained sub-task** to another **worker** agent.
   Read-only peek (`file_read` / `skill_read`) before delegating is OK. Overrides
   "ask before delegating" and the fallback rule above.
 - Optional **`workspaceRoot`** for **non-skill** repo work when user gives a project path; else omit (host sandbox).
+
+**`general-worker` (general lead only)**
+
+- **When:** long main thread, or a sub-phase needs many tool rounds without polluting lead context
+  (multi-skill steps, research, attachment pipelines) — and the work stays in the **general** domain.
+- **When not:** repo/skill-file writes → **`coder`**; desktop/browser → **`computer`**; simple Q&A → stay local.
+- **`goal`:** outcome + done check; **`context`:** paths, refs, user constraints, verified facts from the thread.
+- Worker is a **leaf** (no nested **`run_subagent`**, no user clarify) — brief must be self-contained.
 
 **`computer` (general lead only)**
 
@@ -98,6 +106,12 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 - Repo outcome + acceptance (tests, files touched, behavior) — not a long file-read script.
 - **Skill work:** **`workspaceRoot`** must be the skill root (`~/.pointer/skills/{name}/` or `~/.pointer/skills/` for new).
 - Optional **`workspaceRoot`** for other repo tasks when the user gave a project path.
+
+**`general-worker` goals**
+
+- General-domain outcome + done check (research digest, skill-driven procedure, attachment analysis).
+- Put thread background, **`localPath`** / media refs, and prior step results in **`context`**.
+- Do not delegate further — if **`coder`** / **`computer`** is needed, say so in handoff for the lead.
 
 **Examples (`computer`)**
 

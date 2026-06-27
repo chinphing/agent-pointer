@@ -1,5 +1,4 @@
-use anyhow::{Context, Result};
-use lopdf::Document;
+use anyhow::Result;
 
 pub(crate) const PDF_RENDER_DPI: u32 = 150;
 pub(crate) const MAX_PDF_IMAGE_BYTES: usize = 6 * 1024 * 1024;
@@ -11,9 +10,15 @@ pub const DEFAULT_PDF_PAGE_END: usize = 10;
 /// Legacy alias — same as per-call page cap.
 pub const MAX_PDF_OCR_PAGES: usize = MAX_PDF_PAGES_PER_CALL;
 
+/// Page count for PDF vision pipeline (Pdfium; same engine as page rendering).
+/// Call only from the same blocking thread that renders — not from tokio workers while
+/// another thread is in pdfium.
 pub fn pdf_page_count(bytes: &[u8], file_name: &str) -> Result<usize> {
-    let doc = Document::load_mem(bytes).with_context(|| format!("load pdf {file_name}"))?;
-    Ok(doc.get_pages().len())
+    let count = super::pdf_render::pdfium_page_count(bytes, file_name)?;
+    if count == 0 {
+        anyhow::bail!("pdf {file_name} has no pages");
+    }
+    Ok(count)
 }
 
 /// 1-based inclusive page range for PDF extraction.
@@ -117,6 +122,23 @@ pub fn extract_pdf_page_images_base64_range(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires pdfium"]
+    fn pdf_page_count_uses_pdfium_for_concatenated_scan_pdf() {
+        use crate::media::pdf_render::pdfium_render_available;
+
+        if !pdfium_render_available() {
+            return;
+        }
+        let path =
+            "/Users/starliu/.pointer/skills/weilin-case-query/output/case_908005_doc.pdf";
+        if !std::path::Path::new(path).exists() {
+            return;
+        }
+        let bytes = std::fs::read(path).expect("read pdf");
+        assert_eq!(pdf_page_count(&bytes, "case_908005_doc.pdf").unwrap(), 3);
+    }
 
     #[test]
     fn pdf_scope_notice_default_vs_user() {

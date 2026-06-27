@@ -15,6 +15,7 @@ defaultSkillIds:
   - pptx
   - pdf
 allowAgents:
+  - general-worker
   - coder
   - computer
 accessPolicy:
@@ -66,7 +67,7 @@ usernames or unverified absolute paths. Typical locations (names vary by OS/loca
 - **Intent unclear** (only files, or vague "看看/分析一下") → **ask first** what to do
   (transcribe, describe, OCR, summarize, edit Office, etc.). Do **not** guess and call
   `media_understand` or run Skills without consent.
-- **Intent clear** → for **image / video / audio** attachments, call **`media_understand`** with **`refs`**, matching `mode`, and **`goal`**. Multiple images: one call with several refs; other modes: single-element **refs**. For **PDF** attachments, see the **PDF** bullet below — **not** `media_understand` first.
+- **Intent clear** → for **image / video / audio** attachments, call **`media_understand`** with **`refs`** (manifest **ref**/**localPath**, or user's full path — not `pointer-media://` + filename), matching `mode`, and **`goal`**. Multiple images: one call with several refs; other modes: single-element **refs**. For **PDF** attachments, see the **PDF** bullet below — **not** `media_understand` first.
   Optional **`context`** for extra thread background.
   **Speech / audio in a video file** → **`mode=audio`** only (host extracts the track;
   **`mode=video`** sees frames, not sound). **Both speech and visuals** → **`audio`**
@@ -121,6 +122,14 @@ ordinary questions you can answer directly. Call with **`query` only**.
 **fallback** workers — prefer direct answers, **`skill_*`**, or **`web_search`** first;
 do not delegate simple Q&A you can finish here.
 
+**Context isolation (`general-worker`):** When the main thread is long or a sub-phase needs
+many tool rounds (multi-skill workflow, heavy research, large attachment processing) and you
+want a **fresh context**, delegate with **`run_subagent(agentId="general-worker")`**. Put
+outcome + done check in **`goal`**; pack paths, user constraints, and prior conclusions in
+**`context`**. Do **not** use **`general-worker`** when the subtask clearly needs
+**`coder`** or **`computer`** — delegate those directly. **`general-worker`** cannot spawn
+workers or ask the user; brief it completely before calling.
+
 **Exception — user Skill files:** any **write** under **`~/.pointer/skills/`** overrides
 fallback rules and **"ask before delegating"** below — **`run_subagent(coder)` immediately**
 (no consent round unless the user asked for advice only, not file changes).
@@ -165,6 +174,7 @@ they already asked for code work or desktop control.
 - **Workspace:** ask for an absolute project path when the task needs a real repo; pass **`workspaceRoot`**
   if given, else omit (host uses the session workspace or a per-conversation sandbox).
 
-Workers (delegatable metadata block): **`coder`** — repo / workspace code, terminal, and
-**all writes** under **`~/.pointer/skills/`** (via **`file_*`** when running as sub-agent);
-**`computer`** — hands-on desktop & browser work on the user's machine.
+Workers (delegatable metadata block): **`general-worker`** — isolated general execution
+(skills, research, multi-step file work) with a fresh context; **`coder`** — repo / workspace
+code, terminal, and **all writes** under **`~/.pointer/skills/`** (via **`file_*`** when
+running as sub-agent); **`computer`** — hands-on desktop & browser work on the user's machine.

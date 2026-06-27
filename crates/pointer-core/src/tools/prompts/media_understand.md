@@ -8,8 +8,9 @@ schema:
         type: string
       minItems: 1
       description: >
-        Media references: pointer-media:// URI, conversation-media relative path,
-        or absolute local path from the user attachment manifest.
+        Copy **ref** or **localPath** from the attachment manifest, or the user's full
+        absolute/`~/` path when they typed it (not uploaded). Do **not** invent
+        `pointer-media://` + filename — only manifest **ref** values are valid URIs.
         **mode=image**: one or more refs (max 200 per call). A single ref may be
         a directory path — use pageStart/pageEnd for folder batches.
         **mode=video/audio/pdf**: exactly **one** ref in the array.
@@ -58,9 +59,9 @@ Understand image, video, audio, or PDF files on demand via host-managed models.
 
 ## Parameters
 
-- **refs** + **mode** — from the manifest (`pointer-media://…`), or a **local directory path**
-  (image mode only, single-element **refs**).
-  Prefer **`pointer-media://` refs** from the attachment manifest; absolute `localPath` also works.
+- **refs** + **mode** — manifest **ref** or **localPath**; or user's full path from their message.
+  Never construct `pointer-media://` + filename yourself.
+  Image mode: one directory path allowed. Other modes: exactly one ref.
 - **goal** (required) — user's analysis goal in their language.
 - **context** (optional) — extra thread background not already in **goal**.
 - **pageStart** / **pageEnd** — **pdf**: page range; **image** directory: sorted image index range.

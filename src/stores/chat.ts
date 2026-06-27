@@ -270,6 +270,26 @@ export const useChatStore = defineStore('chat', () => {
     return runStateFor(id).generating
   }
 
+  /** Restore run UI when switching back to a conversation still streaming in the background. */
+  function reconcileRunStateForConversation(conversationId: string) {
+    const convId = conversationId.trim()
+    if (!convId || isConversationGenerating(convId)) return
+    const conv = conversations.value.find(c => c.id === convId)
+    if (!conv) return
+    for (let i = conv.messages.length - 1; i >= 0; i--) {
+      const msg = conv.messages[i]
+      if (msg.role !== 'assistant') continue
+      if (msg.status === 'streaming' || msg.status === 'pending') {
+        patchRunState(convId, { generating: true, activeMessageId: msg.id })
+        return
+      }
+      if (hasInFlightToolCalls(msg)) {
+        patchRunState(convId, { generating: true, activeMessageId: msg.id })
+        return
+      }
+    }
+  }
+
   const generating = computed(() => {
     const id = currentId.value
     return id ? isConversationGenerating(id) : false
@@ -488,6 +508,7 @@ export const useChatStore = defineStore('chat', () => {
     if (currentId.value === id) return
     flushActiveComposerDraft()
     currentId.value = id
+    reconcileRunStateForConversation(id)
     loadActiveComposerDraft(id)
     void hydrateConversationMessagesFromStore(id)
     void refreshTaskBoard(id)

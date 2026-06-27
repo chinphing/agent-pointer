@@ -11,6 +11,7 @@ use zip::ZipArchive;
 const MAX_ZIP_SIZE: usize = 20 * 1024 * 1024;
 const MAX_ENTRY_SIZE: u64 = 5 * 1024 * 1024;
 const LEGACY_SKILLS_DIR: &str = "skills";
+const AGENTS_SKILLS_DIR: &str = ".agents/skills";
 
 #[derive(Debug, Deserialize)]
 struct SkillManifest {
@@ -63,6 +64,21 @@ pub fn system_skills_dir() -> Result<PathBuf> {
 /// User-managed imports (`~/.pointer/skills`).
 pub fn skills_dir() -> Result<PathBuf> {
     pointer_skills_dir()
+}
+
+/// Codex / Agent standard user skill library (`~/.agents/skills`).
+pub fn home_agents_skills_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(AGENTS_SKILLS_DIR))
+}
+
+/// True when `path` is under `~/.agents/skills`.
+pub fn is_agents_skills_path(path: &Path) -> bool {
+    let Some(root) = home_agents_skills_dir() else {
+        return false;
+    };
+    let root = root.canonicalize().unwrap_or(root);
+    let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    canon.starts_with(&root)
 }
 
 fn migrate_system_skills_layout_if_needed() -> Result<()> {
@@ -473,9 +489,16 @@ fn is_zip_file(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("zip"))
 }
 
-/// Runtime discovery roots: user library first, then system bundled.
+/// Runtime discovery roots (first match wins per skill id).
+///
+/// Order: user library → `~/.agents/skills` → system bundled.
 fn skill_roots() -> Result<Vec<PathBuf>> {
-    Ok(vec![pointer_skills_dir()?, system_skills_dir()?])
+    let mut roots = vec![pointer_skills_dir()?];
+    if let Some(dir) = home_agents_skills_dir() {
+        roots.push(dir);
+    }
+    roots.push(system_skills_dir()?);
+    Ok(roots)
 }
 
 /// Skip vendor/system skill buckets (e.g. Codex `.system`, Cursor `skills-cursor`).
@@ -902,5 +925,40 @@ mod tests {
         )
         .unwrap();
         assert!(validate_manifest(&m).is_err());
+    }
+
+    #[test]
+    fn load_external_skills_reads_home_agents_skills() {
+        use std::fs;
+        use std::sync::{Mutex, OnceLock};
+
+        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _guard = ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let skill_dir = home.join(".agents/skills/agents-demo");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: agents-demo\ndescription: From ~/.agents/skills.\n---\nDemo body\n",
+        )
+        .unwrap();
+
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", home);
+        let loaded = load_external_skills().unwrap();
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
+
+        let skill = loaded
+            .iter()
+            .find(|s| s.id == "agents-demo")
+            .expect("agents-demo from ~/.agents/skills");
+        assert_eq!(skill.provenance, "external");
+        assert!(!skill.mutable);
     }
 }

@@ -53,20 +53,15 @@ Vue 统一界面
 
 外部 Skills 参考 Claude Agent Skills 的三层渐进式规范：每个 Skill 是一个目录，目录中包含带 YAML frontmatter 的 `SKILL.md`，可选包含 `references/`、`scripts/`、`assets/` 等资源目录。
 
-加载来源按优先级从高到低：
+加载来源按优先级从高到低（同名 id 以先扫描到的为准）：
 
-1. 当前工作目录 `skills/`
-2. 当前工作目录 `.agents/skills/`
-3. 用户目录 `~/.agents/skills/`
-4. 应用数据目录 `PointerApp/skills/`
+1. 用户库 `~/.pointer/skills/`（创建 / 导入 / `skill_patch`）
+2. 用户目录 `~/.agents/skills/`（Codex / Agent 兼容，只读）
+3. 应用数据目录 `{data_dir}/PointerApp/skills/`（bundled 系统库）
 
-同名 Skill 冲突时，高优先级来源覆盖低优先级来源。Windows 下应用数据目录通常位于：
+工作区根下的 `skills/` **不参与**运行时加载（仅为应用内置 skill 源码树）。
 
-```text
-%APPDATA%/PointerApp/skills
-```
-
-支持通过「Skills 技能库」里的「导入 zip」按钮导入到 `PointerApp/skills/`。zip 中每个 Skill 必须是一个 kebab-case 目录，并包含精确命名的 `SKILL.md`；不支持 `skill.md`、`skill.json` 或 `manifest.json`。
+支持通过「Skills 技能库」里的「导入 zip」导入到 **`~/.pointer/skills/`**。zip 中每个 Skill 必须是一个 kebab-case 目录，并包含精确命名的 `SKILL.md`；不支持 `skill.md`、`skill.json` 或 `manifest.json`。
 
 推荐的 `SKILL.md` 格式：
 

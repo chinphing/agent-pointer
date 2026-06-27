@@ -1912,7 +1912,7 @@ pub struct SkillDef {
     pub resource_files: Vec<String>,
     #[serde(default)]
     pub source: Option<String>,
-    /// `system` (bundled under data dir) or `user` (`~/.pointer/skills`).
+    /// `system` (bundled), `user` (`~/.pointer/skills`), or `external` (`~/.agents/skills`).
     #[serde(default = "default_skill_provenance", rename = "provenance")]
     pub provenance: String,
     /// Whether review / skill_patch may modify this skill.

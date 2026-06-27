@@ -5,9 +5,10 @@
 | 层级 | 路径 | 来源 | 可 patch / Curator |
 |------|------|------|-------------------|
 | **用户库** | `~/.pointer/skills/` | `skill_import`、外部一键导入、Agent 创建 | ✅（非 pinned） |
+| **兼容库** | `~/.agents/skills/` | Codex / Agent 标准目录（只读加载） | ❌（`skill_import` 复制到用户库后可 patch） |
 | **系统库** | `{data_dir}/PointerApp/skills/` | 应用内置 bundled 同步 | ❌（`.bundled_manifest` 保护） |
 
-运行时加载顺序：**用户库优先**，同名 id 覆盖系统库。
+运行时加载顺序：**用户库** → **`~/.agents/skills`** → **系统库**；同名 id 以先扫描到的为准。
 
 系统库同步规则（与 Hermes 同型）：
 
@@ -52,7 +53,7 @@
 | **Self-improvement review（P3）** | 仅 **mutable** 用户库 skill | `skillCreationNudgeInterval` |
 | **Curator（P5）** | 仅 `is_curation_eligible` 用户库 skill | 空闲 + 周期 |
 
-系统库 skill 在 API 中 `provenance: "system"`、`mutable: false`。
+系统库 skill 在 API 中 `provenance: "system"`、`mutable: false`。`.agents/skills` 来源为 `provenance: "external"`、`mutable: false`。
 
 ## 仅 general agent 加载技能
 

@@ -17,6 +17,8 @@ const EXTERNAL_PROBE_MARKER: &str = "external_skills_probe_done";
 pub enum SkillProvenanceKind {
     System,
     User,
+    /// Codex / Agent `~/.agents/skills` compatibility path (read-only in Pointer).
+    External,
 }
 
 impl SkillProvenanceKind {
@@ -24,6 +26,7 @@ impl SkillProvenanceKind {
         match self {
             Self::System => "system",
             Self::User => "user",
+            Self::External => "external",
         }
     }
 }
@@ -212,6 +215,9 @@ pub fn is_curation_eligible(skill_id: &str) -> bool {
 }
 
 pub fn resolve_provenance_for_path(skill_id: &str, skill_dir: &Path) -> SkillProvenanceKind {
+    if super::external::is_agents_skills_path(skill_dir) {
+        return SkillProvenanceKind::External;
+    }
     if system_skills_dir()
         .ok()
         .is_some_and(|root| skill_dir.starts_with(&root))
@@ -224,7 +230,7 @@ pub fn resolve_provenance_for_path(skill_id: &str, skill_dir: &Path) -> SkillPro
 
 pub fn is_mutable(skill_id: &str, skill_dir: &Path) -> bool {
     match resolve_provenance_for_path(skill_id, skill_dir) {
-        SkillProvenanceKind::System => false,
+        SkillProvenanceKind::System | SkillProvenanceKind::External => false,
         SkillProvenanceKind::User => !is_pinned(skill_id),
     }
 }

@@ -41,7 +41,7 @@ Never read or write skill files under the app data directory directly
 #### Tools
 
 - **`skill_read`** — read an enabled Skill: omit **`path`** for **`SKILL.md`** instructions (layer 2); pass **`path`** for a bundled resource file (layer 3).
-- **`skill_patch`** — update a **user-managed** skill under `~/.pointer/skills/`: omit **`path`** to patch SKILL.md body (after frontmatter); pass **`path`** to replace another file entirely.
+- **`skill_patch`** — update a **user-managed** skill under `~/.pointer/skills/` (not `.agents/skills` — import first if you need a mutable copy).
 - **`skill_import`** — install a Skill from a `.zip` file or directory into the app skill store.
 
 #### Usage

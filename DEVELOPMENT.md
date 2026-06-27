@@ -191,10 +191,11 @@ Model: qwen-plus
 
 外部 Skills 严格采用官方 Claude Skills 的目录式规范。加载来源按优先级从高到低：
 
-1. 当前工作目录 `skills/`
-2. 当前工作目录 `.agents/skills/`
-3. 用户目录 `~/.agents/skills/`
-4. `dirs::data_dir()` 下的 `PointerApp/skills/`
+1. `~/.pointer/skills/`（用户库，可 `skill_patch`）
+2. `~/.agents/skills/`（Codex / Agent 兼容，只读）
+3. `{data_dir}/PointerApp/skills/`（bundled 系统库）
+
+工作区 `skills/` 不参与运行时加载。详见 `docs/guides/skills-compatibility.md`。
 
 Windows 应用数据目录通常为：
 

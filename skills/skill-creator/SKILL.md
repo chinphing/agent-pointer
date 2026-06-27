@@ -71,16 +71,24 @@ After the frontmatter, write the full Skill instructions. The body should includ
 6. References to files under `references/`, `assets/`, or `scripts/` only when those files are actually needed.
 7. For script invocations in the body, use **`{baseDir}/scripts/...`** (expanded on **`skill_read`**; catalog injects `<location>` for dirname resolution).
 
-## Creation workflow
+## Where to install
 
-When helping create a Skill:
+| Goal | Location | How |
+|------|----------|-----|
+| User / Agent-created skill (editable) | **`~/.pointer/skills/{name}/`** | **`skill_import`** or **`skill_patch`** |
+| Codex-compatible skill (read-only load) | **`~/.agents/skills/{name}/`** | Pointer auto-loads; **`skill_import`** to copy if editable copy needed |
+
+Do **not** put Pointer skills under workspace **`skills/`** (app bundled source tree, not a runtime load path). Project **`{workspace}/.agents/skills/`** is **not** scanned by Pointer.
+
+When helping create a Skill for the user:
 
 1. Clarify the task the Skill should perform, its users, inputs, and outputs.
 2. Choose a short kebab-case `name`.
 3. Write a trigger-focused `description` that states what it does and when to use it.
 4. Draft the `SKILL.md` body with concrete procedures, not vague advice.
 5. Add optional resources under `references/`, `assets/`, or `scripts/` only if they reduce context size or improve reuse.
-6. If the user wants an importable package, package the Skill directory itself into a zip.
+6. **Install to the user library:** stage the skill directory under **temp** if needed, then call **`skill_import`**; update an existing user skill with **`skill_patch`**. Target path is always **`~/.pointer/skills/{name}/`**.
+7. If the user wants an importable package, zip that directory for handoff.
 
 ## Review checklist
 

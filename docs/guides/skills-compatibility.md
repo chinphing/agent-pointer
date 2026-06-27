@@ -4,17 +4,17 @@ Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdow
 
 ## 自动发现路径
 
-`reload_meta` / 启动加载时按下列目录扫描子文件夹（含 `SKILL.md` 或 `skill.md`）。**同名 skill 以先扫描到的为准**（应用内导入目录优先级最高）。
+`reload_meta` / 启动加载时按下列目录扫描子文件夹（含 `SKILL.md` 或 `skill.md`）。**同名 skill 以先扫描到的为准**（优先级从高到低）：
 
-| 优先级 | 路径 | 来源 |
-|--------|------|------|
-| 1 | `{data_dir}/skills/` | Pointer 应用内导入 |
-| 2 | `./.agents/skills/` | Codex / Agent 标准项目 skills |
-| 3 | `./skills/` | 通用项目 skills |
-| 4 | `~/.agents/skills/` | Codex 用户 skills |
-| 5 | `$CODEX_HOME/skills/` 或 `~/.codex/skills/` | Codex CLI 用户 skills |
+| 优先级 | 路径 | 来源 | `provenance` | 可 `skill_patch` |
+|--------|------|------|--------------|------------------|
+| 1 | `~/.pointer/skills/` | 用户库（创建 / 导入 / Agent 写入） | `user` | ✅（非 pinned） |
+| 2 | `~/.agents/skills/` | 用户 Codex / Agent 标准目录 | `external` | ❌ |
+| 3 | `{data_dir}/PointerApp/skills/` | 应用 bundled 同步副本 | `system` | ❌ |
 
-**不扫描**：以 `.` 开头的目录（如 Codex `.system`）、`skills-cursor` 等 vendor 内置目录；亦不扫描 `.cursor/skills`、`.claude/skills`。
+**不扫描**：工作区 `{workspace}/.agents/skills/`、工作区 `./skills/`（Pointer 内置 skill 源码）、以 `.` 开头的 vendor 目录。
+
+**修改 external skill**：用 **`skill_import`** 复制到 `~/.pointer/skills/`，或 **`skill_patch`** 仅作用于用户库中已存在的同名 skill。
 
 ## Frontmatter 兼容
 
@@ -45,7 +45,7 @@ Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdow
 
 ## 手动导入
 
-技能库 UI 或 **`skill_import`** 仍可将 zip / 本地目录安装到 `{data_dir}/skills/`，安装后覆盖同 id 的外部发现结果。
+技能库 UI 或 **`skill_import`** 仍可将 zip / 本地目录安装到 **`~/.pointer/skills/`**，安装后覆盖同 id 的外部 / bundled 加载结果。
 
 ## 运行时范围
 

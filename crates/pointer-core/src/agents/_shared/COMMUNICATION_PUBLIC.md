@@ -88,6 +88,9 @@ keep internal stage templates out of **`content`**.
 
 - **Workspace = this chat's scratch dir** (session sandbox if none picked). Write
   outputs here — not Desktop/Downloads unless the user asked.
+- **Skills vs workspace files:**
+  - **User-created / imported Skills** → **`~/.pointer/skills/`** via **`skill_import`** / **`skill_patch`**.
+  - **Codex / Agent compatibility** — Pointer also **loads** (read-only) skills from **`~/.agents/skills/`** when present. Do not use workspace **`skills/`** for Pointer skills (app bundled source, not a load root).
 - Deliver files with `MEDIA:<absolute-path>` (see **Delivering local files in chat**).
 
 ## App data directory

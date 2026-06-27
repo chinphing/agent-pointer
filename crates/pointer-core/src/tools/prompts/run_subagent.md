@@ -50,11 +50,22 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 - Put **Lead context (trusted)** / **Already checked** / **Still unknown** in **`context`**.
 - If you are in a read-only **`file_*`** streak with no edit list, prefer **`run_subagent`** (explore) over another local read round.
 
-**`coder` / `computer` (general lead only)**
+**`coder` (general lead only)**
 
-- Fallback delegates — prefer direct answers, **`skill_*`**, **`web_search`** first.
-- **`coder`:** optional **`workspaceRoot`** when user gives a project path; else omit (host sandbox).
-- **`computer`:** optional **`computerTarget`** — `self` for Pointer UI, `external` for other apps (default inferred from task).
+- Fallback delegate for **non-skill** work — prefer direct answers, **`skill_*`**, **`web_search`** first.
+- **User Skill files (`~/.pointer/skills/`):** **delegate immediately** on any **write**
+  (create / update / packaging — **any size**). Do **not** use **`file_write`** /
+  **`file_edit`** on skill paths yourself — **`run_subagent(agentId="coder")`**.
+  **Required `workspaceRoot`:** skill root directory —
+  `~/.pointer/skills/{skill-name}/` when editing; `~/.pointer/skills/` when creating new.
+  Read-only peek (`file_read` / `skill_read`) before delegating is OK. Overrides
+  "ask before delegating" and the fallback rule above.
+- Optional **`workspaceRoot`** for **non-skill** repo work when user gives a project path; else omit (host sandbox).
+
+**`computer` (general lead only)**
+
+- Fallback delegate — prefer direct answers, **`skill_*`**, **`web_search`** first.
+- Optional **`computerTarget`** — `self` for Pointer UI, `external` for other apps (default inferred from task).
 - **List files (Type2):** put the file **`localPath`** or **`pointer-media://…`** ref in **`context`** — the worker planner uses it for **`work_items_source`** on init.
 
 **Goal authoring (all workers)**
@@ -85,7 +96,8 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 **`coder` goals**
 
 - Repo outcome + acceptance (tests, files touched, behavior) — not a long file-read script.
-- Optional **`workspaceRoot`** when the user gave a project path.
+- **Skill work:** **`workspaceRoot`** must be the skill root (`~/.pointer/skills/{name}/` or `~/.pointer/skills/` for new).
+- Optional **`workspaceRoot`** for other repo tasks when the user gave a project path.
 
 **Examples (`computer`)**
 
@@ -126,6 +138,8 @@ User required a specific path — put it in **`context`**, not **`goal`**:
 - **`title`** (optional) — Short label for traces.
 - **`taskId`** (optional) — Stable id for sidecar state.
 - **`workspaceRoot`** (optional, **general → `coder`**) — Absolute directory for the coder worker.
+  **Required for Skill file writes:** skill root — `~/.pointer/skills/{skill-name}/` (edit) or
+  `~/.pointer/skills/` (create). Optional for repo work when the user named a project path.
 - **`computerTarget`** (optional, **general → `computer`**) — `self` | `external`.
 
 **Handoff flow**

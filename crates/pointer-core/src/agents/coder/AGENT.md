@@ -1,7 +1,7 @@
 ---
 id: coder
 name: vibe-coding
-description: Code generation, debugging, explanation, refactoring, and engineering implementation.
+description: Code generation, debugging, refactoring, and engineering implementation. As a delegated sub-agent, also creates and maintains user Skills under ~/.pointer/skills/ via file_* tools.
 role: worker
 profile: coder
 enabled: true

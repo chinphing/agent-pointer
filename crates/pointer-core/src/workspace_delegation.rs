@@ -57,7 +57,12 @@ fn resolve_subagent_workspace(
 }
 
 fn validate_existing_workspace_dir(raw: &str) -> Result<String> {
-    let path = PathBuf::from(raw.trim());
+    let trimmed = raw.trim();
+    let path = if trimmed.starts_with('~') {
+        crate::media::access::expand_root(trimmed)?
+    } else {
+        PathBuf::from(trimmed)
+    };
     if !path.is_absolute() {
         return Err(anyhow!("workspace path must be absolute: {raw}"));
     }

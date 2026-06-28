@@ -384,19 +384,30 @@ export async function getPlatformSession(): Promise<PlatformSessionView> {
 }
 
 export async function openPlatformLogin(): Promise<void> {
-  throw new Error('Web 端平台登录请使用桌面客户端')
+  const res = await request<{ authorize_url: string }>('/api/auth/login/start', { method: 'POST' })
+  // Redirect the browser away to the platform OAuth page; code after this
+  // never runs. The SPA is reloaded by the server's callback redirect.
+  window.location.href = res.authorize_url
 }
 
-export async function cancelPlatformLogin(): Promise<void> {}
+export async function cancelPlatformLogin(): Promise<void> {
+  // Web login is a browser redirect flow; there is no in-process loopback
+  // listener to cancel. Users close the OAuth browser tab to abort.
+}
 
 export async function refreshPlatformSession(): Promise<PlatformSessionView> {
-  return { logged_in: false }
+  return await request<PlatformSessionView>('/api/auth/refresh', { method: 'POST' })
 }
 
-export async function logoutPlatform(): Promise<void> {}
+export async function logoutPlatform(): Promise<void> {
+  await request('/api/auth/logout', { method: 'POST' })
+}
 
 export async function loadPlatformSessionFromKeyring(): Promise<boolean> {
-  return false
+  // pointer-server restores from auth.dat at startup; the frontend only
+  // needs to refresh the in-memory view.
+  const s = await refreshPlatformSession()
+  return s.logged_in
 }
 
 export async function onStream(handler: (e: StreamEvent) => void, conversationId = 'global'): Promise<() => void> {

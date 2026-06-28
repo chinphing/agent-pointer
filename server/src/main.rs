@@ -23,7 +23,8 @@ use pointer_core::{
         ModelSettings, PlatformSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent,
         ToolDef, UserSettings,
     },
-    platform_auth::PlatformSessionView,
+    platform_auth::{PlatformAuthManager, PlatformSessionView},
+    platform_config::apply_login_media_oss,
     provider::OpenAIProvider,
     storage,
 };
@@ -43,15 +44,22 @@ struct ConversationPreviewQuery {
     conversation_id: String,
 }
 use std::{
+    collections::HashMap,
     convert::Infallible,
     env,
     net::SocketAddr,
     path::{PathBuf},
     sync::{Arc, OnceLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
+use parking_lot::RwLock;
+use rand::RngCore;
 use tokio::sync::{broadcast, mpsc};
 use tower_http::cors::CorsLayer;
+
+/// Lifetime of a pending PKCE login entry. The user must complete the
+/// browser OAuth flow within this window or the callback will reject it.
+const OAUTH_PENDING_TTL: Duration = Duration::from_secs(600);
 
 #[derive(Clone)]
 pub(crate) struct ServerState {
@@ -60,6 +68,15 @@ pub(crate) struct ServerState {
     channel_gateway: Arc<ChannelGateway>,
     qr_login: Arc<QrLoginState>,
     registration: Arc<ChannelRegistrationState>,
+    /// PKCE verifiers keyed by `state` for in-flight browser OAuth logins.
+    oauth_pending: Arc<RwLock<HashMap<String, PkcePending>>>,
+}
+
+#[derive(Debug, Clone)]
+struct PkcePending {
+    verifier: String,
+    redirect_uri: String,
+    created_at: Instant,
 }
 
 #[tokio::main]
@@ -88,6 +105,21 @@ async fn main() -> anyhow::Result<()> {
 
     let core = Arc::new(AppState::new());
     core.start_background_tasks();
+    match core.platform_auth.load_persisted_session().await {
+        Ok(Some(creds)) => {
+            core.apply_login_credentials(&creds);
+            log::info!("platform_auth: restored session from auth.dat");
+        }
+        Ok(None) => log::info!("platform_auth: no persisted session at startup"),
+        Err(e) => log::warn!("platform_auth: startup restore failed: {e:#}"),
+    }
+    match resolve_server_public_url() {
+        Some(url) => log::info!("platform_auth: server public url = {url}"),
+        None => log::warn!(
+            "platform_auth: POINTER_SERVER_PUBLIC_URL not configured; \
+             /api/auth/login/start will return 500 until set in pointer-server.toml [server].public_url"
+        ),
+    }
     let (events, _) = broadcast::channel::<StreamEvent>(512);
     match capture_debug::purge_computer_captures_older_than_days(capture_debug::CAPTURE_RETENTION_DAYS) {
         Ok(removed) if removed > 0 => {
@@ -119,12 +151,17 @@ async fn main() -> anyhow::Result<()> {
         channel_gateway,
         qr_login: Arc::new(QrLoginState::new()),
         registration: Arc::new(ChannelRegistrationState::new()),
+        oauth_pending: Arc::new(RwLock::new(HashMap::new())),
     };
 
     let app = Router::new()
         .route("/api/health", get(|| async { "ok" }))
         .route("/api/ready", get(api_ready))
         .route("/api/platform/session", get(get_platform_session))
+        .route("/api/auth/login/start", post(start_platform_login))
+        .route("/api/auth/oauth/callback", get(platform_oauth_callback))
+        .route("/api/auth/logout", post(platform_logout))
+        .route("/api/auth/refresh", post(refresh_platform_session))
         .route("/api/settings", get(get_settings).put(update_settings))
         .route("/api/agent-settings", put(update_agent_settings))
         .route("/api/user-settings", put(update_user_settings))
@@ -1073,6 +1110,156 @@ async fn get_platform_session(State(state): State<ServerState>) -> Json<Platform
     Json(state.core.platform_auth.session_view())
 }
 
+#[derive(Deserialize)]
+struct OAuthCallbackQuery {
+    code: String,
+    state: String,
+}
+
+/// `POST /api/auth/login/start` — begin a PKCE browser OAuth flow.
+/// Returns `{ authorize_url }` for the frontend to redirect to.
+async fn start_platform_login(
+    State(state): State<ServerState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let public_url = resolve_server_public_url().ok_or_else(|| {
+        ApiError(anyhow::anyhow!(
+            "POINTER_SERVER_PUBLIC_URL 未配置；请在 pointer-server.toml [server].public_url 设置外部可达地址"
+        ))
+    })?;
+    let redirect_uri = format!("{public_url}/api/auth/oauth/callback");
+    let (verifier, challenge) = PlatformAuthManager::generate_pkce();
+    let state_token = random_state_token();
+    purge_expired_oauth_pending(&state.oauth_pending);
+    state.oauth_pending.write().insert(
+        state_token.clone(),
+        PkcePending {
+            verifier,
+            redirect_uri: redirect_uri.clone(),
+            created_at: Instant::now(),
+        },
+    );
+    let url = PlatformAuthManager::build_authorize_url_for_redirect(
+        &redirect_uri,
+        &challenge,
+        &state_token,
+    );
+    log::info!("platform_auth: login start state={state_token}");
+    Ok(Json(serde_json::json!({ "authorize_url": url })))
+}
+
+/// `GET /api/auth/oauth/callback` — terminal hop of the PKCE flow.
+/// Browser lands here with `?code=&state=`; server exchanges the code for
+/// access/refresh tokens, persists the refresh token via `set_session`,
+/// then redirects back to the SPA root with a status query.
+async fn platform_oauth_callback(
+    State(state): State<ServerState>,
+    Query(q): Query<OAuthCallbackQuery>,
+) -> Result<Redirect, (StatusCode, String)> {
+    if q.code.trim().is_empty() {
+        log::warn!("platform_auth: callback missing code");
+        return Err((StatusCode::BAD_REQUEST, "missing_code".into()));
+    }
+    let pending = state.oauth_pending.write().remove(&q.state);
+    let PkcePending {
+        verifier,
+        redirect_uri,
+        ..
+    } = pending.ok_or_else(|| {
+        log::warn!("platform_auth: callback unknown/expired state={}", q.state);
+        (
+            StatusCode::BAD_REQUEST,
+            "invalid_or_expired_state".into(),
+        )
+    })?;
+    match state
+        .core
+        .platform_auth
+        .exchange_authorization_code(&q.code, &verifier, &q.state, &redirect_uri)
+        .await
+    {
+        Ok((_session, creds)) => {
+            state.core.apply_login_credentials(&creds);
+            log::info!("platform_auth: callback ok state={}", q.state);
+            Ok(Redirect::temporary("/?platform_login=success"))
+        }
+        Err(e) => {
+            log::warn!("platform_auth: exchange failed: {e:#}");
+            let msg = urlencoding_encode(&e.to_string());
+            Ok(Redirect::temporary(&format!("/?platform_login_error={msg}")))
+        }
+    }
+}
+
+/// `POST /api/auth/logout` — clear in-memory session and persisted refresh token.
+async fn platform_logout(State(state): State<ServerState>) -> Result<StatusCode, ApiError> {
+    state.core.platform_auth.clear_session_async().await;
+    let mut platform = state.core.platform_config.write();
+    apply_login_media_oss(&mut platform, None);
+    log::info!("platform_auth: logout");
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `POST /api/auth/refresh` — refresh access token if near expiry and re-pull
+/// LLM credentials. Mirrors the desktop `refresh_platform_session` command.
+async fn refresh_platform_session(
+    State(state): State<ServerState>,
+) -> Result<Json<PlatformSessionView>, ApiError> {
+    state
+        .core
+        .platform_auth
+        .refresh_if_needed()
+        .await
+        .map_err(ApiError::from)?;
+    if state.core.platform_auth.session_view().logged_in {
+        if let Ok(Some(creds)) = state.core.platform_auth.fetch_llm_credentials().await {
+            state.core.apply_login_credentials(&creds);
+        }
+    }
+    Ok(Json(state.core.platform_auth.session_view()))
+}
+
+/// Resolve the externally-reachable base URL for OAuth `redirect_uri`.
+/// Prefers `POINTER_SERVER_PUBLIC_URL`; falls back to the host portion of
+/// `POINTER_SERVER_ADDR` only when it is not a loopback address.
+fn resolve_server_public_url() -> Option<String> {
+    if let Ok(raw) = env::var("POINTER_SERVER_PUBLIC_URL") {
+        let trimmed = raw.trim().trim_end_matches('/').to_string();
+        if !trimmed.is_empty() {
+            return Some(trimmed);
+        }
+    }
+    let addr = env::var("POINTER_SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".into());
+    let host = addr.split(':').next().unwrap_or("").trim();
+    if host.is_empty()
+        || host == "127.0.0.1"
+        || host == "0.0.0.0"
+        || host.eq_ignore_ascii_case("localhost")
+    {
+        return None;
+    }
+    Some(format!("http://{host}"))
+}
+
+fn random_state_token() -> String {
+    let mut bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    hex_encode(&bytes)
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push_str(&format!("{b:02x}"));
+    }
+    out
+}
+
+fn purge_expired_oauth_pending(pending: &RwLock<HashMap<String, PkcePending>>) {
+    let now = Instant::now();
+    let mut guard = pending.write();
+    guard.retain(|_, v| now.duration_since(v.created_at) < OAUTH_PENDING_TTL);
+}
+
 async fn spa_fallback(
     State(state): State<ServerState>,
     uri: Uri,
@@ -1158,6 +1345,21 @@ fn percent_decode(input: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Percent-encode a string for use as a single URL query value.
+/// Encodes everything except RFC 3986 unreserved characters.
+fn urlencoding_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 async fn serve_static_file(path: &std::path::Path) -> Result<Response, StatusCode> {

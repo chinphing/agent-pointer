@@ -8,6 +8,13 @@ static_dir = "dist"
 # ({data_dir}/PointerApp release, PointerAppDev debug; logs under …/logs/).
 # Override data dir only if needed:
 # app_data_dir = "/absolute/path"
+# Public base URL (no trailing slash) reachable from end-user browsers.
+# Used to build the OAuth redirect_uri for the server-side PKCE login flow
+# ({public_url}/api/auth/oauth/callback). Required when the web UI needs
+# "Login with Pointer account". Add that callback URL to the platform env
+# POINTER_APP_REDIRECT_URIS. When omitted, the host portion of `addr` is
+# used only if it is not a loopback address.
+# public_url = "https://pointer.example.com"
 
 [openpointer]
 api_base = "https://api.openpointer.cn"

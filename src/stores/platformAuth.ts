@@ -33,6 +33,25 @@ async function resolvePlatformSession(): Promise<PlatformSessionView> {
   return api.getPlatformSession()
 }
 
+/**
+ * Web only: after the OAuth provider redirects back to `/?platform_login=...`
+ * or `?platform_login_error=...`, surface the result to the store and strip
+ * the query so a refresh does not re-trigger the toast. Tauri runtime has no
+ * browser redirect hop and is a no-op.
+ */
+function consumeOAuthRedirectQuery(): string | null {
+  if (isTauriRuntime()) return null
+  if (typeof window === 'undefined') return null
+  const url = new URL(window.location.href)
+  const successFlag = url.searchParams.get('platform_login')
+  const errorMsg = url.searchParams.get('platform_login_error')
+  if (successFlag !== 'success' && !errorMsg) return null
+  url.searchParams.delete('platform_login')
+  url.searchParams.delete('platform_login_error')
+  window.history.replaceState({}, '', url.toString())
+  return errorMsg ? decodeURIComponent(errorMsg) : null
+}
+
 export const usePlatformAuthStore = defineStore('platformAuth', () => {
   const session = ref<PlatformSessionView>({ logged_in: false })
   const loading = ref(false)
@@ -57,6 +76,10 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
       session.value = await resolvePlatformSession()
       const settings = useSettingsStore()
       await settings.load()
+      const redirectError = consumeOAuthRedirectQuery()
+      if (redirectError) {
+        error.value = redirectError
+      }
     } catch (e) {
       error.value = formatPlatformAuthError(e)
       session.value = { logged_in: false }
@@ -94,10 +117,17 @@ export const usePlatformAuthStore = defineStore('platformAuth', () => {
     error.value = null
     try {
       await api.openPlatformLogin()
-      session.value = await api.refreshPlatformSession()
-      error.value = null
-      const settings = useSettingsStore()
-      await settings.load()
+      if (isTauriRuntime()) {
+        // Desktop: openPlatformLogin resolves after the loopback callback;
+        // refresh the session and reload settings in-process.
+        session.value = await api.refreshPlatformSession()
+        error.value = null
+        const settings = useSettingsStore()
+        await settings.load()
+      }
+      // Web: openPlatformLogin redirected the browser away. The remaining
+      // lines never run; the SPA reloads at /?platform_login=success and
+      // load() picks up the new session on the next mount.
     } catch (e) {
       error.value = formatPlatformAuthError(e)
       throw e

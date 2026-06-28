@@ -187,6 +187,14 @@ impl PlatformAuthManager {
         self.clear_session_inner();
     }
 
+    /// Async variant of [`clear_session`] for use inside async runtimes.
+    /// The sync version uses `tokio::Mutex::blocking_lock` which panics inside
+    /// a tokio multi-threaded runtime; callers in `async fn` paths must use this.
+    pub async fn clear_session_async(&self) {
+        let _guard = self.refresh_lock.lock().await;
+        self.clear_session_inner();
+    }
+
     fn clear_session_inner(&self) {
         let refresh = self.inner.read().as_ref().map(|s| s.refresh_token.clone());
         *self.inner.write() = None;
@@ -326,13 +334,24 @@ impl PlatformAuthManager {
         format!("http://127.0.0.1:{port}/callback")
     }
 
-    pub fn build_authorize_url_for_port(port: u16, code_challenge: &str, state: &str) -> String {
+    pub fn build_authorize_url_for_redirect(
+        redirect_uri: &str,
+        code_challenge: &str,
+        state: &str,
+    ) -> String {
         let web = Self::web_base();
         let client_id = Self::client_id();
-        let redirect = Self::redirect_uri_for_port(port);
         format!(
             "{web}/oauth/authorize?client_id={client_id}&redirect_uri={}&code_challenge={code_challenge}&code_challenge_method=S256&state={state}",
-            urlencoding_encode(&redirect),
+            urlencoding_encode(redirect_uri),
+        )
+    }
+
+    pub fn build_authorize_url_for_port(port: u16, code_challenge: &str, state: &str) -> String {
+        Self::build_authorize_url_for_redirect(
+            &Self::redirect_uri_for_port(port),
+            code_challenge,
+            state,
         )
     }
 
@@ -531,7 +550,7 @@ impl PlatformAuthManager {
             .await
             .context("token usage multipart report failed")?;
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            self.clear_session();
+            self.clear_session_async().await;
             return Err(anyhow!("platform_token_expired"));
         }
         if !resp.status().is_success() {
@@ -559,7 +578,7 @@ impl PlatformAuthManager {
             .await
             .context("token usage report failed")?;
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            self.clear_session();
+            self.clear_session_async().await;
             return Err(anyhow!("platform_token_expired"));
         }
         if !resp.status().is_success() {
@@ -583,7 +602,7 @@ impl PlatformAuthManager {
             .send()
             .await?;
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            self.clear_session();
+            self.clear_session_async().await;
             return Err(anyhow!("platform_token_expired"));
         }
         if !resp.status().is_success() {
@@ -903,6 +922,27 @@ async fn run_platform_login_flow_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_authorize_url_for_redirect_includes_pkce_and_encoded_redirect() {
+        let url = PlatformAuthManager::build_authorize_url_for_redirect(
+            "https://pointer.example.com/api/auth/oauth/callback",
+            "challenge_abc",
+            "pointer-app",
+        );
+        assert!(url.starts_with(&format!(
+            "{}/oauth/authorize?",
+            PlatformAuthManager::web_base()
+        )));
+        assert!(url.contains("client_id=pointer-desktop"));
+        assert!(url.contains("code_challenge=challenge_abc"));
+        assert!(url.contains("code_challenge_method=S256"));
+        assert!(url.contains("state=pointer-app"));
+        assert!(url.contains(
+            "redirect_uri=https%3A%2F%2Fpointer.example.com%2Fapi%2Fauth%2Foauth%2Fcallback"
+        ));
+        assert!(url.contains('&'), "authorize URL must keep query separators");
+    }
 
     #[test]
     fn build_authorize_url_includes_pkce_and_encoded_redirect() {

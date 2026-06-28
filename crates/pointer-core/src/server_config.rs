@@ -23,6 +23,12 @@ struct ServerSection {
     /// the same default as the desktop client (`{data_dir}/PointerApp` or `PointerAppDev`).
     #[serde(default)]
     app_data_dir: String,
+    /// Public base URL (no trailing slash) used to build OAuth `redirect_uri`
+    /// for the server-side PKCE login flow. Maps to env `POINTER_SERVER_PUBLIC_URL`.
+    /// Example: `https://pointer.example.com`. When empty, falls back to the host
+    /// portion of `POINTER_SERVER_ADDR` if it is not a loopback address.
+    #[serde(default)]
+    public_url: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -173,6 +179,13 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
     );
     push_mapped(
         &mut pairs,
+        "POINTER_SERVER_PUBLIC_URL",
+        &parsed.server.public_url,
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
         "OPENPOINTER_API_BASE",
         &parsed.openpointer.api_base,
         base_dir,
@@ -259,6 +272,26 @@ mod tests {
 
     fn env_guard() -> MutexGuard<'static, ()> {
         ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    #[test]
+    fn toml_maps_public_url_to_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(
+            &cfg,
+            r#"
+[server]
+public_url = "https://pointer.example.com"
+"#,
+        )
+        .unwrap();
+        let pairs = parse_toml_file(&cfg, dir.path()).unwrap();
+        let map: HashMap<_, _> = pairs.into_iter().collect();
+        assert_eq!(
+            map.get("POINTER_SERVER_PUBLIC_URL").map(String::as_str),
+            Some("https://pointer.example.com")
+        );
     }
 
     #[test]

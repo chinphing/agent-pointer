@@ -12,6 +12,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
                 workspace_user_set, workspace_inherit_disabled, lead_agent_id, agent_mode
          FROM conversations
          WHERE id NOT LIKE 'cron:%'
+           AND id NOT LIKE 'webhook:%'
          ORDER BY updated_at_ms DESC",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -115,6 +116,7 @@ pub fn load_metas_from_conn(
                 workspace_inherit_disabled, lead_agent_id, agent_mode
          FROM conversations
          WHERE id NOT LIKE 'cron:%'
+           AND id NOT LIKE 'webhook:%'
            AND (?1 IS NULL OR (updated_at_ms < ?1 OR (updated_at_ms = ?1 AND id < ?2)))
          ORDER BY updated_at_ms DESC, id DESC
          LIMIT ?3",

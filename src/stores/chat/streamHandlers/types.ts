@@ -75,4 +75,5 @@ export interface StreamHandlerContext {
     agentMode: AgentMode
   ): void
   loadActiveComposerDraft(conversationId: string | null): void
+  refreshConversationMessages(conversationId: string): void
 }

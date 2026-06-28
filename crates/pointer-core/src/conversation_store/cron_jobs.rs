@@ -336,13 +336,31 @@ pub struct CronJobView {
 }
 
 impl CronJobView {
+    /// Session id for the automation UI "查看会话" entry. Prefer the persisted
+    /// active id; fall back to deriving from `last_run_at_ms` so jobs that ran
+    /// before the `current_session_id` column migration remain viewable.
+    pub fn resolve_view_session_id(r: &CronJobRecord) -> Option<String> {
+        if let Some(ref id) = r.current_session_id {
+            if !id.trim().is_empty() {
+                return Some(id.clone());
+            }
+        }
+        r.last_run_at_ms.map(|ms| {
+            let dt = Local
+                .timestamp_millis_opt(ms)
+                .single()
+                .unwrap_or_else(Local::now);
+            current_cron_session_id(&r.id, &dt)
+        })
+    }
+
     pub fn from_record(r: &CronJobRecord) -> Self {
         Self {
             id: r.id.clone(),
             label: r.label.clone(),
             cron_expr: r.cron_expr.clone(),
             conversation_id: r.conversation_id.clone(),
-            current_session_id: r.current_session_id.clone(),
+            current_session_id: Self::resolve_view_session_id(r),
             prompt_text: r.prompt_text.clone(),
             agent_mode: r.agent_mode.clone(),
             lead_agent_id: r.lead_agent_id.clone(),
@@ -521,5 +539,34 @@ mod tests {
         let after_reset = tz.with_ymd_and_hms(2026, 6, 28, 4, 30, 0).single().unwrap();
         let d = current_cron_session_id("job1", &after_reset);
         assert_ne!(c, d);
+    }
+
+    #[test]
+    fn view_session_id_falls_back_to_last_run() {
+        let r = CronJobRecord {
+            id: "job1".into(),
+            label: "test".into(),
+            cron_expr: "0 * * * * *".into(),
+            conversation_id: "cron:job1".into(),
+            current_session_id: None,
+            prompt_text: "hi".into(),
+            agent_mode: None,
+            lead_agent_id: None,
+            enabled: true,
+            last_run_at_ms: Some(
+                chrono::Local
+                    .with_ymd_and_hms(2026, 6, 28, 10, 0, 0)
+                    .single()
+                    .unwrap()
+                    .timestamp_millis(),
+            ),
+            next_run_at_ms: None,
+            created_at_ms: 0,
+        };
+        let view = CronJobView::from_record(&r);
+        assert_eq!(
+            view.current_session_id.as_deref(),
+            Some("cron:job1:20260628")
+        );
     }
 }

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import {
   buildCron,
+  describeCron,
   parseCron,
   WEEKDAY_LABELS,
   type CronMode,
@@ -163,10 +164,15 @@ function pad(n: number): string {
       <p class="text-[11px] text-muted">6 段、秒级；字段按本地时区解释。</p>
     </div>
 
-    <!-- Preview footer: the raw cron expression, separated by a hairline divider. -->
-    <div class="flex items-center gap-1.5 text-[11px] pt-2 mt-1 border-t border-border/60">
+    <!-- Preview footer: Chinese schedule summary + raw cron (hover title). -->
+    <div
+      class="flex items-center gap-1.5 text-[11px] pt-2 mt-1 border-t border-border/60 min-w-0"
+      :title="buildCron(preset)"
+    >
       <span class="text-muted shrink-0">预览</span>
-      <span class="text-foreground font-mono truncate">{{ buildCron(preset) }}</span>
+      <span class="text-foreground truncate">{{ describeCron(buildCron(preset)) }}</span>
+      <span class="text-muted/50 shrink-0">·</span>
+      <span class="text-muted/70 font-mono truncate">{{ buildCron(preset) }}</span>
     </div>
   </div>
 </template>

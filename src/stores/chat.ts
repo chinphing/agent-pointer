@@ -395,14 +395,17 @@ export const useChatStore = defineStore('chat', () => {
     markMetaDirty(conversationId)
   }
 
-  /** Ensure a cron session shell exists when stream events target the active cron view. */
+  /** Ensure an automation session shell exists when stream events target the active view. */
   function ensureCronStreamConversation(conversationId: string) {
-    if (!conversationId.startsWith('cron:')) return
+    if (!conversationId.startsWith('cron:') && !conversationId.startsWith('webhook:')) return
     if (currentId.value !== conversationId) return
     if (conversations.value.some(c => c.id === conversationId)) return
+    const title = conversationId.startsWith('webhook:')
+      ? `[Webhook] ${conversationId.slice('webhook:'.length)}`
+      : '[定时] cron 会话'
     conversations.value.unshift({
       id: conversationId,
-      title: '[定时] cron 会话',
+      title,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
@@ -487,15 +490,41 @@ export const useChatStore = defineStore('chat', () => {
   /**
    * Load messages for a conversation if not already hydrated this session.
    * Runs the per-conversation normalizers that previously ran once over every
-   * conversation at boot. Skips conversations currently generating (their
-   * in-memory messages are being appended by the stream and must not be
-   * clobbered).
+   * conversation at boot. Skips conversations currently generating unless
+   * `force` is set (automation "查看会话" while a webhook/cron run is active).
    */
+  function mergeHydratedMessages(inMemory: ChatMessage[], fromDb: ChatMessage[]): ChatMessage[] {
+    if (inMemory.length === 0) return fromDb
+    const dbById = new Map(fromDb.map(m => [m.id, m]))
+    const merged: ChatMessage[] = []
+    for (const dbMsg of fromDb) {
+      const live = inMemory.find(m => m.id === dbMsg.id)
+      if (
+        live
+        && (live.status === 'streaming'
+          || live.status === 'pending'
+          || live.contentStreaming)
+      ) {
+        merged.push({
+          ...dbMsg,
+          ...live,
+          toolCalls: live.toolCalls?.length ? live.toolCalls : dbMsg.toolCalls
+        })
+      } else {
+        merged.push(dbMsg)
+      }
+    }
+    for (const live of inMemory) {
+      if (!dbById.has(live.id)) merged.push(live)
+    }
+    return merged
+  }
+
   async function ensureMessagesLoaded(id: string, options?: { force?: boolean }): Promise<void> {
     const convId = id.trim()
     if (!convId) return
     if (!options?.force && hydratedIds.value.has(convId)) return
-    if (isConversationGenerating(convId)) {
+    if (!options?.force && isConversationGenerating(convId)) {
       console.info('[chat] ensureMessagesLoaded: skip hydrating generating conversation', convId)
       return
     }
@@ -513,16 +542,13 @@ export const useChatStore = defineStore('chat', () => {
       if (isImConversation(convId)) {
         next = dedupeImInboundUserMessages(convId, stripped)
       }
-      // Guard against a stream that started during the await: if the conv is
-      // now generating, prefer the in-memory messages and mark as hydrated so
-      // we don't retry.
       if (isConversationGenerating(convId) && conv.messages.length > 0) {
+        next = mergeHydratedMessages(conv.messages, next)
         console.info(
-          '[chat] ensureMessagesLoaded: stream started during load; keeping in-memory messages',
-          convId
+          '[chat] ensureMessagesLoaded: merged DB rows with in-memory stream',
+          convId,
+          next.length
         )
-        hydratedIds.value.add(convId)
-        return
       }
       conv.messages = next
       normalizeInterruptedAssistantStatuses([conv])
@@ -720,6 +746,48 @@ export const useChatStore = defineStore('chat', () => {
     // Always re-hydrate from DB: cron shells are transient, hydratedIds may
     // cache an empty snapshot from before the first tick finished, and
     // selectConversation skips work when currentId is already this session.
+    hydratedIds.value.delete(sessionId)
+    flushActiveComposerDraft()
+    currentId.value = sessionId
+    reconcileRunStateForConversation(sessionId)
+    loadActiveComposerDraft(sessionId)
+    void ensureMessagesLoaded(sessionId, { force: true })
+    void refreshTaskBoard(sessionId)
+    void refreshSubAgentTaskBoards(sessionId)
+  }
+
+  /**
+   * Open a webhook source's dedicated session in the main panel. Webhook
+   * sessions are excluded from the sidebar list and only reachable via the
+   * automation panel's view-session entry.
+   */
+  function openWebhookConversation(sessionId: string, src: string): void {
+    if (!sessionId) {
+      console.warn('[chat] openWebhookConversation: empty sessionId')
+      return
+    }
+    const label = src?.trim() || sessionId.slice('webhook:'.length)
+    let conv = conversations.value.find(c => c.id === sessionId)
+    if (!conv) {
+      conv = {
+        id: sessionId,
+        title: label ? `[Webhook] ${label}` : '[Webhook] 会话',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messages: [],
+        skillIds: [],
+        toolRoundsUsed: 0,
+        toolRoundsUsedSupervisor: 0,
+        workspaceRoot: '',
+        workspaceUserSet: false,
+        workspaceInheritDisabled: false,
+        leadAgentId: DEFAULT_LEAD_AGENT_ID,
+        agentMode: 'single'
+      }
+      conversations.value.unshift(conv)
+    } else if (label) {
+      conv.title = `[Webhook] ${label}`
+    }
     hydratedIds.value.delete(sessionId)
     flushActiveComposerDraft()
     currentId.value = sessionId
@@ -1000,7 +1068,10 @@ export const useChatStore = defineStore('chat', () => {
       syncTerminalLivePopupOutput: terminalLive.syncPopupOutput,
       scheduleDesktopNoticeRemoval,
       applySessionAgentToConversation,
-      loadActiveComposerDraft
+      loadActiveComposerDraft,
+      refreshConversationMessages: (conversationId: string) => {
+        void ensureMessagesLoaded(conversationId, { force: true })
+      }
     }
   }
 
@@ -1185,7 +1256,7 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards,
-    init, newConversation, openCronConversation, selectConversation, deleteConversation,
+    init, newConversation, openCronConversation, openWebhookConversation, selectConversation, deleteConversation,
     loadMoreConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,
     sendUserMessage, stop, abortTerminalOnly, approve,

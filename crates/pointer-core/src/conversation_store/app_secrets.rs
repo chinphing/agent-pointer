@@ -40,6 +40,23 @@ pub fn delete(conn: &Connection, label: &str) -> Result<bool> {
     Ok(affected > 0)
 }
 
+/// List secret labels (and created_at_ms) whose label starts with `prefix`.
+pub fn list_by_prefix(conn: &Connection, prefix: &str) -> Result<Vec<(String, i64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT label, created_at_ms FROM app_secrets
+         WHERE label LIKE ?1 || '%'
+         ORDER BY label ASC",
+    )?;
+    let rows = stmt.query_map(params![prefix], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
 /// Create the `app_secrets` table (idempotent). Called from `init_schema`.
 pub fn ensure_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(

@@ -80,17 +80,15 @@ const windowControlsOnMainTop = computed(
 const searchQuery = ref('')
 
 const filteredConversations = computed(() => {
-  // Cron jobs own dedicated isolated sessions (`cron:{jobId}`) that are kept
-  // out of the normal sidebar; they are reachable only via the automation
-  // panel's "查看会话" entry. Exclude them here even when injected into the
-  // store by that entry, so the sidebar never lists them — EXCEPT the
-  // currently active one: when the user opened a cron session, showing it in
-  // the sidebar is the only way to surface its title (the chat area has no
-  // header), and it confirms which task's transcript they are viewing.
+  // Cron / webhook jobs own dedicated isolated sessions that are kept out of
+  // the normal sidebar; they are reachable only via the automation panel.
+  // Exclude them here even when injected into the store by that entry — EXCEPT
+  // the currently active one, so the user can see which transcript they opened.
   const activeId = chat.currentId
-  const base = chat.conversations.filter(
-    c => !c.id.startsWith('cron:') || c.id === activeId
-  )
+  const base = chat.conversations.filter(c => {
+    const isolated = c.id.startsWith('cron:') || c.id.startsWith('webhook:')
+    return !isolated || c.id === activeId
+  })
   const query = searchQuery.value.trim().toLowerCase()
   if (!query) return base
   return base.filter(c =>

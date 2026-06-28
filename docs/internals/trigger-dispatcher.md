@@ -56,7 +56,19 @@ SSE 终态处理是无竞态的：先订阅总线，再读 `runs` 表；已终�
 
 ## 通用 Webhook（server）
 
-`POST /api/webhooks/:src`，`Authorization: Bearer <POINTER_WEBHOOK_BEARER_TOKEN>`。`POINTER_WEBHOOK_BEARER_TOKEN` 未配置时一律 401。body 支持 `text`（单条 user 消息）或 `messages`（完整历史）；`conversationId` 缺省时按 `webhook:{src}` 派生稳定会话。token 在 `pointer-server.toml` 的 `[webhooks] bearer_token` 或 env 配置，日志中脱敏。
+`POST /api/webhooks/:src`，`:src` 为来源标识（字母/数字开头，仅含 `-`、`_`）。鉴权头：`Authorization: Bearer <token>` 或 `X-Pointer-Token: <token>`（对齐 OpenClaw 的双头模式；**不用 query string**）。
+
+**多 Token（按来源匹配）**：每个 `:src` 可单独配置 Token，加密存于 `app_secrets` 标签 `webhook_token:{src}`，在「设置 → 自动化 → Webhook」添加。请求时只校验该来源对应的 Token；`github` 的 Token 不能用于 `ci`。
+
+**解析顺序**（ingress 时）：`webhook_token:{src}` → 旧版全局 `webhook_bearer_token`（对所有来源 fallback）→ env `POINTER_WEBHOOK_BEARER_TOKEN`。三者皆无则 401。
+
+body 支持 `text`（单条 user 消息）或 `messages`（完整历史）；`conversationId` 缺省时按 `webhook:{src}` 派生稳定会话。Token 日志中脱敏（`****` + 末 4 位）。
+
+**专属 webhook 会话（对齐 cron 侧栏隔离）**：每个来源独占 `webhook:{src}` 会话，跨次续接 transcript。`persist::load_all_from_conn` / `load_metas_from_conn` 用 `NOT LIKE 'webhook:%'` 排除侧栏；前端 `AppShell.filteredConversations` 兜底过滤。查看入口：自动化面板来源行的「查看会话」→ `chat.openWebhookConversation(conversationId, src)`；`hasTranscript` 为 false 时按钮禁用（尚未触发）。首次 ingress 时 `ensure_webhook_session(src)` 懒创建 meta 行（标题 `[Webhook] {src}`）。ingress 时对最后一轮 user 消息广播 `InjectedUserMessage`，与 cron 调度器一致，避免「查看会话」时只有 assistant 回复、看不到 user 行。
+
+**Blocking 模式（对齐 OpenClaw PR #67433）**：body 传 `"blocking": true` 时 HTTP 连接保持到 run 结束；成功 `200 { ok, runId, conversationId, text }`，agent 失败 `500 { ok: false, runId, error }`，超时 `504`（默认 `timeoutSeconds` 120，最大 600）。未传 `blocking` 时仍为 `202 + runId` 异步 ack。
+
+管理 API：`GET/POST /api/webhooks/config`（列出/添加来源）、`DELETE /api/webhooks/config/:src`（清除来源）、`DELETE /api/webhooks/config/legacy`（清除旧全局 Token）。
 
 ## Cron 调度器
 
@@ -86,6 +98,7 @@ openclaw 的 cron 会话用 `daily` 重置模式、`atHour = 4`（本地凌晨 4
 - `Scheduler::dispatch_job` 每次触发：计算 `expected = current_cron_session_id(job.id, now_local)`；若 `job.current_session_id != expected`（首次触发或跨过 04:00），UPDATE `current_session_id = expected`、`ensure_cron_session(expected, label)` 建新会话 meta 行，本次提示词成为新 transcript 的首轮；否则 `load_messages(expected)` 续接当日历史。**不再 `clear_messages`**——翻页靠换 id 实现，旧 id 的 messages 原样留在 `messages` 表（对齐 openclaw 的留存）。
 - 任务偏好（agent / prompt / cron 表达式）存在 `cron_jobs` 行上，天然跨翻页保留——对应 openclaw `sanitizeFreshCronSessionEntry` 只继承偏好字段。
 - **侧栏隔离 + 查看入口**：所有 `cron:*` 会话（含历史日期的旧会话）都被 `load_all` / `load_metas` 的 `NOT LIKE 'cron:%'` 排除在侧栏外；前端 `AppShell.filteredConversations` 兜底过滤。「查看会话」按钮打开的是 `job.currentSessionId`（当前活动会话），任务首次触发前该字段为 `NULL`，按钮禁用并提示「尚未触发」。
+- **对话内创建**：`general` agent 可通过 **`cron_job`** 工具在聊天中创建/列出/启停/删除定时任务；最小参数为 `prompt_text` + `schedule`（友好 preset 或 6 段 cron），其余字段（label、agent、job id）由工具自动填充。与设置页 Automation 面板写入同一张 `cron_jobs` 表。
 - **与 openclaw 的一致与差异**：一致点——翻页换会话 id、旧 transcript 留存、应用层默认不暴露历史、偏好跨翻页保留。差异点——openclaw 用 uuid + 文件名留存（要靠列目录找回旧记录），我们用 `cron:{job_id}:{yyyymmdd}` 可读 id + `messages` 表留存（按 id 直接可查；后续如需 UI 历史回看，可在 cron 任务详情里列出该 job 的所有 `cron:{job_id}:*` 会话）。重置时刻目前为常量 4 点本地；如需可配置，后续在 `server_config` 增加 `scheduler.cron_session_reset_at_hour` 字段传入 `daily_reset_at_ms`。
 
 ## 钩子（HookRegistry）

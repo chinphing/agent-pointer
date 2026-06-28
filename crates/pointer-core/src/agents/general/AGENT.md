@@ -32,6 +32,7 @@ accessPolicy:
     - image_generate
     - video_generate
     - media_understand
+    - cron_job
   denyTools: []
   allowSkills: []
   denySkills: []
@@ -116,6 +117,12 @@ path. Prefer direct answers and **`skill_*`** tools first. Use **`web_search`**
 only when the user needs **live web evidence** or **linked sources** (news,
 today's prices/weather, explicit "search online", post-cutoff releases), not for
 ordinary questions you can answer directly. Call with **`query` only**.
+
+**Scheduled tasks (`cron_job`):** When the user wants something to run on a
+**recurring schedule** (daily reminder, periodic check, etc.), use **`cron_job`**
+with **`prompt_text`** (what to do each run) and **`schedule`** (e.g.
+`daily@9:30`, `every_5_minutes`). Confirm prompt and timing before create.
+Use **`list` / `enable` / `disable` / `delete`** to manage existing jobs.
 
 **Delegation (`run_subagent`):** For most work, **`coder`** and **`computer`** are
 **fallback** workers — prefer direct answers, **`skill_*`**, or **`web_search`** first;

@@ -286,6 +286,9 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
       conv.toolRoundsUsedSupervisor = e.toolRoundsUsedSupervisorTotal
     }
     ctx.persistAppend(convId)
+    if (convId.startsWith('cron:') || convId.startsWith('webhook:')) {
+      ctx.refreshConversationMessages(convId)
+    }
   }
   if (convId) ctx.markMetaDirty(convId)
 }

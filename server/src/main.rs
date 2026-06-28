@@ -19,11 +19,12 @@ use pointer_core::{
     agents::AgentDef,
     chat_service::AppState,
     dispatcher::{
-        DeliverTarget, RunDispatcher, RunHandle, TriggerMeta, TriggerRequest, TriggerSource,
+        DeliverTarget, RunDispatcher, RunHandle, RunOutcome, TriggerMeta, TriggerRequest,
+        TriggerSource,
     },
     models::{
         ComputerAnnotatedPreview, ChatMediaPreview, ComputerMonitor, Conversation, EffectiveSettingsView,
-        ModelSettings, PlatformSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent,
+        ModelSettings, PlatformSettings, Role, SendChatPayload, SkillDef, SkillImportResult, StreamEvent,
         ToolDef, UserSettings,
     },
     platform_auth::{PlatformAuthManager, PlatformSessionView},
@@ -277,9 +278,16 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/webhooks/:src", post(webhook_ingress))
         .route(
             "/api/webhooks/config",
-            get(get_webhook_config).post(set_webhook_token),
+            get(get_webhook_config).post(set_webhook_source_token),
         )
-        .route("/api/webhooks/config/token", axum::routing::delete(clear_webhook_token))
+        .route(
+            "/api/webhooks/config/legacy",
+            axum::routing::delete(clear_webhook_legacy_token),
+        )
+        .route(
+            "/api/webhooks/config/:src",
+            axum::routing::delete(clear_webhook_source_token),
+        )
         // Phase 5: cron job management for the scheduler.
         .route(
             "/api/cron-jobs",
@@ -1234,37 +1242,171 @@ struct WebhookIngressBody {
     enabled_skill_ids: Vec<String>,
     #[serde(default, rename = "workspaceRoot")]
     workspace_root: String,
+    /// When true, keep the HTTP connection open until the run finishes and
+    /// return assistant text (OpenClaw `POST /hooks/agent` blocking mode).
+    #[serde(default)]
+    blocking: bool,
+    /// Max seconds to wait when `blocking` is true (default 120, max 600).
+    #[serde(default, rename = "timeoutSeconds")]
+    timeout_seconds: Option<u64>,
+}
+
+/// Blocking webhook response (OpenClaw-aligned `{ ok, runId, text? }`).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WebhookBlockingResponse {
+    ok: bool,
+    run_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    conversation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+async fn finish_webhook_blocking(
+    state: &ServerState,
+    run_id: String,
+    conversation_id: String,
+    timeout_seconds: Option<u64>,
+) -> Result<axum::response::Response, ApiError> {
+    let timeout_secs = timeout_seconds.unwrap_or(120).clamp(1, 600);
+    let wait_fut = state.dispatcher.wait(&run_id);
+    let outcome = match tokio::time::timeout(Duration::from_secs(timeout_secs), wait_fut).await {
+        Ok(Ok(o)) => o,
+        Ok(Err(e)) => {
+            log::warn!("webhook blocking: wait failed run_id={run_id}: {e:#}");
+            return Ok((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(WebhookBlockingResponse {
+                    ok: false,
+                    run_id,
+                    conversation_id: Some(conversation_id),
+                    text: None,
+                    error: Some(format!("wait failed: {e:#}")),
+                }),
+            )
+                .into_response());
+        }
+        Err(_) => {
+            log::warn!(
+                "webhook blocking: timed out run_id={run_id} after {timeout_secs}s"
+            );
+            return Ok((
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(WebhookBlockingResponse {
+                    ok: false,
+                    run_id,
+                    conversation_id: Some(conversation_id),
+                    text: None,
+                    error: Some(format!("agent run timed out after {timeout_secs}s")),
+                }),
+            )
+                .into_response());
+        }
+    };
+
+    match outcome {
+        RunOutcome::Finished {
+            conversation_id: conv,
+            ..
+        } => {
+            let text = pointer_core::webhook_result::last_assistant_text(
+                &state.core.session_index,
+                &conv,
+            )
+            .map_err(ApiError::from)?;
+            log::info!(
+                "webhook blocking: finished run_id={run_id} conv={conv} text_len={}",
+                text.as_ref().map(|t| t.len()).unwrap_or(0)
+            );
+            Ok((
+                StatusCode::OK,
+                Json(WebhookBlockingResponse {
+                    ok: true,
+                    run_id,
+                    conversation_id: Some(conv),
+                    text,
+                    error: None,
+                }),
+            )
+                .into_response())
+        }
+        RunOutcome::Failed {
+            conversation_id: conv,
+            error,
+            ..
+        } => {
+            log::warn!("webhook blocking: failed run_id={run_id}: {error}");
+            Ok((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(WebhookBlockingResponse {
+                    ok: false,
+                    run_id,
+                    conversation_id: Some(conv),
+                    text: None,
+                    error: Some(error),
+                }),
+            )
+                .into_response())
+        }
+        RunOutcome::Cancelled {
+            conversation_id: conv,
+            ..
+        } => {
+            log::warn!("webhook blocking: cancelled run_id={run_id}");
+            Ok((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(WebhookBlockingResponse {
+                    ok: false,
+                    run_id,
+                    conversation_id: Some(conv),
+                    text: None,
+                    error: Some("run cancelled".into()),
+                }),
+            )
+                .into_response())
+        }
+    }
 }
 
 /// `POST /api/webhooks/:src` — generic authenticated webhook ingress. The
 /// `:src` path segment labels the webhook source (recorded in trigger_meta).
-/// Auth: `Authorization: Bearer <POINTER_WEBHOOK_BEARER_TOKEN>`. When the
-/// token env var is unset, all requests are rejected with 401.
+/// Auth: `Authorization: Bearer <token>` or `X-Pointer-Token: <token>`.
+/// The token must match the one configured for this `:src` (or the legacy
+/// global token / env fallback when no per-source token exists).
 async fn webhook_ingress(
     State(state): State<ServerState>,
     Path(src): Path<String>,
     headers: axum::http::HeaderMap,
     Json(body): Json<WebhookIngressBody>,
 ) -> Result<axum::response::Response, ApiError> {
-    let expected = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index)
-        .resolve()
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
+    let normalized_src = match pointer_core::webhook_config::WebhookTokenStore::normalize_src(&src)
+    {
+        Ok(s) => s,
+        Err(e) => {
+            return Ok(status_text(StatusCode::BAD_REQUEST, e.to_string()));
+        }
+    };
+    let configured = store
+        .resolve_for_source(&normalized_src)
         .map_err(ApiError::from)?
-        .unwrap_or_default();
-    if expected.is_empty() {
-        log::warn!("webhook ingress rejected: no bearer token configured (src={src})");
+        .is_some();
+    if !configured {
+        log::warn!("webhook ingress rejected: no token configured (src={normalized_src})");
         return Ok(status_text(
             StatusCode::UNAUTHORIZED,
-            "webhook ingress disabled: no bearer token configured",
+            "webhook ingress disabled: no token configured for this source",
         ));
     }
-    let provided = headers
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .map(str::trim)
-        .unwrap_or("");
-    if provided.is_empty() || provided != expected {
-        log::warn!("webhook ingress rejected: bad bearer token (src={src})");
+    let provided = extract_webhook_bearer_token(&headers);
+    let ok = store
+        .verify_for_source(&normalized_src, provided)
+        .map_err(ApiError::from)?;
+    if !ok {
+        log::warn!("webhook ingress rejected: bad bearer token (src={normalized_src})");
         return Ok(status_text(StatusCode::UNAUTHORIZED, "unauthorized"));
     }
 
@@ -1281,19 +1423,40 @@ async fn webhook_ingress(
         ));
     }
 
-    let conversation_id = body.conversation_id.unwrap_or_else(|| {
-        // Derive a stable conversation per webhook source so repeated pokes
-        // thread into one session.
-        format!("webhook:{}", src)
+    let conversation_id = body.conversation_id.clone().unwrap_or_else(|| {
+        pointer_core::webhook_config::webhook_conversation_id(&normalized_src)
     });
+
+    if let Err(e) = state
+        .core
+        .session_index
+        .ensure_webhook_session(&normalized_src)
+    {
+        log::warn!(
+            "webhook ingress: ensure_webhook_session failed src={normalized_src}: {e:#}"
+        );
+    }
+
+    let blocking = body.blocking;
+    let timeout_seconds = body.timeout_seconds;
+
+    // Surface the inbound user turn in open cron/webhook views (same as cron scheduler / IM).
+    if let Some(user_msg) = messages.iter().rev().find(|m| matches!(m.role, Role::User)) {
+        pointer_core::stream_broadcast::broadcast_stream(&StreamEvent::InjectedUserMessage {
+            conversation_id: conversation_id.clone(),
+            message_id: user_msg.id.clone(),
+            content: user_msg.content.clone(),
+            attachments: user_msg.attachments.clone(),
+        });
+    }
 
     let req = TriggerRequest {
         run_id: None,
         idempotency_key: body.idempotency_key,
-        conversation_id: Some(conversation_id),
+        conversation_id: Some(conversation_id.clone()),
         trigger_source: TriggerSource::Webhook,
         trigger_meta: TriggerMeta {
-            webhook_source: Some(src.clone()),
+            webhook_source: Some(normalized_src.clone()),
             ..TriggerMeta::empty()
         },
         lane: None,
@@ -1309,11 +1472,20 @@ async fn webhook_ingress(
     };
 
     let handle = state.dispatcher.dispatch(req).await.map_err(ApiError::from)?;
+    if blocking {
+        return finish_webhook_blocking(
+            &state,
+            handle.run_id.clone(),
+            conversation_id,
+            timeout_seconds,
+        )
+        .await;
+    }
     log::info!(
         "webhook ingress: src={} accepted run_id={} conv={}",
-        src,
+        normalized_src,
         handle.run_id,
-        handle.reused_run_id.as_deref().unwrap_or("new")
+        conversation_id
     );
     Ok((StatusCode::ACCEPTED, Json(handle)).into_response())
 }
@@ -1469,67 +1641,101 @@ async fn delete_cron_job(
     }
 }
 
-// ---- Phase 6: webhook token config (UI-settable, first-write-only) ----
+// ---- Phase 6: webhook token config (per-source, UI-settable, encrypted) ----
 
 #[derive(Deserialize)]
-struct SetWebhookTokenBody {
+struct SetWebhookSourceTokenBody {
+    src: String,
     token: String,
 }
 
 fn webhook_url_template() -> String {
-    let base = resolve_server_public_url().unwrap_or_else(|| "http://127.0.0.1:8787".into());
-    format!("{base}/api/webhooks/{{src}}")
+    "http://{host}:{port}/api/webhooks/{src}".into()
 }
 
-/// `GET /api/webhooks/config` — whether a bearer token is configured + masked
-/// preview + the ingress URL template. Never returns the token itself.
-async fn get_webhook_config(
-    State(state): State<ServerState>,
-) -> Result<Json<pointer_core::webhook_config::WebhookConfigView>, ApiError> {
-    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
-    let configured = store.is_configured().map_err(ApiError::from)?;
-    let preview = if configured {
-        store.preview().map_err(ApiError::from)?
+fn webhook_url_for_src(src: &str) -> String {
+    format!("http://{{host}}:{{port}}/api/webhooks/{src}")
+}
+
+fn build_webhook_config_view(
+    session_index: &pointer_core::conversation_store::ConversationStore,
+) -> Result<pointer_core::webhook_config::WebhookConfigView, ApiError> {
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(session_index);
+    let sources: Vec<pointer_core::webhook_config::WebhookSourceView> = store
+        .list_sources()
+        .map_err(ApiError::from)?
+        .into_iter()
+        .map(|(src, preview)| {
+            let url = webhook_url_for_src(&src);
+            store
+                .source_view(src, preview, url)
+                .map_err(ApiError::from)
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+    let legacy_configured = store.is_legacy_configured().map_err(ApiError::from)?;
+    let legacy_preview = if legacy_configured {
+        store.legacy_preview().map_err(ApiError::from)?
     } else {
         None
     };
-    Ok(Json(pointer_core::webhook_config::WebhookConfigView {
-        configured,
-        preview,
+    Ok(pointer_core::webhook_config::WebhookConfigView {
+        sources,
         url_template: webhook_url_template(),
-    }))
+        legacy_configured,
+        legacy_preview,
+    })
 }
 
-/// `POST /api/webhooks/config/token` — set the bearer token (first-write only).
-/// Returns 200 on success, 409 if already configured, 400 on empty token.
-async fn set_webhook_token(
+/// Extract Bearer or `X-Pointer-Token` (OpenClaw-style alternate header).
+fn extract_webhook_bearer_token(headers: &axum::http::HeaderMap) -> &str {
+    if let Some(v) = headers.get(axum::http::header::AUTHORIZATION) {
+        if let Ok(s) = v.to_str() {
+            if let Some(token) = s.strip_prefix("Bearer ") {
+                let t = token.trim();
+                if !t.is_empty() {
+                    return t;
+                }
+            }
+        }
+    }
+    headers
+        .get("x-pointer-token")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .unwrap_or("")
+}
+
+/// `GET /api/webhooks/config` — list configured sources + URL template.
+async fn get_webhook_config(
     State(state): State<ServerState>,
-    Json(body): Json<SetWebhookTokenBody>,
+) -> Result<Json<pointer_core::webhook_config::WebhookConfigView>, ApiError> {
+    Ok(Json(build_webhook_config_view(&state.core.session_index)?))
+}
+
+/// `POST /api/webhooks/config` — set token for a source (first-write only).
+async fn set_webhook_source_token(
+    State(state): State<ServerState>,
+    Json(body): Json<SetWebhookSourceTokenBody>,
 ) -> Result<axum::response::Response, ApiError> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
-    if store.is_configured().map_err(ApiError::from)? {
+    if store
+        .is_source_configured(&body.src)
+        .map_err(ApiError::from)?
+    {
         return Ok(status_text(
             StatusCode::CONFLICT,
-            "webhook token already configured; clear it first to rotate",
+            "webhook token already configured for this source; clear it first to rotate",
         ));
     }
-    match store.set_token(&body.token) {
-        Ok(true) => {
-            let preview = store.preview().map_err(ApiError::from)?;
-            Ok(Json(pointer_core::webhook_config::WebhookConfigView {
-                configured: true,
-                preview,
-                url_template: webhook_url_template(),
-            })
-            .into_response())
-        }
+    match store.set_source_token(&body.src, &body.token) {
+        Ok(true) => Ok(Json(build_webhook_config_view(&state.core.session_index)?).into_response()),
         Ok(false) => Ok(status_text(
             StatusCode::CONFLICT,
-            "webhook token already configured",
+            "webhook token already configured for this source",
         )),
         Err(e) => {
             let msg = e.to_string();
-            if msg.contains("must not be empty") {
+            if msg.contains("must not be empty") || msg.contains("webhook source") {
                 Ok(status_text(StatusCode::BAD_REQUEST, msg))
             } else {
                 Err(ApiError(e))
@@ -1538,13 +1744,26 @@ async fn set_webhook_token(
     }
 }
 
-/// `DELETE /api/webhooks/config/token` — clear the configured token (admin
-/// reset, enables re-issuing from the UI). Returns 204 on success, 404 if none.
-async fn clear_webhook_token(
+/// `DELETE /api/webhooks/config/:src` — clear a source token.
+async fn clear_webhook_source_token(
+    State(state): State<ServerState>,
+    Path(src): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
+    let ok = store.clear_source_token(&src).map_err(ApiError::from)?;
+    if ok {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Ok(StatusCode::NOT_FOUND)
+    }
+}
+
+/// `DELETE /api/webhooks/config/legacy` — clear deprecated global token.
+async fn clear_webhook_legacy_token(
     State(state): State<ServerState>,
 ) -> Result<StatusCode, ApiError> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
-    let ok = store.clear_token().map_err(ApiError::from)?;
+    let ok = store.clear_legacy_token().map_err(ApiError::from)?;
     if ok {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -2007,6 +2226,12 @@ async fn serve_static_file(path: &std::path::Path) -> Result<Response, StatusCod
     let mut response = Response::new(bytes.into());
     if let Ok(value) = HeaderValue::from_str(static_content_type(path)) {
         response.headers_mut().insert(header::CONTENT_TYPE, value);
+    }
+    if path.file_name().and_then(|n| n.to_str()) == Some("index.html") {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-cache"),
+        );
     }
     Ok(response)
 }

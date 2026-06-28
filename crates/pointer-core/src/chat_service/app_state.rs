@@ -137,6 +137,7 @@ impl AppState {
         crate::memory::register_memory_tool(&tools, memory_store.clone());
         let session_index = open_conversation_store_with_fallback();
         crate::session_search::register_session_search_tool(&tools, session_index.clone());
+        crate::tools::cron_job::register(&tools, session_index.clone());
         let skills = Arc::new(SkillRegistry::new());
         crate::skills::builtin::register_all(&skills);
         crate::tools::builtin::register_skill_tools(&tools, skills.clone());

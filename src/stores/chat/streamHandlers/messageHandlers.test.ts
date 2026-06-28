@@ -30,7 +30,7 @@ describe('messageHandlers', () => {
     expect(conv.messages[0].contentStreaming).toBe(true)
   })
 
-  it('handleMessageStart patches run state', () => {
+  it('handleMessageStart patches run state when shell exists', () => {
     const conv = sampleConversation()
     const patchRunState = vi.fn()
     const ctx = createMockStreamHandlerContext([conv], { patchRunState })
@@ -43,6 +43,17 @@ describe('messageHandlers', () => {
       generating: true,
       activeMessageId: 'a1'
     })
+  })
+
+  it('handleMessageStart skips run state when shell is missing', () => {
+    const patchRunState = vi.fn()
+    const ctx = createMockStreamHandlerContext([], { patchRunState })
+    handleMessageStart(ctx, {
+      kind: 'message_start',
+      conversationId: 'webhook:github',
+      messageId: 'a1'
+    })
+    expect(patchRunState).not.toHaveBeenCalled()
   })
 
   it('handleAssistantJsonPartial clears thoughts on empty string', () => {

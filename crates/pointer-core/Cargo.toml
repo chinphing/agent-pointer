@@ -33,6 +33,7 @@ xcap = { version = "0.9", features = ["wgc"] }
 tokio-util = "0.7"
 urlencoding = "2"
 uuid = { version = "1", features = ["v4", "v5"] }
+subtle = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
 tempfile = "3"

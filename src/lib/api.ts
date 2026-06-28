@@ -128,8 +128,9 @@ export interface RuntimeApi {
   updateCronJob(jobId: string, input: import('../types/automation').UpdateCronJobInput): Promise<import('../types/automation').CronJob>
   deleteCronJob(jobId: string): Promise<boolean>
   getWebhookConfig(): Promise<import('../types/automation').WebhookConfig>
-  setWebhookToken(token: string): Promise<import('../types/automation').WebhookConfig>
-  clearWebhookToken(): Promise<boolean>
+  setWebhookSourceToken(src: string, token: string): Promise<import('../types/automation').WebhookConfig>
+  clearWebhookSourceToken(src: string): Promise<boolean>
+  clearWebhookLegacyToken(): Promise<boolean>
 }
 
 export const api: RuntimeApi = isTauriRuntime() ? tauriApi : webApi
@@ -251,5 +252,6 @@ export const createCronJob = api.createCronJob
 export const updateCronJob = api.updateCronJob
 export const deleteCronJob = api.deleteCronJob
 export const getWebhookConfig = api.getWebhookConfig
-export const setWebhookToken = api.setWebhookToken
-export const clearWebhookToken = api.clearWebhookToken
+export const setWebhookSourceToken = api.setWebhookSourceToken
+export const clearWebhookSourceToken = api.clearWebhookSourceToken
+export const clearWebhookLegacyToken = api.clearWebhookLegacyToken

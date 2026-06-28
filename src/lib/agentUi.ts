@@ -141,6 +141,18 @@ export function composerAgentLabel(
   return ui.composerLabel.trim() || COMPOSER_LABELS[agent.id] || '通用助手'
 }
 
+/** User-visible Chinese label for an agent id (cron list, traces, etc.). */
+export function composerAgentLabelById(
+  agentId: string | null | undefined,
+  agents?: AgentDef[],
+  settings?: Pick<ModelSettings, 'agentUiOverrides'>
+): string {
+  const id = agentId?.trim() || DEFAULT_LEAD_AGENT_ID
+  const agent = agents?.find(a => a.id === id)
+  if (agent) return composerAgentLabel(agent, settings)
+  return COMPOSER_LABELS[id] ?? id
+}
+
 /** Resolve user-visible label for a sub-agent trace row (handles legacy English slug in `trace.name`). */
 export function traceAgentLabel(
   trace: { id: string; name: string },

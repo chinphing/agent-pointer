@@ -503,14 +503,19 @@ export async function getWebhookConfig(): Promise<WebhookConfig> {
   return await request<WebhookConfig>('/api/webhooks/config')
 }
 
-export async function setWebhookToken(token: string): Promise<WebhookConfig> {
+export async function setWebhookSourceToken(src: string, token: string): Promise<WebhookConfig> {
   return await request<WebhookConfig>('/api/webhooks/config', {
     method: 'POST',
-    body: JSON.stringify({ token })
+    body: JSON.stringify({ src, token })
   })
 }
 
-export async function clearWebhookToken(): Promise<boolean> {
-  await request<void>('/api/webhooks/config/token', { method: 'DELETE' })
+export async function clearWebhookSourceToken(src: string): Promise<boolean> {
+  await request<void>(`/api/webhooks/config/${encodeURIComponent(src)}`, { method: 'DELETE' })
+  return true
+}
+
+export async function clearWebhookLegacyToken(): Promise<boolean> {
+  await request<void>('/api/webhooks/config/legacy', { method: 'DELETE' })
   return true
 }

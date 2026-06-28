@@ -1018,47 +1018,61 @@ pub fn get_webhook_config(
     state: State<'_, Arc<AppState>>,
 ) -> Result<pointer_core::webhook_config::WebhookConfigView, String> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
-    let configured = store.is_configured().map_err(|e| e.to_string())?;
-    let preview = if configured {
-        store.preview().map_err(|e| e.to_string())?
+    let sources: Vec<pointer_core::webhook_config::WebhookSourceView> = store
+        .list_sources()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|(src, preview)| {
+            store
+                .source_view(src, preview, String::new())
+                .map_err(|e| e.to_string())
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let legacy_configured = store.is_legacy_configured().map_err(|e| e.to_string())?;
+    let legacy_preview = if legacy_configured {
+        store.legacy_preview().map_err(|e| e.to_string())?
     } else {
         None
     };
-    // Desktop has no HTTP ingress endpoint; the URL template is empty and the
-    // UI surfaces a note that webhooks are server/web-only.
     Ok(pointer_core::webhook_config::WebhookConfigView {
-        configured,
-        preview,
+        sources,
         url_template: String::new(),
+        legacy_configured,
+        legacy_preview,
     })
 }
 
 #[tauri::command]
-pub fn set_webhook_token(
+pub fn set_webhook_source_token(
     state: State<'_, Arc<AppState>>,
+    src: String,
     token: String,
 ) -> Result<pointer_core::webhook_config::WebhookConfigView, String> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
-    if store.is_configured().map_err(|e| e.to_string())? {
-        return Err("webhook token already configured; clear it first to rotate".into());
+    if store.is_source_configured(&src).map_err(|e| e.to_string())? {
+        return Err("webhook token already configured for this source; clear it first to rotate".into());
     }
-    let inserted = store.set_token(&token).map_err(|e| e.to_string())?;
+    let inserted = store.set_source_token(&src, &token).map_err(|e| e.to_string())?;
     if !inserted {
-        return Err("webhook token already configured".into());
+        return Err("webhook token already configured for this source".into());
     }
-    let preview = store.preview().map_err(|e| e.to_string())?;
-    Ok(pointer_core::webhook_config::WebhookConfigView {
-        configured: true,
-        preview,
-        url_template: String::new(),
-    })
+    get_webhook_config(state)
 }
 
 #[tauri::command]
-pub fn clear_webhook_token(
+pub fn clear_webhook_source_token(
+    state: State<'_, Arc<AppState>>,
+    src: String,
+) -> Result<bool, String> {
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
+    store.clear_source_token(&src).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn clear_webhook_legacy_token(
     state: State<'_, Arc<AppState>>,
 ) -> Result<bool, String> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
-    store.clear_token().map_err(|e| e.to_string())
+    store.clear_legacy_token().map_err(|e| e.to_string())
 }
 

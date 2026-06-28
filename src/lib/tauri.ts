@@ -412,10 +412,14 @@ export async function getWebhookConfig(): Promise<WebhookConfig> {
   return await invoke<WebhookConfig>('get_webhook_config')
 }
 
-export async function setWebhookToken(token: string): Promise<WebhookConfig> {
-  return await invoke<WebhookConfig>('set_webhook_token', { token })
+export async function setWebhookSourceToken(src: string, token: string): Promise<WebhookConfig> {
+  return await invoke<WebhookConfig>('set_webhook_source_token', { src, token })
 }
 
-export async function clearWebhookToken(): Promise<boolean> {
-  return await invoke<boolean>('clear_webhook_token')
+export async function clearWebhookSourceToken(src: string): Promise<boolean> {
+  return await invoke<boolean>('clear_webhook_source_token', { src })
+}
+
+export async function clearWebhookLegacyToken(): Promise<boolean> {
+  return await invoke<boolean>('clear_webhook_legacy_token')
 }

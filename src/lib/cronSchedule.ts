@@ -161,3 +161,42 @@ function clampInt(v: unknown, lo: number, hi: number, fallback: number): number 
 function pad(n: number): string {
   return String(Math.trunc(n)).padStart(2, '0')
 }
+
+/** Local hour for cron session daily rollover (matches backend). */
+export const CRON_SESSION_RESET_AT_HOUR = 4
+
+/** Most recent daily reset boundary (ms) at `atHour` local, mirroring backend. */
+export function dailyResetAtMs(now: Date, atHour: number = CRON_SESSION_RESET_AT_HOUR): number {
+  const hour = Math.min(23, Math.max(0, atHour))
+  const resetToday = new Date(now)
+  resetToday.setHours(hour, 0, 0, 0)
+  if (now.getTime() >= resetToday.getTime()) {
+    return resetToday.getTime()
+  }
+  const resetYesterday = new Date(resetToday)
+  resetYesterday.setDate(resetYesterday.getDate() - 1)
+  return resetYesterday.getTime()
+}
+
+/** Active cron transcript session id at `at` (local reset window). */
+export function currentCronSessionId(jobId: string, at: Date = new Date()): string {
+  const boundary = new Date(dailyResetAtMs(at))
+  const y = boundary.getFullYear()
+  const m = pad(boundary.getMonth() + 1)
+  const d = pad(boundary.getDate())
+  return `cron:${jobId}:${y}${m}${d}`
+}
+
+/** Resolve the session id the UI should open for a cron job row. */
+export function resolveCronViewSessionId(job: {
+  id: string
+  currentSessionId?: string | null
+  lastRunAtMs?: number | null
+}): string | null {
+  const persisted = job.currentSessionId?.trim()
+  if (persisted) return persisted
+  if (job.lastRunAtMs) {
+    return currentCronSessionId(job.id, new Date(job.lastRunAtMs))
+  }
+  return null
+}

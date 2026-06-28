@@ -36,14 +36,33 @@ export interface UpdateCronJobInput {
   enabled?: boolean
 }
 
+/** One configured webhook ingress source with masked token preview. */
+export interface WebhookSource {
+  /** URL path segment (`POST /api/webhooks/{src}`). */
+  src: string
+  preview: string
+  /** Full ingress URL (web/server only; empty on desktop). */
+  url?: string
+  /** Dedicated session id (`webhook:{src}`). */
+  conversationId: string
+  /** Whether the session has stored messages (first ingress fired). */
+  hasTranscript: boolean
+}
+
 /**
- * Webhook token config. `preview` is a masked token (e.g. `****1234`) shown
- * after the one-time assignment; the raw token is never returned to the UI.
- * `urlTemplate` is empty on desktop (no HTTP ingress); the web/server build
- * fills in `{base}/api/webhooks/{src}`.
+ * Webhook config: per-source tokens. Each source has its own Bearer token;
+ * ingress rejects requests when the token does not match the `:src` path.
+ * `legacyConfigured` indicates the deprecated single global token (applies to
+ * all sources until cleared and replaced with per-source tokens).
  */
 export interface WebhookConfig {
-  configured: boolean
-  preview?: string | null
+  sources: WebhookSource[]
   urlTemplate: string
+  legacyConfigured: boolean
+  legacyPreview?: string | null
+}
+
+export interface SetWebhookSourceInput {
+  src: string
+  token: string
 }

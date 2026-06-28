@@ -74,6 +74,7 @@ export function createMockStreamHandlerContext(
     scheduleDesktopNoticeRemoval: noop,
     applySessionAgentToConversation: noop,
     loadActiveComposerDraft: noop,
+    refreshConversationMessages: noop,
     ...overrides
   }
 }

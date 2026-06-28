@@ -184,6 +184,13 @@ impl ConversationStore {
         })
     }
 
+    /// Ensure a dedicated webhook session row exists for `:src` on first ingress.
+    pub fn ensure_webhook_session(&self, src: &str) -> Result<()> {
+        let conversation_id = crate::webhook_config::webhook_conversation_id(src);
+        let title = crate::webhook_config::webhook_session_title(src);
+        self.ensure_cron_session(&conversation_id, &title)
+    }
+
     /// P0: insert or update one message.
     pub fn upsert_message(&self, conversation_id: &str, msg: &ChatMessage) -> Result<()> {
         self.db
@@ -461,6 +468,11 @@ impl ConversationStore {
     pub fn app_secret_delete(&self, label: &str) -> Result<bool> {
         let conn = self.db.conn.lock();
         app_secrets::delete(&conn, label)
+    }
+
+    pub fn app_secret_list_by_prefix(&self, prefix: &str) -> Result<Vec<(String, i64)>> {
+        let conn = self.db.conn.lock();
+        app_secrets::list_by_prefix(&conn, prefix)
     }
 
     #[cfg(test)]

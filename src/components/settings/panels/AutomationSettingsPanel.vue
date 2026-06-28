@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Clock, Plus, Trash2, Webhook, ShieldCheck, AlertTriangle, RefreshCw, MessagesSquare, CircleHelp, X, Copy, Check } from 'lucide-vue-next'
+import { Clock, Plus, Trash2, Webhook, ShieldCheck, AlertTriangle, AlertCircle, RefreshCw, MessagesSquare, CircleHelp, X, Copy, Check } from 'lucide-vue-next'
 import { useChatStore } from '../../../stores/chat'
 import {
   listCronJobs,
@@ -18,7 +18,7 @@ import { composerAgentLabel, composerAgentLabelById, resolveAgentUi } from '../.
 import { sortComposerAgents } from '../../../lib/agentIcons'
 import { describeCron, resolveCronViewSessionId } from '../../../lib/cronSchedule'
 import { resolveWebhookViewSessionId } from '../../../lib/webhookIngress'
-import { WEBHOOK_URL_TEMPLATE, generateWebhookToken, recallWebhookToken, rememberWebhookToken, forgetWebhookToken, webhookIngressCurl, webhookIngressUrl } from '../../../lib/webhookIngress'
+import { WEBHOOK_URL_TEMPLATE, generateWebhookToken, webhookIngressCurl, webhookIngressUrl } from '../../../lib/webhookIngress'
 import { DEFAULT_LEAD_AGENT_ID } from '../../../types/chat'
 import type { AgentDef } from '../../../types/chat'
 import type { CronJob, CreateCronJobInput, WebhookConfig, WebhookSource } from '../../../types/automation'
@@ -46,6 +46,7 @@ const pendingDeleteWebhookSrc = ref<string | null>(null)
 const clearingWebhookSrc = ref<string | null>(null)
 const pendingDeleteJobId = ref<string | null>(null)
 const copiedWebhookCurlSrc = ref<string | null>(null)
+const copiedWebhookTokenSrc = ref<string | null>(null)
 
 // Agent list for the single "agent" picker (mirrors the composer: enabled
 // user-selectable workers, Chinese label, default 通用助手).
@@ -80,6 +81,9 @@ const WEBHOOK_SECTION_DESC =
 const WEBHOOK_REF_BLOCKING =
   'body 传 "blocking": true 时保持连接至 run 结束，返回 { ok, runId, text }；可选 "timeoutSeconds"（默认 120，最大 600）。未传时为 202 异步 ack。'
 const LEGACY_TOKEN_DESC = '检测到旧版全局 Token，对所有来源生效。建议改为按来源配置。'
+const AUTH_HEADER_HINT =
+  '留空则使用 Authorization: Bearer 或 X-Pointer-Token'
+const TOKEN_HINT = '自动生成 Token，添加后可复制。'
 
 function fmtMs(ms?: number | null): string {
   if (!ms) return '—'
@@ -232,7 +236,6 @@ async function submitWebhookSource() {
   webhookError.value = null
   try {
     webhook.value = await setWebhookSourceToken(src, token, authHeaderName)
-    rememberWebhookToken(src, token)
     webhookSrcInput.value = ''
     tokenInput.value = ''
     authHeaderInput.value = ''
@@ -263,7 +266,6 @@ async function removeWebhookSource(src: string) {
   webhookError.value = null
   try {
     await clearWebhookSourceToken(src)
-    forgetWebhookToken(src)
     await refreshWebhook()
   } catch (e) {
     webhookError.value = (e as Error).message
@@ -292,9 +294,9 @@ function viewWebhookSession(source: WebhookSource) {
 }
 
 function copyWebhookCurl(source: WebhookSource) {
-  const token = recallWebhookToken(source.src)
+  const token = source.token?.trim()
   if (!token) {
-    webhookError.value = 'Token 仅在本页创建时保存，请删除后重新添加来源再复制 curl'
+    webhookError.value = 'Token 不可用'
     return
   }
   webhookError.value = null
@@ -305,6 +307,21 @@ function copyWebhookCurl(source: WebhookSource) {
       if (copiedWebhookCurlSrc.value === source.src) copiedWebhookCurlSrc.value = null
     }, 2000)
   }).catch(e => console.warn('[automation] copyWebhookCurl failed', e))
+}
+
+function copyWebhookToken(source: WebhookSource) {
+  const token = source.token?.trim()
+  if (!token) {
+    webhookError.value = 'Token 不可用'
+    return
+  }
+  webhookError.value = null
+  navigator.clipboard.writeText(token).then(() => {
+    copiedWebhookTokenSrc.value = source.src
+    setTimeout(() => {
+      if (copiedWebhookTokenSrc.value === source.src) copiedWebhookTokenSrc.value = null
+    }, 2000)
+  }).catch(e => console.warn('[automation] copyWebhookToken failed', e))
 }
 
 async function clearLegacyToken() {
@@ -552,7 +569,15 @@ onMounted(() => {
             >
               <span class="font-medium text-foreground whitespace-nowrap shrink-0">{{ s.src }}</span>
               <span class="text-muted/50 shrink-0">·</span>
-              <span class="font-mono text-muted truncate">{{ s.preview }}</span>
+              <button
+                type="button"
+                class="font-mono text-muted truncate hover:text-foreground cursor-pointer text-left min-w-0"
+                :title="copiedWebhookTokenSrc === s.src ? '已复制 Token' : '复制 Token'"
+                @click="copyWebhookToken(s)"
+              >
+                <span v-if="copiedWebhookTokenSrc === s.src" class="text-emerald-500">已复制</span>
+                <span v-else>{{ s.preview }}</span>
+              </button>
               <span v-if="s.authHeaderName" class="text-muted/50 shrink-0">·</span>
               <span v-if="s.authHeaderName" class="font-mono text-[10px] text-muted/80 truncate">{{ s.authHeaderName }}</span>
               <span class="text-muted/50 shrink-0">·</span>
@@ -572,7 +597,7 @@ onMounted(() => {
               </button>
               <button
                 class="h-7 w-7 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center shrink-0 cursor-pointer text-muted"
-                :title="recallWebhookToken(s.src) ? '复制 curl' : '复制 curl（需本页创建时保存的 Token）'"
+                title="复制 curl"
                 @click="copyWebhookCurl(s)"
               >
                 <Check v-if="copiedWebhookCurlSrc === s.src" class="w-3.5 h-3.5 text-emerald-500" />
@@ -604,23 +629,35 @@ onMounted(() => {
         <!-- Create form -->
         <div v-if="showWebhookForm" class="rounded-lg border border-accent/30 bg-accent/5 p-4 space-y-3">
           <div class="flex items-end gap-4 min-w-0">
-            <div class="flex items-center gap-3 shrink-0">
-              <span class="text-[11px] text-muted whitespace-nowrap">来源标识</span>
+            <label class="block shrink-0 space-y-2">
+              <div class="flex h-[14px] items-center">
+                <span class="text-[11px] text-muted whitespace-nowrap">来源标识</span>
+              </div>
               <input
                 v-model="webhookSrcInput"
-                class="input-base w-[20ch] max-w-[20ch] shrink-0"
+                class="input-base w-[20ch] max-w-[20ch] font-mono text-[12px]"
                 placeholder="github"
                 :disabled="settingToken"
               />
-            </div>
+            </label>
             <label class="block flex-1 min-w-0 space-y-2">
-              <span class="text-[11px] text-muted">Token</span>
+              <div class="flex h-[14px] items-center gap-1">
+                <span class="text-[11px] text-muted whitespace-nowrap">Token</span>
+                <span
+                  class="inline-flex items-center text-muted hover:text-foreground transition-colors cursor-help shrink-0"
+                  :title="TOKEN_HINT"
+                >
+                  <AlertCircle class="w-3.5 h-3.5 pointer-events-none" />
+                </span>
+              </div>
               <div class="flex items-center gap-2 min-w-0">
                 <input
                   v-model="tokenInput"
                   type="password"
-                  class="input-base flex-1 min-w-0"
+                  class="input-base flex-1 min-w-0 font-mono text-[12px]"
                   placeholder="Bearer Token（仅可设置一次）"
+                  autocomplete="new-password"
+                  spellcheck="false"
                   :disabled="settingToken"
                 />
                 <button
@@ -635,34 +672,38 @@ onMounted(() => {
               </div>
             </label>
             <label class="block shrink-0 space-y-2">
-              <span class="text-[11px] text-muted whitespace-nowrap">鉴权 Header</span>
+              <div class="flex h-[14px] items-center gap-1">
+                <span class="text-[11px] text-muted whitespace-nowrap">鉴权 Header</span>
+                <span
+                  class="inline-flex items-center text-muted hover:text-foreground transition-colors cursor-help shrink-0"
+                  :title="AUTH_HEADER_HINT"
+                >
+                  <AlertCircle class="w-3.5 h-3.5 pointer-events-none" />
+                </span>
+              </div>
               <input
                 v-model="authHeaderInput"
-                class="input-base w-[24ch] max-w-[24ch]"
-                placeholder="X-Codeup-Token"
+                class="input-base w-[24ch] max-w-[24ch] font-mono text-[12px]"
+                placeholder="可选"
                 :disabled="settingToken"
               />
             </label>
           </div>
-          <p class="text-[11px] text-muted">留空则使用 Authorization: Bearer 或 X-Pointer-Token</p>
           <p v-if="webhookFormError" class="text-xs text-red-500">{{ webhookFormError }}</p>
-          <div class="flex items-center justify-between gap-3 min-w-0">
-            <p class="text-[11px] text-muted min-w-0">自动生成token，添加后可以复制。</p>
-            <div class="flex items-center gap-2 shrink-0">
-              <button
-                class="h-8 px-3 rounded-md bg-hover hover:bg-hover text-xs text-foreground cursor-pointer"
-                @click="showWebhookForm = false"
-              >
-                取消
-              </button>
-              <button
-                class="h-8 px-4 rounded-md bg-accent text-white text-xs font-medium hover:opacity-95 cursor-pointer disabled:opacity-50"
-                :disabled="settingToken"
-                @click="submitWebhookSource"
-              >
-                {{ settingToken ? '添加中…' : '添加' }}
-              </button>
-            </div>
+          <div class="flex items-center justify-end gap-2 shrink-0">
+            <button
+              class="h-8 px-3 rounded-md bg-hover hover:bg-hover text-xs text-foreground cursor-pointer"
+              @click="showWebhookForm = false"
+            >
+              取消
+            </button>
+            <button
+              class="h-8 px-4 rounded-md bg-accent text-white text-xs font-medium hover:opacity-95 cursor-pointer disabled:opacity-50"
+              :disabled="settingToken"
+              @click="submitWebhookSource"
+            >
+              {{ settingToken ? '添加中…' : '添加' }}
+            </button>
           </div>
         </div>
 
@@ -676,11 +717,11 @@ onMounted(() => {
           <div class="min-w-0">
             鉴权：默认 <code class="font-mono text-foreground/90">Authorization: Bearer …</code>
             或 <code class="font-mono text-foreground/90">X-Pointer-Token</code>；
-            每个来源可配置自定义 Header（如 Codeup 的 <code class="font-mono text-foreground/90">X-Codeup-Token</code>）
+            每个来源可配置自定义 Header 明文 Token
           </div>
           <div class="min-w-0">
             消息：优先 <code class="font-mono text-foreground/90">text</code> /
-            <code class="font-mono text-foreground/90">message</code>；无则整段 body 作为消息（兼容 GitHub 等原生 JSON）
+            <code class="font-mono text-foreground/90">message</code>；无则整段 body 作为消息（兼容第三方原生 JSON）
           </div>
           <div class="min-w-0" :title="WEBHOOK_REF_BLOCKING">
             同步模式：<code class="font-mono text-foreground/90">"blocking": true</code>，

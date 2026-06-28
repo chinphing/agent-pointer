@@ -1022,9 +1022,9 @@ pub fn get_webhook_config(
         .list_sources()
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|(src, preview)| {
+        .map(|(src, token)| {
             store
-                .source_view(src, preview, String::new())
+                .source_view(src, token, String::new())
                 .map_err(|e| e.to_string())
         })
         .collect::<Result<Vec<_>, String>>()?;

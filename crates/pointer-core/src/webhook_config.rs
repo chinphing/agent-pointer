@@ -39,6 +39,8 @@ pub fn webhook_session_title(src: &str) -> String {
 #[serde(rename_all = "camelCase")]
 pub struct WebhookSourceView {
     pub src: String,
+    /// Full token for settings UI copy (local IPC / trusted settings surface).
+    pub token: String,
     pub preview: String,
     /// Optional custom auth header; null = default Bearer + X-Pointer-Token.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -106,8 +108,9 @@ impl<'a> WebhookTokenStore<'a> {
     }
 
     /// Build a UI view row for one configured source.
-    pub fn source_view(&self, src: String, preview: String, url: String) -> Result<WebhookSourceView> {
+    pub fn source_view(&self, src: String, token: String, url: String) -> Result<WebhookSourceView> {
         use crate::conversation_store::webhook_sources;
+        let preview = mask_token(&token);
         let conversation_id = webhook_session_key(&src);
         let legacy_has = self.store.message_count(&conversation_id)? > 0;
         let record = self.store.webhook_sources_get(&src)?;
@@ -126,6 +129,7 @@ impl<'a> WebhookTokenStore<'a> {
                 > 0;
         Ok(WebhookSourceView {
             src,
+            token,
             preview,
             auth_header_name,
             url,
@@ -166,14 +170,14 @@ impl<'a> WebhookTokenStore<'a> {
         Ok(name.filter(|s| !s.trim().is_empty()))
     }
 
-    /// List all per-source tokens (src + masked preview).
+    /// List all per-source tokens (src + full token).
     pub fn list_sources(&self) -> Result<Vec<(String, String)>> {
         let rows = self.store.app_secret_list_by_prefix(TOKEN_LABEL_PREFIX)?;
         let mut out = Vec::new();
         for (label, _) in rows {
             if let Some(src) = Self::src_from_label(&label) {
-                if let Some(preview) = self.preview_for_label(&label)? {
-                    out.push((src, preview));
+                if let Some(token) = self.get_token_for_label(&label)? {
+                    out.push((src, token));
                 }
             }
         }

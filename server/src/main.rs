@@ -1672,10 +1672,10 @@ fn build_webhook_config_view(
         .list_sources()
         .map_err(ApiError::from)?
         .into_iter()
-        .map(|(src, preview)| {
+        .map(|(src, token)| {
             let url = webhook_url_for_src(&src);
             store
-                .source_view(src, preview, url)
+                .source_view(src, token, url)
                 .map_err(ApiError::from)
         })
         .collect::<Result<Vec<_>, ApiError>>()?;

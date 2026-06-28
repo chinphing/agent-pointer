@@ -78,7 +78,7 @@ SSE 终态处理是无竞态的：先订阅总线，再读 `runs` 表；已终�
 | `message` | OpenClaw `/hooks/agent` 同名 |
 | `messages` | 消息数组；仅 1 条 user 时 append 到 session；含 assistant/tool 或多条时视为完整历史 override |
 
-可选：`name`（前缀 `[Name] …`）、`conversationId`、`agentMode`、`leadAgentId`、`idempotencyKey`、`enabledSkillIds`、`workspaceRoot`、`blocking`、`timeoutSeconds`。
+可选控制字段见下表（均可与 raw-body 回退共存；第三方 JSON 里通常只带消息相关字段，控制字段由 Pointer 格式请求显式传入）：
 
 **2. Raw body 回退** — 当 JSON 合法但无上述结构化消息（或 `text`/`message` 为空、`messages` 为空数组）：
 
@@ -87,6 +87,24 @@ SSE 终态处理是无竞态的：先订阅总线，再读 `runs` 表；已终�
 - 回退时 `name` 默认用 `:src`（如 `[github] {"ref":…}`），便于 GitHub/Codeup 等第三方原生 payload 零配置接入
 
 Malformed JSON → **400**；空 body → **422**；超限 → **413**。
+
+#### 可选 body 字段（`WebhookIngressBody`）
+
+与 `text` / `message` / `messages` 不同，下表字段控制 **dispatch / HTTP 行为**，不参与 raw-body 回退判定（仍从 JSON 解析）。
+
+| 字段 | 默认 | 作用 |
+|------|------|------|
+| `name` | 无 | 为本轮 user 消息加前缀 `[Name] …`；raw-body 回退且未传时改用 `:src`（如 `[github]`）。不改 session 标题。 |
+| `conversationId` | 无 | 强制写入指定会话 id；缺省为 `webhook:{src}:{yyyymmdd}`（04:00 日切）。一般第三方 webhook 勿传。 |
+| `agentMode` | 全局设置 | 本次 run 模式（如 `single` / `supervisor`），传入 `run_chat`。 |
+| `leadAgentId` | 全局设置 | 本次主 Agent id（如 `general`），传入 `run_chat`。 |
+| `idempotencyKey` | 无 | 幂等键；`runs` 表命中则返回已有 `runId`（`reused`），不重复执行。适合 GitHub 重试 delivery。 |
+| `enabledSkillIds` | `[]` | 本次启用的 Skill id 列表；空则走 session/全局 Skill 逻辑。 |
+| `workspaceRoot` | 空 | 本次工作区根路径；空则按 session 默认 workspace 解析（与聊天一致）。 |
+| `blocking` | `false` | `true` 时 HTTP 同步等待 run 结束并返回 assistant 文本；`false` 时 202 异步 ack。 |
+| `timeoutSeconds` | `120` | 仅 `blocking: true` 有效；等待上限（秒），最大 600；超时 504。 |
+
+实现类型：`crates/pointer-core/src/webhook_ingress.rs`（`WebhookIngressBody`）；ingress 接线：`server/src/main.rs::webhook_ingress`。
 
 ### 会话与 dispatch
 

@@ -440,7 +440,7 @@ static_dir = "dist"          # 相对路径相对于配置文件所在目录
 # 数据目录与日志默认与桌面客户端相同（PointerApp/logs/，debug 为 PointerAppDev），无需配置
 
 [openpointer]
-api_base = "https://api.openpointer.cn"
+api_base = "https://pointer-api.readflowai.com"
 oauth_client_secret = "your-secret"
 ```
 

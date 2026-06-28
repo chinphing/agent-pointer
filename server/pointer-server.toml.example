@@ -19,10 +19,10 @@ static_dir = "dist"
 # public_url = "https://pointer.example.com"
 
 [openpointer]
-api_base = "https://api.openpointer.cn"
+api_base = "https://pointer-api.readflowai.com"
 # Must match pointer-official API env THIRD_PARTY_OAUTH_EXCHANGE_SECRET (NOT JWT_SECRET).
 oauth_client_secret = "replace-me"
 
 # Optional: any additional env vars (KEY=VALUE)
 # [env]
-# POINTER_API_BASE = "https://api.openpointer.cn"
+# POINTER_API_BASE = "https://pointer-api.readflowai.com"

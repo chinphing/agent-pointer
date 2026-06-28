@@ -59,7 +59,7 @@
     "windows": {
       "digestAlgorithm": "sha256",
       "wix": {
-        "language": ["en-US", "zh-CN"]
+        "language": "zh-CN"
       }
     },
     "macOS": {

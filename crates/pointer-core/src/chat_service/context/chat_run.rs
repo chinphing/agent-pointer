@@ -12,7 +12,6 @@ pub struct ChatRunRequest {
     pub agent_mode: Option<String>,
     pub lead_agent_id_override: Option<String>,
     pub tool_rounds_used_single_start: u32,
-    pub tool_rounds_used_supervisor_start: u32,
     pub workspace_root: String,
     /// Frontend override; when `Some(true)` skip inheriting another conversation's workspace.
     pub workspace_inherit_disabled: Option<bool>,

@@ -68,7 +68,6 @@ pub async fn run_chat(
         agent_mode,
         lead_agent_id_override,
         tool_rounds_used_single_start,
-        tool_rounds_used_supervisor_start,
         workspace_root,
         workspace_inherit_disabled,
         run_id: run_id.clone(),

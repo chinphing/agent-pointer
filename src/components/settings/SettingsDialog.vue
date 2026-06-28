@@ -67,7 +67,12 @@ const sections = computed(() => {
   const merged = showDebugMenus.value
     ? [...alwaysSections, ...debugSections]
     : [...alwaysSections]
-  if (!isTauriRuntime()) return merged
+  // "平台账户" (account/login) is available on both desktop and web — the web
+  // server now has a PKCE login flow. "云主机" (cloud agent management) is still
+  // desktop-only because it drives Tauri window operations.
+  if (!isTauriRuntime()) {
+    return [{ id: 'account', label: '平台账户', desc: '登录与凭据', icon: UserCircle }, ...merged]
+  }
   return [
     { id: 'account', label: '平台账户', desc: '登录与凭据', icon: UserCircle },
     { id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud },

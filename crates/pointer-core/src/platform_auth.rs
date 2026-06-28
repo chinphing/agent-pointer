@@ -9,6 +9,7 @@ use parking_lot::RwLock;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -92,6 +93,10 @@ pub struct PlatformAuthManager {
     inner: RwLock<Option<PlatformSession>>,
     /// 串行化 refresh / 换票，避免并发使用同一 refresh token。
     refresh_lock: Mutex<()>,
+    /// Set by `clear_session_async` so a concurrent refresh/login cannot
+    /// re-create the session (via `set_session`) after logout clears it.
+    /// Reset to `false` at the start of a new login (`exchange_authorization_code`).
+    logging_out: AtomicBool,
     http: reqwest::Client,
     /// 进行中的 `run_platform_login_flow`；`cancel_pending_login` 可中止等待回调。
     login_cancel: RwLock<Option<CancellationToken>>,
@@ -102,6 +107,7 @@ impl PlatformAuthManager {
         Self {
             inner: RwLock::new(None),
             refresh_lock: Mutex::new(()),
+            logging_out: AtomicBool::new(false),
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(60))
                 .build()
@@ -168,6 +174,10 @@ impl PlatformAuthManager {
     }
 
     pub fn set_session(&self, session: PlatformSession) {
+        if self.logging_out.load(Ordering::SeqCst) {
+            log::info!("platform_auth: set_session skipped (logout in progress)");
+            return;
+        }
         if !session.refresh_token.trim().is_empty() {
             if let Err(e) = storage::save_platform_refresh_token(&session.refresh_token) {
                 log::warn!("platform_auth: save refresh to auth.dat failed: {e}");
@@ -183,6 +193,7 @@ impl PlatformAuthManager {
     }
 
     pub fn clear_session(&self) {
+        self.logging_out.store(true, Ordering::SeqCst);
         let _guard = self.refresh_lock.blocking_lock();
         self.clear_session_inner();
     }
@@ -190,9 +201,24 @@ impl PlatformAuthManager {
     /// Async variant of [`clear_session`] for use inside async runtimes.
     /// The sync version uses `tokio::Mutex::blocking_lock` which panics inside
     /// a tokio multi-threaded runtime; callers in `async fn` paths must use this.
+    ///
+    /// Sets `logging_out` so a concurrent refresh/login cannot re-create the
+    /// session via `set_session` after we clear it. Acquires `refresh_lock`
+    /// with a short timeout so logout never hangs on a stuck/slow refresh
+    /// (e.g. platform API unreachable); on timeout it proceeds without the
+    /// lock — the `logging_out` flag makes that race-safe.
     pub async fn clear_session_async(&self) {
-        let _guard = self.refresh_lock.lock().await;
-        self.clear_session_inner();
+        self.logging_out.store(true, Ordering::SeqCst);
+        match tokio::time::timeout(Duration::from_secs(3), self.refresh_lock.lock()).await {
+            Ok(_guard) => self.clear_session_inner(),
+            Err(_) => {
+                log::warn!(
+                    "platform_auth: logout timed out waiting for refresh_lock after 3s; \
+                     clearing session without lock (a concurrent refresh may have been in flight)"
+                );
+                self.clear_session_inner();
+            }
+        }
     }
 
     fn clear_session_inner(&self) {
@@ -380,6 +406,9 @@ impl PlatformAuthManager {
             "client_env": client_env,
         });
         let _guard = self.refresh_lock.lock().await;
+        // A previous logout may have set this flag; clear it so the new login
+        // session can be stored by `set_session` below.
+        self.logging_out.store(false, Ordering::SeqCst);
         let (session, creds) = self.post_token(body).await?;
         if state != "pointer-app" {
             log::debug!("platform_auth: oauth state={state}");

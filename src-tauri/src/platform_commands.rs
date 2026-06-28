@@ -43,9 +43,12 @@ pub async fn refresh_platform_session(state: State<'_, Arc<AppState>>) -> Result
 
 #[tauri::command]
 pub async fn logout_platform(state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    log::info!("platform_auth: logout_platform command start");
     state.platform_auth.clear_session_async().await;
+    log::info!("platform_auth: clear_session_async done");
     let mut platform = state.platform_config.write();
     apply_login_media_oss(&mut platform, None);
+    log::info!("platform_auth: logout_platform command done");
     Ok(())
 }
 

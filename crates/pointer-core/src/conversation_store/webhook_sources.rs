@@ -4,7 +4,7 @@ use anyhow::Result;
 use chrono::{DateTime, Local, TimeZone};
 use rusqlite::{params, Connection, OptionalExtension};
 
-use super::cron_jobs::{current_cron_session_id, CRON_SESSION_RESET_AT_HOUR, daily_reset_at_ms};
+use super::cron_jobs::{CRON_SESSION_RESET_AT_HOUR, daily_reset_at_ms};
 use crate::webhook_config::{webhook_session_key, webhook_session_title};
 
 /// Row tracking the active webhook session for one `:src`.
@@ -210,7 +210,7 @@ mod tests {
         let src = "github";
         let now = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
         let webhook_id = current_webhook_session_id(src, &now);
-        let cron_id = current_cron_session_id("x", &now);
+        let cron_id = super::cron_jobs::current_cron_session_id("x", &now);
         assert_eq!(webhook_id, "webhook:github:20260628");
         assert_eq!(cron_id, "cron:x:20260628");
     }

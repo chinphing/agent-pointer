@@ -161,7 +161,7 @@ pub fn resolve_start_menu_launch_path(app: &str) -> Option<PathBuf> {
         picked.path.display(),
         picked.identifier
     );
-    Some(picked.path)
+    Some(picked.path.clone())
 }
 
 fn collect_all_start_menu_launch_entries() -> Result<Vec<StartMenuLaunchEntry>> {

@@ -1,7 +1,7 @@
 //! Load persisted task board JSON as v4 [`BoardDocument`].
 
 use super::model::{
-    BoardDocument, BoardItem, BoardMeta, WorkItemMode, BOARD_VERSION, meta_from_value,
+    BoardDocument, BoardItem, WorkItemMode, BOARD_VERSION, meta_from_value,
 };
 use serde_json::Value;
 

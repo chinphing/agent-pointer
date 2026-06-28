@@ -1220,7 +1220,11 @@ async fn refresh_platform_session(
 
 /// Resolve the externally-reachable base URL for OAuth `redirect_uri`.
 /// Prefers `POINTER_SERVER_PUBLIC_URL`; falls back to the host portion of
-/// `POINTER_SERVER_ADDR` only when it is not a loopback address.
+/// `POINTER_SERVER_ADDR`. For loopback binds (127.0.0.1 / 0.0.0.0 / localhost)
+/// the fallback uses `http://127.0.0.1:{port}` so local development works
+/// without configuration — the browser is on the same machine and can reach
+/// the callback. Production deployments behind a public domain should set
+/// `POINTER_SERVER_PUBLIC_URL` explicitly to override this.
 fn resolve_server_public_url() -> Option<String> {
     if let Ok(raw) = env::var("POINTER_SERVER_PUBLIC_URL") {
         let trimmed = raw.trim().trim_end_matches('/').to_string();
@@ -1229,15 +1233,18 @@ fn resolve_server_public_url() -> Option<String> {
         }
     }
     let addr = env::var("POINTER_SERVER_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".into());
-    let host = addr.split(':').next().unwrap_or("").trim();
-    if host.is_empty()
-        || host == "127.0.0.1"
-        || host == "0.0.0.0"
-        || host.eq_ignore_ascii_case("localhost")
-    {
+    let (host, port) = match addr.rsplit_once(':') {
+        Some((h, p)) => (h.trim(), p.trim()),
+        None => return None,
+    };
+    if host.is_empty() || port.is_empty() {
         return None;
     }
-    Some(format!("http://{host}"))
+    if host == "0.0.0.0" || host == "127.0.0.1" || host.eq_ignore_ascii_case("localhost") {
+        // Loopback bind: the browser is local, so 127.0.0.1:{port} is reachable.
+        return Some(format!("http://127.0.0.1:{port}"));
+    }
+    Some(format!("http://{host}:{port}"))
 }
 
 fn random_state_token() -> String {

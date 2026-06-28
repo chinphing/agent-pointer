@@ -10,10 +10,12 @@ static_dir = "dist"
 # app_data_dir = "/absolute/path"
 # Public base URL (no trailing slash) reachable from end-user browsers.
 # Used to build the OAuth redirect_uri for the server-side PKCE login flow
-# ({public_url}/api/auth/oauth/callback). Required when the web UI needs
-# "Login with Pointer account". Add that callback URL to the platform env
-# POINTER_APP_REDIRECT_URIS. When omitted, the host portion of `addr` is
-# used only if it is not a loopback address.
+# ({public_url}/api/auth/oauth/callback). Add that callback URL to the platform
+# env POINTER_APP_REDIRECT_URIS. When omitted, it falls back to
+# http://{host}:{port} derived from `addr` — including loopback binds
+# (127.0.0.1 / 0.0.0.0 / localhost → http://127.0.0.1:{port}) so local
+# development works with zero config. Set this explicitly for production
+# behind a public domain or reverse proxy.
 # public_url = "https://pointer.example.com"
 
 [openpointer]

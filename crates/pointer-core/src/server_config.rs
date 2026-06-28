@@ -25,8 +25,10 @@ struct ServerSection {
     app_data_dir: String,
     /// Public base URL (no trailing slash) used to build OAuth `redirect_uri`
     /// for the server-side PKCE login flow. Maps to env `POINTER_SERVER_PUBLIC_URL`.
-    /// Example: `https://pointer.example.com`. When empty, falls back to the host
-    /// portion of `POINTER_SERVER_ADDR` if it is not a loopback address.
+    /// Example: `https://pointer.example.com`. When empty, the server falls back
+    /// to `http://{host}:{port}` derived from `POINTER_SERVER_ADDR`, including
+    /// loopback binds (so local development works without configuration). Set
+    /// explicitly for production behind a public domain or reverse proxy.
     #[serde(default)]
     public_url: String,
 }

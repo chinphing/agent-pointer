@@ -21,6 +21,12 @@ function parseToolArgs(argumentsJson: string | undefined): Record<string, unknow
   }
 }
 
+/** True when backend `displayLabel` is just the raw tool slug (pre-localization). */
+function isSlugToolDisplayLabel(tc: ToolCall, backendLabel: string): boolean {
+  const base = toolCallBaseName(tc.name)
+  return backendLabel === tc.name || backendLabel === base
+}
+
 /** Client fallback when backend display fields are missing (e.g. reloaded history). */
 export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summary: string } {
   const base = toolCallBaseName(tc.name)
@@ -38,8 +44,84 @@ export function resolveToolDisplayForCall(tc: ToolCall): { label: string; summar
       summary: truncateToolSummary(strField(args, ['goal']))
     }
   }
+  if (base === 'cron_job') {
+    const action = inferCronJobAction(args)
+    return {
+      label: cronJobActionLabel(action),
+      summary: truncateToolSummary(cronJobSummary(action, args))
+    }
+  }
 
-  return { label: tc.displayLabel?.trim() || tc.name, summary: '' }
+  return { label: tc.displayLabel?.trim() || tc.name, summary: tc.displaySummary?.trim() || '' }
+}
+
+/** Prefer localized label; ignore stale slug labels like `cron_job` from older backend rows. */
+export function effectiveToolDisplayLabel(tc: ToolCall): string {
+  const resolved = resolveToolDisplayForCall(tc)
+  const backend = tc.displayLabel?.trim()
+  if (!backend || isSlugToolDisplayLabel(tc, backend)) return resolved.label
+  return backend
+}
+
+/** Prefer backend summary when present; else derive from args/tool rules. */
+export function effectiveToolDisplaySummary(tc: ToolCall): string {
+  const base = toolCallBaseName(tc.name)
+  const resolved = resolveToolDisplayForCall(tc)
+  const backend = tc.displaySummary?.trim()
+  if (backend) {
+    if (base === 'cron_job' && looksLikeCronJobId(backend)) {
+      // Older backend rows stored job_id in displaySummary for enable/disable/delete.
+    } else {
+      return truncateToolSummary(backend)
+    }
+  }
+  if (resolved.summary) return truncateToolSummary(resolved.summary)
+  const fromArgs = taskBoardPatchSummaryFromArgs(tc.arguments)?.trim()
+  return fromArgs ? truncateToolSummary(fromArgs) : ''
+}
+
+function inferCronJobAction(args: Record<string, unknown>): string {
+  const explicit = strField(args, ['action'])
+  if (explicit) return explicit
+  if (strField(args, ['prompt_text']) && strField(args, ['schedule'])) return 'create'
+  return 'list'
+}
+
+function cronJobActionLabel(action: string): string {
+  switch (action) {
+    case 'create':
+      return '创建定时任务'
+    case 'list':
+      return '列出定时任务'
+    case 'enable':
+      return '启用定时任务'
+    case 'disable':
+      return '停用定时任务'
+    case 'delete':
+      return '删除定时任务'
+    default:
+      return '定时任务'
+  }
+}
+
+function cronJobSummary(action: string, args: Record<string, unknown>): string {
+  switch (action) {
+    case 'create':
+      return (
+        strField(args, ['label'])
+        || strField(args, ['schedule'])
+        || strField(args, ['prompt_text']).split('\n')[0]?.trim()
+        || ''
+      )
+    case 'list':
+      return ''
+    default:
+      return strField(args, ['label'])
+  }
+}
+
+function looksLikeCronJobId(text: string): boolean {
+  return /^cron-[0-9a-f]+$/i.test(text.trim())
 }
 
 export type ToolSummaryIcon = 'explore' | 'search' | 'terminal' | 'edit'
@@ -286,6 +368,12 @@ const SHORT_LABELS: Record<string, string> = {
   '终端命令': '终端',
   '联网搜索': '搜索',
   '文件操作': '文件',
+  '创建定时任务': '定时',
+  '列出定时任务': '定时',
+  '启用定时任务': '定时',
+  '停用定时任务': '定时',
+  '删除定时任务': '定时',
+  '定时任务': '定时',
 }
 
 export function toolShortLabel(tc: ToolCall): string {
@@ -327,9 +415,8 @@ function toolInProgress(status: ToolCall['status']): boolean {
 
 /** One-line tool status for compact dock bar (aligns with ToolCallRow label + summary + outcome). */
 export function compactToolCallStatusLine(tc: ToolCall): string {
-  const resolved = resolveToolDisplayForCall(tc)
-  const label = tc.displayLabel?.trim() || resolved.label
-  let summary = tc.displaySummary?.trim() || resolved.summary
+  const label = effectiveToolDisplayLabel(tc)
+  let summary = effectiveToolDisplaySummary(tc)
   if (!summary) {
     summary = taskBoardPatchSummaryFromArgs(tc.arguments)?.trim() ?? ''
   }

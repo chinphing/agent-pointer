@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCall } from '../types/chat'
-import { compactToolCallStatusLine, latestToolCallForCompactStatus, resolveToolDisplayForCall } from './toolCallDisplay'
+import { compactToolCallStatusLine, effectiveToolDisplayLabel, effectiveToolDisplaySummary, latestToolCallForCompactStatus, resolveToolDisplayForCall } from './toolCallDisplay'
 
 function tc(partial: Partial<ToolCall> & Pick<ToolCall, 'id' | 'name' | 'status'>): ToolCall {
   return {
@@ -57,5 +57,49 @@ describe('compactToolCallStatusLine', () => {
     )
     expect(d.label).toBe('启动应用')
     expect(d.summary).toBe('WeChat')
+  })
+
+  it('falls back display for cron_job without backend labels', () => {
+    const d = resolveToolDisplayForCall(
+      tc({
+        id: '4',
+        name: 'cron_job',
+        status: 'success',
+        arguments: JSON.stringify({
+          action: 'create',
+          prompt_text: '每天检查邮件',
+          schedule: 'daily@9:30'
+        })
+      })
+    )
+    expect(d.label).toBe('创建定时任务')
+    expect(d.summary).toBe('daily@9:30')
+  })
+
+  it('effectiveToolDisplayLabel ignores slug displayLabel from backend', () => {
+    expect(
+      effectiveToolDisplayLabel(
+        tc({
+          id: '5',
+          name: 'cron_job',
+          status: 'success',
+          displayLabel: 'cron_job',
+          displaySummary: 'cron-cb020203fab3',
+          arguments: JSON.stringify({ action: 'disable', job_id: 'cron-cb020203fab3' })
+        })
+      )
+    ).toBe('停用定时任务')
+    expect(
+      effectiveToolDisplaySummary(
+        tc({
+          id: '5',
+          name: 'cron_job',
+          status: 'success',
+          displayLabel: 'cron_job',
+          displaySummary: 'cron-cb020203fab3',
+          arguments: JSON.stringify({ action: 'disable', job_id: 'cron-cb020203fab3' })
+        })
+      )
+    ).toBe('')
   })
 })

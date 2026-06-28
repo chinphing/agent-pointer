@@ -14,7 +14,7 @@ import {
 import type { ToolCall, WebSearchSourceEntry } from '../../types/chat'
 import { useChatStore } from '../../stores/chat'
 import { taskBoardToolSummary, taskBoardPatchSummaryFromArgs } from '../../lib/messageTooling'
-import { truncateToolSummary } from '../../lib/toolCallDisplay'
+import { truncateToolSummary, effectiveToolDisplayLabel, effectiveToolDisplaySummary } from '../../lib/toolCallDisplay'
 import { openExternalUrl } from '../../lib/openExternalUrl'
 import { useMarkdownExternalLinks } from '../../composables/useMarkdownExternalLinks'
 
@@ -31,12 +31,10 @@ const isTerminal = computed(() => props.toolCall.name === 'terminal')
 const isWebSearch = computed(() => props.toolCall.name === 'web_search')
 const boardSummary = computed(() => taskBoardToolSummary(props.toolCall.result))
 
-const displayLabel = computed(() => props.toolCall.displayLabel?.trim() || props.toolCall.name)
+const displayLabel = computed(() => effectiveToolDisplayLabel(props.toolCall))
 const displaySummary = computed(() => {
-  const s = props.toolCall.displaySummary?.trim()
-  if (s) return truncateToolSummary(s)
-  const fromArgs = taskBoardPatchSummaryFromArgs(props.toolCall.arguments)
-  if (fromArgs) return truncateToolSummary(fromArgs)
+  const s = effectiveToolDisplaySummary(props.toolCall)
+  if (s) return s
   if (showResults.value) {
     const board = boardSummary.value ?? ''
     return board ? truncateToolSummary(board) : ''

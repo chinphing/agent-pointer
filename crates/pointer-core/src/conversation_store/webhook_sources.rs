@@ -210,7 +210,7 @@ mod tests {
         let src = "github";
         let now = Local.with_ymd_and_hms(2026, 6, 28, 10, 0, 0).single().unwrap();
         let webhook_id = current_webhook_session_id(src, &now);
-        let cron_id = super::cron_jobs::current_cron_session_id("x", &now);
+        let cron_id = crate::conversation_store::cron_jobs::current_cron_session_id("x", &now);
         assert_eq!(webhook_id, "webhook:github:20260628");
         assert_eq!(cron_id, "cron:x:20260628");
     }

@@ -117,7 +117,7 @@ watch(
   <div class="chat-hover-root relative chat-column flex justify-end">
     <div class="max-w-[85%] min-w-0 flex items-start gap-2 flex-row-reverse">
       <div
-        class="user-message-avatar message-avatar-slot w-8 h-8 rounded-lg shrink-0 flex items-center justify-center bg-gradient-to-br from-slate-600 to-slate-700"
+        class="message-avatar-slot w-8 h-8 rounded-lg shrink-0 flex items-center justify-center bg-gradient-to-br from-slate-600 to-slate-700"
         title="用户"
       >
         <User class="w-4 h-4 text-white" />
@@ -225,11 +225,3 @@ watch(
     </div>
   </div>
 </template>
-
-<style scoped>
-/* Keep the user avatar inside the column; the old `left-full` slot was clipped by chat overflow. */
-.user-message-avatar {
-  opacity: 1;
-  pointer-events: auto;
-}
-</style>

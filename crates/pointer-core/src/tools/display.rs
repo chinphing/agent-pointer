@@ -127,6 +127,48 @@ fn captcha_action_label(action: &str) -> &'static str {
     }
 }
 
+fn infer_cron_job_action(args: &Value) -> String {
+    if let Some(a) = args.get("action").and_then(|v| v.as_str()) {
+        let t = a.trim();
+        if !t.is_empty() {
+            return t.to_string();
+        }
+    }
+    let has_create = str_field(args, &["prompt_text"]).is_some()
+        && str_field(args, &["schedule"]).is_some();
+    if has_create {
+        "create".into()
+    } else {
+        "list".into()
+    }
+}
+
+fn cron_job_action_label(action: &str) -> &'static str {
+    match action {
+        "create" => "创建定时任务",
+        "list" => "列出定时任务",
+        "enable" => "启用定时任务",
+        "disable" => "停用定时任务",
+        "delete" => "删除定时任务",
+        _ => "定时任务",
+    }
+}
+
+fn cron_job_summary(action: &str, args: &Value) -> String {
+    match action {
+        "create" => str_field(args, &["label"])
+            .or_else(|| str_field(args, &["schedule"]))
+            .or_else(|| {
+                str_field(args, &["prompt_text"]).map(|s| {
+                    truncate(s.lines().next().unwrap_or(s.as_str()), SUMMARY_MAX)
+                })
+            })
+            .unwrap_or_default(),
+        "list" => String::new(),
+        _ => str_field(args, &["label"]).unwrap_or_default(),
+    }
+}
+
 fn computer_action_summary(args: &Value) -> String {
     fn has_workspace_noise(s: &str) -> bool {
         let lower = s.to_lowercase();
@@ -424,6 +466,13 @@ pub fn default_display(raw_name: &str, args: &Value) -> ToolDisplay {
                 .or_else(|| str_field(args, &["goal"]).map(|s| truncate(&s, SUMMARY_MAX)))
                 .unwrap_or_default(),
         ),
+        "cron_job" => {
+            let action = infer_cron_job_action(args);
+            (
+                cron_job_action_label(&action).to_string(),
+                cron_job_summary(&action, args),
+            )
+        }
         "response" => ("回复用户".to_string(), String::new()),
         _ => if !method.is_empty() { (format!("{base} · {method}"), String::new()) } else { (raw_name.to_string(), String::new()) }
     };
@@ -579,5 +628,39 @@ mod tests {
         let d = default_display("list_apps", &json!({"goal": "查找微信"}));
         assert_eq!(d.label, "列出应用");
         assert_eq!(d.summary, "查找微信");
+    }
+
+    #[test]
+    fn cron_job_create_label_and_schedule_summary() {
+        let d = default_display(
+            "cron_job",
+            &json!({
+                "action": "create",
+                "prompt_text": "每天检查邮件",
+                "schedule": "daily@9:30"
+            }),
+        );
+        assert_eq!(d.label, "创建定时任务");
+        assert_eq!(d.summary, "daily@9:30");
+    }
+
+    #[test]
+    fn cron_job_delete_uses_job_id_summary() {
+        let d = default_display(
+            "cron_job",
+            &json!({"action": "delete", "job_id": "cron-abc123"}),
+        );
+        assert_eq!(d.label, "删除定时任务");
+        assert_eq!(d.summary, "");
+    }
+
+    #[test]
+    fn cron_job_delete_with_label_summary() {
+        let d = default_display(
+            "cron_job",
+            &json!({"action": "delete", "job_id": "cron-abc123", "label": "每分钟提醒"}),
+        );
+        assert_eq!(d.label, "删除定时任务");
+        assert_eq!(d.summary, "每分钟提醒");
     }
 }

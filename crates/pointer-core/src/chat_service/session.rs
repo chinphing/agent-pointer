@@ -128,24 +128,21 @@ pub async fn run_chat(
     let max_tr = state
         .effective_settings()
         .max_tool_rounds;
-    let single_total = tool_rounds_used_single_start.saturating_add(consumed_single);
-    let supervisor_total =
-        tool_rounds_used_supervisor_start.saturating_add(consumed_supervisor);
+    // Persist per-turn consumption only; the cap is evaluated from the latest
+    // user prompt (each run_chat starts a fresh budget at 0).
     super::conversation_persist::patch_tool_rounds(
         &conversation_id,
-        single_total,
-        supervisor_total,
+        consumed_single,
+        consumed_supervisor,
         super::util::now_ms(),
     );
     log::info!(
-        "run_chat conversation end: emitting StreamEvent::Done conversation_id={} run_outcome={} history_messages_final={} consumed_this_run_single={} consumed_this_run_supervisor={} cumulative_tool_rounds_single={} cumulative_tool_rounds_supervisor={} max_tool_rounds_attached={}",
+        "run_chat conversation end: emitting StreamEvent::Done conversation_id={} run_outcome={} history_messages_final={} consumed_this_run_single={} consumed_this_run_supervisor={} max_tool_rounds_attached={}",
         conversation_id,
         if result.is_ok() { "Ok" } else { "Err" },
         history.len(),
         consumed_single,
         consumed_supervisor,
-        single_total,
-        supervisor_total,
         max_tr,
     );
     let main_store_key = state
@@ -168,8 +165,8 @@ pub async fn run_chat(
         &stream,
         StreamEvent::Done {
             conversation_id,
-            tool_rounds_used_total: Some(single_total),
-            tool_rounds_used_supervisor_total: Some(supervisor_total),
+            tool_rounds_used_total: Some(consumed_single),
+            tool_rounds_used_supervisor_total: Some(consumed_supervisor),
             max_tool_rounds: Some(max_tr),
         },
     );

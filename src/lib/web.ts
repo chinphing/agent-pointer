@@ -20,6 +20,12 @@ import type {
   ToolDef,
   UserSettings
 } from '../types/chat'
+import type {
+  CronJob,
+  CreateCronJobInput,
+  UpdateCronJobInput,
+  WebhookConfig
+} from '../types/automation'
 
 import { WEB_API_BASE } from './runtime'
 
@@ -460,4 +466,51 @@ export async function onStream(handler: (e: StreamEvent) => void, conversationId
     stopped = true
     source?.close()
   }
+}
+
+// ---- Phase 5/6: automation (cron jobs + webhook token) ----
+
+export async function listCronJobs(): Promise<CronJob[]> {
+  return await request<CronJob[]>('/api/cron-jobs')
+}
+
+export async function createCronJob(input: CreateCronJobInput): Promise<CronJob> {
+  return await request<CronJob>('/api/cron-jobs', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  })
+}
+
+export async function updateCronJob(
+  jobId: string,
+  input: UpdateCronJobInput
+): Promise<CronJob> {
+  return await request<CronJob>(
+    `/api/cron-jobs/${encodeURIComponent(jobId)}`,
+    { method: 'PATCH', body: JSON.stringify(input) }
+  )
+}
+
+export async function deleteCronJob(jobId: string): Promise<boolean> {
+  // 204 → undefined; treat as success.
+  await request<void>(`/api/cron-jobs/${encodeURIComponent(jobId)}`, {
+    method: 'DELETE'
+  })
+  return true
+}
+
+export async function getWebhookConfig(): Promise<WebhookConfig> {
+  return await request<WebhookConfig>('/api/webhooks/config')
+}
+
+export async function setWebhookToken(token: string): Promise<WebhookConfig> {
+  return await request<WebhookConfig>('/api/webhooks/config', {
+    method: 'POST',
+    body: JSON.stringify({ token })
+  })
+}
+
+export async function clearWebhookToken(): Promise<boolean> {
+  await request<void>('/api/webhooks/config/token', { method: 'DELETE' })
+  return true
 }

@@ -15,9 +15,9 @@ mod window_chrome_commands;
 
 use pointer_channels::adapters::register_builtin_channels;
 use pointer_channels::{ChannelGateway, ChannelRegistry};
+use pointer_core::chat_service::AppState;
 use pointer_core::models::StreamEvent;
 use pointer_core::{
-    chat_service::AppState,
     skills::external::{system_skills_dir, sync_bundled_skill_dirs},
 };
 use std::{
@@ -281,6 +281,35 @@ pub fn run() {
                 }
             });
             app.manage(app_state.clone());
+            // Build the singleton run dispatcher (unified callable / event
+            // trigger entry) backed by this AppState. All trigger sources
+            // (IPC `send_chat`, HTTP Runs API, webhooks, cron, IM, internal)
+            // route through it. Built-in lifecycle hooks are pre-registered
+            // inside `build_dispatcher`.
+            let dispatcher = Arc::new(app_state.build_dispatcher());
+            app.manage(dispatcher.clone());
+            // Phase 5: cron scheduler. Desktop defaults ON (same as the
+            // server / web host). Disable via `POINTER_SCHEDULER_ENABLED=0`.
+            // The scheduler reuses the same dispatcher + store.
+            let scheduler_on = std::env::var("POINTER_SCHEDULER_ENABLED")
+                .map(|v| v != "0" && v.to_ascii_lowercase() != "false")
+                .unwrap_or(true);
+            if scheduler_on {
+                // Spawn the ticker on Tauri's async runtime. `Scheduler::start`
+                // uses `tokio::spawn`, which panics here because Tauri's
+                // `setup` closure runs on the UI thread outside the tokio
+                // runtime context. `tauri::async_runtime::spawn` is the correct
+                // entry for desktop.
+                let scheduler = Arc::new(pointer_core::scheduler::Scheduler::new(
+                    app_state.clone(),
+                    dispatcher.clone(),
+                ));
+                tauri::async_runtime::spawn(scheduler.clone().run());
+                app.manage(scheduler);
+                log::info!("desktop: cron scheduler enabled (ticker started)");
+            } else {
+                log::info!("desktop: cron scheduler disabled by POINTER_SCHEDULER_ENABLED=0");
+            }
             let stream_app = app.handle().clone();
             pointer_core::stream_broadcast::subscribe_stream(Arc::new(move |ev| {
                 if let Err(e) = stream_app.emit(commands::STREAM_EVENT, ev) {
@@ -383,6 +412,13 @@ pub fn run() {
             commands::list_experience_home,
             commands::search_experiences,
             commands::get_experience_detail,
+            commands::list_cron_jobs,
+            commands::create_cron_job,
+            commands::update_cron_job,
+            commands::delete_cron_job,
+            commands::get_webhook_config,
+            commands::set_webhook_token,
+            commands::clear_webhook_token,
             channel_commands::get_channels_config,
             channel_commands::update_channels_config,
             channel_commands::list_channel_status,

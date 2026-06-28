@@ -121,6 +121,15 @@ export interface RuntimeApi {
   deleteConversation(conversationId: string): Promise<void>
   appendConversationMessages(conversationId: string, messages: ChatMessage[]): Promise<number>
   onStream(handler: (e: StreamEvent) => void, conversationId?: string): Promise<UnlistenFn>
+
+  // ---- Phase 5/6: automation (cron jobs + webhook token) ----
+  listCronJobs(): Promise<import('../types/automation').CronJob[]>
+  createCronJob(input: import('../types/automation').CreateCronJobInput): Promise<import('../types/automation').CronJob>
+  updateCronJob(jobId: string, input: import('../types/automation').UpdateCronJobInput): Promise<import('../types/automation').CronJob>
+  deleteCronJob(jobId: string): Promise<boolean>
+  getWebhookConfig(): Promise<import('../types/automation').WebhookConfig>
+  setWebhookToken(token: string): Promise<import('../types/automation').WebhookConfig>
+  clearWebhookToken(): Promise<boolean>
 }
 
 export const api: RuntimeApi = isTauriRuntime() ? tauriApi : webApi
@@ -235,3 +244,12 @@ export const loadPlatformSessionPersisted = isTauriRuntime()
 export const loadPlatformSessionFromKeyring = isTauriRuntime()
   ? tauriApi.loadPlatformSessionFromKeyring
   : webApi.loadPlatformSessionFromKeyring
+
+// ---- Phase 5/6: automation (cron jobs + webhook token) ----
+export const listCronJobs = api.listCronJobs
+export const createCronJob = api.createCronJob
+export const updateCronJob = api.updateCronJob
+export const deleteCronJob = api.deleteCronJob
+export const getWebhookConfig = api.getWebhookConfig
+export const setWebhookToken = api.setWebhookToken
+export const clearWebhookToken = api.clearWebhookToken

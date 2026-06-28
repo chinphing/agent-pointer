@@ -241,6 +241,43 @@ pub struct ChatMessage {
     pub spawn_depth: Option<u32>,
 }
 
+impl ChatMessage {
+    /// Minimal user-text message for trigger sources (webhook / cron / API)
+    /// that supply a plain-text prompt without full UI metadata. Fills
+    /// required bookkeeping fields with sensible defaults.
+    pub fn user_text(content: impl Into<String>) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: Role::User,
+            content: content.into(),
+            status: "done".into(),
+            created_at: chrono::Utc::now().timestamp_millis(),
+            tool_calls: None,
+            tool_call_id: None,
+            error_message: None,
+            reasoning: None,
+            thoughts: None,
+            headline: None,
+            raw_content: None,
+            tool_raw_output: None,
+            agent_id: None,
+            agent_instance_id: None,
+            agent_name: None,
+            agent_trace: None,
+            images_base64: None,
+            image_slot_labels: None,
+            computer_round_screen_rel_path: None,
+            ui_bindings: None,
+            context_state: None,
+            attachments: None,
+            anchor_message_id: None,
+            trace_id: None,
+            task_id: None,
+            spawn_depth: None,
+        }
+    }
+}
+
 /// User message attachment (Composer / channels).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

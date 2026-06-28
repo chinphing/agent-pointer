@@ -17,7 +17,10 @@ use pointer_channels::{
 use pointer_core::{
     agents::computer::capture_debug,
     agents::AgentDef,
-    chat_service::{run_chat, AppState},
+    chat_service::AppState,
+    dispatcher::{
+        DeliverTarget, RunDispatcher, RunHandle, TriggerMeta, TriggerRequest, TriggerSource,
+    },
     models::{
         ComputerAnnotatedPreview, ChatMediaPreview, ComputerMonitor, Conversation, EffectiveSettingsView,
         ModelSettings, PlatformSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent,
@@ -54,7 +57,7 @@ use std::{
 };
 use parking_lot::RwLock;
 use rand::RngCore;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
 /// Lifetime of a pending PKCE login entry. The user must complete the
@@ -64,6 +67,9 @@ const OAUTH_PENDING_TTL: Duration = Duration::from_secs(600);
 #[derive(Clone)]
 pub(crate) struct ServerState {
     core: Arc<AppState>,
+    /// Unified run dispatcher: the callable / event-triggered entry point.
+    /// `POST /api/chat` and `POST /api/runs` (Phase 4) route through it.
+    dispatcher: Arc<RunDispatcher>,
     events: broadcast::Sender<StreamEvent>,
     channel_gateway: Arc<ChannelGateway>,
     qr_login: Arc<QrLoginState>,
@@ -121,6 +127,17 @@ async fn main() -> anyhow::Result<()> {
         ),
     }
     let (events, _) = broadcast::channel::<StreamEvent>(512);
+    // Bridge global stream_broadcast -> server events so the SSE endpoint
+    // (`GET /api/chat/:id/stream`) keeps working regardless of who calls
+    // `run_chat`. The dispatcher calls `run_chat`, which emits via
+    // `publish_stream` -> `broadcast_stream` -> this callback -> `events`.
+    {
+        let ev_tx = events.clone();
+        pointer_core::stream_broadcast::subscribe_stream(Arc::new(move |ev| {
+            // No subscribers -> send fails; ignore (matches existing behavior).
+            let _ = ev_tx.send(ev);
+        }));
+    }
     match capture_debug::purge_computer_captures_older_than_days(capture_debug::CAPTURE_RETENTION_DAYS) {
         Ok(removed) if removed > 0 => {
             let _ = events.send(StreamEvent::UiToast {
@@ -146,13 +163,29 @@ async fn main() -> anyhow::Result<()> {
     channel_gateway.spawn_dingtalk_monitors(cancel.clone());
 
     let state = ServerState {
-        core,
+        core: core.clone(),
+        dispatcher: Arc::new(core.build_dispatcher()),
         events,
         channel_gateway,
         qr_login: Arc::new(QrLoginState::new()),
         registration: Arc::new(ChannelRegistrationState::new()),
         oauth_pending: Arc::new(RwLock::new(HashMap::new())),
     };
+
+    // Phase 5: start the cron scheduler. The server (web host) enables it by
+    // default; the desktop client leaves it off. `POINTER_SCHEDULER_ENABLED=0`
+    // explicitly disables it on the server.
+    let scheduler_enabled = env::var("POINTER_SCHEDULER_ENABLED")
+        .map(|v| v != "0" && v.to_ascii_lowercase() != "false")
+        .unwrap_or(true);
+    if scheduler_enabled {
+        let _scheduler = pointer_core::scheduler::Scheduler::start(
+            pointer_core::scheduler::Scheduler::new(state.core.clone(), state.dispatcher.clone()),
+        );
+        log::info!("server: cron scheduler enabled (ticker started)");
+    } else {
+        log::info!("server: cron scheduler disabled by POINTER_SCHEDULER_ENABLED");
+    }
 
     let app = Router::new()
         .route("/api/health", get(|| async { "ok" }))
@@ -232,6 +265,30 @@ async fn main() -> anyhow::Result<()> {
             post(abort_terminal_command),
         )
         .route("/api/chat/:conversation_id/stream", get(chat_stream))
+        // Phase 4: unified callable / event-triggered HTTP surface.
+        // `POST /api/runs` accepts a TriggerRequest and returns a RunHandle;
+        // `GET /api/runs/:id/events` streams AgentEvents (SSE); cancel via
+        // `POST /api/runs/:id/cancel`. Generic webhook ingress lives at
+        // `POST /api/webhooks/:src` (Bearer auth).
+        .route("/api/runs", post(create_run))
+        .route("/api/runs/:run_id", get(get_run))
+        .route("/api/runs/:run_id/events", get(run_events))
+        .route("/api/runs/:run_id/cancel", post(cancel_run))
+        .route("/api/webhooks/:src", post(webhook_ingress))
+        .route(
+            "/api/webhooks/config",
+            get(get_webhook_config).post(set_webhook_token),
+        )
+        .route("/api/webhooks/config/token", axum::routing::delete(clear_webhook_token))
+        // Phase 5: cron job management for the scheduler.
+        .route(
+            "/api/cron-jobs",
+            get(list_cron_jobs).post(create_cron_job),
+        )
+        .route(
+            "/api/cron-jobs/:job_id",
+            axum::routing::patch(update_cron_job).delete(delete_cron_job),
+        )
         .route("/api/tools/:tool_call_id/approve", post(approve_tool_call))
         .route(
             "/webhooks/:channel/:account_id",
@@ -964,32 +1021,535 @@ async fn send_chat(
     State(state): State<ServerState>,
     Json(payload): Json<SendChatPayload>,
 ) -> Result<StatusCode, ApiError> {
-    let core = state.core.clone();
-    let broadcast = state.events.clone();
+    let dispatcher = state.dispatcher.clone();
     tokio::spawn(async move {
-        let (tx, mut rx) = mpsc::unbounded_channel::<StreamEvent>();
-        let forward = tokio::spawn(async move {
-            while let Some(ev) = rx.recv().await {
-                let _ = broadcast.send(ev);
-            }
-        });
-        let _ = run_chat(
-            tx,
-            core,
-            payload.conversation_id,
-            payload.messages,
-            payload.enabled_skill_ids,
-            payload.agent_mode,
-            payload.lead_agent_id.clone(),
-            payload.tool_rounds_used,
-            payload.tool_rounds_used_supervisor,
-            payload.workspace_root,
-            payload.workspace_inherit_disabled,
-        )
-        .await;
-        let _ = forward.await;
+        let req = TriggerRequest {
+            run_id: None,
+            idempotency_key: None,
+            conversation_id: Some(payload.conversation_id),
+            trigger_source: TriggerSource::HttpRuns,
+            trigger_meta: TriggerMeta::empty(),
+            lane: None,
+            messages: payload.messages,
+            enabled_skill_ids: payload.enabled_skill_ids,
+            agent_mode: payload.agent_mode,
+            lead_agent_id: payload.lead_agent_id,
+            tool_rounds_used_single_start: payload.tool_rounds_used,
+            tool_rounds_used_supervisor_start: payload.tool_rounds_used_supervisor,
+            workspace_root: payload.workspace_root,
+            workspace_inherit_disabled: payload.workspace_inherit_disabled,
+            deliver: DeliverTarget::None,
+        };
+        if let Err(e) = dispatcher.dispatch(req).await {
+            log::error!("send_chat: dispatch failed: {e:#}");
+        }
     });
     Ok(StatusCode::ACCEPTED)
+}
+
+// ---- Phase 4: HTTP Runs API + generic webhook ----
+
+/// `POST /api/runs` — accept a unified run request. The caller supplies the
+/// full message history (same contract as `POST /api/chat`); `trigger_source`
+/// is forced to `HttpRuns` regardless of the request body. Returns a
+/// `RunHandle` (run id + accept status). Subscribe to
+/// `GET /api/runs/:id/events` for progress.
+async fn create_run(
+    State(state): State<ServerState>,
+    Json(mut body): Json<TriggerRequest>,
+) -> Result<(StatusCode, Json<RunHandle>), ApiError> {
+    body.trigger_source = TriggerSource::HttpRuns;
+    body.trigger_meta.webhook_source = None;
+    body.deliver = DeliverTarget::None;
+    let handle = state.dispatcher.dispatch(body).await.map_err(ApiError::from)?;
+    log::info!(
+        "runs-api: accepted run_id={} conv={} status={:?}",
+        handle.run_id,
+        handle
+            .reused_run_id
+            .as_deref()
+            .unwrap_or("new"),
+        handle.status
+    );
+    Ok((StatusCode::ACCEPTED, Json(handle)))
+}
+
+/// Read-only view of a persisted run record (mirrors `RunRecord` minus the
+/// raw JSON blobs). Returned by `GET /api/runs/:id`.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RunView {
+    run_id: String,
+    conversation_id: String,
+    trigger_source: String,
+    status: String,
+    created_at_ms: i64,
+    started_at_ms: Option<i64>,
+    finished_at_ms: Option<i64>,
+    error: Option<String>,
+}
+
+impl RunView {
+    fn from_record(rec: &pointer_core::conversation_store::runs::RunRecord) -> Self {
+        Self {
+            run_id: rec.run_id.clone(),
+            conversation_id: rec.conversation_id.clone(),
+            trigger_source: rec.trigger_source.clone(),
+            status: rec.status.clone(),
+            created_at_ms: rec.created_at_ms,
+            started_at_ms: rec.started_at_ms,
+            finished_at_ms: rec.finished_at_ms,
+            error: rec.error.clone(),
+        }
+    }
+}
+
+/// `GET /api/runs/:id` — return the persisted status snapshot, or 404.
+async fn get_run(
+    State(state): State<ServerState>,
+    Path(run_id): Path<String>,
+) -> Result<axum::response::Response, ApiError> {
+    match state.dispatcher.run_status(&run_id) {
+        Some(rec) => Ok(Json(RunView::from_record(&rec)).into_response()),
+        None => Ok(status_text(
+            StatusCode::NOT_FOUND,
+            format!("run not found: {run_id}"),
+        )),
+    }
+}
+
+/// `GET /api/runs/:id/events` — SSE stream of `AgentEvent`s for one run.
+///
+/// Race-free terminal handling: subscribe to the bus BEFORE reading the runs
+/// table. If the run already reached a terminal state before this SSE opened,
+/// synthesize a terminal event from the table and close immediately.
+/// Otherwise stream live events until a terminal event arrives.
+async fn run_events(
+    State(state): State<ServerState>,
+    Path(run_id): Path<String>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let dispatcher = state.dispatcher.clone();
+    let run_id_for_stream = run_id.clone();
+
+    let stream = async_stream::stream! {
+        // Subscribe first so we never miss a terminal emitted after this point.
+        let mut rx = dispatcher.subscribe_events();
+
+        // Then snapshot the persisted state. If terminal, synthesize + close.
+        if let Some(rec) = dispatcher.run_status(&run_id) {
+            if pointer_core::conversation_store::runs::is_terminal_status_str(&rec.status) {
+                let synth = terminal_agent_event_from_record(&rec);
+                if let Some(ev) = synth {
+                    if let Ok(s) = serde_json::to_string(&*ev) {
+                        yield Ok(Event::default().data(s));
+                    }
+                }
+                return;
+            }
+        }
+
+        // Live stream: filter by run_id, emit until terminal.
+        while let Ok(ev) = rx.recv().await {
+            if ev.run_id() != run_id_for_stream {
+                continue;
+            }
+            let is_terminal = matches!(
+                *ev,
+                pointer_core::agent_events::AgentEvent::RunFinished { .. }
+                    | pointer_core::agent_events::AgentEvent::RunFailed { .. }
+                    | pointer_core::agent_events::AgentEvent::RunCancelled { .. }
+            );
+            if let Ok(s) = serde_json::to_string(&*ev) {
+                yield Ok(Event::default().data(s));
+            }
+            if is_terminal {
+                return;
+            }
+        }
+    };
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+/// Build a synthetic terminal `AgentEvent` from a persisted terminal
+/// `RunRecord`, so late SSE subscribers still observe a terminal frame.
+fn terminal_agent_event_from_record(
+    rec: &pointer_core::conversation_store::runs::RunRecord,
+) -> Option<std::sync::Arc<pointer_core::agent_events::AgentEvent>> {
+    let ts = rec.finished_at_ms.unwrap_or(0) as u64;
+    let conv = rec.conversation_id.clone();
+    let run_id = rec.run_id.clone();
+    let ev = match rec.status.as_str() {
+        "finished" => pointer_core::agent_events::AgentEvent::RunFinished {
+            run_id,
+            conversation_id: conv,
+            seq: 0,
+            ts,
+        },
+        "failed" => pointer_core::agent_events::AgentEvent::RunFailed {
+            run_id,
+            conversation_id: conv,
+            error: rec.error.clone().unwrap_or_default(),
+            seq: 0,
+            ts,
+        },
+        "cancelled" => pointer_core::agent_events::AgentEvent::RunCancelled {
+            run_id,
+            conversation_id: conv,
+            seq: 0,
+            ts,
+        },
+        _ => return None,
+    };
+    Some(std::sync::Arc::new(ev))
+}
+
+/// `POST /api/runs/:id/cancel` — cancel a queued or running run. No-op (204)
+/// if the run is unknown or already terminal.
+async fn cancel_run(
+    State(state): State<ServerState>,
+    Path(run_id): Path<String>,
+) -> StatusCode {
+    state.dispatcher.cancel(&run_id);
+    StatusCode::NO_CONTENT
+}
+
+/// Body shape for generic webhook ingress. `text` is shorthand for a single
+/// user message; `messages` overrides it when present.
+#[derive(Deserialize)]
+struct WebhookIngressBody {
+    #[serde(default, rename = "conversationId")]
+    conversation_id: Option<String>,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    messages: Option<Vec<pointer_core::models::ChatMessage>>,
+    #[serde(default, rename = "agentMode")]
+    agent_mode: Option<String>,
+    #[serde(default, rename = "leadAgentId")]
+    lead_agent_id: Option<String>,
+    #[serde(default, rename = "idempotencyKey")]
+    idempotency_key: Option<String>,
+    #[serde(default, rename = "enabledSkillIds")]
+    enabled_skill_ids: Vec<String>,
+    #[serde(default, rename = "workspaceRoot")]
+    workspace_root: String,
+}
+
+/// `POST /api/webhooks/:src` — generic authenticated webhook ingress. The
+/// `:src` path segment labels the webhook source (recorded in trigger_meta).
+/// Auth: `Authorization: Bearer <POINTER_WEBHOOK_BEARER_TOKEN>`. When the
+/// token env var is unset, all requests are rejected with 401.
+async fn webhook_ingress(
+    State(state): State<ServerState>,
+    Path(src): Path<String>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<WebhookIngressBody>,
+) -> Result<axum::response::Response, ApiError> {
+    let expected = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index)
+        .resolve()
+        .map_err(ApiError::from)?
+        .unwrap_or_default();
+    if expected.is_empty() {
+        log::warn!("webhook ingress rejected: no bearer token configured (src={src})");
+        return Ok(status_text(
+            StatusCode::UNAUTHORIZED,
+            "webhook ingress disabled: no bearer token configured",
+        ));
+    }
+    let provided = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .map(str::trim)
+        .unwrap_or("");
+    if provided.is_empty() || provided != expected {
+        log::warn!("webhook ingress rejected: bad bearer token (src={src})");
+        return Ok(status_text(StatusCode::UNAUTHORIZED, "unauthorized"));
+    }
+
+    let messages = body.messages.unwrap_or_else(|| {
+        body.text
+            .map(pointer_core::models::ChatMessage::user_text)
+            .map(|m| vec![m])
+            .unwrap_or_default()
+    });
+    if messages.is_empty() {
+        return Ok(status_text(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "webhook body must contain `text` or `messages`",
+        ));
+    }
+
+    let conversation_id = body.conversation_id.unwrap_or_else(|| {
+        // Derive a stable conversation per webhook source so repeated pokes
+        // thread into one session.
+        format!("webhook:{}", src)
+    });
+
+    let req = TriggerRequest {
+        run_id: None,
+        idempotency_key: body.idempotency_key,
+        conversation_id: Some(conversation_id),
+        trigger_source: TriggerSource::Webhook,
+        trigger_meta: TriggerMeta {
+            webhook_source: Some(src.clone()),
+            ..TriggerMeta::empty()
+        },
+        lane: None,
+        messages,
+        enabled_skill_ids: body.enabled_skill_ids,
+        agent_mode: body.agent_mode,
+        lead_agent_id: body.lead_agent_id,
+        tool_rounds_used_single_start: 0,
+        tool_rounds_used_supervisor_start: 0,
+        workspace_root: body.workspace_root,
+        workspace_inherit_disabled: None,
+        deliver: DeliverTarget::None,
+    };
+
+    let handle = state.dispatcher.dispatch(req).await.map_err(ApiError::from)?;
+    log::info!(
+        "webhook ingress: src={} accepted run_id={} conv={}",
+        src,
+        handle.run_id,
+        handle.reused_run_id.as_deref().unwrap_or("new")
+    );
+    Ok((StatusCode::ACCEPTED, Json(handle)).into_response())
+}
+
+// ---- Phase 5: cron job CRUD ----
+
+/// `GET /api/cron-jobs` — list all cron jobs (enabled and disabled).
+async fn list_cron_jobs(
+    State(state): State<ServerState>,
+) -> Result<Json<Vec<pointer_core::conversation_store::cron_jobs::CronJobView>>, ApiError> {
+    let rows = state
+        .core
+        .session_index
+        .cron_jobs_list_all()
+        .map_err(ApiError::from)?;
+    Ok(Json(
+        rows.iter()
+            .map(pointer_core::conversation_store::cron_jobs::CronJobView::from_record)
+            .collect(),
+    ))
+}
+
+#[derive(Deserialize)]
+struct CreateCronJobBody {
+    id: String,
+    label: String,
+    #[serde(rename = "cronExpr")]
+    cron_expr: String,
+    /// Ignored: each cron job owns a dedicated `cron:{id}` session. Retained on
+    /// the wire for backward compatibility with older frontends.
+    #[serde(default, rename = "conversationId")]
+    conversation_id: String,
+    #[serde(rename = "promptText")]
+    prompt_text: String,
+    #[serde(default, rename = "agentMode")]
+    agent_mode: Option<String>,
+    #[serde(default, rename = "leadAgentId")]
+    lead_agent_id: Option<String>,
+    #[serde(default = "default_true")]
+    enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// `POST /api/cron-jobs` — create a new scheduled job. The cron expression is
+/// validated up front (a parse failure rejects the request with 400).
+async fn create_cron_job(
+    State(state): State<ServerState>,
+    Json(body): Json<CreateCronJobBody>,
+) -> Result<(StatusCode, Json<pointer_core::conversation_store::cron_jobs::CronJobView>), ApiError> {
+    // Validate the cron expression before persisting.
+    if pointer_core::conversation_store::cron_jobs::next_run_ms(&body.cron_expr, &chrono::Local::now())
+        .is_none()
+    {
+        return Err(ApiError(anyhow::anyhow!(
+            "invalid cron expression: {}",
+            body.cron_expr
+        )));
+    }
+    let new = pointer_core::conversation_store::cron_jobs::NewCronJob {
+        id: &body.id,
+        label: &body.label,
+        cron_expr: &body.cron_expr,
+        conversation_id: &body.conversation_id,
+        prompt_text: &body.prompt_text,
+        agent_mode: body.agent_mode.as_deref(),
+        lead_agent_id: body.lead_agent_id.as_deref(),
+        enabled: body.enabled,
+    };
+    let inserted = state
+        .core
+        .session_index
+        .cron_jobs_insert(&new)
+        .map_err(ApiError::from)?;
+    if !inserted {
+        return Err(ApiError(anyhow::anyhow!(
+            "cron job already exists: {}",
+            body.id
+        )));
+    }
+    let rec = state
+        .core
+        .session_index
+        .cron_jobs_get(&body.id)
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError(anyhow::anyhow!("cron job vanished after insert: {}", body.id)))?;
+    log::info!(
+        "cron-jobs: created id={} label={} expr={}",
+        body.id,
+        body.label,
+        body.cron_expr
+    );
+    Ok((
+        StatusCode::CREATED,
+        Json(pointer_core::conversation_store::cron_jobs::CronJobView::from_record(&rec)),
+    ))
+}
+
+#[derive(Deserialize)]
+struct UpdateCronJobBody {
+    /// Toggles the job enabled flag. Other fields are immutable via this
+    /// endpoint (edit by delete + recreate).
+    enabled: Option<bool>,
+}
+
+/// `PATCH /api/cron-jobs/:id` — toggle enable/disable.
+async fn update_cron_job(
+    State(state): State<ServerState>,
+    Path(job_id): Path<String>,
+    Json(body): Json<UpdateCronJobBody>,
+) -> Result<axum::response::Response, ApiError> {
+    if let Some(enabled) = body.enabled {
+        let ok = state
+            .core
+            .session_index
+            .cron_jobs_set_enabled(&job_id, enabled)
+            .map_err(ApiError::from)?;
+        if !ok {
+            return Ok(status_text(
+                StatusCode::NOT_FOUND,
+                format!("cron job not found: {job_id}"),
+            ));
+        }
+    }
+    match state.core.session_index.cron_jobs_get(&job_id).map_err(ApiError::from)? {
+        Some(rec) => Ok(Json(pointer_core::conversation_store::cron_jobs::CronJobView::from_record(&rec)).into_response()),
+        None => Ok(status_text(
+            StatusCode::NOT_FOUND,
+            format!("cron job not found: {job_id}"),
+        )),
+    }
+}
+
+/// `DELETE /api/cron-jobs/:id` — remove a cron job.
+async fn delete_cron_job(
+    State(state): State<ServerState>,
+    Path(job_id): Path<String>,
+) -> Result<axum::response::Response, ApiError> {
+    let ok = state
+        .core
+        .session_index
+        .cron_jobs_delete(&job_id)
+        .map_err(ApiError::from)?;
+    if ok {
+        Ok(StatusCode::NO_CONTENT.into_response())
+    } else {
+        Ok(status_text(
+            StatusCode::NOT_FOUND,
+            format!("cron job not found: {job_id}"),
+        ))
+    }
+}
+
+// ---- Phase 6: webhook token config (UI-settable, first-write-only) ----
+
+#[derive(Deserialize)]
+struct SetWebhookTokenBody {
+    token: String,
+}
+
+fn webhook_url_template() -> String {
+    let base = resolve_server_public_url().unwrap_or_else(|| "http://127.0.0.1:8787".into());
+    format!("{base}/api/webhooks/{{src}}")
+}
+
+/// `GET /api/webhooks/config` — whether a bearer token is configured + masked
+/// preview + the ingress URL template. Never returns the token itself.
+async fn get_webhook_config(
+    State(state): State<ServerState>,
+) -> Result<Json<pointer_core::webhook_config::WebhookConfigView>, ApiError> {
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
+    let configured = store.is_configured().map_err(ApiError::from)?;
+    let preview = if configured {
+        store.preview().map_err(ApiError::from)?
+    } else {
+        None
+    };
+    Ok(Json(pointer_core::webhook_config::WebhookConfigView {
+        configured,
+        preview,
+        url_template: webhook_url_template(),
+    }))
+}
+
+/// `POST /api/webhooks/config/token` — set the bearer token (first-write only).
+/// Returns 200 on success, 409 if already configured, 400 on empty token.
+async fn set_webhook_token(
+    State(state): State<ServerState>,
+    Json(body): Json<SetWebhookTokenBody>,
+) -> Result<axum::response::Response, ApiError> {
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
+    if store.is_configured().map_err(ApiError::from)? {
+        return Ok(status_text(
+            StatusCode::CONFLICT,
+            "webhook token already configured; clear it first to rotate",
+        ));
+    }
+    match store.set_token(&body.token) {
+        Ok(true) => {
+            let preview = store.preview().map_err(ApiError::from)?;
+            Ok(Json(pointer_core::webhook_config::WebhookConfigView {
+                configured: true,
+                preview,
+                url_template: webhook_url_template(),
+            })
+            .into_response())
+        }
+        Ok(false) => Ok(status_text(
+            StatusCode::CONFLICT,
+            "webhook token already configured",
+        )),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("must not be empty") {
+                Ok(status_text(StatusCode::BAD_REQUEST, msg))
+            } else {
+                Err(ApiError(e))
+            }
+        }
+    }
+}
+
+/// `DELETE /api/webhooks/config/token` — clear the configured token (admin
+/// reset, enables re-issuing from the UI). Returns 204 on success, 404 if none.
+async fn clear_webhook_token(
+    State(state): State<ServerState>,
+) -> Result<StatusCode, ApiError> {
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
+    let ok = store.clear_token().map_err(ApiError::from)?;
+    if ok {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Ok(StatusCode::NOT_FOUND)
+    }
 }
 
 async fn cancel_chat(
@@ -1482,4 +2042,10 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         (StatusCode::INTERNAL_SERVER_ERROR, self.0.to_string()).into_response()
     }
+}
+
+/// Build a plain status+text error response (used by webhook auth failures
+/// where a specific HTTP status is required without touching `ApiError`).
+fn status_text(status: StatusCode, msg: impl Into<String>) -> axum::response::Response {
+    (status, msg.into()).into_response()
 }

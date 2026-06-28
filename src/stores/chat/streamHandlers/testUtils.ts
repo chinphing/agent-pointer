@@ -42,6 +42,7 @@ export function createMockStreamHandlerContext(
     currentId: ref(null),
     computerMonitorPickRequest: ref(null),
     ensureImConversation: noop,
+    ensureCronStreamConversation: noop,
     findMessage: (messageId, preferConversationId) => {
       const prefer = preferConversationId?.trim()
       if (prefer) {

@@ -192,6 +192,18 @@ impl AppState {
         crate::skills::curator::start_background_loop(self.clone());
     }
 
+    /// Build a [`crate::dispatcher::RunDispatcher`] backed by this state.
+    /// Hosts (Tauri / server) construct one dispatcher after wrapping
+    /// `AppState` in `Arc` and share it across all trigger sources. The
+    /// dispatcher reuses this `AppState` (and its `run_chat` entry), so the
+    /// existing execution path is unchanged. Built-in lifecycle hooks
+    /// (structured logging) are pre-registered.
+    pub fn build_dispatcher(self: &Arc<Self>) -> crate::dispatcher::RunDispatcher {
+        let mut hooks = crate::dispatcher::HookRegistry::new();
+        crate::dispatcher::hooks::register_builtin_hooks(&mut hooks);
+        crate::dispatcher::RunDispatcher::with_hooks(self.clone(), Arc::new(hooks))
+    }
+
     pub fn load_user_settings(&self) -> UserSettings {
         storage::load_user_settings().unwrap_or_default()
     }

@@ -5,6 +5,9 @@ mod db;
 pub mod im_session;
 mod migrate;
 mod persist;
+pub mod app_secrets;
+pub mod cron_jobs;
+pub mod runs;
 mod search;
 mod write;
 #[cfg(test)]
@@ -19,7 +22,7 @@ use crate::models::{ChatMessage, Conversation, ConversationMeta};
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 6;
+const SCHEMA_VERSION: i32 = 10;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -163,6 +166,21 @@ impl ConversationStore {
     ) -> Result<u32> {
         self.db.execute_write(|conn| {
             write::append_missing_messages_in_conn(conn, conversation_id, messages)
+        })
+    }
+
+    /// Ensure a dedicated cron session row exists for a cron job. Creates the
+    /// `cron:{job_id}` conversation meta with the given title on first fire.
+    /// Cron sessions are isolated from the user's interactive sessions: they are
+    /// excluded from the sidebar/pagination queries and are only reachable via
+    /// the cron job management UI.
+    pub fn ensure_cron_session(
+        &self,
+        conversation_id: &str,
+        title: &str,
+    ) -> Result<()> {
+        self.db.execute_write(|conn| {
+            write::ensure_conversation_row_with_title(conn, conversation_id, Some(title))
         })
     }
 
@@ -329,6 +347,122 @@ impl ConversationStore {
         self.dispatch_search_tool(args)
     }
 
+    // ---- runs table (dispatcher) ----
+
+    /// Insert a new run row with `status = queued`. Returns false if a row
+    /// with the same `run_id` already exists (INSERT OR IGNORE).
+    pub fn runs_insert_queued(
+        &self,
+        run_id: &str,
+        conversation_id: &str,
+        trigger_source: crate::dispatcher::TriggerSource,
+        trigger_meta_json: &str,
+        idempotency_key: Option<&str>,
+    ) -> Result<bool> {
+        self.db.execute_write(|conn| {
+            runs::insert_queued(
+                conn,
+                run_id,
+                conversation_id,
+                trigger_source,
+                trigger_meta_json,
+                idempotency_key,
+            )
+        })
+    }
+
+    pub fn runs_find_by_idempotency_key(
+        &self,
+        key: &str,
+    ) -> Result<Option<(String, String)>> {
+        let conn = self.db.conn.lock();
+        runs::find_by_idempotency_key(&conn, key)
+    }
+
+    pub fn runs_set_status(
+        &self,
+        run_id: &str,
+        status: runs::RunStatus,
+        error: Option<&str>,
+    ) -> Result<()> {
+        self.db
+            .execute_write(|conn| runs::set_status(conn, run_id, status, error))
+    }
+
+    pub fn runs_get(&self, run_id: &str) -> Result<Option<runs::RunRecord>> {
+        let conn = self.db.conn.lock();
+        runs::get(&conn, run_id)
+    }
+
+    // ---- cron_jobs (Phase 5 scheduler) ----
+
+    pub fn cron_jobs_insert(&self, job: &cron_jobs::NewCronJob<'_>) -> Result<bool> {
+        let conn = self.db.conn.lock();
+        cron_jobs::insert(&conn, job)
+    }
+
+    pub fn cron_jobs_list_due(&self, now_ms: i64) -> Result<Vec<cron_jobs::CronJobRecord>> {
+        let conn = self.db.conn.lock();
+        cron_jobs::list_due(&conn, now_ms)
+    }
+
+    pub fn cron_jobs_list_all(&self) -> Result<Vec<cron_jobs::CronJobRecord>> {
+        let conn = self.db.conn.lock();
+        cron_jobs::list_all(&conn)
+    }
+
+    pub fn cron_jobs_get(&self, id: &str) -> Result<Option<cron_jobs::CronJobRecord>> {
+        let conn = self.db.conn.lock();
+        cron_jobs::get(&conn, id)
+    }
+
+    pub fn cron_jobs_mark_ran<Z: chrono::TimeZone>(
+        &self,
+        id: &str,
+        ran_at: chrono::DateTime<Z>,
+    ) -> Result<()> {
+        let conn = self.db.conn.lock();
+        cron_jobs::mark_ran(&conn, id, ran_at)
+    }
+
+    pub fn cron_jobs_set_enabled(&self, id: &str, enabled: bool) -> Result<bool> {
+        let conn = self.db.conn.lock();
+        cron_jobs::set_enabled(&conn, id, enabled)
+    }
+
+    pub fn cron_jobs_set_current_session_id(&self, id: &str, session_id: &str) -> Result<()> {
+        let conn = self.db.conn.lock();
+        cron_jobs::set_current_session_id(&conn, id, session_id)
+    }
+
+    pub fn cron_jobs_delete(&self, id: &str) -> Result<bool> {
+        let conn = self.db.conn.lock();
+        cron_jobs::delete(&conn, id)
+    }
+
+    // ---- app_secrets (encrypted app-level secrets, e.g. webhook token) ----
+
+    pub fn app_secret_get(&self, label: &str) -> Result<Option<Vec<u8>>> {
+        let conn = self.db.conn.lock();
+        app_secrets::get(&conn, label)
+    }
+
+    pub fn app_secret_has(&self, label: &str) -> Result<bool> {
+        let conn = self.db.conn.lock();
+        app_secrets::has(&conn, label)
+    }
+
+    /// First-write-only insert. Returns false if a secret already exists.
+    pub fn app_secret_try_insert(&self, label: &str, value: &[u8]) -> Result<bool> {
+        let conn = self.db.conn.lock();
+        app_secrets::try_insert(&conn, label, value)
+    }
+
+    pub fn app_secret_delete(&self, label: &str) -> Result<bool> {
+        let conn = self.db.conn.lock();
+        app_secrets::delete(&conn, label)
+    }
+
     #[cfg(test)]
     pub fn sync_conversations(&self, convs: &[Conversation]) -> Result<()> {
         self.save_all(convs)
@@ -398,6 +532,10 @@ fn init_schema(conn: &Connection) -> Result<()> {
          CREATE INDEX IF NOT EXISTS idx_messages_conv_pos
            ON messages(conversation_id, position);",
     )?;
+    // `runs` table lives in the same db; idempotent CREATE.
+    runs::ensure_schema(conn)?;
+    cron_jobs::ensure_schema(conn)?;
+    app_secrets::ensure_schema(conn)?;
     let version: Option<i32> = conn
         .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
             row.get(0)
@@ -459,6 +597,10 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
         "im_last_interaction_at_ms",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
+    // v10: cron jobs track the active cron session id (advanced on daily
+    // rollover). Existing rows backfill to NULL — the scheduler lazily sets it
+    // on the next fire.
+    add_column_if_missing(conn, "cron_jobs", "current_session_id", "TEXT")?;
     conn.execute(
         "UPDATE conversations SET im_last_interaction_at_ms = updated_at_ms
          WHERE im_last_interaction_at_ms = 0 AND updated_at_ms > 0",

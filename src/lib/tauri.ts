@@ -22,6 +22,12 @@ import type {
   ToolDef,
   UserSettings
 } from '../types/chat'
+import type {
+  CronJob,
+  CreateCronJobInput,
+  UpdateCronJobInput,
+  WebhookConfig
+} from '../types/automation'
 
 export const STREAM_EVENT = 'chat://stream'
 
@@ -377,4 +383,39 @@ export async function loadPlatformSessionPersisted(): Promise<boolean> {
 
 export async function loadPlatformSessionFromKeyring(): Promise<boolean> {
   return await invoke<boolean>('load_platform_session_from_keyring')
+}
+
+// ---- Phase 5/6: automation (cron jobs + webhook token) ----
+
+export async function listCronJobs(): Promise<CronJob[]> {
+  return await invoke<CronJob[]>('list_cron_jobs')
+}
+
+export async function createCronJob(input: CreateCronJobInput): Promise<CronJob> {
+  // Tauri command args are received as a camelCase struct on the Rust side
+  // (`CreateCronJobArgs`); invoke passes the object through unchanged.
+  return await invoke<CronJob>('create_cron_job', { args: input })
+}
+
+export async function updateCronJob(
+  jobId: string,
+  input: UpdateCronJobInput
+): Promise<CronJob> {
+  return await invoke<CronJob>('update_cron_job', { jobId, args: input })
+}
+
+export async function deleteCronJob(jobId: string): Promise<boolean> {
+  return await invoke<boolean>('delete_cron_job', { jobId })
+}
+
+export async function getWebhookConfig(): Promise<WebhookConfig> {
+  return await invoke<WebhookConfig>('get_webhook_config')
+}
+
+export async function setWebhookToken(token: string): Promise<WebhookConfig> {
+  return await invoke<WebhookConfig>('set_webhook_token', { token })
+}
+
+export async function clearWebhookToken(): Promise<boolean> {
+  return await invoke<boolean>('clear_webhook_token')
 }

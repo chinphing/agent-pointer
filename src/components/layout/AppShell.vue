@@ -6,6 +6,8 @@ import {
   Settings,
   MessageSquare,
   Trash2,
+  Check,
+  X,
   Bot,
   PanelLeftClose,
   PanelLeftOpen
@@ -22,6 +24,37 @@ defineEmits<{ (e: 'open-settings'): void }>()
 
 const chat = useChatStore()
 const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapse()
+
+/**
+ * Two-step inline delete confirmation. The first click on the trash icon
+ * reveals inline 确认/取消 buttons; only the second click (确认) actually
+ * deletes. We avoid `window.confirm` because Tauri's webview does not render
+ * native browser dialogs — `window.confirm` returns true without any UI,
+ * making a naive guard a no-op on desktop.
+ */
+const pendingDeleteId = ref<string | null>(null)
+
+function askDeleteConversation(c: { id: string }) {
+  pendingDeleteId.value = c.id
+}
+
+function cancelDeleteConversation() {
+  pendingDeleteId.value = null
+}
+
+function confirmDeleteConversation(c: { id: string }) {
+  pendingDeleteId.value = null
+  chat.deleteConversation(c.id)
+}
+
+/** Row click selects the conversation and dismisses any pending delete. */
+function onRowClick(c: { id: string }) {
+  if (pendingDeleteId.value) {
+    pendingDeleteId.value = null
+    return
+  }
+  chat.selectConversation(c.id)
+}
 const {
   enabled: chromeEnabled,
   os,
@@ -47,9 +80,20 @@ const windowControlsOnMainTop = computed(
 const searchQuery = ref('')
 
 const filteredConversations = computed(() => {
+  // Cron jobs own dedicated isolated sessions (`cron:{jobId}`) that are kept
+  // out of the normal sidebar; they are reachable only via the automation
+  // panel's "查看会话" entry. Exclude them here even when injected into the
+  // store by that entry, so the sidebar never lists them — EXCEPT the
+  // currently active one: when the user opened a cron session, showing it in
+  // the sidebar is the only way to surface its title (the chat area has no
+  // header), and it confirms which task's transcript they are viewing.
+  const activeId = chat.currentId
+  const base = chat.conversations.filter(
+    c => !c.id.startsWith('cron:') || c.id === activeId
+  )
   const query = searchQuery.value.trim().toLowerCase()
-  if (!query) return chat.conversations
-  return chat.conversations.filter(c =>
+  if (!query) return base
+  return base.filter(c =>
     c.title.toLowerCase().includes(query) ||
     new Date(c.updatedAt).toLocaleString().includes(query)
   )
@@ -97,6 +141,11 @@ watch(sidebarCollapsed, collapsed => {
     observer.observe(sentinel.value)
   }
 })
+
+// Dismiss the inline delete confirmation when the active conversation or
+// search filter changes, so a stale pending state never lingers.
+watch(() => chat.currentId, () => { pendingDeleteId.value = null })
+watch(searchQuery, () => { pendingDeleteId.value = null })
 </script>
 
 <template>
@@ -216,7 +265,7 @@ watch(sidebarCollapsed, collapsed => {
               :class="c.id === chat.currentId
                 ? 'bg-accent-muted border-accent/40'
                 : 'hover:bg-hover border-transparent'"
-              @click="chat.selectConversation(c.id)"
+              @click="onRowClick(c)"
             >
               <MessageSquare
                 class="w-3.5 h-3.5 shrink-0"
@@ -226,9 +275,26 @@ watch(sidebarCollapsed, collapsed => {
                 <div class="text-[13px] text-foreground truncate">{{ c.title }}</div>
                 <div class="text-[10px] text-muted">{{ new Date(c.updatedAt).toLocaleString() }}</div>
               </div>
+              <template v-if="pendingDeleteId === c.id">
+                <button
+                  class="p-1 rounded hover:bg-hover cursor-pointer"
+                  @click.stop="cancelDeleteConversation()"
+                  title="取消"
+                >
+                  <X class="w-3.5 h-3.5 text-muted" />
+                </button>
+                <button
+                  class="p-1 rounded hover:bg-danger/15 cursor-pointer"
+                  @click.stop="confirmDeleteConversation(c)"
+                  title="确认删除"
+                >
+                  <Check class="w-3.5 h-3.5 text-danger" />
+                </button>
+              </template>
               <button
+                v-else
                 class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-hover cursor-pointer"
-                @click.stop="chat.deleteConversation(c.id)"
+                @click.stop="askDeleteConversation(c)"
                 title="删除"
               >
                 <Trash2 class="w-3.5 h-3.5 text-muted" />

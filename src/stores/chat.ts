@@ -395,6 +395,28 @@ export const useChatStore = defineStore('chat', () => {
     markMetaDirty(conversationId)
   }
 
+  /** Ensure a cron session shell exists when stream events target the active cron view. */
+  function ensureCronStreamConversation(conversationId: string) {
+    if (!conversationId.startsWith('cron:')) return
+    if (currentId.value !== conversationId) return
+    if (conversations.value.some(c => c.id === conversationId)) return
+    conversations.value.unshift({
+      id: conversationId,
+      title: '[定时] cron 会话',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      messages: [],
+      skillIds: [],
+      toolRoundsUsed: 0,
+      toolRoundsUsedSupervisor: 0,
+      workspaceRoot: '',
+      workspaceUserSet: false,
+      workspaceInheritDisabled: false,
+      leadAgentId: DEFAULT_LEAD_AGENT_ID,
+      agentMode: 'single'
+    })
+  }
+
   function metaToConversationShell(m: ConversationMeta): Conversation {
     return {
       id: m.id,
@@ -469,10 +491,10 @@ export const useChatStore = defineStore('chat', () => {
    * in-memory messages are being appended by the stream and must not be
    * clobbered).
    */
-  async function ensureMessagesLoaded(id: string): Promise<void> {
+  async function ensureMessagesLoaded(id: string, options?: { force?: boolean }): Promise<void> {
     const convId = id.trim()
     if (!convId) return
-    if (hydratedIds.value.has(convId)) return
+    if (!options?.force && hydratedIds.value.has(convId)) return
     if (isConversationGenerating(convId)) {
       console.info('[chat] ensureMessagesLoaded: skip hydrating generating conversation', convId)
       return
@@ -647,6 +669,65 @@ export const useChatStore = defineStore('chat', () => {
     hydratedIds.value.add(c.id)
     markMetaDirty(c.id)
     return c
+  }
+
+  /**
+   * Open a cron job's active isolated session in the main panel. Cron sessions
+   * are excluded from the sidebar list (see AppShell's filteredConversations)
+   * and from the backend meta pagination, so they are only reachable through
+   * this entry. The active session id is `cron:{jobId}:{yyyymmdd}` (advanced on
+   * daily rollover); prior ids' transcripts remain on disk but are not exposed
+   * here. If the session shell is not yet in the store, a transient shell is
+   * built from the job's label/agent fields and injected so the main panel can
+   * render it; its real messages are hydrated on demand by selectConversation
+   * → ensureMessagesLoaded.
+   */
+  function openCronConversation(
+    sessionId: string,
+    label: string,
+    leadAgentId?: string | null,
+    agentMode?: string | null
+  ): void {
+    if (!sessionId) {
+      console.warn('[chat] openCronConversation: empty sessionId')
+      return
+    }
+    let conv = conversations.value.find(c => c.id === sessionId)
+    if (!conv) {
+      conv = {
+        id: sessionId,
+        title: label?.trim() ? `[定时] ${label}` : '[定时] cron 会话',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        messages: [],
+        skillIds: [],
+        toolRoundsUsed: 0,
+        toolRoundsUsedSupervisor: 0,
+        workspaceRoot: '',
+        workspaceUserSet: false,
+        workspaceInheritDisabled: false,
+        leadAgentId: leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID,
+        agentMode: (agentMode?.trim() || 'single') as AgentMode
+      }
+      conversations.value.unshift(conv)
+    } else if (label?.trim()) {
+      // Refresh the title/agent on re-open so a stale shell picks up the
+      // task's current label (e.g. after rename) instead of keeping an old one.
+      conv.title = `[定时] ${label}`
+      conv.leadAgentId = leadAgentId?.trim() || DEFAULT_LEAD_AGENT_ID
+      conv.agentMode = (agentMode?.trim() || 'single') as AgentMode
+    }
+    // Always re-hydrate from DB: cron shells are transient, hydratedIds may
+    // cache an empty snapshot from before the first tick finished, and
+    // selectConversation skips work when currentId is already this session.
+    hydratedIds.value.delete(sessionId)
+    flushActiveComposerDraft()
+    currentId.value = sessionId
+    reconcileRunStateForConversation(sessionId)
+    loadActiveComposerDraft(sessionId)
+    void ensureMessagesLoaded(sessionId, { force: true })
+    void refreshTaskBoard(sessionId)
+    void refreshSubAgentTaskBoards(sessionId)
   }
 
   function selectConversation(id: string) {
@@ -900,6 +981,7 @@ export const useChatStore = defineStore('chat', () => {
       currentId,
       computerMonitorPickRequest,
       ensureImConversation,
+      ensureCronStreamConversation,
       findMessage,
       persistMeta,
       markMetaDirty,
@@ -1017,8 +1099,8 @@ export const useChatStore = defineStore('chat', () => {
       enabledSkillIds: enabledSkillIdsForRequest(conv),
       agentMode: effectiveConversationAgentMode(conv),
       leadAgentId: effectiveConversationLeadAgentId(conv),
-      toolRoundsUsed: conv.toolRoundsUsed ?? 0,
-      toolRoundsUsedSupervisor: conv.toolRoundsUsedSupervisor ?? 0,
+      toolRoundsUsed: 0,
+      toolRoundsUsedSupervisor: 0,
       workspaceRoot: conv.workspaceInheritDisabled ? '' : (conv.workspaceRoot ?? '').trim(),
       ...(conv.workspaceInheritDisabled ? { workspaceInheritDisabled: true } : {})
     }).catch(err => {
@@ -1103,7 +1185,7 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards,
-    init, newConversation, selectConversation, deleteConversation,
+    init, newConversation, openCronConversation, selectConversation, deleteConversation,
     loadMoreConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,
     sendUserMessage, stop, abortTerminalOnly, approve,

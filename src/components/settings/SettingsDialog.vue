@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { SlidersHorizontal, Bug, X, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, Database, MessageSquare, UserCircle, Cloud } from 'lucide-vue-next'
+import { SlidersHorizontal, Bug, X, Sun, Moon, Monitor, Sparkles, Bot, Cpu, Gauge, Database, MessageSquare, UserCircle, Cloud, Clock } from 'lucide-vue-next'
 import { isTauriRuntime } from '../../lib/runtime'
 import { useChatStore } from '../../stores/chat'
 import { useSettingsStore } from '../../stores/settings'
@@ -13,6 +13,7 @@ import AgentSettingsPanel from './panels/AgentSettingsPanel.vue'
 import AccountSettingsPanel from './panels/AccountSettingsPanel.vue'
 import CloudSettingsPanel from './panels/CloudSettingsPanel.vue'
 import RuntimeSettingsPanel from './panels/RuntimeSettingsPanel.vue'
+import AutomationSettingsPanel from './panels/AutomationSettingsPanel.vue'
 
 const emit = defineEmits<{
   (e: 'close'): void
@@ -26,8 +27,9 @@ const activeSection = ref('assistant')
 const saving = ref(false)
 
 const alwaysSections = [
-  { id: 'assistant', label: '智能体', desc: 'Computer 与工具权限', icon: Bot },
-  { id: 'channels', label: 'IM 通道', desc: '微信/飞书/企微/钉钉', icon: MessageSquare }
+  { id: 'automation', label: '自动化', desc: '定时任务与 Webhook', icon: Clock },
+  { id: 'channels', label: 'IM 通道', desc: '微信/飞书/企微/钉钉', icon: MessageSquare },
+  { id: 'assistant', label: '智能体', desc: 'Computer 与工具权限', icon: Bot }
 ] as const
 
 const debugSections = [
@@ -38,7 +40,7 @@ const debugSections = [
 ] as const
 
 const debugSectionIds = new Set<string>(debugSections.map(item => item.id))
-const persistedSectionIds = new Set<string>(['assistant', 'channels'])
+const persistedSectionIds = new Set<string>(['assistant', 'channels', 'automation'])
 
 const form = provideSettingsDialogForm({
   onClose: () => emit('close'),
@@ -67,22 +69,19 @@ const sections = computed(() => {
   const merged = showDebugMenus.value
     ? [...alwaysSections, ...debugSections]
     : [...alwaysSections]
-  // "平台账户" (account/login) is available on both desktop and web — the web
-  // server now has a PKCE login flow. "云主机" (cloud agent management) is still
-  // desktop-only because it drives Tauri window operations.
+  // 侧栏顺序：平台账户 → 自动化 → IM 通道 → 智能体 → （调试菜单）→ 云主机。
+  // "平台账户" (account/login) 两端可用（web 有 PKCE 登录流）；"云主机"
+  // (cloud) 仅桌面端（驱动 Tauri 窗口操作），且始终排在最后。
+  const account = { id: 'account', label: '平台账户', desc: '登录与凭据', icon: UserCircle }
   if (!isTauriRuntime()) {
-    return [{ id: 'account', label: '平台账户', desc: '登录与凭据', icon: UserCircle }, ...merged]
+    return [account, ...merged]
   }
-  return [
-    { id: 'account', label: '平台账户', desc: '登录与凭据', icon: UserCircle },
-    { id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud },
-    ...merged
-  ]
+  return [account, ...merged, { id: 'cloud', label: '云主机', desc: '购买与管理', icon: Cloud }]
 })
 
 const isPersistedSection = computed(() => persistedSectionIds.has(activeSection.value))
 const showFooterSave = computed(() => {
-  if (activeSection.value === 'account' || activeSection.value === 'runtime' || activeSection.value === 'cloud') return false
+  if (activeSection.value === 'account' || activeSection.value === 'runtime' || activeSection.value === 'cloud' || activeSection.value === 'automation') return false
   return (
     activeSection.value === 'assistant' ||
     activeSection.value === 'channels' ||
@@ -240,6 +239,10 @@ async function saveFromFooter() {
 
           <section v-else-if="activeSection === 'channels'" class="p-6">
             <ChannelSettingsPanel ref="channelPanelRef" />
+          </section>
+
+          <section v-else-if="activeSection === 'automation'" class="p-6 space-y-5">
+            <AutomationSettingsPanel @view-session="emit('close')" />
           </section>
 
           <!-- ==================== Generation Section ==================== -->

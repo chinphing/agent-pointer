@@ -88,7 +88,10 @@ pub(crate) fn ensure_conversation_row(conn: &Connection, conversation_id: &str) 
     ensure_conversation_row_with_title(conn, conversation_id, None)
 }
 
-fn ensure_conversation_row_with_title(
+/// Ensure a conversation meta row exists, creating it with the given title if
+/// missing. Used by the cron scheduler to lazily create a cron job's dedicated
+/// isolated session (`cron:{job_id}`) on first fire.
+pub(crate) fn ensure_conversation_row_with_title(
     conn: &Connection,
     conversation_id: &str,
     title: Option<&str>,

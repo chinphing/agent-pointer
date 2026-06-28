@@ -10,6 +10,7 @@ anyhow = "1"
 base64 = "0.22"
 async-stream = "0.3"
 axum = { version = "0.7", features = ["macros", "multipart"] }
+chrono = "0.4"
 
 futures-util = "0.3"
 pointer-core = { path = "../crates/pointer-core" }

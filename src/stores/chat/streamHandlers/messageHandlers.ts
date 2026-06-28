@@ -73,6 +73,7 @@ function resolveScopedOrLegacy(
 
 export function handleMessageStart(ctx: StreamHandlerContext, e: MessageStart) {
   ctx.ensureImConversation(e.conversationId)
+  ctx.ensureCronStreamConversation(e.conversationId)
   ctx.patchRunState(e.conversationId, { generating: true, activeMessageId: e.messageId })
   const conv = ctx.conversations.value.find(c => c.id === e.conversationId)
   if (!conv) return

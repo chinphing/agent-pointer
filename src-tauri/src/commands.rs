@@ -1,10 +1,13 @@
 use pointer_core::agents::computer::capture_debug;
 use pointer_core::agents::AgentDef;
-use pointer_core::chat_service::{run_chat, AppState};
+use pointer_core::chat_service::AppState;
+use pointer_core::dispatcher::{
+    DeliverTarget, RunDispatcher, TriggerMeta, TriggerRequest, TriggerSource,
+};
 use pointer_core::models::{
     ChatMediaPreview, ChatMessage, ComputerAnnotatedPreview, ComputerMonitor, Conversation,
     EffectiveSettingsView, ModelSettings, PlatformSettings, SendChatPayload, SkillDef,
-    SkillImportResult, StreamEvent, ToolDef, UserSettings,
+    SkillImportResult, ToolDef, UserSettings,
 };
 
 use pointer_core::provider::OpenAIProvider;
@@ -14,36 +17,43 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
-use tokio::sync::mpsc;
 
 pub const STREAM_EVENT: &str = "chat://stream";
+
+/// Build a [`TriggerRequest`] from the IPC payload. Centralized so the IPC
+/// trigger source stays consistent with HTTP / webhook / cron paths.
+pub(crate) fn trigger_request_from_payload(payload: SendChatPayload) -> TriggerRequest {
+    TriggerRequest {
+        run_id: None,
+        idempotency_key: None,
+        conversation_id: Some(payload.conversation_id),
+        trigger_source: TriggerSource::Ipc,
+        trigger_meta: TriggerMeta::empty(),
+        lane: None,
+        messages: payload.messages,
+        enabled_skill_ids: payload.enabled_skill_ids,
+        agent_mode: payload.agent_mode,
+        lead_agent_id: payload.lead_agent_id,
+        tool_rounds_used_single_start: payload.tool_rounds_used,
+        tool_rounds_used_supervisor_start: payload.tool_rounds_used_supervisor,
+        workspace_root: payload.workspace_root,
+        workspace_inherit_disabled: payload.workspace_inherit_disabled,
+        deliver: DeliverTarget::None,
+    }
+}
 
 #[tauri::command]
 pub async fn send_chat(
     _app: AppHandle,
-    state: State<'_, Arc<AppState>>,
+    dispatcher: State<'_, Arc<RunDispatcher>>,
     payload: SendChatPayload,
 ) -> Result<(), String> {
-    let st = state.inner().clone();
+    let d = dispatcher.inner().clone();
     tauri::async_runtime::spawn(async move {
-        let (tx, mut rx) = mpsc::unbounded_channel::<StreamEvent>();
-        tauri::async_runtime::spawn(async move {
-            while rx.recv().await.is_some() {}
-        });
-        let _ = run_chat(
-            tx,
-            st,
-            payload.conversation_id,
-            payload.messages,
-            payload.enabled_skill_ids,
-            payload.agent_mode,
-            payload.lead_agent_id.clone(),
-            payload.tool_rounds_used,
-            payload.tool_rounds_used_supervisor,
-            payload.workspace_root,
-            payload.workspace_inherit_disabled,
-        )
-        .await;
+        let req = trigger_request_from_payload(payload);
+        if let Err(e) = d.dispatch(req).await {
+            log::error!("send_chat: dispatch failed: {e:#}");
+        }
     });
     Ok(())
 }
@@ -889,3 +899,166 @@ pub async fn get_experience_detail(slug: String) -> Result<pointer_core::experie
         .await
         .map_err(|e| e.to_string())
 }
+
+// ---- Phase 5/6: cron jobs + webhook token config (desktop IPC) ----
+// These mirror the server HTTP endpoints so the frontend Automation panel
+// works identically on desktop (Tauri IPC) and web (HTTP).
+
+#[tauri::command]
+pub fn list_cron_jobs(
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<pointer_core::conversation_store::cron_jobs::CronJobView>, String> {
+    let rows = state.session_index.cron_jobs_list_all().map_err(|e| e.to_string())?;
+    Ok(rows
+        .iter()
+        .map(pointer_core::conversation_store::cron_jobs::CronJobView::from_record)
+        .collect())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCronJobArgs {
+    pub id: String,
+    pub label: String,
+    pub cron_expr: String,
+    /// Ignored: each cron job owns a dedicated `cron:{id}` session. Retained on
+    /// the wire for backward compatibility with older frontends.
+    #[serde(default)]
+    pub conversation_id: String,
+    pub prompt_text: String,
+    #[serde(default)]
+    pub agent_mode: Option<String>,
+    #[serde(default)]
+    pub lead_agent_id: Option<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[tauri::command]
+pub fn create_cron_job(
+    state: State<'_, Arc<AppState>>,
+    args: CreateCronJobArgs,
+) -> Result<pointer_core::conversation_store::cron_jobs::CronJobView, String> {
+    if pointer_core::conversation_store::cron_jobs::next_run_ms_now(&args.cron_expr)
+        .is_none()
+    {
+        return Err(format!("invalid cron expression: {}", args.cron_expr));
+    }
+    let new = pointer_core::conversation_store::cron_jobs::NewCronJob {
+        id: &args.id,
+        label: &args.label,
+        cron_expr: &args.cron_expr,
+        conversation_id: &args.conversation_id,
+        prompt_text: &args.prompt_text,
+        agent_mode: args.agent_mode.as_deref(),
+        lead_agent_id: args.lead_agent_id.as_deref(),
+        enabled: args.enabled,
+    };
+    let inserted = state.session_index.cron_jobs_insert(&new).map_err(|e| e.to_string())?;
+    if !inserted {
+        return Err(format!("cron job already exists: {}", args.id));
+    }
+    let rec = state
+        .session_index
+        .cron_jobs_get(&args.id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("cron job vanished after insert: {}", args.id))?;
+    log::info!(
+        "cron-jobs: created id={} label={} expr={}",
+        args.id,
+        args.label,
+        args.cron_expr
+    );
+    Ok(pointer_core::conversation_store::cron_jobs::CronJobView::from_record(&rec))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCronJobArgs {
+    pub enabled: Option<bool>,
+}
+
+#[tauri::command]
+pub fn update_cron_job(
+    state: State<'_, Arc<AppState>>,
+    job_id: String,
+    args: UpdateCronJobArgs,
+) -> Result<pointer_core::conversation_store::cron_jobs::CronJobView, String> {
+    if let Some(enabled) = args.enabled {
+        let ok = state
+            .session_index
+            .cron_jobs_set_enabled(&job_id, enabled)
+            .map_err(|e| e.to_string())?;
+        if !ok {
+            return Err(format!("cron job not found: {job_id}"));
+        }
+    }
+    state
+        .session_index
+        .cron_jobs_get(&job_id)
+        .map_err(|e| e.to_string())?
+        .map(|r| pointer_core::conversation_store::cron_jobs::CronJobView::from_record(&r))
+        .ok_or_else(|| format!("cron job not found: {job_id}"))
+}
+
+#[tauri::command]
+pub fn delete_cron_job(
+    state: State<'_, Arc<AppState>>,
+    job_id: String,
+) -> Result<bool, String> {
+    state.session_index.cron_jobs_delete(&job_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_webhook_config(
+    state: State<'_, Arc<AppState>>,
+) -> Result<pointer_core::webhook_config::WebhookConfigView, String> {
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
+    let configured = store.is_configured().map_err(|e| e.to_string())?;
+    let preview = if configured {
+        store.preview().map_err(|e| e.to_string())?
+    } else {
+        None
+    };
+    // Desktop has no HTTP ingress endpoint; the URL template is empty and the
+    // UI surfaces a note that webhooks are server/web-only.
+    Ok(pointer_core::webhook_config::WebhookConfigView {
+        configured,
+        preview,
+        url_template: String::new(),
+    })
+}
+
+#[tauri::command]
+pub fn set_webhook_token(
+    state: State<'_, Arc<AppState>>,
+    token: String,
+) -> Result<pointer_core::webhook_config::WebhookConfigView, String> {
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
+    if store.is_configured().map_err(|e| e.to_string())? {
+        return Err("webhook token already configured; clear it first to rotate".into());
+    }
+    let inserted = store.set_token(&token).map_err(|e| e.to_string())?;
+    if !inserted {
+        return Err("webhook token already configured".into());
+    }
+    let preview = store.preview().map_err(|e| e.to_string())?;
+    Ok(pointer_core::webhook_config::WebhookConfigView {
+        configured: true,
+        preview,
+        url_template: String::new(),
+    })
+}
+
+#[tauri::command]
+pub fn clear_webhook_token(
+    state: State<'_, Arc<AppState>>,
+) -> Result<bool, String> {
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
+    store.clear_token().map_err(|e| e.to_string())
+}
+

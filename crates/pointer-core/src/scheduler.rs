@@ -1,0 +1,275 @@
+//! Cron-based scheduler for the trigger dispatcher (Phase 5).
+//!
+//! A single ticker task wakes every `TICK_INTERVAL`, loads due `cron_jobs`
+//! rows from the conversation store, and dispatches one [`TriggerRequest`]
+//! per due job through the shared [`RunDispatcher`]. Each firing carries an
+//! idempotency key derived from the job id + scheduled time, so a repeated
+//! tick for the same scheduled slot is deduplicated by the dispatcher.
+//!
+//! Enablement is host-specific:
+//! - **Web / server**: started by default (cron is a server-side capability).
+//! - **Desktop / Tauri**: started by default (same as server). Disable via
+//!   `POINTER_SCHEDULER_ENABLED=0`.
+//!
+//! Design borrows from openclaw `cron_loop` (DB-driven schedule + ticker) and
+//! hermes (single dispatch entry reused by every trigger source).
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use chrono::Utc;
+use tokio_util::sync::CancellationToken;
+
+use crate::chat_service::AppState;
+use crate::conversation_store::cron_jobs::CronJobRecord;
+use crate::dispatcher::{
+    DeliverTarget, RunDispatcher, TriggerMeta, TriggerRequest, TriggerSource,
+};
+use crate::models::{ChatMessage, StreamEvent};
+use crate::stream_broadcast;
+
+/// Default ticker interval. The cron `Schedule` determines the actual firing
+/// time; this is only the polling granularity. 60s keeps next-fire latency
+/// under a minute while staying cheap (one index scan per tick).
+const TICK_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Cron scheduler. Owns the ticker task handle so the host can stop it on
+/// shutdown.
+pub struct Scheduler {
+    state: Arc<AppState>,
+    dispatcher: Arc<RunDispatcher>,
+    cancel: CancellationToken,
+}
+
+impl Scheduler {
+    pub fn new(state: Arc<AppState>, dispatcher: Arc<RunDispatcher>) -> Self {
+        Self {
+            state,
+            dispatcher,
+            cancel: CancellationToken::new(),
+        }
+    }
+
+    /// Spawn the ticker loop on the **current tokio runtime**. Returns the
+    /// scheduler so the host can hold the handle and call [`Self::stop`] on
+    /// shutdown. The task runs until the process exits or `stop` is called.
+    ///
+    /// **Only call this from within a tokio runtime context** (e.g. the
+    /// server's `#[tokio::main]`). Tauri desktop's `setup` closure runs on the
+    /// UI thread outside the tokio runtime, so desktop hosts must use
+    /// [`Self::run`] with `tauri::async_runtime::spawn` instead — calling this
+    /// from Tauri setup panics ("no reactor running") and aborts the process.
+    pub fn start(self) -> Arc<Self> {
+        let arc = Arc::new(self);
+        let runner = arc.clone();
+        tokio::spawn(async move {
+            runner.run().await;
+        });
+        arc
+    }
+
+    /// The ticker loop itself. Hosts that cannot call [`Self::start`] (notably
+    /// Tauri desktop, whose `setup` runs outside the tokio runtime) spawn this
+    /// on their own async runtime, e.g.
+    /// `tauri::async_runtime::spawn(scheduler.clone().run())`.
+    pub async fn run(self: Arc<Self>) {
+        log::info!("scheduler: ticker started (interval={:?})", TICK_INTERVAL);
+        loop {
+            self.tick().await;
+            tokio::select! {
+                _ = self.cancel.cancelled() => {
+                    log::info!("scheduler: ticker cancelled, exiting");
+                    break;
+                }
+                _ = tokio::time::sleep(TICK_INTERVAL) => {}
+            }
+        }
+    }
+
+    /// Stop the ticker. In-flight dispatches are not cancelled (they run to
+    /// completion under the dispatcher's own cancellation token).
+    pub fn stop(&self) {
+        self.cancel.cancel();
+    }
+
+    /// One polling pass: load due jobs, dispatch each, advance next_run.
+    async fn tick(&self) {
+        let now_ms = Utc::now().timestamp_millis();
+        let due: Vec<CronJobRecord> = match self.state.session_index.cron_jobs_list_due(now_ms) {
+            Ok(rows) => rows,
+            Err(e) => {
+                log::warn!("scheduler: list_due failed: {e:#}");
+                return;
+            }
+        };
+        if due.is_empty() {
+            return;
+        }
+        log::info!("scheduler: {} due job(s) at now_ms={now_ms}", due.len());
+        for job in due {
+            self.dispatch_job(&job).await;
+            // Advance next_run regardless of dispatch outcome so a failing
+            // dispatch does not re-fire on the next tick for the same slot.
+            // Pass `Local::now()` so the cron expression is interpreted in the
+            // user's local timezone when recomputing the next firing.
+            if let Err(e) = self
+                .state
+                .session_index
+                .cron_jobs_mark_ran(&job.id, chrono::Local::now())
+            {
+                log::warn!("scheduler: mark_ran failed id={}: {e:#}", job.id);
+            }
+        }
+    }
+
+    async fn dispatch_job(&self, job: &CronJobRecord) {
+        let scheduled_ms = job.next_run_at_ms.unwrap_or_else(|| Utc::now().timestamp_millis());
+        // Idempotency key scopes to this scheduled slot; a repeated tick for
+        // the same slot reuses the existing run instead of double-firing.
+        let idempotency_key = format!("cron:{}:{}", job.id, scheduled_ms);
+        // Each cron job owns a dedicated isolated session `cron:{job_id}`
+        // (OpenClaw model). The session is reused across ticks so the agent
+        // continues the same transcript — prior turns are loaded and prepended
+        // to the new prompt, letting run_chat's history compression manage
+        // length over time.
+        // Each cron job owns a dedicated isolated session whose id encodes the
+        // reset-day: `cron:{job_id}:{yyyymmdd}` (the calendar date of the most
+        // recent 04:00 local boundary). All ticks within the same
+        // [D 04:00, D+1 04:00) window share this id and continue one transcript;
+        // crossing the boundary yields a new id → a fresh transcript, while the
+        // prior id's transcript stays on disk (openclaw retention model). The
+        // active id is persisted on the cron_jobs row so a process restart
+        // resumes the same session within the day.
+        let now_local = chrono::Local::now();
+        let expected_session_id =
+            crate::conversation_store::cron_jobs::current_cron_session_id(&job.id, &now_local);
+        let needs_new_session = job.current_session_id.as_deref() != Some(&expected_session_id);
+        if needs_new_session {
+            if let Err(e) = self
+                .state
+                .session_index
+                .cron_jobs_set_current_session_id(&job.id, &expected_session_id)
+            {
+                log::warn!(
+                    "scheduler: set_current_session_id failed id={}: {e:#}",
+                    job.id
+                );
+            }
+            if let Err(e) = self
+                .state
+                .session_index
+                .ensure_cron_session(&expected_session_id, &job.label)
+            {
+                log::warn!(
+                    "scheduler: ensure_cron_session failed id={}: {e:#}",
+                    job.id
+                );
+            }
+            log::info!(
+                "scheduler: cron session {} id={} session={}",
+                if job.current_session_id.is_none() {
+                    "first-fire"
+                } else {
+                    "rollover"
+                },
+                job.id,
+                expected_session_id
+            );
+        }
+        // Load the active session's transcript; on a rollover/first-fire this is
+        // empty (new session id), so the new prompt starts a fresh transcript.
+        let mut messages = match self
+            .state
+            .session_index
+            .load_messages(&expected_session_id)
+        {
+            Ok(history) => history,
+            Err(e) => {
+                log::warn!(
+                    "scheduler: load cron session history failed id={} session={}: {e:#}",
+                    job.id,
+                    expected_session_id
+                );
+                Vec::new()
+            }
+        };
+        // Construct the cron tick's user prompt. We keep a handle to the
+        // message so we can broadcast it (see below) — the dispatcher/run_chat
+        // persists it to the cron session via the transcript session's
+        // `append_missing`, but a UI that has the cron conversation open live
+        // only learns about new rows through stream events. Without this
+        // broadcast the assistant reply streams in (message_start/delta/...)
+        // while the preceding user prompt never appears in the open view,
+        // producing an "extra assistant reply with no matching user message"
+        // mismatch. Mirrors how IM channels surface inbound user messages.
+        let user_msg = ChatMessage::user_text(job.prompt_text.clone());
+        let user_msg_id = user_msg.id.clone();
+        let user_msg_content = user_msg.content.clone();
+        messages.push(user_msg);
+        stream_broadcast::broadcast_stream(&StreamEvent::InjectedUserMessage {
+            conversation_id: expected_session_id.clone(),
+            message_id: user_msg_id,
+            content: user_msg_content,
+            attachments: None,
+        });
+        log::info!(
+            "scheduler: dispatching job id={} session={} history_len={} prompt_len={}",
+            job.id,
+            expected_session_id,
+            messages.len().saturating_sub(1),
+            job.prompt_text.len()
+        );
+        let req = TriggerRequest {
+            run_id: None,
+            idempotency_key: Some(idempotency_key),
+            conversation_id: Some(expected_session_id),
+            trigger_source: TriggerSource::Cron,
+            trigger_meta: TriggerMeta {
+                internal_label: Some(format!("cron:{}", job.id)),
+                ..TriggerMeta::empty()
+            },
+            lane: None,
+            messages,
+            enabled_skill_ids: Vec::new(),
+            agent_mode: job.agent_mode.clone(),
+            lead_agent_id: job.lead_agent_id.clone(),
+            tool_rounds_used_single_start: 0,
+            tool_rounds_used_supervisor_start: 0,
+            workspace_root: String::new(),
+            workspace_inherit_disabled: None,
+            deliver: DeliverTarget::None,
+        };
+        match self.dispatcher.dispatch(req).await {
+            Ok(handle) => log::info!(
+                "scheduler: dispatched job id={} run_id={} status={:?}",
+                job.id,
+                handle.run_id,
+                handle.status
+            ),
+            Err(e) => log::error!("scheduler: dispatch failed job id={}: {e:#}", job.id),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::conversation_store::cron_jobs::NewCronJob;
+
+    #[test]
+    fn next_run_ms_parses_valid_expr() {
+        // Every minute.
+        let next = next_run_ms("0 * * * * *", Utc::now());
+        assert!(next.is_some());
+    }
+
+    #[test]
+    fn next_run_ms_rejects_invalid_expr() {
+        assert!(next_run_ms("not a cron expr", Utc::now()).is_none());
+    }
+
+    // Re-export the free function for the test helpers above.
+    fn next_run_ms(expr: &str, after: chrono::DateTime<chrono::Utc>) -> Option<i64> {
+        crate::conversation_store::cron_jobs::next_run_ms(expr, &after)
+    }
+}

@@ -41,12 +41,24 @@ struct OpenpointerSection {
     oauth_client_secret: String,
 }
 
+/// Optional webhook ingress configuration. Maps to env
+/// `POINTER_WEBHOOK_BEARER_TOKEN`. When unset, the generic webhook endpoint
+/// (`POST /api/webhooks/:src`) rejects all requests with 401.
+#[derive(Debug, Default, Deserialize)]
+struct WebhooksSection {
+    /// Shared bearer token expected in `Authorization: Bearer <token>`.
+    #[serde(default)]
+    bearer_token: String,
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct ServerConfigToml {
     #[serde(default)]
     server: ServerSection,
     #[serde(default)]
     openpointer: OpenpointerSection,
+    #[serde(default)]
+    webhooks: WebhooksSection,
     #[serde(default)]
     env: HashMap<String, String>,
 }
@@ -86,7 +98,7 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
         eprintln!("pointer-server: config file has no recognized keys");
     }
     for (key, value) in &applied {
-        if key == "OPENPOINTER_OAUTH_CLIENT_SECRET" {
+        if key == "OPENPOINTER_OAUTH_CLIENT_SECRET" || key == "POINTER_WEBHOOK_BEARER_TOKEN" {
             eprintln!("pointer-server: applied {key}=<redacted>");
         } else {
             eprintln!("pointer-server: applied {key}={value}");
@@ -94,7 +106,7 @@ pub fn load_server_config() -> Result<Option<ServerConfigLoadResult>> {
     }
     for key in &skipped_env {
         let current = std::env::var(key).unwrap_or_default();
-        if key == "OPENPOINTER_OAUTH_CLIENT_SECRET" {
+        if key == "OPENPOINTER_OAUTH_CLIENT_SECRET" || key == "POINTER_WEBHOOK_BEARER_TOKEN" {
             eprintln!("pointer-server: skipped {key} (environment already set, value redacted)");
         } else {
             eprintln!("pointer-server: skipped {key} (environment already set to {current})");
@@ -197,6 +209,13 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
         &mut pairs,
         "OPENPOINTER_OAUTH_CLIENT_SECRET",
         &parsed.openpointer.oauth_client_secret,
+        base_dir,
+        false,
+    );
+    push_mapped(
+        &mut pairs,
+        "POINTER_WEBHOOK_BEARER_TOKEN",
+        &parsed.webhooks.bearer_token,
         base_dir,
         false,
     );

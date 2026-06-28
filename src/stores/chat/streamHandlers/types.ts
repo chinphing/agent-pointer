@@ -19,6 +19,7 @@ export interface StreamHandlerContext {
   computerMonitorPickRequest: Ref<ComputerMonitorPickRequest | null>
 
   ensureImConversation(conversationId: string, title?: string): void
+  ensureCronStreamConversation(conversationId: string): void
   findMessage(
     messageId: string,
     preferConversationId?: string

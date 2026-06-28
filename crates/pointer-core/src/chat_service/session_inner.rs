@@ -82,7 +82,6 @@ pub(super) async fn run_chat_inner(
     let request_agent_mode = req.agent_mode.as_deref();
     let request_lead_agent_id = req.lead_agent_id_override.as_deref();
     let tool_rounds_used_single_start = req.tool_rounds_used_single_start;
-    let tool_rounds_used_supervisor_start = req.tool_rounds_used_supervisor_start;
     let workspace_root = req.workspace_root.clone();
     let run_id = req.run_id.as_str();
     let cancel = ctx.cancel.clone();
@@ -278,16 +277,14 @@ pub(super) async fn run_chat_inner(
     );
 
     let max_cap = settings.max_tool_rounds.clamp(1, 10_000);
+    // Tool-round cap is enforced per user turn (each run_chat invocation), not
+    // cumulatively across the whole conversation. Cron ticks, follow-up sends,
+    // and long transcripts therefore each get a fresh budget up to max_cap.
+    let tool_budget_single_start = 0;
+    let tool_budget_supervisor_start = 0;
 
     if agent_plan.mode == AGENT_MODE_SUPERVISOR {
-        if tool_rounds_used_supervisor_start >= max_cap {
-            state.computer_state.mark_cancelled(conversation_id);
-            return Err(anyhow!(
-                "本会话在团队模式下工具调用轮次已达上限（{}），请新开对话或在设置中调高上限。",
-                max_cap
-            ));
-        }
-        let mut tool_budget = SessionToolBudget::new(max_cap, tool_rounds_used_supervisor_start);
+        let mut tool_budget = SessionToolBudget::new(max_cap, tool_budget_supervisor_start);
         let mut sup_ctx = super::context::SupervisorLoopContext {
             session: super::context::SessionRefsArc {
                 stream: &stream,
@@ -307,13 +304,7 @@ pub(super) async fn run_chat_inner(
         return r;
     }
 
-    if tool_rounds_used_single_start >= max_cap {
-        return Err(anyhow!(
-            "本会话在单智能体模式下工具调用轮次已达上限（{}），请新开对话或在设置中调高上限。",
-            max_cap
-        ));
-    }
-    let mut tool_budget = SessionToolBudget::new(max_cap, tool_rounds_used_single_start);
+    let mut tool_budget = SessionToolBudget::new(max_cap, tool_budget_single_start);
     let reasoning_in_messages = effective_reasoning_in_messages(&provider.settings);
     let main_task_board_store_key = choose_main_task_board_store_key(
         state.as_ref(),

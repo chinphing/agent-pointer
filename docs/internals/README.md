@@ -6,6 +6,7 @@
 |------|------|
 | [llm-prompt-assembly-order.md](llm-prompt-assembly-order.md) | `stream_chat` 前 `messages` 与 `SystemPromptSections`（cacheable / dynamic）拼接顺序 |
 | [agent-extension-hooks.md](agent-extension-hooks.md) | 扩展注册表与钩子触发点 |
+| [trigger-dispatcher.md](trigger-dispatcher.md) | 统一可调用 / 事件触发入口 `RunDispatcher`：触发源、队列、事件总线、钩子、HTTP Runs API、Webhook、Cron |
 | [agent-task-board-and-verification.md](agent-task-board-and-verification.md) | 任务板、`verification` 字段与多 Agent 约定 |
 | [terminal-shell-path.md](terminal-shell-path.md) | `terminal` 工具在各平台的 PATH / shell 行为 |
 | [desktop-oauth-web-integration.md](desktop-oauth-web-integration.md) | 桌面 OAuth 回调后首页 `?desktop_oauth=success` 与官网一次性提示 |

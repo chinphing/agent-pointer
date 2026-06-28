@@ -1,0 +1,163 @@
+/**
+ * Cron schedule helpers for the automation UI. The backend uses a 6-field,
+ * second-level cron expression (`sec min hour dom mon dow`), which most users
+ * cannot write by hand. These helpers bridge a small set of friendly presets
+ * to/from that raw expression, plus a human-readable Chinese description.
+ *
+ * Fields are interpreted in the user's local timezone by the backend
+ * (`cron::Schedule::after(Local::now())`), so "每天 09:30" means local 09:30.
+ */
+
+/** Friendly schedule modes backed by generated cron expressions. */
+export type CronMode =
+  | 'everyMinute'
+  | 'everyNMinutes'
+  | 'everyNHours'
+  | 'dailyAt'
+  | 'weeklyAt'
+  | 'monthlyAt'
+  | 'custom'
+
+/** Preset parameter shape. Only the fields relevant to `mode` are used. */
+export interface CronPreset {
+  mode: CronMode
+  /** For everyNMinutes / everyNHours. */
+  interval?: number
+  /** For dailyAt / weeklyAt / monthlyAt: hour 0-23. */
+  hour?: number
+  /** For dailyAt / weeklyAt / monthlyAt: minute 0-59. */
+  minute?: number
+  /** For weeklyAt: 0=Sunday … 6=Saturday. */
+  weekday?: number
+  /** For monthlyAt: day of month 1-31. */
+  dayOfMonth?: number
+  /** For custom: the raw expression. */
+  raw?: string
+}
+
+export const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
+const DEFAULT_PRESET: CronPreset = { mode: 'dailyAt', hour: 9, minute: 0 }
+
+/** Build a 6-field cron expression from a preset. `custom` returns `raw`. */
+export function buildCron(p: CronPreset): string {
+  switch (p.mode) {
+    case 'everyMinute':
+      return '0 * * * * *'
+    case 'everyNMinutes': {
+      const n = clampInt(p.interval, 1, 59, 5)
+      return `0 */${n} * * * *`
+    }
+    case 'everyNHours': {
+      const n = clampInt(p.interval, 1, 23, 2)
+      return `0 0 */${n} * * *`
+    }
+    case 'dailyAt': {
+      const h = clampInt(p.hour, 0, 23, 9)
+      const m = clampInt(p.minute, 0, 59, 0)
+      return `0 ${m} ${h} * * *`
+    }
+    case 'weeklyAt': {
+      const h = clampInt(p.hour, 0, 23, 9)
+      const m = clampInt(p.minute, 0, 59, 0)
+      const d = clampInt(p.weekday, 0, 6, 1)
+      return `0 ${m} ${h} * * ${d}`
+    }
+    case 'monthlyAt': {
+      const h = clampInt(p.hour, 0, 23, 9)
+      const m = clampInt(p.minute, 0, 59, 0)
+      const dom = clampInt(p.dayOfMonth, 1, 31, 1)
+      return `0 ${m} ${h} ${dom} * *`
+    }
+    case 'custom':
+    default:
+      return (p.raw ?? '').trim()
+  }
+}
+
+/**
+ * Best-effort reverse parse of a cron expression into a preset. Falls back to
+ * `custom` (with the raw string preserved) for anything not matching a preset,
+ * so editing an existing advanced job keeps its expression intact.
+ */
+export function parseCron(expr: string): CronPreset {
+  const raw = (expr ?? '').trim()
+  if (!raw) return { ...DEFAULT_PRESET }
+  const parts = raw.split(/\s+/)
+  if (parts.length !== 6) return { mode: 'custom', raw }
+  const [s, m, h, dom, mon, dow] = parts
+  const star = (x: string) => x === '*'
+  const num = (x: string) => (/^-?\d+$/.test(x) ? parseInt(x, 10) : null)
+  const step = (x: string) => {
+    const mt = /^\*\/(\d+)$/.exec(x)
+    return mt ? parseInt(mt[1], 10) : null
+  }
+  if (s !== '0') return { mode: 'custom', raw }
+
+  // everyMinute: 0 * * * * *
+  if (star(m) && star(h) && star(dom) && star(mon) && star(dow)) {
+    return { mode: 'everyMinute' }
+  }
+  // everyNMinutes: 0 */N * * * *
+  const nMin = step(m)
+  if (nMin != null && star(h) && star(dom) && star(mon) && star(dow)) {
+    return { mode: 'everyNMinutes', interval: nMin }
+  }
+  // everyNHours: 0 0 */N * * *
+  const nHour = step(h)
+  if (m === '0' && nHour != null && star(dom) && star(mon) && star(dow)) {
+    return { mode: 'everyNHours', interval: nHour }
+  }
+  // dailyAt / weeklyAt / monthlyAt: 0 M H [dom] * [dow]
+  const mm = num(m)
+  const hh = num(h)
+  if (mm != null && mm >= 0 && mm <= 59 && hh != null && hh >= 0 && hh <= 23 && star(mon)) {
+    // monthlyAt: 0 M H D * *  (day-of-month is a number, dow is *)
+    const domNum = num(dom)
+    if (domNum != null && domNum >= 1 && domNum <= 31 && star(dow)) {
+      return { mode: 'monthlyAt', hour: hh, minute: mm, dayOfMonth: domNum }
+    }
+    if (star(dom) && star(dow)) {
+      return { mode: 'dailyAt', hour: hh, minute: mm }
+    }
+    if (star(dom)) {
+      const d = num(dow)
+      if (d != null && d >= 0 && d <= 6) {
+        return { mode: 'weeklyAt', hour: hh, minute: mm, weekday: d }
+      }
+    }
+  }
+  return { mode: 'custom', raw }
+}
+
+/** Human-readable Chinese description of a cron expression. */
+export function describeCron(expr: string): string {
+  const p = parseCron(expr)
+  switch (p.mode) {
+    case 'everyMinute':
+      return '每分钟执行'
+    case 'everyNMinutes':
+      return `每 ${p.interval ?? 5} 分钟执行`
+    case 'everyNHours':
+      return `每 ${p.interval ?? 2} 小时执行`
+    case 'dailyAt':
+      return `每天 ${pad(p.hour ?? 9)}:${pad(p.minute ?? 0)} 执行`
+    case 'weeklyAt':
+      return `每${WEEKDAY_LABELS[p.weekday ?? 1]} ${pad(p.hour ?? 9)}:${pad(p.minute ?? 0)} 执行`
+    case 'monthlyAt':
+      return `每月 ${p.dayOfMonth ?? 1} 日 ${pad(p.hour ?? 9)}:${pad(p.minute ?? 0)} 执行`
+    case 'custom':
+    default:
+      return `自定义：${(expr ?? '').trim() || '—'}`
+  }
+}
+
+function clampInt(v: unknown, lo: number, hi: number, fallback: number): number {
+  const n = typeof v === 'number' ? v : parseInt(String(v ?? ''), 10)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(hi, Math.max(lo, Math.trunc(n)))
+}
+
+function pad(n: number): string {
+  return String(Math.trunc(n)).padStart(2, '0')
+}

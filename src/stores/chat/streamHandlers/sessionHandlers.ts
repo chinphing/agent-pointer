@@ -140,6 +140,7 @@ export function handleUserMessageAttachmentsUpdated(
 
 export function handleInjectedUserMessage(ctx: StreamHandlerContext, e: InjectedUserMessage) {
   ctx.ensureImConversation(e.conversationId)
+  ctx.ensureCronStreamConversation(e.conversationId)
   const conv = ctx.conversations.value.find(c => c.id === e.conversationId)
   if (!conv) return
   const existing = conv.messages.find(m => m.id === e.messageId)

@@ -43,9 +43,11 @@ export interface WebhookSource {
   preview: string
   /** Full ingress URL (web/server only; empty on desktop). */
   url?: string
-  /** Dedicated session id (`webhook:{src}`). */
+  /** Stable source key (`webhook:{src}`). */
   conversationId: string
-  /** Whether the session has stored messages (first ingress fired). */
+  /** Active session id (`webhook:{src}:{yyyymmdd}`); null until first ingress. */
+  currentSessionId?: string | null
+  /** Whether any session for this source has stored messages. */
   hasTranscript: boolean
 }
 

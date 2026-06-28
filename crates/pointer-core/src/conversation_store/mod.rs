@@ -7,6 +7,7 @@ mod migrate;
 mod persist;
 pub mod app_secrets;
 pub mod cron_jobs;
+pub mod webhook_sources;
 pub mod runs;
 mod search;
 mod write;
@@ -22,7 +23,7 @@ use crate::models::{ChatMessage, Conversation, ConversationMeta};
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 10;
+const SCHEMA_VERSION: i32 = 11;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -184,11 +185,37 @@ impl ConversationStore {
         })
     }
 
-    /// Ensure a dedicated webhook session row exists for `:src` on first ingress.
-    pub fn ensure_webhook_session(&self, src: &str) -> Result<()> {
-        let conversation_id = crate::webhook_config::webhook_conversation_id(src);
-        let title = crate::webhook_config::webhook_session_title(src);
-        self.ensure_cron_session(&conversation_id, &title)
+    /// Resolve the active webhook session for `:src` (daily 04:00 rollover).
+    pub fn resolve_webhook_ingress_session(&self, src: &str) -> Result<String> {
+        let legacy = crate::webhook_config::webhook_session_key(src);
+        let legacy_has = self.message_count(&legacy)? > 0;
+        self.db.execute_write(|conn| {
+            webhook_sources::resolve_ingress_session_id(
+                conn,
+                src,
+                &chrono::Local::now(),
+                legacy_has,
+            )
+        })
+    }
+
+    pub fn webhook_sources_get(
+        &self,
+        src: &str,
+    ) -> Result<Option<webhook_sources::WebhookSourceRecord>> {
+        let conn = self.db.conn.lock();
+        webhook_sources::get(&conn, src)
+    }
+
+    pub fn webhook_sources_ensure_row(&self, src: &str) -> Result<()> {
+        let now_ms = chrono::Local::now().timestamp_millis();
+        let conn = self.db.conn.lock();
+        webhook_sources::ensure_row(&conn, src, now_ms)
+    }
+
+    pub fn webhook_sources_delete(&self, src: &str) -> Result<bool> {
+        let conn = self.db.conn.lock();
+        webhook_sources::delete(&conn, src)
     }
 
     /// P0: insert or update one message.
@@ -547,6 +574,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
     // `runs` table lives in the same db; idempotent CREATE.
     runs::ensure_schema(conn)?;
     cron_jobs::ensure_schema(conn)?;
+    webhook_sources::ensure_schema(conn)?;
     app_secrets::ensure_schema(conn)?;
     let version: Option<i32> = conn
         .query_row("SELECT version FROM schema_version LIMIT 1", [], |row| {
@@ -613,6 +641,7 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     // rollover). Existing rows backfill to NULL — the scheduler lazily sets it
     // on the next fire.
     add_column_if_missing(conn, "cron_jobs", "current_session_id", "TEXT")?;
+    webhook_sources::ensure_schema(conn)?;
     conn.execute(
         "UPDATE conversations SET im_last_interaction_at_ms = updated_at_ms
          WHERE im_last_interaction_at_ms = 0 AND updated_at_ms > 0",

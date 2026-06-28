@@ -17,6 +17,7 @@ import { isTauriRuntime } from '../../../lib/runtime'
 import { composerAgentLabel, composerAgentLabelById, resolveAgentUi } from '../../../lib/agentUi'
 import { sortComposerAgents } from '../../../lib/agentIcons'
 import { describeCron, resolveCronViewSessionId } from '../../../lib/cronSchedule'
+import { resolveWebhookViewSessionId } from '../../../lib/webhookIngress'
 import { WEBHOOK_URL_TEMPLATE, generateWebhookToken, recallWebhookToken, rememberWebhookToken, forgetWebhookToken, webhookIngressCurl, webhookIngressUrl } from '../../../lib/webhookIngress'
 import { DEFAULT_LEAD_AGENT_ID } from '../../../types/chat'
 import type { AgentDef } from '../../../types/chat'
@@ -271,13 +272,18 @@ function cancelDeleteWebhookSource() {
   pendingDeleteWebhookSrc.value = null
 }
 
+function webhookViewSessionId(source: WebhookSource): string | null {
+  return resolveWebhookViewSessionId(source)
+}
+
 function viewWebhookSession(source: WebhookSource) {
-  if (!source.hasTranscript) {
+  const sessionId = webhookViewSessionId(source)
+  if (!sessionId) {
     webhookError.value = '该来源尚未触发，暂无专属会话可查看'
     return
   }
   webhookError.value = null
-  chat.openWebhookConversation(source.conversationId, source.src)
+  chat.openWebhookConversation(sessionId, source.src)
   emit('view-session')
 }
 
@@ -549,11 +555,11 @@ onMounted(() => {
             <div class="flex items-center gap-1 shrink-0">
               <button
                 class="h-7 w-7 rounded-md inline-flex items-center justify-center shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-                :class="s.hasTranscript
+                :class="webhookViewSessionId(s)
                   ? 'border border-accent/40 bg-accent/10 text-accent hover:bg-accent/15 cursor-pointer'
                   : 'border border-border text-muted cursor-not-allowed'"
-                :title="s.hasTranscript ? '查看会话' : '尚未触发，暂无会话可查看'"
-                :disabled="!s.hasTranscript"
+                :title="webhookViewSessionId(s) ? '查看会话' : '尚未触发，暂无会话可查看'"
+                :disabled="!webhookViewSessionId(s)"
                 @click="viewWebhookSession(s)"
               >
                 <MessagesSquare class="w-3.5 h-3.5" />

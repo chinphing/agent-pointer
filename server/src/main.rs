@@ -1423,19 +1423,15 @@ async fn webhook_ingress(
         ));
     }
 
-    let conversation_id = body.conversation_id.clone().unwrap_or_else(|| {
-        pointer_core::webhook_config::webhook_conversation_id(&normalized_src)
-    });
-
-    if let Err(e) = state
-        .core
-        .session_index
-        .ensure_webhook_session(&normalized_src)
-    {
-        log::warn!(
-            "webhook ingress: ensure_webhook_session failed src={normalized_src}: {e:#}"
-        );
-    }
+    let conversation_id = if let Some(ref explicit) = body.conversation_id {
+        explicit.clone()
+    } else {
+        state
+            .core
+            .session_index
+            .resolve_webhook_ingress_session(&normalized_src)
+            .map_err(ApiError::from)?
+    };
 
     let blocking = body.blocking;
     let timeout_seconds = body.timeout_seconds;

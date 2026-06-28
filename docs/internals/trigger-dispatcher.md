@@ -62,9 +62,9 @@ SSE 终态处理是无竞态的：先订阅总线，再读 `runs` 表；已终�
 
 **解析顺序**（ingress 时）：`webhook_token:{src}` → 旧版全局 `webhook_bearer_token`（对所有来源 fallback）→ env `POINTER_WEBHOOK_BEARER_TOKEN`。三者皆无则 401。
 
-body 支持 `text`（单条 user 消息）或 `messages`（完整历史）；`conversationId` 缺省时按 `webhook:{src}` 派生稳定会话。Token 日志中脱敏（`****` + 末 4 位）。
+body 支持 `text`（单条 user 消息）或 `messages`（完整历史）；`conversationId` 缺省时按日切 session `webhook:{src}:{yyyymmdd}` 派生（本地 04:00 重置，与 cron 一致）。Token 日志中脱敏（`****` + 末 4 位）。
 
-**专属 webhook 会话（对齐 cron 侧栏隔离）**：每个来源独占 `webhook:{src}` 会话，跨次续接 transcript。`persist::load_all_from_conn` / `load_metas_from_conn` 用 `NOT LIKE 'webhook:%'` 排除侧栏；前端 `AppShell.filteredConversations` 兜底过滤。查看入口：自动化面板来源行的「查看会话」→ `chat.openWebhookConversation(conversationId, src)`；`hasTranscript` 为 false 时按钮禁用（尚未触发）。首次 ingress 时 `ensure_webhook_session(src)` 懒创建 meta 行（标题 `[Webhook] {src}`）。ingress 时对最后一轮 user 消息广播 `InjectedUserMessage`，与 cron 调度器一致，避免「查看会话」时只有 assistant 回复、看不到 user 行。
+**专属 webhook 会话（对齐 cron 侧栏隔离 + 日切）**：每个来源独占隔离会话，id 为 `webhook:{src}:{yyyymmdd}`（本地 **04:00** 日切，与 cron 相同）；跨次在同一天内续接 transcript，跨日开新 session，旧 session 保留在 DB。`webhook:{src}` 为稳定来源键（UI 行标识）。`persist::load_all_from_conn` / `load_metas_from_conn` 用 `NOT LIKE 'webhook:%'` 排除侧栏；前端 `AppShell.filteredConversations` 兜底过滤。查看入口：自动化面板来源行的「查看会话」→ `chat.openWebhookConversation(currentSessionId, src)`；`hasTranscript` 为 false 时按钮禁用（尚未触发）。`webhook_sources` 表持久化 `current_session_id`；升级前已有 transcript 的旧 `webhook:{src}` 会在首次 ingress 被采纳，跨 04:00 后切换到 dated id。ingress 时对最后一轮 user 消息广播 `InjectedUserMessage`，与 cron 调度器一致，避免「查看会话」时只有 assistant 回复、看不到 user 行。
 
 **Blocking 模式（对齐 OpenClaw PR #67433）**：body 传 `"blocking": true` 时 HTTP 连接保持到 run 结束；成功 `200 { ok, runId, conversationId, text }`，agent 失败 `500 { ok: false, runId, error }`，超时 `504`（默认 `timeoutSeconds` 120，最大 600）。未传 `blocking` 时仍为 `202 + runId` 异步 ack。
 

@@ -3,6 +3,8 @@ import {
   WEBHOOK_URL_TEMPLATE,
   generateWebhookToken,
   webhookConversationId,
+  currentWebhookSessionId,
+  resolveWebhookViewSessionId,
   webhookIngressCurl,
   webhookIngressUrl
 } from './webhookIngress'
@@ -12,6 +14,29 @@ describe('webhookIngress', () => {
     expect(WEBHOOK_URL_TEMPLATE).toBe('http://{host}:{port}/api/webhooks/{src}')
     expect(webhookIngressUrl('github')).toBe('http://{host}:{port}/api/webhooks/github')
     expect(webhookConversationId('github')).toBe('webhook:github')
+  })
+
+  it('derives dated session id from reset boundary', () => {
+    const now = new Date(2026, 5, 28, 10, 0, 0)
+    expect(currentWebhookSessionId('github', now)).toBe('webhook:github:20260628')
+  })
+
+  it('resolveWebhookViewSessionId prefers persisted id', () => {
+    expect(
+      resolveWebhookViewSessionId({
+        src: 'github',
+        currentSessionId: 'webhook:github:20260628',
+        conversationId: 'webhook:github',
+        hasTranscript: true
+      })
+    ).toBe('webhook:github:20260628')
+    expect(
+      resolveWebhookViewSessionId({
+        src: 'github',
+        conversationId: 'webhook:github',
+        hasTranscript: true
+      })
+    ).toBe('webhook:github')
   })
 
   it('generates 32-char token', () => {

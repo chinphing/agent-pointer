@@ -15,10 +15,18 @@ use crate::conversation_store::ConversationStore;
 const LEGACY_LABEL: &str = "webhook_bearer_token";
 const TOKEN_LABEL_PREFIX: &str = "webhook_token:";
 
-/// Stable conversation id for a webhook ingress source (`webhook:{src}`).
-pub fn webhook_conversation_id(src: &str) -> String {
+/// Stable webhook source key (`webhook:{src}`). Stored on UI rows; transcript
+/// lives under [`current_webhook_session_id`] / `current_session_id`.
+pub fn webhook_session_key(src: &str) -> String {
     format!("webhook:{src}")
 }
+
+/// Alias for the stable source key (backward compat).
+pub fn webhook_conversation_id(src: &str) -> String {
+    webhook_session_key(src)
+}
+
+pub use crate::conversation_store::webhook_sources::current_webhook_session_id;
 
 /// Display title for a webhook session row / UI shell.
 pub fn webhook_session_title(src: &str) -> String {
@@ -34,9 +42,11 @@ pub struct WebhookSourceView {
     /// Full ingress URL for this source (host fills in; empty on desktop).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub url: String,
-    /// Dedicated session id (`webhook:{src}`).
+    /// Stable source key (`webhook:{src}`).
     pub conversation_id: String,
-    /// Whether the session has at least one stored message (first ingress fired).
+    /// Active session id (`webhook:{src}:{yyyymmdd}`); null until first ingress.
+    pub current_session_id: Option<String>,
+    /// Whether any session for this source has stored messages.
     pub has_transcript: bool,
 }
 
@@ -93,13 +103,25 @@ impl<'a> WebhookTokenStore<'a> {
 
     /// Build a UI view row for one configured source.
     pub fn source_view(&self, src: String, preview: String, url: String) -> Result<WebhookSourceView> {
-        let conversation_id = webhook_conversation_id(&src);
-        let has_transcript = self.store.message_count(&conversation_id)? > 0;
+        use crate::conversation_store::webhook_sources;
+        let conversation_id = webhook_session_key(&src);
+        let legacy_has = self.store.message_count(&conversation_id)? > 0;
+        let record = self.store.webhook_sources_get(&src)?;
+        let current_session_id =
+            webhook_sources::resolve_view_session_id(record.as_ref(), &src, legacy_has);
+        let has_transcript = legacy_has
+            || current_session_id
+                .as_ref()
+                .map(|id| self.store.message_count(id))
+                .transpose()?
+                .unwrap_or(0)
+                > 0;
         Ok(WebhookSourceView {
             src,
             preview,
             url,
             conversation_id,
+            current_session_id,
             has_transcript,
         })
     }
@@ -134,6 +156,7 @@ impl<'a> WebhookTokenStore<'a> {
         let blob = crate::local_secret::encrypt_local_secret(trimmed)?;
         let inserted = self.store.app_secret_try_insert(&label, &blob)?;
         if inserted {
+            self.store.webhook_sources_ensure_row(&src)?;
             log::info!("webhook_config: source token set src={src} (encrypted)");
         }
         Ok(inserted)
@@ -148,6 +171,7 @@ impl<'a> WebhookTokenStore<'a> {
         let src = Self::normalize_src(src)?;
         let deleted = self.store.app_secret_delete(&Self::token_label(&src))?;
         if deleted {
+            let _ = self.store.webhook_sources_delete(&src);
             log::info!("webhook_config: source token cleared src={src}");
         }
         Ok(deleted)

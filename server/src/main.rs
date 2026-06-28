@@ -24,7 +24,7 @@ use pointer_core::{
     },
     models::{
         ComputerAnnotatedPreview, ChatMediaPreview, ComputerMonitor, Conversation, EffectiveSettingsView,
-        ModelSettings, PlatformSettings, Role, SendChatPayload, SkillDef, SkillImportResult, StreamEvent,
+        ModelSettings, PlatformSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent,
         ToolDef, UserSettings,
     },
     platform_auth::{PlatformAuthManager, PlatformSessionView},
@@ -1222,14 +1222,21 @@ async fn cancel_run(
     StatusCode::NO_CONTENT
 }
 
-/// Body shape for generic webhook ingress. `text` is shorthand for a single
-/// user message; `messages` overrides it when present.
+/// Body shape for generic webhook ingress. `text` / `message` (OpenClaw) are
+/// shorthand for a single user turn appended to the session transcript;
+/// `messages` overrides when it looks like a full history payload.
 #[derive(Deserialize)]
 struct WebhookIngressBody {
     #[serde(default, rename = "conversationId")]
     conversation_id: Option<String>,
     #[serde(default)]
     text: Option<String>,
+    /// OpenClaw `/hooks/agent` alias for `text`.
+    #[serde(default)]
+    message: Option<String>,
+    /// OpenClaw-style label prefix for the inbound turn (e.g. `"GitHub"`).
+    #[serde(default)]
+    name: Option<String>,
     #[serde(default)]
     messages: Option<Vec<pointer_core::models::ChatMessage>>,
     #[serde(default, rename = "agentMode")]
@@ -1376,6 +1383,7 @@ async fn finish_webhook_blocking(
 /// Auth: `Authorization: Bearer <token>` or `X-Pointer-Token: <token>`.
 /// The token must match the one configured for this `:src` (or the legacy
 /// global token / env fallback when no per-source token exists).
+/// Each source may optionally configure a custom auth header name instead.
 async fn webhook_ingress(
     State(state): State<ServerState>,
     Path(src): Path<String>,
@@ -1401,26 +1409,16 @@ async fn webhook_ingress(
             "webhook ingress disabled: no token configured for this source",
         ));
     }
-    let provided = extract_webhook_bearer_token(&headers);
+    let auth_header_name = store
+        .auth_header_name_for_source(&normalized_src)
+        .map_err(ApiError::from)?;
+    let provided = pointer_core::webhook_config::extract_webhook_token(&headers, auth_header_name.as_deref());
     let ok = store
         .verify_for_source(&normalized_src, provided)
         .map_err(ApiError::from)?;
     if !ok {
-        log::warn!("webhook ingress rejected: bad bearer token (src={normalized_src})");
+        log::warn!("webhook ingress rejected: bad bearer token (src={normalized_src} header={auth_header_name:?})");
         return Ok(status_text(StatusCode::UNAUTHORIZED, "unauthorized"));
-    }
-
-    let messages = body.messages.unwrap_or_else(|| {
-        body.text
-            .map(pointer_core::models::ChatMessage::user_text)
-            .map(|m| vec![m])
-            .unwrap_or_default()
-    });
-    if messages.is_empty() {
-        return Ok(status_text(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "webhook body must contain `text` or `messages`",
-        ));
     }
 
     let conversation_id = if let Some(ref explicit) = body.conversation_id {
@@ -1433,11 +1431,37 @@ async fn webhook_ingress(
             .map_err(ApiError::from)?
     };
 
+    let inbound = pointer_core::webhook_ingress::WebhookInboundTurn {
+        text: body.text,
+        message: body.message,
+        name: body.name,
+        messages: body.messages,
+    };
+    let messages = match pointer_core::webhook_ingress::build_webhook_dispatch_messages(
+        &state.core.session_index,
+        &conversation_id,
+        &inbound,
+    ) {
+        Ok(m) if m.is_empty() => {
+            return Ok(status_text(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "webhook body must contain `text`, `message`, or `messages`",
+            ));
+        }
+        Ok(m) => m,
+        Err(e) => {
+            log::warn!("webhook ingress rejected: bad body (src={normalized_src}): {e:#}");
+            return Ok(status_text(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()));
+        }
+    };
+
     let blocking = body.blocking;
     let timeout_seconds = body.timeout_seconds;
 
     // Surface the inbound user turn in open cron/webhook views (same as cron scheduler / IM).
-    if let Some(user_msg) = messages.iter().rev().find(|m| matches!(m.role, Role::User)) {
+    if let Some(user_msg) =
+        pointer_core::webhook_ingress::last_inbound_user_message(&messages)
+    {
         pointer_core::stream_broadcast::broadcast_stream(&StreamEvent::InjectedUserMessage {
             conversation_id: conversation_id.clone(),
             message_id: user_msg.id.clone(),
@@ -1640,9 +1664,12 @@ async fn delete_cron_job(
 // ---- Phase 6: webhook token config (per-source, UI-settable, encrypted) ----
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SetWebhookSourceTokenBody {
     src: String,
     token: String,
+    #[serde(default)]
+    auth_header_name: Option<String>,
 }
 
 fn webhook_url_template() -> String {
@@ -1682,25 +1709,6 @@ fn build_webhook_config_view(
     })
 }
 
-/// Extract Bearer or `X-Pointer-Token` (OpenClaw-style alternate header).
-fn extract_webhook_bearer_token(headers: &axum::http::HeaderMap) -> &str {
-    if let Some(v) = headers.get(axum::http::header::AUTHORIZATION) {
-        if let Ok(s) = v.to_str() {
-            if let Some(token) = s.strip_prefix("Bearer ") {
-                let t = token.trim();
-                if !t.is_empty() {
-                    return t;
-                }
-            }
-        }
-    }
-    headers
-        .get("x-pointer-token")
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-        .unwrap_or("")
-}
-
 /// `GET /api/webhooks/config` — list configured sources + URL template.
 async fn get_webhook_config(
     State(state): State<ServerState>,
@@ -1723,7 +1731,11 @@ async fn set_webhook_source_token(
             "webhook token already configured for this source; clear it first to rotate",
         ));
     }
-    match store.set_source_token(&body.src, &body.token) {
+    match store.set_source_token(
+        &body.src,
+        &body.token,
+        body.auth_header_name.as_deref(),
+    ) {
         Ok(true) => Ok(Json(build_webhook_config_view(&state.core.session_index)?).into_response()),
         Ok(false) => Ok(status_text(
             StatusCode::CONFLICT,

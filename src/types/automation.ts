@@ -49,6 +49,8 @@ export interface WebhookSource {
   currentSessionId?: string | null
   /** Whether any session for this source has stored messages. */
   hasTranscript: boolean
+  /** Custom auth header; omit for default Bearer + X-Pointer-Token. */
+  authHeaderName?: string | null
 }
 
 /**
@@ -67,4 +69,5 @@ export interface WebhookConfig {
 export interface SetWebhookSourceInput {
   src: string
   token: string
+  authHeaderName?: string | null
 }

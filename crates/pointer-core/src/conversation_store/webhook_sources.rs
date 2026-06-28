@@ -14,6 +14,8 @@ pub struct WebhookSourceRecord {
     /// Active session id (`webhook:{src}:{yyyymmdd}` or legacy `webhook:{src}`).
     pub current_session_id: Option<String>,
     pub last_ingress_at_ms: Option<i64>,
+    /// Optional custom auth header (e.g. `X-Codeup-Token`); NULL = default Bearer + X-Pointer-Token.
+    pub auth_header_name: Option<String>,
     pub created_at_ms: i64,
 }
 
@@ -23,6 +25,7 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
            src TEXT PRIMARY KEY,
            current_session_id TEXT,
            last_ingress_at_ms INTEGER,
+           auth_header_name TEXT,
            created_at_ms INTEGER NOT NULL
          );",
     )?;
@@ -32,7 +35,7 @@ pub fn ensure_schema(conn: &Connection) -> Result<()> {
 pub fn get(conn: &Connection, src: &str) -> Result<Option<WebhookSourceRecord>> {
     Ok(conn
         .query_row(
-            "SELECT src, current_session_id, last_ingress_at_ms, created_at_ms
+            "SELECT src, current_session_id, last_ingress_at_ms, auth_header_name, created_at_ms
          FROM webhook_sources WHERE src = ?1",
             params![src],
             map_row,
@@ -42,8 +45,8 @@ pub fn get(conn: &Connection, src: &str) -> Result<Option<WebhookSourceRecord>> 
 
 pub fn ensure_row(conn: &Connection, src: &str, now_ms: i64) -> Result<()> {
     conn.execute(
-        "INSERT OR IGNORE INTO webhook_sources (src, current_session_id, last_ingress_at_ms, created_at_ms)
-         VALUES (?1, NULL, NULL, ?2)",
+        "INSERT OR IGNORE INTO webhook_sources (src, current_session_id, last_ingress_at_ms, auth_header_name, created_at_ms)
+         VALUES (?1, NULL, NULL, NULL, ?2)",
         params![src, now_ms],
     )?;
     Ok(())
@@ -72,12 +75,35 @@ pub fn delete(conn: &Connection, src: &str) -> Result<bool> {
     Ok(n > 0)
 }
 
+pub fn set_auth_header_name(
+    conn: &Connection,
+    src: &str,
+    auth_header_name: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE webhook_sources SET auth_header_name = ?2 WHERE src = ?1",
+        params![src, auth_header_name],
+    )?;
+    Ok(())
+}
+
+pub fn auth_header_name(conn: &Connection, src: &str) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT auth_header_name FROM webhook_sources WHERE src = ?1",
+            params![src],
+            |row| row.get(0),
+        )
+        .optional()?)
+}
+
 fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WebhookSourceRecord> {
     Ok(WebhookSourceRecord {
         src: row.get(0)?,
         current_session_id: row.get(1)?,
         last_ingress_at_ms: row.get(2)?,
-        created_at_ms: row.get(3)?,
+        auth_header_name: row.get(3)?,
+        created_at_ms: row.get(4)?,
     })
 }
 

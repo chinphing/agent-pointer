@@ -1047,12 +1047,15 @@ pub fn set_webhook_source_token(
     state: State<'_, Arc<AppState>>,
     src: String,
     token: String,
+    auth_header_name: Option<String>,
 ) -> Result<pointer_core::webhook_config::WebhookConfigView, String> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.session_index);
     if store.is_source_configured(&src).map_err(|e| e.to_string())? {
         return Err("webhook token already configured for this source; clear it first to rotate".into());
     }
-    let inserted = store.set_source_token(&src, &token).map_err(|e| e.to_string())?;
+    let inserted = store
+        .set_source_token(&src, &token, auth_header_name.as_deref())
+        .map_err(|e| e.to_string())?;
     if !inserted {
         return Err("webhook token already configured for this source".into());
     }

@@ -412,8 +412,12 @@ export async function getWebhookConfig(): Promise<WebhookConfig> {
   return await invoke<WebhookConfig>('get_webhook_config')
 }
 
-export async function setWebhookSourceToken(src: string, token: string): Promise<WebhookConfig> {
-  return await invoke<WebhookConfig>('set_webhook_source_token', { src, token })
+export async function setWebhookSourceToken(
+  src: string,
+  token: string,
+  authHeaderName?: string | null
+): Promise<WebhookConfig> {
+  return await invoke<WebhookConfig>('set_webhook_source_token', { src, token, authHeaderName })
 }
 
 export async function clearWebhookSourceToken(src: string): Promise<boolean> {

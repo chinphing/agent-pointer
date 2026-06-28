@@ -503,10 +503,14 @@ export async function getWebhookConfig(): Promise<WebhookConfig> {
   return await request<WebhookConfig>('/api/webhooks/config')
 }
 
-export async function setWebhookSourceToken(src: string, token: string): Promise<WebhookConfig> {
+export async function setWebhookSourceToken(
+  src: string,
+  token: string,
+  authHeaderName?: string | null
+): Promise<WebhookConfig> {
   return await request<WebhookConfig>('/api/webhooks/config', {
     method: 'POST',
-    body: JSON.stringify({ src, token })
+    body: JSON.stringify({ src, token, authHeaderName })
   })
 }
 

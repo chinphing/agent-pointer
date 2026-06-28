@@ -128,7 +128,11 @@ export interface RuntimeApi {
   updateCronJob(jobId: string, input: import('../types/automation').UpdateCronJobInput): Promise<import('../types/automation').CronJob>
   deleteCronJob(jobId: string): Promise<boolean>
   getWebhookConfig(): Promise<import('../types/automation').WebhookConfig>
-  setWebhookSourceToken(src: string, token: string): Promise<import('../types/automation').WebhookConfig>
+  setWebhookSourceToken(
+    src: string,
+    token: string,
+    authHeaderName?: string | null
+  ): Promise<import('../types/automation').WebhookConfig>
   clearWebhookSourceToken(src: string): Promise<boolean>
   clearWebhookLegacyToken(): Promise<boolean>
 }

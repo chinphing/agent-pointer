@@ -51,16 +51,24 @@ export function generateWebhookToken(): string {
   return crypto.randomUUID().replace(/-/g, '')
 }
 
-export function webhookIngressCurl(src: string, token: string): string {
+export function webhookIngressCurl(
+  src: string,
+  token: string,
+  authHeaderName?: string | null
+): string {
   const url = webhookIngressUrl(src)
   const body = JSON.stringify({
     text: 'hello',
     blocking: true,
     timeoutSeconds: 120
   })
+  const customHeader = authHeaderName?.trim()
+  const authLine = customHeader
+    ? `  -H '${customHeader}: ${token}' \\`
+    : `  -H 'Authorization: Bearer ${token}' \\`
   return [
     `curl -X POST '${url}' \\`,
-    `  -H 'Authorization: Bearer ${token}' \\`,
+    authLine,
     `  -H 'Content-Type: application/json' \\`,
     `  -d '${body}'`
   ].join('\n')

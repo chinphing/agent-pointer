@@ -37,6 +37,7 @@ const loadingWebhook = ref(false)
 const webhookError = ref<string | null>(null)
 const webhookSrcInput = ref('')
 const tokenInput = ref('')
+const authHeaderInput = ref('')
 const settingToken = ref(false)
 const showWebhookForm = ref(false)
 const webhookFormError = ref<string | null>(null)
@@ -225,14 +226,16 @@ async function submitWebhookSource() {
   }
   if (!tokenInput.value.trim()) { webhookFormError.value = '请输入 Token'; return }
   const token = tokenInput.value.trim()
+  const authHeaderName = authHeaderInput.value.trim() || null
   settingToken.value = true
   webhookFormError.value = null
   webhookError.value = null
   try {
-    webhook.value = await setWebhookSourceToken(src, token)
+    webhook.value = await setWebhookSourceToken(src, token, authHeaderName)
     rememberWebhookToken(src, token)
     webhookSrcInput.value = ''
     tokenInput.value = ''
+    authHeaderInput.value = ''
     showWebhookForm.value = false
     await refreshWebhook()
   } catch (e) {
@@ -245,6 +248,7 @@ async function submitWebhookSource() {
 function openWebhookCreateForm() {
   webhookSrcInput.value = ''
   tokenInput.value = generateWebhookToken()
+  authHeaderInput.value = ''
   webhookFormError.value = null
   showWebhookForm.value = true
 }
@@ -287,18 +291,18 @@ function viewWebhookSession(source: WebhookSource) {
   emit('view-session')
 }
 
-function copyWebhookCurl(src: string) {
-  const token = recallWebhookToken(src)
+function copyWebhookCurl(source: WebhookSource) {
+  const token = recallWebhookToken(source.src)
   if (!token) {
     webhookError.value = 'Token 仅在本页创建时保存，请删除后重新添加来源再复制 curl'
     return
   }
   webhookError.value = null
-  const text = webhookIngressCurl(src, token)
+  const text = webhookIngressCurl(source.src, token, source.authHeaderName)
   navigator.clipboard.writeText(text).then(() => {
-    copiedWebhookCurlSrc.value = src
+    copiedWebhookCurlSrc.value = source.src
     setTimeout(() => {
-      if (copiedWebhookCurlSrc.value === src) copiedWebhookCurlSrc.value = null
+      if (copiedWebhookCurlSrc.value === source.src) copiedWebhookCurlSrc.value = null
     }, 2000)
   }).catch(e => console.warn('[automation] copyWebhookCurl failed', e))
 }
@@ -544,11 +548,13 @@ onMounted(() => {
             <ShieldCheck class="w-3.5 h-3.5 text-emerald-500 shrink-0" />
             <div
               class="min-w-0 flex-1 flex items-center gap-1.5 text-[12px] truncate"
-              :title="`${s.src} · ${s.preview} · ${webhookIngressUrl(s.src)}`"
+              :title="`${s.src} · ${s.preview}${s.authHeaderName ? ` · ${s.authHeaderName}` : ''} · ${webhookIngressUrl(s.src)}`"
             >
               <span class="font-medium text-foreground whitespace-nowrap shrink-0">{{ s.src }}</span>
               <span class="text-muted/50 shrink-0">·</span>
               <span class="font-mono text-muted truncate">{{ s.preview }}</span>
+              <span v-if="s.authHeaderName" class="text-muted/50 shrink-0">·</span>
+              <span v-if="s.authHeaderName" class="font-mono text-[10px] text-muted/80 truncate">{{ s.authHeaderName }}</span>
               <span class="text-muted/50 shrink-0">·</span>
               <span class="font-mono text-[10px] text-muted/70 truncate">{{ webhookIngressUrl(s.src) }}</span>
             </div>
@@ -567,7 +573,7 @@ onMounted(() => {
               <button
                 class="h-7 w-7 rounded-md border border-border hover:bg-hover inline-flex items-center justify-center shrink-0 cursor-pointer text-muted"
                 :title="recallWebhookToken(s.src) ? '复制 curl' : '复制 curl（需本页创建时保存的 Token）'"
-                @click="copyWebhookCurl(s.src)"
+                @click="copyWebhookCurl(s)"
               >
                 <Check v-if="copiedWebhookCurlSrc === s.src" class="w-3.5 h-3.5 text-emerald-500" />
                 <Copy v-else class="w-3.5 h-3.5" />
@@ -628,7 +634,17 @@ onMounted(() => {
                 </button>
               </div>
             </label>
+            <label class="block shrink-0 space-y-2">
+              <span class="text-[11px] text-muted whitespace-nowrap">鉴权 Header</span>
+              <input
+                v-model="authHeaderInput"
+                class="input-base w-[24ch] max-w-[24ch]"
+                placeholder="X-Codeup-Token"
+                :disabled="settingToken"
+              />
+            </label>
           </div>
+          <p class="text-[11px] text-muted">留空则使用 Authorization: Bearer 或 X-Pointer-Token</p>
           <p v-if="webhookFormError" class="text-xs text-red-500">{{ webhookFormError }}</p>
           <div class="flex items-center justify-between gap-3 min-w-0">
             <p class="text-[11px] text-muted min-w-0">自动生成token，添加后可以复制。</p>
@@ -658,8 +674,9 @@ onMounted(() => {
             <code class="font-mono text-foreground break-all">{{ WEBHOOK_URL_TEMPLATE }}</code>
           </div>
           <div class="min-w-0">
-            鉴权：<code class="font-mono text-foreground/90">Authorization: Bearer …</code>
-            或 <code class="font-mono text-foreground/90">X-Pointer-Token</code>
+            鉴权：默认 <code class="font-mono text-foreground/90">Authorization: Bearer …</code>
+            或 <code class="font-mono text-foreground/90">X-Pointer-Token</code>；
+            每个来源可配置自定义 Header（如 Codeup 的 <code class="font-mono text-foreground/90">X-Codeup-Token</code>）
           </div>
           <div class="min-w-0" :title="WEBHOOK_REF_BLOCKING">
             同步模式：<code class="font-mono text-foreground/90">"blocking": true</code>，

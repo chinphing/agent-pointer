@@ -4913,6 +4913,7 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "hkdf",
+ "http",
  "ignore",
  "image",
  "imageproc",

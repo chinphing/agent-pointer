@@ -50,4 +50,10 @@ describe('webhookIngress', () => {
     expect(curl).toContain('"blocking":true')
     expect(curl).toContain('"timeoutSeconds":120')
   })
+
+  it('builds curl with custom auth header', () => {
+    const curl = webhookIngressCurl('codeup', 'tok', 'X-Codeup-Token')
+    expect(curl).toContain("X-Codeup-Token: tok")
+    expect(curl).not.toContain('Authorization: Bearer')
+  })
 })

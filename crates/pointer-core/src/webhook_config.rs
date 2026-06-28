@@ -1,8 +1,9 @@
 //! Webhook bearer tokens (Phase 6+): per-source, encrypted-at-rest, first-write-only.
 //!
 //! Each ingress source (`POST /api/webhooks/:src`) has its own token stored under
-//! `app_secrets` label `webhook_token:{src}`. Auth accepts `Authorization: Bearer`
-//! or `X-Pointer-Token` (OpenClaw-style alternate header).
+//! `app_secrets` label `webhook_token:{src}`. By default auth accepts
+//! `Authorization: Bearer` or `X-Pointer-Token` (OpenClaw-style alternate header).
+//! Each source may optionally configure a custom header name (e.g. `X-Codeup-Token`).
 //!
 //! Legacy single-token rows (`webhook_bearer_token`) remain readable as a fallback
 //! for all sources until migrated to per-source tokens.
@@ -39,6 +40,9 @@ pub fn webhook_session_title(src: &str) -> String {
 pub struct WebhookSourceView {
     pub src: String,
     pub preview: String,
+    /// Optional custom auth header; null = default Bearer + X-Pointer-Token.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_header_name: Option<String>,
     /// Full ingress URL for this source (host fills in; empty on desktop).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub url: String,
@@ -109,6 +113,10 @@ impl<'a> WebhookTokenStore<'a> {
         let record = self.store.webhook_sources_get(&src)?;
         let current_session_id =
             webhook_sources::resolve_view_session_id(record.as_ref(), &src, legacy_has);
+        let auth_header_name = record
+            .as_ref()
+            .and_then(|r| r.auth_header_name.clone())
+            .filter(|s| !s.trim().is_empty());
         let has_transcript = legacy_has
             || current_session_id
                 .as_ref()
@@ -119,11 +127,43 @@ impl<'a> WebhookTokenStore<'a> {
         Ok(WebhookSourceView {
             src,
             preview,
+            auth_header_name,
             url,
             conversation_id,
             current_session_id,
             has_transcript,
         })
+    }
+
+    /// Normalize optional custom auth header name from UI/API input.
+    pub fn normalize_auth_header_name(name: &str) -> Result<Option<String>> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Ok(None);
+        }
+        if trimmed.len() > 64 {
+            anyhow::bail!("auth header name too long (max 64 chars)");
+        }
+        let ok = trimmed.chars().enumerate().all(|(i, c)| {
+            if i == 0 {
+                c.is_ascii_alphabetic()
+            } else {
+                c.is_ascii_alphanumeric() || c == '-'
+            }
+        });
+        if !ok {
+            anyhow::bail!(
+                "auth header name must start with a letter and contain only letters, digits, or '-'"
+            );
+        }
+        Ok(Some(trimmed.to_string()))
+    }
+
+    /// Auth header configured for `:src` (None = default Bearer + X-Pointer-Token).
+    pub fn auth_header_name_for_source(&self, src: &str) -> Result<Option<String>> {
+        let src = Self::normalize_src(src)?;
+        let name = self.store.webhook_sources_auth_header_name(&src)?;
+        Ok(name.filter(|s| !s.trim().is_empty()))
     }
 
     /// List all per-source tokens (src + masked preview).
@@ -142,12 +182,21 @@ impl<'a> WebhookTokenStore<'a> {
     }
 
     /// Set token for a source (first-write-only per source).
-    pub fn set_source_token(&self, src: &str, token: &str) -> Result<bool> {
+    pub fn set_source_token(
+        &self,
+        src: &str,
+        token: &str,
+        auth_header_name: Option<&str>,
+    ) -> Result<bool> {
         let src = Self::normalize_src(src)?;
         let trimmed = token.trim();
         if trimmed.is_empty() {
             anyhow::bail!("webhook token must not be empty");
         }
+        let auth_header_name = auth_header_name
+            .map(Self::normalize_auth_header_name)
+            .transpose()?
+            .flatten();
         let label = Self::token_label(&src);
         if self.store.app_secret_has(&label)? {
             log::warn!("webhook_config: set_source_token refused (already configured src={src})");
@@ -157,7 +206,12 @@ impl<'a> WebhookTokenStore<'a> {
         let inserted = self.store.app_secret_try_insert(&label, &blob)?;
         if inserted {
             self.store.webhook_sources_ensure_row(&src)?;
-            log::info!("webhook_config: source token set src={src} (encrypted)");
+            self.store
+                .webhook_sources_set_auth_header_name(&src, auth_header_name.as_deref())?;
+            log::info!(
+                "webhook_config: source token set src={src} auth_header={:?} (encrypted)",
+                auth_header_name
+            );
         }
         Ok(inserted)
     }
@@ -263,6 +317,38 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.ct_eq(b).into()
 }
 
+/// Extract webhook token from request headers.
+/// When `auth_header_name` is set, only that header is read (raw value).
+/// Otherwise accepts `Authorization: Bearer` or `X-Pointer-Token`.
+pub fn extract_webhook_token<'a>(
+    headers: &'a http::HeaderMap,
+    auth_header_name: Option<&str>,
+) -> &'a str {
+    if let Some(name) = auth_header_name.filter(|s| !s.trim().is_empty()) {
+        return headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("");
+    }
+    if let Some(v) = headers.get(http::header::AUTHORIZATION) {
+        if let Ok(s) = v.to_str() {
+            if let Some(token) = s.strip_prefix("Bearer ") {
+                let t = token.trim();
+                if !t.is_empty() {
+                    return t;
+                }
+            }
+        }
+    }
+    headers
+        .get("x-pointer-token")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .unwrap_or("")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,9 +378,9 @@ mod tests {
         let s = store();
         cleanup_test_secrets(&s);
         let ts = WebhookTokenStore::new(&s);
-        assert!(ts.set_source_token("github", "secret-abcd1234").unwrap());
-        assert!(!ts.set_source_token("github", "other").unwrap());
-        assert!(ts.set_source_token("gitlab", "gitlab-token-9999").unwrap());
+        assert!(ts.set_source_token("github", "secret-abcd1234", None).unwrap());
+        assert!(!ts.set_source_token("github", "other", None).unwrap());
+        assert!(ts.set_source_token("gitlab", "gitlab-token-9999", None).unwrap());
         let list = ts.list_sources().unwrap();
         assert_eq!(list.len(), 2);
         assert!(ts.verify_for_source("github", "secret-abcd1234").unwrap());
@@ -321,5 +407,51 @@ mod tests {
         let ts = WebhookTokenStore::new(&s);
         assert!(ts.verify_for_source("any-src", "legacy-global").unwrap());
         assert!(ts.is_legacy_configured().unwrap());
+    }
+
+    #[test]
+    fn custom_auth_header_name_stored_and_used_for_extract() {
+        let s = store();
+        cleanup_test_secrets(&s);
+        let ts = WebhookTokenStore::new(&s);
+        assert!(
+            ts.set_source_token("codeup", "tok-codeup", Some("X-Codeup-Token"))
+                .unwrap()
+        );
+        assert_eq!(
+            ts.auth_header_name_for_source("codeup").unwrap().as_deref(),
+            Some("X-Codeup-Token")
+        );
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::HeaderName::from_static("x-codeup-token"),
+            http::HeaderValue::from_static("tok-codeup"),
+        );
+        assert_eq!(
+            extract_webhook_token(&headers, Some("X-Codeup-Token")),
+            "tok-codeup"
+        );
+        headers.insert(
+            http::header::AUTHORIZATION,
+            http::HeaderValue::from_static("Bearer tok-codeup"),
+        );
+        assert_eq!(
+            extract_webhook_token(&headers, Some("X-Codeup-Token")),
+            "tok-codeup"
+        );
+        assert_eq!(extract_webhook_token(&headers, None), "tok-codeup");
+    }
+
+    #[test]
+    fn normalize_auth_header_name_rejects_invalid() {
+        assert!(WebhookTokenStore::normalize_auth_header_name("").unwrap().is_none());
+        assert!(WebhookTokenStore::normalize_auth_header_name("  ").unwrap().is_none());
+        assert!(WebhookTokenStore::normalize_auth_header_name("-Bad").is_err());
+        assert_eq!(
+            WebhookTokenStore::normalize_auth_header_name("X-Codeup-Token")
+                .unwrap()
+                .as_deref(),
+            Some("X-Codeup-Token")
+        );
     }
 }

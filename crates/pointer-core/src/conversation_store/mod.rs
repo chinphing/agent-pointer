@@ -23,7 +23,7 @@ use crate::models::{ChatMessage, Conversation, ConversationMeta};
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 11;
+const SCHEMA_VERSION: i32 = 12;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -216,6 +216,20 @@ impl ConversationStore {
     pub fn webhook_sources_delete(&self, src: &str) -> Result<bool> {
         let conn = self.db.conn.lock();
         webhook_sources::delete(&conn, src)
+    }
+
+    pub fn webhook_sources_set_auth_header_name(
+        &self,
+        src: &str,
+        auth_header_name: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.db.conn.lock();
+        webhook_sources::set_auth_header_name(&conn, src, auth_header_name)
+    }
+
+    pub fn webhook_sources_auth_header_name(&self, src: &str) -> Result<Option<String>> {
+        let conn = self.db.conn.lock();
+        webhook_sources::auth_header_name(&conn, src)
     }
 
     /// P0: insert or update one message.
@@ -642,6 +656,7 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     // on the next fire.
     add_column_if_missing(conn, "cron_jobs", "current_session_id", "TEXT")?;
     webhook_sources::ensure_schema(conn)?;
+    add_column_if_missing(conn, "webhook_sources", "auth_header_name", "TEXT")?;
     conn.execute(
         "UPDATE conversations SET im_last_interaction_at_ms = updated_at_ms
          WHERE im_last_interaction_at_ms = 0 AND updated_at_ms > 0",

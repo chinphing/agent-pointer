@@ -56,13 +56,13 @@ SSE 终态处理是无竞态的：先订阅总线，再读 `runs` 表；已终�
 
 ## 通用 Webhook（server）
 
-`POST /api/webhooks/:src`，`:src` 为来源标识（字母/数字开头，仅含 `-`、`_`）。鉴权头：`Authorization: Bearer <token>` 或 `X-Pointer-Token: <token>`（对齐 OpenClaw 的双头模式；**不用 query string**）。
+`POST /api/webhooks/:src`，`:src` 为来源标识（字母/数字开头，仅含 `-`、`_`）。默认鉴权头：`Authorization: Bearer <token>` 或 `X-Pointer-Token: <token>`（对齐 OpenClaw 的双头模式；**不用 query string**）。每个来源可在添加时配置**自定义鉴权 Header 名**（如 Codeup 的 `X-Codeup-Token`）；配置后 ingress 只读取该 Header 的原始值，不再走 Bearer / X-Pointer-Token。
 
 **多 Token（按来源匹配）**：每个 `:src` 可单独配置 Token，加密存于 `app_secrets` 标签 `webhook_token:{src}`，在「设置 → 自动化 → Webhook」添加。请求时只校验该来源对应的 Token；`github` 的 Token 不能用于 `ci`。
 
 **解析顺序**（ingress 时）：`webhook_token:{src}` → 旧版全局 `webhook_bearer_token`（对所有来源 fallback）→ env `POINTER_WEBHOOK_BEARER_TOKEN`。三者皆无则 401。
 
-body 支持 `text`（单条 user 消息）或 `messages`（完整历史）；`conversationId` 缺省时按日切 session `webhook:{src}:{yyyymmdd}` 派生（本地 04:00 重置，与 cron 一致）。Token 日志中脱敏（`****` + 末 4 位）。
+body 支持 `text` / `message`（OpenClaw 字段名）/ `messages`（完整历史，含 assistant 或多条时按原样传入）；可选 `name` 为来源标签前缀（如 `[GitHub] …`）。`conversationId` 缺省时按日切 session `webhook:{src}:{yyyymmdd}` 派生（本地 04:00 重置，与 cron 一致）。**默认 append 模式**：ingress 会先 `load_messages` 再追加本轮 user 消息，同一天内多次触发续接 transcript（对齐 cron 调度器与 OpenClaw `sessionMode: persistent`）；仅当 `messages` 含 assistant/tool 或多条时才视为完整历史 override。
 
 **专属 webhook 会话（对齐 cron 侧栏隔离 + 日切）**：每个来源独占隔离会话，id 为 `webhook:{src}:{yyyymmdd}`（本地 **04:00** 日切，与 cron 相同）；跨次在同一天内续接 transcript，跨日开新 session，旧 session 保留在 DB。`webhook:{src}` 为稳定来源键（UI 行标识）。`persist::load_all_from_conn` / `load_metas_from_conn` 用 `NOT LIKE 'webhook:%'` 排除侧栏；前端 `AppShell.filteredConversations` 兜底过滤。查看入口：自动化面板来源行的「查看会话」→ `chat.openWebhookConversation(currentSessionId, src)`；`hasTranscript` 为 false 时按钮禁用（尚未触发）。`webhook_sources` 表持久化 `current_session_id`；升级前已有 transcript 的旧 `webhook:{src}` 会在首次 ingress 被采纳，跨 04:00 后切换到 dated id。ingress 时对最后一轮 user 消息广播 `InjectedUserMessage`，与 cron 调度器一致，避免「查看会话」时只有 assistant 回复、看不到 user 行。
 

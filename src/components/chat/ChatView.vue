@@ -9,7 +9,6 @@ import { useChatStore } from '../../stores/chat'
 import { usePlatformAuthStore } from '../../stores/platformAuth'
 import TerminalLiveOutputModal from './TerminalLiveOutputModal.vue'
 
-import { isTauriRuntime } from '../../lib/runtime'
 import { ChevronDown } from 'lucide-vue-next'
 
 /** 避免异步分包未返回前主区域长时间空白（Windows 杀毒/冷盘常见）。 */
@@ -44,7 +43,7 @@ const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 const { uiToast, terminalLivePopup } = storeToRefs(chat)
 const empty = computed(() => !chat.current || chat.current.messages.length === 0)
-const needsPlatformLogin = computed(() => isTauriRuntime() && !platformAuth.session.logged_in)
+const needsPlatformLogin = computed(() => !platformAuth.session.logged_in)
 const experienceSectionExpanded = ref(false)
 
 async function onPlatformLogin() {

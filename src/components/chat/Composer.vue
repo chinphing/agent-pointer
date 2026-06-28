@@ -68,7 +68,7 @@ const settings = useSettingsStore()
 const { composerPrefill, composerText, composerAttachments, generating } = storeToRefs(chat)
 
 const tokenQuotaBlocked = computed(() => platformAuth.tokenQuotaExhausted)
-const needsPlatformLogin = computed(() => isTauriRuntime() && !platformAuth.session.logged_in)
+const needsPlatformLogin = computed(() => !platformAuth.session.logged_in)
 const showLoginBanner = computed(
   () => needsPlatformLogin.value && (chat.current?.messages.length ?? 0) > 0
 )

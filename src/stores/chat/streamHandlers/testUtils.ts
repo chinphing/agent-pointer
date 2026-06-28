@@ -56,6 +56,7 @@ export function createMockStreamHandlerContext(
       return null
     },
     persistMeta: vi.fn(),
+    markMetaDirty: vi.fn(),
     persistAppend: vi.fn(),
     showUiToast: vi.fn(),
     patchRunState: noop,

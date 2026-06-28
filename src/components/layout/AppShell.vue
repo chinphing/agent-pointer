@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import {
   Plus,
   Search,
@@ -53,6 +53,49 @@ const filteredConversations = computed(() => {
     c.title.toLowerCase().includes(query) ||
     new Date(c.updatedAt).toLocaleString().includes(query)
   )
+})
+
+// --- Sidebar infinite scroll (cursor-paginated conversation metas) ---
+const listScroller = ref<HTMLElement | null>(null)
+const sentinel = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
+
+function maybeLoadMore(entry: IntersectionObserverEntry) {
+  if (!entry.isIntersecting) return
+  if (!chat.hasMoreConversations || chat.loadingMoreConversations) return
+  void chat.loadMoreConversations()
+}
+
+onMounted(() => {
+  if (!sentinel.value || !listScroller.value) return
+  observer = new IntersectionObserver(
+    entries => {
+      for (const e of entries) maybeLoadMore(e)
+    },
+    { root: listScroller.value, rootMargin: '120px' }
+  )
+  observer.observe(sentinel.value)
+})
+
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  observer = null
+})
+
+// When the sidebar expands after being collapsed, the scroll container may
+// re-become interactive; re-arm the observer so a pending next page fires.
+watch(sidebarCollapsed, collapsed => {
+  if (collapsed || !observer || !sentinel.value) return
+  observer.disconnect()
+  if (listScroller.value) {
+    observer = new IntersectionObserver(
+      entries => {
+        for (const e of entries) maybeLoadMore(e)
+      },
+      { root: listScroller.value, rootMargin: '120px' }
+    )
+    observer.observe(sentinel.value)
+  }
 })
 </script>
 
@@ -162,7 +205,10 @@ const filteredConversations = computed(() => {
           </div>
 
           <!-- C: 会话列表 -->
-          <div class="flex-1 overflow-y-auto px-2 pb-3 space-y-1 min-h-0">
+          <div
+            ref="listScroller"
+            class="flex-1 overflow-y-auto px-2 pb-3 space-y-1 min-h-0"
+          >
             <div
               v-for="c in filteredConversations"
               :key="c.id"
@@ -188,8 +234,16 @@ const filteredConversations = computed(() => {
                 <Trash2 class="w-3.5 h-3.5 text-muted" />
               </button>
             </div>
+            <!-- Sentinel for infinite scroll; observed by IntersectionObserver -->
+            <div ref="sentinel" class="h-1 w-full" />
+            <div
+              v-if="chat.loadingMoreConversations"
+              class="px-3 py-2 text-center text-xs text-muted"
+            >
+              加载中…
+            </div>
             <div v-if="!filteredConversations.length" class="px-3 py-8 text-center text-xs text-muted">
-              没有找到匹配的会话
+              {{ searchQuery ? '没有找到匹配的会话，可向下滚动加载更多历史会话' : '没有会话' }}
             </div>
           </div>
 

@@ -3,7 +3,7 @@ use axum::{
     http::{header, HeaderValue, StatusCode, Uri},
     response::sse::{Event, KeepAlive, Sse},
     response::{IntoResponse, Redirect, Response},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use futures_util::Stream;
@@ -201,7 +201,15 @@ async fn main() -> anyhow::Result<()> {
             "/api/conversations",
             get(load_conversations).put(save_conversations),
         )
-        .route("/api/conversations/meta", put(save_conversation_meta))
+        .route(
+            "/api/conversations/:conversation_id",
+            delete(delete_conversation_handler),
+        )
+        .route("/api/conversations/meta", get(load_conversation_metas).put(save_conversation_meta))
+        .route(
+            "/api/conversations/:conversation_id/messages",
+            get(load_conversation_messages_handler),
+        )
         .route(
             "/api/conversations/:conversation_id/messages/append",
             post(append_conversation_messages),
@@ -867,6 +875,61 @@ async fn load_conversations() -> Result<Json<Vec<Conversation>>, ApiError> {
     Ok(Json(storage::load_conversations()?))
 }
 
+#[derive(Deserialize)]
+struct ConversationMetasQuery {
+    /// Cursor `updated_at_ms` (exclusive). Omit for the first page.
+    cursor_updated_at: Option<i64>,
+    /// Cursor `id` (exclusive, paired with `cursor_updated_at`).
+    cursor_id: Option<String>,
+    /// Page size (1..=500, default 50).
+    limit: Option<i64>,
+}
+
+/// `GET /api/conversations/meta` — cursor-paginated meta-only list (no messages).
+/// Sort order: `(updated_at_ms DESC, id DESC)`. Pass `cursor_updated_at` +
+/// `cursor_id` from the last row of the previous page to fetch the next.
+async fn load_conversation_metas(
+    Query(q): Query<ConversationMetasQuery>,
+) -> Result<Json<Vec<pointer_core::models::ConversationMeta>>, ApiError> {
+    let limit = q.limit.unwrap_or(50);
+    let cursor = match (q.cursor_updated_at, q.cursor_id) {
+        (Some(ts), Some(id)) => Some((ts, id)),
+        (Some(_), None) | (None, Some(_)) => {
+            return Err(ApiError::from(anyhow::anyhow!(
+                "cursor_updated_at and cursor_id must both be set or both be omitted"
+            )))
+        }
+        (None, None) => None,
+    };
+    let cursor_dbg = match &cursor {
+        Some((ts, id)) => format!("({}, {})", ts, id),
+        None => "none".to_string(),
+    };
+    let metas = storage::load_conversation_metas(cursor, limit)?;
+    log::info!(
+        "server: load_conversation_metas cursor={} limit={} returned {} rows",
+        cursor_dbg,
+        limit,
+        metas.len()
+    );
+    Ok(Json(metas))
+}
+
+/// `GET /api/conversations/:id/messages` — full message list for one
+/// conversation, ordered by `position ASC`. Replaces the legacy web pattern of
+/// re-fetching every conversation and filtering client-side.
+async fn load_conversation_messages_handler(
+    Path(conversation_id): Path<String>,
+) -> Result<Json<Vec<pointer_core::models::ChatMessage>>, ApiError> {
+    let messages = storage::load_conversation_messages(&conversation_id)?;
+    log::info!(
+        "server: load_conversation_messages conversation_id={} returned {} rows",
+        conversation_id,
+        messages.len()
+    );
+    Ok(Json(messages))
+}
+
 async fn save_conversations(
     Json(conversations): Json<Vec<Conversation>>,
 ) -> Result<StatusCode, ApiError> {
@@ -878,6 +941,14 @@ async fn save_conversation_meta(
     Json(metas): Json<Vec<pointer_core::models::ConversationMeta>>,
 ) -> Result<StatusCode, ApiError> {
     storage::save_conversation_meta(&metas)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_conversation_handler(
+    Path(conversation_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    storage::delete_conversation(&conversation_id)?;
+    log::info!("server: deleted conversation id={conversation_id}");
     Ok(StatusCode::NO_CONTENT)
 }
 

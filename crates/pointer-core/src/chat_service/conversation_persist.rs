@@ -59,10 +59,10 @@ pub fn patch_ephemeral_workspace(conversation_id: &str, workspace_root: &str) {
     let Some(store) = store() else {
         return;
     };
-    let Ok(list) = store.load_all() else {
-        return;
-    };
-    let Some(conv) = list.into_iter().find(|c| c.id == conversation_id) else {
+    // Read only this conversation's meta row (O(log n) via PK). The previous
+    // implementation called store.load_all(), which deserialized every
+    // conversation and every message on every chat send — catastrophic at scale.
+    let Ok(Some(conv)) = store.load_meta(conversation_id) else {
         log::warn!(
             "conversation_persist: patch_ephemeral_workspace missing conversation_id={conversation_id}"
         );
@@ -71,7 +71,7 @@ pub fn patch_ephemeral_workspace(conversation_id: &str, workspace_root: &str) {
     if conv.workspace_root.trim() == trimmed {
         return;
     }
-    let mut meta = ConversationMeta::from(&conv);
+    let mut meta = conv;
     meta.workspace_root = trimmed.to_string();
     meta.workspace_user_set = false;
     meta.workspace_inherit_disabled = true;
@@ -88,16 +88,14 @@ pub fn patch_tool_rounds(
     let Some(store) = store() else {
         return;
     };
-    let Ok(list) = store.load_all() else {
-        return;
-    };
-    let Some(conv) = list.into_iter().find(|c| c.id == conversation_id) else {
+    // Read only this conversation's meta row (O(log n) via PK); never load_all.
+    let Ok(Some(conv)) = store.load_meta(conversation_id) else {
         log::warn!(
             "conversation_persist: patch_tool_rounds missing conversation_id={conversation_id}"
         );
         return;
     };
-    let mut meta = ConversationMeta::from(&conv);
+    let mut meta = conv;
     meta.tool_rounds_used = tool_rounds_used;
     meta.tool_rounds_used_supervisor = tool_rounds_used_supervisor;
     meta.updated_at = updated_at_ms;

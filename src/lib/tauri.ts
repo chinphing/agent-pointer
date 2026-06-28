@@ -8,7 +8,9 @@ import type {
   ChatMediaPreview,
   ComputerMonitor,
   Conversation,
+  ConversationCursor,
   ConversationMeta,
+  ConversationMetaPage,
   EffectiveSettingsView,
   MediaDepsStatus,
   ModelSettings,
@@ -262,6 +264,23 @@ export async function loadConversations(): Promise<Conversation[]> {
   return await invoke<Conversation[]>('load_conversations')
 }
 
+/** Cursor-paginated meta-only list (no messages). Sort: updatedAt DESC, id DESC. */
+export async function loadConversationMetas(
+  cursor: ConversationCursor | null,
+  limit = 50
+): Promise<ConversationMetaPage> {
+  const items = await invoke<ConversationMeta[]>('load_conversation_metas', {
+    cursorUpdatedAt: cursor?.updatedAt ?? null,
+    cursorId: cursor?.id ?? null,
+    limit
+  })
+  const nextCursor =
+    items.length === limit && items.length > 0
+      ? { updatedAt: items[items.length - 1]!.updatedAt, id: items[items.length - 1]!.id }
+      : null
+  return { items, nextCursor }
+}
+
 export async function loadConversationMessages(conversationId: string): Promise<ChatMessage[]> {
   return await invoke<ChatMessage[]>('load_conversation_messages', { conversationId })
 }
@@ -272,6 +291,10 @@ export async function saveConversations(conversations: Conversation[]): Promise<
 
 export async function saveConversationMeta(metas: ConversationMeta[]): Promise<void> {
   await invoke('save_conversation_meta', { metas })
+}
+
+export async function deleteConversation(conversationId: string): Promise<void> {
+  await invoke('delete_conversation', { conversationId })
 }
 
 export async function appendConversationMessages(

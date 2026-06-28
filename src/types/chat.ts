@@ -317,16 +317,18 @@ export interface Conversation {
   workspaceRoot?: string
   /** User explicitly picked workspaceRoot in composer (not auto sandbox). */
   workspaceUserSet?: boolean
-  /** User cleared workspace in composer; prefer session sandbox over inherit. */
+  /** User cleared workspace; prefer session sandbox over inherit. */
   workspaceInheritDisabled?: boolean
   /** Per-conversation lead worker when agentMode is single. */
   leadAgentId?: string
   /** Per-conversation orchestration mode. */
   agentMode?: AgentMode
+  /** DB-backed message count (populated on meta-only list load; not present on legacy full-load). */
+  messageCount?: number
 }
 
 /** Session shell fields for meta-only persistence (P1). */
-export type ConversationMeta = Pick<
+export type ConversationMetaBase = Pick<
   Conversation,
   | 'id'
   | 'title'
@@ -342,6 +344,26 @@ export type ConversationMeta = Pick<
   | 'leadAgentId'
   | 'agentMode'
 >
+
+/** Conversation shell + DB-backed summary fields (no messages). */
+export interface ConversationMeta extends ConversationMetaBase {
+  /** Persisted message count (DB-backed; 0 when derived from in-memory Conversation). */
+  messageCount?: number
+  /** Short preview of latest messages (DB-backed; empty when derived from in-memory Conversation). */
+  preview?: string
+}
+
+/** Cursor for paginated conversation-meta list (sort: updatedAt DESC, id DESC). */
+export interface ConversationCursor {
+  updatedAt: number
+  id: string
+}
+
+/** One page of conversation metas from the cursor-paginated list API. */
+export interface ConversationMetaPage {
+  items: ConversationMeta[]
+  nextCursor: ConversationCursor | null
+}
 
 /** Per-model API/runtime overrides; unset fields inherit from the parent provider. */
 export interface ModelRuntimeOverrides {

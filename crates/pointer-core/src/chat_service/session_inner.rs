@@ -581,18 +581,28 @@ fn resolve_effective_workspace(
     }
 
     // Try the last-active conversation's workspace (skip ourselves).
+    // Meta-only query: avoids loading every message of every conversation.
     if let Ok(store) = crate::conversation_store::global_store() {
-        if let Ok(convs) = store.load_all() {
-            for conv in &convs {
-                if conv.id != conversation_id && !conv.workspace_root.trim().is_empty() {
-                    let ws = conv.workspace_root.trim().to_string();
-                    log::info!(
-                        "resolve_effective_workspace: inheriting from conversation_id={}: {}",
-                        conv.id,
-                        ws
-                    );
-                    return Ok(ws);
-                }
+        match store.latest_other_workspace_root(conversation_id) {
+            Ok(Some(ws)) => {
+                log::info!(
+                    "resolve_effective_workspace: inheriting workspace for conversation_id={}: {}",
+                    conversation_id,
+                    ws
+                );
+                return Ok(ws);
+            }
+            Ok(None) => {
+                log::info!(
+                    "resolve_effective_workspace: no inheritable workspace for conversation_id={}; falling back to session sandbox",
+                    conversation_id
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "resolve_effective_workspace: latest_other_workspace_root failed for conversation_id={}: {e}",
+                    conversation_id
+                );
             }
         }
     }

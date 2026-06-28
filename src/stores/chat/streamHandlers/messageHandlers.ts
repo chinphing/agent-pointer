@@ -192,5 +192,5 @@ export function handleMessageEnd(ctx: StreamHandlerContext, e: MessageEnd) {
     r.conv.updatedAt = Date.now()
     ctx.scheduleMaybeFinishGenerating(r.conv.id, e.messageId)
   }
-  ctx.persistMeta()
+  if (r) ctx.markMetaDirty(r.conv.id)
 }

@@ -804,9 +804,42 @@ pub fn load_conversations() -> Result<Vec<Conversation>, String> {
     storage::load_conversations().map_err(|e| e.to_string())
 }
 
+/// Cursor-paginated, meta-only conversation list (no messages).
+/// Sort order: `(updated_at_ms DESC, id DESC)`.
+/// Pass `cursor_updated_at = None` and `cursor_id = None` for the first page;
+/// pass the last row of the previous page to fetch the next.
+#[tauri::command]
+pub fn load_conversation_metas(
+    cursor_updated_at: Option<i64>,
+    cursor_id: Option<String>,
+    limit: Option<i64>,
+) -> Result<Vec<pointer_core::models::ConversationMeta>, String> {
+    let cursor = match (cursor_updated_at, cursor_id) {
+        (Some(ts), Some(id)) => Some((ts, id)),
+        (Some(_), None) | (None, Some(_)) => {
+            return Err(
+                "cursor_updated_at and cursor_id must both be set or both be null".into(),
+            )
+        }
+        (None, None) => None,
+    };
+    let limit = limit.unwrap_or(50);
+    storage::load_conversation_metas(cursor, limit).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn load_conversation_messages(conversation_id: String) -> Result<Vec<ChatMessage>, String> {
-    storage::load_conversation_messages(&conversation_id).map_err(|e| e.to_string())
+    let messages = storage::load_conversation_messages(&conversation_id).map_err(|e| e.to_string())?;
+    log::info!(
+        "tauri::load_conversation_messages: id={conversation_id} returned {} messages",
+        messages.len()
+    );
+    Ok(messages)
+}
+
+#[tauri::command]
+pub fn delete_conversation(conversation_id: String) -> Result<(), String> {
+    storage::delete_conversation(&conversation_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -54,7 +54,7 @@ export function handleToolRoundsExhausted(ctx: StreamHandlerContext, e: ToolRoun
     toolCalls: []
   })
   conv.updatedAt = Date.now()
-  ctx.persistMeta()
+  ctx.markMetaDirty(e.conversationId)
 }
 
 export function handleWorkspaceUpdated(ctx: StreamHandlerContext, e: WorkspaceUpdated) {
@@ -68,7 +68,7 @@ export function handleWorkspaceUpdated(ctx: StreamHandlerContext, e: WorkspaceUp
         conv.workspaceInheritDisabled = true
       }
       conv.updatedAt = Date.now()
-      ctx.persistMeta()
+      ctx.markMetaDirty(e.conversationId)
     }
   }
   if (e.isEphemeralSandbox) {
@@ -93,7 +93,7 @@ export function handleComputerMonitorUpdated(ctx: StreamHandlerContext, e: Compu
   if (conv) {
     conv.computerMonitorId = e.monitorId ?? undefined
     conv.updatedAt = Date.now()
-    ctx.persistMeta()
+    ctx.markMetaDirty(e.conversationId)
   }
 }
 
@@ -113,7 +113,7 @@ export function handleImSessionForked(ctx: StreamHandlerContext, e: ImSessionFor
   }
   ctx.currentId.value = e.conversationId
   ctx.loadActiveComposerDraft(e.conversationId)
-  ctx.persistMeta()
+  ctx.markMetaDirty(e.conversationId)
 }
 
 export function handleImSessionAgentChanged(ctx: StreamHandlerContext, e: ImSessionAgentChanged) {
@@ -121,7 +121,7 @@ export function handleImSessionAgentChanged(ctx: StreamHandlerContext, e: ImSess
   const conv = ctx.conversations.value.find(c => c.id === e.conversationId)
   if (conv) {
     ctx.applySessionAgentToConversation(conv, e.leadAgentId, e.agentMode)
-    ctx.persistMeta()
+    ctx.markMetaDirty(e.conversationId)
   }
 }
 
@@ -222,6 +222,7 @@ export function handleAssistantRoundScreen(ctx: StreamHandlerContext, e: Assista
 export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
   flushReasoningDeltaBuffer(e.messageId ?? undefined)
   const cancelled = isGenerationCancelledMessage(e.message)
+  let affectedId: string | null = null
   if (e.messageId) {
     const r = ctx.findMessage(e.messageId)
     if (r) {
@@ -233,17 +234,22 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
         r.msg.contentStreaming = false
       }
       ctx.clearRunState(r.conv.id)
+      affectedId = r.conv.id
     } else {
       const id = ctx.currentId.value
       if (id && ctx.isConversationGenerating(id)) {
         ctx.clearRunState(id)
       }
+      affectedId = id
     }
   } else if (cancelled) {
     const conv = ctx.conversations.value.find(c => c.id === ctx.currentId.value)
     if (conv) {
       removeTrailingDiscardableEmptyAssistant(conv)
       ctx.clearRunState(conv.id)
+      affectedId = conv.id
+    } else {
+      affectedId = ctx.currentId.value
     }
   } else {
     const conv = ctx.conversations.value.find(c => c.id === ctx.currentId.value)
@@ -258,10 +264,11 @@ export function handleStreamError(ctx: StreamHandlerContext, e: StreamError) {
         errorMessage: e.message
       })
       conv.updatedAt = Date.now()
+      affectedId = conv.id
     }
     ctx.clearAllRunStates()
   }
-  ctx.persistMeta()
+  if (affectedId) ctx.markMetaDirty(affectedId)
 }
 
 export function handleDone(ctx: StreamHandlerContext, e: Done) {
@@ -279,5 +286,5 @@ export function handleDone(ctx: StreamHandlerContext, e: Done) {
     }
     ctx.persistAppend(convId)
   }
-  ctx.persistMeta()
+  if (convId) ctx.markMetaDirty(convId)
 }

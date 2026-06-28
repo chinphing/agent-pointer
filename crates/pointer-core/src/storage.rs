@@ -728,6 +728,16 @@ pub fn load_conversations() -> Result<Vec<Conversation>> {
     crate::conversation_store::global_store()?.load_all()
 }
 
+/// Cursor-paginated, meta-only conversation list (no messages). Sort order is
+/// `(updated_at_ms DESC, id DESC)`. Pass `None` for the first page; pass the
+/// last row of the previous page as the cursor to fetch the next.
+pub fn load_conversation_metas(
+    cursor: Option<(i64, String)>,
+    limit: i64,
+) -> Result<Vec<ConversationMeta>> {
+    crate::conversation_store::global_store()?.load_metas(cursor, limit)
+}
+
 pub fn load_conversation_messages(conversation_id: &str) -> Result<Vec<ChatMessage>> {
     crate::conversation_store::global_store()?.load_messages(conversation_id)
 }
@@ -738,6 +748,10 @@ pub fn save_conversations(list: &[Conversation]) -> Result<()> {
 
 pub fn save_conversation_meta(metas: &[ConversationMeta]) -> Result<()> {
     crate::conversation_store::global_store()?.save_meta_all(metas)
+}
+
+pub fn delete_conversation(conversation_id: &str) -> Result<()> {
+    crate::conversation_store::global_store()?.delete_conversation(conversation_id)
 }
 
 /// Append messages whose ids are not yet in the DB (P0); does not delete existing rows.

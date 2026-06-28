@@ -6,6 +6,9 @@ import type {
   ChatMediaPreview,
   ComputerMonitor,
   Conversation,
+  ConversationCursor,
+  ConversationMeta,
+  ConversationMetaPage,
   EffectiveSettingsView,
   MediaDepsStatus,
   ModelSettings,
@@ -342,12 +345,35 @@ export async function cancelComputerMonitorPick(conversationId: string): Promise
 export async function loadConversationMessages(
   conversationId: string
 ): Promise<ChatMessage[]> {
-  const convs = await loadConversations()
-  return convs.find(c => c.id === conversationId)?.messages ?? []
+  // Use the dedicated per-conversation route; the legacy pattern of
+  // re-fetching all conversations and filtering client-side was a major waste
+  // on web (it pulled every message of every conversation on every hydrate).
+  return await request<ChatMessage[]>(
+    `/api/conversations/${encodeURIComponent(conversationId)}/messages`
+  )
 }
 
 export async function loadConversations(): Promise<Conversation[]> {
   return await request<Conversation[]>('/api/conversations')
+}
+
+/** Cursor-paginated meta-only list (no messages). Sort: updatedAt DESC, id DESC. */
+export async function loadConversationMetas(
+  cursor: ConversationCursor | null,
+  limit = 50
+): Promise<ConversationMetaPage> {
+  const params = new URLSearchParams()
+  params.set('limit', String(limit))
+  if (cursor) {
+    params.set('cursor_updated_at', String(cursor.updatedAt))
+    params.set('cursor_id', cursor.id)
+  }
+  const items = await request<ConversationMeta[]>(`/api/conversations/meta?${params.toString()}`)
+  const nextCursor =
+    items.length === limit && items.length > 0
+      ? { updatedAt: items[items.length - 1]!.updatedAt, id: items[items.length - 1]!.id }
+      : null
+  return { items, nextCursor }
 }
 
 export async function saveConversations(conversations: Conversation[]): Promise<void> {
@@ -356,6 +382,10 @@ export async function saveConversations(conversations: Conversation[]): Promise<
 
 export async function saveConversationMeta(metas: import('../types/chat').ConversationMeta[]): Promise<void> {
   await request('/api/conversations/meta', { method: 'PUT', body: JSON.stringify(metas) })
+}
+
+export async function deleteConversation(conversationId: string): Promise<void> {
+  await request(`/api/conversations/${encodeURIComponent(conversationId)}`, { method: 'DELETE' })
 }
 
 export async function appendConversationMessages(

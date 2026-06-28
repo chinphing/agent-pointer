@@ -3,7 +3,7 @@
 use anyhow::Result;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::models::{ChatMessage, Conversation, Role};
+use crate::models::{ChatMessage, Conversation, ConversationMeta, Role};
 
 pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
     let mut stmt = conn.prepare(
@@ -87,6 +87,212 @@ pub(crate) fn load_messages(conn: &Connection, conversation_id: &str) -> Result<
         }
     }
     Ok(out)
+}
+
+/// Cursor for paginated conversation-meta reads. Sort order is
+/// `(updated_at_ms DESC, id DESC)`, so the cursor is the last row of the
+/// previous page; the next page fetches rows strictly "before" it.
+pub type MetaCursor = (i64, String);
+
+/// Load conversation shells (no messages) with cursor pagination.
+///
+/// When `cursor` is `None`, returns the most recent page. Otherwise returns
+/// rows strictly before `(updated_at_ms, id)` in DESC/DESC order. `limit` is
+/// clamped to `[1, 500]` for safety. Logs an `info` line per call with the
+/// row count and a `warn` per row with corrupt `skill_ids_json` (falls back
+/// to `[]`).
+pub fn load_metas_from_conn(
+    conn: &Connection,
+    cursor: Option<MetaCursor>,
+    limit: i64,
+) -> Result<Vec<ConversationMeta>> {
+    let limit = limit.clamp(1, 500);
+    let mut stmt = conn.prepare(
+        "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
+                skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
+                computer_monitor_id, workspace_root, workspace_user_set,
+                workspace_inherit_disabled, lead_agent_id, agent_mode
+         FROM conversations
+         WHERE (?1 IS NULL OR (updated_at_ms < ?1 OR (updated_at_ms = ?1 AND id < ?2)))
+         ORDER BY updated_at_ms DESC, id DESC
+         LIMIT ?3",
+    )?;
+    let (cur_ts, cur_id): (Option<i64>, Option<&str>) = match &cursor {
+        Some((ts, id)) => (Some(*ts), Some(id.as_str())),
+        None => (None, None),
+    };
+    let rows = stmt.query_map(params![cur_ts, cur_id, limit], |row| {
+        Ok(MetaRow {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            created_at: row.get(2)?,
+            updated_at: row.get(3)?,
+            message_count: row.get::<_, i64>(4)? as u32,
+            preview: row.get(5)?,
+            skill_ids_json: row.get(6)?,
+            tool_rounds_used: row.get(7)?,
+            tool_rounds_used_supervisor: row.get(8)?,
+            computer_monitor_id: row.get(9)?,
+            workspace_root: row.get(10)?,
+            workspace_user_set: row.get::<_, i64>(11)? != 0,
+            workspace_inherit_disabled: row.get::<_, i64>(12)? != 0,
+            lead_agent_id: row.get(13)?,
+            agent_mode: row.get(14)?,
+        })
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let r = row?;
+        let skill_ids: Vec<String> = match serde_json::from_str(&r.skill_ids_json) {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!(
+                    "conversation_store: skip corrupt skill_ids_json for {}: {e}",
+                    r.id
+                );
+                Vec::new()
+            }
+        };
+        out.push(ConversationMeta {
+            id: r.id,
+            title: r.title,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+            skill_ids,
+            tool_rounds_used: r.tool_rounds_used,
+            tool_rounds_used_supervisor: r.tool_rounds_used_supervisor,
+            computer_monitor_id: r.computer_monitor_id,
+            workspace_root: r.workspace_root,
+            workspace_user_set: r.workspace_user_set,
+            workspace_inherit_disabled: r.workspace_inherit_disabled,
+            lead_agent_id: r.lead_agent_id,
+            agent_mode: r.agent_mode,
+            message_count: r.message_count,
+            preview: r.preview,
+        });
+    }
+    log::info!(
+        "conversation_store: load_metas cursor={:?} limit={} returned {} rows",
+        cursor,
+        limit,
+        out.len()
+    );
+    Ok(out)
+}
+
+/// Load a single conversation meta row by id (O(log n) via the primary key).
+/// Use this instead of `load_all_from_conn` when only one conversation is
+/// needed (e.g. the chat-send persist hooks), so message deserialization is
+/// avoided entirely.
+pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<ConversationMeta>> {
+    let r = conn
+        .query_row(
+            "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
+                    skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
+                    computer_monitor_id, workspace_root, workspace_user_set,
+                    workspace_inherit_disabled, lead_agent_id, agent_mode
+             FROM conversations WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(MetaRow {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    created_at: row.get(2)?,
+                    updated_at: row.get(3)?,
+                    message_count: row.get::<_, i64>(4)? as u32,
+                    preview: row.get(5)?,
+                    skill_ids_json: row.get(6)?,
+                    tool_rounds_used: row.get(7)?,
+                    tool_rounds_used_supervisor: row.get(8)?,
+                    computer_monitor_id: row.get(9)?,
+                    workspace_root: row.get(10)?,
+                    workspace_user_set: row.get::<_, i64>(11)? != 0,
+                    workspace_inherit_disabled: row.get::<_, i64>(12)? != 0,
+                    lead_agent_id: row.get(13)?,
+                    agent_mode: row.get(14)?,
+                })
+            },
+        )
+        .optional()?;
+    let Some(r) = r else { return Ok(None) };
+    let skill_ids: Vec<String> = match serde_json::from_str(&r.skill_ids_json) {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!(
+                "conversation_store: skip corrupt skill_ids_json for {}: {e}",
+                r.id
+            );
+            Vec::new()
+        }
+    };
+    Ok(Some(ConversationMeta {
+        id: r.id,
+        title: r.title,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        skill_ids,
+        tool_rounds_used: r.tool_rounds_used,
+        tool_rounds_used_supervisor: r.tool_rounds_used_supervisor,
+        computer_monitor_id: r.computer_monitor_id,
+        workspace_root: r.workspace_root,
+        workspace_user_set: r.workspace_user_set,
+        workspace_inherit_disabled: r.workspace_inherit_disabled,
+        lead_agent_id: r.lead_agent_id,
+        agent_mode: r.agent_mode,
+        message_count: r.message_count,
+        preview: r.preview,
+    }))
+}
+
+/// Return all conversation ids (cheap; avoids loading messages). Used by save
+/// paths to snapshot pre-write ids for deletion detection.
+pub fn list_all_ids_from_conn(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT id FROM conversations")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    let mut out = Vec::new();
+    for id in rows {
+        out.push(id?);
+    }
+    log::debug!("conversation_store: list_all_ids returned {} ids", out.len());
+    Ok(out)
+}
+
+/// Return the most-recently-updated `workspace_root` among conversations other
+/// than `exclude_id` with a non-empty workspace. Used by workspace inheritance
+/// without loading any messages.
+pub fn latest_other_workspace_root_from_conn(
+    conn: &Connection,
+    exclude_id: &str,
+) -> Result<Option<String>> {
+    let root: Option<String> = conn
+        .query_row(
+            "SELECT workspace_root FROM conversations
+             WHERE id != ?1 AND workspace_root != ''
+             ORDER BY updated_at_ms DESC, id DESC
+             LIMIT 1",
+            params![exclude_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(root.filter(|s| !s.trim().is_empty()))
+}
+
+struct MetaRow {
+    id: String,
+    title: String,
+    created_at: i64,
+    updated_at: i64,
+    message_count: u32,
+    preview: String,
+    skill_ids_json: String,
+    tool_rounds_used: u32,
+    tool_rounds_used_supervisor: u32,
+    computer_monitor_id: Option<String>,
+    workspace_root: String,
+    workspace_user_set: bool,
+    workspace_inherit_disabled: bool,
+    lead_agent_id: String,
+    agent_mode: String,
 }
 
 pub fn replace_all_in_conn(conn: &Connection, list: &[Conversation]) -> Result<()> {
@@ -279,6 +485,13 @@ pub fn delete_conversations_not_in(conn: &Connection, ids: &[String]) -> Result<
     let params: Vec<&dyn rusqlite::ToSql> =
         ids.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
     conn.execute(&sql, params.as_slice())?;
+    Ok(())
+}
+
+/// Delete a single conversation row by id. Associated messages are removed
+/// via the `messages.conversation_id` foreign-key `ON DELETE CASCADE`.
+pub fn delete_conversation_from_conn(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM conversations WHERE id = ?1", params![id])?;
     Ok(())
 }
 

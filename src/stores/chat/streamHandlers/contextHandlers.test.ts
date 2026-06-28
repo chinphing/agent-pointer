@@ -12,14 +12,14 @@ describe('contextHandlers', () => {
       status: 'done',
       createdAt: 0
     })
-    const persistMeta = vi.fn()
-    const ctx = createMockStreamHandlerContext([conv], { persistMeta })
+    const markMetaDirty = vi.fn()
+    const ctx = createMockStreamHandlerContext([conv], { markMetaDirty })
     handleContextTrimApplied(ctx, {
       kind: 'context_trim_applied',
       conversationId: 'conv1',
       excludedMessageIds: ['m1']
     })
     expect(conv.messages[0].contextState?.excludedReason).toBe('task_board_trim')
-    expect(persistMeta).toHaveBeenCalledOnce()
+    expect(markMetaDirty).toHaveBeenCalledWith('conv1')
   })
 })

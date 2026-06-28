@@ -24,6 +24,7 @@ export interface StreamHandlerContext {
     preferConversationId?: string
   ): { conv: Conversation; msg: ChatMessage } | null
   persistMeta(): void
+  markMetaDirty(id: string): void
   persistAppend(conversationId: string): void
   showUiToast(message: string, level: 'success' | 'warning' | 'error'): void
 

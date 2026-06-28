@@ -7,7 +7,9 @@ import type {
   ChatMediaPreview,
   ComputerMonitor,
   Conversation,
+  ConversationCursor,
   ConversationMeta,
+  ConversationMetaPage,
   EffectiveSettingsView,
   MediaDepsStatus,
   ModelSettings,
@@ -107,6 +109,8 @@ export interface RuntimeApi {
   dismissMacosPermissionDragGuide?(): Promise<void>
 
   loadConversations(): Promise<Conversation[]>
+  /** Cursor-paginated meta-only list (no messages). Sort: updatedAt DESC, id DESC. */
+  loadConversationMetas(cursor: ConversationCursor | null, limit?: number): Promise<ConversationMetaPage>
   loadConversationMessages(conversationId: string): Promise<ChatMessage[]>
   saveConversations(conversations: Conversation[]): Promise<void>
   revealInFinder(path: string): Promise<void>
@@ -114,6 +118,7 @@ export interface RuntimeApi {
   openChatMedia(storageRelPath: string): Promise<void>
   readLocalFileForAttachment(path: string): Promise<LocalFileAttachmentPayload>
   saveConversationMeta(metas: ConversationMeta[]): Promise<void>
+  deleteConversation(conversationId: string): Promise<void>
   appendConversationMessages(conversationId: string, messages: ChatMessage[]): Promise<number>
   onStream(handler: (e: StreamEvent) => void, conversationId?: string): Promise<UnlistenFn>
 }
@@ -200,9 +205,11 @@ export const dismissMacosPermissionDragGuide = isTauriRuntime()
   : async () => {}
 
 export const loadConversations = api.loadConversations
+export const loadConversationMetas = api.loadConversationMetas
 export const loadConversationMessages = api.loadConversationMessages
 export const saveConversations = api.saveConversations
 export const saveConversationMeta = api.saveConversationMeta
+export const deleteConversation = api.deleteConversation
 export const appendConversationMessages = api.appendConversationMessages
 export const onStream = api.onStream
 

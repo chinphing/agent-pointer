@@ -68,6 +68,12 @@ fn is_false_bool(v: &bool) -> bool {
 }
 
 /// Conversation shell fields for P1 meta-only persistence (no messages).
+///
+/// `message_count` and `preview` come from the SQLite `conversations` table and
+/// are only populated by the meta-list read path (`load_metas`). When a
+/// `ConversationMeta` is derived from an in-memory `Conversation` via
+/// `From<&Conversation>`, they default to `0` / empty because `Conversation`
+/// does not carry them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationMeta {
     pub id: String,
@@ -110,6 +116,14 @@ pub struct ConversationMeta {
         skip_serializing_if = "is_default_session_agent_mode"
     )]
     pub agent_mode: String,
+    /// Persisted message count for the conversation (DB-backed; 0 when derived
+    /// from an in-memory `Conversation`).
+    #[serde(default, rename = "messageCount")]
+    pub message_count: u32,
+    /// Short preview of the latest messages (DB-backed; empty when derived from
+    /// an in-memory `Conversation`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub preview: String,
 }
 
 impl From<&Conversation> for ConversationMeta {
@@ -128,6 +142,8 @@ impl From<&Conversation> for ConversationMeta {
             workspace_inherit_disabled: c.workspace_inherit_disabled,
             lead_agent_id: c.lead_agent_id.clone(),
             agent_mode: c.agent_mode.clone(),
+            message_count: 0,
+            preview: String::new(),
         }
     }
 }

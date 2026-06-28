@@ -38,6 +38,8 @@ pub fn fork_im_desktop_session(
         workspace_inherit_disabled: false,
         lead_agent_id: lead_agent_id.clone(),
         agent_mode: agent_mode.clone(),
+        message_count: 0,
+        preview: String::new(),
     })?;
 
     pointer_core::stream_broadcast::broadcast_stream(&StreamEvent::ImSessionForked {

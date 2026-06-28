@@ -66,14 +66,39 @@ impl ConversationStore {
         persist::load_messages(&conn, conversation_id)
     }
 
+    /// Cursor-paginated meta-only list (no messages). Sort order is
+    /// `(updated_at_ms DESC, id DESC)`. Pass `None` for the first page.
+    pub fn load_metas(
+        &self,
+        cursor: Option<persist::MetaCursor>,
+        limit: i64,
+    ) -> Result<Vec<ConversationMeta>> {
+        let conn = self.db.conn.lock();
+        persist::load_metas_from_conn(&conn, cursor, limit)
+    }
+
+    /// Load one conversation's meta by id (no messages). O(log n) via PK.
+    pub fn load_meta(&self, id: &str) -> Result<Option<ConversationMeta>> {
+        let conn = self.db.conn.lock();
+        persist::load_meta_from_conn(&conn, id)
+    }
+
+    /// Cheap list of all conversation ids (no message deserialization).
+    pub fn list_all_ids(&self) -> Result<Vec<String>> {
+        let conn = self.db.conn.lock();
+        persist::list_all_ids_from_conn(&conn)
+    }
+
+    /// Most-recently-updated `workspace_root` among conversations other than
+    /// `exclude_id` with a non-empty workspace. `None` when no candidate.
+    pub fn latest_other_workspace_root(&self, exclude_id: &str) -> Result<Option<String>> {
+        let conn = self.db.conn.lock();
+        persist::latest_other_workspace_root_from_conn(&conn, exclude_id)
+    }
+
     pub fn save_all(&self, list: &[Conversation]) -> Result<()> {
         // Snapshot old IDs before the write so we can detect deletions.
-        let old_ids: Vec<String> = self
-            .load_all()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|c| c.id)
-            .collect();
+        let old_ids: Vec<String> = self.list_all_ids().unwrap_or_default();
         let new_ids: Vec<String> = list.iter().map(|c| c.id.clone()).collect();
 
         self.db.execute_write(|conn| {
@@ -109,27 +134,24 @@ impl ConversationStore {
     }
 
     /// P1: sync conversation shell fields only; messages are untouched.
+    /// Pure upsert — does NOT delete conversations absent from `metas`.
+    /// Deletion is handled explicitly via [`ConversationStore::delete_conversation`].
     pub fn save_meta_all(&self, metas: &[ConversationMeta]) -> Result<()> {
-        let old_ids: Vec<String> = self
-            .load_all()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|c| c.id)
-            .collect();
-        let new_ids: Vec<String> = metas.iter().map(|m| m.id.clone()).collect();
-
         self.db
             .execute_write(|conn| write::save_meta_all_in_conn(conn, metas))?;
+        Ok(())
+    }
 
-        // Clean up sandbox directories for deleted conversations.
-        for id in &old_ids {
-            if !new_ids.contains(id) {
-                if let Err(e) = crate::session_sandbox::SessionSandbox::cleanup(id) {
-                    log::warn!("session_sandbox cleanup failed for {id}: {e}");
-                }
-            }
+    /// Explicitly delete one conversation and its messages, and clean up its
+    /// sandbox directory. Use this instead of relying on `save_meta_all` to
+    /// diff against a (now paginated, incomplete) in-memory list.
+    pub fn delete_conversation(&self, id: &str) -> Result<()> {
+        self.db
+            .execute_write(|conn| persist::delete_conversation_from_conn(conn, id))?;
+        log::info!("conversation_store: deleted conversation id={id}");
+        if let Err(e) = crate::session_sandbox::SessionSandbox::cleanup(id) {
+            log::warn!("session_sandbox cleanup failed for {id}: {e}");
         }
-
         Ok(())
     }
 
@@ -499,6 +521,14 @@ fn ensure_fts_schema(conn: &Connection) -> Result<()> {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         [],
     )?;
+    // The FTS table is an external-content table (`content='messages'`); creating
+    // it leaves the index empty, so existing messages (e.g. after a restore or
+    // corruption recovery) would not be searchable. Repopulate from `messages`.
+    // This only runs when the table was (re)created, not on every open.
+    match conn.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')", []) {
+        Ok(n) => log::info!("conversation_store: FTS rebuilt from messages, rows={n}"),
+        Err(e) => log::warn!("conversation_store: FTS rebuild failed: {e}"),
+    }
     Ok(())
 }
 

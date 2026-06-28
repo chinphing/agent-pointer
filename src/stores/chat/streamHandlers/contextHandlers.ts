@@ -14,7 +14,7 @@ export function handleContextTrimApplied(ctx: StreamHandlerContext, e: ContextTr
   if (!conv) return
   applyExcludedMessageIds(conv, e.excludedMessageIds, 'task_board_trim')
   conv.updatedAt = Date.now()
-  ctx.persistMeta()
+  ctx.markMetaDirty(e.conversationId)
 }
 
 export function handleContextCompressionApplied(
@@ -33,7 +33,7 @@ export function handleContextCompressionApplied(
   insertMessageBeforeAnchor(conv, e.insertBeforeMessageId, summary)
   ctx.showUiToast(buildCompressionNoticeContent(e.compression), 'success')
   conv.updatedAt = Date.now()
-  ctx.persistMeta()
+  ctx.markMetaDirty(e.conversationId)
   ctx.persistAppend(e.conversationId)
 }
 

@@ -2,9 +2,10 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch, nextTick } from 'vue'
 import {
   sendChat, cancelChat, abortTerminalCommand, approveToolCall, onStream,
-  loadConversations,
+  loadConversationMetas,
   loadConversationMessages,
   saveConversationMeta,
+  deleteConversation as deleteConversationApi,
   appendConversationMessages,
   saveChatAttachment
 } from '../lib/api'
@@ -13,7 +14,9 @@ import type {
   ChatMessage,
   ComputerMonitorPickRequest,
   Conversation,
+  ConversationCursor,
   ConversationMeta,
+  ConversationMetaPage,
   StreamEvent,
   ToolCall,
   TaskBoardDocument
@@ -32,8 +35,7 @@ import {
 import { imConversationTitle, isImConversation } from '../lib/channel-labels'
 import {
   DEFAULT_CONVERSATION_TITLE,
-  maybeUpdateConversationTitle,
-  normalizeDefaultConversationTitles
+  maybeUpdateConversationTitle
 } from '../lib/conversationTitle'
 import { dedupeImInboundUserMessages } from '../lib/imMessageDedupe'
 import {
@@ -87,6 +89,9 @@ function stripEphemeralDesktopNoticesForDisk(conversations: Conversation[]): Con
 function isBlankDesktopConversation(conv: Conversation): boolean {
   if (isImConversation(conv.id)) return false
   if (conv.title !== DEFAULT_CONVERSATION_TITLE) return false
+  // Meta-only boot path: messageCount is set from the DB row. Prefer it so we
+  // can detect blanks without hydrating messages.
+  if (typeof conv.messageCount === 'number') return conv.messageCount === 0
   const visible = conv.messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
   return visible.length === 0
 }
@@ -94,13 +99,16 @@ function isBlankDesktopConversation(conv: Conversation): boolean {
 function pruneDuplicateBlankConversations(list: Conversation[]): {
   list: Conversation[]
   changed: boolean
+  prunedBlankIds: string[]
 } {
   const blanks = list.filter(isBlankDesktopConversation)
-  if (blanks.length <= 1) return { list, changed: false }
+  if (blanks.length <= 1) return { list, changed: false, prunedBlankIds: [] }
   const keepId = blanks[0]!.id
+  const prunedBlankIds = blanks.filter(b => b.id !== keepId).map(b => b.id)
   return {
     list: list.filter(c => !isBlankDesktopConversation(c) || c.id === keepId),
-    changed: true
+    changed: true,
+    prunedBlankIds
   }
 }
 
@@ -170,10 +178,24 @@ export const useChatStore = defineStore('chat', () => {
   let uiToastTimer: ReturnType<typeof setTimeout> | null = null
   let unlisten: (() => void) | null = null
   let saveTimer: number | null = null
+  /** Conversation ids whose meta changed and need persisting on next flush. */
+  const dirtyMetaIds = ref(new Set<string>())
+
+  /** Cursor pagination page size for the sidebar meta list. */
+  const META_PAGE_SIZE = 50
+  /** Cursor for the next page of conversation metas (null = no more / first page). */
+  const nextCursor = ref<ConversationCursor | null>(null)
+  /** True while a `loadMoreConversations` fetch is in flight (UI spinner guard). */
+  const loadingMoreConversations = ref(false)
+  /** Conversation ids whose messages have been loaded into memory this session. */
+  const hydratedIds = ref<Set<string>>(new Set())
 
   const current = computed(() =>
     conversations.value.find(c => c.id === currentId.value) || null
   )
+
+  /** True when there are more conversation metas to fetch from the DB. */
+  const hasMoreConversations = computed(() => nextCursor.value !== null)
 
   function runStateFor(id: string): ConversationRunState {
     return runByConversation.value[id] ?? { generating: false, activeMessageId: null }
@@ -370,35 +392,149 @@ export const useChatStore = defineStore('chat', () => {
       },
       ...conversations.value
     ]
-    persistMeta()
+    markMetaDirty(conversationId)
+  }
+
+  function metaToConversationShell(m: ConversationMeta): Conversation {
+    return {
+      id: m.id,
+      title: m.title,
+      createdAt: m.createdAt,
+      updatedAt: m.updatedAt,
+      messages: [],
+      skillIds: m.skillIds ?? [],
+      toolRoundsUsed: m.toolRoundsUsed,
+      toolRoundsUsedSupervisor: m.toolRoundsUsedSupervisor,
+      computerMonitorId: m.computerMonitorId,
+      workspaceRoot: m.workspaceRoot,
+      workspaceUserSet: m.workspaceUserSet,
+      workspaceInheritDisabled: m.workspaceInheritDisabled,
+      leadAgentId: m.leadAgentId,
+      agentMode: m.agentMode,
+      messageCount: m.messageCount
+    }
   }
 
   async function init() {
-    let list = await loadConversations().catch(() => [])
-    const pruned = pruneDuplicateBlankConversations(list)
-    list = pruned.list
-    normalizeInterruptedAssistantStatuses(list)
-    normalizeSubAgentTraces(list)
-    for (const conv of list) {
+    // Boot path: load only the first page of conversation metas (no messages).
+    // The active conversation's messages are hydrated on demand below; other
+    // conversations are hydrated when the user selects them.
+    const firstPage = await loadConversationMetas(null, META_PAGE_SIZE).catch(err => {
+      console.error('[chat] loadConversationMetas failed at boot', err)
+      return { items: [] as ConversationMeta[], nextCursor: null } as ConversationMetaPage
+    })
+    const metas = firstPage.items
+    const pruned = pruneDuplicateBlankConversations(metas.map(metaToConversationShell))
+    const shells = pruned.list
+    for (const conv of shells) {
       if (!conv.leadAgentId?.trim()) conv.leadAgentId = DEFAULT_LEAD_AGENT_ID
       if (!conv.agentMode?.trim()) conv.agentMode = 'single'
     }
-    const imTitlesUpdated = normalizeDefaultConversationTitles(list)
-    for (const conv of list) {
-      if (!isImConversation(conv.id)) continue
-      conv.messages = dedupeImInboundUserMessages(conv.id, conv.messages)
+    conversations.value = shells
+    nextCursor.value = firstPage.nextCursor
+    // IM conversations can derive a title purely from their id (no messages
+    // needed); persist any such title fixes as targeted delta writes. Desktop
+    // blank pruning needs no upsert here — pruned blanks are deleted explicitly
+    // below via deleteConversationApi, and retained conversations are unchanged.
+    for (const conv of shells) {
+      if (maybeUpdateConversationTitle(conv)) markMetaDirty(conv.id)
     }
-    conversations.value = stripEphemeralDesktopNoticesForDisk(list)
-    if (imTitlesUpdated || pruned.changed) persistMeta()
-    if (list.length === 0) newConversation()
-    else {
-      currentId.value = list[0].id
+    // Explicitly delete any duplicate blank conversations pruned above (only
+    // those we actually saw this boot).
+    for (const blankId of pruned.prunedBlankIds) {
+      void deleteConversationApi(blankId).catch(err =>
+        console.error('[chat] boot prune: deleteConversation failed', blankId, err)
+      )
+    }
+
+    if (shells.length === 0) {
+      newConversation()
+    } else {
+      currentId.value = shells[0]!.id
+      await ensureMessagesLoaded(shells[0]!.id)
       loadActiveComposerDraft(currentId.value)
     }
+
     if (!unlisten) unlisten = await onStream(handleEvent)
     if (currentId.value) {
       void refreshTaskBoard(currentId.value)
       void refreshSubAgentTaskBoards(currentId.value)
+    }
+  }
+
+  /**
+   * Load messages for a conversation if not already hydrated this session.
+   * Runs the per-conversation normalizers that previously ran once over every
+   * conversation at boot. Skips conversations currently generating (their
+   * in-memory messages are being appended by the stream and must not be
+   * clobbered).
+   */
+  async function ensureMessagesLoaded(id: string): Promise<void> {
+    const convId = id.trim()
+    if (!convId) return
+    if (hydratedIds.value.has(convId)) return
+    if (isConversationGenerating(convId)) {
+      console.info('[chat] ensureMessagesLoaded: skip hydrating generating conversation', convId)
+      return
+    }
+    const conv = conversations.value.find(c => c.id === convId)
+    if (!conv) {
+      console.warn('[chat] ensureMessagesLoaded: missing conversation', convId)
+      return
+    }
+    try {
+      const messages = await loadConversationMessages(convId)
+      const stripped = stripWireAttachmentFields(
+        messages.filter(m => !isEphemeralDesktopNoticeMessage(m))
+      )
+      let next = stripped
+      if (isImConversation(convId)) {
+        next = dedupeImInboundUserMessages(convId, stripped)
+      }
+      // Guard against a stream that started during the await: if the conv is
+      // now generating, prefer the in-memory messages and mark as hydrated so
+      // we don't retry.
+      if (isConversationGenerating(convId) && conv.messages.length > 0) {
+        console.info(
+          '[chat] ensureMessagesLoaded: stream started during load; keeping in-memory messages',
+          convId
+        )
+        hydratedIds.value.add(convId)
+        return
+      }
+      conv.messages = next
+      normalizeInterruptedAssistantStatuses([conv])
+      normalizeSubAgentTraces([conv])
+      hydratedIds.value.add(convId)
+      console.info('[chat] ensureMessagesLoaded: hydrated', convId, next.length)
+    } catch (err) {
+      console.error('[chat] ensureMessagesLoaded: load messages failed', convId, err)
+    }
+  }
+
+  /** Fetch the next page of conversation metas and append to the sidebar. */
+  async function loadMoreConversations(): Promise<void> {
+    if (!nextCursor.value || loadingMoreConversations.value) return
+    loadingMoreConversations.value = true
+    try {
+      const page = await loadConversationMetas(nextCursor.value, META_PAGE_SIZE)
+      const existingIds = new Set(conversations.value.map(c => c.id))
+      const fresh = page.items
+        .map(metaToConversationShell)
+        .filter(c => !existingIds.has(c.id))
+      if (fresh.length > 0) {
+        for (const conv of fresh) {
+          if (!conv.leadAgentId?.trim()) conv.leadAgentId = DEFAULT_LEAD_AGENT_ID
+          if (!conv.agentMode?.trim()) conv.agentMode = 'single'
+        }
+        conversations.value = [...conversations.value, ...fresh]
+      }
+      nextCursor.value = page.nextCursor
+      console.info('[chat] loadMoreConversations: appended', fresh.length, 'nextCursor=', page.nextCursor)
+    } catch (err) {
+      console.error('[chat] loadMoreConversations failed', err)
+    } finally {
+      loadingMoreConversations.value = false
     }
   }
 
@@ -421,6 +557,20 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function persistMeta() {
+    // Mark ALL loaded conversations dirty and schedule a flush. Use this only
+    // for rare multi-conversation changes (e.g. boot pruning). The hot path
+    // (stream handlers, single-conversation edits) uses markMetaDirty(id) so
+    // we don't upsert every loaded meta on every chat event.
+    for (const c of conversations.value) dirtyMetaIds.value.add(c.id)
+    scheduleMetaFlush()
+  }
+
+  function markMetaDirty(id: string) {
+    dirtyMetaIds.value.add(id)
+    scheduleMetaFlush()
+  }
+
+  function scheduleMetaFlush() {
     if (saveTimer) window.clearTimeout(saveTimer)
     saveTimer = window.setTimeout(() => {
       void flushPersistMeta()
@@ -432,9 +582,18 @@ export const useChatStore = defineStore('chat', () => {
       window.clearTimeout(saveTimer)
       saveTimer = null
     }
-    const metas = JSON.parse(
-      JSON.stringify(conversations.value.map(toConversationMeta))
-    ) as ConversationMeta[]
+    const ids = dirtyMetaIds.value
+    if (ids.size === 0) return
+    // Snapshot+clear before the await so concurrent mutations queue a new flush.
+    const pending = Array.from(ids)
+    dirtyMetaIds.value = new Set()
+    const byId = new Map(conversations.value.map(c => [c.id, c] as const))
+    const metas: ConversationMeta[] = []
+    for (const id of pending) {
+      const c = byId.get(id)
+      if (c) metas.push(toConversationMeta(c))
+    }
+    if (metas.length === 0) return
     await saveConversationMeta(metas).catch(e => console.error('save meta error', e))
   }
 
@@ -460,7 +619,8 @@ export const useChatStore = defineStore('chat', () => {
       flushActiveComposerDraft()
       currentId.value = existingBlank.id
       loadActiveComposerDraft(existingBlank.id)
-      persistMeta()
+      hydratedIds.value.add(existingBlank.id)
+      markMetaDirty(existingBlank.id)
       return existingBlank
     }
     // New sessions start with an empty workspace; backend inherits from the last active
@@ -484,24 +644,9 @@ export const useChatStore = defineStore('chat', () => {
     flushActiveComposerDraft()
     currentId.value = c.id
     loadActiveComposerDraft(c.id)
-    persistMeta()
+    hydratedIds.value.add(c.id)
+    markMetaDirty(c.id)
     return c
-  }
-
-  async function hydrateConversationMessagesFromStore(conversationId: string) {
-    if (!isImConversation(conversationId)) return
-    const conv = conversations.value.find(c => c.id === conversationId)
-    if (!conv) return
-    try {
-      const messages = await loadConversationMessages(conversationId)
-      const deduped = dedupeImInboundUserMessages(conversationId, messages)
-      if (deduped.length > conv.messages.length) {
-        conv.messages = deduped
-        conv.updatedAt = Date.now()
-      }
-    } catch (err) {
-      console.warn('[chat] hydrate conversation messages failed', conversationId, err)
-    }
   }
 
   function selectConversation(id: string) {
@@ -510,12 +655,12 @@ export const useChatStore = defineStore('chat', () => {
     currentId.value = id
     reconcileRunStateForConversation(id)
     loadActiveComposerDraft(id)
-    void hydrateConversationMessagesFromStore(id)
+    void ensureMessagesLoaded(id)
     void refreshTaskBoard(id)
     void refreshSubAgentTaskBoards(id)
   }
 
-  function deleteConversation(id: string) {
+  async function deleteConversation(id: string) {
     const conv = conversations.value.find(c => c.id === id)
     if (conv) {
       for (const m of conv.messages) {
@@ -524,15 +669,26 @@ export const useChatStore = defineStore('chat', () => {
     }
     const i = conversations.value.findIndex(c => c.id === id)
     if (i >= 0) conversations.value.splice(i, 1)
+    hydratedIds.value.delete(id)
+    // Explicitly delete the row + its messages + sandbox. persistMeta() is a
+    // pure upsert now (paginated subset), so it can no longer delete for us.
+    await deleteConversationApi(id).catch(err =>
+      console.error('[chat] deleteConversation api failed', id, err)
+    )
     if (currentId.value === id) {
       clearComposerDraft(id)
       currentId.value = conversations.value[0]?.id || null
       if (!currentId.value) newConversation()
-      else loadActiveComposerDraft(currentId.value)
+      else {
+        loadActiveComposerDraft(currentId.value)
+        void ensureMessagesLoaded(currentId.value)
+      }
     } else {
       clearComposerDraft(id)
     }
-    persistMeta()
+    // The deleted row is removed via deleteConversationApi above; remaining
+    // conversations are unchanged. Only flush any other pending dirty metas.
+    void flushPersistMeta()
   }
 
   function findMessage(
@@ -746,6 +902,7 @@ export const useChatStore = defineStore('chat', () => {
       ensureImConversation,
       findMessage,
       persistMeta,
+      markMetaDirty,
       persistAppend,
       showUiToast,
       patchRunState,
@@ -891,7 +1048,7 @@ export const useChatStore = defineStore('chat', () => {
       }
     }
     removeDiscardableAssistant(conv, msgId)
-    persistMeta()
+    markMetaDirty(conv.id)
   }
 
   async function abortTerminalOnly() {
@@ -908,7 +1065,7 @@ export const useChatStore = defineStore('chat', () => {
   function setConversationAgent(leadAgentId: string, agentMode: AgentMode = 'single') {
     const conv = current.value ?? newConversation()
     applySessionAgentToConversation(conv, leadAgentId, agentMode)
-    persistMeta()
+    markMetaDirty(conv.id)
   }
 
   function clearPlatformLoginErrorMessages() {
@@ -933,7 +1090,7 @@ export const useChatStore = defineStore('chat', () => {
       current.value.workspaceUserSet = false
       current.value.workspaceInheritDisabled = true
     }
-    persistMeta()
+    markMetaDirty(current.value.id)
   }
 
   function clearComputerMonitorPickRequest() {
@@ -947,6 +1104,8 @@ export const useChatStore = defineStore('chat', () => {
   return {
     conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards,
     init, newConversation, selectConversation, deleteConversation,
+    loadMoreConversations, loadingMoreConversations, hasMoreConversations,
+    ensureMessagesLoaded,
     sendUserMessage, stop, abortTerminalOnly, approve,
     refreshTaskBoard, refreshSubAgentTaskBoards, taskBoardForConversation, activeParentBoardDocument, activeParentBoardBinding, compactTaskBoardDocument, parentBoardsBoundToMessage,
     childBoardBindingForTrace, childBoardsForParent, lookupChildTaskBoard,

@@ -58,9 +58,13 @@ pub fn upsert_conversation_meta(conn: &Connection, meta: &ConversationMeta) -> R
     Ok(())
 }
 
+/// Pure upsert of conversation shell fields (no messages, no deletion).
+///
+/// With cursor-paginated lazy loading, the frontend only holds a subset of
+/// conversations at any time, so we must NOT delete rows whose ids are absent
+/// from `metas` — they may simply be on a not-yet-loaded page. Deletion is
+/// handled explicitly via `delete_conversation`.
 pub fn save_meta_all_in_conn(conn: &Connection, metas: &[ConversationMeta]) -> Result<()> {
-    let ids: Vec<String> = metas.iter().map(|m| m.id.clone()).collect();
-    super::persist::delete_conversations_not_in(conn, &ids)?;
     for meta in metas {
         upsert_conversation_meta(conn, meta)?;
     }
@@ -120,6 +124,8 @@ fn ensure_conversation_row_with_title(
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
             agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+            message_count: 0,
+            preview: String::new(),
         },
     )
 }
@@ -401,6 +407,8 @@ mod tests {
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
             agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+            message_count: 0,
+            preview: String::new(),
         };
         store.save_meta_all(&[meta]).unwrap();
         let loaded = store.load_all().unwrap();

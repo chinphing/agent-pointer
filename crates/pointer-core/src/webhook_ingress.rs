@@ -1,35 +1,178 @@
-//! Webhook ingress message normalization (OpenClaw `/hooks/agent` alignment).
+//! Webhook ingress message normalization.
 //!
-//! OpenClaw accepts a single required `message` string per hook turn. Pointer
-//! also supports `text` and a full `messages` array for advanced callers.
-//!
-//! Session continuity: like cron scheduler (and OpenClaw `sessionMode:
-//! persistent`), the default path loads the active webhook session transcript
-//! and appends the new user turn — so multiple ingress calls on the same day
-//! share context within `webhook:{src}:{yyyymmdd}`.
+//! Primary path: Pointer / OpenClaw-style fields (`text`, `message`, `messages`).
+//! Fallback: when no structured message is present, the entire request body
+//! becomes the user turn (JSON compact string or plain text). This lets third
+//! parties (GitHub, Codeup, …) POST native payloads without mapping config.
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, Result};
+use serde::Deserialize;
+use serde_json::Value;
 
 use crate::conversation_store::ConversationStore;
 use crate::models::{ChatMessage, Role};
 
-/// Inbound turn fields from `POST /api/webhooks/:src` (camelCase at the HTTP boundary).
-#[derive(Debug, Clone, Default)]
-pub struct WebhookInboundTurn {
+/// Max raw body size for webhook ingress (including raw-body fallback).
+pub const MAX_WEBHOOK_BODY_BYTES: usize = 256 * 1024;
+
+/// JSON body for `POST /api/webhooks/:src` (camelCase at the HTTP boundary).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookIngressBody {
+    pub conversation_id: Option<String>,
     pub text: Option<String>,
-    /// OpenClaw `/hooks/agent` field name; treated as alias of `text`.
+    /// OpenClaw `/hooks/agent` alias for `text`.
     pub message: Option<String>,
     /// Optional label prefix (OpenClaw `name`), e.g. `"GitHub"` → `[GitHub] …`.
     pub name: Option<String>,
     pub messages: Option<Vec<ChatMessage>>,
+    pub agent_mode: Option<String>,
+    pub lead_agent_id: Option<String>,
+    pub idempotency_key: Option<String>,
+    #[serde(default)]
+    pub enabled_skill_ids: Vec<String>,
+    #[serde(default)]
+    pub workspace_root: String,
+    #[serde(default)]
+    pub blocking: bool,
+    pub timeout_seconds: Option<u64>,
+}
+
+/// Parsed webhook request ready for dispatch.
+#[derive(Debug, Clone)]
+pub struct WebhookIngressPayload {
+    pub body: WebhookIngressBody,
+    pub inbound: WebhookInboundTurn,
+    /// True when the user turn was synthesized from the full raw body.
+    pub used_raw_body_fallback: bool,
+}
+
+/// Inbound turn fields passed to transcript assembly.
+#[derive(Debug, Clone, Default)]
+pub struct WebhookInboundTurn {
+    pub text: Option<String>,
+    pub message: Option<String>,
+    pub name: Option<String>,
+    pub messages: Option<Vec<ChatMessage>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WebhookParseError {
+    PayloadTooLarge { max: usize },
+    EmptyBody,
+    InvalidJson(String),
+    MessageBuild(String),
+}
+
+impl std::fmt::Display for WebhookParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PayloadTooLarge { max } => {
+                write!(f, "webhook payload too large (max {max} bytes)")
+            }
+            Self::EmptyBody => write!(f, "webhook body must not be empty"),
+            Self::InvalidJson(msg) => write!(f, "invalid webhook json: {msg}"),
+            Self::MessageBuild(msg) => f.write_str(msg),
+        }
+    }
+}
+
+impl std::error::Error for WebhookParseError {}
+
+/// Parse raw HTTP body into control fields + inbound turn (with optional fallback).
+pub fn parse_webhook_body(raw: &[u8], src: &str) -> Result<WebhookIngressPayload, WebhookParseError> {
+    if raw.len() > MAX_WEBHOOK_BODY_BYTES {
+        return Err(WebhookParseError::PayloadTooLarge {
+            max: MAX_WEBHOOK_BODY_BYTES,
+        });
+    }
+    if raw.is_empty() {
+        return Err(WebhookParseError::EmptyBody);
+    }
+
+    if let Ok(value) = serde_json::from_slice::<Value>(raw) {
+        return parse_json_webhook_body(&value, src);
+    }
+
+    let text = std::str::from_utf8(raw)
+        .ok()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or(WebhookParseError::EmptyBody)?;
+    let name = Some(src.to_string());
+    Ok(WebhookIngressPayload {
+        body: WebhookIngressBody::default(),
+        inbound: WebhookInboundTurn {
+            text: Some(text.to_string()),
+            message: None,
+            name,
+            messages: None,
+        },
+        used_raw_body_fallback: true,
+    })
+}
+
+fn parse_json_webhook_body(value: &Value, src: &str) -> Result<WebhookIngressPayload, WebhookParseError> {
+    let body: WebhookIngressBody = serde_json::from_value(value.clone()).map_err(|e| {
+        WebhookParseError::InvalidJson(e.to_string())
+    })?;
+
+    if has_structured_message(&body) {
+        return Ok(WebhookIngressPayload {
+            inbound: WebhookInboundTurn {
+                text: body.text.clone(),
+                message: body.message.clone(),
+                name: body.name.clone(),
+                messages: body.messages.clone(),
+            },
+            body,
+            used_raw_body_fallback: false,
+        });
+    }
+
+    let raw_msg = serde_json::to_string(value).map_err(|e| {
+        WebhookParseError::MessageBuild(format!("webhook fallback serialize failed: {e}"))
+    })?;
+    if raw_msg.trim().is_empty() {
+        return Err(WebhookParseError::EmptyBody);
+    }
+    let name = body
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| Some(src.to_string()));
+
+    Ok(WebhookIngressPayload {
+        inbound: WebhookInboundTurn {
+            text: Some(raw_msg),
+            message: None,
+            name,
+            messages: None,
+        },
+        body,
+        used_raw_body_fallback: true,
+    })
+}
+
+fn has_structured_message(body: &WebhookIngressBody) -> bool {
+    body.text
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|s| !s.is_empty())
+        || body
+            .message
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|s| !s.is_empty())
+        || body
+            .messages
+            .as_ref()
+            .is_some_and(|messages| !messages.is_empty())
 }
 
 /// Build the message history passed to `RunDispatcher` for one webhook ingress.
-///
-/// - **Append mode (default):** load stored transcript for `conversation_id`, append
-///   the new user turn (`text`, `message`, or a single user entry in `messages`).
-/// - **Full history mode:** when `messages` contains assistant/tool rows or more
-///   than one entry, use the array as-is (advanced / HTTP Runs-style callers).
 pub fn build_webhook_dispatch_messages(
     store: &ConversationStore,
     conversation_id: &str,
@@ -66,7 +209,9 @@ fn resolve_inbound_text(inbound: &WebhookInboundTurn) -> Result<String> {
         .filter(|s| !s.is_empty());
     match text {
         Some(s) => Ok(s.to_string()),
-        None => bail!("webhook body must contain `text`, `message`, or `messages`"),
+        None => Err(anyhow!(
+            "webhook body must contain `text`, `message`, or `messages`"
+        )),
     }
 }
 
@@ -120,42 +265,47 @@ mod tests {
     }
 
     #[test]
-    fn openclaw_message_alias_and_name_prefix() {
-        let s = store();
-        let conv = "webhook:codeup:20260628";
-        let msgs = build_webhook_dispatch_messages(
-            &s,
-            conv,
-            &WebhookInboundTurn {
-                message: Some("push received".into()),
-                name: Some("Codeup".into()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        assert_eq!(msgs.len(), 1);
-        assert_eq!(msgs[0].content, "[Codeup] push received");
+    fn structured_json_path_unchanged() {
+        let raw = br#"{"message":"hello","name":"Test"}"#;
+        let parsed = parse_webhook_body(raw, "github").unwrap();
+        assert!(!parsed.used_raw_body_fallback);
+        assert_eq!(parsed.inbound.message.as_deref(), Some("hello"));
     }
 
     #[test]
-    fn full_history_when_messages_include_assistant() {
+    fn github_push_payload_falls_back_to_raw_json() {
+        let raw = br#"{"ref":"refs/heads/main","repository":{"full_name":"org/repo"},"pusher":{"name":"alice"}}"#;
+        let parsed = parse_webhook_body(raw, "github").unwrap();
+        assert!(parsed.used_raw_body_fallback);
+        assert_eq!(parsed.inbound.name.as_deref(), Some("github"));
+        assert!(parsed.inbound.text.as_ref().unwrap().contains("refs/heads/main"));
         let s = store();
-        let conv = "webhook:x:20260628";
-        s.append_missing_messages(conv, &[ChatMessage::user_text("old")])
-            .unwrap();
-        let mut assistant = ChatMessage::user_text("a1");
-        assistant.role = Role::Assistant;
-        let override_msgs = vec![ChatMessage::user_text("u1"), assistant];
-        let msgs = build_webhook_dispatch_messages(
-            &s,
-            conv,
-            &WebhookInboundTurn {
-                messages: Some(override_msgs),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        assert_eq!(msgs.len(), 2);
-        assert!(!matches!(msgs[1].role, Role::User));
+        let conv = "webhook:github:20260628";
+        let msgs = build_webhook_dispatch_messages(&s, conv, &parsed.inbound).unwrap();
+        assert!(msgs[0].content.starts_with("[github]"));
+        assert!(msgs[0].content.contains("org/repo"));
+    }
+
+    #[test]
+    fn plain_text_body_fallback() {
+        let parsed = parse_webhook_body(b"plain webhook ping", "ping").unwrap();
+        assert!(parsed.used_raw_body_fallback);
+        assert_eq!(parsed.inbound.text.as_deref(), Some("plain webhook ping"));
+    }
+
+    #[test]
+    fn rejects_oversized_body() {
+        let huge = vec![b'x'; MAX_WEBHOOK_BODY_BYTES + 1];
+        assert!(matches!(
+            parse_webhook_body(&huge, "x"),
+            Err(WebhookParseError::PayloadTooLarge { .. })
+        ));
+    }
+
+    #[test]
+    fn empty_text_with_github_fields_falls_back() {
+        let raw = br#"{"text":"","ref":"refs/heads/main"}"#;
+        let parsed = parse_webhook_body(raw, "github").unwrap();
+        assert!(parsed.used_raw_body_fallback);
     }
 }

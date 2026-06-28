@@ -1,4 +1,5 @@
 use axum::{
+    body::Bytes,
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::{header, HeaderValue, StatusCode, Uri},
     response::sse::{Event, KeepAlive, Sse},
@@ -1222,42 +1223,6 @@ async fn cancel_run(
     StatusCode::NO_CONTENT
 }
 
-/// Body shape for generic webhook ingress. `text` / `message` (OpenClaw) are
-/// shorthand for a single user turn appended to the session transcript;
-/// `messages` overrides when it looks like a full history payload.
-#[derive(Deserialize)]
-struct WebhookIngressBody {
-    #[serde(default, rename = "conversationId")]
-    conversation_id: Option<String>,
-    #[serde(default)]
-    text: Option<String>,
-    /// OpenClaw `/hooks/agent` alias for `text`.
-    #[serde(default)]
-    message: Option<String>,
-    /// OpenClaw-style label prefix for the inbound turn (e.g. `"GitHub"`).
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    messages: Option<Vec<pointer_core::models::ChatMessage>>,
-    #[serde(default, rename = "agentMode")]
-    agent_mode: Option<String>,
-    #[serde(default, rename = "leadAgentId")]
-    lead_agent_id: Option<String>,
-    #[serde(default, rename = "idempotencyKey")]
-    idempotency_key: Option<String>,
-    #[serde(default, rename = "enabledSkillIds")]
-    enabled_skill_ids: Vec<String>,
-    #[serde(default, rename = "workspaceRoot")]
-    workspace_root: String,
-    /// When true, keep the HTTP connection open until the run finishes and
-    /// return assistant text (OpenClaw `POST /hooks/agent` blocking mode).
-    #[serde(default)]
-    blocking: bool,
-    /// Max seconds to wait when `blocking` is true (default 120, max 600).
-    #[serde(default, rename = "timeoutSeconds")]
-    timeout_seconds: Option<u64>,
-}
-
 /// Blocking webhook response (OpenClaw-aligned `{ ok, runId, text? }`).
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1388,7 +1353,7 @@ async fn webhook_ingress(
     State(state): State<ServerState>,
     Path(src): Path<String>,
     headers: axum::http::HeaderMap,
-    Json(body): Json<WebhookIngressBody>,
+    body: Bytes,
 ) -> Result<axum::response::Response, ApiError> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
     let normalized_src = match pointer_core::webhook_config::WebhookTokenStore::normalize_src(&src)
@@ -1421,6 +1386,31 @@ async fn webhook_ingress(
         return Ok(status_text(StatusCode::UNAUTHORIZED, "unauthorized"));
     }
 
+    let parsed = match pointer_core::webhook_ingress::parse_webhook_body(&body, &normalized_src) {
+        Ok(p) => p,
+        Err(pointer_core::webhook_ingress::WebhookParseError::PayloadTooLarge { .. }) => {
+            return Ok(status_text(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "webhook payload too large",
+            ));
+        }
+        Err(pointer_core::webhook_ingress::WebhookParseError::InvalidJson(msg)) => {
+            return Ok(status_text(StatusCode::BAD_REQUEST, msg));
+        }
+        Err(e @ pointer_core::webhook_ingress::WebhookParseError::EmptyBody)
+        | Err(e @ pointer_core::webhook_ingress::WebhookParseError::MessageBuild(_)) => {
+            log::warn!("webhook ingress rejected: bad body (src={normalized_src}): {e}");
+            return Ok(status_text(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()));
+        }
+    };
+    if parsed.used_raw_body_fallback {
+        log::info!(
+            "webhook ingress: raw body fallback src={normalized_src} bytes={}",
+            body.len()
+        );
+    }
+
+    let body = parsed.body;
     let conversation_id = if let Some(ref explicit) = body.conversation_id {
         explicit.clone()
     } else {
@@ -1431,16 +1421,10 @@ async fn webhook_ingress(
             .map_err(ApiError::from)?
     };
 
-    let inbound = pointer_core::webhook_ingress::WebhookInboundTurn {
-        text: body.text,
-        message: body.message,
-        name: body.name,
-        messages: body.messages,
-    };
     let messages = match pointer_core::webhook_ingress::build_webhook_dispatch_messages(
         &state.core.session_index,
         &conversation_id,
-        &inbound,
+        &parsed.inbound,
     ) {
         Ok(m) if m.is_empty() => {
             return Ok(status_text(

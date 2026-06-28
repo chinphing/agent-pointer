@@ -56,19 +56,73 @@ SSE 终态处理是无竞态的：先订阅总线，再读 `runs` 表；已终�
 
 ## 通用 Webhook（server）
 
-`POST /api/webhooks/:src`，`:src` 为来源标识（字母/数字开头，仅含 `-`、`_`）。默认鉴权头：`Authorization: Bearer <token>` 或 `X-Pointer-Token: <token>`（对齐 OpenClaw 的双头模式；**不用 query string**）。每个来源可在添加时配置**自定义鉴权 Header 名**（如 Codeup 的 `X-Codeup-Token`）；配置后 ingress 只读取该 Header 的原始值，不再走 Bearer / X-Pointer-Token。
+### 入口与鉴权
 
-**多 Token（按来源匹配）**：每个 `:src` 可单独配置 Token，加密存于 `app_secrets` 标签 `webhook_token:{src}`，在「设置 → 自动化 → Webhook」添加。请求时只校验该来源对应的 Token；`github` 的 Token 不能用于 `ci`。
+- **URL**：`POST /api/webhooks/:src`（仅 server/web 端；桌面 Tauri 无 HTTP ingress）
+- **`:src`**：来源标识（字母/数字开头，仅 `-`、`_`），如 `github`、`codeup`
+- **鉴权头**（默认）：`Authorization: Bearer <token>` 或 `X-Pointer-Token: <token>`（不用 query string）
+- **自定义鉴权头**：每个来源可在自动化面板配置 Header 名（如 `X-Codeup-Token`）；配置后只读该 Header 的原始值
+- **Token 存储**：`app_secrets` 标签 `webhook_token:{src}`，加密 at rest；UI 添加时 first-write-only
+- **解析顺序**：`webhook_token:{src}` → 旧版全局 `webhook_bearer_token` → env `POINTER_WEBHOOK_BEARER_TOKEN`；皆无则 401
+- **Body 上限**：256 KiB（含 raw-body 回退路径）
 
-**解析顺序**（ingress 时）：`webhook_token:{src}` → 旧版全局 `webhook_bearer_token`（对所有来源 fallback）→ env `POINTER_WEBHOOK_BEARER_TOKEN`。三者皆无则 401。
+### 消息解析（两档，无 mapping 配置）
 
-body 支持 `text` / `message`（OpenClaw 字段名）/ `messages`（完整历史，含 assistant 或多条时按原样传入）；可选 `name` 为来源标签前缀（如 `[GitHub] …`）。`conversationId` 缺省时按日切 session `webhook:{src}:{yyyymmdd}` 派生（本地 04:00 重置，与 cron 一致）。**默认 append 模式**：ingress 会先 `load_messages` 再追加本轮 user 消息，同一天内多次触发续接 transcript（对齐 cron 调度器与 OpenClaw `sessionMode: persistent`）；仅当 `messages` 含 assistant/tool 或多条时才视为完整历史 override。
+实现：`crates/pointer-core/src/webhook_ingress.rs` → `parse_webhook_body` / `build_webhook_dispatch_messages`。
 
-**专属 webhook 会话（对齐 cron 侧栏隔离 + 日切）**：每个来源独占隔离会话，id 为 `webhook:{src}:{yyyymmdd}`（本地 **04:00** 日切，与 cron 相同）；跨次在同一天内续接 transcript，跨日开新 session，旧 session 保留在 DB。`webhook:{src}` 为稳定来源键（UI 行标识）。`persist::load_all_from_conn` / `load_metas_from_conn` 用 `NOT LIKE 'webhook:%'` 排除侧栏；前端 `AppShell.filteredConversations` 兜底过滤。查看入口：自动化面板来源行的「查看会话」→ `chat.openWebhookConversation(currentSessionId, src)`；`hasTranscript` 为 false 时按钮禁用（尚未触发）。`webhook_sources` 表持久化 `current_session_id`；升级前已有 transcript 的旧 `webhook:{src}` 会在首次 ingress 被采纳，跨 04:00 后切换到 dated id。ingress 时对最后一轮 user 消息广播 `InjectedUserMessage`，与 cron 调度器一致，避免「查看会话」时只有 assistant 回复、看不到 user 行。
+**1. 结构化（默认优先）** — 当 body 含以下任一非空字段：
 
-**Blocking 模式（对齐 OpenClaw PR #67433）**：body 传 `"blocking": true` 时 HTTP 连接保持到 run 结束；成功 `200 { ok, runId, conversationId, text }`，agent 失败 `500 { ok: false, runId, error }`，超时 `504`（默认 `timeoutSeconds` 120，最大 600）。未传 `blocking` 时仍为 `202 + runId` 异步 ack。
+| 字段 | 说明 |
+|------|------|
+| `text` | Pointer 简写 |
+| `message` | OpenClaw `/hooks/agent` 同名 |
+| `messages` | 消息数组；仅 1 条 user 时 append 到 session；含 assistant/tool 或多条时视为完整历史 override |
 
-管理 API：`GET/POST /api/webhooks/config`（列出/添加来源）、`DELETE /api/webhooks/config/:src`（清除来源）、`DELETE /api/webhooks/config/legacy`（清除旧全局 Token）。
+可选：`name`（前缀 `[Name] …`）、`conversationId`、`agentMode`、`leadAgentId`、`idempotencyKey`、`enabledSkillIds`、`workspaceRoot`、`blocking`、`timeoutSeconds`。
+
+**2. Raw body 回退** — 当 JSON 合法但无上述结构化消息（或 `text`/`message` 为空、`messages` 为空数组）：
+
+- JSON → 整段 compact JSON 字符串作为 user 消息
+- 非 JSON 纯文本 → 原文作为 user 消息
+- 回退时 `name` 默认用 `:src`（如 `[github] {"ref":…}`），便于 GitHub/Codeup 等第三方原生 payload 零配置接入
+
+Malformed JSON → **400**；空 body → **422**；超限 → **413**。
+
+### 会话与 dispatch
+
+- **`conversationId` 缺省**：`resolve_webhook_ingress_session(:src)` → `webhook:{src}:{yyyymmdd}`（本地 **04:00** 日切，与 cron 相同）
+- **Append 模式**：`load_messages` + 追加本轮 user → 同一天内续接 transcript
+- **Trigger**：`TriggerRequest { trigger_source: Webhook, trigger_meta.webhook_source: src }` → `RunDispatcher::dispatch`
+- **UI 同步**：广播 `InjectedUserMessage`，自动化面板「查看会话」可见 user 行
+- **侧栏隔离**：`webhook:*` 不出现在用户会话列表；仅从自动化面板进入
+
+### 响应模式
+
+| 模式 | 行为 |
+|------|------|
+| 默认（异步） | **202** + `{ runId, status: accepted }` |
+| `blocking: true` | 保持连接至 run 结束；成功 **200** `{ ok, runId, conversationId, text }`；失败 **500**；超时 **504**（`timeoutSeconds` 默认 120，最大 600） |
+
+### 管理 API
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/webhooks/config` | 列出已配置来源 + URL 模板 |
+| POST | `/api/webhooks/config` | 添加来源 Token（+ 可选 `authHeaderName`） |
+| DELETE | `/api/webhooks/config/:src` | 清除来源 |
+| DELETE | `/api/webhooks/config/legacy` | 清除旧版全局 Token |
+
+桌面端同形 Tauri 命令管理 Token；ingress 仅 web server。
+
+### GitHub 示例
+
+Repository Webhook → Payload URL `https://host/api/webhooks/github`，Secret 填 Pointer 为该来源生成的 Token（GitHub 发 HMAC 签名，Pointer 当前只验 Bearer/自定义 Header；Secret 需与 Token 一致并在 GitHub 侧重试，或中间层转发并加 `Authorization: Bearer`）。Push 原生 JSON 无 `message` 字段 → 自动 raw-body 回退，Agent 收到 `[github] {"ref":"refs/heads/main",…}`。
+
+### 与 OpenClaw 差异（刻意简化）
+
+- 无 `hooks.mappings` / JS transform；第三方 payload 靠 raw-body 回退 + Agent 自行理解
+- 默认 session 按 `:src` 日切续接，非 isolated 单次
+- 无 `deliver` 到 IM channel（`DeliverTarget::None`）
 
 ## Cron 调度器
 

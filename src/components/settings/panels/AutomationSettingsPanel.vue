@@ -678,6 +678,10 @@ onMounted(() => {
             或 <code class="font-mono text-foreground/90">X-Pointer-Token</code>；
             每个来源可配置自定义 Header（如 Codeup 的 <code class="font-mono text-foreground/90">X-Codeup-Token</code>）
           </div>
+          <div class="min-w-0">
+            消息：优先 <code class="font-mono text-foreground/90">text</code> /
+            <code class="font-mono text-foreground/90">message</code>；无则整段 body 作为消息（兼容 GitHub 等原生 JSON）
+          </div>
           <div class="min-w-0" :title="WEBHOOK_REF_BLOCKING">
             同步模式：<code class="font-mono text-foreground/90">"blocking": true</code>，
             可选 <code class="font-mono text-foreground/90">"timeoutSeconds"</code>（默认 120，最大 600）

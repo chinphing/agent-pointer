@@ -1,11 +1,12 @@
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
-    http::{header, HeaderValue, StatusCode, Uri},
+    http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
+    middleware,
     response::sse::{Event, KeepAlive, Sse},
     response::{IntoResponse, Redirect, Response},
     routing::{delete, get, post, put},
-    Json, Router,
+    Extension, Json, Router,
 };
 use futures_util::Stream;
 use pointer_channels::{
@@ -34,6 +35,9 @@ use pointer_core::{
     storage,
 };
 mod channels;
+mod web_session;
+
+use web_session::WebSessionStore;
 
 use channels::{
     approve_channel_pairing, channel_webhook, get_channel_webhook_url, get_channels_config,
@@ -78,6 +82,8 @@ pub(crate) struct ServerState {
     registration: Arc<ChannelRegistrationState>,
     /// PKCE verifiers keyed by `state` for in-flight browser OAuth logins.
     oauth_pending: Arc<RwLock<HashMap<String, PkcePending>>>,
+    /// Per-browser platform OAuth sessions (cookie `pointer_web_session`).
+    web_sessions: Arc<WebSessionStore>,
 }
 
 #[derive(Debug, Clone)]
@@ -115,16 +121,12 @@ async fn main() -> anyhow::Result<()> {
         log::warn!("bundled skills install failed: {err:#}");
     }
 
+    storage::set_platform_auth_persist_enabled(false);
+    log::info!("pointer-server: web mode — auth.dat persistence disabled; per-browser cookie sessions");
+
     let core = Arc::new(AppState::new());
     core.start_background_tasks();
-    match core.platform_auth.load_persisted_session().await {
-        Ok(Some(creds)) => {
-            core.apply_login_credentials(&creds);
-            log::info!("platform_auth: restored session from auth.dat");
-        }
-        Ok(None) => log::info!("platform_auth: no persisted session at startup"),
-        Err(e) => log::warn!("platform_auth: startup restore failed: {e:#}"),
-    }
+    let web_sessions = Arc::new(WebSessionStore::default());
     match resolve_server_public_url() {
         Some(url) => log::info!("platform_auth: server public url = {url}"),
         None => log::warn!(
@@ -176,6 +178,7 @@ async fn main() -> anyhow::Result<()> {
         qr_login: Arc::new(QrLoginState::new()),
         registration: Arc::new(ChannelRegistrationState::new()),
         oauth_pending: Arc::new(RwLock::new(HashMap::new())),
+        web_sessions: web_sessions.clone(),
     };
 
     // Phase 5: start the cron scheduler. The server (web host) enables it by
@@ -353,6 +356,8 @@ async fn main() -> anyhow::Result<()> {
     let app = maybe_with_static_files(app, static_dir.clone())
         .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
         .layer(CorsLayer::permissive())
+        .layer(Extension(web_sessions))
+        .layer(middleware::from_fn(web_session::web_session_middleware))
         .with_state(state);
 
     let addr: SocketAddr = std::env::var("POINTER_SERVER_ADDR")
@@ -2115,7 +2120,7 @@ fn maybe_with_static_files(api: Router<ServerState>, static_dir: Option<PathBuf>
 static WEB_DIST: OnceLock<PathBuf> = OnceLock::new();
 
 async fn get_platform_session(State(state): State<ServerState>) -> Json<PlatformSessionView> {
-    Json(state.core.platform_auth.session_view())
+    Json(state.core.active_platform_auth().session_view())
 }
 
 #[derive(Deserialize)]
@@ -2162,7 +2167,7 @@ async fn start_platform_login(
 async fn platform_oauth_callback(
     State(state): State<ServerState>,
     Query(q): Query<OAuthCallbackQuery>,
-) -> Result<Redirect, (StatusCode, String)> {
+) -> Result<Response, (StatusCode, String)> {
     if q.code.trim().is_empty() {
         log::warn!("platform_auth: callback missing code");
         return Err((StatusCode::BAD_REQUEST, "missing_code".into()));
@@ -2179,51 +2184,80 @@ async fn platform_oauth_callback(
             "invalid_or_expired_state".into(),
         )
     })?;
-    match state
-        .core
-        .platform_auth
+    let auth = Arc::new(PlatformAuthManager::new());
+    match auth
         .exchange_authorization_code(&q.code, &verifier, &q.state, &redirect_uri)
         .await
     {
-        Ok((_session, creds)) => {
-            state.core.apply_login_credentials(&creds);
-            log::info!("platform_auth: callback ok state={}", q.state);
-            Ok(Redirect::temporary("/?platform_login=success"))
+        Ok((session, creds)) => {
+            auth.set_session(session);
+            let session_id = state.web_sessions.insert(auth, creds);
+            log::info!("platform_auth: callback ok state={} web_session={session_id}", q.state);
+            let mut resp = Redirect::temporary("/?platform_login=success").into_response();
+            web_session::set_session_cookie(resp.headers_mut(), &session_id, cookie_secure());
+            Ok(resp)
         }
         Err(e) => {
             log::warn!("platform_auth: exchange failed: {e:#}");
             let msg = urlencoding_encode(&e.to_string());
-            Ok(Redirect::temporary(&format!("/?platform_login_error={msg}")))
+            Ok(Redirect::temporary(&format!("/?platform_login_error={msg}")).into_response())
         }
     }
 }
 
-/// `POST /api/auth/logout` — clear in-memory session and persisted refresh token.
-async fn platform_logout(State(state): State<ServerState>) -> Result<StatusCode, ApiError> {
-    state.core.platform_auth.clear_session_async().await;
+/// `POST /api/auth/logout` — clear browser web session cookie and in-memory auth.
+async fn platform_logout(
+    headers: HeaderMap,
+    State(state): State<ServerState>,
+) -> Response {
+    if let Some(session_id) = web_session::session_id_from_headers(&headers) {
+        if let Some(entry) = state.web_sessions.get(&session_id) {
+            entry.auth.clear_session_async().await;
+        }
+        state.web_sessions.remove(&session_id);
+    }
     let mut platform = state.core.platform_config.write();
     apply_login_media_oss(&mut platform, None);
     log::info!("platform_auth: logout");
-    Ok(StatusCode::NO_CONTENT)
+    let mut resp = StatusCode::NO_CONTENT.into_response();
+    web_session::clear_session_cookie(resp.headers_mut(), cookie_secure());
+    resp
 }
 
 /// `POST /api/auth/refresh` — refresh access token if near expiry and re-pull
 /// LLM credentials. Mirrors the desktop `refresh_platform_session` command.
 async fn refresh_platform_session(
+    headers: HeaderMap,
     State(state): State<ServerState>,
 ) -> Result<Json<PlatformSessionView>, ApiError> {
     state
         .core
-        .platform_auth
+        .active_platform_auth()
         .refresh_if_needed()
         .await
         .map_err(ApiError::from)?;
-    if state.core.platform_auth.session_view().logged_in {
-        if let Ok(Some(creds)) = state.core.platform_auth.fetch_llm_credentials().await {
-            state.core.apply_login_credentials(&creds);
+    if state.core.active_platform_auth().session_view().logged_in {
+        if let Ok(Some(creds)) = state
+            .core
+            .active_platform_auth()
+            .fetch_llm_credentials()
+            .await
+        {
+            if let Some(session_id) = web_session::session_id_from_headers(&headers) {
+                state.web_sessions.update_creds(&session_id, creds);
+            } else {
+                state.core.apply_login_credentials(&creds);
+            }
         }
     }
-    Ok(Json(state.core.platform_auth.session_view()))
+    Ok(Json(
+        state.core.active_platform_auth().session_view(),
+    ))
+}
+
+fn cookie_secure() -> bool {
+    resolve_server_public_url()
+        .is_some_and(|url| url.to_ascii_lowercase().starts_with("https://"))
 }
 
 /// Resolve the externally-reachable base URL for OAuth `redirect_uri`.
@@ -2305,10 +2339,13 @@ async fn try_cloud_oauth_exchange(state: &ServerState, uri: &Uri) -> Option<Resp
     }
     match pointer_core::cloud_agent_auth::exchange_agent_oauth_code(&code, &oauth_state).await {
         Ok((session, creds)) => {
-            state.core.platform_auth.set_partner_session(session);
-            state.core.apply_login_credentials(&creds);
+            let auth = Arc::new(PlatformAuthManager::new());
+            auth.set_partner_session(session);
+            let session_id = state.web_sessions.insert(auth, creds);
             log::info!("cloud oauth: exchange succeeded, redirecting to /");
-            Some(Redirect::temporary("/").into_response())
+            let mut resp = Redirect::temporary("/").into_response();
+            web_session::set_session_cookie(resp.headers_mut(), &session_id, cookie_secure());
+            Some(resp)
         }
         Err(e) => {
             log::warn!("cloud oauth: exchange failed: {e:#}");

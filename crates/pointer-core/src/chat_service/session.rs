@@ -90,7 +90,7 @@ pub async fn run_chat(
         );
     }
     if let Err(e) =
-        crate::token_usage_store::flush_unsent_reports(&state.platform_auth).await
+        crate::token_usage_store::flush_unsent_reports(&state.active_platform_auth()).await
     {
         log::warn!("token_usage_store: flush after chat failed: {e}");
     }

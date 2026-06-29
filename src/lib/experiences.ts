@@ -26,7 +26,10 @@ async function webRequest<T>(path: string): Promise<T> {
   const controller = new AbortController()
   const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
-    const res = await fetch(`${WEB_API_BASE}${path}`, { signal: controller.signal })
+    const res = await fetch(`${WEB_API_BASE}${path}`, {
+      credentials: 'include',
+      signal: controller.signal
+    })
     if (!res.ok) throw new Error(await res.text())
     return await res.json()
   } finally {

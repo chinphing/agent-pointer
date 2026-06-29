@@ -56,6 +56,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     res = await fetch(`${WEB_API_BASE}${path}`, {
       ...init,
       headers,
+      credentials: 'include',
       signal: init?.signal ?? controller.signal
     })
   } catch (e) {
@@ -81,6 +82,7 @@ async function requestBlob(path: string, init?: RequestInit): Promise<Blob> {
   try {
     res = await fetch(`${WEB_API_BASE}${path}`, {
       ...init,
+      credentials: 'include',
       signal: init?.signal ?? controller.signal
     })
   } catch (e) {
@@ -453,8 +455,7 @@ export async function logoutPlatform(): Promise<void> {
 }
 
 export async function loadPlatformSessionFromKeyring(): Promise<boolean> {
-  // pointer-server restores from auth.dat at startup; the frontend only
-  // needs to refresh the in-memory view.
+  // pointer-server: login is per-browser (HttpOnly cookie), not global auth.dat.
   const s = await refreshPlatformSession()
   return s.logged_in
 }

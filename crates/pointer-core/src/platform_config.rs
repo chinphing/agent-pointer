@@ -190,6 +190,44 @@ pub fn persist_local_platform_settings(platform: &PlatformSettings) {
     }
 }
 
+pub fn apply_login_credentials_to_model_settings(
+    settings: &mut ModelSettings,
+    creds: &crate::platform_auth::PlatformLoginCredentials,
+) {
+    let mut scratch = PlatformSettings {
+        providers: settings.providers.clone(),
+        active_provider_id: settings.active_provider_id.clone(),
+        ..PlatformSettings::default()
+    };
+    apply_login_llm_provider_api_keys(&mut scratch, &creds.provider_api_keys);
+    apply_login_llm_credentials(
+        &mut scratch,
+        creds.api_key.as_deref(),
+        creds.llm_provider.as_deref(),
+    );
+    if let Some(media) = creds.media_oss.as_ref() {
+        apply_login_media_oss(&mut scratch, Some(media));
+    }
+    for sp in &mut settings.providers {
+        if let Some(tp) = scratch.providers.iter().find(|p| p.id == sp.id) {
+            if !tp.api_key.trim().is_empty() {
+                sp.api_key = tp.api_key.clone();
+            }
+        }
+    }
+    if let Some(p) = settings
+        .providers
+        .iter()
+        .find(|p| p.id == settings.active_provider_id)
+    {
+        settings.api_key = p.api_key.clone();
+        settings.has_key = !p.api_key.trim().is_empty();
+    }
+    if !scratch.media_oss.bucket.trim().is_empty() {
+        settings.media_oss = scratch.media_oss.clone();
+    }
+}
+
 /// Inject OAuth-issued LLM credentials into platform provider list.
 pub fn apply_login_llm_credentials(
     platform: &mut PlatformSettings,

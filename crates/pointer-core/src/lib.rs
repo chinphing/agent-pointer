@@ -58,3 +58,4 @@ mod windows_shell_encoding;
 pub mod json_tool_caller;
 pub(crate) mod json_interior_quote_escape;
 pub mod tools_system_appendix;
+pub mod web_request_auth;

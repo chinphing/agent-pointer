@@ -218,6 +218,10 @@ impl AppState {
         self.load_user_settings().enabled_skill_ids
     }
 
+    pub fn active_platform_auth(&self) -> Arc<crate::platform_auth::PlatformAuthManager> {
+        crate::web_request_auth::scoped_auth(&self.platform_auth)
+    }
+
     pub fn save_user_settings(&self, user: &UserSettings) -> anyhow::Result<()> {
         storage::save_user_settings(user)
     }
@@ -225,14 +229,19 @@ impl AppState {
     pub fn effective_settings(&self) -> crate::models::ModelSettings {
         let user = self.load_user_settings();
         let platform = self.platform_config.read().clone();
-        finalize_merged_settings(crate::models::merge_user_platform(&user, &platform))
+        let mut settings =
+            finalize_merged_settings(crate::models::merge_user_platform(&user, &platform));
+        if let Some(creds) = crate::web_request_auth::scoped_login_creds() {
+            crate::platform_config::apply_login_credentials_to_model_settings(&mut settings, &creds);
+        }
+        settings
     }
 
     pub fn effective_settings_view(&self) -> EffectiveSettingsView {
         let user = self.load_user_settings();
         let platform = self.platform_config.read().clone();
-        let merged = finalize_merged_settings(crate::models::merge_user_platform(&user, &platform));
-        let is_platform_admin = self.platform_auth.is_platform_admin();
+        let merged = self.effective_settings();
+        let is_platform_admin = self.active_platform_auth().is_platform_admin();
         EffectiveSettingsView {
             user,
             platform,
@@ -246,7 +255,7 @@ impl AppState {
         &self,
         mut patch: PlatformSettings,
     ) -> anyhow::Result<EffectiveSettingsView> {
-        if !self.platform_auth.is_platform_admin() {
+        if !self.active_platform_auth().is_platform_admin() {
             anyhow::bail!("only platform admins may edit platform settings");
         }
         let mut tmp = crate::models::merge_user_platform(&UserSettings::default(), &patch);

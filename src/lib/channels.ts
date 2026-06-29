@@ -20,6 +20,7 @@ async function webRequest<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(`${WEB_API_BASE}${path}`, {
       ...init,
       headers,
+      credentials: 'include',
       signal: init?.signal ?? controller.signal
     })
     if (!res.ok) {

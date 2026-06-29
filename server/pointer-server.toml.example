@@ -17,6 +17,12 @@ static_dir = "dist"
 # development works with zero config. Set this explicitly for production
 # behind a public domain or reverse proxy.
 # public_url = "https://pointer.example.com"
+#
+# Auth: pointer-server does NOT write auth.dat. Each browser gets its own
+# in-memory OAuth session via the HttpOnly cookie `pointer_web_session`.
+# Visitors without that cookie see logged-out state. After upgrading, delete
+# any legacy auth.dat under the data dir so old global sessions are not reused
+# by the desktop-style code path on other entrypoints.
 
 [openpointer]
 api_base = "https://pointer-api.readflowai.com"

@@ -11,6 +11,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Once, OnceLock};
 
 /// Production subfolder under the OS user data directory (`dirs::data_dir()`).
@@ -564,13 +565,33 @@ fn stored_settings_to_platform(stored: &StoredSettings) -> PlatformSettings {
     platform
 }
 
+static PLATFORM_AUTH_PERSIST_ENABLED: AtomicBool = AtomicBool::new(true);
+
+/// When `false`, skip reading/writing `auth.dat` (pointer-server multi-user web mode).
+pub fn set_platform_auth_persist_enabled(enabled: bool) {
+    PLATFORM_AUTH_PERSIST_ENABLED.store(enabled, Ordering::SeqCst);
+    if !enabled {
+        log::info!("storage: platform auth.dat persistence disabled");
+    }
+}
+
+pub fn platform_auth_persist_enabled() -> bool {
+    PLATFORM_AUTH_PERSIST_ENABLED.load(Ordering::SeqCst)
+}
+
 pub fn save_platform_refresh_token(refresh: &str) -> Result<()> {
+    if !platform_auth_persist_enabled() {
+        return Ok(());
+    }
     let blob = crate::local_secret::encrypt_local_secret(refresh)?;
     fs::write(auth_dat_path()?, blob)?;
     Ok(())
 }
 
 pub fn load_platform_refresh_token() -> Result<Option<String>> {
+    if !platform_auth_persist_enabled() {
+        return Ok(None);
+    }
     let path = auth_dat_path()?;
     if !path.exists() {
         return Ok(None);
@@ -588,6 +609,9 @@ pub fn load_platform_refresh_token() -> Result<Option<String>> {
 }
 
 pub fn clear_platform_refresh_token() -> Result<()> {
+    if !platform_auth_persist_enabled() {
+        return Ok(());
+    }
     let path = auth_dat_path()?;
     if path.exists() {
         fs::remove_file(&path)?;

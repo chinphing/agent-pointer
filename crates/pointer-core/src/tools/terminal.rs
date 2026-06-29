@@ -21,7 +21,7 @@ use crate::dotenv::{
 use anyhow::{anyhow, Result};
 use log::{info, warn};
 use serde::Serialize;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -457,7 +457,6 @@ pub fn run_terminal_command_streaming(
 
                     loop {
                         while let Ok(chunk) = rx.try_recv() {
-                            last_output_at = Instant::now();
                             on_output(&chunk.text);
                             match chunk.pipe {
                                 TerminalPipe::Stdout => stdout_buf.push_str(&chunk.text),
@@ -645,7 +644,6 @@ pub fn run_terminal_command_streaming(
 
                     loop {
                         while let Ok(chunk) = rx.try_recv() {
-                            last_output_at = Instant::now();
                             on_output(&chunk.text);
                             match chunk.pipe {
                                 TerminalPipe::Stdout => stdout_buf.push_str(&chunk.text),
@@ -821,22 +819,6 @@ pub fn run_terminal_command_streaming(
         stdout_truncated,
         stderr_truncated,
     })
-}
-
-fn write_terminal_stdin(
-    stdin: &mut Option<std::process::ChildStdin>,
-    text: &str,
-    append_newline: bool,
-) -> Result<()> {
-    let Some(stdin) = stdin.as_mut() else {
-        return Err(anyhow!("无法写入 stdin"));
-    };
-    stdin.write_all(text.as_bytes())?;
-    if append_newline && !text.ends_with('\n') {
-        stdin.write_all(b"\n")?;
-    }
-    stdin.flush()?;
-    Ok(())
 }
 
 #[derive(Clone, Copy)]

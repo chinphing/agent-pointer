@@ -104,7 +104,7 @@ fn profile_defaults(profile: &AgentProfile, role: &str, id: &str) -> ResolvedAge
         show_tool_calls: !is_supervisor,
         show_tool_call_results: false,
         hide_tool_names: if has_task_board {
-            vec!["task_board_init".into(), "task_board_patch".into(), "task_board_replace".into(), "task_board_finalize".into()]
+            vec!["task_board_init".into(), "task_board_patch".into(), "task_board_replace".into(), "task_board_finalize".into(), "task_board_abandon".into()]
         } else {
             vec![]
         },

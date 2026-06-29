@@ -86,6 +86,58 @@ describe('taskBoard logic', () => {
     expect(binding?.isActive).toBe(true)
   })
 
+  it('preserves parent binding on update without explicit anchor', () => {
+    const entry = emptyTaskBoardEntry()
+    const storeKey = `conv1${TASK_BOARD_MAIN_TURN_SEP}u_original`
+    applyTaskBoardDocumentToEntry(entry, 'conv1', storeKey, doc('goal'), 'u_original', [])
+    applyTaskBoardDocumentToEntry(
+      entry,
+      'conv1',
+      storeKey,
+      doc('goal updated'),
+      undefined,
+      [
+        { id: 'u_original', role: 'user', content: 'start', status: 'done', createdAt: 0 },
+        { id: 'u_continue', role: 'user', content: '继续', status: 'done', createdAt: 1 }
+      ]
+    )
+    expect(entry.parentBindings[storeKey]).toBe('u_original')
+  })
+
+  it('legacy conv id store key does not rebind to latest user on update', () => {
+    const entry = emptyTaskBoardEntry()
+    applyTaskBoardDocumentToEntry(entry, 'conv1', 'conv1', doc('legacy'), 'u_original', [])
+    applyTaskBoardDocumentToEntry(
+      entry,
+      'conv1',
+      'conv1',
+      doc('legacy updated'),
+      undefined,
+      [
+        { id: 'u_original', role: 'user', content: 'start', status: 'done', createdAt: 0 },
+        { id: 'u_continue', role: 'user', content: '继续', status: 'done', createdAt: 1 }
+      ]
+    )
+    expect(entry.parentBindings.conv1).toBe('u_original')
+  })
+
+  it('binds new main-turn store key from embedded user message id', () => {
+    const entry = emptyTaskBoardEntry()
+    const storeKey = `conv1${TASK_BOARD_MAIN_TURN_SEP}u_new`
+    applyTaskBoardDocumentToEntry(
+      entry,
+      'conv1',
+      storeKey,
+      doc('new task'),
+      undefined,
+      [
+        { id: 'u_original', role: 'user', content: 'old', status: 'done', createdAt: 0 },
+        { id: 'u_new', role: 'user', content: 'new task', status: 'done', createdAt: 1 }
+      ]
+    )
+    expect(entry.parentBindings[storeKey]).toBe('u_new')
+  })
+
   it('resolveChildTaskBoardDocument respects trace id anchor', () => {
     const entry = emptyTaskBoardEntry()
     const storeKey = childStoreKey('conv1', 'task_a')

@@ -11,7 +11,7 @@ use super::work_item::{
 };
 use super::work_item::model::WorkItemStatus;
 use anyhow::{anyhow, Result};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 pub fn work_items_enabled_from_args(args: &Value) -> bool {
     args.get("_task_board_work_items_enabled")
@@ -314,6 +314,33 @@ pub fn apply_work_item_patch_fields(
         return Ok(Some(stats.progress_label()));
     }
     Ok(None)
+}
+
+/// Compact work_items queue snapshot for task_board tool results (patch / init / replace).
+pub fn work_items_tool_result_json(
+    store_key: &str,
+    doc: &BoardDocument,
+    work_items: &WorkItemStore,
+) -> Option<Value> {
+    if !doc.has_work_items() {
+        return None;
+    }
+    let stats = work_items.store_stats(store_key);
+    let terminal = stats.done + stats.failed;
+    let total = stats.total;
+    let in_progress_id = in_progress_work_item_id(store_key, work_items);
+    let mut body = json!({
+        "done": stats.done,
+        "failed": stats.failed,
+        "total": total,
+        "in_progress": stats.in_progress,
+        "pending": stats.pending,
+        "progress": format!("{terminal}/{total}"),
+    });
+    if let Some(id) = in_progress_id {
+        body["in_progress_id"] = json!(id);
+    }
+    Some(body)
 }
 
 /// Mirror work_items store counters into board meta for immediate UI sync after patch.

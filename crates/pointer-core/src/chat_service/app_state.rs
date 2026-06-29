@@ -370,6 +370,13 @@ impl AppState {
             .or_else(|| crate::task_board::anchor_message_id_from_main_turn_key(store_key))
     }
 
+    pub fn clear_active_main_task_board_key(&self, conversation_id: &str) {
+        if conversation_id.trim().is_empty() {
+            return;
+        }
+        self.active_main_task_boards.lock().remove(conversation_id);
+    }
+
     pub fn set_active_main_task_board_key(&self, conversation_id: &str, store_key: &str) {
         if conversation_id.trim().is_empty() || store_key.trim().is_empty() {
             return;

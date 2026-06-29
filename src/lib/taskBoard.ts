@@ -98,6 +98,15 @@ export function taskBoardHasWorkItems(doc: TaskBoardDocument | null | undefined)
   return taskBoardGlobalMilestones(doc).some(row => hasWorkItemsBatch(row))
 }
 
+/** Show work-items list in TaskBoardPanel when the board has a queue and we can load rows. */
+export function taskBoardShouldShowWorkItemsPanel(
+  doc: TaskBoardDocument | null | undefined,
+  conversationId: string | null | undefined
+): boolean {
+  if (!conversationId?.trim()) return false
+  return taskBoardHasWorkItems(doc)
+}
+
 function hasWorkItemsBatch(row: TaskBoardItem): boolean {
   return (
     row.work_item_mode === 'enumerated'

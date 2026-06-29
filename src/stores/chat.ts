@@ -189,9 +189,22 @@ export const useChatStore = defineStore('chat', () => {
   const loadingMoreConversations = ref(false)
   /** Conversation ids whose messages have been loaded into memory this session. */
   const hydratedIds = ref<Set<string>>(new Set())
+  /** Conversation ids currently fetching messages from disk. */
+  const messagesLoadingIds = ref<Set<string>>(new Set())
 
   const current = computed(() =>
     conversations.value.find(c => c.id === currentId.value) || null
+  )
+
+  function conversationNeedsMessageHydration(conv: Conversation | null | undefined): boolean {
+    if (!conv) return false
+    if (messagesLoadingIds.value.has(conv.id)) return true
+    if ((conv.messageCount ?? 0) > 0 && conv.messages.length === 0) return true
+    return !hydratedIds.value.has(conv.id) && conv.messages.length === 0
+  }
+
+  const isCurrentConversationHydrating = computed(() =>
+    conversationNeedsMessageHydration(current.value)
   )
 
   /** True when there are more conversation metas to fetch from the DB. */
@@ -523,16 +536,25 @@ export const useChatStore = defineStore('chat', () => {
   async function ensureMessagesLoaded(id: string, options?: { force?: boolean }): Promise<void> {
     const convId = id.trim()
     if (!convId) return
-    if (!options?.force && hydratedIds.value.has(convId)) return
-    if (!options?.force && isConversationGenerating(convId)) {
-      console.info('[chat] ensureMessagesLoaded: skip hydrating generating conversation', convId)
-      return
-    }
     const conv = conversations.value.find(c => c.id === convId)
     if (!conv) {
       console.warn('[chat] ensureMessagesLoaded: missing conversation', convId)
       return
     }
+    const staleHydration =
+      hydratedIds.value.has(convId)
+      && (conv.messageCount ?? 0) > 0
+      && conv.messages.length === 0
+    if (!options?.force && hydratedIds.value.has(convId) && !staleHydration) return
+    if (staleHydration) {
+      console.warn('[chat] ensureMessagesLoaded: stale hydration, reloading', convId)
+    }
+    if (!options?.force && !staleHydration && isConversationGenerating(convId)) {
+      console.info('[chat] ensureMessagesLoaded: skip hydrating generating conversation', convId)
+      return
+    }
+    if (messagesLoadingIds.value.has(convId)) return
+    messagesLoadingIds.value = new Set([...messagesLoadingIds.value, convId])
     try {
       const messages = await loadConversationMessages(convId)
       const stripped = stripWireAttachmentFields(
@@ -557,6 +579,10 @@ export const useChatStore = defineStore('chat', () => {
       console.info('[chat] ensureMessagesLoaded: hydrated', convId, next.length)
     } catch (err) {
       console.error('[chat] ensureMessagesLoaded: load messages failed', convId, err)
+    } finally {
+      const next = new Set(messagesLoadingIds.value)
+      next.delete(convId)
+      messagesLoadingIds.value = next
     }
   }
 
@@ -799,12 +825,19 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function selectConversation(id: string) {
-    if (currentId.value === id) return
+    const conv = conversations.value.find(c => c.id === id)
+    const needsHydration = conversationNeedsMessageHydration(conv)
+    if (currentId.value === id && !needsHydration) return
     flushActiveComposerDraft()
     currentId.value = id
     reconcileRunStateForConversation(id)
     loadActiveComposerDraft(id)
-    void ensureMessagesLoaded(id)
+    void ensureMessagesLoaded(
+      id,
+      needsHydration && (conv?.messageCount ?? 0) > 0 && (conv?.messages.length ?? 0) === 0
+        ? { force: true }
+        : undefined
+    )
     void refreshTaskBoard(id)
     void refreshSubAgentTaskBoards(id)
   }
@@ -1255,7 +1288,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    conversations, currentId, current, generating, activeGeneratingMessageId, uiToast, taskBoards,
+    conversations, currentId, current, isCurrentConversationHydrating, generating, activeGeneratingMessageId, uiToast, taskBoards,
     init, newConversation, openCronConversation, openWebhookConversation, selectConversation, deleteConversation,
     loadMoreConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,

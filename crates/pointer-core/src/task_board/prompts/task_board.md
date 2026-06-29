@@ -33,6 +33,7 @@ Coder and other agents: unchanged — you may still init/replace yourself.
 - **`task_board_patch`**: one row update via **`milestones`** — host routes to the visible inject ladder; see **Patch**.
 - **`task_board_prune`**: cancel pending rows (`ids`).
 - **`task_board_finalize`**: mark board complete after all rows are terminal.
+- **`task_board_abandon`**: mark a **running** board **failed** (scope ended early; host stops injecting it).
 - **`task_board_sync_finding`**: child board sync to parent findings.
 - **`task_board_check_deps`**: inspect dependency readiness for one row.
 
@@ -113,70 +114,49 @@ Each call updates **one** row shown under **## All tasks** in inject.
 Host routes the row to the correct document slice (same projection as inject).
 You do **not** choose `global_milestones` vs `item_milestones` at patch time — only at **init**.
 
-| Inject shows | Example `id` | `current_item` |
+| Inject shows | Example `id` | `current_item.id` |
 | --- | --- | --- |
 | Step ladder (Type 1) | `m1`, `m2`, … | omit |
 | Item SOP template (Type 2 exec) | `m1`, `m2`, … | **`id` required** — copy from **`[WORK_ITEM_FOCUS]`** |
 | Deliver row only (Type 2) | `g_deliver` | omit |
 
-**Do not** send `work_item_delta` — host advances the work queue when the **last** template row is `done` / `failed`, **or** when you close the work_item directly (below).
+### Type 2 queue exec (`g_exec`)
 
-When **`[WORK_ITEM_FOCUS]`** is present, include **`current_item.id`** matching that focus row.
+When inject shows **item SOP** rows (`m1`, …) and **`[WORK_ITEM_FOCUS]`**:
 
-### `current_item` (queue exec)
-
-Optional on every queue patch. Wraps the active work_item row:
-
-| Field | Required | Purpose |
-| --- | --- | --- |
-| `id` | when `[WORK_ITEM_FOCUS]` present | Must match focus id |
-| `status` | Route 2 only | `done` or `failed` — direct close without last milestone |
-| `result_summary` | optional | Outcome note when `status: done` |
-| `error_message` | optional | Failure note when `status: failed` |
-
-### Two ways to advance the work_item queue
-
-**Route 1 — milestone (preferred when SOP steps were followed):**
+- Same turn as evidence: patch **one** template row via **`milestones`**.
+- Include **`current_item.id`** (match focus). **Never** `current_item.status`, `result_summary`, or `error_message` on patch — use the **last** SOP row `remark` for outcomes.
+- Walk the template **in order** (`m1` → `m2` → …). Host sets `in_progress`; do not skip rows or patch ahead to `in_progress`.
+- Host closes the work_item only when the **last** template row is `done` / `failed`, then starts the next item and resets SOP to `m1`.
+- Do not patch `g_plan` / `g_exec` during queue exec.
 
 ```json
-{
-  "current_item": { "id": "1" },
-  "milestones": [{ "id": "m3", "status": "done", "remark": "saved" }]
-}
+{ "current_item": { "id": "1" }, "milestones": [{ "id": "m1", "status": "done", "remark": "…" }] }
 ```
 
-Mark the **last** item SOP row `done` or `failed`. Host closes the work_item and starts the next row.
+Last template row `done` / `failed` closes the queue item (same shape; use the last `id`).
 
-**Route 2 — direct work_item status (when last SOP step was not patched):**
+### Patch tool result (`work_items`)
+
+When the board has a work queue, successful **`task_board_patch`** (and init/replace after seed) returns:
 
 ```json
 {
-  "current_item": {
-    "id": "1",
-    "status": "done",
-    "result_summary": "北京地址已保存"
+  "work_items": {
+    "progress": "2/10",
+    "done": 2,
+    "failed": 0,
+    "total": 10,
+    "in_progress": 1,
+    "pending": 7,
+    "in_progress_id": "3"
   }
 }
 ```
 
-Use **`status`: `done`** or **`failed`**. Host applies the same queue advance as Route 1 without requiring the last milestone row to be `done`.
+Use **`progress`** (`done+failed / total`) to confirm queue advancement after a last-row patch closes an item.
 
 Pass **JSON objects and arrays** — do **not** stringify `milestones` or `work_item_claim`.
-
-### Queue execution cadence (Type 2)
-
-When inject shows item SOP rows (`m1`, `m2`, …) — not `g_deliver`:
-
-**Same turn as evidence** — patch one row; host advances the pointer.
-
-| Event | Your patch |
-| --- | --- |
-| SOP step completed | `{ "current_item": { "id": "1" }, "milestones": [{ "id": "m1", "status": "done", "remark": "…" }] }` |
-| Last SOP step succeeded | `done` + `remark` on **last** template row; host closes work_item and starts next |
-| Last SOP step failed | `{ "current_item": { "id": "1" }, "milestones": [{ "id": "m3", "status": "failed", "remark": "…" }] }` |
-
-Do **not** patch next row to `in_progress` — host advances after `done`.
-Do **not** patch `g_plan` / `g_exec` during queue execution.
 
 ### Deliver phase (`exec_met: true`)
 
@@ -216,7 +196,7 @@ Complete or fail the target via **`milestones`** on the last template row.
 
 - **Computer + planner:** never call `init` during execution — patch/replace only (see above).
 - **Coder / Computer without planner:** if `[TASK_BOARD]` is empty and work is multi-step, call **`task_board_init`**.
-- **Queue mode:** patch **each** completed SOP step in the **same turn** as evidence (`milestones`).
+- **Queue mode (Type2):** follow **Type 2 queue exec** — one SOP row per patch, in order.
 - Keep 3–12 global milestones for Type1; Type2 uses fixed three globals.
 - Cancel obsolete rows with **`task_board_prune`**.
 - Finalize in the same turn as final user delivery.
@@ -251,8 +231,7 @@ When writing the **final summary** in assistant **`content`**:
 Computer (with `action_verify`):
 
 - **Without planner:** init when expected operation steps >3, or **>5** similar repetitive operations.
-- Type2: per-item SOP in **`item_milestones`**; patch **`milestones`** each step — host moves the queue.
-- **Queue cadence:** after evidence, **`task_board_patch`** with `milestones` (`done` or last-row `failed` + `remark`).
+- Type2 queue: see **Type 2 queue exec** under Patch.
 
 ## Init examples
 
@@ -295,28 +274,26 @@ Map user input to **Field reference** fields on init — do not drop stated rule
   "item_milestones": [
     {
       "id": "m1",
-      "title": "Open target form",
+      "title": "Prepare for current item",
       "status": "pending",
       "rules": "User norms for this SOP step (session binding).",
-      "constraints": "- Do not skip validation",
-      "plan": "Navigate → wait for form ready",
-      "done_when": "Form ready for row data"
+      "constraints": "- Do not skip prerequisites",
+      "plan": "Load focus context → confirm ready state",
+      "done_when": "Ready to execute item work"
     },
     {
       "id": "m2",
-      "title": "Apply row fields",
+      "title": "Execute and verify item",
       "status": "pending",
-      "plan": "Fill from {title} payload → save",
-      "done_when": "Row saved successfully"
+      "plan": "Apply payload → verify outcome",
+      "done_when": "Item outcome confirmed"
     }
   ],
   "work_items": [
-    { "title": "Row A", "payload": { "key": "A" } }
+    { "title": "Item alpha", "payload": { "key": "alpha" } }
   ]
 }
 ```
-
-During execution: patch with **`milestones`** (+ **`current_item`** when `[WORK_ITEM_FOCUS]` is present).
 
 Legacy alias: `items` on init maps to `global_milestones`.
 

@@ -158,7 +158,8 @@ task_board_patch:
       type: object
       description: >
         Active work_item focus for queue exec patches. id must match [WORK_ITEM_FOCUS].
-        Include status done/failed to close the row without patching the last milestone.
+        During g_exec: id only — never status/result_summary/error_message.
+        Close the work_item by patching the last item_milestones row done/failed instead.
       properties:
         id:
           type: string
@@ -214,6 +215,14 @@ task_board_prune:
   additionalProperties: true
 
 task_board_finalize:
+  type: object
+  properties:
+    _conversation_id:
+      type: string
+  required: []
+  additionalProperties: true
+
+task_board_abandon:
   type: object
   properties:
     _conversation_id:

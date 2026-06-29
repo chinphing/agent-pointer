@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use super::message::{ChatMessage, Role, ToolCall};
 use super::settings::ToolDef;
+use crate::tools::normalize_tool_call_arguments_for_api;
 
 /// OpenAI-compatible request structures
 #[derive(Debug, Clone, Serialize)]
@@ -337,7 +338,7 @@ pub fn make_openai_messages(
                                 "type": "function",
                                 "function": {
                                     "name": t.name,
-                                    "arguments": t.arguments
+                                    "arguments": normalize_tool_call_arguments_for_api(&t.arguments)
                                 }
                             })
                         })
@@ -485,6 +486,27 @@ mod make_openai_messages_tests {
         a.reasoning = Some("hidden".into());
         let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false, LEAD);
         assert!(out[0].as_object().unwrap().get("reasoning_content").is_none());
+    }
+
+    #[test]
+    fn assistant_tool_calls_empty_arguments_normalized_to_object() {
+        let mut a = msg(Role::Assistant);
+        a.content = String::new();
+        a.tool_calls = Some(vec![ToolCall {
+            id: "call_empty".into(),
+            name: "action_verify".into(),
+            arguments: String::new(),
+            status: "success".into(),
+            result: Some("ok".into()),
+            error: None,
+            duration_ms: None,
+            risk_level: None,
+            display_label: None,
+            display_summary: None,
+        }]);
+        let out = make_openai_messages(&[a], &SystemPromptSections::default(), false, false, false, LEAD);
+        let tc = out[0]["tool_calls"].as_array().expect("tool_calls");
+        assert_eq!(tc[0]["function"]["arguments"], "{}");
     }
 
     #[test]

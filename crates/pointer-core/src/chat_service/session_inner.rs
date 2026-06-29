@@ -41,21 +41,21 @@ fn choose_main_task_board_store_key(
     conversation_id: &str,
     history: &[ChatMessage],
 ) -> String {
-    let Some((last_user_id, last_user_content)) = latest_real_user_turn(history) else {
+    let Some((last_user_id, _last_user_content)) = latest_real_user_turn(history) else {
         return conversation_id.to_string();
     };
-    let resume_intent = crate::task_board::looks_like_resume_intent(last_user_content);
-    if resume_intent {
-        if let Some(active_key) = state.get_active_main_task_board_key(conversation_id) {
-            if is_parent_board_unfinished(state.task_board_store.as_ref(), &active_key) {
-                state.set_active_main_task_board_key(conversation_id, &active_key);
-                log::info!(
-                    "task_board_main_key: resume_intent=true reuse_active conversation_id={} store_key={}",
-                    conversation_id,
-                    active_key
-                );
-                return active_key;
-            }
+
+    // Surface the active unfinished board so planner/execution can see it.
+    // Reuse vs new board is decided by the model: no init → continue; init → fresh board.
+    if let Some(active_key) = state.get_active_main_task_board_key(conversation_id) {
+        if is_parent_board_unfinished(state.task_board_store.as_ref(), &active_key) {
+            state.set_active_main_task_board_key(conversation_id, &active_key);
+            log::info!(
+                "task_board_main_key: reuse_active conversation_id={} store_key={}",
+                conversation_id,
+                active_key
+            );
+            return active_key;
         }
     }
 
@@ -63,9 +63,8 @@ fn choose_main_task_board_store_key(
     state.set_main_task_board_binding(conversation_id, &key, last_user_id);
     state.set_active_main_task_board_key(conversation_id, &key);
     log::info!(
-        "task_board_main_key: selected conversation_id={} resume_intent={} store_key={} anchor_message_id={}",
+        "task_board_main_key: new_turn conversation_id={} store_key={} anchor_message_id={}",
         conversation_id,
-        resume_intent,
         key,
         last_user_id
     );
@@ -306,7 +305,7 @@ pub(super) async fn run_chat_inner(
 
     let mut tool_budget = SessionToolBudget::new(max_cap, tool_budget_single_start);
     let reasoning_in_messages = effective_reasoning_in_messages(&provider.settings);
-    let main_task_board_store_key = choose_main_task_board_store_key(
+    let mut main_task_board_store_key = choose_main_task_board_store_key(
         state.as_ref(),
         conversation_id,
         ctx.history,
@@ -397,6 +396,13 @@ pub(super) async fn run_chat_inner(
 
     if let Some(aid) = initial_assistant_id.as_ref() {
         crate::task_board::planner::exclude_ui_shell_from_lead_context(ctx.history, aid);
+    }
+
+    if let Some(active) = state.get_active_main_task_board_key(conversation_id) {
+        main_task_board_store_key = active;
+    } else if let Some((last_user_id, _)) = latest_real_user_turn(ctx.history) {
+        main_task_board_store_key =
+            crate::task_board::main_turn_task_board_store_key(conversation_id, last_user_id);
     }
 
     let memory_due = crate::memory::memory_review_due_for(

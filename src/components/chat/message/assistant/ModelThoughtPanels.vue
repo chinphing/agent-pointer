@@ -18,7 +18,9 @@ const showXmlThoughts = computed(() => {
   return props.thoughtsDebugEnabled === true
 })
 
-const thoughtsUnlimitedHeight = computed(() => props.thoughtsDebugEnabled === true)
+const thoughtsUnlimitedHeight = computed(
+  () => props.thoughtsDebugEnabled === true || !props.isStreaming
+)
 
 const showPlan = computed(() => (props.planTasks?.length ?? 0) > 0)
 

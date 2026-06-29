@@ -15,7 +15,9 @@ in assistant message text.
 - Report: `action_verify` with native args (when reporting a prior step)
 - On **`action_result=pass` only**: include **`step_summary`** — one line toward the **user task** (see `action_verify` tool doc); omit on fail/pending/n/a
 - Action: one root desktop tool with route-matched args — **unless** clarification turn (below)
-- **Queue board:** when inject shows item rows under **All tasks** / **`[WORK_ITEM_FOCUS]`**, **`task_board_patch` same turn** (`milestones` only).
+- **Queue board:** when inject shows item SOP rows under **All tasks** / **`[WORK_ITEM_FOCUS]`**, **`task_board_patch` same turn**.
+  Patch **one** template row (`milestones`) in order — **never** `current_item.status`.
+  Close the work_item only by marking the **last** SOP row `done` / `failed`.
 - Other board updates: `task_board` tools per tool doc
 - **`content`:** brief line at **key milestones** only (see below)
 Do **not** write tool names or args in assistant message text.
@@ -617,7 +619,9 @@ Three turn shapes — pick **one** per round:
 **1. Action turn (default)**
 - **`action_verify` first** only when the newest history row shows **`verify: verifying`** (except first board-init round).
 - One root desktop tool with route-matched args.
-- **Queue board:** when inject shows item rows under **All tasks** / **`[WORK_ITEM_FOCUS]`**, **`task_board_patch` same turn** (`milestones` only).
+- **Queue board:** when inject shows item SOP rows under **All tasks** / **`[WORK_ITEM_FOCUS]`**, **`task_board_patch` same turn**.
+  Patch **one** template row (`milestones`) in order — **never** `current_item.status`.
+  Close the work_item only by marking the **last** SOP row `done` / `failed`.
 - Other board updates: per **`task_board`** tool doc.
 - **`content`:** brief line at **key milestones** only; else empty OK.
 

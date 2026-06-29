@@ -1,5 +1,8 @@
 //! Main-agent task board keying bound to user turns.
 
+use crate::message_context::is_synthetic_user_content;
+use crate::models::{ChatMessage, Role};
+
 pub const MAIN_TURN_KEY_SEP: &str = "\u{1f}ptr_main_turn\u{1f}";
 
 pub fn main_turn_task_board_store_key(conversation_id: &str, user_message_id: &str) -> String {
@@ -64,6 +67,53 @@ pub fn looks_like_resume_intent(text: &str) -> bool {
         "previous task",
     ];
     en_keywords.iter().any(|k| t.contains(k))
+}
+
+/// Latest non-synthetic user message id in transcript order (for main-turn board binding).
+pub fn latest_real_user_message_id(history: &[ChatMessage]) -> Option<String> {
+    history.iter().rev().find_map(|m| {
+        if !matches!(m.role, Role::User) || is_synthetic_user_content(&m.content) {
+            return None;
+        }
+        let id = m.id.trim();
+        if id.is_empty() {
+            None
+        } else {
+            Some(id.to_string())
+        }
+    })
+}
+
+/// When `init` runs while `current_store_key` already has board content, the model chose a
+/// **new** scope — host opens a fresh board on the current user-turn key.
+pub fn fresh_main_turn_store_key_for_init(
+    conversation_id: &str,
+    current_store_key: &str,
+    user_message_id: &str,
+) -> Option<String> {
+    let fresh = main_turn_task_board_store_key(conversation_id, user_message_id);
+    if fresh == current_store_key.trim() {
+        None
+    } else {
+        Some(fresh)
+    }
+}
+
+/// When execution calls `init` on a non-empty main-turn board, bind init to a fresh user-turn key.
+pub fn resolve_fresh_main_turn_init_store_key(
+    store: &crate::task_board::TaskBoardStore,
+    conversation_id: &str,
+    current_store_key: &str,
+    history: &[ChatMessage],
+) -> Option<String> {
+    if crate::task_board::is_child_store_key(current_store_key) {
+        return None;
+    }
+    if store.document(current_store_key).board_is_empty() {
+        return None;
+    }
+    let uid = latest_real_user_message_id(history)?;
+    fresh_main_turn_store_key_for_init(conversation_id, current_store_key, &uid)
 }
 
 #[cfg(test)]

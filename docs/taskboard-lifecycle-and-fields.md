@@ -52,14 +52,17 @@ See [`internals/task-board-unified-milestone-inject.md`](internals/task-board-un
 - **Not a trigger:** `in_progress` only; v3 fields (`progress`, `validate_results`, …).
 - Computer keeps anchor user + last 10 messages + latest live `[CUR_SCREEN]`.
 
-Continuation rule:
+Continuation rule (model-driven):
 
-- If the newest user message clearly expresses continuation intent,
-  reuse the latest unfinished taskboard.
-- Otherwise create a new taskboard bound to that user message.
+- Turn start: host surfaces the **active unfinished** board in planner/execution context when one exists.
+- **Continue same scope:** planner/execution **does not** call **`task_board_init`** — patch the existing board; UI anchor stays on the originating user message.
+- **New multi-step scope:** planner/execution calls **`task_board_init`** — host opens a fresh board bound to the **current** user turn.
+- Do not use user-message keyword heuristics for reuse vs new board.
 
 ## UI behavior rules
 
+- Inline panels mount only on the bound user message (`parentBindings`).
+  Reused boards (resume / no new init) stay on the original anchor; new inits bind to the new user turn.
 - Ended taskboards should render as normal inline panels.
 - Ended taskboards should not use sticky scroll behavior.
 - Unfinished taskboards may stay sticky to support active execution.

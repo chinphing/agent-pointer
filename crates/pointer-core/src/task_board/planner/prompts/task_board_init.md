@@ -1,10 +1,13 @@
-Create a new task board when `[CURRENT_TASK_BOARD]` is empty.
+Create a new task board when the user needs a **new** multi-step scope.
 
 **When to call**
-- Multi-step task and board is empty.
+- Multi-step task and `[CURRENT_TASK_BOARD]` is empty, or
+- User clearly starts a **new** task while an older unfinished board is still visible —
+  call **`task_board_init`**; host opens a fresh board on this user turn.
 
 **When not to call**
-- Board already has milestones (use **`task_board_replace`** for item SOP-only updates).
+- Same scope as the visible board — **no tool** (execution continues with patch).
+- Only item SOP needs refresh — **`task_board_replace`** (`item_milestones` only).
 - Single-step task.
 
 **Required**
@@ -114,26 +117,26 @@ Host rejects: `dynamic` + file path, or `enumerated` without seed.
   "expected_total": 42,
   "work_items_source": "/path/to/batch_list.xlsx",
   "global_milestones": [
-    { "id": "g_plan", "title": "Load source list and open target UI", "status": "done", "done_when": "all rows seeded; entry point ready" },
-    { "id": "g_exec", "title": "Run per-row workflow for each work_item", "status": "in_progress", "done_when": "all work_items terminal with result_summary" },
+    { "id": "g_plan", "title": "Seed queue and confirm plan", "status": "done", "done_when": "all rows seeded; entry criteria clear" },
+    { "id": "g_exec", "title": "Run per-item workflow", "status": "in_progress", "done_when": "all work_items terminal with result_summary" },
     { "id": "g_deliver", "title": "Verify completion and export", "status": "pending", "delivery_format": "xlsx", "done_when": "export attached" }
   ],
   "item_milestones": [
     {
       "id": "m1",
-      "title": "Open row form",
+      "title": "Prepare for current item",
       "status": "pending",
       "rules": "User norms for this step when provided.",
-      "constraints": "- Do not proceed without form ready",
-      "plan": "Open form → confirm fields visible",
-      "done_when": "form ready for row data"
+      "constraints": "- Do not proceed without prerequisites met",
+      "plan": "Load focus context → confirm ready state",
+      "done_when": "Ready to execute item work"
     },
     {
       "id": "m2",
-      "title": "Apply row fields and save",
+      "title": "Execute and verify item",
       "status": "pending",
-      "plan": "Fill from {title} payload → confirm → save",
-      "done_when": "{title} saved successfully"
+      "plan": "Apply payload → verify outcome",
+      "done_when": "Item outcome confirmed"
     }
   ]
 }

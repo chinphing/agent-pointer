@@ -501,7 +501,7 @@ mod work_items_tests {
         assert_eq!(store.work_items.count_campaign(key), 3);
         assert_eq!(store.work_items.store_stats(key).in_progress, 1);
 
-        store
+        let (body, _) = store
             .apply(
                 key,
                 "patch",
@@ -520,6 +520,71 @@ mod work_items_tests {
         let doc = store.document(key);
         assert_eq!(doc.meta.work_items_done, Some(1));
         assert_eq!(doc.meta.work_items_total, Some(3));
+        let wi = body["work_items"].as_object().expect("work_items");
+        assert_eq!(wi["progress"], "1/3");
+        assert_eq!(wi["done"], 1);
+        assert_eq!(wi["in_progress_id"], "2");
+    }
+
+    #[test]
+    fn patch_current_item_status_done_ignores_milestones_and_returns_progress() {
+        let store = TaskBoardStore::new();
+        let key = "conv-wi-route-priority";
+        store
+            .apply(
+                key,
+                "init",
+                &wi_args(json!({
+                    "goal": "Batch",
+                    "work_item_mode": "enumerated",
+                    "expected_total": 2,
+                    "global_milestones": [
+                        {"id": "g_plan", "title": "Plan", "status": "pending"},
+                        {"id": "g_exec", "title": "Exec", "status": "pending"},
+                        {"id": "g_deliver", "title": "Deliver", "status": "pending"}
+                    ],
+                    "item_milestones": [
+                        {"id": "m1", "title": "Step1", "status": "pending"},
+                        {"id": "m2", "title": "Step2", "status": "pending"},
+                        {"id": "m3", "title": "Step3", "status": "pending"}
+                    ],
+                    "work_items": [
+                        {"title": "Row1"},
+                        {"title": "Row2"}
+                    ]
+                })),
+            )
+            .expect("init");
+        let (body, _) = store
+            .apply(
+                key,
+                "patch",
+                &wi_args(json!({
+                    "current_item": {
+                        "id": "1",
+                        "status": "done",
+                        "result_summary": "row1 ok"
+                    },
+                    "milestones": [{
+                        "id": "m3",
+                        "status": "done",
+                        "remark": "should be ignored"
+                    }]
+                })),
+            )
+            .expect("combined patch should succeed via Route 2");
+        assert_eq!(store.work_items.store_stats(key).done, 1);
+        assert_eq!(store.work_items.store_stats(key).in_progress, 1);
+        let doc = store.document(key);
+        use crate::task_board::model::ItemStatus;
+        assert_eq!(
+            doc.item_milestones.iter().find(|r| r.id == "m3").map(|r| r.status),
+            Some(ItemStatus::Pending)
+        );
+        let warnings = body["warnings"].as_array().expect("warnings");
+        assert!(warnings.iter().any(|w| w["code"] == "milestones_ignored"));
+        assert_eq!(body["work_items"]["progress"], "1/2");
+        assert_eq!(body["patched"].as_array().map(|a| a.len()), Some(0));
     }
 
     #[test]

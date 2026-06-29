@@ -58,8 +58,9 @@ export function applyTaskBoardDocumentToEntry(
     } else {
       delete entry.parentByStoreKey[storeKey]
     }
+    const explicitAnchor = anchorMessageId?.trim()
     let resolvedAnchor =
-      anchorMessageId?.trim() ||
+      explicitAnchor ||
       entry.parentBindings[storeKey] ||
       anchorFromMainTaskBoardStoreKey(storeKey) ||
       ''
@@ -67,7 +68,11 @@ export function applyTaskBoardDocumentToEntry(
       resolvedAnchor = findLastRealUserMessage(messagesForAnchorFallback)?.id || ''
     }
     if (resolvedAnchor) {
-      entry.parentBindings[storeKey] = resolvedAnchor
+      const existing = entry.parentBindings[storeKey]
+      // Keep anchor on the originating user message unless this is a new board (explicit anchor).
+      if (!existing || explicitAnchor) {
+        entry.parentBindings[storeKey] = resolvedAnchor
+      }
     }
     if (hasTaskBoardContent(doc) && !isTaskBoardTerminal(doc.meta?.status)) {
       entry.activeParentStoreKey = storeKey

@@ -15,7 +15,6 @@ import {
   isEphemeralDesktopNoticeMessage,
   isToolOnlyAssistantMessage
 } from '../../lib/assistantMessageKind'
-import { findLastRealUserMessage } from '../../lib/messageContext'
 import { isToolRunContinuityGlue, shouldShowGlueMessage } from '../../lib/threadLayoutGlue'
 import { isScopedSubMessage } from '../../lib/subAgentMessages'
 
@@ -24,10 +23,6 @@ const settings = useSettingsStore()
 const agentsCatalog = useAgentsCatalog()
 const scroller = ref<HTMLDivElement | null>(null)
 const showScrollButton = ref(false)
-
-const workItemsEnabled = computed(
-  () => settings.settings.computerStandalonePlannerEnabled === true
-)
 
 async function toBottom() {
   await nextTick()
@@ -110,7 +105,6 @@ const flatMessages = computed<FlatEntry[]>(() => {
   const msgs = chat.current?.messages ?? []
   const entries: FlatEntry[] = []
   const convId = chat.currentId
-  const lastUser = findLastRealUserMessage(msgs)
   let toolRunItems: ToolRunItem[] = []
 
   function flushToolRun() {
@@ -170,16 +164,7 @@ const flatMessages = computed<FlatEntry[]>(() => {
       entries.push({ type: 'message', message })
     }
 
-    let boards = chat.parentBoardsBoundToMessage(convId, message.id)
-    if (
-      boards.length === 0
-      && message.role === 'user'
-      && lastUser?.id === message.id
-      && convId
-    ) {
-      const active = chat.activeParentBoardBinding(convId)
-      if (active) boards = [active]
-    }
+    const boards = chat.parentBoardsBoundToMessage(convId, message.id)
     for (const board of boards) {
       flushToolRun()
       entries.push({
@@ -260,7 +245,7 @@ function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): st
           ? entry.message.id
           : entry.type === 'tool_run'
             ? `tool-run-${entry.items.map(i => i.kind === 'tools' ? i.group.id : i.message.id).join('-')}`
-            : `task-board-${entry.storeKey}`"
+            : `task-board-${entry.storeKey}-${entry.anchorMessageId}`"
       >
         <div
           v-if="entry.type === 'message'"
@@ -303,7 +288,6 @@ function entrySpacing(entry: FlatEntry, index: number, entries: FlatEntry[]): st
             :is-active="entry.isActive"
             :child-boards="chat.childBoardsForParent(chat.currentId, entry.storeKey)"
             :conversation-id="chat.currentId"
-            :work-items-enabled="workItemsEnabled"
           />
         </div>
       </template>

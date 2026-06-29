@@ -271,7 +271,7 @@ watch(
       return
     }
     const wasStreaming = prevStatus !== undefined && isMessageStreaming(prevStatus)
-    if (wasStreaming) {
+    if (wasStreaming && !props.thoughtsDebugEnabled) {
       clearReasoningCollapseTimer()
       reasoningCollapseTimer = setTimeout(() => {
         reasoningOpen.value = false

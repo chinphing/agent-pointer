@@ -49,10 +49,7 @@ function confirmDeleteConversation(c: { id: string }) {
 
 /** Row click selects the conversation and dismisses any pending delete. */
 function onRowClick(c: { id: string }) {
-  if (pendingDeleteId.value) {
-    pendingDeleteId.value = null
-    return
-  }
+  pendingDeleteId.value = null
   chat.selectConversation(c.id)
 }
 const {

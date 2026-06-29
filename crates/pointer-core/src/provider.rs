@@ -440,7 +440,9 @@ fn parse_chat_once_tool_calls(raw: Option<&[ChatApiToolCall]>) -> Vec<ToolCall> 
             Some(ToolCall {
                 id,
                 name: name.to_string(),
-                arguments: func.arguments.clone().unwrap_or_else(|| "{}".into()),
+                arguments: crate::tools::normalize_tool_call_arguments_for_api(
+                    func.arguments.as_deref().unwrap_or(""),
+                ),
                 status: "done".into(),
                 result: None,
                 error: None,
@@ -1008,7 +1010,7 @@ fn native_tool_calls_from_states(states: &BTreeMap<u32, NativeToolCallState>) ->
             Some(ToolCall {
                 id,
                 name: name.to_string(),
-                arguments: state.arguments.clone(),
+                arguments: crate::tools::normalize_tool_call_arguments_for_api(&state.arguments),
                 status: "pending".into(),
                 result: None,
                 error: None,

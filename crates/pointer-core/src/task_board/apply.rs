@@ -25,7 +25,8 @@ use super::work_items_apply::{
     validate_patch_work_item_binding,
     patch_rejects_g_exec_done_when_not_met, patch_rejects_v3_delta_fields,
     seed_work_items_on_init, validate_board_row_count, validate_expected_total_after_seed,
-    validate_work_item_init, work_items_enabled_from_args, workspace_root_from_args,
+    validate_work_item_init, work_items_enabled_from_args, work_items_tool_result_json,
+    workspace_root_from_args,
 };
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
@@ -64,6 +65,9 @@ pub fn apply_method(
             if seeded > 0 {
                 body["work_items_seeded"] = json!(seeded);
             }
+            if let Some(wi) = work_items_tool_result_json(store_key, doc, work_items) {
+                body["work_items"] = wi;
+            }
             (body, false)
         }
         "replace" => {
@@ -75,6 +79,9 @@ pub fn apply_method(
             });
             if seeded > 0 {
                 body["work_items_seeded"] = json!(seeded);
+            }
+            if let Some(wi) = work_items_tool_result_json(store_key, doc, work_items) {
+                body["work_items"] = wi;
             }
             (body, false)
         }
@@ -106,6 +113,9 @@ pub fn apply_method(
             if !warnings.is_empty() {
                 body["warnings"] = json!(warnings);
             }
+            if let Some(wi) = work_items_tool_result_json(store_key, doc, work_items) {
+                body["work_items"] = wi;
+            }
             (body, refl)
         }
         "prune" => {
@@ -126,6 +136,18 @@ pub fn apply_method(
                 json!({
                     "ok": true,
                     "method": "finalize",
+                    "board_len": doc.global_milestones.len(),
+                    "meta_status": doc.meta.status.as_str(),
+                }),
+                false,
+            )
+        }
+        "abandon" => {
+            apply_abandon(doc)?;
+            (
+                json!({
+                    "ok": true,
+                    "method": "abandon",
                     "board_len": doc.global_milestones.len(),
                     "meta_status": doc.meta.status.as_str(),
                 }),
@@ -294,11 +316,19 @@ fn apply_patch(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let patch_rows = unified_patch_rows_from_args(args)?;
-    let has_milestone_patch = patch_rows.as_ref().is_some_and(|r| !r.is_empty());
+    let requested_milestone_rows = unified_patch_rows_from_args(args)?;
+    let milestones_requested = requested_milestone_rows
+        .as_ref()
+        .is_some_and(|r| !r.is_empty());
     let direct_work_item = patch_work_item_direct_from_args(args);
-    let requires_work_item_binding =
-        has_milestone_patch || direct_work_item.is_some();
+    // Route 2: `current_item.status` done/failed closes the queue row; ignore milestones.
+    let patch_rows = if direct_work_item.is_some() {
+        None
+    } else {
+        requested_milestone_rows
+    };
+    let has_milestone_patch = patch_rows.as_ref().is_some_and(|r| !r.is_empty());
+    let requires_work_item_binding = has_milestone_patch || direct_work_item.is_some();
     validate_patch_work_item_binding(
         store_key,
         doc,
@@ -310,6 +340,12 @@ fn apply_patch(
     let mut reflection = false;
     let mut warnings: Vec<Value> = Vec::new();
     let mut patched: Vec<Value> = Vec::new();
+    if direct_work_item.is_some() && milestones_requested {
+        warnings.push(json!({
+            "code": "milestones_ignored",
+            "message": "current_item.status is done or failed; milestone patch ignored"
+        }));
+    }
     if let Some(gc) = args.get("global_context") {
         merge_global_context(&mut doc.global_context, gc);
     }
@@ -715,6 +751,21 @@ fn apply_finalize(doc: &mut BoardDocument) -> Result<()> {
         ));
     }
     doc.meta.status = MetaStatus::Completed;
+    Ok(())
+}
+
+/// Mark an unfinished board as failed when scope ends early (planner or execution).
+fn apply_abandon(doc: &mut BoardDocument) -> Result<()> {
+    if doc.board_is_empty() && doc.meta.goal.trim().is_empty() {
+        return Err(anyhow!("task_board: nothing to abandon"));
+    }
+    if matches!(
+        doc.meta.status,
+        MetaStatus::Completed | MetaStatus::Failed
+    ) {
+        return Ok(());
+    }
+    doc.meta.status = MetaStatus::Failed;
     Ok(())
 }
 

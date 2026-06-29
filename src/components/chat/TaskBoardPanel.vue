@@ -8,6 +8,7 @@ import {
   taskBoardGlobalMilestones,
   taskBoardHasWorkItems,
   taskBoardMilestoneViewMode,
+  taskBoardShouldShowWorkItemsPanel,
   taskBoardVisibleMilestones,
   taskBoardVisibleMilestoneProgress,
   taskBoardWorkItemsProgress
@@ -22,7 +23,6 @@ const props = defineProps<{
   childBoards?: Record<string, TaskBoardDocument>
   conversationId?: string | null
   taskId?: string
-  workItemsEnabled?: boolean
 }>()
 
 const goal = computed(() => props.document?.meta?.goal?.trim() ?? '')
@@ -31,9 +31,14 @@ const viewMode = computed(() => taskBoardMilestoneViewMode(props.document))
 const visibleMilestones = computed(() => taskBoardVisibleMilestones(props.document))
 const documentSyncKey = computed(() => taskBoardDocumentSyncKey(props.document))
 
-const wiEnabled = computed(() => props.workItemsEnabled === true && !!props.conversationId?.trim())
+const workItemsPanelEnabled = computed(() =>
+  taskBoardShouldShowWorkItemsPanel(props.document, props.conversationId)
+)
 const showWorkItemStats = computed(
-  () => wiEnabled.value && viewMode.value === 'queue_exec' && taskBoardHasWorkItems(props.document)
+  () =>
+    workItemsPanelEnabled.value
+    && viewMode.value === 'queue_exec'
+    && taskBoardHasWorkItems(props.document)
 )
 
 const wiStoreList = useWorkItemsList({
@@ -67,7 +72,7 @@ const wiBatches = computed(() =>
 )
 
 const showWorkItemsPanel = computed(
-  () => wiEnabled.value && (taskBoardHasWorkItems(props.document) || wiBatches.value.length > 0)
+  () => workItemsPanelEnabled.value || wiBatches.value.length > 0
 )
 
 const openBatchId = ref<string | null>(null)
@@ -180,7 +185,7 @@ function onBatchOpen(batchId: string, open: boolean) {
         :task-id="taskId"
         batch-id=""
         :batch-title="goal || '工作项'"
-        :enabled="wiEnabled"
+        :enabled="workItemsPanelEnabled"
         :refresh-key="documentSyncKey"
         :open="openBatchId === '__store__'"
         @update:open="(v) => onBatchOpen('__store__', v)"
@@ -192,7 +197,7 @@ function onBatchOpen(batchId: string, open: boolean) {
         :task-id="taskId"
         :batch-id="batch.id"
         :batch-title="batchTitle(batch)"
-        :enabled="wiEnabled"
+        :enabled="workItemsPanelEnabled"
         :refresh-key="batchRefreshKey(batch)"
         :open="openBatchId === batch.id"
         @update:open="(v) => onBatchOpen(batch.id, v)"

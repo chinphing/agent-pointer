@@ -31,6 +31,14 @@ pub fn openai_tools() -> Vec<Value> {
                 "parameters": task_board_tool_parameters("task_board_replace")
             }
         }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "task_board_abandon",
+                "description": "Mark the current running board failed when the user switched to unrelated work.",
+                "parameters": task_board_tool_parameters("task_board_finalize")
+            }
+        }),
     ]
 }
 
@@ -41,7 +49,7 @@ mod tests {
     #[test]
     fn exposes_planner_native_tools() {
         let tools = openai_tools();
-        assert_eq!(tools.len(), 2);
+        assert_eq!(tools.len(), 3);
         let names: Vec<&str> = tools
             .iter()
             .filter_map(|t| {
@@ -50,7 +58,10 @@ mod tests {
                     .and_then(|n| n.as_str())
             })
             .collect();
-        assert_eq!(names, vec!["task_board_init", "task_board_replace"]);
+        assert_eq!(
+            names,
+            vec!["task_board_init", "task_board_replace", "task_board_abandon"]
+        );
     }
 
     #[test]

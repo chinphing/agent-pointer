@@ -6,6 +6,7 @@ import {
   taskBoardHasWorkItems,
   taskBoardItemMilestones,
   taskBoardMilestoneViewMode,
+  taskBoardShouldShowWorkItemsPanel,
   taskBoardVisibleMilestones,
   taskBoardWorkItemsProgress
 } from './taskBoard'
@@ -63,6 +64,12 @@ describe('taskBoard helpers', () => {
     expect(taskBoardHasWorkItems(v4Doc())).toBe(true)
     expect(taskBoardItemMilestones(v4Doc())).toHaveLength(1)
     expect(hasTaskBoardContent(v4Doc())).toBe(true)
+  })
+
+  it('shows work items panel when board has queue and conversation id', () => {
+    expect(taskBoardShouldShowWorkItemsPanel(v4Doc(), 'conv_1')).toBe(true)
+    expect(taskBoardShouldShowWorkItemsPanel(v4Doc(), '')).toBe(false)
+    expect(taskBoardShouldShowWorkItemsPanel(null, 'conv_1')).toBe(false)
   })
 
   it('queue exec projects item milestones only', () => {

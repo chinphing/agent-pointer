@@ -98,6 +98,10 @@ pub(super) async fn run_single_agent_loop(
         let native_tools = state.tools.openai_tools(&effective_allowed);
         let file_tool_lead_for_invoke = lead_profile.clone();
 
+        let board_store_key = state
+            .get_active_main_task_board_key(conversation_id)
+            .unwrap_or_else(|| main_task_board_store_key.to_string());
+
         let mut agent_trace = Vec::new();
 
         let round_prompts = super::single_agent_prompt::prepare_single_agent_round_prompts(
@@ -111,7 +115,7 @@ pub(super) async fn run_single_agent_loop(
                 history: ctx.history,
                 agent_plan,
                 settings,
-                main_task_board_store_key,
+                main_task_board_store_key: board_store_key.as_str(),
                 assistant_id: &assistant_id,
                 lead_profile: lead_profile.clone(),
                 tools_system_appendix,
@@ -245,7 +249,7 @@ pub(super) async fn run_single_agent_loop(
                     conversation_id,
                     cancel: &cancel,
                 },
-                main_task_board_store_key,
+                main_task_board_store_key: board_store_key.as_str(),
                 history: ctx.history,
                 allow_agents: &agent_plan.allow_agents,
                 enabled_skill_ids: ctx.enabled_skill_ids,

@@ -16,6 +16,7 @@ Each turn:
    routes and avoid failed tool + target combinations; then choose route by
    **N–target relation** (inner-center-wrap → index; inner-edge-wrap / unwrapped → coordinate).
 5. **`content`:** **1–2 short sentences** at **key milestones** only (start/finish sub-goal or batch, blocked, task done). Empty OK for micro-steps. Clarification: question in **`content`**, no desktop tool.
+6. **Queue Type2:** after each verified desktop step, **`task_board_patch`** the matching SOP template row — never **`current_item.status`**.
    Never put Verify / Repetition / Next templates in message text.
    Native tool calls only.
    **`action_verify`** only when the newest row is **`verify: verifying`**; **`step_summary`** required on pass only; **`failure_cause`** only on fail.

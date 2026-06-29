@@ -42,7 +42,13 @@ const MessageList = defineAsyncComponent({
 const chat = useChatStore()
 const platformAuth = usePlatformAuthStore()
 const { uiToast, terminalLivePopup } = storeToRefs(chat)
-const empty = computed(() => !chat.current || chat.current.messages.length === 0)
+const isHydratingMessages = computed(() => chat.isCurrentConversationHydrating)
+const showWelcomeHome = computed(() => {
+  if (isHydratingMessages.value) return false
+  const cur = chat.current
+  if (!cur) return true
+  return cur.messages.length === 0
+})
 const needsPlatformLogin = computed(() => !platformAuth.session.logged_in)
 const experienceSectionExpanded = ref(false)
 
@@ -91,7 +97,11 @@ const toastClass = computed(() => {
       @close="chat.dismissTerminalLivePopup()"
     />
     <div class="flex-1 overflow-hidden relative">
-      <div v-if="empty" class="chat-scroll-area h-full overflow-y-auto chat-shell">
+      <div v-if="isHydratingMessages" class="h-full flex flex-col min-h-0">
+        <MessageListSkeleton />
+      </div>
+
+      <div v-else-if="showWelcomeHome" class="chat-scroll-area h-full overflow-y-auto chat-shell">
         <div class="chat-column w-full translate-y-[90px] pb-10">
           <div class="mx-auto flex w-full max-w-[42rem] min-h-[clamp(7rem,calc(50vh-4.5rem),14rem)] flex-col items-center justify-end">
             <h1 class="mb-[30px] max-w-[22rem] text-center text-[1.375rem] font-semibold leading-snug tracking-tight text-foreground sm:max-w-none sm:text-[1.625rem] md:text-[1.75rem]">
@@ -152,7 +162,7 @@ const toastClass = computed(() => {
         </div>
       </div>
     </div>
-    <Composer v-if="!empty" />
+    <Composer v-if="!showWelcomeHome && !isHydratingMessages" />
   </div>
 </template>
 

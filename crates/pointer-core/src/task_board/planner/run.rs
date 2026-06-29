@@ -4,6 +4,7 @@ use crate::agent_instance_scope::AgentInstanceScope;
 use crate::agents::AgentProfile;
 use crate::chat_service::{emit_task_board_updated, AppState, StreamTx};
 use crate::task_board::anchor_message_id_from_main_turn_key;
+use crate::task_board::latest_real_user_message_id;
 use crate::llm_token_stats::{model_name_for_usage_report, ConversationLlmStats};
 use crate::models::{ChatMessage, ModelSettings};
 use crate::provider::OpenAIProvider;
@@ -14,7 +15,7 @@ use super::llm::planner_provider;
 use super::system::{build_planner_system, PlannerSystemInput};
 use super::tool_pass::{
     append_assistant_tool_calls, append_tool_result, dispatch_planner_tool,
-    PlannerToolOutcome, PlannerToolPassInput,
+    MainTurnPlannerBinding, PlannerToolOutcome, PlannerToolPassInput,
 };
 use super::stream_ui::PlannerUiTarget;
 use super::tools::openai_tools;
@@ -37,6 +38,7 @@ pub enum PlannerRunOutcome {
 pub enum PlannedMethod {
     Init,
     Replace,
+    Abandon,
 }
 
 #[derive(Debug, Clone)]
@@ -150,6 +152,11 @@ async fn run_planner_loop_body(input: &mut PlannerRunInput<'_>) -> PlannerRunOut
     let mut round = 0u32;
     let mut last_planned: Option<(PlannedMethod, usize)> = None;
 
+    let main_turn_user_id = match &input.context {
+        PlannerContext::MainTurn => latest_real_user_message_id(&*input.main_history),
+        _ => None,
+    };
+
     while round < PLANNER_MAX_TOOL_ROUNDS {
         if input.cancel.is_cancelled() {
             return PlannerRunOutcome::Failed {
@@ -236,6 +243,11 @@ async fn run_planner_loop_body(input: &mut PlannerRunInput<'_>) -> PlannerRunOut
                 store_key: input.store_key,
                 settings: input.settings,
                 work_items_enabled,
+                main_turn: main_turn_user_id.as_ref().map(|uid| MainTurnPlannerBinding {
+                    conversation_id: input.conversation_id,
+                    user_message_id: uid.clone(),
+                    state: input.state,
+                }),
             };
             let dispatch_result = dispatch_planner_tool(&mut pass_input, tc).await;
             let duration_ms = tool_start.elapsed().as_millis() as u64;
@@ -258,18 +270,22 @@ async fn run_planner_loop_body(input: &mut PlannerRunInput<'_>) -> PlannerRunOut
                     }
                     if let Some(method) = result.planned {
                         last_planned = Some((method, result.board_len));
+                        let emit_store_key = result
+                            .store_key_override
+                            .as_deref()
+                            .unwrap_or(input.store_key);
                         let anchor = planner_task_board_emit_anchor(
                             &input.context,
                             input.state,
                             input.conversation_id,
-                            input.store_key,
+                            emit_store_key,
                         );
                         emit_task_board_updated(
                             input.stream,
                             input.conversation_id,
-                            input.store_key,
+                            emit_store_key,
                             anchor,
-                            store.items_json(input.store_key),
+                            store.items_json(emit_store_key),
                         );
                     }
                     append_tool_result(&mut history, &tc.id, &tc.name, &result.tool_result);
@@ -282,6 +298,7 @@ async fn run_planner_loop_body(input: &mut PlannerRunInput<'_>) -> PlannerRunOut
                             tool_result: err.clone(),
                             planned: None,
                             board_len: 0,
+                            store_key_override: None,
                         };
                         let history_patch = if ui.scoped_message_id.is_some() {
                             None

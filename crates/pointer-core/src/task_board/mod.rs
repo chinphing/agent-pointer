@@ -27,9 +27,10 @@ pub mod work_items_apply;
 pub use checkpoint::{is_task_board_tool_name, task_board_call_is_checkpoint};
 pub use coordination::{
     anchor_message_id_from_main_turn_key, conversation_id_from_main_turn_key,
-    is_child_store_key, parent_store_key_from_child, resolve_store_key_for_read,
-    sub_agent_task_board_store_key,
-    is_main_turn_store_key, looks_like_resume_intent, main_turn_task_board_store_key,
+    fresh_main_turn_store_key_for_init, is_child_store_key, is_main_turn_store_key,
+    latest_real_user_message_id, looks_like_resume_intent, main_turn_task_board_store_key,
+    parent_store_key_from_child, resolve_fresh_main_turn_init_store_key,
+    resolve_store_key_for_read, sub_agent_task_board_store_key,
 };
 pub use gateway::{
     check_dependencies, dispatch_to_child, report_child_status, sync_global_finding,

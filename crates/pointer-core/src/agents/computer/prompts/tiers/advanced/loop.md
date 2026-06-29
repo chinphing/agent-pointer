@@ -7,6 +7,7 @@ You drive the **visible desktop** via labeled screenshots + tools.
    In **Next**, read full **`[Recent desktop tool calls]`** to continue what
    worked and avoid failed tool + target combinations from history.
 3. **`content`:** **1–2 short sentences** at **key milestones** only (start/finish sub-goal or batch, blocked, task done). Empty OK for micro-steps. Clarification: question in **`content`**, no desktop tool.
+4. **Queue Type2:** after each verified desktop step, **`task_board_patch`** the matching SOP template row — never **`current_item.status`**.
    Native tool calls only.
    **`action_verify`** only when the newest row is **`verify: verifying`**; **`step_summary`** required on pass only; **`failure_cause`** only on fail.
 

@@ -1,6 +1,8 @@
 //! Dispatch planner tool calls (native only, no sidecar registry).
 
+use crate::chat_service::AppState;
 use crate::models::{ChatMessage, ModelSettings, Role, ToolCall};
+use crate::task_board::fresh_main_turn_store_key_for_init;
 use crate::task_board::TaskBoardStore;
 use crate::tools::parse_tool_call_arguments;
 use anyhow::{anyhow, Result};
@@ -9,11 +11,19 @@ use std::sync::Arc;
 
 use super::PlannedMethod;
 
+/// Main-turn only: model may call `init` to open a fresh board while an unfinished board exists.
+pub struct MainTurnPlannerBinding<'a> {
+    pub conversation_id: &'a str,
+    pub user_message_id: String,
+    pub state: &'a AppState,
+}
+
 pub struct PlannerToolPassInput<'a> {
     pub store: Arc<TaskBoardStore>,
     pub store_key: &'a str,
     pub settings: &'a ModelSettings,
     pub work_items_enabled: bool,
+    pub main_turn: Option<MainTurnPlannerBinding<'a>>,
 }
 
 #[derive(Debug)]
@@ -21,6 +31,8 @@ pub struct PlannerToolOutcome {
     pub tool_result: String,
     pub planned: Option<PlannedMethod>,
     pub board_len: usize,
+    /// Set when init opened a fresh main-turn board (store key changed).
+    pub store_key_override: Option<String>,
 }
 
 pub async fn dispatch_planner_tool(
@@ -31,6 +43,7 @@ pub async fn dispatch_planner_tool(
     match tc.name.as_str() {
         "task_board_init" => dispatch_task_board(input, "init", &args).await,
         "task_board_replace" => dispatch_task_board(input, "replace", &args).await,
+        "task_board_abandon" => dispatch_task_board(input, "abandon", &args).await,
         other => Err(anyhow!("planner: unknown tool {other}")),
     }
 }
@@ -41,18 +54,68 @@ async fn dispatch_task_board(
     args: &Value,
 ) -> Result<PlannerToolOutcome> {
     let doc = input.store.document(input.store_key);
+    let mut target_key = input.store_key.to_string();
     if method == "init" && !doc.board_is_empty() {
-        return Ok(PlannerToolOutcome {
-            tool_result: "ERROR: board already exists — use task_board_replace to replan.".into(),
-            planned: None,
-            board_len: doc.global_milestones.len(),
-        });
+        if let Some(mt) = input.main_turn.as_ref() {
+            if let Some(fresh) = fresh_main_turn_store_key_for_init(
+                mt.conversation_id,
+                input.store_key,
+                mt.user_message_id.as_str(),
+            ) {
+                target_key = fresh;
+                mt.state.set_main_task_board_binding(
+                    mt.conversation_id,
+                    &target_key,
+                    mt.user_message_id.as_str(),
+                );
+                mt.state
+                    .set_active_main_task_board_key(mt.conversation_id, &target_key);
+                log::info!(
+                    "task_board_planner: init fresh board conversation_id={} store_key={} anchor={}",
+                    mt.conversation_id,
+                    target_key,
+                    mt.user_message_id
+                );
+            } else {
+                return Ok(PlannerToolOutcome {
+                    tool_result: "ERROR: board already exists on this turn — use task_board_replace for SOP-only updates, or call no tools to continue the existing board.".into(),
+                    planned: None,
+                    board_len: doc.global_milestones.len(),
+                    store_key_override: None,
+                });
+            }
+        } else {
+            return Ok(PlannerToolOutcome {
+                tool_result: "ERROR: board already exists — use task_board_replace to replan.".into(),
+                planned: None,
+                board_len: doc.global_milestones.len(),
+                store_key_override: None,
+            });
+        }
     }
     let mut bound = args.clone();
-    bound["_conversation_id"] = json!(input.store_key);
+    bound["_conversation_id"] = json!(target_key);
     bound["_task_board_work_items_enabled"] = json!(input.work_items_enabled);
     bound["_workspace_root"] = json!(input.settings.workspace_root);
-    let (body, _reflection) = input.store.apply(input.store_key, method, &bound)?;
+    let (body, _reflection) = input.store.apply(&target_key, method, &bound)?;
+    if method == "abandon" {
+        if let Some(mt) = input.main_turn.as_ref() {
+            if mt
+                .state
+                .get_active_main_task_board_key(mt.conversation_id)
+                .as_deref()
+                == Some(input.store_key)
+            {
+                mt.state
+                    .clear_active_main_task_board_key(mt.conversation_id);
+                log::info!(
+                    "task_board_planner: abandoned active board conversation_id={} store_key={}",
+                    mt.conversation_id,
+                    input.store_key
+                );
+            }
+        }
+    }
     let board_len = body
         .get("board_len")
         .and_then(|v| v.as_u64())
@@ -60,13 +123,28 @@ async fn dispatch_task_board(
     let planned = match method {
         "init" => Some(PlannedMethod::Init),
         "replace" => Some(PlannedMethod::Replace),
+        "abandon" => Some(PlannedMethod::Abandon),
         _ => None,
     };
-    let tool_result = serde_json::to_string(&body).unwrap_or_else(|_| body.to_string());
+    let mut tool_result = serde_json::to_string(&body).unwrap_or_else(|_| body.to_string());
+    if method == "init" && target_key != input.store_key {
+        let wrapped = json!({
+            "ok": true,
+            "note": "fresh_board_on_new_turn",
+            "body": body,
+        });
+        tool_result = serde_json::to_string(&wrapped).unwrap_or(tool_result);
+    }
+    let store_key_override = if target_key != input.store_key {
+        Some(target_key)
+    } else {
+        None
+    };
     Ok(PlannerToolOutcome {
         tool_result,
         planned,
         board_len,
+        store_key_override,
     })
 }
 
@@ -172,6 +250,7 @@ mod tests {
             store_key,
             settings,
             work_items_enabled: false,
+            main_turn: None,
         }
     }
 
@@ -197,7 +276,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn task_board_init_rejects_when_board_exists() {
+    async fn task_board_init_rejects_when_board_exists_without_main_turn() {
         let store = Arc::new(TaskBoardStore::new());
         let key = "conv-exists";
         store
@@ -214,6 +293,58 @@ mod tests {
             .expect("reject");
         assert!(out.planned.is_none());
         assert!(out.tool_result.contains("board already exists"));
+    }
+
+    #[tokio::test]
+    async fn task_board_init_opens_fresh_main_turn_when_unfinished_board_exists() {
+        use crate::chat_service::AppState;
+        use crate::task_board::main_turn_task_board_store_key;
+
+        let store = Arc::new(TaskBoardStore::new());
+        let state = AppState::new();
+        let conv = "conv-fresh";
+        let old_key = main_turn_task_board_store_key(conv, "user-old");
+        store
+            .apply(
+                &old_key,
+                "init",
+                &json!({ "goal": "old campaign", "items": [{"id": "m1", "title": "S", "status": "pending"}] }),
+            )
+            .expect("seed");
+        state.set_active_main_task_board_key(conv, &old_key);
+        state.set_main_task_board_binding(conv, &old_key, "user-old");
+
+        let new_key = main_turn_task_board_store_key(conv, "user-new");
+        let settings = ModelSettings::default();
+        let mut input = PlannerToolPassInput {
+            store: store.clone(),
+            store_key: &old_key,
+            settings: &settings,
+            work_items_enabled: false,
+            main_turn: Some(MainTurnPlannerBinding {
+                conversation_id: conv,
+                user_message_id: "user-new".into(),
+                state: &state,
+            }),
+        };
+        let tc = planner_tool_call(
+            "task_board_init",
+            json!({ "goal": "new campaign", "items": [{"id": "m1", "title": "N", "status": "pending"}] }),
+        );
+        let out = dispatch_planner_tool(&mut input, &tc)
+            .await
+            .expect("fresh init");
+        assert_eq!(out.planned, Some(PlannedMethod::Init));
+        assert_eq!(out.store_key_override.as_deref(), Some(new_key.as_str()));
+        assert_eq!(store.document(&new_key).meta.goal, "new campaign");
+        assert_eq!(
+            state.get_active_main_task_board_key(conv).as_deref(),
+            Some(new_key.as_str())
+        );
+        assert_eq!(
+            state.get_main_task_board_anchor(conv, &new_key).as_deref(),
+            Some("user-new")
+        );
     }
 
     #[tokio::test]

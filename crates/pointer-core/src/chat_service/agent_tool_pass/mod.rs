@@ -29,17 +29,19 @@ use approval::run_approval_gate;
 use dispatch::execute_tool_invocation;
 use outcome::record_tool_exec_outcome;
 
-/// Sub-agent trace id (`{taskId}:{agentId}`) for child task-board UI binding — not lead message id.
-fn task_board_emit_anchor(ctx: &ToolPassContext<'_>) -> Option<String> {
-    if crate::task_board::is_child_store_key(ctx.task_board_store_key) {
+fn task_board_emit_anchor_for_store_key(
+    ctx: &ToolPassContext<'_>,
+    store_key: &str,
+) -> Option<String> {
+    if crate::task_board::is_child_store_key(store_key) {
         if let TranscriptPersist::SubLinked(linkage) = &ctx.persist {
             return Some(linkage.trace_id.clone());
         }
     }
-    ctx.session.state.get_main_task_board_anchor(
-        ctx.session.conversation_id,
-        ctx.task_board_store_key,
-    )
+    ctx.session
+        .state
+        .get_main_task_board_anchor(ctx.session.conversation_id, store_key)
+        .or_else(|| crate::task_board::anchor_message_id_from_main_turn_key(store_key))
 }
 
 pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result<ToolPassResult> {
@@ -69,11 +71,62 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
 
         let args_value = parse_tool_call_arguments(&tc.arguments);
         let (tool_id, args_value) = normalize_tool_invoke_name(&tc.name, args_value);
+        let mut task_board_store_key = pass.ctx.task_board_store_key.to_string();
+        if tool_id == "task_board_init" {
+            if let Some(fresh) = crate::task_board::resolve_fresh_main_turn_init_store_key(
+                pass.ctx.session.state.task_board_store.as_ref(),
+                pass.ctx.session.conversation_id,
+                pass.ctx.task_board_store_key,
+                pass.ctx.transcript.history,
+            ) {
+                if let Some(uid) =
+                    crate::task_board::latest_real_user_message_id(pass.ctx.transcript.history)
+                {
+                    pass.ctx.session.state.set_main_task_board_binding(
+                        pass.ctx.session.conversation_id,
+                        &fresh,
+                        &uid,
+                    );
+                    pass.ctx.session.state.set_active_main_task_board_key(
+                        pass.ctx.session.conversation_id,
+                        &fresh,
+                    );
+                    log::info!(
+                        "task_board_exec: init fresh board conversation_id={} store_key={} anchor={uid}",
+                        pass.ctx.session.conversation_id,
+                        fresh
+                    );
+                }
+                task_board_store_key = fresh;
+            }
+        } else if tool_id == "task_board_abandon"
+            && !crate::task_board::is_child_store_key(pass.ctx.task_board_store_key)
+        {
+            let conv = pass.ctx.session.conversation_id;
+            if pass
+                .ctx
+                .session
+                .state
+                .get_active_main_task_board_key(conv)
+                .as_deref()
+                == Some(pass.ctx.task_board_store_key)
+            {
+                pass.ctx
+                    .session
+                    .state
+                    .clear_active_main_task_board_key(conv);
+                log::info!(
+                    "task_board_exec: abandoned active board conversation_id={} store_key={}",
+                    conv,
+                    pass.ctx.task_board_store_key
+                );
+            }
+        }
         let args_value = inject_host_task_board_conversation_id(
             &tool_id,
             args_value,
             pass.ctx.session.conversation_id,
-            pass.ctx.task_board_store_key,
+            task_board_store_key.as_str(),
             pass.ctx.transcript.history,
             pass.ctx.task_board_work_items_enabled,
             pass.ctx.task_board_b42_enforced,
@@ -81,7 +134,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
         let args_value = inject_work_items_tool_host(
             &tool_id,
             args_value,
-            pass.ctx.task_board_store_key,
+            task_board_store_key.as_str(),
             pass.ctx.workspace_root,
             pass.ctx.task_board_work_items_enabled,
         );
@@ -232,12 +285,12 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                 .session
                 .state
                 .task_board_store
-                .document(pass.ctx.task_board_store_key);
+                .document(task_board_store_key.as_str());
             emit_task_board_updated(
                 pass.ctx.session.stream,
                 pass.ctx.session.conversation_id,
-                pass.ctx.task_board_store_key,
-                task_board_emit_anchor(&pass.ctx),
+                task_board_store_key.as_str(),
+                task_board_emit_anchor_for_store_key(&pass.ctx, task_board_store_key.as_str()),
                 doc.to_value(),
             );
         }

@@ -79,6 +79,36 @@ pub fn parse_tool_call_arguments(raw: &str) -> serde_json::Value {
     v
 }
 
+/// Normalize `function.arguments` for OpenAI-compatible API requests.
+///
+/// DashScope and other providers reject empty or non-JSON argument strings with 400.
+pub fn normalize_tool_call_arguments_for_api(raw: &str) -> String {
+    let cleaned = strip_optional_code_fence(raw);
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        return "{}".to_string();
+    }
+    match serde_json::from_str::<Value>(trimmed) {
+        Ok(v) => serde_json::to_string(&v).unwrap_or_else(|_| "{}".to_string()),
+        Err(e) => {
+            log::warn!(
+                "tool_call arguments not valid JSON; using {{}} for API wire: {e} (preview={})",
+                truncate_for_log(trimmed, 120)
+            );
+            "{}".to_string()
+        }
+    }
+}
+
+fn truncate_for_log(s: &str, max_chars: usize) -> String {
+    let n = s.chars().count();
+    if n <= max_chars {
+        return s.to_string();
+    }
+    let head: String = s.chars().take(max_chars).collect();
+    format!("{head}…(+{} chars)", n - max_chars)
+}
+
 fn strip_optional_code_fence(s: &str) -> String {
     let s = s.trim();
     if !s.starts_with("```") {
@@ -595,6 +625,18 @@ mod parse_args_tests {
         let raw = "```json\n{\"path\":\"b\",\"content\":\"c\"}\n```";
         let v = parse_tool_call_arguments(raw);
         assert_eq!(v["path"], "b");
+    }
+
+    #[test]
+    fn normalize_tool_call_arguments_for_api_wire() {
+        use super::normalize_tool_call_arguments_for_api;
+        assert_eq!(normalize_tool_call_arguments_for_api(""), "{}");
+        assert_eq!(normalize_tool_call_arguments_for_api("   "), "{}");
+        assert_eq!(
+            normalize_tool_call_arguments_for_api(r#"{"index":3}"#),
+            r#"{"index":3}"#
+        );
+        assert_eq!(normalize_tool_call_arguments_for_api("not-json"), "{}");
     }
 
     #[test]

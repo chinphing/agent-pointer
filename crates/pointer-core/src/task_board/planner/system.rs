@@ -7,6 +7,7 @@ use crate::task_board::{BoardDocument, WorkItemStore};
 const COMPUTER_MD: &str = include_str!("prompts/computer.md");
 const TASK_BOARD_INIT_MD: &str = include_str!("prompts/task_board_init.md");
 const TASK_BOARD_REPLACE_MD: &str = include_str!("prompts/task_board_replace.md");
+const TASK_BOARD_ABANDON_MD: &str = include_str!("prompts/task_board_abandon.md");
 
 pub struct PlannerSystemInput<'a> {
     pub doc: &'a BoardDocument,
@@ -30,7 +31,7 @@ pub fn build_planner_system(input: PlannerSystemInput<'_>) -> SystemPromptSectio
         input.workspace_root.trim()
     );
     let tools_doc = format!(
-        "## Tools\n\n### task_board_init\n{TASK_BOARD_INIT_MD}\n\n### task_board_replace\n{TASK_BOARD_REPLACE_MD}"
+        "## Tools\n\n### task_board_init\n{TASK_BOARD_INIT_MD}\n\n### task_board_replace\n{TASK_BOARD_REPLACE_MD}\n\n### task_board_abandon\n{TASK_BOARD_ABANDON_MD}"
     );
     let body = format!(
         "{COMPUTER_MD}\n\n{board_block}\n\n{env}\n\n{tools_doc}"

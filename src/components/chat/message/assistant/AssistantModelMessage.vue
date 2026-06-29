@@ -52,10 +52,8 @@ function subTraceUi(trace: (typeof subTraces.value)[number]) {
   )
 }
 
-const thoughtsDebugEnabled = computed(() => false)
-
-const workItemsEnabled = computed(
-  () => settingsStore.settings.computerStandalonePlannerEnabled === true
+const thoughtsDebugEnabled = computed(
+  () => settingsStore.settings.debugMenusEnabled === true
 )
 
 const chatStore = useChatStore()
@@ -158,7 +156,6 @@ const showSupervisorPlan = computed(
           :is-active="childBoardByTraceId.get(trace.id)!.isActive"
           :conversation-id="chatStore.currentId"
           :task-id="subTaskIdFromTraceId(trace.id)"
-          :work-items-enabled="workItemsEnabled"
         />
       </div>
 

@@ -363,6 +363,8 @@ pub fn run() {
             commands::cancel_chat,
             commands::abort_terminal_command,
             commands::approve_tool_call,
+            commands::submit_terminal_input,
+            commands::dismiss_terminal_input,
             commands::get_settings,
             commands::update_settings,
             commands::update_agent_settings,

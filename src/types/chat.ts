@@ -27,6 +27,8 @@ export interface ToolCall {
   displayLabel?: string
   /** UI-only short parameter summary from backend. */
   displaySummary?: string
+  /** Terminal tool is waiting for user input in a modal. */
+  waitingForInput?: boolean
 }
 
 export const DEFAULT_LEAD_AGENT_ID = 'general'
@@ -675,6 +677,18 @@ export interface ComputerMonitorPickRequest {
   monitors: ComputerMonitor[]
 }
 
+export interface TerminalInputRequest {
+  requestId: string
+  messageId: string
+  toolCallId: string
+  command?: string
+  outputContext?: string
+  inputHint?: string
+  inputClass: 'normal' | 'secret'
+  traceId?: string
+  scopedMessageId?: string
+}
+
 export interface ContextCompressionInfo {
   reason: 'budget' | 'tool_limit' | string
   messagesBefore: number
@@ -729,6 +743,18 @@ export type StreamEvent =
       scopedMessageId?: string
     }
   | { kind: 'terminal_output_delta'; messageId: string; toolCallId: string; output: string; traceId?: string; scopedMessageId?: string }
+  | {
+      kind: 'terminal_needs_input'
+      messageId: string
+      toolCallId: string
+      requestId: string
+      command?: string
+      outputContext?: string
+      inputHint?: string
+      inputClass: 'normal' | 'secret'
+      traceId?: string
+      scopedMessageId?: string
+    }
   | { kind: 'web_search_output_delta'; messageId: string; toolCallId: string; text: string; traceId?: string; scopedMessageId?: string }
   | {
       kind: 'web_search_sources_ready'

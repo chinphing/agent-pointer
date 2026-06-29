@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { defineAsyncComponent, onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import AppShell from './components/layout/AppShell.vue'
 import ChatView from './components/chat/ChatView.vue'
 import ComputerCompactBar from './components/chat/ComputerCompactBar.vue'
 import ChannelPairingModal from './components/channels/ChannelPairingModal.vue'
 import SettingsDialog from './components/settings/SettingsDialog.vue'
+import TerminalInputModal from './components/chat/TerminalInputModal.vue'
 import { useComputerCompactMode } from './composables/useComputerCompactMode'
 import { useChannelPairingPrompt } from './composables/useChannelPairingPrompt'
 import { useExternalSkillsImportPrompt } from './composables/useExternalSkillsImportPrompt'
@@ -23,6 +25,7 @@ const ExternalSkillsImportModal = defineAsyncComponent(
 )
 
 const chat = useChatStore()
+const { terminalInputRequest } = storeToRefs(chat)
 const platformAuth = usePlatformAuthStore()
 const settings = useSettingsStore()
 const skills = useSkillsStore()
@@ -129,5 +132,11 @@ watch(showSkills, open => {
     :importing="externalSkillsImporting"
     @dismiss="dismissExternalSkills"
     @import="ids => importExternalSkillsSelected(ids, () => skills.load({ rescan: true }))"
+  />
+
+  <TerminalInputModal
+    v-if="terminalInputRequest"
+    :request="terminalInputRequest"
+    @close="chat.dismissTerminalInputModal()"
   />
 </template>

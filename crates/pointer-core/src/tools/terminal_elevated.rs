@@ -1,6 +1,6 @@
 use super::terminal::{
     effective_terminal_cwd, parse_terminal_cwd, resolve_terminal_env_files, truncate_output,
-    TerminalStreamingResult,
+    InputClass, TerminalStreamingResult,
 };
 use crate::dotenv::build_terminal_child_environment;
 use anyhow::{anyhow, Result};
@@ -120,12 +120,19 @@ pub fn run_terminal_command_elevated(
         timed_out: inner.timed_out,
         cancelled: false,
         run_aborted: false,
+        elevation_denied: inner.elevation_denied,
+        needs_input_likely: false,
+        input_hint: None,
+        input_class: InputClass::Normal,
+        agent_retry_forbidden: false,
+        user_input_provided: false,
+        input_dismissed: false,
+        waited_for_input_ms: 0,
         duration_ms,
         stdout,
         stderr,
         stdout_truncated,
         stderr_truncated,
-        elevation_denied: inner.elevation_denied,
     })
 }
 
@@ -591,12 +598,19 @@ fn cancelled_result(duration_ms: u64) -> TerminalStreamingResult {
         timed_out: false,
         cancelled: true,
         run_aborted: false,
+        elevation_denied: false,
+        needs_input_likely: false,
+        input_hint: None,
+        input_class: InputClass::Normal,
+        agent_retry_forbidden: false,
+        user_input_provided: false,
+        input_dismissed: false,
+        waited_for_input_ms: 0,
         duration_ms,
         stdout: String::new(),
         stderr: String::new(),
         stdout_truncated: false,
         stderr_truncated: false,
-        elevation_denied: false,
     }
 }
 
@@ -607,12 +621,19 @@ fn aborted_result(duration_ms: u64) -> TerminalStreamingResult {
         timed_out: false,
         cancelled: false,
         run_aborted: true,
+        elevation_denied: false,
+        needs_input_likely: false,
+        input_hint: None,
+        input_class: InputClass::Normal,
+        agent_retry_forbidden: false,
+        user_input_provided: false,
+        input_dismissed: false,
+        waited_for_input_ms: 0,
         duration_ms,
         stdout: String::new(),
         stderr: String::new(),
         stdout_truncated: false,
         stderr_truncated: false,
-        elevation_denied: false,
     }
 }
 

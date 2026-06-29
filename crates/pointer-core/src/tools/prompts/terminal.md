@@ -15,6 +15,11 @@ schema:
     maxOutputBytes:
       type: integer
       minimum: 1
+    stdin:
+      type: string
+    waitForInputMs:
+      type: integer
+      minimum: 1000
     envFiles:
       oneOf:
         - type: string
@@ -93,7 +98,17 @@ Either limit can stop the process (**`timedOut`** in the result).
 - **`maxWallMs`** — wall clock from process start. Default **3600000**.
 
 Interactive waits (password, MFA, login) may be silent for minutes — raise both
-limits and tell the user what to do in chat.
+limits.
+
+#### Interactive input and secrets
+
+- Do not pass passwords or secrets in **`command`**, **`stdin`**, or tool args.
+- Prefer SSH keys; use **`BatchMode=yes`** when verifying key-only login.
+- **`stdin`**: non-sensitive one-shot input at spawn only (e.g. `y`, menu choice).
+- If **`agentRetryForbidden`**: true — do not retry with secrets; ask the user
+  to complete the in-app prompt or re-run.
+- If **`needsInputLikely`**: true — you may retry with non-interactive flags or
+  non-sensitive **`stdin`** only.
 
 #### Host stop
 
@@ -109,5 +124,7 @@ limits and tell the user what to do in chat.
 | **`timeoutMs`** | no | See **Timeouts** |
 | **`maxWallMs`** | no | See **Timeouts** |
 | **`maxOutputBytes`** | no | Per stream; default **20000**, max **200000** |
+| **`stdin`** | no | Non-sensitive one-shot stdin at spawn |
+| **`waitForInputMs`** | no | Max wait for in-app input after prompt detect |
 | **`envFiles`** | no | `.env` path or array |
 | **`elevated`** | no | Admin/root; see **Elevation** |

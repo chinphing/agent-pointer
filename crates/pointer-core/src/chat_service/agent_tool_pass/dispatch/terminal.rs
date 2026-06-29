@@ -1,11 +1,17 @@
 //! Terminal tool streaming execution.
 
 use crate::models::{StreamEvent, ToolCall};
+use crate::stream_broadcast::publish_stream;
 use crate::tools::file::ConversationWorkspaceGuard;
-use crate::tools::terminal::{run_terminal_command_streaming, terminal_stream_tool_status};
+use crate::tools::terminal::{
+    run_terminal_command_streaming, terminal_stream_tool_status, TerminalInputHooks,
+    TerminalInputResolution, TerminalNeedsInputPrompt,
+};
+use crate::tools::terminal::InputClass;
 use anyhow::anyhow;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use super::super::super::app_state::AppState;
@@ -45,6 +51,62 @@ fn resolve_terminal_session_workspace(conversation_id: &str, from_settings: Stri
     }
 }
 
+fn input_class_wire(class: InputClass) -> String {
+    match class {
+        InputClass::Normal => "normal".to_string(),
+        InputClass::Secret => "secret".to_string(),
+    }
+}
+
+fn run_terminal_input_bridge(
+    state: &AppState,
+    stream: &StreamTx,
+    msg_id_for_input: &str,
+    tc_id_for_input: &str,
+    trace_id_for_input: &Option<String>,
+    scoped_for_input: &Option<String>,
+    prompt_rx: std::sync::mpsc::Receiver<TerminalNeedsInputPrompt>,
+    res_tx: std::sync::mpsc::Sender<TerminalInputResolution>,
+) {
+    while let Ok(prompt) = prompt_rx.recv() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        state.register_terminal_input_wait(prompt.request_id.clone(), tx);
+        let input_class = input_class_wire(prompt.input_class);
+        publish_stream(
+            stream,
+            StreamEvent::TerminalNeedsInput {
+                message_id: msg_id_for_input.to_string(),
+                tool_call_id: tc_id_for_input.to_string(),
+                request_id: prompt.request_id.clone(),
+                command: prompt.command.clone(),
+                output_context: prompt.output_context.clone(),
+                input_hint: prompt.input_hint.clone(),
+                input_class,
+                trace_id: trace_id_for_input.clone(),
+                scoped_message_id: scoped_for_input.clone(),
+            },
+        );
+        log::info!(
+            "terminal: TerminalNeedsInput published request_id={} tool_call_id={}",
+            prompt.request_id,
+            tc_id_for_input
+        );
+        let res = match rx.recv_timeout(Duration::from_millis(prompt.wait_for_input_ms)) {
+            Ok(res) => res,
+            Err(_) => {
+                state
+                    .terminal_input_pending
+                    .lock()
+                    .remove(&prompt.request_id);
+                TerminalInputResolution::Dismiss
+            }
+        };
+        if res_tx.send(res).is_err() {
+            break;
+        }
+    }
+}
+
 pub(super) async fn run_terminal_tool(
     stream: &StreamTx,
     state: &AppState,
@@ -77,23 +139,59 @@ pub(super) async fn run_terminal_tool(
     let stream_for_terminal = stream.clone();
     let trace_id_for_terminal = trace_id_opt(trace_id.as_deref());
     let scoped_message_id_for_terminal = trace_id_opt(scoped_message_id.as_deref());
+
+    let state_ptr = state as *const AppState as usize;
+    let stream_ptr = stream as *const StreamTx as usize;
+    let msg_id_for_input = message_id.to_string();
+    let tc_id_for_input = tc.id.clone();
+    let trace_id_for_input = trace_id_for_terminal.clone();
+    let scoped_for_input = scoped_message_id_for_terminal.clone();
+
     let join = tokio::task::spawn_blocking(move || {
-        let _workspace_guard = ConversationWorkspaceGuard::enter(session_workspace.clone());
-        run_terminal_command_streaming(
-            args_value,
-            session_workspace,
-            move |output| {
-                let _ = stream_for_terminal.send(StreamEvent::TerminalOutputDelta {
-                    message_id: msg_id_for_stream.clone(),
-                    tool_call_id: tc_id_for_stream.clone(),
-                    output: output.to_string(),
-                    trace_id: trace_id_for_terminal.clone(),
-                    scoped_message_id: scoped_message_id_for_terminal.clone(),
-                });
-            },
-            Some(cancel_terminal),
-            Some(abort_flag),
-        )
+        let state = unsafe { &*(state_ptr as *const AppState) };
+        let stream = unsafe { &*(stream_ptr as *const StreamTx) };
+
+        let (prompt_tx, prompt_rx) = std::sync::mpsc::channel::<TerminalNeedsInputPrompt>();
+        let (res_tx, res_rx) = std::sync::mpsc::channel::<TerminalInputResolution>();
+
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                run_terminal_input_bridge(
+                    state,
+                    stream,
+                    &msg_id_for_input,
+                    &tc_id_for_input,
+                    &trace_id_for_input,
+                    &scoped_for_input,
+                    prompt_rx,
+                    res_tx,
+                );
+            });
+
+            let _workspace_guard = ConversationWorkspaceGuard::enter(session_workspace.clone());
+            run_terminal_command_streaming(
+                args_value,
+                session_workspace,
+                move |output| {
+                    publish_stream(
+                        &stream_for_terminal,
+                        StreamEvent::TerminalOutputDelta {
+                            message_id: msg_id_for_stream.clone(),
+                            tool_call_id: tc_id_for_stream.clone(),
+                            output: output.to_string(),
+                            trace_id: trace_id_for_terminal.clone(),
+                            scoped_message_id: scoped_message_id_for_terminal.clone(),
+                        },
+                    );
+                },
+                Some(cancel_terminal),
+                Some(abort_flag),
+                Some(TerminalInputHooks {
+                    prompt_tx,
+                    resolution_rx: res_rx,
+                }),
+            )
+        })
         .map(|r| {
             let (ok, err_note) = terminal_stream_tool_status(&r);
             let body = serde_json::json!({
@@ -103,6 +201,13 @@ pub(super) async fn run_terminal_tool(
                 "cancelled": r.cancelled,
                 "runAborted": r.run_aborted,
                 "elevationDenied": r.elevation_denied,
+                "needsInputLikely": r.needs_input_likely,
+                "inputHint": r.input_hint,
+                "inputClass": r.input_class,
+                "agentRetryForbidden": r.agent_retry_forbidden,
+                "userInputProvided": r.user_input_provided,
+                "inputDismissed": r.input_dismissed,
+                "waitedForInputMs": r.waited_for_input_ms,
                 "durationMs": r.duration_ms,
                 "stdout": r.stdout,
                 "stderr": r.stderr,

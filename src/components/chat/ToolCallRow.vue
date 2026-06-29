@@ -47,6 +47,7 @@ const showStatusLabel = computed(
     effectiveStatus.value === 'running'
     || effectiveStatus.value === 'pending_approval'
     || effectiveStatus.value === 'rejected'
+    || props.toolCall.waitingForInput === true
 )
 
 const showSuccessQuiet = computed(() => effectiveStatus.value === 'success')
@@ -210,6 +211,9 @@ const effectiveStatus = computed(() => {
 })
 
 const statusInfo = computed(() => {
+  if (props.toolCall.waitingForInput) {
+    return { label: '等待你的输入', color: 'text-warning' }
+  }
   switch (effectiveStatus.value) {
     case 'pending_approval': return { label: '等待确认', color: 'text-warning' }
     case 'running': return { label: '执行中', color: 'text-accent' }

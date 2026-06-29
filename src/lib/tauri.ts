@@ -63,6 +63,14 @@ export async function approveToolCall(
   await invoke('approve_tool_call', { toolCallId, approved })
 }
 
+export async function submitTerminalInput(requestId: string, text: string): Promise<void> {
+  await invoke('submit_terminal_input', { requestId, text })
+}
+
+export async function dismissTerminalInput(requestId: string): Promise<void> {
+  await invoke('dismiss_terminal_input', { requestId })
+}
+
 export async function getSettings(): Promise<EffectiveSettingsView> {
   return await invoke<EffectiveSettingsView>('get_settings')
 }

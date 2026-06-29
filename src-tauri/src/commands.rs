@@ -87,6 +87,31 @@ pub fn approve_tool_call(
 }
 
 #[tauri::command]
+pub fn submit_terminal_input(
+    state: State<'_, Arc<AppState>>,
+    request_id: String,
+    text: String,
+) -> Result<(), String> {
+    if state.submit_terminal_input(&request_id, text) {
+        Ok(())
+    } else {
+        Err("未找到待输入的终端请求".into())
+    }
+}
+
+#[tauri::command]
+pub fn dismiss_terminal_input(
+    state: State<'_, Arc<AppState>>,
+    request_id: String,
+) -> Result<(), String> {
+    if state.dismiss_terminal_input(&request_id) {
+        Ok(())
+    } else {
+        Err("未找到待输入的终端请求".into())
+    }
+}
+
+#[tauri::command]
 pub fn get_settings(state: State<'_, Arc<AppState>>) -> Result<EffectiveSettingsView, String> {
     Ok(state.effective_settings_view())
 }

@@ -91,6 +91,7 @@ export function createTerminalLiveManager(deps: {
     if (deps.popup.value) return
     const current = deps.resolveToolCall(messageId, toolCallId, traceId, scopedMessageId)
     if (!current || current.status !== 'running') return
+    if (current.waitingForInput) return
     if (!hasTerminalLiveOutput(current.terminalOutput)) return
     deps.popup.value = {
       messageId,

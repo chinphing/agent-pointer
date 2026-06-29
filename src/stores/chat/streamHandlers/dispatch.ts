@@ -34,6 +34,7 @@ import {
 import {
   handleTaskBoardUpdated,
   handleTerminalOutputDelta,
+  handleTerminalNeedsInput,
   handleToolCallArgsDelta,
   handleToolCallStart,
   handleToolCallStatus,
@@ -109,6 +110,9 @@ export function dispatchStreamEvent(ctx: StreamHandlerContext, e: StreamEvent): 
       break
     case 'terminal_output_delta':
       handleTerminalOutputDelta(ctx, e)
+      break
+    case 'terminal_needs_input':
+      handleTerminalNeedsInput(ctx, e)
       break
     case 'web_search_output_delta':
       handleWebSearchOutputDelta(ctx, e)

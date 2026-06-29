@@ -41,6 +41,7 @@ export function createMockStreamHandlerContext(
     conversations: conversationsRef,
     currentId: ref(null),
     computerMonitorPickRequest: ref(null),
+    terminalInputRequest: ref(null),
     ensureImConversation: noop,
     ensureCronStreamConversation: noop,
     findMessage: (messageId, preferConversationId) => {
@@ -71,6 +72,8 @@ export function createMockStreamHandlerContext(
     refreshTaskBoard: noopAsync,
     handleTerminalToolCallStatus: noop,
     syncTerminalLivePopupOutput: noop,
+    dismissTerminalLivePopup: noop,
+    clearTerminalInputRequest: noop,
     scheduleDesktopNoticeRemoval: noop,
     applySessionAgentToConversation: noop,
     loadActiveComposerDraft: noop,

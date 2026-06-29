@@ -163,6 +163,22 @@ pub enum StreamEvent {
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "scopedMessageId")]
         scoped_message_id: Option<String>,
     },
+    TerminalNeedsInput {
+        #[serde(rename = "messageId")]
+        message_id: String,
+        #[serde(rename = "toolCallId")]
+        tool_call_id: String,
+        #[serde(rename = "requestId")]
+        request_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "inputHint")]
+        input_hint: Option<String>,
+        #[serde(rename = "inputClass")]
+        input_class: String,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "traceId")]
+        trace_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "scopedMessageId")]
+        scoped_message_id: Option<String>,
+    },
     WebSearchOutputDelta {
         #[serde(rename = "messageId")]
         message_id: String,

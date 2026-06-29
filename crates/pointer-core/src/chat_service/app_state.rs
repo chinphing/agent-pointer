@@ -68,6 +68,9 @@ pub struct AppState {
     pub approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     /// Blocks `run_subagent` → computer until the UI confirms monitor selection.
     pub monitor_picks: Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
+    /// Pending terminal stdin submissions keyed by `request_id`.
+    pub terminal_input_pending:
+        Mutex<HashMap<String, std::sync::mpsc::Sender<crate::tools::terminal::TerminalInputResolution>>>,
     /// Active main-agent task board key per conversation.
     pub active_main_task_boards: Mutex<HashMap<String, String>>,
     /// Main task board anchor bindings: conversation -> (store_key -> user_message_id).
@@ -174,6 +177,7 @@ impl AppState {
             terminal_run_abort: Mutex::new(HashMap::new()),
             approvals: Mutex::new(HashMap::new()),
             monitor_picks: Mutex::new(HashMap::new()),
+            terminal_input_pending: Mutex::new(HashMap::new()),
             active_main_task_boards: Mutex::new(HashMap::new()),
             task_board_anchor_by_store_key: Mutex::new(HashMap::new()),
             last_activity_at: Mutex::new(Instant::now()),
@@ -292,6 +296,10 @@ impl AppState {
         for (_, tx) in monitor_picks {
             let _ = tx.send(Err("已停止生成".into()));
         }
+        let pending_inputs: Vec<_> = self.terminal_input_pending.lock().drain().collect();
+        for (_, tx) in pending_inputs {
+            let _ = tx.send(crate::tools::terminal::TerminalInputResolution::Cancelled);
+        }
     }
 
     /// Kill only the subprocess for the current **`terminal`** tool in this conversation.
@@ -328,6 +336,32 @@ impl AppState {
     pub fn cancel_computer_monitor_pick(&self, conversation_id: &str) -> bool {
         if let Some(tx) = self.monitor_picks.lock().remove(conversation_id) {
             let _ = tx.send(Err("屏幕选择已取消".into()));
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn register_terminal_input_wait(
+        &self,
+        request_id: String,
+        tx: std::sync::mpsc::Sender<crate::tools::terminal::TerminalInputResolution>,
+    ) {
+        self.terminal_input_pending.lock().insert(request_id, tx);
+    }
+
+    pub fn submit_terminal_input(&self, request_id: &str, text: String) -> bool {
+        if let Some(tx) = self.terminal_input_pending.lock().remove(request_id) {
+            let _ = tx.send(crate::tools::terminal::TerminalInputResolution::Submit(text));
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn dismiss_terminal_input(&self, request_id: &str) -> bool {
+        if let Some(tx) = self.terminal_input_pending.lock().remove(request_id) {
+            let _ = tx.send(crate::tools::terminal::TerminalInputResolution::Dismiss);
             true
         } else {
             false

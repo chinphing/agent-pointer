@@ -37,6 +37,7 @@ subtle = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
 tempfile = "3"
+portable-pty = "0.9"
 http = "1"
 globset = "0.4"
 grep-regex = "0.1"

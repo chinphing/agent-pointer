@@ -5,6 +5,7 @@ import type {
   ComputerMonitorPickRequest,
   Conversation,
   TaskBoardDocument,
+  TerminalInputRequest,
   ToolCall
 } from '../../../types/chat'
 
@@ -17,6 +18,7 @@ export interface StreamHandlerContext {
   conversations: Ref<Conversation[]>
   currentId: Ref<string | null>
   computerMonitorPickRequest: Ref<ComputerMonitorPickRequest | null>
+  terminalInputRequest: Ref<TerminalInputRequest | null>
 
   ensureImConversation(conversationId: string, title?: string): void
   ensureCronStreamConversation(conversationId: string): void
@@ -67,6 +69,8 @@ export interface StreamHandlerContext {
     traceId?: string,
     scopedMessageId?: string
   ): void
+  dismissTerminalLivePopup(): void
+  clearTerminalInputRequest(toolCallId: string): void
 
   scheduleDesktopNoticeRemoval(conversationId: string, messageId: string): void
   applySessionAgentToConversation(

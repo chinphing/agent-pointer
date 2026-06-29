@@ -299,6 +299,11 @@ async fn main() -> anyhow::Result<()> {
             axum::routing::patch(update_cron_job).delete(delete_cron_job),
         )
         .route("/api/tools/:tool_call_id/approve", post(approve_tool_call))
+        .route("/api/terminal-input/:request_id/submit", post(submit_terminal_input))
+        .route(
+            "/api/terminal-input/:request_id/dismiss",
+            post(dismiss_terminal_input),
+        )
         .route(
             "/webhooks/:channel/:account_id",
             post(channel_webhook).get(channel_webhook),
@@ -1796,6 +1801,34 @@ async fn approve_tool_call(
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(ApiError(anyhow::anyhow!("未找到待审批的工具调用")))
+    }
+}
+
+#[derive(Deserialize)]
+struct TerminalInputPayload {
+    text: String,
+}
+
+async fn submit_terminal_input(
+    State(state): State<ServerState>,
+    Path(request_id): Path<String>,
+    Json(payload): Json<TerminalInputPayload>,
+) -> Result<StatusCode, ApiError> {
+    if state.core.submit_terminal_input(&request_id, payload.text) {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError(anyhow::anyhow!("未找到待输入的终端请求")))
+    }
+}
+
+async fn dismiss_terminal_input(
+    State(state): State<ServerState>,
+    Path(request_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    if state.core.dismiss_terminal_input(&request_id) {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError(anyhow::anyhow!("未找到待输入的终端请求")))
     }
 }
 

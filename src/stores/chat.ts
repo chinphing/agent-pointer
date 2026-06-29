@@ -18,6 +18,7 @@ import type {
   ConversationMeta,
   ConversationMetaPage,
   StreamEvent,
+  TerminalInputRequest,
   ToolCall,
   TaskBoardDocument
 } from '../types/chat'
@@ -174,6 +175,7 @@ export const useChatStore = defineStore('chat', () => {
   const composerDraftHydrating = ref(false)
   /** Set when a computer sub-agent needs monitor selection before it can start. */
   const computerMonitorPickRequest = ref<ComputerMonitorPickRequest | null>(null)
+  const terminalInputRequest = ref<TerminalInputRequest | null>(null)
   const terminalLivePopup = ref<TerminalLivePopup | null>(null)
   let uiToastTimer: ReturnType<typeof setTimeout> | null = null
   let unlisten: (() => void) | null = null
@@ -1048,6 +1050,7 @@ export const useChatStore = defineStore('chat', () => {
       conversations,
       currentId,
       computerMonitorPickRequest,
+      terminalInputRequest,
       ensureImConversation,
       ensureCronStreamConversation,
       findMessage,
@@ -1066,6 +1069,8 @@ export const useChatStore = defineStore('chat', () => {
       refreshTaskBoard,
       handleTerminalToolCallStatus: terminalLive.handleToolCallStatus,
       syncTerminalLivePopupOutput: terminalLive.syncPopupOutput,
+      dismissTerminalLivePopup: () => terminalLive.dismiss(),
+      clearTerminalInputRequest,
       scheduleDesktopNoticeRemoval,
       applySessionAgentToConversation,
       loadActiveComposerDraft,
@@ -1250,6 +1255,18 @@ export const useChatStore = defineStore('chat', () => {
     computerMonitorPickRequest.value = null
   }
 
+  function clearTerminalInputRequest(toolCallId?: string) {
+    const req = terminalInputRequest.value
+    if (!req) return
+    if (!toolCallId || req.toolCallId === toolCallId) {
+      terminalInputRequest.value = null
+    }
+  }
+
+  function dismissTerminalInputModal() {
+    terminalInputRequest.value = null
+  }
+
   function dismissTerminalLivePopup() {
     terminalLive.dismiss()
   }
@@ -1270,6 +1287,7 @@ export const useChatStore = defineStore('chat', () => {
     composerText, composerAttachments, clearActiveComposer,
     getComposerDraft, setComposerDraft, clearComposerDraft,
     computerMonitorPickRequest, clearComputerMonitorPickRequest,
+    terminalInputRequest, dismissTerminalInputModal,
     terminalLivePopup, dismissTerminalLivePopup
   }
 })

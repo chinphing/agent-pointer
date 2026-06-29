@@ -19,6 +19,7 @@ function upsertToolCall(toolCalls: ToolCall[] | undefined, incoming: ToolCall): 
 type ToolCallArgsDelta = Extract<StreamEvent, { kind: 'tool_call_args_delta' }>
 type ToolCallStatus = Extract<StreamEvent, { kind: 'tool_call_status' }>
 type TerminalOutputDelta = Extract<StreamEvent, { kind: 'terminal_output_delta' }>
+type TerminalNeedsInput = Extract<StreamEvent, { kind: 'terminal_needs_input' }>
 type WebSearchOutputDelta = Extract<StreamEvent, { kind: 'web_search_output_delta' }>
 type WebSearchSourcesReady = Extract<StreamEvent, { kind: 'web_search_sources_ready' }>
 
@@ -66,6 +67,28 @@ export function handleToolCallArgsDelta(ctx: StreamHandlerContext, e: ToolCallAr
   if (tc) tc.arguments += e.argsDelta
 }
 
+function markToolCallWaitingForInput(
+  ctx: StreamHandlerContext,
+  messageId: string,
+  toolCallId: string,
+  waiting: boolean,
+  traceId?: string,
+  scopedMessageId?: string
+) {
+  const r = ctx.findMessage(messageId)
+  if (!r) return
+  const target = resolveStreamWriteMessage(r.conv, r.msg, traceId, scopedMessageId)
+  let tc: ToolCall | undefined
+  if (target) {
+    tc = findToolCallOnMessage(target, toolCallId)
+  } else if (traceId?.trim()) {
+    tc = ensureSubTrace(r.msg, traceId.trim()).session?.toolCalls?.find(t => t.id === toolCallId)
+  } else {
+    tc = findToolCallOnMessage(r.msg, toolCallId)
+  }
+  if (tc) tc.waitingForInput = waiting
+}
+
 export function handleToolCallStatus(ctx: StreamHandlerContext, e: ToolCallStatus) {
   const r = ctx.findMessage(e.messageId)
   if (!r) return
@@ -110,6 +133,42 @@ export function handleToolCallStatus(ctx: StreamHandlerContext, e: ToolCallStatu
     e.status,
     e.traceId,
     e.scopedMessageId
+  )
+  if (e.status !== 'running') {
+    markToolCallWaitingForInput(
+      ctx,
+      e.messageId,
+      e.toolCallId,
+      false,
+      e.traceId,
+      e.scopedMessageId
+    )
+    ctx.clearTerminalInputRequest(e.toolCallId)
+  }
+}
+
+export function handleTerminalNeedsInput(ctx: StreamHandlerContext, e: TerminalNeedsInput) {
+  ctx.dismissTerminalLivePopup()
+  markToolCallWaitingForInput(
+    ctx,
+    e.messageId,
+    e.toolCallId,
+    true,
+    e.traceId,
+    e.scopedMessageId
+  )
+  ctx.terminalInputRequest.value = {
+    requestId: e.requestId,
+    messageId: e.messageId,
+    toolCallId: e.toolCallId,
+    inputHint: e.inputHint,
+    inputClass: e.inputClass,
+    traceId: e.traceId,
+    scopedMessageId: e.scopedMessageId
+  }
+  ctx.showUiToast(
+    e.inputClass === 'secret' ? '终端命令需要密码，请在弹窗中输入' : '终端命令等待你的输入',
+    'warning'
   )
 }
 

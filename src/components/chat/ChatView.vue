@@ -85,7 +85,7 @@ const toastClass = computed(() => {
       </div>
     </Transition>
     <TerminalLiveOutputModal
-      v-if="terminalLivePopup"
+      v-if="terminalLivePopup && !chat.terminalInputRequest"
       :command="terminalLivePopup.command"
       :output="terminalLivePopup.output"
       @close="chat.dismissTerminalLivePopup()"

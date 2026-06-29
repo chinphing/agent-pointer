@@ -125,6 +125,19 @@ export async function approveToolCall(
   })
 }
 
+export async function submitTerminalInput(requestId: string, text: string): Promise<void> {
+  await request(`/api/terminal-input/${encodeURIComponent(requestId)}/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ text })
+  })
+}
+
+export async function dismissTerminalInput(requestId: string): Promise<void> {
+  await request(`/api/terminal-input/${encodeURIComponent(requestId)}/dismiss`, {
+    method: 'POST'
+  })
+}
+
 export async function getSettings(): Promise<EffectiveSettingsView> {
   return await request<EffectiveSettingsView>('/api/settings')
 }

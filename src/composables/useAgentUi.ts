@@ -6,16 +6,29 @@ import { useSettingsStore } from '../stores/settings'
 
 const agentsCache = ref<AgentDef[]>([])
 let loaded = false
+let loadPromise: Promise<AgentDef[]> | null = null
 
-export function useAgentsCatalog() {
-  onMounted(() => {
-    if (loaded) return
-    void listAgents()
+/** Single shared fetch; concurrent callers await the same in-flight request. */
+export function ensureAgentsCatalog(): Promise<AgentDef[]> {
+  if (loaded) return Promise.resolve(agentsCache.value)
+  if (!loadPromise) {
+    loadPromise = listAgents()
       .then(list => {
         agentsCache.value = list
         loaded = true
+        return list
       })
-      .catch(e => console.warn('[agents] list failed', e))
+      .catch(e => {
+        loadPromise = null
+        throw e
+      })
+  }
+  return loadPromise
+}
+
+export function useAgentsCatalog() {
+  onMounted(() => {
+    void ensureAgentsCatalog().catch(e => console.warn('[agents] list failed', e))
   })
   return agentsCache
 }

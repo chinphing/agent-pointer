@@ -2,6 +2,7 @@
 
 use axum::{
     body::Body,
+    extract::State,
     http::{header, HeaderMap, Request},
     middleware::Next,
     response::Response,
@@ -107,16 +108,10 @@ pub fn clear_session_cookie(headers: &mut HeaderMap, secure: bool) {
 }
 
 pub async fn web_session_middleware(
+    State(store): State<Arc<WebSessionStore>>,
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    let session_store = req
-        .extensions()
-        .get::<Arc<WebSessionStore>>()
-        .cloned();
-    let Some(store) = session_store else {
-        return next.run(req).await;
-    };
     store.purge_expired();
     let session_id = session_id_from_headers(req.headers());
     let Some(session_id) = session_id else {

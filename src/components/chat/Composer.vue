@@ -8,11 +8,11 @@ import { useSettingsStore } from '../../stores/settings'
 import PlatformLoginActions from '../auth/PlatformLoginActions.vue'
 import { resolveAgentUi, resolveLeadAgentUi, composerAgentLabel, RESEARCH_COMPOSER_UI_ENABLED } from '../../lib/agentUi'
 import { iconForAgent, sortComposerAgents, TEAM_MODE_UI_ENABLED } from '../../lib/agentIcons'
+import { useAgentsCatalog } from '../../composables/useAgentUi'
 import type { AgentDef, ComputerMonitor, ComputerMonitorPickRequest, ComposerAttachment } from '../../types/chat'
 import { DEFAULT_LEAD_AGENT_ID } from '../../types/chat'
 import {
   getMacosComputerPermissions,
-  listAgents,
   listComputerMonitors,
   readLocalFileForAttachment,
   setComputerConversationMonitor,
@@ -91,7 +91,7 @@ const workspaceInputRef = ref<HTMLInputElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const attachmentHint = ref<string | null>(null)
 
-const agents = ref<AgentDef[]>([])
+const agents = useAgentsCatalog()
 
 const sessionAgentMode = computed(() => chat.effectiveConversationAgentMode(chat.current))
 const sessionLeadAgentId = computed(() => chat.effectiveConversationLeadAgentId(chat.current))
@@ -205,13 +205,6 @@ function onPlatformLoginCancel() {
   void platformAuth.cancelLogin()
 }
 
-async function loadAgentsList() {
-  try {
-    agents.value = await listAgents()
-  } catch (e) {
-    console.error(e)
-  }
-}
 
 async function pickWorkspaceFolder() {
   if (!isTauriRuntime()) return
@@ -803,7 +796,6 @@ watch(composerText, () => {
 
 onMounted(() => {
   nextTick(autoResize)
-  loadAgentsList()
   if (!TEAM_MODE_UI_ENABLED && sessionAgentMode.value === 'supervisor') {
     chat.setConversationAgent(DEFAULT_LEAD_AGENT_ID, 'single')
   }

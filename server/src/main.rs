@@ -6,7 +6,7 @@ use axum::{
     response::sse::{Event, KeepAlive, Sse},
     response::{IntoResponse, Redirect, Response},
     routing::{delete, get, post, put},
-    Extension, Json, Router,
+    Json, Router,
 };
 use futures_util::Stream;
 use pointer_channels::{
@@ -356,8 +356,10 @@ async fn main() -> anyhow::Result<()> {
     let app = maybe_with_static_files(app, static_dir.clone())
         .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
         .layer(CorsLayer::permissive())
-        .layer(Extension(web_sessions))
-        .layer(middleware::from_fn(web_session::web_session_middleware))
+        .layer(middleware::from_fn_with_state(
+            web_sessions.clone(),
+            web_session::web_session_middleware,
+        ))
         .with_state(state);
 
     let addr: SocketAddr = std::env::var("POINTER_SERVER_ADDR")

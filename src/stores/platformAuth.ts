@@ -25,10 +25,16 @@ function formatPlatformAuthError(e: unknown): string {
   return msg
 }
 
-/** Desktop: actively refresh/restore from auth.dat. Web: stub session. */
+/** Desktop: refresh from auth.dat. Web: read session; after OAuth redirect, refresh to validate cookie. */
 async function resolvePlatformSession(): Promise<PlatformSessionView> {
   if (isTauriRuntime()) {
     return api.refreshPlatformSession()
+  }
+  if (typeof window !== 'undefined') {
+    const url = new URL(window.location.href)
+    if (url.searchParams.get('platform_login') === 'success') {
+      return api.refreshPlatformSession()
+    }
   }
   return api.getPlatformSession()
 }

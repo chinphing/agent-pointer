@@ -112,8 +112,26 @@ const isContentStreaming = computed(() => {
   )
 })
 
+/** JSON `thoughts`, or API `reasoning` in debug when Computer has no thoughts field. */
+const thoughtsPanelText = computed(() => {
+  const thoughts = props.body.thoughts?.trim()
+  if (thoughts) return thoughts
+  if (props.thoughtsDebugEnabled && props.messageUi.showReasoning) {
+    return props.body.reasoning?.trim() ?? ''
+  }
+  return ''
+})
+
+const reasoningShownInThoughtsPanel = computed(
+  () =>
+    props.thoughtsDebugEnabled &&
+    props.messageUi.showReasoning &&
+    !props.body.thoughts?.trim() &&
+    !!(props.body.reasoning?.trim())
+)
+
 const showThoughtsPanel = computed(() => {
-  const t = props.body.thoughts?.trim()
+  const t = thoughtsPanelText.value
   if (!t) return false
   if (isContentStreaming.value) return true
   return props.thoughtsDebugEnabled === true
@@ -204,8 +222,11 @@ const isRunInProgress = computed(
   () => isStreaming.value || (props.generating && props.isActiveGenerationMessage)
 )
 
-const showReasoningBlock = computed(() =>
-  props.messageUi.showReasoning && !!(props.body.reasoning?.trim())
+const showReasoningBlock = computed(
+  () =>
+    props.messageUi.showReasoning &&
+    !!(props.body.reasoning?.trim()) &&
+    !reasoningShownInThoughtsPanel.value
 )
 
 const reasoningDisplayText = computed(() => props.body.reasoning ?? '')
@@ -328,7 +349,7 @@ onUnmounted(() => clearReasoningCollapseTimer())
         <div v-if="hasMainBody" class="relative w-full break-words overflow-x-auto">
           <ModelThoughtPanels
             v-if="showThoughtPanels"
-            :xml-thoughts="body.thoughts"
+            :xml-thoughts="thoughtsPanelText"
             :thoughts-debug-enabled="thoughtsDebugEnabled"
             :is-streaming="isContentStreaming"
           />

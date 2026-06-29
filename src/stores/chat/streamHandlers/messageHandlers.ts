@@ -1,4 +1,5 @@
 import { enqueueReasoningDelta, flushReasoningDeltaBuffer } from '../../../lib/reasoningDeltaBatch'
+import { isPlannerPhaseThoughts } from '../../../lib/plannerPhase'
 import { maybeUpdateConversationTitle } from '../../../lib/conversationTitle'
 import { stripOutboundMediaMarkers } from '../../../lib/outboundMedia'
 import { toolCallBaseName } from '../../../lib/messageTooling'
@@ -24,7 +25,7 @@ function applyAssistantJsonPartialToMessage(msg: ChatMessage, e: AssistantJsonPa
   msg.status = 'streaming'
   if (e.thoughts != null) {
     if (e.thoughts.trim() !== '') msg.thoughts = e.thoughts
-    else delete msg.thoughts
+    else if (isPlannerPhaseThoughts(msg.thoughts)) delete msg.thoughts
   }
   if (e.toolName != null && e.toolName.trim() !== '') {
     msg.toolNamePreview = e.toolName
@@ -44,7 +45,7 @@ function applyAssistantJsonPartialLegacySession(
   session.contentStreaming = true
   if (e.thoughts != null) {
     if (e.thoughts.trim() !== '') session.thoughts = e.thoughts
-    else delete session.thoughts
+    else if (isPlannerPhaseThoughts(session.thoughts)) delete session.thoughts
   }
   if (e.toolName != null && e.toolName.trim() !== '') {
     session.toolNamePreview = e.toolName

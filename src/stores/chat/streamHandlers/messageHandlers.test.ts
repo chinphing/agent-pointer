@@ -56,7 +56,7 @@ describe('messageHandlers', () => {
     expect(patchRunState).not.toHaveBeenCalled()
   })
 
-  it('handleAssistantJsonPartial clears thoughts on empty string', () => {
+  it('handleAssistantJsonPartial clears planner placeholder on empty string', () => {
     const conv = sampleConversation()
     conv.messages.push({
       ...sampleAssistantMessage('a1'),
@@ -69,5 +69,20 @@ describe('messageHandlers', () => {
       thoughts: ''
     })
     expect(conv.messages[0].thoughts).toBeUndefined()
+  })
+
+  it('handleAssistantJsonPartial preserves real thoughts on empty string', () => {
+    const conv = sampleConversation()
+    conv.messages.push({
+      ...sampleAssistantMessage('a1'),
+      thoughts: 'Step result: pass\nNext: click search box'
+    })
+    const ctx = createMockStreamHandlerContext([conv])
+    handleAssistantJsonPartial(ctx, {
+      kind: 'assistant_json_partial',
+      messageId: 'a1',
+      thoughts: ''
+    })
+    expect(conv.messages[0].thoughts).toBe('Step result: pass\nNext: click search box')
   })
 })

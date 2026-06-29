@@ -89,15 +89,18 @@ export function useAssistantMessageDebug(
   )
 
   const showMessageActions = computed(() => {
-    if (generating.value && isActiveForMessage.value) return false
-    if (options.generating.value && options.isActiveGenerationMessage.value) return false
     if (message.value?.status === 'pending') return false
+    const activeRun =
+      (generating.value && isActiveForMessage.value) ||
+      (options.generating.value && options.isActiveGenerationMessage.value)
+    if (activeRun) {
+      // Debug screenshot preview should stay reachable while Computer is executing.
+      return showCamera.value
+    }
     return !isStreaming.value
   })
 
-  const showDebugActions = computed(
-    () => showMessageActions.value && showCamera.value
-  )
+  const showDebugActions = computed(() => showCamera.value && showMessageActions.value)
 
   watch(rawContentViewEnabled, on => {
     if (!on) showRawWire.value = false

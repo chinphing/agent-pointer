@@ -12,7 +12,7 @@ export function mergeDebugDisplayUi(
     ...ui,
     showSidecarToolCalls: ov?.showSidecarToolCalls ?? true,
     showToolCallResults: ov?.showToolCallResults ?? ui.showToolCallResults,
-    showReasoning: ov?.showReasoning ?? ui.showReasoning
+    showReasoning: ov?.showReasoning ?? true
   }
 }
 import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'

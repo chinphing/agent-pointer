@@ -79,9 +79,23 @@ const showFooter = computed(() => showMessageActions.value)
     </template>
   </MessageFooterActions>
 
-  <!-- Raw content toggle: fallback when footer hidden (e.g. streaming), still hover-dependent -->
-  <div v-if="!showFooter && showRawWireFooter" class="message-footer-actions flex items-center gap-1.5 px-3">
+  <!-- Debug actions fallback when footer hidden (e.g. streaming without screenshot path yet) -->
+  <div
+    v-if="!showFooter && (showCamera || showRawWireFooter)"
+    class="message-footer-actions flex items-center gap-1.5 px-3"
+  >
     <button
+      v-if="showCamera"
+      type="button"
+      class="message-action-btn text-muted hover:text-info disabled:opacity-40 disabled:cursor-wait"
+      :disabled="screenLoading"
+      title="查看本轮已注入模型的桌面截图（缓存）"
+      @click="openScreenPreview()"
+    >
+      <Camera class="w-3.5 h-3.5" />
+    </button>
+    <button
+      v-if="showRawWireFooter"
       type="button"
       class="message-action-btn"
       :class="showRawWire ? 'text-accent' : 'text-muted hover:text-foreground'"

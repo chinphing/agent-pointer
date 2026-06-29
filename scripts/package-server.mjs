@@ -45,15 +45,18 @@ function copyTree(src, dest) {
   fs.cpSync(src, dest, { recursive: true })
 }
 
-function createZip(sourceDir, zipPath) {
+function createZip(stagingRoot, zipPath) {
   fs.mkdirSync(path.dirname(zipPath), { recursive: true })
   if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath)
+
+  const innerDirName = 'pointer-server'
+  const innerPath = path.join(stagingRoot, innerDirName)
 
   if (process.platform === 'win32') {
     const ps = [
       '-NoProfile',
       '-Command',
-      `Compress-Archive -Path '${sourceDir.replace(/'/g, "''")}\\*' -DestinationPath '${zipPath.replace(/'/g, "''")}' -Force`,
+      `Compress-Archive -Path '${innerPath.replace(/'/g, "''")}' -DestinationPath '${zipPath.replace(/'/g, "''")}' -Force`,
     ]
     const result = spawnSync('powershell.exe', ps, { stdio: 'inherit' })
     if (result.status !== 0) {
@@ -69,8 +72,8 @@ function createZip(sourceDir, zipPath) {
     process.exit(1)
   }
 
-  const result = spawnSync('zip', ['-r', zipPath, '.'], {
-    cwd: sourceDir,
+  const result = spawnSync('zip', ['-r', zipPath, innerDirName], {
+    cwd: stagingRoot,
     stdio: 'inherit',
   })
   if (result.status !== 0) {
@@ -85,7 +88,7 @@ function main() {
   const bundleRoot = path.join(ROOT, 'target', 'release', 'pointer-server-bundle')
   const stagingRoot = path.join(bundleRoot, 'staging')
   const bundleName = `pointer-server-${platformTag()}`
-  const stagingDir = path.join(stagingRoot, bundleName)
+  const stagingDir = path.join(stagingRoot, 'pointer-server')
   const zipPath = path.join(bundleRoot, `${bundleName}.zip`)
 
   fs.rmSync(stagingRoot, { recursive: true, force: true })
@@ -101,19 +104,19 @@ function main() {
   syncServerDeployScripts(releaseDir)
   copyTree(SKILLS_DIR, path.join(releaseDir, 'skills'))
 
-  createZip(stagingDir, zipPath)
+  createZip(stagingRoot, zipPath)
   fs.rmSync(stagingRoot, { recursive: true, force: true })
 
   const sizeMb = (fs.statSync(zipPath).size / (1024 * 1024)).toFixed(1)
   console.log(`[package-server] Created ${zipPath} (${sizeMb} MiB)`)
-  console.log('[package-server] Bundle layout:')
-  console.log(`  ${BIN_NAME}`)
-  console.log('  dist/')
-  console.log('  skills/          (default bundled skills)')
-  console.log('  pointer-server.toml.example')
-  console.log('  start.sh / stop.sh / restart.sh / status.sh')
-  console.log('  start.ps1 / stop.ps1 / restart.ps1 / status.ps1 (Windows)')
-  console.log('[package-server] Deploy: unzip, copy pointer-server.toml.example → pointer-server.toml, then ./start.sh or .\\start.ps1')
+  console.log('[package-server] Bundle layout (inside pointer-server/):')
+  console.log(`  pointer-server/${BIN_NAME}`)
+  console.log('  pointer-server/dist/')
+  console.log('  pointer-server/skills/          (default bundled skills)')
+  console.log('  pointer-server/pointer-server.toml.example')
+  console.log('  pointer-server/start.sh / stop.sh / restart.sh / status.sh')
+  console.log('  pointer-server/start.ps1 / stop.ps1 / restart.ps1 / status.ps1 (Windows)')
+  console.log('[package-server] Deploy: unzip, cd pointer-server, copy pointer-server.toml.example → pointer-server.toml, then ./start.sh or .\\start.ps1')
 }
 
 main()

@@ -453,15 +453,16 @@ Windows（PowerShell）：
 
 ```text
 target/release/pointer-server-bundle/pointer-server-{platform}-{arch}.zip
-├── pointer-server[.exe]
-├── dist/
-├── skills/              # 内置默认技能（启动时同步到数据目录）
-├── pointer-server.toml.example
-├── start.sh / stop.sh / restart.sh / status.sh
-└── start.ps1 / stop.ps1 / restart.ps1 / status.ps1
+└── pointer-server/
+    ├── pointer-server[.exe]
+    ├── dist/
+    ├── skills/              # 内置默认技能（启动时同步到数据目录）
+    ├── pointer-server.toml.example
+    ├── start.sh / stop.sh / restart.sh / status.sh
+    └── start.ps1 / stop.ps1 / restart.ps1 / status.ps1
 ```
 
-解压后将 `pointer-server.toml.example` 复制为 `pointer-server.toml` 并按需修改，再启动二进制即可。
+解压后进入 `pointer-server/` 目录，将 `pointer-server.toml.example` 复制为 `pointer-server.toml` 并按需修改，再启动二进制即可。
 
 仅重新打包 zip（不重新编译）：
 

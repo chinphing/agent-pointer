@@ -112,6 +112,23 @@ pub fn scrub_secret_echo(text: &str, secret: &str) -> String {
         .join("\n")
 }
 
+const INPUT_CONTEXT_MAX_LINES: usize = 10;
+const INPUT_CONTEXT_MAX_CHARS: usize = 1200;
+
+/// Recent terminal output shown in the input modal so the user can see the prompt.
+pub fn input_context_snippet(combined_output: &str) -> Option<String> {
+    let cleaned = strip_ansi_escapes(combined_output).trim().to_string();
+    if cleaned.is_empty() {
+        return None;
+    }
+    let mut tail = tail_lines(&cleaned, INPUT_CONTEXT_MAX_LINES);
+    if tail.len() > INPUT_CONTEXT_MAX_CHARS {
+        let skip = tail.len().saturating_sub(INPUT_CONTEXT_MAX_CHARS);
+        tail = tail.chars().skip(skip).collect();
+    }
+    Some(tail)
+}
+
 fn tail_lines(text: &str, max_lines: usize) -> String {
     let lines: Vec<&str> = text.lines().collect();
     if lines.is_empty() {
@@ -221,6 +238,17 @@ pub fn proactive_pty_secret_prompt(command: &str, combined_output: &str, idle_ms
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn input_context_snippet_takes_tail() {
+        let text = (0..20)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let snippet = input_context_snippet(&text).unwrap();
+        assert!(snippet.contains("line 19"));
+        assert!(!snippet.contains("line 0"));
+    }
 
     #[test]
     fn detects_yes_no_prompt() {

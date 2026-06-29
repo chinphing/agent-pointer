@@ -170,6 +170,10 @@ pub enum StreamEvent {
         tool_call_id: String,
         #[serde(rename = "requestId")]
         request_id: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        command: String,
+        #[serde(default, skip_serializing_if = "Option::is_none", rename = "outputContext")]
+        output_context: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none", rename = "inputHint")]
         input_hint: Option<String>,
         #[serde(rename = "inputClass")]

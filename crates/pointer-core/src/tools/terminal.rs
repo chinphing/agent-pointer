@@ -7,7 +7,8 @@ use super::terminal_pty::{
 };
 use super::terminal_elevated::run_terminal_command_elevated;
 use super::terminal_prompt::{
-    agent_retry_forbidden, detect_prompt_state, proactive_pty_secret_prompt, scrub_secret_echo,
+    agent_retry_forbidden, detect_prompt_state, input_context_snippet,
+    proactive_pty_secret_prompt, scrub_secret_echo,
 };
 use super::{ToolEntry, ToolHandler, ToolRegistry};
 
@@ -49,6 +50,8 @@ const TERMINAL_MAX_WAIT_FOR_INPUT_MS: u64 = 600_000;
 #[serde(rename_all = "camelCase")]
 pub struct TerminalNeedsInputPrompt {
     pub request_id: String,
+    pub command: String,
+    pub output_context: Option<String>,
     pub input_hint: Option<String>,
     pub input_class: InputClass,
     pub wait_for_input_ms: u64,
@@ -437,8 +440,11 @@ pub fn run_terminal_command_streaming(
                     let wait_started = Instant::now();
                     let wait_deadline =
                         wait_started + Duration::from_millis(wait_for_input_ms);
+                    let combined = format!("{}{}", stdout_buf, stderr_buf);
                     let wait_prompt = TerminalNeedsInputPrompt {
                         request_id: uuid::Uuid::new_v4().to_string(),
+                        command: command.to_string(),
+                        output_context: input_context_snippet(&combined),
                         input_hint: Some("SSH password".to_string()),
                         input_class: InputClass::Secret,
                         wait_for_input_ms,
@@ -625,6 +631,8 @@ pub fn run_terminal_command_streaming(
                     let request_id = uuid::Uuid::new_v4().to_string();
                     let wait_prompt = TerminalNeedsInputPrompt {
                         request_id: request_id.clone(),
+                        command: command.to_string(),
+                        output_context: input_context_snippet(&combined),
                         input_hint: prompt.input_hint.clone(),
                         input_class: prompt.input_class,
                         wait_for_input_ms,

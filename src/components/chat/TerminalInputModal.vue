@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { KeyRound, Terminal, X } from 'lucide-vue-next'
 import { dismissTerminalInput, submitTerminalInput } from '../../lib/api'
 import type { TerminalInputRequest } from '../../types/chat'
@@ -18,11 +18,20 @@ const error = ref('')
 
 const isSecret = computed(() => props.request.inputClass === 'secret')
 const title = computed(() => (isSecret.value ? '需要密码' : '命令需要输入'))
-const hint = computed(
-  () =>
-    props.request.inputHint?.trim() ||
-    (isSecret.value ? '请输入 SSH / 远程登录密码' : '请输入命令需要的回复')
-)
+const commandText = computed(() => props.request.command?.trim() ?? '')
+const outputContext = computed(() => props.request.outputContext?.trim() ?? '')
+const showContext = computed(() => commandText.value.length > 0 || outputContext.value.length > 0)
+const outputEl = ref<HTMLElement | null>(null)
+
+function scrollOutputToBottom() {
+  const el = outputEl.value
+  if (!el) return
+  el.scrollTop = el.scrollHeight
+}
+
+watch(outputContext, () => {
+  void nextTick(scrollOutputToBottom)
+}, { immediate: true })
 
 async function submit() {
   const value = text.value
@@ -79,9 +88,9 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
       @click.self="dismiss()"
     >
       <div
-        class="relative flex w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border bg-[hsl(var(--card-elevated))] shadow-2xl"
+        class="relative flex w-full max-w-xl max-h-[min(90vh,640px)] flex-col overflow-hidden rounded-2xl border border-border bg-[hsl(var(--card-elevated))] shadow-2xl"
       >
-        <header class="flex items-start gap-3 border-b border-border px-5 py-4 pr-14">
+        <header class="flex shrink-0 items-start gap-3 border-b border-border px-5 py-4 pr-14">
           <div
             class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
             :class="isSecret ? 'bg-warning/15' : 'bg-accent/15'"
@@ -91,10 +100,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           </div>
           <div class="min-w-0 flex-1">
             <h2 class="text-base font-semibold text-foreground">{{ title }}</h2>
-            <p class="mt-1 text-[12px] leading-relaxed text-muted">{{ hint }}</p>
-            <p v-if="isSecret" class="mt-1 text-[11px] text-warning/90">
-              Agent 无法代填密码；取消后请重新运行该命令。
-            </p>
           </div>
           <button
             type="button"
@@ -106,6 +111,22 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             <X class="h-4 w-4" />
           </button>
         </header>
+
+        <div v-if="showContext" class="shrink-0 space-y-3 border-b border-border px-5 py-3">
+          <div v-if="commandText">
+            <p class="mb-1 text-[12px] text-muted">命令</p>
+            <pre
+              class="max-h-20 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-background/80 px-3 py-2 font-mono text-[12px] leading-relaxed text-foreground"
+            >{{ commandText }}</pre>
+          </div>
+          <div v-if="outputContext">
+            <p class="mb-1 text-[12px] text-muted">终端输出</p>
+            <pre
+              ref="outputEl"
+              class="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-background/80 px-3 py-2 font-mono text-[12px] leading-relaxed text-foreground"
+            >{{ outputContext }}</pre>
+          </div>
+        </div>
 
         <div class="space-y-3 px-5 py-4">
           <input

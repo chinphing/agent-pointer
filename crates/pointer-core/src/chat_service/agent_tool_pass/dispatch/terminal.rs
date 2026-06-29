@@ -78,6 +78,8 @@ fn run_terminal_input_bridge(
                 message_id: msg_id_for_input.to_string(),
                 tool_call_id: tc_id_for_input.to_string(),
                 request_id: prompt.request_id.clone(),
+                command: prompt.command.clone(),
+                output_context: prompt.output_context.clone(),
                 input_hint: prompt.input_hint.clone(),
                 input_class,
                 trace_id: trace_id_for_input.clone(),

@@ -1,5 +1,6 @@
 import { resolveStreamWriteMessage } from '../../../lib/subAgentMessages'
 import { ensureSubTrace, ensureSubTraceSession, recordSubToolSuccess } from '../../../lib/subAgentSession'
+import { formatTerminalOutputContext } from '../../../lib/terminalOutputContext'
 import type { StreamEvent, TaskBoardDocument, ToolCall } from '../../../types/chat'
 import type { StreamHandlerContext } from './types'
 
@@ -25,6 +26,61 @@ type WebSearchSourcesReady = Extract<StreamEvent, { kind: 'web_search_sources_re
 
 function findToolCallOnMessage(msg: { toolCalls?: ToolCall[] }, toolCallId: string): ToolCall | undefined {
   return msg.toolCalls?.find(t => t.id === toolCallId)
+}
+
+function resolveToolCallForStream(
+  ctx: StreamHandlerContext,
+  messageId: string,
+  toolCallId: string,
+  traceId?: string,
+  scopedMessageId?: string
+): ToolCall | undefined {
+  const r = ctx.findMessage(messageId)
+  if (!r) return undefined
+  const target = resolveStreamWriteMessage(r.conv, r.msg, traceId, scopedMessageId)
+  if (target) {
+    return findToolCallOnMessage(target, toolCallId)
+  }
+  if (traceId?.trim()) {
+    return ensureSubTrace(r.msg, traceId.trim()).session?.toolCalls?.find(t => t.id === toolCallId)
+  }
+  return findToolCallOnMessage(r.msg, toolCallId)
+}
+
+function terminalInputRequestMatches(
+  req: { messageId: string; toolCallId: string; traceId?: string; scopedMessageId?: string },
+  messageId: string,
+  toolCallId: string,
+  traceId?: string,
+  scopedMessageId?: string
+): boolean {
+  if (req.messageId !== messageId || req.toolCallId !== toolCallId) return false
+  if (req.traceId?.trim() && traceId?.trim() && req.traceId.trim() !== traceId.trim()) return false
+  if (
+    req.scopedMessageId?.trim()
+    && scopedMessageId?.trim()
+    && req.scopedMessageId.trim() !== scopedMessageId.trim()
+  ) {
+    return false
+  }
+  return true
+}
+
+function syncTerminalInputOutputContext(
+  ctx: StreamHandlerContext,
+  messageId: string,
+  toolCallId: string,
+  traceId?: string,
+  scopedMessageId?: string
+) {
+  const req = ctx.terminalInputRequest.value
+  if (!req || !terminalInputRequestMatches(req, messageId, toolCallId, traceId, scopedMessageId)) {
+    return
+  }
+  const tc = resolveToolCallForStream(ctx, messageId, toolCallId, traceId, scopedMessageId)
+  const outputContext = formatTerminalOutputContext(tc?.terminalOutput ?? '')
+  if (outputContext === req.outputContext) return
+  ctx.terminalInputRequest.value = { ...req, outputContext }
 }
 
 export function handleToolCallStart(ctx: StreamHandlerContext, e: ToolCallStart) {
@@ -161,11 +217,14 @@ export function handleTerminalNeedsInput(ctx: StreamHandlerContext, e: TerminalN
     requestId: e.requestId,
     messageId: e.messageId,
     toolCallId: e.toolCallId,
+    command: e.command?.trim() || undefined,
+    outputContext: e.outputContext?.trim() || undefined,
     inputHint: e.inputHint,
     inputClass: e.inputClass,
     traceId: e.traceId,
     scopedMessageId: e.scopedMessageId
   }
+  syncTerminalInputOutputContext(ctx, e.messageId, e.toolCallId, e.traceId, e.scopedMessageId)
   ctx.showUiToast(
     e.inputClass === 'secret' ? '终端命令需要密码，请在弹窗中输入' : '终端命令等待你的输入',
     'warning'
@@ -188,6 +247,7 @@ export function handleTerminalOutputDelta(ctx: StreamHandlerContext, e: Terminal
     if (tc) tc.terminalOutput = (tc.terminalOutput || '') + e.output
   }
   ctx.syncTerminalLivePopupOutput(e.messageId, e.toolCallId, e.traceId, e.scopedMessageId)
+  syncTerminalInputOutputContext(ctx, e.messageId, e.toolCallId, e.traceId, e.scopedMessageId)
 }
 
 export function handleWebSearchOutputDelta(ctx: StreamHandlerContext, e: WebSearchOutputDelta) {

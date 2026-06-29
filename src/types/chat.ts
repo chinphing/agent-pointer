@@ -681,6 +681,8 @@ export interface TerminalInputRequest {
   requestId: string
   messageId: string
   toolCallId: string
+  command?: string
+  outputContext?: string
   inputHint?: string
   inputClass: 'normal' | 'secret'
   traceId?: string
@@ -746,6 +748,8 @@ export type StreamEvent =
       messageId: string
       toolCallId: string
       requestId: string
+      command?: string
+      outputContext?: string
       inputHint?: string
       inputClass: 'normal' | 'secret'
       traceId?: string

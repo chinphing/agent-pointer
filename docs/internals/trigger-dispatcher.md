@@ -99,7 +99,7 @@ Malformed JSON → **400**；空 body → **422**；超限 → **413**。
 | `agentMode` | 全局设置 | 本次 run 模式（如 `single` / `supervisor`），传入 `run_chat`。 |
 | `leadAgentId` | 全局设置 | 本次主 Agent id（如 `general`），传入 `run_chat`。 |
 | `idempotencyKey` | 无 | 幂等键；`runs` 表命中则返回已有 `runId`（`reused`），不重复执行。适合 GitHub 重试 delivery。 |
-| `enabledSkillIds` | `[]` | 本次启用的 Skill id 列表；空则走 session/全局 Skill 逻辑。 |
+| `enabledSkillIds` | `[]` | 本次启用的 Skill id 列表。Webhook 仍按 body 传入；**IM / Cron** 未传时使用 `user_settings.json` 的 `enabledSkillIds`。 |
 | `workspaceRoot` | 空 | 本次工作区根路径；空则按 session 默认 workspace 解析（与聊天一致）。 |
 | `blocking` | `false` | `true` 时 HTTP 同步等待 run 结束并返回 assistant 文本；`false` 时 202 异步 ack。 |
 | `timeoutSeconds` | `120` | 仅 `blocking: true` 有效；等待上限（秒），最大 600；超时 504。 |
@@ -196,7 +196,7 @@ Repository Webhook → Payload URL `https://host/api/webhooks/github`，Secret �
 ## Cron 调度器
 
 - `cron_jobs` 表（schema v8）：`id / label / cron_expr / conversation_id / prompt_text / agent_mode / lead_agent_id / enabled / last_run_at_ms / next_run_at_ms / created_at_ms`。
-- ticker 每 60s 轮询 `cron_jobs_list_due`，对每个到期任务 `dispatch` 一个 `TriggerRequest`（`trigger_source = Cron`，幂等键 `cron:{id}:{scheduled_ms}`），再 `mark_ran` 推进 `next_run_at_ms`。
+- ticker 每 60s 轮询 `cron_jobs_list_due`，对每个到期任务 `dispatch` 一个 `TriggerRequest`（`trigger_source = Cron`，幂等键 `cron:{id}:{scheduled_ms}`），再 `mark_ran` 推进 `next_run_at_ms`。`enabledSkillIds` 取 `user_settings.json` 全局启用列表（与 UI 技能库一致）。
 - cron 表达式用 `cron` crate（`Schedule::from_str`，6 字段含秒）。
 - **时区约定**：cron 字段（时/日/月…）按**用户本地时区**解释——`next_run_ms` / `mark_ran` / `set_enabled` / `next_run_ms_now` 一律传入 `chrono::Local::now()`（`cron::Schedule::after` 用 `after.timezone()` 解释字段，故 "9 点" = 本地 9 点）。所有时间戳列（`next_run_at_ms` / `last_run_at_ms` / `created_at_ms`）存的是**与时区无关的 UTC 毫秒瞬时**；前端用 `new Date(ms).toLocaleString()` 渲染为本地时间。新增任何「按字段解释 cron」的入口都必须传 `Local`，不要传 `Utc`。
 - 启用策略：**server（web）与 desktop（Tauri）均默认开**（`POINTER_SCHEDULER_ENABLED=0` 可关）。
@@ -230,6 +230,6 @@ openclaw 的 cron 会话用 `daily` 重置模式、`atHour = 4`（本地凌晨 4
 
 ## 已知范围与后续
 
-- **IM 入站**仍直连 `run_chat`（`pointer-channels/src/dispatch.rs`），未走 dispatcher。IM 已是事件驱动路径，且其 reply 收集依赖直接消费 `StreamEvent` 流；改走 dispatcher 需重写为消费 `AgentEvent`，收益低、回归风险高，暂缓。
+- **IM 入站**仍直连 `run_chat`（`pointer-channels/src/dispatch.rs`），未走 dispatcher。IM 已是事件驱动路径，且其 reply 收集依赖直接消费 `StreamEvent` 流；改走 dispatcher 需重写为消费 `AgentEvent`，收益低、回归风险高，暂缓。`enabledSkillIds` 取 `user_settings.json` 全局启用列表。
 - **内部后台任务**（curator LLM pass、memory review）是定制 LLM 调用，不走 `run_chat`，与 dispatcher 的会话回合契约不匹配，故未迁移；`dispatch_internal` 供未来「会话回合型」内部触发使用。
 - `pre/post_tool_call` 发射点未接入。

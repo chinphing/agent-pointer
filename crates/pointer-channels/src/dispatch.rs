@@ -357,12 +357,13 @@ impl DispatchService {
             conv_id.clone(),
         );
 
+        let enabled_skill_ids = state.default_run_enabled_skill_ids();
         let run = run_chat(
             tx.clone(),
             state,
             desktop_conv_id.clone(),
             history,
-            vec![],
+            enabled_skill_ids,
             request_agent_mode(&im_session),
             lead_agent_override(&im_session),
             0,

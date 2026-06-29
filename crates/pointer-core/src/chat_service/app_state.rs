@@ -213,6 +213,11 @@ impl AppState {
         storage::load_user_settings().unwrap_or_default()
     }
 
+    /// Globally enabled skill ids for automated runs (IM, cron) that omit an explicit list.
+    pub fn default_run_enabled_skill_ids(&self) -> Vec<String> {
+        self.load_user_settings().enabled_skill_ids
+    }
+
     pub fn save_user_settings(&self, user: &UserSettings) -> anyhow::Result<()> {
         storage::save_user_settings(user)
     }

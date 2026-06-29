@@ -65,6 +65,8 @@
 
 前端发消息时：仅当 `agentMode === 'single'` 且 `leadAgentId === 'general'` 才传 `enabledSkillIds`。
 
+**IM 渠道与 Cron 定时任务**：不传显式列表时，使用 `user_settings.json` 的 `enabledSkillIds`（与 UI 全局启用一致；新用户默认全开内置 skill）。仍须 lead 为 `general` 且单智能体模式才会注入 skill。
+
 ## 内置技能
 
 仓库 `skills/` 随应用打包；启动时同步到 **`{data_dir}/PointerApp/skills/`** 并登记 manifest。

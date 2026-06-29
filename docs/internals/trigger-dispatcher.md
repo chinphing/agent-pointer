@@ -103,8 +103,59 @@ Malformed JSON → **400**；空 body → **422**；超限 → **413**。
 | `workspaceRoot` | 空 | 本次工作区根路径；空则按 session 默认 workspace 解析（与聊天一致）。 |
 | `blocking` | `false` | `true` 时 HTTP 同步等待 run 结束并返回 assistant 文本；`false` 时 202 异步 ack。 |
 | `timeoutSeconds` | `120` | 仅 `blocking: true` 有效；等待上限（秒），最大 600；超时 504。 |
+| `attachments` | 无 | 与 `text` / `message` 同轮 user 消息的附件列表（`MediaAttachment`）。**推荐**引用 upload 返回的 `storageRelPath`；仅极小文件可用 `contentBase64`（见下「大小限制」）。 |
 
 实现类型：`crates/pointer-core/src/webhook_ingress.rs`（`WebhookIngressBody`）；ingress 接线：`server/src/main.rs::webhook_ingress`。
+
+### 附件上传（multipart）
+
+#### 大小限制（三档，勿混用）
+
+| 通道 | 上限 | 说明 |
+|------|------|------|
+| `POST /api/webhooks/:src` **整包 JSON** | **256 KiB** | 含 `text`、`attachments` 等所有字段；**最先**触达的上限 |
+| 同上 JSON 内 `contentBase64`（解码后） | 6 MiB | 代码层单附件校验；在 256 KiB 整包限制下**实际达不到** |
+| `POST /api/webhooks/:src/upload` **multipart** | **30 MiB** | 与 IM 入站一致；大文件**必须**走此路径 |
+
+**实践建议**：inline `contentBase64` 只适合百 KiB 级小文件（Base64 膨胀约 +33%，还要扣 JSON 字段开销）。约 **≥ 200 KiB** 或需稳定传文件时，一律 **先 upload、再 JSON 引用 `storageRelPath`**。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/webhooks/:src/upload` | 鉴权同 ingress；`multipart/form-data`：`file`（必填）、`fileName`（可选，亦可取自 part 文件名）、`mimeType`（可选）、`conversationId`（可选，默认当日 webhook session） |
+| POST | `/api/webhooks/:src` | JSON：`text` + `attachments[]` 引用 upload 返回的 `storageRelPath` |
+
+upload 响应示例：
+
+```json
+{
+  "conversationId": "webhook:ci:20260629",
+  "attachmentId": "wh-…",
+  "storageRelPath": "webhook_ci_20260629/wh-…_report.pdf",
+  "kind": "document",
+  "mimeType": "application/pdf",
+  "fileName": "report.pdf",
+  "sizeBytes": 12345
+}
+```
+
+典型流程：
+
+```bash
+# 1. 上传
+curl -X POST "https://host/api/webhooks/ci/upload" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@./report.pdf"
+
+# 2. 触发 Agent（引用 storageRelPath）
+curl -X POST "https://host/api/webhooks/ci" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"请分析附件","attachments":[{"id":"wh-…","kind":"document","mimeType":"application/pdf","fileName":"report.pdf","storageRelPath":"webhook_ci_20260629/wh-…_report.pdf"}]}'
+```
+
+`storageRelPath` 必须属于当前 webhook 会话目录。
+
+实现：`crates/pointer-core/src/webhook_attachment.rs`；HTTP：`server/src/main.rs::webhook_upload`。
 
 ### 会话与 dispatch
 

@@ -73,6 +73,19 @@ fn file_name_from_ref(rel: &str, local_abs_path: Option<&str>) -> String {
         .to_string()
 }
 
+/// Infer attachment `kind` from a file name extension.
+pub fn infer_attachment_kind(file_name: &str) -> String {
+    kind_from_file_name(file_name)
+}
+
+/// Infer MIME type from file name, with optional caller hint.
+pub fn infer_attachment_mime(file_name: &str, mime_hint: Option<&str>) -> String {
+    if let Some(m) = mime_hint.map(str::trim).filter(|s| !s.is_empty()) {
+        return m.to_string();
+    }
+    mime_from_file_name(file_name)
+}
+
 fn kind_from_file_name(file_name: &str) -> String {
     let ext = Path::new(file_name)
         .extension()

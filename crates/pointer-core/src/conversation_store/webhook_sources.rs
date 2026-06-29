@@ -92,9 +92,10 @@ pub fn auth_header_name(conn: &Connection, src: &str) -> Result<Option<String>> 
         .query_row(
             "SELECT auth_header_name FROM webhook_sources WHERE src = ?1",
             params![src],
-            |row| row.get(0),
+            |row| row.get::<_, Option<String>>(0),
         )
-        .optional()?)
+        .optional()?
+        .flatten())
 }
 
 fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WebhookSourceRecord> {
@@ -259,5 +260,12 @@ mod tests {
         let day2 = Local.with_ymd_and_hms(2026, 6, 29, 10, 0, 0).single().unwrap();
         let id2 = resolve_ingress_session_id(&conn, "github", &day2, true).unwrap();
         assert_eq!(id2, "webhook:github:20260629");
+    }
+
+    #[test]
+    fn auth_header_name_null_when_unset() {
+        let conn = mem();
+        ensure_row(&conn, "ci", 1).unwrap();
+        assert_eq!(auth_header_name(&conn, "ci").unwrap(), None);
     }
 }

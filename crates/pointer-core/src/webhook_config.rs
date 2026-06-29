@@ -321,6 +321,60 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.ct_eq(b).into()
 }
 
+/// Rejection reason for webhook ingress / upload handlers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WebhookIngressAuthError {
+    InvalidSrc(String),
+    NotConfigured,
+    Unauthorized,
+}
+
+impl std::fmt::Display for WebhookIngressAuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidSrc(msg) => f.write_str(msg),
+            Self::NotConfigured => {
+                f.write_str("webhook ingress disabled: no token configured for this source")
+            }
+            Self::Unauthorized => f.write_str("unauthorized"),
+        }
+    }
+}
+
+impl std::error::Error for WebhookIngressAuthError {}
+
+/// Verify webhook bearer token for `:src` and return the normalized source id.
+pub fn authorize_webhook_ingress(
+    store: &WebhookTokenStore<'_>,
+    src: &str,
+    headers: &http::HeaderMap,
+) -> Result<String, WebhookIngressAuthError> {
+    let normalized_src = WebhookTokenStore::normalize_src(src)
+        .map_err(|e| WebhookIngressAuthError::InvalidSrc(e.to_string()))?;
+    let configured = store
+        .resolve_for_source(&normalized_src)
+        .map_err(|e| WebhookIngressAuthError::InvalidSrc(e.to_string()))?
+        .is_some();
+    if !configured {
+        log::warn!("webhook ingress rejected: no token configured (src={normalized_src})");
+        return Err(WebhookIngressAuthError::NotConfigured);
+    }
+    let auth_header_name = store
+        .auth_header_name_for_source(&normalized_src)
+        .map_err(|e| WebhookIngressAuthError::InvalidSrc(e.to_string()))?;
+    let provided = extract_webhook_token(headers, auth_header_name.as_deref());
+    let ok = store
+        .verify_for_source(&normalized_src, provided)
+        .map_err(|e| WebhookIngressAuthError::InvalidSrc(e.to_string()))?;
+    if !ok {
+        log::warn!(
+            "webhook ingress rejected: bad bearer token (src={normalized_src} header={auth_header_name:?})"
+        );
+        return Err(WebhookIngressAuthError::Unauthorized);
+    }
+    Ok(normalized_src)
+}
+
 /// Extract webhook token from request headers.
 /// When `auth_header_name` is set, only that header is read (raw value).
 /// Otherwise accepts `Authorization: Bearer` or `X-Pointer-Token`.

@@ -10,7 +10,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::conversation_store::ConversationStore;
-use crate::models::{ChatMessage, Role};
+use crate::models::{ChatMessage, MediaAttachment, Role};
+use crate::webhook_attachment::validate_webhook_attachments;
 
 /// Max raw body size for webhook ingress (including raw-body fallback).
 pub const MAX_WEBHOOK_BODY_BYTES: usize = 256 * 1024;
@@ -26,6 +27,9 @@ pub struct WebhookIngressBody {
     /// Optional label prefix (OpenClaw `name`), e.g. `"GitHub"` → `[GitHub] …`.
     pub name: Option<String>,
     pub messages: Option<Vec<ChatMessage>>,
+    /// User attachments for the inbound turn (`text` / `message` path).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<Vec<MediaAttachment>>,
     pub agent_mode: Option<String>,
     pub lead_agent_id: Option<String>,
     pub idempotency_key: Option<String>,
@@ -54,6 +58,7 @@ pub struct WebhookInboundTurn {
     pub message: Option<String>,
     pub name: Option<String>,
     pub messages: Option<Vec<ChatMessage>>,
+    pub attachments: Option<Vec<MediaAttachment>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,6 +112,7 @@ pub fn parse_webhook_body(raw: &[u8], src: &str) -> Result<WebhookIngressPayload
             message: None,
             name,
             messages: None,
+            attachments: None,
         },
         used_raw_body_fallback: true,
     })
@@ -124,6 +130,7 @@ fn parse_json_webhook_body(value: &Value, src: &str) -> Result<WebhookIngressPay
                 message: body.message.clone(),
                 name: body.name.clone(),
                 messages: body.messages.clone(),
+                attachments: body.attachments.clone(),
             },
             body,
             used_raw_body_fallback: false,
@@ -150,6 +157,7 @@ fn parse_json_webhook_body(value: &Value, src: &str) -> Result<WebhookIngressPay
             message: None,
             name,
             messages: None,
+            attachments: None,
         },
         body,
         used_raw_body_fallback: true,
@@ -170,6 +178,10 @@ fn has_structured_message(body: &WebhookIngressBody) -> bool {
             .messages
             .as_ref()
             .is_some_and(|messages| !messages.is_empty())
+        || body
+            .attachments
+            .as_ref()
+            .is_some_and(|attachments| !attachments.is_empty())
 }
 
 /// Build the message history passed to `RunDispatcher` for one webhook ingress.
@@ -179,6 +191,11 @@ pub fn build_webhook_dispatch_messages(
     inbound: &WebhookInboundTurn,
 ) -> Result<Vec<ChatMessage>> {
     if let Some(msgs) = inbound.messages.as_ref().filter(|m| !m.is_empty()) {
+        for msg in msgs {
+            if let Some(atts) = msg.attachments.as_ref().filter(|a| !a.is_empty()) {
+                validate_webhook_attachments(conversation_id, atts)?;
+            }
+        }
         if is_full_history_override(msgs) {
             return Ok(msgs.clone());
         }
@@ -189,7 +206,11 @@ pub fn build_webhook_dispatch_messages(
 
     let raw = resolve_inbound_text(inbound)?;
     let content = apply_name_prefix(inbound.name.as_deref(), &raw);
-    let user_msg = ChatMessage::user_text(content);
+    let mut user_msg = ChatMessage::user_text(content);
+    if let Some(atts) = inbound.attachments.as_ref().filter(|a| !a.is_empty()) {
+        validate_webhook_attachments(conversation_id, atts)?;
+        user_msg.attachments = Some(atts.clone());
+    }
     let mut history = store.load_messages(conversation_id).unwrap_or_default();
     history.push(user_msg);
     Ok(history)
@@ -205,14 +226,20 @@ fn resolve_inbound_text(inbound: &WebhookInboundTurn) -> Result<String> {
         .text
         .as_deref()
         .or(inbound.message.as_deref())
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
-    match text {
-        Some(s) => Ok(s.to_string()),
-        None => Err(anyhow!(
-            "webhook body must contain `text`, `message`, or `messages`"
-        )),
+        .map(str::trim);
+    if let Some(s) = text.filter(|s| !s.is_empty()) {
+        return Ok(s.to_string());
     }
+    if inbound
+        .attachments
+        .as_ref()
+        .is_some_and(|a| !a.is_empty())
+    {
+        return Ok(String::new());
+    }
+    Err(anyhow!(
+        "webhook body must contain `text`, `message`, `messages`, or `attachments`"
+    ))
 }
 
 fn apply_name_prefix(name: Option<&str>, text: &str) -> String {
@@ -307,5 +334,49 @@ mod tests {
         let raw = br#"{"text":"","ref":"refs/heads/main"}"#;
         let parsed = parse_webhook_body(raw, "github").unwrap();
         assert!(parsed.used_raw_body_fallback);
+    }
+
+    #[test]
+    fn text_with_attachments_metadata() {
+        let raw = br#"{
+            "text":"see file",
+            "attachments":[{
+                "id":"a1",
+                "kind":"document",
+                "mimeType":"text/plain",
+                "fileName":"note.txt",
+                "contentBase64":"aGVsbG8="
+            }]
+        }"#;
+        let parsed = parse_webhook_body(raw, "ci").unwrap();
+        assert!(!parsed.used_raw_body_fallback);
+        let atts = parsed.inbound.attachments.as_ref().unwrap();
+        assert_eq!(atts.len(), 1);
+        let s = store();
+        let conv = "webhook:ci:20260629";
+        let msgs = build_webhook_dispatch_messages(&s, conv, &parsed.inbound).unwrap();
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].content, "see file");
+        assert_eq!(msgs[0].attachments.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn attachments_only_without_text() {
+        let raw = br#"{
+            "attachments":[{
+                "id":"a1",
+                "kind":"document",
+                "mimeType":"text/plain",
+                "fileName":"note.txt",
+                "contentBase64":"aGVsbG8="
+            }]
+        }"#;
+        let parsed = parse_webhook_body(raw, "ci").unwrap();
+        assert!(!parsed.used_raw_body_fallback);
+        let s = store();
+        let conv = "webhook:ci:20260629";
+        let msgs = build_webhook_dispatch_messages(&s, conv, &parsed.inbound).unwrap();
+        assert_eq!(msgs[0].content, "");
+        assert!(msgs[0].attachments.as_ref().is_some());
     }
 }

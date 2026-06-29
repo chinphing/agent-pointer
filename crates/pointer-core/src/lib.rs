@@ -23,6 +23,7 @@ pub mod conversation_transcript;
 pub mod dispatcher;
 pub mod scheduler;
 pub mod webhook_config;
+pub mod webhook_attachment;
 pub mod webhook_ingress;
 pub mod webhook_result;
 pub mod memory;

@@ -276,6 +276,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/runs/:run_id", get(get_run))
         .route("/api/runs/:run_id/events", get(run_events))
         .route("/api/runs/:run_id/cancel", post(cancel_run))
+        .route(
+            "/api/webhooks/:src/upload",
+            post(webhook_upload).layer(DefaultBodyLimit::max(
+                pointer_core::webhook_attachment::MAX_WEBHOOK_UPLOAD_BYTES + 1024,
+            )),
+        )
         .route("/api/webhooks/:src", post(webhook_ingress))
         .route(
             "/api/webhooks/config",
@@ -1343,6 +1349,147 @@ async fn finish_webhook_blocking(
     }
 }
 
+/// Map webhook auth failures to HTTP status + message.
+fn webhook_auth_status(err: pointer_core::webhook_config::WebhookIngressAuthError) -> (StatusCode, String) {
+    use pointer_core::webhook_config::WebhookIngressAuthError;
+    match err {
+        WebhookIngressAuthError::InvalidSrc(msg) => (StatusCode::BAD_REQUEST, msg),
+        WebhookIngressAuthError::NotConfigured => (
+            StatusCode::UNAUTHORIZED,
+            err.to_string(),
+        ),
+        WebhookIngressAuthError::Unauthorized => (StatusCode::UNAUTHORIZED, err.to_string()),
+    }
+}
+
+/// `POST /api/webhooks/:src/upload` — multipart file upload for webhook attachments.
+/// Auth matches [`webhook_ingress`]. Returns attachment metadata to reference from
+/// a subsequent `POST /api/webhooks/:src` JSON body (`attachments[].storageRelPath`).
+async fn webhook_upload(
+    State(state): State<ServerState>,
+    Path(src): Path<String>,
+    headers: axum::http::HeaderMap,
+    mut multipart: Multipart,
+) -> Result<axum::response::Response, ApiError> {
+    let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
+    let normalized_src = match pointer_core::webhook_config::authorize_webhook_ingress(
+        &store,
+        &src,
+        &headers,
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            let (status, msg) = webhook_auth_status(e);
+            return Ok(status_text(status, msg));
+        }
+    };
+
+    let mut conversation_id: Option<String> = None;
+    let mut file_name = String::new();
+    let mut mime_type: Option<String> = None;
+    let mut file_bytes: Option<Vec<u8>> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError(anyhow::anyhow!("multipart: {e}")))?
+    {
+        match field.name() {
+            Some("conversationId") => {
+                conversation_id = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|e| ApiError(anyhow::anyhow!("conversationId: {e}")))?
+                        .trim()
+                        .to_string(),
+                );
+            }
+            Some("fileName") => {
+                file_name = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError(anyhow::anyhow!("fileName: {e}")))?
+                    .trim()
+                    .to_string();
+            }
+            Some("mimeType") => {
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError(anyhow::anyhow!("mimeType: {e}")))?
+                    .trim()
+                    .to_string();
+                if !v.is_empty() {
+                    mime_type = Some(v);
+                }
+            }
+            Some("file") => {
+                if file_name.is_empty() {
+                    if let Some(name) = field.file_name().map(str::to_string) {
+                        file_name = name;
+                    }
+                }
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|e| ApiError(anyhow::anyhow!("file bytes: {e}")))?;
+                file_bytes = Some(bytes.to_vec());
+            }
+            _ => {}
+        }
+    }
+
+    let bytes = file_bytes.ok_or_else(|| {
+        ApiError(anyhow::anyhow!("multipart field `file` required"))
+    })?;
+    if file_name.is_empty() {
+        return Ok(status_text(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "fileName required (field or multipart filename)",
+        ));
+    }
+
+    let conversation_id = match conversation_id.filter(|s| !s.trim().is_empty()) {
+        Some(id) => id,
+        None => state
+            .core
+            .session_index
+            .resolve_webhook_ingress_session(&normalized_src)
+            .map_err(ApiError::from)?,
+    };
+
+    let saved = match pointer_core::webhook_attachment::save_webhook_upload(
+        &conversation_id,
+        &file_name,
+        mime_type.as_deref(),
+        &bytes,
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            let msg = e.to_string();
+            let status = if msg.contains("too large") {
+                StatusCode::PAYLOAD_TOO_LARGE
+            } else {
+                StatusCode::UNPROCESSABLE_ENTITY
+            };
+            log::warn!("webhook upload rejected (src={normalized_src}): {msg}");
+            return Ok(status_text(status, msg));
+        }
+    };
+
+    Ok(Json(serde_json::json!({
+        "conversationId": conversation_id,
+        "attachmentId": saved.attachment_id,
+        "storageRelPath": saved.storage_rel_path,
+        "kind": saved.kind,
+        "mimeType": saved.mime_type,
+        "fileName": saved.file_name,
+        "sizeBytes": saved.size_bytes,
+    }))
+    .into_response())
+}
+
 /// `POST /api/webhooks/:src` — generic authenticated webhook ingress. The
 /// `:src` path segment labels the webhook source (recorded in trigger_meta).
 /// Auth: `Authorization: Bearer <token>` or `X-Pointer-Token: <token>`.
@@ -1356,35 +1503,17 @@ async fn webhook_ingress(
     body: Bytes,
 ) -> Result<axum::response::Response, ApiError> {
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
-    let normalized_src = match pointer_core::webhook_config::WebhookTokenStore::normalize_src(&src)
-    {
+    let normalized_src = match pointer_core::webhook_config::authorize_webhook_ingress(
+        &store,
+        &src,
+        &headers,
+    ) {
         Ok(s) => s,
         Err(e) => {
-            return Ok(status_text(StatusCode::BAD_REQUEST, e.to_string()));
+            let (status, msg) = webhook_auth_status(e);
+            return Ok(status_text(status, msg));
         }
     };
-    let configured = store
-        .resolve_for_source(&normalized_src)
-        .map_err(ApiError::from)?
-        .is_some();
-    if !configured {
-        log::warn!("webhook ingress rejected: no token configured (src={normalized_src})");
-        return Ok(status_text(
-            StatusCode::UNAUTHORIZED,
-            "webhook ingress disabled: no token configured for this source",
-        ));
-    }
-    let auth_header_name = store
-        .auth_header_name_for_source(&normalized_src)
-        .map_err(ApiError::from)?;
-    let provided = pointer_core::webhook_config::extract_webhook_token(&headers, auth_header_name.as_deref());
-    let ok = store
-        .verify_for_source(&normalized_src, provided)
-        .map_err(ApiError::from)?;
-    if !ok {
-        log::warn!("webhook ingress rejected: bad bearer token (src={normalized_src} header={auth_header_name:?})");
-        return Ok(status_text(StatusCode::UNAUTHORIZED, "unauthorized"));
-    }
 
     let parsed = match pointer_core::webhook_ingress::parse_webhook_body(&body, &normalized_src) {
         Ok(p) => p,
@@ -1429,7 +1558,7 @@ async fn webhook_ingress(
         Ok(m) if m.is_empty() => {
             return Ok(status_text(
                 StatusCode::UNPROCESSABLE_ENTITY,
-                "webhook body must contain `text`, `message`, or `messages`",
+                "webhook body must contain `text`, `message`, `messages`, or `attachments`",
             ));
         }
         Ok(m) => m,

@@ -1304,9 +1304,23 @@ export const useChatStore = defineStore('chat', () => {
     terminalLive.dismiss()
   }
 
+  function resetForPlatformLogout() {
+    conversations.value = []
+    currentId.value = null
+    nextCursor.value = null
+    hydratedIds.value = new Set()
+    messagesLoadingIds.value = new Set()
+    dirtyMetaIds.value = new Set()
+    composerDraftByConvId.value = {}
+    clearActiveComposer()
+    clearAllRunStates()
+    taskBoards.value = {}
+    newConversation()
+  }
+
   return {
     conversations, currentId, current, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, uiToast, taskBoards,
-    init, newConversation, openCronConversation, openWebhookConversation, selectConversation, deleteConversation,
+    init, resetForPlatformLogout, newConversation, openCronConversation, openWebhookConversation, selectConversation, deleteConversation,
     loadMoreConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,
     sendUserMessage, stop, abortTerminalOnly, approve,

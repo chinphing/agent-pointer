@@ -23,6 +23,10 @@ static_dir = "dist"
 # Visitors without that cookie see logged-out state. After upgrading, delete
 # any legacy auth.dat under the data dir so old global sessions are not reused
 # by the desktop-style code path on other entrypoints.
+#
+# Conversation history (GET /api/conversations*) requires a logged-in browser
+# session. Unauthenticated visitors see an empty sidebar until they sign in.
+# The Tauri desktop app is unchanged (local auth.dat + IPC).
 
 [openpointer]
 api_base = "https://pointer-api.readflowai.com"

@@ -72,6 +72,17 @@ onMounted(() => {
       }
     })
     .catch(e => console.error('[app boot]', e))
+
+  if (!isDesktopApp) {
+    watch(
+      () => platformAuth.session.logged_in,
+      (loggedIn, wasLoggedIn) => {
+        if (wasLoggedIn && !loggedIn) {
+          chat.resetForPlatformLogout()
+        }
+      }
+    )
+  }
 })
 
 function onOpenSkillsFromSettings() {

@@ -959,7 +959,18 @@ async fn cancel_computer_monitor_pick(
     }
 }
 
-async fn load_conversations() -> Result<Json<Vec<Conversation>>, ApiError> {
+/// pointer-server web: conversation history requires a logged-in browser session.
+fn require_platform_login(state: &ServerState) -> Result<(), ApiError> {
+    if state.core.active_platform_auth().session_view().logged_in {
+        return Ok(());
+    }
+    Err(ApiError(anyhow::anyhow!("platform_login_required")))
+}
+
+async fn load_conversations(
+    State(state): State<ServerState>,
+) -> Result<Json<Vec<Conversation>>, ApiError> {
+    require_platform_login(&state)?;
     Ok(Json(storage::load_conversations()?))
 }
 
@@ -977,8 +988,10 @@ struct ConversationMetasQuery {
 /// Sort order: `(updated_at_ms DESC, id DESC)`. Pass `cursor_updated_at` +
 /// `cursor_id` from the last row of the previous page to fetch the next.
 async fn load_conversation_metas(
+    State(state): State<ServerState>,
     Query(q): Query<ConversationMetasQuery>,
 ) -> Result<Json<Vec<pointer_core::models::ConversationMeta>>, ApiError> {
+    require_platform_login(&state)?;
     let limit = q.limit.unwrap_or(50);
     let cursor = match (q.cursor_updated_at, q.cursor_id) {
         (Some(ts), Some(id)) => Some((ts, id)),
@@ -1007,8 +1020,10 @@ async fn load_conversation_metas(
 /// conversation, ordered by `position ASC`. Replaces the legacy web pattern of
 /// re-fetching every conversation and filtering client-side.
 async fn load_conversation_messages_handler(
+    State(state): State<ServerState>,
     Path(conversation_id): Path<String>,
 ) -> Result<Json<Vec<pointer_core::models::ChatMessage>>, ApiError> {
+    require_platform_login(&state)?;
     let messages = storage::load_conversation_messages(&conversation_id)?;
     log::info!(
         "server: load_conversation_messages conversation_id={} returned {} rows",
@@ -2462,7 +2477,11 @@ impl From<anyhow::Error> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        (StatusCode::INTERNAL_SERVER_ERROR, self.0.to_string()).into_response()
+        let msg = self.0.to_string();
+        if msg.contains("platform_login_required") {
+            return (StatusCode::UNAUTHORIZED, msg).into_response();
+        }
+        (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
     }
 }
 

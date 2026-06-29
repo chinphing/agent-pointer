@@ -1067,29 +1067,29 @@ async fn send_chat(
     State(state): State<ServerState>,
     Json(payload): Json<SendChatPayload>,
 ) -> Result<StatusCode, ApiError> {
-    let dispatcher = state.dispatcher.clone();
-    tokio::spawn(async move {
-        let req = TriggerRequest {
-            run_id: None,
-            idempotency_key: None,
-            conversation_id: Some(payload.conversation_id),
-            trigger_source: TriggerSource::HttpRuns,
-            trigger_meta: TriggerMeta::empty(),
-            lane: None,
-            messages: payload.messages,
-            enabled_skill_ids: payload.enabled_skill_ids,
-            agent_mode: payload.agent_mode,
-            lead_agent_id: payload.lead_agent_id,
-            tool_rounds_used_single_start: payload.tool_rounds_used,
-            tool_rounds_used_supervisor_start: payload.tool_rounds_used_supervisor,
-            workspace_root: payload.workspace_root,
-            workspace_inherit_disabled: payload.workspace_inherit_disabled,
-            deliver: DeliverTarget::None,
-        };
-        if let Err(e) = dispatcher.dispatch(req).await {
-            log::error!("send_chat: dispatch failed: {e:#}");
-        }
-    });
+    let web_session_auth =
+        pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth);
+    let req = TriggerRequest {
+        run_id: None,
+        idempotency_key: None,
+        conversation_id: Some(payload.conversation_id),
+        trigger_source: TriggerSource::HttpRuns,
+        trigger_meta: TriggerMeta::empty(),
+        lane: None,
+        messages: payload.messages,
+        enabled_skill_ids: payload.enabled_skill_ids,
+        agent_mode: payload.agent_mode,
+        lead_agent_id: payload.lead_agent_id,
+        tool_rounds_used_single_start: payload.tool_rounds_used,
+        tool_rounds_used_supervisor_start: payload.tool_rounds_used_supervisor,
+        workspace_root: payload.workspace_root,
+        workspace_inherit_disabled: payload.workspace_inherit_disabled,
+        deliver: DeliverTarget::None,
+        web_session_auth,
+    };
+    if let Err(e) = state.dispatcher.dispatch(req).await {
+        log::error!("send_chat: dispatch failed: {e:#}");
+    }
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -1107,6 +1107,8 @@ async fn create_run(
     body.trigger_source = TriggerSource::HttpRuns;
     body.trigger_meta.webhook_source = None;
     body.deliver = DeliverTarget::None;
+    body.web_session_auth =
+        pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth);
     let handle = state.dispatcher.dispatch(body).await.map_err(ApiError::from)?;
     log::info!(
         "runs-api: accepted run_id={} conv={} status={:?}",
@@ -1633,6 +1635,7 @@ async fn webhook_ingress(
         workspace_root: body.workspace_root,
         workspace_inherit_disabled: None,
         deliver: DeliverTarget::None,
+        web_session_auth: None,
     };
 
     let handle = state.dispatcher.dispatch(req).await.map_err(ApiError::from)?;

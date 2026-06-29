@@ -291,6 +291,7 @@ mod tests {
             workspace_root: String::new(),
             workspace_inherit_disabled: None,
             deliver: crate::dispatcher::trigger::DeliverTarget::None,
+            web_session_auth: None,
         }
     }
 

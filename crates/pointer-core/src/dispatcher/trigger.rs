@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::models::ChatMessage;
+use crate::web_request_auth::WebSessionAuth;
 
 /// Origin of a run. Used for observability logs, hook filtering, and the
 /// `runs` table `trigger_source` column. Keep variants in sync with the
@@ -149,6 +150,9 @@ pub struct TriggerRequest {
     pub workspace_inherit_disabled: Option<bool>,
     #[serde(default)]
     pub deliver: DeliverTarget,
+    /// Per-browser OAuth session for pointer-server HTTP runs (not serialized).
+    #[serde(skip, default)]
+    pub web_session_auth: Option<WebSessionAuth>,
 }
 
 /// Immediate response from [`crate::dispatcher::RunDispatcher::dispatch`].

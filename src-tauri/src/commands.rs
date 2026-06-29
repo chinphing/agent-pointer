@@ -39,6 +39,7 @@ pub(crate) fn trigger_request_from_payload(payload: SendChatPayload) -> TriggerR
         workspace_root: payload.workspace_root,
         workspace_inherit_disabled: payload.workspace_inherit_disabled,
         deliver: DeliverTarget::None,
+        web_session_auth: None,
     }
 }
 

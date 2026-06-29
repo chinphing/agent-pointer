@@ -238,6 +238,7 @@ impl Scheduler {
             workspace_root: String::new(),
             workspace_inherit_disabled: None,
             deliver: DeliverTarget::None,
+            web_session_auth: None,
         };
         match self.dispatcher.dispatch(req).await {
             Ok(handle) => log::info!(

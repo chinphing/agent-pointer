@@ -266,9 +266,12 @@ impl RunDispatcher {
         let lane_log = lane.clone();
         let run_id_task = run_id.clone();
         let conv_id_task = conversation_id.clone();
+        let web_session_auth = req.web_session_auth.clone();
         tokio::spawn(async move {
-            this.run_runner(req, run_id_task, conv_id_task, cancel)
-                .await;
+            crate::web_request_auth::run_with_optional_web_session(web_session_auth, || async move {
+                this.run_runner(req, run_id_task, conv_id_task, cancel).await
+            })
+            .await;
         });
 
         log::info!(
@@ -634,6 +637,7 @@ impl RunDispatcher {
             workspace_root: String::new(),
             workspace_inherit_disabled: None,
             deliver: DeliverTarget::None,
+            web_session_auth: None,
         };
         self.dispatch(req).await
     }

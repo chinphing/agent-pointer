@@ -1288,7 +1288,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    conversations, currentId, current, isCurrentConversationHydrating, generating, activeGeneratingMessageId, uiToast, taskBoards,
+    conversations, currentId, current, isCurrentConversationHydrating, generating, activeGeneratingMessageId, isConversationGenerating, uiToast, taskBoards,
     init, newConversation, openCronConversation, openWebhookConversation, selectConversation, deleteConversation,
     loadMoreConversations, loadingMoreConversations, hasMoreConversations,
     ensureMessagesLoaded,

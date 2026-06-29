@@ -5,6 +5,7 @@ import {
   Search,
   Settings,
   MessageSquare,
+  Loader2,
   Trash2,
   Check,
   X,
@@ -262,7 +263,13 @@ watch(searchQuery, () => { pendingDeleteId.value = null })
                 : 'hover:bg-hover border-transparent'"
               @click="onRowClick(c)"
             >
+              <Loader2
+                v-if="chat.isConversationGenerating(c.id)"
+                class="w-3.5 h-3.5 shrink-0 animate-spin"
+                :class="c.id === chat.currentId ? 'text-accent' : 'text-muted'"
+              />
               <MessageSquare
+                v-else
                 class="w-3.5 h-3.5 shrink-0"
                 :class="c.id === chat.currentId ? 'text-accent' : 'text-muted'"
               />

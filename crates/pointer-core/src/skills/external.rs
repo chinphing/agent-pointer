@@ -252,6 +252,56 @@ pub fn sync_bundled_skill_dirs(sources: &[PathBuf]) -> Result<Vec<String>> {
     Ok(installed)
 }
 
+/// Bundled skill source directories for pointer-server deploy (zip / exe-adjacent `skills/`).
+pub fn resolve_deploy_bundled_skill_sources() -> Vec<PathBuf> {
+    let mut sources = Vec::new();
+    let mut seen = HashSet::new();
+
+    let mut push_dir = |path: PathBuf| {
+        if !path.is_dir() {
+            return;
+        }
+        let key = path.canonicalize().unwrap_or(path.clone());
+        if seen.insert(key) {
+            sources.push(path);
+        }
+    };
+
+    if let Ok(raw) = std::env::var("POINTER_SERVER_SKILLS_DIR") {
+        push_dir(PathBuf::from(raw.trim()));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            push_dir(parent.join("skills"));
+            push_dir(parent.join("../../skills"));
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        push_dir(cwd.join("skills"));
+    }
+
+    sources
+}
+
+/// Sync default bundled skills into `{data_dir}/PointerApp/skills/` before registry load.
+pub fn install_deploy_bundled_skills() -> Result<()> {
+    let sources = resolve_deploy_bundled_skill_sources();
+    if sources.is_empty() {
+        log::warn!("bundled skills: no source directory found (expected skills/ beside pointer-server)");
+        return Ok(());
+    }
+    let installed = sync_bundled_skill_dirs(&sources)?;
+    if installed.is_empty() {
+        log::info!(
+            "bundled skills: all present under {}",
+            system_skills_dir()?.display()
+        );
+    } else {
+        log::info!("bundled skills: installed {:?}", installed);
+    }
+    Ok(())
+}
+
 fn copy_dir_recursive(source: &Path, target: &Path) -> Result<()> {
     fs::create_dir_all(target)?;
     for entry in fs::read_dir(source)? {

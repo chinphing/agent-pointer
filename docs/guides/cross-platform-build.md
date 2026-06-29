@@ -422,8 +422,51 @@ cargo build -p pointer-server --release    # target/release/pointer-server
 **前后端一体化**（推荐：单进程同时提供 API + Web UI）：
 
 ```bash
-npm run server:build    # 同域前端 + release 二进制
-npm run server:start    # 或 ./target/release/pointer-server
+npm run server:build    # 同域前端 + release 二进制 + 部署 zip
+npm run server:start    # 前台运行（开发/调试）
+npm run server:daemon   # 后台守护进程（生产，同步脚本到 target/release）
+npm run server:stop     # 停止守护进程
+npm run server:restart  # 重启守护进程
+npm run server:status   # 查看运行状态
+# 或直接 ./target/release/pointer-server
+```
+
+解压部署包后，也可在二进制同目录使用脚本（无需 Node.js）：
+
+```bash
+./start.sh      # Linux / macOS
+./stop.sh
+./restart.sh
+./status.sh
+```
+
+Windows（PowerShell）：
+
+```powershell
+.\start.ps1
+.\stop.ps1
+.\restart.ps1
+.\status.ps1
+```
+
+`server:build` 完成后会生成部署包：
+
+```text
+target/release/pointer-server-bundle/pointer-server-{platform}-{arch}.zip
+├── pointer-server[.exe]
+├── dist/
+├── skills/              # 内置默认技能（启动时同步到数据目录）
+├── pointer-server.toml.example
+├── start.sh / stop.sh / restart.sh / status.sh
+└── start.ps1 / stop.ps1 / restart.ps1 / status.ps1
+```
+
+解压后将 `pointer-server.toml.example` 复制为 `pointer-server.toml` 并按需修改，再启动二进制即可。
+
+仅重新打包 zip（不重新编译）：
+
+```bash
+npm run server:package
 ```
 
 浏览器打开 `http://127.0.0.1:8787` 即可（API 与页面同端口）。

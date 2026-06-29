@@ -111,6 +111,10 @@ async fn main() -> anyhow::Result<()> {
     }
     pointer_core::tls::ensure_rustls_crypto_provider();
 
+    if let Err(err) = pointer_core::skills::external::install_deploy_bundled_skills() {
+        log::warn!("bundled skills install failed: {err:#}");
+    }
+
     let core = Arc::new(AppState::new());
     core.start_background_tasks();
     match core.platform_auth.load_persisted_session().await {

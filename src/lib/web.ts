@@ -461,24 +461,64 @@ export async function loadPlatformSessionFromKeyring(): Promise<boolean> {
 }
 
 export async function onStream(handler: (e: StreamEvent) => void, conversationId = 'global'): Promise<() => void> {
-  let source: EventSource | null = null
   let stopped = false
+  let abort: AbortController | null = null
 
-  const connect = () => {
+  const parseSseChunk = (chunk: string) => {
+    let eventName = 'message'
+    const dataLines: string[] = []
+    for (const line of chunk.split('\n')) {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).trimStart())
+      }
+    }
+    if (eventName !== 'message' || dataLines.length === 0) return
+    const payload = dataLines.join('\n')
+    if (!payload) return
+    handler(JSON.parse(payload) as StreamEvent)
+  }
+
+  const connect = async () => {
     if (stopped) return
-    source = new EventSource(`${WEB_API_BASE}/api/chat/${encodeURIComponent(conversationId)}/stream`)
-    source.onmessage = ev => handler(JSON.parse(ev.data) as StreamEvent)
-    source.onerror = () => {
-      source?.close()
-      source = null
-      if (!stopped) window.setTimeout(connect, 1000)
+    abort = new AbortController()
+    try {
+      const res = await fetch(
+        `${WEB_API_BASE}/api/chat/${encodeURIComponent(conversationId)}/stream`,
+        {
+          credentials: 'include',
+          signal: abort.signal,
+          headers: { Accept: 'text/event-stream' }
+        }
+      )
+      if (!res.ok || !res.body) {
+        throw new Error(`stream ${res.status}`)
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (!stopped) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() ?? ''
+        for (const part of parts) {
+          if (part.trim()) parseSseChunk(part)
+        }
+      }
+    } catch (e) {
+      if (stopped || (e instanceof DOMException && e.name === 'AbortError')) return
+      await new Promise(resolve => window.setTimeout(resolve, 1000))
+      if (!stopped) void connect()
     }
   }
 
-  connect()
+  void connect()
   return () => {
     stopped = true
-    source?.close()
+    abort?.abort()
   }
 }
 

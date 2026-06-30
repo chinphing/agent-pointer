@@ -181,6 +181,11 @@ pub fn merge_platform_preferences(incoming: &ModelSettings, existing: &PlatformS
             }
         }
     }
+    // DaTi config is server/build-time only; web clients never send these fields.
+    next.dati_api_url = existing.dati_api_url.clone();
+    next.dati_authcode = existing.dati_authcode.clone();
+    next.dati_typeno = existing.dati_typeno.clone();
+    next.dati_author = existing.dati_author.clone();
     next
 }
 
@@ -487,6 +492,21 @@ mod tests {
         assert_eq!(loaded.tool_approval_mode, platform.tool_approval_mode);
         assert_eq!(loaded.model, PlatformSettings::default().model);
         assert!(loaded.providers.iter().all(|p| p.api_key.is_empty()));
+    }
+
+    #[test]
+    fn merge_platform_preferences_preserves_dati_fields() {
+        let mut existing = PlatformSettings::default();
+        existing.dati_api_url = "https://dati.example".into();
+        existing.dati_authcode = "keep-auth".into();
+        existing.dati_typeno = "501057".into();
+        existing.dati_author = "keep-author".into();
+        let incoming = ModelSettings::default();
+        let merged = merge_platform_preferences(&incoming, &existing);
+        assert_eq!(merged.dati_api_url, "https://dati.example");
+        assert_eq!(merged.dati_authcode, "keep-auth");
+        assert_eq!(merged.dati_typeno, "501057");
+        assert_eq!(merged.dati_author, "keep-author");
     }
 
     #[test]

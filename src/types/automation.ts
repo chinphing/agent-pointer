@@ -36,12 +36,12 @@ export interface UpdateCronJobInput {
   enabled?: boolean
 }
 
-/** One configured webhook ingress source with token for settings UI copy. */
+/** One configured webhook ingress source (token omitted on web HTTP API). */
 export interface WebhookSource {
   /** URL path segment (`POST /api/webhooks/{src}`). */
   src: string
-  /** Full bearer token (settings UI only). */
-  token: string
+  /** Full bearer token (desktop IPC only; empty on web after refresh). */
+  token?: string
   /** Masked preview (`****` + last 4). */
   preview: string
   /** Full ingress URL (web/server only; empty on desktop). */

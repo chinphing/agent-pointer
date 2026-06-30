@@ -25,7 +25,8 @@ use pointer_core::{
         TriggerSource,
     },
     models::{
-        ComputerAnnotatedPreview, ChatMediaPreview, ComputerMonitor, Conversation, EffectiveSettingsView,
+        ComputerAnnotatedPreview, ChatMediaPreview, ComputerMonitor, Conversation,
+        WebEffectiveSettingsView,
         ModelSettings, PlatformSettings, SendChatPayload, SkillDef, SkillImportResult, StreamEvent,
         ToolDef, UserSettings,
     },
@@ -381,26 +382,27 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn get_settings(State(state): State<ServerState>) -> Result<Json<EffectiveSettingsView>, ApiError> {
-    Ok(Json(state.core.effective_settings_view()))
+async fn get_settings(State(state): State<ServerState>) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(WebEffectiveSettingsView(state.core.effective_settings_view())))
 }
 
 async fn update_user_settings(
     State(state): State<ServerState>,
     Json(mut user): Json<UserSettings>,
-) -> Result<Json<EffectiveSettingsView>, ApiError> {
+) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
     require_platform_access(&state)?;
     if user.theme.trim().is_empty() {
         user.theme = "system".into();
     }
     state.core.save_user_settings(&user)?;
-    Ok(Json(state.core.effective_settings_view()))
+    Ok(Json(WebEffectiveSettingsView(state.core.effective_settings_view())))
 }
 
 async fn update_platform_settings(
     State(_state): State<ServerState>,
     Json(_platform): Json<PlatformSettings>,
-) -> Result<Json<EffectiveSettingsView>, ApiError> {
+) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
     Err(ApiError(anyhow::anyhow!(
         "web runtime: platform settings are read-only"
     )))
@@ -408,25 +410,29 @@ async fn update_platform_settings(
 
 async fn update_settings(
     State(state): State<ServerState>,
-    Json(settings): Json<ModelSettings>,
-) -> Result<Json<EffectiveSettingsView>, ApiError> {
+    Json(mut settings): Json<ModelSettings>,
+) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
     require_platform_access(&state)?;
+    let platform = state.core.platform_config.read().clone();
+    pointer_core::models::preserve_platform_debug_settings_in_model(&mut settings, &platform);
     state
         .core
         .apply_session_platform_preferences(&settings)?;
-    Ok(Json(state.core.effective_settings_view()))
+    Ok(Json(WebEffectiveSettingsView(state.core.effective_settings_view())))
 }
 
 async fn update_agent_settings(
     State(state): State<ServerState>,
-    Json(settings): Json<ModelSettings>,
-) -> Result<Json<EffectiveSettingsView>, ApiError> {
+    Json(mut settings): Json<ModelSettings>,
+) -> Result<Json<WebEffectiveSettingsView>, ApiError> {
     require_platform_access(&state)?;
+    let platform = state.core.platform_config.read().clone();
+    pointer_core::models::preserve_platform_debug_settings_in_model(&mut settings, &platform);
     state
         .core
         .update_agent_settings(&settings)
         .map_err(ApiError)?;
-    Ok(Json(state.core.effective_settings_view()))
+    Ok(Json(WebEffectiveSettingsView(state.core.effective_settings_view())))
 }
 
 #[derive(Deserialize)]
@@ -444,6 +450,7 @@ async fn clear_api_key() -> Result<StatusCode, ApiError> {
 }
 
 async fn test_connection(State(state): State<ServerState>) -> Result<Json<u128>, ApiError> {
+    require_platform_access(&state)?;
     let settings = state.core.effective_settings();
     if settings.api_key.is_empty() {
         return Err(ApiError(anyhow::anyhow!("尚未配置 API Key")));
@@ -454,6 +461,7 @@ async fn test_connection(State(state): State<ServerState>) -> Result<Json<u128>,
 }
 
 async fn list_skills(State(state): State<ServerState>) -> Result<Json<Vec<SkillDef>>, ApiError> {
+    require_platform_access(&state)?;
     Ok(Json(state.core.skills.list()))
 }
 
@@ -473,8 +481,13 @@ async fn import_skill_zip(
     Ok(Json(state.core.skills.import_zip(&body)?))
 }
 
-async fn probe_external_skills() -> Result<Json<pointer_core::skills::external_probe::ExternalSkillsProbeResult>, ApiError> {
-    Ok(Json(pointer_core::skills::external_probe::probe_external_skill_sources()?))
+async fn probe_external_skills(
+    State(state): State<ServerState>,
+) -> Result<Json<pointer_core::skills::external_probe::ExternalSkillsProbeResult>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(
+        pointer_core::skills::external_probe::probe_external_skill_sources()?,
+    ))
 }
 
 #[derive(serde::Deserialize)]
@@ -501,11 +514,13 @@ async fn dismiss_external_skills_prompt(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn list_tools(State(state): State<ServerState>) -> Json<Vec<ToolDef>> {
-    Json(state.core.tools.list_defs())
+async fn list_tools(State(state): State<ServerState>) -> Result<Json<Vec<ToolDef>>, ApiError> {
+    require_platform_access(&state)?;
+    Ok(Json(state.core.tools.list_defs()))
 }
 
 async fn list_agents(State(state): State<ServerState>) -> Result<Json<Vec<AgentDef>>, ApiError> {
+    require_platform_access(&state)?;
     Ok(Json(state.core.agents.list()))
 }
 
@@ -551,6 +566,7 @@ async fn get_task_board_snapshot(
     Query(q): Query<TaskBoardSnapshotQuery>,
     State(state): State<ServerState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_platform_access(&state)?;
     use pointer_core::task_board::resolve_store_key_for_read;
     let parent_key = state
         .core
@@ -590,6 +606,7 @@ async fn list_work_items(
     Query(q): Query<WorkItemsQuery>,
     State(state): State<ServerState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_platform_access(&state)?;
     use pointer_core::task_board::work_item::list_work_items_json;
     let store_key = resolve_work_items_store_key(
         state.core.as_ref(),
@@ -611,6 +628,7 @@ async fn work_item_stats(
     Query(q): Query<WorkItemsQuery>,
     State(state): State<ServerState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    require_platform_access(&state)?;
     use pointer_core::task_board::work_item::work_item_stats_json;
     let store_key = resolve_work_items_store_key(
         state.core.as_ref(),
@@ -632,6 +650,7 @@ async fn preview_computer_annotated_screen(
     Query(q): Query<ConversationPreviewQuery>,
     State(state): State<ServerState>,
 ) -> Result<Json<ComputerAnnotatedPreview>, ApiError> {
+    require_platform_access(&state)?;
     state
         .core
         .computer_state
@@ -657,14 +676,19 @@ struct RoundScreenQuery {
 
 /// Same as Tauri `preview_computer_round_screen`: load annotated PNG from `computer-captures/` by relative path.
 async fn preview_computer_round_screen(
+    State(state): State<ServerState>,
     Query(q): Query<RoundScreenQuery>,
 ) -> Result<Json<ComputerAnnotatedPreview>, ApiError> {
+    require_platform_access(&state)?;
     Ok(Json(
         capture_debug::read_computer_capture_preview(&q.rel_path).map_err(ApiError::from)?,
     ))
 }
 
-async fn manual_computer_snapshot() -> Result<Response, ApiError> {
+async fn manual_computer_snapshot(
+    State(state): State<ServerState>,
+) -> Result<Response, ApiError> {
+    require_platform_access(&state)?;
     let jpeg =
         capture_debug::capture_manual_desktop_snapshot_jpeg().map_err(ApiError::from)?;
     let mut response = Response::new(jpeg.into());
@@ -696,8 +720,10 @@ struct ChatMediaQuery {
 }
 
 async fn preview_chat_media(
+    State(state): State<ServerState>,
     Query(q): Query<ChatMediaQuery>,
 ) -> Result<Json<ChatMediaPreview>, ApiError> {
+    require_platform_access(&state)?;
     Ok(Json(
         pointer_core::media::read_chat_media_preview(&q.storage_rel_path).map_err(ApiError::from)?,
     ))
@@ -710,8 +736,10 @@ struct MediaRefQuery {
 }
 
 async fn preview_media_ref(
+    State(state): State<ServerState>,
     Query(q): Query<MediaRefQuery>,
 ) -> Result<Json<ChatMediaPreview>, ApiError> {
+    require_platform_access(&state)?;
     Ok(Json(
         pointer_core::media::read_media_ref_preview(&q.media_ref).map_err(ApiError::from)?,
     ))
@@ -728,7 +756,11 @@ fn attachment_content_disposition(file_name: &str, inline: bool) -> HeaderValue 
         .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
 }
 
-async fn download_chat_media(Query(q): Query<ChatMediaQuery>) -> Result<Response, ApiError> {
+async fn download_chat_media(
+    State(state): State<ServerState>,
+    Query(q): Query<ChatMediaQuery>,
+) -> Result<Response, ApiError> {
+    require_platform_access(&state)?;
     let (path, mime_type, file_name) =
         pointer_core::media::chat_media_file_meta(&q.storage_rel_path).map_err(ApiError::from)?;
     let bytes = tokio::fs::read(&path)
@@ -745,7 +777,11 @@ async fn download_chat_media(Query(q): Query<ChatMediaQuery>) -> Result<Response
     Ok(response)
 }
 
-async fn stream_chat_media(Query(q): Query<ChatMediaQuery>) -> Result<Response, ApiError> {
+async fn stream_chat_media(
+    State(state): State<ServerState>,
+    Query(q): Query<ChatMediaQuery>,
+) -> Result<Response, ApiError> {
+    require_platform_access(&state)?;
     let (path, mime_type, file_name) =
         pointer_core::media::chat_media_file_meta(&q.storage_rel_path).map_err(ApiError::from)?;
     let bytes = tokio::fs::read(&path)
@@ -1225,6 +1261,7 @@ async fn get_run(
     State(state): State<ServerState>,
     Path(run_id): Path<String>,
 ) -> Result<axum::response::Response, ApiError> {
+    require_platform_access(&state)?;
     match state.dispatcher.run_status(&run_id) {
         Some(rec) => Ok(Json(RunView::from_record(&rec)).into_response()),
         None => Ok(status_text(
@@ -1243,7 +1280,8 @@ async fn get_run(
 async fn run_events(
     State(state): State<ServerState>,
     Path(run_id): Path<String>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    require_platform_access(&state)?;
     let dispatcher = state.dispatcher.clone();
     let run_id_for_stream = run_id.clone();
 
@@ -1284,7 +1322,7 @@ async fn run_events(
         }
     };
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 /// Build a synthetic terminal `AgentEvent` from a persisted terminal
@@ -1932,9 +1970,11 @@ fn build_webhook_config_view(
 /// `GET /api/webhooks/config` — list configured sources + URL template.
 async fn get_webhook_config(
     State(state): State<ServerState>,
-) -> Result<Json<pointer_core::webhook_config::WebhookConfigView>, ApiError> {
+) -> Result<Json<pointer_core::webhook_config::WebhookConfigPublicView>, ApiError> {
     require_platform_access(&state)?;
-    Ok(Json(build_webhook_config_view(&state.core.session_index)?))
+    Ok(Json(
+        build_webhook_config_view(&state.core.session_index)?.into(),
+    ))
 }
 
 /// `POST /api/webhooks/config` — set token for a source (first-write only).
@@ -1958,7 +1998,11 @@ async fn set_webhook_source_token(
         &body.token,
         body.auth_header_name.as_deref(),
     ) {
-        Ok(true) => Ok(Json(build_webhook_config_view(&state.core.session_index)?).into_response()),
+        Ok(true) => {
+            let view: pointer_core::webhook_config::WebhookConfigPublicView =
+                build_webhook_config_view(&state.core.session_index)?.into();
+            Ok(Json(view).into_response())
+        }
         Ok(false) => Ok(status_text(
             StatusCode::CONFLICT,
             "webhook token already configured for this source",
@@ -2075,7 +2119,8 @@ async fn dismiss_terminal_input(
 async fn chat_stream(
     State(state): State<ServerState>,
     Path(conversation_id): Path<String>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    require_platform_access(&state)?;
     let mut rx = state.events.subscribe();
     let stream = async_stream::stream! {
         loop {
@@ -2123,11 +2168,11 @@ async fn chat_stream(
             }
         }
     };
-    Sse::new(stream).keep_alive(
+    Ok(Sse::new(stream).keep_alive(
         KeepAlive::new()
             .interval(Duration::from_secs(15))
             .text("keep-alive"),
-    )
+    ))
 }
 
 #[derive(Deserialize)]

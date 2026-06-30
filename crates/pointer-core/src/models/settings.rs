@@ -1833,6 +1833,159 @@ pub struct EffectiveSettingsView {
     pub is_platform_admin: bool,
 }
 
+const DATI_SETTINGS_JSON_KEYS: &[&str] = &[
+    "datiApiUrl",
+    "datiAuthcode",
+    "datiTypeno",
+    "datiAuthor",
+];
+
+/// Debug-only settings (visible when debug menus are enabled). Omitted from pointer-server Web API.
+const DEBUG_WEB_SETTINGS_JSON_KEYS: &[&str] = &[
+    "rawContentViewEnabled",
+    "debugDumpLlmPrompts",
+    "debugMenusEnabled",
+    "taskBoardShowChildBoards",
+    "computerAnnotatedScreenViewEnabled",
+    "agentUiOverrides",
+    "computerTierLlm",
+    "agentModeLlm",
+    "mediaModeLlm",
+    "agentTaskBoardHistoryTrim",
+    "maxSubAgentToolRounds",
+    "maxSubAgentSpawnDepth",
+];
+
+/// Remove DaTi CAPTCHA fields from a settings JSON object (`platform` / `merged` slices).
+pub fn strip_dati_keys_from_settings_json(value: &mut serde_json::Value) {
+    let serde_json::Value::Object(obj) = value else {
+        return;
+    };
+    for key in DATI_SETTINGS_JSON_KEYS {
+        obj.remove(*key);
+    }
+    if let Some(platform) = obj.get_mut("platform") {
+        strip_dati_keys_from_settings_object(platform);
+    }
+    if let Some(merged) = obj.get_mut("merged") {
+        strip_dati_keys_from_settings_object(merged);
+    }
+}
+
+fn strip_dati_keys_from_settings_object(value: &mut serde_json::Value) {
+    let serde_json::Value::Object(obj) = value else {
+        return;
+    };
+    for key in DATI_SETTINGS_JSON_KEYS {
+        obj.remove(*key);
+    }
+}
+
+fn strip_debug_keys_from_settings_object(value: &mut serde_json::Value) {
+    let serde_json::Value::Object(obj) = value else {
+        return;
+    };
+    for key in DEBUG_WEB_SETTINGS_JSON_KEYS {
+        obj.remove(*key);
+    }
+}
+
+fn redact_provider_api_keys_in_array(providers: &mut serde_json::Value) {
+    let serde_json::Value::Array(items) = providers else {
+        return;
+    };
+    for item in items {
+        let Some(obj) = item.as_object_mut() else {
+            continue;
+        };
+        let masked = obj
+            .get("apiKey")
+            .and_then(|v| v.as_str())
+            .is_some_and(|k| !k.is_empty());
+        obj.insert(
+            "apiKey".into(),
+            serde_json::Value::String(if masked {
+                "****".into()
+            } else {
+                String::new()
+            }),
+        );
+    }
+}
+
+fn redact_media_oss_secrets(oss: &mut serde_json::Value) {
+    let Some(obj) = oss.as_object_mut() else {
+        return;
+    };
+    obj.remove("accessKeySecret");
+}
+
+fn redact_settings_object_secrets(obj: &mut serde_json::Map<String, serde_json::Value>) {
+    if let Some(platform) = obj.get_mut("platform") {
+        strip_dati_keys_from_settings_object(platform);
+        strip_debug_keys_from_settings_object(platform);
+        if let Some(platform_obj) = platform.as_object_mut() {
+            if let Some(providers) = platform_obj.get_mut("providers") {
+                redact_provider_api_keys_in_array(providers);
+            }
+            if let Some(oss) = platform_obj.get_mut("mediaOss") {
+                redact_media_oss_secrets(oss);
+            }
+        }
+    }
+    if let Some(merged) = obj.get_mut("merged") {
+        strip_dati_keys_from_settings_object(merged);
+        strip_debug_keys_from_settings_object(merged);
+        if let Some(merged_obj) = merged.as_object_mut() {
+            merged_obj.insert("apiKey".into(), serde_json::Value::String(String::new()));
+            if let Some(providers) = merged_obj.get_mut("providers") {
+                redact_provider_api_keys_in_array(providers);
+            }
+            if let Some(oss) = merged_obj.get_mut("mediaOss") {
+                redact_media_oss_secrets(oss);
+            }
+        }
+    }
+}
+
+/// Web PUT must not overwrite server debug toggles with client defaults (debug fields are omitted on GET).
+pub fn preserve_platform_debug_settings_in_model(incoming: &mut ModelSettings, platform: &PlatformSettings) {
+    incoming.raw_content_view_enabled = platform.raw_content_view_enabled;
+    incoming.debug_dump_llm_prompts = platform.debug_dump_llm_prompts;
+    incoming.debug_menus_enabled = platform.debug_menus_enabled;
+    incoming.task_board_show_child_boards = platform.task_board_show_child_boards;
+    incoming.computer_annotated_screen_view_enabled = platform.computer_annotated_screen_view_enabled;
+    incoming.agent_ui_overrides = platform.agent_ui_overrides.clone();
+    incoming.agent_task_board_history_trim = platform.agent_task_board_history_trim.clone();
+    incoming.max_sub_agent_tool_rounds = platform.max_sub_agent_tool_rounds;
+    incoming.max_sub_agent_spawn_depth = platform.max_sub_agent_spawn_depth;
+    incoming.agent_mode_llm = platform.agent_mode_llm.clone();
+    incoming.media_mode_llm = platform.media_mode_llm.clone();
+}
+
+/// Strip DaTi fields and redact secrets for pointer-server Web API responses.
+pub fn redact_settings_json_for_web_api(value: &mut serde_json::Value) {
+    let serde_json::Value::Object(obj) = value else {
+        return;
+    };
+    redact_settings_object_secrets(obj);
+}
+
+/// Web API response wrapper: omits DaTi fields (server-side only; desktop Tauri unchanged).
+pub struct WebEffectiveSettingsView(pub EffectiveSettingsView);
+
+impl serde::Serialize for WebEffectiveSettingsView {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut value =
+            serde_json::to_value(&self.0).map_err(serde::ser::Error::custom)?;
+        redact_settings_json_for_web_api(&mut value);
+        value.serialize(serializer)
+    }
+}
+
 /// Merge persisted user settings with in-memory platform config.
 pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> ModelSettings {
     ModelSettings {
@@ -2177,6 +2330,58 @@ mod effective_extra_body_tests {
             o.get("reasoning_effort"),
             Some(&Value::String("high".into()))
         );
+    }
+
+    #[test]
+    fn web_effective_settings_view_omits_dati_fields() {
+        let mut platform = PlatformSettings::default();
+        platform.dati_api_url = "https://dati.example".into();
+        platform.dati_authcode = "secret-auth".into();
+        platform.dati_typeno = "501057".into();
+        platform.dati_author = "author".into();
+        platform.raw_content_view_enabled = true;
+        platform.debug_dump_llm_prompts = true;
+        platform.debug_menus_enabled = true;
+        platform.computer_annotated_screen_view_enabled = true;
+        platform.providers[0].api_key = "sk-live-secret".into();
+        platform.media_oss.access_key_secret = "oss-secret".into();
+        let merged = merge_user_platform(&UserSettings::default(), &platform);
+        let view = EffectiveSettingsView {
+            user: UserSettings::default(),
+            platform,
+            merged,
+            can_edit_platform: false,
+            is_platform_admin: false,
+        };
+        let json = serde_json::to_string(&WebEffectiveSettingsView(view)).unwrap();
+        assert!(!json.contains("datiApiUrl"));
+        assert!(!json.contains("datiAuthcode"));
+        assert!(!json.contains("datiTypeno"));
+        assert!(!json.contains("datiAuthor"));
+        assert!(!json.contains("secret-auth"));
+        assert!(!json.contains("sk-live-secret"));
+        assert!(!json.contains("oss-secret"));
+        assert!(!json.contains("rawContentViewEnabled"));
+        assert!(!json.contains("debugDumpLlmPrompts"));
+        assert!(!json.contains("debugMenusEnabled"));
+        assert!(!json.contains("computerAnnotatedScreenViewEnabled"));
+        assert!(json.contains("\"apiKey\":\"****\""));
+    }
+
+    #[test]
+    fn preserve_platform_debug_settings_in_model_keeps_server_values() {
+        let mut platform = PlatformSettings::default();
+        platform.raw_content_view_enabled = true;
+        platform.debug_menus_enabled = true;
+        platform.max_sub_agent_tool_rounds = 42;
+        let mut incoming = ModelSettings::default();
+        incoming.raw_content_view_enabled = false;
+        incoming.debug_menus_enabled = false;
+        incoming.max_sub_agent_tool_rounds = 1;
+        preserve_platform_debug_settings_in_model(&mut incoming, &platform);
+        assert!(incoming.raw_content_view_enabled);
+        assert!(incoming.debug_menus_enabled);
+        assert_eq!(incoming.max_sub_agent_tool_rounds, 42);
     }
 
     #[test]

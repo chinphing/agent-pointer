@@ -127,11 +127,17 @@ pub struct ChannelStatusItem {
     webhook_url: String,
 }
 
-pub async fn get_channels_config(State(state): State<ServerState>) -> Json<ChannelsConfig> {
-    Json(state.channel_gateway.config().clone())
+pub async fn get_channels_config(
+    State(state): State<ServerState>,
+) -> Result<Json<ChannelsConfig>, StatusCode> {
+    crate::require_platform_access_status(&state)?;
+    Ok(Json(state.channel_gateway.config().clone()))
 }
 
-pub async fn list_channels(State(state): State<ServerState>) -> Json<ChannelsStatusResponse> {
+pub async fn list_channels(
+    State(state): State<ServerState>,
+) -> Result<Json<ChannelsStatusResponse>, StatusCode> {
+    crate::require_platform_access_status(&state)?;
     let cfg = state.channel_gateway.config();
     let mut channels = Vec::new();
     for (channel, map) in [
@@ -150,7 +156,7 @@ pub async fn list_channels(State(state): State<ServerState>) -> Json<ChannelsSta
             });
         }
     }
-    Json(ChannelsStatusResponse { channels })
+    Ok(Json(ChannelsStatusResponse { channels }))
 }
 
 pub async fn update_channels(
@@ -171,11 +177,12 @@ pub async fn update_channels(
 pub async fn get_channel_webhook_url(
     State(state): State<ServerState>,
     Path((channel, account_id)): Path<(String, String)>,
-) -> Json<serde_json::Value> {
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    crate::require_platform_access_status(&state)?;
     let cfg = state.channel_gateway.config();
-    Json(serde_json::json!({
+    Ok(Json(serde_json::json!({
         "webhookUrl": cfg.webhook_url(&channel, &account_id)
-    }))
+    })))
 }
 
 pub async fn start_weixin_login(

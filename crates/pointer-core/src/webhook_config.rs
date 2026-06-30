@@ -67,6 +67,56 @@ pub struct WebhookConfigView {
     pub legacy_preview: Option<String>,
 }
 
+/// Web-safe webhook source row: preview only, no bearer token.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookSourcePublicView {
+    pub src: String,
+    pub preview: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_header_name: Option<String>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub url: String,
+    pub conversation_id: String,
+    pub current_session_id: Option<String>,
+    pub has_transcript: bool,
+}
+
+/// Web-safe webhook config for pointer-server HTTP API.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookConfigPublicView {
+    pub sources: Vec<WebhookSourcePublicView>,
+    pub url_template: String,
+    pub legacy_configured: bool,
+    pub legacy_preview: Option<String>,
+}
+
+impl From<WebhookSourceView> for WebhookSourcePublicView {
+    fn from(source: WebhookSourceView) -> Self {
+        Self {
+            src: source.src,
+            preview: source.preview,
+            auth_header_name: source.auth_header_name,
+            url: source.url,
+            conversation_id: source.conversation_id,
+            current_session_id: source.current_session_id,
+            has_transcript: source.has_transcript,
+        }
+    }
+}
+
+impl From<WebhookConfigView> for WebhookConfigPublicView {
+    fn from(view: WebhookConfigView) -> Self {
+        Self {
+            sources: view.sources.into_iter().map(Into::into).collect(),
+            url_template: view.url_template,
+            legacy_configured: view.legacy_configured,
+            legacy_preview: view.legacy_preview,
+        }
+    }
+}
+
 pub struct WebhookTokenStore<'a> {
     store: &'a ConversationStore,
 }

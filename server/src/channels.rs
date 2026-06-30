@@ -157,6 +157,7 @@ pub async fn update_channels(
     State(state): State<ServerState>,
     Json(cfg): Json<ChannelsConfig>,
 ) -> Result<StatusCode, StatusCode> {
+    crate::require_platform_access_status(&state)?;
     state
         .channel_gateway
         .update_config(cfg)

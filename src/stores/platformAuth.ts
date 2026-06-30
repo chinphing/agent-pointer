@@ -19,6 +19,7 @@ function formatPlatformAuthError(e: unknown): string {
   if (msg.includes('oauth callback timeout')) return '登录超时，请重试'
   if (msg.includes('platform_login_cancelled')) return '已取消登录'
   if (msg.includes('invalid_refresh_token')) return '登录已失效，请重新登录 Pointer 账户'
+  if (msg.includes('server_access_denied')) return '此 Server 未授权您的账户，请联系管理员'
   if (msg.includes('Plugin not found') || msg.includes('not allowed')) {
     return '当前为云主机页面，登录态由平台自动注入，无需再次登录'
   }
@@ -55,6 +56,9 @@ function consumeOAuthRedirectQuery(): string | null {
   url.searchParams.delete('platform_login')
   url.searchParams.delete('platform_login_error')
   window.history.replaceState({}, '', url.toString())
+  if (errorMsg === 'server_access_denied') {
+    return '此 Server 未授权您的账户，请联系管理员'
+  }
   return errorMsg ? decodeURIComponent(errorMsg) : null
 }
 

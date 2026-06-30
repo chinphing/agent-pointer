@@ -162,6 +162,14 @@ impl PlatformAuthManager {
             .unwrap_or(false)
     }
 
+    pub fn platform_user_id(&self) -> Option<String> {
+        self.inner
+            .read()
+            .as_ref()
+            .map(|s| s.user.id.clone())
+            .filter(|id| !id.trim().is_empty())
+    }
+
     pub fn access_token(&self) -> Option<String> {
         let g = self.inner.read();
         g.as_ref().and_then(|s| {

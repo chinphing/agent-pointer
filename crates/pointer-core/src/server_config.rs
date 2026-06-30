@@ -31,6 +31,13 @@ struct ServerSection {
     /// explicitly for production behind a public domain or reverse proxy.
     #[serde(default)]
     public_url: String,
+    /// Platform user ids allowed to log in (maps to `POINTER_SERVER_ALLOWED_USER_IDS`).
+    #[serde(default)]
+    allowed_user_ids: Vec<String>,
+    /// When true, startup fails if `allowed_user_ids` is empty
+    /// (`POINTER_SERVER_REQUIRE_ALLOWED_USERS`).
+    #[serde(default)]
+    require_allowed_users: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -198,6 +205,25 @@ fn parse_toml_file(path: &Path, base_dir: &Path) -> Result<Vec<(String, String)>
         base_dir,
         false,
     );
+    if !parsed.server.allowed_user_ids.is_empty() {
+        let joined = parsed
+            .server
+            .allowed_user_ids
+            .iter()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(",");
+        if !joined.is_empty() {
+            pairs.push(("POINTER_SERVER_ALLOWED_USER_IDS".to_string(), joined));
+        }
+    }
+    if parsed.server.require_allowed_users {
+        pairs.push((
+            "POINTER_SERVER_REQUIRE_ALLOWED_USERS".to_string(),
+            "true".to_string(),
+        ));
+    }
     push_mapped(
         &mut pairs,
         "OPENPOINTER_API_BASE",
@@ -293,6 +319,31 @@ mod tests {
 
     fn env_guard() -> MutexGuard<'static, ()> {
         ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    #[test]
+    fn toml_maps_allowed_user_ids_to_env() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("pointer-server.toml");
+        std::fs::write(
+            &cfg,
+            r#"
+[server]
+allowed_user_ids = ["user-a", "user-b"]
+require_allowed_users = true
+"#,
+        )
+        .unwrap();
+        let pairs = parse_toml_file(&cfg, dir.path()).unwrap();
+        let map: HashMap<_, _> = pairs.into_iter().collect();
+        assert_eq!(
+            map.get("POINTER_SERVER_ALLOWED_USER_IDS").map(String::as_str),
+            Some("user-a,user-b")
+        );
+        assert_eq!(
+            map.get("POINTER_SERVER_REQUIRE_ALLOWED_USERS").map(String::as_str),
+            Some("true")
+        );
     }
 
     #[test]

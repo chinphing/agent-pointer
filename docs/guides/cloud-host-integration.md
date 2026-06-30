@@ -22,6 +22,10 @@
 | ALB | 与 ECS 同 VPC；Worker 为每 agent 创建 Server Group + Host 规则，`console_url` 为 `https://agent-{id}.readflowai.com/`（泛域名 `*.readflowai.com` → ALB） |
 | `OPENPOINTER_API_BASE` | 平台 API 根地址 |
 | `OPENPOINTER_OAUTH_CLIENT_SECRET` | 与平台一致的换码密钥 |
+| `allowed_user_ids` | （推荐生产必填）仅允许 listed 平台 user id 登录/使用 server；对应 env `POINTER_SERVER_ALLOWED_USER_IDS`（逗号分隔） |
+| `require_allowed_users` | 为 `true` 时，若 `allowed_user_ids` 为空则拒绝启动 |
+
+获取 user id：临时留空白名单，本地登录一次后请求 `GET /api/platform/session` 或查看 server 日志；也可从平台管理后台查询。
 
 数据、日志与会话存储默认与桌面客户端相同（`{OS 用户数据目录}/PointerApp`，debug 构建为 `PointerAppDev`；日志在 `…/PointerApp/logs/`）；无需在 `pointer-server.toml` 里单独配 `app_data_dir`，除非要指向自定义路径。
 

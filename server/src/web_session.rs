@@ -3,10 +3,11 @@
 use axum::{
     body::Body,
     extract::State,
-    http::{header, HeaderMap, Request},
+    http::{header, HeaderMap, Request, StatusCode},
     middleware::Next,
     response::Response,
 };
+use axum::response::IntoResponse;
 use parking_lot::RwLock;
 use pointer_core::platform_auth::{PlatformAuthManager, PlatformLoginCredentials};
 use std::collections::HashMap;
@@ -133,6 +134,17 @@ pub async fn web_session_middleware(
     let Some(entry) = store.get(&session_id) else {
         return next.run(req).await;
     };
+    if pointer_core::server_access::access_restriction_enabled() {
+        if let Some(uid) = entry.auth.platform_user_id() {
+            if !pointer_core::server_access::is_user_allowed(&uid) {
+                log::warn!("server_access: evicting browser session for user_id={uid}");
+                store.remove(&session_id);
+                let mut resp = (StatusCode::FORBIDDEN, "server_access_denied").into_response();
+                clear_session_cookie(resp.headers_mut(), cookie_secure_from_env());
+                return resp;
+            }
+        }
+    }
     pointer_core::web_request_auth::run_scoped(entry.auth, entry.creds, || async move {
         next.run(req).await
     })
@@ -148,4 +160,10 @@ fn random_session_id() -> String {
         out.push_str(&format!("{b:02x}"));
     }
     out
+}
+
+fn cookie_secure_from_env() -> bool {
+    std::env::var("POINTER_SERVER_PUBLIC_URL")
+        .map(|u| u.trim().to_ascii_lowercase().starts_with("https://"))
+        .unwrap_or(false)
 }

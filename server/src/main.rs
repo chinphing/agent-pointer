@@ -134,6 +134,9 @@ async fn main() -> anyhow::Result<()> {
              /api/auth/login/start will return 500 until set in pointer-server.toml [server].public_url"
         ),
     }
+    pointer_core::server_access::validate_server_access_at_startup(
+        resolve_server_public_url().as_deref(),
+    )?;
     let (events, _) = broadcast::channel::<StreamEvent>(512);
     // Bridge global stream_broadcast -> server events so the SSE endpoint
     // (`GET /api/chat/:id/stream`) keeps working regardless of who calls
@@ -386,6 +389,7 @@ async fn update_user_settings(
     State(state): State<ServerState>,
     Json(mut user): Json<UserSettings>,
 ) -> Result<Json<EffectiveSettingsView>, ApiError> {
+    require_platform_access(&state)?;
     if user.theme.trim().is_empty() {
         user.theme = "system".into();
     }
@@ -406,6 +410,7 @@ async fn update_settings(
     State(state): State<ServerState>,
     Json(settings): Json<ModelSettings>,
 ) -> Result<Json<EffectiveSettingsView>, ApiError> {
+    require_platform_access(&state)?;
     state
         .core
         .apply_session_platform_preferences(&settings)?;
@@ -416,6 +421,7 @@ async fn update_agent_settings(
     State(state): State<ServerState>,
     Json(settings): Json<ModelSettings>,
 ) -> Result<Json<EffectiveSettingsView>, ApiError> {
+    require_platform_access(&state)?;
     state
         .core
         .update_agent_settings(&settings)
@@ -454,6 +460,7 @@ async fn list_skills(State(state): State<ServerState>) -> Result<Json<Vec<SkillD
 async fn reload_skill_meta(
     State(state): State<ServerState>,
 ) -> Result<Json<Vec<SkillDef>>, ApiError> {
+    require_platform_access(&state)?;
     state.core.skills.reload_meta()?;
     Ok(Json(state.core.skills.list()))
 }
@@ -462,6 +469,7 @@ async fn import_skill_zip(
     State(state): State<ServerState>,
     body: axum::body::Bytes,
 ) -> Result<Json<SkillImportResult>, ApiError> {
+    require_platform_access(&state)?;
     Ok(Json(state.core.skills.import_zip(&body)?))
 }
 
@@ -479,12 +487,16 @@ async fn import_external_skills(
     State(state): State<ServerState>,
     Json(body): Json<ImportExternalSkillsBody>,
 ) -> Result<Json<SkillImportResult>, ApiError> {
+    require_platform_access(&state)?;
     let result = pointer_core::skills::external_probe::import_external_skills(&body.source_ids)?;
     state.core.skills.reload_meta()?;
     Ok(Json(result))
 }
 
-async fn dismiss_external_skills_prompt() -> Result<StatusCode, ApiError> {
+async fn dismiss_external_skills_prompt(
+    State(state): State<ServerState>,
+) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     pointer_core::skills::external_probe::dismiss_external_skills_prompt()?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -769,8 +781,10 @@ struct SaveChatAttachmentResponse {
 }
 
 async fn save_chat_attachment(
+    State(state): State<ServerState>,
     Json(payload): Json<SaveChatAttachmentPayload>,
 ) -> Result<Json<SaveChatAttachmentResponse>, ApiError> {
+    require_platform_access(&state)?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(payload.content_base64.trim())
         .map_err(|e| ApiError(anyhow::anyhow!("decode attachment base64: {e}")))?;
@@ -796,6 +810,7 @@ async fn upload_composer_video_oss(
     State(state): State<ServerState>,
     mut multipart: Multipart,
 ) -> Result<Json<UploadVideoOssResponse>, ApiError> {
+    require_platform_access(&state)?;
     let mut conversation_id = String::new();
     let mut attachment_id = String::new();
     let mut file_name = String::new();
@@ -967,10 +982,41 @@ fn require_platform_login(state: &ServerState) -> Result<(), ApiError> {
     Err(ApiError(anyhow::anyhow!("platform_login_required")))
 }
 
+fn require_allowed_platform_user(state: &ServerState) -> Result<(), ApiError> {
+    if !pointer_core::server_access::access_restriction_enabled() {
+        return Ok(());
+    }
+    let user_id = state
+        .core
+        .active_platform_auth()
+        .platform_user_id()
+        .ok_or_else(|| ApiError(anyhow::anyhow!("platform_login_required")))?;
+    pointer_core::server_access::ensure_user_allowed(&user_id).map_err(|_| {
+        log::warn!("server_access: rejected API request for user_id={user_id}");
+        ApiError(anyhow::anyhow!("server_access_denied"))
+    })
+}
+
+fn require_platform_access(state: &ServerState) -> Result<(), ApiError> {
+    require_platform_login(state)?;
+    require_allowed_platform_user(state)
+}
+
+pub(crate) fn require_platform_access_status(state: &ServerState) -> Result<(), StatusCode> {
+    require_platform_access(state).map_err(|e| {
+        let msg = e.0.to_string();
+        if msg.contains("server_access_denied") {
+            StatusCode::FORBIDDEN
+        } else {
+            StatusCode::UNAUTHORIZED
+        }
+    })
+}
+
 async fn load_conversations(
     State(state): State<ServerState>,
 ) -> Result<Json<Vec<Conversation>>, ApiError> {
-    require_platform_login(&state)?;
+    require_platform_access(&state)?;
     Ok(Json(storage::load_conversations()?))
 }
 
@@ -991,7 +1037,7 @@ async fn load_conversation_metas(
     State(state): State<ServerState>,
     Query(q): Query<ConversationMetasQuery>,
 ) -> Result<Json<Vec<pointer_core::models::ConversationMeta>>, ApiError> {
-    require_platform_login(&state)?;
+    require_platform_access(&state)?;
     let limit = q.limit.unwrap_or(50);
     let cursor = match (q.cursor_updated_at, q.cursor_id) {
         (Some(ts), Some(id)) => Some((ts, id)),
@@ -1023,7 +1069,7 @@ async fn load_conversation_messages_handler(
     State(state): State<ServerState>,
     Path(conversation_id): Path<String>,
 ) -> Result<Json<Vec<pointer_core::models::ChatMessage>>, ApiError> {
-    require_platform_login(&state)?;
+    require_platform_access(&state)?;
     let messages = storage::load_conversation_messages(&conversation_id)?;
     log::info!(
         "server: load_conversation_messages conversation_id={} returned {} rows",
@@ -1034,31 +1080,39 @@ async fn load_conversation_messages_handler(
 }
 
 async fn save_conversations(
+    State(state): State<ServerState>,
     Json(conversations): Json<Vec<Conversation>>,
 ) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     storage::save_conversations(&conversations)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn save_conversation_meta(
+    State(state): State<ServerState>,
     Json(metas): Json<Vec<pointer_core::models::ConversationMeta>>,
 ) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     storage::save_conversation_meta(&metas)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn delete_conversation_handler(
+    State(state): State<ServerState>,
     Path(conversation_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     storage::delete_conversation(&conversation_id)?;
     log::info!("server: deleted conversation id={conversation_id}");
     Ok(StatusCode::NO_CONTENT)
 }
 
 async fn append_conversation_messages(
+    State(state): State<ServerState>,
     axum::extract::Path(conversation_id): axum::extract::Path<String>,
     Json(messages): Json<Vec<pointer_core::models::ChatMessage>>,
 ) -> Result<Json<u32>, ApiError> {
+    require_platform_access(&state)?;
     let written = storage::append_conversation_messages(&conversation_id, &messages)?;
     Ok(Json(written))
 }
@@ -1068,6 +1122,7 @@ async fn send_chat(
     headers: HeaderMap,
     Json(payload): Json<SendChatPayload>,
 ) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     let web_session_auth = web_session::lookup_session_auth(&state.web_sessions, &headers)
         .or_else(|| {
             pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth)
@@ -1114,6 +1169,7 @@ async fn create_run(
     headers: HeaderMap,
     Json(mut body): Json<TriggerRequest>,
 ) -> Result<(StatusCode, Json<RunHandle>), ApiError> {
+    require_platform_access(&state)?;
     body.trigger_source = TriggerSource::HttpRuns;
     body.trigger_meta.webhook_source = None;
     body.deliver = DeliverTarget::None;
@@ -1269,9 +1325,10 @@ fn terminal_agent_event_from_record(
 async fn cancel_run(
     State(state): State<ServerState>,
     Path(run_id): Path<String>,
-) -> StatusCode {
+) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     state.dispatcher.cancel(&run_id);
-    StatusCode::NO_CONTENT
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Blocking webhook response (OpenClaw-aligned `{ ok, runId, text? }`).
@@ -1675,6 +1732,7 @@ async fn webhook_ingress(
 async fn list_cron_jobs(
     State(state): State<ServerState>,
 ) -> Result<Json<Vec<pointer_core::conversation_store::cron_jobs::CronJobView>>, ApiError> {
+    require_platform_access(&state)?;
     let rows = state
         .core
         .session_index
@@ -1717,6 +1775,7 @@ async fn create_cron_job(
     State(state): State<ServerState>,
     Json(body): Json<CreateCronJobBody>,
 ) -> Result<(StatusCode, Json<pointer_core::conversation_store::cron_jobs::CronJobView>), ApiError> {
+    require_platform_access(&state)?;
     // Validate the cron expression before persisting.
     if pointer_core::conversation_store::cron_jobs::next_run_ms(&body.cron_expr, &chrono::Local::now())
         .is_none()
@@ -1778,6 +1837,7 @@ async fn update_cron_job(
     Path(job_id): Path<String>,
     Json(body): Json<UpdateCronJobBody>,
 ) -> Result<axum::response::Response, ApiError> {
+    require_platform_access(&state)?;
     if let Some(enabled) = body.enabled {
         let ok = state
             .core
@@ -1805,6 +1865,7 @@ async fn delete_cron_job(
     State(state): State<ServerState>,
     Path(job_id): Path<String>,
 ) -> Result<axum::response::Response, ApiError> {
+    require_platform_access(&state)?;
     let ok = state
         .core
         .session_index
@@ -1872,6 +1933,7 @@ fn build_webhook_config_view(
 async fn get_webhook_config(
     State(state): State<ServerState>,
 ) -> Result<Json<pointer_core::webhook_config::WebhookConfigView>, ApiError> {
+    require_platform_access(&state)?;
     Ok(Json(build_webhook_config_view(&state.core.session_index)?))
 }
 
@@ -1880,6 +1942,7 @@ async fn set_webhook_source_token(
     State(state): State<ServerState>,
     Json(body): Json<SetWebhookSourceTokenBody>,
 ) -> Result<axum::response::Response, ApiError> {
+    require_platform_access(&state)?;
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
     if store
         .is_source_configured(&body.src)
@@ -1916,6 +1979,7 @@ async fn clear_webhook_source_token(
     State(state): State<ServerState>,
     Path(src): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
     let ok = store.clear_source_token(&src).map_err(ApiError::from)?;
     if ok {
@@ -1929,6 +1993,7 @@ async fn clear_webhook_source_token(
 async fn clear_webhook_legacy_token(
     State(state): State<ServerState>,
 ) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     let store = pointer_core::webhook_config::WebhookTokenStore::new(&state.core.session_index);
     let ok = store.clear_legacy_token().map_err(ApiError::from)?;
     if ok {
@@ -1941,17 +2006,19 @@ async fn clear_webhook_legacy_token(
 async fn cancel_chat(
     State(state): State<ServerState>,
     Path(conversation_id): Path<String>,
-) -> StatusCode {
+) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     state.core.cancel(&conversation_id);
-    StatusCode::NO_CONTENT
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn abort_terminal_command(
     State(state): State<ServerState>,
     Path(conversation_id): Path<String>,
-) -> axum::Json<serde_json::Value> {
+) -> Result<axum::Json<serde_json::Value>, ApiError> {
+    require_platform_access(&state)?;
     let aborted = state.core.abort_terminal_command(&conversation_id);
-    axum::Json(serde_json::json!({ "aborted": aborted }))
+    Ok(axum::Json(serde_json::json!({ "aborted": aborted })))
 }
 
 #[derive(Deserialize)]
@@ -1964,6 +2031,7 @@ async fn approve_tool_call(
     Path(tool_call_id): Path<String>,
     Json(payload): Json<ApprovalPayload>,
 ) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     if state
         .core
         .approve_tool_call(&tool_call_id, payload.approved)
@@ -1984,6 +2052,7 @@ async fn submit_terminal_input(
     Path(request_id): Path<String>,
     Json(payload): Json<TerminalInputPayload>,
 ) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     if state.core.submit_terminal_input(&request_id, payload.text) {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -1995,6 +2064,7 @@ async fn dismiss_terminal_input(
     State(state): State<ServerState>,
     Path(request_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    require_platform_access(&state)?;
     if state.core.dismiss_terminal_input(&request_id) {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -2222,6 +2292,17 @@ async fn platform_oauth_callback(
         .await
     {
         Ok((session, creds)) => {
+            if pointer_core::server_access::access_restriction_enabled()
+                && !pointer_core::server_access::is_user_allowed(&session.user.id)
+            {
+                log::warn!(
+                    "platform_auth: rejected OAuth login user_id={} not in allowed_user_ids",
+                    session.user.id
+                );
+                return Ok(
+                    Redirect::temporary("/?platform_login_error=server_access_denied").into_response(),
+                );
+            }
             auth.set_session(session);
             let session_id = state.web_sessions.insert(auth, creds);
             log::info!("platform_auth: callback ok state={} web_session={session_id}", q.state);
@@ -2269,6 +2350,7 @@ async fn refresh_platform_session(
         .await
         .map_err(ApiError::from)?;
     if state.core.active_platform_auth().session_view().logged_in {
+        require_allowed_platform_user(&state)?;
         if let Ok(Some(creds)) = state
             .core
             .active_platform_auth()
@@ -2371,6 +2453,17 @@ async fn try_cloud_oauth_exchange(state: &ServerState, uri: &Uri) -> Option<Resp
     }
     match pointer_core::cloud_agent_auth::exchange_agent_oauth_code(&code, &oauth_state).await {
         Ok((session, creds)) => {
+            if pointer_core::server_access::access_restriction_enabled()
+                && !pointer_core::server_access::is_user_allowed(&session.user.id)
+            {
+                log::warn!(
+                    "cloud oauth: rejected user_id={} not in allowed_user_ids",
+                    session.user.id
+                );
+                return Some(
+                    Redirect::temporary("/?cloud_auth_error=server_access_denied").into_response(),
+                );
+            }
             let auth = Arc::new(PlatformAuthManager::new());
             auth.set_partner_session(session);
             let session_id = state.web_sessions.insert(auth, creds);
@@ -2495,6 +2588,9 @@ impl IntoResponse for ApiError {
         let msg = self.0.to_string();
         if msg.contains("platform_login_required") {
             return (StatusCode::UNAUTHORIZED, msg).into_response();
+        }
+        if msg.contains("server_access_denied") {
+            return (StatusCode::FORBIDDEN, msg).into_response();
         }
         (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
     }

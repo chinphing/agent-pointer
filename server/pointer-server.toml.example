@@ -18,6 +18,11 @@ static_dir = "dist"
 # behind a public domain or reverse proxy.
 # public_url = "https://pointer.example.com"
 #
+# Restrict platform OAuth to specific user ids (platform account id).
+# Leave empty to allow any platform user (development / trusted intranet only).
+# allowed_user_ids = ["your-platform-user-id"]
+# require_allowed_users = true
+#
 # Auth: pointer-server does NOT write auth.dat. Each browser gets its own
 # in-memory OAuth session via the HttpOnly cookie `pointer_web_session`.
 # Visitors without that cookie see logged-out state. After upgrading, delete

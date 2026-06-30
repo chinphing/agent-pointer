@@ -107,6 +107,19 @@ pub fn clear_session_cookie(headers: &mut HeaderMap, secure: bool) {
     }
 }
 
+/// Resolve browser OAuth session from the cookie store (preferred over task-local capture).
+pub fn lookup_session_auth(
+    store: &WebSessionStore,
+    headers: &HeaderMap,
+) -> Option<pointer_core::web_request_auth::WebSessionAuth> {
+    let session_id = session_id_from_headers(headers)?;
+    let entry = store.get(&session_id)?;
+    Some(pointer_core::web_request_auth::WebSessionAuth {
+        auth: entry.auth,
+        creds: entry.creds,
+    })
+}
+
 pub async fn web_session_middleware(
     State(store): State<Arc<WebSessionStore>>,
     req: Request<Body>,

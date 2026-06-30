@@ -1124,27 +1124,25 @@ export const useChatStore = defineStore('chat', () => {
     if ((!content.trim() && !hasAttachments) || isConversationGenerating(conv.id)) return
     const platformAuth = usePlatformAuthStore()
     let refreshErrorMessage: string | null = null
-    if (isTauriRuntime()) {
-      try {
-        await platformAuth.ensureFreshSession()
-      } catch (e) {
-        console.error('[chat] platform session refresh failed', e)
-        refreshErrorMessage = e instanceof Error ? e.message : String(e)
-      }
-      if (!platformAuth.session.logged_in) {
-        conv.messages.push({
-          id: uid(),
-          role: 'assistant',
-          content: '',
-          status: 'error',
-          createdAt: Date.now(),
-          errorMessage:
-            refreshErrorMessage ||
-            platformAuth.error ||
-            '请先登录 Pointer 账户'
-        })
-        return
-      }
+    try {
+      await platformAuth.ensureFreshSession()
+    } catch (e) {
+      console.error('[chat] platform session refresh failed', e)
+      refreshErrorMessage = e instanceof Error ? e.message : String(e)
+    }
+    if (!platformAuth.session.logged_in) {
+      conv.messages.push({
+        id: uid(),
+        role: 'assistant',
+        content: '',
+        status: 'error',
+        createdAt: Date.now(),
+        errorMessage:
+          refreshErrorMessage ||
+          platformAuth.error ||
+          '请先登录 Pointer 账户'
+      })
+      return
     }
     if (platformAuth.tokenQuotaExhausted) {
       conv.messages.push({

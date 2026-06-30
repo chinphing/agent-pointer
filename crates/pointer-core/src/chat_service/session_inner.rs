@@ -136,9 +136,10 @@ pub(super) async fn run_chat_inner(
         );
     }
     // Restore from auth.dat / refresh near-expiry tokens before gating chat.
+    let web_session = crate::web_request_auth::scoped_login_creds().is_some();
     match state.active_platform_auth().refresh_if_needed().await {
         Ok(Some((_session, creds))) => {
-            if crate::web_request_auth::scoped_login_creds().is_none() {
+            if !web_session {
                 if creds.api_key.is_some()
                     || !creds.provider_api_keys.is_empty()
                     || creds.media_oss.is_some()
@@ -156,14 +157,17 @@ pub(super) async fn run_chat_inner(
             log::warn!("platform_auth: refresh before chat failed: {e:#}");
         }
     }
-    if state.active_platform_auth().session_view().logged_in {
-        if let Err(e) = state.active_platform_auth().ensure_llm_allowed().await {
-            let msg = if e.to_string().contains("token_quota_exhausted") {
-                "套餐 Token 额度已用尽，请前往 Openpointer 官网充值或联系管理员。".to_string()
-            } else {
-                e.to_string()
-            };
-            return Err(anyhow!(msg));
+    let platform_logged_in = state.active_platform_auth().session_view().logged_in;
+    if platform_logged_in || web_session {
+        if platform_logged_in {
+            if let Err(e) = state.active_platform_auth().ensure_llm_allowed().await {
+                let msg = if e.to_string().contains("token_quota_exhausted") {
+                    "套餐 Token 额度已用尽，请前往 Openpointer 官网充值或联系管理员。".to_string()
+                } else {
+                    e.to_string()
+                };
+                return Err(anyhow!(msg));
+            }
         }
     } else {
         return Err(anyhow!("请先登录 Pointer 账户"));

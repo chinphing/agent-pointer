@@ -1065,10 +1065,19 @@ async fn append_conversation_messages(
 
 async fn send_chat(
     State(state): State<ServerState>,
+    headers: HeaderMap,
     Json(payload): Json<SendChatPayload>,
 ) -> Result<StatusCode, ApiError> {
-    let web_session_auth =
-        pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth);
+    let web_session_auth = web_session::lookup_session_auth(&state.web_sessions, &headers)
+        .or_else(|| {
+            pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth)
+        });
+    if web_session_auth.is_none() {
+        log::warn!(
+            "send_chat: no browser session auth (conversation_id={})",
+            payload.conversation_id
+        );
+    }
     let req = TriggerRequest {
         run_id: None,
         idempotency_key: None,
@@ -1102,13 +1111,16 @@ async fn send_chat(
 /// `GET /api/runs/:id/events` for progress.
 async fn create_run(
     State(state): State<ServerState>,
+    headers: HeaderMap,
     Json(mut body): Json<TriggerRequest>,
 ) -> Result<(StatusCode, Json<RunHandle>), ApiError> {
     body.trigger_source = TriggerSource::HttpRuns;
     body.trigger_meta.webhook_source = None;
     body.deliver = DeliverTarget::None;
-    body.web_session_auth =
-        pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth);
+    body.web_session_auth = web_session::lookup_session_auth(&state.web_sessions, &headers)
+        .or_else(|| {
+            pointer_core::web_request_auth::capture_web_session_auth(&state.core.platform_auth)
+        });
     let handle = state.dispatcher.dispatch(body).await.map_err(ApiError::from)?;
     log::info!(
         "runs-api: accepted run_id={} conv={} status={:?}",

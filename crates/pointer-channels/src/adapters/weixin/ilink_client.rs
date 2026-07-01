@@ -32,6 +32,12 @@ fn check_ilink_ret(resp: &Value, op: &str) -> Result<()> {
     Ok(())
 }
 
+fn auth_header_refs(auth: &[(String, String)]) -> Vec<(&str, &str)> {
+    auth.iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WeixinCredentials {
@@ -83,10 +89,7 @@ impl ILinkClient {
             "base_info": base_info(),
         });
         let auth = self.auth_headers();
-        let headers: Vec<(&str, &str)> = auth
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect();
+        let headers = auth_header_refs(&auth);
         let resp = self.http.post_json(&url, &headers, &body).await?;
         check_ilink_ret(&resp, "getupdates")?;
         if let Some(next) = resp.get("get_updates_buf").and_then(|v| v.as_str()) {
@@ -131,13 +134,33 @@ impl ILinkClient {
             "base_info": base_info(),
         });
         let auth = self.auth_headers();
-        let headers: Vec<(&str, &str)> = auth
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect();
+        let headers = auth_header_refs(&auth);
         let resp = self.http.post_json(&url, &headers, &body).await?;
         check_ilink_ret(&resp, "sendmessage")?;
         Ok(())
+    }
+
+    /// Fetch bot config; may return a refreshed `context_token` when the current one is stale.
+    pub async fn get_config(
+        &self,
+        ilink_user_id: &str,
+        context_token: Option<&str>,
+    ) -> Result<Value> {
+        let url = format!("{}/ilink/bot/getconfig", self.base());
+        let mut body = json!({
+            "ilink_user_id": ilink_user_id,
+            "base_info": base_info(),
+        });
+        if let Some(token) = context_token.filter(|s| !s.trim().is_empty()) {
+            if let Some(obj) = body.as_object_mut() {
+                obj.insert("context_token".into(), json!(token));
+            }
+        }
+        let auth = self.auth_headers();
+        let headers = auth_header_refs(&auth);
+        let resp = self.http.post_json(&url, &headers, &body).await?;
+        check_ilink_ret(&resp, "getconfig")?;
+        Ok(resp)
     }
 
     pub async fn get_upload_url(
@@ -163,10 +186,7 @@ impl ILinkClient {
             "base_info": base_info(),
         });
         let auth = self.auth_headers();
-        let headers: Vec<(&str, &str)> = auth
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect();
+        let headers = auth_header_refs(&auth);
         let resp = self.http.post_json(&url, &headers, &body).await?;
         check_ilink_ret(&resp, "getuploadurl")?;
         Ok(resp)

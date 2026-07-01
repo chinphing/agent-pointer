@@ -1,10 +1,10 @@
 use anyhow::Result;
 use parking_lot::RwLock;
 use pointer_core::chat_service::AppState;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
+use crate::adapters::weixin::context_token;
 use crate::config::{load_channels_config, ChannelsConfig};
 use crate::dedup::DedupStore;
 use crate::dispatch::DispatchService;
@@ -21,8 +21,6 @@ pub struct ChannelGateway {
     pub pairing: PairingStore,
     pub dedup: DedupStore,
     core: Arc<AppState>,
-    /// Latest Weixin `context_token` per (account_id, sender_id) for outbound replies.
-    weixin_context_tokens: RwLock<HashMap<String, HashMap<String, String>>>,
 }
 
 impl ChannelGateway {
@@ -36,7 +34,6 @@ impl ChannelGateway {
             pairing: PairingStore::new(),
             dedup: DedupStore::new(),
             core,
-            weixin_context_tokens: RwLock::new(HashMap::new()),
         })
     }
 
@@ -344,18 +341,10 @@ impl ChannelGateway {
             .and_then(|r| r.context_token.as_deref())
             .filter(|s| !s.trim().is_empty())
         {
-            self.weixin_context_tokens
-                .write()
-                .entry(msg.account_id.clone())
-                .or_default()
-                .insert(msg.sender_id.clone(), token.to_string());
+            context_token::set(&msg.account_id, &msg.sender_id, token);
             return;
         }
-        let stored = self
-            .weixin_context_tokens
-            .read()
-            .get(&msg.account_id)
-            .and_then(|m| m.get(&msg.sender_id).cloned());
+        let stored = context_token::get(&msg.account_id, &msg.sender_id);
         let Some(token) = stored else {
             return;
         };

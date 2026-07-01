@@ -2,12 +2,26 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use super::cdn_upload::{file_item_json, image_item_json, upload_weixin_media, video_item_json};
+use super::context_token::{send_message_items_resilient, send_text_resilient};
 use super::ilink_client::{ILinkClient, WeixinCredentials};
 use crate::credentials::load_encrypted_json;
 use crate::traits::{ChannelOutboundAdapter, OutboundContext, OutboundMedia};
 
 #[derive(Default)]
 pub struct WeixinOutbound;
+
+fn load_client(account_id: &str) -> anyhow::Result<ILinkClient> {
+    let creds: WeixinCredentials = load_encrypted_json("weixin", account_id)?
+        .ok_or_else(|| anyhow::anyhow!("weixin credentials missing"))?;
+    Ok(ILinkClient::new(account_id.to_string(), creds))
+}
+
+fn reply_context_token(ctx: &OutboundContext) -> Option<&str> {
+    ctx.reply_context
+        .as_ref()
+        .and_then(|r| r.context_token.as_deref())
+        .filter(|s| !s.trim().is_empty())
+}
 
 #[async_trait]
 impl ChannelOutboundAdapter for WeixinOutbound {
@@ -16,16 +30,15 @@ impl ChannelOutboundAdapter for WeixinOutbound {
     }
 
     async fn send_text(&self, ctx: OutboundContext, text: &str) -> anyhow::Result<()> {
-        let creds: WeixinCredentials = load_encrypted_json("weixin", &ctx.account_id)?
-            .ok_or_else(|| anyhow::anyhow!("weixin credentials missing"))?;
-        let client = ILinkClient::new(ctx.account_id.clone(), creds);
-        let context_token = ctx
-            .reply_context
-            .as_ref()
-            .and_then(|r| r.context_token.as_deref());
-        client
-            .send_text(&ctx.recipient_id, text, context_token)
-            .await
+        let client = load_client(&ctx.account_id)?;
+        send_text_resilient(
+            &client,
+            &ctx.account_id,
+            &ctx.recipient_id,
+            text,
+            reply_context_token(&ctx),
+        )
+        .await
     }
 
     async fn send_media(
@@ -34,19 +47,12 @@ impl ChannelOutboundAdapter for WeixinOutbound {
         caption: Option<&str>,
         media: OutboundMedia,
     ) -> anyhow::Result<()> {
-        let creds: WeixinCredentials = load_encrypted_json("weixin", &ctx.account_id)?
-            .ok_or_else(|| anyhow::anyhow!("weixin credentials missing"))?;
-        let client = ILinkClient::new(ctx.account_id.clone(), creds);
-        let context_token = ctx
-            .reply_context
-            .as_ref()
-            .and_then(|r| r.context_token.as_deref())
-            .filter(|s| !s.trim().is_empty())
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "weixin send media requires context_token (send a user message first to refresh session)"
-                )
-            })?;
+        let client = load_client(&ctx.account_id)?;
+        let context_token = reply_context_token(&ctx).ok_or_else(|| {
+            anyhow::anyhow!(
+                "weixin send media requires context_token (send a user message first to refresh session)"
+            )
+        })?;
 
         let uploaded = upload_weixin_media(
             &client,
@@ -75,9 +81,14 @@ impl ChannelOutboundAdapter for WeixinOutbound {
         // iLink expects one item per sendmessage (matches OpenClaw / reference clients).
         for item in &items {
             let mut batch = [item.clone()];
-            client
-                .send_message_items(&ctx.recipient_id, context_token, &mut batch)
-                .await?;
+            send_message_items_resilient(
+                &client,
+                &ctx.account_id,
+                &ctx.recipient_id,
+                &mut batch,
+                Some(context_token),
+            )
+            .await?;
         }
         log::info!(
             "weixin outbound media account={} file={}",

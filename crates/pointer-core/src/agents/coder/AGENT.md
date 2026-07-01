@@ -5,7 +5,8 @@ description: Code generation, debugging, refactoring, and engineering implementa
 role: worker
 profile: coder
 enabled: true
-defaultSkillIds: []
+defaultSkillIds:
+  - skill-creator
 allowAgents:
   - explore
 accessPolicy:
@@ -27,8 +28,10 @@ accessPolicy:
     - task_board_check_deps
     - run_subagent
     - web_search
+    - skill_read
   denyTools: []
-  allowSkills: []
+  allowSkills:
+    - skill-creator
   denySkills: []
 ui:
   userSelectable: true

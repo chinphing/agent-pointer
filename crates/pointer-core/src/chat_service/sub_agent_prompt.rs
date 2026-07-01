@@ -62,12 +62,7 @@ pub(super) fn init_sub_agent_session(
         .or_else(|| state.agents.get(DEFAULT_AGENT_ID))
         .ok_or_else(|| anyhow!("未找到 Agent: {}", task.agent_id))?;
     let def = agent.def().clone();
-    let _ = enabled_skill_ids;
-    let skill_ids: Vec<String> = if crate::agents::sub_agent_inherits_session_skills(&def.id) {
-        enabled_skill_ids.to_vec()
-    } else {
-        Vec::new()
-    };
+    let skill_ids = crate::agents::sub_agent_skill_ids(&def, enabled_skill_ids);
     let (skill_prompts, session_tools) = state.skills.progressive_context(&skill_ids);
     let mut allowed_tools = resolve_agent_tools(&def, &session_tools, &state.tools);
     let allow_agents = normalize_allow_agents(&def.allow_agents);

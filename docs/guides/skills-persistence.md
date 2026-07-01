@@ -55,17 +55,17 @@
 
 系统库 skill 在 API 中 `provenance: "system"`、`mutable: false`。`.agents/skills` 来源为 `provenance: "external"`、`mutable: false`。
 
-## 仅 general agent 加载技能
+## general / coder lead 加载技能
 
 运行时规则（`pointer-core`）：
 
-- **单智能体模式**：仅当 lead agent id 为 **`general`** 时，`build_plan` 注入技能索引与 `skill_*` 工具。
+- **单智能体模式**：lead 为 **`general`** 时使用用户启用的 skill 列表；lead 为 **`coder`** 时默认合并 **`skill-creator`**（`allowSkills` 仅允许该 skill）。**coder** 仅开放 **`skill_read`**（不含 `skill_import`；写 skill 文件用 `file_*`）。
 - **Supervisor 模式**：不加载技能。
-- **子 Agent**：不加载技能。
+- **子 Agent**：`general-worker` 继承 lead 的 skill 列表；**coder** 子 Agent 同样加载 **`skill-creator`**（仅 `skill_read`）。其他子 Agent 不加载 skill。
 
-前端发消息时：仅当 `agentMode === 'single'` 且 `leadAgentId === 'general'` 才传 `enabledSkillIds`。
+前端发消息时：`general` 传用户 `enabledSkillIds`；`coder` 传 `['skill-creator']`；其他 lead 不传 skill。
 
-**IM 渠道与 Cron 定时任务**：不传显式列表时，使用 `user_settings.json` 的 `enabledSkillIds`（与 UI 全局启用一致；新用户默认全开内置 skill）。仍须 lead 为 `general` 且单智能体模式才会注入 skill。
+**IM 渠道与 Cron 定时任务**：不传显式列表时，使用 `user_settings.json` 的 `enabledSkillIds`（与 UI 全局启用一致；新用户默认全开内置 skill）。仍须 lead 为 **`general`** 或 **`coder`** 且单智能体模式才会注入 skill；`coder` 会被 `allowSkills` 限制为 `skill-creator`。
 
 ## 内置技能
 

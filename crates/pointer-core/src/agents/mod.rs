@@ -1010,24 +1010,42 @@ fn static_agent(def: AgentDef) -> Arc<dyn AgentExecutor> {
     })
 }
 
-/// Only the **general** lead agent may load session skills.
+/// Only the **general** and **coder** lead agents may load session skills.
 pub fn agent_supports_skills(agent: &AgentDef) -> bool {
-    agent.id == DEFAULT_AGENT_ID
+    agent.id == DEFAULT_AGENT_ID || agent.id == "coder"
 }
 
-/// Sub-agents that inherit the lead's `enabled_skill_ids` (general lead only).
+/// Sub-agents that load session skills (`general-worker` inherits lead list; **coder** uses its defaults).
 pub fn sub_agent_inherits_session_skills(agent_id: &str) -> bool {
-    agent_id == "general-worker"
+    matches!(agent_id, "general-worker" | "coder")
 }
 
-/// Session skills come **only** from the caller’s `enabled_skill_ids` when the lead agent is
-/// **general**. Manifest `defaultSkillIds` is metadata (e.g. UI hints / roster); it is not
-/// auto-merged into the session.
+/// Skill ids for a delegated sub-agent session.
+pub fn sub_agent_skill_ids(agent: &AgentDef, lead_enabled_skill_ids: &[String]) -> Vec<String> {
+    match agent.id.as_str() {
+        "general-worker" => filter_skill_ids(agent, lead_enabled_skill_ids.to_vec()),
+        "coder" => filter_skill_ids(agent, Vec::new()),
+        _ => Vec::new(),
+    }
+}
+
+/// Session skills come from the caller's `enabled_skill_ids` when the lead agent supports
+/// skills. The **coder** lead always merges manifest `defaultSkillIds` (skill-creator).
 fn resolve_skill_ids(agent: &AgentDef, enabled_skill_ids: &[String]) -> Vec<String> {
     if !agent_supports_skills(agent) {
         return Vec::new();
     }
-    let mut ids = enabled_skill_ids.to_vec();
+    filter_skill_ids(agent, enabled_skill_ids.to_vec())
+}
+
+fn filter_skill_ids(agent: &AgentDef, mut ids: Vec<String>) -> Vec<String> {
+    if agent.id == "coder" {
+        for id in &agent.default_skill_ids {
+            if !ids.contains(id) {
+                ids.push(id.clone());
+            }
+        }
+    }
     if !agent.access_policy.allow_skills.is_empty() {
         let allow: HashSet<_> = agent.access_policy.allow_skills.iter().cloned().collect();
         ids.retain(|id| allow.contains(id));
@@ -1518,7 +1536,21 @@ mod builtin_agent_tests {
             "general-worker must not allow run_subagent even with task_board"
         );
         assert!(crate::agents::sub_agent_inherits_session_skills("general-worker"));
-        assert!(!crate::agents::sub_agent_inherits_session_skills("coder"));
+        assert!(crate::agents::sub_agent_inherits_session_skills("coder"));
+        assert!(!crate::agents::sub_agent_inherits_session_skills("explore"));
+    }
+
+    #[test]
+    fn sub_agent_skill_ids_for_coder_uses_defaults_only() {
+        let coder = load_builtin_agent(
+            "coder",
+            include_str!("coder/AGENT.md"),
+            include_str!("coder/COMMUNICATION.md"),
+        )
+        .expect("load coder")
+        .def;
+        let ids = sub_agent_skill_ids(&coder, &["docx".into(), "pdf".into()]);
+        assert_eq!(ids, vec!["skill-creator".to_string()]);
     }
 
     #[test]
@@ -1535,6 +1567,58 @@ mod builtin_agent_tests {
             agent.def.allow_agents.binary_search(&"explore".to_string()).is_ok(),
             "coder allowAgents should include explore"
         );
+        assert!(
+            agent
+                .def
+                .default_skill_ids
+                .iter()
+                .any(|id| id == "skill-creator"),
+            "coder defaultSkillIds should include skill-creator"
+        );
+        assert!(
+            agent
+                .def
+                .access_policy
+                .allow_skills
+                .iter()
+                .any(|id| id == "skill-creator"),
+            "coder allowSkills should include skill-creator"
+        );
+        for tool in ["skill_read"] {
+            assert!(
+                agent
+                    .def
+                    .access_policy
+                    .allow_tools
+                    .binary_search(&tool.to_string())
+                    .is_ok(),
+                "coder allowTools should include {tool}"
+            );
+        }
+        assert!(
+            !agent
+                .def
+                .access_policy
+                .allow_tools
+                .contains(&"skill_import".to_string()),
+            "coder should not allow skill_import"
+        );
+    }
+
+    #[test]
+    fn resolve_skill_ids_merges_coder_defaults() {
+        let coder = load_builtin_agent(
+            "coder",
+            include_str!("coder/AGENT.md"),
+            include_str!("coder/COMMUNICATION.md"),
+        )
+        .expect("load coder")
+        .def;
+        assert!(agent_supports_skills(&coder));
+        let ids = resolve_skill_ids(&coder, &[]);
+        assert_eq!(ids, vec!["skill-creator".to_string()]);
+        let ids = resolve_skill_ids(&coder, &["docx".into()]);
+        assert_eq!(ids, vec!["skill-creator".to_string()]);
     }
 
     #[test]

@@ -51,7 +51,7 @@ Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdow
 
 ## 运行时范围
 
-Skills 仅在 **general** lead agent 下加载；详见 [skills-persistence.md](skills-persistence.md)。
+Skills 在 **general** / **coder** lead agent 下加载；详见 [skills-persistence.md](skills-persistence.md)。
 
 ## 跨平台
 

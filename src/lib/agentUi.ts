@@ -20,6 +20,12 @@ import { DEFAULT_LEAD_AGENT_ID } from '../types/chat'
 /** Built-in general agent id. */
 export const GENERAL_AGENT_ID = 'general'
 
+/** Built-in coder agent id. */
+export const CODER_AGENT_ID = 'coder'
+
+/** Default skills for the coder lead agent. Keep in sync with coder `defaultSkillIds`. */
+export const CODER_DEFAULT_SKILL_IDS = ['skill-creator'] as const
+
 export interface ResolvedAgentUi {
   showInComposer: boolean
   showSidecarToolCalls: boolean

@@ -42,7 +42,8 @@ export const DEFAULT_ENABLED_SKILL_IDS = [
   'docx',
   'xlsx',
   'pptx',
-  'pdf'
+  'pdf',
+  'agent-browser'
 ] as const
 
 export type AgentMode = 'single' | 'supervisor'

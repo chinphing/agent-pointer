@@ -14,6 +14,7 @@ pub const BUNDLED_SKILL_IDS: &[&str] = &[
     "xlsx",
     "pptx",
     "pdf",
+    "agent-browser",
 ];
 
 /// Default enabled set for new users — all bundled system skills.

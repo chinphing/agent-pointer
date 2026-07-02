@@ -36,7 +36,10 @@ python3 --version
 pandoc --version
 soffice --version || libreoffice --version
 python3 -c "import markitdown; print('markitdown ok')"
+python3 -c "import pymupdf; print('pymupdf ok')"
 ```
+
+Install Python packages only when the import check fails (e.g. `python3 -c "import pymupdf" || pip install pymupdf ...`).
 
 ## User attachments
 

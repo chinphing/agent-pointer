@@ -8,7 +8,7 @@ license: Proprietary. LICENSE.txt has complete terms
 
 ## Overview
 
-All PDF work in **`terminal`** uses **PyMuPDF** only (`pip install pymupdf`).
+All PDF work in **`terminal`** uses **PyMuPDF** only (install **`pymupdf`** if missing — see **Dependencies**).
 
 Official import (recommended since 1.24):
 
@@ -41,9 +41,13 @@ Prefer **`pymupdf.Rect` / `Point` / `Matrix`** over raw tuples when rendering, c
 
 **Python 3.12** preferred (3.9+ ok). Package: **`pymupdf`**. No Python/pip → **`skill_read`** **dev-env-setup** (see **references/python.md**).
 
+**Do not reinstall every session.** Check first; install only when import fails:
+
 ```bash
-pip install pymupdf -i https://mirrors.huaweicloud.com/repository/pypi/simple
+python3 -c "import pymupdf" 2>/dev/null || pip install pymupdf -i https://mirrors.huaweicloud.com/repository/pypi/simple
 ```
+
+On Windows, use `python` instead of `python3` if needed.
 
 ## Pointer: reading attached PDFs
 

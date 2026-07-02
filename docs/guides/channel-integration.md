@@ -85,6 +85,35 @@ Pointer 通过 `pointer-channels` crate 以 **长连接优先、纯 Rust** 方�
 2. URL：`{publicBaseUrl}/webhooks/wecom/default`
 3. 配置 `corpId`、`agentId`、`secret`、`token`、`encodingAesKey`
 
+### 群 @ 与动态 Agent（企微）
+
+**群 @**：Bot WSS 模式下，企微平台仅在用户 @ 机器人时推送消息；Pointer 会剥离消息中的 `@机器人名` 前缀。Agent HTTP 回调模式下，通过文本是否以 `@` 开头判断；`requireMention: true` 时未 @ 的群消息会被丢弃。
+
+**动态 Agent**（`dynamicAgents`，默认启用）：
+
+| 字段 | 默认 | 说明 |
+| --- | --- | --- |
+| `enabled` | `true` | 启用动态会话路由 |
+| `dmCreateAgent` | `true` | 私信按用户隔离会话 |
+| `groupEnabled` | `true` | 群聊按群共享一个会话（非按发送者） |
+| `adminUsers` | `[]` | 列表内 userid 走主会话 `_main`，不隔离 |
+
+群聊共享会话时，入站消息会自动加 `[userid]:` 前缀，便于模型区分发言人。配置示例：
+
+```json
+{
+  "wecom": {
+    "default": {
+      "dynamicAgents": {
+        "enabled": true,
+        "groupEnabled": true,
+        "adminUsers": ["admin_userid"]
+      }
+    }
+  }
+}
+```
+
 ## 微信
 
 1. 在设置中点击「扫码登录」

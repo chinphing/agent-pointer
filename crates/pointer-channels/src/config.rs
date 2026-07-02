@@ -45,6 +45,30 @@ impl Default for ChannelsMeta {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DynamicAgentsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_true", rename = "dmCreateAgent")]
+    pub dm_create_agent: bool,
+    #[serde(default = "default_true", rename = "groupEnabled")]
+    pub group_enabled: bool,
+    #[serde(default, rename = "adminUsers")]
+    pub admin_users: Vec<String>,
+}
+
+impl Default for DynamicAgentsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            dm_create_agent: true,
+            group_enabled: true,
+            admin_users: vec![],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelAccountConfig {
@@ -95,6 +119,8 @@ pub struct ChannelAccountConfig {
     pub allow_from: Vec<String>,
     #[serde(default, rename = "groupAllowFrom")]
     pub group_allow_from: Vec<String>,
+    #[serde(default, rename = "dynamicAgents")]
+    pub dynamic_agents: DynamicAgentsConfig,
     /// Legacy per-account field; migrated to `meta.sessionReset` on load.
     #[serde(default, rename = "sessionReset", skip_serializing)]
     session_reset_legacy: SessionResetConfig,
@@ -382,6 +408,15 @@ mod tests {
             .effective_idle_minutes(),
             30
         );
+    }
+
+    #[test]
+    fn dynamic_agents_config_defaults() {
+        let cfg: DynamicAgentsConfig = serde_json::from_str("{}").unwrap();
+        assert!(!cfg.enabled);
+        assert!(cfg.dm_create_agent);
+        assert!(cfg.group_enabled);
+        assert!(cfg.admin_users.is_empty());
     }
 }
 

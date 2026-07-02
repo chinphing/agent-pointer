@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod media;
+pub mod mention;
 pub mod monitor;
 mod outbound;
 pub mod parse;

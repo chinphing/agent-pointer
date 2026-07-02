@@ -11,7 +11,10 @@ use tokio::sync::{mpsc, Mutex as AsyncMutex};
 use crate::config::ChannelAccountConfig;
 use crate::http_client::HttpClient;
 use crate::media::resolve_inbound_attachments;
-use crate::session::{conversation_id, inbound_user_message_id};
+use crate::session::{
+    conversation_id, format_group_sender_prefix, inbound_user_message_id,
+    should_prefix_group_sender,
+};
 use crate::session_fork::{fork_im_desktop_session, resolve_active_desktop_id};
 use crate::session_agent::{agent_switch_ack, detect_agent_switch, AgentSwitchAction};
 use crate::session_reset::{self, ManualResetAction, MANUAL_RESET_ACK};
@@ -131,7 +134,7 @@ impl DispatchService {
         idle_minutes: u32,
         msg: InboundMessage,
     ) -> Result<()> {
-        let conv_id = conversation_id(&msg);
+        let conv_id = conversation_id(&msg, Some(&account.dynamic_agents));
         let conv_mutex = self.conv_lock(&conv_id);
         let _conv_guard = conv_mutex.lock().await;
         log::info!(
@@ -173,6 +176,10 @@ impl DispatchService {
 
         let now_ms = chrono::Utc::now().timestamp_millis();
         let mut user_text = msg.text.clone();
+        if should_prefix_group_sender(&account.dynamic_agents, &msg) && !user_text.trim().is_empty()
+        {
+            user_text = format_group_sender_prefix(&msg, &user_text);
+        }
         let store = state.session_index.clone();
         let mut im_session = store.load_im_session(&conv_id)?;
 

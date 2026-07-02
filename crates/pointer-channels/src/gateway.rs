@@ -171,7 +171,7 @@ impl ChannelGateway {
         let mut msg = msg;
         self.enrich_weixin_reply_context(&mut msg);
 
-        let conv_id = conversation_id(&msg);
+        let conv_id = conversation_id(&msg, Some(&account.dynamic_agents));
         if is_abort_command(&msg.text) {
             self.core.cancel(&conv_id);
             let outbound = OutboundContext {

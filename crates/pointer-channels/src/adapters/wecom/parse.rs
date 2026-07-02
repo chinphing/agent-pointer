@@ -3,6 +3,8 @@ use crate::traits::{InboundMediaRef, InboundMessage, InboundReplyContext};
 use pointer_core::media::normalize_inbound_filename;
 use serde_json::Value;
 
+use super::mention::apply_wecom_mention;
+
 struct ParsedContent {
     text: String,
     attachments: Vec<InboundMediaRef>,
@@ -28,6 +30,8 @@ pub fn parse_ws_inbound(body: &Value, account_id: &str, req_id: &str) -> Option<
         .unwrap_or_else(|| sender_id.clone());
     let chattype = body.get("chattype").and_then(|v| v.as_str()).unwrap_or("single");
     let is_group = chattype == "group";
+    let has_attachments = !parsed.attachments.is_empty();
+    let mention = apply_wecom_mention(&parsed.text, is_group, true, has_attachments);
 
     Some(InboundMessage {
         channel: "wecom".into(),
@@ -36,9 +40,9 @@ pub fn parse_ws_inbound(body: &Value, account_id: &str, req_id: &str) -> Option<
         conversation_key: build_conversation_key("wecom", &chat_id, is_group),
         sender_id: sender_id.clone(),
         sender_name: None,
-        text: parsed.text,
+        text: mention.text,
         is_group,
-        mentioned_bot: true,
+        mentioned_bot: mention.mentioned_bot,
         reply_context: Some(InboundReplyContext {
             session_webhook: None,
             chat_id: Some(chat_id),
@@ -214,4 +218,39 @@ fn media_ref_from_url(
         weixin_voice_sample_rate: None,
         weixin_voice_asr_text: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn ws_group_strips_mention_and_marks_mentioned() {
+        let body = json!({
+            "msgtype": "text",
+            "msgid": "m1",
+            "from": { "userid": "u1" },
+            "chatid": "chat1",
+            "chattype": "group",
+            "text": { "content": "@RobotA hello robot" }
+        });
+        let msg = parse_ws_inbound(&body, "default", "req1").expect("parse");
+        assert!(msg.mentioned_bot);
+        assert_eq!(msg.text, "hello robot");
+    }
+
+    #[test]
+    fn ws_dm_does_not_require_mention() {
+        let body = json!({
+            "msgtype": "text",
+            "msgid": "m2",
+            "from": { "userid": "u1" },
+            "chattype": "single",
+            "text": { "content": "hello" }
+        });
+        let msg = parse_ws_inbound(&body, "default", "req2").expect("parse");
+        assert!(msg.mentioned_bot);
+        assert_eq!(msg.text, "hello");
+    }
 }

@@ -4,6 +4,13 @@ export interface SessionResetConfig {
   idleMinutes?: number
 }
 
+export interface DynamicAgentsConfig {
+  enabled?: boolean
+  dmCreateAgent?: boolean
+  groupEnabled?: boolean
+  adminUsers?: string[]
+}
+
 export interface ChannelAccountConfig {
   enabled?: boolean
   name?: string
@@ -26,6 +33,7 @@ export interface ChannelAccountConfig {
   requireMention?: boolean
   allowFrom?: string[]
   groupAllowFrom?: string[]
+  dynamicAgents?: DynamicAgentsConfig
 }
 
 export interface ImOutboundConfig {

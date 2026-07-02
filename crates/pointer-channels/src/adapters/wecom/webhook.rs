@@ -9,6 +9,7 @@ use crate::traits::{
 };
 
 use super::media::WECOM_AGENT_MEDIA_PREFIX;
+use super::mention::apply_wecom_mention;
 
 pub struct WeComWebhook;
 
@@ -127,6 +128,8 @@ fn parse_wecom_xml(xml: &str, account_id: &str) -> Option<InboundMessage> {
     let msg_id = get_tag("MsgId").unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let chat_id = get_tag("ChatId").unwrap_or_else(|| from.clone());
     let is_group = get_tag("ChatId").is_some();
+    let has_attachments = !parsed.attachments.is_empty();
+    let mention = apply_wecom_mention(&parsed.text, is_group, false, has_attachments);
 
     Some(InboundMessage {
         channel: "wecom".into(),
@@ -135,9 +138,9 @@ fn parse_wecom_xml(xml: &str, account_id: &str) -> Option<InboundMessage> {
         conversation_key: build_conversation_key("wecom", &chat_id, is_group),
         sender_id: from,
         sender_name: None,
-        text: parsed.text,
+        text: mention.text,
         is_group,
-        mentioned_bot: true,
+        mentioned_bot: mention.mentioned_bot,
         reply_context: Some(InboundReplyContext {
             session_webhook: None,
             chat_id: Some(chat_id),
@@ -252,5 +255,35 @@ mod tests {
             .wecom_download_url
             .as_deref()
             .is_some_and(|u| u.contains("MEDIA_ID")));
+    }
+
+    #[test]
+    fn webhook_group_text_requires_at_mention() {
+        let xml = r#"<xml>
+<ToUserName><![CDATA[corp]]></ToUserName>
+<FromUserName><![CDATA[user1]]></FromUserName>
+<ChatId><![CDATA[chat1]]></ChatId>
+<MsgType><![CDATA[text]]></MsgType>
+<Content><![CDATA[hello everyone]]></Content>
+<MsgId>124</MsgId>
+</xml>"#;
+        let msg = parse_wecom_xml(xml, "default").expect("parse");
+        assert!(!msg.mentioned_bot);
+        assert_eq!(msg.text, "hello everyone");
+    }
+
+    #[test]
+    fn webhook_group_text_strips_at_prefix() {
+        let xml = r#"<xml>
+<ToUserName><![CDATA[corp]]></ToUserName>
+<FromUserName><![CDATA[user1]]></FromUserName>
+<ChatId><![CDATA[chat1]]></ChatId>
+<MsgType><![CDATA[text]]></MsgType>
+<Content><![CDATA[@机器人 这是今日的测试情况]]></Content>
+<MsgId>125</MsgId>
+</xml>"#;
+        let msg = parse_wecom_xml(xml, "default").expect("parse");
+        assert!(msg.mentioned_bot);
+        assert_eq!(msg.text, "这是今日的测试情况");
     }
 }

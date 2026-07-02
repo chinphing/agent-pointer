@@ -254,7 +254,14 @@ export function useChannelSettingsForm() {
       enabled: false,
       connectionMode: 'websocket',
       dmPolicy: 'pairing',
-      groupPolicy: 'allowlist'
+      groupPolicy: 'allowlist',
+      requireMention: true,
+      dynamicAgents: {
+        enabled: true,
+        dmCreateAgent: true,
+        groupEnabled: true,
+        adminUsers: []
+      }
     }
   }
 

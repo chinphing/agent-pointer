@@ -1,22 +1,13 @@
-Review the conversation above and consider updating Skills if appropriate.
+Review the conversation above and consider whether any Skills should be updated.
 
-Focus on:
+Automatic skill file updates are **disabled** in background review.
 
-1. Did the user correct your style, workflow, or preferred approach?
-2. Did you discover a reusable technique worth capturing for similar tasks?
-3. Are skills loaded this session outdated or missing steps the user expects?
+If skills seem outdated, note it in your reply — the **general** lead should delegate
+**`run_subagent(agentId="coder")`** with **`workspaceRoot`** = `~/.pointer/skills/{name}/`
+for file changes (not **`skill_import`** re-install unless installing a new package).
 
-When updating:
+Do not encode transient failures (e.g. a tool was down once) as permanent skill rules.
 
-- Prefer patching skills already loaded in this session.
-- Add or refine `references/` files before creating a brand-new skill.
-- Do not encode transient failures (e.g. a tool was down once) as permanent skill rules.
+If nothing is worth noting, reply with exactly: Nothing to save.
 
-If a **user-managed** skill under ~/.pointer/skills should change, use **`skill_patch`**: omit `path` for SKILL.md body (after frontmatter); pass `path` for other files (full content).
-Do **not** patch **system bundled** skills (provenance=system under the app data directory).
-
-To inspect skills, use **`skill_read`** (omit `path` for instructions; pass `path` for resources).
-
-If nothing should change, reply with exactly: Nothing to save.
-
-You may only call skill tools listed above. Do not attempt other tools.
+You may only call tools listed above. Do not attempt other tools.

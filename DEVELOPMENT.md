@@ -191,7 +191,7 @@ Model: qwen-plus
 
 外部 Skills 严格采用官方 Claude Skills 的目录式规范。加载来源按优先级从高到低：
 
-1. `~/.pointer/skills/`（用户库，可 `skill_patch`）
+1. `~/.pointer/skills/`（用户库；安装 **`skill_import`**，修改委派 **coder** 子 agent）
 2. `~/.agents/skills/`（Codex / Agent 兼容，只读）
 3. `{data_dir}/PointerApp/skills/`（bundled 系统库）
 

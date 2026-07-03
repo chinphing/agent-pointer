@@ -2068,7 +2068,7 @@ pub struct SkillDef {
     /// `system` (bundled), `user` (`~/.pointer/skills`), or `external` (`~/.agents/skills`).
     #[serde(default = "default_skill_provenance", rename = "provenance")]
     pub provenance: String,
-    /// Whether review / skill_patch may modify this skill.
+    /// Whether the skill is user-managed (not pinned system copy).
     #[serde(default = "default_skill_mutable", rename = "mutable")]
     pub mutable: bool,
 }

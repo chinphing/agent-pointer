@@ -150,11 +150,6 @@ impl SkillRegistry {
         Ok(format!("【Skill：{}】\n{}", name, body))
     }
 
-    /// Patch skill content: omit `path` (or pass `SKILL.md`) for instructions body; otherwise replace the whole file at `path`.
-    pub fn patch(&self, id: &str, path: Option<&str>, content: &str) -> Result<()> {
-        external::patch_skill(id, path, content)
-    }
-
     fn read_resource(&self, id: &str, path: &str) -> Result<String> {
         let g = self.inner.read();
         let skill = g.get(id).ok_or_else(|| anyhow!("未找到 Skill: {id}"))?;

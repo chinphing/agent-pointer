@@ -15,25 +15,6 @@ skill_read:
   required: [skill_id]
   additionalProperties: false
 
-skill_patch:
-  type: object
-  properties:
-    skill_id:
-      type: string
-    path:
-      type: string
-      description: >-
-        Optional. Omit to patch SKILL.md body (content after YAML frontmatter).
-        Provide a skill-relative path (e.g. references/guide.md) to replace that file entirely.
-        SKILL.md is accepted as an alias for instructions.
-    body:
-      type: string
-      description: >-
-        New content. For SKILL.md (no path): markdown body after frontmatter.
-        For other paths: full file content.
-  required: [skill_id, body]
-  additionalProperties: false
-
 skill_import:
   type: object
   properties:

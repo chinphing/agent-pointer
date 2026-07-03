@@ -6,15 +6,15 @@ Pointer 采用社区通用的 **`SKILL.md`** 格式（YAML frontmatter + Markdow
 
 `reload_meta` / 启动加载时按下列目录扫描子文件夹（含 `SKILL.md` 或 `skill.md`）。**同名 skill 以先扫描到的为准**（优先级从高到低）：
 
-| 优先级 | 路径 | 来源 | `provenance` | 可 `skill_patch` |
-|--------|------|------|--------------|------------------|
-| 1 | `~/.pointer/skills/` | 用户库（创建 / 导入 / Agent 写入） | `user` | ✅（非 pinned） |
+| 优先级 | 路径 | 来源 | `provenance` | 修改方式 |
+|--------|------|------|--------------|----------|
+| 1 | `~/.pointer/skills/` | 用户库（导入 / Agent 创建） | `user` | **`run_subagent` → coder**（`file_*`）；**`skill_import`** 仅整包安装 |
 | 2 | `~/.agents/skills/` | 用户 Codex / Agent 标准目录 | `external` | ❌ |
 | 3 | `{data_dir}/PointerApp/skills/` | 应用 bundled 同步副本 | `system` | ❌ |
 
 **不扫描**：工作区 `{workspace}/.agents/skills/`、工作区 `./skills/`（Pointer 内置 skill 源码）、以 `.` 开头的 vendor 目录。
 
-**修改 external skill**：用 **`skill_import`** 复制到 `~/.pointer/skills/`，或 **`skill_patch`** 仅作用于用户库中已存在的同名 skill。
+**修改 external skill**：用 **`skill_import`** 复制到 `~/.pointer/skills/`。**更新已有用户 skill**：general lead 委派 **`run_subagent(coder)`**，**`workspaceRoot`** = `~/.pointer/skills/{name}/`；coder 用 **`file_edit`** 等小范围修改，禁止 general 直接写 skill 文件。
 
 ## Frontmatter 兼容
 

@@ -1,25 +1,18 @@
-//! Skill library curator: auto maintenance + periodic LLM review of ~/.pointer/skills.
+//! Skill library curator: auto maintenance of ~/.pointer/skills (stale markers / archive).
 
 use super::external::{pointer_home_dir, pointer_skills_dir};
 use crate::chat_service::AppState;
-use crate::memory::{allowed_tools_for, dispatch_review_tool, ReviewKind};
-use crate::models::{ChatMessage, ModelSettings, Role, SystemPromptSections};
-use crate::provider::OpenAIProvider;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio_util::sync::CancellationToken;
 
-const CURATOR_PROMPT: &str = include_str!("prompts/curator.md");
 const CURATOR_META_FILE: &str = "curator_meta.json";
 const STALE_DAYS: u64 = 30;
 const ARCHIVE_DAYS: u64 = 90;
 const DAY_MS: i64 = 86_400_000;
-const REVIEW_MAX_ITERATIONS: u32 = 12;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct CuratorMeta {
@@ -108,202 +101,6 @@ pub fn run_auto_maintenance() -> Result<MaintenanceReport> {
     Ok(report)
 }
 
-pub fn is_idle_long_enough(state: &AppState, settings: &ModelSettings) -> bool {
-    let idle_hours = settings.curator_idle_hours.max(1) as u64;
-    let elapsed = state.idle_duration();
-    elapsed >= Duration::from_secs(idle_hours * 3600)
-}
-
-pub fn llm_curator_due(settings: &ModelSettings) -> bool {
-    if settings.curator_interval_days == 0 {
-        return false;
-    }
-    let meta = load_meta().unwrap_or_default();
-    if meta.last_llm_run_ms <= 0 {
-        return true;
-    }
-    let interval_ms = i64::from(settings.curator_interval_days.max(1)) * DAY_MS;
-    now_ms().saturating_sub(meta.last_llm_run_ms) >= interval_ms
-}
-
-pub async fn run_llm_curator(
-    state: Arc<AppState>,
-    provider: OpenAIProvider,
-    settings: &ModelSettings,
-) -> Result<()> {
-    let skills = state.skills.clone();
-    let _ = skills.reload_meta();
-    let catalog = build_skill_catalog(&skills);
-    let tools = state.tools.clone();
-    let allowed = allowed_tools_for(ReviewKind::SkillOnly);
-    let native_tools = tools.openai_tools(&allowed);
-    if native_tools.is_empty() {
-        return Err(anyhow!("curator: skill tools not registered"));
-    }
-
-    let mut messages = vec![curator_user_message(&catalog)];
-    let system = SystemPromptSections::all_cacheable(vec![]);
-    let cancel = CancellationToken::new();
-    let mut patches = 0u32;
-
-    for iter in 0..REVIEW_MAX_ITERATIONS {
-        let out = provider
-            .chat_once(
-                &messages,
-                &system,
-                native_tools.clone(),
-                cancel.clone(),
-                Some(settings.context_summary_max_tokens.min(2048)),
-                Some(&format!("skill_curator_{iter}")),
-            )
-            .await?;
-
-        if out.tool_calls.is_empty() {
-            break;
-        }
-
-        messages.push(ChatMessage {
-            id: format!("curator_a_{iter}"),
-            role: Role::Assistant,
-            content: out.text.clone(),
-            status: "done".into(),
-            created_at: now_ms(),
-            tool_calls: Some(out.tool_calls.clone()),
-            tool_call_id: None,
-            error_message: None,
-            reasoning: None,
-            thoughts: None,
-            headline: None,
-            raw_content: None,
-            tool_raw_output: None,
-            agent_id: None,
-            agent_instance_id: None,
-            agent_name: None,
-            agent_trace: None,
-            image_slot_labels: None,
-            images_base64: None,
-            computer_round_screen_rel_path: None,
-            ui_bindings: None,
-            context_state: None,
-            attachments: None,
-            anchor_message_id: None,
-            trace_id: None,
-            task_id: None,
-            spawn_depth: None,
-        });
-
-        for tc in &out.tool_calls {
-            let result = dispatch_review_tool(
-                &state.memory_store,
-                &skills,
-                settings,
-                &tc.name,
-                &tc.arguments,
-            )
-            .unwrap_or_else(|e: anyhow::Error| {
-                serde_json::json!({ "success": false, "error": e.to_string() }).to_string()
-            });
-            if tc.name == "skill_patch" {
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&result) {
-                    if v.get("success").and_then(|b| b.as_bool()) == Some(true) {
-                        patches += 1;
-                    }
-                }
-            }
-            messages.push(ChatMessage {
-                id: format!("curator_t_{iter}_{}", tc.id),
-                role: Role::Tool,
-                content: result,
-                status: "done".into(),
-                created_at: now_ms(),
-                tool_calls: None,
-                tool_call_id: Some(tc.id.clone()),
-                error_message: None,
-                reasoning: None,
-                thoughts: None,
-                headline: None,
-                raw_content: None,
-                tool_raw_output: None,
-                agent_id: None,
-                agent_instance_id: None,
-                agent_name: None,
-                agent_trace: None,
-                image_slot_labels: None,
-                images_base64: None,
-                computer_round_screen_rel_path: None,
-                ui_bindings: None,
-                context_state: None,
-                attachments: None,
-                anchor_message_id: None,
-                trace_id: None,
-                task_id: None,
-                spawn_depth: None,
-            });
-        }
-    }
-
-    let mut meta = load_meta()?;
-    meta.last_llm_run_ms = now_ms();
-    save_meta(&meta)?;
-    log::info!("curator: llm pass finished patches={patches}");
-    Ok(())
-}
-
-fn build_skill_catalog(skills: &super::SkillRegistry) -> String {
-    let mut lines = vec![
-        "Current skill library under ~/.pointer/skills:".to_string(),
-        String::new(),
-    ];
-    for s in skills.list() {
-        if s.builtin || !s.mutable {
-            continue;
-        }
-        if !super::provenance::is_curation_eligible(&s.id) {
-            continue;
-        }
-        lines.push(format!("- id: {}", s.id));
-        lines.push(format!("  name: {}", s.name));
-        lines.push(format!("  description: {}", s.description));
-        if !s.tags.is_empty() {
-            lines.push(format!("  tags: {}", s.tags.join(", ")));
-        }
-    }
-    lines.join("\n")
-}
-
-fn curator_user_message(catalog: &str) -> ChatMessage {
-    let content = format!("{CURATOR_PROMPT}\n\n{catalog}");
-    ChatMessage {
-        id: format!("curator_{}", uuid::Uuid::new_v4().simple()),
-        role: Role::User,
-        content,
-        status: "done".into(),
-        created_at: now_ms(),
-        tool_calls: None,
-        tool_call_id: None,
-        error_message: None,
-        reasoning: None,
-        thoughts: None,
-        headline: None,
-        raw_content: None,
-        tool_raw_output: None,
-        agent_id: None,
-        agent_instance_id: None,
-        agent_name: None,
-        agent_trace: None,
-        image_slot_labels: None,
-        images_base64: None,
-        computer_round_screen_rel_path: None,
-        ui_bindings: None,
-        context_state: None,
-        attachments: None,
-        anchor_message_id: None,
-        trace_id: None,
-        task_id: None,
-        spawn_depth: None,
-    }
-}
-
 fn is_managed_skill_dir(dir: &Path) -> bool {
     super::external::is_skill_package_dir(dir)
 }
@@ -345,33 +142,8 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-struct CuratorRunGuard<'a>(&'a AtomicBool);
-
-impl Drop for CuratorRunGuard<'_> {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
-    }
-}
-
-pub(crate) async fn try_background_provider(state: &AppState) -> Option<OpenAIProvider> {
-    if !state.platform_auth.session_view().logged_in {
-        return None;
-    }
-    if state.platform_auth.ensure_llm_allowed().await.is_err() {
-        return None;
-    }
-    let mut settings = state.effective_settings();
-    settings.agent_mode = "single".into();
-    settings.lead_agent_id = "general".into();
-    let api_key =
-        crate::chat_service::prepare_session_llm_settings(&mut settings, "single", None);
-    if api_key.is_empty() {
-        return None;
-    }
-    Some(OpenAIProvider::new(settings, api_key))
-}
-
 pub fn start_background_loop(state: Arc<AppState>) {
+    let _ = state;
     tokio::spawn(async move {
         if let Err(e) = run_auto_maintenance() {
             log::warn!("curator: startup maintenance failed: {e:#}");
@@ -383,49 +155,6 @@ pub fn start_background_loop(state: Arc<AppState>) {
             if let Err(e) = run_auto_maintenance() {
                 log::warn!("curator: periodic maintenance failed: {e:#}");
             }
-            let settings = state.effective_settings();
-            if !settings.curator_enabled {
-                continue;
-            }
-            if !is_idle_long_enough(state.as_ref(), &settings) {
-                continue;
-            }
-            if !llm_curator_due(&settings) {
-                continue;
-            }
-            if state
-                .curator_llm_running
-                .swap(true, Ordering::Acquire)
-            {
-                continue;
-            }
-            let st = state.clone();
-            tokio::spawn(async move {
-                let _guard = CuratorRunGuard(&st.curator_llm_running);
-                match try_background_provider(&st).await {
-                    Some(provider) => {
-                        let settings = st.effective_settings();
-                        if let Err(e) = run_llm_curator(st.clone(), provider, &settings).await {
-                            log::warn!("curator: llm pass failed: {e:#}");
-                        }
-                    }
-                    None => log::info!("curator: skipped llm pass (no provider)"),
-                }
-            });
         }
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn llm_due_when_never_run() {
-        let settings = ModelSettings {
-            curator_interval_days: 7,
-            ..ModelSettings::default()
-        };
-        assert!(llm_curator_due(&settings));
-    }
 }

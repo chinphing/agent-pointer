@@ -36,13 +36,20 @@ other relative paths against that directory; pass **absolute paths** to **`termi
 
 Never read or write skill files under the app data directory directly
 (see **App data directory** in general rules). Always use
-**`skill_read`** / **`skill_patch`** / **`skill_import`**.
+**`skill_read`** / **`skill_import`**.
+
+**Updating user skills:** do **not** edit `~/.pointer/skills/` yourself.
+Delegate immediately with **`run_subagent(agentId="coder")`** — put the change
+spec in **`goal`** / **`context`**, and set **`workspaceRoot`** to the skill
+root (`~/.pointer/skills/{skill-name}/`, or `~/.pointer/skills/` when creating).
+The **coder** sub-agent uses **`file_*`** + **`skill-creator`** (small
+**`file_edit`** patches; avoid whole-file overwrites of **`SKILL.md`**).
+**Install only:** user-supplied zip or directory → **`skill_import`** (general lead).
 
 #### Tools
 
 - **`skill_read`** — read an enabled Skill: omit **`path`** for **`SKILL.md`** instructions (layer 2); pass **`path`** for a bundled resource file (layer 3).
-- **`skill_patch`** — update a **user-managed** skill under `~/.pointer/skills/` (not `.agents/skills` — import first if you need a mutable copy).
-- **`skill_import`** — install a Skill from a `.zip` file or directory into the app skill store.
+- **`skill_import`** — install a Skill from a `.zip` file or directory into the user library (`~/.pointer/skills/`). Does **not** replace **`run_subagent` → coder** for edits.
 
 #### Usage
 
@@ -53,6 +60,7 @@ Never read or write skill files under the app data directory directly
 - Paths may be absolute or relative to the workspace root.
 - Set `auto_enable` to `true` (default) so imported skills are available immediately.
 - May require user approval.
+- Re-importing an existing skill id replaces the whole skill directory.
 
 Example:
 
@@ -101,42 +109,6 @@ Example — read a reference file:
     "arguments": {
       "skill_id": "my-skill-id",
       "path": "references/api-guide.md"
-    }
-  }
-}
-```
-
-**`skill_patch`**
-
-- Only for **user-managed** skills (`~/.pointer/skills/`); system bundled skills cannot be patched.
-- **Instructions:** omit `path`, or pass `"SKILL.md"`. `body` is markdown **after** YAML frontmatter (frontmatter is preserved).
-- **Other files:** pass `path` relative to the skill directory (e.g. `references/guide.md`). `body` is the **full** new file content (creates the file if missing).
-- After patching, the skill registry refreshes automatically.
-
-Example — patch instructions:
-
-```json
-{
-  "function": {
-    "name": "skill_patch",
-    "arguments": {
-      "skill_id": "my-skill-id",
-      "body": "# Updated Skill\n\nNew instructions here.\n"
-    }
-  }
-}
-```
-
-Example — patch a reference file:
-
-```json
-{
-  "function": {
-    "name": "skill_patch",
-    "arguments": {
-      "skill_id": "my-skill-id",
-      "path": "references/api-guide.md",
-      "body": "# API Guide\n\nUpdated reference content.\n"
     }
   }
 }

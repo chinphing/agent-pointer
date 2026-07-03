@@ -55,7 +55,7 @@ Vue 统一界面
 
 加载来源按优先级从高到低（同名 id 以先扫描到的为准）：
 
-1. 用户库 `~/.pointer/skills/`（创建 / 导入 / `skill_patch`）
+1. 用户库 `~/.pointer/skills/`（`skill_import` 安装；更新委派 **coder** 子 agent）
 2. 用户目录 `~/.agents/skills/`（Codex / Agent 兼容，只读）
 3. 应用数据目录 `{data_dir}/PointerApp/skills/`（bundled 系统库）
 

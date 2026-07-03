@@ -34,23 +34,6 @@ pub fn register_all(reg: &ToolRegistry, skills: Arc<SkillRegistry>) {
                     .filter(|p| !p.trim().is_empty());
                 sk.read(id, path)
             }),
-            "skill_patch" => Arc::new(move |args| {
-                let id = args
-                    .get("skill_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow!("缺少 skill_id"))?;
-                let body = args
-                    .get("body")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow!("缺少 body"))?;
-                let path = args
-                    .get("path")
-                    .and_then(|v| v.as_str())
-                    .filter(|p| !p.trim().is_empty());
-                sk.patch(id, path, body)?;
-                sk.reload_meta()?;
-                Ok(serde_json::json!({ "success": true, "skill_id": id }).to_string())
-            }),
             "skill_import" => Arc::new(move |args| {
                 let path = args
                     .get("path")

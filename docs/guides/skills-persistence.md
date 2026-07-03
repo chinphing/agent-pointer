@@ -2,10 +2,10 @@
 
 ## 目录与可变性（Hermes 对齐 + Pointer 扩展）
 
-| 层级 | 路径 | 来源 | 可 patch / Curator |
-|------|------|------|-------------------|
-| **用户库** | `~/.pointer/skills/` | `skill_import`、外部一键导入、Agent 创建 | ✅（非 pinned） |
-| **兼容库** | `~/.agents/skills/` | Codex / Agent 标准目录（只读加载） | ❌（`skill_import` 复制到用户库后可 patch） |
+| 层级 | 路径 | 来源 | 修改方式 |
+|------|------|------|----------|
+| **用户库** | `~/.pointer/skills/` | `skill_import`、外部一键导入、coder 子 agent 编辑 | **`run_subagent` → coder**（`file_*`）；**`skill_import`** 仅安装 |
+| **兼容库** | `~/.agents/skills/` | Codex / Agent 标准目录（只读加载） | ❌（`skill_import` 复制到用户库后可由 coder 改） |
 | **系统库** | `{data_dir}/PointerApp/skills/` | 应用内置 bundled 同步 | ❌（`.bundled_manifest` 保护） |
 
 运行时加载顺序：**用户库** → **`~/.agents/skills`** → **系统库**；同名 id 以先扫描到的为准。
@@ -50,8 +50,8 @@
 
 | 机制 | 范围 | 触发 |
 |------|------|------|
-| **Self-improvement review（P3）** | 仅 **mutable** 用户库 skill | `skillCreationNudgeInterval` |
-| **Curator（P5）** | 仅 `is_curation_eligible` 用户库 skill | 空闲 + 周期 |
+| **Self-improvement review（P3）** | 记忆 / 用户画像 | `memoryNudgeInterval`（skill 自动改写已禁用） |
+| **Curator（P5）** | 用户库 stale 标记 / 归档 | 周期（无 LLM 改写） |
 
 系统库 skill 在 API 中 `provenance: "system"`、`mutable: false`。`.agents/skills` 来源为 `provenance: "external"`、`mutable: false`。
 
@@ -59,7 +59,7 @@
 
 运行时规则（`pointer-core`）：
 
-- **单智能体模式**：lead 为 **`general`** 时使用用户启用的 skill 列表；lead 为 **`coder`** 时默认合并 **`skill-creator`**（`allowSkills` 仅允许该 skill）。**coder** 仅开放 **`skill_read`**（不含 `skill_import`；写 skill 文件用 `file_*`）。
+- **单智能体模式**：lead 为 **`general`** 时使用用户启用的 skill 列表；lead 为 **`coder`** 时默认合并 **`skill-creator`**。**general** 对 skill 文件只读 + **`skill_import`** 安装；任何 **`~/.pointer/skills/`** 写入 → **`run_subagent(coder)`**。**coder**（含子 agent）用 **`file_*`** 编辑，仅 **`skill_read`**（无 **`skill_import`**）。
 - **Supervisor 模式**：不加载技能。
 - **子 Agent**：`general-worker` 继承 lead 的 skill 列表；**coder** 子 Agent 同样加载 **`skill-creator`**（仅 `skill_read`）。其他子 Agent 不加载 skill。
 
@@ -83,7 +83,7 @@
 
 ## 实现入口
 
-- `crates/pointer-core/src/skills/provenance.rs` — manifest、mutable 判定、patch guard
+- `crates/pointer-core/src/skills/provenance.rs` — manifest、mutable 判定
 - `crates/pointer-core/src/skills/external.rs` — 双目录加载、bundled sync
 - `crates/pointer-core/src/skills/external_probe.rs` — 首次外部探测与导入
 - `crates/pointer-core/src/skills/curator.rs` — 用户库保洁

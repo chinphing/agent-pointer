@@ -196,7 +196,7 @@ file_write:
         let yaml_str = include_str!("prompts/skill.schema.yaml");
         let tools = load_tools_from_schema_yaml(yaml_str).unwrap();
         let names: Vec<&str> = tools.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(names, vec!["skill_read"]);
+        assert_eq!(names, vec!["skill_read", "skill_import"]);
     }
 
     #[test]

@@ -235,27 +235,6 @@ pub fn is_mutable(skill_id: &str, skill_dir: &Path) -> bool {
     }
 }
 
-pub fn assert_patch_allowed(skill_id: &str) -> Result<()> {
-    if is_system_bundled(skill_id) {
-        return Err(anyhow!(
-            "系统内置 Skill 不可修改: {skill_id}（位于数据目录 skills/）"
-        ));
-    }
-    if is_pinned(skill_id) {
-        return Err(anyhow!(
-            "Skill 已锁定不可修改: {skill_id}（请先解锁）"
-        ));
-    }
-    let root = pointer_skills_dir()?;
-    let dir = root.join(skill_id.trim());
-    if !dir.is_dir() {
-        return Err(anyhow!(
-            "仅可修改用户 Skill 库 ~/.pointer/skills/ 下的 Skill: {skill_id}"
-        ));
-    }
-    Ok(())
-}
-
 pub fn external_probe_marker_path() -> Result<PathBuf> {
     Ok(super::external::pointer_home_dir()?.join(EXTERNAL_PROBE_MARKER))
 }

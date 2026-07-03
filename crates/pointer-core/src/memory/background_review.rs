@@ -22,8 +22,6 @@ const REVIEW_HISTORY_MSG_CAP: usize = 80;
 const REVIEW_SNIPPET_CHARS: usize = 2500;
 
 const MEMORY_TOOL: &str = "memory";
-const SKILL_READ: &str = "skill_read";
-const SKILL_PATCH: &str = "skill_patch";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReviewKind {
@@ -38,8 +36,8 @@ fn review_base_eligible(settings: &ModelSettings) -> bool {
         && settings.lead_agent_id.trim() == "general"
 }
 
-fn plan_includes_skill_tools(names: &[String]) -> bool {
-    names.iter().any(|n| n == SKILL_READ || n == SKILL_PATCH)
+fn plan_includes_skill_tools(_names: &[String]) -> bool {
+    false
 }
 
 pub fn memory_review_due_for(settings: &ModelSettings, allowed_tool_names: &[String], history: &[ChatMessage]) -> bool {
@@ -70,12 +68,11 @@ pub fn skill_review_due_for(
     skill_review_due(cumulative_tool_iters, settings.skill_creation_nudge_interval)
 }
 
-pub fn resolve_review_kind(memory_due: bool, skill_due: bool) -> Option<ReviewKind> {
-    match (memory_due, skill_due) {
-        (true, true) => Some(ReviewKind::Combined),
-        (true, false) => Some(ReviewKind::MemoryOnly),
-        (false, true) => Some(ReviewKind::SkillOnly),
-        (false, false) => None,
+pub fn resolve_review_kind(memory_due: bool, _skill_due: bool) -> Option<ReviewKind> {
+    if memory_due {
+        Some(ReviewKind::MemoryOnly)
+    } else {
+        None
     }
 }
 
@@ -262,12 +259,6 @@ async fn run_background_review(
                             "Memory"
                         };
                         memory_actions.push(format!("{label} updated"));
-                    } else if tc.name == SKILL_PATCH {
-                        let id = v
-                            .get("skill_id")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("skill");
-                        skill_actions.push(format!("Skill patched: {id}"));
                     }
                 }
             }
@@ -309,19 +300,15 @@ async fn run_background_review(
 
 pub(crate) fn allowed_tools_for(kind: ReviewKind) -> Vec<String> {
     match kind {
-        ReviewKind::MemoryOnly => vec![MEMORY_TOOL.into()],
-        ReviewKind::SkillOnly => vec![SKILL_READ.into(), SKILL_PATCH.into()],
-        ReviewKind::Combined => vec![
-            MEMORY_TOOL.into(),
-            SKILL_READ.into(),
-            SKILL_PATCH.into(),
-        ],
+        ReviewKind::MemoryOnly | ReviewKind::SkillOnly | ReviewKind::Combined => {
+            vec![MEMORY_TOOL.into()]
+        }
     }
 }
 
 pub(crate) fn dispatch_review_tool(
     memory_store: &MemoryStore,
-    skills: &SkillRegistry,
+    _skills: &SkillRegistry,
     settings: &ModelSettings,
     name: &str,
     arguments: &str,
@@ -335,34 +322,6 @@ pub(crate) fn dispatch_review_tool(
                 settings.user_char_limit,
             );
             memory_store.dispatch_tool(&args)
-        }
-        SKILL_READ => {
-            let id = args
-                .get("skill_id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow!("missing skill_id"))?;
-            let path = args
-                .get("path")
-                .and_then(|v| v.as_str())
-                .filter(|p| !p.trim().is_empty());
-            skills.read(id, path)
-        }
-        SKILL_PATCH => {
-            let id = args
-                .get("skill_id")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow!("missing skill_id"))?;
-            let body = args
-                .get("body")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow!("missing body"))?;
-            let path = args
-                .get("path")
-                .and_then(|v| v.as_str())
-                .filter(|p| !p.trim().is_empty());
-            skills.patch(id, path, body)?;
-            skills.reload_meta()?;
-            Ok(json!({ "success": true, "skill_id": id }).to_string())
         }
         other => Err(anyhow!("unsupported review tool: {other}")),
     }
@@ -525,13 +484,13 @@ mod tests {
     }
 
     #[test]
-    fn skill_review_when_tool_iters_match() {
+    fn skill_review_disabled_after_patch_removal() {
         let mut settings = ModelSettings::default();
         settings.agent_mode = "single".into();
         settings.lead_agent_id = "general".into();
         settings.skill_creation_nudge_interval = 10;
         settings.background_review_enabled = true;
-        assert!(skill_review_due_for(
+        assert!(!skill_review_due_for(
             &settings,
             &["skill_read".into()],
             10
@@ -542,13 +501,13 @@ mod tests {
     fn combined_kind_when_both_due() {
         assert_eq!(
             resolve_review_kind(true, true),
-            Some(ReviewKind::Combined)
+            Some(ReviewKind::MemoryOnly)
         );
         assert_eq!(
             resolve_review_kind(true, false),
             Some(ReviewKind::MemoryOnly)
         );
-        assert_eq!(resolve_review_kind(false, true), Some(ReviewKind::SkillOnly));
+        assert_eq!(resolve_review_kind(false, true), None);
         assert_eq!(resolve_review_kind(false, false), None);
     }
 }

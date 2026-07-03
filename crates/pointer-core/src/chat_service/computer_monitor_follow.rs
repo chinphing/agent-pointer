@@ -15,20 +15,6 @@ fn computer_agent_show_monitor_picker(state: &AppState) -> bool {
     crate::agents::agent_ui::resolve_agent_ui(&exec.def()).show_computer_monitor_picker
 }
 
-/// Whether manual monitor picker should run (computer agent UI + platform setting + user pref).
-pub fn computer_monitor_manual_pick_required(
-    state: &AppState,
-    settings: &ModelSettings,
-) -> bool {
-    if !settings.computer_show_monitor_picker {
-        return false;
-    }
-    if settings.computer_auto_switch_monitor {
-        return false;
-    }
-    computer_agent_show_monitor_picker(state)
-}
-
 /// Whether **`run_subagent` → computer** should block on the frontend monitor/permissions flow
 /// (same gate as Computer lead send — includes auto-switch; macOS permissions run in UI).
 pub fn computer_subagent_monitor_flow_required(

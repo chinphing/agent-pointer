@@ -13,14 +13,6 @@ use super::computer_monitor_follow::{
 use super::emit::emit;
 use super::StreamTx;
 
-/// Whether monitor selection UI should run (computer agent UI + platform setting + user pref).
-pub fn computer_monitor_picker_enabled(
-    state: &AppState,
-    settings: &crate::models::ModelSettings,
-) -> bool {
-    super::computer_monitor_follow::computer_monitor_manual_pick_required(state, settings)
-}
-
 /// Resolve monitor for a computer sub-agent; may block on UI pick.
 pub async fn ensure_computer_monitor_for_subagent(
     stream: &StreamTx,
@@ -105,24 +97,15 @@ fn emit_monitor_updated(stream: &StreamTx, conversation_id: &str, monitor_id: Op
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::computer_monitor_follow::computer_subagent_monitor_flow_required;
+    use super::AppState;
 
     #[test]
     fn picker_disabled_when_platform_flag_off() {
         let state = AppState::new();
         let mut settings = state.effective_settings();
         settings.computer_show_monitor_picker = false;
-        assert!(!computer_monitor_picker_enabled(&state, &settings));
         assert!(!computer_subagent_monitor_flow_required(&state, &settings));
-    }
-
-    #[test]
-    fn manual_picker_disabled_when_auto_switch_on() {
-        let state = AppState::new();
-        let mut settings = state.effective_settings();
-        settings.computer_auto_switch_monitor = true;
-        assert!(!computer_monitor_picker_enabled(&state, &settings));
     }
 
     #[test]

@@ -175,7 +175,6 @@ async fn run_background_review(
     let system = SystemPromptSections::all_cacheable(vec![]);
     let cancel = CancellationToken::new();
     let mut memory_actions: Vec<String> = Vec::new();
-    let mut skill_actions: Vec<String> = Vec::new();
 
     for iter in 0..REVIEW_MAX_ITERATIONS {
         let out = provider
@@ -295,10 +294,10 @@ async fn run_background_review(
         }
     }
 
-    format_review_toast(&memory_actions, &skill_actions)
+    format_review_toast(&memory_actions)
 }
 
-pub(crate) fn allowed_tools_for(kind: ReviewKind) -> Vec<String> {
+fn allowed_tools_for(kind: ReviewKind) -> Vec<String> {
     match kind {
         ReviewKind::MemoryOnly | ReviewKind::SkillOnly | ReviewKind::Combined => {
             vec![MEMORY_TOOL.into()]
@@ -306,7 +305,7 @@ pub(crate) fn allowed_tools_for(kind: ReviewKind) -> Vec<String> {
     }
 }
 
-pub(crate) fn dispatch_review_tool(
+fn dispatch_review_tool(
     memory_store: &MemoryStore,
     _skills: &SkillRegistry,
     settings: &ModelSettings,
@@ -327,20 +326,12 @@ pub(crate) fn dispatch_review_tool(
     }
 }
 
-fn format_review_toast(memory_actions: &[String], skill_actions: &[String]) -> Result<Option<String>> {
+fn format_review_toast(memory_actions: &[String]) -> Result<Option<String>> {
     let memory = dedupe(memory_actions);
-    let skills = dedupe(skill_actions);
-    if memory.is_empty() && skills.is_empty() {
+    if memory.is_empty() {
         return Ok(None);
     }
-    let mut parts = Vec::new();
-    if !memory.is_empty() {
-        parts.push(format!("已更新记忆：{}", memory.join(" · ")));
-    }
-    if !skills.is_empty() {
-        parts.push(format!("已更新技能：{}", skills.join(" · ")));
-    }
-    Ok(Some(parts.join(" · ")))
+    Ok(Some(format!("已更新记忆：{}", memory.join(" · "))))
 }
 
 fn dedupe(items: &[String]) -> Vec<String> {

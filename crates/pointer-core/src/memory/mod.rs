@@ -8,7 +8,6 @@ pub use background_review::{
     memory_review_due_for, resolve_review_kind, should_run_memory_review,
     skill_review_due_for, spawn_background_review, spawn_memory_background_review, ReviewKind,
 };
-pub(crate) use background_review::{allowed_tools_for, dispatch_review_tool};
 pub use store::{
     count_real_user_turns, memories_dir, memory_review_due, skill_review_due, MemoryStore,
     DEFAULT_MEMORY_CHAR_LIMIT, DEFAULT_USER_CHAR_LIMIT,

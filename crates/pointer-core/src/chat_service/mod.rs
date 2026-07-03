@@ -51,4 +51,3 @@ pub(crate) use util::{
     tool_display_stream_fields,
 };
 pub(crate) use session_model::resolve_provider_api_key;
-pub(crate) use session_model::prepare_session_llm_settings;

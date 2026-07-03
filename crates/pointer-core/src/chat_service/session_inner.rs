@@ -264,6 +264,10 @@ pub(super) async fn run_chat_inner(
         ChatLlmTokenSession::new(run_id.to_string(), conversation_id.to_string(), lead_role, model_name);
     let lead_scope = llm_token_session.lead_scope.clone();
 
+    let last_api_prompt = crate::conversation_store::global_store()
+        .ok()
+        .and_then(|store| store.get_last_lead_prompt_tokens(conversation_id).ok().flatten());
+
     let t_compress = Instant::now();
     crate::context_compression::maybe_compress_history(
         ctx.history,
@@ -274,6 +278,7 @@ pub(super) async fn run_chat_inner(
         cancel.clone(),
         crate::context_compression::CompressionUiContext::main(lead_scope),
         Some(state.memory_store.as_ref()),
+        last_api_prompt,
     )
     .await;
     log::info!(

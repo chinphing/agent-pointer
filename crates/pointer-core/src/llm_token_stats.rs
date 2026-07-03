@@ -55,6 +55,8 @@ pub struct ConversationLlmStats {
     pub sum_reasoning: u64,
     pub tool_invocations: u32,
     pub rounds_missing_usage: u32,
+    /// Most recent LLM round `prompt_tokens` from API usage (this session).
+    pub last_round_prompt_tokens: Option<u32>,
 }
 
 impl ConversationLlmStats {
@@ -67,6 +69,7 @@ impl ConversationLlmStats {
         self.llm_rounds = self.llm_rounds.saturating_add(1);
         match usage {
             Some(u) => {
+                self.last_round_prompt_tokens = Some(u.prompt_tokens);
                 self.sum_prompt = self.sum_prompt.saturating_add(u.prompt_tokens as u64);
                 self.sum_completion = self
                     .sum_completion

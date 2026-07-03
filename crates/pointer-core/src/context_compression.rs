@@ -237,6 +237,26 @@ pub fn estimate_message_payload_tokens(msgs: &[ChatMessage]) -> usize {
     n
 }
 
+/// Compression gate: max(message payload heuristic, last API `prompt_tokens` when available).
+pub fn compression_gate_tokens(
+    history: &[ChatMessage],
+    reported_prompt_tokens: Option<u32>,
+) -> (usize, usize, Option<u32>, &'static str) {
+    let payload_est = estimate_message_payload_tokens(history);
+    match reported_prompt_tokens.filter(|&t| t > 0) {
+        Some(reported) => {
+            let gate = (reported as usize).max(payload_est);
+            let source = if reported as usize >= payload_est {
+                "api_prompt"
+            } else {
+                "payload_est"
+            };
+            (gate, payload_est, Some(reported), source)
+        }
+        None => (payload_est, payload_est, None, "payload_est"),
+    }
+}
+
 /// Deprecated: use [`crate::message_context::find_split_at_user_boundary`].
 pub(crate) fn find_split_at_user_boundary(msgs: &[ChatMessage], keep_last_n_users: usize) -> usize {
     crate::message_context::find_split_at_user_boundary(msgs, keep_last_n_users)
@@ -446,6 +466,7 @@ async fn compress_history_inner(
     force_ignore_char_budget: bool,
     emit_compression_ui: bool,
     ui: &CompressionUiContext,
+    reported_prompt_tokens: Option<u32>,
 ) -> bool {
     let wall = Instant::now();
     let messages_before = history.len();
@@ -461,13 +482,17 @@ async fn compress_history_inner(
     let keep_users = settings.context_keep_recent_user_turns.max(1);
     let budget_tokens = normalize_context_budget_tokens(settings.context_budget_tokens);
 
-    let est_tokens = estimate_message_payload_tokens(history);
-    if !force_ignore_char_budget && est_tokens <= budget_tokens {
+    let (gate_tokens, payload_est, api_prompt, gate_source) =
+        compression_gate_tokens(history, reported_prompt_tokens);
+    if !force_ignore_char_budget && gate_tokens <= budget_tokens {
         log::info!(
-            "context_compress: skip_under_budget conversation_id={} messages={} est_tokens={} budget_tokens={} wall_ms={}",
+            "context_compress: skip_under_budget conversation_id={} messages={} gate_tokens={} gate_source={} payload_est={} api_prompt={:?} budget_tokens={} wall_ms={}",
             conversation_id,
             messages_before,
-            est_tokens,
+            gate_tokens,
+            gate_source,
+            payload_est,
+            api_prompt,
             budget_tokens,
             wall.elapsed().as_millis()
         );
@@ -477,10 +502,13 @@ async fn compress_history_inner(
     let split = find_split_at_user_boundary(history, keep_users as usize);
     if split == 0 {
         log::info!(
-            "context_compress: skip_no_user_boundary conversation_id={} messages={} est_tokens={} wall_ms={}",
+            "context_compress: skip_no_user_boundary conversation_id={} messages={} gate_tokens={} gate_source={} payload_est={} api_prompt={:?} wall_ms={}",
             conversation_id,
             messages_before,
-            est_tokens,
+            gate_tokens,
+            gate_source,
+            payload_est,
+            api_prompt,
             wall.elapsed().as_millis()
         );
         return false;
@@ -654,14 +682,17 @@ async fn compress_history_inner(
     );
 
     log::info!(
-        "context_compress: applied conversation_id={} scope={:?} reason={} messages_before={} messages_after={} split_at={} est_tokens={} budget_tokens={} format_prefix_ms={} summary_llm_ms={} wall_ms={}",
+        "context_compress: applied conversation_id={} scope={:?} reason={} messages_before={} messages_after={} split_at={} gate_tokens={} gate_source={} payload_est={} api_prompt={:?} budget_tokens={} format_prefix_ms={} summary_llm_ms={} wall_ms={}",
         conversation_id,
         ui.scope,
         reason,
         messages_before,
         messages_after,
         split,
-        est_tokens,
+        gate_tokens,
+        gate_source,
+        payload_est,
+        api_prompt,
         budget_tokens,
         format_prefix_ms,
         t_llm.elapsed().as_millis(),
@@ -718,6 +749,7 @@ pub async fn maybe_compress_history(
     cancel: CancellationToken,
     ui: CompressionUiContext,
     memory_store: Option<&crate::memory::MemoryStore>,
+    reported_prompt_tokens: Option<u32>,
 ) {
     let changed = compress_history_inner(
         history,
@@ -729,10 +761,18 @@ pub async fn maybe_compress_history(
         false,
         true,
         &ui,
+        reported_prompt_tokens,
     )
     .await;
     if changed {
         if ui.scope == CompressionScope::Main {
+            if let Ok(store) = crate::conversation_store::global_store() {
+                if let Err(e) = store.set_last_lead_prompt_tokens(conversation_id, None) {
+                    log::warn!(
+                        "conversation_store: clear last_lead_prompt_tokens after compression failed conversation_id={conversation_id}: {e}"
+                    );
+                }
+            }
             if let Some(store) = memory_store {
                 if let Err(e) = store.reload_snapshot() {
                     log::warn!("memory: reload after compression failed: {e:#}");
@@ -752,6 +792,7 @@ pub async fn maybe_compress_after_tool_round_limit(
     cancel: CancellationToken,
     emit_compression_ui: bool,
     ui: CompressionUiContext,
+    reported_prompt_tokens: Option<u32>,
 ) -> bool {
     compress_history_inner(
         history,
@@ -763,6 +804,7 @@ pub async fn maybe_compress_after_tool_round_limit(
         true,
         emit_compression_ui,
         &ui,
+        reported_prompt_tokens,
     )
     .await
 }
@@ -862,6 +904,28 @@ mod tests {
     fn normalize_context_budget_tokens_floors_small_values() {
         assert_eq!(normalize_context_budget_tokens(120_000), 120_000);
         assert_eq!(normalize_context_budget_tokens(1000), 4096);
+    }
+
+    #[test]
+    fn compression_gate_prefers_api_prompt_when_higher() {
+        let msgs = vec![u("short")];
+        let (gate, payload, api, source) = compression_gate_tokens(&msgs, Some(150_000));
+        assert_eq!(payload, estimate_message_payload_tokens(&msgs));
+        assert_eq!(api, Some(150_000));
+        assert_eq!(gate, 150_000);
+        assert_eq!(source, "api_prompt");
+    }
+
+    #[test]
+    fn compression_gate_uses_payload_when_no_api_report() {
+        let long = "word ".repeat(25_000);
+        let msgs = vec![u(&long)];
+        let payload = estimate_message_payload_tokens(&msgs);
+        let (gate, payload2, api, source) = compression_gate_tokens(&msgs, None);
+        assert_eq!(payload, payload2);
+        assert_eq!(api, None);
+        assert_eq!(gate, payload);
+        assert_eq!(source, "payload_est");
     }
 
     #[test]

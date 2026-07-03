@@ -23,7 +23,7 @@ use crate::models::{ChatMessage, Conversation, ConversationMeta};
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 12;
+const SCHEMA_VERSION: i32 = 13;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -98,6 +98,22 @@ impl ConversationStore {
     pub fn latest_other_workspace_root(&self, exclude_id: &str) -> Result<Option<String>> {
         let conn = self.db.conn.lock();
         persist::latest_other_workspace_root_from_conn(&conn, exclude_id)
+    }
+
+    /// Last lead-agent LLM round `prompt_tokens` (API-reported, includes system/tools).
+    pub fn get_last_lead_prompt_tokens(&self, conversation_id: &str) -> Result<Option<u32>> {
+        let conn = self.db.conn.lock();
+        persist::get_last_lead_prompt_tokens_from_conn(&conn, conversation_id)
+    }
+
+    pub fn set_last_lead_prompt_tokens(
+        &self,
+        conversation_id: &str,
+        prompt_tokens: Option<u32>,
+    ) -> Result<()> {
+        self.db.execute_write(|conn| {
+            persist::set_last_lead_prompt_tokens_in_conn(conn, conversation_id, prompt_tokens)
+        })
     }
 
     pub fn save_all(&self, list: &[Conversation]) -> Result<()> {
@@ -657,6 +673,7 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "cron_jobs", "current_session_id", "TEXT")?;
     webhook_sources::ensure_schema(conn)?;
     add_column_if_missing(conn, "webhook_sources", "auth_header_name", "TEXT")?;
+    add_column_if_missing(conn, "conversations", "last_lead_prompt_tokens", "INTEGER")?;
     conn.execute(
         "UPDATE conversations SET im_last_interaction_at_ms = updated_at_ms
          WHERE im_last_interaction_at_ms = 0 AND updated_at_ms > 0",

@@ -158,6 +158,7 @@ pub(super) async fn run_sub_agent_stream_round(
                             &agent_display_label(sub.def),
                             &sub.task.id,
                         ),
+                        sub.llm_stats.last_round_prompt_tokens,
                     )
                     .await;
                     state.computer_state.mark_cancelled(conversation_id);

@@ -56,6 +56,21 @@ impl LlmRoundRecorder<'_> {
                 session
                     .stats
                     .record_llm_round(&session.lead_scope, usage, model);
+                if let Some(u) = usage {
+                    if let Err(e) = crate::conversation_store::global_store()
+                        .and_then(|store| {
+                            store.set_last_lead_prompt_tokens(
+                                &session.lead_scope.conversation_id,
+                                Some(u.prompt_tokens),
+                            )
+                        })
+                    {
+                        log::warn!(
+                            "conversation_store: set_last_lead_prompt_tokens failed conversation_id={}: {e}",
+                            session.lead_scope.conversation_id
+                        );
+                    }
+                }
             }
             LlmRoundRecorder::Scoped { stats, scope } => {
                 stats.record_llm_round(scope, usage, model);

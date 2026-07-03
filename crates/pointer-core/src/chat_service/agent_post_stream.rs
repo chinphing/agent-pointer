@@ -374,6 +374,7 @@ pub(super) async fn bail_on_tool_budget_exhausted(
         ctx.session.cancel.clone(),
         scope.compress_for_session,
         crate::context_compression::CompressionUiContext::main(scope.compression_scope.clone()),
+        None,
     )
     .await;
     if let Some(consumed) = ctx.budget.consumed_single.as_mut() {

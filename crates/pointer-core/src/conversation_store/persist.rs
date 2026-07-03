@@ -582,3 +582,36 @@ pub fn msg(id: &str, role: Role, content: &str, created_at: i64) -> ChatMessage 
         spawn_depth: None,
     }
 }
+
+pub fn get_last_lead_prompt_tokens_from_conn(
+    conn: &Connection,
+    conversation_id: &str,
+) -> Result<Option<u32>> {
+    let value: Option<i64> = conn
+        .query_row(
+            "SELECT last_lead_prompt_tokens FROM conversations WHERE id = ?1",
+            params![conversation_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten();
+    Ok(value.filter(|&v| v > 0).map(|v| v as u32))
+}
+
+pub fn set_last_lead_prompt_tokens_in_conn(
+    conn: &Connection,
+    conversation_id: &str,
+    prompt_tokens: Option<u32>,
+) -> Result<()> {
+    let value: Option<i64> = prompt_tokens.map(|v| v as i64);
+    let n = conn.execute(
+        "UPDATE conversations SET last_lead_prompt_tokens = ?2 WHERE id = ?1",
+        params![conversation_id, value],
+    )?;
+    if n == 0 {
+        log::warn!(
+            "conversation_store: set_last_lead_prompt_tokens skipped missing conversation_id={conversation_id}"
+        );
+    }
+    Ok(())
+}

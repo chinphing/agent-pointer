@@ -134,6 +134,7 @@ pub(super) async fn run_provider_stream_round(
                         crate::context_compression::CompressionUiContext::main(
                             ctx.token_session.lead_scope.clone(),
                         ),
+                        ctx.token_session.stats.last_round_prompt_tokens,
                     )
                     .await;
                     ctx.tool_budget.sync_out(ctx.consumed_single);

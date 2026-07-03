@@ -180,6 +180,7 @@ export const useChatStore = defineStore('chat', () => {
   let uiToastTimer: ReturnType<typeof setTimeout> | null = null
   let unlisten: (() => void) | null = null
   let saveTimer: number | null = null
+  let composerDraftTimer: number | null = null
   /** Conversation ids whose meta changed and need persisting on next flush. */
   const dirtyMetaIds = ref(new Set<string>())
 
@@ -1036,12 +1037,25 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function flushActiveComposerDraft() {
+    if (composerDraftTimer != null) {
+      window.clearTimeout(composerDraftTimer)
+      composerDraftTimer = null
+    }
     const id = currentId.value
     if (!id) return
     setComposerDraft(id, {
       text: composerText.value,
       attachments: composerAttachments.value.map(a => ({ ...a }))
     })
+  }
+
+  function scheduleComposerDraftFlush() {
+    if (composerDraftHydrating.value) return
+    if (composerDraftTimer != null) window.clearTimeout(composerDraftTimer)
+    composerDraftTimer = window.setTimeout(() => {
+      composerDraftTimer = null
+      flushActiveComposerDraft()
+    }, 200)
   }
 
   function loadActiveComposerDraft(conversationId: string | null) {
@@ -1054,9 +1068,12 @@ export const useChatStore = defineStore('chat', () => {
     })
   }
 
-  watch([composerText, composerAttachments], () => {
-    if (composerDraftHydrating.value) return
-    flushActiveComposerDraft()
+  watch(composerText, () => {
+    scheduleComposerDraftFlush()
+  })
+
+  watch(composerAttachments, () => {
+    scheduleComposerDraftFlush()
   }, { deep: true })
 
   function prefillComposer(text: string) {
@@ -1310,6 +1327,10 @@ export const useChatStore = defineStore('chat', () => {
     hydratedIds.value = new Set()
     messagesLoadingIds.value = new Set()
     dirtyMetaIds.value = new Set()
+    if (composerDraftTimer != null) {
+      window.clearTimeout(composerDraftTimer)
+      composerDraftTimer = null
+    }
     composerDraftByConvId.value = {}
     clearActiveComposer()
     clearAllRunStates()

@@ -54,6 +54,9 @@ function isEphemeralWorkspacePath(path: string): boolean {
   return normalized.includes('/session-sandboxes/') || normalized.includes('/coder-sandboxes/')
 }
 
+const COMPOSER_TEXTAREA_MAX_HEIGHT_PX = 250
+const COMPOSER_TEXTAREA_MIN_HEIGHT_PX = 24
+
 const props = withDefaults(
   defineProps<{
     /** footer: fixed bottom bar; inline: embedded in welcome hero */
@@ -183,7 +186,8 @@ const canSend = computed(() => {
         !a.remoteUrl?.trim())
   )
   return (
-    (composerText.value.trim().length > 0 || attachments.length > 0) &&
+    ((composerText.value.length > 0 && composerText.value.trim().length > 0) ||
+      attachments.length > 0) &&
     !generating.value &&
     !needsPlatformLogin.value &&
     !tokenQuotaBlocked.value &&
@@ -612,9 +616,7 @@ async function sendWithOptionalComputerScreenPick() {
   }
 
   dispatchSend(v)
-  nextTick(() => {
-    if (textareaRef.value) textareaRef.value.style.height = 'auto'
-  })
+  nextTick(() => autoResize())
 }
 
 async function onPermissionsReady() {
@@ -745,9 +747,7 @@ async function onPickScreen(monitorId: string) {
   pendingSendText.value = null
   if (!v) return
   dispatchSend(v)
-  nextTick(() => {
-    if (textareaRef.value) textareaRef.value.style.height = 'auto'
-  })
+  nextTick(() => autoResize())
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -769,11 +769,34 @@ function selectWorkerAgent(agent: AgentDef) {
   showAgentPicker.value = false
 }
 
+let composerResizeRaf: number | null = null
+
 function autoResize() {
-  if (!textareaRef.value) return
-  textareaRef.value.style.height = 'auto'
-  const nextHeight = Math.max(textareaRef.value.scrollHeight, 24)
-  textareaRef.value.style.height = Math.min(nextHeight, 250) + 'px'
+  if (composerResizeRaf != null) cancelAnimationFrame(composerResizeRaf)
+  composerResizeRaf = requestAnimationFrame(() => {
+    composerResizeRaf = null
+    const el = textareaRef.value
+    if (!el) return
+
+    const max = COMPOSER_TEXTAREA_MAX_HEIGHT_PX
+    const atMax =
+      el.offsetHeight >= max - 1 && el.scrollHeight > max
+
+    if (atMax) {
+      el.style.height = `${max}px`
+      el.style.overflowY = 'auto'
+      return
+    }
+
+    el.style.overflowY = 'hidden'
+    el.style.height = 'auto'
+    const nextHeight = Math.min(
+      Math.max(el.scrollHeight, COMPOSER_TEXTAREA_MIN_HEIGHT_PX),
+      max
+    )
+    el.style.height = `${nextHeight}px`
+    el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden'
+  })
 }
 
 function handleClickOutside(e: MouseEvent) {
@@ -795,10 +818,6 @@ watch(composerPrefill, (draft) => {
   })
 })
 
-watch(composerText, () => {
-  nextTick(autoResize)
-})
-
 onMounted(() => {
   nextTick(autoResize)
   if (!TEAM_MODE_UI_ENABLED && sessionAgentMode.value === 'supervisor') {
@@ -815,6 +834,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (composerResizeRaf != null) cancelAnimationFrame(composerResizeRaf)
   document.removeEventListener('click', handleClickOutside)
 })
 </script>
@@ -888,7 +908,10 @@ onUnmounted(() => {
           v-model="composerText"
           rows="1"
           class="block w-full resize-none bg-transparent border-0 outline-none px-3 pt-[3px] pb-2 text-[15px] text-foreground placeholder:text-muted"
-          :style="{ maxHeight: '250px', minHeight: '24px' }"
+          :style="{
+            maxHeight: `${COMPOSER_TEXTAREA_MAX_HEIGHT_PX}px`,
+            minHeight: `${COMPOSER_TEXTAREA_MIN_HEIGHT_PX}px`
+          }"
           :placeholder="composerPlaceholder"
           :disabled="needsPlatformLogin || tokenQuotaBlocked"
           @keydown="onKeydown"

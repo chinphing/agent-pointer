@@ -1,8 +1,11 @@
 //! Lead-agent `run_subagent` tool: validate target, spawn sub loop, emit trace steps.
 
+use std::path::Path;
+
 use crate::agents::agent_ui::agent_display_label;
 use crate::agents::AgentTask;
 use crate::models::{AgentTrace, StreamEvent};
+use crate::session_sandbox::SessionSandbox;
 use crate::tools::run_subagent::{
     resolve_computer_operation_target, validate_spawn_depth,
 };
@@ -12,6 +15,33 @@ use anyhow::Result;
 use super::emit::{agent_trace_step_id, emit, emit_agent_step};
 use super::session_budget::SessionToolBudget;
 use super::util::{new_id, truncate_str};
+
+/// Emits `WorkspaceUpdated` on drop so the parent workspace is restored in the UI
+/// after sub-agent delegation (thread-local is already restored by `AgentWorkspaceGuard`).
+struct SubagentWorkspaceRestore {
+    stream: super::StreamTx,
+    conversation_id: String,
+    prior_workspace: String,
+    restore: bool,
+}
+
+impl Drop for SubagentWorkspaceRestore {
+    fn drop(&mut self) {
+        if !self.restore {
+            return;
+        }
+        let ephemeral = SessionSandbox::is_sandbox(Path::new(self.prior_workspace.trim()))
+            .unwrap_or(false);
+        emit(
+            &self.stream,
+            StreamEvent::WorkspaceUpdated {
+                conversation_id: self.conversation_id.clone(),
+                workspace_root: self.prior_workspace.clone(),
+                is_ephemeral_sandbox: ephemeral,
+            },
+        );
+    }
+}
 
 fn emit_subagent_trace_step(
     stream: &super::StreamTx,
@@ -93,34 +123,44 @@ pub(super) async fn run_subagent_delegation(
                     } else {
                         None
                     };
-                    match crate::workspace_delegation::ensure_subagent_workspace(
-                        conversation_id,
-                        explicit_ws,
-                        &mut sub_settings,
-                    ) {
-                        Ok(ephemeral) => {
-                            if sub_settings.workspace_root.trim() != prior_workspace.trim() {
-                                emit(
-                                    stream,
-                                    StreamEvent::WorkspaceUpdated {
-                                        conversation_id: conversation_id.to_string(),
-                                        workspace_root: sub_settings.workspace_root.clone(),
-                                        is_ephemeral_sandbox: ephemeral
-                                            && explicit_ws.is_none()
-                                            && prior_workspace.trim().is_empty(),
-                                    },
-                                );
+                    let workspace_restore =
+                        match crate::workspace_delegation::ensure_subagent_workspace(
+                            conversation_id,
+                            explicit_ws,
+                            &mut sub_settings,
+                        ) {
+                            Ok(ephemeral) => {
+                                let workspace_changed = sub_settings.workspace_root.trim()
+                                    != prior_workspace.trim();
+                                if workspace_changed {
+                                    emit(
+                                        stream,
+                                        StreamEvent::WorkspaceUpdated {
+                                            conversation_id: conversation_id.to_string(),
+                                            workspace_root: sub_settings.workspace_root.clone(),
+                                            is_ephemeral_sandbox: ephemeral
+                                                && explicit_ws.is_none()
+                                                && prior_workspace.trim().is_empty(),
+                                        },
+                                    );
+                                }
+                                Some(SubagentWorkspaceRestore {
+                                    stream: stream.clone(),
+                                    conversation_id: conversation_id.to_string(),
+                                    prior_workspace,
+                                    restore: workspace_changed,
+                                })
                             }
-                        }
-                        Err(e) => {
-                            let msg = e.to_string();
-                            log::warn!(
-                                "run_subagent workspace failed conversation_id={conversation_id} sub_agent={}: {msg}",
-                                def.id
-                            );
-                            return Ok((format!("ERROR: {msg}"), false, Some(msg)));
-                        }
-                    }
+                            Err(e) => {
+                                let msg = e.to_string();
+                                log::warn!(
+                                    "run_subagent workspace failed conversation_id={conversation_id} sub_agent={}: {msg}",
+                                    def.id
+                                );
+                                return Ok((format!("ERROR: {msg}"), false, Some(msg)));
+                            }
+                        };
+                    let _workspace_restore = workspace_restore;
                     let sub_provider =
                         OpenAIProvider::new(sub_settings, provider.api_key.clone());
                     let context = parsed.context.trim().to_string();

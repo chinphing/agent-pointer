@@ -84,16 +84,23 @@ pub(super) async fn run_chat_inner(
     let workspace_root = req.workspace_root.clone();
     let run_id = req.run_id.as_str();
     let cancel = ctx.cancel.clone();
+    let login_user_id = state.active_platform_auth().platform_user_id();
     // Resolve effective workspace. When the user cleared the composer, always resolve to
     // session sandbox even if a stale non-empty workspaceRoot was still in the payload.
     let payload_workspace = workspace_root.trim();
     let mut effective_workspace = if req.workspace_inherit_disabled == Some(true) {
-        resolve_effective_workspace(conversation_id, Some(true)).unwrap_or_else(|e| {
+        resolve_effective_workspace(conversation_id, Some(true), login_user_id.as_deref())
+            .unwrap_or_else(|e| {
             log::warn!("session workspace resolution failed: {e:#}; using empty");
             String::new()
         })
     } else if payload_workspace.is_empty() {
-        resolve_effective_workspace(conversation_id, req.workspace_inherit_disabled).unwrap_or_else(|e| {
+        resolve_effective_workspace(
+            conversation_id,
+            req.workspace_inherit_disabled,
+            login_user_id.as_deref(),
+        )
+        .unwrap_or_else(|e| {
             log::warn!("session workspace resolution failed: {e:#}; using empty");
             String::new()
         })
@@ -479,6 +486,10 @@ pub(super) async fn run_chat_inner(
 ///   2. Session sandbox path (`{app_data}/session-sandboxes/{conversation_id}/`;
 ///      directory is created on first chat run, not here).
 ///
+/// pointer-server (web) sessions:
+///   Default `{app_data_dir}/{platform_user_id}/` for per-user file isolation.
+///   Reuses stored or inherited workspace when still valid on disk.
+///
 /// IM sessions (Feishu / DingTalk / WeCom / Weixin): always use a per-conversation
 /// session sandbox when no explicit `workspaceRoot` was stored — never inherit another
 /// conversation's project directory.
@@ -576,9 +587,54 @@ fn resolve_session_sandbox_workspace(conversation_id: &str, reason: &str) -> Res
 fn resolve_effective_workspace(
     conversation_id: &str,
     inherit_disabled_override: Option<bool>,
+    login_user_id: Option<&str>,
 ) -> Result<String> {
     if crate::channel_outbound::is_im_conversation(conversation_id) {
         return resolve_session_sandbox_workspace(conversation_id, "IM session sandbox");
+    }
+
+    if crate::server_workspace::is_pointer_server_mode() {
+        if let Some(user_id) = login_user_id.filter(|id| !id.trim().is_empty()) {
+            let stored = stored_conversation_workspace(conversation_id);
+            if is_existing_workspace_dir(&stored) {
+                log::info!(
+                    "resolve_effective_workspace: pointer-server reusing stored workspace for conversation_id={conversation_id}: {stored}",
+                    conversation_id = conversation_id,
+                    stored = stored
+                );
+                return Ok(stored);
+            }
+
+            let inherit_disabled = inherit_disabled_override
+                .unwrap_or_else(|| workspace_inherit_disabled(conversation_id));
+            if !inherit_disabled {
+                if let Ok(store) = crate::conversation_store::global_store() {
+                    match store.latest_other_workspace_root(conversation_id) {
+                        Ok(Some(ws)) if is_existing_workspace_dir(&ws) => {
+                            log::info!(
+                                "resolve_effective_workspace: pointer-server inheriting workspace for conversation_id={}: {}",
+                                conversation_id,
+                                ws
+                            );
+                            return Ok(ws);
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            log::warn!(
+                                "resolve_effective_workspace: pointer-server latest_other_workspace_root failed for conversation_id={}: {e}",
+                                conversation_id
+                            );
+                        }
+                    }
+                }
+            }
+
+            return crate::server_workspace::ensure_server_user_workspace(user_id);
+        }
+        log::warn!(
+            "resolve_effective_workspace: pointer-server without login user id for conversation_id={conversation_id}; falling back to session sandbox",
+            conversation_id = conversation_id
+        );
     }
 
     let inherit_disabled = inherit_disabled_override

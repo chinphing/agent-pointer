@@ -6,6 +6,7 @@ pub mod client_env;
 pub mod dotenv;
 pub mod server_config;
 pub mod server_access;
+pub mod server_workspace;
 pub mod conversation_snapshot;
 pub mod env_prompt;
 pub mod platform;

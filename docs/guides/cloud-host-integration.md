@@ -27,7 +27,9 @@
 
 获取 user id：临时留空白名单，本地登录一次后请求 `GET /api/platform/session` 或查看 server 日志；也可从平台管理后台查询。
 
-数据、日志与会话存储默认与桌面客户端相同（`{OS 用户数据目录}/PointerApp`，debug 构建为 `PointerAppDev`；日志在 `…/PointerApp/logs/`）；无需在 `pointer-server.toml` 里单独配 `app_data_dir`，除非要指向自定义路径。
+数据、日志与会话存储默认与桌面客户端相同（`{OS 用户数据目录}/PointerApp`，debug 构建为 `PointerAppDev`；日志在 `…/PointerApp/logs/`）；无需在 `pointer-server.toml` 里单独配 `app_data_dir`，除非要指向自定义路径（`POINTER_APP_DATA_DIR`）。
+
+pointer-server 默认工作目录为 `{APP_DIR}/{LOGIN_USER}`：即 app 数据目录下以平台登录 user id 命名的子目录（首次对话自动创建），用于多用户共用同一 server 进程时的文件隔离。用户可在 composer 中为单个会话指定其他路径。
 
 Windows 部署可在 exe 同目录放 `pointer-server.toml`（见 `server/pointer-server.toml.example`），NSSM 只需注册 exe，不必再写 `AppEnvironmentExtra`。
 

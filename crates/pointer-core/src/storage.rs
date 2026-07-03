@@ -382,7 +382,7 @@ fn migrate_planner_settings_json(value: &mut serde_json::Value) {
         let any_legacy = obj.contains_key("taskBoardPlannerEnabled")
             || obj.contains_key("taskBoardWorkItemsEnabled")
             || obj.contains_key("taskBoardComputerNoExecInit");
-        let enabled = if any_legacy { p && w && n } else { true };
+        let enabled = if any_legacy { p && w && n } else { false };
         obj.insert("computerStandalonePlannerEnabled".into(), json!(enabled));
     }
     obj.remove("taskBoardPlannerEnabled");

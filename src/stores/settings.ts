@@ -97,7 +97,7 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   debugDumpLlmPrompts: false,
   debugMenusEnabled: false,
   taskBoardShowChildBoards: false,
-  computerStandalonePlannerEnabled: true,
+  computerStandalonePlannerEnabled: false,
   agentDefaultModels: {},
   agentTaskBoardHistoryTrim: {},
   computerHumanLike: true,
@@ -143,7 +143,7 @@ function migratePlannerSettingsFields(
       raw
     return {
       ...(rest as unknown as ModelSettings),
-      computerStandalonePlannerEnabled: raw.computerStandalonePlannerEnabled !== false
+      computerStandalonePlannerEnabled: raw.computerStandalonePlannerEnabled === true
     }
   }
   const hasLegacy =
@@ -154,7 +154,7 @@ function migratePlannerSettingsFields(
     ? raw.taskBoardPlannerEnabled !== false &&
       raw.taskBoardWorkItemsEnabled !== false &&
       raw.taskBoardComputerNoExecInit !== false
-    : true
+    : false
   const { taskBoardPlannerEnabled: _p, taskBoardWorkItemsEnabled: _w, taskBoardComputerNoExecInit: _n, ...rest } = raw
   return { ...(rest as unknown as ModelSettings), computerStandalonePlannerEnabled: enabled }
 }
@@ -179,7 +179,7 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     debugDumpLlmPrompts: s.debugDumpLlmPrompts === true,
     debugMenusEnabled: s.debugMenusEnabled === true,
     taskBoardShowChildBoards: migrated.taskBoardShowChildBoards === true,
-    computerStandalonePlannerEnabled: migrated.computerStandalonePlannerEnabled !== false,
+    computerStandalonePlannerEnabled: migrated.computerStandalonePlannerEnabled === true,
     agentDefaultModels: normalizeAgentDefaultModels(s.agentDefaultModels as Record<string, unknown>, activeId),
     agentTaskBoardHistoryTrim: { ...(s.agentTaskBoardHistoryTrim ?? {}) },
     computerHumanLike: s.computerHumanLike === true,

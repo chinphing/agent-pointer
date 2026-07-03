@@ -946,7 +946,7 @@ fn default_task_board_show_child_boards() -> bool {
 }
 
 fn default_computer_standalone_planner_enabled() -> bool {
-    true
+    build_cfg_bool!("COMPUTER_STANDALONE_PLANNER_ENABLED", false)
 }
 
 fn default_user_dynamic_inject_enabled() -> bool {

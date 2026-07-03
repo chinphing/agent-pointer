@@ -1,6 +1,6 @@
 //! Unified local media path resolution under [`crate::storage::app_data_dir`].
 //!
-//! Conversation attachment rel paths (`{conv}/{id}_{name}`) always resolve via
+//! Conversation attachment rel paths (`{conv}/{name}_{suffix}`) always resolve via
 //! [`super::store::media_abs_path`] — never via process `cwd`.
 
 use std::path::PathBuf;

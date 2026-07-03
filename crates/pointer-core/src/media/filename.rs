@@ -2,6 +2,11 @@
 
 use std::path::Path;
 
+use uuid::Uuid;
+
+const STORED_ATTACHMENT_SUFFIX_LEN: usize = 8;
+const STORED_ATTACHMENT_SUFFIX_ATTEMPTS: usize = 32;
+
 /// Recovery path hint mode when media extraction failed or is unsupported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecoveryPathMode {
@@ -128,6 +133,59 @@ pub fn safe_attachment_basename(file_name: &str) -> String {
     }
 }
 
+fn extension_with_dot(file_name: &str) -> String {
+    Path::new(file_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .filter(|e| !e.is_empty())
+        .map(|e| format!(".{e}"))
+        .unwrap_or_default()
+}
+
+fn split_stored_name_parts(name: &str) -> (String, String) {
+    let path = Path::new(name);
+    let ext = extension_with_dot(name);
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(name)
+        .to_string();
+    (stem, ext)
+}
+
+/// 8-char hex suffix for on-disk attachment names.
+pub fn short_attachment_suffix() -> String {
+    let hex = Uuid::new_v4().simple().to_string();
+    hex[..STORED_ATTACHMENT_SUFFIX_LEN].to_string()
+}
+
+/// On-disk basename: `{stem}_{suffix}{ext}`; empty safe name → `attachment_{suffix}{ext}`.
+pub fn stored_attachment_basename(safe_name: &str, suffix: &str, ext_fallback: &str) -> String {
+    if safe_name.is_empty() {
+        let ext = extension_with_dot(ext_fallback);
+        return format!("attachment_{suffix}{ext}");
+    }
+    let (stem, ext) = split_stored_name_parts(safe_name);
+    format!("{stem}_{suffix}{ext}")
+}
+
+/// Pick a stored basename that does not already exist in `dir` (regenerate suffix on collision).
+pub fn allocate_unique_stored_basename(
+    dir: &Path,
+    safe_name: &str,
+    ext_fallback: &str,
+) -> Option<String> {
+    for _ in 0..STORED_ATTACHMENT_SUFFIX_ATTEMPTS {
+        let suffix = short_attachment_suffix();
+        let candidate = stored_attachment_basename(safe_name, &suffix, ext_fallback);
+        if !dir.join(&candidate).exists() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
 pub fn looks_like_utf8_text_content(text: &str) -> bool {
     if text.trim().is_empty() {
         return false;
@@ -189,6 +247,31 @@ mod tests {
             safe_attachment_basename("../../evil clip.mp4"),
             "evil_clip.mp4"
         );
+    }
+
+    #[test]
+    fn stored_attachment_basename_puts_suffix_before_extension() {
+        assert_eq!(
+            stored_attachment_basename("report.pdf", "a1b2c3d4", ""),
+            "report_a1b2c3d4.pdf"
+        );
+        assert_eq!(
+            stored_attachment_basename("像素蛋糕完整示例-0513.mp4", "abcd1234", ""),
+            "像素蛋糕完整示例-0513_abcd1234.mp4"
+        );
+    }
+
+    #[test]
+    fn stored_attachment_basename_empty_safe_name_uses_attachment_prefix() {
+        assert_eq!(
+            stored_attachment_basename("", "a1b2c3d4", "data.bin"),
+            "attachment_a1b2c3d4.bin"
+        );
+    }
+
+    #[test]
+    fn short_attachment_suffix_is_eight_chars() {
+        assert_eq!(short_attachment_suffix().len(), STORED_ATTACHMENT_SUFFIX_LEN);
     }
 
     #[test]

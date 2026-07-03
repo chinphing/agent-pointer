@@ -9,7 +9,7 @@ use crate::storage::{app_data_dir, sanitize_storage_dir_segment};
 use super::access::{
     assert_app_media_preview_allowed, is_user_filesystem_path, path_has_traversal,
 };
-use super::filename::safe_attachment_basename;
+use super::filename::{allocate_unique_stored_basename, safe_attachment_basename};
 use super::path_hint::MEDIA_URI_SCHEME;
 use super::resolve::resolve_local_media_path;
 
@@ -41,29 +41,12 @@ pub fn save_attachment_bytes(
     let dir = conversation_media_root()?.join(&conv);
     fs::create_dir_all(&dir).context("媒体目录创建失败")?;
     let safe_name = safe_attachment_basename(file_name);
-    let file_path = if safe_name.is_empty() {
-        let ext = Path::new(file_name)
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| format!(".{e}"))
-            .unwrap_or_default();
-        dir.join(format!("{id}{ext}"))
-    } else {
-        dir.join(format!("{id}_{safe_name}"))
-    };
+    let stored_name = allocate_unique_stored_basename(&dir, &safe_name, file_name)
+        .ok_or_else(|| anyhow::anyhow!("unique attachment filename allocation failed"))?;
+    let file_path = dir.join(&stored_name);
     fs::write(&file_path, bytes).context("write attachment file")?;
-    let rel = conversation_media_abs_to_rel(&file_path).unwrap_or_else(|| {
-        if safe_name.is_empty() {
-            let ext = Path::new(file_name)
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| format!(".{e}"))
-                .unwrap_or_default();
-            format!("{conv}/{id}{ext}")
-        } else {
-            format!("{conv}/{id}_{safe_name}")
-        }
-    });
+    let rel = conversation_media_abs_to_rel(&file_path)
+        .unwrap_or_else(|| format!("{conv}/{stored_name}"));
     Ok(rel)
 }
 

@@ -631,6 +631,17 @@ async function onPermissionsReady() {
   send()
 }
 
+async function confirmSubagentMonitorPick(
+  req: ComputerMonitorPickRequest,
+  conv: { id: string; computerMonitorId?: string },
+  monitorId: string
+) {
+  conv.computerMonitorId = monitorId
+  await setComputerConversationMonitor(conv.id, monitorId)
+  await confirmComputerMonitorPick(req.conversationId)
+  chat.clearComputerMonitorPickRequest()
+}
+
 async function beginSubagentMonitorPickFlow(req: ComputerMonitorPickRequest) {
   const conv = chat.conversations.find(c => c.id === req.conversationId) ?? chat.current
   if (!conv) {
@@ -653,40 +664,34 @@ async function beginSubagentMonitorPickFlow(req: ComputerMonitorPickRequest) {
     }
   }
 
-  if (conv.computerMonitorId) {
-    try {
-      await setComputerConversationMonitor(conv.id, conv.computerMonitorId)
-      await confirmComputerMonitorPick(req.conversationId)
-      chat.clearComputerMonitorPickRequest()
-    } catch (e: unknown) {
-      screenPickerError.value = String((e as { message?: string })?.message || e)
+  try {
+    if (computerAutoSwitchMonitor.value) {
+      const primary = primaryComputerMonitor(req.monitors)
+      if (primary) {
+        await confirmSubagentMonitorPick(req, conv, primary.id)
+        return
+      }
+    } else if (conv.computerMonitorId) {
+      await confirmSubagentMonitorPick(req, conv, conv.computerMonitorId)
+      return
+    } else if (req.monitors.length === 1) {
+      await confirmSubagentMonitorPick(req, conv, req.monitors[0].id)
+      return
+    } else if (req.monitors.length > 1) {
+      screenPickerError.value = null
+      screenPickerLoading.value = false
       screenPickerMonitors.value = req.monitors
       subagentPickPending.value = req
       showScreenPicker.value = true
-    }
-    return
-  }
-
-  if (computerAutoSwitchMonitor.value) {
-    const primary = primaryComputerMonitor(req.monitors)
-    if (primary) {
-      conv.computerMonitorId = primary.id
-      try {
-        await setComputerConversationMonitor(conv.id, primary.id)
-        await confirmComputerMonitorPick(req.conversationId)
-        chat.clearComputerMonitorPickRequest()
-      } catch (e: unknown) {
-        screenPickerError.value = String((e as { message?: string })?.message || e)
-      }
       return
     }
+    throw new Error('未检测到可用屏幕')
+  } catch (e: unknown) {
+    screenPickerError.value = String((e as { message?: string })?.message || e)
+    screenPickerMonitors.value = req.monitors
+    subagentPickPending.value = req
+    showScreenPicker.value = true
   }
-
-  screenPickerError.value = null
-  screenPickerLoading.value = false
-  screenPickerMonitors.value = req.monitors
-  subagentPickPending.value = req
-  showScreenPicker.value = true
 }
 
 watch(

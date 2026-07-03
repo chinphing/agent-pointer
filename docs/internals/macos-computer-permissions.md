@@ -2,7 +2,10 @@
 
 ## 范围
 
-仅 **Tauri macOS 桌面客户端**，在用户首次通过 **Computer** 智能体发送消息前拦截。
+仅 **Tauri macOS 桌面客户端**，在以下时机拦截：
+
+- 用户以 **Computer** 为 lead 发送消息前（`Composer.sendWithOptionalComputerScreenPick`）
+- 任意 lead 委派 **computer 子 agent** 时（`Composer.beginSubagentMonitorPickFlow`，后端 emit `computer_monitor_pick_required`）
 
 ## 权限项
 

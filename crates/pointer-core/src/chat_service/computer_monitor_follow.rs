@@ -8,6 +8,13 @@ use crate::chat_service::app_state::AppState;
 use crate::chat_service::StreamTx;
 use serde_json::Value;
 
+fn computer_agent_show_monitor_picker(state: &AppState) -> bool {
+    let Some(exec) = state.agents.get("computer") else {
+        return false;
+    };
+    crate::agents::agent_ui::resolve_agent_ui(&exec.def()).show_computer_monitor_picker
+}
+
 /// Whether manual monitor picker should run (computer agent UI + platform setting + user pref).
 pub fn computer_monitor_manual_pick_required(
     state: &AppState,
@@ -19,11 +26,19 @@ pub fn computer_monitor_manual_pick_required(
     if settings.computer_auto_switch_monitor {
         return false;
     }
-    let Some(exec) = state.agents.get("computer") else {
+    computer_agent_show_monitor_picker(state)
+}
+
+/// Whether **`run_subagent` → computer** should block on the frontend monitor/permissions flow
+/// (same gate as Computer lead send — includes auto-switch; macOS permissions run in UI).
+pub fn computer_subagent_monitor_flow_required(
+    state: &AppState,
+    settings: &ModelSettings,
+) -> bool {
+    if !settings.computer_show_monitor_picker {
         return false;
-    };
-    let def = exec.def();
-    crate::agents::agent_ui::resolve_agent_ui(&def).show_computer_monitor_picker
+    }
+    computer_agent_show_monitor_picker(state)
 }
 
 /// Apply primary monitor when auto-switch mode is enabled (skip manual picker).

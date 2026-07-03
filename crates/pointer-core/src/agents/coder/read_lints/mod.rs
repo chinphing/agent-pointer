@@ -1012,37 +1012,89 @@ fn run_read_lints(args: Value) -> Result<String> {
     let mut diagnostics: Vec<Value> = Vec::new();
     let mut truncated = false;
 
-    for plan in plans {
-        if diagnostics.len() >= READ_LINTS_MAX_DIAGNOSTICS {
-            truncated = true;
-            break;
+    if plans.len() > 1 {
+        let root = root.clone();
+        let filters = filters.clone();
+        let plan_out: Vec<(Value, Vec<Value>)> = std::thread::scope(|scope| {
+            plans
+                .into_iter()
+                .map(|plan| {
+                    let root = root.clone();
+                    let filters = filters.clone();
+                    scope
+                        .spawn(move || match plan {
+                            RunPlan::Builtin(b) => {
+                                let (meta, diags) =
+                                    run_builtin(b, &root, &root, &filters, slice);
+                                (meta, diags)
+                            }
+                            RunPlan::BuiltinInDir { stack, dir } => {
+                                let (meta, diags) =
+                                    run_builtin(stack, &root, &dir, &filters, slice);
+                                (meta, diags)
+                            }
+                            RunPlan::Config(c) => match run_config_entry(&root, &c, slice) {
+                                Ok((meta, diags)) => (meta, diags),
+                                Err(e) => {
+                                    warn!("read_lints: config command failed: {e}");
+                                    (
+                                        json!({
+                                            "engine": "pointer-lint-config",
+                                            "shell": c.shell,
+                                            "skipped": true,
+                                            "reason": e.to_string(),
+                                        }),
+                                        Vec::new(),
+                                    )
+                                }
+                            },
+                        })
+                        .join()
+                        .expect("read_lints worker")
+                })
+                .collect()
+        });
+        for (meta, diags) in plan_out {
+            if diagnostics.len() >= READ_LINTS_MAX_DIAGNOSTICS {
+                truncated = true;
+                break;
+            }
+            push_filtered_batch(&root, &filters, diags, &mut diagnostics, &mut truncated);
+            runs.push(meta);
         }
-        match plan {
-            RunPlan::Builtin(b) => {
-                let (meta, diags) = run_builtin(b, &root, &root, &filters, slice);
-                push_filtered_batch(&root, &filters, diags, &mut diagnostics, &mut truncated);
-                runs.push(meta);
+    } else {
+        for plan in plans {
+            if diagnostics.len() >= READ_LINTS_MAX_DIAGNOSTICS {
+                truncated = true;
+                break;
             }
-            RunPlan::BuiltinInDir { stack, dir } => {
-                let (meta, diags) = run_builtin(stack, &root, &dir, &filters, slice);
-                push_filtered_batch(&root, &filters, diags, &mut diagnostics, &mut truncated);
-                runs.push(meta);
-            }
-            RunPlan::Config(c) => match run_config_entry(&root, &c, slice) {
-                Ok((meta, diags)) => {
+            match plan {
+                RunPlan::Builtin(b) => {
+                    let (meta, diags) = run_builtin(b, &root, &root, &filters, slice);
                     push_filtered_batch(&root, &filters, diags, &mut diagnostics, &mut truncated);
                     runs.push(meta);
                 }
-                Err(e) => {
-                    warn!("read_lints: config command failed: {e}");
-                    runs.push(json!({
-                        "engine": "pointer-lint-config",
-                        "shell": c.shell,
-                        "skipped": true,
-                        "reason": e.to_string(),
-                    }));
+                RunPlan::BuiltinInDir { stack, dir } => {
+                    let (meta, diags) = run_builtin(stack, &root, &dir, &filters, slice);
+                    push_filtered_batch(&root, &filters, diags, &mut diagnostics, &mut truncated);
+                    runs.push(meta);
                 }
-            },
+                RunPlan::Config(c) => match run_config_entry(&root, &c, slice) {
+                    Ok((meta, diags)) => {
+                        push_filtered_batch(&root, &filters, diags, &mut diagnostics, &mut truncated);
+                        runs.push(meta);
+                    }
+                    Err(e) => {
+                        warn!("read_lints: config command failed: {e}");
+                        runs.push(json!({
+                            "engine": "pointer-lint-config",
+                            "shell": c.shell,
+                            "skipped": true,
+                            "reason": e.to_string(),
+                        }));
+                    }
+                },
+            }
         }
     }
 

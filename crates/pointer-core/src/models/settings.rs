@@ -784,6 +784,18 @@ pub struct ModelSettings {
     pub media_mode_llm: HashMap<String, HashMap<String, ComputerTierLlmConfig>>,
     #[serde(default, rename = "mediaOss")]
     pub media_oss: MediaOssConfig,
+    /// Max concurrent tool invocations per batch (`None` → min(CPU cores, 8)).
+    #[serde(default, rename = "maxParallelToolCalls", skip_serializing_if = "Option::is_none")]
+    pub max_parallel_tool_calls: Option<u32>,
+    /// Max concurrent `run_subagent` invocations (`None` → min(CPU cores, 8)).
+    #[serde(default, rename = "maxParallelSubAgents", skip_serializing_if = "Option::is_none")]
+    pub max_parallel_sub_agents: Option<u32>,
+    /// Max concurrent media tool jobs (`None` → min(CPU cores, 8)).
+    #[serde(default, rename = "maxParallelMediaJobs", skip_serializing_if = "Option::is_none")]
+    pub max_parallel_media_jobs: Option<u32>,
+    /// When false, all tool calls in one assistant turn run serially.
+    #[serde(default = "default_parallel_tool_execution_enabled", rename = "parallelToolExecutionEnabled")]
+    pub parallel_tool_execution_enabled: bool,
     /// Per-request override (e.g. computer tier); not persisted.
     #[serde(skip)]
     pub round_enable_thinking: Option<bool>,
@@ -977,6 +989,10 @@ fn default_web_search_model_setting() -> String {
     build_cfg_str!("WEB_SEARCH_MODEL", "")
 }
 
+fn default_parallel_tool_execution_enabled() -> bool {
+    true
+}
+
 impl Default for ModelSettings {
     fn default() -> Self {
         Self {
@@ -1079,6 +1095,10 @@ impl Default for ModelSettings {
             agent_mode_llm: default_agent_mode_llm(),
             media_mode_llm: default_media_mode_llm(),
             media_oss: MediaOssConfig::default(),
+            max_parallel_tool_calls: None,
+            max_parallel_sub_agents: None,
+            max_parallel_media_jobs: None,
+            parallel_tool_execution_enabled: true,
             round_enable_thinking: None,
             round_thinking_budget: None,
         }
@@ -1409,6 +1429,14 @@ pub struct PlatformSettings {
     /// Session-only media OSS credentials from platform login (not persisted locally).
     #[serde(default, rename = "mediaOss")]
     pub media_oss: MediaOssConfig,
+    #[serde(default, rename = "maxParallelToolCalls", skip_serializing_if = "Option::is_none")]
+    pub max_parallel_tool_calls: Option<u32>,
+    #[serde(default, rename = "maxParallelSubAgents", skip_serializing_if = "Option::is_none")]
+    pub max_parallel_sub_agents: Option<u32>,
+    #[serde(default, rename = "maxParallelMediaJobs", skip_serializing_if = "Option::is_none")]
+    pub max_parallel_media_jobs: Option<u32>,
+    #[serde(default = "default_parallel_tool_execution_enabled", rename = "parallelToolExecutionEnabled")]
+    pub parallel_tool_execution_enabled: bool,
 }
 
 /// Provider entries we do not ship or persist (legacy / third-party).
@@ -1489,6 +1517,14 @@ pub struct PersistedLocalPlatformSettings {
     pub agent_performance_modes: HashMap<String, String>,
     #[serde(default, rename = "mediaUnderstandingModes")]
     pub media_understanding_modes: MediaUnderstandingModes,
+    #[serde(default = "default_parallel_tool_execution_enabled", rename = "parallelToolExecutionEnabled")]
+    pub parallel_tool_execution_enabled: bool,
+    #[serde(default, rename = "maxParallelToolCalls", skip_serializing_if = "Option::is_none")]
+    pub max_parallel_tool_calls: Option<u32>,
+    #[serde(default, rename = "maxParallelSubAgents", skip_serializing_if = "Option::is_none")]
+    pub max_parallel_sub_agents: Option<u32>,
+    #[serde(default, rename = "maxParallelMediaJobs", skip_serializing_if = "Option::is_none")]
+    pub max_parallel_media_jobs: Option<u32>,
 }
 
 impl PersistedLocalPlatformSettings {
@@ -1512,6 +1548,10 @@ impl PersistedLocalPlatformSettings {
             media_model_overrides: platform.media_model_overrides.clone(),
             agent_performance_modes: platform.agent_performance_modes.clone(),
             media_understanding_modes: platform.media_understanding_modes.clone(),
+            parallel_tool_execution_enabled: platform.parallel_tool_execution_enabled,
+            max_parallel_tool_calls: platform.max_parallel_tool_calls,
+            max_parallel_sub_agents: platform.max_parallel_sub_agents,
+            max_parallel_media_jobs: platform.max_parallel_media_jobs,
         }
     }
 
@@ -1549,6 +1589,10 @@ impl PersistedLocalPlatformSettings {
         platform.media_model_overrides = self.media_model_overrides.clone();
         platform.agent_performance_modes = self.agent_performance_modes.clone();
         platform.media_understanding_modes = self.media_understanding_modes.clone();
+        platform.parallel_tool_execution_enabled = self.parallel_tool_execution_enabled;
+        platform.max_parallel_tool_calls = self.max_parallel_tool_calls;
+        platform.max_parallel_sub_agents = self.max_parallel_sub_agents;
+        platform.max_parallel_media_jobs = self.max_parallel_media_jobs;
     }
 }
 
@@ -1817,6 +1861,10 @@ impl Default for PlatformSettings {
             agent_mode_llm: default_agent_mode_llm(),
             media_mode_llm: default_media_mode_llm(),
             media_oss: MediaOssConfig::default(),
+            max_parallel_tool_calls: None,
+            max_parallel_sub_agents: None,
+            max_parallel_media_jobs: None,
+            parallel_tool_execution_enabled: true,
         }
     }
 }
@@ -2045,6 +2093,10 @@ pub fn merge_user_platform(user: &UserSettings, platform: &PlatformSettings) -> 
         agent_mode_llm: platform.agent_mode_llm.clone(),
         media_mode_llm: platform.media_mode_llm.clone(),
         media_oss: platform.media_oss.clone(),
+        max_parallel_tool_calls: platform.max_parallel_tool_calls,
+        max_parallel_sub_agents: platform.max_parallel_sub_agents,
+        max_parallel_media_jobs: platform.max_parallel_media_jobs,
+        parallel_tool_execution_enabled: platform.parallel_tool_execution_enabled,
         round_enable_thinking: None,
         round_thinking_budget: None,
     }

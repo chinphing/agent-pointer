@@ -1,12 +1,13 @@
 //! Route tool invocations to specialized handlers or the default registry.
 
 mod media;
-mod registry;
+pub(super) mod registry;
 mod skill_import;
-mod subagent;
-mod terminal;
-mod web_search;
+pub(super) mod subagent;
+pub(super) mod terminal;
+pub(super) mod web_search;
 
+use crate::agents::AgentProfile;
 use crate::models::ToolCall;
 use crate::provider::OpenAIProvider;
 use tokio_util::sync::CancellationToken;
@@ -126,5 +127,108 @@ pub(super) async fn execute_tool_invocation(
             lead.as_deref(),
             sub.as_deref(),
         ),
+    }
+}
+
+/// Parallel-safe invoke path (no shared mut `lead` / `sub` / `history`).
+pub(super) async fn invoke_prepared_parallel(
+    stream: &StreamTx,
+    state: &AppState,
+    provider: &OpenAIProvider,
+    conversation_id: &str,
+    task_board_store_key: &str,
+    message_id: &str,
+    tc: &ToolCall,
+    tool_id: &str,
+    args_value: serde_json::Value,
+    workspace_root: &str,
+    lead_profile: Option<AgentProfile>,
+    sub_profile: Option<AgentProfile>,
+    cancel: &CancellationToken,
+) -> ToolExecResult {
+    match tool_id {
+        "terminal" => {
+            terminal::run_terminal_tool(
+                stream,
+                state,
+                conversation_id,
+                message_id,
+                tc,
+                args_value,
+                cancel,
+                None,
+                None,
+                provider.settings.workspace_root.clone(),
+            )
+            .await
+        }
+        "web_search" => {
+            let mut stats =
+                ToolInvocationStats::Conversation(&mut crate::llm_token_stats::ConversationLlmStats::default());
+            web_search::dispatch_web_search(
+                stream,
+                provider,
+                message_id,
+                &[],
+                tc,
+                args_value,
+                cancel,
+                &mut stats,
+                None,
+                None,
+            )
+            .await
+        }
+        "image_generate" | "video_generate" => {
+            media::dispatch_media_generate(
+                stream,
+                provider,
+                conversation_id,
+                message_id,
+                tc,
+                tool_id,
+                args_value,
+                cancel,
+                None,
+                None,
+            )
+            .await
+        }
+        "media_understand" => {
+            media::dispatch_media_understand(
+                stream,
+                provider,
+                conversation_id,
+                message_id,
+                tc,
+                args_value,
+                cancel,
+                None,
+                None,
+            )
+            .await
+        }
+        "run_subagent" => Err(anyhow::anyhow!(
+            "run_subagent must not run in parallel wave"
+        )),
+        _ => {
+            let file_profile = lead_profile
+                .or(sub_profile)
+                .unwrap_or(AgentProfile::General);
+            let _file_guard =
+                crate::agents::FileToolLeadProfileGuard::enter(file_profile.clone());
+            let _ws =
+                crate::tools::file::ConversationWorkspaceGuard::enter(workspace_root.to_string());
+            if file_profile == AgentProfile::Computer {
+                let _tier = crate::agents::computer::ComputerTierGuard::enter(
+                    state.computer_state.tier_for_conversation(conversation_id),
+                );
+                let _ = task_board_store_key;
+            }
+            state
+                .tools
+                .invoke(tool_id, args_value)
+                .map(|out| (out, true, None))
+        }
     }
 }

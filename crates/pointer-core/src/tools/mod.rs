@@ -14,6 +14,7 @@ pub mod terminal_prompt;
 pub mod web_search;
 pub mod tool_doc;
 pub mod tool_md;
+pub mod parallel;
 
 pub use display::{default_display, format_tool_display, ToolDisplay, ToolDisplayFn};
 
@@ -290,6 +291,10 @@ pub struct ToolEntry {
     /// When true, a lone successful invocation ends the agent run and the host delivers
     /// the tool output as the final assistant message (e.g. `image_generate`, `video_generate`).
     pub final_reply: bool,
+    /// When true, the tool may run concurrently with other eligible tools in the same batch.
+    pub parallel_eligible: bool,
+    /// Conflict class for batch scheduling (path, subagent, media, …).
+    pub conflict_class: parallel::ToolConflictClass,
 }
 
 impl ToolEntry {
@@ -342,6 +347,8 @@ impl ToolEntry {
         handler: ToolHandler,
     ) -> Self {
         let name = name.into();
+        let (parallel_eligible, conflict_class) =
+            parallel::infer_parallel_metadata(&name, is_sidecar);
         Self {
             def: ToolDef { name },
             risk_level: risk_level.into(),
@@ -353,6 +360,8 @@ impl ToolEntry {
             handler,
             display: None,
             final_reply: false,
+            parallel_eligible,
+            conflict_class,
         }
     }
 
@@ -370,6 +379,16 @@ impl ToolEntry {
 
     pub fn with_final_reply(mut self, final_reply: bool) -> Self {
         self.final_reply = final_reply;
+        self
+    }
+
+    pub fn with_parallel_metadata(
+        mut self,
+        parallel_eligible: bool,
+        conflict_class: parallel::ToolConflictClass,
+    ) -> Self {
+        self.parallel_eligible = parallel_eligible;
+        self.conflict_class = conflict_class;
         self
     }
 }
@@ -395,6 +414,24 @@ impl ToolRegistry {
         self.inner
             .write()
             .insert(entry.def.name.clone(), entry);
+    }
+
+    pub fn is_parallel_eligible(&self, raw_name: &str) -> bool {
+        let base = registry_tool_base_name(raw_name);
+        self.inner
+            .read()
+            .get(base)
+            .map(|e| e.parallel_eligible)
+            .unwrap_or(false)
+    }
+
+    pub fn tool_conflict_class(&self, raw_name: &str) -> parallel::ToolConflictClass {
+        let base = registry_tool_base_name(raw_name);
+        self.inner
+            .read()
+            .get(base)
+            .map(|e| e.conflict_class)
+            .unwrap_or(parallel::ToolConflictClass::SerialOnly)
     }
 
     pub fn list_defs(&self) -> Vec<ToolDef> {
@@ -1070,6 +1107,42 @@ mod openai_tools_schema_tests {
         assert_eq!(params["properties"]["is_slider"]["type"], "boolean");
     }
 
+}
+
+#[cfg(test)]
+mod parallel_metadata_tests {
+    use super::ToolRegistry;
+    use super::parallel::ToolConflictClass;
+    use std::sync::Arc;
+
+    #[test]
+    fn registry_parallel_metadata_for_file_and_terminal() {
+        let reg = ToolRegistry::new();
+        let store = Arc::new(crate::task_board::TaskBoardStore::new());
+        crate::tools::builtin::register_all(&reg, store);
+        assert!(reg.is_parallel_eligible("file_read"));
+        assert!(reg.is_parallel_eligible("file_write"));
+        assert!(reg.is_parallel_eligible("terminal"));
+        assert!(reg.is_parallel_eligible("web_search"));
+        assert!(!reg.is_parallel_eligible("read_lints"));
+        assert!(!reg.is_parallel_eligible("task_board_patch"));
+        assert_eq!(
+            reg.tool_conflict_class("file_read"),
+            ToolConflictClass::FilePath
+        );
+        assert_eq!(
+            reg.tool_conflict_class("terminal"),
+            ToolConflictClass::Terminal
+        );
+    }
+
+    #[test]
+    fn default_parallel_limit_respects_cap() {
+        use super::parallel::{default_parallel_limit, PARALLEL_LIMIT_CAP};
+        let n = default_parallel_limit();
+        assert!(n >= 1);
+        assert!(n <= PARALLEL_LIMIT_CAP);
+    }
 }
 
 #[cfg(test)]

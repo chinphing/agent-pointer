@@ -60,7 +60,7 @@ export interface RuntimeApi {
   sendChat(payload: SendChatPayload): Promise<string | void>
   cancelChat(conversationId: string): Promise<void>
   /** Stops only the in-flight `terminal` subprocess; the chat turn continues. */
-  abortTerminalCommand(conversationId: string): Promise<boolean>
+  abortTerminalCommand(conversationId: string, toolCallId?: string): Promise<boolean>
   approveToolCall(conversationId: string, toolCallId: string, approved: boolean): Promise<void>
   submitTerminalInput(requestId: string, text: string): Promise<void>
   dismissTerminalInput(requestId: string): Promise<void>

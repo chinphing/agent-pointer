@@ -70,8 +70,12 @@ pub fn cancel_chat(state: State<'_, Arc<AppState>>, conversation_id: String) -> 
 pub fn abort_terminal_command(
     state: State<'_, Arc<AppState>>,
     conversation_id: String,
+    tool_call_id: Option<String>,
 ) -> Result<bool, String> {
-    Ok(state.abort_terminal_command(&conversation_id))
+    Ok(state.abort_terminal_command(
+        &conversation_id,
+        tool_call_id.as_deref(),
+    ))
 }
 
 #[tauri::command]

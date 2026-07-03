@@ -149,9 +149,44 @@ pub(crate) fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result
     let mut content_bytes: usize = 0;
     let mut batch_capped = false;
     let mut budget_done = false;
+    let root_owned = root.to_path_buf();
+    let raw_reads: Vec<serde_json::Value> = if specs.len() > 1 {
+        std::thread::scope(|scope| {
+            specs
+                .iter()
+                .map(|spec| {
+                    let root = root_owned.clone();
+                    let spec = spec.clone();
+                    scope
+                        .spawn(move || {
+                            file_read_one_json(
+                                &root,
+                                &spec.path,
+                                spec.line_start,
+                                spec.line_end_exclusive,
+                                spec.max_bytes,
+                            )
+                        })
+                        .join()
+                        .expect("file:read worker")
+                })
+                .collect()
+        })
+    } else if let Some(spec) = specs.first() {
+        vec![file_read_one_json(
+            root,
+            &spec.path,
+            spec.line_start,
+            spec.line_end_exclusive,
+            spec.max_bytes,
+        )]
+    } else {
+        Vec::new()
+    };
+
     let mut files: Vec<serde_json::Value> = Vec::with_capacity(specs.len());
 
-    for spec in &specs {
+    for (spec, mut v) in specs.iter().zip(raw_reads) {
         if budget_done || content_bytes >= max_total_bytes {
             files.push(serde_json::json!({
                 "path": path_display_for_read_request(root, &spec.path),
@@ -160,14 +195,6 @@ pub(crate) fn execute_file_read(args: &serde_json::Value, root: &Path) -> Result
             batch_capped = true;
             continue;
         }
-
-        let mut v = file_read_one_json(
-            root,
-            &spec.path,
-            spec.line_start,
-            spec.line_end_exclusive,
-            spec.max_bytes,
-        );
 
         if v.get("error").is_some() {
             files.push(v);

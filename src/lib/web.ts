@@ -108,10 +108,16 @@ export async function cancelChat(conversationId: string): Promise<void> {
   await request(`/api/chat/${encodeURIComponent(conversationId)}/cancel`, { method: 'POST' })
 }
 
-export async function abortTerminalCommand(conversationId: string): Promise<boolean> {
+export async function abortTerminalCommand(
+  conversationId: string,
+  toolCallId?: string
+): Promise<boolean> {
   const j = await request<{ aborted: boolean }>(
     `/api/chat/${encodeURIComponent(conversationId)}/abort-terminal`,
-    { method: 'POST' }
+    {
+      method: 'POST',
+      body: JSON.stringify({ toolCallId: toolCallId ?? null })
+    }
   )
   return Boolean(j?.aborted)
 }

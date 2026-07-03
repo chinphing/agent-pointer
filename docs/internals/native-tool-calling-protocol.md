@@ -31,3 +31,48 @@ are assistant message text**, not a separate delivery tool.
 - Parsing or provider anomalies must produce warnings.
 - Tool execution errors must not be silent.
 - Keep informative logs around stream parsing, malformed args, and protocol mismatch paths.
+
+## Parallel tool execution (same assistant turn)
+
+When the model returns multiple native `tool_calls` in one assistant message, the host may
+execute eligible tools concurrently subject to conflict detection and platform limits.
+
+### Parallel-eligible tools (default)
+
+| Category | Tool ids |
+|----------|----------|
+| File read | `file_read`, `file_grep`, `file_glob`, `file_list` |
+| File write | `file_write`, `file_edit` (different paths only) |
+| Terminal | `terminal` |
+| Sub-agent | `run_subagent` (serial waves; one active delegation mut path) |
+| Media | `image_generate`, `video_generate`, `media_understand` |
+| Other | `web_search`, `skill_read`, `session_search`, `memory` |
+
+### Not parallel (serial)
+
+- All Computer desktop tools
+- Sidecar tools (`task_board_*`, `action_verify`, …)
+- `read_lints`, `cron_job`, `skill_import` (P1 serial; intra-tool parallelism optional)
+
+### Conflict rules
+
+- Same canonical file path: read/write/edit must not overlap in one parallel wave.
+- `terminal`: no conversation-level mutex; abort is per `tool_call_id`.
+
+### Concurrency limits (platform settings)
+
+| Setting | Default |
+|---------|---------|
+| `maxParallelToolCalls` | `min(CPU logical cores, 8)` |
+| `maxParallelSubAgents` | same |
+| `maxParallelMediaJobs` | same |
+
+Unset settings use the CPU-based default; explicit values may exceed 8.
+
+### Scheduling
+
+1. `plan_tool_batch()` builds ordered waves (parallel or serial).
+2. Parallel waves run via async join; outcomes merge in original `tool_calls` order.
+3. Computer profile and manual-approval batches force full serial execution.
+
+Logs: `tool_batch_plan` and `tool_batch_exec` include mode, wave count, and degrade reason.

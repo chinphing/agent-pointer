@@ -2059,10 +2059,20 @@ async fn cancel_chat(
 async fn abort_terminal_command(
     State(state): State<ServerState>,
     Path(conversation_id): Path<String>,
+    payload: Option<Json<AbortTerminalPayload>>,
 ) -> Result<axum::Json<serde_json::Value>, ApiError> {
     require_platform_access(&state)?;
-    let aborted = state.core.abort_terminal_command(&conversation_id);
+    let tool_call_id = payload.and_then(|Json(p)| p.tool_call_id);
+    let aborted = state
+        .core
+        .abort_terminal_command(&conversation_id, tool_call_id.as_deref());
     Ok(axum::Json(serde_json::json!({ "aborted": aborted })))
+}
+
+#[derive(Deserialize, Default)]
+struct AbortTerminalPayload {
+    #[serde(default, rename = "toolCallId")]
+    tool_call_id: Option<String>,
 }
 
 #[derive(Deserialize)]

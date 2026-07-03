@@ -126,7 +126,8 @@ const defaultPlatformSettings = (): PlatformSettings => ({
   agentModeLlm: defaultAgentModeLlm(),
   mediaModeLlm: defaultMediaModeLlm(),
   agentPerformanceModes: { general: 'fast', coder: 'fast' },
-  mediaUnderstandingModes: { image: 'fast', audio: 'fast', video: 'fast' }
+  mediaUnderstandingModes: { image: 'fast', audio: 'fast', video: 'fast' },
+  parallelToolExecutionEnabled: true
 })
 
 function migratePlannerSettingsFields(
@@ -192,7 +193,11 @@ function normalizeMergedSettings(s: ModelSettings, activeId: string): ModelSetti
     agentPerformanceModes: { ...(s.agentPerformanceModes ?? {}) },
     mediaUnderstandingModes: { ...(s.mediaUnderstandingModes ?? {}) },
     agentModeLlm: { ...(s.agentModeLlm ?? {}) },
-    mediaModeLlm: { ...(s.mediaModeLlm ?? {}) }
+    mediaModeLlm: { ...(s.mediaModeLlm ?? {}) },
+    parallelToolExecutionEnabled: s.parallelToolExecutionEnabled !== false,
+    maxParallelToolCalls: s.maxParallelToolCalls,
+    maxParallelSubAgents: s.maxParallelSubAgents,
+    maxParallelMediaJobs: s.maxParallelMediaJobs
   }
 }
 

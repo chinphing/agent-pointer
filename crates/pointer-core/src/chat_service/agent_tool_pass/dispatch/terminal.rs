@@ -127,13 +127,9 @@ pub(super) async fn run_terminal_tool(
     }
     let cancel_terminal = cancel.clone();
     let abort_flag = Arc::new(AtomicBool::new(false));
-    {
-        let mut m = state.terminal_run_abort.lock();
-        if let Some(old) = m.insert(conversation_id.to_string(), abort_flag.clone()) {
-            old.store(true, Ordering::SeqCst);
-        }
-    }
-    let cleanup_id = conversation_id.to_string();
+    state.register_terminal_abort_flag(conversation_id, &tc.id, abort_flag.clone());
+    let cleanup_conv = conversation_id.to_string();
+    let cleanup_tc = tc.id.clone();
     let msg_id_for_stream = message_id.to_string();
     let tc_id_for_stream = tc.id.clone();
     let stream_for_terminal = stream.clone();
@@ -219,6 +215,6 @@ pub(super) async fn run_terminal_tool(
         })
     })
     .await;
-    state.terminal_run_abort.lock().remove(&cleanup_id);
+    state.clear_terminal_abort_flag(&cleanup_conv, &cleanup_tc);
     join.map_err(|e| anyhow!("终端执行线程异常: {e}"))?
 }

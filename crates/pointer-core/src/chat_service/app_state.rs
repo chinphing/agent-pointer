@@ -64,7 +64,8 @@ pub struct AppState {
     pub extensions: Arc<ExtensionRegistry>,
     pub cancels: Mutex<HashMap<String, CancellationToken>>,
     /// When set, the in-flight `terminal` tool for that conversation kills its subprocess (host-only; does not cancel the LLM turn).
-    pub terminal_run_abort: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// Outer key: conversation_id; inner key: tool_call_id.
+    pub terminal_run_abort: Mutex<HashMap<String, HashMap<String, Arc<AtomicBool>>>>,
     pub approvals: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     /// Blocks `run_subagent` → computer until the UI confirms monitor selection.
     pub monitor_picks: Mutex<HashMap<String, oneshot::Sender<Result<(), String>>>>,
@@ -147,6 +148,11 @@ impl AppState {
         if let Err(err) = skills.reload_meta() {
             log::warn!("load external skills failed: {err}");
         }
+        let user_settings = storage::load_user_settings().unwrap_or_default();
+        crate::tools::parallel::ParallelLimits::from_settings(
+            &platform_mgr.effective_model_settings(&user_settings),
+        )
+        .log_startup(&platform_mgr.effective_model_settings(&user_settings));
         let agents = Arc::new(crate::agents::AgentRegistry::new());
         register_builtin_agents(&agents);
         if let Err(err) = agents.reload_external() {
@@ -316,17 +322,51 @@ impl AppState {
         }
     }
 
-    /// Kill only the subprocess for the current **`terminal`** tool in this conversation.
-    /// Does **not** cancel the LLM stream or the rest of the turn. Returns **true** if a run was registered.
-    pub fn abort_terminal_command(&self, conversation_id: &str) -> bool {
-        self.terminal_run_abort
-            .lock()
-            .get(conversation_id)
-            .map(|f| {
+    /// Kill the subprocess for a **`terminal`** tool invocation.
+    /// When `tool_call_id` is set, only that invocation is aborted; otherwise all terminals in the conversation.
+    /// Does **not** cancel the LLM stream or the rest of the turn. Returns **true** if at least one run was registered.
+    pub fn abort_terminal_command(&self, conversation_id: &str, tool_call_id: Option<&str>) -> bool {
+        let mut outer = self.terminal_run_abort.lock();
+        let Some(inner) = outer.get_mut(conversation_id) else {
+            return false;
+        };
+        match tool_call_id {
+            Some(tc_id) => inner.get(tc_id).map(|f| {
                 f.store(true, Ordering::SeqCst);
                 true
-            })
-            .unwrap_or(false)
+            }).unwrap_or(false),
+            None => {
+                let mut any = false;
+                for f in inner.values() {
+                    f.store(true, Ordering::SeqCst);
+                    any = true;
+                }
+                any
+            }
+        }
+    }
+
+    pub fn register_terminal_abort_flag(
+        &self,
+        conversation_id: &str,
+        tool_call_id: &str,
+        flag: Arc<AtomicBool>,
+    ) {
+        let mut outer = self.terminal_run_abort.lock();
+        outer
+            .entry(conversation_id.to_string())
+            .or_default()
+            .insert(tool_call_id.to_string(), flag);
+    }
+
+    pub fn clear_terminal_abort_flag(&self, conversation_id: &str, tool_call_id: &str) {
+        let mut outer = self.terminal_run_abort.lock();
+        if let Some(inner) = outer.get_mut(conversation_id) {
+            inner.remove(tool_call_id);
+            if inner.is_empty() {
+                outer.remove(conversation_id);
+            }
+        }
     }
 
     pub fn approve_tool_call(&self, tool_call_id: &str, approved: bool) -> bool {

@@ -229,7 +229,7 @@ function approve(ok: boolean) {
 }
 
 function abortTerminalOnly() {
-  chat.abortTerminalOnly()
+  chat.abortTerminalOnly(props.toolCall.id)
 }
 
 function openSourceUrl(url: string) {

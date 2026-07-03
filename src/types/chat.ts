@@ -526,6 +526,11 @@ export interface PlatformSettings {
   mediaModelOverrides?: MediaModelOverrides
   agentPerformanceModes?: AgentPerformanceModes
   mediaUnderstandingModes?: MediaUnderstandingModes
+  /** When false, tool calls in one assistant turn run serially. */
+  parallelToolExecutionEnabled?: boolean
+  maxParallelToolCalls?: number
+  maxParallelSubAgents?: number
+  maxParallelMediaJobs?: number
 }
 
 export interface EffectiveSettingsView {
@@ -595,6 +600,10 @@ export interface ModelSettings {
   agentModeLlm?: AgentModeLlmMap
   mediaModeLlm?: MediaModeLlmMap
   mediaOss?: MediaOssConfig
+  parallelToolExecutionEnabled?: boolean
+  maxParallelToolCalls?: number
+  maxParallelSubAgents?: number
+  maxParallelMediaJobs?: number
 }
 
 export interface SkillDef {

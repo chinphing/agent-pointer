@@ -198,6 +198,10 @@ function createSettingsDialogForm(deps: {
   const contextKeepRecentUserTurns = ref(6)
   const contextSummaryMaxTokens = ref(2048)
   const maxToolRounds = ref(100)
+  const parallelToolExecutionEnabled = ref(true)
+  const maxParallelToolCalls = ref<number | ''>('')
+  const maxParallelSubAgents = ref<number | ''>('')
+  const maxParallelMediaJobs = ref<number | ''>('')
   const maxSubAgentToolRounds = ref(100)
   const maxSubAgentSpawnDepth = ref(2)
   const rawContentViewEnabled = ref(false)
@@ -395,6 +399,10 @@ function createSettingsDialogForm(deps: {
   contextKeepRecentUserTurns.value = s.settings.contextKeepRecentUserTurns ?? 6
   contextSummaryMaxTokens.value = s.settings.contextSummaryMaxTokens ?? 2048
   maxToolRounds.value = s.settings.maxToolRounds ?? 100
+  parallelToolExecutionEnabled.value = s.settings.parallelToolExecutionEnabled !== false
+  maxParallelToolCalls.value = s.settings.maxParallelToolCalls ?? ''
+  maxParallelSubAgents.value = s.settings.maxParallelSubAgents ?? ''
+  maxParallelMediaJobs.value = s.settings.maxParallelMediaJobs ?? ''
   maxSubAgentToolRounds.value = s.settings.maxSubAgentToolRounds ?? s.settings.maxToolRounds ?? 100
   maxSubAgentSpawnDepth.value = s.settings.maxSubAgentSpawnDepth ?? 2
   rawContentViewEnabled.value = s.settings.rawContentViewEnabled === true
@@ -666,6 +674,13 @@ function createSettingsDialogForm(deps: {
   })
   }
 
+  function optionalParallelLimit(v: number | ''): number | null {
+    if (v === '') return null
+    const n = Number(v)
+    if (!Number.isFinite(n) || n < 1) return null
+    return Math.floor(n)
+  }
+
   function getAssistantSavePayload() {
   return {
     computerAutoCompact: computerAutoCompact.value,
@@ -676,6 +691,16 @@ function createSettingsDialogForm(deps: {
     computerAutoSwitchMonitor: computerAutoSwitchMonitor.value,
     computerInitialTier: computerInitialTier.value,
     captchaSliderOffsetPx: Number(captchaSliderOffsetPx.value) || 0,
+    parallelToolExecutionEnabled: parallelToolExecutionEnabled.value,
+    maxParallelToolCalls: parallelToolExecutionEnabled.value
+      ? optionalParallelLimit(maxParallelToolCalls.value)
+      : null,
+    maxParallelSubAgents: parallelToolExecutionEnabled.value
+      ? optionalParallelLimit(maxParallelSubAgents.value)
+      : null,
+    maxParallelMediaJobs: parallelToolExecutionEnabled.value
+      ? optionalParallelLimit(maxParallelMediaJobs.value)
+      : null,
     contextCompressionEnabled: contextCompressionEnabled.value,
     contextBudgetTokens: Number(contextBudgetTokens.value),
     contextKeepRecentUserTurns: Number(contextKeepRecentUserTurns.value),
@@ -731,6 +756,10 @@ function createSettingsDialogForm(deps: {
     contextKeepRecentUserTurns,
     contextSummaryMaxTokens,
     maxToolRounds,
+    parallelToolExecutionEnabled,
+    maxParallelToolCalls,
+    maxParallelSubAgents,
+    maxParallelMediaJobs,
     maxSubAgentToolRounds,
     maxSubAgentSpawnDepth,
     rawContentViewEnabled,

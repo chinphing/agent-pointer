@@ -51,8 +51,14 @@ export async function cancelChat(conversationId: string): Promise<void> {
   await invoke('cancel_chat', { conversationId })
 }
 
-export async function abortTerminalCommand(conversationId: string): Promise<boolean> {
-  return await invoke<boolean>('abort_terminal_command', { conversationId })
+export async function abortTerminalCommand(
+  conversationId: string,
+  toolCallId?: string
+): Promise<boolean> {
+  return await invoke<boolean>('abort_terminal_command', {
+    conversationId,
+    toolCallId: toolCallId ?? null
+  })
 }
 
 export async function approveToolCall(

@@ -32,6 +32,10 @@ const {
   contextKeepRecentUserTurns,
   contextSummaryMaxTokens,
   maxToolRounds,
+  parallelToolExecutionEnabled,
+  maxParallelToolCalls,
+  maxParallelSubAgents,
+  maxParallelMediaJobs,
   mediaDeps,
   ffmpegStatusLabel,
   ffmpegStatusDetail,
@@ -326,6 +330,77 @@ const COMPUTER_TIER_CARDS: { value: ComputerInitialTier; label: string; desc: st
                 class="w-full min-h-[7rem] px-3 py-2 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors resize-y"
               />
               <p class="text-[10px] text-muted text-right">{{ userCodingRules.length }} / 4000</p>
+            </div>
+
+            <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">
+              <div class="flex items-center justify-between gap-4">
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <h4 class="text-sm font-medium text-foreground">并行执行</h4>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-muted hover:text-foreground transition-colors shrink-0"
+                    title="同一轮多个工具调用时，无冲突的可并行；关闭后全部串行。并发上限留空时按 CPU 核数，最多 8。"
+                    aria-label="并行执行说明"
+                  >
+                    <CircleHelp class="w-3.5 h-3.5 pointer-events-none" />
+                  </button>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input v-model="parallelToolExecutionEnabled" type="checkbox" class="sr-only peer" />
+                  <div class="settings-toggle-track"></div>
+                </label>
+              </div>
+
+              <div
+                v-if="parallelToolExecutionEnabled"
+                class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-border"
+              >
+                  <div>
+                    <label
+                      class="block text-[12px] text-muted mb-1.5"
+                      title="文件、终端、搜索等通用工具；留空时按 CPU 核数，上限 8"
+                    >通用上限</label>
+                    <input
+                      v-model="maxParallelToolCalls"
+                      type="number"
+                      min="1"
+                      max="64"
+                      step="1"
+                      placeholder="自动"
+                      class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors placeholder:text-muted/60"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      class="block text-[12px] text-muted mb-1.5"
+                      title="run_subagent 并发；留空时与通用上限相同"
+                    >子 Agent</label>
+                    <input
+                      v-model="maxParallelSubAgents"
+                      type="number"
+                      min="1"
+                      max="64"
+                      step="1"
+                      placeholder="自动"
+                      class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors placeholder:text-muted/60"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      class="block text-[12px] text-muted mb-1.5"
+                      title="图片 / 视频生成与 media_understand"
+                    >媒体任务</label>
+                    <input
+                      v-model="maxParallelMediaJobs"
+                      type="number"
+                      min="1"
+                      max="64"
+                      step="1"
+                      placeholder="自动"
+                      class="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground outline-none focus:border-accent/50 transition-colors placeholder:text-muted/60"
+                    />
+                  </div>
+                </div>
             </div>
 
             <div class="rounded-xl border border-border bg-[hsl(var(--card-elevated))] p-5 space-y-4">

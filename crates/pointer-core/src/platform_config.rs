@@ -139,6 +139,10 @@ pub fn platform_settings_from_model_settings(s: &ModelSettings) -> PlatformSetti
         agent_mode_llm: s.agent_mode_llm.clone(),
         media_mode_llm: s.media_mode_llm.clone(),
         media_oss: s.media_oss.clone(),
+        max_parallel_tool_calls: s.max_parallel_tool_calls,
+        max_parallel_sub_agents: s.max_parallel_sub_agents,
+        max_parallel_media_jobs: s.max_parallel_media_jobs,
+        parallel_tool_execution_enabled: s.parallel_tool_execution_enabled,
     }
 }
 

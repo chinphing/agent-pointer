@@ -1258,9 +1258,9 @@ export const useChatStore = defineStore('chat', () => {
     markMetaDirty(conv.id)
   }
 
-  async function abortTerminalOnly() {
+  async function abortTerminalOnly(toolCallId?: string) {
     if (!current.value) return
-    await abortTerminalCommand(current.value.id).catch(e => console.error(e))
+    await abortTerminalCommand(current.value.id, toolCallId).catch(e => console.error(e))
   }
 
   async function approve(toolCall: ToolCall, approved: boolean) {

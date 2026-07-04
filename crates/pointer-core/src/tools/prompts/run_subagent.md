@@ -37,10 +37,26 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 **Rules**
 
 - **`goal`** must stand alone — the worker does **not** see the main chat.
-- Put verified paths, prior grep results, and dependency summaries in **`context`** (optional).
 - Nested delegation is allowed up to **`maxSubAgentSpawnDepth`** (default 2). At max depth, workers are leaves.
 - Workers finish with **Markdown** in final assistant **`content`** (no tools on that turn).
 - Optional **`taskId`** stays stable across repeated handoffs to the same logical task.
+
+**Goal vs context (all workers)**
+
+Host maps **`goal`** → worker **Assigned task**; **`context`** → **Lead context**.
+
+| | **`goal`** | **`context`** |
+| --- | --- | --- |
+| **Write** | Outcome + when it counts as done | Facts you observed (paths, errors, constraints) |
+| **Do not write** | Steps, playbooks, diffs, verbatim rewrites | Orders to the worker (unless user-sourced — see labels below) |
+| **Worker decides** | — | Steps, tools, and implementation |
+
+- You orchestrate; the worker implements.
+- Put **how** in **`context`** only, with a label:
+  - **`User-required approach:`** — user mandated method (worker follows when feasible).
+  - **`Lead suggestion (non-binding):`** — your idea; worker may ignore after verifying.
+- Do **not** put user or lead **how** in **`goal`** because it was numbered or detailed.
+- If the user gave **only** a procedure, infer a short done check for **`goal`**; put their steps under **`User-required approach:`**.
 
 **`explore` (coder lead)**
 
@@ -67,7 +83,6 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 - **When:** long main thread, or a sub-phase needs many tool rounds without polluting lead context
   (multi-skill steps, research, attachment pipelines) — and the work stays in the **general** domain.
 - **When not:** repo/skill-file writes → **`coder`**; desktop/browser → **`computer`**; simple Q&A → stay local.
-- **`goal`:** outcome + done check; **`context`:** paths, refs, user constraints, verified facts from the thread.
 - Worker is a **leaf** (no nested **`run_subagent`**, no user clarify) — brief must be self-contained.
 
 **`computer` (general lead only)**
@@ -76,19 +91,7 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 - Optional **`computerTarget`** — `self` for Pointer UI, `external` for other apps (default inferred from task).
 - **List files (Type2):** put the file **`localPath`** or **`pointer-media://…`** ref in **`context`** — the worker planner uses it for **`work_items_source`** on init.
 
-**Goal authoring (all workers)**
-
-- **`goal`** = **what to achieve** + **how you know it is done** — not a UI playbook.
-- Put verified paths, errors, and prior digests in **`context`**, not in **`goal`**.
-- Numbered steps in **`goal`** are accepted but **discouraged** — the worker owns **how**; micro-playbooks waste context and can conflict with worker rules.
-
-**When the user explicitly requires an approach**
-
-- Default shape unchanged: **`goal`** = outcome + done check; worker chooses **how**.
-- Put the user's required method, steps, tools, or scope limits in **`context`**, labeled **`User-required approach:`** (quote or faithful paraphrase — do not invent extra steps).
-- Do **not** move user-required steps into **`goal`** just because they were numbered — keep **what** in **`goal`**, **how** in **`context`**.
-- If the user gave **only** a procedure with no clear outcome, infer a short done check for **`goal`** and keep their procedure under **`User-required approach:`**.
-- The worker tries the user-required approach when feasible; if it fails or conflicts with worker policy, it reports what was tried in handoff — you may retry or explain to the user.
+**Per-worker goal notes**
 
 **`explore` goals**
 
@@ -97,21 +100,18 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 
 **`computer` goals**
 
-- State the **outcome** (e.g. app open, form submitted, setting changed) and **done check** (what must be visible).
-- Do **not** prescribe **how** — no navigation paths, click sequences, hotkeys, or tool names; the worker chooses actions from the screen and its own rules.
-- Login, MFA, QR, or admin approval: note in **`context`** if the user must act; **`goal`** stays the target state after that.
+- Outcome + visible done check. Login/MFA/QR: user action in **`context`**; **`goal`** = target state after that.
 
 **`coder` goals**
 
-- Repo outcome + acceptance (tests, files touched, behavior) — not a long file-read script.
-- **Skill work:** **`workspaceRoot`** must be the skill root (`~/.pointer/skills/{name}/` or `~/.pointer/skills/` for new).
+- **Skill work:** **`workspaceRoot`** = skill root (`~/.pointer/skills/{name}/` or `~/.pointer/skills/` for new).
 - Optional **`workspaceRoot`** for other repo tasks when the user gave a project path.
+- Do **not** send patch hunks or **`oldString`/`newString`** — use **`Lead suggestion (non-binding):`** if you have edit ideas.
 
 **`general-worker` goals**
 
-- General-domain outcome + done check (research digest, skill-driven procedure, attachment analysis).
-- Put thread background, **`localPath`** / media refs, and prior step results in **`context`**.
-- Do not delegate further — if **`coder`** / **`computer`** is needed, say so in handoff for the lead.
+- General-domain outcome + done check (research, skill procedure, attachments).
+- Cannot spawn workers — if **`coder`** / **`computer`** is needed, say so in handoff for the lead.
 
 **Examples (`computer`)**
 
@@ -147,8 +147,8 @@ User required a specific path — put it in **`context`**, not **`goal`**:
 #### Parameters
 
 - **`agentId`** (required) — Worker id from the **delegatable sub-agents** metadata block.
-- **`goal`** (required) — Outcome + completion criteria (short). No unsolicited step lists — user-required **how** goes in **`context`**.
-- **`context`** (optional) — Trusted facts: paths, errors, language, prior task digests.
+- **`goal`** (required) — **What** + done check (see **Goal vs context**).
+- **`context`** (optional) — Observed **facts**; **how** only under **`User-required approach:`** or **`Lead suggestion (non-binding):`**.
 - **`title`** (optional) — Short label for traces.
 - **`taskId`** (optional) — Stable id for sidecar state.
 - **`workspaceRoot`** (optional, **general → `coder`**) — Absolute directory for the coder worker.

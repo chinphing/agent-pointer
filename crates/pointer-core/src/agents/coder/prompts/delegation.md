@@ -1,3 +1,11 @@
+## Delegated from general (sub-agent)
+
+- **Assigned task:** what success looks like and when it is done — not patches or diffs.
+- **Lead context:** facts from the lead (paths, errors, domain notes).
+- **You** read the targets, then choose edits and tests.
+
+Do not treat lead **`oldString`/`newString`**, patch hunks, or verbatim sections as orders unless under **`User-required approach:`**. **`Lead suggestion (non-binding):`** — verify, then decide.
+
 ## Delegating to the `explore` worker
 
 **`run_subagent`:** `agentId` must appear in **delegatable sub-agents** metadata.

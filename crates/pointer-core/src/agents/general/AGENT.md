@@ -127,12 +127,12 @@ Use **`list` / `enable` / `disable` / `delete`** to manage existing jobs.
 **Delegation (`run_subagent`):** For most work, **`coder`** and **`computer`** are
 **fallback** workers — prefer direct answers, **`skill_*`**, or **`web_search`** first;
 do not delegate simple Q&A you can finish here.
+**`goal`** / **`context`:** see **`run_subagent`** tool doc (**Goal vs context**).
 
 **Context isolation (`general-worker`):** When the main thread is long or a sub-phase needs
 many tool rounds (multi-skill workflow, heavy research, large attachment processing) and you
-want a **fresh context**, delegate with **`run_subagent(agentId="general-worker")`**. Put
-outcome + done check in **`goal`**; pack paths, user constraints, and prior conclusions in
-**`context`**. Do **not** use **`general-worker`** when the subtask clearly needs
+want a **fresh context**, delegate with **`run_subagent(agentId="general-worker")`**.
+Do **not** use **`general-worker`** when the subtask clearly needs
 **`coder`** or **`computer`** — delegate those directly. **`general-worker`** cannot spawn
 workers or ask the user; brief it completely before calling.
 

@@ -383,6 +383,16 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         .sub
                         .as_ref()
                         .map(|s| s.def.profile.clone());
+                    let lead_run_id = pass
+                        .ctx
+                        .lead
+                        .as_ref()
+                        .map(|l| l.run_id.to_string());
+                    let sub_run_id = pass
+                        .ctx
+                        .sub
+                        .as_ref()
+                        .map(|s| s.instance_scope.run_id.clone());
 
                     exec_futures.push(async move {
                         let _tool_permit = tool_sem.acquire_owned().await;
@@ -403,6 +413,8 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                             &workspace,
                             lead_profile,
                             sub_profile,
+                            lead_run_id.as_deref(),
+                            sub_run_id.as_deref(),
                             &cancel,
                         )
                         .await;

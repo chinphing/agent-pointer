@@ -144,6 +144,8 @@ pub(super) async fn invoke_prepared_parallel(
     workspace_root: &str,
     lead_profile: Option<AgentProfile>,
     sub_profile: Option<AgentProfile>,
+    lead_run_id: Option<&str>,
+    sub_run_id: Option<&str>,
     cancel: &CancellationToken,
 ) -> ToolExecResult {
     match tool_id {
@@ -189,8 +191,8 @@ pub(super) async fn invoke_prepared_parallel(
                 tool_id,
                 args_value,
                 cancel,
-                None,
-                None,
+                lead_run_id,
+                sub_run_id,
             )
             .await
         }
@@ -203,8 +205,8 @@ pub(super) async fn invoke_prepared_parallel(
                 tc,
                 args_value,
                 cancel,
-                None,
-                None,
+                lead_run_id,
+                sub_run_id,
             )
             .await
         }

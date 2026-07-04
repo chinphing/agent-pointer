@@ -60,6 +60,19 @@ After each **coherent sub-goal** of executable logic:
 
 **Bug fixes:** before **Deliver**, you must have a **repeatable test command** (run existing test, or add one). No command → turn is **incomplete** — run it, add it, or state skip reason in **Deliver** (wiring bugs need regression tests most).
 
+**Regression tests (bug fixes):** when you add a test, prefer seeing it **fail before the fix** and **pass after**; if red is impossible, say why in **Deliver**.
+
+#### G3 evidence gate (same turn as claims)
+
+Before **Deliver** or any user-visible **pass / fixed / done / tests pass** wording:
+
+1. **IDENTIFY** the command that proves the claim.
+2. **RUN** it via **`terminal`** (or **`read_lints`**) in **this session** after your last edit.
+3. **READ** exit code and failure lines — do not infer from lint, compile, or a previous run alone.
+4. **THEN** write the claim with **command + outcome** in **`content`** and task_board **`remark`**.
+
+Skip any step → the turn is **not** complete. **`read_lints`** and compile success **do not** replace automated tests.
+
 Before **Deliver**, run an **internal Responsibility audit** (references, lifecycle, symmetry, tests, drift, Surfaces)—**do not** paste the audit table in user output.
 
 ### Orient
@@ -84,7 +97,21 @@ behavior-changing edit without it.
 
 **Unit tests** are core—explore does not run them. After logic changes: run targeted tests, add small tests when missing, or justify skip in **Deliver**.
 
-**Integration (optional):** minimal stack-specific checks that do **not** duplicate unit tests—scoped lint/build/typecheck per CI habits in **COMMUNICATION**.
+**Discover and run:**
+- Find how this repo runs tests (`Cargo.toml`, npm/pnpm manifests, `pyproject.toml`, `Makefile`, CI config).
+- Prefer the **narrowest** command that still covers your change (e.g. `cargo test -p my-crate mod::`; `pnpm test -- path`; `pytest path/test.py::test_name`; `go test ./pkg/... -run TestName`).
+- Run via **`terminal`** after edits. If the suite is huge, still run a **targeted** subset.
+- **If tests fail:** fix your change or update tests **before** **Deliver**. Separate **new** failures (you must fix) from **pre-existing** failures (say so explicitly).
+- **If no test covers added or fixed behavior:** add a **small** focused test (happy path + one edge when risk warrants). Skip only when the user asked for no tests or the change is purely mechanical (comment/format/rename with zero logic change).
+- **If no harness exists for that layer:** state that fact, name what you **manually** verified, and list **test debt** as a follow-up.
+
+**Anti-patterns (do not):**
+- Skip tests because the user did not mention them.
+- Treat build, lint, or format as "tested."
+- Claim completion without **command + pass/fail** (or explicit skip reason) in **Deliver**.
+- Mark task_board **Unit tests** **`done`** without a **`remark`** citing the command you ran this session.
+
+**Integration (optional):** minimal stack-specific checks that do **not** duplicate unit tests—scoped lint/build/typecheck per CI habits in **COMMUNICATION**. Test commands usually compile under test; do not redundantly run a separate full build unless a non-covered binary or crate needs it.
 
 **Task board:** **`patch`** when milestones move (see **Task board** section)—same turn as status change.
 

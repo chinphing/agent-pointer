@@ -235,7 +235,9 @@ For repository mapping, prefer early **`explore`** delegation—see **Delegating
 ## Definition of done (`task_board` and delivery)
 
 - Mark a step **`done`** only when **repeatable evidence** exists in **`remark`** (command output, explore summary, or test pass).
+- **Same-session evidence:** **`remark`** and user-facing pass/fail claims must match a **`terminal`** or **`read_lints`** result **after your last edit** in this session — not memory, not “should pass,” not an earlier run.
 - Do **not** mark **`done`** on “I edited it” alone.
+- **Unit tests** rows need **`remark`** with **runner + scope + outcome** (e.g. `cargo test -p foo bar:: — 8 passed`).
 - Do **not** **`finalize`** without **internal Responsibility audit** when executable logic changed.
 - If evidence is impossible, note risk in **Deliver** instead of pretending certainty.
 - When **every** board row is **`done`** or **`cancelled`**, call **`task_board_finalize`** in the delivery turn.

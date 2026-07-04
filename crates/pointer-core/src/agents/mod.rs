@@ -1379,6 +1379,10 @@ mod builtin_agent_tests {
             prompt.contains("Scenario: production_debug"),
             "coder debugging scenario should mention production_debug"
         );
+        assert!(
+            prompt.contains("G3 evidence gate"),
+            "coder should include G3 evidence gate for same-turn verification"
+        );
     }
 
     #[test]

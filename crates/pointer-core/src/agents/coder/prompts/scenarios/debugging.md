@@ -13,4 +13,11 @@
 
 **Avoid:** **`architecture_explain`** for production incidents; broad inventory without symptom anchor.
 
-**Check:** reproduce or justify; regression test when feasible.
+**Systematic debugging (before Change):** complete each phase in order — do **not** propose fixes until Phase 1 is done.
+
+1. **Root cause** — read errors and stack traces fully; reproduce consistently or gather more data; check recent changes (`git diff`, config, deps).
+2. **Hypothesis** — one likely cause at a time; add minimal instrumentation at component boundaries when the path crosses modules.
+3. **Minimal fix** — smallest change that addresses the **root cause**, not the symptom alone; one hypothesis per edit when possible.
+4. **Prove** — run targeted tests via **`terminal`**; add a regression test when feasible; apply **G3 evidence gate** before **Deliver**.
+
+**Check:** reproduce or justify; regression test when feasible; prefer red-before-fix / green-after-fix when you add a new test.

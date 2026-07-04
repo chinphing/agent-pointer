@@ -93,8 +93,13 @@ export function validateSigningEnv(env, { notarize = false } = {}) {
     }
   }
 
+  const useKeychain =
+    env.APPLE_USE_KEYCHAIN === 'true' ||
+    env.APPLE_USE_KEYCHAIN === '1' ||
+    env.APPLE_USE_KEYCHAIN === 'yes';
+
   const certPath = resolveRepoPath(env.APPLE_CERTIFICATE_PATH || '');
-  if (!fs.existsSync(certPath)) {
+  if (!useKeychain && !fs.existsSync(certPath)) {
     throw new Error(`Certificate not found: ${certPath}`);
   }
 

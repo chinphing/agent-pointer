@@ -85,45 +85,6 @@ pub(super) async fn run_chat_inner(
     let run_id = req.run_id.as_str();
     let cancel = ctx.cancel.clone();
     let login_user_id = state.active_platform_auth().platform_user_id();
-    // Resolve effective workspace. When the user cleared the composer, always resolve to
-    // session sandbox even if a stale non-empty workspaceRoot was still in the payload.
-    let payload_workspace = workspace_root.trim();
-    let mut effective_workspace = if req.workspace_inherit_disabled == Some(true) {
-        resolve_effective_workspace(conversation_id, Some(true), login_user_id.as_deref())
-            .unwrap_or_else(|e| {
-            log::warn!("session workspace resolution failed: {e:#}; using empty");
-            String::new()
-        })
-    } else if payload_workspace.is_empty() {
-        resolve_effective_workspace(
-            conversation_id,
-            req.workspace_inherit_disabled,
-            login_user_id.as_deref(),
-        )
-        .unwrap_or_else(|e| {
-            log::warn!("session workspace resolution failed: {e:#}; using empty");
-            String::new()
-        })
-    } else {
-        payload_workspace.to_string()
-    };
-
-    let sandbox_existed_before = crate::session_sandbox::SessionSandbox::path(conversation_id)
-        .map(|p| p.exists())
-        .unwrap_or(false);
-    let ui_workspace_before = workspace_baseline_for_ui(
-        conversation_id,
-        payload_workspace,
-        req.workspace_inherit_disabled == Some(true),
-        sandbox_existed_before,
-    );
-
-    effective_workspace =
-        ensure_session_sandbox_at_run_start(conversation_id, &effective_workspace)?;
-
-    let _workspace_guard = ConversationWorkspaceGuard::enter(effective_workspace.clone());
-    let _work_dir_guard =
-        crate::session_work_dir_env::SessionWorkDirGuard::enter(effective_workspace.clone());
 
     if let Some(uid) = login_user_id.as_deref() {
         if let Err(e) = state
@@ -139,20 +100,54 @@ pub(super) async fn run_chat_inner(
         .session_index
         .session_user_id(conversation_id)
         .unwrap_or_default();
+
+    let payload_workspace = workspace_root.trim();
+    let inherit_disabled = req.workspace_inherit_disabled == Some(true)
+        || workspace_inherit_disabled(conversation_id);
+
+    let default_path_before = crate::session_sandbox::SessionSandbox::default_path(
+        conversation_id,
+        session_user_id.as_str(),
+    )
+    .ok()
+    .map(|p| p.exists())
+    .unwrap_or(false);
+
+    let ui_workspace_before = workspace_baseline_for_ui(
+        conversation_id,
+        payload_workspace,
+        inherit_disabled,
+        session_user_id.as_str(),
+        default_path_before,
+    );
+
+    let effective_workspace = resolve_run_workspace(
+        conversation_id,
+        payload_workspace,
+        inherit_disabled,
+        session_user_id.as_str(),
+    )
+    .unwrap_or_else(|e| {
+        log::warn!("session workspace resolution failed: {e:#}; using empty");
+        String::new()
+    });
+
+    let effective_workspace =
+        ensure_workspace_at_run_start(conversation_id, &effective_workspace, session_user_id.as_str())?;
+
+    let _workspace_guard = ConversationWorkspaceGuard::enter(effective_workspace.clone());
+    let _work_dir_guard =
+        crate::session_work_dir_env::SessionWorkDirGuard::enter(effective_workspace.clone());
+
     let _session_user_guard =
         crate::session_user_env::SessionUserIdGuard::enter(session_user_id);
 
     if effective_workspace.trim() != ui_workspace_before.trim() {
         let is_ephemeral = ui_workspace_before.trim().is_empty()
-            && (crate::session_sandbox::SessionSandbox::is_path_for(
-                conversation_id,
-                Path::new(effective_workspace.trim()),
-            )
-            .unwrap_or(false)
-                || crate::session_sandbox::SessionSandbox::is_sandbox(Path::new(
-                    effective_workspace.trim(),
-                ))
-                .unwrap_or(false));
+            && crate::session_sandbox::SessionSandbox::is_sandbox(Path::new(
+                effective_workspace.trim(),
+            ))
+            .unwrap_or(false);
         emit(
             &stream,
             StreamEvent::WorkspaceUpdated {
@@ -497,22 +492,73 @@ pub(super) async fn run_chat_inner(
     Ok(())
 }
 
-/// Resolve the effective workspace for a conversation when the frontend sends
-/// an empty `workspaceRoot`.
+/// Resolve workspace for a chat run.
 ///
-/// Desktop sessions:
-///   1. The most recent *other* conversation's `workspace_root` (inherits last
-///      active session's directory), unless the user cleared workspace in composer.
-///   2. Session sandbox path (`{app_data}/session-sandboxes/{conversation_id}/`;
-///      directory is created on first chat run, not here).
-///
-/// pointer-server (web) sessions:
-///   Default `{app_data_dir}/{platform_user_id}/` for per-user file isolation.
-///   Reuses stored or inherited workspace when still valid on disk.
-///
-/// IM sessions (Feishu / DingTalk / WeCom / Weixin): always use a per-conversation
-/// session sandbox when no explicit `workspaceRoot` was stored — never inherit another
-/// conversation's project directory.
+/// Priority:
+/// 1. User cleared workspace (`inherit_disabled`) → default sandbox
+/// 2. Non-empty payload from client → user project path
+/// 3. This conversation's persisted user pick (`workspace_user_set`)
+/// 4. Default sandbox `{session-sandboxes}/{session_user_id}/` or `_anonymous/{conversation_id}/`
+fn resolve_run_workspace(
+    conversation_id: &str,
+    payload_workspace: &str,
+    inherit_disabled: bool,
+    session_user_id: &str,
+) -> Result<String> {
+    if inherit_disabled {
+        return default_sandbox_display(conversation_id, session_user_id, "user cleared workspace");
+    }
+
+    let payload = payload_workspace.trim();
+    if !payload.is_empty() && is_existing_workspace_dir(payload) {
+        return Ok(payload.to_string());
+    }
+
+    if let Ok(store) = crate::conversation_store::global_store() {
+        if store.workspace_user_set(conversation_id).unwrap_or(false) {
+            let stored = store.workspace_root(conversation_id).unwrap_or_default();
+            let stored = stored.trim();
+            if is_existing_workspace_dir(stored)
+                && !crate::session_sandbox::SessionSandbox::is_sandbox(Path::new(stored))
+                    .unwrap_or(false)
+            {
+                log::info!(
+                    "resolve_run_workspace: conversation user pick conversation_id={conversation_id}: {stored}"
+                );
+                return Ok(stored.to_string());
+            }
+        } else {
+            let stored = store.workspace_root(conversation_id).unwrap_or_default();
+            let stored = stored.trim();
+            if is_existing_workspace_dir(stored)
+                && crate::session_sandbox::SessionSandbox::is_sandbox(Path::new(stored))
+                    .unwrap_or(false)
+            {
+                return default_sandbox_display(
+                    conversation_id,
+                    session_user_id,
+                    "persisted sandbox",
+                );
+            }
+        }
+    }
+
+    default_sandbox_display(conversation_id, session_user_id, "default sandbox")
+}
+
+fn default_sandbox_display(
+    conversation_id: &str,
+    session_user_id: &str,
+    reason: &str,
+) -> Result<String> {
+    let path = crate::session_sandbox::SessionSandbox::default_path(conversation_id, session_user_id)?;
+    log::info!(
+        "resolve_run_workspace: {reason} conversation_id={conversation_id} path={}",
+        path.display()
+    );
+    Ok(path.display().to_string())
+}
+
 fn stored_conversation_workspace(conversation_id: &str) -> String {
     crate::conversation_store::global_store()
         .ok()
@@ -527,173 +573,28 @@ fn is_existing_workspace_dir(path: &str) -> bool {
     p.is_absolute() && p.is_dir()
 }
 
-/// Baseline workspace the UI already knows about (stored meta or an on-disk sandbox).
-fn workspace_baseline_from_parts(
-    payload_workspace: &str,
-    inherit_disabled: bool,
-    stored_workspace: &str,
-    existing_sandbox_path: Option<&str>,
-) -> String {
-    if !inherit_disabled {
-        return payload_workspace.trim().to_string();
-    }
-    let stored = stored_workspace.trim();
-    if !stored.is_empty() {
-        return stored.to_string();
-    }
-    if let Some(path) = existing_sandbox_path {
-        let trimmed = path.trim();
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
-        }
-    }
-    String::new()
-}
-
 fn workspace_baseline_for_ui(
     conversation_id: &str,
     payload_workspace: &str,
     inherit_disabled: bool,
-    sandbox_existed_before: bool,
+    session_user_id: &str,
+    default_sandbox_existed: bool,
 ) -> String {
+    if !inherit_disabled {
+        return payload_workspace.trim().to_string();
+    }
     let stored = stored_conversation_workspace(conversation_id);
-    let sandbox_path = if sandbox_existed_before {
-        crate::session_sandbox::SessionSandbox::path(conversation_id)
-            .ok()
-            .map(|p| p.display().to_string())
-    } else {
-        None
-    };
-    workspace_baseline_from_parts(
-        payload_workspace,
-        inherit_disabled,
-        &stored,
-        sandbox_path.as_deref(),
-    )
-}
-
-/// Resolve the per-conversation session sandbox, reusing stored or on-disk paths when present.
-fn resolve_session_sandbox_workspace(conversation_id: &str, reason: &str) -> Result<String> {
-    let stored = stored_conversation_workspace(conversation_id);
-    if is_existing_workspace_dir(&stored) {
-        log::info!(
-            "resolve_effective_workspace: {reason} reusing stored workspace for conversation_id={conversation_id}: {stored}",
-            conversation_id = conversation_id,
-            stored = stored
-        );
-        return Ok(stored);
+    if !stored.trim().is_empty() {
+        return stored;
     }
-
-    let sandbox_path = crate::session_sandbox::SessionSandbox::path(conversation_id)?;
-    if sandbox_path.exists() {
-        let path = sandbox_path.display().to_string();
-        log::info!(
-            "resolve_effective_workspace: {reason} reusing existing session sandbox for conversation_id={conversation_id}: {path}",
-            conversation_id = conversation_id,
-            path = path
-        );
-        return Ok(path);
-    }
-
-    let path = sandbox_path.display().to_string();
-    log::info!(
-        "resolve_effective_workspace: {reason} session sandbox (lazy) for conversation_id={conversation_id}: {path}",
-        conversation_id = conversation_id,
-        path = path
-    );
-    Ok(path)
-}
-
-fn resolve_effective_workspace(
-    conversation_id: &str,
-    inherit_disabled_override: Option<bool>,
-    login_user_id: Option<&str>,
-) -> Result<String> {
-    if crate::channel_outbound::is_im_conversation(conversation_id) {
-        return resolve_session_sandbox_workspace(conversation_id, "IM session sandbox");
-    }
-
-    if crate::server_workspace::is_pointer_server_mode() {
-        if let Some(user_id) = login_user_id.filter(|id| !id.trim().is_empty()) {
-            let stored = stored_conversation_workspace(conversation_id);
-            if is_existing_workspace_dir(&stored) {
-                log::info!(
-                    "resolve_effective_workspace: pointer-server reusing stored workspace for conversation_id={conversation_id}: {stored}",
-                    conversation_id = conversation_id,
-                    stored = stored
-                );
-                return Ok(stored);
-            }
-
-            let inherit_disabled = inherit_disabled_override
-                .unwrap_or_else(|| workspace_inherit_disabled(conversation_id));
-            if !inherit_disabled {
-                if let Ok(store) = crate::conversation_store::global_store() {
-                    match store.latest_other_workspace_root(conversation_id) {
-                        Ok(Some(ws)) if is_existing_workspace_dir(&ws) => {
-                            log::info!(
-                                "resolve_effective_workspace: pointer-server inheriting workspace for conversation_id={}: {}",
-                                conversation_id,
-                                ws
-                            );
-                            return Ok(ws);
-                        }
-                        Ok(_) => {}
-                        Err(e) => {
-                            log::warn!(
-                                "resolve_effective_workspace: pointer-server latest_other_workspace_root failed for conversation_id={}: {e}",
-                                conversation_id
-                            );
-                        }
-                    }
-                }
-            }
-
-            return crate::server_workspace::ensure_server_user_workspace(user_id);
-        }
-        log::warn!(
-            "resolve_effective_workspace: pointer-server without login user id for conversation_id={conversation_id}; falling back to session sandbox",
-            conversation_id = conversation_id
-        );
-    }
-
-    let inherit_disabled = inherit_disabled_override
-        .unwrap_or_else(|| workspace_inherit_disabled(conversation_id));
-    if inherit_disabled {
-        return resolve_session_sandbox_workspace(
-            conversation_id,
-            "user cleared workspace; session sandbox",
-        );
-    }
-
-    // Try the last-active conversation's workspace (skip ourselves).
-    // Meta-only query: avoids loading every message of every conversation.
-    if let Ok(store) = crate::conversation_store::global_store() {
-        match store.latest_other_workspace_root(conversation_id) {
-            Ok(Some(ws)) => {
-                log::info!(
-                    "resolve_effective_workspace: inheriting workspace for conversation_id={}: {}",
-                    conversation_id,
-                    ws
-                );
-                return Ok(ws);
-            }
-            Ok(None) => {
-                log::info!(
-                    "resolve_effective_workspace: no inheritable workspace for conversation_id={}; falling back to session sandbox",
-                    conversation_id
-                );
-            }
-            Err(e) => {
-                log::warn!(
-                    "resolve_effective_workspace: latest_other_workspace_root failed for conversation_id={}: {e}",
-                    conversation_id
-                );
-            }
+    if default_sandbox_existed {
+        if let Ok(path) =
+            crate::session_sandbox::SessionSandbox::default_path(conversation_id, session_user_id)
+        {
+            return path.display().to_string();
         }
     }
-
-    resolve_session_sandbox_workspace(conversation_id, "session sandbox fallback")
+    String::new()
 }
 
 fn workspace_inherit_disabled(conversation_id: &str) -> bool {
@@ -703,60 +604,54 @@ fn workspace_inherit_disabled(conversation_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Create the on-disk session sandbox when this run resolved to that path.
-fn ensure_session_sandbox_at_run_start(conversation_id: &str, workspace: &str) -> Result<String> {
+/// Create sandbox on disk when this run resolved to a sandbox path; persist ephemeral path.
+fn ensure_workspace_at_run_start(
+    conversation_id: &str,
+    workspace: &str,
+    session_user_id: &str,
+) -> Result<String> {
     let trimmed = workspace.trim();
     if trimmed.is_empty() {
-        return Ok(workspace.to_string());
+        return Ok(String::new());
     }
-    if crate::session_sandbox::SessionSandbox::is_path_for(conversation_id, Path::new(trimmed))? {
-        let existed = crate::session_sandbox::SessionSandbox::path(conversation_id)?
-            .exists();
-        let path = crate::session_sandbox::SessionSandbox::ensure(conversation_id)?;
-        if existed {
-            log::info!(
-                "ensure_session_sandbox_at_run_start: reusing session sandbox for conversation_id={conversation_id}: {}",
-                path.display()
-            );
-        } else {
-            log::info!(
-                "ensure_session_sandbox_at_run_start: created session sandbox for conversation_id={conversation_id}: {}",
-                path.display()
-            );
-            super::conversation_persist::patch_ephemeral_workspace(
-                conversation_id,
-                &path.display().to_string(),
-            );
-        }
-        return Ok(path.display().to_string());
+    if !crate::session_sandbox::SessionSandbox::is_sandbox(Path::new(trimmed))? {
+        return Ok(trimmed.to_string());
     }
-    Ok(workspace.to_string())
+    let existed = crate::session_sandbox::SessionSandbox::default_path(conversation_id, session_user_id)?
+        .exists();
+    let path =
+        crate::session_sandbox::SessionSandbox::ensure_default(conversation_id, session_user_id)?;
+    if !existed {
+        log::info!(
+            "ensure_workspace_at_run_start: created sandbox conversation_id={conversation_id}: {}",
+            path.display()
+        );
+        super::conversation_persist::patch_ephemeral_workspace(
+            conversation_id,
+            &path.display().to_string(),
+        );
+    } else {
+        log::info!(
+            "ensure_workspace_at_run_start: reusing sandbox conversation_id={conversation_id}: {}",
+            path.display()
+        );
+    }
+    Ok(path.display().to_string())
 }
 
 #[cfg(test)]
 mod workspace_tests {
-    use super::workspace_baseline_from_parts;
+    use super::workspace_baseline_for_ui;
 
     #[test]
     fn workspace_baseline_uses_stored_when_inherit_disabled() {
-        let baseline = workspace_baseline_from_parts("", true, "stored", None);
-        assert_eq!(baseline, "stored");
-    }
-
-    #[test]
-    fn workspace_baseline_uses_existing_sandbox_when_stored_empty() {
-        let baseline = workspace_baseline_from_parts(
-            "",
-            true,
-            "",
-            Some("/tmp/session-sandboxes/conv_a"),
-        );
-        assert_eq!(baseline, "/tmp/session-sandboxes/conv_a");
+        let baseline = workspace_baseline_for_ui("c1", "", true, "user-1", false);
+        assert_eq!(baseline, "");
     }
 
     #[test]
     fn workspace_baseline_uses_payload_when_inherit_enabled() {
-        let baseline = workspace_baseline_from_parts("/projects/foo", false, "", None);
+        let baseline = workspace_baseline_for_ui("c1", "/projects/foo", false, "user-1", false);
         assert_eq!(baseline, "/projects/foo");
     }
 }

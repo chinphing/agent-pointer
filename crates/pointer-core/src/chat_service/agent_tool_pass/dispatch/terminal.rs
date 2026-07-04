@@ -34,7 +34,14 @@ fn resolve_terminal_session_workspace(conversation_id: &str, from_settings: Stri
             }
         }
     }
-    match crate::session_sandbox::SessionSandbox::ensure(conversation_id) {
+    let session_user_id = crate::conversation_store::global_store()
+        .ok()
+        .and_then(|store| store.session_user_id(conversation_id).ok())
+        .unwrap_or_default();
+    match crate::session_sandbox::SessionSandbox::ensure_default(
+        conversation_id,
+        session_user_id.as_str(),
+    ) {
         Ok(path) => {
             let ws = path.display().to_string();
             log::info!(

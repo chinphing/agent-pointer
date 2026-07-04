@@ -18,8 +18,8 @@ Both are omitted when the corresponding value is empty.
 
 ### `WORKING_DIR`
 
-1. **`run_chat` workspace** — user-selected folder, inherited workspace, or session sandbox path for the conversation.
-2. **Per tool call** — for **`terminal`**, the runtime resolves workspace again on the blocking thread (settings override → conversation row → session sandbox), same as default **`cwd`**, then sets thread-local context before spawning the shell.
+1. **`run_chat` workspace** — user-selected project folder or default session sandbox (`session-sandboxes/{session_user_id}/` or `_anonymous/{conversation_id}/`). See [workspace-root.md](workspace-root.md).
+2. **Per tool call** — for **`terminal`**, the runtime resolves workspace again on the blocking thread (settings override → conversation row → default sandbox), same as default **`cwd`**, then sets thread-local context before spawning the shell.
 
 `WORKING_DIR` matches that resolved session workspace, not an arbitrary **`terminal`** **`cwd`** argument. If the model passes **`cwd`**, the shell starts in that directory but `WORKING_DIR` still points at the session workspace root.
 
@@ -54,5 +54,6 @@ Prefer `WORKING_DIR` over hard-coded paths when a Skill or script must anchor to
 ## Related docs
 
 - [session-user-id.md](session-user-id.md) — `session_user_id` persistence and IM / desktop resolution
+- [workspace-root.md](workspace-root.md) — workspace resolution and sandbox layout
 - [file-tool-write-scope.md](file-tool-write-scope.md) — `file_write` / `file_edit` workspace rules
 - [`../internals/terminal-shell-path.md`](../internals/terminal-shell-path.md) — shell, `PATH`, and `.env` for **`terminal`**

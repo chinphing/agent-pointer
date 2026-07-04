@@ -41,6 +41,7 @@
 | [file-tool-write-scope.md](file-tool-write-scope.md) | `file_write` / `file_edit` 允许的写入目录 |
 | [web-search-tool.md](web-search-tool.md) | `web_search` 工具行为与 DashScope API |
 | [terminal-environment-variables.md](terminal-environment-variables.md) | **`terminal`** 子进程环境变量（`WORKING_DIR`、`SESSION_USER_ID`） |
+| [workspace-root.md](workspace-root.md) | 会话工作区根路径解析与沙箱目录布局 |
 | [session-user-id.md](session-user-id.md) | 会话 `session_user_id` 持久化与解析 |
 
 工作区 lint 配置（用户向）见 [`../user/project-lint.md`](../user/project-lint.md)。

@@ -167,7 +167,7 @@ impl ConversationStore {
             .map(|s| s.as_str())
             .collect();
         for id in &deleted_ids {
-            if let Err(e) = crate::session_sandbox::SessionSandbox::cleanup(id) {
+            if let Err(e) = crate::session_sandbox::SessionSandbox::cleanup_for_conversation(id) {
                 log::warn!("session_sandbox cleanup failed for {id}: {e}");
             }
         }
@@ -191,7 +191,7 @@ impl ConversationStore {
         self.db
             .execute_write(|conn| persist::delete_conversation_from_conn(conn, id))?;
         log::info!("conversation_store: deleted conversation id={id}");
-        if let Err(e) = crate::session_sandbox::SessionSandbox::cleanup(id) {
+        if let Err(e) = crate::session_sandbox::SessionSandbox::cleanup_for_conversation(id) {
             log::warn!("session_sandbox cleanup failed for {id}: {e}");
         }
         Ok(())

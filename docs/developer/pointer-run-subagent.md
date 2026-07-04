@@ -53,7 +53,7 @@ general 无 Composer 工作区选择器。委派 **coder** 前应在对话中询
 | 用户回复 | `run_subagent` 参数 | 宿主行为 |
 |----------|---------------------|----------|
 | 给出路径 | **`workspaceRoot`** = 该绝对路径 | 校验目录存在，写入会话并作为 coder 工作区 |
-| 未指定 / 不需要 | 省略 **`workspaceRoot`** | 在 `{app_data_dir}/coder-sandboxes/{conversationId}/` 创建**本会话唯一**临时目录 |
+| 未指定 / 不需要 | 省略 **`workspaceRoot`** | 使用默认会话沙箱（见 [workspace-root.md](workspace-root.md)） |
 
 运行时通过 **`workspace_updated`** 流事件同步到前端 `conversation.workspaceRoot`（临时目录会 toast 提示）。子 agent 结束后会再次 emit 以**恢复父 agent 工作区**（后端 thread-local 由 `AgentWorkspaceGuard` 恢复）。实现：`workspace_delegation.rs`、`run_subagent_delegation.rs`。
 

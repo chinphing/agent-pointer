@@ -48,12 +48,20 @@ fn resolve_subagent_workspace(
         return Ok((path, ephemeral));
     }
 
-    let sandbox = SessionSandbox::ensure(conversation_id)
+    let uid = session_user_id_for_conversation(conversation_id);
+    let sandbox = SessionSandbox::ensure_default(conversation_id, uid.as_str())
         .map(|p| p.display().to_string())?;
     info!(
         "workspace_delegation: ephemeral sandbox for conversation_id={conversation_id}: {sandbox}"
     );
     Ok((sandbox, true))
+}
+
+fn session_user_id_for_conversation(conversation_id: &str) -> String {
+    crate::conversation_store::global_store()
+        .ok()
+        .and_then(|store| store.session_user_id(conversation_id).ok())
+        .unwrap_or_default()
 }
 
 fn validate_existing_workspace_dir(raw: &str) -> Result<String> {
@@ -127,6 +135,7 @@ mod tests {
         let ephemeral =
             ensure_subagent_workspace("conv_fallback_test", None, &mut settings).unwrap();
         assert!(settings.workspace_root.contains("session-sandboxes"));
+        assert!(settings.workspace_root.contains("_anonymous"));
         assert!(settings.workspace_root.contains("conv_fallback_test"));
         assert!(Path::new(&settings.workspace_root).is_dir());
         assert!(ephemeral);

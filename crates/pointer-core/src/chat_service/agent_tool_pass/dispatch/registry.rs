@@ -25,6 +25,8 @@ pub(super) fn dispatch_registry_invoke(
     // different worker thread since `ConversationWorkspaceGuard::enter` was set
     // in `run_chat_inner`, so the thread-local is empty here.
     let _workspace_guard = ConversationWorkspaceGuard::enter(workspace_root.to_string());
+    let _work_dir_guard =
+        crate::session_work_dir_env::SessionWorkDirGuard::enter(workspace_root.to_string());
     let session_user_id = state
         .session_index
         .session_user_id(conversation_id)

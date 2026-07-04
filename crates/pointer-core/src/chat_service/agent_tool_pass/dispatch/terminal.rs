@@ -148,6 +148,7 @@ pub(super) async fn run_terminal_tool(
         .session_user_id(conversation_id)
         .unwrap_or_default();
     let session_user_id_for_blocking = session_user_id.clone();
+    let session_work_dir_for_blocking = session_workspace.clone();
     let join = tokio::task::spawn_blocking(move || {
         let state = unsafe { &*(state_ptr as *const AppState) };
         let stream = unsafe { &*(stream_ptr as *const StreamTx) };
@@ -170,6 +171,9 @@ pub(super) async fn run_terminal_tool(
             });
 
             let _workspace_guard = ConversationWorkspaceGuard::enter(session_workspace.clone());
+            let _work_dir_guard = crate::session_work_dir_env::SessionWorkDirGuard::enter(
+                session_work_dir_for_blocking.clone(),
+            );
             let _session_user_guard = crate::session_user_env::SessionUserIdGuard::enter(
                 session_user_id_for_blocking.clone(),
             );

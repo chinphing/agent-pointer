@@ -122,6 +122,8 @@ pub(super) async fn run_chat_inner(
         ensure_session_sandbox_at_run_start(conversation_id, &effective_workspace)?;
 
     let _workspace_guard = ConversationWorkspaceGuard::enter(effective_workspace.clone());
+    let _work_dir_guard =
+        crate::session_work_dir_env::SessionWorkDirGuard::enter(effective_workspace.clone());
 
     if let Some(uid) = login_user_id.as_deref() {
         if let Err(e) = state

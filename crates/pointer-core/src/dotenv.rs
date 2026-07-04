@@ -77,6 +77,7 @@ pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String
     #[cfg(windows)]
     crate::windows_shell_encoding::apply_windows_utf8_child_env(&mut env);
     crate::session_user_env::apply_session_user_id(&mut env);
+    crate::session_work_dir_env::apply_session_work_dir(&mut env);
     env
 }
 
@@ -395,6 +396,33 @@ mod tests {
         assert_eq!(
             map.get("SESSION_USER_ID").map(String::as_str),
             Some("user-42")
+        );
+    }
+
+    #[test]
+    fn build_terminal_child_environment_injects_work_dir() {
+        let _dir_guard =
+            crate::session_work_dir_env::SessionWorkDirGuard::enter("/tmp/pointer-ws".into());
+        let map = build_terminal_child_environment(&[]);
+        assert_eq!(
+            map.get("WORKING_DIR").map(String::as_str),
+            Some("/tmp/pointer-ws")
+        );
+    }
+
+    #[test]
+    fn build_terminal_child_environment_injects_session_context() {
+        let _user_guard = crate::session_user_env::SessionUserIdGuard::enter("user-42".into());
+        let _dir_guard =
+            crate::session_work_dir_env::SessionWorkDirGuard::enter("/tmp/pointer-ws".into());
+        let map = build_terminal_child_environment(&[]);
+        assert_eq!(
+            map.get("SESSION_USER_ID").map(String::as_str),
+            Some("user-42")
+        );
+        assert_eq!(
+            map.get("WORKING_DIR").map(String::as_str),
+            Some("/tmp/pointer-ws")
         );
     }
 

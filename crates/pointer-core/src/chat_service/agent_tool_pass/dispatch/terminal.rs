@@ -143,6 +143,11 @@ pub(super) async fn run_terminal_tool(
     let trace_id_for_input = trace_id_for_terminal.clone();
     let scoped_for_input = scoped_message_id_for_terminal.clone();
 
+    let session_user_id = state
+        .session_index
+        .session_user_id(conversation_id)
+        .unwrap_or_default();
+    let session_user_id_for_blocking = session_user_id.clone();
     let join = tokio::task::spawn_blocking(move || {
         let state = unsafe { &*(state_ptr as *const AppState) };
         let stream = unsafe { &*(stream_ptr as *const StreamTx) };
@@ -165,6 +170,9 @@ pub(super) async fn run_terminal_tool(
             });
 
             let _workspace_guard = ConversationWorkspaceGuard::enter(session_workspace.clone());
+            let _session_user_guard = crate::session_user_env::SessionUserIdGuard::enter(
+                session_user_id_for_blocking.clone(),
+            );
             run_terminal_command_streaming(
                 args_value,
                 session_workspace,

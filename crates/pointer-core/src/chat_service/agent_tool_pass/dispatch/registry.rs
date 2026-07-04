@@ -25,6 +25,12 @@ pub(super) fn dispatch_registry_invoke(
     // different worker thread since `ConversationWorkspaceGuard::enter` was set
     // in `run_chat_inner`, so the thread-local is empty here.
     let _workspace_guard = ConversationWorkspaceGuard::enter(workspace_root.to_string());
+    let session_user_id = state
+        .session_index
+        .session_user_id(conversation_id)
+        .unwrap_or_default();
+    let _session_user_guard =
+        crate::session_user_env::SessionUserIdGuard::enter(session_user_id);
     let _tier_guard = if file_profile == AgentProfile::Computer {
         Some(ComputerTierGuard::enter(
             state.computer_state.tier_for_conversation(conversation_id),

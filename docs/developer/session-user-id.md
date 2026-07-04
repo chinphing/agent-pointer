@@ -20,6 +20,6 @@ During an agent run, Pointer sets thread-local context and injects:
 SESSION_USER_ID=<session_user_id>
 ```
 
-into terminal children when the stored id is non-empty.
+into **terminal** child processes when the stored id is non-empty. Because terminal runs on a blocking thread pool, the runtime re-reads `session_user_id` from the conversation row before each tool call (same pattern as workspace root).
 
-Skills and shell scripts can read this variable via the **terminal** tool; it is not added to the LLM prompt by default.
+**Requires a non-empty stored id:** desktop/Web need **平台账户** OAuth login so the first `run_chat` can persist `platform_user_id`; IM sessions use channel sender / group key. API-key-only chats without platform login leave `session_user_id` empty and the variable unset.

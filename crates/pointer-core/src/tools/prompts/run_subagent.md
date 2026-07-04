@@ -45,25 +45,60 @@ Hand off a **self-contained sub-task** to another **worker** agent.
 
 Host maps **`goal`** → worker **Assigned task**; **`context`** → **Lead context**.
 
-| | **`goal`** | **`context`** |
-| --- | --- | --- |
-| **Write** | Outcome + when it counts as done | Facts you observed (paths, errors, constraints) |
-| **Do not write** | Steps, playbooks, diffs, verbatim rewrites | Orders to the worker (unless user-sourced — see labels below) |
-| **Worker decides** | — | Steps, tools, and implementation |
+**`goal` — brief template (≤3 lines)**
 
-- You orchestrate; the worker implements.
-- Put **how** in **`context`** only, with a label:
-  - **`User-required approach:`** — user mandated method (worker follows when feasible).
-  - **`Lead suggestion (non-binding):`** — your idea; worker may ignore after verifying.
-- Do **not** put user or lead **how** in **`goal`** because it was numbered or detailed.
-- If the user gave **only** a procedure, infer a short done check for **`goal`**; put their steps under **`User-required approach:`**.
+At most three short lines in this order (omit optional lines). **Start each line with its prefix:**
+
+```text
+What: …
+Done when: …
+Out of scope: …
+```
+
+**Line length (each line, including prefixes)**
+
+- **≤25 words** per line (hard cap).
+- **One idea per line** — no numbered steps, semicolon chains, or comma-separated lists.
+- If a line would exceed the cap, shorten it or move detail to **`context`** (**Facts** / **Lead suggestion**).
+
+- **`What:`** — outcome to deliver.
+- **`Done when:`** (required) — verifiable completion (runnable, testable, or explicit handoff shape).
+- **`Out of scope:`** (optional) — boundaries; what not to touch.
+- **`explore` only:** first line **`Scenario: <id>`** (playbook id); then **`What:`** / **`Done when:`** as above.
+- Do **not** put steps, playbooks, diffs, file paths, API params, or patch ideas in **`goal`**.
+
+**`context` — one string, Markdown blocks (not JSON)**
+
+Use **`##` headings**; omit empty blocks. Keep each block short (bullets, not pasted logs or full API dumps).
+
+```markdown
+## Facts
+Observed facts: paths, errors, API/config shape, reference locations.
+For explore: greps/reads already done (**Already checked**) — do not ask the worker to repeat them.
+
+## Constraints
+Normative limits the worker must respect: language, platform, security, scope boundaries.
+Do not duplicate Facts here — state rules, not observations.
+
+## User-required approach
+Steps or format the **user** mandated (worker follows when feasible).
+
+## Lead suggestion (non-binding)
+Your implementation ideas; worker may ignore after verifying.
+
+## Still unknown
+Unverified assumptions (optional).
+```
+
+- You orchestrate; the worker decides steps, tools, and implementation.
+- If the user gave **only** a procedure: short **Done when** in **`goal`**; their steps under **User-required approach**.
 
 **`explore` (coder lead)**
 
 - When to delegate vs stay local: **Delegating to the `explore` worker** and **G2** in primary instructions.
 - Worker's **description** in **delegatable sub-agents** metadata — read before calling.
-- **`goal`** first line: **`Scenario: <id>`**; include scope and completion criteria.
-- Put **Lead context (trusted)** / **Already checked** / **Still unknown** in **`context`**.
+- **`goal`** first line: **`Scenario: <id>`**; then **`What:`** + **`Done when:`** (optional **`Out of scope:`**).
+- **`context`:** **Facts** (incl. **Already checked** when delegating explore); **Still unknown** when needed.
 - If you are in a read-only **`file_*`** streak with no edit list, prefer **`run_subagent`** (explore) over another local read round.
 
 **`coder` (general lead only)**
@@ -89,29 +124,29 @@ Host maps **`goal`** → worker **Assigned task**; **`context`** → **Lead cont
 
 - Fallback delegate — prefer direct answers, **`skill_*`**, **`web_search`** first.
 - Optional **`computerTarget`** — `self` for Pointer UI, `external` for other apps (default inferred from task).
-- **List files (Type2):** put the file **`localPath`** or **`pointer-media://…`** ref in **`context`** — the worker planner uses it for **`work_items_source`** on init.
+- **List files (Type2):** put the file **`localPath`** or **`pointer-media://…`** ref in **`context`** (**Facts**) — the worker planner uses it for **`work_items_source`** on init.
 
-**Per-worker goal notes**
+**Per-worker goal notes** (all follow **`goal` template** above)
 
 **`explore` goals**
 
 - First line: **`Scenario: <id>`** (playbook id from explore metadata).
-- Then scope + completion criteria in plain language.
+- Then **`What:`** + **`Done when:`** (optional **`Out of scope:`**).
 
 **`computer` goals**
 
-- Outcome + visible done check. Login/MFA/QR: user action in **`context`**; **`goal`** = target state after that.
+- **`What:`** + **`Done when:`** (visible check). Login/MFA/QR: user action in **`context`** (**Constraints** or **Facts**).
 
 **`coder` goals**
 
 - **Skill work:** **`workspaceRoot`** = skill root (`~/.pointer/skills/{name}/` or `~/.pointer/skills/` for new).
 - Optional **`workspaceRoot`** for other repo tasks when the user gave a project path.
-- Do **not** send patch hunks or **`oldString`/`newString`** — use **`Lead suggestion (non-binding):`** if you have edit ideas.
+- Do **not** send patch hunks or **`oldString`/`newString`** — put edit ideas in **Lead suggestion (non-binding)**.
 
 **`general-worker` goals**
 
-- General-domain outcome + done check (research, skill procedure, attachments).
-- Cannot spawn workers — if **`coder`** / **`computer`** is needed, say so in handoff for the lead.
+- **`What:`** + **`Done when:`** (research, skill procedure, attachments).
+- Cannot spawn workers — note in **`context`** (**Constraints**) if the subtask needs **`coder`** / **`computer`** instead.
 
 **Examples (`computer`)**
 
@@ -120,7 +155,7 @@ Good:
 ```json
 {
   "agentId": "computer",
-  "goal": "Open WeChat and confirm the main chat window is visible. Hand off: WeChat is open.",
+  "goal": "What: Open WeChat and confirm the main chat window is visible.\nDone when: WeChat main window is on screen; hand off confirms it is open.",
   "computerTarget": "external"
 }
 ```
@@ -138,8 +173,8 @@ User required a specific path — put it in **`context`**, not **`goal`**:
 ```json
 {
   "agentId": "computer",
-  "goal": "Open WeChat and confirm the main chat window is visible. Hand off: WeChat is open.",
-  "context": "User-required approach: open WeChat exactly as the user described in chat (see steps they gave).",
+  "goal": "What: Open WeChat and confirm the main chat window is visible.\nDone when: WeChat main window is on screen; hand off confirms it is open.",
+  "context": "## User-required approach\nOpen WeChat exactly as the user described in chat (see steps they gave).",
   "computerTarget": "external"
 }
 ```
@@ -147,8 +182,8 @@ User required a specific path — put it in **`context`**, not **`goal`**:
 #### Parameters
 
 - **`agentId`** (required) — Worker id from the **delegatable sub-agents** metadata block.
-- **`goal`** (required) — **What** + done check (see **Goal vs context**).
-- **`context`** (optional) — Observed **facts**; **how** only under **`User-required approach:`** or **`Lead suggestion (non-binding):`**.
+- **`goal`** (required) — **`What:`** + **`Done when:`**; optional **`Out of scope:`** (≤3 lines, **≤25 words per line**; see **Goal vs context**).
+- **`context`** (optional) — One string; Markdown **`##` blocks** (not JSON). See template above.
 - **`title`** (optional) — Short label for traces.
 - **`taskId`** (optional) — Stable id for sidecar state.
 - **`workspaceRoot`** (optional, **general → `coder`**) — Absolute directory for the coder worker.

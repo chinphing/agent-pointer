@@ -233,8 +233,8 @@ You are sub-agent depth {d}/{max}. …
 ### 5.4 修订旧文档
 
 - `docs/design/explore-subagent-for-coder.md` §「不可嵌套委派」→ 深度门控表述
-- `docs/guides/pointer-run-subagent.md`：新增 `maxSubAgentSpawnDepth`
-- `docs/internals/agent-extension-hooks.md` §5.1
+- `docs/developer/pointer-run-subagent.md`：新增 `maxSubAgentSpawnDepth`
+- `docs/developer/agent-extension-hooks.md` §5.1
 
 ---
 

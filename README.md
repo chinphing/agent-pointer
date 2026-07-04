@@ -15,7 +15,10 @@
 
 ## 文档
 
-设计与使用说明等见 **[`docs/README.md`](docs/README.md)**（含 `design/`、`internals/`、`guides/` 等分类目录）。
+- **用户**：[`docs/user/getting-started.md`](docs/user/getting-started.md)
+- **开发者 / 集成**：[`docs/developer/README.md`](docs/developer/README.md)
+- **贡献者**：[`DEVELOPMENT.md`](DEVELOPMENT.md)、[`docs/contributing/`](docs/contributing/README.md)
+- 完整索引：[`docs/README.md`](docs/README.md)
 
 ## 开发
 
@@ -88,7 +91,7 @@ metadata:
 
 ## 打包与发布
 
-Windows / macOS / Linux 的环境准备、开发命令、本地打包与 GitHub Actions 发版，见 **[`docs/guides/cross-platform-build.md`](docs/guides/cross-platform-build.md)**。
+Windows / macOS / Linux 的环境准备、开发命令、本地打包与 GitHub Actions 发版，见 **[`docs/contributing/cross-platform-build.md`](docs/contributing/cross-platform-build.md)**。
 
 简要命令（在 `pointer-app/` 目录；**须在对应操作系统上打包**，无法在一台机器上产出三端安装包）：
 

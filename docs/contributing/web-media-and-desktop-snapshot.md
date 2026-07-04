@@ -21,4 +21,4 @@ Web 端点击附件时，`openAttachmentWithSystemDefault` 对 `storageRelPath` 
 
 ## ALB / 就绪（平台）
 
-见 [pointer-official/apps/api/README.md](../../pointer-official/apps/api/README.md) 与 [cloud-host-integration.md](cloud-host-integration.md)。
+见 [pointer-official/apps/api/README.md](../../pointer-official/apps/api/README.md) 与 [cloud-host-integration.md](../developer/cloud-host-integration.md)。

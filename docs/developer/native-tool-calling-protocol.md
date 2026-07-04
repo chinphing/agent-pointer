@@ -11,7 +11,7 @@ are assistant message text**, not a separate delivery tool.
 - **User-facing replies** are written as **assistant `content`** on the final
   turn (no standalone `response` tool).
 - **IM outbound media:** append `MEDIA:` lines in the final assistant reply; the
-  host delivers text and files to the IM channel — see `docs/guides/channel-integration.md`.
+  host delivers text and files to the IM channel — see `docs/developer/channel-integration.md`.
 - Text-serialized custom envelopes are deprecated and must not be emitted by prompts.
 
 ## Request/response behavior

@@ -195,7 +195,7 @@ Model: qwen-plus
 2. `~/.agents/skills/`（Codex / Agent 兼容，只读）
 3. `{data_dir}/PointerApp/skills/`（bundled 系统库）
 
-工作区 `skills/` 不参与运行时加载。详见 `docs/guides/skills-compatibility.md`。
+工作区 `skills/` 不参与运行时加载。详见 `docs/user/skills.md`（用户）与 `docs/developer/skills-compatibility.md`（格式规范）。
 
 Windows 应用数据目录通常为：
 
@@ -283,7 +283,7 @@ npm run dev
 
 ## 图标与打包
 
-跨平台环境、开发、打包与 CI 发版见 **[`docs/guides/cross-platform-build.md`](docs/guides/cross-platform-build.md)**。
+跨平台环境、开发、打包与 CI 发版见 **[`docs/contributing/cross-platform-build.md`](docs/contributing/cross-platform-build.md)**。
 
 打包前快速检查：
 
@@ -323,7 +323,7 @@ npm run tauri:dev
 
 ### 4. Linux 编译失败，提示 WebKitGTK 缺失
 
-安装 Linux 系统依赖，见 [`docs/guides/cross-platform-build.md`](docs/guides/cross-platform-build.md) 的 Linux 章节。
+安装 Linux 系统依赖，见 [`docs/contributing/cross-platform-build.md`](docs/contributing/cross-platform-build.md) 的 Linux 章节。
 
 ### 5. API 请求失败
 
@@ -358,9 +358,24 @@ cd src-tauri
 cargo check
 ```
 
-准备打包前，见 [`docs/guides/cross-platform-build.md`](docs/guides/cross-platform-build.md)：
+准备打包前，见 [`docs/contributing/cross-platform-build.md`](docs/contributing/cross-platform-build.md)：
 
 ```bash
 npm run icons
+```
+
+## 文档目录约定
+
+| 路径 | 读者 | 内容 |
+|------|------|------|
+| [`docs/user/`](docs/user/README.md) | Pointer 终端用户 | 安装、Skills、IM、云主机、子 Agent 设置 |
+| [`docs/developer/`](docs/developer/README.md) | 外部开发者、Skill 作者 | 通道部署、Skill 格式、扩展钩子、协议 |
+| [`docs/contributing/`](docs/contributing/README.md) | 仓库贡献者 | 跨平台构建、平台 UI、离线评测 |
+| [`docs/internals/`](docs/internals/README.md) | 核心维护者 | 运行时内部机制、任务板等 |
+| [`docs/design/`](docs/design/README.md) | 评审 / 规划 | 设计方案、路线图、实现计划 |
+
+新增文档时先确定读者：用户教程 → `user/`；第三方集成 → `developer/`；本仓库开发 → `contributing/` 或 `internals/` / `design/`。
+
+```bash
 npm run tauri:build
 ```

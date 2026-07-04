@@ -1,5 +1,7 @@
 # Hybrid `read_lints` configuration
 
+> 用户使用说明索引：[`../user/README.md`](../user/README.md)。下文为工作区 **`.pointer/lint.toml`** 完整配置参考。
+
 The `read_lints` tool (Coder agent only; Rust sources under `crates/pointer-core/src/agents/coder/read_lints`) combines **auto-detected** linters for common language ecosystems (JavaScript/TypeScript, Python, Rust, Go, Java, C#, PHP, Ruby, Swift, Dart — see the embedded tool prompt) with optional **workspace-local** commands in **`.pointer/lint.toml`**.
 
 **C / C++** and other stacks are **not** auto-detected: add **`[[commands]]`** (for example `cmake --build …`, `clang-tidy …`) or use the **`terminal`** tool.

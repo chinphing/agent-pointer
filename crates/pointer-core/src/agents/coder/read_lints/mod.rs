@@ -982,7 +982,7 @@ fn run_read_lints(args: Value) -> Result<String> {
         let hint = match mode {
             StackMode::ConfigOnly => "Add `.pointer/lint.toml` with [[commands]] or use stack \"auto\".",
             StackMode::JavaAuto => "No Java project at workspace root (add pom.xml or build.gradle / build.gradle.kts).",
-            _ => "No matching linters for this workspace (see built-in stacks in docs/guides/pointer-lint-config.md, or add `.pointer/lint.toml` / use `terminal`). For JS/TS monorepos, ensure `paths` points under a package with ESLint or Oxlint.",
+            _ => "No matching linters for this workspace (see built-in stacks in docs/user/project-lint.md, or add `.pointer/lint.toml` / use `terminal`). For JS/TS monorepos, ensure `paths` points under a package with ESLint or Oxlint.",
         };
         info!("read_lints: no runs planned ({:?})", mode);
         return Ok(json!({

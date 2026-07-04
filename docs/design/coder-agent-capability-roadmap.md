@@ -113,7 +113,7 @@
 ### 5.3 C — 外部文档 / 联网
 
 - **目标**：减少「训练截止后 API 用错、版本错」。  
-- **第一阶段（已实现）**：DashScope 托管联网搜索 — **`web_search`** 工具（原生 API + 来源列表）+ **`research`** 纯联网子智能体。见 [`web-search-tool.md`](../guides/web-search-tool.md)。  
+- **第一阶段（已实现）**：DashScope 托管联网搜索 — **`web_search`** 工具（原生 API + 来源列表）+ **`research`** 纯联网子智能体。见 [`web-search-tool.md`](../developer/web-search-tool.md)。  
 - **后续**：只读 MCP 或内置 `http_get` 类工具（指定 URL 抓取）：URL 白名单、重定向限制、TLS、响应体上限、HTML→文本；缓存（URL+etag）；提示词强制「引用官方文档要点」。  
 - **复杂度**：第一阶段 `M`；完整 HTTP/MCP 仍为 `L`（安全与合规占大头）。  
 - **收益**：`H`（对外部库重的任务）。
@@ -174,7 +174,7 @@
 - **实现要点**：固定输入消息 + 期望「可自动判分」条件（编译通过、测试通过、文件包含子串）；Docker 或裸机 runner；不强制与 CI 同一阶段。  
 - **复杂度**：`L`。  
 - **收益**：`H`（长期）；短期无直接用户感知。  
-- **本地搭建（不依赖先实现完整评测产品化）**：见 [`coder-agent-offline-eval-setup.md`](../guides/coder-agent-offline-eval-setup.md)（判分脚本、Docker、接 `server` HTTP/SSE、本机 LLM）。
+- **本地搭建（不依赖先实现完整评测产品化）**：见 [`coder-agent-offline-eval-setup.md`](../contributing/coder-agent-offline-eval-setup.md)（判分脚本、Docker、接 `server` HTTP/SSE、本机 LLM）。
 
 ### 5.12 M / N — IDE 与子 Agent
 

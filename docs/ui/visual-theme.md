@@ -34,7 +34,7 @@ Do **not** reintroduce `.glass`, `.neon-ring`, aurora body gradients, or heavy `
 
 ## Desktop window chrome (Tauri only)
 
-> macOS 红绿灯对齐、reapply/repair 机制、紧凑模式恢复顺序见 [**guides/macos-window-chrome.md**](../guides/macos-window-chrome.md)（改窗口 chrome 前必读）。
+> macOS 红绿灯对齐、reapply/repair 机制、紧凑模式恢复顺序见 [**contributing/macos-window-chrome.md**](../contributing/macos-window-chrome.md)（改窗口 chrome 前必读）。
 
 - Base `tauri.conf.json`: `decorations: false` (Windows/Linux custom chrome).
 - macOS `tauri.macos.conf.json`: `decorations: true`, `titleBarStyle: Overlay`, `hiddenTitle: true` — **required** for native traffic lights; `decorations: false` hides them entirely.

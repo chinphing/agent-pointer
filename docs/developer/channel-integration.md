@@ -1,5 +1,7 @@
 # IM 通道对接指南
 
+> 终端用户在设置界面的操作摘要见 **[`../user/im-channels.md`](../user/im-channels.md)**。下文为各平台完整对接与 Webhook 部署说明。
+
 Pointer 通过 `pointer-channels` crate 以 **长连接优先、纯 Rust** 方式对接飞书、钉钉、企微、微信。
 
 ## 架构

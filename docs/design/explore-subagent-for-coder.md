@@ -42,7 +42,7 @@ flowchart LR
 - **explore** 是一个 **builtin worker**（`role: worker`），`id` 固定为 **`explore`**。
 - **职责**：在 workspace 内完成「定位代码 / 追踪引用 / 理清模块边界」类任务，**不**改代码、**不**跑 shell、**不**跑 lint（避免与「探索」无关的副作用和噪声）。
 - **输出**：统一交付 **Markdown** 摘要（章节化证据与 trace）。子 Agent 通过 **`response`** 的 **`tool_args.text`** 提交；父级从 **`run_subagent`** 工具结果的 **`content`** 字段读取同一字符串（旁路为 id / 名等元数据）。子会话每轮仍遵循宿主 **JSON tool envelope**（见通信层），**不得**把裸 Markdown 当作 assistant 正文。
-- **启用方式**：在 Lead Agent 的 [`AGENT.md` frontmatter `allowAgents`](../guides/pointer-run-subagent.md) 中列入 `explore` 后，[`delegatable_sub_agents_system_block`](../../crates/pointer-core/src/agents/mod.rs) 会注入元数据，coder 才能合法 `run_subagent`。内置 **coder** 已默认包含 `explore`。
+- **启用方式**：在 Lead Agent 的 [`AGENT.md` frontmatter `allowAgents`](../developer/pointer-run-subagent.md) 中列入 `explore` 后，[`delegatable_sub_agents_system_block`](../../crates/pointer-core/src/agents/mod.rs) 会注入元数据，coder 才能合法 `run_subagent`。内置 **coder** 已默认包含 `explore`。
 
 ## 3. 代码与资源改动（核心）
 
@@ -99,7 +99,7 @@ flowchart LR
 
 ## 5. Coder Agent 侧如何「使用」explore
 
-实现落点：[`coder/mod.rs`](../../crates/pointer-core/src/agents/coder/mod.rs) **`composed_system_body()`**（`prompts/delegation.md`、`prompts/scenarios/*`）；[`run_subagent.md`](../../crates/pointer-core/src/tools/prompts/run_subagent.md) 为 schema + 指针；[`guides/pointer-run-subagent.md`](../guides/pointer-run-subagent.md) 含用户向设置摘要。
+实现落点：[`coder/mod.rs`](../../crates/pointer-core/src/agents/coder/mod.rs) **`composed_system_body()`**（`prompts/delegation.md`、`prompts/scenarios/*`）；[`run_subagent.md`](../../crates/pointer-core/src/tools/prompts/run_subagent.md) 为 schema + 指针；[`pointer-run-subagent.md`](../developer/pointer-run-subagent.md) 含用户向设置摘要。
 
 - **何时委派**：多轮仍无法收敛地图、跨目录侦察、`instruction` 可自描述。
 - **何时不委派**：单点修改、路径已明、完成标准写不清。
@@ -120,7 +120,7 @@ flowchart LR
 
 ## 6. 前端 / 设置
 
-`allowAgents` 在 Lead Agent 的 **`AGENT.md`** 中配置，不在设置界面。设置中仅保留 **`maxSubAgentToolRounds`**（子 Agent 内工具轮次上限）。`explore` 为 builtin worker，经 `listAgents()` 可见；内置 **coder** 的 frontmatter 已默认 `allowAgents: [explore]`（见 [`pointer-run-subagent.md`](../guides/pointer-run-subagent.md)）。
+`allowAgents` 在 Lead Agent 的 **`AGENT.md`** 中配置，不在设置界面。设置中仅保留 **`maxSubAgentToolRounds`**（子 Agent 内工具轮次上限）。`explore` 为 builtin worker，经 `listAgents()` 可见；内置 **coder** 的 frontmatter 已默认 `allowAgents: [explore]`（见 [`pointer-run-subagent.md`](../developer/pointer-run-subagent.md)）。
 
 ## 7. 可选后续
 
@@ -129,7 +129,7 @@ flowchart LR
 
 ## 8. 相关用户文档
 
-- [`guides/pointer-run-subagent.md`](../guides/pointer-run-subagent.md) — `allowAgents`、`explore` 行为摘要。
+- [`pointer-run-subagent.md`](../developer/pointer-run-subagent.md) — `allowAgents`、`explore` 行为摘要。
 
 ## 9. 实现状态（对照用）
 

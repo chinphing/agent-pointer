@@ -246,7 +246,7 @@ Replace dual-layer inject docs with:
 | `task_board/prompts/task_board.md` | Unified inject + patch routing |
 | `agents/computer/.../communication.md` | Simplify Type2 cadence |
 | `task_board/planner/prompts/task_board_init.md` | Align initial statuses |
-| `docs/taskboard-lifecycle-and-fields.md` | Injection order table |
+| `docs/internals/taskboard-lifecycle-and-fields.md` | Injection order table |
 
 ### `inject_milestone_mode` (sketch)
 

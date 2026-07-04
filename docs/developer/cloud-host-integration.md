@@ -1,5 +1,7 @@
 # 云主机集成（pointer-app 桌面端）
 
+> 终端用户购买与打开云实例见 **[`../user/cloud-host.md`](../user/cloud-host.md)**。下文为自部署与环境约定。
+
 桌面客户端通过 Pointer 平台 API 管理云主机，并以**独立 WebView 窗口**打开远程 pointer-server Web UI 进行对话。
 
 ## 桌面端能力

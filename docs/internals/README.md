@@ -1,14 +1,23 @@
 # 内部机制（internals）
 
-实现细节与消息管线说明，面向维护 `pointer-core` 的开发者。
+实现细节与消息管线说明，面向**维护 `pointer-core` 的 Pointer 团队**。
+
+用户使用见 **[`../user/`](../user/README.md)**；扩展集成见 **[`../developer/`](../developer/README.md)**。
 
 | 文档 | 说明 |
 |------|------|
-| [llm-prompt-assembly-order.md](llm-prompt-assembly-order.md) | `stream_chat` 前 `messages` 与 `SystemPromptSections`（cacheable / dynamic）拼接顺序 |
-| [agent-extension-hooks.md](agent-extension-hooks.md) | 扩展注册表与钩子触发点 |
-| [trigger-dispatcher.md](trigger-dispatcher.md) | 统一可调用 / 事件触发入口 `RunDispatcher`：触发源、队列、事件总线、钩子、HTTP Runs API、Webhook、Cron |
+| [llm-prompt-assembly-order.md](llm-prompt-assembly-order.md) | `stream_chat` 前 `messages` 与 `SystemPromptSections` 拼接顺序 |
+| [trigger-dispatcher.md](trigger-dispatcher.md) | 统一触发入口 `RunDispatcher`：队列、Webhook、Cron |
 | [agent-task-board-and-verification.md](agent-task-board-and-verification.md) | 任务板、`verification` 字段与多 Agent 约定 |
+| [taskboard-lifecycle-and-fields.md](taskboard-lifecycle-and-fields.md) | Task Board v4 生命周期与字段语义 |
 | [terminal-shell-path.md](terminal-shell-path.md) | `terminal` 工具在各平台的 PATH / shell 行为 |
-| [desktop-oauth-web-integration.md](desktop-oauth-web-integration.md) | 桌面 OAuth 回调后首页 `?desktop_oauth=success` 与官网一次性提示 |
+| [pointer-build-toml.md](pointer-build-toml.md) | 编译期 `.pointer-build.toml` |
+| [macos-computer-permissions.md](macos-computer-permissions.md) | macOS 电脑操控权限 |
+| [user-platform-config-split.md](user-platform-config-split.md) | 用户 / 平台配置拆分 |
+| [settings-provider-ui.md](settings-provider-ui.md) | 设置页 Provider UI |
+| [task-board-v2-schema.md](task-board-v2-schema.md) | 任务板 v2 schema |
+| [task-board-unified-milestone-inject.md](task-board-unified-milestone-inject.md) | 任务板 milestone 注入 |
+| [task-board-parent-child-coordination.md](task-board-parent-child-coordination.md) | 任务板父子协调 |
+| [task-board-campaign-work-queue-spec.md](task-board-campaign-work-queue-spec.md) | Campaign 工作队列 |
 
 [返回文档总索引](../README.md)

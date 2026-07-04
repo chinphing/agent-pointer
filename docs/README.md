@@ -1,14 +1,27 @@
 # 文档索引
 
-`docs/` 下按主题分子目录，便于与实现对照和维护。
+`docs/` 按**读者**划分，避免用户教程、外部集成与内部实现混在一起。
 
-| 目录 | 内容 |
-|------|------|
-| [**design/**](design/README.md) | 设计方案、路线图、实现计划、技术提案（评审 / 估人天 / 对照实现） |
-| [**internals/**](internals/README.md) | 运行时内部机制：提示词拼接顺序、扩展钩子、任务板与 verification 约定 |
-| [**agents/**](agents/README.md) | 各 Agent 专题（Computer 提示词、Coder Git 策略等） |
-| [**llm/**](llm/README.md) | LLM 调用观测、调试落盘、thinking API 等 |
-| [**guides/**](guides/README.md) | 使用说明与配置：跨平台打包、run_subagent、混合 read_lints、离线评测等 |
-| [**ui/**](ui/README.md) | 前端界面与交互约定 |
+## 按读者查找
 
-从仓库根目录引用示例：`docs/guides/pointer-lint-config.md`。
+| 我是… | 从这里开始 |
+|--------|------------|
+| **Pointer 用户** | [`user/`](user/README.md) — 安装、对话、Skills、IM、云主机 |
+| **外部开发者 / 集成方** | [`developer/`](developer/README.md) — 通道部署、Skill 格式、扩展钩子、协议 |
+| **仓库贡献者** | 根目录 [`DEVELOPMENT.md`](../DEVELOPMENT.md)、[`contributing/`](contributing/README.md) |
+| **核心维护者** | [`internals/`](internals/README.md)、[`design/`](design/README.md)、[`agents/`](agents/README.md)、[`llm/`](llm/README.md)、[`ui/`](ui/README.md) |
+
+## 目录说明
+
+| 目录 | 读者 | 内容 |
+|------|------|------|
+| [**user/**](user/README.md) | 终端用户 | 使用教程与界面相关配置 |
+| [**developer/**](developer/README.md) | 第三方、Skill 作者 | 集成、协议、自部署、CLI |
+| [**contributing/**](contributing/README.md) | 本仓库贡献者 | 跨平台构建、平台 UI、离线评测 |
+| [**internals/**](internals/README.md) | 核心团队 | 运行时机制、任务板、触发器 |
+| [**design/**](design/README.md) | 评审 / 规划 | 设计方案、路线图、提案 |
+| [**agents/**](agents/README.md) | 核心团队 | 各 Agent 专题 |
+| [**llm/**](llm/README.md) | 核心团队 | LLM 调试、缓存、用量 |
+| [**ui/**](ui/README.md) | 前端贡献者 | 界面与交互约定 |
+
+从仓库根目录引用示例：`docs/user/getting-started.md`、`docs/developer/channel-integration.md`。

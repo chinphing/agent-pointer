@@ -1,6 +1,6 @@
 # Taskboard Lifecycle And Fields (v4)
 
-Schema reference: [`internals/task-board-v2-schema.md`](internals/task-board-v2-schema.md).
+Schema reference: [`task-board-v2-schema.md`](task-board-v2-schema.md).
 
 ## Field semantics
 

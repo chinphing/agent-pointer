@@ -1,7 +1,7 @@
 # Task board schema (maintainer, v4)
 
 Runtime prompts: `crates/pointer-core/src/task_board/prompts/task_board.md` (English).
-Lifecycle: `docs/taskboard-lifecycle-and-fields.md`.
+Lifecycle: [`taskboard-lifecycle-and-fields.md`](taskboard-lifecycle-and-fields.md).
 
 ## Document
 

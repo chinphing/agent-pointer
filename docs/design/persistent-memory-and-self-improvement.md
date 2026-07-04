@@ -26,10 +26,10 @@ Hermes 将「长期记忆」与「会话后自省」拆为两条互补链路：
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | 跨会话 curated 记忆 | **无**                                                                                                                               |
 | 用户画像持久化        | **无**（仅有 `user_settings.json` 等功能配置）                                                                                                |
-| 会话内工作记忆        | **Task Board**（见 `[taskboard-lifecycle-and-fields.md](../taskboard-lifecycle-and-fields.md)`）                                       |
+| 会话内工作记忆        | **Task Board**（见 `[taskboard-lifecycle-and-fields.md](../internals/taskboard-lifecycle-and-fields.md)`）                                       |
 | 完整对话持久化        | `conversations.json`（前端列表 + 消息体）                                                                                                    |
 | 上下文压缩          | `context_compression.rs`（LLM 摘要旧消息）                                                                                                 |
-| 可复用能力包         | **Skills**（见 `[guides/skills-persistence.md](../guides/skills-persistence.md)`）                                                     |
+| 可复用能力包         | **Skills**（见 `[developer/skills-persistence.md](../developer/skills-persistence.md)`）                                                     |
 | Prompt 分区与缓存   | `[llm-prompt-assembly-order.md](../internals/llm-prompt-assembly-order.md)`、`[qwen-context-cache.md](../llm/qwen-context-cache.md)` |
 
 
@@ -349,7 +349,7 @@ crates/pointer-core/src/memory/
 | UI        | `StreamEvent::UiToast`                    | review 摘要                                             |
 
 
-扩展钩子可选封装：`_memory_cacheable_inject` 作为 `before_main_llm_call` 之前步骤，与 `[agent-extension-hooks.md](../internals/agent-extension-hooks.md)` 一致。
+扩展钩子可选封装：`_memory_cacheable_inject` 作为 `before_main_llm_call` 之前步骤，与 `[agent-extension-hooks.md](../developer/agent-extension-hooks.md)` 一致。
 
 ### 5.3 Agent 策略
 
@@ -416,9 +416,9 @@ crates/pointer-core/src/memory/
 | ----------------------------------------------------------------------------------------------------- | --------------------------- |
 | `[internals/llm-prompt-assembly-order.md](../internals/llm-prompt-assembly-order.md)`                 | cacheable / dynamic 注入顺序    |
 | `[llm/qwen-context-cache.md](../llm/qwen-context-cache.md)`                                           | Frozen snapshot 与 cache 关系  |
-| `[internals/agent-extension-hooks.md](../internals/agent-extension-hooks.md)`                         | 可选 hook 挂载                  |
-| `[guides/skills-persistence.md](../guides/skills-persistence.md)`                                     | Skills 与 review skill 维度的边界 |
-| `[taskboard-lifecycle-and-fields.md](../taskboard-lifecycle-and-fields.md)`                           | Task Board ≠ Memory         |
+| `[developer/agent-extension-hooks.md](../developer/agent-extension-hooks.md)`                         | 可选 hook 挂载                  |
+| `[developer/skills-persistence.md](../developer/skills-persistence.md)`                                     | Skills 与 review skill 维度的边界 |
+| `[internals/taskboard-lifecycle-and-fields.md](../internals/taskboard-lifecycle-and-fields.md)`                           | Task Board ≠ Memory         |
 | `[internals/agent-task-board-and-verification.md](../internals/agent-task-board-and-verification.md)` | 会话内工作状态                     |
 
 

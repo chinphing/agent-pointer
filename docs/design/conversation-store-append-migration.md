@@ -190,4 +190,4 @@ P2a 压缩 / TaskBoard trim ──sync_ordered_with_meta──► 改 position/c
 ## 12. 相关文档
 
 - [persistent-memory-and-self-improvement.md](persistent-memory-and-self-improvement.md) — MEMORY/USER 与 review
-- [../guides/cross-platform-build.md](../guides/cross-platform-build.md) — `conversations.db` 路径
+- [../contributing/cross-platform-build.md](../contributing/cross-platform-build.md) — `conversations.db` 路径

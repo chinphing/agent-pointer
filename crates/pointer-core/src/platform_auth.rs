@@ -24,7 +24,7 @@ const LOOPBACK_PORT_SCAN_COUNT: u16 = 32;
 const EXPIRY_BUFFER_SEC: i64 = 300;
 /// 等待浏览器 OAuth 回调的最长时间（秒）。
 pub const OAUTH_CALLBACK_TIMEOUT_SEC: u64 = 300;
-/// 桌面 OAuth 成功后跳转官网首页时携带的 query 名；官网据此展示一次性提示（见 `docs/internals/desktop-oauth-web-integration.md`）。
+/// 桌面 OAuth 成功后跳转官网首页时携带的 query 名；官网据此展示一次性提示（见 `docs/developer/desktop-oauth-web-integration.md`）。
 pub const DESKTOP_OAUTH_SUCCESS_QUERY: &str = "desktop_oauth";
 /// 与 [`DESKTOP_OAUTH_SUCCESS_QUERY`] 搭配的值。
 pub const DESKTOP_OAUTH_SUCCESS_VALUE: &str = "success";

@@ -12,7 +12,7 @@ Related:
 
 - [`task-board-v2-schema.md`](task-board-v2-schema.md) — **authoritative v4 schema**
 - [`task-board-parent-child-coordination.md`](task-board-parent-child-coordination.md)
-- [`../taskboard-lifecycle-and-fields.md`](../taskboard-lifecycle-and-fields.md)
+- [`taskboard-lifecycle-and-fields.md`](taskboard-lifecycle-and-fields.md)
 
 ---
 

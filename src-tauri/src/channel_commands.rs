@@ -130,7 +130,6 @@ pub fn approve_channel_pairing(
         "pairing approve request channel={channel} account={account_id} code={}",
         code.trim()
     );
-    let _ = gateway.pairing.load(&channel, &account_id);
     let ok = gateway
         .pairing
         .approve(&channel, &account_id, &code)
@@ -169,7 +168,6 @@ pub fn list_channel_pairing_pending(
     channel: String,
     account_id: String,
 ) -> Result<PairingPendingResponse, String> {
-    let _ = gateway.pairing.load(&channel, &account_id);
     let pending = gateway
         .pairing
         .list_pending(&channel, &account_id)

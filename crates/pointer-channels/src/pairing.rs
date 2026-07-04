@@ -7,6 +7,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+const PAIRING_CHANNELS: &[&str] = &["feishu", "dingtalk", "wecom", "weixin"];
+
 const PENDING_TTL: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +108,38 @@ impl PairingStore {
                 .insert(key, approved.into_iter().collect());
         }
         self.load_pending(channel, account_id)
+    }
+
+    /// Load all pairing files from disk once (call at gateway startup).
+    pub fn load_all(&self) -> Result<()> {
+        let dir = Self::dir()?;
+        if !dir.exists() {
+            return Ok(());
+        }
+        let mut stems = HashSet::new();
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) else {
+                continue;
+            };
+            if let Some(stem) = name.strip_suffix(".pending.json") {
+                stems.insert(stem.to_string());
+            } else if let Some(stem) = name.strip_suffix(".json") {
+                stems.insert(stem.to_string());
+            }
+        }
+        for stem in stems {
+            let Some((channel, account_id)) = parse_pairing_stem(&stem) else {
+                log::warn!("pairing load_all skipped unknown file stem={stem}");
+                continue;
+            };
+            if let Err(e) = self.load(&channel, &account_id) {
+                log::warn!(
+                    "pairing load_all failed channel={channel} account={account_id}: {e:#}"
+                );
+            }
+        }
+        Ok(())
     }
 
     pub fn load_pending(&self, channel: &str, account_id: &str) -> Result<()> {
@@ -296,6 +330,18 @@ pub enum PairingDecision {
     NeedPairing,
 }
 
+fn parse_pairing_stem(stem: &str) -> Option<(String, String)> {
+    for channel in PAIRING_CHANNELS {
+        let prefix = format!("{channel}_");
+        if let Some(account_id) = stem.strip_prefix(&prefix) {
+            if !account_id.is_empty() {
+                return Some((channel.to_string(), account_id.to_string()));
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,5 +363,18 @@ mod tests {
             issued_at: now,
         };
         assert!(!PairingStore::is_expired(&record, now));
+    }
+
+    #[test]
+    fn parse_pairing_stem_wecom_default() {
+        assert_eq!(
+            parse_pairing_stem("wecom_default"),
+            Some(("wecom".into(), "default".into()))
+        );
+    }
+
+    #[test]
+    fn parse_pairing_stem_unknown() {
+        assert_eq!(parse_pairing_stem("unknown_default"), None);
     }
 }

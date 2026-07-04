@@ -27,11 +27,13 @@ impl ChannelGateway {
     pub fn new(core: Arc<AppState>, registry: ChannelRegistry) -> Result<Self> {
         pointer_core::tls::ensure_rustls_crypto_provider();
         let config = load_channels_config().unwrap_or_default();
+        let pairing = PairingStore::new();
+        pairing.load_all()?;
         Ok(Self {
             registry,
             config: RwLock::new(config),
             dispatch: DispatchService::new()?,
-            pairing: PairingStore::new(),
+            pairing,
             dedup: DedupStore::new(),
             core,
         })
@@ -82,8 +84,6 @@ impl ChannelGateway {
         if !account.enabled {
             return Ok(());
         }
-
-        let _ = self.pairing.load(&msg.channel, &msg.account_id);
 
         let code_candidate = msg.text.trim();
         if code_candidate.len() == 8

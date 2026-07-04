@@ -1383,6 +1383,14 @@ mod builtin_agent_tests {
             prompt.contains("G3 evidence gate"),
             "coder should include G3 evidence gate for same-turn verification"
         );
+        assert!(
+            prompt.contains("Unit test standards"),
+            "coder should include explicit unit test standards in Check"
+        );
+        assert!(
+            prompt.contains("When to add tests"),
+            "coder should include when-to-add-tests guidance"
+        );
     }
 
     #[test]

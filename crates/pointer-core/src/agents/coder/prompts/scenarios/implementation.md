@@ -12,4 +12,6 @@
 
 **Skip explore** only when edit site and readers are already proven with line evidence **and** no high-breadth trigger applies.
 
-**Check:** G3 on each sub-goal; integration optional unless CI-sensitive.
+**Check:** G3 on each sub-goal — **`terminal`** test after logic edits; integration optional unless CI-sensitive.
+
+**Deliver:** do not finish until **Check** ran (or skip reason is in **`content`**). With a board, **Verify** row **`done`** before **`finalize`**.

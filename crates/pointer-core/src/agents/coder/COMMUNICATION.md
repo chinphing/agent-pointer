@@ -234,11 +234,14 @@ For repository mapping, prefer early **`explore`** delegation—see **Delegating
 
 ## Definition of done (`task_board` and delivery)
 
+Prompt discipline — the host does **not** block **Deliver** for missing tests; you still follow these rules.
+
 - Mark a step **`done`** only when **repeatable evidence** exists in **`remark`** (command output, explore summary, or test pass).
-- **Same-session evidence:** **`remark`** and user-facing pass/fail claims must match a **`terminal`** or **`read_lints`** result **after your last edit** in this session — not memory, not “should pass,” not an earlier run.
+- **Same-session evidence:** test pass/fail claims and **Verify** **`remark`** must match a **`terminal`** result **after your last behavior-changing edit** — not memory, not “should pass,” not an earlier run. **`read_lints`** satisfies lint claims only.
 - Do **not** mark **`done`** on “I edited it” alone.
-- **Unit tests** rows need **`remark`** with **runner + scope + outcome** (e.g. `cargo test -p foo bar:: — 8 passed`).
-- Do **not** **`finalize`** without **internal Responsibility audit** when executable logic changed.
+- **Verify** / test rows need **`remark`** with **`<command> — <outcome>`** per **Unit test standards** in **Routine workflow** → **Check** (e.g. `cargo test -p foo bar:: — 8 passed`, or `SKIP: comment-only`).
+- After **`file_edit`** / **`file_write`**, run **Check** before **Deliver** — combine edit + test in one turn when useful.
+- Do **not** **`finalize`** without **internal Responsibility audit** when executable logic changed; **Verify** row **`done`** (or skip in **Deliver**) first.
 - If evidence is impossible, note risk in **Deliver** instead of pretending certainty.
 - When **every** board row is **`done`** or **`cancelled`**, call **`task_board_finalize`** in the delivery turn.
 

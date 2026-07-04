@@ -21,3 +21,5 @@
 4. **Prove** — run targeted tests via **`terminal`**; add a regression test when feasible; apply **G3 evidence gate** before **Deliver**.
 
 **Check:** reproduce or justify; regression test when feasible; prefer red-before-fix / green-after-fix when you add a new test.
+
+**Deliver:** include the **`terminal`** command and outcome (or explicit skip); do not claim **fixed** without **Prove** (step 4) evidence this session.

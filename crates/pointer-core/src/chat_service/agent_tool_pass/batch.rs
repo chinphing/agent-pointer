@@ -319,4 +319,28 @@ mod tests {
         });
         assert_eq!(plan.mode, BatchMode::Serial);
     }
+
+    #[test]
+    fn plan_parallel_multiple_media_understand() {
+        let reg = reg_with_file_tools();
+        let batch = vec![tc("1", "media_understand"), tc("2", "media_understand")];
+        let parsed = vec![
+            serde_json::json!({"mode": "image", "refs": ["a.png"], "goal": "a"}),
+            serde_json::json!({"mode": "image", "refs": ["b.png"], "goal": "b"}),
+        ];
+        let ids = vec!["media_understand".into(), "media_understand".into()];
+        let plan = plan_tool_batch(PlanToolBatchInput {
+            registry: &reg,
+            batch: &batch,
+            parsed_args: &parsed,
+            tool_ids: &ids,
+            workspace_root: ".",
+            conversation_id: "c1",
+            force_serial: false,
+            max_parallel_tools: 8,
+        });
+        assert!(matches!(plan.mode, BatchMode::Parallel));
+        assert_eq!(plan.waves.len(), 1);
+        assert!(matches!(plan.waves[0], ToolWave::Parallel(ref idx) if idx.len() == 2));
+    }
 }

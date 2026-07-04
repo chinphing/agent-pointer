@@ -134,9 +134,7 @@ pub fn conflict_keys_for_invocation(
         "run_subagent" => {
             keys.insert(format!("subagent_slot:{conversation_id}"));
         }
-        "image_generate" | "video_generate" | "media_understand" => {
-            keys.insert(format!("media:{conversation_id}"));
-        }
+        "image_generate" | "video_generate" | "media_understand" => {}
         _ => {}
     }
     keys
@@ -258,6 +256,17 @@ mod tests {
             &root,
             "c1",
         );
+        assert!(!keys_overlap(&ka, &kb));
+    }
+
+    #[test]
+    fn conflict_keys_media_understand_calls_do_not_overlap() {
+        let args_a = serde_json::json!({"mode": "image", "refs": ["a.png"], "goal": "a"});
+        let args_b = serde_json::json!({"mode": "image", "refs": ["b.png"], "goal": "b"});
+        let ka = conflict_keys_for_invocation("media_understand", &args_a, ".", "c1");
+        let kb = conflict_keys_for_invocation("media_understand", &args_b, ".", "c1");
+        assert!(ka.is_empty());
+        assert!(kb.is_empty());
         assert!(!keys_overlap(&ka, &kb));
     }
 }

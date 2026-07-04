@@ -58,6 +58,8 @@ execute eligible tools concurrently subject to conflict detection and platform l
 
 - Same canonical file path: read/write/edit must not overlap in one parallel wave.
 - `terminal`: no conversation-level mutex; abort is per `tool_call_id`.
+- Media tools (`media_understand`, `image_generate`, `video_generate`): no batch conflict key;
+  multiple jobs in one wave are allowed, capped by `maxParallelMediaJobs`.
 
 ### Concurrency limits (platform settings)
 

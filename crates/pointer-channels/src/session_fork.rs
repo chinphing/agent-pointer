@@ -19,6 +19,13 @@ pub fn fork_im_desktop_session(
     session_state.active_conversation_id = Some(new_id.clone());
     store.save_im_session(base_conv_id, session_state)?;
 
+    let previous_id = if session_state.session_epoch > 1 {
+        im_desktop_conversation_id(base_conv_id, session_state.session_epoch - 1)
+    } else {
+        base_conv_id.to_string()
+    };
+    let session_user_id = store.session_user_id(&previous_id).unwrap_or_default();
+
     let title = im_session_fork_title(base_conv_id, sender_name, session_state.session_epoch)
         .unwrap_or_else(|| "新会话".to_string());
     let now = chrono::Utc::now().timestamp_millis();
@@ -40,6 +47,7 @@ pub fn fork_im_desktop_session(
         agent_mode: agent_mode.clone(),
         message_count: 0,
         preview: String::new(),
+        session_user_id,
     })?;
 
     pointer_core::stream_broadcast::broadcast_stream(&StreamEvent::ImSessionForked {

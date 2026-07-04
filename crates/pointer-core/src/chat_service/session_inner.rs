@@ -122,6 +122,24 @@ pub(super) async fn run_chat_inner(
         ensure_session_sandbox_at_run_start(conversation_id, &effective_workspace)?;
 
     let _workspace_guard = ConversationWorkspaceGuard::enter(effective_workspace.clone());
+
+    if let Some(uid) = login_user_id.as_deref() {
+        if let Err(e) = state
+            .session_index
+            .ensure_session_user_id(conversation_id, uid)
+        {
+            log::warn!(
+                "session_user_id ensure failed conversation_id={conversation_id}: {e:#}"
+            );
+        }
+    }
+    let session_user_id = state
+        .session_index
+        .session_user_id(conversation_id)
+        .unwrap_or_default();
+    let _session_user_guard =
+        crate::session_user_env::SessionUserIdGuard::enter(session_user_id);
+
     if effective_workspace.trim() != ui_workspace_before.trim() {
         let is_ephemeral = ui_workspace_before.trim().is_empty()
             && (crate::session_sandbox::SessionSandbox::is_path_for(

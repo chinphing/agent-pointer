@@ -76,6 +76,7 @@ pub fn build_terminal_child_environment(env_files: &[PathBuf]) -> HashMap<String
     }
     #[cfg(windows)]
     crate::windows_shell_encoding::apply_windows_utf8_child_env(&mut env);
+    crate::session_user_env::apply_session_user_id(&mut env);
     env
 }
 
@@ -385,6 +386,16 @@ mod tests {
     fn parse_env_file_args_accepts_single_string() {
         let args = serde_json::json!({ "envFiles": ".env" });
         assert_eq!(parse_env_file_args(&args), vec![".env"]);
+    }
+
+    #[test]
+    fn build_terminal_child_environment_injects_session_user_id() {
+        let _user_guard = crate::session_user_env::SessionUserIdGuard::enter("user-42".into());
+        let map = build_terminal_child_environment(&[]);
+        assert_eq!(
+            map.get("SESSION_USER_ID").map(String::as_str),
+            Some("user-42")
+        );
     }
 
     #[test]

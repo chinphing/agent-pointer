@@ -10,6 +10,7 @@ pub mod cron_jobs;
 pub mod webhook_sources;
 pub mod runs;
 mod search;
+mod session_user;
 mod write;
 #[cfg(test)]
 mod tests;
@@ -23,7 +24,7 @@ use crate::models::{ChatMessage, Conversation, ConversationMeta};
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 13;
+const SCHEMA_VERSION: i32 = 14;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -113,6 +114,27 @@ impl ConversationStore {
     ) -> Result<()> {
         self.db.execute_write(|conn| {
             persist::set_last_lead_prompt_tokens_in_conn(conn, conversation_id, prompt_tokens)
+        })
+    }
+
+    pub fn session_user_id(&self, conversation_id: &str) -> Result<String> {
+        let conn = self.db.conn.lock();
+        session_user::session_user_id_in_conn(&conn, conversation_id)
+    }
+
+    pub fn set_session_user_id(&self, conversation_id: &str, user_id: &str) -> Result<()> {
+        self.db.execute_write(|conn| {
+            session_user::set_session_user_id_in_conn(conn, conversation_id, user_id)
+        })
+    }
+
+    pub fn ensure_session_user_id(
+        &self,
+        conversation_id: &str,
+        candidate: &str,
+    ) -> Result<String> {
+        self.db.execute_write(|conn| {
+            session_user::ensure_session_user_id_in_conn(conn, conversation_id, candidate)
         })
     }
 
@@ -583,7 +605,8 @@ fn init_schema(conn: &Connection) -> Result<()> {
            agent_mode TEXT NOT NULL DEFAULT 'single',
            im_session_epoch INTEGER NOT NULL DEFAULT 0,
            im_active_conversation_id TEXT,
-           im_last_interaction_at_ms INTEGER NOT NULL DEFAULT 0
+           im_last_interaction_at_ms INTEGER NOT NULL DEFAULT 0,
+           session_user_id TEXT NOT NULL DEFAULT ''
          );
          CREATE TABLE IF NOT EXISTS messages (
            id INTEGER PRIMARY KEY,
@@ -674,6 +697,12 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
     webhook_sources::ensure_schema(conn)?;
     add_column_if_missing(conn, "webhook_sources", "auth_header_name", "TEXT")?;
     add_column_if_missing(conn, "conversations", "last_lead_prompt_tokens", "INTEGER")?;
+    add_column_if_missing(
+        conn,
+        "conversations",
+        "session_user_id",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
     conn.execute(
         "UPDATE conversations SET im_last_interaction_at_ms = updated_at_ms
          WHERE im_last_interaction_at_ms = 0 AND updated_at_ms > 0",

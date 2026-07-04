@@ -123,6 +123,7 @@ mod tests {
             workspace_inherit_disabled: false,
             lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
             agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+            session_user_id: String::new(),
         };
         store.sync_conversations(&[conv]).unwrap();
 

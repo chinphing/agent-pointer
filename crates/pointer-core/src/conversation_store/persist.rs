@@ -9,7 +9,8 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, created_at_ms, updated_at_ms, skill_ids_json,
                 tool_rounds_used, tool_rounds_used_supervisor, computer_monitor_id, workspace_root,
-                workspace_user_set, workspace_inherit_disabled, lead_agent_id, agent_mode
+                workspace_user_set, workspace_inherit_disabled, lead_agent_id, agent_mode,
+                session_user_id
          FROM conversations
          WHERE id NOT LIKE 'cron:%'
            AND id NOT LIKE 'webhook:%'
@@ -30,6 +31,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             row.get::<_, i64>(10)? != 0,
             row.get::<_, String>(11)?,
             row.get::<_, String>(12)?,
+            row.get::<_, String>(13)?,
         ))
     })?;
     let mut out = Vec::new();
@@ -48,6 +50,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             workspace_inherit_disabled,
             lead_agent_id,
             agent_mode,
+            session_user_id,
         ) = row?;
         let skill_ids: Vec<String> = serde_json::from_str(&skill_ids_json).unwrap_or_default();
         let messages = load_messages(conn, &id)?;
@@ -66,6 +69,7 @@ pub fn load_all_from_conn(conn: &Connection) -> Result<Vec<Conversation>> {
             workspace_inherit_disabled,
             lead_agent_id,
             agent_mode,
+            session_user_id,
         });
     }
     Ok(out)
@@ -113,7 +117,7 @@ pub fn load_metas_from_conn(
         "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
                 skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
                 computer_monitor_id, workspace_root, workspace_user_set,
-                workspace_inherit_disabled, lead_agent_id, agent_mode
+                workspace_inherit_disabled, lead_agent_id, agent_mode, session_user_id
          FROM conversations
          WHERE id NOT LIKE 'cron:%'
            AND id NOT LIKE 'webhook:%'
@@ -142,6 +146,7 @@ pub fn load_metas_from_conn(
             workspace_inherit_disabled: row.get::<_, i64>(12)? != 0,
             lead_agent_id: row.get(13)?,
             agent_mode: row.get(14)?,
+            session_user_id: row.get(15)?,
         })
     })?;
     let mut out = Vec::new();
@@ -173,6 +178,7 @@ pub fn load_metas_from_conn(
             agent_mode: r.agent_mode,
             message_count: r.message_count,
             preview: r.preview,
+            session_user_id: r.session_user_id,
         });
     }
     log::info!(
@@ -194,7 +200,7 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
             "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview,
                     skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
                     computer_monitor_id, workspace_root, workspace_user_set,
-                    workspace_inherit_disabled, lead_agent_id, agent_mode
+                    workspace_inherit_disabled, lead_agent_id, agent_mode, session_user_id
              FROM conversations WHERE id = ?1",
             params![id],
             |row| {
@@ -214,6 +220,7 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
                     workspace_inherit_disabled: row.get::<_, i64>(12)? != 0,
                     lead_agent_id: row.get(13)?,
                     agent_mode: row.get(14)?,
+                    session_user_id: row.get(15)?,
                 })
             },
         )
@@ -245,6 +252,7 @@ pub fn load_meta_from_conn(conn: &Connection, id: &str) -> Result<Option<Convers
         agent_mode: r.agent_mode,
         message_count: r.message_count,
         preview: r.preview,
+        session_user_id: r.session_user_id,
     }))
 }
 
@@ -297,6 +305,7 @@ struct MetaRow {
     workspace_inherit_disabled: bool,
     lead_agent_id: String,
     agent_mode: String,
+    session_user_id: String,
 }
 
 pub fn replace_all_in_conn(conn: &Connection, list: &[Conversation]) -> Result<()> {
@@ -330,8 +339,8 @@ pub fn upsert_conversation(conn: &Connection, conv: &Conversation, replace_messa
            id, title, created_at_ms, updated_at_ms, message_count, preview,
            skill_ids_json, tool_rounds_used, tool_rounds_used_supervisor,
            computer_monitor_id, workspace_root, workspace_user_set, workspace_inherit_disabled,
-           lead_agent_id, agent_mode
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
+           lead_agent_id, agent_mode, session_user_id
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
            created_at_ms = excluded.created_at_ms,
@@ -346,7 +355,11 @@ pub fn upsert_conversation(conn: &Connection, conv: &Conversation, replace_messa
            workspace_user_set = excluded.workspace_user_set,
            workspace_inherit_disabled = excluded.workspace_inherit_disabled,
            lead_agent_id = excluded.lead_agent_id,
-           agent_mode = excluded.agent_mode",
+           agent_mode = excluded.agent_mode,
+           session_user_id = CASE
+             WHEN trim(excluded.session_user_id) != '' THEN excluded.session_user_id
+             ELSE conversations.session_user_id
+           END",
         params![
             conv.id,
             conv.title,
@@ -363,6 +376,7 @@ pub fn upsert_conversation(conn: &Connection, conv: &Conversation, replace_messa
             i64::from(conv.workspace_inherit_disabled),
             conv.lead_agent_id,
             conv.agent_mode,
+            conv.session_user_id,
         ],
     )?;
 
@@ -547,6 +561,7 @@ pub fn sample_conv(id: &str, title: &str, user_text: &str) -> Conversation {
         workspace_inherit_disabled: false,
         lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
         agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+        session_user_id: String::new(),
     }
 }
 

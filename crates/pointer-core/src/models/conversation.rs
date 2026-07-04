@@ -53,6 +53,9 @@ pub struct Conversation {
         skip_serializing_if = "is_default_session_agent_mode"
     )]
     pub agent_mode: String,
+    /// Platform login user id or IM channel user / group key for this session.
+    #[serde(default, rename = "sessionUserId", skip_serializing_if = "String::is_empty")]
+    pub session_user_id: String,
 }
 
 fn is_default_session_lead_agent(id: &str) -> bool {
@@ -124,6 +127,8 @@ pub struct ConversationMeta {
     /// an in-memory `Conversation`).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub preview: String,
+    #[serde(default, rename = "sessionUserId", skip_serializing_if = "String::is_empty")]
+    pub session_user_id: String,
 }
 
 impl From<&Conversation> for ConversationMeta {
@@ -144,6 +149,7 @@ impl From<&Conversation> for ConversationMeta {
             agent_mode: c.agent_mode.clone(),
             message_count: 0,
             preview: String::new(),
+            session_user_id: c.session_user_id.clone(),
         }
     }
 }
@@ -277,6 +283,7 @@ mod agent_trace_persistence_tests {
             workspace_inherit_disabled: false,
             lead_agent_id: default_lead_agent_id(),
             agent_mode: default_agent_mode(),
+            session_user_id: String::new(),
         };
         let json = serde_json::to_string(&conv).expect("serialize");
         let back: Conversation = serde_json::from_str(&json).expect("deserialize");

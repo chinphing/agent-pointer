@@ -345,6 +345,13 @@ impl DispatchService {
         sync_im_desktop_session_agent(&*store, &desktop_conv_id, &im_session);
         broadcast_im_session_agent(&desktop_conv_id, &conv_id, &im_session);
 
+        let im_user_id = crate::session::im_session_user_id(&msg, &account.dynamic_agents);
+        if let Err(e) = store.set_session_user_id(&desktop_conv_id, &im_user_id) {
+            log::warn!(
+                "channel set session_user_id failed desktop={desktop_conv_id}: {e:#}"
+            );
+        }
+
         let workspace_root = store.workspace_root(&desktop_conv_id).unwrap_or_default();
         let workspace_user_set = store.workspace_user_set(&desktop_conv_id).unwrap_or(false);
         let workspace_root = pointer_core::channel_outbound::resolve_im_run_workspace(

@@ -68,6 +68,14 @@ pub fn build_conversation_key(channel: &str, chat_id: &str, is_group: bool) -> S
     }
 }
 
+/// Resolve the persisted `session_user_id` for an IM inbound message.
+pub fn im_session_user_id(msg: &InboundMessage, dynamic: &DynamicAgentsConfig) -> String {
+    if msg.is_group && dynamic.enabled && dynamic.group_enabled {
+        return msg.conversation_key.clone();
+    }
+    msg.sender_id.clone()
+}
+
 /// Stable desktop user row id for one IM inbound platform message (retries upsert, no duplicate rows).
 pub fn inbound_user_message_id(channel: &str, platform_message_id: &str) -> String {
     format!("ch-inbound:{}:{}", channel.trim(), platform_message_id.trim())
@@ -141,5 +149,19 @@ mod tests {
     fn inbound_user_message_id_is_stable() {
         let id = inbound_user_message_id("feishu", "om_abc123");
         assert_eq!(id, "ch-inbound:feishu:om_abc123");
+    }
+
+    #[test]
+    fn im_session_user_id_group_uses_conversation_key() {
+        let cfg = dynamic_cfg();
+        let msg = sample_msg(true, "user_a", "chat1");
+        assert_eq!(im_session_user_id(&msg, &cfg), "wecom:group:chat1");
+    }
+
+    #[test]
+    fn im_session_user_id_dm_uses_sender() {
+        let cfg = dynamic_cfg();
+        let msg = sample_msg(false, "user_a", "user_a");
+        assert_eq!(im_session_user_id(&msg, &cfg), "user_a");
     }
 }

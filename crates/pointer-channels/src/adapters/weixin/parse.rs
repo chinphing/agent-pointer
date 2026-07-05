@@ -36,6 +36,7 @@ pub fn parse_weixin_message(
     }
     if let Some(token) = msg.get("context_token").and_then(|v| v.as_str()) {
         tokens.insert(from.to_string(), token.to_string());
+        super::context_token::set(account_id, from, token);
     }
     let message_id = msg
         .get("message_id")

@@ -176,7 +176,7 @@ MEDIA:/absolute/path/to/report.pdf
 | 企微 Agent HTTP | text | media/upload + message/send | 同上 |
 | 微信 iLink | text item | CDN 加密上传 + image_item | CDN 加密上传 + file_item / video_item |
 
-微信 iLink 出站会缓存每条入站的 `context_token`（按账号 + 用户）。Agent 长跑时：缓存超过 **60 秒**会在发送前调用 `getconfig` 尝试刷新；若 `sendmessage` 返回 `ret=-2 errmsg=unknown`，会再刷新并重试一次。用户长时间未发消息时 token 可能无法刷新，需用户再发一条激活会话。
+微信 iLink 出站会缓存每条入站的 `context_token`（按账号 + 用户）。Agent 长跑时：缓存超过 **45 秒**会在发送前调用 `getconfig` 尝试刷新（先带旧 token，再不带 token）；若 `sendmessage` 返回 `ret=-2 errmsg=unknown`，会再刷新并重试一次（接受 `getconfig` 返回相同 token 的情况）。用户长时间未发消息且 refresh 仍失败时，需用户再发一条激活会话。
 
 单文件上限：非视频 **30 MB**；**视频**与 Composer OSS 一致（**5 GB** 硬上限，**>500 MB** 自动压缩后上传）。若路径无法解析或上传失败，会记录错误日志，文本回复仍会发送。
 

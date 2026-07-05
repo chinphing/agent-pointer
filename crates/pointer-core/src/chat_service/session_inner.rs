@@ -48,7 +48,9 @@ fn choose_main_task_board_store_key(
     // Surface the active unfinished board so planner/execution can see it.
     // Reuse vs new board is decided by the model: no init → continue; init → fresh board.
     if let Some(active_key) = state.get_active_main_task_board_key(conversation_id) {
-        if is_parent_board_unfinished(state.task_board_store.as_ref(), &active_key) {
+        if !crate::task_board::is_child_store_key(&active_key)
+            && is_parent_board_unfinished(state.task_board_store.as_ref(), &active_key)
+        {
             state.set_active_main_task_board_key(conversation_id, &active_key);
             log::info!(
                 "task_board_main_key: reuse_active conversation_id={} store_key={}",

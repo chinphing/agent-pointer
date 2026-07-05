@@ -474,19 +474,33 @@ impl AppState {
         if conversation_id.trim().is_empty() || store_key.trim().is_empty() {
             return;
         }
+        if crate::task_board::is_child_store_key(store_key) {
+            log::warn!(
+                "task_board_main_key: reject_child_active conversation_id={} store_key={}",
+                conversation_id,
+                store_key
+            );
+            return;
+        }
         self.active_main_task_boards
             .lock()
             .insert(conversation_id.to_string(), store_key.to_string());
     }
 
     pub fn get_active_main_task_board_key(&self, conversation_id: &str) -> Option<String> {
-        if let Some(k) = self
-            .active_main_task_boards
-            .lock()
-            .get(conversation_id)
-            .cloned()
         {
-            return Some(k);
+            let mut active = self.active_main_task_boards.lock();
+            if let Some(k) = active.get(conversation_id).cloned() {
+                if !crate::task_board::is_child_store_key(&k) {
+                    return Some(k);
+                }
+                log::warn!(
+                    "task_board_main_key: drop_invalid_active conversation_id={} store_key={}",
+                    conversation_id,
+                    k
+                );
+                active.remove(conversation_id);
+            }
         }
         let prefix = format!(
             "{}{}",
@@ -494,6 +508,7 @@ impl AppState {
             crate::task_board::coordination::main_turn::MAIN_TURN_KEY_SEP
         );
         let mut keys = self.task_board_store.list_store_keys_by_prefix(&prefix);
+        keys.retain(|k| !crate::task_board::is_child_store_key(k));
         if !keys.is_empty() {
             let pick = keys
                 .iter()
@@ -516,6 +531,83 @@ impl AppState {
             return Some(conversation_id.to_string());
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod active_main_task_board_tests {
+    use super::AppState;
+    use crate::task_board::{
+        main_turn_task_board_store_key, sub_agent_task_board_store_key,
+    };
+    use serde_json::json;
+
+    fn seed_running_child_board(
+        state: &AppState,
+        conv: &str,
+        turn: &str,
+        task_id: &str,
+    ) -> String {
+        let parent = main_turn_task_board_store_key(conv, turn);
+        let child = sub_agent_task_board_store_key(&parent, task_id);
+        state
+            .task_board_store
+            .apply(
+                &child,
+                "init",
+                &json!({
+                    "goal": "child goal",
+                    "items": [{"id": "m1", "title": "S", "status": "pending"}]
+                }),
+            )
+            .expect("init child");
+        child
+    }
+
+    #[test]
+    fn get_active_main_task_board_key_skips_child_from_prefix_scan() {
+        let state = AppState::new();
+        let conv = "conv-active-child";
+        seed_running_child_board(&state, conv, "user-1", "sub_task_x");
+        assert_eq!(state.get_active_main_task_board_key(conv), None);
+    }
+
+    #[test]
+    fn get_active_main_task_board_key_prefers_unfinished_parent_over_child() {
+        let state = AppState::new();
+        let conv = "conv-parent-wins";
+        let turn = "user-1";
+        let parent = main_turn_task_board_store_key(conv, turn);
+        state
+            .task_board_store
+            .apply(
+                &parent,
+                "init",
+                &json!({
+                    "goal": "parent",
+                    "items": [{"id": "m1", "title": "P", "status": "pending"}]
+                }),
+            )
+            .expect("init parent");
+        let child = seed_running_child_board(&state, conv, turn, "sub_task_y");
+        assert_eq!(
+            state.get_active_main_task_board_key(conv).as_deref(),
+            Some(parent.as_str())
+        );
+        assert_ne!(
+            state.get_active_main_task_board_key(conv).as_deref(),
+            Some(child.as_str())
+        );
+    }
+
+    #[test]
+    fn set_active_main_task_board_key_rejects_child() {
+        let state = AppState::new();
+        let conv = "conv-reject-child";
+        let parent = main_turn_task_board_store_key(conv, "user-1");
+        let child = sub_agent_task_board_store_key(&parent, "sub1");
+        state.set_active_main_task_board_key(conv, &child);
+        assert_eq!(state.get_active_main_task_board_key(conv), None);
     }
 }
 

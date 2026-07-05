@@ -282,6 +282,25 @@ pub(super) async fn run_subagent_delegation(
                                 "run_subagent failed conversation_id={}: {e:#}",
                                 conversation_id
                             );
+                            let child_board_key = crate::task_board::sub_agent_task_board_store_key(
+                                parent_task_board_store_key,
+                                task.id.trim(),
+                            );
+                            match state
+                                .task_board_store
+                                .apply(&child_board_key, "abandon", &serde_json::json!({}))
+                            {
+                                Ok(_) => log::info!(
+                                    "run_subagent: child board abandoned conversation_id={} store_key={}",
+                                    conversation_id,
+                                    child_board_key
+                                ),
+                                Err(abandon_err) => log::warn!(
+                                    "run_subagent: child board abandon skipped conversation_id={} store_key={}: {abandon_err:#}",
+                                    conversation_id,
+                                    child_board_key
+                                ),
+                            }
                             emit_subagent_trace_step(
                                 stream,
                                 ctx,

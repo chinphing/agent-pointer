@@ -274,9 +274,10 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
     });
 
     log::info!(
-        "tool_batch_exec: mode={:?} waves={} conversation_id={}",
+        "tool_batch_exec: mode={:?} waves={} degrade={:?} conversation_id={}",
         plan.mode,
         plan.waves.len(),
+        plan.degrade_reason,
         pass.ctx.session.conversation_id
     );
 

@@ -30,6 +30,20 @@ pub fn memories_dir_for(session_user_id: &str) -> anyhow::Result<PathBuf> {
     Ok(memories_root_dir()?.join(user_storage_segment(session_user_id)))
 }
 
+/// Persist platform `session_user_id` on a conversation before attachment save or chat.
+pub fn ensure_conversation_session_user(
+    conversation_id: &str,
+    session_user_id: &str,
+) -> anyhow::Result<()> {
+    let uid = session_user_id.trim();
+    if uid.is_empty() {
+        anyhow::bail!("请先登录 Pointer 账户");
+    }
+    crate::conversation_store::global_store()?
+        .ensure_session_user_id(conversation_id, uid)
+        .map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

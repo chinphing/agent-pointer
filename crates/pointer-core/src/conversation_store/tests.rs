@@ -335,6 +335,37 @@ mod tests {
     }
 
     #[test]
+    fn save_meta_all_with_platform_user_binds_empty_session_user_id() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let meta = crate::models::ConversationMeta {
+            id: "new-session".into(),
+            title: "新会话".into(),
+            created_at: 1_000,
+            updated_at: 1_000,
+            skill_ids: vec![],
+            tool_rounds_used: 0,
+            tool_rounds_used_supervisor: 0,
+            computer_monitor_id: None,
+            workspace_root: String::new(),
+            workspace_user_set: false,
+            workspace_inherit_disabled: false,
+            lead_agent_id: crate::agents::DEFAULT_LEAD_AGENT_ID.to_string(),
+            agent_mode: crate::agents::AGENT_MODE_SINGLE.to_string(),
+            message_count: 0,
+            preview: String::new(),
+            session_user_id: String::new(),
+        };
+        store
+            .save_meta_all_with_platform_user(&[meta], Some("platform-user-1"))
+            .unwrap();
+        assert_eq!(
+            store.session_user_id("new-session").unwrap(),
+            "platform-user-1"
+        );
+    }
+
+    #[test]
     fn delete_conversation_removes_row_and_messages() {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();

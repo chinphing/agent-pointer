@@ -6,7 +6,7 @@ Each conversation row stores `session_user_id` (API field `sessionUserId`).
 
 | Source | Value |
 | --- | --- |
-| Desktop / web chat | Platform OAuth user id (`platform_user_id`) on first `run_chat` when empty |
+| Desktop / web chat | Platform OAuth user id on first `save_conversation_meta` (new session), `save_chat_attachment`, or `run_chat` when empty |
 | IM direct message | Channel `sender_id` (e.g. WeCom `userid`, Feishu `open_id`) |
 | IM shared group session | Fixed `conversation_key` (e.g. `wecom:group:{chatId}`) |
 
@@ -42,4 +42,6 @@ See [terminal-environment-variables.md](terminal-environment-variables.md) for i
 
 Legacy root-level `memories/MEMORY.md` is read as a fallback until a user-scoped file exists. New writes always go to the user subdirectory.
 
-During agent runs, new-layout media paths are checked against the active `SESSION_USER_ID` when loading files.
+`save_conversation_meta` binds `session_user_id` when the platform session is logged in and the row is still empty (covers new sessions before the first message). `save_chat_attachment` requires login and binds before writing files, so attachments are not stored under `_anonymous/` after login.
+
+During agent runs, new-layout media paths are checked against the active `SESSION_USER_ID` when loading files. Legacy `{conversation_id}/…` and `_anonymous/…` paths remain readable.

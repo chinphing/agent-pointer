@@ -86,16 +86,59 @@ pub(super) async fn run_chat_inner(
     let workspace_root = req.workspace_root.clone();
     let run_id = req.run_id.as_str();
     let cancel = ctx.cancel.clone();
-    let login_user_id = state.active_platform_auth().platform_user_id();
 
-    if let Some(uid) = login_user_id.as_deref() {
-        if let Err(e) = state
-            .session_index
-            .ensure_session_user_id(conversation_id, uid)
+    // Refresh platform session and gate chat before binding session_user_id or persisting media.
+    let web_session = crate::web_request_auth::scoped_login_creds().is_some();
+    match state.active_platform_auth().refresh_if_needed().await {
+        Ok(Some((_session, creds))) => {
+            if !web_session {
+                if creds.api_key.is_some()
+                    || !creds.provider_api_keys.is_empty()
+                    || creds.media_oss.is_some()
+                {
+                    state.apply_login_credentials(&creds);
+                } else if let Ok(Some(fetched)) =
+                    state.active_platform_auth().fetch_llm_credentials().await
+                {
+                    state.apply_login_credentials(&fetched);
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(e) => {
+            log::warn!("platform_auth: refresh before chat failed: {e:#}");
+        }
+    }
+    let platform_logged_in = state.active_platform_auth().session_view().logged_in;
+    if platform_logged_in || web_session {
+        if platform_logged_in {
+            if let Err(e) = state.active_platform_auth().ensure_llm_allowed().await {
+                let msg = if e.to_string().contains("token_quota_exhausted") {
+                    "套餐 Token 额度已用尽，请前往 Openpointer 官网充值或联系管理员。".to_string()
+                } else {
+                    e.to_string()
+                };
+                return Err(anyhow!(msg));
+            }
+        }
+    } else {
+        return Err(anyhow!("请先登录 Pointer 账户"));
+    }
+
+    if platform_logged_in {
+        if let Some(uid) = state
+            .active_platform_auth()
+            .platform_user_id()
+            .filter(|s| !s.trim().is_empty())
         {
-            log::warn!(
-                "session_user_id ensure failed conversation_id={conversation_id}: {e:#}"
-            );
+            if let Err(e) = state
+                .session_index
+                .ensure_session_user_id(conversation_id, uid.as_str())
+            {
+                log::warn!(
+                    "session_user_id ensure failed conversation_id={conversation_id}: {e:#}"
+                );
+            }
         }
     }
     let session_user_id = state
@@ -167,43 +210,6 @@ pub(super) async fn run_chat_inner(
                 is_ephemeral_sandbox: is_ephemeral,
             },
         );
-    }
-    // Restore from auth.dat / refresh near-expiry tokens before gating chat.
-    let web_session = crate::web_request_auth::scoped_login_creds().is_some();
-    match state.active_platform_auth().refresh_if_needed().await {
-        Ok(Some((_session, creds))) => {
-            if !web_session {
-                if creds.api_key.is_some()
-                    || !creds.provider_api_keys.is_empty()
-                    || creds.media_oss.is_some()
-                {
-                    state.apply_login_credentials(&creds);
-                } else if let Ok(Some(fetched)) =
-                    state.active_platform_auth().fetch_llm_credentials().await
-                {
-                    state.apply_login_credentials(&fetched);
-                }
-            }
-        }
-        Ok(None) => {}
-        Err(e) => {
-            log::warn!("platform_auth: refresh before chat failed: {e:#}");
-        }
-    }
-    let platform_logged_in = state.active_platform_auth().session_view().logged_in;
-    if platform_logged_in || web_session {
-        if platform_logged_in {
-            if let Err(e) = state.active_platform_auth().ensure_llm_allowed().await {
-                let msg = if e.to_string().contains("token_quota_exhausted") {
-                    "套餐 Token 额度已用尽，请前往 Openpointer 官网充值或联系管理员。".to_string()
-                } else {
-                    e.to_string()
-                };
-                return Err(anyhow!(msg));
-            }
-        }
-    } else {
-        return Err(anyhow!("请先登录 Pointer 账户"));
     }
     let mut settings = state.effective_settings();
     if !effective_workspace.trim().is_empty() {

@@ -821,6 +821,17 @@ async fn save_chat_attachment(
     Json(payload): Json<SaveChatAttachmentPayload>,
 ) -> Result<Json<SaveChatAttachmentResponse>, ApiError> {
     require_platform_access(&state)?;
+    let uid = state
+        .core
+        .active_platform_auth()
+        .platform_user_id()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| ApiError(anyhow::anyhow!("platform_login_required")))?;
+    state
+        .core
+        .session_index
+        .ensure_session_user_id(&payload.conversation_id, &uid)
+        .map_err(ApiError::from)?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(payload.content_base64.trim())
         .map_err(|e| ApiError(anyhow::anyhow!("decode attachment base64: {e}")))?;
@@ -1129,7 +1140,8 @@ async fn save_conversation_meta(
     Json(metas): Json<Vec<pointer_core::models::ConversationMeta>>,
 ) -> Result<StatusCode, ApiError> {
     require_platform_access(&state)?;
-    storage::save_conversation_meta(&metas)?;
+    let platform_user_id = state.core.active_platform_auth().platform_user_id();
+    storage::save_conversation_meta_with_platform_user(&metas, platform_user_id.as_deref())?;
     Ok(StatusCode::NO_CONTENT)
 }
 

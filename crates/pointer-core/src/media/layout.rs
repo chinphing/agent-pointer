@@ -2,6 +2,7 @@
 
 use anyhow::{bail, Result};
 
+use crate::session_sandbox::ANONYMOUS_SEGMENT;
 use crate::user_storage::user_storage_segment;
 
 /// Parsed `storage_rel_path` under `conversation-media/`.
@@ -56,7 +57,7 @@ pub fn verify_storage_rel_access(storage_rel_path: &str) -> Result<()> {
         return Ok(());
     };
     let parsed = parse_storage_rel(storage_rel_path)?;
-    if parsed.legacy {
+    if parsed.legacy || parsed.user_segment == ANONYMOUS_SEGMENT {
         return Ok(());
     }
     let expected = user_storage_segment(&actor);
@@ -84,6 +85,13 @@ mod tests {
         let parsed = parse_storage_rel("feishu_default_dm_x/a.png").unwrap();
         assert!(parsed.legacy);
         assert_eq!(parsed.conversation_segment, "feishu_default_dm_x");
+    }
+
+    #[test]
+    fn verify_allows_anonymous_layout_for_logged_in_actor() {
+        let rel = build_storage_rel("", "conv-1", "f.bin");
+        let _guard = crate::session_user_env::SessionUserIdGuard::enter("user-a".into());
+        assert!(verify_storage_rel_access(&rel).is_ok());
     }
 
     #[test]

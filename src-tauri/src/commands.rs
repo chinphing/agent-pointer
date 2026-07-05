@@ -776,11 +776,24 @@ pub fn preview_media_ref(media_ref: String) -> Result<ChatMediaPreview, String> 
 
 #[tauri::command]
 pub fn save_chat_attachment(
+    state: State<'_, Arc<AppState>>,
     conversation_id: String,
     attachment_id: String,
     content_base64: String,
     file_name: String,
 ) -> Result<String, String> {
+    if !state.active_platform_auth().session_view().logged_in {
+        return Err("请先登录 Pointer 账户".into());
+    }
+    let uid = state
+        .active_platform_auth()
+        .platform_user_id()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| "请先登录 Pointer 账户".to_string())?;
+    state
+        .session_index
+        .ensure_session_user_id(&conversation_id, &uid)
+        .map_err(|e| e.to_string())?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(content_base64.trim())
         .map_err(|e| format!("decode attachment base64: {e}"))?;
@@ -888,8 +901,17 @@ pub fn save_conversations(conversations: Vec<Conversation>) -> Result<(), String
 }
 
 #[tauri::command]
-pub fn save_conversation_meta(metas: Vec<pointer_core::models::ConversationMeta>) -> Result<(), String> {
-    storage::save_conversation_meta(&metas).map_err(|e| e.to_string())
+pub fn save_conversation_meta(
+    state: State<'_, Arc<AppState>>,
+    metas: Vec<pointer_core::models::ConversationMeta>,
+) -> Result<(), String> {
+    let platform_user_id = if state.active_platform_auth().session_view().logged_in {
+        state.active_platform_auth().platform_user_id()
+    } else {
+        None
+    };
+    storage::save_conversation_meta_with_platform_user(&metas, platform_user_id.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

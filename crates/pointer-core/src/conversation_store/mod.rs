@@ -179,8 +179,31 @@ impl ConversationStore {
     /// Pure upsert — does NOT delete conversations absent from `metas`.
     /// Deletion is handled explicitly via [`ConversationStore::delete_conversation`].
     pub fn save_meta_all(&self, metas: &[ConversationMeta]) -> Result<()> {
-        self.db
-            .execute_write(|conn| write::save_meta_all_in_conn(conn, metas))?;
+        self.save_meta_all_with_platform_user(metas, None)
+    }
+
+    /// Like [`Self::save_meta_all`], but binds empty `session_user_id` rows to
+    /// `platform_user_id` when the desktop/web user is logged in.
+    pub fn save_meta_all_with_platform_user(
+        &self,
+        metas: &[ConversationMeta],
+        platform_user_id: Option<&str>,
+    ) -> Result<()> {
+        self.db.execute_write(|conn| {
+            if let Some(uid) = platform_user_id.filter(|s| !s.trim().is_empty()) {
+                for meta in metas {
+                    if let Err(e) =
+                        session_user::ensure_session_user_id_in_conn(conn, &meta.id, uid)
+                    {
+                        log::warn!(
+                            "session_user_id ensure on meta save failed conv={}: {e:#}",
+                            meta.id
+                        );
+                    }
+                }
+            }
+            write::save_meta_all_in_conn(conn, metas)
+        })?;
         Ok(())
     }
 

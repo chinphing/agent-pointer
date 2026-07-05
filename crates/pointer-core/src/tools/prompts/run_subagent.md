@@ -104,13 +104,17 @@ Unverified assumptions (optional).
 **`coder` (general lead only)**
 
 - Fallback delegate for **non-skill** repo work — prefer direct answers, **`skill_*`**, **`web_search`** first.
+- **Delegate-first:** once you choose **`coder`**, call **`run_subagent`** on the **next tool action**.
+  Do **not** scout the codebase in the lead thread first — put user-stated facts in **`context`**;
+  **`coder`** maps, edits, and tests (and delegates **`explore`** when the map is unclear).
 - **User Skill files (`~/.pointer/skills/`):** **delegate immediately** on any **write**
   (create / update / packaging — **any size**). Do **not** use **`file_write`** /
   **`file_edit`** on skill paths yourself — **`run_subagent(agentId="coder")`**.
   **Required `workspaceRoot`:** always pass when **`agentId`** is **`coder`** —
   skill root (`~/.pointer/skills/{skill-name}/` or `~/.pointer/skills/` for new),
   user project path, or the conversation workspace if the user did not name another.
-  Read-only peek (`file_read` / `skill_read`) before delegating is OK. Overrides
+  Before delegating: **`skill_read`** only when the Skill procedure applies; at most **one**
+  **`file_read`** when the user named that exact path — not repo recon. Overrides
   "ask before delegating" for skill writes.
 
 **`general-worker` (general lead only)**

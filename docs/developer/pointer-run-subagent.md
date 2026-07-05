@@ -41,6 +41,7 @@ allowAgents:
 内置 **general** lead 可将 **`coder`**、**`computer`** 列入 **`allowAgents`**。政策写在 **`general/AGENT.md`** 的 **Delegation** 段，并在 **`run_subagent`** 工具文档中有 general 专用提醒：
 
 - **专用方案优先**：直接回答、**`skill_*`**、**`web_search`** 等；简单 Q&A 不委派。
+- **Delegate-first（general → coder）**：一旦判定需要 **`coder`**，下一轮工具调用应为 **`run_subagent(coder)`**，父线程不做代码库摸底（`file_read` / `terminal` 侦察）；用户已给的事实写入 **`context`**，摸底与实现由 **coder**（必要时 **`explore`**）完成。见 **`general/AGENT.md`** **Delegate-first (coder)**。
 - **兜底 + 同意**：`coder` / `computer` 委派前应征询同意（或用户已明确要求代劳）。
 - **主动询问（general 可先开口）**：明显需 **coder**（仓库工程）时主动 offer；凡本需用户在本机动手（浏览器、桌面应用、表单、开发者控制台等）且其他工具无法完成时，**先 offer `computer` 代操**，再给纯手动步骤；多种方式并存（扫码/链接等）时同样先同意，优先本机可点路径。用户直接选 coder/computer 为 lead 时不适用。
 

@@ -36,14 +36,16 @@ allowAgents:
 
 任务由宿主写入子 agent **system**（**Assigned task**）；首条 user 为短 stub，不重复 goal。列表文件路径写在 **`context`**，由 worker planner 在 **`task_board_init`** 时填入 **`work_items_source`**。
 
-## `general` 委派 `coder` / `computer`（兜底 + 需同意）
+## `general` 委派 `coder` / `computer`
 
-内置 **general** lead 可将 **`coder`**、**`computer`** 列入 **`allowAgents`**。政策写在 **`general/AGENT.md`** 的 **Delegation** 段，并在 **`run_subagent`** 工具文档中有 general 专用提醒：
+**`coder` 可直接委派；`computer` 委派前需用户同意**（或用户已明确要求代操）。政策见 **`general/AGENT.md`** **Delegation** 段及 **`run_subagent`** 工具文档。
 
-- **专用方案优先**：直接回答、**`skill_*`**、**`web_search`** 等；简单 Q&A 不委派。
-- **Delegate-first（general → coder）**：一旦判定需要 **`coder`**，下一轮工具调用应为 **`run_subagent(coder)`**，父线程不做代码库摸底（`file_read` / `terminal` 侦察）；用户已给的事实写入 **`context`**，摸底与实现由 **coder**（必要时 **`explore`**）完成。见 **`general/AGENT.md`** **Delegate-first (coder)**。
-- **兜底 + 同意**：`coder` / `computer` 委派前应征询同意（或用户已明确要求代劳）。
-- **主动询问（general 可先开口）**：明显需 **coder**（仓库工程）时主动 offer；凡本需用户在本机动手（浏览器、桌面应用、表单、开发者控制台等）且其他工具无法完成时，**先 offer `computer` 代操**，再给纯手动步骤；多种方式并存（扫码/链接等）时同样先同意，优先本机可点路径。用户直接选 coder/computer 为 lead 时不适用。
+| Worker | 同意 | 说明 |
+|--------|------|------|
+| **`coder`** | 不需要 | 所有仓库源码工作（分析、修改、测试）；skill 写入。下一轮工具 = **`run_subagent(coder)`**，父线程不摸底；用户事实写入 **`context`**，由 **coder**（必要时 **`explore`**）完成。 |
+| **`computer`** | 需要 | 本机浏览器/桌面操作。先 offer 代操；用户同意或已明确要求后再 **`run_subagent(computer)`**。 |
+
+**留在 general 主线程**：对话、通识、**`skill_*`**、附件；无需读仓库的简单 Q&A。
 
 Supervisor 团队模式： **`supervisor/AGENT.md`** 与 **`supervisor_plan.rs`** 规划提示同步同一政策。
 

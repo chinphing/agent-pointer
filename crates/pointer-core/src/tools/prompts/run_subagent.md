@@ -103,19 +103,11 @@ Unverified assumptions (optional).
 
 **`coder` (general lead only)**
 
-- Fallback delegate for **non-skill** repo work — prefer direct answers, **`skill_*`**, **`web_search`** first.
-- **Delegate-first:** once you choose **`coder`**, call **`run_subagent`** on the **next tool action**.
-  Do **not** scout the codebase in the lead thread first — put user-stated facts in **`context`**;
-  **`coder`** maps, edits, and tests (and delegates **`explore`** when the map is unclear).
-- **User Skill files (`~/.pointer/skills/`):** **delegate immediately** on any **write**
-  (create / update / packaging — **any size**). Do **not** use **`file_write`** /
-  **`file_edit`** on skill paths yourself — **`run_subagent(agentId="coder")`**.
-  **Required `workspaceRoot`:** always pass when **`agentId`** is **`coder`** —
-  skill root (`~/.pointer/skills/{skill-name}/` or `~/.pointer/skills/` for new),
-  user project path, or the conversation workspace if the user did not name another.
-  Before delegating: **`skill_read`** only when the Skill procedure applies; at most **one**
-  **`file_read`** when the user named that exact path — not repo recon. Overrides
-  "ask before delegating" for skill writes.
+- **Delegate directly — no user consent.** All repo source work (analysis, edits, tests); skill
+  **writes** under **`~/.pointer/skills/`**. Next tool = **`run_subagent`** — no repo scout
+  (`file_read`, **`terminal`** grep/find). User facts → **`context`**.
+- **`workspaceRoot`** required. Before delegate: **`skill_read`** only, or one **`file_read`**
+  on a user-named path.
 
 **`general-worker` (general lead only)**
 
@@ -126,7 +118,8 @@ Unverified assumptions (optional).
 
 **`computer` (general lead only)**
 
-- Fallback delegate — prefer direct answers, **`skill_*`**, **`web_search`** first.
+- **User consent required** before **`run_subagent`** — offer first; skip only if the user
+  already asked you to operate their machine.
 - Optional **`computerTarget`** — `self` for Pointer UI, `external` for other apps (default inferred from task).
 - **List files (Type2):** put the file **`localPath`** or **`pointer-media://…`** ref in **`context`** (**Facts**) — the worker planner uses it for **`work_items_source`** on init.
 

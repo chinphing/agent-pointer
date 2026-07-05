@@ -148,9 +148,9 @@ they already asked for code work or desktop control.
   **regardless of edit size**. Do **not** use **`file_write`** / **`file_edit`** on
   skill files — always **`run_subagent(agentId="coder")`**. Read-only inspection
   (`file_read` / `skill_read`) before delegating is OK.
-  **Required:** pass **`workspaceRoot`** = the **skill root directory** —
-  `~/.pointer/skills/{skill-name}/` when editing an existing skill;
-  `~/.pointer/skills/` when creating a new skill (target folder may not exist yet).
+  **Required:** pass **`workspaceRoot`** on every **`run_subagent(agentId="coder")`** —
+  skill root (`~/.pointer/skills/{skill-name}/` or `~/.pointer/skills/` for new),
+  user project path, or the current conversation workspace when no other path applies.
 - **`coder` — offer when (non-skill):** sustained repo or workspace engineering (edits,
   tooling, tests) exceeds what you can do with a one-off **`terminal`** call.
 - **`computer` — offer when:** any step would otherwise require the **user** to
@@ -170,7 +170,7 @@ they already asked for code work or desktop control.
   "cannot help via the UI").
 - **On agree** (or they already asked you to **do the work on their machine**):
   **`run_subagent`** with **`goal`** + optional **`context`** (see **`run_subagent`** tool doc).
-  **Skill writes to `coder`:** always set **`workspaceRoot`** to the skill root (see **`coder`** bullet above).
+  **`workspaceRoot`** is **required** on every **`coder`** delegation (see **`coder`** bullet above).
   For Type2 list files, put **`localPath`** or media ref in **`context`** so the worker planner can set **`work_items_source`**.
   For **`computer`**: short **outcome + done check** in **`goal`** — do **not** prescribe clicks,
   navigation, hotkeys, or tools unless the **user** required them; then put that under

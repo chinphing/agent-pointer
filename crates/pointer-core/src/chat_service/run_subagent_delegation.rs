@@ -7,7 +7,7 @@ use crate::agents::AgentTask;
 use crate::models::{AgentTrace, StreamEvent};
 use crate::session_sandbox::SessionSandbox;
 use crate::tools::run_subagent::{
-    resolve_computer_operation_target, validate_spawn_depth,
+    resolve_computer_operation_target, validate_run_subagent_workspace, validate_spawn_depth,
 };
 use crate::provider::OpenAIProvider;
 use anyhow::Result;
@@ -84,6 +84,9 @@ pub(super) async fn run_subagent_delegation(
                 Ok(d) => d,
                 Err(msg) => return Ok((format!("ERROR: {msg}"), false, Some(msg))),
             };
+            if let Err(msg) = validate_run_subagent_workspace(&parsed) {
+                return Ok((format!("ERROR: {msg}"), false, Some(msg)));
+            }
             let agent_id = parsed.agent_id;
             match crate::tools::run_subagent::validate_run_subagent_target(
                 &state.agents,

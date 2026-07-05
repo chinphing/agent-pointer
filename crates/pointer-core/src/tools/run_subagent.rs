@@ -196,6 +196,25 @@ pub fn validate_run_subagent_target(
     Ok(d)
 }
 
+/// **`workspaceRoot`** is required when delegating to **`coder`**.
+pub fn validate_run_subagent_workspace(parsed: &RunSubagentArgs) -> Result<(), String> {
+    if parsed.agent_id.trim() != "coder" {
+        return Ok(());
+    }
+    if parsed
+        .workspace_root
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|s| !s.is_empty())
+    {
+        return Ok(());
+    }
+    Err(
+        "missing or empty workspaceRoot: required when agentId is `coder` (skill root under ~/.pointer/skills/, user project path, or current conversation workspace)"
+            .into(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,6 +326,34 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(parsed.workspace_root.as_deref(), Some("/tmp/my-project"));
+    }
+
+    #[test]
+    fn validate_coder_requires_workspace_root() {
+        let parsed = parse_run_subagent_args(&json!({
+            "agentId": "coder",
+            "goal": "What: Fix tests.\nDone when: tests pass."
+        }))
+        .unwrap();
+        assert!(validate_run_subagent_workspace(&parsed).is_err());
+
+        let with_ws = parse_run_subagent_args(&json!({
+            "agentId": "coder",
+            "goal": "What: Fix tests.\nDone when: tests pass.",
+            "workspaceRoot": "/tmp/my-project"
+        }))
+        .unwrap();
+        assert!(validate_run_subagent_workspace(&with_ws).is_ok());
+    }
+
+    #[test]
+    fn validate_explore_does_not_require_workspace_root() {
+        let parsed = parse_run_subagent_args(&json!({
+            "agentId": "explore",
+            "goal": "Scenario: spec_map\nWhat: Map auth.\nDone when: handoff complete."
+        }))
+        .unwrap();
+        assert!(validate_run_subagent_workspace(&parsed).is_ok());
     }
 
     #[test]

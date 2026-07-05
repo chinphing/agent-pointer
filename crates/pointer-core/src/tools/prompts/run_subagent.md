@@ -107,11 +107,11 @@ Unverified assumptions (optional).
 - **User Skill files (`~/.pointer/skills/`):** **delegate immediately** on any **write**
   (create / update / packaging — **any size**). Do **not** use **`file_write`** /
   **`file_edit`** on skill paths yourself — **`run_subagent(agentId="coder")`**.
-  **Required `workspaceRoot`:** skill root directory —
-  `~/.pointer/skills/{skill-name}/` when editing; `~/.pointer/skills/` when creating new.
+  **Required `workspaceRoot`:** always pass when **`agentId`** is **`coder`** —
+  skill root (`~/.pointer/skills/{skill-name}/` or `~/.pointer/skills/` for new),
+  user project path, or the conversation workspace if the user did not name another.
   Read-only peek (`file_read` / `skill_read`) before delegating is OK. Overrides
-  "ask before delegating" and the fallback rule above.
-- Optional **`workspaceRoot`** for **non-skill** repo work when user gives a project path; else omit (host sandbox).
+  "ask before delegating" for skill writes.
 
 **`general-worker` (general lead only)**
 
@@ -139,8 +139,7 @@ Unverified assumptions (optional).
 
 **`coder` goals**
 
-- **Skill work:** **`workspaceRoot`** = skill root (`~/.pointer/skills/{name}/` or `~/.pointer/skills/` for new).
-- Optional **`workspaceRoot`** for other repo tasks when the user gave a project path.
+- **`workspaceRoot`** (required on **`run_subagent`**) — skill root, user project path, or conversation workspace.
 - Do **not** send patch hunks or **`oldString`/`newString`** — put edit ideas in **Lead suggestion (non-binding)**.
 
 **`general-worker` goals**
@@ -186,9 +185,7 @@ User required a specific path — put it in **`context`**, not **`goal`**:
 - **`context`** (optional) — One string; Markdown **`##` blocks** (not JSON). See template above.
 - **`title`** (optional) — Short label for traces.
 - **`taskId`** (optional) — Stable id for sidecar state.
-- **`workspaceRoot`** (optional, **general → `coder`**) — Absolute directory for the coder worker.
-  **Required for Skill file writes:** skill root — `~/.pointer/skills/{skill-name}/` (edit) or
-  `~/.pointer/skills/` (create). Optional for repo work when the user named a project path.
+- **`workspaceRoot`** (**required** when **`agentId`** is **`coder`**) — Absolute directory for the coder worker (skill root, user project, or conversation workspace). Host rejects the call if omitted.
 - **`computerTarget`** (optional, **general → `computer`**) — `self` | `external`.
 
 **Handoff flow**

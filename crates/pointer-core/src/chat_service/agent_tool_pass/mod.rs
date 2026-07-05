@@ -23,13 +23,17 @@ use crate::tools::parse_tool_call_arguments;
 use crate::tools::registry_tool_in_allow_list;
 use anyhow::{anyhow, Result};
 use batch::{batch_needs_serial_for_approval, plan_tool_batch, PlanToolBatchInput, ToolWave};
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Semaphore;
 
 use super::emit::{emit, emit_task_board_updated, trace_id_opt};
 use super::context::TranscriptPersist;
-use super::util::{patch_assistant_tool_call_display, tool_display_stream_fields};
+use super::util::{
+    patch_assistant_tool_call_display, patch_assistant_tool_call_outcome,
+    tool_display_stream_fields,
+};
 
 use approval::run_approval_gate;
 use dispatch::{execute_tool_invocation, invoke_prepared_parallel};
@@ -288,6 +292,17 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
         match wave {
             ToolWave::Serial(indices) => {
                 for idx in indices {
+                    if pass.cancel.is_cancelled() {
+                        if let Some(consumed) = pass.ctx.consumed_single.as_mut() {
+                            pass.ctx.tool_budget.sync_out(consumed);
+                        }
+                        pass.ctx
+                            .session
+                            .state
+                            .computer_state
+                            .mark_cancelled(pass.ctx.session.conversation_id);
+                        return Err(anyhow!("已停止生成"));
+                    }
                     let outcome = run_one_prepared(
                         &mut pass,
                         &prepared,
@@ -310,10 +325,15 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                 }
             }
             ToolWave::Parallel(indices) => {
-                let mut wave_outcomes: Vec<(usize, OneToolOutcome)> = Vec::new();
-                let mut exec_indices: Vec<usize> = Vec::new();
+                let mut exec_futures: FuturesUnordered<_> = FuturesUnordered::new();
+                let mut in_flight_prep: Vec<usize> = Vec::new();
+                let mut wave_cancelled = false;
 
                 for idx in indices {
+                    if pass.cancel.is_cancelled() {
+                        wave_cancelled = true;
+                        break;
+                    }
                     let prep = &prepared[idx];
                     if !run_approval_gate(
                         &mut pass.ctx,
@@ -324,15 +344,22 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                     )
                     .await?
                     {
-                        wave_outcomes.push((
-                            prep.index,
+                        apply_one_outcome(
+                            &mut pass,
+                            &prepared,
+                            idx,
                             OneToolOutcome {
                                 index: prep.index,
                                 exec: Ok(("用户已拒绝该工具调用".into(), false, None)),
                                 duration_ms: 0,
                                 skipped: true,
                             },
-                        ));
+                            &sub_trace_id,
+                            &mut any_executed,
+                            &mut task_board_succeeded,
+                            &mut final_reply_output,
+                        )
+                        .await;
                         continue;
                     }
                     emit_tool_running(
@@ -347,12 +374,7 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                         sub_scoped_id.as_deref(),
                     );
                     pass.ctx.stats.record_tool_invocation();
-                    exec_indices.push(idx);
-                }
 
-                let mut exec_futures = Vec::with_capacity(exec_indices.len());
-                for idx in exec_indices {
-                    let prep = &prepared[idx];
                     let class = pass
                         .ctx
                         .session
@@ -425,32 +447,60 @@ pub(super) async fn run_agent_tool_pass(mut pass: ToolPassRequest<'_>) -> Result
                             skipped: false,
                         }
                     });
+                    in_flight_prep.push(idx);
                 }
 
-                let parallel_results = futures_util::future::join_all(exec_futures).await;
-                wave_outcomes.extend(
-                    parallel_results
-                        .into_iter()
-                        .map(|o| (o.index, o)),
-                );
-                wave_outcomes.sort_by_key(|(i, _)| *i);
-                for (_, outcome) in wave_outcomes {
-                    let idx = outcome.index;
-                    let prep_pos = prepared
-                        .iter()
-                        .position(|p| p.index == idx)
-                        .expect("prepared index");
-                    apply_one_outcome(
-                        &mut pass,
-                        &prepared,
-                        prep_pos,
-                        outcome,
-                        &sub_trace_id,
-                        &mut any_executed,
-                        &mut task_board_succeeded,
-                        &mut final_reply_output,
-                    )
-                    .await;
+                while !exec_futures.is_empty() {
+                    tokio::select! {
+                        biased;
+                        _ = pass.cancel.cancelled() => {
+                            wave_cancelled = true;
+                            log::info!(
+                                "parallel tool wave cancelled conversation_id={}",
+                                pass.ctx.session.conversation_id
+                            );
+                            break;
+                        }
+                        outcome = exec_futures.next() => {
+                            if let Some(outcome) = outcome {
+                                let prep_pos = prepared
+                                    .iter()
+                                    .position(|p| p.index == outcome.index)
+                                    .expect("prepared index");
+                                in_flight_prep.retain(|&p| p != prep_pos);
+                                apply_one_outcome(
+                                    &mut pass,
+                                    &prepared,
+                                    prep_pos,
+                                    outcome,
+                                    &sub_trace_id,
+                                    &mut any_executed,
+                                    &mut task_board_succeeded,
+                                    &mut final_reply_output,
+                                )
+                                .await;
+                            }
+                        }
+                    }
+                }
+
+                if wave_cancelled {
+                    for prep_pos in in_flight_prep {
+                        emit_tool_pass_cancelled(
+                            &mut pass,
+                            &prepared[prep_pos],
+                            &sub_trace_id,
+                        );
+                    }
+                    if let Some(consumed) = pass.ctx.consumed_single.as_mut() {
+                        pass.ctx.tool_budget.sync_out(consumed);
+                    }
+                    pass.ctx
+                        .session
+                        .state
+                        .computer_state
+                        .mark_cancelled(pass.ctx.session.conversation_id);
+                    return Err(anyhow!("已停止生成"));
                 }
             }
         }
@@ -624,6 +674,38 @@ async fn apply_one_outcome(
         );
     }
     *any_executed = true;
+}
+
+fn emit_tool_pass_cancelled(
+    pass: &mut ToolPassRequest<'_>,
+    prep: &PreparedTool,
+    sub_trace_id: &Option<String>,
+) {
+    let err = "已停止生成";
+    let scoped_message_id = pass
+        .ctx
+        .sub
+        .as_ref()
+        .map(|s| s.scoped_message_id.as_str());
+    emit_tool_failed(
+        pass.ctx.session.stream,
+        pass.ctx.message_id.as_str(),
+        &prep.tc,
+        sub_trace_id.as_deref(),
+        scoped_message_id,
+        err,
+    );
+    patch_assistant_tool_call_outcome(
+        pass.ctx.transcript.history,
+        pass.ctx.message_id.as_str(),
+        &prep.tc.id,
+        "failed",
+        None,
+        Some(err),
+        Some(0),
+        None,
+        None,
+    );
 }
 
 fn emit_tool_failed(

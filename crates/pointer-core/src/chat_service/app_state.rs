@@ -308,6 +308,11 @@ impl AppState {
         if let Some(token) = self.cancels.lock().get(conversation_id) {
             token.cancel();
         }
+        if self.abort_terminal_command(conversation_id, None) {
+            log::info!(
+                "cancel: aborted in-flight terminal commands conversation_id={conversation_id}"
+            );
+        }
         let approvals: Vec<_> = self.approvals.lock().drain().collect();
         for (_, tx) in approvals {
             let _ = tx.send(false);

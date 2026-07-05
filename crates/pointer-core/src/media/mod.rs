@@ -22,6 +22,7 @@ pub mod ffmpeg;
 pub mod office;
 pub mod pdf;
 pub mod pdf_render;
+pub mod layout;
 pub mod store;
 pub mod token;
 pub mod understand;

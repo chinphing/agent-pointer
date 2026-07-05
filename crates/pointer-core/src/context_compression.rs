@@ -774,7 +774,7 @@ pub async fn maybe_compress_history(
                 }
             }
             if let Some(store) = memory_store {
-                if let Err(e) = store.reload_snapshot() {
+                if let Err(e) = store.reload_snapshot_for_conversation(conversation_id) {
                     log::warn!("memory: reload after compression failed: {e:#}");
                 }
             }

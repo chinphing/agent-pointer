@@ -34,6 +34,7 @@ pub mod session_search;
 pub mod message_context;
 pub mod task_board;
 pub mod session_sandbox;
+pub mod user_storage;
 pub mod session_user_env;
 pub mod session_work_dir_env;
 

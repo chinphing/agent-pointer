@@ -1,11 +1,13 @@
 //! Bounded curated memory (MEMORY.md + USER.md) with frozen system-prompt snapshot.
 
 use anyhow::{anyhow, Context, Result};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+
+use crate::user_storage::{memories_root_dir, user_storage_segment};
 
 pub const ENTRY_DELIMITER: &str = "\n§\n";
 pub const DEFAULT_MEMORY_CHAR_LIMIT: usize = 2200;
@@ -51,36 +53,76 @@ struct MemoryStoreInner {
 
 pub struct MemoryStore {
     inner: RwLock<MemoryStoreInner>,
-    base_dir: PathBuf,
+    memories_root: PathBuf,
+    active_session_user_id: Mutex<String>,
 }
 
 impl MemoryStore {
     pub fn open_default() -> Result<Self> {
-        let base_dir = memories_dir()?;
+        let memories_root = memories_root_dir()?;
         Ok(Self {
             inner: RwLock::new(MemoryStoreInner::default()),
-            base_dir,
+            memories_root,
+            active_session_user_id: Mutex::new(String::new()),
         })
     }
 
-    pub fn open_in_dir(base_dir: PathBuf) -> Self {
-        let _ = fs::create_dir_all(&base_dir);
+    pub fn open_in_dir(memories_root: PathBuf) -> Self {
+        let _ = fs::create_dir_all(&memories_root);
         Self {
             inner: RwLock::new(MemoryStoreInner::default()),
-            base_dir,
+            memories_root,
+            active_session_user_id: Mutex::new(String::new()),
         }
     }
 
-    pub fn memories_dir(&self) -> &Path {
-        &self.base_dir
+    /// Switch the in-memory snapshot to one user's on-disk files.
+    pub fn ensure_session_user(&self, session_user_id: &str) -> Result<()> {
+        let key = session_user_id.trim().to_string();
+        let mut active = self.active_session_user_id.lock();
+        if *active == key {
+            return Ok(());
+        }
+        *active = key.clone();
+        drop(active);
+        self.reload_snapshot_for(session_user_id)
+    }
+
+    pub fn reload_snapshot_for_conversation(&self, conversation_id: &str) -> Result<()> {
+        let uid = crate::user_storage::session_user_id_for_conversation(conversation_id);
+        self.ensure_session_user(&uid)
+    }
+
+    pub fn memories_dir(&self) -> PathBuf {
+        let active = self.active_session_user_id.lock().clone();
+        self.user_base_dir(&active)
+    }
+
+    fn user_base_dir(&self, session_user_id: &str) -> PathBuf {
+        self.memories_root
+            .join(user_storage_segment(session_user_id))
     }
 
     /// Load live entries from disk and rebuild the frozen system-prompt snapshot.
     pub fn reload_snapshot(&self) -> Result<()> {
-        fs::create_dir_all(&self.base_dir)
-            .with_context(|| format!("create memories dir {}", self.base_dir.display()))?;
-        let memory_entries = Self::read_entries(&self.path_for(MemoryTarget::Memory))?;
-        let user_entries = Self::read_entries(&self.path_for(MemoryTarget::User))?;
+        let active = self.active_session_user_id.lock().clone();
+        self.reload_snapshot_for(&active)
+    }
+
+    fn reload_snapshot_for(&self, session_user_id: &str) -> Result<()> {
+        let base_dir = self.user_base_dir(session_user_id);
+        fs::create_dir_all(&base_dir)
+            .with_context(|| format!("create memories dir {}", base_dir.display()))?;
+        let memory_entries = Self::read_entries_with_legacy(
+            &base_dir.join(MemoryTarget::Memory.file_name()),
+            &self
+                .memories_root
+                .join(MemoryTarget::Memory.file_name()),
+        )?;
+        let user_entries = Self::read_entries_with_legacy(
+            &base_dir.join(MemoryTarget::User.file_name()),
+            &self.memories_root.join(MemoryTarget::User.file_name()),
+        )?;
         let snapshot_memory = Self::render_snapshot_block(
             MemoryTarget::Memory,
             &memory_entries,
@@ -342,7 +384,12 @@ impl MemoryStore {
     }
 
     fn path_for(&self, target: MemoryTarget) -> PathBuf {
-        self.base_dir.join(target.file_name())
+        let active = self.active_session_user_id.lock().clone();
+        self.user_base_dir(&active).join(target.file_name())
+    }
+
+    fn legacy_path_for(&self, target: MemoryTarget) -> PathBuf {
+        self.memories_root.join(target.file_name())
     }
 
     fn char_limit(&self, target: MemoryTarget, memory_limit: usize, user_limit: usize) -> usize {
@@ -365,6 +412,7 @@ impl MemoryStore {
 
     fn reload_target_under_lock(&self, g: &mut MemoryStoreInner, target: MemoryTarget) -> Result<()> {
         let path = self.path_for(target);
+        let legacy = self.legacy_path_for(target);
         if let Some(bak) = Self::detect_external_drift(&path, self.char_limit(target, DEFAULT_MEMORY_CHAR_LIMIT, DEFAULT_USER_CHAR_LIMIT))? {
             return Err(anyhow!(
                 "Refusing to write {}: external drift detected. Backup: {}",
@@ -372,7 +420,7 @@ impl MemoryStore {
                 bak.display()
             ));
         }
-        let fresh = Self::read_entries(&path)?;
+        let fresh = Self::read_entries_with_legacy(&path, &legacy)?;
         match target {
             MemoryTarget::Memory => g.memory_entries = fresh,
             MemoryTarget::User => g.user_entries = fresh,
@@ -386,6 +434,21 @@ impl MemoryStore {
             MemoryTarget::User => &g.user_entries,
         };
         Self::write_entries(&self.path_for(target), entries)
+    }
+
+    fn read_entries_with_legacy(user_path: &Path, legacy_path: &Path) -> Result<Vec<String>> {
+        if user_path.exists() {
+            return Self::read_entries(user_path);
+        }
+        if legacy_path.exists() {
+            log::info!(
+                "memory: using legacy root file {} for user dir {}",
+                legacy_path.display(),
+                user_path.parent().map(|p| p.display().to_string()).unwrap_or_default()
+            );
+            return Self::read_entries(legacy_path);
+        }
+        Ok(vec![])
     }
 
     fn read_entries(path: &Path) -> Result<Vec<String>> {
@@ -487,7 +550,7 @@ impl MemoryStore {
 }
 
 pub fn memories_dir() -> Result<PathBuf> {
-    Ok(crate::storage::app_data_dir()?.join("memories"))
+    memories_root_dir()
 }
 
 fn dedupe_preserve_order(entries: Vec<String>) -> Vec<String> {
@@ -558,6 +621,27 @@ mod tests {
         store.reload_snapshot().unwrap();
         let blocks = store.snapshot_blocks(true, false);
         assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn per_user_memory_dirs_are_isolated() {
+        let root = std::env::temp_dir().join(format!("pointer_mem_users_{}", uuid::Uuid::new_v4()));
+        let store = MemoryStore::open_in_dir(root.clone());
+        store.ensure_session_user("user-a").unwrap();
+        store
+            .dispatch_tool(&json!({"action": "add", "target": "memory", "content": "A note"}))
+            .unwrap();
+        store.ensure_session_user("user-b").unwrap();
+        store
+            .dispatch_tool(&json!({"action": "add", "target": "memory", "content": "B note"}))
+            .unwrap();
+        store.ensure_session_user("user-a").unwrap();
+        let blocks = store.snapshot_blocks(true, false);
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].contains("A note"));
+        assert!(!blocks[0].contains("B note"));
+        assert!(root.join(user_storage_segment("user-a")).join("MEMORY.md").is_file());
+        assert!(root.join(user_storage_segment("user-b")).join("MEMORY.md").is_file());
     }
 
     #[test]

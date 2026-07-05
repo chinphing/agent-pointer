@@ -30,3 +30,16 @@ When the stored id is non-empty, Pointer injects `SESSION_USER_ID` into **`termi
 See [terminal-environment-variables.md](terminal-environment-variables.md) for injection rules, thread-local guards, and script usage.
 
 **Requires a non-empty stored id:** desktop/Web need **平台账户** OAuth login so the first `run_chat` can persist `platform_user_id`; IM sessions use channel sender / group key. API-key-only chats without platform login leave `session_user_id` empty and the variable unset.
+
+## On-disk layout (user-scoped)
+
+| Path | Layout |
+| --- | --- |
+| `memories/{session_user_id}/MEMORY.md` | Agent notes for one user; `_anonymous/` when id empty |
+| `memories/{session_user_id}/USER.md` | User profile for one user |
+| `conversation-media/{session_user_id}/{conversation_id}/…` | Chat attachments (legacy `{conversation_id}/…` still readable) |
+| `generated-media/{session_user_id}/{conversation_id}/…` | AI-generated images/videos |
+
+Legacy root-level `memories/MEMORY.md` is read as a fallback until a user-scoped file exists. New writes always go to the user subdirectory.
+
+During agent runs, new-layout media paths are checked against the active `SESSION_USER_ID` when loading files.

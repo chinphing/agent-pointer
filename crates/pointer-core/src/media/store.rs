@@ -5,11 +5,13 @@ use std::path::{Path, PathBuf};
 
 use crate::models::ChatMediaPreview;
 use crate::storage::{app_data_dir, sanitize_storage_dir_segment};
+use crate::user_storage::session_user_id_for_conversation;
 
 use super::access::{
     assert_app_media_preview_allowed, is_user_filesystem_path, path_has_traversal,
 };
 use super::filename::{allocate_unique_stored_basename, safe_attachment_basename};
+use super::layout::{build_storage_rel, parse_storage_rel, verify_storage_rel_access};
 use super::path_hint::MEDIA_URI_SCHEME;
 use super::resolve::resolve_local_media_path;
 
@@ -20,11 +22,27 @@ pub fn conversation_media_root() -> Result<PathBuf> {
 }
 
 pub fn media_abs_path(storage_rel_path: &str) -> Result<PathBuf> {
+    verify_storage_rel_access(storage_rel_path)?;
     let rel = storage_rel_path.trim().trim_start_matches('/');
     if rel.is_empty() || rel.contains("..") {
         anyhow::bail!("invalid media rel path");
     }
-    Ok(conversation_media_root()?.join(rel))
+    let primary = conversation_media_root()?.join(rel);
+    if primary.is_file() {
+        return Ok(primary);
+    }
+    // Legacy `{conv}/{file}` paths remain readable after user-scoped layout migration.
+    if let Ok(parsed) = parse_storage_rel(rel) {
+        if !parsed.legacy {
+            let legacy = conversation_media_root()?
+                .join(&parsed.conversation_segment)
+                .join(&parsed.file_name);
+            if legacy.is_file() {
+                return Ok(legacy);
+            }
+        }
+    }
+    Ok(primary)
 }
 
 pub fn save_attachment_bytes(
@@ -38,15 +56,19 @@ pub fn save_attachment_bytes(
     if conv.is_empty() || id.is_empty() {
         anyhow::bail!("conversation_id and attachment_id required");
     }
-    let dir = conversation_media_root()?.join(&conv);
+    let session_user_id = session_user_id_for_conversation(conversation_id);
+    let dir = conversation_media_root()?
+        .join(crate::user_storage::user_storage_segment(&session_user_id))
+        .join(&conv);
     fs::create_dir_all(&dir).context("媒体目录创建失败")?;
     let safe_name = safe_attachment_basename(file_name);
     let stored_name = allocate_unique_stored_basename(&dir, &safe_name, file_name)
         .ok_or_else(|| anyhow::anyhow!("unique attachment filename allocation failed"))?;
     let file_path = dir.join(&stored_name);
     fs::write(&file_path, bytes).context("write attachment file")?;
-    let rel = conversation_media_abs_to_rel(&file_path)
-        .unwrap_or_else(|| format!("{conv}/{stored_name}"));
+    let rel = conversation_media_abs_to_rel(&file_path).unwrap_or_else(|| {
+        build_storage_rel(&session_user_id, conversation_id, &stored_name)
+    });
     Ok(rel)
 }
 
@@ -86,21 +108,20 @@ pub fn stored_wav_sibling_rel(storage_rel_path: &str) -> Option<String> {
     }
 }
 
-/// Parse `conversation-media/{conv}/{attachment_id}.{ext}` into `(conv, attachment_id)`.
+/// Parse storage rel into `(conversation_segment, attachment_id_stem)`.
+/// Supports legacy `{conv}/{file}` and `{user}/{conv}/{file}` layouts.
 pub fn parse_conversation_media_ids(storage_rel_path: &str) -> Option<(String, String)> {
-    let rel = storage_rel_path.trim().trim_start_matches('/');
-    let (conv, file) = rel.split_once('/')?;
-    if conv.is_empty() {
-        return None;
-    }
-    let stem = file
+    let parsed = parse_storage_rel(storage_rel_path).ok()?;
+    let conv = parsed.conversation_segment;
+    let stem = parsed
+        .file_name
         .rsplit_once('.')
         .map(|(s, _)| s)
-        .unwrap_or(file);
-    if stem.is_empty() {
+        .unwrap_or(parsed.file_name.as_str());
+    if conv.is_empty() || stem.is_empty() {
         return None;
     }
-    Some((conv.to_string(), stem.to_string()))
+    Some((conv, stem.to_string()))
 }
 
 pub fn conversation_media_abs_to_rel(path: &Path) -> Option<String> {

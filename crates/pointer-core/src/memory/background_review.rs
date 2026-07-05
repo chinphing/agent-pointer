@@ -163,6 +163,9 @@ async fn run_background_review(
     enabled_skill_ids: &[String],
     kind: ReviewKind,
 ) -> Result<Option<String>> {
+    let session_user_id =
+        crate::user_storage::session_user_id_for_conversation(conversation_id);
+    memory_store.ensure_session_user(&session_user_id)?;
     let allowed = allowed_tools_for(kind);
     let native_tools = tools.openai_tools(&allowed);
     if native_tools.is_empty() {

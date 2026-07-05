@@ -103,6 +103,15 @@ pub(super) async fn run_chat_inner(
         .session_user_id(conversation_id)
         .unwrap_or_default();
 
+    if let Err(e) = state
+        .memory_store
+        .ensure_session_user(session_user_id.as_str())
+    {
+        log::warn!(
+            "memory: ensure session user failed conversation_id={conversation_id}: {e:#}"
+        );
+    }
+
     let payload_workspace = workspace_root.trim();
     let inherit_disabled = req.workspace_inherit_disabled == Some(true)
         || workspace_inherit_disabled(conversation_id);

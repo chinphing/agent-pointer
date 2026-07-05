@@ -29,6 +29,8 @@ fn dispatch_tool_inner(db: &DbHandle, args: &Value) -> Result<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty());
 
+    let session_user_filter = parse_session_user_filter(args);
+
     let conversation_id = args
         .get("conversation_id")
         .or_else(|| args.get("session_id"))
@@ -48,11 +50,18 @@ fn dispatch_tool_inner(db: &DbHandle, args: &Value) -> Result<String> {
         let cid = conversation_id.unwrap();
         let anchor = around_message_id.unwrap();
         let window = parse_window(args.get("window"))?;
-        return scroll(db, cid, &anchor, window, current_conversation_id);
+        return scroll(
+            db,
+            cid,
+            &anchor,
+            window,
+            current_conversation_id,
+            session_user_filter,
+        );
     }
 
     if let Some(cid) = conversation_id {
-        return read_session(db, cid);
+        return read_session(db, cid, session_user_filter);
     }
 
     let query = args
@@ -63,7 +72,7 @@ fn dispatch_tool_inner(db: &DbHandle, args: &Value) -> Result<String> {
 
     if query.is_none() {
         let limit = parse_limit(args.get("limit"))?;
-        return browse(db, limit, current_conversation_id);
+        return browse(db, limit, current_conversation_id, session_user_filter);
     }
 
     let limit = parse_limit(args.get("limit"))?;
@@ -76,19 +85,33 @@ fn dispatch_tool_inner(db: &DbHandle, args: &Value) -> Result<String> {
         role_filter.as_deref(),
         sort,
         current_conversation_id,
+        session_user_filter,
     )
 }
 
-fn browse(db: &DbHandle, limit: i64, current_conversation_id: Option<&str>) -> Result<String> {
+fn parse_session_user_filter(args: &Value) -> &str {
+    args.get("_session_user_id")
+        .and_then(|v| v.as_str())
+        .map(super::session_user::normalize_session_user_id)
+        .unwrap_or("")
+}
+
+fn browse(
+    db: &DbHandle,
+    limit: i64,
+    current_conversation_id: Option<&str>,
+    session_user_filter: &str,
+) -> Result<String> {
     let conn = db.conn.lock();
     let fetch = limit + 5;
     let mut stmt = conn.prepare(
         "SELECT id, title, created_at_ms, updated_at_ms, message_count, preview
          FROM conversations
+         WHERE session_user_id = ?2
          ORDER BY updated_at_ms DESC
          LIMIT ?1",
     )?;
-    let rows = stmt.query_map(params![fetch], |row| {
+    let rows = stmt.query_map(params![fetch, session_user_filter], |row| {
         Ok(ConversationMetaRow {
             id: row.get(0)?,
             title: row.get(1)?,
@@ -138,22 +161,25 @@ fn discover(
     role_filter: Option<&[String]>,
     sort: Option<&str>,
     current_conversation_id: Option<&str>,
+    session_user_filter: &str,
 ) -> Result<String> {
     let fts_query = build_fts_query(query);
     let conn = db.conn.lock();
 
     let mut hits: Vec<FtsHit> = Vec::new();
     {
-        let sql = "SELECT conversation_id, message_id, role,
+        let sql = "SELECT mf.conversation_id, mf.message_id, mf.role,
                           snippet(messages_fts, 0, '<b>', '</b>', '...', 48) AS snip,
                           bm25(messages_fts) AS rank
-                   FROM messages_fts
+                   FROM messages_fts AS mf
+                   INNER JOIN conversations AS c ON c.id = mf.conversation_id
                    WHERE messages_fts MATCH ?1
+                     AND c.session_user_id = ?2
                    ORDER BY rank
-                   LIMIT ?2";
+                   LIMIT ?3";
         let mut stmt = conn.prepare(sql)?;
-        let cap = limit * 8;
-        let mapped = stmt.query_map(params![fts_query, cap], |row| {
+        let cap = limit * 12;
+        let mapped = stmt.query_map(params![fts_query, session_user_filter, cap], |row| {
             Ok(FtsHit {
                 conversation_id: row.get(0)?,
                 message_id: row.get(1)?,
@@ -243,6 +269,7 @@ fn scroll(
     around_message_id: &str,
     window: i64,
     current_conversation_id: Option<&str>,
+    session_user_filter: &str,
 ) -> Result<String> {
     if current_conversation_id == Some(conversation_id) {
         return Ok(error_json(
@@ -251,7 +278,7 @@ fn scroll(
     }
 
     let conn = db.conn.lock();
-    if load_meta(&conn, conversation_id)?.is_none() {
+    if load_meta_for_session_user(&conn, conversation_id, Some(session_user_filter))?.is_none() {
         return Ok(error_json(&format!(
             "conversation_id not found: {conversation_id}"
         )));
@@ -278,9 +305,13 @@ fn scroll(
     .to_string())
 }
 
-fn read_session(db: &DbHandle, conversation_id: &str) -> Result<String> {
+fn read_session(
+    db: &DbHandle,
+    conversation_id: &str,
+    session_user_filter: &str,
+) -> Result<String> {
     let conn = db.conn.lock();
-    let meta = load_meta(&conn, conversation_id)?;
+    let meta = load_meta_for_session_user(&conn, conversation_id, Some(session_user_filter))?;
     let Some(meta) = meta else {
         return Ok(error_json(&format!(
             "conversation_id not found: {conversation_id}"
@@ -354,19 +385,45 @@ struct MetaRow {
 }
 
 fn load_meta(conn: &Connection, conversation_id: &str) -> Result<Option<MetaRow>> {
-    conn.query_row(
-        "SELECT title, created_at_ms, updated_at_ms FROM conversations WHERE id = ?1",
-        params![conversation_id],
-        |row| {
-            Ok(MetaRow {
-                title: row.get(0)?,
-                created_at_ms: row.get(1)?,
-                updated_at_ms: row.get(2)?,
-            })
-        },
-    )
-    .optional()
-    .map_err(Into::into)
+    load_meta_for_session_user(conn, conversation_id, None)
+}
+
+fn load_meta_for_session_user(
+    conn: &Connection,
+    conversation_id: &str,
+    session_user_filter: Option<&str>,
+) -> Result<Option<MetaRow>> {
+    match session_user_filter {
+        Some(uid) => conn
+            .query_row(
+                "SELECT title, created_at_ms, updated_at_ms FROM conversations
+                 WHERE id = ?1 AND session_user_id = ?2",
+                params![conversation_id, uid],
+                |row| {
+                    Ok(MetaRow {
+                        title: row.get(0)?,
+                        created_at_ms: row.get(1)?,
+                        updated_at_ms: row.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into),
+        None => conn
+            .query_row(
+                "SELECT title, created_at_ms, updated_at_ms FROM conversations WHERE id = ?1",
+                params![conversation_id],
+                |row| {
+                    Ok(MetaRow {
+                        title: row.get(0)?,
+                        created_at_ms: row.get(1)?,
+                        updated_at_ms: row.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into),
+    }
 }
 
 fn meta_updated_at(conn: &Connection, conversation_id: &str) -> Result<i64> {

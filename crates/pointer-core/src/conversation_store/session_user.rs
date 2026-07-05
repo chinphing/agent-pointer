@@ -22,14 +22,32 @@ pub fn set_session_user_id_in_conn(
     user_id: &str,
 ) -> Result<()> {
     write::ensure_conversation_row(conn, conversation_id)?;
+    let normalized = normalize_session_user_id(user_id);
     conn.execute(
         "UPDATE conversations SET session_user_id = ?2 WHERE id = ?1",
-        params![conversation_id, user_id.trim()],
+        params![conversation_id, normalized],
     )?;
     Ok(())
 }
 
 /// Set `session_user_id` only when currently empty.
+pub fn normalize_session_user_id(user_id: &str) -> &str {
+    user_id.trim()
+}
+
+pub fn session_user_ids_match(stored: &str, filter: &str) -> bool {
+    normalize_session_user_id(stored) == normalize_session_user_id(filter)
+}
+
+pub fn conversation_owned_by_session_user_in_conn(
+    conn: &Connection,
+    conversation_id: &str,
+    filter_user_id: &str,
+) -> Result<bool> {
+    let stored = session_user_id_in_conn(conn, conversation_id)?;
+    Ok(session_user_ids_match(&stored, filter_user_id))
+}
+
 pub fn ensure_session_user_id_in_conn(
     conn: &Connection,
     conversation_id: &str,
@@ -94,5 +112,12 @@ mod tests {
         write::ensure_conversation_row(&conn, "c1").expect("row");
         let written = ensure_session_user_id_in_conn(&conn, "c1", "login-user").expect("ensure");
         assert_eq!(written, "login-user");
+    }
+
+    #[test]
+    fn session_user_ids_match_trims() {
+        assert!(session_user_ids_match(" user-a ", "user-a"));
+        assert!(session_user_ids_match("", ""));
+        assert!(!session_user_ids_match("user-a", "user-b"));
     }
 }

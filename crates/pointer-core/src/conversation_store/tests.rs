@@ -37,6 +37,43 @@ mod tests {
     }
 
     #[test]
+    fn session_search_filters_by_session_user_id() {
+        let dir = TempDir::new().unwrap();
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let mut user_a = sample_conv("c_a", "User A topic", "shared keyword alpha");
+        user_a.session_user_id = "user-a".into();
+        let mut user_b = sample_conv("c_b", "User B topic", "shared keyword beta");
+        user_b.session_user_id = "user-b".into();
+        store.sync_conversations(&[user_a, user_b]).unwrap();
+
+        let for_a = store
+            .dispatch_tool_for_test(&json!({
+                "query": "keyword",
+                "limit": 5,
+                "_session_user_id": "user-a"
+            }))
+            .unwrap();
+        let parsed_a: Value = serde_json::from_str(&for_a).unwrap();
+        assert_eq!(parsed_a["success"], true);
+        let ids_a: Vec<_> = parsed_a["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["conversation_id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids_a, vec!["c_a"]);
+
+        let cross_read = store
+            .dispatch_tool_for_test(&json!({
+                "conversation_id": "c_b",
+                "_session_user_id": "user-a"
+            }))
+            .unwrap();
+        let cross_p: Value = serde_json::from_str(&cross_read).unwrap();
+        assert_eq!(cross_p["success"], false);
+    }
+
+    #[test]
     fn discover_cjk_bigram() {
         let dir = TempDir::new().unwrap();
         let store = ConversationStore::open_in_dir(dir.path()).unwrap();

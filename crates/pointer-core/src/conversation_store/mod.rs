@@ -24,7 +24,7 @@ use crate::models::{ChatMessage, Conversation, ConversationMeta};
 use crate::storage::app_data_dir;
 
 const DB_FILE: &str = "conversations.db";
-const SCHEMA_VERSION: i32 = 14;
+const SCHEMA_VERSION: i32 = 15;
 
 static GLOBAL: OnceLock<Arc<ConversationStore>> = OnceLock::new();
 
@@ -621,6 +621,8 @@ fn init_schema(conn: &Connection) -> Result<()> {
          );
          CREATE INDEX IF NOT EXISTS idx_conversations_updated
            ON conversations(updated_at_ms DESC);
+         CREATE INDEX IF NOT EXISTS idx_conversations_user_updated
+           ON conversations(session_user_id, updated_at_ms DESC);
          CREATE INDEX IF NOT EXISTS idx_messages_conv_pos
            ON messages(conversation_id, position);",
     )?;
@@ -704,6 +706,12 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
         "TEXT NOT NULL DEFAULT ''",
     )?;
     conn.execute(
+        "UPDATE conversations SET session_user_id = trim(session_user_id)
+         WHERE session_user_id != trim(session_user_id)",
+        [],
+    )?;
+    ensure_conversations_user_updated_index(conn)?;
+    conn.execute(
         "UPDATE conversations SET im_last_interaction_at_ms = updated_at_ms
          WHERE im_last_interaction_at_ms = 0 AND updated_at_ms > 0",
         [],
@@ -713,6 +721,14 @@ fn migrate_schema_columns(conn: &Connection) -> Result<()> {
         params![SCHEMA_VERSION],
     )?;
     log::info!("conversation_store: migrated schema to v{}", SCHEMA_VERSION);
+    Ok(())
+}
+
+fn ensure_conversations_user_updated_index(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_conversations_user_updated
+         ON conversations(session_user_id, updated_at_ms DESC);",
+    )?;
     Ok(())
 }
 

@@ -224,7 +224,8 @@ mod tests {
                agent_mode TEXT NOT NULL DEFAULT 'single',
                im_session_epoch INTEGER NOT NULL DEFAULT 0,
                im_active_conversation_id TEXT,
-               im_last_interaction_at_ms INTEGER NOT NULL DEFAULT 0
+               im_last_interaction_at_ms INTEGER NOT NULL DEFAULT 0,
+               session_user_id TEXT NOT NULL DEFAULT ''
              );",
         )
         .unwrap();

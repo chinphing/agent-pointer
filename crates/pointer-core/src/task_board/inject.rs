@@ -15,6 +15,7 @@ pub fn inject_host_task_board_conversation_id(
     args: Value,
     conversation_id: &str,
     task_board_store_key: &str,
+    session_user_id: &str,
     history: &[ChatMessage],
     work_items_enabled: bool,
     b42_enforced: bool,
@@ -41,6 +42,12 @@ pub fn inject_host_task_board_conversation_id(
         "_conversation_id".to_string(),
         Value::String(host_binding.to_string()),
     );
+    if tool_id == "session_search" {
+        map.insert(
+            "_session_user_id".to_string(),
+            Value::String(session_user_id.trim().to_string()),
+        );
+    }
     if is_task_board {
         map.insert(
             "_recent_action_tools".to_string(),
@@ -106,6 +113,7 @@ mod tests {
             serde_json::json!({"goal": "x", "index_captcha_area": 1}),
             "conv-abc",
             "conv-abc::tb",
+            "user-1",
             &[],
             false,
             false,
@@ -123,6 +131,7 @@ mod tests {
             serde_json::json!({"goal": "打开微信应用", "index": 141}),
             "conv-abc",
             "conv-abc::tb",
+            "user-1",
             &[],
             false,
             false,
@@ -140,6 +149,7 @@ mod tests {
             serde_json::json!({"id": "a", "status": "done"}),
             "conv-abc",
             "conv-abc",
+            "user-1",
             &[],
             true,
             true,
@@ -157,6 +167,7 @@ mod tests {
             serde_json::json!({"query": "auth"}),
             "conv-abc",
             "conv-abc::tb",
+            "im-user-a",
             &[],
             false,
             false,
@@ -164,6 +175,10 @@ mod tests {
         assert_eq!(
             out.get("_conversation_id").and_then(|v| v.as_str()),
             Some("conv-abc")
+        );
+        assert_eq!(
+            out.get("_session_user_id").and_then(|v| v.as_str()),
+            Some("im-user-a")
         );
     }
 
@@ -175,6 +190,7 @@ mod tests {
             args.clone(),
             "conv-abc",
             "conv-abc::tb",
+            "user-1",
             &[],
             false,
             false,

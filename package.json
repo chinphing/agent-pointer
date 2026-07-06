@@ -27,7 +27,6 @@
     "build:macos:signed": "node scripts/macos-signed-build.mjs",
     "build:macos:sign-only": "node scripts/macos-signed-build.mjs --sign-only",
     "build:macos:universal": "npm run tauri:build -- --target universal-apple-darwin",
-    "build:macos:universal:signed": "MACOS_BUILD_ARCH=universal node scripts/macos-signed-build.mjs",
     "signing:macos:setup": "node scripts/macos-signing-setup.mjs",
     "build:linux": "npm run tauri:build",
     "build:linux:appimage": "npm run tauri:build -- --bundles appimage"

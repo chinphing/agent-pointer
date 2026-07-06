@@ -98,7 +98,7 @@ Windows / macOS / Linux 的环境准备、开发命令、本地打包与 GitHub 
 | 平台 | 命令 | 产物（`src-tauri/target/release/bundle/` 下） |
 |------|------|-----------------------------------------------|
 | Windows | `npm run build:windows` | `msi/*.msi` |
-| macOS | `npm run build:macos` | `macos/*.app`、`dmg/*.dmg` |
+| macOS | `npm run build:macos` | `macos/*.app`、`dmg/*.dmg`（本机架构） |
 | Linux | `npm run build:linux` | `deb/*.deb`、`appimage/*.AppImage` |
 
 ```bash

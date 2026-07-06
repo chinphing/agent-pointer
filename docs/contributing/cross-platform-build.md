@@ -180,10 +180,10 @@ npm run tauri:dev
 
 ```bash
 npm run icons
-npm run build:macos              # 不签名（默认）
-npm run build:macos:sign-only    # 仅签名，不公证（需 signing.env 中的 p12 配置）
-npm run build:macos:signed       # Developer ID 签名 + 公证（需完整 signing.env）
-npm run build:macos:universal    # Universal，不签名
+npm run build:macos              # 不签名（本机 CPU 架构，与之前一致）
+npm run build:macos:universal    # 不签名，Universal Binary（Intel + Apple Silicon）
+npm run build:macos:sign-only    # Universal + 仅签名，不公证（签名打包默认）
+npm run build:macos:signed       # Universal + Developer ID 签名 + 公证
 ```
 
 **签名 + 公证（正式发布）：**
@@ -192,14 +192,14 @@ npm run build:macos:universal    # Universal，不签名
 # 交互式生成 signing/macos/signing.env（p12 路径、密码、Team ID、Apple ID 等）
 npm run signing:macos:setup
 
-# 打包（Universal Binary，与 CI 一致）
+# 签名打包默认 Universal Binary（Intel + Apple Silicon）
 npm run build:macos:signed
 ```
 
 详见 [`signing/macos/README.md`](../../signing/macos/README.md)。  
 `signing.env`、`*.p12` 已 gitignore，勿提交仓库。
 
-**通用二进制（Intel + Apple Silicon，不签名）：**
+签名 Universal 构建需 Rust 双架构 target（`build:macos:sign-only` / `build:macos:signed` 会自动 `rustup target add`）。不签名 Universal 需手动：
 
 ```bash
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
@@ -209,9 +209,10 @@ npm run build:macos:universal
 **产物目录：**
 
 ```text
-src-tauri/target/release/bundle/
+target/release/bundle/                    # build:macos（本机架构）
+target/universal-apple-darwin/release/bundle/   # 签名打包 / build:macos:universal
 ├── macos/             # *.app
-└── dmg/               # *.dmg
+└── dmg/               # Pointer_*_<arch>.dmg 或 Pointer_*_universal.dmg
 ```
 
 ### 电脑操控权限
@@ -528,7 +529,7 @@ src-tauri/target/release/bundle/
 | 平台 | 推荐命令 |
 |------|----------|
 | Windows | `npm run build:windows` |
-| macOS | `npm run build:macos`（Universal：`npm run tauri:build -- --target universal-apple-darwin`） |
+| macOS | `npm run build:macos`（本机架构；Universal 不签名：`build:macos:universal`） |
 | Linux | `npm run build:linux` |
 
 **产品名：** Pointer（`src-tauri/tauri.conf.json` → `productName`）

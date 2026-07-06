@@ -10,19 +10,21 @@ cd pointer-app
 # 1. 交互式填写 p12 路径、密码、Team ID、Apple ID 等
 npm run signing:macos:setup
 
-# 2. 签名 + 公证 + 打包（Universal Binary，与 CI 一致）
+# 2. 签名 + 公证 + 打包（默认 Universal Binary，Intel + Apple Silicon）
 npm run build:macos:signed
 
-# 或：仅签名，不公证（内测 / 本机分发）
+# 或：Universal + 仅签名，不公证（内测 / 本机分发）
 npm run build:macos:sign-only
 ```
 
-产物：
+**签名打包**（`sign-only` / `signed`）默认 Universal，产物：
 
 ```text
-src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
-src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+target/universal-apple-darwin/release/bundle/macos/*.app
+target/universal-apple-darwin/release/bundle/dmg/Pointer_*_universal.dmg
 ```
+
+不签名 `npm run build:macos` 仍为本机 CPU 架构，产物在 `target/release/bundle/`。
 
 ## 手动编辑配置
 
@@ -42,7 +44,7 @@ npm run build:macos:signed
 | `APPLE_TEAM_ID` | 10 位 Team ID（公证必填；仅签名可留空） |
 | `APPLE_ID` | Apple 账号邮箱（仅 `build:macos:signed` 需要） |
 | `APPLE_PASSWORD` | [App 专用密码](https://support.apple.com/zh-cn/HT204397)（仅公证需要） |
-| `MACOS_BUILD_ARCH` | `universal`（默认）或 `native` |
+| `MACOS_BUILD_ARCH` | 签名打包默认 `universal`（Intel + Apple Silicon）；`native` = 仅本机 CPU |
 
 也可改用 App Store Connect API Key（见 `signing.env.example` 注释）。
 
@@ -50,9 +52,10 @@ npm run build:macos:signed
 
 | 命令 | 说明 |
 |------|------|
-| `npm run build:macos` | 不签名 |
-| `npm run build:macos:sign-only` | **仅签名**，不公证 |
-| `npm run build:macos:signed` | 签名 + 公证 |
+| `npm run build:macos` | 不签名，本机 CPU 架构 |
+| `npm run build:macos:universal` | 不签名，Universal Binary |
+| `npm run build:macos:sign-only` | **Universal + 仅签名**，不公证（默认） |
+| `npm run build:macos:signed` | **Universal + 签名 + 公证** |
 | `npm run build:macos:sign-only -- --icons` | 打包前重新生成图标 |
 | `npm run build:macos:signed -- --bundles dmg` | 仅打 DMG |
 | `npm run build:macos:signed -- --icons` | 打包前重新生成图标 |
@@ -61,10 +64,10 @@ npm run build:macos:signed
 ## 验证
 
 ```bash
-APP=src-tauri/target/universal-apple-darwin/release/bundle/macos/Pointer.app
+APP=target/universal-apple-darwin/release/bundle/macos/Pointer.app
 codesign -dv --verbose=4 "$APP"
 spctl -a -vv "$APP"
-xcrun stapler validate src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+xcrun stapler validate target/universal-apple-darwin/release/bundle/dmg/*.dmg
 ```
 
 ## 证书要求

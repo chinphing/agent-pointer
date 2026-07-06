@@ -23,7 +23,7 @@
 |------|------|--------|
 | `Ipc` | Tauri `send_chat` | `src-tauri/src/commands.rs` → `dispatcher.dispatch` |
 | `HttpRuns` | `POST /api/runs`（web / 外部 REST） | `server/src/main.rs::create_run` |
-| `Webhook` | `POST /api/webhooks/:src`（Bearer） | `server/src/main.rs::webhook_ingress` |
+| `Webhook` | `POST /api/webhooks/:src`（Bearer） | `server/src/main.rs::webhook_ingress` — 见 [`../developer/webhook-api.md`](../developer/webhook-api.md) |
 | `Cron` | scheduler ticker | `scheduler.rs::dispatch_job` |
 | `Im` | IM 入站消息（飞书 / 企微 / 钉钉 / 微信） | `pointer-channels`（仍直连 `run_chat`，见下） |
 | `Internal` | 内部后台任务 | `dispatch_internal`（预留；见下） |
@@ -56,142 +56,7 @@ SSE 终态处理是无竞态的：先订阅总线，再读 `runs` 表；已终�
 
 ## 通用 Webhook（server）
 
-### 入口与鉴权
-
-- **URL**：`POST /api/webhooks/:src`（仅 server/web 端；桌面 Tauri 无 HTTP ingress）
-- **`:src`**：来源标识（字母/数字开头，仅 `-`、`_`），如 `github`、`codeup`
-- **鉴权头**（默认）：`Authorization: Bearer <token>` 或 `X-Pointer-Token: <token>`（不用 query string）
-- **自定义鉴权头**：每个来源可在自动化面板配置 Header 名（如 `X-Codeup-Token`）；配置后只读该 Header 的原始值
-- **Token 存储**：`app_secrets` 标签 `webhook_token:{src}`，加密 at rest；UI 添加时 first-write-only
-- **解析顺序**：`webhook_token:{src}` → 旧版全局 `webhook_bearer_token` → env `POINTER_WEBHOOK_BEARER_TOKEN`；皆无则 401
-- **Body 上限**：256 KiB（含 raw-body 回退路径）
-
-### 消息解析（两档，无 mapping 配置）
-
-实现：`crates/pointer-core/src/webhook_ingress.rs` → `parse_webhook_body` / `build_webhook_dispatch_messages`。
-
-**1. 结构化（默认优先）** — 当 body 含以下任一非空字段：
-
-| 字段 | 说明 |
-|------|------|
-| `text` | Pointer 简写 |
-| `message` | OpenClaw `/hooks/agent` 同名 |
-| `messages` | 消息数组；仅 1 条 user 时 append 到 session；含 assistant/tool 或多条时视为完整历史 override |
-
-可选控制字段见下表（均可与 raw-body 回退共存；第三方 JSON 里通常只带消息相关字段，控制字段由 Pointer 格式请求显式传入）：
-
-**2. Raw body 回退** — 当 JSON 合法但无上述结构化消息（或 `text`/`message` 为空、`messages` 为空数组）：
-
-- JSON → 整段 compact JSON 字符串作为 user 消息
-- 非 JSON 纯文本 → 原文作为 user 消息
-- 回退时 `name` 默认用 `:src`（如 `[github] {"ref":…}`），便于 GitHub/Codeup 等第三方原生 payload 零配置接入
-
-Malformed JSON → **400**；空 body → **422**；超限 → **413**。
-
-#### 可选 body 字段（`WebhookIngressBody`）
-
-与 `text` / `message` / `messages` 不同，下表字段控制 **dispatch / HTTP 行为**，不参与 raw-body 回退判定（仍从 JSON 解析）。
-
-| 字段 | 默认 | 作用 |
-|------|------|------|
-| `name` | 无 | 为本轮 user 消息加前缀 `[Name] …`；raw-body 回退且未传时改用 `:src`（如 `[github]`）。不改 session 标题。 |
-| `conversationId` | 无 | 强制写入指定会话 id；缺省为 `webhook:{src}:{yyyymmdd}`（04:00 日切）。一般第三方 webhook 勿传。 |
-| `agentMode` | 全局设置 | 本次 run 模式（如 `single` / `supervisor`），传入 `run_chat`。 |
-| `leadAgentId` | 全局设置 | 本次主 Agent id（如 `general`），传入 `run_chat`。 |
-| `idempotencyKey` | 无 | 幂等键；`runs` 表命中则返回已有 `runId`（`reused`），不重复执行。适合 GitHub 重试 delivery。 |
-| `enabledSkillIds` | `[]` | 本次启用的 Skill id 列表。Webhook 仍按 body 传入；**IM / Cron** 未传时使用 `user_settings.json` 的 `enabledSkillIds`。 |
-| `workspaceRoot` | 空 | 本次工作区根路径；空则按 session 默认 workspace 解析（与聊天一致）。 |
-| `blocking` | `false` | `true` 时 HTTP 同步等待 run 结束并返回 assistant 文本；`false` 时 202 异步 ack。 |
-| `timeoutSeconds` | `120` | 仅 `blocking: true` 有效；等待上限（秒），最大 600；超时 504。 |
-| `attachments` | 无 | 与 `text` / `message` 同轮 user 消息的附件列表（`MediaAttachment`）。**推荐**引用 upload 返回的 `storageRelPath`；仅极小文件可用 `contentBase64`（见下「大小限制」）。 |
-
-实现类型：`crates/pointer-core/src/webhook_ingress.rs`（`WebhookIngressBody`）；ingress 接线：`server/src/main.rs::webhook_ingress`。
-
-### 附件上传（multipart）
-
-#### 大小限制（三档，勿混用）
-
-| 通道 | 上限 | 说明 |
-|------|------|------|
-| `POST /api/webhooks/:src` **整包 JSON** | **256 KiB** | 含 `text`、`attachments` 等所有字段；**最先**触达的上限 |
-| 同上 JSON 内 `contentBase64`（解码后） | 6 MiB | 代码层单附件校验；在 256 KiB 整包限制下**实际达不到** |
-| `POST /api/webhooks/:src/upload` **multipart** | **30 MiB** | 与 IM 入站一致；大文件**必须**走此路径 |
-
-**实践建议**：inline `contentBase64` 只适合百 KiB 级小文件（Base64 膨胀约 +33%，还要扣 JSON 字段开销）。约 **≥ 200 KiB** 或需稳定传文件时，一律 **先 upload、再 JSON 引用 `storageRelPath`**。
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/webhooks/:src/upload` | 鉴权同 ingress；`multipart/form-data`：`file`（必填）、`fileName`（可选，亦可取自 part 文件名）、`mimeType`（可选）、`conversationId`（可选，默认当日 webhook session） |
-| POST | `/api/webhooks/:src` | JSON：`text` + `attachments[]` 引用 upload 返回的 `storageRelPath` |
-
-upload 响应示例：
-
-```json
-{
-  "conversationId": "webhook:ci:20260629",
-  "attachmentId": "wh-…",
-  "storageRelPath": "webhook_ci_20260629/wh-…_report.pdf",
-  "kind": "document",
-  "mimeType": "application/pdf",
-  "fileName": "report.pdf",
-  "sizeBytes": 12345
-}
-```
-
-典型流程：
-
-```bash
-# 1. 上传
-curl -X POST "https://host/api/webhooks/ci/upload" \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "file=@./report.pdf"
-
-# 2. 触发 Agent（引用 storageRelPath）
-curl -X POST "https://host/api/webhooks/ci" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"text":"请分析附件","attachments":[{"id":"wh-…","kind":"document","mimeType":"application/pdf","fileName":"report.pdf","storageRelPath":"webhook_ci_20260629/wh-…_report.pdf"}]}'
-```
-
-`storageRelPath` 必须属于当前 webhook 会话目录。
-
-实现：`crates/pointer-core/src/webhook_attachment.rs`；HTTP：`server/src/main.rs::webhook_upload`。
-
-### 会话与 dispatch
-
-- **`conversationId` 缺省**：`resolve_webhook_ingress_session(:src)` → `webhook:{src}:{yyyymmdd}`（本地 **04:00** 日切，与 cron 相同）
-- **Append 模式**：`load_messages` + 追加本轮 user → 同一天内续接 transcript
-- **Trigger**：`TriggerRequest { trigger_source: Webhook, trigger_meta.webhook_source: src }` → `RunDispatcher::dispatch`
-- **UI 同步**：广播 `InjectedUserMessage`，自动化面板「查看会话」可见 user 行
-- **侧栏隔离**：`webhook:*` 不出现在用户会话列表；仅从自动化面板进入
-
-### 响应模式
-
-| 模式 | 行为 |
-|------|------|
-| 默认（异步） | **202** + `{ runId, status: accepted }` |
-| `blocking: true` | 保持连接至 run 结束；成功 **200** `{ ok, runId, conversationId, text }`；失败 **500**；超时 **504**（`timeoutSeconds` 默认 120，最大 600） |
-
-### 管理 API
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/webhooks/config` | 列出已配置来源 + URL 模板 |
-| POST | `/api/webhooks/config` | 添加来源 Token（+ 可选 `authHeaderName`） |
-| DELETE | `/api/webhooks/config/:src` | 清除来源 |
-| DELETE | `/api/webhooks/config/legacy` | 清除旧版全局 Token |
-
-桌面端同形 Tauri 命令管理 Token；ingress 仅 web server。
-
-### GitHub 示例
-
-Repository Webhook → Payload URL `https://host/api/webhooks/github`，Secret 填 Pointer 为该来源生成的 Token（GitHub 发 HMAC 签名，Pointer 当前只验 Bearer/自定义 Header；Secret 需与 Token 一致并在 GitHub 侧重试，或中间层转发并加 `Authorization: Bearer`）。Push 原生 JSON 无 `message` 字段 → 自动 raw-body 回退，Agent 收到 `[github] {"ref":"refs/heads/main",…}`。
-
-### 与 OpenClaw 差异（刻意简化）
-
-- 无 `hooks.mappings` / JS transform；第三方 payload 靠 raw-body 回退 + Agent 自行理解
-- 默认 session 按 `:src` 日切续接，非 isolated 单次
-- 无 `deliver` 到 IM channel（`DeliverTarget::None`）
+Webhook 对外集成说明见 **[`../developer/webhook-api.md`](../developer/webhook-api.md)**。
 
 ## Cron 调度器
 

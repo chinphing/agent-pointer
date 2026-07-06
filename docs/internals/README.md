@@ -7,7 +7,7 @@
 | 文档 | 说明 |
 |------|------|
 | [llm-prompt-assembly-order.md](llm-prompt-assembly-order.md) | `stream_chat` 前 `messages` 与 `SystemPromptSections` 拼接顺序 |
-| [trigger-dispatcher.md](trigger-dispatcher.md) | 统一触发入口 `RunDispatcher`：队列、Webhook、Cron |
+| [trigger-dispatcher.md](trigger-dispatcher.md) | 统一触发入口 `RunDispatcher`：队列、Cron（Webhook 见 [`../developer/webhook-api.md`](../developer/webhook-api.md)） |
 | [agent-task-board-and-verification.md](agent-task-board-and-verification.md) | 任务板、`verification` 字段与多 Agent 约定 |
 | [taskboard-lifecycle-and-fields.md](taskboard-lifecycle-and-fields.md) | Task Board v4 生命周期与字段语义 |
 | [terminal-shell-path.md](terminal-shell-path.md) | `terminal` 工具在各平台的 PATH / shell 行为 |

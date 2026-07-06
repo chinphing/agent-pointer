@@ -9,6 +9,7 @@
 | 文档 | 说明 |
 |------|------|
 | [channel-integration.md](channel-integration.md) | IM 通道完整对接（长连接 / Webhook、各平台步骤与排查） |
+| [webhook-api.md](webhook-api.md) | 通用 Webhook API（触发 Agent、鉴权、附件、同步/异步） |
 | [cloud-host-integration.md](cloud-host-integration.md) | 云实例自部署、环境变量、认证链路 |
 | [desktop-oauth-web-integration.md](desktop-oauth-web-integration.md) | 桌面 OAuth 回调与官网 `?desktop_oauth=success` |
 | [feishu-cli-integration-sop.md](feishu-cli-integration-sop.md) | 飞书 CLI 集成 SOP |

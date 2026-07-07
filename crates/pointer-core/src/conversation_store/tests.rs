@@ -403,4 +403,87 @@ mod tests {
         // Missing id -> None (no error).
         assert!(store.load_meta("nope").unwrap().is_none());
     }
+
+    /// Regression: v12 DBs have im_* columns but lack session_user_id. init_schema
+    /// must not CREATE INDEX on session_user_id before migrate_schema_columns runs.
+    #[test]
+    fn opens_and_migrates_legacy_v12_schema_without_session_user_id() {
+        use rusqlite::Connection;
+
+        let dir = TempDir::new().unwrap();
+        let db_path = dir.path().join("conversations.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER NOT NULL);
+                 INSERT INTO schema_version(version) VALUES (12);
+                 CREATE TABLE store_meta (
+                   key TEXT PRIMARY KEY,
+                   value TEXT NOT NULL
+                 );
+                 CREATE TABLE conversations (
+                   id TEXT PRIMARY KEY,
+                   title TEXT NOT NULL,
+                   created_at_ms INTEGER NOT NULL,
+                   updated_at_ms INTEGER NOT NULL,
+                   message_count INTEGER NOT NULL DEFAULT 0,
+                   preview TEXT NOT NULL DEFAULT '',
+                   skill_ids_json TEXT NOT NULL DEFAULT '[]',
+                   tool_rounds_used INTEGER NOT NULL DEFAULT 0,
+                   tool_rounds_used_supervisor INTEGER NOT NULL DEFAULT 0,
+                   computer_monitor_id TEXT,
+                   workspace_root TEXT NOT NULL DEFAULT '',
+                   workspace_user_set INTEGER NOT NULL DEFAULT 0,
+                   workspace_inherit_disabled INTEGER NOT NULL DEFAULT 0,
+                   lead_agent_id TEXT NOT NULL DEFAULT 'general',
+                   agent_mode TEXT NOT NULL DEFAULT 'single',
+                   im_session_epoch INTEGER NOT NULL DEFAULT 0,
+                   im_active_conversation_id TEXT,
+                   im_last_interaction_at_ms INTEGER NOT NULL DEFAULT 0
+                 );
+                 CREATE TABLE messages (
+                   id INTEGER PRIMARY KEY,
+                   conversation_id TEXT NOT NULL,
+                   message_id TEXT NOT NULL,
+                   role TEXT NOT NULL,
+                   content TEXT NOT NULL,
+                   payload TEXT NOT NULL,
+                   created_at_ms INTEGER NOT NULL,
+                   position INTEGER NOT NULL,
+                   UNIQUE(conversation_id, message_id)
+                 );
+                 INSERT INTO conversations (id, title, created_at_ms, updated_at_ms)
+                 VALUES ('legacy-1', 'Legacy chat', 1, 2);",
+            )
+            .unwrap();
+        }
+
+        let store = ConversationStore::open_in_dir(dir.path()).unwrap();
+        let metas = store.load_metas(None, 50).unwrap();
+        assert_eq!(metas.len(), 1);
+        assert_eq!(metas[0].id, "legacy-1");
+
+        let conn = Connection::open(&db_path).unwrap();
+        let version: i32 = conn
+            .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 15);
+        let has_session_user_id: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('conversations') WHERE name = 'session_user_id'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(has_session_user_id, 1);
+        let index_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'index' AND name = 'idx_conversations_user_updated'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(index_count, 1);
+    }
 }

@@ -644,8 +644,6 @@ fn init_schema(conn: &Connection) -> Result<()> {
          );
          CREATE INDEX IF NOT EXISTS idx_conversations_updated
            ON conversations(updated_at_ms DESC);
-         CREATE INDEX IF NOT EXISTS idx_conversations_user_updated
-           ON conversations(session_user_id, updated_at_ms DESC);
          CREATE INDEX IF NOT EXISTS idx_messages_conv_pos
            ON messages(conversation_id, position);",
     )?;
@@ -666,6 +664,8 @@ fn init_schema(conn: &Connection) -> Result<()> {
         )?;
     }
     migrate_schema_columns(conn)?;
+    // After column migrations, create indexes that depend on newer columns.
+    ensure_conversations_user_updated_index(conn)?;
     Ok(())
 }
 

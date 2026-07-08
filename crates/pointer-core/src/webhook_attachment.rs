@@ -5,6 +5,7 @@ use base64::Engine;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::media::layout::parse_storage_rel;
 use crate::media::reply_attachments::{infer_attachment_kind, infer_attachment_mime};
 use crate::media::store::{media_abs_path, save_attachment_bytes};
 use crate::models::MediaAttachment;
@@ -134,8 +135,8 @@ fn validate_storage_rel_for_conversation(conversation_id: &str, rel: &str) -> Re
     if conv.is_empty() {
         anyhow::bail!("invalid conversationId");
     }
-    let prefix = format!("{conv}/");
-    if !rel.starts_with(&prefix) {
+    let parsed = parse_storage_rel(rel)?;
+    if parsed.conversation_segment != conv {
         anyhow::bail!("storageRelPath must be under this webhook conversation");
     }
     Ok(())
@@ -144,7 +145,6 @@ fn validate_storage_rel_for_conversation(conversation_id: &str, rel: &str) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::media::store::conversation_media_root;
 
     #[test]
     fn rejects_foreign_storage_rel_path() {
@@ -157,6 +157,28 @@ mod tests {
                 file_name: "x.bin".into(),
                 size_bytes: 0,
                 storage_rel_path: Some("other_conv/a1_x.bin".into()),
+                content_base64: None,
+                derived_text: None,
+                local_abs_path: None,
+                remote_url: None,
+                oss_object_key: None,
+            }],
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("under this webhook conversation"));
+    }
+
+    #[test]
+    fn rejects_foreign_storage_rel_path_new_layout() {
+        let err = validate_webhook_attachments(
+            "webhook:ci:20260707",
+            &[MediaAttachment {
+                id: "a1".into(),
+                kind: "file".into(),
+                mime_type: "application/octet-stream".into(),
+                file_name: "x.bin".into(),
+                size_bytes: 0,
+                storage_rel_path: Some("_anonymous/other_conv/a1_x.bin".into()),
                 content_base64: None,
                 derived_text: None,
                 local_abs_path: None,
@@ -193,10 +215,14 @@ mod tests {
         .unwrap();
         let abs = media_abs_path(&saved.storage_rel_path).unwrap();
         assert!(abs.is_file());
-        let _ = std::fs::remove_dir_all(
-            conversation_media_root()
-                .unwrap()
-                .join(sanitize_storage_dir_segment(&conv)),
+        assert!(
+            saved
+                .storage_rel_path
+                .contains(&format!("{}/", sanitize_storage_dir_segment(&conv))),
+            "expected user-scoped storage rel path"
         );
+        if let Some(parent) = abs.parent() {
+            let _ = std::fs::remove_dir_all(parent);
+        }
     }
 }

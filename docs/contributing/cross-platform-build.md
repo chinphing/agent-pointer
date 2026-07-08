@@ -15,7 +15,7 @@ Vue 统一界面
 
 | 能力 | 桌面端 | Web 端 |
 |------|--------|--------|
-| 启动命令 | `npm run tauri:dev` | `npm run server:dev` + `npm run dev:web` |
+| 启动命令 | `npm run tauri:dev` | `npm run server:dev` + `npm run web:dev` |
 | 打包 | `npm run tauri:build` | 前端 `npm run build`，后端 `cargo build -p pointer-server --release` |
 | 电脑操控 | 完整（需各平台权限/依赖） | 受限（无本地截图/输入） |
 
@@ -114,7 +114,7 @@ npm run tauri:dev
 设置 Web 前端 API 地址（PowerShell）：
 
 ```powershell
-$env:VITE_WEB_API_BASE="http://127.0.0.1:8787"; npm run dev:web
+$env:VITE_WEB_API_BASE="http://127.0.0.1:8787"; npm run web:dev
 ```
 
 ### 打包
@@ -399,14 +399,14 @@ npm run server:dev
 终端 2 — 前端：
 
 ```bash
-npm run dev:web
+npm run web:dev
 # 默认 http://0.0.0.0:1420
 ```
 
 可选环境变量：
 
 ```bash
-VITE_WEB_API_BASE=http://127.0.0.1:8787 npm run dev:web
+VITE_WEB_API_BASE=http://127.0.0.1:8787 npm run web:dev
 POINTER_SERVER_ADDR=0.0.0.0:8787 npm run server:dev
 ```
 

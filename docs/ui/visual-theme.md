@@ -49,10 +49,10 @@ Do **not** reintroduce `.glass`, `.neon-ring`, aurora body gradients, or heavy `
 | macOS | System traffic lights (overlay) | `4.75rem` for lights | Title + drag |
 | Windows | Custom `WindowControls` on main top-right | `pl-2` | Drag + min/max/close |
 | Linux | Custom `WindowControls` on main top-right (same as Windows) | `pl-2` | Drag + min/max/close |
-| Web (`dev:web`) | Browser chrome | Brand in sidebar top when expanded | Title only |
+| Web (`web:dev`) | Browser chrome | Brand in sidebar top when expanded | Title only |
 
-- Web (`dev:web`) has no custom title bar — browser chrome unchanged.
+- Web (`web:dev`) has no custom title bar — browser chrome unchanged.
 
 ## Cross-entry
 
-Same CSS for Tauri and web (`dev:web`). Window chrome is gated with `isTauriRuntime()`; no color branches by platform.
+Same CSS for Tauri and web (`web:dev`). Window chrome is gated with `isTauriRuntime()`; no color branches by platform.

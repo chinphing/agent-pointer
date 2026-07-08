@@ -35,7 +35,7 @@ Web 端：
 
 ```bash
 npm run server:dev
-npm run dev:web
+npm run web:dev
 ```
 
 首次启动后，在「设置」中填入 DashScope API Key（在阿里云百炼控制台获取），即可对话。

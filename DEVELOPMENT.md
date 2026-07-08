@@ -121,7 +121,7 @@ npm run server:dev
 另开一个终端启动 Web 前端：
 
 ```bash
-npm run dev:web
+npm run web:dev
 ```
 
 默认 Web API 地址：
@@ -133,13 +133,13 @@ http://127.0.0.1:8787
 如需修改前端访问地址，可设置：
 
 ```bash
-VITE_WEB_API_BASE=http://127.0.0.1:8787 npm run dev:web
+VITE_WEB_API_BASE=http://127.0.0.1:8787 npm run web:dev
 ```
 
 Windows PowerShell：
 
 ```powershell
-$env:VITE_WEB_API_BASE="http://127.0.0.1:8787"; npm run dev:web
+$env:VITE_WEB_API_BASE="http://127.0.0.1:8787"; npm run web:dev
 ```
 
 ## 单独调试前端

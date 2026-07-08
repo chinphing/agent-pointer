@@ -20,7 +20,7 @@
     "server:stop": "node scripts/pointer-server-process.mjs stop",
     "server:restart": "node scripts/pointer-server-process.mjs restart",
     "server:status": "node scripts/pointer-server-process.mjs status",
-    "dev:web": "vite --host 0.0.0.0 --port 1420",
+    "web:dev": "vite --host 0.0.0.0 --port 1420",
     "icons": "node scripts/generate-app-icons.mjs",
     "build:windows": "npm run tauri:build",
     "build:macos": "npm run tauri:build",
